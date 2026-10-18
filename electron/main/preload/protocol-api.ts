@@ -78,6 +78,9 @@ export const protocolApi: ProtocolApi = {
       IPC.kafka.resetGroupOffsets
     ),
     deleteGroup: invoke<ElectronAPI['kafka']['deleteGroup']>(IPC.kafka.deleteGroup),
+    deleteGroupOffsets: invoke<ElectronAPI['kafka']['deleteGroupOffsets']>(
+      IPC.kafka.deleteGroupOffsets
+    ),
     createPartitions: invoke<ElectronAPI['kafka']['createPartitions']>(IPC.kafka.createPartitions),
     alterTopicConfigs: invoke<ElectronAPI['kafka']['alterTopicConfigs']>(
       IPC.kafka.alterTopicConfigs

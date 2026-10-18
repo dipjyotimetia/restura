@@ -102,6 +102,31 @@ class FakeAdmin {
   deleteAcls = vi.fn(async () => []);
   describeClientQuotas = vi.fn(async () => []);
   alterClientQuotas = vi.fn(async () => []);
+  describeGroups = vi.fn(
+    async () => new Map([['g', { id: 'g', state: 'EMPTY', members: new Map() }]])
+  );
+  listConsumerGroupOffsets = vi.fn(async () => [
+    {
+      groupId: 'g',
+      topics: [{ name: 'orders', partitions: [{ partitionIndex: 0, committedOffset: 5n }] }],
+    },
+  ]);
+  listOffsets = vi.fn(
+    async ({
+      topics,
+    }: {
+      topics: { name: string; partitions: { partitionIndex: number; timestamp: bigint }[] }[];
+    }) =>
+      topics.map((t) => ({
+        name: t.name,
+        partitions: t.partitions.map((p) => ({
+          partitionIndex: p.partitionIndex,
+          offset: p.timestamp === -2n ? 0n : 9n,
+        })),
+      }))
+  );
+  alterConsumerGroupOffsets = vi.fn(async () => {});
+  deleteConsumerGroupOffsets = vi.fn(async () => [{ name: 'orders', partitionIndexes: [0] }]);
   metadata = vi.fn(async () => ({
     id: 'cluster-1',
     controllerId: 1,
@@ -651,6 +676,59 @@ describe('kafka-handler', () => {
     expect(
       FakeAdmin.instances.some((instance) => instance.alterClientQuotas.mock.calls.length > 0)
     ).toBe(true);
+  });
+
+  it('dispatches offset reset (with dry run) and delete-offsets through the admin client', async () => {
+    const { event } = makeEvent();
+    await handlerFor(IPC.kafka.connect)(event, validConnect('offsets'));
+
+    const preview = await handlerFor(IPC.kafka.resetGroupOffsets)(event, {
+      connectionId: 'offsets',
+      groupId: 'g',
+      allTopics: true,
+      to: 'shift',
+      shift: 2,
+      dryRun: true,
+    });
+    expect(preview).toEqual({
+      success: true,
+      dryRun: true,
+      skipped: [],
+      offsets: [{ topic: 'orders', partition: 0, previous: '5', offset: '7' }],
+    });
+    expect(FakeAdmin.instances.at(-1)!.alterConsumerGroupOffsets).not.toHaveBeenCalled();
+
+    const applied = await handlerFor(IPC.kafka.resetGroupOffsets)(event, {
+      connectionId: 'offsets',
+      groupId: 'g',
+      topic: 'orders',
+      to: 'latest',
+    });
+    expect(applied).toMatchObject({ success: true, dryRun: false });
+    expect(FakeAdmin.instances.at(-1)!.alterConsumerGroupOffsets).toHaveBeenCalledWith({
+      groupId: 'g',
+      topics: [
+        {
+          name: 'orders',
+          partitionOffsets: [0, 1, 2].map((partition) => ({ partition, offset: 9n })),
+        },
+      ],
+    });
+
+    const deleted = await handlerFor(IPC.kafka.deleteGroupOffsets)(event, {
+      connectionId: 'offsets',
+      groupId: 'g',
+      topic: 'orders',
+    });
+    expect(deleted).toEqual({ success: true, deleted: [{ topic: 'orders', partitions: [0] }] });
+    expect(FakeAdmin.instances.at(-1)!.deleteConsumerGroupOffsets).toHaveBeenCalledWith({
+      groupId: 'g',
+      topics: [{ name: 'orders', partitionIndexes: [0] }],
+    });
+
+    await expect(
+      handlerFor(IPC.kafka.deleteGroupOffsets)(event, { connectionId: 'offsets', groupId: 'g' })
+    ).rejects.toThrow(/topic is required unless allTopics/);
   });
 
   it('admin ops run through withAdmin: short-lived Admin, finally-closed, Not connected otherwise', async () => {

@@ -10,14 +10,20 @@ import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
 import type {
+  ElectronKafkaAPI,
   KafkaAuthIpc,
   KafkaGroupDescription,
   KafkaGroupInfo,
+  KafkaOffsetResetRow,
+  KafkaOffsetResetSkip,
   KafkaPartitionLag,
   KafkaPartitionWatermark,
   KafkaRegistryIpc,
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
+
+export type KafkaResetGroupOffsetsParams = Parameters<ElectronKafkaAPI['resetGroupOffsets']>[0];
+export type KafkaDeleteGroupOffsetsParams = Parameters<ElectronKafkaAPI['deleteGroupOffsets']>[0];
 
 export type KafkaSecretField =
   | 'sasl-password'
@@ -502,18 +508,37 @@ class KafkaManager {
     return { ok: true, group: result.group ?? null, offsets: result.offsets };
   }
 
-  async resetGroupOffsets(params: {
-    connectionId: string;
-    groupId: string;
-    topic: string;
-    to: 'earliest' | 'latest' | 'specific';
-    partitions?: Array<{ partition: number; offset: string }>;
-  }): Promise<{ ok: true } | { ok: false; error: string }> {
+  async resetGroupOffsets(params: KafkaResetGroupOffsetsParams): Promise<
+    | {
+        ok: true;
+        offsets: KafkaOffsetResetRow[];
+        skipped: KafkaOffsetResetSkip[];
+        dryRun: boolean;
+      }
+    | { ok: false; error: string }
+  > {
     const api = getElectronAPI();
     if (!api) return { ok: false, error: 'Electron API unavailable.' };
     const result = await api.kafka.resetGroupOffsets(params);
     if (!result.success) return { ok: false, error: result.error ?? 'Reset offsets failed' };
-    return { ok: true };
+    return {
+      ok: true,
+      offsets: result.offsets ?? [],
+      skipped: result.skipped ?? [],
+      dryRun: result.dryRun ?? false,
+    };
+  }
+
+  async deleteGroupOffsets(
+    params: KafkaDeleteGroupOffsetsParams
+  ): Promise<
+    { ok: true; deleted: { topic: string; partitions: number[] }[] } | { ok: false; error: string }
+  > {
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+    const result = await api.kafka.deleteGroupOffsets(params);
+    if (!result.success) return { ok: false, error: result.error ?? 'Delete offsets failed' };
+    return { ok: true, deleted: result.deleted ?? [] };
   }
 
   async deleteGroup(

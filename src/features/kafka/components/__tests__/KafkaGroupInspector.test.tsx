@@ -60,7 +60,12 @@ describe('KafkaGroupInspector', () => {
         { topic: 'orders', partition: 1, committed: null, logEnd: '0', lag: '0' },
       ],
     });
-    manager.resetGroupOffsets.mockResolvedValue({ ok: true });
+    manager.resetGroupOffsets.mockResolvedValue({
+      ok: true,
+      offsets: [{ topic: 'orders', partition: 0, previous: '7', offset: '3' }],
+      skipped: [],
+      dryRun: false,
+    });
     manager.deleteGroup.mockResolvedValue({ ok: true });
   });
 

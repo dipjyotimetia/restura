@@ -19,6 +19,7 @@ function installElectronMock() {
     inspectGroup: vi.fn(),
     resetGroupOffsets: vi.fn(),
     deleteGroup: vi.fn(),
+    deleteGroupOffsets: vi.fn(),
     on: (channel: string, callback: (...args: unknown[]) => void) => {
       const callbacks = listeners.get(channel) ?? [];
       callbacks.push(callback);
@@ -305,6 +306,16 @@ describe('kafkaManager (Electron path)', () => {
       .mockResolvedValueOnce({ success: false });
     kafka.resetGroupOffsets
       .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: false })
+      .mockResolvedValueOnce({
+        success: true,
+        dryRun: true,
+        offsets: [{ topic: 'orders', partition: 0, previous: '5', offset: '3' }],
+        skipped: [{ topic: 'orders', partition: 1, reason: 'no-committed-offset' }],
+      });
+    kafka.deleteGroupOffsets
+      .mockResolvedValueOnce({ success: true, deleted: [{ topic: 'orders', partitions: [0] }] })
+      .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: false });
     kafka.deleteGroup
       .mockResolvedValueOnce({ success: true })
@@ -365,10 +376,40 @@ describe('kafkaManager (Electron path)', () => {
       topic: 'orders',
       to: 'earliest' as const,
     };
-    await expect(kafkaManager.resetGroupOffsets(reset)).resolves.toEqual({ ok: true });
+    await expect(kafkaManager.resetGroupOffsets(reset)).resolves.toEqual({
+      ok: true,
+      offsets: [],
+      skipped: [],
+      dryRun: false,
+    });
     await expect(kafkaManager.resetGroupOffsets(reset)).resolves.toEqual({
       ok: false,
       error: 'Reset offsets failed',
+    });
+    const shift = {
+      connectionId: 'c',
+      groupId: 'group',
+      allTopics: true,
+      to: 'shift' as const,
+      shift: -2,
+      dryRun: true,
+    };
+    await expect(kafkaManager.resetGroupOffsets(shift)).resolves.toEqual({
+      ok: true,
+      dryRun: true,
+      offsets: [{ topic: 'orders', partition: 0, previous: '5', offset: '3' }],
+      skipped: [{ topic: 'orders', partition: 1, reason: 'no-committed-offset' }],
+    });
+    expect(kafka.resetGroupOffsets).toHaveBeenLastCalledWith(shift);
+    const del = { connectionId: 'c', groupId: 'group', topic: 'orders' };
+    await expect(kafkaManager.deleteGroupOffsets(del)).resolves.toEqual({
+      ok: true,
+      deleted: [{ topic: 'orders', partitions: [0] }],
+    });
+    await expect(kafkaManager.deleteGroupOffsets(del)).resolves.toEqual({ ok: true, deleted: [] });
+    await expect(kafkaManager.deleteGroupOffsets(del)).resolves.toEqual({
+      ok: false,
+      error: 'Delete offsets failed',
     });
     await expect(kafkaManager.deleteGroup('c', 'group')).resolves.toEqual({ ok: true });
     await expect(kafkaManager.deleteGroup('c', 'group')).resolves.toEqual({

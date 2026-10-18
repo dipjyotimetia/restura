@@ -15,7 +15,16 @@ import { Badge } from '@astrojs/starlight/components';
 - **Export the log** — download the current filtered messages as JSON or NDJSON (one message per line).
 - **Topic inspector** — per-partition earliest/latest watermarks (and the approximate message count) plus the topic's broker config.
 - **Consumer-group inspector** — members and state, committed offset per partition, and **consumer lag** (topic log-end minus the group's committed offset) — computed on demand for any group, no active subscription needed.
-- **Reset consumer-group offsets** — to earliest, latest, or specific per-partition offsets (the group must be inactive).
+- **Reset consumer-group offsets** — for one committed topic or **all committed topics** of the group, to:
+  - **earliest** / **latest** — the partition's log start / end;
+  - **specific** — explicit per-partition offsets (single topic only);
+  - **date/time** — each partition's first record at or after the chosen local time (Kafka `ListOffsets` by timestamp). A partition with no record at or after that time resets to **latest**;
+  - **shift by ±N** — move each committed offset forward or back, clamped to the partition's earliest/latest range. Partitions without a committed offset are skipped and listed (they keep following the consumer's `auto.offset.reset`).
+
+  **Preview** runs a dry run and shows current → new offsets per partition (with clamp/fallback notes) without committing anything; **Reset** asks for confirmation and then shows the applied offsets.
+- **Delete committed offsets** — remove the group's committed offsets for one topic or all committed topics (KIP-496 `OffsetDelete`), confirm-gated. Consumers then fall back to `auto.offset.reset`.
+
+  Resetting and deleting offsets both require an **inactive group** (no members, not rebalancing): Restura checks this before writing and the broker enforces it too.
 - **Delete consumer group** — for empty/inactive groups.
 - **Multiple brokers** — bootstrap list, broker discovery happens through the cluster.
 - **SASL** — `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` over `SASL_PLAINTEXT` or `SASL_SSL`.

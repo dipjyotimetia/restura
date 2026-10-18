@@ -365,15 +365,39 @@ export const KafkaInspectGroupSchema = z.object({
   groupId: KafkaGroupIdSchema,
 });
 
-// Reset a consumer group's committed offsets for one topic. 'earliest'/'latest'
-// resolve the target offsets broker-side; 'specific' takes explicit per-partition
-// offsets (required in that case). Kafka rejects this unless the group is inactive.
+// Scope shared by offset reset/delete: exactly one of a single `topic` or
+// `allTopics: true` (every topic the group has committed offsets for).
+const requireOffsetScope = (
+  v: { topic?: string | undefined; allTopics?: boolean | undefined },
+  ctx: z.RefinementCtx
+): void => {
+  if (v.allTopics === true && v.topic !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Use either topic or allTopics, not both',
+      path: ['topic'],
+    });
+  } else if (v.allTopics !== true && v.topic === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'topic is required unless allTopics is true',
+      path: ['topic'],
+    });
+  }
+};
+
+// Reset a consumer group's committed offsets (handler: kafka/offset-reset.ts).
+// earliest/latest/timestamp resolve broker-side via ListOffsets; shift moves the
+// committed offset by ±N, clamped to [earliest, latest]; specific takes explicit
+// per-partition offsets. dryRun returns the plan without committing it. The group
+// must be inactive — checked before applying and enforced by the broker.
 export const KafkaResetGroupOffsetsSchema = z
   .object({
     connectionId: KafkaConnectionIdSchema,
     groupId: KafkaGroupIdSchema,
-    topic: KafkaTopicSchema,
-    to: z.enum(['earliest', 'latest', 'specific']),
+    topic: KafkaTopicSchema.optional(),
+    allTopics: z.boolean().optional(),
+    to: z.enum(['earliest', 'latest', 'specific', 'timestamp', 'shift']),
     // Same per-partition offset shape as the MANUAL-seek spec, minus the topic
     // (the topic is a top-level field here).
     partitions: z
@@ -381,10 +405,67 @@ export const KafkaResetGroupOffsetsSchema = z
       .min(1)
       .max(1000)
       .optional(),
+    // Epoch milliseconds (to === 'timestamp'); capped at the max JS Date.
+    timestamp: z.number().int().nonnegative().max(8_640_000_000_000_000).optional(),
+    // Relative move (to === 'shift'); negative rewinds.
+    shift: z.number().int().min(-Number.MAX_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER).optional(),
+    dryRun: z.boolean().optional(),
   })
-  .refine((v) => v.to !== 'specific' || (v.partitions?.length ?? 0) > 0, {
-    message: "partitions (with offsets) are required when to === 'specific'",
-    path: ['partitions'],
+  .superRefine((v, ctx) => {
+    requireOffsetScope(v, ctx);
+    if (v.to === 'specific' && (v.partitions?.length ?? 0) === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: "partitions (with offsets) are required when to === 'specific'",
+        path: ['partitions'],
+      });
+    }
+    if (v.to === 'specific' && v.allTopics === true) {
+      ctx.addIssue({
+        code: 'custom',
+        message: "allTopics cannot be combined with to === 'specific'",
+        path: ['allTopics'],
+      });
+    }
+    if (v.to === 'timestamp' && v.timestamp === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: "timestamp is required when to === 'timestamp'",
+        path: ['timestamp'],
+      });
+    }
+    if (v.to === 'shift' && v.shift === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: "shift is required when to === 'shift'",
+        path: ['shift'],
+      });
+    }
+  });
+
+// Delete a group's committed offsets (KIP-496 OffsetDelete). Optional partition
+// subset for a single topic; the group must be inactive.
+export const KafkaDeleteGroupOffsetsSchema = z
+  .object({
+    connectionId: KafkaConnectionIdSchema,
+    groupId: KafkaGroupIdSchema,
+    topic: KafkaTopicSchema.optional(),
+    allTopics: z.boolean().optional(),
+    partitions: z
+      .array(z.number().int().nonnegative().max(2_147_483_647))
+      .min(1)
+      .max(1000)
+      .optional(),
+  })
+  .superRefine((v, ctx) => {
+    requireOffsetScope(v, ctx);
+    if (v.allTopics === true && v.partitions !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'partitions can only be used with a single topic',
+        path: ['partitions'],
+      });
+    }
   });
 
 export const KafkaDeleteGroupSchema = z.object({
@@ -563,6 +644,7 @@ export type KafkaListGroupsConfig = z.infer<typeof KafkaListGroupsSchema>;
 export type KafkaInspectTopicConfig = z.infer<typeof KafkaInspectTopicSchema>;
 export type KafkaInspectGroupConfig = z.infer<typeof KafkaInspectGroupSchema>;
 export type KafkaResetGroupOffsetsConfig = z.infer<typeof KafkaResetGroupOffsetsSchema>;
+export type KafkaDeleteGroupOffsetsConfig = z.infer<typeof KafkaDeleteGroupOffsetsSchema>;
 export type KafkaDeleteGroupConfig = z.infer<typeof KafkaDeleteGroupSchema>;
 export type KafkaCreatePartitionsConfig = z.infer<typeof KafkaCreatePartitionsSchema>;
 export type KafkaAlterTopicConfigsConfig = z.infer<typeof KafkaAlterTopicConfigsSchema>;

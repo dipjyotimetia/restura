@@ -2,7 +2,7 @@ import type * as KafkaLib from '@platformatic/kafka';
 import { ipcMain } from 'electron';
 import type { ZodSchema } from 'zod';
 import { IPC } from '../../../shared/channels';
-import { rateLimited, type KeyedRateLimiter } from '../../ipc/ipc-rate-limiter';
+import { type KeyedRateLimiter, rateLimited } from '../../ipc/ipc-rate-limiter';
 import { errorMessage } from '../../ipc/ipc-utils';
 import {
   createValidatedEventHandler,
@@ -12,8 +12,10 @@ import {
   type KafkaCreateAclConfig,
   KafkaCreateAclSchema,
   KafkaCreatePartitionsSchema,
+  KafkaCreateTopicSchema,
   type KafkaDeleteAclsConfig,
   KafkaDeleteAclsSchema,
+  KafkaDeleteGroupOffsetsSchema,
   KafkaDeleteGroupSchema,
   KafkaDeleteRecordsSchema,
   KafkaDeleteTopicSchema,
@@ -22,7 +24,6 @@ import {
   KafkaDescribeClusterSchema,
   type KafkaDescribeQuotasConfig,
   KafkaDescribeQuotasSchema,
-  KafkaCreateTopicSchema,
   KafkaInspectGroupSchema,
   KafkaInspectTopicSchema,
   KafkaListGroupsSchema,
@@ -35,6 +36,7 @@ import {
   flattenGroup,
   topicWatermarks,
 } from '../kafka-serde';
+import { deleteGroupOffsets, resetGroupOffsets } from './offset-reset';
 
 type Admin = KafkaLib.Admin;
 
@@ -179,35 +181,12 @@ export function registerKafkaAdminHandlers(deps: AdminDependencies): void {
     })
   );
   handle(IPC.kafka.resetGroupOffsets, KafkaResetGroupOffsetsSchema, (cfg, event) =>
-    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
-      const kafka = getKafka();
-      let partitionOffsets: { partition: number; offset: bigint }[];
-      if (cfg.to === 'specific') {
-        partitionOffsets = (cfg.partitions ?? []).map((partition) => ({
-          partition: partition.partition,
-          offset: BigInt(partition.offset),
-        }));
-      } else {
-        const indexes = await partitionIndexes(admin, cfg.topic);
-        if (indexes.length === 0) {
-          throw new Error(`Topic "${cfg.topic}" has no partitions or does not exist.`);
-        }
-        const timestamp =
-          cfg.to === 'earliest'
-            ? kafka.ListOffsetTimestamps.EARLIEST
-            : kafka.ListOffsetTimestamps.LATEST;
-        const listed = await admin.listOffsets(offsetsRequest(cfg.topic, indexes, timestamp));
-        partitionOffsets = (listed[0]?.partitions ?? []).map((partition) => ({
-          partition: partition.partitionIndex,
-          offset: partition.offset,
-        }));
-      }
-      await admin.alterConsumerGroupOffsets({
-        groupId: cfg.groupId,
-        topics: [{ name: cfg.topic, partitionOffsets }],
-      });
-      return {};
-    })
+    withAdmin(cfg.connectionId, event.sender.id, (admin) =>
+      resetGroupOffsets(admin, getKafka().ListOffsetTimestamps, cfg)
+    )
+  );
+  handle(IPC.kafka.deleteGroupOffsets, KafkaDeleteGroupOffsetsSchema, (cfg, event) =>
+    withAdmin(cfg.connectionId, event.sender.id, (admin) => deleteGroupOffsets(admin, cfg))
   );
   handle(IPC.kafka.deleteGroup, KafkaDeleteGroupSchema, (cfg, event) =>
     withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
