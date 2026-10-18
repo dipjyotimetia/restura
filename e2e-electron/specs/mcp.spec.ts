@@ -1,5 +1,5 @@
-import { test, expect } from '../fixtures/servers';
 import { switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/servers';
 
 async function showCatalog(page: Parameters<typeof switchMode>[0]): Promise<void> {
   const catalog = page.getByRole('button', { name: 'Tools', exact: true });
@@ -47,7 +47,7 @@ test.describe('Desktop MCP (official SDK client)', () => {
     await page.getByRole('button', { name: /Connect/i }).click();
 
     await showCatalog(page);
-    await expect(page.getByRole('tab', { name: /Tools\s+5/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('tab', { name: /Tools\s+7/ })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('confirm-deploy', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('header-echo', { exact: true }).first()).toBeVisible();
   });
