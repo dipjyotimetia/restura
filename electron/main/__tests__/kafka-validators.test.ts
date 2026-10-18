@@ -315,9 +315,17 @@ describe('Kafka IPC validators', () => {
         expect(parse(withExt({ logicalCluster: 'lkc-1' }))).toBe(true);
         expect(parse(withExt({ a: 'x\x01auth=Bearer forged' }))).toBe(false);
         expect(parse(withExt({ 'a\nb': 'x' }))).toBe(false);
-        const many = Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`k${i}`, 'v']));
+        // RFC 7628 grammar: letters-only keys, reserved "auth", non-empty values.
+        expect(parse(withExt({ auth: 'x' }))).toBe(false);
+        expect(parse(withExt({ 'a=b': 'x' }))).toBe(false);
+        expect(parse(withExt({ 'logical-cluster': 'x' }))).toBe(false);
+        expect(parse(withExt({ a: '' }))).toBe(false);
+        expect(parse(withExt({ a: 'tab\tok' }))).toBe(true);
+        const letterKey = (i: number) =>
+          `k${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(65 + Math.floor(i / 26))}`;
+        const many = Object.fromEntries(Array.from({ length: 33 }, (_, i) => [letterKey(i), 'v']));
         expect(parse(withExt(many))).toBe(false);
-        const max = Object.fromEntries(Array.from({ length: 32 }, (_, i) => [`k${i}`, 'v']));
+        const max = Object.fromEntries(Array.from({ length: 32 }, (_, i) => [letterKey(i), 'v']));
         expect(parse(withExt(max))).toBe(true);
       });
     });

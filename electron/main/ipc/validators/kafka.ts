@@ -1,8 +1,9 @@
 import { isIPv6 } from 'node:net';
 import {
   findNonMskBrokers,
-  hasForbiddenOAuthExtensionChars,
   isPlaintextTokenEndpointAllowed,
+  isValidOAuthExtensionKey,
+  isValidOAuthExtensionValue,
   MAX_OAUTH_EXTENSIONS,
 } from '@shared/protocol/kafka-sasl-policy';
 import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
@@ -40,18 +41,24 @@ const KafkaBrokerSchema = z
     return Number.isInteger(port) && port >= 1 && port <= 65_535;
   }, 'Broker port must be between 1 and 65535');
 
-const noControlChars = (value: string) => !hasForbiddenOAuthExtensionChars(value);
 const KafkaOAuthExtensionsSchema = z
   .record(
     z
       .string()
       .min(1)
       .max(256)
-      .refine(noControlChars, 'Extension keys must not contain control characters'),
+      .refine(
+        isValidOAuthExtensionKey,
+        'Extension keys must contain only letters (RFC 7628) and must not be "auth"'
+      ),
     z
       .string()
+      .min(1)
       .max(1024)
-      .refine(noControlChars, 'Extension values must not contain control characters')
+      .refine(
+        isValidOAuthExtensionValue,
+        'Extension values must be printable ASCII (spaces, tabs and line breaks allowed)'
+      )
   )
   .refine(
     (extensions) => Object.keys(extensions).length <= MAX_OAUTH_EXTENSIONS,

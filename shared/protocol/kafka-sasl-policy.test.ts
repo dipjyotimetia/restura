@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   findNonMskBrokers,
-  hasForbiddenOAuthExtensionChars,
   isMskBrokerHostForRegion,
   isPlaintextTokenEndpointAllowed,
+  isValidOAuthExtensionKey,
+  isValidOAuthExtensionValue,
   MAX_OAUTH_EXTENSIONS,
 } from './kafka-sasl-policy';
 
@@ -63,12 +64,24 @@ describe('isPlaintextTokenEndpointAllowed', () => {
   });
 });
 
-describe('hasForbiddenOAuthExtensionChars', () => {
-  it('flags control characters including the SASL \\x01 separator', () => {
-    expect(hasForbiddenOAuthExtensionChars('ok-value')).toBe(false);
-    expect(hasForbiddenOAuthExtensionChars('a\x01auth=Bearer x')).toBe(true);
-    expect(hasForbiddenOAuthExtensionChars('a\nb')).toBe(true);
-    expect(hasForbiddenOAuthExtensionChars('a\x00')).toBe(true);
+describe('OAuth extension grammar (RFC 7628 / Kafka broker rules)', () => {
+  it('keys are ASCII letters only and never the reserved "auth"', () => {
+    expect(isValidOAuthExtensionKey('logicalCluster')).toBe(true);
+    expect(isValidOAuthExtensionKey('logical-cluster')).toBe(false);
+    expect(isValidOAuthExtensionKey('a=b')).toBe(false);
+    expect(isValidOAuthExtensionKey('a b')).toBe(false);
+    expect(isValidOAuthExtensionKey('')).toBe(false);
+    expect(isValidOAuthExtensionKey('auth')).toBe(false);
+    expect(isValidOAuthExtensionKey('AUTH')).toBe(false);
+  });
+
+  it('values are non-empty printable ASCII / SP / HTAB / CR / LF — no \x01 separator', () => {
+    expect(isValidOAuthExtensionValue('lkc-1 pool=a')).toBe(true);
+    expect(isValidOAuthExtensionValue('line\twith\r\nwhitespace')).toBe(true);
+    expect(isValidOAuthExtensionValue('')).toBe(false);
+    expect(isValidOAuthExtensionValue('a\x01auth=Bearer x')).toBe(false);
+    expect(isValidOAuthExtensionValue('a\x00')).toBe(false);
+    expect(isValidOAuthExtensionValue('caf\u00e9')).toBe(false);
     expect(MAX_OAUTH_EXTENSIONS).toBe(32);
   });
 });

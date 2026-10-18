@@ -9,12 +9,18 @@ import { isLoopbackAddress, isPrivateAddress } from './url-validation';
 export const MAX_OAUTH_EXTENSIONS = 32;
 
 /**
- * OAUTHBEARER extensions are framed with `\x01` separators (RFC 7628), so a
- * control character in a key or value could inject extra fields — including a
- * second `auth=` entry. Reject the whole C0 range.
+ * OAUTHBEARER extension grammar (RFC 7628 §3.1, as enforced by Kafka brokers):
+ * `key = 1*ALPHA`, with `auth` reserved for the bearer token itself, and
+ * `value = 1*(VCHAR / SP / HTAB / CR / LF)`. Extensions are framed with `\x01`
+ * separators, so anything outside this grammar could inject extra fields or a
+ * second `auth=` entry — and would fail broker-side with an opaque error.
  */
-export function hasForbiddenOAuthExtensionChars(value: string): boolean {
-  return /[\x00-\x1f\x7f]/.test(value);
+export function isValidOAuthExtensionKey(key: string): boolean {
+  return /^[A-Za-z]+$/.test(key) && key.toLowerCase() !== 'auth';
+}
+
+export function isValidOAuthExtensionValue(value: string): boolean {
+  return /^[\x21-\x7e \t\r\n]+$/.test(value);
 }
 
 function normalizeHost(host: string): string {

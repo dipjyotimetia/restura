@@ -297,7 +297,7 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes:
-      'Token fetched in main over https through the SSRF-guarded, DNS-pinned fetch; refreshed once < max(30s, 25% of lifetime) remains; client secret is a kafka-scoped SecretRef handle',
+      'Token fetched in main through the SSRF-guarded, DNS-pinned fetch; https is required except for loopback hosts and private IP literals (private addresses still need the "allow private IPs" setting); refreshed once < max(30s, 25% of lifetime) remains; client secret is a kafka-scoped SecretRef handle',
   },
   'kafka.saslMskIam': {
     label: 'Kafka AWS MSK IAM',
