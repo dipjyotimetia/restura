@@ -16,6 +16,7 @@ import { Switch } from '@/components/ui/switch';
 import { TabsContent } from '@/components/ui/tabs';
 import SecretInput from '@/features/auth/components/SecretInput';
 import type { KafkaConnectionFormController } from '../hooks/useKafkaConnection';
+import { registryTransportWarning } from '../lib/registryTransport';
 import type {
   KafkaConnection,
   KafkaSaslMechanism,
@@ -62,6 +63,9 @@ export function KafkaConnectionForm({ connection, controller }: KafkaConnectionF
     pickTlsFile,
     setSecurityProtocol,
   } = controller;
+  const registryWarning = connection.registry
+    ? registryTransportWarning(connection.registry)
+    : null;
 
   return (
     <TabsContent value="connection" className="flex-1 overflow-auto m-0">
@@ -295,6 +299,7 @@ export function KafkaConnectionForm({ connection, controller }: KafkaConnectionF
                       : 'Bearer token'
                   }
                   storageLabel={`${connection.name} / schema registry token`}
+                  scope="kafka"
                   className="text-xs"
                 />
               ) : (
@@ -325,10 +330,16 @@ export function KafkaConnectionForm({ connection, controller }: KafkaConnectionF
                   />
                 </>
               )}
+              {registryWarning && (
+                <p role="alert" className="text-xs text-[var(--color-warning)]">
+                  {registryWarning}
+                </p>
+              )}
               <p className="text-sp-11 text-sp-muted">
                 Decodes Avro / Protobuf / JSON messages on consume and enables subject-based
                 produce. HTTPS honours Settings → Certificates (custom CA, client certificate) and
-                the TLS verification setting for the registry host.
+                the TLS verification setting for the registry host. Credentials are resolved when
+                you connect — reconnect after rotating a stored token.
               </p>
             </>
           )}

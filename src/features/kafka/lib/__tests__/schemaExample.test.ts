@@ -41,7 +41,7 @@ describe('generateSchemaExample — Avro', () => {
       note: '',
       channel: 'web',
       createdAt: 0,
-      hash: '',
+      hash: '\u0000\u0000\u0000\u0000',
       blob: '',
       nothing: null,
     });
@@ -188,6 +188,69 @@ describe('generateSchemaExample — edge shapes', () => {
     expect(example('JSON', { items: { type: 'boolean' } })).toEqual([false]);
     expect(example('JSON', { allOf: [{ type: 'string' }, true] })).toEqual({});
     expect(example('JSON', { type: 'object' })).toEqual({});
+  });
+});
+
+describe('generateSchemaExample — bounds and encodability', () => {
+  it('produces the bytes/fixed example the desktop encoder round-trips', () => {
+    // Mirrors BYTES_FIXED_SCHEMA in electron/main/__tests__/kafka-registry.test.ts.
+    expect(
+      example('AVRO', {
+        type: 'record',
+        name: 'Blob',
+        fields: [
+          { name: 'b', type: 'bytes' },
+          { name: 'f', type: { type: 'fixed', name: 'Four', size: 4 } },
+          { name: 'maybe', type: ['null', 'bytes'] },
+          { name: 'list', type: { type: 'array', items: 'bytes' } },
+          { name: 'byKey', type: { type: 'map', values: 'bytes' } },
+          { name: 'id', type: { type: 'string', logicalType: 'uuid' } },
+        ],
+      })
+    ).toEqual({
+      b: '',
+      f: '\u0000\u0000\u0000\u0000',
+      maybe: '',
+      list: [''],
+      byKey: { key: '' },
+      id: '',
+    });
+  });
+
+  it('caps wide fan-out schemas at a node budget and stays fast', () => {
+    const props = Object.fromEntries(
+      Array.from({ length: 40 }, (_, i) => [`p${i}`, { $ref: '#/$defs/node' }])
+    );
+    const wide = { $defs: { node: { type: 'object', properties: props } }, $ref: '#/$defs/node' };
+    const started = performance.now();
+    const result = generateSchemaExample('JSON', JSON.stringify(wide));
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.json.length).toBeLessThan(2_000_000);
+
+    const avroFields = Array.from({ length: 40 }, (_, i) => ({ name: `f${i}`, type: 'Wide' }));
+    const avro = {
+      type: 'record',
+      name: 'Wide',
+      fields: [{ name: 'leaf', type: 'int' }, ...avroFields],
+    };
+    const avroStarted = performance.now();
+    expect(generateSchemaExample('AVRO', JSON.stringify(avro)).ok).toBe(true);
+    expect(performance.now() - avroStarted).toBeLessThan(1_000);
+  });
+
+  it('resets the budget between generations', () => {
+    const props = Object.fromEntries(
+      Array.from({ length: 40 }, (_, i) => [`p${i}`, { $ref: '#/$defs/node' }])
+    );
+    generateSchemaExample(
+      'JSON',
+      JSON.stringify({ $defs: { node: { properties: props } }, $ref: '#/$defs/node' })
+    );
+    expect(example('JSON', { type: 'object', properties: { a: { type: 'integer' } } })).toEqual({
+      a: 0,
+    });
+    expect(example('AVRO', { type: 'fixed', name: 'Huge', size: 4096 })).toBe('');
   });
 });
 

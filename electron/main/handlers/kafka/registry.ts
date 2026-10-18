@@ -5,23 +5,40 @@
 // read-only browse calls below — goes through a single Node agent that:
 //   - carries the execution policy's host-selected TLS material (custom CA,
 //     mTLS client cert, verify toggle) for https registries, and
-//   - resolves the registry hostname through the SSRF DNS guard on every new
-//     socket, refusing any other hostname (no redirect / rebind escape).
+//   - resolves the registry hostname on every new socket and refuses
+//     cloud-metadata answers (and loopback when localhost is disabled),
+//     plus any other hostname (no redirect / rebind escape). Private
+//     addresses stay reachable, matching the broker posture.
 // Auth is HTTP Basic (unchanged) or Bearer, whose token is a SecretValue that
-// is only ever resolved here in main (ADR-0007).
+// is only ever resolved here in main (ADR-0007). Credentials are never sent
+// over plain HTTP to a public address.
 
+import type { LookupAddress } from 'node:dns';
+import * as dns from 'node:dns/promises';
 import * as http from 'node:http';
 import * as https from 'node:https';
+import * as net from 'node:net';
 import type * as SchemaRegistryLib from '@kafkajs/confluent-schema-registry';
 import { isProtocolExternalSecret } from '@shared/protocol/secret-value-schema';
 import type { ProtocolSecretValue } from '@shared/protocol/types';
+import {
+  assertResolvedAddressAllowed,
+  isLoopbackAddress,
+  isPrivateAddress,
+} from '@shared/protocol/url-validation';
 import type { KafkaRegistryConfig } from '../../ipc/ipc-validators';
 import { resolveSchemaRegistryExecutionPolicy } from '../../security/broker-execution-policy';
-import { assertHostnameSafe } from '../../security/dns-guard';
 import { desktopExternalSecretResolver } from '../../security/external-secret-providers';
+import { assertRegistryUrlSafe } from '../../security/kafka-broker-guard';
 import type { BrokerSecurityPolicy } from '../../security/mqtt-broker-guard';
-import { resolveSafeAddress } from '../../security/safe-connect';
-import { unwrapSecretValueMain } from '../../security/secret-handle-store';
+import { describeSecretHandle, unwrapSecretValueMain } from '../../security/secret-handle-store';
+
+/** Secret-handle scope that Kafka credentials must carry (shared with SASL). */
+export const KAFKA_SECRET_SCOPE = 'kafka';
+
+/** Resolves every address for a hostname (injectable for tests). */
+export type AddressResolver = (hostname: string) => Promise<LookupAddress[]>;
+const systemResolver: AddressResolver = (hostname) => dns.lookup(hostname, { all: true });
 
 type SchemaRegistry = SchemaRegistryLib.SchemaRegistry;
 type RegistryClientArgs = ConstructorParameters<typeof SchemaRegistryLib.SchemaRegistry>[0];
@@ -65,6 +82,8 @@ export interface KafkaRegistryClient {
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_LIST_ENTRIES = 10_000;
 const MAX_CACHE_ENTRIES = 512;
+/** Budget for the id → subject/version label lookup on the consume path. */
+export const SCHEMA_LABEL_TIMEOUT_MS = 2_000;
 const REGISTRY_ACCEPT = 'application/vnd.schemaregistry.v1+json, application/json';
 
 type LookupCallback = (
@@ -74,14 +93,45 @@ type LookupCallback = (
 ) => void;
 
 /**
- * Socket `lookup` hook that only resolves the configured registry host and
- * validates every DNS record against the same allowLocalhost/allowPrivateIPs
- * policy as the Kafka brokers (cloud metadata is always refused). Runs per new
- * connection, so a TTL=0 rebind after the pre-flight check is still caught.
+ * Resolve a registry hostname with the broker-aligned DNS posture: every
+ * answer is checked, cloud-metadata addresses (incl. IPv4-mapped / embedded
+ * IPv6 forms) are always refused, loopback only when localhost is disabled.
+ * Private / VPC answers are allowed — registries live next to their brokers,
+ * which the Kafka client resolves without a private-IP check either.
+ */
+export async function resolveRegistryAddresses(
+  hostname: string,
+  policy: BrokerSecurityPolicy,
+  resolve: AddressResolver = systemResolver
+): Promise<LookupAddress[]> {
+  let records: LookupAddress[];
+  try {
+    records = await resolve(hostname);
+  } catch (err) {
+    throw new Error(
+      `DNS lookup failed for ${hostname}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+  if (records.length === 0) throw new Error(`DNS returned no records for ${hostname}`);
+  for (const record of records) {
+    assertResolvedAddressAllowed(hostname, record.address, {
+      allowLocalhost: policy.allowLocalhost,
+      allowPrivateLiteralHost: true,
+      loopbackNeedsLocalhost: true,
+    });
+  }
+  return records;
+}
+
+/**
+ * Socket `lookup` hook that only resolves the configured registry host,
+ * applying {@link resolveRegistryAddresses} on every new connection so a
+ * TTL=0 rebind to a metadata / loopback address after pre-flight is caught.
  */
 export function createGuardedLookup(
   host: string,
-  policy: BrokerSecurityPolicy
+  policy: BrokerSecurityPolicy,
+  resolve: AddressResolver = systemResolver
 ): (hostname: string, options: unknown, callback?: unknown) => void {
   return (hostname, optsOrCb, maybeCb) => {
     const callback = (typeof optsOrCb === 'function' ? optsOrCb : maybeCb) as
@@ -94,11 +144,10 @@ export function createGuardedLookup(
       callback(new Error(`Schema Registry lookup refused unexpected host "${hostname}"`), '');
       return;
     }
-    assertHostnameSafe(hostname, policy).then(
+    resolveRegistryAddresses(hostname, policy, resolve).then(
       (records) => {
-        const first = records[0];
-        if (!first) callback(new Error(`DNS returned no records for ${hostname}`), '');
-        else if (all)
+        const first = records[0] as LookupAddress;
+        if (all)
           callback(
             null,
             records.map((r) => ({ address: r.address, family: r.family }))
@@ -113,7 +162,8 @@ export function createGuardedLookup(
 /** Agent options for the registry URL: policy TLS material + guarded lookup. */
 export function buildRegistryAgentOptions(
   registryUrl: string,
-  policy: BrokerSecurityPolicy
+  policy: BrokerSecurityPolicy,
+  resolve: AddressResolver = systemResolver
 ): https.AgentOptions & { timeout: number } {
   const url = new URL(registryUrl);
   const { timeout, tls } = resolveSchemaRegistryExecutionPolicy(registryUrl);
@@ -121,7 +171,7 @@ export function buildRegistryAgentOptions(
     keepAlive: true,
     maxSockets: 8,
     timeout,
-    lookup: createGuardedLookup(url.hostname, policy) as https.AgentOptions['lookup'],
+    lookup: createGuardedLookup(url.hostname, policy, resolve) as https.AgentOptions['lookup'],
     ...(tls ?? {}),
   };
 }
@@ -130,6 +180,12 @@ async function resolveBearerToken(token: ProtocolSecretValue): Promise<string> {
   let value: string | undefined;
   if (isProtocolExternalSecret(token)) {
     value = await desktopExternalSecretResolver.resolve(token);
+  } else if (typeof token === 'object' && token.kind === 'handle') {
+    // Only handles created for Kafka credentials may be sent to a registry.
+    if (describeSecretHandle(token.id)?.scope !== KAFKA_SECRET_SCOPE) {
+      throw new Error('Schema Registry bearer token handle is not scoped for Kafka.');
+    }
+    value = unwrapSecretValueMain(token);
   } else {
     value = unwrapSecretValueMain(token);
   }
@@ -158,6 +214,44 @@ function headerMiddleware(headers: Record<string, string>, timeout: number): Reg
   });
 }
 
+/** A registry HTTP error that keeps the status for cache decisions. */
+export class RegistryHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'RegistryHttpError';
+  }
+}
+
+function hostOf(url: URL): string {
+  return url.hostname.replace(/^\[|\]$/g, '');
+}
+
+/**
+ * Credentials may only cross plain HTTP to a loopback or private-network
+ * registry (literal address or every DNS answer private); anything else must
+ * use HTTPS so a token or password is never sent in clear over the internet.
+ */
+export function assertCredentialsTransportAllowed(
+  url: URL,
+  hasCredentials: boolean,
+  resolvedAddresses: readonly string[] = []
+): void {
+  if (!hasCredentials || url.protocol !== 'http:') return;
+  const host = hostOf(url).toLowerCase();
+  const local = host === 'localhost' || host.endsWith('.localhost');
+  const privateLiteral = net.isIP(host) !== 0 && isPrivateAddress(host);
+  const privateResolved =
+    resolvedAddresses.length > 0 &&
+    resolvedAddresses.every((a) => isPrivateAddress(a) || isLoopbackAddress(a));
+  if (local || privateLiteral || privateResolved) return;
+  throw new Error(
+    'Schema Registry credentials require HTTPS: plain HTTP is only allowed for loopback or private-network registries.'
+  );
+}
+
 function registryError(status: number, body: string): Error {
   let detail = body.slice(0, 300);
   try {
@@ -166,7 +260,10 @@ function registryError(status: number, body: string): Error {
   } catch {
     /* non-JSON error body */
   }
-  return new Error(`Schema Registry responded ${status}${detail ? `: ${detail}` : ''}`);
+  return new RegistryHttpError(
+    status,
+    `Schema Registry responded ${status}${detail ? `: ${detail}` : ''}`
+  );
 }
 
 function isSchemaType(value: unknown): value is RegistrySchemaType {
@@ -228,6 +325,70 @@ export function capResponseBytes<A extends http.Agent>(agent: A, maxBytes = MAX_
   return agent;
 }
 
+interface AvscTypeLike {
+  typeName: string;
+  fields?: { name: string; type: AvscTypeLike }[];
+  itemsType?: AvscTypeLike;
+  valuesType?: AvscTypeLike;
+  types?: AvscTypeLike[];
+  underlyingType?: AvscTypeLike;
+  isValid?: (value: unknown) => boolean;
+}
+
+function isAvscType(value: unknown): value is AvscTypeLike {
+  return !!value && typeof (value as { typeName?: unknown }).typeName === 'string';
+}
+
+function coerceAvroValue(type: AvscTypeLike, value: unknown, depth: number): unknown {
+  if (depth > 64) return value;
+  const name = type.typeName;
+  if (name === 'bytes' || name === 'fixed') {
+    // Avro JSON encoding: bytes/fixed are strings of code points 0-255.
+    return typeof value === 'string' ? Buffer.from(value, 'latin1') : value;
+  }
+  if ((name === 'record' || name === 'error') && value && typeof value === 'object') {
+    const out: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+    for (const field of type.fields ?? []) {
+      if (field.name in out)
+        out[field.name] = coerceAvroValue(field.type, out[field.name], depth + 1);
+    }
+    return out;
+  }
+  if (name === 'array' && Array.isArray(value) && type.itemsType) {
+    const items = type.itemsType;
+    return value.map((item) => coerceAvroValue(items, item, depth + 1));
+  }
+  if (name === 'map' && value && typeof value === 'object' && type.valuesType) {
+    const values = type.valuesType;
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        coerceAvroValue(values, v, depth + 1),
+      ])
+    );
+  }
+  if (name.startsWith('union') && type.types) {
+    for (const branch of type.types) {
+      const coerced = coerceAvroValue(branch, value, depth + 1);
+      if (branch.isValid?.(coerced)) return coerced;
+    }
+    return value;
+  }
+  if (name.startsWith('logical:') && type.underlyingType) {
+    return coerceAvroValue(type.underlyingType, value, depth + 1);
+  }
+  return value;
+}
+
+/**
+ * JSON payloads cannot carry Buffers, so Avro `bytes` / `fixed` values are
+ * accepted as strings (Avro JSON-encoding convention: code points 0-255) and
+ * converted before the registry encoder sees them. Non-Avro schemas pass through.
+ */
+export function coerceAvroPayload(schema: unknown, payload: unknown): unknown {
+  return isAvscType(schema) ? coerceAvroValue(schema, payload, 0) : payload;
+}
+
 function boundedSet<K, V>(map: Map<K, V>, key: K, value: V): void {
   if (map.size >= MAX_CACHE_ENTRIES) {
     const oldest = map.keys().next();
@@ -243,11 +404,24 @@ function boundedSet<K, V>(map: Map<K, V>, key: K, value: V): void {
  */
 export async function createKafkaRegistryClient(
   cfg: KafkaRegistryConfig,
-  policy: BrokerSecurityPolicy
+  policy: BrokerSecurityPolicy,
+  deps: { resolve?: AddressResolver } = {}
 ): Promise<KafkaRegistryClient> {
+  const resolveAddresses = deps.resolve ?? systemResolver;
   const baseUrl = new URL(cfg.url);
-  const agentOptions = buildRegistryAgentOptions(cfg.url, policy);
-  await resolveSafeAddress(cfg.url, policy);
+  const agentOptions = buildRegistryAgentOptions(cfg.url, policy, resolveAddresses);
+  // String-level policy (same as brokers: literal private IPs follow the
+  // network policy, metadata always refused), then a DNS pre-flight for
+  // hostnames with the broker-aligned answer checks.
+  assertRegistryUrlSafe(cfg.url, policy);
+  const host = hostOf(baseUrl);
+  const resolved =
+    net.isIP(host) === 0
+      ? (await resolveRegistryAddresses(host, policy, resolveAddresses)).map((r) => r.address)
+      : [host];
+  const hasCredentials =
+    cfg.auth?.type === 'bearer' || Boolean(cfg.auth?.type === 'basic' && cfg.auth.username);
+  assertCredentialsTransportAllowed(baseUrl, hasCredentials, resolved);
   const authorization = await registryAuthorization(cfg.auth);
   const agent = capResponseBytes(
     baseUrl.protocol === 'https:' ? new https.Agent(agentOptions) : new http.Agent(agentOptions)
@@ -271,7 +445,7 @@ export async function createKafkaRegistryClient(
   });
 
   const prefix = cfg.url.replace(/\/+$/, '');
-  const getJson = (path: string): Promise<unknown> =>
+  const getJson = (path: string, requestTimeout = timeout): Promise<unknown> =>
     new Promise((resolve, reject) => {
       const transport = baseUrl.protocol === 'https:' ? https : http;
       const request = transport.request(
@@ -311,8 +485,8 @@ export async function createKafkaRegistryClient(
           response.on('error', reject);
         }
       );
-      request.setTimeout(timeout, () =>
-        request.destroy(new Error(`Schema Registry request timed out after ${timeout}ms`))
+      request.setTimeout(requestTimeout, () =>
+        request.destroy(new Error(`Schema Registry request timed out after ${requestTimeout}ms`))
       );
       request.on('error', reject);
       request.end();
@@ -323,7 +497,11 @@ export async function createKafkaRegistryClient(
   const pinnedIds = new Map<string, number>();
 
   return {
-    encode: (registryId, payload) => lib.encode(registryId, payload),
+    async encode(registryId, payload) {
+      // Avro bytes/fixed have no JSON form; accept strings for them (see coerceAvroPayload).
+      const schema = await lib.getSchema(registryId);
+      return lib.encode(registryId, coerceAvroPayload(schema, payload));
+    },
     decode: (buffer) => lib.decode(buffer),
 
     async resolveSchemaId(ref) {
@@ -351,15 +529,21 @@ export async function createKafkaRegistryClient(
     describeSchemaId(id) {
       const cached = idRefs.get(id);
       if (cached) return cached;
-      const lookup = getJson(`/schemas/ids/${id}/versions`).then(
+      const lookup = getJson(`/schemas/ids/${id}/versions`, SCHEMA_LABEL_TIMEOUT_MS).then(
         (raw): RegistrySchemaRef => {
           const first = Array.isArray(raw) ? (raw[0] as Record<string, unknown>) : undefined;
           return first && typeof first.subject === 'string' && typeof first.version === 'number'
             ? { id, subject: first.subject, version: first.version }
             : { id };
         },
-        // Older registries lack this endpoint; cache the miss so decode stays cheap.
-        (): RegistrySchemaRef => ({ id })
+        (err: unknown): RegistrySchemaRef => {
+          // Older registries lack this endpoint (404/405): cache the miss so
+          // decode stays cheap. Transient failures are evicted and retried.
+          const permanent =
+            err instanceof RegistryHttpError && (err.status === 404 || err.status === 405);
+          if (!permanent && idRefs.get(id) === lookup) idRefs.delete(id);
+          return { id };
+        }
       );
       boundedSet(idRefs, id, lookup);
       return lookup;

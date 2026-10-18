@@ -36,9 +36,11 @@ GSSAPI and custom authentication callbacks are intentionally not exposed because
 The registry client lives in `electron/main/handlers/kafka/registry.ts`, one per connection. Every registry request — library encode/decode/resolve and the read-only browse IPC (`kafka:registry-list-subjects`, `kafka:registry-list-versions`, `kafka:registry-get-schema`; validated and rate-limited) — goes through a single Node agent that:
 
 - carries the execution policy's host-selected TLS material for HTTPS registries (`resolveSchemaRegistryExecutionPolicy`: custom CA, mTLS client certificate, verify toggle, TLS version/ciphers); an active proxy fails closed;
-- resolves the registry hostname through the DNS guard on every new socket with the same `allowLocalhost` / `allowPrivateIPs` policy as the brokers, and refuses any other hostname.
+- resolves the registry hostname on every new socket and refuses any other hostname. Answers follow the broker posture: cloud-metadata addresses (including IPv4-mapped / embedded IPv6 forms) are always refused and loopback only when `allowLocalhost` is off; private addresses are allowed, as they are for broker hostnames. The URL as written gets the same string-level check as brokers (`assertRegistryUrlSafe`), so literal private IPs follow `allowPrivateIPs`.
 
-Auth is HTTP Basic (unchanged; the untyped legacy IPC shape still means Basic) or Bearer. The bearer token is a `SecretValue`: inline tokens follow the sentinel + secure-storage path, keychain handles and external references cross IPC as references and are resolved only in main (ADR-0007). Consumed registry-decoded fields carry `{ id, subject?, version? }`, looked up once per schema ID via `/schemas/ids/{id}/versions` and cached.
+Auth is HTTP Basic (unchanged; the untyped legacy IPC shape still means Basic) or Bearer. The bearer token is a `SecretValue`: inline tokens follow the sentinel + secure-storage path, keychain handles and external references cross IPC as references and are resolved only in main (ADR-0007). Handles must carry the `kafka` scope (the token field stores them that way); other handles are refused. Tokens are resolved once at connect, so rotating a stored handle needs a reconnect. Credentials are refused over plain HTTP unless the registry is loopback or every DNS answer is private.
+
+Avro `bytes` / `fixed` values are accepted as strings (code points 0-255, the Avro JSON convention) and converted to bytes before encoding, so generated examples encode as-is. Schema-label lookups on the consume path wait at most 2 s; 404/405 misses are cached, other failures are retried later. Consumed registry-decoded fields carry `{ id, subject?, version? }`, looked up once per schema ID via `/schemas/ids/{id}/versions` and cached.
 
 ## Administration
 

@@ -1,7 +1,7 @@
+import type { ExternalSecretProfile } from '@shared/secrets/external-secret-profile';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ExternalSecretProfile } from '@shared/secrets/external-secret-profile';
 import type { ElectronAPI } from '../../../../../electron/types/electron-api';
 import SecretInput from '../SecretInput';
 
@@ -90,6 +90,16 @@ describe('SecretInput', () => {
     });
     expect(toastMock.success).toHaveBeenCalledWith('Secret stored securely');
     await waitFor(() => expect(api.secrets.list).toHaveBeenCalled());
+  });
+
+  it('stores a new handle under the requested scope', async () => {
+    const user = userEvent.setup();
+    const api = platformMock.api as ElectronAPI;
+
+    render(<SecretInput value="top-secret" onChange={vi.fn()} scope="kafka" />);
+    await user.click(screen.getByRole('button', { name: 'Store' }));
+
+    expect(api.secrets.store).toHaveBeenCalledWith({ value: 'top-secret', scope: 'kafka' });
   });
 
   it('stores an inline value without adding an empty handle label', async () => {

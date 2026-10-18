@@ -1,5 +1,5 @@
 import { RefreshCw, Sparkles } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,6 +33,10 @@ export interface SchemaRegistryFieldPickerProps {
 
 const MAX_VISIBLE_SUBJECTS = 100;
 
+function errorText(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
 /**
  * Schema Registry selection for one produce field (#926, #982): pick a subject
  * (filtered to `<topic>-key` / `<topic>-value` by default) and a version or
@@ -61,20 +65,42 @@ export function SchemaRegistryFieldPicker({
   const [versions, setVersions] = useState<number[]>([]);
   const [schema, setSchema] = useState<KafkaRegistrySchemaIpc | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [versionsError, setVersionsError] = useState<string | null>(null);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
   const [exampleError, setExampleError] = useState<string | null>(null);
   const api = getElectronAPI()?.kafka;
+  const versionSelectId = useId();
 
   const loadSubjects = useCallback(async () => {
     if (!api) return;
     setError(null);
-    const result = await api.registryListSubjects({ connectionId });
-    if (result.success) setSubjects(result.subjects ?? []);
-    else setError(result.error ?? 'Could not list subjects.');
+    try {
+      const result = await api.registryListSubjects({ connectionId });
+      if (result.success) setSubjects(result.subjects ?? []);
+      else setError(result.error ?? 'Could not list subjects.');
+    } catch (err) {
+      setError(errorText(err, 'Could not list subjects.'));
+    }
   }, [api, connectionId]);
+
+  // A disconnect invalidates everything fetched for the previous session.
+  useEffect(() => {
+    if (!connected) {
+      setSubjects(null);
+      setVersions([]);
+      setSchema(null);
+    }
+  }, [connected]);
 
   useEffect(() => {
     if (source === 'subject' && connected && subjects === null) void loadSubjects();
   }, [source, connected, subjects, loadSubjects]);
+
+  // Follow topic changes: the filter tracks `<topic>-<field>` until a subject is picked.
+  const selectedSubject = subject?.subject;
+  useEffect(() => {
+    setQuery(selectedSubject ?? defaultSubject);
+  }, [defaultSubject, selectedSubject]);
 
   // Pre-select the conventional `<topic>-<field>` subject once it is known to exist.
   useEffect(() => {
@@ -83,46 +109,59 @@ export function SchemaRegistryFieldPicker({
     }
   }, [source, subject, subjects, defaultSubject, onSubjectChange]);
 
-  const selectedSubject = subject?.subject;
-  const selectedVersion = subject?.version;
+  // Versions depend only on the subject; a version change must not refetch them.
   useEffect(() => {
     setVersions([]);
+    setVersionsError(null);
+    if (!api || !connected || source !== 'subject' || !selectedSubject) return;
+    let stale = false;
+    api
+      .registryListVersions({ connectionId, subject: selectedSubject })
+      .then((result) => {
+        if (stale) return;
+        if (result.success) setVersions(result.versions ?? []);
+        else setVersionsError(result.error ?? 'Could not list versions.');
+      })
+      .catch((err: unknown) => {
+        if (!stale) setVersionsError(errorText(err, 'Could not list versions.'));
+      });
+    return () => {
+      stale = true;
+    };
+  }, [api, connected, connectionId, source, selectedSubject]);
+
+  const selectedVersion = subject?.version;
+  useEffect(() => {
     setSchema(null);
+    setSchemaError(null);
     setExampleError(null);
     if (!api || !connected || source !== 'subject' || !selectedSubject) return;
     let stale = false;
-    void (async () => {
-      const [versionResult, schemaResult] = await Promise.all([
-        api.registryListVersions({ connectionId, subject: selectedSubject }),
-        api.registryGetSchema({
-          connectionId,
-          subject: selectedSubject,
-          version: selectedVersion ?? 'latest',
-        }),
-      ]);
-      if (stale) return;
-      if (versionResult.success) setVersions(versionResult.versions ?? []);
-      if (schemaResult.success && schemaResult.schema) setSchema(schemaResult.schema);
-      const failure = !versionResult.success
-        ? versionResult.error
-        : !schemaResult.success
-          ? schemaResult.error
-          : undefined;
-      setError(failure ?? null);
-    })();
+    api
+      .registryGetSchema({
+        connectionId,
+        subject: selectedSubject,
+        version: selectedVersion ?? 'latest',
+      })
+      .then((result) => {
+        if (stale) return;
+        if (result.success && result.schema) setSchema(result.schema);
+        else setSchemaError(result.error ?? 'Could not load the schema.');
+      })
+      .catch((err: unknown) => {
+        if (!stale) setSchemaError(errorText(err, 'Could not load the schema.'));
+      });
     return () => {
       stale = true;
     };
   }, [api, connected, connectionId, source, selectedSubject, selectedVersion]);
 
-  const filtered = useMemo(() => {
+  const matching = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const all = subjects ?? [];
-    return (needle ? all.filter((s) => s.toLowerCase().includes(needle)) : all).slice(
-      0,
-      MAX_VISIBLE_SUBJECTS
-    );
+    return needle ? all.filter((s) => s.toLowerCase().includes(needle)) : all;
   }, [query, subjects]);
+  const filtered = matching.slice(0, MAX_VISIBLE_SUBJECTS);
 
   const changeSource = (next: SchemaSource): void => {
     setSource(next);
@@ -212,8 +251,10 @@ export function SchemaRegistryFieldPicker({
             </Button>
           </div>
           {subjects !== null && (
+            // Focusable so keyboard users can scroll a long subject list.
             <ul
               aria-label={`${label} subjects`}
+              tabIndex={0}
               className="max-h-28 overflow-auto rounded-sp-btn border border-sp-line"
             >
               {filtered.length === 0 ? (
@@ -240,9 +281,17 @@ export function SchemaRegistryFieldPicker({
               )}
             </ul>
           )}
+          {matching.length > MAX_VISIBLE_SUBJECTS && (
+            <p className="text-sp-11 text-sp-dim">
+              Showing first {MAX_VISIBLE_SUBJECTS} of {matching.length} subjects — refine the
+              filter.
+            </p>
+          )}
           {subject && (
             <div className="flex items-center gap-2">
-              <Label className="text-xs sp-label">Version</Label>
+              <Label htmlFor={versionSelectId} className="text-xs sp-label">
+                Version
+              </Label>
               <Select
                 value={String(subject.version)}
                 onValueChange={(value) =>
@@ -252,7 +301,11 @@ export function SchemaRegistryFieldPicker({
                   })
                 }
               >
-                <SelectTrigger aria-label={`${label} schema version`} className="h-7 w-32 text-xs">
+                <SelectTrigger
+                  id={versionSelectId}
+                  aria-label={`${label} schema version`}
+                  className="h-7 w-32 text-xs"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -293,7 +346,11 @@ export function SchemaRegistryFieldPicker({
               >
                 {formatSchemaText(schema.schemaType, schema.schema)}
               </pre>
-              {exampleError && <p className="text-xs text-red-400">{exampleError}</p>}
+              {exampleError && (
+                <p role="alert" className="text-xs text-red-400">
+                  {exampleError}
+                </p>
+              )}
             </div>
           )}
           <p className="text-sp-11 text-sp-muted">
@@ -305,7 +362,14 @@ export function SchemaRegistryFieldPicker({
           </p>
         </div>
       )}
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {[error, versionsError, schemaError].map(
+        (message) =>
+          message && (
+            <p key={message} role="alert" className="text-xs text-red-400">
+              {message}
+            </p>
+          )
+      )}
     </div>
   );
 }

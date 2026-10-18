@@ -1,6 +1,6 @@
+import type { ExternalSecretProfile } from '@shared/secrets/external-secret-profile';
 import { Cloud, KeyRound, Lock } from 'lucide-react';
 import { useState } from 'react';
-import type { ExternalSecretProfile } from '@shared/secrets/external-secret-profile';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,11 @@ interface SecretInputProps {
    * Surfaces in the Settings → Secrets panel and the handle dropdown.
    */
   storageLabel?: string;
+  /**
+   * Handle-store scope for newly stored secrets (e.g. 'kafka'). Consumers that
+   * only accept scoped handles in main must pass it.
+   */
+  scope?: string;
   disabled?: boolean;
   /** Forwarded to the inline text input so an external <label htmlFor> can target it. */
   id?: string;
@@ -54,6 +59,7 @@ export default function SecretInput({
   placeholder,
   className,
   storageLabel,
+  scope,
   disabled,
   id,
 }: SecretInputProps) {
@@ -88,9 +94,11 @@ export default function SecretInput({
       toast.error('Enter a value before storing');
       return;
     }
-    const args = storageLabel
-      ? { value: inlineValue, label: storageLabel }
-      : { value: inlineValue };
+    const args = {
+      value: inlineValue,
+      ...(storageLabel ? { label: storageLabel } : {}),
+      ...(scope ? { scope } : {}),
+    };
     const result = await api.secrets.store(args);
     if (!result.ok) {
       toast.error(`Failed to store secret: ${result.error}`);

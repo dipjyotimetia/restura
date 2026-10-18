@@ -36,14 +36,17 @@ vi.mock('@/features/auth/components/SecretInput', () => ({
   default: ({
     value,
     placeholder,
+    scope,
     onChange,
   }: {
     value: unknown;
     placeholder?: string;
+    scope?: string;
     onChange: (next: unknown) => void;
   }) => (
     <div>
       <span data-testid="secret-value">{JSON.stringify(value)}</span>
+      <span data-testid="secret-scope">{scope}</span>
       <span>{placeholder}</span>
       <button type="button" onClick={() => onChange('typed-token')}>
         Type token
@@ -140,6 +143,8 @@ describe('KafkaConnectionForm — Schema Registry auth', () => {
       'draft'
     );
     expect(screen.getByTestId('secret-value')).toHaveTextContent('"draft"');
+    expect(screen.getByTestId('secret-scope')).toHaveTextContent('kafka');
+    expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByText('Token (stored — leave blank to keep)')).toBeVisible();
     expect(screen.queryByPlaceholderText('Username (optional)')).toBeNull();
 
@@ -268,5 +273,13 @@ describe('KafkaConnectionForm — broker auth', () => {
     });
     expect(screen.getByPlaceholderText('Token (stored — leave blank to keep)')).toBeVisible();
     expect(screen.getByPlaceholderText('Key passphrase (optional)')).toBeVisible();
+  });
+
+  it('warns when credentials would cross plain HTTP', () => {
+    renderForm({ url: 'http://schema-registry:8081', authType: 'bearer' });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /only sent if schema-registry resolves to a loopback or private-network address/
+    );
+    expect(screen.getByText(/reconnect after rotating a stored token/)).toBeVisible();
   });
 });

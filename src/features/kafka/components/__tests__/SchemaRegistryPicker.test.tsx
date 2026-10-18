@@ -301,4 +301,73 @@ describe('SchemaRegistryFieldPicker', () => {
     await user.click(screen.getByRole('button', { name: 'Refresh key subjects' }));
     expect(api.registryListSubjects).not.toHaveBeenCalled();
   });
+
+  it('surfaces thrown IPC failures as alerts', async () => {
+    api.registryListSubjects.mockRejectedValueOnce(new Error('IPC exploded'));
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(sourceSelect(), 'subject');
+    expect(await screen.findByRole('alert')).toHaveTextContent('IPC exploded');
+  });
+
+  it('surfaces thrown version / schema lookups with fallbacks', async () => {
+    api.registryListVersions.mockRejectedValueOnce('nope');
+    api.registryGetSchema.mockRejectedValueOnce(new Error('schema IPC failed'));
+    render(<Harness initialSubject={{ subject: 'orders-value', version: 'latest' }} />);
+    expect(await screen.findByText('Could not list versions.')).toBeVisible();
+    expect(await screen.findByText('schema IPC failed')).toBeVisible();
+    expect(screen.getAllByRole('alert')).toHaveLength(2);
+  });
+
+  it('uses default messages when the registry omits error text', async () => {
+    api.registryListVersions.mockResolvedValueOnce({ success: false });
+    api.registryGetSchema.mockResolvedValueOnce({ success: false });
+    render(<Harness initialSubject={{ subject: 'orders-value', version: 3 }} />);
+    expect(await screen.findByText('Could not list versions.')).toBeVisible();
+    expect(await screen.findByText('Could not load the schema.')).toBeVisible();
+  });
+
+  it('does not refetch the versions list when only the version changes', async () => {
+    const user = userEvent.setup();
+    render(<Harness initialSubject={{ subject: 'orders-value', version: 'latest' }} />);
+    await screen.findByText('ID 12 · AVRO · orders-value v2');
+    await waitFor(() => expect(screen.getByRole('option', { name: 'v1' })).toBeInTheDocument());
+    await user.selectOptions(screen.getAllByRole('combobox')[1]!, '1');
+    expect(await screen.findByText('ID 9 · AVRO · orders-value v1')).toBeVisible();
+    expect(api.registryListVersions).toHaveBeenCalledTimes(1);
+    expect(api.registryGetSchema).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-syncs the filter with the topic and reloads subjects after reconnecting', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<Harness />);
+    await user.selectOptions(sourceSelect(), 'subject');
+    await screen.findByLabelText('Value schema');
+    expect(api.registryListSubjects).toHaveBeenCalledTimes(1);
+
+    rerender(<Harness connected={false} />);
+    expect(screen.queryByRole('list', { name: 'Value subjects' })).toBeNull();
+    expect(screen.queryByLabelText('Value schema')).toBeNull();
+    rerender(<Harness connected />);
+    await waitFor(() => expect(api.registryListSubjects).toHaveBeenCalledTimes(2));
+
+    await user.selectOptions(sourceSelect(), 'none');
+    rerender(<Harness topic="payments" />);
+    await user.selectOptions(sourceSelect(), 'subject');
+    expect(screen.getByLabelText('Value subject filter')).toHaveValue('payments-value');
+  });
+
+  it('caps the visible subject list and says so', async () => {
+    api.registryListSubjects.mockResolvedValueOnce({
+      success: true,
+      subjects: Array.from({ length: 150 }, (_, i) => `s-${String(i).padStart(3, '0')}`),
+    });
+    const user = userEvent.setup();
+    render(<Harness topic="" />);
+    await user.selectOptions(sourceSelect(), 'subject');
+    expect(await screen.findByText(/Showing first 100 of 150 subjects/)).toBeVisible();
+    const list = screen.getByRole('list', { name: 'Value subjects' });
+    expect(list).toHaveAttribute('tabindex', '0');
+    expect(list.querySelectorAll('li')).toHaveLength(100);
+  });
 });

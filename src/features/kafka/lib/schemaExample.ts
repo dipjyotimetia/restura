@@ -8,6 +8,14 @@ export type RegistrySchemaKind = 'AVRO' | 'JSON' | 'PROTOBUF';
 export type SchemaExampleResult = { ok: true; json: string } | { ok: false; error: string };
 
 const MAX_DEPTH = 8;
+/** Total schema nodes visited per example — bounds wide fan-out schemas. */
+export const MAX_EXAMPLE_NODES = 5_000;
+// Generation is synchronous, so one module-level budget per call is safe.
+let nodeBudget = MAX_EXAMPLE_NODES;
+const spendNode = (): boolean => {
+  nodeBudget -= 1;
+  return nodeBudget >= 0;
+};
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type AvroType = string | AvroType[] | { [key: string]: unknown };
@@ -29,7 +37,7 @@ function avroExample(
   depth: number,
   namespace = ''
 ): Json {
-  if (depth > MAX_DEPTH) return null;
+  if (depth > MAX_DEPTH || !spendNode()) return null;
   if (typeof type === 'string') {
     if (type in AVRO_PRIMITIVES) return AVRO_PRIMITIVES[type] as Json;
     const ref = named.get(type) ?? [...named.entries()].find(([n]) => n.endsWith(`.${type}`))?.[1];
@@ -69,7 +77,11 @@ function avroExample(
     case 'map':
       return { key: avroExample(t.values as AvroType, named, depth + 1, ns) };
     case 'fixed':
-      return '';
+      // Avro JSON convention: one code point (0-255) per byte, so the
+      // example has exactly `size` bytes once the encoder converts it.
+      return typeof t.size === 'number' && t.size > 0 && t.size <= 1024
+        ? '\u0000'.repeat(t.size)
+        : '';
     default:
       // Logical types ({ type: 'long', logicalType: ... }) and wrapped primitives.
       return kind === undefined ? null : avroExample(kind, named, depth + 1);
@@ -99,7 +111,8 @@ const STRING_FORMATS: Record<string, string> = {
 };
 
 function jsonSchemaExample(schema: unknown, root: Record<string, unknown>, depth: number): Json {
-  if (depth > MAX_DEPTH || schema === true || !schema || typeof schema !== 'object') return null;
+  if (depth > MAX_DEPTH || !spendNode()) return null;
+  if (schema === true || !schema || typeof schema !== 'object') return null;
   const s = schema as Record<string, unknown>;
   if (s.const !== undefined) return s.const as Json;
   if (Array.isArray(s.examples) && s.examples.length > 0) return s.examples[0] as Json;
@@ -163,6 +176,7 @@ export function generateSchemaExample(
   } catch {
     return { ok: false, error: 'The schema is not valid JSON.' };
   }
+  nodeBudget = MAX_EXAMPLE_NODES;
   const value =
     schemaType === 'AVRO'
       ? avroExample(parsed as AvroType, new Map(), 0)

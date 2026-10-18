@@ -4,7 +4,6 @@ import type { AddressInfo } from 'node:net';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockExternalResolve = vi.hoisted(() => vi.fn());
-const dnsGuardCalls = vi.hoisted(() => ({ hosts: [] as string[] }));
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn(), removeHandler: vi.fn() },
@@ -13,33 +12,24 @@ vi.mock('../security/encrypted-key', () => ({
   getOrCreateEncryptedKey: vi.fn(() => 'test-encryption-key'),
   getKeyStoreStatus: vi.fn(() => ({ mode: 'safeStorage', plaintextStores: [] })),
 }));
-// Pass-through spy: proves both the library (mappersmith) and browse request
-// paths dial through the guarded agent lookup, not the system resolver.
-vi.mock('../security/dns-guard', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../security/dns-guard')>();
-  return {
-    ...actual,
-    assertHostnameSafe: (
-      hostname: string,
-      options: Parameters<typeof actual.assertHostnameSafe>[1]
-    ) => {
-      dnsGuardCalls.hosts.push(hostname);
-      return actual.assertHostnameSafe(hostname, options);
-    },
-  };
-});
 vi.mock('../security/external-secret-providers', () => ({
   desktopExternalSecretResolver: { resolve: mockExternalResolve },
 }));
 
 import {
+  type AddressResolver,
+  assertCredentialsTransportAllowed,
   buildRegistryAgentOptions,
   capResponseBytes,
+  coerceAvroPayload,
   createGuardedLookup,
   createKafkaRegistryClient,
+  KAFKA_SECRET_SCOPE,
   type KafkaRegistryClient,
+  RegistryHttpError,
   registryAuthorization,
   resolveFieldSchemaId,
+  resolveRegistryAddresses,
 } from '../handlers/kafka/registry';
 import { decodeDisplayField } from '../handlers/kafka-serde';
 import { setExecutionPolicy } from '../security/execution-policy';
@@ -69,6 +59,30 @@ function usePolicy(overrides: Record<string, unknown> = {}): void {
   });
 }
 const localPolicy = { allowLocalhost: true, allowPrivateIPs: false };
+/** Fake DNS: every hostname resolves to the given addresses (counts calls). */
+function fakeDns(...addresses: string[]): AddressResolver & { calls: string[] } {
+  const calls: string[] = [];
+  const resolve = (async (hostname: string) => {
+    calls.push(hostname);
+    return addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 }));
+  }) as AddressResolver & { calls: string[] };
+  resolve.calls = calls;
+  return resolve;
+}
+
+const BYTES_FIXED_SCHEMA = JSON.stringify({
+  type: 'record',
+  name: 'Blob',
+  fields: [
+    { name: 'b', type: 'bytes' },
+    { name: 'f', type: { type: 'fixed', name: 'Four', size: 4 } },
+    { name: 'maybe', type: ['null', 'bytes'] },
+    { name: 'list', type: { type: 'array', items: 'bytes' } },
+    { name: 'byKey', type: { type: 'map', values: 'bytes' } },
+    { name: 'id', type: { type: 'string', logicalType: 'uuid' } },
+  ],
+});
+let flakyLabelCalls = 0;
 
 const AVRO_SCHEMA = JSON.stringify({
   type: 'record',
@@ -119,6 +133,13 @@ const server = http.createServer((req, res) => {
   if (url === '/schemas/ids/1/versions')
     return send(200, [{ subject: 'orders-value', version: 2 }]);
   if (url === '/schemas/ids/5/versions') return send(404, { error_code: 40403, message: 'nope' });
+  if (url === '/schemas/ids/21') return send(200, { schema: BYTES_FIXED_SCHEMA });
+  if (url === '/schemas/ids/6/versions') {
+    flakyLabelCalls += 1;
+    return flakyLabelCalls === 1
+      ? send(503, { message: 'busy' })
+      : send(200, [{ subject: 'flaky-value', version: 1 }]);
+  }
   if (url === '/schemas/ids/77') return send(200, { schema: 'x'.repeat(9 * 1024 * 1024) });
   if (url === '/small') return send(200, { ok: true });
   if (url === '/big') return send(200, { pad: 'y'.repeat(4096) });
@@ -218,10 +239,22 @@ describe('registryAuthorization', () => {
     expect(
       await registryAuthorization({ type: 'bearer', token: { kind: 'inline', value: 'inl' } })
     ).toBe('Bearer inl');
-    const { id } = storeSecretHandle({ value: 'from-keychain' });
+    const { id } = storeSecretHandle({ value: 'from-keychain', scope: KAFKA_SECRET_SCOPE });
     expect(await registryAuthorization({ type: 'bearer', token: { kind: 'handle', id } })).toBe(
       'Bearer from-keychain'
     );
+  });
+
+  it('refuses keychain handles that are not scoped for Kafka', async () => {
+    const other = storeSecretHandle({ value: 'http-secret', scope: 'http' });
+    const unscoped = storeSecretHandle({ value: 'legacy-secret' });
+    for (const { id } of [other, unscoped]) {
+      const attempt = registryAuthorization({ type: 'bearer', token: { kind: 'handle', id } });
+      await expect(attempt).rejects.toThrow(
+        'Schema Registry bearer token handle is not scoped for Kafka.'
+      );
+      await expect(attempt).rejects.not.toThrow(/secret/);
+    }
   });
 
   it('resolves external secret references in main', async () => {
@@ -242,6 +275,9 @@ describe('registryAuthorization', () => {
         type: 'bearer',
         token: { kind: 'handle', id: '00000000-0000-4000-8000-000000000000' },
       })
+    ).rejects.toThrow(/not scoped for Kafka/);
+    await expect(
+      registryAuthorization({ type: 'bearer', token: { kind: 'inline', value: '' } })
     ).rejects.toThrow(/could not be resolved/);
     await expect(
       registryAuthorization({ type: 'bearer', token: 'a\r\nX-Evil: 1' })
@@ -276,6 +312,62 @@ describe('createGuardedLookup', () => {
     expect(result.err).toBeInstanceOf(Error);
   });
 
+  const viaFakeDns = (resolve: AddressResolver, policy = defaultPolicy, all = false) =>
+    new Promise<{ err: Error | null; address: unknown }>((done) => {
+      createGuardedLookup('schema-registry', policy, resolve)(
+        'schema-registry',
+        { all },
+        (err: Error | null, address: unknown) => done({ err, address })
+      );
+    });
+  const defaultPolicy = { allowLocalhost: true, allowPrivateIPs: false };
+
+  it('allows private answers under the default policy, like brokers', async () => {
+    expect(await viaFakeDns(fakeDns('10.0.0.5'))).toEqual({ err: null, address: '10.0.0.5' });
+    expect(
+      (await viaFakeDns(fakeDns('172.18.0.4', '10.0.0.6'), defaultPolicy, true)).address
+    ).toEqual([
+      { address: '172.18.0.4', family: 4 },
+      { address: '10.0.0.6', family: 4 },
+    ]);
+  });
+
+  it.each(['169.254.169.254', '::ffff:169.254.169.254', '::ffff:a9fe:a9fe'])(
+    'always refuses the cloud-metadata answer %s',
+    async (address) => {
+      const result = await viaFakeDns(fakeDns('10.0.0.5', address), {
+        allowLocalhost: true,
+        allowPrivateIPs: true,
+      });
+      expect(result.err?.message).toMatch(/metadata/);
+    }
+  );
+
+  it('refuses loopback answers only when localhost is disabled', async () => {
+    expect((await viaFakeDns(fakeDns('127.0.0.1'))).err).toBeNull();
+    const blocked = await viaFakeDns(fakeDns('127.0.0.1'), {
+      allowLocalhost: false,
+      allowPrivateIPs: true,
+    });
+    expect(blocked.err?.message).toMatch(/loopback/);
+  });
+
+  it('reports DNS failures and empty answers', async () => {
+    const failing: AddressResolver = async () => {
+      throw new Error('ENOTFOUND');
+    };
+    await expect(resolveRegistryAddresses('x', defaultPolicy, failing)).rejects.toThrow(
+      'DNS lookup failed for x: ENOTFOUND'
+    );
+    await expect(resolveRegistryAddresses('x', defaultPolicy, fakeDns())).rejects.toThrow(
+      'DNS returned no records for x'
+    );
+    const nonError: AddressResolver = async () => {
+      throw 'boom';
+    };
+    expect((await viaFakeDns(nonError)).err?.message).toMatch(/boom/);
+  });
+
   it('ignores calls without a callback', () => {
     expect(() => createGuardedLookup('localhost', localPolicy)('localhost', {})).not.toThrow();
   });
@@ -292,17 +384,60 @@ describe('createKafkaRegistryClient', () => {
     expect(seen).toHaveLength(0);
   });
 
-  it('resolves the registry host through the DNS guard for library and browse sockets', async () => {
-    dnsGuardCalls.hosts.length = 0;
-    const viaLibrary = await client();
-    expect(dnsGuardCalls.hosts).toEqual(['localhost']); // pre-flight
+  it('dials library and browse sockets through the guarded lookup (real sockets)', async () => {
+    // `registry.corp.test` only exists in the fake resolver, so these requests
+    // can succeed only if every socket resolves through the guarded lookup.
+    const port = (server.address() as AddressInfo).port;
+    const url = `http://registry.corp.test:${port}`;
+    const viaLibrary = await createKafkaRegistryClient({ url }, localPolicy, {
+      resolve: fakeDns('127.0.0.1'),
+    });
+    clients.push(viaLibrary);
     await viaLibrary.resolveSchemaId({ subject: 'orders-value', version: 'latest' });
-    expect(dnsGuardCalls.hosts).toEqual(['localhost', 'localhost']);
 
-    dnsGuardCalls.hosts.length = 0;
-    const viaBrowse = await client();
+    const dnsForBrowse = fakeDns('127.0.0.1');
+    const viaBrowse = await createKafkaRegistryClient({ url }, localPolicy, {
+      resolve: dnsForBrowse,
+    });
+    clients.push(viaBrowse);
+    expect(dnsForBrowse.calls).toEqual(['registry.corp.test']); // pre-flight
     await viaBrowse.listSubjects();
-    expect(dnsGuardCalls.hosts).toEqual(['localhost', 'localhost']);
+    expect(dnsForBrowse.calls).toEqual(['registry.corp.test', 'registry.corp.test']);
+  });
+
+  it('applies the broker-aligned DNS posture at pre-flight', async () => {
+    const make = (resolve: AddressResolver, policy = localPolicy) =>
+      createKafkaRegistryClient({ url: 'https://schema-registry:8081' }, policy, { resolve }).then(
+        (c) => {
+          clients.push(c);
+          return c;
+        }
+      );
+    await expect(make(fakeDns('10.1.2.3'))).resolves.toBeDefined();
+    await expect(make(fakeDns('169.254.169.254'))).rejects.toThrow(/metadata/);
+    await expect(
+      make(fakeDns('127.0.0.1'), { allowLocalhost: false, allowPrivateIPs: false })
+    ).rejects.toThrow(/loopback/);
+    // Literal private IPs keep the string-level network policy (same as brokers).
+    await expect(
+      createKafkaRegistryClient({ url: 'https://10.1.2.3:8081' }, localPolicy)
+    ).rejects.toThrow(/Schema Registry URL rejected/);
+  });
+
+  it('refuses credentials over plain HTTP to a public registry', async () => {
+    await expect(
+      createKafkaRegistryClient(
+        { url: 'http://registry.example.com', auth: { type: 'bearer', token: 't' } },
+        localPolicy,
+        { resolve: fakeDns('93.184.216.34') }
+      )
+    ).rejects.toThrow(/require HTTPS/);
+    const internal = await createKafkaRegistryClient(
+      { url: 'http://schema-registry:8081', auth: { type: 'basic', username: 'u' } },
+      localPolicy,
+      { resolve: fakeDns('172.18.0.9') }
+    );
+    clients.push(internal);
   });
 
   it('sends the bearer header on library and browse requests', async () => {
@@ -391,6 +526,40 @@ describe('createKafkaRegistryClient', () => {
     expect(seen).toHaveLength(0);
   });
 
+  it('evicts transient label-lookup failures instead of caching them', async () => {
+    flakyLabelCalls = 0;
+    const registry = await client();
+    expect(await registry.describeSchemaId(6)).toEqual({ id: 6 });
+    expect(await registry.describeSchemaId(6)).toEqual({
+      id: 6,
+      subject: 'flaky-value',
+      version: 1,
+    });
+    expect(flakyLabelCalls).toBe(2);
+    await registry.describeSchemaId(6);
+    expect(flakyLabelCalls).toBe(2);
+  });
+
+  it('encodes generated Avro examples with bytes and fixed fields', async () => {
+    const registry = await client();
+    // Exactly what the renderer's "Generate example" produces for this schema.
+    const generated = {
+      b: '',
+      f: '\u0000\u0000\u0000\u0000',
+      maybe: '',
+      list: [''],
+      byKey: { key: '' },
+      id: '',
+    };
+    const encoded = await registry.encode(21, JSON.parse(JSON.stringify(generated)));
+    const decoded = (await registry.decode(encoded)) as Record<string, unknown>;
+    expect(Buffer.isBuffer(decoded.b)).toBe(true);
+    expect(decoded.f).toEqual(Buffer.alloc(4));
+    expect(decoded.list).toEqual([Buffer.alloc(0)]);
+    const custom = await registry.encode(21, { ...generated, b: 'h\u00ff', maybe: null });
+    expect(((await registry.decode(custom)) as { b: Buffer }).b).toEqual(Buffer.from([0x68, 0xff]));
+  });
+
   it('round-trips an Avro record and labels decoded fields with subject/version', async () => {
     const registry = await client();
     const id = await registry.resolveSchemaId({ subject: 'orders-value', version: 'latest' });
@@ -430,5 +599,72 @@ describe('capResponseBytes', () => {
     } finally {
       agent.destroy();
     }
+  });
+
+  it('leaves non-Avro payloads and non-string values untouched', () => {
+    const payload = { a: 1 };
+    expect(coerceAvroPayload({ type: 'object' }, payload)).toBe(payload);
+    expect(coerceAvroPayload(undefined, 'x')).toBe('x');
+  });
+});
+
+describe('assertCredentialsTransportAllowed', () => {
+  const check =
+    (url: string, creds: boolean, resolved: string[] = []) =>
+    () =>
+      assertCredentialsTransportAllowed(new URL(url), creds, resolved);
+
+  it('allows HTTPS, credential-less HTTP, loopback and private-network HTTP', () => {
+    expect(check('https://registry.example.com', true)).not.toThrow();
+    expect(check('http://registry.example.com', false)).not.toThrow();
+    expect(check('http://localhost:8081', true)).not.toThrow();
+    expect(check('http://reg.localhost:8081', true)).not.toThrow();
+    expect(check('http://127.0.0.1:8081', true, ['127.0.0.1'])).not.toThrow();
+    expect(check('http://[::1]:8081', true, ['::1'])).not.toThrow();
+    expect(check('http://10.0.0.4:8081', true, ['10.0.0.4'])).not.toThrow();
+    expect(check('http://schema-registry:8081', true, ['172.18.0.2'])).not.toThrow();
+  });
+
+  it('refuses credentials over HTTP to public or mixed answers', () => {
+    expect(check('http://registry.example.com', true, ['93.184.216.34'])).toThrow(/require HTTPS/);
+    expect(check('http://registry.example.com', true, ['10.0.0.1', '93.184.216.34'])).toThrow(
+      /require HTTPS/
+    );
+    expect(check('http://registry.example.com', true)).toThrow(/require HTTPS/);
+  });
+
+  it('keeps the HTTP status on registry errors', () => {
+    expect(new RegistryHttpError(404, 'x').status).toBe(404);
+  });
+});
+
+describe('decodeDisplayField schema labels', () => {
+  const framed = Buffer.from([0, 0, 0, 0, 9, 1]);
+
+  it('never stalls the consume path on a slow label lookup', async () => {
+    const started = Date.now();
+    const slow = {
+      decode: async () => ({ ok: true }),
+      describeSchemaId: () => new Promise<never>(() => {}),
+    };
+    expect(await decodeDisplayField(slow, framed, 20)).toEqual({
+      value: '{"ok":true}',
+      encoding: 'utf8',
+      schema: { id: 9 },
+    });
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it('falls back to the bare id when the label lookup fails or is unsupported', async () => {
+    const failing = {
+      decode: async () => 'v',
+      describeSchemaId: async () => {
+        throw new Error('down');
+      },
+    };
+    expect((await decodeDisplayField(failing, framed)).schema).toEqual({ id: 9 });
+    expect((await decodeDisplayField({ decode: async () => 'v' }, framed)).schema).toEqual({
+      id: 9,
+    });
   });
 });
