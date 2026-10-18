@@ -1,17 +1,24 @@
 // @vitest-environment node
+import * as crypto from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockShowMessageBox = vi.hoisted(() => vi.fn());
 const mockFromWebContents = vi.hoisted(() => vi.fn(() => null as unknown));
 
 vi.mock('electron', () => ({
+  app: { getPath: () => '/tmp/unused-user-data' },
+  safeStorage: { isEncryptionAvailable: () => false },
   dialog: { showMessageBox: mockShowMessageBox },
   BrowserWindow: { fromWebContents: mockFromWebContents },
 }));
 
 import {
+  __setStdioConsentMacKeyProviderForTests,
   __setStdioConsentStoreForTests,
+  CONSENT_DISPLAY_MAX_CHARS,
   type ConsentStoreShape,
+  canonicalStdioLaunch,
+  canRememberStdioConsent,
   ensureStdioConsent,
   formatStdioConsentDetail,
   hasStdioConsent,
@@ -40,11 +47,19 @@ function memoryStore(): ConsentStoreShape & {
   };
 }
 
+const MAC_KEY = crypto.randomBytes(32);
+const plain = (value: string) => ({ kind: 'plain' as const, value });
+
 const spec: StdioLaunchSpec = {
   command: 'npx',
+  resolvedPath: '/usr/local/bin/npx',
+  viaCmd: false,
   args: ['-y', '@modelcontextprotocol/server-filesystem', '/Users/me/project'],
   cwd: '/Users/me',
-  env: { LOG_LEVEL: 'debug', TOKEN: { kind: 'handle', id: 'h-1', label: 'gh' } },
+  env: {
+    LOG_LEVEL: plain('debug'),
+    TOKEN: { kind: 'handle', id: 'h-1', label: 'gh', digest: 'd1' },
+  },
 };
 
 let store: ReturnType<typeof memoryStore>;
@@ -52,23 +67,37 @@ let store: ReturnType<typeof memoryStore>;
 beforeEach(() => {
   store = memoryStore();
   __setStdioConsentStoreForTests(store);
+  __setStdioConsentMacKeyProviderForTests(() => MAC_KEY);
   mockShowMessageBox.mockReset();
 });
 
-afterAll(() => __setStdioConsentStoreForTests(null));
+afterAll(() => {
+  __setStdioConsentStoreForTests(null);
+  __setStdioConsentMacKeyProviderForTests(null);
+});
 
 describe('stdioConsentKey', () => {
-  it('is stable and independent of env insertion order', () => {
+  it('is an HMAC of the canonical launch, stable across env insertion order', () => {
     const reordered: StdioLaunchSpec = {
       ...spec,
-      env: { TOKEN: spec.env.TOKEN!, LOG_LEVEL: 'debug' },
+      env: { TOKEN: spec.env.TOKEN!, LOG_LEVEL: plain('debug') },
     };
     expect(stdioConsentKey(reordered)).toBe(stdioConsentKey(spec));
-    expect(stdioConsentKey(spec)).toMatch(/^[0-9a-f]{64}$/);
+    const expected = crypto
+      .createHmac('sha256', MAC_KEY)
+      .update(canonicalStdioLaunch(spec))
+      .digest('hex');
+    expect(stdioConsentKey(spec)).toBe(expected);
+  });
+
+  it('differs from an unkeyed hash a renderer could compute', () => {
+    const unkeyed = crypto.createHash('sha256').update(canonicalStdioLaunch(spec)).digest('hex');
+    expect(stdioConsentKey(spec)).not.toBe(unkeyed);
   });
 
   it.each<[string, Partial<StdioLaunchSpec>]>([
-    ['command', { command: 'uvx' }],
+    ['resolved program path', { resolvedPath: '/opt/evil/npx' }],
+    ['cmd.exe routing', { viaCmd: true }],
     ['an argument', { args: ['-y', '@modelcontextprotocol/server-filesystem', '/'] }],
     [
       'argument order',
@@ -80,26 +109,34 @@ describe('stdioConsentKey', () => {
       { args: ['-y @modelcontextprotocol/server-filesystem', '/Users/me/project'] },
     ],
     ['cwd', { cwd: '/tmp' }],
-    ['an env value', { env: { ...spec.env, LOG_LEVEL: 'trace' } }],
-    ['an added env var', { env: { ...spec.env, NPM_CONFIG_REGISTRY: 'https://evil.example' } }],
-    ['the secret handle id', { env: { ...spec.env, TOKEN: { kind: 'handle', id: 'h-2' } } }],
+    ['an env value', { env: { ...spec.env, LOG_LEVEL: plain('trace') } }],
+    ['an added env var', { env: { ...spec.env, NPM_CONFIG_REGISTRY: plain('https://x.test') } }],
+    [
+      'the secret handle id',
+      { env: { ...spec.env, TOKEN: { kind: 'handle', id: 'h-2', digest: 'd1' } } },
+    ],
+    [
+      'the secret value (rotation)',
+      { env: { ...spec.env, TOKEN: { kind: 'handle', id: 'h-1', digest: 'd2' } } },
+    ],
   ])('changes when %s changes', (_label, patch) => {
     expect(stdioConsentKey({ ...spec, ...patch })).not.toBe(stdioConsentKey(spec));
   });
 
-  it('treats a plain value and an inline SecretRef with the same value identically', () => {
+  it('ignores the display command (only the resolved path matters) and handle labels', () => {
+    expect(stdioConsentKey({ ...spec, command: '/usr/local/bin/npx' })).toBe(stdioConsentKey(spec));
     expect(
       stdioConsentKey({
         ...spec,
-        env: { ...spec.env, LOG_LEVEL: { kind: 'inline', value: 'debug' } },
+        env: { ...spec.env, TOKEN: { kind: 'handle', id: 'h-1', label: 'other', digest: 'd1' } },
       })
     ).toBe(stdioConsentKey(spec));
   });
 
-  it('distinguishes a handle id from a literal value of the same text', () => {
-    expect(stdioConsentKey({ ...spec, env: { TOKEN: 'h-1' } })).not.toBe(
-      stdioConsentKey({ ...spec, env: { TOKEN: { kind: 'handle', id: 'h-1' } } })
-    );
+  it('is null without a main-only MAC key', () => {
+    __setStdioConsentMacKeyProviderForTests(() => null);
+    expect(stdioConsentKey(spec)).toBeNull();
+    expect(canRememberStdioConsent()).toBe(false);
   });
 });
 
@@ -111,7 +148,7 @@ describe('ensureStdioConsent', () => {
     expect(hasStdioConsent(spec)).toBe(true);
     expect(await ensureStdioConsent(spec)).toBe('always');
     expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
-    expect(Object.values(store.data)[0]).toMatchObject({ command: 'npx' });
+    expect(Object.values(store.data)[0]).toMatchObject({ command: '/usr/local/bin/npx' });
   });
 
   it('"Allow once" is not persisted', async () => {
@@ -138,10 +175,23 @@ describe('ensureStdioConsent', () => {
     expect(mockShowMessageBox).toHaveBeenCalledTimes(2);
   });
 
-  it('nothing outside the main-owned store can pre-approve (imported data has no write path)', async () => {
-    // Simulate an imported collection carrying a pre-computed key/flag: the
-    // only inputs ensureStdioConsent accepts are the launch spec and owner, so
-    // the decision still comes from the dialog.
+  it('forged store entries do not pre-approve (no MAC key, no match)', async () => {
+    // Everything a compromised renderer could compute: the canonical form,
+    // its plain SHA-256, and the previous unkeyed key format.
+    const canonical = canonicalStdioLaunch(spec);
+    for (const forged of [
+      crypto.createHash('sha256').update(canonical).digest('hex'),
+      crypto.createHmac('sha256', Buffer.alloc(32)).update(canonical).digest('hex'),
+      canonical,
+    ]) {
+      store.set(forged, { approvedAt: Date.now(), command: 'npx' });
+    }
+    mockShowMessageBox.mockResolvedValue({ response: 0 });
+    expect(await ensureStdioConsent(spec)).toBe('denied');
+    expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
+  });
+
+  it('an imported payload carrying approval fields still prompts', async () => {
     const imported = {
       ...spec,
       approved: true,
@@ -152,7 +202,22 @@ describe('ensureStdioConsent', () => {
     expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
   });
 
-  it('serializes prompts and dedupes concurrent requests for the same launch', async () => {
+  it('fails closed without safeStorage: no "Always allow", nothing remembered', async () => {
+    __setStdioConsentMacKeyProviderForTests(() => null);
+    mockShowMessageBox.mockResolvedValue({ response: 2 }); // out-of-range for 2 buttons
+    expect(await ensureStdioConsent(spec)).toBe('denied');
+    const options = mockShowMessageBox.mock.calls[0]!.at(-1) as {
+      buttons: string[];
+      detail: string;
+    };
+    expect(options.buttons).toEqual(['Cancel', 'Allow once']);
+    expect(options.detail).toMatch(/OS keychain is unavailable/);
+    mockShowMessageBox.mockResolvedValue({ response: 1 });
+    expect(await ensureStdioConsent(spec)).toBe('once');
+    expect(Object.keys(store.data)).toHaveLength(0);
+  });
+
+  it('serializes prompts and dedupes concurrent requests from the same requester', async () => {
     let resolve!: (v: { response: number }) => void;
     mockShowMessageBox.mockImplementationOnce(
       () =>
@@ -160,13 +225,26 @@ describe('ensureStdioConsent', () => {
           resolve = r;
         })
     );
-    const a = ensureStdioConsent(spec);
-    const b = ensureStdioConsent(spec);
+    const a = ensureStdioConsent(spec, undefined, 'conn-a');
+    const b = ensureStdioConsent(spec, undefined, 'conn-a');
     await new Promise((r) => setTimeout(r, 0));
     expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
     resolve({ response: 2 });
     expect(await a).toBe('always');
     expect(await b).toBe('always');
+  });
+
+  it('does not share an "Allow once" across different connections', async () => {
+    mockShowMessageBox
+      .mockResolvedValueOnce({ response: 1 })
+      .mockResolvedValueOnce({ response: 0 });
+    const [a, b] = await Promise.all([
+      ensureStdioConsent(spec, undefined, 'conn-a'),
+      ensureStdioConsent(spec, undefined, 'conn-b'),
+    ]);
+    expect(a).toBe('once');
+    expect(b).toBe('denied');
+    expect(mockShowMessageBox).toHaveBeenCalledTimes(2);
   });
 
   it('parents the dialog to the owning window when there is one', async () => {
@@ -181,6 +259,15 @@ describe('ensureStdioConsent', () => {
     );
   });
 
+  it('a launch with truncated display can only be allowed once', async () => {
+    const long = { ...spec, args: ['x'.repeat(CONSENT_DISPLAY_MAX_CHARS + 10)] };
+    mockShowMessageBox.mockResolvedValue({ response: 2 });
+    expect(await ensureStdioConsent(long)).toBe('denied');
+    const options = mockShowMessageBox.mock.calls[0]!.at(-1) as { buttons: string[] };
+    expect(options.buttons).toEqual(['Cancel', 'Allow once']);
+    expect(hasStdioConsent(long)).toBe(false);
+  });
+
   it('revokeAllStdioConsents clears approvals', async () => {
     mockShowMessageBox.mockResolvedValue({ response: 2 });
     await ensureStdioConsent(spec);
@@ -190,34 +277,67 @@ describe('ensureStdioConsent', () => {
 });
 
 describe('formatStdioConsentDetail', () => {
-  it('shows the exact command line, quoted, and hides non-sensitive env values', () => {
-    const detail = formatStdioConsentDetail({
+  it('shows the program, every argument, and plain values in full; hides only credential-named ones', () => {
+    const { detail, truncated } = formatStdioConsentDetail({
       ...spec,
       args: ['--root', 'a dir/with "quotes"'],
       env: {
-        API_KEY: 'super-secret',
-        NODE_OPTIONS: '--require /tmp/x.js',
-        TOKEN: { kind: 'handle', id: 'h-1', label: 'gh' },
+        API_KEY: plain('super-secret'),
+        LOG_LEVEL: plain('debug'),
+        NODE_OPTIONS: plain('--max-old-space-size=512'),
+        GIT_TOKEN: plain('shown-because-sensitive'),
+        TOKEN: { kind: 'handle', id: 'h-1', label: 'gh', digest: 'd' },
       },
     });
-    expect(detail).toContain('Command: "npx"');
+    expect(truncated).toBe(false);
+    expect(detail).toContain('Program: "/usr/local/bin/npx"');
+    expect(detail).toContain('(requested as "npx")');
     expect(detail).toContain('[0] "--root"');
     expect(detail).toContain('[1] "a dir/with \\"quotes\\""');
     expect(detail).toContain('Working directory: "/Users/me"');
-    expect(detail).toContain('NODE_OPTIONS = "--require /tmp/x.js"');
+    expect(detail).toContain('LOG_LEVEL = "debug"');
+    expect(detail).toContain('NODE_OPTIONS = "--max-old-space-size=512"');
+    expect(detail).toContain('GIT_TOKEN = "shown-because-sensitive"');
     expect(detail).toContain('API_KEY = <12 characters, hidden>');
     expect(detail).not.toContain('super-secret');
-    expect(detail).toContain('TOKEN = <secret handle: gh>');
+    expect(detail).toContain('TOKEN = <from the secret store: "gh">');
+  });
+
+  it('notes cmd.exe routing', () => {
+    expect(formatStdioConsentDetail({ ...spec, viaCmd: true }).detail).toMatch(/cmd\.exe/);
+  });
+
+  it('cuts long values with an explicit marker', () => {
+    const { detail, truncated } = formatStdioConsentDetail({
+      ...spec,
+      args: ['a'.repeat(CONSENT_DISPLAY_MAX_CHARS + 25)],
+    });
+    expect(truncated).toBe(true);
+    expect(detail).toContain('25 more characters not shown');
+    expect(detail).toMatch(/can only be allowed once/);
+  });
+
+  it('caps the overall detail size', () => {
+    const { detail, truncated } = formatStdioConsentDetail({
+      ...spec,
+      args: Array.from({ length: 128 }, () => 'b'.repeat(200)),
+    });
+    expect(truncated).toBe(true);
+    expect(detail.length).toBeLessThan(9 * 1024);
+    expect(detail).toMatch(/more lines not shown/);
   });
 
   it('says when there are no arguments or env', () => {
-    const detail = formatStdioConsentDetail({
+    const { detail } = formatStdioConsentDetail({
       command: '/usr/bin/srv',
+      resolvedPath: '/usr/bin/srv',
+      viaCmd: false,
       args: [],
       cwd: '/',
       env: {},
     });
     expect(detail).toContain('Arguments: (none)');
     expect(detail).toContain('Extra environment: (none)');
+    expect(detail).not.toContain('requested as');
   });
 });

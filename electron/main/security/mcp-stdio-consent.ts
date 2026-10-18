@@ -2,46 +2,68 @@
  * Consent gate for the MCP stdio transport (#854, ADR 0030).
  *
  * Before main spawns ANY local process for a stdio MCP server it asks the
- * user — through a native `dialog.showMessageBox` owned by main — to approve
- * the exact launch: command, every argument, working directory, and every
- * environment variable. The renderer has no say in the outcome:
+ * user, through a native `dialog.showMessageBox` owned by main, to approve
+ * the exact launch: the resolved program path, every argument, the working
+ * directory, and every environment variable. The renderer has no say in the
+ * outcome:
  *
- *  - The consent key is a SHA-256 over the canonical launch spec, computed
- *    here from the already-validated IPC payload. Nothing in the payload can
- *    name, pre-compute, or pre-approve a key (the IPC schema is `.strict()`,
- *    so even an `approved: true` field is rejected outright).
- *  - "Always allow" decisions are persisted in a main-only electron-store.
- *    There is no IPC that writes to it; the renderer can only REVOKE (clear)
- *    approvals, which can never widen privilege.
- *  - Imported collections, mcp.json imports, and agent/MCP-server surfaces
- *    all flow through the same `mcp:connect` path, so none of them can skip
- *    the prompt for a launch the user has not approved on this machine.
+ *  - The consent key is an HMAC-SHA256 over the canonical launch spec, keyed
+ *    by a random secret that only main can read: it is stored sealed with
+ *    Electron `safeStorage` (OS keychain). A renderer that can compute the
+ *    canonical spec still cannot compute a valid key, so writing entries into
+ *    the store file cannot pre-approve anything; entries that are not valid
+ *    MACs of a real launch simply never match. If `safeStorage` is
+ *    unavailable, approvals are never remembered (every launch prompts).
+ *  - The IPC schema is `.strict()`, so a payload cannot carry an approval
+ *    flag, and the renderer-facing fs channels cannot reach main's store or
+ *    key files (see storage/file-operations.ts).
+ *  - Imported collections, mcp.json imports and agent surfaces all flow
+ *    through the same `mcp:connect` path and get the same prompt.
  *
- * Any change to command, args, cwd, or env (names AND values — a changed
- * `NPM_CONFIG_REGISTRY` or `NODE_OPTIONS` is a different program) produces a
- * new key and a new prompt. Secret-handle env values contribute their handle
- * id, so rotating the secret behind a handle does not re-prompt.
+ * Any change to the program, args, cwd or env (names AND values; for a
+ * secret handle, its id and a digest of its current value) is a new key and a
+ * new prompt.
  */
 
 import * as crypto from 'node:crypto';
-import { BrowserWindow, dialog, type WebContents } from 'electron';
-import type { McpStdioEnvValue } from '../ipc/validators/mcp-stdio';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { isSecretFieldName } from '@shared/secrets/key-value-redaction';
+import { app, BrowserWindow, dialog, safeStorage, type WebContents } from 'electron';
 import { isExecutionSensitiveEnvName } from './mcp-stdio-policy';
 
 // electron-store v9+ is ESM-only; require() returns the module namespace under Node 22+
 const Store = require('electron-store').default;
 
-/** The exact launch a consent decision covers. `cwd` is the EFFECTIVE cwd. */
+/** One env entry as main sees it at consent time (handles already looked up). */
+export type StdioConsentEnvValue =
+  | { kind: 'plain'; value: string }
+  | {
+      kind: 'handle';
+      id: string;
+      /** Label stored with the handle in main (never the renderer's copy). */
+      label?: string;
+      /** SHA-256 of the handle's current plaintext: rotating it re-prompts. */
+      digest: string;
+    };
+
+/** The exact launch a consent decision covers. */
 export interface StdioLaunchSpec {
+  /** What the user typed (display only). */
   command: string;
+  /** Absolute path main resolved and will spawn. Part of the key. */
+  resolvedPath: string;
+  /** Windows: the target is a .cmd/.bat run through cmd.exe. */
+  viaCmd: boolean;
   args: readonly string[];
+  /** The EFFECTIVE cwd. */
   cwd: string;
-  env: Readonly<Record<string, McpStdioEnvValue>>;
+  env: Readonly<Record<string, StdioConsentEnvValue>>;
 }
 
 interface ConsentRecord {
   approvedAt: number;
-  /** Display-only: the command, for a future "manage approvals" list. */
+  /** Display-only: the resolved program, for a future "manage approvals" list. */
   command: string;
 }
 
@@ -54,7 +76,12 @@ export interface ConsentStoreShape {
 }
 
 const MAX_PERSISTED_APPROVALS = 500;
-const CONSENT_KEY_VERSION = 1;
+const CONSENT_KEY_VERSION = 2;
+const MAC_KEY_FILE = '.mcp-stdio-consent-key';
+/** Longest argument/value shown verbatim; longer ones are cut and block "Always allow". */
+export const CONSENT_DISPLAY_MAX_CHARS = 512;
+/** Overall cap on the dialog detail; beyond it entries are elided and "Always allow" is off. */
+export const CONSENT_DETAIL_MAX_CHARS = 8 * 1024;
 
 let storeInstance: ConsentStoreShape | null = null;
 
@@ -72,33 +99,94 @@ function getStore(): ConsentStoreShape {
   return storeInstance;
 }
 
-function envFingerprint(value: McpStdioEnvValue): string {
-  if (typeof value === 'string') return `v:${value}`;
-  if (value.kind === 'inline') return `v:${value.value}`;
-  return `h:${value.id}`;
+// ---------------------------------------------------------------------------
+// MAC key: random, sealed with safeStorage, readable only by main.
+// ---------------------------------------------------------------------------
+
+type MacKeyProvider = () => Buffer | null;
+
+function safeStorageUsable(): boolean {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return false;
+    // Linux without a keyring falls back to a hard-coded password; that is
+    // not a secret, so treat it as unavailable and fail closed.
+    const backend = (
+      safeStorage as unknown as { getSelectedStorageBackend?: () => string }
+    ).getSelectedStorageBackend?.();
+    return backend !== 'basic_text';
+  } catch {
+    return false;
+  }
 }
 
-/**
- * Canonical, order-insensitive (for env) hash of a launch spec. Args stay
- * ordered — argv order is semantic. Keys are hex SHA-256 with a version tag
- * so a future canonicalisation change cannot collide with old approvals.
- */
-export function stdioConsentKey(spec: StdioLaunchSpec): string {
+const defaultMacKeyProvider: MacKeyProvider = () => {
+  if (!safeStorageUsable()) return null;
+  const file = path.join(app.getPath('userData'), MAC_KEY_FILE);
+  try {
+    const sealed = fs.readFileSync(file);
+    const hex = safeStorage.decryptString(sealed);
+    if (/^[0-9a-f]{64}$/.test(hex)) return Buffer.from(hex, 'hex');
+  } catch {
+    // Missing, unreadable or undecryptable: mint a new key below. Previous
+    // approvals then no longer verify, which fails closed (prompts again).
+  }
+  try {
+    const key = crypto.randomBytes(32);
+    fs.writeFileSync(file, safeStorage.encryptString(key.toString('hex')), { mode: 0o600 });
+    return key;
+  } catch {
+    return null;
+  }
+};
+
+let macKeyProvider: MacKeyProvider = defaultMacKeyProvider;
+let cachedMacKey: Buffer | null | undefined;
+
+/** Test-only seam: inject the MAC key source (null = safeStorage unavailable). */
+export function __setStdioConsentMacKeyProviderForTests(provider: MacKeyProvider | null): void {
+  macKeyProvider = provider ?? defaultMacKeyProvider;
+  cachedMacKey = undefined;
+}
+
+function getMacKey(): Buffer | null {
+  if (cachedMacKey === undefined) cachedMacKey = macKeyProvider();
+  return cachedMacKey;
+}
+
+/** Whether "Always allow" can be offered (approvals are verifiable). */
+export function canRememberStdioConsent(): boolean {
+  return getMacKey() !== null;
+}
+
+function envFingerprint(value: StdioConsentEnvValue): string {
+  return value.kind === 'plain' ? `v:${value.value}` : `h:${value.id}:${value.digest}`;
+}
+
+/** Canonical, order-insensitive (for env) serialisation. Args stay ordered. */
+export function canonicalStdioLaunch(spec: StdioLaunchSpec): string {
   const env = Object.keys(spec.env)
     .sort()
     .map((name) => [name, envFingerprint(spec.env[name]!)]);
-  const canonical = JSON.stringify({
+  return JSON.stringify({
     v: CONSENT_KEY_VERSION,
-    command: spec.command,
+    path: spec.resolvedPath,
+    viaCmd: spec.viaCmd,
     args: [...spec.args],
     cwd: spec.cwd,
     env,
   });
-  return crypto.createHash('sha256').update(canonical).digest('hex');
+}
+
+/** HMAC consent key, or null when no main-only MAC key is available. */
+export function stdioConsentKey(spec: StdioLaunchSpec): string | null {
+  const macKey = getMacKey();
+  if (!macKey) return null;
+  return crypto.createHmac('sha256', macKey).update(canonicalStdioLaunch(spec)).digest('hex');
 }
 
 export function hasStdioConsent(spec: StdioLaunchSpec): boolean {
-  return getStore().has(stdioConsentKey(spec));
+  const key = stdioConsentKey(spec);
+  return key !== null && getStore().has(key);
 }
 
 /** Remove every persisted approval. Safe to expose to the renderer: it only narrows. */
@@ -120,65 +208,126 @@ function persistApproval(key: string, spec: StdioLaunchSpec): void {
     store.clear();
     for (const [k, record] of keep) store.set(k, record);
   }
-  store.set(key, { approvedAt: Date.now(), command: spec.command.slice(0, 512) });
+  store.set(key, { approvedAt: Date.now(), command: spec.resolvedPath.slice(0, 512) });
 }
 
-function describeEnv(spec: StdioLaunchSpec): string[] {
-  return Object.keys(spec.env)
-    .sort()
-    .map((name) => {
-      const value = spec.env[name]!;
-      if (typeof value === 'object' && value.kind === 'handle') {
-        return `  ${name} = <secret handle${value.label ? `: ${value.label}` : ''}>`;
-      }
-      const plain = typeof value === 'string' ? value : value.value;
-      return isExecutionSensitiveEnvName(name)
-        ? `  ${name} = ${JSON.stringify(plain)}`
-        : `  ${name} = <${plain.length} characters, hidden>`;
-    });
+// ---------------------------------------------------------------------------
+// Dialog text
+// ---------------------------------------------------------------------------
+
+/** JSON-quote, cutting long text with an explicit marker. */
+function quoted(text: string): { text: string; cut: boolean } {
+  if (text.length <= CONSENT_DISPLAY_MAX_CHARS) return { text: JSON.stringify(text), cut: false };
+  const more = text.length - CONSENT_DISPLAY_MAX_CHARS;
+  return {
+    text: `${JSON.stringify(text.slice(0, CONSENT_DISPLAY_MAX_CHARS))} … (${more} more characters not shown)`,
+    cut: true,
+  };
 }
 
-/** The full dialog detail. Every argument is shown, JSON-quoted (so spaces/quotes are unambiguous). */
-export function formatStdioConsentDetail(spec: StdioLaunchSpec): string {
-  const lines = [
+/** Plain values are shown in full unless the NAME looks like a credential. */
+function hidesValue(name: string): boolean {
+  return isSecretFieldName(name) && !isExecutionSensitiveEnvName(name);
+}
+
+export interface StdioConsentDetail {
+  detail: string;
+  /** Something was cut for display, so "Always allow" is not offered. */
+  truncated: boolean;
+}
+
+export function formatStdioConsentDetail(spec: StdioLaunchSpec): StdioConsentDetail {
+  let truncated = false;
+  const show = (text: string) => {
+    const q = quoted(text);
+    if (q.cut) truncated = true;
+    return q.text;
+  };
+  const head = [
     'Restura will start this program on your computer with your user privileges.',
     'Only allow programs you trust — an MCP server can read and change your files.',
     '',
-    `Command: ${JSON.stringify(spec.command)}`,
-    spec.args.length === 0 ? 'Arguments: (none)' : `Arguments (${spec.args.length}):`,
-    ...spec.args.map((arg, i) => `  [${i}] ${JSON.stringify(arg)}`),
-    `Working directory: ${JSON.stringify(spec.cwd)}`,
+    `Program: ${show(spec.resolvedPath)}`,
   ];
-  const env = describeEnv(spec);
-  lines.push(env.length === 0 ? 'Extra environment: (none)' : 'Extra environment:', ...env);
-  lines.push(
+  if (spec.command !== spec.resolvedPath) head.push(`  (requested as ${show(spec.command)})`);
+  if (spec.viaCmd) {
+    head.push('  Runs through cmd.exe (Windows command script).');
+  }
+  const entries: string[] = [
+    spec.args.length === 0 ? 'Arguments: (none)' : `Arguments (${spec.args.length}):`,
+    ...spec.args.map((arg, i) => `  [${i}] ${show(arg)}`),
+    `Working directory: ${show(spec.cwd)}`,
+  ];
+  const envNames = Object.keys(spec.env).sort();
+  entries.push(envNames.length === 0 ? 'Extra environment: (none)' : 'Extra environment:');
+  for (const name of envNames) {
+    const value = spec.env[name]!;
+    if (value.kind === 'handle') {
+      entries.push(
+        `  ${name} = <from the secret store${value.label ? `: ${show(value.label)}` : ''}>`
+      );
+    } else if (hidesValue(name)) {
+      entries.push(`  ${name} = <${value.value.length} characters, hidden>`);
+    } else {
+      entries.push(`  ${name} = ${show(value.value)}`);
+    }
+  }
+  const tail = [
     '',
     'The program receives only these variables plus a minimal safe set (PATH, HOME, locale).',
-    '"Always allow" remembers this exact command line; any change asks again.'
+  ];
+
+  // Overall cap: keep whole lines while they fit, then say how many were elided.
+  const lines = [...head];
+  let size = head.join('\n').length;
+  for (let i = 0; i < entries.length; i++) {
+    const line = entries[i]!;
+    if (size + line.length + 1 > CONSENT_DETAIL_MAX_CHARS) {
+      lines.push(`… ${entries.length - i} more lines not shown`);
+      truncated = true;
+      break;
+    }
+    lines.push(line);
+    size += line.length + 1;
+  }
+  tail.push(
+    truncated
+      ? 'Part of this command line is not shown, so it can only be allowed once.'
+      : '"Always allow" remembers this exact command line; any change asks again.'
   );
-  return lines.join('\n');
+  return { detail: [...lines, ...tail].join('\n'), truncated };
 }
+
+// ---------------------------------------------------------------------------
+// Prompting
+// ---------------------------------------------------------------------------
 
 export type StdioConsentDecision = 'always' | 'once' | 'denied';
 
-const BUTTONS = ['Cancel', 'Allow once', 'Always allow'] as const;
-
-// One prompt at a time (a misbehaving renderer cannot stack dialogs), and
-// concurrent requests for the same launch share the single in-flight prompt.
+// One prompt at a time (a misbehaving renderer cannot stack dialogs).
+// Concurrent requests share a prompt only when they come from the same
+// requester for the same launch; a different connection asking for the same
+// launch gets its own decision ("Allow once" is never shared).
 let promptChain: Promise<unknown> = Promise.resolve();
 const inFlight = new Map<string, Promise<StdioConsentDecision>>();
 
 async function promptUser(
   spec: StdioLaunchSpec,
-  owner: WebContents | undefined
+  owner: WebContents | undefined,
+  allowAlways: boolean
 ): Promise<StdioConsentDecision> {
   const window = owner && !owner.isDestroyed() ? BrowserWindow.fromWebContents(owner) : null;
+  const { detail, truncated } = formatStdioConsentDetail(spec);
+  const offerAlways = allowAlways && !truncated;
+  const buttons = offerAlways ? ['Cancel', 'Allow once', 'Always allow'] : ['Cancel', 'Allow once'];
   const options: Electron.MessageBoxOptions = {
     type: 'warning',
     title: 'Start local MCP server?',
     message: 'Allow Restura to start a local MCP server process?',
-    detail: formatStdioConsentDetail(spec),
-    buttons: [...BUTTONS],
+    detail: allowAlways
+      ? detail
+      : `${detail}\nApprovals can't be remembered because the OS keychain is unavailable.`,
+    buttons,
     defaultId: 0,
     cancelId: 0,
     noLink: true,
@@ -186,40 +335,42 @@ async function promptUser(
   const result = window
     ? await dialog.showMessageBox(window, options)
     : await dialog.showMessageBox(options);
-  if (result.response === 2) return 'always';
+  if (result.response === 2 && offerAlways) return 'always';
   if (result.response === 1) return 'once';
   return 'denied';
 }
 
 /**
- * Resolve consent for a launch: a persisted "always" approval short-circuits;
+ * Resolve consent for a launch: a verified persisted approval short-circuits;
  * otherwise the native dialog decides. Never throws for a user "Cancel" —
  * returns `'denied'` so the handler can report it.
  */
 export async function ensureStdioConsent(
   spec: StdioLaunchSpec,
-  owner?: WebContents
+  owner?: WebContents,
+  requester = 'default'
 ): Promise<StdioConsentDecision> {
   const key = stdioConsentKey(spec);
-  if (getStore().has(key)) return 'always';
+  if (key !== null && getStore().has(key)) return 'always';
 
-  const pending = inFlight.get(key);
+  const flightKey = `${key ?? canonicalStdioLaunch(spec)}|${requester}`;
+  const pending = inFlight.get(flightKey);
   if (pending) return pending;
 
   const decision = promptChain
     .catch(() => undefined)
     .then(async () => {
-      // A concurrent prompt may have just persisted this exact launch.
-      if (getStore().has(key)) return 'always' as const;
-      const answer = await promptUser(spec, owner);
-      if (answer === 'always') persistApproval(key, spec);
+      // A prompt that just finished may have persisted this exact launch.
+      if (key !== null && getStore().has(key)) return 'always' as const;
+      const answer = await promptUser(spec, owner, key !== null);
+      if (answer === 'always' && key !== null) persistApproval(key, spec);
       return answer;
     });
   promptChain = decision;
-  inFlight.set(key, decision);
+  inFlight.set(flightKey, decision);
   try {
     return await decision;
   } finally {
-    inFlight.delete(key);
+    inFlight.delete(flightKey);
   }
 }

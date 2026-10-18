@@ -143,6 +143,18 @@ export function isPathSafe(filePath: string): boolean {
     );
     if (!underAllowed) return false;
 
+    // Main-owned state lives directly in userData: electron-store files
+    // (`restura-*.json` — secret handles, stdio consent, vault, …) and key
+    // blobs (dotfiles). The renderer-facing fs channels must never read or
+    // overwrite them, or a compromised renderer could forge main's own
+    // decisions. Subdirectories (e.g. userData/collections) stay reachable.
+    const sameDir = (a: string, b: string) =>
+      process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+    if (sameDir(path.dirname(resolved), userDataPath)) {
+      const base = path.basename(resolved);
+      if (base.startsWith('.') || base.toLowerCase().endsWith('.json')) return false;
+    }
+
     // $HOME-specific denylist
     if (resolved === homePath || resolved.startsWith(homePath + path.sep)) {
       const rel = path.relative(homePath, resolved);
