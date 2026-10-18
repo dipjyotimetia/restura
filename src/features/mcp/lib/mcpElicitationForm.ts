@@ -19,6 +19,19 @@ export interface ElicitationFormModel {
   initialValues: Record<string, string>;
 }
 
+const SECRET_NAME_RE =
+  /pass(word|wd|phrase)?|token|secret|api[-_ ]?key|credential|private[-_ ]?key/i;
+
+/** Field names / formats that suggest the server is phishing for a secret. */
+export function isSensitiveElicitationField(
+  name: string,
+  prop: { format?: string; title?: string }
+): boolean {
+  return (
+    prop.format === 'password' || SECRET_NAME_RE.test(name) || SECRET_NAME_RE.test(prop.title ?? '')
+  );
+}
+
 function describeChoices(values: unknown[]): string {
   return `One of: ${values.map(String).join(', ')}`;
 }
@@ -43,6 +56,7 @@ export function buildElicitationForm(requestedSchema: unknown): ElicitationFormM
       type,
       required: required.has(name),
       isComplex: type === 'array',
+      ...(isSensitiveElicitationField(name, prop) ? { sensitive: true } : {}),
       ...(description ? { description } : {}),
     });
     if (prop.default !== undefined) {

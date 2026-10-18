@@ -3,6 +3,7 @@ import { useAiChatStore } from '@/features/ai/store';
 import {
   describeSamplingRequest,
   draftSamplingWithAi,
+  MAX_SAMPLING_DRAFT_TOKENS,
   samplingDraftProvider,
 } from '../mcpSamplingDraft';
 
@@ -190,7 +191,7 @@ describe('draftSamplingWithAi', () => {
     const spec = ai.chat.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(spec.baseUrlOverride).toBe('http://localhost:11434/v1');
     expect(spec).not.toHaveProperty('apiKeyHandleId');
-    expect(spec).not.toHaveProperty('maxOutputTokens');
+    expect(spec.maxOutputTokens).toBe(MAX_SAMPLING_DRAFT_TOKENS);
     expect(spec.messages).toEqual([{ role: 'user', content: 'q' }]);
   });
 });
@@ -210,5 +211,48 @@ describe('describeSamplingRequest edge cases', () => {
       modelHints: [],
       priorities: [],
     });
+  });
+});
+
+describe('draft cancellation and limits', () => {
+  it('clamps an oversized maxTokens request', async () => {
+    ai.chat.mockImplementationOnce(async (spec: { streamId: string }) => {
+      queueMicrotask(() => endListeners.get(spec.streamId)?.({ reason: 'done' }));
+      return { ok: true, streamId: spec.streamId };
+    });
+    await draftSamplingWithAi(describeSamplingRequest({ messages: [], maxTokens: 10_000_000 }));
+    expect(ai.chat.mock.calls[0]?.[0]).toMatchObject({
+      maxOutputTokens: MAX_SAMPLING_DRAFT_TOKENS,
+    });
+  });
+
+  it('cancels the provider stream when aborted mid-draft', async () => {
+    let streamId = '';
+    ai.chat.mockImplementationOnce(async (spec: { streamId: string }) => {
+      streamId = spec.streamId;
+      queueMicrotask(() => chunkListeners.get(spec.streamId)?.({ type: 'delta', text: 'par' }));
+      return { ok: true, streamId: spec.streamId };
+    });
+    const controller = new AbortController();
+    const result = draftSamplingWithAi(
+      describeSamplingRequest({ messages: [] }),
+      () => controller.abort(),
+      controller.signal
+    );
+    await expect(result).resolves.toEqual({ ok: false, error: 'Draft cancelled' });
+    expect(ai.cancel).toHaveBeenCalledWith({ streamId });
+  });
+
+  it('cancels immediately when already aborted before the stream starts', async () => {
+    ai.chat.mockImplementationOnce(async (spec: { streamId: string }) => ({
+      ok: true,
+      streamId: spec.streamId,
+    }));
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      draftSamplingWithAi(describeSamplingRequest({ messages: [] }), undefined, controller.signal)
+    ).resolves.toEqual({ ok: false, error: 'Draft cancelled' });
+    expect(ai.cancel).toHaveBeenCalledTimes(1);
   });
 });

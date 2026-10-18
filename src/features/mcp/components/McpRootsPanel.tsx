@@ -41,7 +41,7 @@ export function McpRootsPanel({ roots, onSave }: McpRootsPanelProps) {
 
   const save = async () => {
     if (invalid !== -1) {
-      setError('Every root must be a file:// URI.');
+      setError('Every root must be a local file:// URI (no remote host).');
       return;
     }
     setSaving(true);
@@ -124,7 +124,7 @@ export function McpRootsPanel({ roots, onSave }: McpRootsPanelProps) {
                 variant="ghost"
                 size="sm"
                 disabled={draft.length >= MAX_ROOTS}
-                onClick={() => setDraft((current) => [...current, { uri: 'file:///' }])}
+                onClick={() => setDraft((current) => [...current, { uri: '' }])}
               >
                 <Plus />
                 Add root

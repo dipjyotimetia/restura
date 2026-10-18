@@ -1,3 +1,4 @@
+import { isLocalFileRootUri } from '@shared/protocol/mcp-roots';
 import { z } from 'zod';
 import { McpConnectionIdSchema } from './core';
 
@@ -9,6 +10,7 @@ import { McpConnectionIdSchema } from './core';
 const McpClientRequestIdSchema = z.uuid();
 
 const MAX_SAMPLING_TEXT_LENGTH = 1_000_000;
+const MAX_ELICITATION_CONTENT_KEYS = 100;
 
 /**
  * Elicitation answer. `content` is only shape-checked here; main validates it
@@ -17,15 +19,19 @@ const MAX_SAMPLING_TEXT_LENGTH = 1_000_000;
 const ElicitationResponseSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('accept'),
-    content: z.record(
-      z.string().max(256),
-      z.union([
-        z.string().max(100_000),
-        z.number(),
-        z.boolean(),
-        z.array(z.string().max(10_000)).max(1_000),
-      ])
-    ),
+    content: z
+      .record(
+        z.string().max(256),
+        z.union([
+          z.string().max(100_000),
+          z.number(),
+          z.boolean(),
+          z.array(z.string().max(10_000)).max(1_000),
+        ])
+      )
+      .refine((content) => Object.keys(content).length <= MAX_ELICITATION_CONTENT_KEYS, {
+        message: `Elicitation content may have at most ${MAX_ELICITATION_CONTENT_KEYS} fields`,
+      }),
   }),
   z.object({ action: z.literal('decline') }),
   z.object({ action: z.literal('cancel') }),
@@ -56,21 +62,11 @@ export const McpClientResponseSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
-/** MCP roots MUST be `file://` URIs (spec 2025-06-18 "Client → Roots"). */
+/** Roots must be local `file://` URIs (see `isLocalFileRootUri`). */
 export const McpRootSchema = z.object({
-  uri: z
-    .string()
-    .max(4096)
-    .refine(
-      (uri) => {
-        try {
-          return new URL(uri).protocol === 'file:';
-        } catch {
-          return false;
-        }
-      },
-      { message: 'Root URI must be a file:// URI' }
-    ),
+  uri: z.string().max(4096).refine(isLocalFileRootUri, {
+    message: 'Root URI must be a local file:// URI (no host other than localhost, no credentials)',
+  }),
   name: z.string().max(256).optional(),
 });
 

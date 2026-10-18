@@ -57,12 +57,15 @@ export function McpElicitationPrompt({ params, onRespond }: McpElicitationPrompt
   return (
     <form
       className="space-y-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        accept();
-      }}
+      // Enter in a field must never accept: submitting is an explicit click only.
+      onSubmit={(event) => event.preventDefault()}
     >
-      <p className="text-sp-13 text-sp-text whitespace-pre-wrap break-words">{message}</p>
+      <div
+        className="max-h-[20vh] overflow-y-auto rounded-sp-btn border border-sp-line bg-sp-surface-lo px-3 py-2"
+        aria-label="Server message"
+      >
+        <p className="text-sp-13 text-sp-text whitespace-pre-wrap break-words">{message}</p>
+      </div>
       {form ? (
         <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
           {form.fields.map((field) => (
@@ -100,11 +103,12 @@ export function McpElicitationPrompt({ params, onRespond }: McpElicitationPrompt
           variant="outline"
           size="sm"
           disabled={busy}
+          data-mcp-autofocus
           onClick={() => void send({ action: 'decline' })}
         >
           Decline
         </Button>
-        <Button type="submit" variant="cta" size="cta" disabled={busy || !form}>
+        <Button type="button" variant="cta" size="cta" disabled={busy || !form} onClick={accept}>
           Accept
         </Button>
       </div>

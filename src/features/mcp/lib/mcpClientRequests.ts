@@ -1,3 +1,4 @@
+import { isLocalFileRootUri } from '@shared/protocol/mcp-roots';
 import {
   type McpClientRequestKind,
   type McpPendingClientRequest,
@@ -73,6 +74,15 @@ export function subscribeMcpClientRequests(connectionId: string): () => void {
   return () => {
     api.removeListener(requestChannel, onRequest);
     api.removeListener(cancelledChannel, onCancelled);
+    // Answer anything still queued so main settles it now instead of orphaning
+    // it until the timeout (a no-op "Unknown client request" if already closed).
+    for (const request of useMcpClientRequestStore.getState().requests) {
+      if (request.connectionId !== connectionId) continue;
+      void respond(
+        request,
+        request.kind === 'elicitation' ? { action: 'cancel' } : { action: 'reject' }
+      );
+    }
     useMcpClientRequestStore.getState().clearConnection(connectionId);
   };
 }
@@ -142,11 +152,7 @@ export async function pushMcpRoots(
   }
 }
 
-/** Client-side check mirroring main's validator: roots MUST be file:// URIs. */
+/** Client-side check mirroring main's validator: local file:// URIs only. */
 export function isValidRootUri(uri: string): boolean {
-  try {
-    return new URL(uri).protocol === 'file:';
-  } catch {
-    return false;
-  }
+  return isLocalFileRootUri(uri);
 }

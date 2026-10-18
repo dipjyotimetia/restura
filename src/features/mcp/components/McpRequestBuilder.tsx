@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Floater } from '@/components/ui/spatial';
-import { McpClientRequestDialog } from '@/features/mcp/components/McpClientRequestDialog';
+import {
+  displayHost,
+  McpClientRequestDialog,
+} from '@/features/mcp/components/McpClientRequestDialog';
 import { McpConnectionPanel } from '@/features/mcp/components/McpConnectionPanel';
 import {
   McpDiscoveryPanel,
@@ -340,7 +343,11 @@ export default function McpRequestBuilder() {
           }}
         />
       )}
-      <McpClientRequestDialog connectionId={active.id} />
+      <McpClientRequestDialog
+        connectionId={active.id}
+        connectionName={request.name || 'MCP connection'}
+        serverHost={displayHost(resolveVariables(request.url))}
+      />
 
       <div className="flex-1 flex gap-2.5 px-3 pb-3 overflow-hidden min-h-0">
         {showCatalog && (

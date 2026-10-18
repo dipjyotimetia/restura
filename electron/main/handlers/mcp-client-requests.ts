@@ -4,6 +4,7 @@ import { createLogger } from '@shared/runtime/logger';
 import { ipcMain, type WebContents } from 'electron';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
+import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
   createValidatedEventHandler,
@@ -42,6 +43,11 @@ const log = createLogger('mcp-client-requests');
 export const MCP_CLIENT_REQUEST_TIMEOUT_MS = 5 * 60_000;
 /** A server cannot park more than this many prompts on one connection. */
 export const MAX_PENDING_CLIENT_REQUESTS = 8;
+/** Largest server request (serialised params) forwarded to the renderer. */
+export const MAX_CLIENT_REQUEST_PARAMS_BYTES = 100_000;
+/** Per-renderer IPC budgets: answers are human-paced; roots edits rarer still. */
+export const mcpClientResponseRateLimiter = createKeyedRateLimiter(120, 60_000);
+export const mcpSetRootsRateLimiter = createKeyedRateLimiter(20, 60_000);
 /** Bound on distinct connection ids a single renderer may store roots for. */
 const MAX_ROOT_ENTRIES_PER_OWNER = 64;
 
@@ -51,8 +57,17 @@ export const MCP_CLIENT_REQUEST_ERRORS = {
   userRejected: -1,
   /** Matches the SDK's RequestTimeout code. */
   timeout: -32001,
+  invalidParams: -32602,
   internal: -32603,
 } as const;
+
+function serialisedLength(value: unknown): number {
+  try {
+    return JSON.stringify(value)?.length ?? 0;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
 
 export type McpClientRequestKind = 'elicitation' | 'sampling';
 
@@ -201,6 +216,15 @@ export class McpClientRequestBridge implements McpSdkClientRequestHandlers {
     if (signal.aborted) {
       return Promise.reject(
         new McpClientRequestError(MCP_CLIENT_REQUEST_ERRORS.internal, 'Request cancelled')
+      );
+    }
+    // Bound what a server can push into the renderer (message + requestedSchema).
+    if (serialisedLength(params) > MAX_CLIENT_REQUEST_PARAMS_BYTES) {
+      return Promise.reject(
+        new McpClientRequestError(
+          MCP_CLIENT_REQUEST_ERRORS.invalidParams,
+          `Client request exceeds ${MAX_CLIENT_REQUEST_PARAMS_BYTES} bytes`
+        )
       );
     }
     let open = 0;
@@ -369,14 +393,20 @@ export async function setMcpRoots(
 export function registerMcpClientRequestIPC(): void {
   ipcMain.handle(
     IPC.mcp.clientResponse,
-    createValidatedEventHandler(IPC.mcp.clientResponse, McpClientResponseSchema, (input, event) =>
-      resolveMcpClientResponse(input, event.sender.id)
+    rateLimited(
+      mcpClientResponseRateLimiter,
+      createValidatedEventHandler(IPC.mcp.clientResponse, McpClientResponseSchema, (input, event) =>
+        resolveMcpClientResponse(input, event.sender.id)
+      )
     )
   );
   ipcMain.handle(
     IPC.mcp.setRoots,
-    createValidatedEventHandler(IPC.mcp.setRoots, McpSetRootsSchema, (input, event) =>
-      setMcpRoots(input.connectionId, input.roots, event.sender)
+    rateLimited(
+      mcpSetRootsRateLimiter,
+      createValidatedEventHandler(IPC.mcp.setRoots, McpSetRootsSchema, (input, event) =>
+        setMcpRoots(input.connectionId, input.roots, event.sender)
+      )
     )
   );
 }

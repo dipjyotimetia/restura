@@ -77,6 +77,9 @@ export function samplingDraftProvider(): { provider: string; model: string } | n
   return { provider: activeProvider, model: config.defaultModel };
 }
 
+/** Upper bound on a draft's output tokens, whatever the server asked for. */
+export const MAX_SAMPLING_DRAFT_TOKENS = 4096;
+
 export type SamplingDraftResult =
   | { ok: true; text: string; model: string }
   | { ok: false; error: string };
@@ -84,7 +87,8 @@ export type SamplingDraftResult =
 /** Ask the configured AI assistant provider for a draft response. */
 export async function draftSamplingWithAi(
   view: SamplingRequestView,
-  onDelta?: (textSoFar: string) => void
+  onDelta?: (textSoFar: string) => void,
+  signal?: AbortSignal
 ): Promise<SamplingDraftResult> {
   const ai = getElectronAPI()?.ai;
   if (!ai) return { ok: false, error: 'AI provider drafts are only available in the desktop app.' };
@@ -109,16 +113,36 @@ export async function draftSamplingWithAi(
     ...(config.baseUrlOverride ? { baseUrlOverride: config.baseUrlOverride } : {}),
     // Keep the secret-redaction guard on: server-supplied prompts are untrusted.
     rawMode: false,
-    ...(view.maxTokens ? { maxOutputTokens: view.maxTokens } : {}),
+    maxOutputTokens: Math.min(
+      view.maxTokens ?? MAX_SAMPLING_DRAFT_TOKENS,
+      MAX_SAMPLING_DRAFT_TOKENS
+    ),
   });
   if (!started.ok) {
     await iterator.return?.();
     return { ok: false, error: started.error };
   }
 
+  // The dialog aborts on unmount / answer: stop the provider stream in main too.
+  const cancelled = new Promise<'cancelled'>((resolve) => {
+    if (signal?.aborted) resolve('cancelled');
+    signal?.addEventListener('abort', () => resolve('cancelled'), { once: true });
+  });
+  if (signal?.aborted) {
+    void ai.cancel({ streamId });
+    await iterator.return?.();
+    return { ok: false, error: 'Draft cancelled' };
+  }
+
   let text = '';
   for (;;) {
-    const { value: event, done } = await iterator.next();
+    const next = await Promise.race([iterator.next(), cancelled]);
+    if (next === 'cancelled') {
+      void ai.cancel({ streamId });
+      await iterator.return?.();
+      return { ok: false, error: 'Draft cancelled' };
+    }
+    const { value: event, done } = next;
     if (done) break;
     if (event.type === 'delta') {
       text += event.text;

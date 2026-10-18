@@ -13,6 +13,7 @@ vi.mock('../ipc/ipc-utils', async (importOriginal) => {
 });
 
 import {
+  MAX_CLIENT_REQUEST_PARAMS_BYTES,
   MAX_PENDING_CLIENT_REQUESTS,
   MCP_CLIENT_REQUEST_ERRORS,
   McpClientRequestBridge,
@@ -431,5 +432,78 @@ describe('IPC registration', () => {
     // Renderer destruction forgets its stored roots.
     renderer.destroy();
     expect(new McpClientRequestBridge('conn-5', 11).listRoots()).toEqual({ roots: [] });
+  });
+});
+
+describe('security hardening', () => {
+  it('rejects oversized server requests without prompting (L2)', async () => {
+    const bridge = new McpClientRequestBridge('conn-big', 7);
+    const params = {
+      message: 'x'.repeat(MAX_CLIENT_REQUEST_PARAMS_BYTES),
+      requestedSchema: { type: 'object', properties: {} },
+    };
+    await expect(bridge.elicit(params, new AbortController().signal)).rejects.toMatchObject({
+      code: MCP_CLIENT_REQUEST_ERRORS.invalidParams,
+    });
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    await expect(
+      bridge.createMessage(circular, new AbortController().signal)
+    ).rejects.toMatchObject({ code: MCP_CLIENT_REQUEST_ERRORS.invalidParams });
+    expect(mockEmitTo).not.toHaveBeenCalled();
+  });
+
+  it('rate-limits client responses and roots updates per renderer (M1)', async () => {
+    registerMcpClientRequestIPC();
+    const respond = handlerFor('mcp:client-response');
+    const setRoots = handlerFor('mcp:set-roots');
+    const renderer = trustedEvent(501);
+    for (let i = 0; i < 20; i++) {
+      await setRoots(renderer.event, { connectionId: 'conn-rl', roots: [] });
+    }
+    await expect(setRoots(renderer.event, { connectionId: 'conn-rl', roots: [] })).rejects.toThrow(
+      'Rate limit exceeded'
+    );
+    // Another renderer has its own budget.
+    await expect(
+      setRoots(trustedEvent(502).event, { connectionId: 'conn-rl', roots: [] })
+    ).resolves.toMatchObject({ success: true });
+
+    const answer = {
+      kind: 'elicitation',
+      connectionId: 'conn-rl',
+      requestId: '9b2f8a3e-4c1d-4e5f-8a9b-0c1d2e3f4a5b',
+      response: { action: 'cancel' },
+    };
+    for (let i = 0; i < 120; i++) await respond(renderer.event, answer);
+    await expect(respond(renderer.event, answer)).rejects.toThrow('Rate limit exceeded');
+  });
+
+  it('rejects non-local roots and oversized elicitation content (L3, L6)', async () => {
+    registerMcpClientRequestIPC();
+    const respond = handlerFor('mcp:client-response');
+    const setRoots = handlerFor('mcp:set-roots');
+    const renderer = trustedEvent(503);
+    for (const uri of ['file://fileserver/share', 'file://user:pw@localhost/a', 'file:///']) {
+      await expect(
+        setRoots(renderer.event, { connectionId: 'conn-l3', roots: [{ uri }] })
+      ).rejects.toThrow();
+    }
+    await expect(
+      setRoots(renderer.event, {
+        connectionId: 'conn-l3',
+        roots: [{ uri: 'file://localhost/work' }],
+      })
+    ).resolves.toMatchObject({ success: true });
+
+    const content = Object.fromEntries(Array.from({ length: 101 }, (_, i) => [`k${i}`, true]));
+    await expect(
+      respond(renderer.event, {
+        kind: 'elicitation',
+        connectionId: 'conn-l3',
+        requestId: '9b2f8a3e-4c1d-4e5f-8a9b-0c1d2e3f4a5b',
+        response: { action: 'accept', content },
+      })
+    ).rejects.toThrow(/at most 100 fields/);
   });
 });

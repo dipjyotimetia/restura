@@ -1,5 +1,5 @@
 import { Sparkles } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { CodeEditorFrame, TextField } from '@/components/ui/spatial';
 import type {
@@ -32,8 +32,13 @@ export function McpSamplingPrompt({ params, onRespond }: McpSamplingPromptProps)
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [drafting, setDrafting] = useState(false);
+  const draftAbortRef = useRef<AbortController | null>(null);
+
+  // Stop an in-flight provider draft when the prompt settles or unmounts.
+  useEffect(() => () => draftAbortRef.current?.abort(), []);
 
   const send = async (response: McpSamplingResponse) => {
+    draftAbortRef.current?.abort();
     setBusy(true);
     const result = await onRespond(response);
     setBusy(false);
@@ -41,9 +46,13 @@ export function McpSamplingPrompt({ params, onRespond }: McpSamplingPromptProps)
   };
 
   const draft = async () => {
+    draftAbortRef.current?.abort();
+    const controller = new AbortController();
+    draftAbortRef.current = controller;
     setDrafting(true);
     setError(null);
-    const result = await draftSamplingWithAi(view, setText);
+    const result = await draftSamplingWithAi(view, setText, controller.signal);
+    if (controller.signal.aborted) return;
     setDrafting(false);
     if (result.ok) {
       setText(result.text);
@@ -126,6 +135,7 @@ export function McpSamplingPrompt({ params, onRespond }: McpSamplingPromptProps)
           variant="outline"
           size="sm"
           disabled={busy}
+          data-mcp-autofocus
           onClick={() => void send({ action: 'reject' })}
         >
           Reject

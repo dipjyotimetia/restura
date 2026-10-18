@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildElicitationContent, buildElicitationForm } from '../mcpElicitationForm';
+import {
+  buildElicitationContent,
+  buildElicitationForm,
+  isSensitiveElicitationField,
+} from '../mcpElicitationForm';
 
 const schema = {
   type: 'object',
@@ -111,4 +115,20 @@ describe('buildElicitationForm edge cases', () => {
       initialValues: { flag: 'true' },
     });
   });
+});
+
+describe('isSensitiveElicitationField', () => {
+  it.each([
+    ['password', {}],
+    ['apiKey', {}],
+    ['api_key', {}],
+    ['githubToken', {}],
+    ['clientSecret', {}],
+    ['code', { format: 'password' }],
+    ['field', { title: 'Your passphrase' }],
+  ])('flags %s', (name, prop) => expect(isSensitiveElicitationField(name, prop)).toBe(true));
+
+  it.each(['email', 'environment', 'confirm'])('does not flag %s', (name) =>
+    expect(isSensitiveElicitationField(name, {})).toBe(false)
+  );
 });

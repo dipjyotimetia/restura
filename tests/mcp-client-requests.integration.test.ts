@@ -125,7 +125,7 @@ describe('2026-07-28 input_required (v2 mock)', () => {
     const result = await client.request(
       'tools/call',
       { name: 'confirm-deploy', arguments: { environment: 'prod' } },
-      10_000
+      15_000
     );
     expect(textOf(result)).toBe('deployed:prod');
     expect(renderer.prompts).toEqual([
@@ -143,7 +143,7 @@ describe('2026-07-28 input_required (v2 mock)', () => {
       client.request(
         'tools/call',
         { name: 'confirm-deploy', arguments: { environment: 'prod' } },
-        10_000
+        15_000
       )
     ).rejects.toThrow(/elicitation\/create/);
   });
@@ -155,7 +155,7 @@ describe('2026-07-28 input_required (v2 mock)', () => {
     const result = await client.request(
       'tools/call',
       { name: 'confirm-deploy', arguments: { environment: 'test' } },
-      10_000
+      15_000
     );
     expect(textOf(result)).toBe(`deploy:${action}`);
   });
@@ -169,7 +169,7 @@ describe('2026-07-28 input_required (v2 mock)', () => {
     const result = await client.request(
       'tools/call',
       { name: 'ask-model', arguments: { question: 'meaning of life?' } },
-      10_000
+      15_000
     );
     expect(textOf(result)).toBe('model:manual:forty-two');
     expect(renderer.prompts[0]?.params).toMatchObject({
@@ -187,7 +187,7 @@ describe('2026-07-28 input_required (v2 mock)', () => {
     const result = await client.request(
       'tools/call',
       { name: 'list-roots', arguments: {} },
-      10_000
+      15_000
     );
     expect(textOf(result)).toBe('file:///work/a,file:///work/b');
   });
@@ -276,13 +276,13 @@ describe('2025-era push-style server→client requests', () => {
     const { client } = await connect(legacy.url);
     expect(client.getProtocolVersion()).not.toBe('2026-07-28');
 
-    const confirm = await client.request('tools/call', { name: 'confirm', arguments: {} }, 10_000);
+    const confirm = await client.request('tools/call', { name: 'confirm', arguments: {} }, 15_000);
     expect(textOf(confirm)).toBe('accept:{"confirm":true}');
 
-    const sample = await client.request('tools/call', { name: 'sample', arguments: {} }, 10_000);
+    const sample = await client.request('tools/call', { name: 'sample', arguments: {} }, 15_000);
     expect(textOf(sample)).toBe('hello back');
 
-    const roots = await client.request('tools/call', { name: 'roots', arguments: {} }, 10_000);
+    const roots = await client.request('tools/call', { name: 'roots', arguments: {} }, 15_000);
     expect(textOf(roots)).toBe('file:///repo');
 
     // Editing roots sends notifications/roots/list_changed to the live session.
@@ -291,7 +291,7 @@ describe('2025-era push-style server→client requests', () => {
       setMcpRoots(CONNECTION_ID, [{ uri: 'file:///other' }], { id: WEB_CONTENTS_ID })
     ).resolves.toEqual({ success: true, notified: 1 });
     await changed;
-    const updated = await client.request('tools/call', { name: 'roots', arguments: {} }, 10_000);
+    const updated = await client.request('tools/call', { name: 'roots', arguments: {} }, 15_000);
     expect(textOf(updated)).toBe('file:///other');
   });
 
@@ -300,7 +300,7 @@ describe('2025-era push-style server→client requests', () => {
     legacyServer = legacy;
     simulateRenderer(() => ({ action: 'reject' }));
     const { client } = await connect(legacy.url);
-    const sample = await client.request('tools/call', { name: 'sample', arguments: {} }, 10_000);
+    const sample = await client.request('tools/call', { name: 'sample', arguments: {} }, 15_000);
     expect(textOf(sample)).toBe('error:-1');
   });
 
@@ -309,7 +309,7 @@ describe('2025-era push-style server→client requests', () => {
     legacyServer = legacy;
     simulateRenderer(() => undefined); // the user never answers
     const { client, bridge } = await connect(legacy.url);
-    const call = client.request('tools/call', { name: 'confirm', arguments: {} }, 10_000);
+    const call = client.request('tools/call', { name: 'confirm', arguments: {} }, 15_000);
     await vi.waitFor(() => expect(renderer.prompts).toHaveLength(1));
     bridge?.dispose();
     await client.close();

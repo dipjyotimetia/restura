@@ -31,6 +31,7 @@ beforeEach(() => {
   listeners.clear();
   vi.clearAllMocks();
   useMcpClientRequestStore.setState({ requests: [] });
+  mcp.respondClientRequest.mockResolvedValue({ success: true });
   (window as unknown as { electron: unknown }).electron = { isElectron: true, mcp };
 });
 
@@ -67,6 +68,13 @@ describe('subscribeMcpClientRequests', () => {
     const unsubscribe = subscribeMcpClientRequests('conn-1');
     emit('mcp:client-request:conn-1', { requestId: REQUEST_ID, kind: 'sampling', params: {} });
     unsubscribe();
+    // L4: the orphaned prompt is answered in main right away, not left to time out.
+    expect(mcp.respondClientRequest).toHaveBeenCalledWith({
+      kind: 'sampling',
+      connectionId: 'conn-1',
+      requestId: REQUEST_ID,
+      response: { action: 'reject' },
+    });
     expect(mcp.removeListener).toHaveBeenCalledTimes(2);
     expect(listeners.get('mcp:client-request:conn-1')?.size).toBe(0);
     expect(listeners.get('mcp:client-request-cancelled:conn-1')?.size).toBe(0);
@@ -211,5 +219,30 @@ describe('useMcpClientRequestStore', () => {
     useMcpClientRequestStore.getState().add(request);
     useMcpClientRequestStore.getState().add({ ...request, receivedAt: 1 });
     expect(useMcpClientRequestStore.getState().requests).toEqual([request]);
+  });
+});
+
+describe('unsubscribe cancels queued prompts', () => {
+  it('sends cancel for elicitation and leaves other connections alone', () => {
+    const unsubscribe = subscribeMcpClientRequests('conn-1');
+    emit('mcp:client-request:conn-1', { requestId: REQUEST_ID, kind: 'elicitation', params: {} });
+    useMcpClientRequestStore.getState().add({
+      requestId: 'other',
+      connectionId: 'conn-2',
+      kind: 'elicitation',
+      params: {},
+      receivedAt: 0,
+    });
+    unsubscribe();
+    expect(mcp.respondClientRequest).toHaveBeenCalledTimes(1);
+    expect(mcp.respondClientRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: REQUEST_ID, response: { action: 'cancel' } })
+    );
+    expect(useMcpClientRequestStore.getState().requests.map((r) => r.requestId)).toEqual(['other']);
+  });
+
+  it('only accepts local file:// roots', () => {
+    expect(isValidRootUri('file://localhost/a')).toBe(true);
+    expect(isValidRootUri('file://server/share')).toBe(false);
   });
 });

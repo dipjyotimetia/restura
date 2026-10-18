@@ -1,4 +1,5 @@
-import { Bot, ClipboardList } from 'lucide-react';
+import { Bot, ClipboardList, ShieldAlert } from 'lucide-react';
+import { useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   Dialog,
@@ -14,6 +15,19 @@ import { useMcpClientRequestStore } from '@/features/mcp/store/useMcpClientReque
 
 interface McpClientRequestDialogProps {
   connectionId: string;
+  /** Who is asking: shown so a prompt can't pass itself off as Restura or another server. */
+  connectionName: string;
+  /** Host of the (resolved) server URL. */
+  serverHost: string;
+}
+
+/** Host of a server URL for display; falls back to the raw string. */
+export function displayHost(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
 }
 
 /**
@@ -21,10 +35,15 @@ interface McpClientRequestDialogProps {
  * Dismissing the dialog is an explicit answer: `cancel` for elicitation,
  * `reject` for sampling — a prompt is never silently left open or approved.
  */
-export function McpClientRequestDialog({ connectionId }: McpClientRequestDialogProps) {
+export function McpClientRequestDialog({
+  connectionId,
+  connectionName,
+  serverHost,
+}: McpClientRequestDialogProps) {
   const queue = useMcpClientRequestStore(
     useShallow((state) => state.requests.filter((request) => request.connectionId === connectionId))
   );
+  const contentRef = useRef<HTMLDivElement>(null);
   const request = queue[0];
   if (!request) return null;
 
@@ -41,7 +60,16 @@ export function McpClientRequestDialog({ connectionId }: McpClientRequestDialogP
         if (!open) dismiss();
       }}
     >
-      <DialogContent className="max-w-xl">
+      <DialogContent
+        key={request.requestId}
+        ref={contentRef}
+        className="max-w-xl"
+        // Land on the safe action (Decline / Reject), never in a field or on Accept.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          contentRef.current?.querySelector<HTMLElement>('[data-mcp-autofocus]')?.focus();
+        }}
+      >
         <DialogHeader icon={isElicitation ? ClipboardList : Bot} tone="warning">
           <DialogTitle>
             {isElicitation ? 'MCP server requests input' : 'MCP server requests a model response'}
@@ -53,6 +81,24 @@ export function McpClientRequestDialog({ connectionId }: McpClientRequestDialogP
             {queue.length > 1 ? ` (${queue.length - 1} more waiting)` : ''}
           </DialogDescription>
         </DialogHeader>
+        <p className="font-mono text-sp-12 text-sp-muted break-all">
+          Connection: <span className="text-sp-text">{connectionName}</span> ({serverHost})
+        </p>
+        {/* Fixed client-authored warning — never server-controlled text. */}
+        <div
+          role="note"
+          className="flex items-start gap-2 rounded-sp-btn border px-3 py-2 text-sp-12"
+          style={{
+            color: 'var(--color-warning)',
+            background: 'color-mix(in srgb, var(--color-warning) 8%, transparent)',
+            borderColor: 'color-mix(in srgb, var(--color-warning) 25%, transparent)',
+          }}
+        >
+          <ShieldAlert className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+          <span>
+            Anything you enter is sent to {serverHost}. Never enter passwords or API keys.
+          </span>
+        </div>
         {isElicitation ? (
           <McpElicitationPrompt
             key={request.requestId}
