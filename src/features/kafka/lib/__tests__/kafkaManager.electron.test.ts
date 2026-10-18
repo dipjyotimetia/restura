@@ -233,6 +233,7 @@ describe('kafkaManager (Electron path)', () => {
     const id = useKafkaStore.getState().createConnection();
     await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
     useKafkaStore.getState().updateConsumer(id, {
+      membership: 'group',
       fallbackMode: 'fail',
       commitPolicy: 'manual',
       isolation: 'read-committed',
@@ -281,6 +282,42 @@ describe('kafkaManager (Electron path)', () => {
       groupState: 'unknown',
       lag: [{ topic: 'orders', offsets: ['3'] }],
     });
+  });
+
+  it('subscribes a default (browse) connection without any group or commit settings', async () => {
+    const { kafka } = installElectronMock();
+    const id = useKafkaStore.getState().createConnection();
+    await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+    useKafkaStore.getState().updateConsumer(id, { lastN: 5, maxMessages: 20 });
+
+    await kafkaManager.subscribe({
+      connectionId: id,
+      groupId: `restura-${id.slice(0, 8)}`,
+      topics: ['orders'],
+      fromBeginning: false,
+    });
+
+    const calls = kafka.subscribe.mock.calls as unknown as Array<[Record<string, unknown>]>;
+    const payload = calls.at(-1)?.[0];
+    expect(payload).toMatchObject({
+      membership: 'browse',
+      mode: 'last-n',
+      lastN: 5,
+      maxMessages: 20,
+      isolation: 'read-uncommitted',
+    });
+    for (const key of [
+      'groupId',
+      'commitPolicy',
+      'groupProtocol',
+      'fallbackMode',
+      'lagIntervalMs',
+    ]) {
+      expect(payload).not.toHaveProperty(key);
+    }
+    expect(useKafkaStore.getState().connections[id]!.messages.at(-1)?.value).toBe(
+      'Browsing orders (read-only, no consumer group)'
+    );
   });
 
   it('normalizes native topic and group admin success and error responses', async () => {

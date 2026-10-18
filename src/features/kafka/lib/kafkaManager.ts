@@ -18,6 +18,7 @@ import type {
   KafkaRegistryIpc,
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
+import { isKafkaBrowse, type KafkaSubscribePayload, toBrowseSubscribe } from './kafkaBrowse';
 
 export type KafkaSecretField =
   | 'sasl-password'
@@ -322,7 +323,7 @@ class KafkaManager {
     groupId: string;
     topics: string[];
     fromBeginning: boolean;
-    mode?: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp';
+    mode?: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp' | 'last-n';
     offsets?: Array<{ topic: string; partition: number; offset: string }>;
     timestamp?: string;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -342,7 +343,7 @@ class KafkaManager {
     this.bindMessageListener(params.connectionId);
 
     const consumer = store.connections[params.connectionId]?.consumer;
-    const result = await api.kafka.subscribe({
+    const payload: KafkaSubscribePayload = {
       connectionId: params.connectionId,
       groupId: params.groupId,
       topics: params.topics,
@@ -373,7 +374,11 @@ class KafkaManager {
       ...(consumer?.highWaterMark ? { highWaterMark: consumer.highWaterMark } : {}),
       ...(params.offsets ? { offsets: params.offsets } : {}),
       ...(params.timestamp ? { timestamp: params.timestamp } : {}),
-    });
+    };
+    const browse = isKafkaBrowse(consumer);
+    const result = await api.kafka.subscribe(
+      browse ? toBrowseSubscribe(payload, consumer ?? {}) : payload
+    );
     if (!result.success) {
       store.updateConsumer(params.connectionId, { status: 'error' });
       const msg = result.error ?? 'Subscribe failed';
@@ -392,7 +397,9 @@ class KafkaManager {
     store.addMessage(params.connectionId, {
       direction: 'system',
       topic: params.topics.join(','),
-      value: `Subscribed to ${params.topics.join(', ')} (groupId=${params.groupId})`,
+      value: browse
+        ? `Browsing ${params.topics.join(', ')} (read-only, no consumer group)`
+        : `Subscribed to ${params.topics.join(', ')} (groupId=${params.groupId})`,
     });
     return { ok: true };
   }

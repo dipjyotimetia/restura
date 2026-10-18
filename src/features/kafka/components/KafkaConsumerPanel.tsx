@@ -4,20 +4,55 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Floater } from '@/components/ui/spatial';
+import { Floater, Segmented } from '@/components/ui/spatial';
 import { TabsContent } from '@/components/ui/tabs';
-import type { KafkaConnection, KafkaConsumerState } from '@/features/kafka/store/useKafkaStore';
+import { isKafkaBrowse } from '@/features/kafka/lib/kafkaBrowse';
+import {
+  KAFKA_DEFAULT_BROWSE_LAST_N,
+  type KafkaConnection,
+  type KafkaConsumerMembership,
+  type KafkaConsumerState,
+} from '@/features/kafka/store/useKafkaStore';
 import { KAFKA_PINK } from './shared';
 
-export type ConsumeMode = 'committed' | 'latest' | 'earliest' | 'from-offset' | 'from-timestamp';
+export type ConsumeMode =
+  | 'committed'
+  | 'latest'
+  | 'earliest'
+  | 'from-offset'
+  | 'from-timestamp'
+  | 'last-n';
 
 export const CONSUME_MODE_OPTIONS = [
   { value: 'committed' as const, label: 'Committed offset' },
   { value: 'latest' as const, label: 'Latest messages' },
   { value: 'earliest' as const, label: 'Earliest messages' },
+  { value: 'last-n' as const, label: 'Last N per partition' },
   { value: 'from-offset' as const, label: 'Specific offset' },
   { value: 'from-timestamp' as const, label: 'Timestamp' },
 ];
+
+const MEMBERSHIP_OPTIONS = [
+  { value: 'browse' as const, label: 'Browse' },
+  { value: 'group' as const, label: 'Consumer group' },
+];
+
+/** Start positions that only exist for one membership. */
+const GROUP_ONLY_START: ConsumeMode = 'committed';
+const BROWSE_ONLY_START: ConsumeMode = 'last-n';
+
+/** Group-only tuning hidden in browse mode (it never joins a group or commits). */
+const GROUP_ONLY_NUMERIC_FIELDS = new Set<string>([
+  'sessionTimeoutMs',
+  'rebalanceTimeoutMs',
+  'heartbeatIntervalMs',
+  'autoCommitIntervalMs',
+]);
+
+const positiveIntOrUndefined = (raw: string): number | undefined => {
+  const value = Number(raw);
+  return raw.trim() && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+};
 
 const consumerNumericFields = [
   ['sessionTimeoutMs', 'Session timeout (ms)'],
@@ -79,6 +114,19 @@ export function KafkaConsumerPanel({
   onResume,
   consumerPaused,
 }: KafkaConsumerPanelProps) {
+  const browse = isKafkaBrowse(connection.consumer);
+  const subscribed = connection.consumer.status === 'subscribed';
+  const startOptions = CONSUME_MODE_OPTIONS.filter(
+    (option) => option.value !== (browse ? GROUP_ONLY_START : BROWSE_ONLY_START)
+  );
+  const handleMembershipChange = (membership: KafkaConsumerMembership): void => {
+    updateConsumer(connection.id, { membership });
+    if (membership === 'browse' && consumeMode === GROUP_ONLY_START) {
+      onConsumeModeChange(BROWSE_ONLY_START);
+    } else if (membership === 'group' && consumeMode === BROWSE_ONLY_START) {
+      onConsumeModeChange(GROUP_ONLY_START);
+    }
+  };
   const subscriptionLabel =
     connection.consumer.status === 'subscribing'
       ? 'Subscribing'
@@ -92,13 +140,39 @@ export function KafkaConsumerPanel({
     <TabsContent value="consume" className="flex-1 overflow-auto m-0">
       <Floater radius="panel" className="p-3 space-y-3">
         <div className="space-y-2">
-          <Label className="text-xs sp-label">Consumer group ID</Label>
-          <Input
-            value={connection.consumer.groupId}
-            onChange={(event) => updateConsumer(connection.id, { groupId: event.target.value })}
-            className="h-8 text-xs font-mono"
-          />
+          {/* A disabled fieldset locks the toggle while a consumer is running. */}
+          <fieldset
+            disabled={subscribed}
+            className="flex flex-wrap items-center gap-2 disabled:opacity-60"
+          >
+            <Segmented
+              ariaLabel="Consume mode"
+              size="sm"
+              options={MEMBERSHIP_OPTIONS}
+              value={browse ? 'browse' : 'group'}
+              onChange={handleMembershipChange}
+            />
+            {browse && <Badge variant="outline">Read-only — no group</Badge>}
+          </fieldset>
+          <p className="text-sp-11 text-sp-dim">
+            {browse
+              ? 'Reads partitions directly: no consumer group is joined or created and no offsets are committed.'
+              : 'Joins the consumer group below and commits offsets according to the commit policy.'}
+          </p>
         </div>
+        {!browse && (
+          <div className="space-y-2">
+            <Label htmlFor="kafka-consumer-group-id" className="text-xs sp-label">
+              Consumer group ID
+            </Label>
+            <Input
+              id="kafka-consumer-group-id"
+              value={connection.consumer.groupId}
+              onChange={(event) => updateConsumer(connection.id, { groupId: event.target.value })}
+              className="h-8 text-xs font-mono"
+            />
+          </div>
+        )}
         <div className="space-y-2">
           <Label className="text-xs sp-label">Topics</Label>
           <div className="flex flex-wrap gap-1">
@@ -139,12 +213,54 @@ export function KafkaConsumerPanel({
             value={consumeMode}
             onChange={(event) => onConsumeModeChange(event.target.value as ConsumeMode)}
           >
-            {CONSUME_MODE_OPTIONS.map((option) => (
+            {startOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
           </select>
+          {consumeMode === 'last-n' && (
+            <div className="space-y-1 pt-1">
+              <Label htmlFor="kafka-consumer-last-n" className="text-xs sp-label">
+                Records per partition
+              </Label>
+              <Input
+                id="kafka-consumer-last-n"
+                type="number"
+                min={1}
+                value={connection.consumer.lastN ?? KAFKA_DEFAULT_BROWSE_LAST_N}
+                onChange={(event) =>
+                  updateConsumer(connection.id, {
+                    lastN: positiveIntOrUndefined(event.target.value),
+                  })
+                }
+                className="h-8 text-xs font-mono"
+              />
+              <p className="text-sp-11 text-sp-dim">
+                Starts each partition N records before its end, then keeps streaming new records.
+              </p>
+            </div>
+          )}
+          {browse && (
+            <div className="space-y-1 pt-1">
+              <Label htmlFor="kafka-consumer-max-messages" className="text-xs sp-label">
+                Stop after (records)
+              </Label>
+              <Input
+                id="kafka-consumer-max-messages"
+                type="number"
+                min={1}
+                value={connection.consumer.maxMessages ?? ''}
+                placeholder="Keep streaming"
+                onChange={(event) =>
+                  updateConsumer(connection.id, {
+                    maxMessages: positiveIntOrUndefined(event.target.value),
+                  })
+                }
+                className="h-8 text-xs font-mono"
+              />
+            </div>
+          )}
           {consumeMode === 'from-offset' && (
             <div className="grid grid-cols-1 gap-2 pt-1 md:grid-cols-2">
               <div className="space-y-1">
@@ -195,24 +311,26 @@ export function KafkaConsumerPanel({
             Delivery
           </h3>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <Label htmlFor="kafka-consumer-commit-policy" className="text-xs sp-label">
-                Commit policy
-              </Label>
-              <select
-                id="kafka-consumer-commit-policy"
-                className="h-8 w-full rounded border border-sp-line bg-sp-surface px-2 text-xs"
-                value={connection.consumer.commitPolicy}
-                onChange={(event) =>
-                  updateConsumer(connection.id, {
-                    commitPolicy: event.target.value as KafkaConsumerState['commitPolicy'],
-                  })
-                }
-              >
-                <option value="auto">Automatic</option>
-                <option value="manual">Manual per message</option>
-              </select>
-            </div>
+            {!browse && (
+              <div className="space-y-1">
+                <Label htmlFor="kafka-consumer-commit-policy" className="text-xs sp-label">
+                  Commit policy
+                </Label>
+                <select
+                  id="kafka-consumer-commit-policy"
+                  className="h-8 w-full rounded border border-sp-line bg-sp-surface px-2 text-xs"
+                  value={connection.consumer.commitPolicy}
+                  onChange={(event) =>
+                    updateConsumer(connection.id, {
+                      commitPolicy: event.target.value as KafkaConsumerState['commitPolicy'],
+                    })
+                  }
+                >
+                  <option value="auto">Automatic</option>
+                  <option value="manual">Manual per message</option>
+                </select>
+              </div>
+            )}
             <div className="space-y-1">
               <Label htmlFor="kafka-consumer-isolation" className="text-xs sp-label">
                 Isolation
@@ -231,25 +349,27 @@ export function KafkaConsumerPanel({
                 <option value="read-committed">Read committed</option>
               </select>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="kafka-consumer-group-protocol" className="text-xs sp-label">
-                Group protocol
-              </Label>
-              <select
-                id="kafka-consumer-group-protocol"
-                className="h-8 w-full rounded border border-sp-line bg-sp-surface px-2 text-xs"
-                value={connection.consumer.groupProtocol}
-                onChange={(event) =>
-                  updateConsumer(connection.id, {
-                    groupProtocol: event.target.value as KafkaConsumerState['groupProtocol'],
-                  })
-                }
-              >
-                <option value="classic">Classic</option>
-                <option value="consumer">Consumer</option>
-              </select>
-            </div>
-            {consumeMode === 'committed' && (
+            {!browse && (
+              <div className="space-y-1">
+                <Label htmlFor="kafka-consumer-group-protocol" className="text-xs sp-label">
+                  Group protocol
+                </Label>
+                <select
+                  id="kafka-consumer-group-protocol"
+                  className="h-8 w-full rounded border border-sp-line bg-sp-surface px-2 text-xs"
+                  value={connection.consumer.groupProtocol}
+                  onChange={(event) =>
+                    updateConsumer(connection.id, {
+                      groupProtocol: event.target.value as KafkaConsumerState['groupProtocol'],
+                    })
+                  }
+                >
+                  <option value="classic">Classic</option>
+                  <option value="consumer">Consumer</option>
+                </select>
+              </div>
+            )}
+            {!browse && consumeMode === 'committed' && (
               <div className="space-y-1">
                 <Label htmlFor="kafka-consumer-fallback" className="text-xs sp-label">
                   Missing commit fallback
@@ -275,22 +395,24 @@ export function KafkaConsumerPanel({
         <details className="rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
           <summary className="cursor-pointer text-xs font-medium">Performance tuning</summary>
           <div className="grid grid-cols-1 gap-3 pt-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <Label htmlFor="kafka-consumer-static-member" className="text-xs sp-label">
-                Static member ID
-              </Label>
-              <Input
-                id="kafka-consumer-static-member"
-                value={connection.consumer.groupInstanceId ?? ''}
-                onChange={(event) =>
-                  updateConsumer(connection.id, {
-                    groupInstanceId: event.target.value || undefined,
-                  })
-                }
-                placeholder="Optional"
-              />
-            </div>
-            {connection.consumer.groupProtocol === 'consumer' && (
+            {!browse && (
+              <div className="space-y-1">
+                <Label htmlFor="kafka-consumer-static-member" className="text-xs sp-label">
+                  Static member ID
+                </Label>
+                <Input
+                  id="kafka-consumer-static-member"
+                  value={connection.consumer.groupInstanceId ?? ''}
+                  onChange={(event) =>
+                    updateConsumer(connection.id, {
+                      groupInstanceId: event.target.value || undefined,
+                    })
+                  }
+                  placeholder="Optional"
+                />
+              </div>
+            )}
+            {!browse && connection.consumer.groupProtocol === 'consumer' && (
               <div className="space-y-1">
                 <Label htmlFor="kafka-consumer-remote-assignor" className="text-xs sp-label">
                   Remote assignor
@@ -307,31 +429,33 @@ export function KafkaConsumerPanel({
                 />
               </div>
             )}
-            {consumerNumericFields.map(([field, label]) => (
-              <div key={field} className="space-y-1">
-                <Label htmlFor={`kafka-consumer-${field}`} className="text-xs sp-label">
-                  {label}
-                </Label>
-                <Input
-                  id={`kafka-consumer-${field}`}
-                  type="number"
-                  min={0}
-                  value={connection.consumer[field] ?? ''}
-                  placeholder="Client default"
-                  disabled={
-                    (field === 'heartbeatIntervalMs' &&
-                      connection.consumer.groupProtocol === 'consumer') ||
-                    (field === 'autoCommitIntervalMs' &&
-                      connection.consumer.commitPolicy === 'manual')
-                  }
-                  onChange={(event) =>
-                    updateConsumer(connection.id, {
-                      [field]: event.target.value ? Number(event.target.value) : undefined,
-                    })
-                  }
-                />
-              </div>
-            ))}
+            {consumerNumericFields
+              .filter(([field]) => !browse || !GROUP_ONLY_NUMERIC_FIELDS.has(field))
+              .map(([field, label]) => (
+                <div key={field} className="space-y-1">
+                  <Label htmlFor={`kafka-consumer-${field}`} className="text-xs sp-label">
+                    {label}
+                  </Label>
+                  <Input
+                    id={`kafka-consumer-${field}`}
+                    type="number"
+                    min={0}
+                    value={connection.consumer[field] ?? ''}
+                    placeholder="Client default"
+                    disabled={
+                      (field === 'heartbeatIntervalMs' &&
+                        connection.consumer.groupProtocol === 'consumer') ||
+                      (field === 'autoCommitIntervalMs' &&
+                        connection.consumer.commitPolicy === 'manual')
+                    }
+                    onChange={(event) =>
+                      updateConsumer(connection.id, {
+                        [field]: event.target.value ? Number(event.target.value) : undefined,
+                      })
+                    }
+                  />
+                </div>
+              ))}
             <p className="text-sp-11 text-sp-dim md:col-span-2">
               Blank values use the native Kafka client defaults. Tune these only when your broker or
               workload requires it.

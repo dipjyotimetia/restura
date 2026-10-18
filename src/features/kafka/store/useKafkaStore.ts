@@ -89,11 +89,27 @@ export interface KafkaMessage {
   error?: string;
 }
 
+/**
+ * `browse` reads without joining/creating a consumer group or committing
+ * offsets (#930); `group` is a regular group member. Absent means `group` —
+ * the behaviour every connection had before browse mode existed.
+ */
+export type KafkaConsumerMembership = 'browse' | 'group';
+
+/** Default "last N per partition" for a fresh browse. */
+export const KAFKA_DEFAULT_BROWSE_LAST_N = 50;
+
 export interface KafkaConsumerState {
+  membership?: KafkaConsumerMembership;
+  /** Used in group mode only. */
   groupId: string;
   topics: string[];
   fromBeginning: boolean;
-  mode: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp';
+  mode: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp' | 'last-n';
+  /** Browse `last-n` start: records per partition. */
+  lastN?: number;
+  /** Browse only: stop after this many records in total. */
+  maxMessages?: number;
   fallbackMode: 'latest' | 'earliest' | 'fail';
   commitPolicy: 'auto' | 'manual';
   isolation: 'read-uncommitted' | 'read-committed';
@@ -201,10 +217,12 @@ function makeDefaultConnection(
     compression: 'none',
     idempotent: false,
     consumer: {
+      membership: 'browse',
       groupId: `restura-${id.slice(0, 8)}`,
       topics: [],
       fromBeginning: false,
-      mode: 'committed',
+      mode: 'last-n',
+      lastN: KAFKA_DEFAULT_BROWSE_LAST_N,
       fallbackMode: 'latest',
       commitPolicy: 'auto',
       isolation: 'read-uncommitted',
@@ -237,6 +255,38 @@ export function migrateKafkaV1ToV2(state: unknown): unknown {
           },
         },
       ])
+    ),
+  };
+}
+
+/**
+ * v3 adds `membership`. A connection whose group id was changed from the
+ * generated `restura-<id8>` default was deliberately pointed at a group, so it
+ * stays in group mode. Untouched defaults move to browse — the side-effect-free
+ * default for new tabs — and a `committed` start (meaningless without a group)
+ * becomes "last N per partition".
+ */
+export function migrateKafkaV2ToV3(state: unknown): unknown {
+  if (!state || typeof state !== 'object') return state;
+  const root = state as { connections?: Record<string, KafkaConnection> };
+  if (!root.connections) return state;
+  return {
+    ...root,
+    connections: Object.fromEntries(
+      Object.entries(root.connections).map(([key, connection]) => {
+        const consumer = connection.consumer;
+        if (!consumer || consumer.membership) return [key, connection];
+        const id = connection.id ?? key;
+        if (consumer.groupId !== `restura-${id.slice(0, 8)}`) {
+          return [key, { ...connection, consumer: { ...consumer, membership: 'group' } }];
+        }
+        const browse: KafkaConsumerState = { ...consumer, membership: 'browse' };
+        if (consumer.mode === 'committed') {
+          browse.mode = 'last-n';
+          browse.lastN = KAFKA_DEFAULT_BROWSE_LAST_N;
+        }
+        return [key, { ...connection, consumer: browse }];
+      })
     ),
   };
 }
@@ -428,12 +478,17 @@ export const useKafkaStore = create<KafkaState>()(
     createPersistedStore<KafkaState>({
       store: 'kafkaConnections',
       persistName: 'kafka-storage',
-      version: 2,
+      version: 3,
       steps: [
         {
           name: 'kafka-consumer-v2-committed-defaults',
           fromVersion: 1,
           apply: (state) => ({ state: migrateKafkaV1ToV2(state) }),
+        },
+        {
+          name: 'kafka-consumer-v3-browse-membership',
+          fromVersion: 2,
+          apply: (state) => ({ state: migrateKafkaV2ToV3(state) }),
         },
       ],
       partialize: (state) => ({

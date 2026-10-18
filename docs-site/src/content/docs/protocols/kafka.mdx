@@ -11,7 +11,7 @@ import { Badge } from '@astrojs/starlight/components';
 
 - **Produce** — pick a topic, set text headers, target an optional partition, and send a key + value as UTF-8 text, validated JSON, or Base64-encoded arbitrary bytes. Base64 is decoded only at the Electron boundary, so invalid UTF-8 bytes are preserved exactly.
   Record headers use a key/value table with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; they're produced exactly as typed.
-- **Consume** — subscribe to a topic, see messages live with partition / offset / timestamp. Start from **latest**, **earliest**, a specific **offset**, or a **timestamp** (seeks each partition to its first message at or after the chosen time).
+- **Consume** — read a topic and see messages live with partition / offset / timestamp, either in read-only **Browse** mode (the default) or as a **Consumer group** member. See [Consume modes](#consume-modes).
 - **Export the log** — download the current filtered messages as JSON or NDJSON (one message per line).
 - **Topic inspector** — per-partition earliest/latest watermarks (and the approximate message count) plus the topic's broker config.
 - **Consumer-group inspector** — members and state, committed offset per partition, and **consumer lag** (topic log-end minus the group's committed offset) — computed on demand for any group, no active subscription needed.
@@ -22,6 +22,30 @@ import { Badge } from '@astrojs/starlight/components';
 - **TLS** — pick `SSL` for TLS without SASL (encryption plus optional client-certificate mTLS), or layer it under `SASL_SSL`; server certificate validation either way.
 - **Compression** — gzip / snappy / lz4 / zstd negotiated automatically.
 - **Confluent Schema Registry** — point a connection at a registry URL (optional Basic auth); produce schema-encoded **keys and values** by schema ID, and consume with automatic Avro / Protobuf / JSON decode of both. Powered by `@kafkajs/confluent-schema-registry`.
+
+## Consume modes
+
+The **Consume** tab has a mode toggle. New Kafka tabs start in **Browse**.
+
+| | Browse (read-only) | Consumer group |
+| --- | --- | --- |
+| Joins or creates a consumer group | No | Yes, using the **Consumer group ID** |
+| Commits offsets | Never | Automatically, or per message with **Manual per message** |
+| Needs `GROUP` ACLs | No, only `READ` on the topic | Yes |
+| Start positions | Latest, earliest, **last N per partition**, specific offset, timestamp | Committed offset (with a fallback), latest, earliest, specific offset, timestamp |
+| Stop condition | Optional **Stop after N records** | Runs until you unsubscribe |
+| Lag, rebalance and member events | Not available because there's no group | Shown |
+
+**Browse** is for looking at data. Restura assigns the partitions directly and reads them with the Kafka `ListOffsets` and `Fetch` APIs. It never sends `FindCoordinator`, `JoinGroup` or `OffsetCommit`. Peeking at a shared or production cluster leaves nothing behind: no `restura-…` group appears in `kafka-consumer-groups --list`, and nothing is committed. The panel shows a **Read-only — no group** badge, and the group, commit and rebalance settings are hidden.
+
+- **Last N per partition** starts each partition at `max(earliest, latest − N)` and then keeps streaming new records. An empty partition starts at its end.
+- **Timestamp** starts each partition at its first record at or after that time. A partition with nothing that new starts at its end and waits for new records.
+- **Specific offset** reads only the partitions you name. Offsets outside the retained range are clamped to the earliest or latest offset.
+- **Read committed** isolation is honoured, so `latest` is the last stable offset.
+
+**Consumer group** joins the group named in **Consumer group ID** and behaves like any other member. Use it when you want to resume from committed offsets, test a group's behaviour, or commit offsets on purpose. The [consumer-group inspector](#what-works) and the reset and delete actions work on any group in either mode.
+
+Saved connections from before Browse mode existed keep **Consumer group** mode if you changed the group ID from the generated `restura-…` default. Connections still using the default group ID switch to **Browse**. If they started from the committed offset, they now start from the last 50 records per partition.
 
 ## Broker guard
 

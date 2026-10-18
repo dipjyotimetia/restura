@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { CodeEditorFrame, ConnectionBadge, Floater, Stat } from '@/components/ui/spatial';
 import { TabsContent } from '@/components/ui/tabs';
+import { isKafkaBrowse } from '@/features/kafka/lib/kafkaBrowse';
 import { kafkaToLogEntries } from '@/features/kafka/lib/kafkaLogExport';
 import type { KafkaMessage } from '@/features/kafka/store/useKafkaStore';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
@@ -141,7 +142,14 @@ export function KafkaMessagesPanel({
         className="flex flex-wrap items-center gap-x-8 gap-y-3 px-4 py-3 shrink-0"
       >
         <Stat label="Partitions" value={partitionCounts.length || '—'} />
-        <Stat label="Consumer ID" value={connection.consumer.groupId || '—'} />
+        <Stat
+          label="Consumer ID"
+          value={
+            isKafkaBrowse(connection.consumer)
+              ? 'None (browse)'
+              : connection.consumer.groupId || '—'
+          }
+        />
         <Stat
           label="Lag"
           value={<span>{connection.consumer.lag ? totalLag.toString() : '—'}</span>}
