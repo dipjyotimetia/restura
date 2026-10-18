@@ -590,6 +590,9 @@ class KafkaManager {
   private bindMessageListener(connectionId: string): void {
     const api = getElectronAPI();
     if (!api?.kafka) return;
+    // Idempotent: a consumer can close main-side (browse stop-after-N, fetch
+    // error) without an unsubscribe, so a re-subscribe must not stack listeners.
+    this.unbindMessageListener(connectionId);
     api.kafka.on(kafkaChannel(KAFKA_CHANNEL.MESSAGE, connectionId), (payload: unknown) => {
       const msg = payload as {
         topic: string;

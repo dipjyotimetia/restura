@@ -121,6 +121,37 @@ describe('kafkaManager (Electron path)', () => {
     });
   });
 
+  it('does not stack message listeners when re-subscribing after the consumer closed itself', async () => {
+    const { emit, handlerCount } = installElectronMock();
+    const id = useKafkaStore.getState().createConnection();
+    await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+    const subscribe = () =>
+      kafkaManager.subscribe({
+        connectionId: id,
+        groupId: 'restura-test',
+        topics: ['orders'],
+        fromBeginning: false,
+      });
+    await subscribe();
+    // A browse stop-after-N (or a fetch error) closes the consumer main-side,
+    // so the renderer goes idle without an unsubscribe call.
+    emit(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, id), {});
+    await subscribe();
+
+    expect(handlerCount(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id))).toBe(1);
+    emit(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id), {
+      topic: 'orders',
+      partition: 0,
+      offset: '1',
+      value: 'once',
+      timestamp: 1,
+    });
+    const received = useKafkaStore
+      .getState()
+      .connections[id]!.messages.filter((m) => m.direction === 'received');
+    expect(received.map((m) => m.value)).toEqual(['once']);
+  });
+
   it('preserves Kafka null values as visible tombstones in sent and received messages', async () => {
     const { kafka, emit } = installElectronMock();
     kafka.produce.mockResolvedValueOnce({

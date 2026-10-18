@@ -228,7 +228,8 @@ export function KafkaConsumerPanel({
                 id="kafka-consumer-last-n"
                 type="number"
                 min={1}
-                value={connection.consumer.lastN ?? KAFKA_DEFAULT_BROWSE_LAST_N}
+                value={connection.consumer.lastN ?? ''}
+                placeholder={String(KAFKA_DEFAULT_BROWSE_LAST_N)}
                 onChange={(event) =>
                   updateConsumer(connection.id, {
                     lastN: positiveIntOrUndefined(event.target.value),

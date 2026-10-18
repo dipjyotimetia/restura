@@ -37,6 +37,17 @@ export const BROWSE_PLACEHOLDER_GROUP_ID = '__restura_browse_no_group__';
 const DEFAULT_PARTITION_MAX_BYTES = 1_048_576;
 /** Back-off while every assigned partition is leaderless (e.g. mid-election). */
 const NO_LEADER_RETRY_MS = 250;
+/**
+ * Leadership moved (election, broker restart). The library already retries
+ * most of these with a metadata refresh, but its retries can run out; browsing
+ * should outlast an election rather than end the session.
+ */
+const LEADER_MOVED_ERRORS = [
+  'NOT_LEADER_OR_FOLLOWER',
+  'FENCED_LEADER_EPOCH',
+  'UNKNOWN_LEADER_EPOCH',
+  'LEADER_NOT_AVAILABLE',
+] as const;
 /** Back-off for a leader whose fetch delivered nothing (idle topic, minBytes 0). */
 const EMPTY_FETCH_BACKOFF_MS = 200;
 /** Floor for the broker long-poll so an idle browse can't hammer the broker. */
@@ -208,6 +219,7 @@ export class BrowseMessagesStream extends Readable {
   #planning = false;
   #replan = false;
   #stopped = false;
+  #forceMetadata = false;
 
   constructor(
     consumer: BrowseConsumer,
@@ -286,7 +298,12 @@ export class BrowseMessagesStream extends Readable {
   }
 
   async #launch(): Promise<void> {
-    const metadata = await this.#consumer.metadata({ topics: this.#topics });
+    const forceUpdate = this.#forceMetadata;
+    this.#forceMetadata = false;
+    const metadata = await this.#consumer.metadata({
+      topics: this.#topics,
+      ...(forceUpdate ? { forceUpdate } : {}),
+    });
     if (this.#stopped || !this.#wantMore) return;
 
     const requests = new Map<number, NodeRequest>();
@@ -327,6 +344,13 @@ export class BrowseMessagesStream extends Readable {
         else this.#plan();
       },
       (error: unknown) => {
+        if (!this.#stopped && LEADER_MOVED_ERRORS.some((id) => hasApiError(error, id))) {
+          // Re-resolve the leader before this node's partitions are fetched again.
+          this.#inflightNodes.delete(node);
+          this.#forceMetadata = true;
+          this.#backoff(node, NO_LEADER_RETRY_MS);
+          return;
+        }
         if (this.#stopped || !hasApiError(error, 'OFFSET_OUT_OF_RANGE')) {
           this.#inflightNodes.delete(node);
           this.#fail(error);

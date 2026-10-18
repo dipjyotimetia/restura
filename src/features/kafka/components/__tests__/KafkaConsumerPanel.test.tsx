@@ -177,8 +177,16 @@ describe('KafkaConsumerPanel', () => {
       );
       await user.type(screen.getByLabelText('Stop after (records)'), '7');
       expect(updateConsumer).toHaveBeenLastCalledWith('connection-1', { maxMessages: 7 });
-      await user.clear(screen.getByLabelText('Records per partition'));
+      const lastN = screen.getByLabelText('Records per partition');
+      await user.clear(lastN);
       expect(updateConsumer).toHaveBeenLastCalledWith('connection-1', { lastN: undefined });
+      // Cleared stays cleared (the default is only a placeholder), so Backspace
+      // then typing gives the typed value rather than "502".
+      expect(lastN).toHaveValue(null);
+      expect(lastN).toHaveAttribute('placeholder', '50');
+      await user.type(lastN, '2');
+      expect(updateConsumer).toHaveBeenLastCalledWith('connection-1', { lastN: 2 });
+      expect(lastN).toHaveValue(2);
     });
 
     it('switching to group mode swaps a browse-only start for committed', async () => {

@@ -662,4 +662,26 @@ describe('BrowseMessagesStream — hardening', () => {
     const second = (fetchCalls[1]?.topics as Array<{ partitions: { fetchOffset: bigint }[] }>)[0];
     expect(second?.partitions[0]?.fetchOffset).toBe(6n);
   });
+
+  it('rides out leader moves: backs the node off and forces fresh metadata', async () => {
+    const leaderMoved = Object.assign(new Error('Fetch failed'), {
+      errors: [Object.assign(new Error('Not leader'), { apiId: 'NOT_LEADER_OR_FOLLOWER' })],
+    });
+    const { consumer } = fakeConsumer(
+      [leaderMoved, { orders: { 0: [batch(0, ['after-election'])] } }],
+      single
+    );
+    const stream = new BrowseMessagesStream(consumer as unknown as BrowseConsumer, [at(0, 0n)]);
+    const error = vi.fn();
+    stream.on('error', error);
+    const [message] = await collect(stream, 1);
+    await stream.close();
+    expect(message?.value?.toString()).toBe('after-election');
+    expect(error).not.toHaveBeenCalled();
+    const metadataCalls = consumer.metadata.mock.calls as unknown as Array<
+      [{ forceUpdate?: boolean }]
+    >;
+    expect(metadataCalls[0]?.[0].forceUpdate).toBeFalsy();
+    expect(metadataCalls[1]?.[0].forceUpdate).toBe(true);
+  });
 });
