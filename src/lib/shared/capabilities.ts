@@ -244,7 +244,7 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: true,
     desktop: true,
     notes:
-      'Desktop can store the credential as an OS-keychain or external SecretRef handle, resolved in the main process at connect time; web is inline-only and never persists MCP credentials to IndexedDB (re-enter after reload)',
+      'Desktop can store the credential as an OS-keychain or external SecretRef handle, resolved in the main process at connect time; web is inline-only and never persists the request’s own MCP credentials to IndexedDB (re-enter after reload). SecretRef-backed {{secret variables}} in MCP auth/headers are not resolved yet on either platform',
   },
   'grpc.basic': {
     label: 'gRPC unary + streaming',

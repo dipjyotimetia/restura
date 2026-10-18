@@ -102,7 +102,7 @@ export function McpAuthPanel({ requestId, auth, onChange, disabled }: McpAuthPan
         <p className="text-sp-11 text-sp-muted font-mono" data-testid="mcp-auth-storage-note">
           {desktop
             ? 'Store the credential in the OS keychain to keep it out of saved data — Restura resolves it at connect time.'
-            : 'For your safety the browser build doesn’t save MCP credentials — re-enter them after a reload.'}
+            : 'The browser build doesn’t save this MCP request’s own credentials (auth token, credential headers) — re-enter them after a reload.'}
         </p>
       )}
     </div>

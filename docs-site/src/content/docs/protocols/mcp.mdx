@@ -34,8 +34,10 @@ Open **Auth** under the URL bar to authenticate the connection:
 Values resolve `{{variables}}` and apply on every request of the session, on every harness:
 
 - **Desktop** — the credential field can be **stored in the OS keychain** (or point at an external secret manager). Restura keeps only an opaque handle in the request; the desktop app resolves it at connect time, so the token never enters the UI, saved collections, or exports. A handle that no longer resolves fails the connect instead of opening an unauthenticated session.
-- **Web** <Badge text="not persisted" variant="note" /> — the browser has no OS keychain, so MCP credentials (the auth token and credential-named headers such as `Authorization`) are **never written to browser storage**: they live only for the current session and must be re-entered after a reload. Keychain handles are desktop-only — a request that uses one fails to connect in the browser with a clear error.
+- **Web** <Badge text="not persisted" variant="note" /> — the browser has no OS keychain, so an MCP request's own credentials (its auth token, credential-named headers such as `Authorization` / `X-Auth`, and credentials in the server URL — `user:pass@` and `?api_key=`-style query values) are **never written to browser storage**: they live only for the current session and must be re-entered after a reload. Auth configured on a folder or collection is stored with the collection as usual. Keychain handles are desktop-only — a request that uses one fails to connect in the browser with a clear error.
 - **CLI** — `restura run` applies the same auth (handles are unavailable; supply the value with `--env`).
+
+Secret variables (keychain-backed `{{variables}}`) are not resolved inside MCP auth fields or headers yet — use a keychain-stored credential in the Auth field instead.
 
 Collection export always blanks MCP header and auth credentials (handles are kept as references). Imported Basic or OAuth 2.0 access-token auth is still sent as an `Authorization` header; schemes that sign the request (Digest, OAuth 1.0, AWS SigV4, NTLM, WSSE) aren't supported for MCP — a request's own one fails the connect, and an inherited one is skipped. OAuth 2.1 authorization for MCP servers is tracked separately.
 
