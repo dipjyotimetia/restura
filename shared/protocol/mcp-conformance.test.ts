@@ -604,3 +604,232 @@ describe('markdown edge cases', () => {
     expect(conformanceReportToMarkdown(clean)).toContain('No findings.');
   });
 });
+
+describe('defensive paths', () => {
+  const raw = (over: Partial<McpConformanceSession> & { lists?: Record<string, unknown[]> }) => {
+    const { lists, ...rest } = over;
+    return {
+      open: async () =>
+        ({
+          protocolVersion: '2025-06-18',
+          serverCapabilities: { tools: {}, resources: {}, prompts: {} },
+          serverInfo: { name: 'n', version: '1' },
+          async request(method: string) {
+            const queue = lists?.[method];
+            if (queue) {
+              const next = queue.shift();
+              if (next instanceof Error) throw next;
+              return next;
+            }
+            throw new RpcError('nf', -32601);
+          },
+          async close() {},
+          ...rest,
+        }) as McpConformanceSession,
+    };
+  };
+
+  it('reports non-Error connect failures', async () => {
+    const report = await runMcpConformance(
+      {
+        open: async () => {
+          throw 'plain string';
+        },
+      },
+      { eras: ['legacy'] }
+    );
+    expect(report.eras[0]?.error).toBe('plain string');
+  });
+
+  it('handles list failures on later pages, non-object results and missing arrays', async () => {
+    const report = await runMcpConformance(
+      raw({
+        lists: {
+          'tools/list': [{ tools: [], nextCursor: 'a' }, new Error('page 2 died')],
+          'resources/list': ['not an object'],
+          'prompts/list': [{ nope: [] }],
+        },
+      }),
+      { eras: ['legacy'] }
+    );
+    expect(codes(report)).toEqual(expect.arrayContaining(['list.failed', 'list.malformed']));
+    expect(report.findings.filter((f) => f.code === 'list.malformed')).toHaveLength(2);
+  });
+
+  it('survives a first-page list failure for every list', async () => {
+    const e = () => new Error('down');
+    const report = await runMcpConformance(
+      raw({
+        lists: { 'tools/list': [e()], 'resources/list': [e()], 'prompts/list': [e()] },
+      }),
+      { eras: ['legacy'] }
+    );
+    expect(report.findings.filter((f) => f.code === 'list.failed')).toHaveLength(3);
+    expect(report.eras[0]?.listing).toEqual({ tools: [], resources: [], prompts: [] });
+  });
+
+  it('flags odd descriptors: non-objects, wrong schema types, duplicates, bad annotations', async () => {
+    const report = await runMcpConformance(
+      raw({
+        lists: {
+          'tools/list': [
+            {
+              tools: [
+                null,
+                { name: 'a', inputSchema: { type: 'string' }, outputSchema: { type: 'array' } },
+                { name: 'b', annotations: 'x' },
+                { name: 'c' },
+              ],
+            },
+          ],
+          'resources/list': [
+            {
+              resources: [
+                'str',
+                { name: 'n' },
+                { uri: 'a://1', name: 'x' },
+                { uri: 'a://1', name: 'y' },
+              ],
+            },
+          ],
+          'prompts/list': [{ prompts: [{ name: 'p' }, { name: 'p' }] }],
+        },
+      }),
+      { eras: ['legacy'], sampleCalls: 'read-only' }
+    );
+    expect(codes(report)).toEqual(
+      expect.arrayContaining([
+        'tools.descriptor-invalid',
+        'tools.input-schema-type',
+        'tools.output-schema-type',
+        'tools.annotations-malformed',
+        'resources.descriptor-invalid',
+        'resources.duplicate-uri',
+        'prompts.duplicate-name',
+      ])
+    );
+  });
+
+  it('handles a non-object serverInfo, partial serverInfo and a non-standard unknown-method code', async () => {
+    const bad = await runMcpConformance(
+      raw({
+        serverInfo: 'nope',
+        request: async () => {
+          throw new RpcError('invalid', -32600);
+        },
+      }),
+      { eras: ['legacy'] }
+    );
+    expect(bad.eras[0]?.serverInfo).toBeUndefined();
+    expect(codes(bad)).toContain('protocol.unknown-method-code');
+
+    const partial = await runMcpConformance(raw({ serverInfo: { title: 'T' } }), {
+      eras: ['legacy'],
+    });
+    expect(partial.eras[0]?.serverInfo).toEqual({ title: 'T' });
+  });
+
+  it('samples tools lacking an inputSchema, using schema type arrays, minimums and odd required keys', async () => {
+    const ro = { annotations: { readOnlyHint: true } };
+    const calls: unknown[] = [];
+    const report = await runMcpConformance(
+      raw({
+        request: async (method: string, params?: unknown) => {
+          if (method === 'tools/list')
+            return {
+              tools: [
+                { name: 'noschema', ...ro },
+                {
+                  name: 'typed',
+                  inputSchema: {
+                    type: 'object',
+                    properties: {
+                      n: { type: ['integer', 'null'], minimum: 5 },
+                      m: { type: 'number' },
+                    },
+                    required: ['n', 'm', 7],
+                  },
+                  ...ro,
+                },
+              ],
+            };
+          if (method === 'tools/call') {
+            calls.push(params);
+            return { content: [] };
+          }
+          throw new RpcError('nf', -32601);
+        },
+      }),
+      { eras: ['legacy'], sampleCalls: 'read-only' }
+    );
+    expect(report.eras[0]?.samples.map((s) => s.status)).toEqual(['ok', 'ok']);
+    expect(calls[1]).toEqual({ name: 'typed', arguments: { n: 5, m: 0 } });
+  });
+
+  it('renders placeholders when protocol versions and serverInfo are missing', async () => {
+    const mk = (serverInfo: unknown, protocolVersion: string) =>
+      raw({ serverInfo, protocolVersion, serverCapabilities: {} });
+    const sessions = [mk({ version: '1' }, ''), mk({}, '2026-07-28')];
+    const report = await runMcpConformance(
+      { open: async (era) => sessions[era === 'legacy' ? 0 : 1]!.open() },
+      { eras: ['legacy', 'modern'] }
+    );
+    expect(report.diff?.serverInfo.differs).toBe(true);
+    const md = conformanceReportToMarkdown({ ...report, target: '' });
+    expect(md).toContain('Target: `unknown`');
+    expect(md).toContain('- Protocol version: - vs 2026-07-28');
+    expect(md).toContain('?@1');
+  });
+});
+
+describe('descriptor and diff details', () => {
+  it('keeps mimeType and prompt arguments, tolerates non-object prompts', async () => {
+    const server = {
+      protocolVersion: '2025-06-18',
+      serverCapabilities: { resources: {}, prompts: {} },
+      serverInfo: { name: 'n', version: '1' },
+      async request(method: string) {
+        if (method === 'resources/list') {
+          return { resources: [{ uri: 'a://1', name: 'one', mimeType: 'text/plain' }] };
+        }
+        if (method === 'prompts/list') {
+          return { prompts: ['junk', { name: 'p', arguments: [{ name: 'x' }] }] };
+        }
+        throw new RpcError('nf', -32601);
+      },
+      async close() {},
+    };
+    const report = await runMcpConformance({ open: async () => server }, { eras: ['legacy'] });
+    expect(report.eras[0]?.listing.resources[0]?.mimeType).toBe('text/plain');
+    expect(report.eras[0]?.listing.prompts).toEqual([{ name: 'p', arguments: [{ name: 'x' }] }]);
+  });
+
+  it('diffs array-valued descriptor fields and partial serverInfo', async () => {
+    const sess = (serverInfo: unknown, protocolVersion: string, required: string[]) => ({
+      protocolVersion,
+      serverCapabilities: { tools: {} },
+      serverInfo,
+      async request(method: string) {
+        if (method === 'tools/list') {
+          return { tools: [{ name: 't', inputSchema: { type: 'object', required } }] };
+        }
+        throw new RpcError('nf', -32601);
+      },
+      async close() {},
+    });
+    const byEra = {
+      legacy: sess({ name: 'only-name' }, '2025-06-18', ['a']),
+      modern: sess(undefined, '', ['a', 'b']),
+    };
+    const report = await runMcpConformance({ open: async (e) => byEra[e] });
+    expect(report.diff?.serverInfo).toEqual({ legacy: 'only-name@?', differs: true });
+    expect(report.diff?.tools.changed).toEqual([{ name: 't', fields: ['inputSchema'] }]);
+    expect(report.findings.find((f) => f.code === 'diff.server-info')?.message).toContain(
+      'modern none'
+    );
+
+    const sameLen = { ...byEra, modern: sess({ name: 'x', version: '1' }, '2026-07-28', ['z']) };
+    const r2 = await runMcpConformance({ open: async (e) => sameLen[e] });
+    expect(r2.diff?.tools.changed).toEqual([{ name: 't', fields: ['inputSchema'] }]);
+  });
+});

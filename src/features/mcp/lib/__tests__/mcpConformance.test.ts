@@ -98,4 +98,17 @@ describe('runMcpConformanceReport', () => {
     const sse = await runMcpConformanceReport({ ...input, transport: 'http-sse' });
     expect(sse.ok).toBe(false);
   });
+
+  it('web: tolerates an initialize with no result, and non-Error rejections on desktop', async () => {
+    requests.handler = (method) =>
+      method === 'initialize' ? { ok: true, result: undefined } : { ok: false, error: 'nf' };
+    const res = await runMcpConformanceReport(input);
+    expect(res.ok && res.report.eras[0]?.protocolVersion).toBe('');
+    platform.electron = true;
+    platform.api = { mcp: { conformance: vi.fn().mockRejectedValue('weird') } };
+    await expect(runMcpConformanceReport(input)).resolves.toEqual({
+      ok: false,
+      error: 'Conformance run failed',
+    });
+  });
 });

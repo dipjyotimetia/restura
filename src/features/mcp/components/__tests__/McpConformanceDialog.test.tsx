@@ -204,3 +204,53 @@ describe('McpConnectionPanel conformance action', () => {
     expect(screen.getByRole('button', { name: /conformance/i })).toBeDisabled();
   });
 });
+
+describe('McpConformanceDialog report variants', () => {
+  it('renders a diff summary, empty findings, subject-less findings, and un-ticking tools', async () => {
+    const withDiff = {
+      ...report,
+      diff: {} as unknown as McpConformanceReport['diff'],
+      findings: [
+        {
+          code: 'diff.tool',
+          severity: 'warning' as const,
+          era: 'cross-era' as const,
+          message: 'm',
+        },
+      ],
+    };
+    const run = vi.fn().mockResolvedValue({ ok: true, report: withDiff });
+    render(
+      <McpConformanceDialog
+        open
+        onOpenChange={vi.fn()}
+        getEndpoint={endpoint}
+        tools={[{ name: 'plain' }]}
+        run={run}
+      />
+    );
+    await userEvent.click(screen.getByLabelText(/read-only \+ chosen tools/i));
+    await userEvent.click(screen.getByLabelText('plain'));
+    await userEvent.click(screen.getByLabelText('plain'));
+    await userEvent.click(screen.getByRole('button', { name: /run conformance check/i }));
+    expect(await screen.findByTestId('conformance-diff')).toHaveTextContent('1 difference');
+    expect((run.mock.calls[0]?.[0] as McpConformanceRunInput).approvedTools).toEqual([]);
+  });
+
+  it('shows "No findings." and an empty-tools hint', async () => {
+    const run = vi.fn().mockResolvedValue({ ok: true, report: { ...report, findings: [] } });
+    render(
+      <McpConformanceDialog
+        open
+        onOpenChange={vi.fn()}
+        getEndpoint={endpoint}
+        tools={[]}
+        run={run}
+      />
+    );
+    await userEvent.click(screen.getByLabelText(/read-only \+ chosen tools/i));
+    expect(screen.getByText(/connect and discover tools first/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /run conformance check/i }));
+    expect(await screen.findByText('No findings.')).toBeInTheDocument();
+  });
+});
