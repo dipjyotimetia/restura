@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isMcpOAuthFlow,
   isMcpTransportHeader,
+  MCP_DESKTOP_ONLY_AUTH_TYPES,
   MCP_EDITOR_AUTH_TYPES,
   mcpAuthLabel,
   mcpAuthUnsupportedReason,
@@ -36,8 +38,9 @@ describe('mcpAuthUnsupportedReason (#896)', () => {
 });
 
 describe('MCP auth policy helpers', () => {
-  it('offers none / bearer / api-key in the editor (oauth2 is the #856 extension point)', () => {
-    expect([...MCP_EDITOR_AUTH_TYPES]).toEqual(['none', 'bearer', 'api-key']);
+  it('offers none / bearer / api-key / oauth2 in the editor; oauth2 is desktop-only (#856)', () => {
+    expect([...MCP_EDITOR_AUTH_TYPES]).toEqual(['none', 'bearer', 'api-key', 'oauth2']);
+    expect([...MCP_DESKTOP_ONLY_AUTH_TYPES]).toEqual(['oauth2']);
   });
 
   it('labels auth types', () => {
@@ -85,5 +88,39 @@ describe('resolveMcpEffectiveAuth', () => {
   it('returns the own auth when nothing is inherited', () => {
     expect(resolveMcpEffectiveAuth(none, undefined)).toEqual({ auth: none });
     expect(resolveMcpEffectiveAuth(none, none)).toEqual({ auth: none });
+  });
+});
+
+describe('isMcpOAuthFlow (#856)', () => {
+  const flow = (oauth2: Record<string, unknown>) => ({ type: 'oauth2', oauth2 });
+
+  it('is the authorization_code oauth2 auth without an access token', () => {
+    expect(isMcpOAuthFlow(flow({ grantType: 'authorization_code', accessToken: '' }))).toBe(true);
+    expect(isMcpOAuthFlow(flow({ grantType: 'authorization_code' }))).toBe(true);
+    expect(
+      isMcpOAuthFlow(
+        flow({ grantType: 'authorization_code', accessToken: { kind: 'inline', value: '' } })
+      )
+    ).toBe(true);
+  });
+
+  it('is not a flow when a token (or a ref to one) is present, or for other grants / types', () => {
+    expect(isMcpOAuthFlow(flow({ grantType: 'authorization_code', accessToken: 'tok' }))).toBe(
+      false
+    );
+    expect(
+      isMcpOAuthFlow(
+        flow({ grantType: 'authorization_code', accessToken: { kind: 'handle', id: 'h' } })
+      )
+    ).toBe(false);
+    expect(
+      isMcpOAuthFlow(
+        flow({ grantType: 'authorization_code', accessToken: { kind: 'inline', value: 't' } })
+      )
+    ).toBe(false);
+    expect(isMcpOAuthFlow(flow({ grantType: 'client_credentials', accessToken: '' }))).toBe(false);
+    expect(isMcpOAuthFlow(flow({ accessToken: '' }))).toBe(false);
+    expect(isMcpOAuthFlow({ type: 'bearer' })).toBe(false);
+    expect(isMcpOAuthFlow(undefined)).toBe(false);
   });
 });

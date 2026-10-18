@@ -40,7 +40,9 @@ import { IPC } from '../../shared/channels';
 import {
   __setSecretStoreForTests,
   registerSecretHandleIPC,
+  resolveInternalSecretHandle,
   secretRateLimiter,
+  storeInternalSecretHandle,
   unregisterSecretHandleIPC,
   unwrapSecretValueMain,
 } from '../security/secret-handle-store';
@@ -169,6 +171,29 @@ describe('secret-handle-store', () => {
 
       expect(await handlers.get('secret:delete')!(event, { id: stored.id })).toEqual({ ok: true });
       expect(await handlers.get('secret:list')!(event)).toEqual({ ok: true, handles: [] });
+    });
+
+    it('refuses renderer writes over main-owned internal records (#856)', async () => {
+      const event = trustedEvent(107);
+      const id = '6f1e2d3c-4b5a-8697-a8b9-0c1d2e3f4a5b';
+      storeInternalSecretHandle({ id, value: 'oauth-token-blob', scope: 'internal:mcp-oauth' });
+
+      expect(await handlers.get('secret:store')!(event, { id, value: 'attacker' })).toEqual({
+        ok: false,
+        error: expect.stringMatching(/managed by Restura/),
+      });
+      expect(
+        await handlers.get('secret:store')!(event, { value: 'x', scope: 'internal:mcp-oauth' })
+      ).toMatchObject({ ok: false });
+      // Not resolvable through the renderer-supplied handle path …
+      expect(unwrapSecretValueMain({ kind: 'handle', id })).toBeUndefined();
+      expect(resolveInternalSecretHandle(id, 'internal:mcp-oauth')).toBe('oauth-token-blob');
+      // … metadata-only in list, and deletable (sign out).
+      expect(JSON.stringify(await handlers.get('secret:list')!(event))).not.toContain(
+        'oauth-token-blob'
+      );
+      expect(await handlers.get('secret:delete')!(event, { id })).toEqual({ ok: true });
+      expect(resolveInternalSecretHandle(id, 'internal:mcp-oauth')).toBeUndefined();
     });
 
     it('clears every handle without exposing plaintext', async () => {

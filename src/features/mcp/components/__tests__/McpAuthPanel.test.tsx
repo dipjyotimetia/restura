@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { McpAuthPanel } from '@/features/mcp/components/McpAuthPanel';
 import { McpConnectionPanel } from '@/features/mcp/components/McpConnectionPanel';
@@ -92,6 +92,84 @@ describe('McpAuthPanel (#896)', () => {
     renderPanel({ type: 'none' });
     expect(screen.getByText(/Inherits/)).toBeInTheDocument();
     expect(screen.getByTestId('mcp-auth-inherited-unsupported')).toHaveTextContent(/AWS Signature/);
+  });
+});
+
+describe('McpAuthPanel OAuth 2.1 (#856)', () => {
+  beforeEach(() => {
+    useCollectionStore.setState({ collections: [] });
+  });
+  afterEach(() => {
+    delete (window as { electron?: unknown }).electron;
+  });
+
+  const flow: AuthConfig = {
+    type: 'oauth2',
+    oauth2: { accessToken: '', grantType: 'authorization_code' },
+  };
+
+  it('web: hides the OAuth option and explains a stored OAuth config is desktop-only', () => {
+    renderPanel({ type: 'none' });
+    expect(screen.queryByRole('radio', { name: 'OAuth 2.1' })).toBeNull();
+    cleanup();
+    renderPanel(flow);
+    expect(screen.getByTestId('mcp-oauth-web')).toHaveTextContent(/desktop app/);
+    expect(screen.queryByTestId('mcp-oauth-editor')).toBeNull();
+  });
+
+  it('desktop: offers OAuth 2.1, switching yields the sign-in flow config', () => {
+    (window as { electron?: unknown }).electron = { isElectron: true, mcp: {} };
+    const onChange = renderPanel({ type: 'bearer', bearer: { token: 'x' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'OAuth 2.1' }));
+    expect(onChange).toHaveBeenLastCalledWith(flow);
+  });
+
+  it('desktop: edits client id / scope and shows a plaintext-free status with sign out', async () => {
+    const oauthStatus = vi.fn(async () => ({
+      signedIn: true,
+      canRefresh: true,
+      dynamicallyRegistered: true,
+    }));
+    const oauthSignOut = vi.fn(async () => ({ success: true }));
+    (window as { electron?: unknown }).electron = {
+      isElectron: true,
+      mcp: { oauthStatus, oauthSignOut },
+    };
+    const onChange = vi.fn();
+    render(
+      <McpAuthPanel
+        requestId="req-1"
+        auth={flow}
+        onChange={onChange}
+        serverUrl="https://mcp.example.com/mcp"
+      />
+    );
+    expect(await screen.findByText(/Signed in/)).toBeInTheDocument();
+    expect(oauthStatus).toHaveBeenCalledWith({ url: 'https://mcp.example.com/mcp' });
+    fireEvent.change(screen.getByLabelText('Client ID'), { target: { value: 'cid' } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      type: 'oauth2',
+      oauth2: { accessToken: '', grantType: 'authorization_code', clientId: 'cid' },
+    });
+    fireEvent.change(screen.getByLabelText('Scope'), { target: { value: 'mcp:read' } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      type: 'oauth2',
+      oauth2: { accessToken: '', grantType: 'authorization_code', scope: 'mcp:read' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    await waitFor(() =>
+      expect(oauthSignOut).toHaveBeenCalledWith({ url: 'https://mcp.example.com/mcp' })
+    );
+  });
+
+  it('desktop: shows the client-secret field only for a static client id', () => {
+    (window as { electron?: unknown }).electron = { isElectron: true, mcp: {} };
+    renderPanel(flow);
+    expect(screen.queryByLabelText(/Client secret/)).toBeNull();
+    cleanup();
+    renderPanel({ type: 'oauth2', oauth2: { ...flow.oauth2!, clientId: 'cid' } });
+    expect(screen.getByLabelText(/Client secret/)).toBeInTheDocument();
+    expect(screen.getByTestId('mcp-oauth-status')).toHaveTextContent(/Not signed in/);
   });
 });
 
