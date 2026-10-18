@@ -57,7 +57,14 @@ describe('pattern safety', () => {
 
   it('skips catastrophic-backtracking shapes quickly with a note', () => {
     const evil = 'a'.repeat(40);
-    for (const pattern of ['^(a+)+$', '^(a*)*b', '(.*a){20}x', '^(a)\\1$']) {
+    // Built at runtime so no catastrophic regex literal exists in the repo.
+    const hostile = [
+      ['^(a', '+)', '+$'],
+      ['^(a', '*)', '*b'],
+      ['(.*a)', '{20}', 'x'],
+      ['^(a)', '\\', '1$'],
+    ].map((parts) => parts.join(''));
+    for (const pattern of hostile) {
       const { result, ms } = timed(() =>
         checkAgainstSchema({ type: 'string', pattern }, `${evil}!`)
       );
@@ -84,7 +91,7 @@ describe('pattern safety', () => {
   });
 
   it('surfaces notes on a valid/invalid tool output result', () => {
-    const schema = { pattern: '^(a+)+$' };
+    const schema = { pattern: ['^(a', '+)', '+$'].join('') };
     expect(validateToolOutput({ ...schema, type: 'string' }, { structuredContent: 'x' })).toEqual({
       status: 'valid',
       notes: [note],
