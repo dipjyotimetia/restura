@@ -36,9 +36,19 @@ Persisted v1 connections keep their earliest/latest choice during the v2 migrati
 
 ## Authentication
 
-Supported SASL mechanisms are PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, and static-token OAUTHBEARER. Passwords, TLS passphrases, registry passwords, inline registry bearer tokens, and OAuth tokens are stored through desktop secure storage and replaced by sentinels in persisted renderer state.
+Supported SASL mechanisms (all configured declaratively; the credential providers are built in main by `electron/main/handlers/kafka/sasl*.ts`):
 
-GSSAPI and custom authentication callbacks are intentionally not exposed because they require executable callback/provider code rather than bounded declarative configuration.
+| Mechanism | Configuration | Notes |
+| --- | --- | --- |
+| `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` | username + password | |
+| `OAUTHBEARER` — static token | bearer token, optional extensions | No refresh; the session fails once the broker re-authenticates after the token expires. |
+| `OAUTHBEARER` — client credentials | token endpoint, client ID, client secret, optional scope + extensions | Main fetches the token (`client_secret_post`), caches it until `exp - 30s` (from `expires_in`, else the JWT `exp`, else 60 s), and the library's token provider hook refreshes it on every (re)authentication, including KIP-368 re-auth. The token endpoint is ordinary HTTP: it goes through the desktop SSRF policy (private IPs rejected unless allowed in Settings), DNS-pinned, redirects not followed. |
+| `AWS_MSK_IAM` | region + access key ID / secret access key / optional session token, **or** a named AWS profile | Sent as MSK's SASL/OAUTHBEARER variant: a SigV4-presigned `kafka-cluster:Connect` URL (15-minute validity, re-signed 30 s before expiry). Requires `SASL_SSL` (the MSK IAM listener, port 9098). |
+| `GSSAPI` (Kerberos) | optional service name (default `kafka`) and client principal | Uses the existing ticket cache (`kinit`). Requires the native [`kerberos`](https://www.npmjs.com/package/kerberos) module, which the desktop build does **not** bundle — the connection fails with an explicit error until it is available. |
+
+Passwords, static OAuth tokens, TLS passphrases, registry passwords, and inline registry bearer tokens are stored through desktop secure storage and replaced by sentinels in persisted renderer state. The OAuth client secret and AWS secret key / session token are stored as `SecretRef` handles (ADR-0007): the renderer keeps only the handle and the plaintext is resolved in main when a token is fetched or signed. AWS profiles are read in main via `fromIni`.
+
+Arbitrary custom authentication callbacks remain intentionally unexposed because they would require executable callback code rather than bounded declarative configuration.
 
 ## Schema Registry
 

@@ -43,6 +43,9 @@ rather than discover it experimentally.
 | gRPC-Web wire protocol (per-request selector) | ✅ | ✅ | Unary + server-streaming to gRPC-Web endpoints (e.g. Envoy grpc_web); needs reflection or a .proto. Web/self-host relay via /api/grpc-web (binary or grpc-web-text, messages streamed as they arrive); desktop pins connect-node gRPC-Web (binary only). The same selector pins native gRPC (desktop only) or Connect. |
 | Kafka produce / consume | ❌ | ✅ | Native broker protocol; no browser TCP |
 | Kafka Confluent Schema Registry (subject produce, browse, decode) | ❌ | ✅ | Desktop main-process client: Basic or Bearer (SecretRef) auth, Settings TLS policy (custom CA, mTLS, verify) for HTTPS, broker-aligned SSRF policy (per-socket DNS checks refuse metadata and disabled loopback), no credentials over public plain HTTP; Avro/JSON Schema example generation, Protobuf view-only |
+| Kafka SASL/OAUTHBEARER client-credentials (auto-refresh) | ❌ | ✅ | Token fetched in main through the SSRF-guarded, DNS-pinned fetch and refreshed 30s before expiry; client secret is a SecretRef handle |
+| Kafka AWS MSK IAM | ❌ | ✅ | SigV4-presigned OAUTHBEARER token; access keys (SecretRef handles) or a named AWS profile; SASL_SSL only |
+| Kafka SASL/GSSAPI (Kerberos) | ❌ | ❌ | Authenticator is wired, but the native kerberos module is not bundled; connections fail with an explicit error |
 | MQTT publish / subscribe | ❌ | ✅ | Native broker protocol over raw TCP/TLS; no browser TCP |
 | Socket.IO client | ✅ | ✅ |  |
 | AI assistant (streaming chat) | ❌ | ✅ | Electron-only; tokens stream over IPC (ai:chat:chunk/end). No Worker /api/ai route |
