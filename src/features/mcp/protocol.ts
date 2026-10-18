@@ -13,6 +13,7 @@
  * Without the pool, a sequence of calls against the same
  * server pays N initialize round-trips. With the pool, one.
  */
+import { isMcpToolError } from '@shared/protocol/mcp-result';
 import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule } from '@/features/registry/types';
 import type { McpRequest, Request } from '@/types';
@@ -34,6 +35,12 @@ function createDefaultMcpRequest(): McpRequest {
 interface JsonRpcCallResult {
   ok: boolean;
   result?: unknown;
+  /**
+   * True when the JSON-RPC call succeeded but the CallToolResult carries
+   * `isError: true` (a tool error, distinct from a protocol error where
+   * `ok` is false). `ok` stays true so existing consumers are unchanged.
+   */
+  toolError?: boolean;
   error?: string;
   jsonRpcError?: { code: number; message: string; data?: unknown };
 }
@@ -189,7 +196,11 @@ async function mcpRunJsonRpc(
           }
         : { ok: false, error: callResult.error };
     }
-    return { ok: true, result: callResult.result };
+    return {
+      ok: true,
+      result: callResult.result,
+      ...(isMcpToolError(callResult.result) ? { toolError: true } : {}),
+    };
   } finally {
     ctx.signal.removeEventListener('abort', linkAbort);
     if (ownsClient) {

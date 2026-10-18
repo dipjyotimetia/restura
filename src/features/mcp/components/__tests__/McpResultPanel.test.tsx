@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 import McpResultPanel from '../McpResultPanel';
@@ -32,13 +32,73 @@ describe('McpResultPanel', () => {
     expect(screen.getByRole('button', { name: 'Download result' })).toBeInTheDocument();
   });
 
-  it('shows the error payload with isError: true', async () => {
+  it('labels a JSON-RPC/transport failure as a PROTOCOL ERROR', async () => {
     const id = useMcpStore.getState().createConnection('https://mcp.example.test');
     act(() => {
       useMcpStore.getState().appendLog(id, { method: 'tools/call', error: 'boom', durationMs: 3 });
     });
     render(<McpResultPanel />);
     expect(await screen.findByTestId('editor')).toHaveTextContent('"error": "boom"');
-    expect(screen.getByText('isError: true')).toBeInTheDocument();
+    expect(screen.getByText('PROTOCOL ERROR')).toBeInTheDocument();
+    expect(screen.queryByText(/TOOL ERROR/)).not.toBeInTheDocument();
+  });
+
+  it('shows a red TOOL ERROR badge for a successful response with result.isError: true (#868)', async () => {
+    const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+    act(() => {
+      useMcpStore.getState().appendLog(id, {
+        method: 'tools/call:fail',
+        result: { isError: true, content: [{ type: 'text', text: 'disk full' }] },
+        durationMs: 3,
+      });
+    });
+    render(<McpResultPanel />);
+    const badge = screen.getByText('TOOL ERROR · isError: true');
+    expect(badge).toHaveStyle({ color: 'var(--color-danger)' });
+    expect(screen.queryByText('isError: false')).not.toBeInTheDocument();
+    expect(screen.queryByText('PROTOCOL ERROR')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('editor')).toHaveTextContent('disk full');
+  });
+
+  describe('structuredContent vs outputSchema (#880)', () => {
+    function setup(structuredContent: unknown) {
+      const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+      act(() => {
+        useMcpStore.getState().setCapabilities(id, {
+          tools: [
+            {
+              name: 'count',
+              outputSchema: {
+                type: 'object',
+                required: ['n'],
+                properties: { n: { type: 'integer' } },
+              },
+            },
+          ],
+          resources: [],
+          prompts: [],
+        });
+        useMcpStore.getState().appendLog(id, {
+          method: 'tools/call:count',
+          result: { content: [], structuredContent },
+          durationMs: 1,
+        });
+      });
+      render(<McpResultPanel />);
+    }
+
+    it('confirms a conforming structuredContent and can show it on its own', async () => {
+      setup({ n: 3 });
+      expect(screen.getByTestId('mcp-output-schema-ok')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Show structuredContent' }));
+      expect(await screen.findByTestId('editor')).toHaveTextContent(/^\{\s*"n": 3\s*\}$/);
+    });
+
+    it('flags a structuredContent that violates the outputSchema', () => {
+      setup({ n: 'three' });
+      const alert = screen.getByTestId('mcp-output-schema-issues');
+      expect(alert).toHaveTextContent('does not match');
+      expect(alert).toHaveTextContent('$.n: expected integer, got string');
+    });
   });
 });

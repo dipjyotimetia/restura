@@ -58,9 +58,24 @@ export interface McpRequest {
 /** A single tool/resource/prompt descriptor returned by the server */
 export interface McpToolDescriptor {
   name: string;
+  /** Human-readable display name (`title`, falling back to `annotations.title`) */
+  title?: string;
   description?: string;
   /** JSON Schema for the tool's input arguments */
   inputSchema?: McpJsonSchema;
+  /** JSON Schema `structuredContent` is expected to satisfy (MCP 2025-06-18) */
+  outputSchema?: McpJsonSchema;
+  /** Behavioural hints — untrusted when the server is untrusted */
+  annotations?: McpToolAnnotations;
+}
+
+/** Tool behaviour hints (MCP 2025-06-18 `ToolAnnotations`). Hints only. */
+export interface McpToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
 }
 
 export interface McpResourceDescriptor {

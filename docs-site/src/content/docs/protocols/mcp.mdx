@@ -17,6 +17,9 @@ Point Restura at any MCP server and explore it like any other request target.
 - **List tools** — see the server's exposed tool catalogue with schemas.
 - **Invoke a tool** — fill in the JSON schema, send, watch the streamed result.
 - **Result view** — Pretty / Raw / Tree, a JSONPath query, find, copy, and download for every tool result or error payload.
+- **Tool titles and hints** — discovery shows each tool's display `title` and its `annotations` as badges (read-only, destructive, idempotent, open-world). Hints are declared by the server and are not verified; invoking a tool marked `destructiveHint: true` (and not read-only) asks for confirmation first.
+- **Tool errors vs protocol errors** — a tool that fails reports `isError: true` inside a successful response; the result panel and call log show it as a red **TOOL ERROR**, distinct from a **PROTOCOL ERROR** (JSON-RPC or transport failure). `restura run` also fails the item for a tool error and words the message differently from a JSON-RPC error.
+- **Structured output** — when a tool declares an `outputSchema`, the result panel validates `structuredContent` against it and flags mismatches (or a missing `structuredContent`); you can view `structuredContent` on its own.
 - **Connection headers** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; values resolve `{{variables}}`.
 - **List prompts / list resources** — for servers that expose them.
 
