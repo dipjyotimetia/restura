@@ -231,13 +231,30 @@ export interface ElectronSocketIoAPI {
   removeAllListeners: (channel: string) => void;
 }
 
+/** SecretRef-shaped env value for a stdio MCP server; handles resolve in main. */
+export type McpStdioEnvValueIpc =
+  | string
+  | { kind: 'inline'; value: string }
+  | { kind: 'handle'; id: string; label?: string };
+
+export type McpConnectIpcConfig =
+  | {
+      connectionId: string;
+      url: string;
+      transport: 'streamable-http' | 'http-sse';
+      headers?: Record<string, string>;
+    }
+  | {
+      connectionId: string;
+      transport: 'stdio';
+      command: string;
+      args?: string[];
+      cwd?: string;
+      env?: Record<string, McpStdioEnvValueIpc>;
+    };
+
 export interface ElectronMcpAPI {
-  connect: (config: {
-    connectionId: string;
-    url: string;
-    transport: 'streamable-http' | 'http-sse';
-    headers?: Record<string, string>;
-  }) => Promise<{ success: boolean; error?: string }>;
+  connect: (config: McpConnectIpcConfig) => Promise<{ success: boolean; error?: string }>;
   request: (config: {
     connectionId: string;
     method: string;
@@ -251,6 +268,8 @@ export interface ElectronMcpAPI {
     jsonRpcError?: { code: number; message: string; data?: unknown };
   }>;
   disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
+  /** Forget every "Always allow" stdio launch approval. */
+  revokeStdioApprovals: () => Promise<{ success: boolean; revoked: number }>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeAllListeners: (channel: string) => void;

@@ -1,0 +1,170 @@
+/**
+ * Process lifecycle for MCP stdio servers (#854, ADR 0030).
+ *
+ * Main owns every child it spawns: each one is tracked here from the moment
+ * it spawns until it exits, and is killed on disconnect, renderer
+ * destruction, IPC module dispose (app quit), and — as a last resort — on
+ * the main process's own `exit`. Children are tracked by their
+ * `ChildProcess` handle, never by bare pid, so a recycled pid can never be
+ * signalled after the child is gone.
+ */
+
+import { type ChildProcess, spawn } from 'node:child_process';
+
+/** The subset of `ChildProcess` this module relies on (keeps tests honest). */
+export type TrackedChild = Pick<
+  ChildProcess,
+  'pid' | 'exitCode' | 'signalCode' | 'kill' | 'once' | 'removeListener'
+>;
+
+const live = new Set<TrackedChild>();
+let exitHookInstalled = false;
+
+function installExitHook(): void {
+  if (exitHookInstalled) return;
+  exitHookInstalled = true;
+  // Synchronous last resort (app.exit / crash paths skip async disposal).
+  process.once('exit', () => {
+    for (const child of live) {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // already gone
+      }
+    }
+  });
+}
+
+export function isChildAlive(child: TrackedChild): boolean {
+  return child.exitCode === null && child.signalCode === null;
+}
+
+/** Track a spawned child until it exits. Returns an idempotent untrack. */
+export function trackStdioChild(child: TrackedChild): () => void {
+  installExitHook();
+  if (!isChildAlive(child)) return () => {};
+  live.add(child);
+  const untrack = () => {
+    live.delete(child);
+    child.removeListener('exit', untrack);
+  };
+  child.once('exit', untrack);
+  return untrack;
+}
+
+export function liveStdioChildCount(): number {
+  return live.size;
+}
+
+function waitForExit(child: TrackedChild, ms: number): Promise<boolean> {
+  if (!isChildAlive(child)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const onExit = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      child.removeListener('exit', onExit);
+      resolve(!isChildAlive(child));
+    }, ms);
+    timer.unref?.();
+    child.once('exit', onExit);
+  });
+}
+
+/**
+ * Windows: `cmd.exe`-wrapped launches (`npx.cmd`, …) put the real server one
+ * level down, and TerminateProcess on the wrapper would orphan it. taskkill
+ * /T kills the whole tree. Spawned without a shell, arguments are fixed.
+ */
+function killTreeWindows(pid: number): void {
+  try {
+    const killer = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
+      shell: false,
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+    killer.on('error', () => {});
+  } catch {
+    // fall through to child.kill below
+  }
+}
+
+/**
+ * Terminate one child: polite signal first, SIGKILL after `graceMs`.
+ * Resolves once the child has exited (or the hard deadline passed).
+ */
+export async function terminateStdioChild(
+  child: TrackedChild,
+  graceMs = 1000,
+  platform: NodeJS.Platform = process.platform
+): Promise<void> {
+  if (!isChildAlive(child)) return;
+  if (platform === 'win32' && child.pid !== undefined) killTreeWindows(child.pid);
+  try {
+    child.kill('SIGTERM');
+  } catch {
+    // ignore
+  }
+  if (await waitForExit(child, graceMs)) return;
+  try {
+    child.kill('SIGKILL');
+  } catch {
+    // ignore
+  }
+  await waitForExit(child, 1000);
+}
+
+/** Kill every tracked child (app quit / module dispose). */
+export async function terminateAllStdioChildren(graceMs = 1000): Promise<void> {
+  await Promise.all([...live].map((child) => terminateStdioChild(child, graceMs)));
+}
+
+/**
+ * Bounded stderr forwarding. A chatty or hostile server must not be able to
+ * flood IPC or renderer memory: each emitted chunk is capped, and after
+ * `maxTotalBytes` a single truncation notice is emitted and the rest is
+ * dropped. A short tail is kept for connect-failure messages.
+ */
+export interface StderrForwarder {
+  push(chunk: Buffer | string): void;
+  /** Last few hundred characters, for error messages (e.g. "command not found"). */
+  tail(): string;
+}
+
+export const STDERR_LIMITS = {
+  maxChunkChars: 4096,
+  maxTotalChars: 512 * 1024,
+  tailChars: 600,
+} as const;
+
+export function createStderrForwarder(
+  emit: (text: string) => void,
+  limits: { maxChunkChars: number; maxTotalChars: number; tailChars: number } = STDERR_LIMITS
+): StderrForwarder {
+  let forwarded = 0;
+  let truncated = false;
+  let tail = '';
+  return {
+    push(chunk) {
+      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      if (text.length === 0) return;
+      tail = (tail + text).slice(-limits.tailChars);
+      if (truncated) return;
+      const budget = limits.maxTotalChars - forwarded;
+      const allowed = Math.min(budget, limits.maxChunkChars);
+      const slice = text.length > allowed ? text.slice(0, allowed) : text;
+      forwarded += slice.length;
+      if (slice.length > 0) {
+        emit(slice.length < text.length ? `${slice}… [chunk truncated]\n` : slice);
+      }
+      if (forwarded >= limits.maxTotalChars) {
+        truncated = true;
+        emit('\n[stderr limit reached — further output from this server is dropped]\n');
+      }
+    },
+    tail() {
+      return tail.trim();
+    },
+  };
+}

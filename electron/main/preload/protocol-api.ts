@@ -45,6 +45,9 @@ export const protocolApi: ProtocolApi = {
     connect: invoke<ElectronAPI['mcp']['connect']>(IPC.mcp.connect),
     request: invoke<ElectronAPI['mcp']['request']>(IPC.mcp.request),
     disconnect: invoke<ElectronAPI['mcp']['disconnect']>(IPC.mcp.disconnect),
+    revokeStdioApprovals: invoke<ElectronAPI['mcp']['revokeStdioApprovals']>(
+      IPC.mcp.revokeStdioApprovals
+    ),
     ...channelEventBridge(CHANNEL_PREFIXES.mcp),
   },
   kafka: {

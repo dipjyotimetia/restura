@@ -79,6 +79,8 @@ export const IPC = {
     connect: 'mcp:connect',
     request: 'mcp:request',
     disconnect: 'mcp:disconnect',
+    /** Clear every persisted stdio launch approval (narrows privilege only). */
+    revokeStdioApprovals: 'mcp:stdio:revoke-approvals',
   },
   kafka: {
     connect: 'kafka:connect',
@@ -284,6 +286,8 @@ export const EVENT_PREFIX = {
     notification: 'mcp:notification:',
     error: 'mcp:error:',
     close: 'mcp:close:',
+    /** Bounded stderr text from a stdio server process (desktop only). */
+    stderr: 'mcp:stderr:',
   },
   kafka: {
     connected: 'kafka:connected:',
