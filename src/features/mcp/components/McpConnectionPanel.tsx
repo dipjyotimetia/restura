@@ -1,4 +1,12 @@
-import { ChevronDown, ChevronRight, PanelLeft, Play, RefreshCw, Square } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  FlaskConical,
+  PanelLeft,
+  Play,
+  RefreshCw,
+  Square,
+} from 'lucide-react';
 import { useState } from 'react';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
@@ -36,6 +44,8 @@ interface McpConnectionPanelProps {
   onConnect: () => Promise<void>;
   onDisconnect: () => Promise<void>;
   onRefresh: () => Promise<void>;
+  /** Open the era/conformance report (#911). */
+  onConformance?: () => void;
 }
 
 const remoteTransportOptions: Array<{ value: McpTransportType; label: string }> = [
@@ -68,6 +78,7 @@ export function McpConnectionPanel({
   onConnect,
   onDisconnect,
   onRefresh,
+  onConformance,
 }: McpConnectionPanelProps) {
   const [headersOpen, setHeadersOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
@@ -211,6 +222,19 @@ export function McpConnectionPanel({
           Tools
         </Button>
         <McpImportDialog />
+        {onConformance && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onConformance}
+            disabled={!connection.url.trim() || isBusy}
+            title="Check the server in the legacy and modern protocol eras"
+            className="h-9 px-3 text-sp-12 rounded-sp-panel shrink-0 bg-sp-surface border border-sp-line"
+          >
+            <FlaskConical className="h-3.5 w-3.5" />
+            Conformance
+          </Button>
+        )}
         <Floater
           radius="panel"
           elevation="float"

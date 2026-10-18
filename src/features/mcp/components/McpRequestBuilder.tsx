@@ -6,6 +6,7 @@ import {
   displayHost,
   McpClientRequestDialog,
 } from '@/features/mcp/components/McpClientRequestDialog';
+import { McpConformanceDialog } from '@/features/mcp/components/McpConformanceDialog';
 import { McpConnectionPanel } from '@/features/mcp/components/McpConnectionPanel';
 import {
   McpDiscoveryPanel,
@@ -105,6 +106,7 @@ export default function McpRequestBuilder() {
   const clientGenerationRef = useRef(0);
   const [showCatalog, setShowCatalog] = useState(false);
   const [selectedTemplateUri, setSelectedTemplateUri] = useState<string | null>(null);
+  const [conformanceOpen, setConformanceOpen] = useState(false);
   const operation = request ? parseMcpOperation(request) : null;
   const [discoveryTab, setDiscoveryTab] = useState<McpDiscoveryTab>(() =>
     discoveryTabFor(operation)
@@ -243,6 +245,27 @@ export default function McpRequestBuilder() {
     advertised?.resources || discoveredTemplates.length > 0 ? discoveredTemplates : undefined;
   const supportsCompletion = advertised?.completions !== undefined;
   const supportsLogging = advertised?.logging !== undefined;
+
+  const resolveEndpoint = () => {
+    const rawHeaders = keyValuePairsToRecord(request.headers);
+    const headers = Object.fromEntries(
+      Object.entries(rawHeaders).map(([key, value]) => [key, resolveVariables(value)])
+    );
+    // Conformance sends the same header-shaped auth as a connection (inline
+    // values only: the IPC has no main-side secret resolution).
+    const endpointAuth = buildMcpConnectAuth({
+      auth: request.auth,
+      inherited: resolveInheritedAuthFor(request),
+      headers,
+      resolve: resolveVariables,
+      desktop: false,
+    });
+    return {
+      url: resolveVariables(request.url),
+      transport: request.transport,
+      headers: endpointAuth.ok ? endpointAuth.headers : headers,
+    };
+  };
 
   const buildClient = (): McpClient | { error: string } => {
     const rawHeaders = keyValuePairsToRecord(request.headers);
@@ -514,6 +537,13 @@ export default function McpRequestBuilder() {
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
         onRefresh={handleRefresh}
+        onConformance={() => setConformanceOpen(true)}
+      />
+      <McpConformanceDialog
+        open={conformanceOpen}
+        onOpenChange={setConformanceOpen}
+        getEndpoint={resolveEndpoint}
+        tools={tools}
       />
       {isElectron() && (
         <McpRootsPanel
