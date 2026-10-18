@@ -1,8 +1,12 @@
 import { fetchClientCredentialsToken } from '@shared/auth/oauth2';
+import { isPlaintextTokenEndpointAllowed } from '@shared/protocol/kafka-sasl-policy';
 import type { ProtocolSecretValue } from '@shared/protocol/types';
 import { validateURL } from '@shared/protocol/url-validation';
 import { getExecutionPolicy } from '../../security/execution-policy';
-import { createPolicyPinnedFetch, resolvePolicyTransport } from '../../security/policy-transport';
+import {
+  createClosablePolicyPinnedFetch,
+  resolvePolicyTransport,
+} from '../../security/policy-transport';
 import { resolveSafeAddress } from '../../security/safe-connect';
 
 /**
@@ -11,16 +15,30 @@ import { resolveSafeAddress } from '../../security/safe-connect';
  * `@platformatic/kafka` calls the SASL `token` provider on every
  * (re)authentication — initial connect, each new broker connection, and the
  * KIP-368 re-auth timer it arms from the broker's `sessionLifetimeMs`. The
- * provider below caches the token until `exp - 30s` and fetches a fresh one
- * after that, so long-running consumers re-authenticate with a valid token
- * instead of failing when the first one expires.
+ * provider below caches the token until less than max(30s, 25% of its
+ * lifetime) remains and fetches a fresh one after that, so the library's
+ * re-auth (at 0.8 x session lifetime) presents a new token.
  */
 
-/** Refresh this long before the token's expiry. */
+/** Minimum refresh lead: never present a token with less than 30s left. */
 export const TOKEN_REFRESH_SKEW_MS = 30_000;
+/**
+ * Proportional refresh lead. `@platformatic/kafka` re-authenticates at 0.8 x the
+ * broker's session lifetime (which tracks the token lifetime), so refreshing
+ * once less than 25% of the lifetime remains guarantees that re-auth presents a
+ * NEW token rather than the one about to expire.
+ */
+export const TOKEN_REFRESH_FRACTION = 0.25;
 /** Cache lifetime when the IdP gives neither `expires_in` nor a JWT `exp`. */
 export const DEFAULT_TOKEN_TTL_MS = 60_000;
+/** Upper bound on a token endpoint response body. */
+export const TOKEN_RESPONSE_MAX_BYTES = 1024 * 1024;
 const TOKEN_REQUEST_TIMEOUT_MS = 30_000;
+
+/** How long before expiry a token with lifetime `ttlMs` is refreshed. */
+export function refreshLeadMs(ttlMs: number): number {
+  return Math.max(TOKEN_REFRESH_SKEW_MS, TOKEN_REFRESH_FRACTION * Math.max(0, ttlMs));
+}
 
 export interface ExpiringToken {
   value: string;
@@ -30,21 +48,26 @@ export interface ExpiringToken {
 
 /**
  * Wrap a token fetcher in a single-flight cache that serves the cached token
- * until `expiresAt - TOKEN_REFRESH_SKEW_MS`. Failures are never cached.
+ * until less than {@link refreshLeadMs} of its lifetime remains. Failures are
+ * never cached.
  */
 export function createRefreshingTokenProvider(
   fetchToken: () => Promise<ExpiringToken>,
   now: () => number = Date.now
 ): () => Promise<string> {
-  let cached: ExpiringToken | undefined;
+  let cached: { token: ExpiringToken; refreshAt: number } | undefined;
   let inflight: Promise<string> | undefined;
   return () => {
-    if (cached && now() < cached.expiresAt - TOKEN_REFRESH_SKEW_MS) {
-      return Promise.resolve(cached.value);
+    if (cached && now() < cached.refreshAt) {
+      return Promise.resolve(cached.token.value);
     }
     inflight ??= fetchToken()
       .then((token) => {
-        cached = token;
+        const fetchedAt = now();
+        cached = {
+          token,
+          refreshAt: token.expiresAt - refreshLeadMs(token.expiresAt - fetchedAt),
+        };
         return token.value;
       })
       .finally(() => {
@@ -62,10 +85,10 @@ export interface KafkaOAuthClientCredentials {
 }
 
 export interface KafkaOAuthDeps {
-  /** Resolve a SecretValue (handle/inline/external) to plaintext — main only. */
+  /** Resolve a SecretValue (kafka-scoped handle / inline) to plaintext — main only. */
   resolveSecret: (value: ProtocolSecretValue) => Promise<string | undefined>;
   /** Build an SSRF-guarded fetch for the token endpoint. */
-  guardedFetch?: (url: string) => Promise<typeof globalThis.fetch>;
+  guardedFetch?: (url: string) => Promise<GuardedTokenFetch>;
   now?: () => number;
 }
 
@@ -80,7 +103,17 @@ export interface KafkaOAuthDeps {
  * desktop HTTP execution policy: private addresses are rejected unless the user
  * enabled "allow private IPs".
  */
-export async function createGuardedTokenFetch(url: string): Promise<typeof globalThis.fetch> {
+export type GuardedTokenFetch = typeof globalThis.fetch & {
+  /** Release the per-request connection pool once the token request is done. */
+  close?: () => Promise<void>;
+};
+
+export async function createGuardedTokenFetch(url: string): Promise<GuardedTokenFetch> {
+  if (!isPlaintextTokenEndpointAllowed(url)) {
+    throw new Error(
+      'OAuth token endpoint rejected: https is required (http is allowed only for loopback or private IP hosts)'
+    );
+  }
   const { security } = getExecutionPolicy();
   const checked = validateURL(url, {
     allowedSchemes: ['https:', 'http:'],
@@ -98,9 +131,11 @@ export async function createGuardedTokenFetch(url: string): Promise<typeof globa
       `OAuth token endpoint rejected: ${err instanceof Error ? err.message : String(err)}`
     );
   }
-  const pinnedFetch = createPolicyPinnedFetch(resolvePolicyTransport({ url }), pinned);
-  return ((input: RequestInfo | URL, init?: RequestInit) =>
-    pinnedFetch(input, { ...init, redirect: 'manual' })) as typeof globalThis.fetch;
+  const closable = createClosablePolicyPinnedFetch(resolvePolicyTransport({ url }), pinned);
+  const guarded = ((input: RequestInfo | URL, init?: RequestInit) =>
+    closable.fetch(input, { ...init, redirect: 'manual' })) as GuardedTokenFetch;
+  guarded.close = closable.close;
+  return guarded;
 }
 
 function jwtExpiryMs(token: string): number | undefined {
@@ -137,16 +172,25 @@ export async function fetchClientCredentialsExpiringToken(
   }
   const fetchImpl = await (deps.guardedFetch ?? createGuardedTokenFetch)(config.tokenEndpoint);
   const requestedAt = now();
-  const response = await fetchClientCredentialsToken(
-    {
-      grantType: 'client_credentials',
-      tokenUrl: config.tokenEndpoint,
-      clientId: config.clientId,
-      clientSecret,
-      ...(config.scope ? { scope: config.scope } : {}),
-    },
-    { fetch: fetchImpl, signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS) }
-  );
+  let response: Awaited<ReturnType<typeof fetchClientCredentialsToken>>;
+  try {
+    response = await fetchClientCredentialsToken(
+      {
+        grantType: 'client_credentials',
+        tokenUrl: config.tokenEndpoint,
+        clientId: config.clientId,
+        clientSecret,
+        ...(config.scope ? { scope: config.scope } : {}),
+      },
+      {
+        fetch: fetchImpl,
+        signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
+        maxResponseBytes: TOKEN_RESPONSE_MAX_BYTES,
+      }
+    );
+  } finally {
+    await fetchImpl.close?.().catch(() => undefined);
+  }
   if (typeof response.access_token !== 'string' || !response.access_token) {
     throw new Error('OAuth token endpoint response did not include an access_token.');
   }

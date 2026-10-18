@@ -32,6 +32,57 @@ export interface OAuth2Error {
 export interface OAuth2TokenRequestOptions {
   fetch?: typeof globalThis.fetch;
   signal?: AbortSignal;
+  /**
+   * Abort and reject when the token response body exceeds this many bytes.
+   * Unset keeps the historical unbounded read for existing callers.
+   */
+  maxResponseBytes?: number;
+}
+
+/** Read a response body as text, failing once it exceeds `maxBytes`. */
+async function readBodyCapped(response: Response, maxBytes: number): Promise<string> {
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new OAuth2TokenError('response_too_large', 'Token response exceeded the size limit');
+  }
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new OAuth2TokenError('response_too_large', 'Token response exceeded the size limit');
+    }
+    chunks.push(value);
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
+}
+
+async function readTokenJson(
+  response: Response,
+  maxResponseBytes: number | undefined
+): Promise<unknown> {
+  if (maxResponseBytes === undefined) return response.json();
+  const text = await readBodyCapped(response, maxResponseBytes);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new OAuth2TokenError(
+      'invalid_response',
+      `Token endpoint returned a non-JSON response (${response.status})`
+    );
+  }
 }
 
 /** Carries the machine-readable RFC 6749 error code alongside the human-readable message. */
@@ -58,7 +109,16 @@ async function postToken(
     ...(options.signal ? { signal: options.signal } : {}),
   });
 
-  const json = (await response.json()) as OAuth2TokenResponse | OAuth2Error;
+  const parsed = await readTokenJson(response, options.maxResponseBytes);
+  // `null`, arrays and primitives are not token responses (and would crash the
+  // `in` check below).
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new OAuth2TokenError(
+      'invalid_response',
+      `Token endpoint returned an invalid response (${response.status})`
+    );
+  }
+  const json = parsed as OAuth2TokenResponse | OAuth2Error;
 
   if (!response.ok || 'error' in json) {
     const err = json as OAuth2Error;

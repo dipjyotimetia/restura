@@ -385,11 +385,15 @@ describe('kafka-handler', () => {
   });
 
   it('wires refreshable SASL providers (OAuth client-credentials, MSK IAM) and GSSAPI into the client', async () => {
-    const connectWith = async (id: string, sasl: Record<string, unknown>) => {
+    const connectWith = async (
+      id: string,
+      sasl: Record<string, unknown>,
+      bootstrapBrokers = ['broker.example.com:9092']
+    ) => {
       const { event } = makeEvent();
       return handlerFor(IPC.kafka.connect)(
         event,
-        validConnect(id, { auth: { securityProtocol: 'SASL_SSL', sasl } })
+        validConnect(id, { bootstrapBrokers, auth: { securityProtocol: 'SASL_SSL', sasl } })
       );
     };
     await expect(
@@ -402,15 +406,29 @@ describe('kafka-handler', () => {
       })
     ).resolves.toEqual({ success: true });
     await expect(
-      connectWith('msk', {
-        mechanism: 'AWS_MSK_IAM',
-        region: 'us-east-1',
-        credentials: { source: 'profile', profile: 'default' },
-      })
+      connectWith(
+        'msk',
+        {
+          mechanism: 'AWS_MSK_IAM',
+          region: 'us-east-1',
+          credentials: { source: 'profile', profile: 'default' },
+        },
+        ['b-1.demo.c2.kafka.us-east-1.amazonaws.com:9098']
+      )
     ).resolves.toEqual({ success: true });
     await expect(
       connectWith('krb', { mechanism: 'GSSAPI', serviceName: 'kafka' })
     ).resolves.toEqual({ success: true });
+
+    const before = FakeProducer.instances.length;
+    await expect(
+      connectWith('msk-evil', {
+        mechanism: 'AWS_MSK_IAM',
+        region: 'us-east-1',
+        credentials: { source: 'profile', profile: 'default' },
+      })
+    ).rejects.toThrow(/Invalid IPC payload for kafka:connect/);
+    expect(FakeProducer.instances.length).toBe(before);
 
     const saslOf = (i: number) =>
       (FakeProducer.instances[i]!.options as { sasl: KafkaLib.SASLOptions }).sasl;

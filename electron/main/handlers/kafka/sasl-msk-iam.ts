@@ -3,7 +3,11 @@ import {
   createSmithySignatureV4,
   type SmithySigV4Credentials,
 } from '../../security/aws-sigv4-smithy';
-import { createRefreshingTokenProvider, type ExpiringToken } from './sasl-oauth';
+import {
+  createRefreshingTokenProvider,
+  type ExpiringToken,
+  TOKEN_REFRESH_SKEW_MS,
+} from './sasl-oauth';
 
 /**
  * AWS MSK IAM authentication (#918).
@@ -56,9 +60,15 @@ export async function generateMskIamToken(
   // Not part of the signature — appended after signing, as the AWS signers do.
   query['User-Agent'] = MSK_IAM_USER_AGENT;
   const url = `https://${hostname}/?${formatQuery(query)}`;
+  // The presigned URL is valid for 15 minutes, but never past the temporary
+  // credentials' own expiry (minus the refresh skew).
+  const urlExpiry = nowMs + MSK_IAM_TOKEN_TTL_SECONDS * 1000;
+  const credentialExpiry = credentials.expiration
+    ? credentials.expiration.getTime() - TOKEN_REFRESH_SKEW_MS
+    : Number.POSITIVE_INFINITY;
   return {
     value: Buffer.from(url, 'utf8').toString('base64url'),
-    expiresAt: nowMs + MSK_IAM_TOKEN_TTL_SECONDS * 1000,
+    expiresAt: Math.min(urlExpiry, credentialExpiry),
   };
 }
 

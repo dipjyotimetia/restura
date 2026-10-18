@@ -68,15 +68,53 @@ describe('generateMskIamToken', () => {
   });
 });
 
+describe('MSK IAM token expiry with temporary credentials', () => {
+  it('caps expiresAt at the credential expiration minus the refresh skew', async () => {
+    const expiration = new Date(FIXED_NOW + 5 * 60_000);
+    const { expiresAt } = await generateMskIamToken(
+      'us-east-1',
+      { ...CREDS, expiration },
+      FIXED_NOW
+    );
+    expect(expiresAt).toBe(expiration.getTime() - 30_000);
+    const later = new Date(FIXED_NOW + 60 * 60_000);
+    const capped = await generateMskIamToken(
+      'us-east-1',
+      { ...CREDS, expiration: later },
+      FIXED_NOW
+    );
+    expect(capped.expiresAt).toBe(FIXED_NOW + MSK_IAM_TOKEN_TTL_SECONDS * 1000);
+  });
+
+  it('re-signs with fresh credentials before short-lived credentials expire', async () => {
+    let now = FIXED_NOW;
+    let generation = 0;
+    const loadCredentials = vi.fn(async () => ({
+      ...CREDS,
+      secretAccessKey: `secret-${++generation}`,
+      expiration: new Date(now + 120_000),
+    }));
+    const provider = createMskIamTokenProvider('us-east-1', loadCredentials, () => now);
+    const first = await provider();
+    // expiresAt = now + 90s → lead 30s → refresh at 60s.
+    now += 59_000;
+    expect(await provider()).toBe(first);
+    now += 1_000;
+    expect(await provider()).not.toBe(first);
+    expect(loadCredentials).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('createMskIamTokenProvider', () => {
-  it('re-signs only when the cached token is within 30s of expiry', async () => {
+  it('re-signs once less than 25% of the 15-minute lifetime remains', async () => {
     let now = FIXED_NOW;
     const loadCredentials = vi.fn(async () => CREDS);
     const provider = createMskIamTokenProvider('us-east-1', loadCredentials, () => now);
     const first = await provider();
-    now += 800_000;
+    // 900s lifetime → refresh lead 225s → re-sign at 675s.
+    now += 674_000;
     expect(await provider()).toBe(first);
-    now = FIXED_NOW + MSK_IAM_TOKEN_TTL_SECONDS * 1000 - 30_000;
+    now = FIXED_NOW + 675_000;
     const refreshed = await provider();
     expect(refreshed).not.toBe(first);
     expect(loadCredentials).toHaveBeenCalledTimes(2);

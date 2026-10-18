@@ -11,7 +11,9 @@ import {
   createGuardedTokenFetch,
   createRefreshingTokenProvider,
   type ExpiringToken,
+  refreshLeadMs,
   TOKEN_REFRESH_SKEW_MS,
+  TOKEN_RESPONSE_MAX_BYTES,
 } from '../handlers/kafka/sasl-oauth';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -22,30 +24,46 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe('createRefreshingTokenProvider', () => {
-  it('caches the token and refreshes it 30s before expiry (fake clock)', async () => {
+  it('refreshes once less than max(30s, 25% of the lifetime) remains (fake clock)', async () => {
     let now = 1_000_000;
     let issued = 0;
+    const ttl = 300_000;
     const fetchToken = vi.fn(
-      async (): Promise<ExpiringToken> => ({
-        value: `token-${++issued}`,
-        expiresAt: now + 300_000,
-      })
+      async (): Promise<ExpiringToken> => ({ value: `token-${++issued}`, expiresAt: now + ttl })
     );
     const provider = createRefreshingTokenProvider(fetchToken, () => now);
 
     expect(await provider()).toBe('token-1');
-    // Still well inside the validity window — served from cache.
-    now += 200_000;
+    now = 1_000_000 + 200_000;
     expect(await provider()).toBe('token-1');
-    // One millisecond before the refresh threshold — still cached.
-    now = 1_000_000 + 300_000 - TOKEN_REFRESH_SKEW_MS - 1;
+    // 25% of 300s = 75s lead → refresh at 225s.
+    now = 1_000_000 + ttl - refreshLeadMs(ttl) - 1;
     expect(await provider()).toBe('token-1');
     expect(fetchToken).toHaveBeenCalledTimes(1);
-    // At exp - 30s the provider refreshes BEFORE the token actually expires.
-    now = 1_000_000 + 300_000 - TOKEN_REFRESH_SKEW_MS;
+    now = 1_000_000 + ttl - refreshLeadMs(ttl);
     expect(await provider()).toBe('token-2');
     expect(fetchToken).toHaveBeenCalledTimes(2);
-    expect(now).toBeLessThan(1_000_000 + 300_000);
+  });
+
+  it('library re-auth at 0.8 x lifetime gets a NEW token', async () => {
+    for (const ttl of [60_000, 300_000, 3_600_000]) {
+      let now = 0;
+      let issued = 0;
+      const provider = createRefreshingTokenProvider(
+        async () => ({ value: `t${++issued}`, expiresAt: now + ttl }),
+        () => now
+      );
+      expect(await provider()).toBe('t1');
+      // @platformatic/kafka re-authenticates at reauthFraction (0.8) of the session lifetime.
+      now = 0.8 * ttl;
+      expect(await provider()).toBe('t2');
+    }
+  });
+
+  it('never refreshes later than 30s before expiry for short-lived tokens', () => {
+    expect(refreshLeadMs(60_000)).toBe(TOKEN_REFRESH_SKEW_MS);
+    expect(refreshLeadMs(1_000)).toBe(TOKEN_REFRESH_SKEW_MS);
+    expect(refreshLeadMs(400_000)).toBe(100_000);
   });
 
   it('single-flights concurrent callers (one token request for a broker fan-out)', async () => {
@@ -166,10 +184,11 @@ describe('createClientCredentialsTokenProvider', () => {
       }
     );
     await provider();
-    now = exp * 1000 - TOKEN_REFRESH_SKEW_MS - 1;
+    // Lifetime 1000s → lead 250s.
+    now = exp * 1000 - refreshLeadMs(1_000_000) - 1;
     await provider();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    now = exp * 1000 - TOKEN_REFRESH_SKEW_MS;
+    now = exp * 1000 - refreshLeadMs(1_000_000);
     await provider();
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
@@ -225,6 +244,48 @@ describe('createClientCredentialsTokenProvider', () => {
   });
 });
 
+describe('token request hygiene', () => {
+  const cfg = { tokenEndpoint: 'https://idp.example.com/token', clientId: 'c', clientSecret: 's' };
+
+  it('closes the per-request connection pool after success and failure', async () => {
+    for (const body of [{ access_token: 'ok', expires_in: 60 }, { error: 'invalid_client' }]) {
+      const close = vi.fn(async () => {});
+      const fetchImpl = Object.assign(
+        vi.fn(async () => jsonResponse(body, 'error' in body ? 401 : 200)),
+        { close }
+      );
+      await createClientCredentialsTokenProvider(cfg, {
+        guardedFetch: async () => fetchImpl as unknown as typeof fetch,
+        resolveSecret: async () => 's',
+      })().catch(() => undefined);
+      expect(close).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('aborts an oversized token response (1 MB cap)', async () => {
+    const huge = new Response('x'.repeat(10), {
+      headers: { 'content-length': String(TOKEN_RESPONSE_MAX_BYTES + 1) },
+    });
+    await expect(
+      createClientCredentialsTokenProvider(cfg, {
+        guardedFetch: async () => (async () => huge) as unknown as typeof fetch,
+        resolveSecret: async () => 's',
+      })()
+    ).rejects.toThrow('Token response exceeded the size limit');
+  });
+
+  it('handles null / array token responses without crashing', async () => {
+    for (const body of [null, []]) {
+      await expect(
+        createClientCredentialsTokenProvider(cfg, {
+          guardedFetch: async () => (async () => jsonResponse(body)) as unknown as typeof fetch,
+          resolveSecret: async () => 's',
+        })()
+      ).rejects.toThrow(/invalid response/);
+    }
+  });
+});
+
 describe('createGuardedTokenFetch', () => {
   it('rejects private, metadata and non-http endpoints before any network I/O', async () => {
     await expect(createGuardedTokenFetch('http://192.168.1.10/token')).rejects.toThrow(
@@ -235,6 +296,12 @@ describe('createGuardedTokenFetch', () => {
     ).rejects.toThrow(/token endpoint rejected/i);
     await expect(createGuardedTokenFetch('ftp://idp.example.com/token')).rejects.toThrow(
       /token endpoint rejected/i
+    );
+  });
+
+  it('requires https except for loopback / private IP literal hosts', async () => {
+    await expect(createGuardedTokenFetch('http://idp.example.com/token')).rejects.toThrow(
+      /https is required/
     );
   });
 });

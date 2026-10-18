@@ -74,7 +74,7 @@ describe('buildKafkaSaslOptions', () => {
   });
 
   it('maps client-credentials to a token provider that resolves the secret handle in main', async () => {
-    const { id } = storeSecretHandle({ value: 'client-secret-plain' });
+    const { id } = storeSecretHandle({ value: 'client-secret-plain', scope: 'kafka' });
     const fetchImpl = vi.fn(
       async (_url: string | URL | Request, _init?: RequestInit) =>
         new Response(JSON.stringify({ access_token: 'issued', expires_in: 300 }), {
@@ -121,8 +121,8 @@ describe('buildKafkaSaslOptions', () => {
   });
 
   it('maps AWS_MSK_IAM (static handles) onto OAUTHBEARER with a presigned token', async () => {
-    const secret = storeSecretHandle({ value: 'aws-secret' });
-    const session = storeSecretHandle({ value: 'aws-session' });
+    const secret = storeSecretHandle({ value: 'aws-secret', scope: 'kafka' });
+    const session = storeSecretHandle({ value: 'aws-session', scope: 'kafka' });
     const opts = buildKafkaSaslOptions(
       {
         mechanism: 'AWS_MSK_IAM',
@@ -153,6 +153,33 @@ describe('buildKafkaSaslOptions', () => {
     expect(mockFromIni).toHaveBeenCalledWith({ profile: 'msk-dev' });
     expect(url.searchParams.get('X-Amz-Credential')).toMatch(/^ASIAPROFILEEXAMPLE01\//);
     expect(url.searchParams.get('X-Amz-Security-Token')).toBe('profile-session');
+  });
+
+  it('carries profile credential expiration through to the MSK token refresh', async () => {
+    let now = Date.UTC(2026, 0, 1);
+    mockFromIni.mockImplementation(() => async () => ({
+      accessKeyId: 'ASIAPROFILEEXAMPLE01',
+      secretAccessKey: 'profile-secret',
+      sessionToken: 'profile-session',
+      expiration: new Date(now + 120_000),
+    }));
+    const opts = buildKafkaSaslOptions(
+      {
+        mechanism: 'AWS_MSK_IAM',
+        region: 'eu-central-1',
+        credentials: { source: 'profile', profile: 'sso' },
+      },
+      { now: () => now }
+    );
+    const token = opts.token as () => Promise<string>;
+    await token();
+    now += 59_000;
+    await token();
+    expect(mockFromIni).toHaveBeenCalledTimes(1);
+    // Credentials expire at +120s → token expiresAt +90s → refreshed at +60s.
+    now += 1_000;
+    await token();
+    expect(mockFromIni).toHaveBeenCalledTimes(2);
   });
 
   it('fails clearly when an MSK IAM secret handle is missing', async () => {
@@ -260,19 +287,36 @@ describe('resolveKafkaSecret', () => {
     __setSecretStoreForTests(memoryStore());
   });
 
-  it('resolves strings, inline values, handles and external references', async () => {
-    const { id } = storeSecretHandle({ value: 'handled' });
+  it('resolves strings, inline values and kafka-scoped handles', async () => {
+    const { id } = storeSecretHandle({ value: 'handled', scope: 'kafka' });
     expect(await resolveKafkaSecret('plain')).toBe('plain');
     expect(await resolveKafkaSecret({ kind: 'inline', value: 'inl' })).toBe('inl');
     expect(await resolveKafkaSecret({ kind: 'handle', id })).toBe('handled');
     expect(await resolveKafkaSecret({ kind: 'handle', id: 'nope' })).toBeUndefined();
-    expect(
-      await resolveKafkaSecret({
+  });
+
+  it('refuses handles stored for another feature (or unscoped) without leaking the value', async () => {
+    const http = storeSecretHandle({ value: 'http-bearer-plaintext', scope: 'http' });
+    const unscoped = storeSecretHandle({ value: 'unscoped-plaintext' });
+    for (const id of [http.id, unscoped.id]) {
+      const error = await resolveKafkaSecret({ kind: 'handle', id }).then(
+        () => undefined,
+        (err: Error) => err
+      );
+      expect(error?.message).toBe('This stored secret is not available to Kafka connections.');
+      expect(error?.message).not.toContain('plaintext');
+    }
+  });
+
+  it('refuses external secret-manager references (no opt-in for Kafka)', async () => {
+    await expect(
+      resolveKafkaSecret({
         kind: 'external',
         provider: 'aws-secrets-manager',
         profileId: 'p',
         secretId: 's',
       })
-    ).toBe('from-vault');
+    ).rejects.toThrow(/External secret references are not supported/);
+    expect(mockExternalResolve).not.toHaveBeenCalled();
   });
 });

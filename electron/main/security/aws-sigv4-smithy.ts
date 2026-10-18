@@ -36,6 +36,8 @@ export interface SmithySigV4Credentials {
   accessKeyId: string;
   secretAccessKey: string;
   sessionToken?: string | undefined;
+  /** When temporary credentials stop being valid (not used for signing). */
+  expiration?: Date | undefined;
 }
 
 /**

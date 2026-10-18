@@ -359,6 +359,8 @@ export type KafkaSaslIpc =
   | {
       mechanism: 'AWS_MSK_IAM';
       region: string;
+      /** Opt-in: allow brokers outside *.kafka.<region>.amazonaws.com (PrivateLink / custom DNS). */
+      allowNonAwsBrokerHosts?: boolean;
       credentials:
         | {
             source: 'static';

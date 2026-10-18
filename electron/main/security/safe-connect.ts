@@ -158,13 +158,32 @@ export function createPinnedFetch(
   ip: string,
   connectOptions: Record<string, unknown> = {}
 ): typeof globalThis.fetch {
+  return createClosablePinnedFetch(host, ip, connectOptions).fetch;
+}
+
+/** A pinned fetch plus `close()` to release its undici Agent (sockets/pool). */
+export interface ClosablePinnedFetch {
+  fetch: typeof globalThis.fetch;
+  close: () => Promise<void>;
+}
+
+/**
+ * Same as {@link createPinnedFetch} but hands back the Agent's `close()` so
+ * short-lived callers (e.g. one token request per refresh) don't leak a
+ * connection pool per call.
+ */
+export function createClosablePinnedFetch(
+  host: string,
+  ip: string,
+  connectOptions: Record<string, unknown> = {}
+): ClosablePinnedFetch {
   const agent = new Agent({
     connect: {
       ...connectOptions,
       lookup: createPinnedLookup(host, ip),
     } as Agent.Options['connect'],
   });
-  return ((input: RequestInfo | URL, init?: RequestInit) => {
+  const fetchImpl = ((input: RequestInfo | URL, init?: RequestInit) => {
     const undiciInit: UndiciRequestInit = {
       ...(init as UndiciRequestInit | undefined),
       dispatcher: agent,
@@ -174,4 +193,5 @@ export function createPinnedFetch(
       undiciInit
     ) as unknown as Promise<Response>;
   }) as typeof globalThis.fetch;
+  return { fetch: fetchImpl, close: () => agent.close() };
 }

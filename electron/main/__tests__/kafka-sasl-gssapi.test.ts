@@ -151,6 +151,32 @@ describe('kafka GSSAPI authenticator', () => {
     expect(error?.message).toBe('denied');
   });
 
+  it('times out a stalled exchange', async () => {
+    vi.useFakeTimers();
+    try {
+      const authenticator = createGssapiAuthenticator(
+        {},
+        () => ({ initializeClient: () => new Promise<never>(() => {}) }),
+        5_000
+      );
+      const result = new Promise<Error | null>((resolve) => {
+        authenticator(
+          'GSSAPI',
+          { host: 'b' } as never,
+          vi.fn() as never,
+          undefined,
+          undefined,
+          undefined,
+          ((e: Error | null) => resolve(e)) as never
+        );
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect((await result)?.message).toMatch(/timed out after 5000ms/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('bounds the token exchange', async () => {
     const neverCompletes: KerberosClientLike = {
       contextComplete: false,

@@ -1,4 +1,10 @@
 import { isIPv6 } from 'node:net';
+import {
+  findNonMskBrokers,
+  hasForbiddenOAuthExtensionChars,
+  isPlaintextTokenEndpointAllowed,
+  MAX_OAUTH_EXTENSIONS,
+} from '@shared/protocol/kafka-sasl-policy';
 import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
 import { z } from 'zod';
 import { ConnectionIdSchema } from './core';
@@ -34,25 +40,49 @@ const KafkaBrokerSchema = z
     return Number.isInteger(port) && port >= 1 && port <= 65_535;
   }, 'Broker port must be between 1 and 65535');
 
+const noControlChars = (value: string) => !hasForbiddenOAuthExtensionChars(value);
 const KafkaOAuthExtensionsSchema = z
-  .record(z.string().min(1).max(256), z.string().max(1024))
+  .record(
+    z
+      .string()
+      .min(1)
+      .max(256)
+      .refine(noControlChars, 'Extension keys must not contain control characters'),
+    z
+      .string()
+      .max(1024)
+      .refine(noControlChars, 'Extension values must not contain control characters')
+  )
+  .refine(
+    (extensions) => Object.keys(extensions).length <= MAX_OAUTH_EXTENSIONS,
+    `At most ${MAX_OAUTH_EXTENSIONS} OAuth extensions are allowed`
+  )
   .optional();
 
-// Secret-bearing fields added for #918 accept the canonical SecretValue union
-// (plain string | inline | handle | external). The renderer sends handles, so
-// plaintext is resolved here in main only (ADR-0007).
-const KafkaSecretValueSchema = protocolSecretValueSchema.refine(
-  (value) =>
-    typeof value === 'string'
-      ? value.length > 0
-      : value.kind !== 'inline' || value.value.length > 0,
-  'Secret is required'
-);
+// Secret-bearing fields added for #918 accept plain string | inline | handle.
+// The renderer sends `kafka`-scoped handles, so plaintext is resolved in main
+// only (ADR-0007).
+// External secret-manager references are refused for Kafka (no opt-in path).
+const KafkaSecretValueSchema = protocolSecretValueSchema
+  .refine(
+    (value) =>
+      typeof value === 'string'
+        ? value.length > 0
+        : value.kind !== 'inline' || value.value.length > 0,
+    'Secret is required'
+  )
+  .refine(
+    (value) => typeof value === 'string' || value.kind !== 'external',
+    'External secret references are not supported for Kafka SASL credentials'
+  );
 
 const KafkaTokenEndpointSchema = z
   .url('Invalid OAuth token endpoint')
   .max(2048)
-  .refine((url) => /^https?:\/\//i.test(url), 'OAuth token endpoint must be http(s)');
+  .refine(
+    isPlaintextTokenEndpointAllowed,
+    'OAuth token endpoint must use https (http is allowed only for loopback or private IP hosts)'
+  );
 
 // Service and principal names flow into the native GSSAPI library (the service
 // becomes the SPN `service@broker-host`) — keep them to the characters Kerberos
@@ -71,7 +101,7 @@ const KafkaKerberosPrincipalSchema = z
     'Invalid Kerberos principal'
   );
 
-const KafkaSaslSchema = z.union([
+const KafkaSaslSchema = z.discriminatedUnion('mechanism', [
   z.object({
     mechanism: z.literal('PLAIN'),
     username: z.string().min(1).max(256),
@@ -87,26 +117,30 @@ const KafkaSaslSchema = z.union([
     username: z.string().min(1).max(256),
     password: z.string().min(1).max(1024),
   }),
-  // Static bearer token. `mode` is optional so pre-#918 configs keep parsing.
-  z.object({
-    mechanism: z.literal('OAUTHBEARER'),
-    mode: z.literal('static').optional(),
-    token: z
-      .string()
-      .min(1)
-      .max(16 * 1024),
-    extensions: KafkaOAuthExtensionsSchema,
-  }),
-  // OAuth 2.0 client-credentials: main fetches + refreshes the token.
-  z.object({
-    mechanism: z.literal('OAUTHBEARER'),
-    mode: z.literal('client-credentials'),
-    tokenEndpoint: KafkaTokenEndpointSchema,
-    clientId: z.string().min(1).max(512),
-    clientSecret: KafkaSecretValueSchema,
-    scope: z.string().max(1024).optional(),
-    extensions: KafkaOAuthExtensionsSchema,
-  }),
+  // Nested on `mode`; `mode` is optional on the static variant so pre-#918
+  // configs keep parsing.
+  z.discriminatedUnion('mode', [
+    // Static bearer token. `mode` is optional so pre-#918 configs keep parsing.
+    z.object({
+      mechanism: z.literal('OAUTHBEARER'),
+      mode: z.literal('static').optional(),
+      token: z
+        .string()
+        .min(1)
+        .max(16 * 1024),
+      extensions: KafkaOAuthExtensionsSchema,
+    }),
+    // OAuth 2.0 client-credentials: main fetches + refreshes the token.
+    z.object({
+      mechanism: z.literal('OAUTHBEARER'),
+      mode: z.literal('client-credentials'),
+      tokenEndpoint: KafkaTokenEndpointSchema,
+      clientId: z.string().min(1).max(512),
+      clientSecret: KafkaSecretValueSchema,
+      scope: z.string().max(1024).optional(),
+      extensions: KafkaOAuthExtensionsSchema,
+    }),
+  ]),
   z.object({
     mechanism: z.literal('GSSAPI'),
     serviceName: KafkaKerberosServiceSchema.optional(),
@@ -120,6 +154,10 @@ const KafkaSaslSchema = z.union([
       .min(1)
       .max(32)
       .regex(/^[a-z]{2}(-[a-z]+)+-\d+$/, 'Invalid AWS region'),
+    // MSK IAM tokens are not bound to a cluster: by default every bootstrap
+    // broker must be an MSK endpoint in `region`. PrivateLink / custom-DNS
+    // setups opt out explicitly (the UI gates this behind a warning).
+    allowNonAwsBrokerHosts: z.boolean().optional(),
     credentials: z.discriminatedUnion('source', [
       z.object({
         source: z.literal('static'),
@@ -247,7 +285,19 @@ export const KafkaConnectSchema = z
       cfg.auth.sasl.mechanism !== 'AWS_MSK_IAM' ||
       cfg.auth.securityProtocol === 'SASL_SSL',
     { message: 'AWS MSK IAM requires SASL_SSL.', path: ['auth', 'securityProtocol'] }
-  );
+  )
+  .superRefine((cfg, ctx) => {
+    if (!('sasl' in cfg.auth) || cfg.auth.sasl.mechanism !== 'AWS_MSK_IAM') return;
+    if (cfg.auth.sasl.allowNonAwsBrokerHosts === true) return;
+    const outside = findNonMskBrokers(cfg.bootstrapBrokers, cfg.auth.sasl.region);
+    if (outside.length > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['bootstrapBrokers'],
+        message: `AWS MSK IAM brokers must be MSK endpoints in ${cfg.auth.sasl.region} (*.kafka.${cfg.auth.sasl.region}.amazonaws.com); enable "allow non-AWS broker hosts" for PrivateLink or custom DNS.`,
+      });
+    }
+  });
 
 // Topic naming rules per Kafka: max 249 chars, [a-zA-Z0-9._-]; we also forbid
 // leading dot/dash for sanity.

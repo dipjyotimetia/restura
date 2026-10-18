@@ -1,12 +1,18 @@
 import { fromIni } from '@aws-sdk/credential-providers';
 import type * as KafkaLib from '@platformatic/kafka';
-import { isProtocolExternalSecret } from '@shared/protocol/secret-value-schema';
+import {
+  isProtocolExternalSecret,
+  isProtocolSecretHandle,
+} from '@shared/protocol/secret-value-schema';
 import type { ProtocolSecretValue } from '@shared/protocol/types';
 import { createLogger } from '@shared/runtime/logger';
 import type { KafkaSaslConfig } from '../../ipc/validators/kafka';
 import type { SmithySigV4Credentials } from '../../security/aws-sigv4-smithy';
-import { desktopExternalSecretResolver } from '../../security/external-secret-providers';
-import { unwrapSecretValueMain } from '../../security/secret-handle-store';
+import {
+  describeSecretHandle,
+  resolveSecretHandle,
+  unwrapSecretValueMain,
+} from '../../security/secret-handle-store';
 import { createGssapiAuthenticator, type KerberosModuleLike } from './sasl-gssapi';
 import { createMskIamTokenProvider } from './sasl-msk-iam';
 import { createClientCredentialsTokenProvider } from './sasl-oauth';
@@ -28,9 +34,33 @@ export interface KafkaSaslDeps {
   now?: () => number;
 }
 
-/** Resolve any SecretValue form to plaintext, main-process only. */
+/** Scope stamped on every handle the Kafka connection form stores. */
+export const KAFKA_SECRET_SCOPE = 'kafka';
+
+/**
+ * Resolve a Kafka SASL SecretValue to plaintext, main-process only.
+ *
+ * - Handles resolve only when they were stored with the `kafka` scope, so a
+ *   crafted connection cannot point at (and exfiltrate to a broker / token
+ *   endpoint) a handle created for another feature. Unknown handles resolve to
+ *   undefined ("re-enter the secret").
+ * - External secret-manager references are refused: the Kafka form never
+ *   creates them and there is no explicit opt-in for sending vault secrets to
+ *   Kafka endpoints.
+ * - Plain strings / inline values pass through (legacy shape).
+ */
 export async function resolveKafkaSecret(value: ProtocolSecretValue): Promise<string | undefined> {
-  if (isProtocolExternalSecret(value)) return desktopExternalSecretResolver.resolve(value);
+  if (isProtocolExternalSecret(value)) {
+    throw new Error('External secret references are not supported for Kafka SASL credentials.');
+  }
+  if (isProtocolSecretHandle(value)) {
+    const description = describeSecretHandle(value.id);
+    if (!description) return undefined;
+    if (description.scope !== KAFKA_SECRET_SCOPE) {
+      throw new Error('This stored secret is not available to Kafka connections.');
+    }
+    return resolveSecretHandle(value.id);
+  }
   return unwrapSecretValueMain(value);
 }
 
@@ -40,6 +70,7 @@ async function loadAwsProfileCredentials(profile: string): Promise<SmithySigV4Cr
     accessKeyId: creds.accessKeyId,
     secretAccessKey: creds.secretAccessKey,
     ...(creds.sessionToken ? { sessionToken: creds.sessionToken } : {}),
+    ...(creds.expiration ? { expiration: creds.expiration } : {}),
   };
 }
 

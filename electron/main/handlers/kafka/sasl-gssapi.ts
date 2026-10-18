@@ -38,6 +38,8 @@ export interface KafkaGssapiConfig {
 export const DEFAULT_KERBEROS_SERVICE = 'kafka';
 // Bound the GSS-API token exchange so a misbehaving broker can't loop us forever.
 const MAX_GSSAPI_ROUNDS = 10;
+/** Overall deadline for one GSSAPI authentication. */
+export const GSSAPI_EXCHANGE_TIMEOUT_MS = 30_000;
 // Indirected so bundlers/type tooling never try to resolve the optional addon.
 const KERBEROS_MODULE_ID = 'kerberos';
 
@@ -97,7 +99,8 @@ export async function runGssapiExchange(
 /** Build the `@platformatic/kafka` custom authenticator for GSSAPI. */
 export function createGssapiAuthenticator(
   config: KafkaGssapiConfig,
-  loadKerberos: () => KerberosModuleLike = loadKerberosModule
+  loadKerberos: () => KerberosModuleLike = loadKerberosModule,
+  timeoutMs: number = GSSAPI_EXCHANGE_TIMEOUT_MS
 ): KafkaLib.SASLCustomAuthenticator {
   return (_mechanism, connection, authenticate, _u, _p, _t, callback) => {
     const send: SaslSend = (bytes) =>
@@ -109,7 +112,7 @@ export function createGssapiAuthenticator(
         });
       });
 
-    void (async () => {
+    const exchange = (async () => {
       const host = connection.host;
       if (!host) throw new Error('Kafka GSSAPI: broker host is unknown.');
       const kerberos = loadKerberos();
@@ -123,9 +126,21 @@ export function createGssapiAuthenticator(
         }
       );
       return runGssapiExchange(client, send, config.principal);
-    })().then(
-      (response) => callback(null, response),
-      (error: unknown) => callback(error instanceof Error ? error : new Error(String(error)))
-    );
+    })();
+    // Bound the whole exchange (KDC lookups + broker round-trips) so a stalled
+    // KDC or broker can't hang the connection attempt indefinitely.
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`Kafka GSSAPI authentication timed out after ${timeoutMs}ms.`)),
+        timeoutMs
+      );
+    });
+    Promise.race([exchange, timeout])
+      .finally(() => clearTimeout(timer))
+      .then(
+        (response) => callback(null, response),
+        (error: unknown) => callback(error instanceof Error ? error : new Error(String(error)))
+      );
   };
 }
