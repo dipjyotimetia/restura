@@ -6,6 +6,12 @@ import {
   type SecretableRow,
 } from './key-value-redaction';
 import { isSecretHandle, redactSecret, type SecretValue, unwrapSecret } from './secret-ref';
+import {
+  countStdioEnvInlineSecrets,
+  redactOcStdioEnv,
+  redactStdioEnvRows,
+  stdioEnvOf,
+} from './stdio-env-redaction';
 
 /**
  * Redacts secret-bearing auth fields from a collection before it goes through
@@ -160,6 +166,8 @@ function redactOcBag(node: unknown): unknown {
       output[key] = '';
     } else if (key === 'value' && input.secret === true) {
       output[key] = '';
+    } else if (key === 'stdio' && isPlainObject(value) && Array.isArray(value.env)) {
+      output[key] = { ...(redactOcBag(value) as object), env: redactOcStdioEnv(value.env) };
     } else {
       output[key] = redactOcBag(value);
     }
@@ -310,6 +318,11 @@ function redactItem(item: CollectionItem): CollectionItem {
     if (Array.isArray(req.metadata))
       req.metadata = redactSecretKeyValues(req.metadata as SecretableRow[]);
     if ('auth' in req) req.auth = redactAuthConfigSecrets(req.auth as AuthConfig);
+    // MCP stdio launch env (credential-named values, inline SecretRefs).
+    const stdioEnv = stdioEnvOf(req);
+    if (stdioEnv) {
+      req.stdio = { ...(req.stdio as object), env: redactStdioEnvRows(stdioEnv) };
+    }
     next.request = req as unknown as typeof next.request;
   }
   return next;
@@ -370,6 +383,7 @@ export function countCollectionInlineSecrets(collection: Collection): number {
         count += countSecretKeyValues(req.headers as SecretableRow[] | undefined);
         count += countSecretKeyValues(req.params as SecretableRow[] | undefined);
         count += countSecretKeyValues(req.metadata as SecretableRow[] | undefined);
+        count += countStdioEnvInlineSecrets(stdioEnvOf(req));
       }
       if (item.items) walk(item.items);
     }

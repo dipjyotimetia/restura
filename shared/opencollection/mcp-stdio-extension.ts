@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid';
-import { secretValueSchema } from '../secrets/secret-ref';
+import { isSecretHandle, secretValueSchema } from '../secrets/secret-ref';
+import { redactStdioEnvRows } from '../secrets/stdio-env-redaction';
 import type { McpStdioConfig, McpStdioEnvVar, McpTransportType } from '../types';
 
 /**
@@ -21,11 +22,15 @@ export function mcpStdioToOC(stdio: McpStdioConfig): Record<string, unknown> {
   const out: Record<string, unknown> = { command: stdio.command, args: [...stdio.args] };
   if (stdio.cwd !== undefined) out.cwd = stdio.cwd;
   if (stdio.env?.length) {
-    out.env = stdio.env.map((e) => {
+    // Exported and file-synced collections never carry plaintext credentials
+    // (ADR 0007): credential-named values are written value-less with
+    // `secret: true`; only opaque handle references are kept.
+    out.env = redactStdioEnvRows(stdio.env).map((e) => {
       const entry: Record<string, unknown> = { name: e.key, value: e.value };
       if (e.enabled === false) entry.enabled = false;
       if (e.description) entry.description = e.description;
-      if (e.secretRef !== undefined) entry.secretRef = e.secretRef;
+      if (e.secret) entry.secret = true;
+      if (isSecretHandle(e.secretRef)) entry.secretRef = e.secretRef;
       return entry;
     });
   }
@@ -44,6 +49,7 @@ function envFromOC(raw: unknown): McpStdioEnvVar | undefined {
     enabled: typeof e.enabled === 'boolean' ? e.enabled : true,
   };
   if (typeof e.description === 'string') out.description = e.description;
+  if (e.secret === true) out.secret = true;
   const ref = secretValueSchema.safeParse(e.secretRef);
   if (e.secretRef !== undefined && ref.success)
     out.secretRef = ref.data as McpStdioEnvVar['secretRef'];
