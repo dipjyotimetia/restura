@@ -33,6 +33,7 @@ export type CapabilityName =
   | 'sse.basic'
   | 'sse.customHeaders'
   | 'mcp.basic'
+  | 'mcp.clientRequests'
   | 'grpc.basic'
   | 'grpc.reflection'
   | 'grpc.web'
@@ -213,6 +214,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes:
       'http-sse transport is desktop-only; web supports streamable-http and rejects http-sse at connect time. Web runs the initialize/initialized handshake, MCP-Protocol-Version, DELETE on disconnect and one re-initialize on 404 session expiry, and surfaces server messages interleaved in a reply; it has no standalone GET listening stream and no Last-Event-ID resumption (desktop only)',
+  },
+  'mcp.clientRequests': {
+    label: 'MCP elicitation, sampling and roots (incl. 2026-07-28 input_required)',
+    web: false,
+    desktop: true,
+    notes:
+      'Server→client requests need a persistent channel back to the client; the web Worker proxy is request/response only. Desktop: form-mode elicitation (URL mode not advertised), sampling with per-request human approval (manual text or an AI-assistant provider draft), per-connection file:// roots with list_changed',
   },
   'grpc.basic': {
     label: 'gRPC unary + streaming',

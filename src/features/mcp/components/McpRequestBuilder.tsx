@@ -1,27 +1,34 @@
 import { useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Floater } from '@/components/ui/spatial';
+import { McpClientRequestDialog } from '@/features/mcp/components/McpClientRequestDialog';
 import { McpConnectionPanel } from '@/features/mcp/components/McpConnectionPanel';
 import {
   McpDiscoveryPanel,
   type McpDiscoveryTab,
 } from '@/features/mcp/components/McpDiscoveryPanel';
 import { McpInvokeForm } from '@/features/mcp/components/McpInvokeForm';
+import { McpRootsPanel } from '@/features/mcp/components/McpRootsPanel';
+import { useMcpClientRequests } from '@/features/mcp/hooks/useMcpClientRequests';
 import { useMcpConnectionActions } from '@/features/mcp/hooks/useMcpConnectionActions';
 import { type McpCall, McpClient } from '@/features/mcp/lib/mcpClient';
+import { pushMcpRoots } from '@/features/mcp/lib/mcpClientRequests';
 import {
   type McpOperation,
   parseMcpOperation,
   serializeMcpOperation,
 } from '@/features/mcp/lib/mcpOperation';
-import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import { type McpRoot, useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
+import { isElectron } from '@/lib/shared/platform';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useActiveRequest, useActiveTabId } from '@/store/selectors';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { McpRequest } from '@/types';
+
+const NO_ROOTS: McpRoot[] = [];
 
 interface McpClientSession {
   connectionId: string;
@@ -57,6 +64,7 @@ export default function McpRequestBuilder() {
     setUrl,
     setTransport,
     setHeaders,
+    setRoots,
     setStatus,
     setCapabilities,
     resetConnectionSession,
@@ -128,6 +136,9 @@ export default function McpRequestBuilder() {
       if (activeIdForCleanup) resetConnectionSession(activeIdForCleanup);
     };
   }, [activeIdForCleanup, activeTabId, resetConnectionSession]);
+
+  // Server→client requests (elicitation / sampling) are desktop-only (#860).
+  useMcpClientRequests(active?.id, active?.status);
 
   const sendShortcut = useSendShortcut();
   if (!active || !request) return null;
@@ -234,6 +245,15 @@ export default function McpRequestBuilder() {
     const isCurrent = () =>
       clientGenerationRef.current === generation && clientRef.current?.client === client;
 
+    // Roots must be in main before the server can ask for them.
+    if (isElectron()) {
+      const pushed = await pushMcpRoots(active.id, active.roots ?? NO_ROOTS);
+      if (!isCurrent()) return;
+      if (!pushed.ok) {
+        setStatus(active.id, 'error', pushed.error);
+        return;
+      }
+    }
     const open = await client.connect();
     if (!isCurrent()) return;
     if (!open.ok) {
@@ -311,6 +331,16 @@ export default function McpRequestBuilder() {
         onDisconnect={handleDisconnect}
         onRefresh={handleRefresh}
       />
+      {isElectron() && (
+        <McpRootsPanel
+          roots={active.roots ?? NO_ROOTS}
+          onSave={async (roots) => {
+            setRoots(active.id, roots);
+            return pushMcpRoots(active.id, roots);
+          }}
+        />
+      )}
+      <McpClientRequestDialog connectionId={active.id} />
 
       <div className="flex-1 flex gap-2.5 px-3 pb-3 overflow-hidden min-h-0">
         {showCatalog && (

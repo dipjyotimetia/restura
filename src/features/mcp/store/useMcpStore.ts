@@ -29,6 +29,13 @@ export interface McpConnection {
   log: McpInvocationLog[];
   lastError?: string;
   createdAt: number;
+  /** Client roots (file:// URIs) exposed to the server via roots/list (desktop, #860). */
+  roots?: McpRoot[];
+}
+
+export interface McpRoot {
+  uri: string;
+  name?: string;
 }
 
 interface McpState {
@@ -43,6 +50,7 @@ interface McpState {
   setTransport: (id: string, t: McpTransportType) => void;
   /** Replace the whole header list (the key/value table drives edits through this). */
   setHeaders: (id: string, headers: KeyValue[]) => void;
+  setRoots: (id: string, roots: McpRoot[]) => void;
 
   setStatus: (id: string, status: McpConnectionStatus, error?: string) => void;
   setCapabilities: (id: string, caps: McpServerCapabilities | null) => void;
@@ -107,6 +115,13 @@ export const useMcpStore = create<McpState>()(
           const c = s.connections[id];
           if (!c) return s;
           return { connections: { ...s.connections, [id]: { ...c, headers } } };
+        }),
+
+      setRoots: (id, roots) =>
+        set((s) => {
+          const c = s.connections[id];
+          if (!c) return s;
+          return { connections: { ...s.connections, [id]: { ...c, roots } } };
         }),
 
       setStatus: (id, status, error) =>
