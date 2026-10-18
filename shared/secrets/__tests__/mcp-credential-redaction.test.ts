@@ -168,6 +168,34 @@ describe('collection export redaction covers MCP headers + auth', () => {
   });
 });
 
+describe('redactMcpCollectionCredentials — legacy / sparse collections', () => {
+  it('tolerates a collection or folder without items (and junk entries)', () => {
+    const noItems = { id: 'c', name: 'Legacy' } as unknown as Collection;
+    expect(redactMcpCollectionCredentials(noItems)).toEqual(noItems);
+
+    const sparse = {
+      id: 'c2',
+      name: 'Sparse',
+      items: [
+        null,
+        { id: 'f', name: 'Folder', type: 'folder' },
+        { id: 'f2', name: 'Bad', type: 'folder', items: 'nope' },
+        {
+          id: 'f3',
+          name: 'Nested',
+          type: 'folder',
+          items: [{ id: 'i', name: 'MCP', type: 'request', request: mcpRequest() }],
+        },
+      ],
+    } as unknown as Collection;
+    const out = redactMcpCollectionCredentials(sparse);
+    expect(JSON.stringify(out)).not.toContain(TOKEN);
+    expect(out.items[0]).toBeNull();
+    expect(out.items[1]).toEqual({ id: 'f', name: 'Folder', type: 'folder' });
+    expect((out.items[2] as { items?: unknown }).items).toBe('nope');
+  });
+});
+
 describe('redactUrlCredentialsForStorage (security review M1a)', () => {
   it.each([
     ['https://user:pa55@mcp.example.com/mcp', 'https://mcp.example.com/mcp'],

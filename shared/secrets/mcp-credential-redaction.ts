@@ -91,11 +91,21 @@ function redactOcMcpEntry(entry: unknown): unknown {
   return { ...out, mcp: { ...mcp, url } };
 }
 
+/**
+ * Legacy / sparse persisted collections may lack `items` (or hold junk); treat
+ * a missing or non-array list as empty and leave its shape untouched.
+ */
+function redactItems(items: unknown): CollectionItem[] | undefined {
+  if (!Array.isArray(items)) return undefined;
+  return items.map((item) =>
+    item && typeof item === 'object' ? redactItem(item as CollectionItem) : item
+  );
+}
+
 function redactItem(item: CollectionItem): CollectionItem {
   let next = item;
-  if (item.items) {
-    next = { ...next, items: item.items.map(redactItem) };
-  }
+  const items = redactItems(item.items);
+  if (items) next = { ...next, items };
   if (item.type === 'request' && item.request?.type === 'mcp') {
     next = { ...next, request: redactMcpCredentials(item.request) };
     const bag = (item as { _oc?: unknown })._oc;
@@ -110,7 +120,8 @@ function redactItem(item: CollectionItem): CollectionItem {
  * Non-MCP items are untouched.
  */
 export function redactMcpCollectionCredentials(collection: Collection): Collection {
-  const next = { ...collection, items: collection.items.map(redactItem) } as Collection & {
+  const items = redactItems(collection.items);
+  const next = { ...collection, ...(items ? { items } : {}) } as Collection & {
     _oc?: unknown;
   };
   const rootBag = next._oc as { extensions?: Record<string, unknown> } | undefined;
