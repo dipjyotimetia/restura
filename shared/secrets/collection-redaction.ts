@@ -2,6 +2,7 @@ import type { AuthConfig, Collection, CollectionItem } from '../types';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from './auth-fields';
 import {
   countSecretKeyValues,
+  isSecretFieldName,
   redactSecretKeyValues,
   type SecretableRow,
 } from './key-value-redaction';
@@ -147,14 +148,40 @@ function redactOcAuthBlock(auth: Record<string, unknown>): Record<string, unknow
   return next;
 }
 
+/** OC key/value row lists whose credential-named rows are blanked (typed-model parity). */
+const OC_ROW_LIST_KEYS = new Set(['headers', 'params', 'metadata']);
+
+/**
+ * Blank credential-named OC `{ name, value }` rows. Without this a cached bag
+ * re-emits e.g. an MCP `Authorization` header verbatim even though the typed
+ * request's headers were redacted (#896).
+ */
+function redactOcRows(rows: unknown[]): unknown[] {
+  return rows.map((row) => {
+    if (!isPlainObject(row)) return redactOcBag(row);
+    const name =
+      typeof row.name === 'string' ? row.name : typeof row.key === 'string' ? row.key : '';
+    if (
+      typeof row.value === 'string' &&
+      row.value !== '' &&
+      (row.secret === true || isSecretFieldName(name))
+    ) {
+      return { ...row, value: '' };
+    }
+    return redactOcBag(row);
+  });
+}
+
 /** Preserve unknown OC fields/extensions while blanking credentials in cached bags. */
-function redactOcBag(node: unknown): unknown {
+export function redactOcBag(node: unknown): unknown {
   if (!node || typeof node !== 'object') return node;
   if (Array.isArray(node)) return node.map(redactOcBag);
   const input = node as Record<string, unknown>;
   const output: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
-    if (key === 'auth' && value && typeof value === 'object' && !Array.isArray(value)) {
+    if (OC_ROW_LIST_KEYS.has(key) && Array.isArray(value)) {
+      output[key] = redactOcRows(value);
+    } else if (key === 'auth' && value && typeof value === 'object' && !Array.isArray(value)) {
       output[key] = redactOcAuthBlock(value as Record<string, unknown>);
     } else if (key === 'passphrase' && typeof value === 'string') {
       output[key] = '';

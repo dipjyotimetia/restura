@@ -1,7 +1,9 @@
+import { redactMcpCredentials } from '@shared/secrets/mcp-credential-redaction';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
+import { isElectron } from '@/lib/shared/platform';
 import type { KeyValue, McpServerCapabilities, McpTransportType } from '@/types';
 
 export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -203,7 +205,14 @@ export const useMcpStore = create<McpState>()(
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, c]) => [
             id,
-            { ...c, status: 'disconnected' as const, capabilities: null, log: [] },
+            {
+              // #896: the browser's IndexedDB is unencrypted — never persist
+              // credential-bearing header values there (re-entered after reload).
+              ...(isElectron() ? c : redactMcpCredentials(c)),
+              status: 'disconnected' as const,
+              capabilities: null,
+              log: [],
+            },
           ])
         ),
         activeConnectionId: state.activeConnectionId,
