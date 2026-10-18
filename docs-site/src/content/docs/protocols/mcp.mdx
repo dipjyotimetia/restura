@@ -27,33 +27,53 @@ Point Restura at any MCP server and explore it like any other request target.
 
 - **Arguments** — one per line, passed to the program exactly as written. Blank lines are ignored. No shell is involved, so quotes, `$VARS`, `*` and `|` are not interpreted.
 - **Working directory** — an absolute path. It defaults to your home directory.
-- **Environment** — the extra variables the server needs, such as an API key. Values resolve `{{variables}}`. A variable can also come from the desktop secret store; the app resolves it when the server starts, and the value never appears in the request or an exported collection.
+- **Environment** — the extra variables the server needs, such as an API key. Values resolve `{{variables}}`. A variable can also come from the desktop secret store; the app resolves it when the server starts.
 
 Connect starts the process, runs the MCP handshake, and lists the server's tools, prompts and resources, just like the HTTP transports. The server's **stderr** appears under the connection bar (the newest 64 KB; output beyond 512 KB per session is dropped), and a failed start shows the end of stderr in the error.
 
+Arguments, the command and the working directory can't contain control characters, invisible formatting characters (such as right-to-left overrides or zero-width spaces) or line breaks. Relative command paths such as `./server` aren't accepted. On Windows, network (`\\server\share`) paths aren't accepted for the command or the working directory.
+
 #### Consent: you approve every new command line
 
-Starting a program is a different kind of risk from sending a request: the program runs with your user account and can read and change your files. Before Restura starts a command line it has not run before, the desktop app shows a system dialog with the exact command, every argument, the working directory and the environment variables:
+Starting a program is a different kind of risk from sending a request: the program runs with your user account and can read and change your files. Before Restura starts a command line it has not run before, the desktop app finds the exact program file and shows a system dialog with:
+
+- the full path of the program (and the name you typed, if different);
+- every argument;
+- the working directory;
+- the environment variables.
+
+You then choose:
 
 - **Cancel** (the default) — nothing starts.
 - **Allow once** — start it this time and ask again next time.
 - **Always allow** — remember this exact command line on this computer.
 
-Any change to the command, an argument, the working directory or an environment variable (name or value) is a new command line and asks again. Values of variables that change what runs, such as `PATH`, `NODE_OPTIONS`, `LD_*` / `DYLD_*`, `NPM_CONFIG_*` and `PYTHON*`, are shown in full and must be plain values. Other values are hidden in the dialog but still count as part of the command line. A value from the secret store counts by reference, so rotating that secret doesn't ask again.
+Any change to the program, an argument, the working directory or an environment variable (name or value) is a new command line and asks again. That includes a changed secret behind a secret-store variable.
 
-Approvals are stored by the desktop app itself. A collection, an imported file, or anything else in the request can't carry or pre-grant an approval: an imported stdio request still asks the first time you connect. **Forget approvals** under **Launch settings** clears every remembered approval.
+How environment values appear in the dialog:
 
-Approving a command line doesn't vouch for the code it runs. `npx -y some-package` runs whatever that package publishes at the time.
+- Values are shown in full, except values whose name looks like a credential (for example `API_KEY` or `GITHUB_TOKEN`). Those are hidden but still count as part of the command line.
+- Variables that change what runs or where it connects are always shown in full and must be plain values, not secret-store references. Examples: `PATH`, `NODE_OPTIONS`, `LD_*` / `DYLD_*`, `NPM_CONFIG_*`, `PYTHON*`, `GIT_*`, proxy and CA-bundle variables.
+- Secret-store variables show the label saved with the secret.
+
+Very long arguments or values are cut in the dialog with a "more characters not shown" note. In that case only **Allow once** is offered.
+
+Approvals are stored by the desktop app and protected with your operating system's keychain. A collection, an imported file, or anything else in the request can't carry or pre-grant an approval: an imported stdio request still asks the first time you connect. If the keychain isn't available (for example on Linux without a keyring), Restura can't remember approvals and asks every time. **Forget approvals** under **Launch settings** clears every remembered approval.
+
+Approving a command line doesn't vouch for the code it runs. The program file, the scripts it loads, or a downloaded package can change later. For example, `npx -y some-package` runs whatever that package publishes at the time.
 
 #### What the process gets
 
 - **A minimal environment, not the app's.** The server receives `PATH`, `HOME` (or the Windows equivalents such as `USERPROFILE` and `SystemRoot`), `SHELL`, `TERM`, `USER`, the temp directory and your locale settings, plus the variables you set. Tokens and credentials in Restura's own environment are not passed on.
-- **No shell.** The program is started directly. On Windows, `.cmd` launchers such as `npx.cmd` run through `cmd.exe` with every argument escaped, and line breaks are not allowed in arguments.
+- **No shell.** The program is started directly. On Windows, `.cmd`/`.bat` launchers such as `npx.cmd` run through `cmd.exe`, and the dialog says so. Arguments for them can't contain `"`, `%` or `!`; to pass those, start the underlying `.exe` (for example `node.exe` with the script path) instead.
+- **Your secrets, if you give them.** Secret-store variables are passed to the server as plain values. A server that prints them sends them to its stderr, which Restura shows.
 - **It stops when you do.** Disconnecting, closing the tab or window, or quitting Restura stops the process. If it ignores the request to exit, it is killed after one second. On Windows the whole process tree is ended. At most 8 stdio servers run at once.
 
 :::note
 On macOS, an app started from the Dock gets a short `PATH` that may not include Homebrew or nvm, so `npx` can fail with "not found". Use an absolute command path, for example `/opt/homebrew/bin/npx`, or set `PATH` in **Environment**.
 :::
+
+When you export or save a collection to files, environment values with credential-like names are written without their value, and only references to the secret store are kept.
 
 stdio is not available in the web app, the self-hosted server, or the CLI. A saved stdio request opened there explains that it needs the desktop app, and `restura run` fails the item without starting anything. The design and its residual risks are recorded in [ADR 0030](/architecture/adrs/0030-mcp-stdio-transport/).
 
