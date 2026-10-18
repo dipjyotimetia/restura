@@ -237,6 +237,11 @@ export interface ElectronMcpAPI {
     url: string;
     transport: 'streamable-http' | 'http-sse';
     headers?: Record<string, string>;
+    /**
+     * Header-shaped connection auth (#896). SecretRef handles are resolved in
+     * Electron main at connect time — the renderer never sees the plaintext.
+     */
+    auth?: import('../../../shared/types/auth').AuthConfig;
   }) => Promise<{ success: boolean; error?: string }>;
   request: (config: {
     connectionId: string;

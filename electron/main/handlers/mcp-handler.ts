@@ -14,6 +14,7 @@ import {
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
+import { materializeMcpConnectAuth, needsMcpConnectAuth } from '../security/mcp-connect-auth';
 import {
   assertPinnedFetchCanHonorPolicy,
   createPolicyPinnedFetch,
@@ -61,6 +62,8 @@ interface McpSession {
   client?: McpSdkClient;
   /** Server→client requests (elicitation / sampling / roots) for this session. */
   clientRequests?: McpClientRequestBridge;
+  /** Scrubs main-resolved auth plaintext (#896) from text sent to the renderer. */
+  redact: (text: string) => string;
   /** Set before an intentional close so onclose/onerror don't emit events. */
   disposed: boolean;
 }
@@ -168,8 +171,33 @@ export function registerMcpHandlerIPC(): void {
     const claim = reserveMcpClaim(config.connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
     const key = ownerScopedKey(config.connectionId, webContentsId);
+    // Scrubs main-resolved credential plaintext from everything this
+    // connection sends back to the renderer (replies, error events) and logs.
+    let redact = (text: string) => text;
+    let headers = config.headers ?? {};
 
     try {
+      // #896: resolve SecretRef-handle / external auth here (ADR-0007), after
+      // the rate / capacity gates (no free keychain or vault lookups). Header
+      // only — the URL the SSRF guard pins below is never changed.
+      if (needsMcpConnectAuth(config)) {
+        try {
+          const materialized = await materializeMcpConnectAuth({
+            url: policyConfig.url,
+            headers,
+            auth: config.auth,
+          });
+          headers = materialized.headers;
+          redact = materialized.redact;
+        } catch (err) {
+          // Materializer errors are plaintext-free by construction.
+          return { success: false, error: `MCP auth setup failed: ${errorMessage(err)}` };
+        }
+        if (pendingSessions.get(key)?.token !== claim.token) {
+          return { success: false, error: 'Not connected' };
+        }
+      }
+
       // SSRF guard: resolve once, validate every record, and pin the connection
       // to the validated IP (closes the TTL=0 DNS-rebind window). MCP is
       // desktop-only; permit localhost (developers commonly run MCP servers
@@ -195,13 +223,14 @@ export function registerMcpHandlerIPC(): void {
       // protocol headers (Accept, Content-Type) after the merge, so they win.
       const transportOptions = {
         fetch: pinnedFetch as (url: string | URL, init?: RequestInit) => Promise<Response>,
-        requestInit: { headers: config.headers ?? {} },
+        requestInit: { headers },
       };
       const session: McpSession = {
         connectionId: config.connectionId,
         url: policyConfig.url,
         webContentsId,
         createdAt: Date.now(),
+        redact,
         disposed: false,
         clientRequests: new McpClientRequestBridge(config.connectionId, webContentsId),
       };
@@ -217,7 +246,7 @@ export function registerMcpHandlerIPC(): void {
         },
         onError: (err: Error) => {
           if (session.disposed) return;
-          const message = errorMessage(err);
+          const message = redact(errorMessage(err));
           log.warn('client error', { connectionId: config.connectionId, error: message });
           emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.error, config.connectionId), {
             message,
@@ -307,7 +336,7 @@ export function registerMcpHandlerIPC(): void {
           session.clientRequests?.dispose();
           void session.client?.close().catch(() => {});
         }
-        const message = errorMessage(err);
+        const message = redact(errorMessage(err));
         log.warn('connect failed', { connectionId: config.connectionId, error: message });
         return { success: false, error: message };
       }
@@ -362,10 +391,14 @@ export function registerMcpHandlerIPC(): void {
             const typed = err as { code: number; message: string; data?: unknown };
             return {
               success: false,
-              jsonRpcError: { code: typed.code, message: typed.message, data: typed.data },
+              jsonRpcError: {
+                code: typed.code,
+                message: session.redact(typed.message),
+                data: typed.data,
+              },
             };
           }
-          return { success: false, error: errorMessage(err) };
+          return { success: false, error: session.redact(errorMessage(err)) };
         }
       })
     )
