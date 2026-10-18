@@ -6,6 +6,8 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { grpcRunOptionsFromRequest } from '@/features/grpc/lib/grpcSchemaSnapshot';
+import type { McpClient } from '@/features/mcp/lib/mcpClient';
+import { disposeMcpClientPool, MCP_CLIENT_POOL_OPTION } from '@/features/mcp/lib/mcpRunRequest';
 import { protocolRegistry } from '@/features/registry/registry';
 import type { ProtocolScriptResult } from '@/features/registry/types';
 import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
@@ -27,9 +29,10 @@ import type { RunnableRequest } from './flattenRunnables';
  * deliberately NOT used: it writes history and pushes script results to the
  * active tab's Console, neither of which a batch run should do.
  *
- * Protocols whose `runRequest` throws (SSE/MCP/WebSocket) are skipped with a
- * reason rather than invoked. gRPC streams run to completion (client / bidi
- * on desktop only).
+ * Protocols whose `runRequest` throws (SSE/WebSocket/Socket.IO/Kafka) are
+ * skipped with a reason rather than invoked. gRPC streams run to completion
+ * (client / bidi on desktop only). MCP items run their saved operation over
+ * one pooled session per server, closed when the run ends (#901).
  */
 
 export interface RunnerAssertion {
@@ -116,7 +119,7 @@ export interface RunProgress {
 }
 
 /** Protocols that have no usable single-shot `runRequest` (their impl throws). */
-const STREAMING_PROTOCOLS = new Set(['sse', 'mcp', 'websocket', 'socketio', 'kafka']);
+const STREAMING_PROTOCOLS = new Set(['sse', 'websocket', 'socketio', 'kafka']);
 
 /**
  * Fired after each executed request so callers can mirror the request into the
@@ -134,6 +137,9 @@ export interface RequestCompleteInfo {
 export type OnRequestComplete = (info: RequestCompleteInfo) => void;
 
 function isProtocolOk(response: ApiResponse): boolean {
+  // MCP: the envelope is always 200; a JSON-RPC error or a tool result with
+  // `isError: true` fails unless the test script's assertions decide.
+  if (response.mcpOutcome) return response.mcpOutcome === 'result';
   // gRPC carries a status code separate from the (always-200) HTTP envelope.
   const grpcStatus = (response as { grpcStatus?: number }).grpcStatus;
   if (typeof grpcStatus === 'number') return grpcStatus === 0;
@@ -160,6 +166,29 @@ export async function runCollection(
   onProgress: (p: RunProgress) => void,
   signal: AbortSignal,
   onRequestComplete?: OnRequestComplete
+): Promise<CollectionRunResult> {
+  // One MCP session per server for the whole run: initialize once, reuse for
+  // every MCP item, disconnect when the run ends — however it ends (#901).
+  const mcpClientPool = new Map<string, Promise<McpClient>>();
+  try {
+    return await runCollectionWithPool(
+      options,
+      onProgress,
+      signal,
+      onRequestComplete,
+      mcpClientPool
+    );
+  } finally {
+    await disposeMcpClientPool(mcpClientPool);
+  }
+}
+
+async function runCollectionWithPool(
+  options: CollectionRunOptions,
+  onProgress: (p: RunProgress) => void,
+  signal: AbortSignal,
+  onRequestComplete: OnRequestComplete | undefined,
+  mcpClientPool: Map<string, Promise<McpClient>>
 ): Promise<CollectionRunResult> {
   const {
     collection,
@@ -335,6 +364,7 @@ export async function runCollection(
           ...(protocolId === 'grpc'
             ? grpcRunOptionsFromRequest(runnable.request as GrpcRequest)
             : {}),
+          ...(protocolId === 'mcp' ? { [MCP_CLIENT_POOL_OPTION]: mcpClientPool } : {}),
         },
       };
 
@@ -410,6 +440,10 @@ export async function runCollection(
           .filter(Boolean);
 
         let passed = isProtocolOk(response);
+        // Without assertions, say why an MCP item failed (JSON-RPC error / isError).
+        if (!passed && assertions.length === 0 && response.mcpOutcome) {
+          result.error = response.statusText;
+        }
         if (assertions.length > 0) passed = assertions.every((a) => a.passed);
         if (scriptError.length > 0) {
           passed = false;

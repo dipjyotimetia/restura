@@ -194,6 +194,12 @@ export interface Response {
     ttfb: number;
     download: number;
   };
+  /**
+   * MCP collection runs only (#901): how the JSON-RPC call ended. The HTTP
+   * envelope is always 200, so the runner reads this for its default verdict
+   * (`tool-error` / `jsonrpc-error` fail unless test assertions decide).
+   */
+  mcpOutcome?: 'result' | 'tool-error' | 'jsonrpc-error';
 }
 
 // Request Settings (per-request configuration)
