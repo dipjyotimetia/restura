@@ -159,7 +159,7 @@ export const KafkaConnectSchema = z
 
 // Topic naming rules per Kafka: max 249 chars, [a-zA-Z0-9._-]; we also forbid
 // leading dot/dash for sanity.
-const KafkaTopicSchema = z
+export const KafkaTopicSchema = z
   .string()
   .min(1)
   .max(249)

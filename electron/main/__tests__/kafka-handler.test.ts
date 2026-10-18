@@ -142,9 +142,26 @@ class FakeConsumer extends EventEmitter {
   static instances: FakeConsumer[] = [];
   options: unknown;
   stream = new FakeConsumerStream();
-  consume = vi.fn(async () => this.stream);
+  /** Every stream handed out by consume(); [0] is the subscribe-time stream. */
+  streams: FakeConsumerStream[] = [];
+  // The first consume() is the subscription; later ones are seek/resume repositions.
+  consume = vi.fn(async (_options?: unknown) => {
+    const next = this.streams.length === 0 ? this.stream : new FakeConsumerStream();
+    this.streams.push(next);
+    return next;
+  });
   close = vi.fn(async () => {});
   startLagMonitoring = vi.fn();
+  /** Per-partition [log-start, log-end] used by seek clamping. */
+  watermarks = { earliest: 10n, latest: 100n };
+  listOffsets = vi.fn(async (options: { topics: string[]; timestamp: bigint }) => {
+    const value = options.timestamp === -2n ? this.watermarks.earliest : this.watermarks.latest;
+    return new Map(options.topics.map((topic) => [topic, [value, value, value]]));
+  });
+  listOffsetsWithTimestamps = vi.fn(
+    async (_options: unknown) =>
+      new Map([['orders', new Map([[1, { offset: 42n, timestamp: 5n }]])]])
+  );
   constructor(options: unknown) {
     super();
     this.options = options;
@@ -154,7 +171,19 @@ class FakeConsumer extends EventEmitter {
 class FakeConsumerStream extends EventEmitter {
   pause = vi.fn(() => this);
   resume = vi.fn(() => this);
-  close = vi.fn(async () => {});
+  close = vi.fn(async () => {
+    this.emit('close');
+  });
+  /** Next-fetch position per `topic:partition`, as the native stream tracks it. */
+  offsetsToFetch = new Map<string, bigint>();
+  /** Records fetched but not yet handed to a listener (drained by read()). */
+  buffered: unknown[] = [];
+  read = vi.fn(() => {
+    const next = this.buffered.shift();
+    if (next === undefined) return null;
+    this.emit('data', next);
+    return next;
+  });
 }
 const fakeKafkaLib = {
   Producer: FakeProducer,
@@ -668,6 +697,405 @@ describe('kafka-handler', () => {
       await expect(
         handlerFor(IPC.kafka.resumeConsumer)(event, { connectionId: 'idle' })
       ).resolves.toEqual({ success: false, error: 'No consumer is active.' });
+    });
+  });
+
+  describe('per-partition pause/resume and live seek (#942)', () => {
+    const record = (partition: number, offset: number, commit = vi.fn(async () => {})) => ({
+      topic: 'orders',
+      partition,
+      offset: BigInt(offset),
+      key: undefined,
+      value: Buffer.from(`p${partition}-${offset}`),
+      headers: new Map(),
+      timestamp: BigInt(offset),
+      metadata: {},
+      commit,
+    });
+
+    async function live(connectionId: string, commitPolicy: 'auto' | 'manual' = 'auto') {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(event, validConnect(connectionId));
+      await handlerFor(IPC.kafka.subscribe)(event, {
+        connectionId,
+        groupId: 'g',
+        topics: ['orders'],
+        mode: 'committed',
+        fallbackMode: 'latest',
+        commitPolicy,
+        isolation: 'read-uncommitted',
+        groupProtocol: 'classic',
+      });
+      const consumer = FakeConsumer.instances[0]!;
+      const stream = consumer.stream;
+      stream.offsetsToFetch.set('orders:0', 7n).set('orders:1', 20n);
+      const delivered = () =>
+        mockEmitTo.mock.calls
+          .filter((c) => c[1] === `kafka:message:${connectionId}`)
+          .map((c) => c[2] as { partition: number; offset: string; commitToken?: string });
+      const call = (channel: string, payload: Record<string, unknown>) =>
+        handlerFor(channel)(event, { connectionId, ...payload });
+      return { event, consumer, stream, delivered, call };
+    }
+
+    it('withholds a paused partition while the others keep flowing', async () => {
+      const { stream, delivered, call } = await live('pp');
+      await expect(
+        call(IPC.kafka.pausePartitions, { partitions: [{ topic: 'orders', partition: 1 }] })
+      ).resolves.toEqual({
+        success: true,
+        pausedPartitions: [{ topic: 'orders', partition: 1 }],
+      });
+      stream.emit('data', record(0, 7));
+      stream.emit('data', record(1, 20));
+      stream.emit('data', record(0, 8));
+      await vi.waitFor(() => expect(delivered()).toHaveLength(2));
+      expect(delivered().map((m) => `${m.partition}@${m.offset}`)).toEqual(['0@7', '0@8']);
+      expect(stream.pause).not.toHaveBeenCalled();
+    });
+
+    it('resumes a partition from its first withheld record via a MANUAL-mode stream swap', async () => {
+      const { consumer, stream, delivered, call } = await live('pr');
+      await call(IPC.kafka.pausePartitions, { partitions: [{ topic: 'orders', partition: 1 }] });
+      stream.emit('data', record(1, 20));
+      stream.emit('data', record(1, 21));
+      stream.offsetsToFetch.set('orders:1', 22n);
+      // Already fetched for a running partition: must be delivered, not lost, by the swap.
+      stream.buffered.push(record(0, 7));
+      stream.offsetsToFetch.set('orders:0', 8n);
+
+      await expect(
+        call(IPC.kafka.resumePartitions, { partitions: [{ topic: 'orders', partition: 1 }] })
+      ).resolves.toEqual({ success: true, pausedPartitions: [] });
+
+      expect(consumer.consume).toHaveBeenCalledTimes(2);
+      expect(consumer.consume).toHaveBeenLastCalledWith({
+        topics: ['orders'],
+        mode: 'MANUAL',
+        offsets: [
+          { topic: 'orders', partition: 0, offset: 8n },
+          { topic: 'orders', partition: 1, offset: 20n },
+        ],
+      });
+      // The replacement was opened before the old stream closed (no group rejoin).
+      const next = consumer.streams[1]!;
+      expect(consumer.consume.mock.invocationCallOrder[1]!).toBeLessThan(
+        stream.close.mock.invocationCallOrder[0]!
+      );
+      expect(stream.close).toHaveBeenCalledTimes(1);
+      // Closing the swapped-out stream is not reported as the consumer closing.
+      expect(mockEmitTo).not.toHaveBeenCalledWith(
+        expect.any(Number),
+        'kafka:consumer-closed:pr',
+        expect.anything()
+      );
+
+      next.emit('data', record(1, 20));
+      stream.emit('data', record(0, 99)); // late record from the retired stream: ignored
+      await vi.waitFor(() => expect(delivered()).toHaveLength(2));
+      expect(delivered().map((m) => `${m.partition}@${m.offset}`)).toEqual(['0@7', '1@20']);
+    });
+
+    it('withholds (not duplicates) paused-partition records drained during a resume', async () => {
+      const { consumer, stream, delivered, call } = await live('pr-drain');
+      await call(IPC.kafka.pausePartitions, { partitions: [{ topic: 'orders', partition: 1 }] });
+      // Fetched but still buffered when the resume arrives; the next fetch would start at 22.
+      stream.buffered.push(record(1, 20), record(1, 21));
+      stream.offsetsToFetch.set('orders:1', 22n);
+
+      await call(IPC.kafka.resumePartitions, { partitions: [{ topic: 'orders', partition: 1 }] });
+      expect(consumer.consume).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          offsets: expect.arrayContaining([{ topic: 'orders', partition: 1, offset: 20n }]),
+        })
+      );
+      await Promise.resolve();
+      expect(delivered()).toHaveLength(0);
+    });
+
+    it('ignores resume requests for partitions that are not paused', async () => {
+      const { consumer, stream, call } = await live('pr-noop');
+      await expect(
+        call(IPC.kafka.resumePartitions, { partitions: [{ topic: 'orders', partition: 3 }] })
+      ).resolves.toEqual({ success: true, pausedPartitions: [] });
+      expect(stream.pause).not.toHaveBeenCalled();
+      expect(consumer.consume).toHaveBeenCalledTimes(1);
+    });
+
+    it('abandons a swap when the consumer is unsubscribed mid-seek', async () => {
+      const { event, consumer, stream, call } = await live('seek-race');
+      const gate = deferred<void>();
+      const replacement = new FakeConsumerStream();
+      consumer.consume.mockImplementationOnce(async () => {
+        await gate.promise;
+        consumer.streams.push(replacement);
+        return replacement;
+      });
+      const seek = call(IPC.kafka.seekConsumer, {
+        topic: 'orders',
+        partition: 0,
+        target: { kind: 'offset', offset: '50' },
+      });
+      await vi.waitFor(() => expect(consumer.consume).toHaveBeenCalledTimes(2));
+      await handlerFor(IPC.kafka.unsubscribe)(event, { connectionId: 'seek-race' });
+      gate.resolve();
+      await expect(seek).resolves.toEqual({
+        success: false,
+        error: 'The consumer was closed while repositioning.',
+      });
+      expect(replacement.close).toHaveBeenCalledTimes(1);
+      expect(stream.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('serializes concurrent seeks so streams never swap in parallel', async () => {
+      const { consumer, call } = await live('seek-serial');
+      const gate = deferred<void>();
+      consumer.consume.mockImplementationOnce(async () => {
+        await gate.promise;
+        const next = new FakeConsumerStream();
+        consumer.streams.push(next);
+        return next;
+      });
+      const seek = (offset: string) =>
+        call(IPC.kafka.seekConsumer, {
+          topic: 'orders',
+          partition: 0,
+          target: { kind: 'offset', offset },
+        });
+      const first = seek('50');
+      const second = seek('60');
+      await vi.waitFor(() => expect(consumer.consume).toHaveBeenCalledTimes(2));
+      await Promise.resolve();
+      expect(consumer.consume).toHaveBeenCalledTimes(2);
+      gate.resolve();
+      await expect(first).resolves.toEqual({ success: true, offset: '50' });
+      await expect(second).resolves.toEqual({ success: true, offset: '60' });
+      expect(consumer.consume).toHaveBeenCalledTimes(3);
+      // The second swap retired the first replacement, not the original stream again.
+      expect(consumer.streams[1]!.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('resuming a partition that withheld nothing needs no stream swap', async () => {
+      const { consumer, call } = await live('pr-idle');
+      await call(IPC.kafka.pausePartitions, { partitions: [{ topic: 'orders', partition: 0 }] });
+      await expect(
+        call(IPC.kafka.resumePartitions, {
+          partitions: [
+            { topic: 'orders', partition: 0 },
+            { topic: 'orders', partition: 5 },
+          ],
+        })
+      ).resolves.toEqual({ success: true, pausedPartitions: [] });
+      expect(consumer.consume).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a partition paused (with its rewind point) when the swap fails', async () => {
+      const { consumer, stream, call } = await live('pr-fail');
+      await call(IPC.kafka.pausePartitions, { partitions: [{ topic: 'orders', partition: 1 }] });
+      stream.emit('data', record(1, 20));
+      consumer.consume.mockRejectedValueOnce(new Error('broker down'));
+      stream.resume.mockClear();
+
+      await expect(
+        call(IPC.kafka.resumePartitions, { partitions: [{ topic: 'orders', partition: 1 }] })
+      ).resolves.toEqual({ success: false, error: 'broker down' });
+      // The old stream is handed back to the flow controller and keeps running.
+      expect(stream.resume).toHaveBeenCalledTimes(1);
+      expect(stream.close).not.toHaveBeenCalled();
+
+      await call(IPC.kafka.resumePartitions, { partitions: [{ topic: 'orders', partition: 1 }] });
+      expect(consumer.consume).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          offsets: expect.arrayContaining([{ topic: 'orders', partition: 1, offset: 20n }]),
+        })
+      );
+    });
+
+    it('seeks a running partition to an offset, clamped to the log range', async () => {
+      const { consumer, call } = await live('seek');
+      await expect(
+        call(IPC.kafka.seekConsumer, {
+          topic: 'orders',
+          partition: 1,
+          target: { kind: 'offset', offset: '55' },
+        })
+      ).resolves.toEqual({ success: true, offset: '55' });
+      expect(consumer.consume).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          mode: 'MANUAL',
+          offsets: [
+            { topic: 'orders', partition: 0, offset: 7n },
+            { topic: 'orders', partition: 1, offset: 55n },
+          ],
+        })
+      );
+      expect(consumer.listOffsets).toHaveBeenCalledWith(
+        expect.objectContaining({ topics: ['orders'], partitions: { orders: [1] } })
+      );
+
+      await expect(
+        call(IPC.kafka.seekConsumer, {
+          topic: 'orders',
+          partition: 1,
+          target: { kind: 'offset', offset: '3' },
+        })
+      ).resolves.toEqual({ success: true, offset: '10' });
+      await expect(
+        call(IPC.kafka.seekConsumer, {
+          topic: 'orders',
+          partition: 1,
+          target: { kind: 'offset', offset: '9000' },
+        })
+      ).resolves.toEqual({ success: true, offset: '100' });
+      expect(consumer.consume).toHaveBeenCalledTimes(4);
+    });
+
+    it('seeks by timestamp, landing at the log end when no record is that recent', async () => {
+      const { consumer, call } = await live('seek-ts');
+      await expect(
+        call(IPC.kafka.seekConsumer, {
+          topic: 'orders',
+          partition: 1,
+          target: { kind: 'timestamp', timestamp: '1700000000000' },
+        })
+      ).resolves.toEqual({ success: true, offset: '42' });
+      expect(consumer.listOffsetsWithTimestamps).toHaveBeenCalledWith({
+        topics: ['orders'],
+        partitions: { orders: [1] },
+        timestamp: 1_700_000_000_000n,
+      });
+
+      consumer.listOffsetsWithTimestamps.mockResolvedValueOnce(
+        new Map([['orders', new Map([[1, { offset: -1n, timestamp: -1n }]])]])
+      );
+      await expect(
+        call(IPC.kafka.seekConsumer, {
+          topic: 'orders',
+          partition: 1,
+          target: { kind: 'timestamp', timestamp: '1900000000000' },
+        })
+      ).resolves.toEqual({ success: true, offset: '100' });
+    });
+
+    it('seeking a paused partition only moves its resume point', async () => {
+      const { consumer, stream, call } = await live('seek-paused');
+      await call(IPC.kafka.pausePartitions, { partitions: [{ topic: 'orders', partition: 1 }] });
+      stream.emit('data', record(1, 20));
+      await expect(
+        call(IPC.kafka.seekConsumer, {
+          topic: 'orders',
+          partition: 1,
+          target: { kind: 'offset', offset: '60' },
+        })
+      ).resolves.toEqual({ success: true, offset: '60' });
+      expect(consumer.consume).toHaveBeenCalledTimes(1);
+
+      await call(IPC.kafka.resumePartitions, { partitions: [{ topic: 'orders', partition: 1 }] });
+      expect(consumer.consume).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          offsets: expect.arrayContaining([{ topic: 'orders', partition: 1, offset: 60n }]),
+        })
+      );
+    });
+
+    it('carries a user pause and manual-commit tokens across a seek', async () => {
+      const { consumer, stream, delivered, call } = await live('seek-user', 'manual');
+      const commit = vi.fn(async () => {});
+      stream.emit('data', record(0, 7, commit));
+      await vi.waitFor(() => expect(delivered()).toHaveLength(1));
+      await call(IPC.kafka.pauseConsumer, {});
+
+      await call(IPC.kafka.seekConsumer, {
+        topic: 'orders',
+        partition: 0,
+        target: { kind: 'offset', offset: '50' },
+      });
+      const next = consumer.streams[1]!;
+      expect(next.pause).toHaveBeenCalledTimes(1);
+      expect(next.resume).not.toHaveBeenCalled();
+
+      await expect(
+        call(IPC.kafka.commitMessage, { commitToken: delivered()[0]!.commitToken })
+      ).resolves.toEqual({ success: true });
+      expect(commit).toHaveBeenCalledTimes(1);
+
+      await call(IPC.kafka.resumeConsumer, {});
+      expect(next.resume).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects controls without a consumer or for topics outside the subscription', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(event, validConnect('no-consumer'));
+      const partitions = [{ topic: 'orders', partition: 0 }];
+      for (const channel of [IPC.kafka.pausePartitions, IPC.kafka.resumePartitions]) {
+        await expect(
+          handlerFor(channel)(event, { connectionId: 'no-consumer', partitions })
+        ).resolves.toEqual({ success: false, error: 'No consumer is active.' });
+      }
+      await expect(
+        handlerFor(IPC.kafka.seekConsumer)(event, {
+          connectionId: 'no-consumer',
+          topic: 'orders',
+          partition: 0,
+          target: { kind: 'offset', offset: '1' },
+        })
+      ).resolves.toEqual({ success: false, error: 'No consumer is active.' });
+
+      const { call } = await live('other-topic');
+      const notSubscribed = {
+        success: false,
+        error: 'Topic "payments" is not part of this subscription.',
+      };
+      await expect(
+        call(IPC.kafka.pausePartitions, { partitions: [{ topic: 'payments', partition: 0 }] })
+      ).resolves.toEqual(notSubscribed);
+      await expect(
+        call(IPC.kafka.seekConsumer, {
+          topic: 'payments',
+          partition: 0,
+          target: { kind: 'offset', offset: '1' },
+        })
+      ).resolves.toEqual(notSubscribed);
+    });
+
+    it('reports a seek failure (e.g. unknown partition) without swapping streams', async () => {
+      const { consumer, call } = await live('seek-missing');
+      consumer.listOffsets.mockResolvedValueOnce(new Map([['orders', []]]));
+      await expect(
+        call(IPC.kafka.seekConsumer, {
+          topic: 'orders',
+          partition: 9,
+          target: { kind: 'offset', offset: '1' },
+        })
+      ).resolves.toEqual({
+        success: false,
+        error: 'Partition 9 of "orders" was not found.',
+      });
+      expect(consumer.consume).toHaveBeenCalledTimes(1);
+    });
+
+    it('validates payloads and rate-limits the partition and seek channels', async () => {
+      const { event } = makeEvent();
+      await expect(
+        handlerFor(IPC.kafka.seekConsumer)(event, {
+          connectionId: 'x',
+          topic: 'orders',
+          partition: 0,
+          target: { kind: 'offset', offset: '-1' },
+        })
+      ).rejects.toThrow(/Invalid IPC payload for kafka:consumer-seek/);
+      await expect(
+        handlerFor(IPC.kafka.pausePartitions)(event, { connectionId: 'x', partitions: [] })
+      ).rejects.toThrow(/Invalid IPC payload for kafka:consumer-pause-partitions/);
+
+      const limited = makeEvent();
+      for (let i = 0; i < 120; i += 1) kafkaRateLimiter.check(limited.senderId);
+      await expect(
+        handlerFor(IPC.kafka.resumePartitions)(limited.event, {
+          connectionId: 'x',
+          partitions: [{ topic: 'orders', partition: 0 }],
+        })
+      ).rejects.toThrow('Rate limit exceeded');
     });
   });
 

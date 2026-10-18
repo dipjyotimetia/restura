@@ -4,7 +4,7 @@ import { createLogger } from '@shared/runtime/logger';
 import type { WebContents } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import { IPC } from '../../shared/channels';
-import { KAFKA_CHANNEL, kafkaChannel } from '../../shared/kafka-channels';
+import { KAFKA_CHANNEL, type KafkaChannelPrefix, kafkaChannel } from '../../shared/kafka-channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
@@ -25,7 +25,7 @@ import { getExecutionPolicy } from '../security/execution-policy';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
 import { registerKafkaConsumerControlHandlers } from './kafka/consumer-control-handlers';
-import { ConsumerFlowControl } from './kafka/consumer-flow';
+import { type ConsumerStreamHooks, KafkaConsumerSession } from './kafka/consumer-session';
 import {
   browseConsumerOptions,
   onBrowseStreamFinished,
@@ -78,8 +78,8 @@ interface ActiveKafka extends KafkaProducerEntry {
   transactionalId?: string;
   /** Serializes async decode/emission in arrival order. */
   emitChain: Promise<void>;
-  /** User + backpressure pause reasons for the active consumer stream. */
-  flow?: ConsumerFlowControl;
+  /** Flow control, partition pauses and repositioning for the active consumer stream. */
+  session?: KafkaConsumerSession;
   pendingCommits: Map<string, AppMessage>;
   manualCommit: boolean;
   wc?: WebContents;
@@ -158,7 +158,7 @@ async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
       /* ignore */
     }
     entry.stream = undefined;
-    entry.flow = undefined;
+    entry.session = undefined;
   }
   if (entry.consumer) {
     try {
@@ -227,30 +227,16 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
     ...(commitToken ? { commitToken } : {}),
   });
 }
-function bindStreamListeners(entry: ActiveKafka, stream: AppStream): void {
-  stream.on('data', (msg: AppMessage) => {
-    // Bound the decode/emit queue: the flow controller pauses the stream above its bound.
-    const flow = entry.flow;
-    flow?.emitQueued();
-    // One bad decode must not wedge the ordered emission chain.
-    entry.emitChain = entry.emitChain
-      .then(() => emitConsumedMessage(entry, msg))
-      .catch(() => {})
-      .finally(() => flow?.emitSettled());
-  });
-
-  stream.on('error', (err: Error) => {
-    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
-    emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.ERROR, entry.connectionId), {
-      scope: 'consumer',
-      message: err.message,
-    });
-  });
-
-  stream.on('close', () => {
-    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
-    emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, entry.connectionId), {});
-  });
+function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
+  const isCurrent = () => activeConnections.get(entry.connectionId, entry.webContentsId) === entry;
+  const emit = (prefix: KafkaChannelPrefix, payload: unknown): void => {
+    if (isCurrent()) emitToEntry(entry, kafkaChannel(prefix, entry.connectionId), payload);
+  };
+  return {
+    deliver: (msg) => emitConsumedMessage(entry, msg),
+    onError: (err) => emit(KAFKA_CHANNEL.ERROR, { scope: 'consumer', message: err.message }),
+    onClose: () => emit(KAFKA_CHANNEL.CONSUMER_CLOSED, {}),
+  };
 }
 
 export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
@@ -549,11 +535,9 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           await closeConsumerQuietly(consumer);
           return { success: false, error: 'Not connected' };
         }
-        entry.flow = new ConsumerFlowControl();
-        bindStreamListeners(entry, stream);
-        entry.flow.attach(stream);
         entry.consumer = consumer;
-        entry.stream = stream;
+        entry.session = new KafkaConsumerSession(cfg.topics, consumerStreamHooks(entry));
+        entry.session.bind(entry, stream);
         entry.manualCommit = cfg.commitPolicy === 'manual';
         consumer.on('consumer:group:join', (payload) => {
           emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
@@ -594,6 +578,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
 
   registerKafkaConsumerControlHandlers({
     getEntry: (connectionId, ownerId) => activeConnections.getForOwner(connectionId, ownerId),
+    getKafka,
+    rateLimiter: kafkaRateLimiter,
     emitStatus: (entry, payload) =>
       emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), payload),
   });
