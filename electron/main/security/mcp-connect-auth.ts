@@ -60,14 +60,20 @@ export function redactDeep<T>(value: T, redact: SecretRedactor): T {
   const walk = (v: unknown): unknown => {
     if (typeof v === 'string') return redact(v);
     if (!v || typeof v !== 'object') return v;
+    // `seen` holds only the current ancestor path: a shared (non-cyclic)
+    // reference is walked again, a true cycle collapses to null.
     if (seen.has(v)) return null;
-    seen.add(v);
-    if (Array.isArray(v)) return v.map(walk);
     const proto = Object.getPrototypeOf(v);
-    if (proto !== Object.prototype && proto !== null) return v;
-    const out: Record<string, unknown> = {};
-    for (const [key, child] of Object.entries(v)) out[redact(key)] = walk(child);
-    return out;
+    if (!Array.isArray(v) && proto !== Object.prototype && proto !== null) return v;
+    seen.add(v);
+    try {
+      if (Array.isArray(v)) return v.map(walk);
+      const out: Record<string, unknown> = {};
+      for (const [key, child] of Object.entries(v)) out[redact(key)] = walk(child);
+      return out;
+    } finally {
+      seen.delete(v);
+    }
   };
   return walk(value) as T;
 }

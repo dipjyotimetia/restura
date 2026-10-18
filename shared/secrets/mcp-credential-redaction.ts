@@ -47,7 +47,7 @@ function decodeComponent(text: string): string {
  * the credential; a value that is a single `{{var}}` reference is kept.
  */
 export function redactUrlCredentialsForStorage(url: string): string {
-  let out = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#@]*@/i, '$1');
+  let out = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
   const queryStart = out.indexOf('?');
   if (queryStart === -1) return out;
   const hashStart = out.indexOf('#', queryStart);
@@ -68,14 +68,51 @@ export function redactUrlCredentialsForStorage(url: string): string {
   return out;
 }
 
+function isReference(v: unknown): boolean {
+  const raw =
+    typeof v === 'string'
+      ? v
+      : (v as { kind?: string; value?: unknown })?.kind === 'inline'
+        ? (v as { value: unknown }).value
+        : undefined;
+  return typeof raw === 'string' && SINGLE_VARIABLE_REFERENCE.test(raw.trim());
+}
+
+/**
+ * `redactAuthConfigSecrets`, but inline secret fields that are a single
+ * `{{var}}` reference survive (they hold no secret). Everything else is
+ * blanked exactly as before.
+ */
+function redactAuthPreservingReferences(auth: AuthConfig): AuthConfig {
+  const redacted = redactAuthConfigSecrets(auth);
+  const a = auth as unknown as Record<string, Record<string, unknown> | undefined>;
+  const out = redacted as unknown as Record<string, Record<string, unknown> | undefined>;
+  for (const group of ['bearer', 'basic', 'apiKey', 'oauth2'] as const) {
+    const src = a[group];
+    const dst = out[group];
+    if (!src || !dst) continue;
+    for (const field of ['token', 'password', 'value', 'accessToken']) {
+      if (field in src && isReference(src[field])) {
+        out[group] = { ...out[group], [field]: src[field] };
+      }
+    }
+  }
+  return redacted;
+}
+
 /** Copy of an MCP request / connection with credential values blanked. */
 export function redactMcpCredentials<T extends McpCredentialBearer>(value: T): T {
   const next = { ...value };
   if (typeof value.url === 'string') next.url = redactUrlCredentialsForStorage(value.url);
   if (Array.isArray(value.headers)) {
-    next.headers = redactSecretKeyValues(value.headers) as T['headers'];
+    // A row whose value is exactly one `{{var}}` is a pointer, not a secret.
+    next.headers = value.headers.map((row) =>
+      typeof row.value === 'string' && SINGLE_VARIABLE_REFERENCE.test(row.value.trim())
+        ? row
+        : (redactSecretKeyValues([row])?.[0] ?? row)
+    ) as T['headers'];
   }
-  if (value.auth) next.auth = redactAuthConfigSecrets(value.auth);
+  if (value.auth) next.auth = redactAuthPreservingReferences(value.auth);
   return next;
 }
 
@@ -129,7 +166,10 @@ export function redactMcpCollectionCredentials(collection: Collection): Collecti
   if (rootBag && Array.isArray(mcpEntries)) {
     next._oc = {
       ...rootBag,
-      extensions: { ...rootBag.extensions, 'x-restura-mcp': mcpEntries.map(redactOcMcpEntry) },
+      extensions: {
+        ...rootBag.extensions,
+        'x-restura-mcp': mcpEntries.map(redactOcMcpEntry),
+      },
     };
   }
   return next;

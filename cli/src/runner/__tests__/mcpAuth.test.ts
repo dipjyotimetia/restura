@@ -31,7 +31,9 @@ beforeAll(async () => {
           : {}),
         ...(req.url ? { url: req.url } : {}),
       });
-      const parsed = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as { id: unknown };
+      const parsed = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as {
+        id: unknown;
+      };
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({ jsonrpc: '2.0', id: parsed.id, result: { ok: true } }));
@@ -84,6 +86,15 @@ describe('CLI MCP auth (#896)', () => {
     const result = await run(dir, { MCP_TOKEN: 'ci-token' });
     expect(result.requests[0]?.passed).toBe(true);
     expect(received[0]?.authorization).toBe('Bearer ci-token');
+  });
+
+  it('resolves {{vars}} in Basic credentials and the API-key header name before encoding', async () => {
+    const dir = mcpCollection(
+      `${base}auth:\n  type: basic\n  basic:\n    username: '{{U}}'\n    password: '{{P}}'\n`
+    );
+    const result = await run(dir, { U: 'alice', P: 'pw' });
+    expect(result.requests[0]?.passed).toBe(true);
+    expect(received[0]?.authorization).toBe(`Basic ${Buffer.from('alice:pw').toString('base64')}`);
   });
 
   it('applies an API key as a header', async () => {
@@ -158,7 +169,10 @@ extensions:
 
   it('inherits a header-shaped collection auth', async () => {
     const auth = await mcpAuthFor('    type: bearer\n    token: ROOT_TOKEN');
-    expect(auth).toMatchObject({ type: 'bearer', bearer: { token: 'ROOT_TOKEN' } });
+    expect(auth).toMatchObject({
+      type: 'bearer',
+      bearer: { token: 'ROOT_TOKEN' },
+    });
   });
 
   it('skips an inherited scheme MCP cannot carry instead of failing every MCP item', async () => {

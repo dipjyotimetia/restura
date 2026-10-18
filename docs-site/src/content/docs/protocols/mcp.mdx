@@ -3,7 +3,7 @@ title: Model Context Protocol (MCP)
 description: Connect to any MCP server over streamable HTTP (or HTTP+SSE on desktop) and inspect its tools, prompts, and resources.
 ---
 
-import { Badge } from '@astrojs/starlight/components';
+import { Badge } from "@astrojs/starlight/components";
 
 MCP — the [Model Context Protocol](https://modelcontextprotocol.io/) — is the open standard for letting AI agents talk to tools and data sources. Restura plays both sides.
 
@@ -39,7 +39,7 @@ Values resolve `{{variables}}` and apply on every request of the session, on eve
 
 Secret variables (keychain-backed `{{variables}}`) are not resolved inside MCP auth fields or headers yet — use a keychain-stored credential in the Auth field instead.
 
-Collection export always blanks MCP header and auth credentials (handles are kept as references). Imported Basic or OAuth 2.0 access-token auth is still sent as an `Authorization` header; schemes that sign the request (Digest, OAuth 1.0, AWS SigV4, NTLM, WSSE) aren't supported for MCP — a request's own one fails the connect, and an inherited one is skipped. OAuth 2.1 authorization for MCP servers is tracked separately.
+A redacted collection export (the default, without "include secrets") blanks MCP header and auth credentials (handles are kept as references); an export with secrets included keeps them. Imported Basic or OAuth 2.0 access-token auth is still sent as an `Authorization` header; schemes that sign the request (Digest, OAuth 1.0, AWS SigV4, NTLM, WSSE) aren't supported for MCP — a request's own one fails the connect, and an inherited one is skipped. OAuth 2.1 authorization for MCP servers is tracked separately.
 
 ### Desktop protocol compatibility
 
@@ -109,7 +109,7 @@ The same URL validation, DNS pinning, header policy, and Electron IPC validation
 
 ## As an MCP server
 
-Restura can also *be* an MCP server for an agent like Claude. The server ships today but fails closed — it exposes no saved data until collection sync and consent controls land ([progress](/overview/delivery-plan/#plan-mcp-server)).
+Restura can also _be_ an MCP server for an agent like Claude. The server ships today but fails closed — it exposes no saved data until collection sync and consent controls land ([progress](/overview/delivery-plan/#plan-mcp-server)).
 
 The stdio server uses the v2 server package with its built-in legacy transport compatibility, so modern and legacy clients are served without retaining the v1 SDK.
 

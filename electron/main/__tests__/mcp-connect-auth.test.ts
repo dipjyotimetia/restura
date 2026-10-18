@@ -2,7 +2,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 // Handle store stand-in: handle ids resolve to plaintext only here, in "main".
-const HANDLES: Record<string, string> = { 'h-token': 'keychain-token', 'h-key': 'keychain-key' };
+const HANDLES: Record<string, string> = {
+  'h-token': 'keychain-token',
+  'h-key': 'keychain-key',
+};
 vi.mock('../security/secret-handle-store', () => ({
   unwrapSecretValueMain: (v: unknown): string | undefined => {
     if (typeof v === 'string') return v;
@@ -33,7 +36,10 @@ describe('materializeMcpConnectAuth (#896)', () => {
   it('is a no-op without auth (or with none)', async () => {
     expect(needsMcpConnectAuth({ url: URL_ })).toBe(false);
     expect(needsMcpConnectAuth({ url: URL_, auth: { type: 'none' } })).toBe(false);
-    const out = await materializeMcpConnectAuth({ url: URL_, headers: { 'X-A': '1' } });
+    const out = await materializeMcpConnectAuth({
+      url: URL_,
+      headers: { 'X-A': '1' },
+    });
     expect(out.headers).toEqual({ 'X-A': '1' });
     expect(out.redact('x')).toBe('x');
     expect((await materializeMcpConnectAuth({ url: URL_ })).headers).toEqual({});
@@ -45,7 +51,10 @@ describe('materializeMcpConnectAuth (#896)', () => {
       headers: { authorization: 'Bearer stale', 'X-Tenant': 'acme' },
       auth: { type: 'bearer', bearer: { token: handle('h-token') } } as Auth,
     });
-    expect(out.headers).toEqual({ 'X-Tenant': 'acme', Authorization: 'Bearer keychain-token' });
+    expect(out.headers).toEqual({
+      'X-Tenant': 'acme',
+      Authorization: 'Bearer keychain-token',
+    });
     expect(out.redact('server said keychain-token is bad')).toBe('server said [redacted] is bad');
   });
 
@@ -60,7 +69,10 @@ describe('materializeMcpConnectAuth (#896)', () => {
     expect(key.headers).toEqual({ 'X-API-Key': 'keychain-key' });
     const inline = await materializeMcpConnectAuth({
       url: URL_,
-      auth: { type: 'bearer', bearer: { token: { kind: 'inline', value: 'tok' } } } as Auth,
+      auth: {
+        type: 'bearer',
+        bearer: { token: { kind: 'inline', value: 'tok' } },
+      } as Auth,
     });
     expect(inline.headers).toEqual({ Authorization: 'Bearer tok' });
   });
@@ -107,7 +119,12 @@ describe('materializeMcpConnectAuth (#896)', () => {
         url: URL_,
         auth: {
           type: 'aws-signature',
-          awsSignature: { accessKey: 'a', secretKey: 's', region: 'r', service: 's' },
+          awsSignature: {
+            accessKey: 'a',
+            secretKey: 's',
+            region: 'r',
+            service: 's',
+          },
         } as Auth,
       })
     ).rejects.toThrow(/isn't supported for MCP/);
@@ -118,7 +135,10 @@ describe('materializeMcpConnectAuth (#896)', () => {
       await expect(
         materializeMcpConnectAuth({
           url: URL_,
-          auth: { type: 'api-key', apiKey: { key, value: 'v', in: 'header' } } as Auth,
+          auth: {
+            type: 'api-key',
+            apiKey: { key, value: 'v', in: 'header' },
+          } as Auth,
         })
       ).rejects.toThrow(/not allowed on an MCP request/);
     }
@@ -129,7 +149,11 @@ describe('materializeMcpConnectAuth (#896)', () => {
       url: URL_,
       auth: {
         type: 'api-key',
-        apiKey: { key: 'X-Key', value: { kind: 'inline', value: 'bad\r\nvalue' }, in: 'header' },
+        apiKey: {
+          key: 'X-Key',
+          value: { kind: 'inline', value: 'bad\r\nvalue' },
+          in: 'header',
+        },
       } as Auth,
     }).catch((e: Error) => e);
     expect(err).toBeInstanceOf(Error);
@@ -156,6 +180,14 @@ describe('redactDeep', () => {
     expect(input.s).toBe('tok');
     expect(redactDeep('tok', redact)).toBe('[redacted]');
     expect(redactDeep(42, redact)).toBe(42);
+  });
+
+  it('keeps shared (non-cyclic) references intact', () => {
+    const shared = { v: 'tok' };
+    expect(redactDeep({ a: shared, b: shared }, redact)).toEqual({
+      a: { v: '[redacted]' },
+      b: { v: '[redacted]' },
+    });
   });
 
   it('collapses cycles and passes non-plain objects through', () => {

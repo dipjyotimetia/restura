@@ -20,11 +20,25 @@ function mcpRequest(overrides: Partial<McpRequest> = {}): McpRequest {
     url: 'https://mcp.example.com/mcp',
     transport: 'streamable-http',
     headers: [
-      { id: 'h1', key: 'Authorization', value: `Bearer ${TOKEN}`, enabled: true },
+      {
+        id: 'h1',
+        key: 'Authorization',
+        value: `Bearer ${TOKEN}`,
+        enabled: true,
+      },
       { id: 'h2', key: 'X-Tenant', value: 'acme', enabled: true },
-      { id: 'h3', key: 'X-Custom', value: API_KEY, enabled: true, secret: true },
+      {
+        id: 'h3',
+        key: 'X-Custom',
+        value: API_KEY,
+        enabled: true,
+        secret: true,
+      },
     ],
-    auth: { type: 'bearer', bearer: { token: { kind: 'inline', value: TOKEN } } },
+    auth: {
+      type: 'bearer',
+      bearer: { token: { kind: 'inline', value: TOKEN } },
+    },
     ...overrides,
   };
 }
@@ -51,7 +65,12 @@ function ocWithMcpCredentials() {
               { name: 'Authorization', value: `Bearer ${TOKEN}` },
               { name: 'X-Tenant', value: 'acme' },
             ],
-            auth: { type: 'apikey', key: 'X-API-Key', value: API_KEY, placement: 'header' },
+            auth: {
+              type: 'apikey',
+              key: 'X-API-Key',
+              value: API_KEY,
+              placement: 'header',
+            },
           },
         },
       ],
@@ -69,14 +88,20 @@ describe('redactMcpCredentials (#896)', () => {
       ['X-Tenant', 'acme'],
       ['X-Custom', ''],
     ]);
-    expect(out.auth).toEqual({ type: 'bearer', bearer: { token: { kind: 'inline', value: '' } } });
+    expect(out.auth).toEqual({
+      type: 'bearer',
+      bearer: { token: { kind: 'inline', value: '' } },
+    });
   });
 
   it('preserves SecretRef handles (opaque ids, no plaintext)', () => {
     const out = redactMcpCredentials(
       mcpRequest({
         headers: [],
-        auth: { type: 'bearer', bearer: { token: { kind: 'handle', id: 'h1', label: 'mcp' } } },
+        auth: {
+          type: 'bearer',
+          bearer: { token: { kind: 'handle', id: 'h1', label: 'mcp' } },
+        },
       })
     );
     expect(out.auth).toEqual({
@@ -86,7 +111,9 @@ describe('redactMcpCredentials (#896)', () => {
   });
 
   it('does not mutate the input and tolerates a connection without auth', () => {
-    const input = { headers: [{ key: 'Authorization', value: 'Bearer x', enabled: true }] };
+    const input = {
+      headers: [{ key: 'Authorization', value: 'Bearer x', enabled: true }],
+    };
     const out = redactMcpCredentials(input);
     expect(input.headers[0]?.value).toBe('Bearer x');
     expect(out.headers[0]?.value).toBe('');
@@ -282,5 +309,35 @@ describe('opaque (non-MCP) _oc bag rows — export redaction + warning count (L2
     const imported = ocToInternal(ocWithMcpCredentials() as never);
     // Typed: the Authorization header + the api-key value; root bag rows aren't re-counted.
     expect(countCollectionInlineSecrets(imported)).toBe(2);
+  });
+});
+
+describe('review follow-ups', () => {
+  it('strips userinfo up to the last @ in the authority', () => {
+    expect(redactUrlCredentialsForStorage('https://user:p@ss@mcp.example.com/mcp')).toBe(
+      'https://mcp.example.com/mcp'
+    );
+  });
+
+  it('keeps single {{var}} references in headers and inline auth but blanks real secrets', () => {
+    const out = redactMcpCredentials(
+      mcpRequest({
+        headers: [
+          {
+            id: 'h1',
+            key: 'Authorization',
+            value: '{{mcpToken}}',
+            enabled: true,
+          },
+          { id: 'h2', key: 'X-Api-Key', value: API_KEY, enabled: true },
+        ],
+        auth: { type: 'bearer', bearer: { token: '{{mcpToken}}' } },
+      })
+    );
+    expect(out.headers?.[0]?.value).toBe('{{mcpToken}}');
+    expect(out.headers?.[1]?.value).not.toContain(API_KEY);
+    expect(out.auth?.bearer?.token).toBe('{{mcpToken}}');
+    const leaked = redactMcpCredentials(mcpRequest());
+    expect(JSON.stringify(leaked)).not.toContain(TOKEN);
   });
 });
