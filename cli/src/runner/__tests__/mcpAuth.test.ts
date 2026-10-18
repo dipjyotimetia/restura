@@ -126,6 +126,16 @@ describe('CLI MCP auth (#896)', () => {
     expect(received).toEqual([]);
   });
 
+  it('fails the interactive OAuth 2.1 sign-in flow (desktop-only) without any I/O (#856)', async () => {
+    const dir = mcpCollection(
+      `${base}auth:\n  type: oauth2\n  oauth2:\n    accessToken: ''\n    grantType: authorization_code\n`
+    );
+    const result = await run(dir);
+    expect(result.requests[0]?.passed).toBe(false);
+    expect(result.requests[0]?.errorMessage).toMatch(/desktop app only/);
+    expect(received).toEqual([]);
+  });
+
   it('refuses an API key header owned by the MCP transport', async () => {
     const dir = mcpCollection(
       `${base}auth:\n  type: api-key\n  apiKey:\n    key: Mcp-Session-Id\n    value: x\n    in: header\n`
