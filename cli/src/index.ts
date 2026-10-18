@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
 import { version } from '../package.json';
 import { registerAgentCommand } from './commands/agent.js';
+import { registerMcpCommand } from './commands/mcp.js';
 import { registerRunCommand } from './commands/run.js';
 import { registerWorkflowCommand } from './commands/workflow.js';
 import { interactive } from './ui/colors.js';
@@ -27,6 +28,7 @@ program.name('restura').description('Restura CLI — run API collections in CI')
 
 registerRunCommand(program);
 registerAgentCommand(program);
+registerMcpCommand(program);
 registerWorkflowCommand(program);
 
 // Bare `restura` (no args) launches the interactive run wizard in a terminal by

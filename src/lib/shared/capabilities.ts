@@ -40,6 +40,7 @@ export type CapabilityName =
   | 'mcp.auth'
   | 'mcp.oauth'
   | 'mcp.configImport'
+  | 'mcp.conformance'
   | 'grpc.basic'
   | 'grpc.reflection'
   | 'grpc.web'
@@ -274,6 +275,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes:
       'Desktop reads the well-known config locations or a native file picker in the main process, stores credential-named stdio env values as secret handles, and imported stdio servers still need the per-launch consent prompt. Web accepts pasted or uploaded JSON (1 MB cap) and imports remote (HTTP) servers only; stdio entries are shown as desktop-only',
+  },
+  'mcp.conformance': {
+    label: 'MCP era/conformance report',
+    web: true,
+    desktop: true,
+    notes:
+      'Desktop connects in both protocol eras (legacy initialize and pinned modern 2026-07-28) and diffs them. Web runs the legacy era only: /api/mcp is a stateless JSON-RPC proxy with no era negotiation, so the modern era needs the desktop app or `restura mcp conformance`',
   },
   'grpc.basic': {
     label: 'gRPC unary + streaming',
