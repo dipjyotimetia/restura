@@ -31,17 +31,23 @@ test.describe('Desktop MCP stdio transport', () => {
     _electronApp,
   }) => {
     const { electronApp } = _electronApp;
+    // Answer the main-process consent dialog with its most permissive button:
+    // "Always allow" when approvals can be remembered (OS keychain present),
+    // otherwise "Allow once" (Linux CI without a keyring: safeStorage is
+    // unavailable, so main deliberately offers only Cancel / Allow once).
     await electronApp.evaluate(({ dialog }) => {
-      const g = globalThis as unknown as { __stdioPrompts: number };
-      g.__stdioPrompts = 0;
-      dialog.showMessageBox = (async () => {
-        g.__stdioPrompts += 1;
-        return { response: 2, checkboxChecked: false }; // "Always allow"
+      const g = globalThis as unknown as { __stdioPrompts: string[][] };
+      g.__stdioPrompts = [];
+      dialog.showMessageBox = (async (...args: unknown[]) => {
+        const options = args.at(-1) as { buttons?: string[] };
+        const buttons = options.buttons ?? [];
+        g.__stdioPrompts.push(buttons);
+        return { response: buttons.length - 1, checkboxChecked: false };
       }) as typeof dialog.showMessageBox;
     });
     const prompts = () =>
       electronApp.evaluate(
-        () => (globalThis as unknown as { __stdioPrompts: number }).__stdioPrompts
+        () => (globalThis as unknown as { __stdioPrompts: string[][] }).__stdioPrompts
       );
 
     expect(fixturePids() ?? []).toEqual([]);
@@ -59,7 +65,10 @@ test.describe('Desktop MCP stdio transport', () => {
     if ((await catalog.getAttribute('aria-pressed')) !== 'true') await catalog.click();
     await expect(page.getByRole('tab', { name: /Tools\s+3/ })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText('env-keys', { exact: true }).first()).toBeVisible();
-    expect(await prompts()).toBe(1);
+    const first = await prompts();
+    expect(first).toHaveLength(1);
+    expect(first[0]?.[0]).toBe('Cancel');
+    const remembered = first[0]?.includes('Always allow') ?? false;
 
     await expect(page.getByLabel('MCP server stderr')).toContainText('restura stdio fixture ready');
     const running = fixturePids();
@@ -68,10 +77,11 @@ test.describe('Desktop MCP stdio transport', () => {
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
     if (running) await expect.poll(() => fixturePids(), { timeout: 10_000 }).toEqual([]);
 
-    // The identical command line was approved with "Always allow": no new prompt.
+    // Reconnect the identical command line. With "Always allow" it must not
+    // prompt again; without a keychain every launch prompts (fail closed).
     await page.getByRole('button', { name: /Connect/i }).click();
     await expect(page.getByRole('tab', { name: /Tools\s+3/ })).toBeVisible({ timeout: 20_000 });
-    expect(await prompts()).toBe(1);
+    expect(await prompts()).toHaveLength(remembered ? 1 : 2);
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
     if (running) await expect.poll(() => fixturePids(), { timeout: 10_000 }).toEqual([]);
   });
