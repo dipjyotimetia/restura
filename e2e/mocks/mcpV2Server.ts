@@ -30,6 +30,9 @@ export async function startMockMcpV2Server(
 ): Promise<MockMcpV2ServerHandle> {
   const buildServer: Parameters<typeof createMcpHandler>[0] = ({ era }) => {
     const mcp = new McpServer(SERVER_INFO, {
+      // Advertise resource subscriptions so modern `subscriptions/listen`
+      // honors `resourceSubscriptions` (#872).
+      capabilities: { resources: { subscribe: true } },
       cacheHints: { 'tools/list': { ttlMs: 1_000, cacheScope: 'private' } },
     });
 
