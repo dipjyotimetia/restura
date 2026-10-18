@@ -1,3 +1,4 @@
+import { isMcpTransportHeader, mcpAuthUnsupportedReason } from '@shared/protocol/mcp-auth';
 import { validateMcpSpec } from '@shared/protocol/mcp-proxy';
 import { isMcpToolError, mcpToolErrorText } from '@shared/protocol/mcp-result';
 import type { McpRequest } from '@shared/types';
@@ -6,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { LoadedRequest } from '../collectionLoader';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, resolveOAuth2Token } from './auth';
+import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 
 /**
@@ -53,13 +55,34 @@ export async function executeMcp(
   for (const h of req.headers ?? []) {
     if (h.enabled && h.key) headers[h.key] = resolveVarsDeep(h.value, opts.vars);
   }
-  // Header-based auth (Bearer / Basic / API-key / OAuth2). MCP has no query
-  // channel, so api-key `in: query` is unsupported here. A handle ref throws.
+  // Header-based auth (Bearer / Basic / API-key / OAuth2) under the shared MCP
+  // policy (#896): an unsupported scheme or an `in: query` API key fails the
+  // item instead of silently going out unauthenticated. A handle ref throws;
+  // external refs resolve through the configured provider (HTTP parity).
   try {
-    const resolvedAuth = await resolveOAuth2Token(req.auth, opts.vars, {
+    const unsupported = mcpAuthUnsupportedReason(req.auth);
+    if (unsupported) throw new Error(unsupported);
+    const externalMaterializedAuth = await materializeExternalSecretsInAuth(
+      req.auth,
+      opts.externalSecretResolver
+    );
+    const resolvedAuth = await resolveOAuth2Token(externalMaterializedAuth, opts.vars, {
       allowLocalhost: opts.allowLocalhost,
+      ...(opts.oauthFetch ? { fetch: opts.oauthFetch } : {}),
     });
-    applyAuthHeaders(resolvedAuth, headers, {});
+    const authHeaders: Record<string, string> = {};
+    applyAuthHeaders(resolvedAuth, authHeaders, {});
+    for (const [key, value] of Object.entries(authHeaders)) {
+      if (isMcpTransportHeader(key)) {
+        throw new Error(`Auth header "${key}" is reserved by the MCP transport`);
+      }
+      // Auth wins over a same-named user header in any casing.
+      for (const existing of Object.keys(headers)) {
+        if (existing.toLowerCase() === key.toLowerCase()) delete headers[existing];
+      }
+      // `{{vars}}` in the credential resolve like the app's `resolveAuthVariables`.
+      headers[key] = resolveVarsDeep(value, opts.vars);
+    }
   } catch (err) {
     return {
       status: 0,
