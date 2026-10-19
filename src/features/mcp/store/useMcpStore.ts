@@ -10,6 +10,8 @@ export interface McpInvocationLog {
   id: string;
   method: string;
   params?: unknown;
+  /** outputSchema snapshot of the tool at invocation time (tools/call only). */
+  outputSchema?: unknown;
   result?: unknown;
   error?: string;
   jsonRpcError?: { code: number; message: string; data?: unknown };
@@ -154,6 +156,7 @@ export const useMcpStore = create<McpState>()(
             timestamp: Date.now(),
             method: entry.method,
             ...(entry.params !== undefined ? { params: entry.params } : {}),
+            ...(entry.outputSchema !== undefined ? { outputSchema: entry.outputSchema } : {}),
             ...(entry.result !== undefined ? { result: entry.result } : {}),
             ...(entry.error !== undefined ? { error: entry.error } : {}),
             ...(entry.jsonRpcError !== undefined ? { jsonRpcError: entry.jsonRpcError } : {}),

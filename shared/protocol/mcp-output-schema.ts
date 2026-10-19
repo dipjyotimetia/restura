@@ -125,7 +125,7 @@ function matchesPattern(ctx: Ctx, pattern: string, value: string): boolean | nul
     pattern.length > MAX_PATTERN_LENGTH ||
     value.length > MAX_PATTERN_VALUE_LENGTH ||
     RISKY_PATTERN.test(pattern) ||
-    (pattern.match(UNBOUNDED_QUANTIFIER)?.length ?? 0) > MAX_UNBOUNDED_QUANTIFIERS
+    (pattern.match(UNBOUNDED_QUANTIFIER)?.length ?? 0) >= MAX_UNBOUNDED_QUANTIFIERS
   ) {
     const note = 'pattern check skipped (pattern or value too long/complex)';
     if (!ctx.notes.includes(note)) ctx.notes.push(note);
@@ -166,7 +166,11 @@ function check(
   issues: McpOutputSchemaIssue[],
   depth: number
 ): void {
-  if (ctx.aborted || issues.length >= MAX_ISSUES || depth > MAX_DEPTH) return;
+  if (depth > MAX_DEPTH) {
+    ctx.aborted = true; // unchecked value: report 'skipped', never a false 'valid'
+    return;
+  }
+  if (ctx.aborted || issues.length >= MAX_ISSUES) return;
   if (++ctx.steps > MAX_STEPS) {
     ctx.aborted = true;
     return;

@@ -4,9 +4,6 @@ import { useState } from 'react';
 import { JsonBodyView } from '@/components/shared/JsonBodyView';
 import { Floater, Stat } from '@/components/ui/spatial';
 import { type McpInvocationLog, useMcpStore } from '@/features/mcp/store/useMcpStore';
-import type { McpToolDescriptor } from '@/types';
-
-const TOOL_CALL_PREFIX = 'tools/call:';
 
 const BADGE_LABEL: Record<McpOutcomeKind, string> = {
   ok: 'isError: false',
@@ -20,14 +17,14 @@ function structuredContentOf(result: unknown): unknown {
     : undefined;
 }
 
-function McpResult({ entry, tool }: { entry: McpInvocationLog; tool?: McpToolDescriptor }) {
+function McpResult({ entry }: { entry: McpInvocationLog }) {
   const kind = classifyMcpOutcome(entry);
   const isError = kind !== 'ok';
   const structured = structuredContentOf(entry.result);
   const [view, setView] = useState<'result' | 'structured'>('result');
   const validation =
-    tool?.outputSchema && kind === 'ok'
-      ? validateToolOutput(tool.outputSchema, entry.result)
+    entry.outputSchema && kind === 'ok'
+      ? validateToolOutput(entry.outputSchema, entry.result)
       : ({ status: 'no-schema' } as const);
   const showStructured = view === 'structured' && structured !== undefined;
   const payload: unknown = showStructured
@@ -129,12 +126,6 @@ function McpResult({ entry, tool }: { entry: McpInvocationLog; tool?: McpToolDes
 export default function McpResultPanel() {
   const active = useMcpStore((s) => s.getActive());
   const entry = active && active.log.length > 0 ? (active.log[0] ?? null) : null;
-  const toolName = entry?.method.startsWith(TOOL_CALL_PREFIX)
-    ? entry.method.slice(TOOL_CALL_PREFIX.length)
-    : null;
-  const tool = toolName
-    ? active?.capabilities?.tools.find((candidate) => candidate.name === toolName)
-    : undefined;
 
   return (
     <Floater
@@ -144,7 +135,7 @@ export default function McpResultPanel() {
       style={{ background: 'var(--sp-code)' }}
     >
       {entry ? (
-        <McpResult key={entry.id} entry={entry} {...(tool ? { tool } : {})} />
+        <McpResult key={entry.id} entry={entry} />
       ) : (
         <div className="flex-1 grid place-items-center text-center px-4">
           <div>

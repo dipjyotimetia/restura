@@ -91,22 +91,13 @@ describe('McpResultPanel', () => {
     function setup(structuredContent: unknown) {
       const id = useMcpStore.getState().createConnection('https://mcp.example.test');
       act(() => {
-        useMcpStore.getState().setCapabilities(id, {
-          tools: [
-            {
-              name: 'count',
-              outputSchema: {
-                type: 'object',
-                required: ['n'],
-                properties: { n: { type: 'integer' } },
-              },
-            },
-          ],
-          resources: [],
-          prompts: [],
-        });
         useMcpStore.getState().appendLog(id, {
           method: 'tools/call:count',
+          outputSchema: {
+            type: 'object',
+            required: ['n'],
+            properties: { n: { type: 'integer' } },
+          },
           result: { content: [], structuredContent },
           durationMs: 1,
         });
@@ -124,13 +115,9 @@ describe('McpResultPanel', () => {
     it('does not flag a schema violation on a protocol error', () => {
       const id = useMcpStore.getState().createConnection('https://mcp.example.test');
       act(() => {
-        useMcpStore.getState().setCapabilities(id, {
-          tools: [{ name: 'count', outputSchema: { type: 'object', required: ['n'] } }],
-          resources: [],
-          prompts: [],
-        });
         useMcpStore.getState().appendLog(id, {
           method: 'tools/call:count',
+          outputSchema: { type: 'object', required: ['n'] },
           error: 'boom',
           durationMs: 1,
         });
@@ -143,24 +130,28 @@ describe('McpResultPanel', () => {
     it('notes when the outputSchema is too complex to validate', () => {
       const id = useMcpStore.getState().createConnection('https://mcp.example.test');
       act(() => {
-        useMcpStore.getState().setCapabilities(id, {
-          tools: [
-            {
-              name: 'count',
-              outputSchema: { allOf: Array.from({ length: 40 }, () => ({ type: 'object' })) },
-            },
-          ],
-          resources: [],
-          prompts: [],
-        });
         useMcpStore.getState().appendLog(id, {
           method: 'tools/call:count',
+          outputSchema: { allOf: Array.from({ length: 40 }, () => ({ type: 'object' })) },
           result: { content: [], structuredContent: {} },
           durationMs: 1,
         });
       });
       render(<McpResultPanel />);
       expect(screen.getByTestId('mcp-output-schema-skipped')).toBeInTheDocument();
+    });
+
+    it('skips validation when the log entry has no schema snapshot', () => {
+      const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+      act(() => {
+        useMcpStore.getState().appendLog(id, {
+          method: 'tools/call:count',
+          result: { content: [], structuredContent: { n: 'x' } },
+          durationMs: 1,
+        });
+      });
+      render(<McpResultPanel />);
+      expect(screen.queryByTestId('mcp-output-schema-issues')).not.toBeInTheDocument();
     });
 
     it('flags a structuredContent that violates the outputSchema', () => {

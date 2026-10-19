@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { validateAgainstSchema, validateToolOutput } from './mcp-output-schema';
+import {
+  MCP_SCHEMA_TOO_COMPLEX,
+  validateAgainstSchema,
+  validateToolOutput,
+} from './mcp-output-schema';
 
 const bad = (schema: unknown, value: unknown) => validateAgainstSchema(schema, value);
 
@@ -107,7 +111,8 @@ describe('validateAgainstSchema keyword coverage', () => {
       deep = { properties: { a: deep } };
       value = { a: value };
     }
-    expect(bad(deep, value)).toEqual([]);
+    expect(bad(deep, value).map((i) => i.message)).toEqual([MCP_SCHEMA_TOO_COMPLEX]);
+    expect(validateToolOutput(deep, { structuredContent: value }).status).toBe('skipped');
     const many = Array.from({ length: 50 }, () => 'x');
     expect(bad({ items: { type: 'number' } }, many)).toHaveLength(20);
     const required = Array.from({ length: 30 }, (_, i) => `k${i}`);
