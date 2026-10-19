@@ -187,6 +187,64 @@ describe('web initialize handshake (#862)', () => {
     );
   });
 
+  it('disconnect while notifications/initialized is pending does not report initialize success', async () => {
+    let release: (r: Response) => void = () => {};
+    route((call) => {
+      if (call.body.jsonRpc?.method === 'notifications/initialized') {
+        return new Promise<Response>((res) => {
+          release = res;
+        });
+      }
+      return happyServer()(call);
+    });
+    const client = makeClient();
+    const pending = client.request('initialize', { protocolVersion: MCP_LATEST_PROTOCOL_VERSION });
+    await vi.waitFor(() => expect(methods()).toContain('notifications/initialized'));
+    await client.disconnect();
+    release(json({ ok: true, accepted: true }));
+    const out = (await pending) as { error?: string };
+    expect(out.error).toMatch(/terminated during initialize/);
+  });
+
+  it('a stale concurrent initialize cannot replace the newer handshake session', async () => {
+    const releases: Array<(r: Response) => void> = [];
+    let n = 0;
+    route((call) => {
+      if (call.body.jsonRpc?.method === 'initialize') {
+        const id = `sess-${++n}`;
+        return new Promise<Response>((res) => {
+          releases.push(() =>
+            res(
+              json({
+                ok: true,
+                sessionId: id,
+                jsonRpc: { result: { protocolVersion: '2025-06-18' } },
+              })
+            )
+          );
+        });
+      }
+      return happyServer()(call);
+    });
+    const client = makeClient();
+    const p = { protocolVersion: MCP_LATEST_PROTOCOL_VERSION };
+    const first = client.request('initialize', p);
+    await vi.waitFor(() => expect(releases.length).toBe(1));
+    const second = client.request('initialize', p);
+    await vi.waitFor(() => expect(releases.length).toBe(2));
+    releases[1]?.(json({}));
+    await second;
+    releases[0]?.(json({}));
+    const stale = (await first) as { error?: string };
+    expect(stale.error).toMatch(/superseded/);
+    await client.request('tools/list', {});
+    const last = calls.filter((c) => c.body.jsonRpc?.method === 'tools/list').pop();
+    expect(last?.body.sessionId).toBe('sess-2');
+    expect(
+      calls.some((c) => c.path === '/api/mcp/terminate' && c.body.sessionId === 'sess-1')
+    ).toBe(true);
+  });
+
   it('fails initialize when notifications/initialized is rejected', async () => {
     route((call) =>
       call.body.jsonRpc?.method === 'notifications/initialized'

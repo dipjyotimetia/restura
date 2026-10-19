@@ -80,6 +80,8 @@ export class McpWebSession {
   private reinitInFlight: Promise<McpWebOutcome> | undefined;
   /** Bumped by terminate(); responses from an older epoch must not (re)create a session. */
   private epoch = 0;
+  /** Bumped per `initialize` handshake; only the newest handshake may set session state. */
+  private initGen = 0;
 
   constructor(
     private readonly opts: McpWebSessionOptions,
@@ -159,8 +161,13 @@ export class McpWebSession {
     }
 
     const epoch = this.epoch;
+    const gen = ++this.initGen;
     const init = await this.post('initialize', params, timeout);
     if (!init.ok) return init;
+    // A newer initialize started while this one was in flight: post() released
+    // this handshake's session; the newer handshake owns the session state.
+    if (gen !== this.initGen)
+      return { ok: false, error: 'MCP initialize superseded by a newer initialize' };
     // Disconnected while initialize was in flight: post() already released the
     // orphaned server session; don't continue the handshake.
     if (epoch !== this.epoch)
@@ -192,6 +199,8 @@ export class McpWebSession {
     // Callers await this method before issuing list/call requests, so the
     // notification is guaranteed to be on the wire first.
     const initialized = await this.post('notifications/initialized', undefined, timeout);
+    if (epoch !== this.epoch || gen !== this.initGen)
+      return { ok: false, error: 'MCP session terminated during initialize' };
     if (!initialized.ok) {
       return { ...initialized, error: `notifications/initialized failed: ${initialized.error}` };
     }
@@ -202,6 +211,7 @@ export class McpWebSession {
     const isNotification = isMcpNotificationMethod(method);
     const isInitialize = method === 'initialize';
     const epoch = this.epoch;
+    const gen = this.initGen;
     const response = await fetch(`${workerBaseUrl()}/api/mcp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
@@ -221,7 +231,8 @@ export class McpWebSession {
     });
     const body = (await response.json()) as ProxyBody;
     if (body.sessionId) {
-      if (epoch === this.epoch) this.sessionId = body.sessionId;
+      if (epoch === this.epoch && (!isInitialize || gen === this.initGen))
+        this.sessionId = body.sessionId;
       else if (this.opts.transport === 'streamable-http')
         void this.sendTerminate(body.sessionId, undefined);
     }
