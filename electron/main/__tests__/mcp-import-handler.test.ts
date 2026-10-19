@@ -345,6 +345,22 @@ describe('IPC channels', () => {
     ).rejects.toThrow(/expired/);
   });
 
+  it('keeps the session when every selected entry is skipped so the dialog can retry', async () => {
+    const entries = new Map(stdioCfg({ command: 'npx' }).map((e) => [`0.${e.key}`, e]));
+    const id = __seedMcpImportSessionForTests(7, entries);
+    const res = (await call('mcp:import:commit', event(7), {
+      sessionId: id,
+      keys: ['9.9'],
+    })) as { drafts: unknown[]; skipped: unknown[] };
+    expect(res.drafts).toHaveLength(0);
+    expect(res.skipped).toHaveLength(1);
+    const retry = (await call('mcp:import:commit', event(7), {
+      sessionId: id,
+      keys: ['0.0'],
+    })) as { drafts: unknown[] };
+    expect(retry.drafts).toHaveLength(1);
+  });
+
   it('commit validates ids and keys', async () => {
     for (const payload of [
       { sessionId: 'nope', keys: ['0.0'] },

@@ -361,9 +361,10 @@ export function registerMcpImportIPC(getMainWindow: () => BrowserWindow | null):
           if (!session || session.ownerId !== event.sender.id) {
             throw new Error('Import session expired; scan again');
           }
-          // The session survives a failed commit (retry) and is spent only on success.
+          // The session survives a failed or fully-skipped commit (the dialog stays open for
+          // a retry) and is spent only once at least one draft was produced.
           const result = commitEntries(session.entries, input.keys);
-          dropSession(input.sessionId);
+          if (result.drafts.length > 0) dropSession(input.sessionId);
           return result;
         }
       )
