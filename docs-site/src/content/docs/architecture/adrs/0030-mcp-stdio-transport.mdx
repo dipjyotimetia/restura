@@ -1,6 +1,6 @@
 ---
 title: ADR 0030 — MCP stdio transport and the local-process consent boundary
-description: Desktop-only stdio MCP servers, resolved and spawned by main without a shell after a native per-launch consent prompt keyed by an unforgeable HMAC, with an allowlisted environment and main-owned process lifetime.
+description: Desktop-only stdio MCP servers, resolved and spawned by main without a shell after a main-owned consent check on every launch (a native prompt unless a matching approval, keyed by an unforgeable HMAC, is remembered), with an allowlisted environment and main-owned process lifetime.
 sidebar:
   order: 30
 ---
@@ -69,7 +69,7 @@ Before the first spawn of any new launch, main shows `dialog.showMessageBox` (Ca
   - The comparison runs on a canonical path: the nearest existing ancestor is resolved with `realpath.native` (symlinks; Windows 8.3 short names of existing entries). On Windows, trailing dots and spaces and NTFS stream suffixes (`name:stream`) are stripped. On Windows and macOS, case is folded.
   - What is guaranteed: any spelling that the OS maps to a store file or key blob directly in `userData` is refused, as long as the alias is one of those forms.
   - What is not guaranteed: these channels still check the target *lexically* against their allowed roots and do not resolve symlinks before writing (a pre-existing gap tracked separately). A symlink created elsewhere that points into `userData` is outside this rule. The HMAC key, not the path rule, is what makes approvals unforgeable.
-- **Nothing can pre-approve.** The `mcp:connect` stdio schema is `.strict()`, so a payload carrying an approval field is rejected before the gate runs. Imported collections, `mcp.json` imports and the agent surfaces all reach main through the same channel and get the same prompt.
+- **Nothing can pre-approve.** The `mcp:connect` stdio schema is `.strict()`, so a payload carrying an approval field is rejected before the gate runs. Imported collections, git-synced collection folders and interactive desktop connections all reach main through the same channel and get the same gate. `mcp.json` import ([#906](https://github.com/dipjyotimetia/restura/issues/906)) is a follow-up that must use this channel; AI Lab agent tool sources refuse stdio today.
 - **Revoke.** The renderer can call `mcp:stdio:revoke-approvals` (rate-limited, validated to take no input). It clears the store and can only narrow privilege.
 - **Ordering.** Prompts are serialized, so a misbehaving renderer cannot stack dialogs. Concurrent requests share a prompt only when they come from the same connection for the same launch; "Allow once" is never shared across connections. The claim is re-checked after the dialog, so a launch approved after its tab disconnected or its renderer died never spawns. The working directory is not touched until after consent.
 

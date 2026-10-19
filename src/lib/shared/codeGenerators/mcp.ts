@@ -70,7 +70,7 @@ import { z } from 'zod';
 ${transportLine}
 const client = new Client(
   { name: 'restura-generated', version: '1.0.0' },
-  { capabilities: {}, versionNegotiation: { mode: 'auto' } }
+  { capabilities: {}, versionNegotiation: { mode: ${stdio ? "'legacy'" : "'auto'"} } }
 );
 
 await client.connect(transport);

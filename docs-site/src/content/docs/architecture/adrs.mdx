@@ -190,7 +190,7 @@ timeline
   />
   <LinkCard
     title="0030 — MCP stdio transport"
-    description="Local MCP servers spawned by the desktop main process without a shell, after a native per-launch consent prompt; allowlisted env; main kills the process on disconnect and quit."
+    description="Local MCP servers spawned by the desktop main process without a shell, after a main-owned consent check on every launch (a native prompt unless a matching approval is remembered); allowlisted env; main kills the process on disconnect and quit."
     href="/architecture/adrs/0030-mcp-stdio-transport/"
   />
 </CardGrid>

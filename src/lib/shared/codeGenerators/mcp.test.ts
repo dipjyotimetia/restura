@@ -61,6 +61,12 @@ describe('MCP stdio code generation', () => {
     expect(generated).not.toContain('secret-value');
   });
 
+  it('uses legacy negotiation so the server is spawned once (no auto-mode sibling probe)', () => {
+    const generated = mcpCodeGenerators.typescriptSdk.generate({ request: stdioRequest });
+    expect(generated).toContain("versionNegotiation: { mode: 'legacy' }");
+    expect(generated).not.toContain("mode: 'auto'");
+  });
+
   it('omits cwd when unset', () => {
     const { cwd: _cwd, ...noCwd } = stdioRequest.stdio!;
     const generated = mcpCodeGenerators.typescriptSdk.generate({
