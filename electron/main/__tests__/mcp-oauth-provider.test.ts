@@ -356,6 +356,30 @@ describe('McpOAuthSession', () => {
     session.dispose();
   });
 
+  it('tries a stored refresh token before opening any loopback receiver', async () => {
+    saveMcpOAuthRecord(SERVER, undefined, {
+      tokens: { access_token: 'at-123456', token_type: 'Bearer', refresh_token: 'rt-123456' },
+      expiresAt: 0,
+    });
+    const startReceiver = vi.fn(async () => {
+      throw new Error('EADDRINUSE');
+    });
+    const session = new McpOAuthSession({ serverUrl: SERVER }, { fetchFn: noFetch, startReceiver });
+    // Discovery fails (network disabled): reported as an OAuth failure, no listener opened.
+    await expect(session.authorize({})).rejects.toThrow(/MCP OAuth failed/);
+    expect(startReceiver).not.toHaveBeenCalled();
+    session.dispose();
+  });
+
+  it('a refresh-only pass never registers a client or starts a browser flow', () => {
+    const session = new McpOAuthSession({ serverUrl: SERVER }, { fetchFn: noFetch });
+    (session as unknown as { refreshOnly: boolean }).refreshOnly = true;
+    expect(() => session.provider.clientInformation()).toThrow(/Browser sign-in needed/);
+    expect(() => session.provider.state!()).toThrow(/Browser sign-in needed/);
+    expect(session.reauthRequired).toBe(false);
+    session.dispose();
+  });
+
   it('refuses to authorize after dispose', async () => {
     const session = new McpOAuthSession({ serverUrl: SERVER }, { fetchFn: noFetch });
     session.dispose();

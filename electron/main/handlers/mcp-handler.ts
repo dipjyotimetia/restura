@@ -363,8 +363,10 @@ export function registerMcpHandlerIPC(): void {
                 session.client = client;
                 session.clientRequests?.attachClient(client);
               },
-            }).then((client) => {
+            }).then(async (client) => {
               session.client = client;
+              // Sign in now if `initialize` got through without a token.
+              await oauth?.ensureSignedIn();
             }),
             deadline.promise,
           ]);

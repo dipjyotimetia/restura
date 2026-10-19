@@ -1,4 +1,6 @@
 // @vitest-environment node
+
+import * as net from 'node:net';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as IpcUtils from '../ipc/ipc-utils';
 
@@ -296,6 +298,54 @@ describe('MCP OAuth 2.1 (main-side provider, real servers)', () => {
     expect(as.issuedAccessTokens.length).toBeGreaterThan(issuedBefore);
     const listed = await ipc('mcp:request', { connectionId, method: 'tools/list' });
     expect(listed.success).toBe(true);
+  });
+
+  it('refreshes at connect without opening the loopback receiver (pinned redirect port busy)', async () => {
+    const port = await new Promise<number>((resolve) => {
+      const probe = net.createServer().listen(0, '127.0.0.1', () => {
+        const { port: p } = probe.address() as net.AddressInfo;
+        probe.close(() => resolve(p));
+      });
+    });
+    await startPair({ expiresIn: 61 });
+    const auth = oauthAuth({ redirectUri: `http://127.0.0.1:${port}/oauth/callback` });
+    expect((await connect(mcp, auth)).res.success).toBe(true);
+    stopMcpCleanup();
+    const squatter = net.createServer();
+    await new Promise<void>((resolve) => squatter.listen(port, '127.0.0.1', resolve));
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      openExternal.mockClear();
+      const { res } = await connect(mcp, auth);
+      expect(res).toEqual({ success: true });
+      expect(openExternal).not.toHaveBeenCalled();
+      expect(as.tokenRequests.at(-1)!.params.get('grant_type')).toBe('refresh_token');
+      expect(as.registrations).toHaveLength(1);
+    } finally {
+      await new Promise((resolve) => squatter.close(resolve));
+    }
+  });
+
+  it('signs in at connect when initialize is anonymous but later requests need a token', async () => {
+    as = await startMockOAuthServer();
+    const asRef = as;
+    let anonymousAllowed = true;
+    mcp = await startMockMcpServer({
+      oauth: {
+        isAuthorized: (header) =>
+          anonymousAllowed ||
+          (header.startsWith('Bearer ') && asRef.isValidAccessToken(header.slice(7))),
+        authorizationServers: [as.url],
+      },
+    });
+    const { res, connectionId } = await connect(mcp, oauthAuth());
+    expect(res).toEqual({ success: true });
+    expect(openExternal).toHaveBeenCalledTimes(1);
+
+    anonymousAllowed = false;
+    const listed = await ipc('mcp:request', { connectionId, method: 'tools/list' });
+    expect(listed.success).toBe(true);
+    expect(mcp.authorizationsReceived()).toContain(`Bearer ${as.issuedAccessTokens.at(-1)!}`);
   });
 
   it('surfaces a re-auth prompt (authRequired) when a mid-session refresh fails', async () => {

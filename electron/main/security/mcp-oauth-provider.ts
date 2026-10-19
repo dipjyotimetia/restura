@@ -80,6 +80,18 @@ export class McpOAuthReauthRequiredError extends Error {
   }
 }
 
+/**
+ * Internal: the silent refresh-only pass hit a step that needs the browser
+ * (no usable refresh token, or a DCR registration is missing). Never escapes
+ * {@link McpOAuthSession.authorize}.
+ */
+class BrowserSignInNeeded extends Error {
+  constructor() {
+    super('Browser sign-in needed');
+    this.name = 'BrowserSignInNeeded';
+  }
+}
+
 /** Type / flag check, following `cause` in case a transport wraps the error. */
 export function isMcpOAuthReauthRequired(err: unknown): boolean {
   for (let e: unknown = err, depth = 0; e && depth < 4; depth++) {
@@ -186,6 +198,12 @@ export class McpOAuthSession {
   reauthRequired = false;
 
   private interactive = true;
+  /**
+   * Set while a refresh token is tried before any loopback receiver exists:
+   * a refresh needs no redirect listener, so a busy pinned redirect port must
+   * not fail it, nor an ephemeral-port change invalidate the registration.
+   */
+  private refreshOnly = false;
   private readonly abort = new AbortController();
   private readonly fetchFn: OAuthFetchLike;
   private readonly openExternal: (url: string) => Promise<void>;
@@ -237,6 +255,18 @@ export class McpOAuthSession {
 
   /** Scrub every token / secret / code this session has handled. */
   readonly redact = (text: string): string => this.redactor(text);
+
+  /**
+   * Connect-time, after the handshake: when no usable token is stored, sign
+   * in now. A server that lets `initialize` through anonymously but gates
+   * later requests would otherwise only 401 once the session is
+   * non-interactive, and every reconnect would end in the same re-auth prompt.
+   */
+  async ensureSignedIn(): Promise<void> {
+    if (!this.interactive) return;
+    if (await this.currentToken()) return;
+    await this.authorize({});
+  }
 
   /** After the initial connect, a lapsed session prompts instead of opening a browser. */
   endInteractive(): void {
@@ -308,6 +338,7 @@ export class McpOAuthSession {
         };
       },
       state: () => {
+        if (session.refreshOnly) throw new BrowserSignInNeeded();
         const state = crypto.randomBytes(32).toString('base64url');
         if (!session.interactive || !session.receiver) {
           session.reauthRequired = true;
@@ -331,10 +362,16 @@ export class McpOAuthSession {
           };
         }
         const reg = session.record?.registration;
+        // Don't register a redirect URI nobody is listening on yet.
+        if (!reg && session.refreshOnly) throw new BrowserSignInNeeded();
         if (!reg) return undefined;
         // A DCR registration is bound to its redirect URI; a new loopback port
         // in an interactive flow means registering again.
-        if (session.interactive && session.record?.registeredRedirectUrl !== session.redirect) {
+        if (
+          session.interactive &&
+          !session.refreshOnly &&
+          session.record?.registeredRedirectUrl !== session.redirect
+        ) {
           return undefined;
         }
         return reg;
@@ -466,6 +503,20 @@ export class McpOAuthSession {
     this.redirect = this.receiver.redirectUrl;
   }
 
+  /** Refresh-token grant with no loopback receiver; false → the browser is needed. */
+  private async trySilentRefresh(options: Parameters<typeof auth>[1]): Promise<boolean> {
+    this.refreshOnly = true;
+    try {
+      return (await auth(this.provider, options)) === 'AUTHORIZED';
+    } catch (err) {
+      if (err instanceof BrowserSignInNeeded) return false;
+      if (isMcpOAuthReauthRequired(err)) throw err;
+      throw new Error(describeOAuthError(err));
+    } finally {
+      this.refreshOnly = false;
+    }
+  }
+
   private async runAuthorize(opts: {
     resourceMetadataUrl?: URL | undefined;
     scope?: string | undefined;
@@ -478,12 +529,16 @@ export class McpOAuthSession {
       fetchFn: this.fetchFn,
       ...(scope ? { scope } : {}),
     };
+    const first = {
+      ...base,
+      ...(opts.resourceMetadataUrl ? { resourceMetadataUrl: opts.resourceMetadataUrl } : {}),
+    };
+    if (this.interactive && this.record?.tokens?.refresh_token) {
+      if (await this.trySilentRefresh(first)) return;
+    }
     if (this.interactive) await this.openReceiver();
     try {
-      const result = await auth(this.provider, {
-        ...base,
-        ...(opts.resourceMetadataUrl ? { resourceMetadataUrl: opts.resourceMetadataUrl } : {}),
-      });
+      const result = await auth(this.provider, first);
       if (result === 'AUTHORIZED') return;
       if (!this.pendingCallback) throw new Error('Authorization flow did not start');
       const params = await this.pendingCallback;
