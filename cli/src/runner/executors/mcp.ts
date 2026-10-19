@@ -116,6 +116,8 @@ export async function executeMcp(
       allowLocalhost: opts.allowLocalhost,
       timeoutMs: validation.timeoutMs,
       ...(opts.dispatcher ? { dispatcher: opts.dispatcher } : {}),
+      ...(opts.tls ? { tls: opts.tls } : {}),
+      ...(opts.proxy ? { proxy: opts.proxy } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
   // Pooled (a `restura run`): one initialized session per server for the

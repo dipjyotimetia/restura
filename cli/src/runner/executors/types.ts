@@ -3,6 +3,7 @@ import type { ExternalSecretResolver } from '@shared/secrets/external-secret-res
 import type { Dispatcher } from 'undici';
 import type { LoadedRequest } from '../collectionLoader';
 import type { CliMcpSessionPool } from '../mcpSession';
+import type { TlsOptions } from '../undiciFetcher';
 
 /** Streaming event captured from SSE or WebSocket runs. */
 export interface StreamEvent {
@@ -60,6 +61,10 @@ export interface ExecuteOptions {
   wsMaxMessages?: number;
   /** undici dispatcher carrying TLS options (custom CA / mTLS / insecure). Built once per run. */
   dispatcher?: Dispatcher;
+  /** TLS options, re-applied by executors that build a DNS-pinned connection (MCP). */
+  tls?: TlsOptions;
+  /** Explicit `--proxy` URL (MCP cannot pin DNS through a proxy). */
+  proxy?: string;
   /** Per-run fetcher for security-sensitive agent request tools. */
   fetcher?: Fetcher;
   /** DNS-pinned fetch for OAuth token exchange in security-sensitive agent tools. */

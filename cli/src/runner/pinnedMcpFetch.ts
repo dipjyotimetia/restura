@@ -1,12 +1,12 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import type { Fetcher } from '@shared/protocol/types';
 import {
   assertResolvedAddressAllowed,
   isCloudMetadataHost,
   isPrivateAddress,
   validateURL,
 } from '@shared/protocol/url-validation';
-import type { Fetcher } from '@shared/protocol/types';
 import { Agent, fetch as undiciFetch } from 'undici';
 import { createUndiciFetcher } from './undiciFetcher.js';
 
@@ -54,15 +54,20 @@ export async function resolvePinnedMcpAddress(
 // Node's lookup overloads differ across supported Node versions. The runtime
 // contract is the standard (hostname, options-or-callback, callback) shape.
 // biome-ignore lint/suspicious/noExplicitAny: Node lookup overload boundary
-function createPinnedLookup(host: string, ip: string): any {
+export function createPinnedLookup(host: string, ip: string): any {
   const family = isIP(ip) === 6 ? 6 : 4;
   return (hostname: string, optionsOrCallback: unknown, maybeCallback?: unknown): void => {
     const callback = (
       typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback
-    ) as ((error: Error | null, address: string, family: number) => void) | undefined;
+    ) as ((error: Error | null, address: unknown, family?: number) => void) | undefined;
     if (!callback) return;
     if (hostname !== host) {
       callback(new Error(`pinned MCP lookup refused unexpected hostname: ${hostname}`), '', family);
+      return;
+    }
+    // Node's autoSelectFamily asks for every record (`all: true`).
+    if ((optionsOrCallback as { all?: boolean } | undefined)?.all === true) {
+      callback(null, [{ address: ip, family }]);
       return;
     }
     callback(null, ip, family);
@@ -77,7 +82,7 @@ export interface PinnedFetchSession {
   dispose(): Promise<void>;
 }
 
-function configuredProxyEnvironment(): string | undefined {
+export function configuredProxyEnvironment(): string | undefined {
   return ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy'].find((name) =>
     Boolean(process.env[name])
   );

@@ -6,9 +6,14 @@ import {
 } from '@modelcontextprotocol/client';
 import type { JsonRpcError } from '@shared/protocol/mcp-proxy';
 import type { McpRunReplyInput } from '@shared/protocol/mcp-run';
-import { type Dispatcher, fetch as undiciFetch } from 'undici';
+import { Agent, type Dispatcher, fetch as undiciFetch } from 'undici';
 import { z } from 'zod';
-import { resolvePinnedMcpAddress } from './pinnedMcpFetch.js';
+import {
+  configuredProxyEnvironment,
+  createPinnedLookup,
+  resolvePinnedMcpAddress,
+} from './pinnedMcpFetch.js';
+import { type TlsOptions, tlsConnectOptions } from './undiciFetcher.js';
 
 /**
  * One MCP session for `restura run` (#901), on the official SDK client: it
@@ -33,8 +38,18 @@ export interface CliMcpSessionOptions {
   headers: Record<string, string>;
   allowLocalhost: boolean;
   timeoutMs: number;
-  /** TLS / proxy dispatcher built once per run. */
+  /**
+   * Run-level dispatcher. Used only when an explicit `proxy` is set (the proxy
+   * dials the origin, so the connection cannot be pinned); otherwise the
+   * session builds its own DNS-pinned agent from `tls`.
+   */
   dispatcher?: Dispatcher;
+  /** TLS options applied to the DNS-pinned direct connection. */
+  tls?: TlsOptions;
+  /** Explicit `--proxy`: connections go via `dispatcher`, pre-flight guard only. */
+  proxy?: string;
+  /** Test seam: remap the validated IP actually dialled. Never set in production. */
+  dialAddress?: (validatedIp: string) => string;
   signal?: AbortSignal;
 }
 
@@ -63,6 +78,8 @@ function byteCap(maxBytes: number): TransformStream<Uint8Array, Uint8Array> {
   });
 }
 
+export type GuardedMcpFetch = typeof globalThis.fetch & { dispose(): Promise<void> };
+
 /**
  * Every URL the SDK touches (incl. the POST endpoint a legacy SSE server
  * announces, and the terminating DELETE) passes the CLI's DNS pre-flight SSRF
@@ -71,15 +88,44 @@ function byteCap(maxBytes: number): TransformStream<Uint8Array, Uint8Array> {
  * are bounded.
  */
 export function createGuardedMcpFetch(
-  options: Pick<CliMcpSessionOptions, 'allowLocalhost' | 'dispatcher'>,
+  options: Pick<
+    CliMcpSessionOptions,
+    'allowLocalhost' | 'dispatcher' | 'tls' | 'proxy' | 'dialAddress'
+  >,
   maxBytes = MAX_MCP_RESPONSE_BYTES
-): typeof globalThis.fetch {
-  return (async (input, init) => {
+): GuardedMcpFetch {
+  const agents = new Map<string, Agent>();
+  let disposed = false;
+  // One pinned agent per validated (host, ip); a rebinding host gets a new
+  // agent, never a reused connection to the previous address.
+  const agentFor = (host: string, ip: string): Agent => {
+    const key = `${host}|${ip}`;
+    let agent = agents.get(key);
+    if (!agent) {
+      agent = new Agent({
+        connect: {
+          ...tlsConnectOptions(options.tls),
+          lookup: createPinnedLookup(host, options.dialAddress ? options.dialAddress(ip) : ip),
+        } as Agent.Options['connect'],
+      });
+      agents.set(key, agent);
+    }
+    return agent;
+  };
+  const guarded = (async (input, init) => {
+    if (disposed) throw new DOMException('MCP session disposed', 'AbortError');
     const rawUrl = typeof input === 'string' || input instanceof URL ? input.toString() : input.url;
-    await resolvePinnedMcpAddress(rawUrl, options.allowLocalhost);
+    const address = await resolvePinnedMcpAddress(rawUrl, options.allowLocalhost);
+    // Behind a proxy (explicit --proxy, or HTTP(S)_PROXY with no custom
+    // dispatcher) the proxy resolves the origin, so pinning is impossible and
+    // only the pre-flight check above applies. Otherwise dial ONLY the
+    // validated IP (no second DNS lookup), keeping the hostname for SNI/Host.
+    const viaProxy =
+      Boolean(options.proxy) || (!options.dispatcher && configuredProxyEnvironment());
+    const dispatcher = viaProxy ? options.dispatcher : agentFor(address.host, address.ip);
     const response = await undiciFetch(rawUrl, {
       ...(init as Parameters<typeof undiciFetch>[1]),
-      ...(options.dispatcher ? { dispatcher: options.dispatcher } : {}),
+      ...(dispatcher ? { dispatcher } : {}),
       redirect: 'manual',
     });
     if (response.status >= 300 && response.status < 400) {
@@ -103,6 +149,14 @@ export function createGuardedMcpFetch(
       }
     );
   }) as typeof globalThis.fetch;
+  return Object.assign(guarded, {
+    async dispose() {
+      disposed = true;
+      const open = [...agents.values()];
+      agents.clear();
+      await Promise.allSettled(open.map((a) => a.close()));
+    },
+  });
 }
 
 function toJsonRpcError(err: ProtocolError): JsonRpcError {
@@ -117,7 +171,8 @@ export async function openCliMcpSession(options: CliMcpSessionOptions): Promise<
   const headers = Object.fromEntries(
     Object.entries(options.headers).filter(([k]) => !SDK_OWNED_HEADERS.has(k.toLowerCase()))
   );
-  const transportOptions = { fetch: createGuardedMcpFetch(options), requestInit: { headers } };
+  const guardedFetch = createGuardedMcpFetch(options);
+  const transportOptions = { fetch: guardedFetch, requestInit: { headers } };
   const transport =
     options.transport === 'http-sse'
       ? new SSEClientTransport(new URL(options.url), transportOptions)
@@ -133,6 +188,7 @@ export async function openCliMcpSession(options: CliMcpSessionOptions): Promise<
     });
   } catch (err) {
     await client.close().catch(() => {});
+    await guardedFetch.dispose();
     throw err;
   }
 
@@ -170,6 +226,7 @@ export async function openCliMcpSession(options: CliMcpSessionOptions): Promise<
         await transport.terminateSession().catch(() => {});
       }
       await client.close().catch(() => {});
+      await guardedFetch.dispose();
     },
   };
 }

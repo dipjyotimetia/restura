@@ -214,6 +214,8 @@ async function runCollectionWithSessions(
               : {}),
             ...(options.sseMaxEvents !== undefined ? { sseMaxEvents: options.sseMaxEvents } : {}),
             ...(dispatcher ? { dispatcher } : {}),
+            ...(options.tls ? { tls: options.tls } : {}),
+            ...(options.proxy ? { proxy: options.proxy } : {}),
             mcpSessions,
             ...(options.externalSecretResolver
               ? { externalSecretResolver: options.externalSecretResolver }

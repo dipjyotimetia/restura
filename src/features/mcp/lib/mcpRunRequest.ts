@@ -22,6 +22,7 @@ import {
   parseMcpRunParams,
 } from '@shared/protocol/mcp-run';
 import { v4 as uuidv4 } from 'uuid';
+import { applyAuthHeaders } from '@/features/auth/lib/applyAuthHeaders';
 import type { RunContext } from '@/features/registry/types';
 import type { PmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
 import { readPmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
@@ -131,6 +132,40 @@ export function injectMcpVariables(request: Request, variables: Record<string, s
   };
 }
 
+/**
+ * Fold the request's (already inheritance-resolved) auth into its headers so
+ * Bearer / Basic / API-key / OAuth2 reach the server and become part of the
+ * pooled-session key. MCP has no query channel (api-key `in: query` is not
+ * applied) and a SecretRef handle cannot be resolved by the renderer.
+ */
+async function withAuthHeaders(
+  request: McpRequest,
+  variables: Record<string, string>,
+  report: () => void
+): Promise<McpRequest> {
+  if (!request.auth || request.auth.type === 'none') return request;
+  const applied = await applyAuthHeaders(request.auth, {}, request.url, 'POST');
+  if (applied.requiresMainSideApply) {
+    report();
+    throw new Error('MCP requests cannot use stored secret handles for auth; use inline values.');
+  }
+  const authHeaders = Object.entries(applied.headers);
+  if (authHeaders.length === 0) return request;
+  const overridden = new Set(authHeaders.map(([k]) => k.toLowerCase()));
+  return {
+    ...request,
+    headers: [
+      ...(request.headers ?? []).filter((h) => !overridden.has(h.key.toLowerCase())),
+      ...authHeaders.map(([key, value]) => ({
+        id: `auth-${key}`,
+        key,
+        value: injectString(value, variables),
+        enabled: true,
+      })),
+    ],
+  };
+}
+
 function enabledHeaders(request: McpRequest): Record<string, string> {
   const out: Record<string, string> = {};
   for (const h of request.headers ?? []) {
@@ -216,7 +251,8 @@ export async function runMcpRequest(
 
   // Resolve with the post-pre-request variables so a script can set the
   // tool name / arguments / token for this call.
-  const request = injectMcpVariables(rawRequest, scriptEnvVars) as McpRequest;
+  const injected = injectMcpVariables(rawRequest, scriptEnvVars) as McpRequest;
+  const request = await withAuthHeaders(injected, scriptEnvVars, report);
   const method = request.defaultMethod?.trim() ?? '';
   if (!method) {
     report();
@@ -231,25 +267,36 @@ export async function runMcpRequest(
   const started = Date.now();
   // A pooled client is shared, so runJsonRpc does not tear it down on abort;
   // race the call so Stop still ends this item promptly.
-  const call = await raceAbort(
-    runJsonRpc(request, ctx, {
-      method,
-      ...(params.params !== undefined ? { params: params.params } : {}),
-      ...(isPool(pool)
-        ? {
-            clientPool: pool,
-            // Session identity = resolved url + transport + headers. If MCP
-            // `auth` is ever applied here it MUST become part of this key, or
-            // items with different credentials would share one session.
-            cacheKey: mcpSessionKey(request.url, request.transport, enabledHeaders(request)),
-          }
-        : {}),
-    }),
-    ctx.signal
-  );
+  const clientPool = isPool(pool) ? pool : undefined;
+  // Session identity = resolved url + transport + headers (auth headers are
+  // folded into `request.headers` above, so differing credentials never share
+  // one session).
+  const cacheKey = clientPool
+    ? mcpSessionKey(request.url, request.transport, enabledHeaders(request))
+    : undefined;
+  const work = runJsonRpc(request, ctx, {
+    method,
+    ...(params.params !== undefined ? { params: params.params } : {}),
+    ...(clientPool && cacheKey ? { clientPool, cacheKey } : {}),
+  });
+  // Captured before awaiting so eviction never removes a replacement entry.
+  const pending = clientPool && cacheKey ? clientPool.get(cacheKey) : undefined;
+  const evict = () => {
+    if (!clientPool || !cacheKey || !pending || clientPool.get(cacheKey) !== pending) return;
+    clientPool.delete(cacheKey);
+    void pending.then((client) => client.disconnect()).catch(() => undefined);
+  };
+  let call: Awaited<typeof work>;
+  try {
+    call = await raceAbort(work, ctx.signal);
+  } catch (error) {
+    evict();
+    throw error;
+  }
   const time = Date.now() - started;
 
   if (!call.ok && !call.jsonRpcError) {
+    evict();
     report();
     throw new Error(call.error ?? 'MCP request failed');
   }

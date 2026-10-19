@@ -8,7 +8,6 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Agent } from 'undici';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const dns = vi.hoisted(() => ({ table: {} as Record<string, string> }));
@@ -100,19 +99,6 @@ async function startTarget() {
   return { hits, location: `http://127.0.0.1:${port}/stolen` };
 }
 
-/** Dispatcher that dials every hostname at 127.0.0.1 (the DNS mock stays "public"). */
-function loopbackDispatcher(): Agent {
-  return new Agent({
-    connect: {
-      lookup: (
-        _host: string,
-        opts: { all?: boolean },
-        cb: (e: Error | null, a: unknown, f?: number) => void
-      ) => (opts?.all ? cb(null, [{ address: '127.0.0.1', family: 4 }]) : cb(null, '127.0.0.1', 4)),
-    } as never,
-  });
-}
-
 beforeEach(() => {
   dns.table = {};
 });
@@ -173,6 +159,27 @@ describe('guarded MCP fetch', () => {
     await expect(streamed.text()).rejects.toThrow(/byte cap/);
   });
 
+  it('dials only the validated address, not a second DNS answer', async () => {
+    const port = await listen((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}');
+    });
+    dns.table['mcp.example.test'] = '93.184.216.34';
+    const dialled: string[] = [];
+    const fetch = createGuardedMcpFetch({
+      allowLocalhost: false,
+      dialAddress: (ip) => {
+        dialled.push(ip);
+        return '127.0.0.1';
+      },
+    });
+    // The table now rebinds to a metadata address; the validated IP stays pinned.
+    const pending = fetch(`http://mcp.example.test:${port}/`);
+    dns.table['mcp.example.test'] = '169.254.169.254';
+    expect((await pending).status).toBe(200);
+    expect(dialled).toEqual(['93.184.216.34']);
+    await fetch.dispose();
+  });
+
   it('passes a small body through unchanged', async () => {
     const port = await listen((_req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}');
@@ -219,7 +226,7 @@ describe('legacy http-sse endpoint guard', () => {
         headers: {},
         allowLocalhost: false,
         timeoutMs: 2000,
-        dispatcher: loopbackDispatcher(),
+        dialAddress: () => '127.0.0.1',
       })
     ).rejects.toThrow();
     // The stream itself was reachable; only the announced endpoint was refused.
@@ -254,7 +261,7 @@ describe('session lifecycle', () => {
         headers: {},
         allowLocalhost: false,
         timeoutMs: 2000,
-        dispatcher: loopbackDispatcher(),
+        dialAddress: () => '127.0.0.1',
       });
 
     dns.table['mcp.example.test'] = '93.184.216.34';

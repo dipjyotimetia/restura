@@ -73,6 +73,49 @@ describe('runMcpRequest', () => {
     expect(opts.cacheKey).not.toContain('x-off');
   });
 
+  it('applies Bearer auth as a header and keys the session by it', async () => {
+    const runJsonRpc = vi.fn<McpRunJsonRpc>().mockResolvedValue({ ok: true, result: {} });
+    const pool = new Map<string, Promise<McpClient>>();
+    await runMcpRequest(
+      req({ auth: { type: 'bearer', bearer: { token: 'tok-{{v}}' } } as McpRequest['auth'] }),
+      ctx({ protocolOptions: { mcpClientPool: pool } }),
+      runJsonRpc
+    );
+    const [sent, , opts] = runJsonRpc.mock.calls[0]!;
+    expect((sent as McpRequest).headers).toContainEqual(
+      expect.objectContaining({ key: 'Authorization', value: 'Bearer tok-val', enabled: true })
+    );
+    expect(opts.cacheKey).toContain('authorization');
+  });
+
+  it('evicts and disconnects a pooled client after a transport failure, not a replacement', async () => {
+    const disconnect = vi.fn().mockResolvedValue(undefined);
+    const broken = Promise.resolve({ disconnect } as unknown as McpClient);
+    const pool = new Map<string, Promise<McpClient>>();
+    const runJsonRpc = vi.fn<McpRunJsonRpc>().mockImplementation(async (_r, _c, o) => {
+      pool.set(o.cacheKey as string, broken);
+      return { ok: false, error: 'Not connected' };
+    });
+    await expect(
+      runMcpRequest(req(), ctx({ protocolOptions: { mcpClientPool: pool } }), runJsonRpc)
+    ).rejects.toThrow('Not connected');
+    expect(pool.size).toBe(0);
+    await broken;
+    expect(disconnect).toHaveBeenCalledTimes(1);
+
+    // A replacement installed under the same key must survive.
+    const replacement = Promise.resolve({ disconnect: vi.fn() } as unknown as McpClient);
+    runJsonRpc.mockImplementation(async (_r, _c, o) => {
+      pool.set(o.cacheKey as string, broken);
+      queueMicrotask(() => pool.set(o.cacheKey as string, replacement));
+      return { ok: false, error: 'Not connected' };
+    });
+    await expect(
+      runMcpRequest(req(), ctx({ protocolOptions: { mcpClientPool: pool } }), runJsonRpc)
+    ).rejects.toThrow();
+    expect([...pool.values()]).toEqual([replacement]);
+  });
+
   it('rejects non-MCP requests and already-aborted runs', async () => {
     const runJsonRpc = vi.fn<McpRunJsonRpc>();
     await expect(runMcpRequest({ type: 'http' } as Request, ctx(), runJsonRpc)).rejects.toThrow(
