@@ -319,7 +319,7 @@ export function validateURL(
   }
 
   for (const blocked of blockedHostnames) {
-    const b = normalizeHostForCompare(blocked);
+    const b = canonicalizeNumericIPv4(normalizeHostForCompare(blocked));
     if (allowLocalhost && (b === 'localhost' || b === '127.0.0.1')) continue;
     if (hostname === b || hostname.endsWith('.' + b)) {
       return { valid: false, error: `Hostname "${hostname}" is blocked for security reasons` };

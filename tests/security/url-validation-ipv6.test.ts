@@ -106,4 +106,18 @@ describe('IPv6 / loopback normalisation in validateURL', () => {
     });
     expect(r.valid).toBe(false);
   });
+
+  it('matches custom blockedHostnames entries across numeric IPv4 spellings', () => {
+    const blockedBy = (host: string, entry: string) =>
+      validateURL(`kafka://${host}:9092`, {
+        allowedSchemes: ['kafka:'],
+        allowLocalhost: true,
+        allowPrivateIPs: true,
+        blockedHostnames: [entry],
+      }).valid;
+    expect(blockedBy('134744072', '8.8.8.8')).toBe(false);
+    expect(blockedBy('8.8.8.8', '134744072')).toBe(false);
+    expect(blockedBy('0x08080808', '8.8.8.8')).toBe(false);
+    expect(blockedBy('8.8.4.4', '8.8.8.8')).toBe(true);
+  });
 });
