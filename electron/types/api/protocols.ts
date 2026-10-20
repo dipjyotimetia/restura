@@ -389,6 +389,29 @@ export interface KafkaPartitionLag {
   lag: string;
 }
 
+export type KafkaOffsetResetTarget = 'earliest' | 'latest' | 'specific' | 'timestamp' | 'shift';
+
+/** One partition of an offset-reset plan/result. */
+export interface KafkaOffsetResetRow {
+  topic: string;
+  partition: number;
+  /** Committed offset before the reset, or null when none was committed. */
+  previous: string | null;
+  offset: string;
+  /** Why the target differs from the literal request (timestamp fallback / shift clamp). */
+  note?: 'timestamp-fallback-latest' | 'clamped-earliest' | 'clamped-latest';
+}
+
+/**
+ * A partition left untouched: a shift reset with no committed offset to move, or
+ * (all-topics scope) a committed topic that has since been deleted.
+ */
+export interface KafkaOffsetResetSkip {
+  topic: string;
+  partition: number;
+  reason: 'no-committed-offset' | 'unknown-topic';
+}
+
 export interface ElectronKafkaAPI {
   connect: (config: {
     connectionId: string;
@@ -504,14 +527,42 @@ export interface ElectronKafkaAPI {
     offsets?: KafkaPartitionLag[];
     error?: string;
   }>;
-  /** Reset a group's committed offsets for one topic (group must be inactive). */
+  /**
+   * Reset a group's committed offsets for one topic or all committed topics
+   * (group must be inactive). `dryRun` returns the plan without committing it.
+   */
   resetGroupOffsets: (config: {
     connectionId: string;
     groupId: string;
-    topic: string;
-    to: 'earliest' | 'latest' | 'specific';
+    topic?: string;
+    allTopics?: boolean;
+    to: KafkaOffsetResetTarget;
     partitions?: { partition: number; offset: string }[];
-  }) => Promise<{ success: boolean; error?: string }>;
+    /** Epoch milliseconds, for `to: 'timestamp'`. */
+    timestamp?: number;
+    /** Relative move (±N), for `to: 'shift'`. */
+    shift?: number;
+    dryRun?: boolean;
+  }) => Promise<{
+    success: boolean;
+    offsets?: KafkaOffsetResetRow[];
+    skipped?: KafkaOffsetResetSkip[];
+    dryRun?: boolean;
+    error?: string;
+  }>;
+  /** Delete a group's committed offsets (KIP-496 OffsetDelete; group must be inactive). */
+  deleteGroupOffsets: (config: {
+    connectionId: string;
+    groupId: string;
+    topic?: string;
+    allTopics?: boolean;
+    partitions?: number[];
+  }) => Promise<{
+    success: boolean;
+    deleted?: { topic: string; partitions: number[] }[];
+    skipped?: KafkaOffsetResetSkip[];
+    error?: string;
+  }>;
   /** Delete a consumer group (group must be empty/inactive). */
   deleteGroup: (config: {
     connectionId: string;
