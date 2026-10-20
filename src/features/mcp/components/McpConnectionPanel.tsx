@@ -69,6 +69,15 @@ export function McpConnectionPanel({
             />
           )}
           <ConnectionPill status={connection.status} />
+          {isConnected && connection.capabilities?.protocolVersion && (
+            <span
+              className="inline-flex items-center h-6 px-2 rounded-sp-btn font-mono text-sp-11 text-sp-dim border border-sp-line"
+              title="Negotiated MCP protocol version"
+              data-testid="mcp-protocol-version"
+            >
+              v{connection.capabilities.protocolVersion}
+            </span>
+          )}
           {isConnected ? (
             <>
               <Button
