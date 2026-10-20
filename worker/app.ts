@@ -24,6 +24,7 @@ import { createGrpcHandler } from './handlers/grpc';
 import { createGrpcReflectionHandler } from './handlers/grpc-reflection';
 import { createGrpcWebHandler, grpcWebBodyLimit } from './handlers/grpc-web';
 import { createMcpHandler } from './handlers/mcp';
+import { createMcpTerminateHandler } from './handlers/mcp-terminate';
 import { createProxyHandler } from './handlers/proxy';
 import { createRemoteImportHandler } from './handlers/remote-import';
 import { telemetryError } from './handlers/telemetry';
@@ -197,6 +198,7 @@ export function createApp(
   );
   app.post('/api/grpc-web', grpcWebBodyLimit, createGrpcWebHandler(deps.nodeHostnameGuard));
   app.post('/api/mcp', createMcpHandler(deps.nodeHostnameGuard));
+  app.post('/api/mcp/terminate', createMcpTerminateHandler(deps.nodeHostnameGuard));
   app.post('/api/telemetry/error', telemetryError);
   app.get('/api/feature-flags', featureFlags);
   app.post('/api/ws-ticket', wsTicket);

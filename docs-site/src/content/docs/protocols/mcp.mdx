@@ -28,6 +28,23 @@ Legacy negotiation is handled inside the v2 client. Restura does not construct a
 
 This compatibility path is desktop-only. The web and self-hosted clients retain their existing stateless Worker proxy behavior, and `http-sse` remains desktop-only.
 
+### Web and self-hosted session lifecycle
+
+The web and self-hosted clients send each JSON-RPC message through the `/api/mcp` proxy. They follow the Streamable HTTP lifecycle themselves:
+
+- **Handshake.** `initialize` offers the newest protocol version that the `initialize` handshake supports. This is the same version the desktop SDK offers in its handshake. `clientInfo` reports the real Restura version. The negotiated version is stored and shown next to the connection status. Restura sends `notifications/initialized` before any other request.
+- **Version header.** Every request after `initialize` carries `MCP-Protocol-Version` with the negotiated value. `initialize` itself never carries it.
+- **Disconnect.** Disconnecting sends `DELETE` with `Mcp-Session-Id` through `/api/mcp/terminate`, so the server can free the session. Servers that answer `405` (termination not allowed) or `404` (session already gone) are treated as success. A reconnect also ends the previous session first.
+- **Session expiry.** A `404` on a request that carried a session id means the session expired. Restura re-runs the handshake once, which opens a new session, and retries the request once. If concurrent requests all hit `404`, they share a single re-initialize.
+- **Server messages in a reply.** A server can send other messages before its reply on the same SSE stream, such as progress, logging or server-to-client requests. These are returned to the client with the reply (`serverMessages`) instead of being dropped. The web client doesn't answer server-to-client requests. It advertises no client capabilities, so servers shouldn't send them.
+
+<Badge text="desktop only" variant="caution" /> Web limitations:
+
+- There is no standalone `GET` listening stream, so server messages sent outside a request aren't delivered.
+- There is no SSE resumption with `Last-Event-ID`. If a reply stream drops mid-call, the call fails.
+
+Use the desktop app for long-lived subscriptions.
+
 After connecting, Restura uses the v2 client's typed operations for every standard request supported by the negotiated protocol era: ping, completion, legacy logging level, tools, prompts, resources (including subscriptions), and v2 server discovery. That preserves the client's protocol-era validation, pagination, caching, and modern HTTP behavior instead of treating a production MCP server as an untyped JSON-RPC endpoint. Non-standard server extensions remain explicit requests so their server-provided JSON-RPC errors can still be inspected.
 
 ### Modern server coverage
