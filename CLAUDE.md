@@ -187,7 +187,7 @@ Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, pre-fligh
 
 ### Worker (`worker/`)
 
-Hono app (`createApp` in `worker/app.ts`, composed with Cloudflare adapters in `worker/index.ts`) deployed as Cloudflare Pages Functions. Routes: `/health`, `/ready`, `/api/proxy`, `/api/import/fetch`, `/api/grpc`, `/api/grpc/reflection`, `/api/grpc-web`, `/api/mcp`, `/api/telemetry/error`, `/api/feature-flags`, `/api/ws-ticket`, `/api/ws`. The same `createApp` is reused by the Node/Docker entry (`worker/node-entry.ts`). Notable bits:
+Hono app (`createApp` in `worker/app.ts`, composed with Cloudflare adapters in `worker/index.ts`) deployed as Cloudflare Pages Functions. Routes: `/health`, `/ready`, `/api/proxy`, `/api/import/fetch`, `/api/grpc`, `/api/grpc/reflection`, `/api/grpc-web`, `/api/mcp`, `/api/mcp/terminate`, `/api/telemetry/error`, `/api/feature-flags`, `/api/ws-ticket`, `/api/ws`. The same `createApp` is reused by the Node/Docker entry (`worker/node-entry.ts`). Notable bits:
 
 - The web build (`@cloudflare/vite-plugin`, active only when **not** an Electron/Docker build) emits the SPA to `dist/web/client/` and the Worker bundle + `wrangler.json` to `dist/web/restura/` — the two `npm run deploy` targets.
 - `nodejs_compat` flag enabled (for `Buffer` etc.) — see `wrangler.jsonc`.

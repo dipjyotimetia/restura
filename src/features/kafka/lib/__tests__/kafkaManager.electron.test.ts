@@ -19,6 +19,7 @@ function installElectronMock() {
     inspectGroup: vi.fn(),
     resetGroupOffsets: vi.fn(),
     deleteGroup: vi.fn(),
+    deleteGroupOffsets: vi.fn(),
     on: (channel: string, callback: (...args: unknown[]) => void) => {
       const callbacks = listeners.get(channel) ?? [];
       callbacks.push(callback);
@@ -119,6 +120,37 @@ describe('kafkaManager (Electron path)', () => {
       keyEncoding: 'base64',
       valueEncoding: 'base64',
     });
+  });
+
+  it('does not stack message listeners when re-subscribing after the consumer closed itself', async () => {
+    const { emit, handlerCount } = installElectronMock();
+    const id = useKafkaStore.getState().createConnection();
+    await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+    const subscribe = () =>
+      kafkaManager.subscribe({
+        connectionId: id,
+        groupId: 'restura-test',
+        topics: ['orders'],
+        fromBeginning: false,
+      });
+    await subscribe();
+    // A browse stop-after-N (or a fetch error) closes the consumer main-side,
+    // so the renderer goes idle without an unsubscribe call.
+    emit(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, id), {});
+    await subscribe();
+
+    expect(handlerCount(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id))).toBe(1);
+    emit(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id), {
+      topic: 'orders',
+      partition: 0,
+      offset: '1',
+      value: 'once',
+      timestamp: 1,
+    });
+    const received = useKafkaStore
+      .getState()
+      .connections[id]!.messages.filter((m) => m.direction === 'received');
+    expect(received.map((m) => m.value)).toEqual(['once']);
   });
 
   it('preserves Kafka null values as visible tombstones in sent and received messages', async () => {
@@ -233,6 +265,7 @@ describe('kafkaManager (Electron path)', () => {
     const id = useKafkaStore.getState().createConnection();
     await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
     useKafkaStore.getState().updateConsumer(id, {
+      membership: 'group',
       fallbackMode: 'fail',
       commitPolicy: 'manual',
       isolation: 'read-committed',
@@ -283,6 +316,42 @@ describe('kafkaManager (Electron path)', () => {
     });
   });
 
+  it('subscribes a default (browse) connection without any group or commit settings', async () => {
+    const { kafka } = installElectronMock();
+    const id = useKafkaStore.getState().createConnection();
+    await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+    useKafkaStore.getState().updateConsumer(id, { lastN: 5, maxMessages: 20 });
+
+    await kafkaManager.subscribe({
+      connectionId: id,
+      groupId: `restura-${id.slice(0, 8)}`,
+      topics: ['orders'],
+      fromBeginning: false,
+    });
+
+    const calls = kafka.subscribe.mock.calls as unknown as Array<[Record<string, unknown>]>;
+    const payload = calls.at(-1)?.[0];
+    expect(payload).toMatchObject({
+      membership: 'browse',
+      mode: 'last-n',
+      lastN: 5,
+      maxMessages: 20,
+      isolation: 'read-uncommitted',
+    });
+    for (const key of [
+      'groupId',
+      'commitPolicy',
+      'groupProtocol',
+      'fallbackMode',
+      'lagIntervalMs',
+    ]) {
+      expect(payload).not.toHaveProperty(key);
+    }
+    expect(useKafkaStore.getState().connections[id]!.messages.at(-1)?.value).toBe(
+      'Browsing orders (read-only, no consumer group)'
+    );
+  });
+
   it('normalizes native topic and group admin success and error responses', async () => {
     const { kafka } = installElectronMock();
     kafka.listTopics
@@ -304,6 +373,20 @@ describe('kafkaManager (Electron path)', () => {
       .mockResolvedValueOnce({ success: true, group: undefined, offsets: [] })
       .mockResolvedValueOnce({ success: false });
     kafka.resetGroupOffsets
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: false })
+      .mockResolvedValueOnce({
+        success: true,
+        dryRun: true,
+        offsets: [{ topic: 'orders', partition: 0, previous: '5', offset: '3' }],
+        skipped: [{ topic: 'orders', partition: 1, reason: 'no-committed-offset' }],
+      });
+    kafka.deleteGroupOffsets
+      .mockResolvedValueOnce({
+        success: true,
+        deleted: [{ topic: 'orders', partitions: [0] }],
+        skipped: [{ topic: 'gone', partition: 0, reason: 'unknown-topic' }],
+      })
       .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: false });
     kafka.deleteGroup
@@ -365,10 +448,45 @@ describe('kafkaManager (Electron path)', () => {
       topic: 'orders',
       to: 'earliest' as const,
     };
-    await expect(kafkaManager.resetGroupOffsets(reset)).resolves.toEqual({ ok: true });
+    await expect(kafkaManager.resetGroupOffsets(reset)).resolves.toEqual({
+      ok: true,
+      offsets: [],
+      skipped: [],
+      dryRun: false,
+    });
     await expect(kafkaManager.resetGroupOffsets(reset)).resolves.toEqual({
       ok: false,
       error: 'Reset offsets failed',
+    });
+    const shift = {
+      connectionId: 'c',
+      groupId: 'group',
+      allTopics: true,
+      to: 'shift' as const,
+      shift: -2,
+      dryRun: true,
+    };
+    await expect(kafkaManager.resetGroupOffsets(shift)).resolves.toEqual({
+      ok: true,
+      dryRun: true,
+      offsets: [{ topic: 'orders', partition: 0, previous: '5', offset: '3' }],
+      skipped: [{ topic: 'orders', partition: 1, reason: 'no-committed-offset' }],
+    });
+    expect(kafka.resetGroupOffsets).toHaveBeenLastCalledWith(shift);
+    const del = { connectionId: 'c', groupId: 'group', topic: 'orders' };
+    await expect(kafkaManager.deleteGroupOffsets(del)).resolves.toEqual({
+      ok: true,
+      deleted: [{ topic: 'orders', partitions: [0] }],
+      skipped: [{ topic: 'gone', partition: 0, reason: 'unknown-topic' }],
+    });
+    await expect(kafkaManager.deleteGroupOffsets(del)).resolves.toEqual({
+      ok: true,
+      deleted: [],
+      skipped: [],
+    });
+    await expect(kafkaManager.deleteGroupOffsets(del)).resolves.toEqual({
+      ok: false,
+      error: 'Delete offsets failed',
     });
     await expect(kafkaManager.deleteGroup('c', 'group')).resolves.toEqual({ ok: true });
     await expect(kafkaManager.deleteGroup('c', 'group')).resolves.toEqual({

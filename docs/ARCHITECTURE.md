@@ -406,6 +406,7 @@ The Worker is a Hono application deployed as a Cloudflare Pages Function (`_work
 | `POST /api/grpc/reflection` | `grpc-reflection.ts` | gRPC server reflection      |
 | `POST /api/grpc-web`        | `grpc-web.ts`        | gRPC-Web unary + streaming  |
 | `POST /api/mcp`             | `mcp.ts`             | MCP server proxy            |
+| `POST /api/mcp/terminate`   | `mcp-terminate.ts`   | MCP session DELETE          |
 
 ---
 

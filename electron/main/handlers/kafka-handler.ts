@@ -14,7 +14,6 @@ import {
   createValidatedEventHandler,
   type KafkaCommitMessageConfig,
   KafkaCommitMessageSchema,
-  type KafkaConnectConfig,
   KafkaConnectSchema,
   KafkaConsumerControlSchema,
   KafkaDisconnectSchema,
@@ -24,20 +23,22 @@ import {
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
-import {
-  type BrokerTlsOptions,
-  resolveKafkaExecutionPolicy,
-} from '../security/broker-execution-policy';
 import { getExecutionPolicy } from '../security/execution-policy';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
+import {
+  browseConsumerOptions,
+  onBrowseStreamFinished,
+  openBrowseStream,
+} from './kafka/browse-consumer';
+import { buildClientOptions, type KafkaClientOptions } from './kafka/client-options';
 import {
   type AppProducer,
   closeKafkaProducerSessions,
   type KafkaProducerEntry,
   registerKafkaProducerHandlers,
 } from './kafka/producer-handlers';
-import { decodeDisplayField } from './kafka-serde';
+import { decodeDisplayField, headersFromMap } from './kafka-serde';
 
 const log = createLogger('kafka');
 type SchemaRegistry = SchemaRegistryLib.SchemaRegistry;
@@ -86,19 +87,6 @@ interface ActiveKafka extends KafkaProducerEntry {
   createdAt: number;
 }
 
-interface KafkaClientOptions {
-  clientId: string;
-  bootstrapBrokers: string[];
-  sasl?: {
-    mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512' | 'OAUTHBEARER';
-    username?: string;
-    password?: string;
-    token?: string;
-    oauthBearerExtensions?: Record<string, string>;
-  };
-  tls?: BrokerTlsOptions;
-  connectTimeout?: number;
-}
 // Awaited teardown stays in this handler; registry disposal covers renderer death.
 const activeConnections = new StreamRegistry<ActiveKafka>({
   dispose: (e) => {
@@ -163,51 +151,6 @@ function emitToEntry(entry: ActiveKafka, channel: string, ...args: unknown[]): v
   emitTo(entry.webContentsId, channel, ...args);
 }
 
-function buildClientOptions(cfg: KafkaConnectConfig): KafkaClientOptions {
-  const opts: KafkaClientOptions = {
-    clientId: cfg.clientId,
-    bootstrapBrokers: cfg.bootstrapBrokers,
-  };
-
-  const useTls = cfg.auth.securityProtocol === 'SSL' || cfg.auth.securityProtocol === 'SASL_SSL';
-
-  if (cfg.auth.securityProtocol !== 'PLAINTEXT' && 'sasl' in cfg.auth && cfg.auth.sasl) {
-    opts.sasl =
-      cfg.auth.sasl.mechanism === 'OAUTHBEARER'
-        ? {
-            mechanism: 'OAUTHBEARER',
-            token: cfg.auth.sasl.token,
-            ...(cfg.auth.sasl.extensions
-              ? { oauthBearerExtensions: cfg.auth.sasl.extensions }
-              : {}),
-          }
-        : {
-            mechanism: cfg.auth.sasl.mechanism,
-            username: cfg.auth.sasl.username,
-            password: cfg.auth.sasl.password,
-          };
-  }
-
-  const explicitTls = useTls && 'tls' in cfg.auth ? cfg.auth.tls : undefined;
-  const policyConfig = resolveKafkaExecutionPolicy({
-    bootstrapBrokers: cfg.bootstrapBrokers,
-    usesTls: useTls,
-    ...(explicitTls ? { tls: explicitTls } : {}),
-  });
-  opts.connectTimeout = policyConfig.connectTimeout;
-  if (policyConfig.tls) opts.tls = policyConfig.tls;
-
-  return opts;
-}
-
-function headersFromMap(map: Map<Buffer, Buffer> | undefined): Record<string, string> {
-  if (!map) return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of map) {
-    out[k.toString('utf8')] = v.toString('utf8');
-  }
-  return out;
-}
 async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
   if (entry.stream) {
     try {
@@ -480,6 +423,28 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       let consumer: AppConsumer | undefined;
       try {
         const kafka = getKafka();
+        if (cfg.membership === 'browse') {
+          // Group-less assign + fetch loop: no group join/creation, no commits.
+          consumer = new kafka.Consumer(browseConsumerOptions(entry.clientOptions, cfg));
+          const stream = await openBrowseStream(consumer, cfg);
+          if (
+            activeConnections.get(cfg.connectionId, event.sender.id) !== entry ||
+            entry.consumer
+          ) {
+            stream.destroy();
+            await closeConsumerQuietly(consumer);
+            return { success: false, error: 'Not connected' };
+          }
+          bindStreamListeners(entry, stream as unknown as AppStream);
+          Object.assign(entry, { consumer, stream, manualCommit: false });
+          // Stop-after-N or a failure frees the slot once queued records are forwarded.
+          onBrowseStreamFinished(stream, () => {
+            void entry.emitChain.then(() =>
+              entry.stream === (stream as unknown) ? closeConsumerAndStream(entry) : undefined
+            );
+          });
+          return { success: true };
+        }
         // Keep key/value raw for symmetric registry decoding.
         const consumerOptions = {
           ...entry.clientOptions,

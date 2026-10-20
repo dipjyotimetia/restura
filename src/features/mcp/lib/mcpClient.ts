@@ -1,10 +1,5 @@
 import { jsonRpcErrorToMessage, parseJsonRpcError } from '@shared/protocol/mcp-proxy';
-import {
-  getElectronAPI,
-  isElectron,
-  workerAuthHeaders,
-  workerBaseUrl,
-} from '@/lib/shared/platform';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import type {
   McpJsonSchema,
   McpPromptDescriptor,
@@ -13,12 +8,15 @@ import type {
   McpToolDescriptor,
   McpTransportType,
 } from '@/types';
+import { buildMcpInitializeParams, McpWebSession } from './mcpWebSession';
 
 /** Result of one JSON-RPC call */
 export interface McpCallResult<T = unknown> {
   ok: true;
   result: T;
   durationMs: number;
+  /** Web: server notifications/requests interleaved in the SSE reply (#888). */
+  serverMessages?: unknown[];
 }
 
 export interface McpCallError {
@@ -57,6 +55,8 @@ interface McpClientOptions {
   headers: Record<string, string>;
   /** Stable identifier for the connection (used to key Electron IPC sessions) */
   connectionId: string;
+  /** Web: receives server-originated messages interleaved in SSE replies. */
+  onServerMessage?: (message: unknown) => void;
 }
 
 /**
@@ -67,12 +67,29 @@ interface McpClientOptions {
  * The renderer surface is the same in both — caller doesn't need to branch.
  */
 export class McpClient {
-  /** Mcp-Session-Id captured from a streamable-http response */
-  private sessionId?: string;
   /** Counter for client-generated request ids */
   private nextId = 1;
+  /** Web-mode Streamable HTTP session state (session id, negotiated version). */
+  private readonly web: McpWebSession;
+  /** Protocol version negotiated by the last successful `initialize`. */
+  private negotiatedVersion?: string;
 
-  constructor(private opts: McpClientOptions) {}
+  constructor(private opts: McpClientOptions) {
+    this.web = new McpWebSession(
+      {
+        url: opts.url,
+        transport: opts.transport,
+        headers: opts.headers,
+        ...(opts.onServerMessage ? { onServerMessage: opts.onServerMessage } : {}),
+      },
+      () => this.nextId++
+    );
+  }
+
+  /** Protocol version negotiated with the server (after `initialize`). */
+  get protocolVersion(): string | undefined {
+    return this.negotiatedVersion;
+  }
 
   /**
    * Open the transport. Required before `request` for http-sse (so we can
@@ -110,8 +127,11 @@ export class McpClient {
     if (isElectron()) {
       const api = getElectronAPI();
       await api?.mcp?.disconnect({ connectionId: this.opts.connectionId });
+      return;
     }
-    // Web has no persistent state — nothing to tear down
+    // Web: end the server-side session with DELETE + Mcp-Session-Id (#888).
+    this.negotiatedVersion = undefined;
+    await this.web.terminate();
   }
 
   /** Send one JSON-RPC request; resolves with either a result or an error wrapper. */
@@ -137,6 +157,10 @@ export class McpClient {
         });
         const durationMs = performance.now() - start;
         if (res.success) {
+          if (method === 'initialize') {
+            const v = (res.result as { protocolVersion?: unknown } | undefined)?.protocolVersion;
+            if (typeof v === 'string') this.negotiatedVersion = v;
+          }
           return { ok: true, result: res.result as T, durationMs };
         }
         const jsonRpcError = parseJsonRpcError(res.jsonRpcError);
@@ -150,40 +174,26 @@ export class McpClient {
         };
       }
 
-      const response = await fetch(`${workerBaseUrl()}/api/mcp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
-        body: JSON.stringify({
-          url: this.opts.url,
-          transport: this.opts.transport,
-          headers: this.opts.headers,
-          ...(this.sessionId ? { sessionId: this.sessionId } : {}),
-          jsonRpc: { method, id: requestId, ...(params !== undefined ? { params } : {}) },
-          ...(timeout !== undefined ? { timeout } : {}),
-        }),
-      });
+      // Web: `initialize` runs the full handshake (incl. notifications/initialized);
+      // later calls carry Mcp-Session-Id + MCP-Protocol-Version and survive one 404.
+      const outcome = await this.web.call(method, params, timeout);
       const durationMs = performance.now() - start;
-      const body = (await response.json()) as {
-        ok?: boolean;
-        jsonRpc?: { result?: unknown; error?: unknown };
-        sessionId?: string;
-        error?: string;
-      };
-      if (body.sessionId) this.sessionId = body.sessionId;
-
-      if (!response.ok) {
-        return { ok: false, error: body.error ?? `HTTP ${response.status}`, durationMs };
-      }
-      if (body.jsonRpc?.error) {
-        const jsonRpcError = parseJsonRpcError(body.jsonRpc.error);
+      if (!outcome.ok) {
+        const jsonRpcError = parseJsonRpcError(outcome.rawJsonRpcError);
         return {
           ok: false,
-          error: jsonRpcErrorToMessage(body.jsonRpc.error),
+          error: outcome.error,
           ...(jsonRpcError ? { jsonRpcError } : {}),
           durationMs,
         };
       }
-      return { ok: true, result: body.jsonRpc?.result as T, durationMs };
+      if (method === 'initialize') this.negotiatedVersion = this.web.negotiatedProtocolVersion;
+      return {
+        ok: true,
+        result: outcome.result as T,
+        durationMs,
+        ...(outcome.serverMessages ? { serverMessages: outcome.serverMessages } : {}),
+      };
     } catch (err) {
       return {
         ok: false,
@@ -225,11 +235,7 @@ export class McpClient {
       protocolVersion?: string;
       serverInfo?: { name?: string; version?: string };
       capabilities?: McpServerCapabilities['capabilities'];
-    }>('initialize', {
-      protocolVersion: '2024-11-05',
-      capabilities: {},
-      clientInfo: { name: 'restura', version: '1.0.0' },
-    });
+    }>('initialize', buildMcpInitializeParams());
     if (!init.ok) return { error: init.error };
 
     // Only issue list calls for capabilities the server advertised in `initialize`.
@@ -266,7 +272,7 @@ export class McpClient {
     return {
       ...(init.result.serverInfo?.name ? { serverName: init.result.serverInfo.name } : {}),
       ...(init.result.serverInfo?.version ? { serverVersion: init.result.serverInfo.version } : {}),
-      ...(init.result.protocolVersion ? { protocolVersion: init.result.protocolVersion } : {}),
+      ...(this.negotiatedVersion ? { protocolVersion: this.negotiatedVersion } : {}),
       ...(advertised ? { capabilities: advertised } : {}),
       tools,
       resources,

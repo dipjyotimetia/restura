@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   KAFKA_SECRET_SENTINEL,
   migrateKafkaV1ToV2,
+  migrateKafkaV2ToV3,
   useKafkaStore,
 } from '@/features/kafka/store/useKafkaStore';
 
@@ -19,7 +20,59 @@ describe('useKafkaStore', () => {
     resetStore();
   });
 
-  it('preserves legacy earliest/latest intent while new connections default committed/latest', () => {
+  it('defaults new connections to read-only browse mode showing the last 50 per partition', () => {
+    const id = useKafkaStore.getState().createConnection();
+    const consumer = useKafkaStore.getState().connections[id]!.consumer;
+    expect(consumer).toMatchObject({ membership: 'browse', mode: 'last-n', lastN: 50 });
+    // A group id is still prepared for an explicit switch to consumer-group mode.
+    expect(consumer.groupId).toBe(`restura-${id.slice(0, 8)}`);
+  });
+
+  it('v3 migration keeps custom groups in group mode and moves default groups to browse', () => {
+    const migrated = migrateKafkaV2ToV3({
+      connections: {
+        'abcdef12-0000': {
+          id: 'abcdef12-0000',
+          consumer: { groupId: 'restura-abcdef12', mode: 'committed' },
+        },
+        'bbbbbbbb-0000': {
+          id: 'bbbbbbbb-0000',
+          consumer: { groupId: 'restura-bbbbbbbb', mode: 'earliest' },
+        },
+        'cccccccc-0000': {
+          id: 'cccccccc-0000',
+          consumer: { groupId: 'orders-workers', mode: 'committed' },
+        },
+        'dddddddd-0000': {
+          id: 'dddddddd-0000',
+          consumer: { groupId: 'restura-dddddddd', mode: 'latest', membership: 'group' },
+        },
+      },
+    }) as {
+      connections: Record<
+        string,
+        { consumer: { membership: string; mode: string; lastN?: number } }
+      >;
+    };
+    expect(migrated.connections['abcdef12-0000']!.consumer).toMatchObject({
+      membership: 'browse',
+      mode: 'last-n',
+      lastN: 50,
+    });
+    expect(migrated.connections['bbbbbbbb-0000']!.consumer).toMatchObject({
+      membership: 'browse',
+      mode: 'earliest',
+    });
+    expect(migrated.connections['cccccccc-0000']!.consumer).toMatchObject({
+      membership: 'group',
+      mode: 'committed',
+    });
+    expect(migrated.connections['dddddddd-0000']!.consumer.membership).toBe('group');
+    expect(migrateKafkaV2ToV3(null)).toBeNull();
+    expect(migrateKafkaV2ToV3({})).toEqual({});
+  });
+
+  it('preserves legacy earliest/latest intent from the v1 migration', () => {
     const migrated = migrateKafkaV1ToV2({
       connections: {
         earliest: { consumer: { fromBeginning: true } },
@@ -33,7 +86,6 @@ describe('useKafkaStore', () => {
 
     const id = useKafkaStore.getState().createConnection();
     expect(useKafkaStore.getState().connections[id]!.consumer).toMatchObject({
-      mode: 'committed',
       fallbackMode: 'latest',
     });
   });

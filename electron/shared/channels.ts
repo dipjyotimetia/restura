@@ -103,6 +103,7 @@ export const IPC = {
     inspectGroup: 'kafka:inspect-group',
     resetGroupOffsets: 'kafka:reset-group-offsets',
     deleteGroup: 'kafka:delete-group',
+    deleteGroupOffsets: 'kafka:delete-group-offsets',
     createPartitions: 'kafka:create-partitions',
     alterTopicConfigs: 'kafka:alter-topic-configs',
     deleteRecords: 'kafka:delete-records',
