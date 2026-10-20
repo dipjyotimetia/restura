@@ -98,4 +98,19 @@ describe('KafkaMessagesPanel', () => {
     expect(screen.getByText('Tombstone')).toBeVisible();
     expect(screen.getByText(/Kafka null value/)).toBeVisible();
   });
+
+  it('shows no consumer group in browse mode', () => {
+    const browse = { ...connection, consumer: { ...connection.consumer, membership: 'browse' } };
+    render(
+      <Tabs value="messages">
+        <KafkaMessagesPanel
+          connection={browse as KafkaConnection}
+          paused={false}
+          onPausedChange={() => {}}
+        />
+      </Tabs>
+    );
+    expect(screen.getByText('None (browse)')).toBeVisible();
+    expect(screen.queryByText('restura-test')).not.toBeInTheDocument();
+  });
 });

@@ -383,3 +383,13 @@ export function computeGroupLag(
   }
   return rows.sort((a, b) => a.topic.localeCompare(b.topic) || a.partition - b.partition);
 }
+
+/** UTF-8 convenience view of consumed record headers (raw bytes travel separately). */
+export function headersFromMap(map: Map<Buffer, Buffer> | undefined): Record<string, string> {
+  if (!map) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of map) {
+    out[k.toString('utf8')] = v.toString('utf8');
+  }
+  return out;
+}

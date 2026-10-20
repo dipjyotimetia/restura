@@ -454,9 +454,16 @@ export interface ElectronKafkaAPI {
   }) => Promise<{ success: boolean; error?: string }>;
   subscribe: (config: {
     connectionId: string;
-    groupId: string;
+    /** `browse` = no consumer group, no commits (#930). Omitted means `group`. */
+    membership?: 'browse' | 'group';
+    /** Required in group mode; must be omitted in browse mode. */
+    groupId?: string;
     topics: string[];
-    mode: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp';
+    mode: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp' | 'last-n';
+    /** Browse `last-n` start: records per partition. */
+    lastN?: number;
+    /** Browse only: stop after this many records in total. */
+    maxMessages?: number;
     fallbackMode?: 'latest' | 'earliest' | 'fail';
     offsets?: KafkaPartitionOffset[];
     timestamp?: string;

@@ -251,12 +251,97 @@ const KafkaPartitionOffsetSchema = z.object({
 // Consumer-group id — reused by subscribe and the group admin ops.
 const KafkaGroupIdSchema = z.string().min(1).max(256);
 
+/** Fields that only make sense for a group member; browse mode refuses them. */
+const GROUP_ONLY_SUBSCRIBE_FIELDS = [
+  'groupId',
+  'groupInstanceId',
+  'groupRemoteAssignor',
+  'fallbackMode',
+  'autoCommitIntervalMs',
+  'sessionTimeoutMs',
+  'rebalanceTimeoutMs',
+  'heartbeatIntervalMs',
+  'lagIntervalMs',
+] as const;
+
+/** Kafka offsets and timestamps are signed 64-bit; browse turns them into BigInts. */
+const INT64_MAX = 9_223_372_036_854_775_807n;
+const exceedsInt64 = (value: string | undefined): boolean =>
+  value !== undefined && /^\d+$/.test(value) && BigInt(value) > INT64_MAX;
+
+function refineSubscribeMembership(
+  cfg: {
+    membership: 'browse' | 'group';
+    mode: string;
+    groupId?: string | undefined;
+    groupInstanceId?: string | undefined;
+    groupRemoteAssignor?: string | undefined;
+    fallbackMode?: string | undefined;
+    autoCommitIntervalMs?: number | undefined;
+    sessionTimeoutMs?: number | undefined;
+    rebalanceTimeoutMs?: number | undefined;
+    heartbeatIntervalMs?: number | undefined;
+    lagIntervalMs?: number | undefined;
+    offsets?: Array<{ offset: string }> | undefined;
+    timestamp?: string | undefined;
+    commitPolicy?: 'auto' | 'manual' | undefined;
+    groupProtocol?: 'classic' | 'consumer' | undefined;
+    lastN?: number | undefined;
+    maxMessages?: number | undefined;
+  },
+  ctx: z.RefinementCtx
+): void {
+  const issue = (path: string, message: string): void =>
+    ctx.addIssue({ code: 'custom', path: [path], message });
+  if (cfg.mode === 'last-n' && cfg.lastN === undefined) {
+    issue('lastN', 'last-n mode requires lastN.');
+  }
+  if (cfg.membership === 'group') {
+    if (!cfg.groupId) issue('groupId', 'Consumer-group mode requires a groupId.');
+    if (cfg.mode === 'last-n') issue('mode', 'last-n is only available in browse mode.');
+    if (cfg.maxMessages !== undefined) {
+      issue('maxMessages', 'A stop-after limit is only available in browse mode.');
+    }
+    return;
+  }
+  // Browse: nothing below may reach a group coordinator.
+  for (const field of GROUP_ONLY_SUBSCRIBE_FIELDS) {
+    if (cfg[field] !== undefined) issue(field, 'Browse mode never uses a consumer group.');
+  }
+  if (cfg.mode === 'committed') {
+    issue('mode', 'Browse mode has no consumer group, so there are no committed offsets.');
+  }
+  if (cfg.commitPolicy === 'manual') issue('commitPolicy', 'Browse mode never commits offsets.');
+  if (cfg.groupProtocol === 'consumer') {
+    issue('groupProtocol', 'Browse mode never uses a consumer group.');
+  }
+  cfg.offsets?.forEach(({ offset }, index) => {
+    if (exceedsInt64(offset)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['offsets', index, 'offset'],
+        message: 'Offset exceeds the Kafka 64-bit maximum.',
+      });
+    }
+  });
+  if (exceedsInt64(cfg.timestamp)) issue('timestamp', 'Timestamp exceeds the 64-bit maximum.');
+}
+
 export const KafkaSubscribeSchema = z
   .object({
     connectionId: KafkaConnectionIdSchema,
-    groupId: KafkaGroupIdSchema,
+    /** `browse` reads without joining/creating a group or committing (#930). */
+    membership: z.enum(['browse', 'group']).default('group'),
+    /** Required in group mode; refused in browse mode. */
+    groupId: KafkaGroupIdSchema.optional(),
     topics: z.array(KafkaTopicSchema).min(1).max(50),
-    mode: z.enum(['committed', 'latest', 'earliest', 'manual', 'timestamp']).default('committed'),
+    mode: z
+      .enum(['committed', 'latest', 'earliest', 'manual', 'timestamp', 'last-n'])
+      .default('committed'),
+    /** Browse `last-n`: start each partition at max(earliest, latest - lastN). */
+    lastN: z.number().int().positive().max(1_000_000).optional(),
+    /** Browse only: stop after this many records in total. */
+    maxMessages: z.number().int().positive().max(1_000_000).optional(),
     /** Accepted during the v1->v2 renderer migration; ignored by the main process. */
     fromBeginning: z.boolean().optional(),
     fallbackMode: z.enum(['latest', 'earliest', 'fail']).optional(),
@@ -299,6 +384,7 @@ export const KafkaSubscribeSchema = z
     lagIntervalMs: z.number().int().min(250).max(3_600_000).optional(),
   })
   .superRefine((cfg, ctx) => {
+    refineSubscribeMembership(cfg, ctx);
     if (cfg.mode === 'manual' && !cfg.offsets?.length) {
       ctx.addIssue({ code: 'custom', path: ['offsets'], message: 'Manual mode requires offsets.' });
     }

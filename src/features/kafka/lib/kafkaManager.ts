@@ -21,6 +21,7 @@ import type {
   KafkaRegistryIpc,
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
+import { isKafkaBrowse, type KafkaSubscribePayload, toBrowseSubscribe } from './kafkaBrowse';
 
 export type KafkaResetGroupOffsetsParams = Parameters<ElectronKafkaAPI['resetGroupOffsets']>[0];
 export type KafkaDeleteGroupOffsetsParams = Parameters<ElectronKafkaAPI['deleteGroupOffsets']>[0];
@@ -328,7 +329,7 @@ class KafkaManager {
     groupId: string;
     topics: string[];
     fromBeginning: boolean;
-    mode?: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp';
+    mode?: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp' | 'last-n';
     offsets?: Array<{ topic: string; partition: number; offset: string }>;
     timestamp?: string;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -348,7 +349,7 @@ class KafkaManager {
     this.bindMessageListener(params.connectionId);
 
     const consumer = store.connections[params.connectionId]?.consumer;
-    const result = await api.kafka.subscribe({
+    const payload: KafkaSubscribePayload = {
       connectionId: params.connectionId,
       groupId: params.groupId,
       topics: params.topics,
@@ -379,7 +380,11 @@ class KafkaManager {
       ...(consumer?.highWaterMark ? { highWaterMark: consumer.highWaterMark } : {}),
       ...(params.offsets ? { offsets: params.offsets } : {}),
       ...(params.timestamp ? { timestamp: params.timestamp } : {}),
-    });
+    };
+    const browse = isKafkaBrowse(consumer);
+    const result = await api.kafka.subscribe(
+      browse ? toBrowseSubscribe(payload, consumer ?? {}) : payload
+    );
     if (!result.success) {
       store.updateConsumer(params.connectionId, { status: 'error' });
       const msg = result.error ?? 'Subscribe failed';
@@ -398,7 +403,9 @@ class KafkaManager {
     store.addMessage(params.connectionId, {
       direction: 'system',
       topic: params.topics.join(','),
-      value: `Subscribed to ${params.topics.join(', ')} (groupId=${params.groupId})`,
+      value: browse
+        ? `Browsing ${params.topics.join(', ')} (read-only, no consumer group)`
+        : `Subscribed to ${params.topics.join(', ')} (groupId=${params.groupId})`,
     });
     return { ok: true };
   }
@@ -611,6 +618,9 @@ class KafkaManager {
   private bindMessageListener(connectionId: string): void {
     const api = getElectronAPI();
     if (!api?.kafka) return;
+    // Idempotent: a consumer can close main-side (browse stop-after-N, fetch
+    // error) without an unsubscribe, so a re-subscribe must not stack listeners.
+    this.unbindMessageListener(connectionId);
     api.kafka.on(kafkaChannel(KAFKA_CHANNEL.MESSAGE, connectionId), (payload: unknown) => {
       const msg = payload as {
         topic: string;

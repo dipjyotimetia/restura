@@ -1,3 +1,4 @@
+import { Admin, Producer } from '@platformatic/kafka';
 import { fillMonacoEditor } from '../../e2e/utils/selectors';
 import { dockerAvailable, expect, test } from '../fixtures/brokers';
 
@@ -74,6 +75,8 @@ describeOrSkip('Desktop Kafka (live Redpanda broker)', () => {
     // Consume from EARLIEST so delivery doesn't depend on subscribe/produce order.
     await page.getByRole('tab', { name: 'Consume' }).click();
     const consume = page.getByRole('tabpanel', { name: 'Consume' });
+    // New tabs default to read-only Browse; this flow exercises group commits.
+    await consume.getByRole('radio', { name: 'Consumer group' }).click();
     await consume.getByPlaceholder('topic-name').fill(topic);
     await consume.getByRole('button', { name: 'Add', exact: true }).click();
     await consume.getByLabel('Consume start position').selectOption('earliest');
@@ -157,5 +160,83 @@ describeOrSkip('Desktop Kafka (live Redpanda broker)', () => {
       .click()
       .catch(() => {});
     expect(consoleErrors).toEqual([]);
+  });
+
+  test('browse mode reads the last N per partition without creating a consumer group', async ({
+    app: page,
+    brokers,
+  }) => {
+    const stamp = await page.evaluate(() => String(Date.now()));
+    const topic = `restura-e2e-browse-${stamp}`;
+    const value = (partition: number, index: number) => `browse-${stamp}-p${partition}-m${index}`;
+
+    // Seed 3 records on each of 2 partitions straight through the native client.
+    const admin = new Admin({ clientId: 'restura-e2e-browse', bootstrapBrokers: [brokers.kafka] });
+    const producer = new Producer({
+      clientId: 'restura-e2e-browse',
+      bootstrapBrokers: [brokers.kafka],
+      serializers: { value: (v?: string) => (v == null ? undefined : Buffer.from(v)) },
+    });
+    try {
+      await admin.createTopics({ topics: [topic], partitions: 2, replicas: 1 });
+      await producer.send({
+        messages: [0, 1].flatMap((partition) =>
+          [0, 1, 2].map((index) => ({ topic, partition, value: value(partition, index) }))
+        ),
+      });
+      const groupsBefore = new Set((await admin.listGroups()).keys());
+
+      await page.getByRole('button', { name: 'new request', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Kafka client' }).click();
+      await page.getByRole('button', { name: 'Connect', exact: true }).click();
+      await expect(page.getByRole('button', { name: /Disconnect/ })).toBeVisible({
+        timeout: 20_000,
+      });
+
+      // Browse is the default: read-only badge, no group id, last-N start.
+      await page.getByRole('tab', { name: 'Consume' }).click();
+      const consume = page.getByRole('tabpanel', { name: 'Consume' });
+      await expect(consume.getByRole('radio', { name: 'Browse' })).toBeChecked();
+      await expect(consume.getByText('Read-only — no group')).toBeVisible();
+      await expect(consume.getByLabel('Consumer group ID')).toHaveCount(0);
+      await expect(consume.getByLabel('Consume start position')).toHaveValue('last-n');
+      await consume.getByLabel('Records per partition').fill('2');
+      await consume.getByPlaceholder('topic-name').fill(topic);
+      await consume.getByRole('button', { name: 'Add', exact: true }).click();
+      await consume.getByRole('button', { name: 'Subscribe', exact: true }).click();
+      await expect(consume.getByText('Subscription: Subscribed')).toBeVisible({ timeout: 20_000 });
+
+      // Last 2 per partition: m1 and m2 of each, never m0.
+      await page.getByRole('tab', { name: /Messages/ }).click();
+      for (const partition of [0, 1]) {
+        for (const index of [1, 2]) {
+          await expect(page.getByText(value(partition, index))).toBeVisible({ timeout: 20_000 });
+        }
+        await expect(page.getByText(value(partition, 0))).toHaveCount(0);
+      }
+      await expect(page.getByText(/read-only, no consumer group/)).toBeVisible();
+
+      // Nothing joined, created or committed: no new Restura group (the generated
+      // `restura-<id8>` default) and never the browse placeholder. Groups other
+      // clients create on the shared broker meanwhile don't affect the check.
+      const newGroups = Array.from((await admin.listGroups()).keys()).filter(
+        (id) => !groupsBefore.has(id)
+      );
+      expect(newGroups.filter((id) => id.startsWith('restura-'))).toEqual([]);
+      expect(newGroups.filter((id) => id.includes('restura_browse'))).toEqual([]);
+
+      await page.getByRole('tab', { name: 'Consume' }).click();
+      await consume.getByRole('button', { name: 'Unsubscribe' }).click();
+      await expect(consume.getByText('Subscription: Idle')).toBeVisible();
+      await page
+        .getByRole('button', { name: /Disconnect/ })
+        .first()
+        .click();
+      await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    } finally {
+      await admin.deleteTopics({ topics: [topic] }).catch(() => {});
+      await producer.close().catch(() => {});
+      await admin.close().catch(() => {});
+    }
   });
 });
