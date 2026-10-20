@@ -39,7 +39,9 @@ The UI does not expose dependency extension points that execute arbitrary code, 
 
 ## Security limitation
 
-Bootstrap brokers pass the Kafka broker guard before connection. `@platformatic/kafka` 2.8 does not expose a supported DNS lookup/connection injection point, and metadata may discover additional brokers, so DNS pinning and post-discovery broker validation are not currently possible. See [ADR 0006](adr/0006-electron-connection-and-dns-hardening.md).
+Bootstrap brokers pass the Kafka broker guard before connection. `@platformatic/kafka` 2.14 does not expose a supported DNS lookup/connection injection point, and metadata may discover additional brokers, so DNS pinning and post-discovery broker validation are not currently possible. See [ADR 0006](adr/0006-electron-connection-and-dns-hardening.md).
+
+Brokers are entered as `host:port`; IPv6 literals use brackets (`[2001:db8::10]:9093`, RFC 3986). The same guard applies to the address, so under a restrictive execution policy IPv6 loopback, ULA, link-local and IPv4-mapped literals are rejected like their IPv4 equivalents.
 
 ## Local verification
 
