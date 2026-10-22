@@ -1,8 +1,11 @@
+import { classifyMcpOutcome } from '@shared/protocol/mcp-result';
+import { mcpToolDisplayName } from '@shared/protocol/mcp-tool-descriptor';
 import { PanelLeftClose, Sparkles, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Floater, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
+import { McpToolHintBadges } from '@/features/mcp/components/McpToolHintBadges';
 import type { McpInvocationLog } from '@/features/mcp/store/useMcpStore';
 import { cn } from '@/lib/shared/utils';
 import type {
@@ -129,13 +132,19 @@ function ToolList({
                     style={{ color: 'var(--color-warning)' }}
                   />
                   <span className="font-mono font-bold text-sp-12 text-sp-text truncate">
-                    {tool.name}
+                    {mcpToolDisplayName(tool)}
                   </span>
                 </div>
                 <span className="sp-label shrink-0">
                   {argCount} {argCount === 1 ? 'arg' : 'args'}
                 </span>
               </div>
+              {tool.title && tool.title !== tool.name && (
+                <div className="mt-0.5 ml-5 font-mono text-sp-11 text-sp-dim truncate">
+                  {tool.name}
+                </div>
+              )}
+              <McpToolHintBadges tool={tool} className="mt-1 ml-5" />
               {tool.description && (
                 <div className="mt-1 ml-5 text-sp-11-5 text-sp-muted line-clamp-2">
                   {tool.description}
@@ -282,7 +291,8 @@ function LogList({ log, onClear }: { log: McpInvocationLog[]; onClear: () => voi
         <ScrollArea className="flex-1 min-h-0">
           <div className="p-2 space-y-1">
             {log.map((entry) => {
-              const ok = entry.error === undefined;
+              const kind = classifyMcpOutcome(entry);
+              const ok = kind === 'ok';
               return (
                 <div
                   key={entry.id}
@@ -296,7 +306,7 @@ function LogList({ log, onClear }: { log: McpInvocationLog[]; onClear: () => voi
                       className="font-mono text-sp-10 font-bold tracking-wider shrink-0"
                       style={{ color: ok ? 'var(--color-success)' : 'var(--color-danger)' }}
                     >
-                      {ok ? 'OK' : 'ERR'}
+                      {kind === 'ok' ? 'OK' : kind === 'tool-error' ? 'TOOL ERR' : 'ERR'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-0.5">

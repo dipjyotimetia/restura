@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 import McpResultPanel from '../McpResultPanel';
@@ -32,13 +32,133 @@ describe('McpResultPanel', () => {
     expect(screen.getByRole('button', { name: 'Download result' })).toBeInTheDocument();
   });
 
-  it('shows the error payload with isError: true', async () => {
+  it('labels a JSON-RPC/transport failure as a PROTOCOL ERROR', async () => {
     const id = useMcpStore.getState().createConnection('https://mcp.example.test');
     act(() => {
       useMcpStore.getState().appendLog(id, { method: 'tools/call', error: 'boom', durationMs: 3 });
     });
     render(<McpResultPanel />);
     expect(await screen.findByTestId('editor')).toHaveTextContent('"error": "boom"');
-    expect(screen.getByText('isError: true')).toBeInTheDocument();
+    expect(screen.getByText('PROTOCOL ERROR')).toBeInTheDocument();
+    expect(screen.queryByText(/TOOL ERROR/)).not.toBeInTheDocument();
+  });
+
+  it('shows a red TOOL ERROR badge for a successful response with result.isError: true (#868)', async () => {
+    const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+    act(() => {
+      useMcpStore.getState().appendLog(id, {
+        method: 'tools/call:fail',
+        result: { isError: true, content: [{ type: 'text', text: 'disk full' }] },
+        durationMs: 3,
+      });
+    });
+    render(<McpResultPanel />);
+    const badge = screen.getByText('TOOL ERROR · isError: true');
+    expect(badge).toHaveStyle({ color: 'var(--color-danger)' });
+    expect(screen.queryByText('isError: false')).not.toBeInTheDocument();
+    expect(screen.queryByText('PROTOCOL ERROR')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('editor')).toHaveTextContent('disk full');
+  });
+
+  it('includes the jsonRpcError, formats KB sizes, and toggles back to the full result', async () => {
+    const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+    act(() => {
+      useMcpStore.getState().appendLog(id, {
+        method: 'tools/call:big',
+        result: { content: [], structuredContent: { blob: 'x'.repeat(2000) } },
+        durationMs: 1,
+      });
+    });
+    const { unmount } = render(<McpResultPanel />);
+    expect(screen.getByText(/KB$/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show structuredContent' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show full result' }));
+    expect(await screen.findByTestId('editor')).toHaveTextContent('"content"');
+    unmount();
+    act(() => {
+      useMcpStore.getState().appendLog(id, {
+        method: 'tools/call:x',
+        error: 'rpc',
+        jsonRpcError: { code: -32602, message: 'bad params' },
+        durationMs: 1,
+      });
+    });
+    render(<McpResultPanel />);
+    expect(await screen.findByTestId('editor')).toHaveTextContent('-32602');
+  });
+
+  describe('structuredContent vs outputSchema (#880)', () => {
+    function setup(structuredContent: unknown) {
+      const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+      act(() => {
+        useMcpStore.getState().appendLog(id, {
+          method: 'tools/call:count',
+          outputSchema: {
+            type: 'object',
+            required: ['n'],
+            properties: { n: { type: 'integer' } },
+          },
+          result: { content: [], structuredContent },
+          durationMs: 1,
+        });
+      });
+      render(<McpResultPanel />);
+    }
+
+    it('confirms a conforming structuredContent and can show it on its own', async () => {
+      setup({ n: 3 });
+      expect(screen.getByTestId('mcp-output-schema-ok')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Show structuredContent' }));
+      expect(await screen.findByTestId('editor')).toHaveTextContent(/^\{\s*"n": 3\s*\}$/);
+    });
+
+    it('does not flag a schema violation on a protocol error', () => {
+      const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+      act(() => {
+        useMcpStore.getState().appendLog(id, {
+          method: 'tools/call:count',
+          outputSchema: { type: 'object', required: ['n'] },
+          error: 'boom',
+          durationMs: 1,
+        });
+      });
+      render(<McpResultPanel />);
+      expect(screen.getByText('PROTOCOL ERROR')).toBeInTheDocument();
+      expect(screen.queryByTestId('mcp-output-schema-issues')).not.toBeInTheDocument();
+    });
+
+    it('notes when the outputSchema is too complex to validate', () => {
+      const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+      act(() => {
+        useMcpStore.getState().appendLog(id, {
+          method: 'tools/call:count',
+          outputSchema: { allOf: Array.from({ length: 40 }, () => ({ type: 'object' })) },
+          result: { content: [], structuredContent: {} },
+          durationMs: 1,
+        });
+      });
+      render(<McpResultPanel />);
+      expect(screen.getByTestId('mcp-output-schema-skipped')).toBeInTheDocument();
+    });
+
+    it('skips validation when the log entry has no schema snapshot', () => {
+      const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+      act(() => {
+        useMcpStore.getState().appendLog(id, {
+          method: 'tools/call:count',
+          result: { content: [], structuredContent: { n: 'x' } },
+          durationMs: 1,
+        });
+      });
+      render(<McpResultPanel />);
+      expect(screen.queryByTestId('mcp-output-schema-issues')).not.toBeInTheDocument();
+    });
+
+    it('flags a structuredContent that violates the outputSchema', () => {
+      setup({ n: 'three' });
+      const alert = screen.getByTestId('mcp-output-schema-issues');
+      expect(alert).toHaveTextContent('does not match');
+      expect(alert).toHaveTextContent('$.n: expected integer, got string');
+    });
   });
 });

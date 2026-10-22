@@ -1,4 +1,5 @@
 import { jsonRpcErrorToMessage, parseJsonRpcError } from '@shared/protocol/mcp-proxy';
+import { normalizeMcpToolDescriptor } from '@shared/protocol/mcp-tool-descriptor';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import type {
   McpJsonSchema,
@@ -34,7 +35,7 @@ interface ListPage<T> {
   items?: T[];
 }
 interface ToolsListResult {
-  tools?: McpToolDescriptor[];
+  tools?: unknown[];
   nextCursor?: string;
 }
 interface ResourcesListResult {
@@ -251,7 +252,10 @@ export class McpClient {
     const [tools, resources, prompts] = await Promise.all([
       wantTools
         ? this.listAll<ToolsListResult, McpToolDescriptor>('tools/list', (r) => ({
-            items: r.tools,
+            // Same normalizer for desktop (SDK result) and web (Worker JSON-RPC body).
+            items: r.tools
+              ?.map(normalizeMcpToolDescriptor)
+              .filter((t): t is McpToolDescriptor => t !== null),
             nextCursor: r.nextCursor,
           }))
         : [],

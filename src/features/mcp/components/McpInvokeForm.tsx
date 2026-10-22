@@ -1,5 +1,7 @@
+import { isDestructiveTool, mcpToolDisplayName } from '@shared/protocol/mcp-tool-descriptor';
 import { Play, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TextField } from '@/components/ui/spatial';
@@ -7,6 +9,7 @@ import {
   McpArgumentField,
   type McpArgumentField as McpArgumentFieldType,
 } from '@/features/mcp/components/McpArgumentField';
+import { McpToolHintBadges } from '@/features/mcp/components/McpToolHintBadges';
 import { parseMcpArgument } from '@/features/mcp/lib/mcpArgumentValidation';
 import { generateMcpTemplate } from '@/features/mcp/lib/mcpClient';
 import type { McpJsonSchema, McpPromptDescriptor, McpToolDescriptor } from '@/types';
@@ -159,6 +162,7 @@ function InvokeToolForm({
   const [values, setValues] = useState<Record<string, string>>({});
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
+  const [pendingArgs, setPendingArgs] = useState<Record<string, unknown> | null>(null);
   // Read through a ref so persisting an edit (which feeds back in as
   // `initialArguments`) never re-runs the seeding effect below.
   const initialArgumentsRef = useRef(initialArguments);
@@ -228,9 +232,19 @@ function InvokeToolForm({
       return;
     }
     setValidationErrors({});
+    // Hints are untrusted, but an explicit destructiveHint is still worth a
+    // speed bump before the call leaves the client.
+    if (isDestructiveTool(tool)) {
+      setPendingArgs(args);
+      return;
+    }
+    await runCall(tool, args);
+  };
+
+  const runCall = async (target: McpToolDescriptor, args: Record<string, unknown>) => {
     setRunning(true);
     try {
-      await onCall(tool, args);
+      await onCall(target, args);
     } finally {
       setRunning(false);
     }
@@ -241,7 +255,7 @@ function InvokeToolForm({
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-sp-line shrink-0">
-        <InvokeTitle name={tool.name} />
+        <InvokeTitle name={mcpToolDisplayName(tool)} />
         <Button
           variant="glow"
           size="sm"
@@ -255,6 +269,7 @@ function InvokeToolForm({
       </div>
       <ScrollArea className="flex-1 min-h-0">
         <div className="p-3 space-y-3">
+          <McpToolHintBadges tool={tool} />
           {tool.description && <p className="text-sp-12 text-sp-muted">{tool.description}</p>}
           {fields.length === 0 ? (
             <div className="text-sp-12 text-sp-dim italic">This tool takes no arguments.</div>
@@ -280,6 +295,21 @@ function InvokeToolForm({
           )}
         </div>
       </ScrollArea>
+      <ConfirmDialog
+        open={pendingArgs !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingArgs(null);
+        }}
+        title={`Invoke destructive tool "${mcpToolDisplayName(tool)}"?`}
+        description="This server marks the tool as destructive (it may modify or delete data). Hints come from the server and are not verified. Continue only if you trust this server."
+        confirmText="Invoke"
+        variant="destructive"
+        onConfirm={() => {
+          const args = pendingArgs;
+          setPendingArgs(null);
+          if (args) void runCall(tool, args);
+        }}
+      />
     </div>
   );
 }

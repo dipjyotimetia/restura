@@ -187,10 +187,16 @@ export default function McpRequestBuilder() {
 
   // Keep the store log and unified console in one callback so every interactive
   // MCP invocation has identical result visibility.
-  const logCall = (method: string, params: unknown, result: McpCall): void => {
+  const logCall = (
+    method: string,
+    params: unknown,
+    result: McpCall,
+    outputSchema?: unknown
+  ): void => {
     appendLog(active.id, {
       method,
       params,
+      ...(outputSchema !== undefined ? { outputSchema } : {}),
       ...(result.ok
         ? { result: result.result }
         : {
@@ -404,7 +410,7 @@ export default function McpRequestBuilder() {
               const client = getCurrentClient();
               if (!client) return;
               const result = await client.callTool(tool.name, args);
-              logCall(`tools/call:${tool.name}`, args, result);
+              logCall(`tools/call:${tool.name}`, args, result, tool.outputSchema);
             }}
             onGet={async (prompt, args) => {
               const client = getCurrentClient();

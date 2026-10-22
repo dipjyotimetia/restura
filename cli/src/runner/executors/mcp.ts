@@ -1,4 +1,5 @@
 import { validateMcpSpec } from '@shared/protocol/mcp-proxy';
+import { isMcpToolError, mcpToolErrorText } from '@shared/protocol/mcp-result';
 import type { McpRequest } from '@shared/types';
 import { request as undiciRequest } from 'undici';
 import { v4 as uuidv4 } from 'uuid';
@@ -136,6 +137,12 @@ export async function executeMcp(
           passed = false;
           const e = parsed.error as { message?: string; code?: number };
           errorMessage = `JSON-RPC error ${e.code ?? ''}: ${e.message ?? text}`;
+        } else if (parsed && typeof parsed === 'object' && isMcpToolError(parsed.result)) {
+          // Tool execution errors ride a *successful* JSON-RPC response with
+          // `result.isError: true` (MCP 2025-06-18). Fail the item, and word it
+          // differently from a protocol error so reports can tell them apart.
+          passed = false;
+          errorMessage = `MCP tool error (isError: true): ${mcpToolErrorText(parsed.result)}`;
         }
       } catch {
         // Non-JSON body — leave passed as is; the script can decide.
