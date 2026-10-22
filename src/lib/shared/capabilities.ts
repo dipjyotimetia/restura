@@ -34,6 +34,8 @@ export type CapabilityName =
   | 'sse.customHeaders'
   | 'mcp.basic'
   | 'mcp.clientRequests'
+  | 'mcp.serverNotifications'
+  | 'mcp.resourceSubscriptions'
   | 'grpc.basic'
   | 'grpc.reflection'
   | 'grpc.web'
@@ -221,6 +223,20 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes:
       'Server→client requests need a persistent channel back to the client; the web Worker proxy is request/response only. Desktop: form-mode elicitation (URL mode not advertised), sampling with per-request human approval (manual text or an AI-assistant provider draft), per-connection file:// roots with list_changed',
+  },
+  'mcp.serverNotifications': {
+    label: 'MCP server notifications (progress, logging, list_changed, resources/updated)',
+    web: false,
+    desktop: true,
+    notes:
+      'Desktop streams server→client events over IPC into the Events pane and re-discovers on list_changed; on 2026-07-28 servers list_changed rides an auto-opened subscriptions/listen stream. The web Worker proxy is request/response only, so there is no server→client channel',
+  },
+  'mcp.resourceSubscriptions': {
+    label: 'MCP resource subscriptions',
+    web: false,
+    desktop: true,
+    notes:
+      'Subscribe/Unsubscribe toggle when the server advertises resources.subscribe; 2025-era servers use resources/subscribe, 2026-07-28 servers a per-resource subscriptions/listen stream (max 32 per connection). Needs the desktop server→client channel',
   },
   'grpc.basic': {
     label: 'gRPC unary + streaming',

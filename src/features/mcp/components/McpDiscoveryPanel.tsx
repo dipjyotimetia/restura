@@ -1,11 +1,13 @@
 import { classifyMcpOutcome } from '@shared/protocol/mcp-result';
 import { mcpToolDisplayName } from '@shared/protocol/mcp-tool-descriptor';
-import { PanelLeftClose, Sparkles, Trash2 } from 'lucide-react';
+import { BellOff, BellRing, PanelLeftClose, Sparkles, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Floater, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
+import { McpNotificationsPanel } from '@/features/mcp/components/McpNotificationsPanel';
 import { McpToolHintBadges } from '@/features/mcp/components/McpToolHintBadges';
+import type { McpNotificationEntry } from '@/features/mcp/lib/mcpNotifications';
 import type { McpInvocationLog } from '@/features/mcp/store/useMcpStore';
 import { cn } from '@/lib/shared/utils';
 import type {
@@ -15,7 +17,19 @@ import type {
   McpToolDescriptor,
 } from '@/types';
 
-export type McpDiscoveryTab = 'tools' | 'resources' | 'prompts' | 'log';
+export type McpDiscoveryTab = 'tools' | 'resources' | 'prompts' | 'log' | 'events';
+
+/** Desktop-only: server→client notifications pane (#858). */
+export interface McpDiscoveryEvents {
+  entries: McpNotificationEntry[];
+  onClear: () => void;
+}
+
+/** Desktop-only: per-resource Subscribe/Unsubscribe toggle (#872). */
+export interface McpResourceSubscriptionControls {
+  subscribed: string[];
+  onToggle: (uri: string, subscribe: boolean) => Promise<void>;
+}
 
 interface McpDiscoveryPanelProps {
   tools: McpToolDescriptor[];
@@ -31,6 +45,10 @@ interface McpDiscoveryPanelProps {
   onHide: () => void;
   tab: McpDiscoveryTab;
   onTabChange: (tab: McpDiscoveryTab) => void;
+  /** Omitted on web (no server→client channel): the Events tab is hidden. */
+  events?: McpDiscoveryEvents;
+  /** Omitted on web or when the server doesn't advertise `resources.subscribe`. */
+  resourceSubscriptions?: McpResourceSubscriptionControls;
 }
 
 /** MCP capability browser. Selection stays in the builder so the invoke form remains visible beside it. */
@@ -48,6 +66,8 @@ export function McpDiscoveryPanel({
   onHide,
   tab,
   onTabChange,
+  events,
+  resourceSubscriptions,
 }: McpDiscoveryPanelProps) {
   return (
     <Floater
@@ -61,6 +81,9 @@ export function McpDiscoveryPanel({
           { value: 'resources', label: 'Resources', count: resources.length },
           { value: 'prompts', label: 'Prompts', count: prompts.length },
           { value: 'log', label: 'Log', count: log.length },
+          ...(events
+            ? [{ value: 'events' as const, label: 'Events', count: events.entries.length }]
+            : []),
         ]}
         value={tab}
         onChange={onTabChange}
@@ -81,11 +104,20 @@ export function McpDiscoveryPanel({
         {tab === 'tools' && (
           <ToolList tools={tools} selected={selectedToolName} onSelect={onToolSelect} />
         )}
-        {tab === 'resources' && <ResourceList resources={resources} onRead={onReadResource} />}
+        {tab === 'resources' && (
+          <ResourceList
+            resources={resources}
+            onRead={onReadResource}
+            subscriptions={resourceSubscriptions}
+          />
+        )}
         {tab === 'prompts' && (
           <PromptList prompts={prompts} selected={selectedPromptName} onSelect={onPromptSelect} />
         )}
         {tab === 'log' && <LogList log={log} onClear={onClearLog} />}
+        {tab === 'events' && events && (
+          <McpNotificationsPanel entries={events.entries} onClear={events.onClear} />
+        )}
       </SubTabPanel>
     </Floater>
   );
@@ -161,11 +193,23 @@ function ToolList({
 function ResourceList({
   resources,
   onRead,
+  subscriptions,
 }: {
   resources: McpResourceDescriptor[];
   onRead: (uri: string) => Promise<void>;
+  subscriptions: McpResourceSubscriptionControls | undefined;
 }) {
   const [reading, setReading] = useState<string | null>(null);
+  const [toggling, setToggling] = useState<string | null>(null);
+  const handleToggle = async (uri: string, subscribe: boolean) => {
+    if (!subscriptions) return;
+    setToggling(uri);
+    try {
+      await subscriptions.onToggle(uri, subscribe);
+    } finally {
+      setToggling(null);
+    }
+  };
   const handleRead = async (uri: string) => {
     setReading(uri);
     try {
@@ -193,6 +237,14 @@ function ResourceList({
                 </div>
                 <div className="text-sp-11 font-mono text-sp-dim truncate">{resource.uri}</div>
               </div>
+              {subscriptions && (
+                <SubscribeToggle
+                  uri={resource.uri}
+                  subscribed={subscriptions.subscribed.includes(resource.uri)}
+                  busy={toggling === resource.uri}
+                  onToggle={handleToggle}
+                />
+              )}
               <Button
                 size="sm"
                 variant="outline"
@@ -211,6 +263,35 @@ function ResourceList({
         ))}
       </div>
     </ScrollArea>
+  );
+}
+
+function SubscribeToggle({
+  uri,
+  subscribed,
+  busy,
+  onToggle,
+}: {
+  uri: string;
+  subscribed: boolean;
+  busy: boolean;
+  onToggle: (uri: string, subscribe: boolean) => Promise<void>;
+}) {
+  const Icon = subscribed ? BellOff : BellRing;
+  return (
+    <Button
+      size="sm"
+      variant={subscribed ? 'secondary' : 'ghost'}
+      onClick={() => void onToggle(uri, !subscribed)}
+      loading={busy}
+      aria-pressed={subscribed}
+      aria-label={subscribed ? `Unsubscribe from ${uri}` : `Subscribe to ${uri}`}
+      title={subscribed ? 'Stop receiving updates' : 'Receive resources/updated notifications'}
+      className="h-6 px-2 text-sp-11 rounded-sp-btn shrink-0"
+    >
+      <Icon className="h-3 w-3" />
+      {subscribed ? 'Unsubscribe' : 'Subscribe'}
+    </Button>
   );
 }
 

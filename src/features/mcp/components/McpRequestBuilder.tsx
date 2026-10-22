@@ -14,13 +14,21 @@ import { McpInvokeForm } from '@/features/mcp/components/McpInvokeForm';
 import { McpRootsPanel } from '@/features/mcp/components/McpRootsPanel';
 import { useMcpClientRequests } from '@/features/mcp/hooks/useMcpClientRequests';
 import { useMcpConnectionActions } from '@/features/mcp/hooks/useMcpConnectionActions';
+import { useMcpServerEvents } from '@/features/mcp/hooks/useMcpServerEvents';
 import { type McpCall, McpClient } from '@/features/mcp/lib/mcpClient';
 import { pushMcpRoots } from '@/features/mcp/lib/mcpClientRequests';
+import { supportsMcpServerEvents } from '@/features/mcp/lib/mcpEventBridge';
+import { errorEntry } from '@/features/mcp/lib/mcpNotifications';
 import {
   type McpOperation,
   parseMcpOperation,
   serializeMcpOperation,
 } from '@/features/mcp/lib/mcpOperation';
+import {
+  useMcpNotificationStore,
+  useMcpNotifications,
+  useMcpSubscribedUris,
+} from '@/features/mcp/store/useMcpNotificationStore';
 import { type McpRoot, useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { isElectron } from '@/lib/shared/platform';
@@ -85,6 +93,44 @@ export default function McpRequestBuilder() {
   const [discoveryTab, setDiscoveryTab] = useState<McpDiscoveryTab>(() =>
     discoveryTabFor(operation)
   );
+  const notifications = useMcpNotifications(active?.id);
+  const subscribedUris = useMcpSubscribedUris(active?.id);
+
+  // Server→client events (#858). Callbacks only touch refs/stable actions,
+  // so they are safe to define before the early return below.
+  const { attach: attachServerEvents, detach: detachServerEvents } = useMcpServerEvents({
+    onListChanged: () => {
+      const session = clientRef.current;
+      if (!session) return;
+      const generation = clientGenerationRef.current;
+      void session.client.discoverCapabilities().then((capabilities) => {
+        if (
+          clientGenerationRef.current !== generation ||
+          clientRef.current?.client !== session.client
+        ) {
+          return;
+        }
+        if ('error' in capabilities) {
+          useMcpNotificationStore
+            .getState()
+            .push(session.connectionId, errorEntry(`Re-discovery failed: ${capabilities.error}`));
+          return;
+        }
+        setCapabilities(session.connectionId, capabilities);
+      });
+    },
+    onUpstreamClosed: (connectionId, reason, error) => {
+      if (clientRef.current?.connectionId === connectionId) {
+        clientGenerationRef.current += 1;
+        clientRef.current = null;
+      }
+      setStatus(
+        connectionId,
+        'error',
+        error ? `Connection closed: ${error}` : `Server closed the connection (${reason})`
+      );
+    },
+  });
 
   useEffect(() => {
     if (!hasConnections) createConnection('');
@@ -136,9 +182,13 @@ export default function McpRequestBuilder() {
         clientRef.current = null;
         void session.client.disconnect();
       }
-      if (activeIdForCleanup) resetConnectionSession(activeIdForCleanup);
+      detachServerEvents();
+      if (activeIdForCleanup) {
+        resetConnectionSession(activeIdForCleanup);
+        useMcpNotificationStore.getState().resetSubscriptions(activeIdForCleanup);
+      }
     };
-  }, [activeIdForCleanup, activeTabId, resetConnectionSession]);
+  }, [activeIdForCleanup, activeTabId, resetConnectionSession, detachServerEvents]);
 
   // Server→client requests (elicitation / sampling) are desktop-only (#860).
   useMcpClientRequests(active?.id, active?.status);
@@ -263,9 +313,15 @@ export default function McpRequestBuilder() {
         return;
       }
     }
+    // Subscribe BEFORE connect: main can emit during the handshake.
+    useMcpNotificationStore.getState().resetSubscriptions(active.id);
+    // Refresh bumps the generation but keeps the session, so events are keyed
+    // on session (client) identity rather than the discovery generation.
+    attachServerEvents(active.id, () => clientRef.current?.client === client);
     const open = await client.connect();
     if (!isCurrent()) return;
     if (!open.ok) {
+      detachServerEvents();
       setStatus(active.id, 'error', open.error);
       return;
     }
@@ -283,6 +339,8 @@ export default function McpRequestBuilder() {
     clientGenerationRef.current += 1;
     const session = clientRef.current;
     if (session?.connectionId === active.id) clientRef.current = null;
+    detachServerEvents();
+    useMcpNotificationStore.getState().resetSubscriptions(active.id);
     resetConnectionSession(active.id);
     if (session?.connectionId === active.id) await session.client.disconnect();
   };
@@ -313,6 +371,30 @@ export default function McpRequestBuilder() {
     const session = clientRef.current;
     if (active.status !== 'connected' || session?.connectionId !== active.id) return null;
     return session.client;
+  };
+
+  const eventsSupported = supportsMcpServerEvents();
+  const canSubscribe =
+    eventsSupported &&
+    active.status === 'connected' &&
+    active.capabilities?.capabilities?.resources?.subscribe === true;
+
+  const toggleResourceSubscription = async (uri: string, subscribe: boolean) => {
+    const client = getCurrentClient();
+    if (!client) return;
+    const result = subscribe
+      ? await client.subscribeResource(uri)
+      : await client.unsubscribeResource(uri);
+    logCall(subscribe ? 'resources/subscribe' : 'resources/unsubscribe', { uri }, result);
+    const notificationStore = useMcpNotificationStore.getState();
+    if (result.ok) {
+      notificationStore.setSubscribed(active.id, uri, subscribe);
+    } else {
+      notificationStore.push(
+        active.id,
+        errorEntry(`${subscribe ? 'Subscribe' : 'Unsubscribe'} failed: ${result.error}`)
+      );
+    }
   };
 
   sendShortcut.current =
@@ -382,6 +464,22 @@ export default function McpRequestBuilder() {
             onHide={() => setShowCatalog(false)}
             tab={discoveryTab}
             onTabChange={setDiscoveryTab}
+            {...(eventsSupported
+              ? {
+                  events: {
+                    entries: notifications,
+                    onClear: () => useMcpNotificationStore.getState().clear(active.id),
+                  },
+                }
+              : {})}
+            {...(canSubscribe
+              ? {
+                  resourceSubscriptions: {
+                    subscribed: subscribedUris,
+                    onToggle: toggleResourceSubscription,
+                  },
+                }
+              : {})}
           />
         )}
 

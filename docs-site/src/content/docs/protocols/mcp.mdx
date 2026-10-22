@@ -52,7 +52,7 @@ After connecting, Restura uses the v2 client's typed operations for every standa
 
 ### Modern server coverage
 
-Restura's v2 test server exercises modern discovery alongside tools, prompts, resources, cache hints, schema-declared request headers, multi-round `input_required` responses, and change subscriptions. The MCP workspace presents the core catalogue and request operations; it does not yet provide a dedicated UI for managing subscriptions.
+Restura's v2 test server exercises modern discovery alongside tools, prompts, resources, cache hints, schema-declared request headers, multi-round `input_required` responses, and change subscriptions. The MCP workspace presents the core catalogue and request operations, plus server notifications and resource subscriptions on desktop.
 
 ### Elicitation, sampling and roots <Badge text="desktop only" variant="caution" />
 
@@ -65,6 +65,27 @@ Servers sometimes need something from the client mid-call. The desktop app adver
 A prompt nobody answers expires after 5 minutes. A server may have at most 8 prompts waiting per connection. Prompts are withdrawn when the server cancels the request or the connection closes. Answers are accepted only from the window that opened the connection. Every prompt names the connection and server host and carries a fixed warning never to enter passwords or API keys. Fields whose name or format suggests a secret are masked and flagged. Pressing Enter never accepts a form, and focus starts on Decline or Reject. Roots must be local `file://` paths: no remote host and no credentials. Server requests larger than 100 KB are refused. On 2025-era servers the tool call that triggered the prompt keeps its own request timeout (60 seconds by default). If you take longer to answer, that call fails even though the prompt is still open.
 
 The web build cannot receive server→client requests because its Worker proxy is request/response only, so these flows exist only in the desktop app.
+
+### Server notifications and resource subscriptions
+
+<Badge text="desktop only" variant="caution" /> On desktop, the catalog panel has an **Events** tab that shows what the server pushes during the live session (newest first, last 200 events):
+
+- **Progress** for in-flight tool calls, as a progress bar per call. Restura asks for progress on every `tools/call`, so servers that support it send `notifications/progress`.
+- **Log messages** (`notifications/message`) with their level and logger.
+- **List changes** — `tools`, `resources`, or `prompts` `list_changed`. Restura re-runs discovery so the catalogue stays current.
+- **Resource updates** (`notifications/resources/updated`) for resources you subscribed to.
+- **Connection errors and closure.** If the server drops the connection, the status changes to **Error** and shows the reason, such as the last transport error, instead of staying "connected".
+
+When the server advertises `resources.subscribe`, each resource in the **Resources** tab has a **Subscribe** / **Unsubscribe** toggle. Restura picks the method that matches the negotiated protocol version:
+
+| Server era | Subscribe | `list_changed` delivery |
+| --- | --- | --- |
+| 2025-era (legacy) | `resources/subscribe` / `resources/unsubscribe` | Pushed unprompted on the session stream |
+| 2026-07-28 (modern) | One `subscriptions/listen` stream per resource (closed on unsubscribe; at most 32 per connection) | A `subscriptions/listen` stream that Restura opens automatically after connecting |
+
+Restura opens and closes `subscriptions/listen` streams itself, so you can't send a raw `subscriptions/listen` request. If the server ends a subscription stream, the Events tab records it and the toggle switches back off.
+
+The web and self-hosted builds don't have these features. Their Worker proxy handles only one response per request, so the server has no channel to push events to the browser.
 
 The same URL validation, DNS pinning, header policy, and Electron IPC validation apply before the SDK is allowed to connect.
 

@@ -14,7 +14,7 @@ import { parseMcpArgument } from '@/features/mcp/lib/mcpArgumentValidation';
 import { generateMcpTemplate } from '@/features/mcp/lib/mcpClient';
 import type { McpJsonSchema, McpPromptDescriptor, McpToolDescriptor } from '@/types';
 
-export type McpInvokeTab = 'tools' | 'resources' | 'prompts' | 'log';
+export type McpInvokeTab = 'tools' | 'resources' | 'prompts' | 'log' | 'events';
 
 interface McpInvokeFormProps {
   tab: McpInvokeTab;
@@ -430,7 +430,9 @@ function EmptyMcpInvokeForm({ tab }: { tab: McpInvokeTab }) {
       ? 'Select a resource from the list and press Read.'
       : tab === 'log'
         ? 'The latest call appears in the Result panel.'
-        : 'Pick a tool or prompt.';
+        : tab === 'events'
+          ? 'Server notifications stream into the Events list.'
+          : 'Pick a tool or prompt.';
   return (
     <div className="flex-1 grid place-items-center">
       <div className="text-center text-sp-muted text-sp-12">{hint}</div>
