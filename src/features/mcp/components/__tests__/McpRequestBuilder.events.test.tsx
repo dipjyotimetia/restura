@@ -55,6 +55,12 @@ let bridge: FakeMcpBridge;
 let toolNames: string[];
 let listenersAtConnect: number;
 
+// Only the #858/#872 server-event channels; other hooks (client requests, #860) add their own.
+const SERVER_EVENT_PREFIXES = ['mcp:close:', 'mcp:error:', 'mcp:notification:'];
+function serverEventListenerCount() {
+  return SERVER_EVENT_PREFIXES.reduce((n, prefix) => n + bridge.listenerCount(prefix), 0);
+}
+
 function serverRequest(config: { method: string; params?: unknown }) {
   switch (config.method) {
     case 'initialize':
@@ -97,7 +103,7 @@ beforeEach(() => {
   listenersAtConnect = -1;
   bridge = installFakeMcpBridge();
   bridge.mcp.connect.mockImplementation(async () => {
-    listenersAtConnect = bridge.listenerCount();
+    listenersAtConnect = serverEventListenerCount();
     return { success: true };
   });
   bridge.mcp.request.mockImplementation(async (config: { method: string }) =>
@@ -118,7 +124,9 @@ describe('McpRequestBuilder server events (desktop)', () => {
   it('subscribes to the event channels before connect', async () => {
     await connect();
     expect(listenersAtConnect).toBe(3);
-    expect(bridge.channels()).toEqual([
+    expect(
+      bridge.channels().filter((c) => SERVER_EVENT_PREFIXES.some((p) => c.startsWith(p)))
+    ).toEqual([
       `mcp:close:${connectionId()}`,
       `mcp:error:${connectionId()}`,
       `mcp:notification:${connectionId()}`,
@@ -238,7 +246,7 @@ describe('McpRequestBuilder server events (desktop)', () => {
     const view = await connect();
     const id = connectionId();
     useMcpNotificationStore.getState().setSubscribed(id, 'a://1', true);
-    expect(bridge.listenerCount()).toBe(3);
+    expect(serverEventListenerCount()).toBe(3);
 
     view.unmount();
 

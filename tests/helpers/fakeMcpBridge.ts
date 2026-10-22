@@ -18,6 +18,7 @@ export function installFakeMcpBridge(overrides: Record<string, unknown> = {}) {
       })
     ),
     disconnect: vi.fn(async (_config: unknown): Promise<unknown> => ({ success: true })),
+    setRoots: vi.fn(async (_config: unknown): Promise<unknown> => ({ success: true, notified: 0 })),
     on: vi.fn((channel: string, callback: Listener) => {
       let set = listeners.get(channel);
       if (!set) {
