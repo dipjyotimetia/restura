@@ -15,8 +15,11 @@
  */
 import { isMcpToolError } from '@shared/protocol/mcp-result';
 import { v4 as uuidv4 } from 'uuid';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import type { ProtocolModule } from '@/features/registry/types';
+import { isElectron } from '@/lib/shared/platform';
 import type { McpRequest, Request } from '@/types';
+import { buildMcpConnectAuth } from './lib/mcpAuth';
 import { McpClient } from './lib/mcpClient';
 import { buildMcpInitializeParams } from './lib/mcpWebSession';
 
@@ -111,10 +114,22 @@ async function createAndInitClient(mcp: McpRequest, method: string): Promise<Mcp
   for (const h of mcp.headers ?? []) {
     if (h.enabled !== false && h.key) headerMap[h.key] = h.value;
   }
+  // #896: the same connect-time auth as the interactive builder — inline on
+  // web, resolved by Electron main on desktop; fails closed when configured
+  // credentials can't be applied.
+  const auth = buildMcpConnectAuth({
+    auth: mcp.auth,
+    inherited: resolveInheritedAuthFor({ id: mcp.id, auth: mcp.auth ?? { type: 'none' } }),
+    headers: headerMap,
+    resolve: (text) => text,
+    desktop: isElectron(),
+  });
+  if (!auth.ok) throw new McpInitError(auth.error);
   const client = new McpClient({
     url: mcp.url,
     transport: mcp.transport,
-    headers: headerMap,
+    headers: auth.headers,
+    ...(auth.mainSideAuth ? { auth: auth.mainSideAuth } : {}),
     connectionId: `flow-${uuidv4()}`,
   });
   // Skip the explicit initialize step when the caller asked for

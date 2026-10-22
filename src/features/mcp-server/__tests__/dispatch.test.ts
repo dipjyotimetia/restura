@@ -194,6 +194,48 @@ describe('dispatchTool — list_requests', () => {
     expect(serialized).not.toContain('SUPER-SECRET-TOKEN');
   });
 
+  it('never surfaces MCP connection headers or auth credentials (#896)', () => {
+    const mcpCollection: Collection = {
+      id: 'c-mcp',
+      name: 'MCP',
+      items: [
+        {
+          id: 'i-mcp',
+          name: 'remote mcp',
+          type: 'request',
+          request: {
+            id: 'r-mcp',
+            name: 'remote mcp',
+            type: 'mcp',
+            url: 'https://mcp.example.com/mcp?api_key=URL-SECRET',
+            transport: 'streamable-http',
+            headers: [
+              { id: 'h', key: 'Authorization', value: 'Bearer MCP-HEADER-SECRET', enabled: true },
+            ],
+            auth: {
+              type: 'api-key',
+              apiKey: { key: 'X-Key', value: 'MCP-AUTH-SECRET', in: 'header' },
+            },
+          },
+        },
+      ],
+    };
+    const r = dispatchTool(
+      'list_requests',
+      { collectionId: mcpCollection.id },
+      buildContext({
+        collections: [mcpCollection],
+        consent: setCollectionConsent(DEFAULT_CONSENT, mcpCollection.id, 'read-only'),
+      })
+    );
+    if (!r.ok) throw new Error('expected ok');
+    const serialized = JSON.stringify(postProcessResult(r));
+    expect(serialized).toContain('"authType":"api-key"');
+    expect(serialized).not.toContain('MCP-HEADER-SECRET');
+    expect(serialized).not.toContain('MCP-AUTH-SECRET');
+    expect(serialized).not.toContain('URL-SECRET');
+  });
+
   it('filters by folder path', () => {
     const r = dispatchTool(
       'list_requests',

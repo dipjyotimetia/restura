@@ -1,13 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, relative } from 'node:path';
-import * as yaml from 'js-yaml';
-import { v4 as uuidv4 } from 'uuid';
 import { isConfiguredAuth, resolveEffectiveAuth } from '@shared/auth/inheritance';
-import {
-  loadCollectionFromDir,
-  loadCollectionFromFile,
-} from '@shared/opencollection/node/fs-reader';
-import { ocToInternal } from '@shared/opencollection/to-internal';
 import {
   fileCollectionMetaSchema,
   fileGrpcRequestSchema,
@@ -16,6 +9,12 @@ import {
   fileSseRequestSchema,
   getRequestTypeFromFilename,
 } from '@shared/collections/legacy-file-schema';
+import {
+  loadCollectionFromDir,
+  loadCollectionFromFile,
+} from '@shared/opencollection/node/fs-reader';
+import { ocToInternal } from '@shared/opencollection/to-internal';
+import { resolveMcpEffectiveAuth } from '@shared/protocol/mcp-auth';
 import type {
   AuthConfig,
   Collection,
@@ -25,6 +24,8 @@ import type {
   McpRequest,
   SseRequest,
 } from '@shared/types';
+import * as yaml from 'js-yaml';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface LoadedRequest {
   /** Absolute path to the source file when loaded from a directory layout. */
@@ -209,7 +210,12 @@ function walkItems(
     const test = combineScripts([...inheritedTest, req.testScript]);
     const effective = {
       ...req,
-      auth: resolveEffectiveAuth(req.auth, inheritedAuth),
+      // MCP skips an inherited scheme it can't carry (shared policy, #896) —
+      // the same rule the app applies at connect time.
+      auth:
+        t === 'mcp'
+          ? (resolveMcpEffectiveAuth(req.auth, inheritedAuth).auth ?? req.auth)
+          : resolveEffectiveAuth(req.auth, inheritedAuth),
       ...(pre !== undefined ? { preRequestScript: pre } : {}),
       ...(test !== undefined ? { testScript: test } : {}),
     } as HttpRequest | GrpcRequest | SseRequest | McpRequest;

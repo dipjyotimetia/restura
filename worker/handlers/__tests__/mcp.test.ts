@@ -126,3 +126,26 @@ describe('mcp handler', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });
+
+describe('mcp handler — connection auth on the wire (#896)', () => {
+  it('forwards renderer-applied MCP credentials (Bearer / API-key headers) upstream', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', mockFetch);
+    const res = await makeRequest({
+      url: 'https://api.example.com/mcp',
+      transport: 'streamable-http',
+      headers: { Authorization: 'Bearer web-token', 'X-API-Key': 'k-1', Cookie: 'sess=1' },
+      jsonRpc: { method: 'tools/list', id: 1 },
+    });
+    expect(res.status).toBe(200);
+    const sent = mockFetch.mock.calls[0]?.[1] as { headers: Record<string, string> };
+    expect(sent.headers.Authorization).toBe('Bearer web-token');
+    expect(sent.headers['X-API-Key']).toBe('k-1');
+    expect(sent.headers.Cookie).toBeUndefined();
+  });
+});

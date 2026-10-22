@@ -8,6 +8,7 @@ import { cleanupSocketIOConnectionForTab } from '@/features/socketio/lib/connect
 import { cleanupWebSocketConnectionForTab } from '@/features/websocket/lib/connectionLifecycle';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { redactMcpRequestForWebPersistence } from '@/lib/shared/mcpWebPersistence';
 import { disposeRetainedMonacoModelsForOwner } from '@/lib/shared/monacoModelLifecycle';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
 import { validateRequestUpdate } from '@/lib/shared/store-validators';
@@ -555,6 +556,8 @@ export const useRequestStore = create<RequestState>()(
         tabs: state.tabs.map(
           ({ streamingEvents: _streamingEvents, response: _response, ...rest }) => ({
             ...rest,
+            // #896: MCP credentials never reach the browser's unencrypted IndexedDB.
+            request: redactMcpRequestForWebPersistence(rest.request),
             response: null,
           })
         ),

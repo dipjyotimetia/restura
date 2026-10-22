@@ -1,5 +1,5 @@
-import { createServer, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { createServer, type Server } from 'node:http';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
@@ -18,6 +18,8 @@ export interface MockMcpServerHandle {
   methodsReceived: () => string[];
   initializeCount: () => number;
   toolCallCount: () => number;
+  /** `Authorization` header of every request received (#896), `''` when absent. */
+  authorizationsReceived: () => string[];
   reset: () => void;
 }
 
@@ -95,9 +97,14 @@ const SERVER_OPTIONS = {
  * re-connect — so a shared server across requests breaks the second one.
  */
 export async function startMockMcpServer(
-  opts: { port?: number } = {}
+  opts: {
+    port?: number;
+    /** When set, any request whose `Authorization` differs gets a 401 (#896). */
+    requireAuthorization?: string;
+  } = {}
 ): Promise<MockMcpServerHandle> {
   const methodsReceived: string[] = [];
+  const authorizationsReceived: string[] = [];
   let initializeCount = 0;
   let toolCallCount = 0;
 
@@ -160,6 +167,16 @@ export async function startMockMcpServer(
       res.setHeader('mcp-session-id', advertisedSessionId);
       if (handlePreflight(req, res)) return;
 
+      authorizationsReceived.push(req.headers.authorization ?? '');
+      if (
+        opts.requireAuthorization !== undefined &&
+        req.headers.authorization !== opts.requireAuthorization
+      ) {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'unauthorized' }));
+        return;
+      }
+
       if (!req.url?.startsWith('/mcp')) {
         res.writeHead(404, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'not_found' }));
@@ -196,8 +213,10 @@ export async function startMockMcpServer(
     methodsReceived: () => methodsReceived.slice(),
     initializeCount: () => initializeCount,
     toolCallCount: () => toolCallCount,
+    authorizationsReceived: () => authorizationsReceived.slice(),
     reset: () => {
       methodsReceived.splice(0, methodsReceived.length);
+      authorizationsReceived.splice(0, authorizationsReceived.length);
       initializeCount = 0;
       toolCallCount = 0;
     },

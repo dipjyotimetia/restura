@@ -4,9 +4,10 @@ import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { Floater, ProtoChip, Segmented, VariableText } from '@/components/ui/spatial';
+import { McpAuthPanel } from '@/features/mcp/components/McpAuthPanel';
 import type { McpConnection } from '@/features/mcp/store/useMcpStore';
 import { cn } from '@/lib/shared/utils';
-import type { KeyValue, McpTransportType } from '@/types';
+import type { AuthConfig, KeyValue, McpTransportType } from '@/types';
 
 interface McpConnectionPanelProps {
   connection: McpConnection;
@@ -15,6 +16,10 @@ interface McpConnectionPanelProps {
   onUrlChange: (url: string) => void;
   onTransportChange: (transport: McpTransportType) => void;
   onHeadersChange: (headers: KeyValue[]) => void;
+  /** The tab's MCP request id (drives folder/collection auth inheritance). */
+  requestId: string;
+  auth: AuthConfig;
+  onAuthChange: (auth: AuthConfig) => void;
   onConnect: () => Promise<void>;
   onDisconnect: () => Promise<void>;
   onRefresh: () => Promise<void>;
@@ -33,11 +38,15 @@ export function McpConnectionPanel({
   onUrlChange,
   onTransportChange,
   onHeadersChange,
+  requestId,
+  auth,
+  onAuthChange,
   onConnect,
   onDisconnect,
   onRefresh,
 }: McpConnectionPanelProps) {
   const [headersOpen, setHeadersOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
   const isConnected = connection.status === 'connected';
   const isBusy = connection.status === 'connecting';
   const isError = connection.status === 'error';
@@ -185,6 +194,43 @@ export function McpConnectionPanel({
                 addLabel="Add header"
                 resolvesVariables="connection"
                 httpHeaders
+              />
+            </div>
+          )}
+        </Floater>
+      </div>
+
+      <div className="px-3 pb-2 shrink-0">
+        <Floater
+          radius="panel"
+          elevation="float"
+          className="bg-sp-surface border border-sp-line overflow-hidden"
+        >
+          <button
+            type="button"
+            onClick={() => setAuthOpen((open) => !open)}
+            className="w-full flex items-center justify-between px-3 h-9 hover:bg-sp-hover"
+            aria-expanded={authOpen}
+          >
+            <span className="sp-label">
+              Auth
+              {auth.type !== 'none' && (
+                <span className="ml-1.5 font-mono normal-case text-sp-dim">({auth.type})</span>
+              )}
+            </span>
+            {authOpen ? (
+              <ChevronDown className="h-3.5 w-3.5 text-sp-dim" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 text-sp-dim" />
+            )}
+          </button>
+          {authOpen && (
+            <div className="px-3 py-3 border-t border-sp-line">
+              <McpAuthPanel
+                requestId={requestId}
+                auth={auth}
+                onChange={onAuthChange}
+                disabled={isConnected || isBusy}
               />
             </div>
           )}

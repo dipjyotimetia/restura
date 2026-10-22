@@ -15,6 +15,11 @@ import {
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
+  materializeMcpConnectAuth,
+  needsMcpConnectAuth,
+  redactDeep,
+} from '../security/mcp-connect-auth';
+import {
   assertPinnedFetchCanHonorPolicy,
   createPolicyPinnedFetch,
   type PolicyTransportConfig,
@@ -61,6 +66,10 @@ interface McpSession {
   client?: McpSdkClient;
   /** Server→client requests (elicitation / sampling / roots) for this session. */
   clientRequests?: McpClientRequestBridge;
+  /** Scrubs main-resolved auth plaintext (#896) from text sent to the renderer. */
+  redact: (text: string) => string;
+  /** Deep variant of `redact` for server-controlled JSON (results, error data, notifications). */
+  scrub: <T>(value: T) => T;
   /** Set before an intentional close so onclose/onerror don't emit events. */
   disposed: boolean;
 }
@@ -168,6 +177,11 @@ export function registerMcpHandlerIPC(): void {
     const claim = reserveMcpClaim(config.connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
     const key = ownerScopedKey(config.connectionId, webContentsId);
+    // Scrubs main-resolved credential plaintext from everything this
+    // connection sends back to the renderer (replies, error events) and logs.
+    let redact = (text: string) => text;
+    let headers = config.headers ?? {};
+    let hasResolvedSecrets = false;
 
     try {
       // SSRF guard: resolve once, validate every record, and pin the connection
@@ -190,18 +204,46 @@ export function registerMcpHandlerIPC(): void {
         return { success: false, error: 'Not connected' };
       }
 
+      // #896: resolve SecretRef-handle / external auth here (ADR-0007) — after
+      // the rate / capacity gates AND the SSRF guard, so a blocked URL never
+      // triggers a keychain or vault lookup. Header only: the URL pinned above
+      // is never changed.
+      if (needsMcpConnectAuth(config)) {
+        try {
+          const materialized = await materializeMcpConnectAuth({
+            url: policyConfig.url,
+            headers,
+            auth: config.auth,
+          });
+          headers = materialized.headers;
+          redact = materialized.redact;
+          hasResolvedSecrets = true;
+        } catch (err) {
+          // Materializer errors are plaintext-free by construction.
+          return { success: false, error: `MCP auth setup failed: ${errorMessage(err)}` };
+        }
+        if (pendingSessions.get(key)?.token !== claim.token) {
+          return { success: false, error: 'Not connected' };
+        }
+      }
+      // Server-controlled payloads (results, error data, notifications) may
+      // echo the resolved credential — scrub them before they reach the renderer.
+      const scrub = <T>(value: T): T => (hasResolvedSecrets ? redactDeep(value, redact) : value);
+
       // User headers ride as the transport's base `requestInit`; the SDK applies
       // them to every request (the GET SSE stream included) and sets its own
       // protocol headers (Accept, Content-Type) after the merge, so they win.
       const transportOptions = {
         fetch: pinnedFetch as (url: string | URL, init?: RequestInit) => Promise<Response>,
-        requestInit: { headers: config.headers ?? {} },
+        requestInit: { headers },
       };
       const session: McpSession = {
         connectionId: config.connectionId,
         url: policyConfig.url,
         webContentsId,
         createdAt: Date.now(),
+        redact,
+        scrub,
         disposed: false,
         clientRequests: new McpClientRequestBridge(config.connectionId, webContentsId),
       };
@@ -212,12 +254,12 @@ export function registerMcpHandlerIPC(): void {
           emitTo(
             webContentsId,
             eventChannel(EVENT_PREFIX.mcp.notification, config.connectionId),
-            notification
+            scrub(notification)
           );
         },
         onError: (err: Error) => {
           if (session.disposed) return;
-          const message = errorMessage(err);
+          const message = redact(errorMessage(err));
           log.warn('client error', { connectionId: config.connectionId, error: message });
           emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.error, config.connectionId), {
             message,
@@ -307,7 +349,7 @@ export function registerMcpHandlerIPC(): void {
           session.clientRequests?.dispose();
           void session.client?.close().catch(() => {});
         }
-        const message = errorMessage(err);
+        const message = redact(errorMessage(err));
         log.warn('connect failed', { connectionId: config.connectionId, error: message });
         return { success: false, error: message };
       }
@@ -335,11 +377,11 @@ export function registerMcpHandlerIPC(): void {
             const protocolVersion = session.client.getProtocolVersion();
             return {
               success: true,
-              result: {
+              result: session.scrub({
                 protocolVersion,
                 capabilities: session.client.getServerCapabilities() ?? {},
                 serverInfo: session.client.getServerVersion(),
-              },
+              }),
             };
           }
 
@@ -351,7 +393,7 @@ export function registerMcpHandlerIPC(): void {
           // The v2 client owns request schemas and JSON-RPC ids; the renderer
           // only receives the normalized result.
           const result = await session.client.request(config.method, config.params, timeoutMs);
-          return { success: true, result };
+          return { success: true, result: session.scrub(result) };
         } catch (err) {
           if (
             err &&
@@ -362,10 +404,14 @@ export function registerMcpHandlerIPC(): void {
             const typed = err as { code: number; message: string; data?: unknown };
             return {
               success: false,
-              jsonRpcError: { code: typed.code, message: typed.message, data: typed.data },
+              jsonRpcError: {
+                code: typed.code,
+                message: session.redact(typed.message),
+                data: session.scrub(typed.data),
+              },
             };
           }
-          return { success: false, error: errorMessage(err) };
+          return { success: false, error: session.redact(errorMessage(err)) };
         }
       })
     )
