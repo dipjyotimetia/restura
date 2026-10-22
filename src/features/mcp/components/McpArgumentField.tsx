@@ -6,6 +6,8 @@ export interface McpArgumentField {
   required: boolean;
   description?: string;
   isComplex: boolean;
+  /** Mask the value and warn: the name/format suggests a secret (MCP elicitation). */
+  sensitive?: boolean;
 }
 
 interface McpArgumentFieldProps {
@@ -55,9 +57,16 @@ export function McpArgumentField({ field, value, error, onChange }: McpArgumentF
           onChange={(event) => onChange(event.target.value)}
           aria-invalid={error !== undefined}
           aria-describedby={error ? `${field.name}-error` : undefined}
+          aria-label={field.name}
+          {...(field.sensitive ? { type: 'password', autoComplete: 'off' } : {})}
           placeholder={field.type === 'boolean' ? 'true / false' : field.type}
           className="w-full"
         />
+      )}
+      {field.sensitive && (
+        <p className="text-sp-11-5 text-amber-500 dark:text-amber-400" role="note">
+          This looks like a secret. Restura never needs you to type passwords or keys here.
+        </p>
       )}
       {error && (
         <p id={`${field.name}-error`} className="text-sp-11-5 text-rose-400" role="alert">

@@ -21,6 +21,11 @@ import {
   resolvePolicyTransport,
 } from '../security/policy-transport';
 import { resolveSafeAddress } from '../security/safe-connect';
+import {
+  McpClientRequestBridge,
+  registerMcpClientRequestIPC,
+  stopMcpClientRequests,
+} from './mcp-client-requests';
 import { connectMcpSdkClient, type McpSdkClient } from './mcp-sdk-client';
 
 const log = createLogger('mcp');
@@ -54,6 +59,8 @@ interface McpSession {
   webContentsId: number;
   createdAt: number;
   client?: McpSdkClient;
+  /** Server→client requests (elicitation / sampling / roots) for this session. */
+  clientRequests?: McpClientRequestBridge;
   /** Set before an intentional close so onclose/onerror don't emit events. */
   disposed: boolean;
 }
@@ -61,6 +68,7 @@ interface McpSession {
 function disposeSession(s: McpSession): void {
   if (s.disposed) return;
   s.disposed = true;
+  s.clientRequests?.dispose();
   // Best-effort DELETE so well-behaved streamable-HTTP servers can free the session.
   void s.client?.terminateSession().catch(() => {});
   // close() also closes the selected client transport.
@@ -134,6 +142,7 @@ function cancelPendingMcpClaimForOwner(connectionId: string, webContentsId: numb
 }
 
 export function registerMcpHandlerIPC(): void {
+  registerMcpClientRequestIPC();
   ipcMain.handle(IPC.mcp.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.mcp.connect, event);
     const config = validateIpcInput(McpConnectSchema, rawConfig, IPC.mcp.connect);
@@ -194,6 +203,7 @@ export function registerMcpHandlerIPC(): void {
         webContentsId,
         createdAt: Date.now(),
         disposed: false,
+        clientRequests: new McpClientRequestBridge(config.connectionId, webContentsId),
       };
 
       const events = {
@@ -216,6 +226,7 @@ export function registerMcpHandlerIPC(): void {
         onClose: () => {
           if (session.disposed) return;
           session.disposed = true;
+          session.clientRequests?.dispose();
           if (sessions.get(config.connectionId, webContentsId) === session) {
             sessions.remove(config.connectionId, webContentsId);
             emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.close, config.connectionId), {
@@ -242,8 +253,10 @@ export function registerMcpHandlerIPC(): void {
               transport: config.transport,
               transportOptions,
               events,
+              ...(session.clientRequests ? { clientRequests: session.clientRequests } : {}),
               onClientCreated: (client) => {
                 session.client = client;
+                session.clientRequests?.attachClient(client);
               },
             }).then((client) => {
               session.client = client;
@@ -291,6 +304,7 @@ export function registerMcpHandlerIPC(): void {
       } catch (err) {
         if (!session.disposed) {
           session.disposed = true;
+          session.clientRequests?.dispose();
           void session.client?.close().catch(() => {});
         }
         const message = errorMessage(err);
@@ -374,4 +388,5 @@ export function stopMcpCleanup(): void {
   }
   pendingSessions.clear();
   sessions.disposeAll();
+  stopMcpClientRequests();
 }

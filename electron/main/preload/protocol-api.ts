@@ -45,6 +45,10 @@ export const protocolApi: ProtocolApi = {
     connect: invoke<ElectronAPI['mcp']['connect']>(IPC.mcp.connect),
     request: invoke<ElectronAPI['mcp']['request']>(IPC.mcp.request),
     disconnect: invoke<ElectronAPI['mcp']['disconnect']>(IPC.mcp.disconnect),
+    respondClientRequest: invoke<ElectronAPI['mcp']['respondClientRequest']>(
+      IPC.mcp.clientResponse
+    ),
+    setRoots: invoke<ElectronAPI['mcp']['setRoots']>(IPC.mcp.setRoots),
     ...channelEventBridge(CHANNEL_PREFIXES.mcp),
   },
   kafka: {

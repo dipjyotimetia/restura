@@ -49,7 +49,19 @@ After connecting, Restura uses the v2 client's typed operations for every standa
 
 ### Modern server coverage
 
-Restura's v2 test server exercises modern discovery alongside tools, prompts, resources, cache hints, schema-declared request headers, multi-round `input_required` responses, and change subscriptions. The MCP workspace currently presents the core catalogue and request operations; it does not yet provide dedicated UI flows for interactive `input_required` prompts or managing subscriptions.
+Restura's v2 test server exercises modern discovery alongside tools, prompts, resources, cache hints, schema-declared request headers, multi-round `input_required` responses, and change subscriptions. The MCP workspace presents the core catalogue and request operations; it does not yet provide a dedicated UI for managing subscriptions.
+
+### Elicitation, sampling and roots <Badge text="desktop only" variant="caution" />
+
+Servers sometimes need something from the client mid-call. The desktop app advertises the `elicitation` (form mode), `sampling` and `roots` (with `listChanged`) client capabilities and answers those requests, both as 2025-era server→client requests and as 2026-07-28 multi-round `input_required` tool, prompt and resource results. In the second case the tool call simply completes once you answer.
+
+- **Elicitation** opens a form built from the server's `requestedSchema` (the same field editor as tool arguments). **Accept** sends the content only after it passes the schema check, which runs in the form and again in the main process. **Decline** and **Cancel** send the matching spec action. Closing the dialog counts as Cancel. URL-mode elicitation is not advertised.
+- **Sampling** is never answered automatically. The dialog shows the system prompt, every message, the model preferences and `maxTokens`. You write the assistant response, or click **Draft with …** to fill it in from the provider configured for the [AI assistant](/guides/ai-assistant/). The draft is sent with secret redaction on, and nothing reaches the server until you click **Approve & send**. **Reject** (or closing the dialog) returns a "user rejected" error to the server.
+- **Roots**: the **Roots** panel under the connection bar holds a per-connection list of `file://` URIs, saved with the connection. The server receives this list from `roots/list`. Saving an edit sends `notifications/roots/list_changed` to a connected server.
+
+A prompt nobody answers expires after 5 minutes. A server may have at most 8 prompts waiting per connection. Prompts are withdrawn when the server cancels the request or the connection closes. Answers are accepted only from the window that opened the connection. Every prompt names the connection and server host and carries a fixed warning never to enter passwords or API keys. Fields whose name or format suggests a secret are masked and flagged. Pressing Enter never accepts a form, and focus starts on Decline or Reject. Roots must be local `file://` paths: no remote host and no credentials. Server requests larger than 100 KB are refused. On 2025-era servers the tool call that triggered the prompt keeps its own request timeout (60 seconds by default). If you take longer to answer, that call fails even though the prompt is still open.
+
+The web build cannot receive server→client requests because its Worker proxy is request/response only, so these flows exist only in the desktop app.
 
 The same URL validation, DNS pinning, header policy, and Electron IPC validation apply before the SDK is allowed to connect.
 

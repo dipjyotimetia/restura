@@ -8,6 +8,7 @@ export function useMcpConnectionActions() {
       setUrl: state.setUrl,
       setTransport: state.setTransport,
       setHeaders: state.setHeaders,
+      setRoots: state.setRoots,
       setStatus: state.setStatus,
       setCapabilities: state.setCapabilities,
       resetConnectionSession: state.resetConnectionSession,

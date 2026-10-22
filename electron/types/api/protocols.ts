@@ -251,10 +251,43 @@ export interface ElectronMcpAPI {
     jsonRpcError?: { code: number; message: string; data?: unknown };
   }>;
   disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
+  /** Answer a server→client request delivered on `mcp:client-request:<connectionId>` (#860). */
+  respondClientRequest: (
+    response: McpClientResponseIpc
+  ) => Promise<
+    { success: true } | { success: false; error: string; fieldErrors?: Record<string, string> }
+  >;
+  /** Replace the connection's roots; live sessions get notifications/roots/list_changed. */
+  setRoots: (config: {
+    connectionId: string;
+    roots: McpRootIpc[];
+  }) => Promise<{ success: true; notified: number } | { success: false; error: string }>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeAllListeners: (channel: string) => void;
 }
+
+export interface McpRootIpc {
+  uri: string;
+  name?: string;
+}
+
+export type McpClientResponseIpc =
+  | {
+      kind: 'elicitation';
+      connectionId: string;
+      requestId: string;
+      response:
+        | { action: 'accept'; content: Record<string, string | number | boolean | string[]> }
+        | { action: 'decline' }
+        | { action: 'cancel' };
+    }
+  | {
+      kind: 'sampling';
+      connectionId: string;
+      requestId: string;
+      response: { action: 'approve'; text: string; model: string } | { action: 'reject' };
+    };
 
 export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512' | 'OAUTHBEARER';
 

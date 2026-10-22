@@ -49,6 +49,8 @@ vi.mock('@modelcontextprotocol/client', () => ({
     getServerVersion = vi.fn(() => ({ name: 'v2-server', version: '2.0.0' }));
     getNegotiatedProtocolVersion = vi.fn(() => v2State.negotiatedProtocolVersion);
     getProtocolEra = vi.fn(() => 'modern');
+    setRequestHandler = vi.fn();
+    sendRootsListChanged = vi.fn(async () => undefined);
     constructor(_clientInfo: unknown, options: unknown) {
       v2State.clientOptions.push(options);
       v2State.clients.push(this);

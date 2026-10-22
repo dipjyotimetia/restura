@@ -1,12 +1,13 @@
 import { createServer, type Server } from 'node:http';
+import { toNodeHandler } from '@modelcontextprotocol/node';
 import {
   acceptedContent,
   completable,
   createMcpHandler,
   inputRequired,
+  inputResponse,
   McpServer,
 } from '@modelcontextprotocol/server';
-import { toNodeHandler } from '@modelcontextprotocol/node';
 import { z } from 'zod';
 import { applyCors, bindLocalhost, closeServer, handlePreflight } from '../utils/serverHelpers';
 
@@ -80,6 +81,10 @@ export async function startMockMcpV2Server(
           z.object({ confirm: z.literal(true) })
         );
         if (confirmed) return { content: [{ type: 'text', text: `deployed:${environment}` }] };
+        const answer = inputResponse(ctx.mcpReq.inputResponses, 'confirm');
+        if (answer.kind === 'elicit' && answer.action !== 'accept') {
+          return { content: [{ type: 'text', text: `deploy:${answer.action}` }] };
+        }
 
         return inputRequired({
           inputRequests: {
@@ -93,6 +98,46 @@ export async function startMockMcpV2Server(
             }),
           },
         });
+      }
+    );
+
+    mcp.registerTool(
+      'ask-model',
+      {
+        description: 'Exercises v2 input_required sampling',
+        inputSchema: z.object({ question: z.string() }),
+      },
+      async ({ question }, ctx) => {
+        const answer = inputResponse(ctx.mcpReq.inputResponses, 'answer');
+        if (answer.kind === 'sampling') {
+          const content = answer.result.content;
+          const text = !Array.isArray(content) && content.type === 'text' ? content.text : '';
+          return { content: [{ type: 'text', text: `model:${answer.result.model}:${text}` }] };
+        }
+        return inputRequired({
+          inputRequests: {
+            answer: inputRequired.createMessage({
+              messages: [{ role: 'user', content: { type: 'text', text: question } }],
+              maxTokens: 64,
+            }),
+          },
+        });
+      }
+    );
+    mcp.registerTool(
+      'list-roots',
+      {
+        description: 'Exercises v2 input_required roots/list',
+        inputSchema: z.object({}),
+      },
+      async (_args, ctx) => {
+        const answer = inputResponse(ctx.mcpReq.inputResponses, 'roots');
+        if (answer.kind === 'roots') {
+          return {
+            content: [{ type: 'text', text: answer.roots.map((root) => root.uri).join(',') }],
+          };
+        }
+        return inputRequired({ inputRequests: { roots: inputRequired.listRoots() } });
       }
     );
 
