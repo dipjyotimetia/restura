@@ -16,11 +16,16 @@
  * scheme MCP can't carry (e.g. AWS SigV4 for the HTTP siblings) is skipped
  * with a notice; the request's OWN unsupported / empty auth fails closed.
  *
- * Extension point (#856, OAuth 2.1): the `oauth2` case of {@link pickMcpAuth}
- * already forwards an access token; the OAuth flow adds token acquisition.
+ * OAuth 2.1 (#856, ADR 0031): an `oauth2` auth without an access token is the
+ * interactive MCP sign-in. Desktop forwards only the flow configuration
+ * (client id, client-secret SecretRef, scope, redirect URI) — Electron main
+ * runs discovery / registration / PKCE / refresh and keeps the tokens. Web
+ * fails closed with a clear "desktop only" error.
  */
 import {
+  isMcpOAuthFlow,
   isMcpTransportHeader,
+  MCP_OAUTH_DESKTOP_ONLY_MESSAGE,
   mcpAuthLabel,
   mcpAuthUnsupportedReason,
   resolveMcpEffectiveAuth,
@@ -76,6 +81,23 @@ export function pickMcpAuth(auth: AuthConfig): AuthConfig {
         apiKey: { key: auth.apiKey?.key ?? '', value: auth.apiKey?.value ?? '', in: 'header' },
       };
     case 'oauth2':
+      if (isMcpOAuthFlow(auth)) {
+        const o = auth.oauth2;
+        return {
+          type: 'oauth2',
+          oauth2: {
+            accessToken: '',
+            grantType: 'authorization_code',
+            ...(o?.clientId?.trim() ? { clientId: o.clientId.trim() } : {}),
+            ...(o?.clientSecret && unwrapSecretValueOrRef(o.clientSecret)
+              ? { clientSecret: o.clientSecret }
+              : {}),
+            ...(o?.scope?.trim() ? { scope: o.scope.trim() } : {}),
+            ...(o?.redirectUri?.trim() ? { redirectUri: o.redirectUri.trim() } : {}),
+            ...(o?.issuer?.trim() ? { issuer: o.issuer.trim() } : {}),
+          },
+        };
+      }
       return {
         type: 'oauth2',
         oauth2: {
@@ -90,6 +112,11 @@ export function pickMcpAuth(auth: AuthConfig): AuthConfig {
 
 function isOpaqueRef(value: SecretValue | undefined): boolean {
   return isSecretHandle(value) || isExternalSecretRef(value);
+}
+
+/** True when a secret field is set (inline non-empty, or any opaque ref). */
+function unwrapSecretValueOrRef(value: SecretValue): boolean {
+  return isOpaqueRef(value) || unwrapSecret(value) !== '';
 }
 
 /** The secret-bearing field of a picked header auth. */
@@ -154,6 +181,13 @@ export function buildMcpConnectAuth(input: McpConnectAuthInput): McpConnectAuth 
 
   const reason = mcpAuthUnsupportedReason(effective);
   if (reason) return { ok: false, error: reason };
+
+  if (isMcpOAuthFlow(effective)) {
+    // #856: browser sign-in + token storage need Electron main.
+    if (!input.desktop) return { ok: false, error: MCP_OAUTH_DESKTOP_ONLY_MESSAGE };
+    const picked = pickMcpAuth(resolveAuthVariables(effective, input.resolve));
+    return { ok: true, headers: input.headers, mainSideAuth: picked, notices };
+  }
 
   const picked = pickMcpAuth(resolveAuthVariables(effective, input.resolve));
   const missing = missingCredential(picked, input.desktop);

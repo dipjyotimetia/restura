@@ -49,6 +49,8 @@ export const protocolApi: ProtocolApi = {
       IPC.mcp.clientResponse
     ),
     setRoots: invoke<ElectronAPI['mcp']['setRoots']>(IPC.mcp.setRoots),
+    oauthStatus: invoke<ElectronAPI['mcp']['oauthStatus']>(IPC.mcp.oauthStatus),
+    oauthSignOut: invoke<ElectronAPI['mcp']['oauthSignOut']>(IPC.mcp.oauthSignOut),
     ...channelEventBridge(CHANNEL_PREFIXES.mcp),
   },
   kafka: {

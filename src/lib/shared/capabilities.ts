@@ -37,6 +37,7 @@ export type CapabilityName =
   | 'mcp.serverNotifications'
   | 'mcp.resourceSubscriptions'
   | 'mcp.auth'
+  | 'mcp.oauth'
   | 'grpc.basic'
   | 'grpc.reflection'
   | 'grpc.web'
@@ -245,6 +246,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes:
       'Desktop can store the credential as an OS-keychain or external SecretRef handle, resolved in the main process at connect time; web is inline-only and never persists the request’s own MCP credentials to IndexedDB (re-enter after reload). SecretRef-backed {{secret variables}} in MCP auth/headers are not resolved yet on either platform',
+  },
+  'mcp.oauth': {
+    label: 'MCP OAuth 2.1 sign-in (PKCE, PRM discovery, dynamic registration)',
+    web: false,
+    desktop: true,
+    notes:
+      'Desktop runs the flow in the main process: system browser + 127.0.0.1 loopback redirect, tokens kept only in the OS-keychain-encrypted secret store and refreshed automatically (ADR 0031). Web/self-host and the CLI do not run the browser sign-in — paste an access token as Bearer auth instead',
   },
   'grpc.basic': {
     label: 'gRPC unary + streaming',

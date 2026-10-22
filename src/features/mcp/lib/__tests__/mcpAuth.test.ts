@@ -241,3 +241,125 @@ describe('McpClient auth wiring', () => {
     });
   });
 });
+
+describe('MCP OAuth 2.1 flow config (#856)', () => {
+  const flowAuth: AuthConfig = {
+    type: 'oauth2',
+    oauth2: {
+      accessToken: '',
+      grantType: 'authorization_code',
+      clientId: ' my-client ',
+      clientSecret: { kind: 'handle', id: 'cs-1' },
+      scope: 'mcp:tools',
+      redirectUri: '',
+      // Stale HTTP-flow fields must not cross IPC.
+      tokenUrl: 'https://as.example.com/token',
+      refreshToken: 'stale-refresh',
+    },
+  };
+
+  it('web: fails closed with a desktop-only message (no token is ever minted in the browser)', () => {
+    const out = build(flowAuth);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.error).toMatch(/desktop app/);
+  });
+
+  it('desktop: forwards only the flow configuration for Electron main', () => {
+    const out = build(flowAuth, { desktop: true });
+    expect(out).toEqual({
+      ok: true,
+      headers: { 'X-Trace': '1' },
+      mainSideAuth: {
+        type: 'oauth2',
+        oauth2: {
+          accessToken: '',
+          grantType: 'authorization_code',
+          clientId: 'my-client',
+          clientSecret: { kind: 'handle', id: 'cs-1' },
+          scope: 'mcp:tools',
+        },
+      },
+      notices: [],
+    });
+  });
+
+  it('desktop: forwards a fixed redirect URI and an inline client secret, drops an empty one', () => {
+    const withRedirect = build(
+      {
+        type: 'oauth2',
+        oauth2: {
+          accessToken: '',
+          grantType: 'authorization_code',
+          clientId: 'c',
+          clientSecret: { kind: 'inline', value: 's' },
+          redirectUri: ' http://127.0.0.1:8765/cb ',
+          issuer: ' https://as.example.com ',
+        },
+      },
+      { desktop: true }
+    );
+    expect(withRedirect).toMatchObject({
+      ok: true,
+      mainSideAuth: {
+        oauth2: {
+          clientId: 'c',
+          clientSecret: { kind: 'inline', value: 's' },
+          redirectUri: 'http://127.0.0.1:8765/cb',
+          issuer: 'https://as.example.com',
+        },
+      },
+    });
+    const emptySecret = build(
+      {
+        type: 'oauth2',
+        oauth2: {
+          accessToken: '',
+          grantType: 'authorization_code',
+          clientId: 'c',
+          clientSecret: { kind: 'inline', value: '' },
+        },
+      },
+      { desktop: true }
+    );
+    expect(emptySecret.ok && emptySecret.mainSideAuth?.oauth2?.clientSecret).toBeFalsy();
+  });
+
+  it('desktop: a dynamic-registration flow sends no client fields', () => {
+    const out = build(
+      {
+        type: 'oauth2',
+        oauth2: { accessToken: '', grantType: 'authorization_code', clientSecret: '' },
+      },
+      { desktop: true }
+    );
+    expect(out).toMatchObject({
+      ok: true,
+      mainSideAuth: {
+        type: 'oauth2',
+        oauth2: { accessToken: '', grantType: 'authorization_code' },
+      },
+    });
+  });
+
+  it('desktop: surfaces authRequired from main on connect and requests', async () => {
+    const connect = vi.fn(async () => ({ success: false, error: 'expired', authRequired: true }));
+    const request = vi.fn(async () => ({ success: false, error: 'expired', authRequired: true }));
+    (window as { electron?: unknown }).electron = { isElectron: true, mcp: { connect, request } };
+    const client = new McpClient({
+      url: 'https://mcp.example.com/mcp',
+      transport: 'streamable-http',
+      headers: {},
+      connectionId: 'c3',
+    });
+    await expect(client.connect()).resolves.toEqual({
+      ok: false,
+      error: 'expired',
+      authRequired: true,
+    });
+    await expect(client.request('tools/list')).resolves.toMatchObject({
+      ok: false,
+      authRequired: true,
+    });
+    delete (window as { electron?: unknown }).electron;
+  });
+});

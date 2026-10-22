@@ -1,9 +1,16 @@
-import { MCP_EDITOR_AUTH_TYPES, mcpAuthUnsupportedReason } from '@shared/protocol/mcp-auth';
+import {
+  isMcpOAuthFlow,
+  MCP_DESKTOP_ONLY_AUTH_TYPES,
+  MCP_EDITOR_AUTH_TYPES,
+  MCP_OAUTH_DESKTOP_ONLY_MESSAGE,
+  mcpAuthUnsupportedReason,
+} from '@shared/protocol/mcp-auth';
 import { Segmented } from '@/components/ui/spatial';
 import { ApiKeyAuthEditor } from '@/features/auth/components/editors/ApiKeyAuthEditor';
 import { BearerAuthEditor } from '@/features/auth/components/editors/BearerAuthEditor';
 import { UnappliedAuthNotice } from '@/features/auth/components/editors/UnappliedAuthNotice';
 import { InheritedAuthHint, useInheritedAuth } from '@/features/auth/components/InheritedAuthHint';
+import { McpOAuthEditor } from '@/features/mcp/components/McpOAuthEditor';
 import { isElectron } from '@/lib/shared/platform';
 import type { AuthConfig, AuthType } from '@/types';
 
@@ -13,12 +20,20 @@ const LABELS: Record<McpEditorAuthType, string> = {
   none: 'None',
   bearer: 'Bearer',
   'api-key': 'API Key',
+  oauth2: 'OAuth 2.1',
 };
 
-const typeOptions = MCP_EDITOR_AUTH_TYPES.map((value) => ({ value, label: LABELS[value] }));
+/** OAuth sign-in is desktop-only (ADR 0031); the web selector hides it. */
+function typeOptionsFor(desktop: boolean) {
+  return MCP_EDITOR_AUTH_TYPES.filter(
+    (value) => desktop || !MCP_DESKTOP_ONLY_AUTH_TYPES.has(value)
+  ).map((value) => ({ value, label: LABELS[value] }));
+}
 
-function isEditorType(type: AuthType): type is McpEditorAuthType {
-  return (MCP_EDITOR_AUTH_TYPES as readonly string[]).includes(type);
+/** Editor-owned auth: the three header types, plus oauth2 only as the MCP sign-in flow. */
+function isEditorAuth(auth: AuthConfig): auth is AuthConfig & { type: McpEditorAuthType } {
+  if (auth.type === 'oauth2') return isMcpOAuthFlow(auth);
+  return (MCP_EDITOR_AUTH_TYPES as readonly string[]).includes(auth.type as AuthType);
 }
 
 /** Switching type keeps only that type's block so stale credentials don't linger. */
@@ -31,6 +46,9 @@ function authForType(type: McpEditorAuthType, current: AuthConfig): AuthConfig {
         type,
         apiKey: { ...(current.apiKey ?? { key: 'X-API-Key', value: '' }), in: 'header' },
       };
+    case 'oauth2':
+      // The sign-in flow config: no token of its own (Electron main acquires it).
+      return { type, oauth2: { accessToken: '', grantType: 'authorization_code' } };
     default:
       return { type: 'none' };
   }
@@ -42,6 +60,8 @@ interface McpAuthPanelProps {
   auth: AuthConfig;
   onChange: (auth: AuthConfig) => void;
   disabled?: boolean;
+  /** MCP server URL (raw, may contain `{{vars}}`) — scopes the OAuth sign-in status. */
+  serverUrl?: string;
 }
 
 /**
@@ -51,25 +71,42 @@ interface McpAuthPanelProps {
  * resolved by Electron main at connect time; on web it is inline-only and is
  * never written to IndexedDB (re-enter after reload).
  */
-export function McpAuthPanel({ requestId, auth, onChange, disabled }: McpAuthPanelProps) {
+export function McpAuthPanel({
+  requestId,
+  auth,
+  onChange,
+  disabled,
+  serverUrl = '',
+}: McpAuthPanelProps) {
   const desktop = isElectron();
   const inherited = useInheritedAuth({ id: requestId, auth });
   const ownReason = mcpAuthUnsupportedReason(auth);
   const inheritedReason = inherited ? mcpAuthUnsupportedReason(inherited.auth) : undefined;
-  const editorAuth = isEditorType(auth.type) ? auth : null;
+  const editorAuth = isEditorAuth(auth) ? auth : null;
+  const oauthFlow = isMcpOAuthFlow(auth);
 
   return (
     <div className="space-y-3" data-testid="mcp-auth-panel">
       <InheritedAuthHint request={{ id: requestId, auth }} />
       <Segmented<McpEditorAuthType>
-        options={typeOptions}
-        value={editorAuth ? (auth.type as McpEditorAuthType) : 'none'}
+        options={typeOptionsFor(desktop)}
+        value={
+          editorAuth && (desktop || !MCP_DESKTOP_ONLY_AUTH_TYPES.has(editorAuth.type))
+            ? editorAuth.type
+            : 'none'
+        }
         onChange={(type) => onChange(authForType(type, auth))}
         size="sm"
         ariaLabel="MCP auth type"
         className={disabled ? 'opacity-60 pointer-events-none' : undefined}
       />
       {auth.type === 'bearer' && <BearerAuthEditor auth={auth} onChange={onChange} />}
+      {oauthFlow && desktop && (
+        <McpOAuthEditor auth={auth} onChange={onChange} serverUrl={serverUrl} disabled={disabled} />
+      )}
+      {oauthFlow && !desktop && (
+        <UnappliedAuthNotice message={MCP_OAUTH_DESKTOP_ONLY_MESSAGE} testId="mcp-oauth-web" />
+      )}
       {auth.type === 'api-key' && (
         <ApiKeyAuthEditor
           auth={auth}
@@ -98,7 +135,7 @@ export function McpAuthPanel({ requestId, auth, onChange, disabled }: McpAuthPan
           testId="mcp-auth-inherited-unsupported"
         />
       )}
-      {auth.type !== 'none' && (
+      {auth.type !== 'none' && !oauthFlow && (
         <p className="text-sp-11 text-sp-muted font-mono" data-testid="mcp-auth-storage-note">
           {desktop
             ? 'Store the credential in the OS keychain to keep it out of saved data — Restura resolves it at connect time.'

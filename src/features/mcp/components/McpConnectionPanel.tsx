@@ -231,6 +231,7 @@ export function McpConnectionPanel({
                 auth={auth}
                 onChange={onAuthChange}
                 disabled={isConnected || isBusy}
+                serverUrl={connection.url}
               />
             </div>
           )}

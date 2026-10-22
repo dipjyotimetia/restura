@@ -83,6 +83,8 @@ export const IPC = {
     clientResponse: 'mcp:client-response',
     /** Replace a connection's roots; sends notifications/roots/list_changed. */
     setRoots: 'mcp:set-roots',
+    oauthStatus: 'mcp:oauth:status',
+    oauthSignOut: 'mcp:oauth:signOut',
   },
   kafka: {
     connect: 'kafka:connect',

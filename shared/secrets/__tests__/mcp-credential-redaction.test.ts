@@ -341,3 +341,62 @@ describe('review follow-ups', () => {
     expect(JSON.stringify(leaked)).not.toContain(TOKEN);
   });
 });
+
+describe('MCP OAuth 2.1 flow config redaction (#856)', () => {
+  const CLIENT_SECRET = 'mcp-oauth-client-secret-789';
+  const oauthRequest = () =>
+    mcpRequest({
+      headers: [],
+      auth: {
+        type: 'oauth2',
+        oauth2: {
+          accessToken: '',
+          grantType: 'authorization_code',
+          clientId: 'restura-desktop',
+          clientSecret: { kind: 'inline', value: CLIENT_SECRET },
+          scope: 'mcp:tools',
+        },
+      },
+    });
+
+  it('blanks an inline client secret in exports and web persistence, keeps the flow config', () => {
+    const collection = {
+      id: 'c',
+      name: 'C',
+      items: [{ id: 'i', name: 'MCP', type: 'request', request: oauthRequest() }],
+    } as unknown as Collection;
+    for (const redacted of [
+      redactCollectionSecrets(collection),
+      redactMcpCollectionCredentials(collection),
+    ]) {
+      const json = JSON.stringify(redacted);
+      expect(json).not.toContain(CLIENT_SECRET);
+      expect(json).toContain('restura-desktop');
+      expect(json).toContain('authorization_code');
+    }
+    expect(JSON.stringify(redactMcpCredentials(oauthRequest()))).not.toContain(CLIENT_SECRET);
+  });
+
+  it('tolerates a legacy sparse collection without items', () => {
+    const sparse = { id: 'c', name: 'Legacy' } as unknown as Collection;
+    expect(redactMcpCollectionCredentials(sparse)).toEqual({ id: 'c', name: 'Legacy' });
+  });
+
+  it('keeps a keychain-handle client secret as an opaque ref', () => {
+    const request = mcpRequest({
+      auth: {
+        type: 'oauth2',
+        oauth2: {
+          accessToken: '',
+          grantType: 'authorization_code',
+          clientId: 'cid',
+          clientSecret: { kind: 'handle', id: 'h-secret' },
+        },
+      },
+    });
+    expect(redactMcpCredentials(request).auth?.oauth2?.clientSecret).toEqual({
+      kind: 'handle',
+      id: 'h-secret',
+    });
+  });
+});

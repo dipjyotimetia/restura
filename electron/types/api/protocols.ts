@@ -231,6 +231,14 @@ export interface ElectronSocketIoAPI {
   removeAllListeners: (channel: string) => void;
 }
 
+export interface McpOAuthStatusIpc {
+  signedIn: boolean;
+  canRefresh: boolean;
+  expiresAt?: number;
+  scope?: string;
+  dynamicallyRegistered: boolean;
+}
+
 export interface ElectronMcpAPI {
   connect: (config: {
     connectionId: string;
@@ -242,7 +250,12 @@ export interface ElectronMcpAPI {
      * Electron main at connect time — the renderer never sees the plaintext.
      */
     auth?: import('../../../shared/types/auth').AuthConfig;
-  }) => Promise<{ success: boolean; error?: string }>;
+  }) => Promise<{
+    success: boolean;
+    error?: string;
+    /** #856: the OAuth sign-in lapsed and can't refresh — prompt to sign in again. */
+    authRequired?: boolean;
+  }>;
   request: (config: {
     connectionId: string;
     method: string;
@@ -254,6 +267,8 @@ export interface ElectronMcpAPI {
     result?: unknown;
     error?: string;
     jsonRpcError?: { code: number; message: string; data?: unknown };
+    /** #856: the OAuth sign-in lapsed and can't refresh — prompt to sign in again. */
+    authRequired?: boolean;
   }>;
   disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
   /** Answer a server→client request delivered on `mcp:client-request:<connectionId>` (#860). */
@@ -267,6 +282,13 @@ export interface ElectronMcpAPI {
     connectionId: string;
     roots: McpRootIpc[];
   }) => Promise<{ success: true; notified: number } | { success: false; error: string }>;
+  /**
+   * MCP OAuth 2.1 (#856): plaintext-free sign-in status for a server (+ static
+   * client id). Tokens never cross IPC.
+   */
+  oauthStatus: (target: { url: string; clientId?: string }) => Promise<McpOAuthStatusIpc>;
+  /** Forget the stored MCP OAuth tokens / registration for a server. */
+  oauthSignOut: (target: { url: string; clientId?: string }) => Promise<{ success: boolean }>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeAllListeners: (channel: string) => void;

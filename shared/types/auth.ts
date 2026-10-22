@@ -51,6 +51,12 @@ export interface AuthConfig {
     deviceAuthorizationUrl?: string;
     scope?: string;
     redirectUri?: string;
+    /**
+     * MCP OAuth (#856): the authorization server issuer a static client is
+     * registered with. Required with a client secret so the secret is only
+     * ever sent to that AS.
+     */
+    issuer?: string;
     // Password grant only
     username?: string;
     password?: SecretValue;

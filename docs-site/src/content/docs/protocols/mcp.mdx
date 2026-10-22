@@ -30,6 +30,7 @@ Open **Auth** under the URL bar to authenticate the connection:
 - **None** — no credential (folder / collection auth is still inherited, as for HTTP requests).
 - **Bearer** — sent as `Authorization: Bearer <token>` (the MCP authorization spec's header).
 - **API Key** — sent as a request header you name (e.g. `X-API-Key`). MCP credentials never go in the query string, so there is no query-param option.
+- **OAuth 2.1** <Badge text="desktop" variant="tip" /> — the MCP authorization flow. See [OAuth 2.1 sign-in](#oauth-21-sign-in) below.
 
 Values resolve `{{variables}}` and apply on every request of the session, on every harness:
 
@@ -39,7 +40,24 @@ Values resolve `{{variables}}` and apply on every request of the session, on eve
 
 Secret variables (keychain-backed `{{variables}}`) are not resolved inside MCP auth fields or headers yet — use a keychain-stored credential in the Auth field instead.
 
-A redacted collection export (the default, without "include secrets") blanks MCP header and auth credentials (handles are kept as references); an export with secrets included keeps them. Imported Basic or OAuth 2.0 access-token auth is still sent as an `Authorization` header; schemes that sign the request (Digest, OAuth 1.0, AWS SigV4, NTLM, WSSE) aren't supported for MCP — a request's own one fails the connect, and an inherited one is skipped. OAuth 2.1 authorization for MCP servers is tracked separately.
+A redacted collection export (the default, without "include secrets") blanks MCP header and auth credentials (handles are kept as references); an export with secrets included keeps them. Imported Basic or OAuth 2.0 access-token auth is still sent as an `Authorization` header; schemes that sign the request (Digest, OAuth 1.0, AWS SigV4, NTLM, WSSE) aren't supported for MCP — a request's own one fails the connect, and an inherited one is skipped.
+
+### OAuth 2.1 sign-in
+
+<Badge text="desktop only" variant="note" />
+
+Pick **OAuth 2.1** for servers that use the MCP authorization spec. Click **Connect**. If the server answers `401`, Restura:
+
+1. Discovers the server's protected-resource metadata (RFC 9728, from the `WWW-Authenticate` header or the well-known URL), then the authorization server's metadata (RFC 8414). It checks that the advertised `issuer` matches.
+2. Registers itself with the authorization server through Dynamic Client Registration (RFC 7591), unless you enter a **Client ID**. A pre-registered confidential client can also take a **Client secret**; store it in the keychain. A secret requires the **Authorization server issuer** it is registered with, and Restura refuses to send it to any other server. A public client with a Client ID is pinned to the first authorization server it signs in with, until you sign out.
+3. Opens your **system browser** to sign in, using PKCE (S256) and a `resource` indicator (RFC 8707). The browser redirects back to a one-time listener on `http://127.0.0.1:<random port>`. Restura accepts only the callback carrying the exact `state` it sent, then closes the listener. Sign-in times out after 5 minutes. If your authorization server requires a fixed redirect URI, enter one such as `http://127.0.0.1:8765/callback` (`localhost` isn't accepted) under **Redirect URI**.
+4. Exchanges the code for tokens and connects.
+
+The desktop app stores tokens in the OS-keychain-encrypted secret store and refreshes them before they expire. The UI, saved collections, exports, the console, and history never see them. The Auth panel only shows whether you're signed in, with a **Sign out** button (also listed in Settings → Secrets). Your next connect reuses the stored sign-in without opening the browser. If a refresh fails mid-session, the connection asks you to **click Connect to sign in again**; Restura never opens a browser window on its own.
+
+OAuth requires an `https` MCP server URL; plain `http` works only for a loopback development server. A remote server's authorization endpoints can't point at `localhost` or private addresses. Every discovery, registration, and token request goes through the desktop SSRF guard. Each request must use `https`; plain `http` is allowed only for a loopback development server, and only while localhost is allowed in Settings → Security. Cloud-metadata and private addresses are blocked, every DNS lookup is checked and pinned, redirects are re-checked on each hop and never replay a POST, and responses are size-capped. Design notes: [ADR 0031](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0031-mcp-oauth-in-electron-main.md).
+
+The browser build and the CLI don't run this sign-in. The web Auth panel hides the option. In the browser, or in CI with `restura run`, use an access token as **Bearer** auth.
 
 ### Desktop protocol compatibility
 

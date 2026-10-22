@@ -135,6 +135,7 @@ export const authConfigSchema = z.object({
       deviceAuthorizationUrl: z.string().optional(),
       scope: z.string().optional(),
       redirectUri: z.string().optional(),
+      issuer: z.string().optional(),
       username: z.string().optional(),
       password: secretValueSchema.optional(),
     })

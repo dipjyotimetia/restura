@@ -1,4 +1,8 @@
-import { isMcpTransportHeader, mcpAuthUnsupportedReason } from '@shared/protocol/mcp-auth';
+import {
+  isMcpOAuthFlow,
+  isMcpTransportHeader,
+  mcpAuthUnsupportedReason,
+} from '@shared/protocol/mcp-auth';
 import { validateMcpSpec } from '@shared/protocol/mcp-proxy';
 import { isMcpToolError, mcpToolErrorText } from '@shared/protocol/mcp-result';
 import type { AuthConfig, McpRequest } from '@shared/types';
@@ -127,6 +131,12 @@ export async function executeMcp(
   try {
     const unsupported = mcpAuthUnsupportedReason(req.auth);
     if (unsupported) throw new Error(unsupported);
+    // #856: the OAuth 2.1 browser sign-in is desktop-only; CI passes a token.
+    if (isMcpOAuthFlow(req.auth)) {
+      throw new Error(
+        'MCP OAuth sign-in is interactive (desktop app only) — in CI set oauth2.accessToken from a variable or use Bearer auth'
+      );
+    }
     const externalMaterializedAuth = await materializeExternalSecretsInAuth(
       req.auth,
       opts.externalSecretResolver

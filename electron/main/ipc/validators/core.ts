@@ -223,6 +223,7 @@ const AuthConfigSchema = z.object({
       deviceAuthorizationUrl: z.string().optional(),
       scope: z.string().optional(),
       redirectUri: z.string().optional(),
+      issuer: z.string().max(2048).optional(),
       username: z.string().optional(),
       password: protocolSecretValueSchema.optional(),
     })
