@@ -32,14 +32,14 @@ afterEach(() => {
 });
 
 describe('mcpProtocol.runJsonRpc auth (#896)', () => {
-  it('sends the applied credential on every call (initialize + method)', async () => {
+  it('sends the applied credential on every call (initialize + initialized + method)', async () => {
     const result = await mcpProtocol.runJsonRpc(
       request({ type: 'api-key', apiKey: { key: 'X-API-Key', value: 'k-9', in: 'header' } }),
       { signal: new AbortController().signal },
       { method: 'tools/list' }
     );
     expect(result.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     for (const [, init] of fetchMock.mock.calls) {
       const body = JSON.parse(String(init?.body)) as { headers: Record<string, string> };
       expect(body.headers).toEqual({ 'X-Tenant': 'acme', 'X-API-Key': 'k-9' });
