@@ -18,6 +18,9 @@ function renderPanel(connection: Partial<McpConnection>) {
         createdAt: 0,
         ...connection,
       }}
+      requestId="r1"
+      auth={{ type: 'none' }}
+      onAuthChange={vi.fn()}
       showCatalog={false}
       onToggleCatalog={vi.fn()}
       onUrlChange={vi.fn()}
