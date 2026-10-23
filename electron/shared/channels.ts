@@ -79,6 +79,12 @@ export const IPC = {
     connect: 'mcp:connect',
     request: 'mcp:request',
     disconnect: 'mcp:disconnect',
+    /** Renderer → main answer to a server→client request (elicitation / sampling). */
+    clientResponse: 'mcp:client-response',
+    /** Replace a connection's roots; sends notifications/roots/list_changed. */
+    setRoots: 'mcp:set-roots',
+    oauthStatus: 'mcp:oauth:status',
+    oauthSignOut: 'mcp:oauth:signOut',
   },
   kafka: {
     connect: 'kafka:connect',
@@ -103,6 +109,7 @@ export const IPC = {
     inspectGroup: 'kafka:inspect-group',
     resetGroupOffsets: 'kafka:reset-group-offsets',
     deleteGroup: 'kafka:delete-group',
+    deleteGroupOffsets: 'kafka:delete-group-offsets',
     createPartitions: 'kafka:create-partitions',
     alterTopicConfigs: 'kafka:alter-topic-configs',
     deleteRecords: 'kafka:delete-records',
@@ -284,6 +291,10 @@ export const EVENT_PREFIX = {
     notification: 'mcp:notification:',
     error: 'mcp:error:',
     close: 'mcp:close:',
+    /** Main → renderer: a server→client request awaiting the user (elicitation / sampling). */
+    clientRequest: 'mcp:client-request:',
+    /** Main → renderer: a pending client request was cancelled, timed out, or its connection closed. */
+    clientRequestCancelled: 'mcp:client-request-cancelled:',
   },
   kafka: {
     connected: 'kafka:connected:',

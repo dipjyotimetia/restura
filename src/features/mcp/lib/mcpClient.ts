@@ -1,11 +1,8 @@
 import { jsonRpcErrorToMessage, parseJsonRpcError } from '@shared/protocol/mcp-proxy';
-import {
-  getElectronAPI,
-  isElectron,
-  workerAuthHeaders,
-  workerBaseUrl,
-} from '@/lib/shared/platform';
+import { normalizeMcpToolDescriptor } from '@shared/protocol/mcp-tool-descriptor';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import type {
+  AuthConfig,
   McpJsonSchema,
   McpPromptDescriptor,
   McpResourceDescriptor,
@@ -13,17 +10,22 @@ import type {
   McpToolDescriptor,
   McpTransportType,
 } from '@/types';
+import { buildMcpInitializeParams, McpWebSession } from './mcpWebSession';
 
 /** Result of one JSON-RPC call */
 export interface McpCallResult<T = unknown> {
   ok: true;
   result: T;
   durationMs: number;
+  /** Web: server notifications/requests interleaved in the SSE reply (#888). */
+  serverMessages?: unknown[];
 }
 
 export interface McpCallError {
   ok: false;
   error: string;
+  /** #856: the desktop OAuth sign-in lapsed and couldn't refresh — prompt to reconnect. */
+  authRequired?: boolean;
   jsonRpcError?: { code: number; message: string; data?: unknown };
   durationMs: number;
 }
@@ -36,7 +38,7 @@ interface ListPage<T> {
   items?: T[];
 }
 interface ToolsListResult {
-  tools?: McpToolDescriptor[];
+  tools?: unknown[];
   nextCursor?: string;
 }
 interface ResourcesListResult {
@@ -55,8 +57,16 @@ interface McpClientOptions {
   url: string;
   transport: McpTransportType;
   headers: Record<string, string>;
+  /**
+   * Desktop only (#896): header-shaped auth Electron main resolves at connect
+   * time (SecretRef handles stay opaque here). On web, credentials are already
+   * applied into `headers` — see `buildMcpConnectAuth`.
+   */
+  auth?: AuthConfig;
   /** Stable identifier for the connection (used to key Electron IPC sessions) */
   connectionId: string;
+  /** Web: receives server-originated messages interleaved in SSE replies. */
+  onServerMessage?: (message: unknown) => void;
 }
 
 /**
@@ -67,19 +77,36 @@ interface McpClientOptions {
  * The renderer surface is the same in both — caller doesn't need to branch.
  */
 export class McpClient {
-  /** Mcp-Session-Id captured from a streamable-http response */
-  private sessionId?: string;
   /** Counter for client-generated request ids */
   private nextId = 1;
+  /** Web-mode Streamable HTTP session state (session id, negotiated version). */
+  private readonly web: McpWebSession;
+  /** Protocol version negotiated by the last successful `initialize`. */
+  private negotiatedVersion?: string;
 
-  constructor(private opts: McpClientOptions) {}
+  constructor(private opts: McpClientOptions) {
+    this.web = new McpWebSession(
+      {
+        url: opts.url,
+        transport: opts.transport,
+        headers: opts.headers,
+        ...(opts.onServerMessage ? { onServerMessage: opts.onServerMessage } : {}),
+      },
+      () => this.nextId++
+    );
+  }
+
+  /** Protocol version negotiated with the server (after `initialize`). */
+  get protocolVersion(): string | undefined {
+    return this.negotiatedVersion;
+  }
 
   /**
    * Open the transport. Required before `request` for http-sse (so we can
    * receive the `endpoint` event); a no-op for streamable-http but still
    * useful to surface auth errors early.
    */
-  async connect(): Promise<{ ok: true } | { ok: false; error: string }> {
+  async connect(): Promise<{ ok: true } | { ok: false; error: string; authRequired?: boolean }> {
     if (isElectron()) {
       const api = getElectronAPI();
       if (!api?.mcp) return { ok: false, error: 'Electron MCP API not available' };
@@ -88,8 +115,14 @@ export class McpClient {
         url: this.opts.url,
         transport: this.opts.transport,
         headers: this.opts.headers,
+        ...(this.opts.auth ? { auth: this.opts.auth } : {}),
       });
-      return res.success ? { ok: true } : { ok: false, error: res.error ?? 'Connect failed' };
+      if (res.success) return { ok: true };
+      return {
+        ok: false,
+        error: res.error ?? 'Connect failed',
+        ...(res.authRequired ? { authRequired: true } : {}),
+      };
     }
 
     // Web mode: streamable-http requires no setup; http-sse needs the persistent stream.
@@ -110,8 +143,11 @@ export class McpClient {
     if (isElectron()) {
       const api = getElectronAPI();
       await api?.mcp?.disconnect({ connectionId: this.opts.connectionId });
+      return;
     }
-    // Web has no persistent state — nothing to tear down
+    // Web: end the server-side session with DELETE + Mcp-Session-Id (#888).
+    this.negotiatedVersion = undefined;
+    await this.web.terminate();
   }
 
   /** Send one JSON-RPC request; resolves with either a result or an error wrapper. */
@@ -137,6 +173,10 @@ export class McpClient {
         });
         const durationMs = performance.now() - start;
         if (res.success) {
+          if (method === 'initialize') {
+            const v = (res.result as { protocolVersion?: unknown } | undefined)?.protocolVersion;
+            if (typeof v === 'string') this.negotiatedVersion = v;
+          }
           return { ok: true, result: res.result as T, durationMs };
         }
         const jsonRpcError = parseJsonRpcError(res.jsonRpcError);
@@ -146,44 +186,31 @@ export class McpClient {
             ? jsonRpcErrorToMessage(jsonRpcError)
             : (res.error ?? 'MCP request failed'),
           ...(jsonRpcError ? { jsonRpcError } : {}),
+          ...(res.authRequired ? { authRequired: true } : {}),
           durationMs,
         };
       }
 
-      const response = await fetch(`${workerBaseUrl()}/api/mcp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
-        body: JSON.stringify({
-          url: this.opts.url,
-          transport: this.opts.transport,
-          headers: this.opts.headers,
-          ...(this.sessionId ? { sessionId: this.sessionId } : {}),
-          jsonRpc: { method, id: requestId, ...(params !== undefined ? { params } : {}) },
-          ...(timeout !== undefined ? { timeout } : {}),
-        }),
-      });
+      // Web: `initialize` runs the full handshake (incl. notifications/initialized);
+      // later calls carry Mcp-Session-Id + MCP-Protocol-Version and survive one 404.
+      const outcome = await this.web.call(method, params, timeout);
       const durationMs = performance.now() - start;
-      const body = (await response.json()) as {
-        ok?: boolean;
-        jsonRpc?: { result?: unknown; error?: unknown };
-        sessionId?: string;
-        error?: string;
-      };
-      if (body.sessionId) this.sessionId = body.sessionId;
-
-      if (!response.ok) {
-        return { ok: false, error: body.error ?? `HTTP ${response.status}`, durationMs };
-      }
-      if (body.jsonRpc?.error) {
-        const jsonRpcError = parseJsonRpcError(body.jsonRpc.error);
+      if (!outcome.ok) {
+        const jsonRpcError = parseJsonRpcError(outcome.rawJsonRpcError);
         return {
           ok: false,
-          error: jsonRpcErrorToMessage(body.jsonRpc.error),
+          error: outcome.error,
           ...(jsonRpcError ? { jsonRpcError } : {}),
           durationMs,
         };
       }
-      return { ok: true, result: body.jsonRpc?.result as T, durationMs };
+      if (method === 'initialize') this.negotiatedVersion = this.web.negotiatedProtocolVersion;
+      return {
+        ok: true,
+        result: outcome.result as T,
+        durationMs,
+        ...(outcome.serverMessages ? { serverMessages: outcome.serverMessages } : {}),
+      };
     } catch (err) {
       return {
         ok: false,
@@ -225,11 +252,7 @@ export class McpClient {
       protocolVersion?: string;
       serverInfo?: { name?: string; version?: string };
       capabilities?: McpServerCapabilities['capabilities'];
-    }>('initialize', {
-      protocolVersion: '2024-11-05',
-      capabilities: {},
-      clientInfo: { name: 'restura', version: '1.0.0' },
-    });
+    }>('initialize', buildMcpInitializeParams());
     if (!init.ok) return { error: init.error };
 
     // Only issue list calls for capabilities the server advertised in `initialize`.
@@ -245,7 +268,10 @@ export class McpClient {
     const [tools, resources, prompts] = await Promise.all([
       wantTools
         ? this.listAll<ToolsListResult, McpToolDescriptor>('tools/list', (r) => ({
-            items: r.tools,
+            // Same normalizer for desktop (SDK result) and web (Worker JSON-RPC body).
+            items: r.tools
+              ?.map(normalizeMcpToolDescriptor)
+              .filter((t): t is McpToolDescriptor => t !== null),
             nextCursor: r.nextCursor,
           }))
         : [],
@@ -266,7 +292,7 @@ export class McpClient {
     return {
       ...(init.result.serverInfo?.name ? { serverName: init.result.serverInfo.name } : {}),
       ...(init.result.serverInfo?.version ? { serverVersion: init.result.serverInfo.version } : {}),
-      ...(init.result.protocolVersion ? { protocolVersion: init.result.protocolVersion } : {}),
+      ...(this.negotiatedVersion ? { protocolVersion: this.negotiatedVersion } : {}),
       ...(advertised ? { capabilities: advertised } : {}),
       tools,
       resources,
@@ -281,6 +307,18 @@ export class McpClient {
 
   readResource(uri: string): Promise<McpCall> {
     return this.request('resources/read', { uri });
+  }
+
+  /**
+   * Desktop main picks the era-correct wire method: `resources/subscribe` on
+   * 2025-era servers, a `subscriptions/listen` stream on 2026-07-28 (#872).
+   */
+  subscribeResource(uri: string): Promise<McpCall> {
+    return this.request('resources/subscribe', { uri });
+  }
+
+  unsubscribeResource(uri: string): Promise<McpCall> {
+    return this.request('resources/unsubscribe', { uri });
   }
 
   getPrompt(name: string, args?: Record<string, string>): Promise<McpCall> {

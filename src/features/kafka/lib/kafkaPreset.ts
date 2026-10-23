@@ -114,7 +114,8 @@ export function kafkaPresetFromConnection(
     consume: {
       groupId: conn.consumer.groupId,
       topics: [...conn.consumer.topics],
-      mode: conn.consumer.mode,
+      // 'last-n' is a browse-only start; presets carry the closest group-safe mode.
+      mode: conn.consumer.mode === 'last-n' ? 'latest' : conn.consumer.mode,
     },
   };
 }

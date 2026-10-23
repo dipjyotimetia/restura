@@ -1,7 +1,9 @@
+import { redactMcpCredentials } from '@shared/secrets/mcp-credential-redaction';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
+import { isElectron } from '@/lib/shared/platform';
 import type { KeyValue, McpServerCapabilities, McpTransportType } from '@/types';
 
 export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -10,6 +12,8 @@ export interface McpInvocationLog {
   id: string;
   method: string;
   params?: unknown;
+  /** outputSchema snapshot of the tool at invocation time (tools/call only). */
+  outputSchema?: unknown;
   result?: unknown;
   error?: string;
   jsonRpcError?: { code: number; message: string; data?: unknown };
@@ -29,6 +33,13 @@ export interface McpConnection {
   log: McpInvocationLog[];
   lastError?: string;
   createdAt: number;
+  /** Client roots (file:// URIs) exposed to the server via roots/list (desktop, #860). */
+  roots?: McpRoot[];
+}
+
+export interface McpRoot {
+  uri: string;
+  name?: string;
 }
 
 interface McpState {
@@ -43,6 +54,7 @@ interface McpState {
   setTransport: (id: string, t: McpTransportType) => void;
   /** Replace the whole header list (the key/value table drives edits through this). */
   setHeaders: (id: string, headers: KeyValue[]) => void;
+  setRoots: (id: string, roots: McpRoot[]) => void;
 
   setStatus: (id: string, status: McpConnectionStatus, error?: string) => void;
   setCapabilities: (id: string, caps: McpServerCapabilities | null) => void;
@@ -109,6 +121,13 @@ export const useMcpStore = create<McpState>()(
           return { connections: { ...s.connections, [id]: { ...c, headers } } };
         }),
 
+      setRoots: (id, roots) =>
+        set((s) => {
+          const c = s.connections[id];
+          if (!c) return s;
+          return { connections: { ...s.connections, [id]: { ...c, roots } } };
+        }),
+
       setStatus: (id, status, error) =>
         set((s) => {
           const c = s.connections[id];
@@ -154,6 +173,7 @@ export const useMcpStore = create<McpState>()(
             timestamp: Date.now(),
             method: entry.method,
             ...(entry.params !== undefined ? { params: entry.params } : {}),
+            ...(entry.outputSchema !== undefined ? { outputSchema: entry.outputSchema } : {}),
             ...(entry.result !== undefined ? { result: entry.result } : {}),
             ...(entry.error !== undefined ? { error: entry.error } : {}),
             ...(entry.jsonRpcError !== undefined ? { jsonRpcError: entry.jsonRpcError } : {}),
@@ -185,7 +205,14 @@ export const useMcpStore = create<McpState>()(
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, c]) => [
             id,
-            { ...c, status: 'disconnected' as const, capabilities: null, log: [] },
+            {
+              // #896: the browser's IndexedDB is unencrypted — never persist
+              // credential-bearing header values there (re-entered after reload).
+              ...(isElectron() ? c : redactMcpCredentials(c)),
+              status: 'disconnected' as const,
+              capabilities: null,
+              log: [],
+            },
           ])
         ),
         activeConnectionId: state.activeConnectionId,

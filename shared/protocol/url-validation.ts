@@ -187,6 +187,12 @@ function embeddedV4FromGroups(groups: number[]): string | null {
   if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0xffff) {
     return `${(g6 >> 8) & 0xff}.${g6 & 0xff}.${(g7 >> 8) & 0xff}.${g7 & 0xff}`;
   }
+  // Deprecated IPv4-compatible ::/96 (`::a.b.c.d`). `::` and `::1` are handled
+  // as unspecified / loopback by the callers, so they are not decoded here.
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
+    if (g6 === 0 && g7 <= 1) return null;
+    return `${(g6 >> 8) & 0xff}.${g6 & 0xff}.${(g7 >> 8) & 0xff}.${g7 & 0xff}`;
+  }
   if (g0 === 0x2002) {
     return `${(g1 >> 8) & 0xff}.${g1 & 0xff}.${(g2 >> 8) & 0xff}.${g2 & 0xff}`;
   }
@@ -197,6 +203,12 @@ function embeddedV4FromGroups(groups: number[]): string | null {
 }
 
 const CLOUD_METADATA_IPV4 = '169.254.169.254';
+// AWS (fd00:ec2::254) and GCE (fd20:ce::254) IPv6 metadata endpoints, compared
+// as expanded groups so every textual form matches.
+const CLOUD_METADATA_IPV6_GROUPS: readonly (readonly number[])[] = [
+  [0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254],
+  [0xfd20, 0x00ce, 0, 0, 0, 0, 0, 0x0254],
+];
 const CLOUD_METADATA_HOSTNAMES = ['metadata.google.internal', 'metadata', 'instance-data'];
 
 /**
@@ -213,8 +225,46 @@ export function isCloudMetadataHost(hostname: string): boolean {
   if (h.includes(':')) {
     const groups = expandIPv6(h);
     if (groups && embeddedV4FromGroups(groups) === CLOUD_METADATA_IPV4) return true;
+    if (groups && CLOUD_METADATA_IPV6_GROUPS.some((m) => m.every((g, i) => g === groups[i]))) {
+      return true;
+    }
   }
   return CLOUD_METADATA_HOSTNAMES.some((n) => h === n || h.endsWith('.' + n));
+}
+
+/**
+ * Canonicalise inet_aton-style IPv4 hosts (`2130706433`, `127.1`, `0x7f.1`,
+ * octal parts) to dotted-quad. The WHATWG parser does this only for special
+ * schemes (http/https/ws/wss); for others (kafka:, mqtt:) the host is left as-is
+ * but the OS resolver still interprets it that way on connect. Returns the input
+ * unchanged when it is not a numeric IPv4 form.
+ */
+function canonicalizeNumericIPv4(host: string): string {
+  const part = '(?:0[xX][0-9a-fA-F]*|\\d+)';
+  if (!new RegExp(`^${part}(?:\\.${part}){0,3}$`).test(host)) return host;
+  const nums: number[] = [];
+  for (const p of host.split('.')) {
+    let n: number;
+    if (/^0[xX]/.test(p)) n = p.length === 2 ? 0 : parseInt(p.slice(2), 16);
+    else if (p.length > 1 && p.startsWith('0')) {
+      if (!/^[0-7]+$/.test(p)) return host;
+      n = parseInt(p, 8);
+    } else n = Number(p);
+    if (!Number.isFinite(n)) return host;
+    nums.push(n);
+  }
+  const last = nums.pop()!;
+  if (nums.some((n) => n > 255) || last >= 256 ** (4 - nums.length)) return host;
+  let value = last;
+  nums.forEach((n, i) => {
+    value += n * 256 ** (3 - i);
+  });
+  return [24, 16, 8, 0].map((shift) => Math.floor(value / 2 ** shift) % 256).join('.');
+}
+
+/** Strip IPv6 brackets and lowercase so bracketed/unbracketed forms compare equal. */
+function normalizeHostForCompare(host: string): string {
+  return host.toLowerCase().replace(/^\[(.*)\]$/, '$1');
 }
 
 export function validateURL(
@@ -249,12 +299,15 @@ export function validateURL(
   // Strip a trailing FQDN-root dot before policy comparison — `metadata.x.`
   // resolves identically to `metadata.x` but would slip past the exact-string
   // blocklist below.
-  const hostname = url.hostname.toLowerCase().replace(/\.+$/, '');
+  let hostname = url.hostname
+    .toLowerCase()
+    .replace(/\.+$/, '')
+    // WHATWG URL keeps the brackets on IPv6 hosts (`[::1]`); strip them so the
+    // loopback comparisons below see the bare address.
+    .replace(/^\[(.*)\]$/, '$1');
+  hostname = canonicalizeNumericIPv4(hostname);
 
-  if (
-    !allowLocalhost &&
-    (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1')
-  ) {
+  if (!allowLocalhost && isLoopbackAddress(hostname)) {
     return { valid: false, error: 'Localhost URLs are not allowed' };
   }
 
@@ -266,7 +319,7 @@ export function validateURL(
   }
 
   for (const blocked of blockedHostnames) {
-    const b = blocked.toLowerCase();
+    const b = canonicalizeNumericIPv4(normalizeHostForCompare(blocked));
     if (allowLocalhost && (b === 'localhost' || b === '127.0.0.1')) continue;
     if (hostname === b || hostname.endsWith('.' + b)) {
       return { valid: false, error: `Hostname "${hostname}" is blocked for security reasons` };
@@ -274,7 +327,7 @@ export function validateURL(
   }
 
   if (!allowPrivateIPs) {
-    const isLoopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    const isLoopback = isLoopbackAddress(hostname);
     if (!(allowLocalhost && isLoopback) && isPrivateAddress(hostname)) {
       return { valid: false, error: `Private/internal IP addresses are not allowed: ${hostname}` };
     }

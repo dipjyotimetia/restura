@@ -14,6 +14,7 @@ import {
   loadCollectionFromFile,
 } from '@shared/opencollection/node/fs-reader';
 import { ocToInternal } from '@shared/opencollection/to-internal';
+import { resolveMcpEffectiveAuth } from '@shared/protocol/mcp-auth';
 import type {
   AuthConfig,
   Collection,
@@ -215,7 +216,12 @@ function walkItems(
     const test = combineScripts([...inheritedTest, req.testScript]);
     const effective = {
       ...req,
-      auth: resolveEffectiveAuth(req.auth, inheritedAuth),
+      // MCP skips an inherited scheme it can't carry (shared policy, #896) —
+      // the same rule the app applies at connect time.
+      auth:
+        t === 'mcp'
+          ? (resolveMcpEffectiveAuth(req.auth, inheritedAuth).auth ?? req.auth)
+          : resolveEffectiveAuth(req.auth, inheritedAuth),
       ...(pre !== undefined ? { preRequestScript: pre } : {}),
       ...(test !== undefined ? { testScript: test } : {}),
     } as HttpRequest | GrpcRequest | SseRequest | McpRequest;

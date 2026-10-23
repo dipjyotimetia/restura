@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { flattenMcpArgumentFields, McpInvokeForm } from '@/features/mcp/components/McpInvokeForm';
 import type { McpToolDescriptor } from '@/types';
@@ -17,6 +17,15 @@ const tool: McpToolDescriptor = {
 };
 
 describe('McpInvokeForm', () => {
+  it('explains where server events appear when the Events tab is active', () => {
+    render(
+      <McpInvokeForm tab="events" tool={null} prompt={null} onCall={vi.fn()} onGet={vi.fn()} />
+    );
+    expect(
+      screen.getByText('Server notifications stream into the Events list.')
+    ).toBeInTheDocument();
+  });
+
   it('keeps schema flattening at the invocation boundary', () => {
     expect(flattenMcpArgumentFields(tool.inputSchema)).toEqual([
       {
@@ -88,5 +97,80 @@ describe('McpInvokeForm', () => {
     expect(onToolArgumentsChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ attempts: 4 })
     );
+  });
+
+  describe('behaviour annotations (#880)', () => {
+    const destructive: McpToolDescriptor = {
+      name: 'drop_table',
+      title: 'Drop table',
+      annotations: { destructiveHint: true, idempotentHint: true },
+    };
+
+    it('shows the display title and hint badges', () => {
+      render(
+        <McpInvokeForm
+          tab="tools"
+          tool={destructive}
+          prompt={null}
+          onCall={vi.fn()}
+          onGet={vi.fn()}
+        />
+      );
+      expect(screen.getByText('Drop table')).toBeInTheDocument();
+      expect(screen.getByText('DESTRUCTIVE')).toBeInTheDocument();
+      expect(screen.getByText('IDEMPOTENT')).toBeInTheDocument();
+    });
+
+    it('asks for confirmation before invoking a destructive tool, and cancel does not call', async () => {
+      const onCall = vi.fn().mockResolvedValue(undefined);
+      render(
+        <McpInvokeForm
+          tab="tools"
+          tool={destructive}
+          prompt={null}
+          onCall={onCall}
+          onGet={vi.fn()}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Invoke' }));
+      expect(onCall).not.toHaveBeenCalled();
+      expect(await screen.findByText(/Invoke destructive tool "Drop table"\?/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(onCall).not.toHaveBeenCalled();
+    });
+
+    it('invokes after the user confirms', async () => {
+      const onCall = vi.fn().mockResolvedValue(undefined);
+      render(
+        <McpInvokeForm
+          tab="tools"
+          tool={destructive}
+          prompt={null}
+          onCall={onCall}
+          onGet={vi.fn()}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Invoke' }));
+      const dialog = await screen.findByRole('alertdialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Invoke' }));
+      await waitFor(() => expect(onCall).toHaveBeenCalledWith(destructive, {}));
+    });
+
+    it('does not prompt for read-only or unannotated tools', async () => {
+      const onCall = vi.fn().mockResolvedValue(undefined);
+      render(
+        <McpInvokeForm
+          tab="tools"
+          tool={{ name: 'peek', annotations: { readOnlyHint: true, destructiveHint: true } }}
+          prompt={null}
+          onCall={onCall}
+          onGet={vi.fn()}
+        />
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Invoke' }));
+      await waitFor(() => expect(onCall).toHaveBeenCalled());
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(screen.getByText('READ-ONLY')).toBeInTheDocument();
+    });
   });
 });

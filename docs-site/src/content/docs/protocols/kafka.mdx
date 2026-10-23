@@ -11,11 +11,20 @@ import { Badge } from '@astrojs/starlight/components';
 
 - **Produce** — pick a topic, set text headers, target an optional partition, and send a key + value as UTF-8 text, validated JSON, or Base64-encoded arbitrary bytes. Base64 is decoded only at the Electron boundary, so invalid UTF-8 bytes are preserved exactly.
   Record headers use a key/value table with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; they're produced exactly as typed.
-- **Consume** — subscribe to a topic, see messages live with partition / offset / timestamp. Start from **latest**, **earliest**, a specific **offset**, or a **timestamp** (seeks each partition to its first message at or after the chosen time).
+- **Consume** — read a topic and see messages live with partition / offset / timestamp, either in read-only **Browse** mode (the default) or as a **Consumer group** member. See [Consume modes](#consume-modes).
 - **Export the log** — download the current filtered messages as JSON or NDJSON (one message per line).
 - **Topic inspector** — per-partition earliest/latest watermarks (and the approximate message count) plus the topic's broker config.
 - **Consumer-group inspector** — members and state, committed offset per partition, and **consumer lag** (topic log-end minus the group's committed offset) — computed on demand for any group, no active subscription needed.
-- **Reset consumer-group offsets** — to earliest, latest, or specific per-partition offsets (the group must be inactive).
+- **Reset consumer-group offsets** — for one committed topic or **all committed topics** of the group (committed topics that have since been deleted are skipped and listed), to:
+  - **earliest** / **latest** — the partition's log start / end;
+  - **specific** — explicit per-partition offsets (single topic only);
+  - **date/time** — each partition's first record at or after the chosen local time (Kafka `ListOffsets` by timestamp). A partition with no record at or after that time resets to **latest**;
+  - **shift by ±N** — move each committed offset forward or back, clamped to the partition's earliest/latest range. Partitions without a committed offset are skipped and listed (they keep following the consumer's `auto.offset.reset`).
+
+  **Preview** runs a dry run and shows current → new offsets per partition (with clamp/fallback notes) without committing anything; **Reset** asks for confirmation and then shows the applied offsets.
+- **Delete committed offsets** — remove the group's committed offsets for one topic or all committed topics (KIP-496 `OffsetDelete`), confirm-gated. Consumers then fall back to `auto.offset.reset`.
+
+  Resetting and deleting offsets both require an **inactive group** (no members, not rebalancing): Restura checks this before writing and the broker enforces it too.
 - **Delete consumer group** — for empty/inactive groups.
 - **Multiple brokers** — bootstrap list, broker discovery happens through the cluster.
 - **SASL** — `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` over `SASL_PLAINTEXT` or `SASL_SSL`.
@@ -24,6 +33,33 @@ import { Badge } from '@astrojs/starlight/components';
 - **Save to a collection** — **Save to Collection** on a Kafka tab stores a shareable *connection preset* (brokers, auth mode, TLS paths, client id, produce topic / key / payload template / headers, consumer group and topics). Opening it from the sidebar opens this panel prefilled. Passwords, OAuth tokens and key passphrases stay in the encrypted local store and are never exported. See [Kafka and MQTT connection presets](/guides/collections/#kafka-and-mqtt-connection-presets).
 - **`{{variables}}`** — bootstrap brokers (at connect), consumer group and topics (at subscribe), and the produced topic, key, value and header names/values (at send) are resolved with the same scopes as HTTP. In **JSON** mode a value substituted inside a string literal is JSON-escaped. Unresolved names are sent literally and flagged in the message log; secret values are masked in the logged copy.
 - **Confluent Schema Registry** — point a connection at a registry URL (optional Basic auth); produce schema-encoded **keys and values** by schema ID, and consume with automatic Avro / Protobuf / JSON decode of both. Powered by `@kafkajs/confluent-schema-registry`.
+
+## Consume modes
+
+The **Consume** tab has a mode toggle. New Kafka tabs start in **Browse**.
+
+| | Browse (read-only) | Consumer group |
+| --- | --- | --- |
+| Joins or creates a consumer group | No | Yes, using the **Consumer group ID** |
+| Commits offsets | Never | Automatically, or per message with **Manual per message** |
+| Needs `GROUP` ACLs | No, only `READ` on the topic | Yes |
+| Start positions | Latest, earliest, **last N per partition**, specific offset, timestamp | Committed offset (with a fallback), latest, earliest, specific offset, timestamp |
+| Stop condition | Optional **Stop after N records** | Runs until you unsubscribe |
+| Lag, rebalance and member events | Not available because there's no group | Shown |
+
+**Browse** is for looking at data. Restura assigns the partitions directly and reads them with the Kafka `ListOffsets` and `Fetch` APIs. It never sends `FindCoordinator`, `JoinGroup` or `OffsetCommit`. Peeking at a shared or production cluster leaves nothing behind: no `restura-…` group appears in `kafka-consumer-groups --list`, and nothing is committed. The panel shows a **Read-only — no group** badge, and the group, commit and rebalance settings are hidden.
+
+- **Last N per partition** starts each partition at `max(earliest, latest − N)` and then keeps streaming new records. An empty partition starts at its end.
+- **Timestamp** starts each partition at its first record at or after that time. A partition with nothing that new starts at its end and waits for new records.
+- **Specific offset** reads only the partitions you name. Offsets outside the retained range are clamped to the earliest or latest offset.
+- **Read committed** isolation is honoured, so `latest` is the last stable offset.
+- The set of partitions is fixed when you subscribe. Partitions added to the topic afterwards aren't picked up until you subscribe again.
+- If retention deletes records you haven't read yet, Browse moves that partition forward to its new earliest offset and carries on.
+- Browse connects to whichever partition leaders the cluster advertises, the same as Consumer group mode. The broker guard checks the bootstrap addresses, not the advertised leaders, so the residual risk in [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/) applies to both modes.
+
+**Consumer group** joins the group named in **Consumer group ID** and behaves like any other member. Use it when you want to resume from committed offsets, test a group's behaviour, or commit offsets on purpose. The [consumer-group inspector](#what-works) and the reset and delete actions work on any group in either mode.
+
+Saved connections from before Browse mode existed keep **Consumer group** mode if you changed the group ID from the generated `restura-…` default. Connections still using the default group ID switch to **Browse**. If they started from the committed offset, they now start from the last 50 records per partition.
 
 ## Broker guard
 

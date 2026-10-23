@@ -24,6 +24,7 @@ const clientMocks = vi.hoisted(() => ({
   discoveryResults: [] as Array<Promise<McpServerCapabilities | { error: string }>>,
   instances: [] as Array<{
     connectionId: string;
+    options: { headers?: Record<string, string>; auth?: unknown };
     connect: ReturnType<typeof vi.fn>;
     disconnect: ReturnType<typeof vi.fn>;
     discoverCapabilities: ReturnType<typeof vi.fn>;
@@ -36,6 +37,7 @@ const clientMocks = vi.hoisted(() => ({
 vi.mock('@/features/mcp/lib/mcpClient', () => ({
   McpClient: class {
     connectionId: string;
+    options: { connectionId: string; headers?: Record<string, string>; auth?: unknown };
     connect = vi.fn(
       () => clientMocks.connectResults.shift() ?? Promise.resolve({ ok: true as const })
     );
@@ -49,8 +51,13 @@ vi.mock('@/features/mcp/lib/mcpClient', () => ({
     readResource = vi.fn(() => Promise.resolve({ ok: true, result: {}, durationMs: 1 }));
     getPrompt = vi.fn(() => Promise.resolve({ ok: true, result: {}, durationMs: 1 }));
 
-    constructor(options: { connectionId: string }) {
+    constructor(options: {
+      connectionId: string;
+      headers?: Record<string, string>;
+      auth?: unknown;
+    }) {
       this.connectionId = options.connectionId;
+      this.options = options;
       clientMocks.instances.push(this);
     }
   },
@@ -391,5 +398,43 @@ describe('McpRequestBuilder client ownership', () => {
     expect(useRequestStore.getState().getActiveTab()?.request).toMatchObject(edited);
     // …mirrored one-way onto the connection profile AI Lab reads.
     expect(useMcpStore.getState().connections.first).toMatchObject(edited);
+  });
+});
+
+describe('McpRequestBuilder connect-time auth (#896)', () => {
+  beforeEach(() => {
+    clientMocks.connectResults.length = 0;
+    clientMocks.discoveryResults.length = 0;
+    clientMocks.instances.length = 0;
+    useMcpStore.setState({
+      connections: { first: connection('first') },
+      activeConnectionId: 'first',
+    });
+    useRequestStore.setState({ tabs: [], activeTabId: null, isLoading: false });
+  });
+
+  function openMcpTab(auth: import('@/types').AuthConfig) {
+    const tabId = useRequestStore.getState().createNewRequest('mcp');
+    useRequestStore
+      .getState()
+      .updateRequestForTab(tabId, { url: 'https://first.example.com/mcp', auth });
+  }
+
+  it('applies inline bearer auth as a header on web', async () => {
+    openMcpTab({ type: 'bearer', bearer: { token: { kind: 'inline', value: 'tok' } } });
+    render(<McpRequestBuilder />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await waitFor(() => expect(clientMocks.instances[0]?.connect).toHaveBeenCalled());
+    expect(clientMocks.instances[0]?.options.headers).toEqual({ Authorization: 'Bearer tok' });
+    expect(clientMocks.instances[0]?.options.auth).toBeUndefined();
+  });
+
+  it('fails closed without creating a client when the credential is empty', async () => {
+    openMcpTab({ type: 'bearer', bearer: { token: '' } });
+    render(<McpRequestBuilder />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await waitFor(() => expect(useMcpStore.getState().connections.first?.status).toBe('error'));
+    expect(useMcpStore.getState().connections.first?.lastError).toMatch(/credential is empty/);
+    expect(clientMocks.instances).toHaveLength(0);
   });
 });

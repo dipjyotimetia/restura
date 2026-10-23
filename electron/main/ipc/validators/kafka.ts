@@ -1,3 +1,4 @@
+import { isIPv6 } from 'node:net';
 import { z } from 'zod';
 import { ConnectionIdSchema } from './core';
 
@@ -7,16 +8,28 @@ import { ConnectionIdSchema } from './core';
 
 export const KafkaConnectionIdSchema = ConnectionIdSchema;
 
-// host:port — loose syntactic check; real reachability is enforced by the
-// Kafka client when it dials the broker. We cap length and forbid junk so the
-// schema rejects obviously bad input early.
+// host:port or [ipv6]:port (RFC 3986 IP-literal) — loose syntactic check; real
+// reachability is enforced by the Kafka client when it dials the broker and the
+// SSRF policy by assertKafkaBrokersSafe. We cap length and forbid junk so the
+// schema rejects obviously bad input early. `@platformatic/kafka` strips the
+// brackets itself, so the literal is passed through unchanged.
+const KAFKA_HOST_PORT_RE = /^(?:[a-zA-Z0-9.-]+|\[[0-9a-fA-F:.]+\]):(\d{1,5})$/;
+
 const KafkaBrokerSchema = z
   .string()
   .min(3)
   .max(253)
-  .regex(/^[a-zA-Z0-9.-]+:\d{1,5}$/, 'Broker must be host:port (alphanumeric host, numeric port)')
+  .regex(
+    KAFKA_HOST_PORT_RE,
+    'Broker must be host:port or [ipv6]:port (alphanumeric host, numeric port)'
+  )
   .refine((broker) => {
-    const port = Number(broker.slice(broker.lastIndexOf(':') + 1));
+    // Bracketed hosts must hold a syntactically valid IPv6 address.
+    if (broker.startsWith('[')) return isIPv6(broker.slice(1, broker.indexOf(']')));
+    return true;
+  }, 'Broker IPv6 literal is not a valid address')
+  .refine((broker) => {
+    const port = Number(KAFKA_HOST_PORT_RE.exec(broker)?.[1]);
     return Number.isInteger(port) && port >= 1 && port <= 65_535;
   }, 'Broker port must be between 1 and 65535');
 
@@ -236,18 +249,112 @@ export const KafkaTransactionEndSchema = z.object({
 const KafkaPartitionOffsetSchema = z.object({
   topic: KafkaTopicSchema,
   partition: z.number().int().nonnegative().max(2_147_483_647),
-  offset: z.string().min(1).max(20).regex(/^\d+$/, 'Offset must be a non-negative integer string'),
+  offset: z
+    .string()
+    .min(1)
+    .max(20)
+    .regex(/^\d+$/, 'Offset must be a non-negative integer string')
+    .refine(
+      // Only meaningful once the regex passed (zod v4 runs every check).
+      (v) => !/^\d+$/.test(v) || BigInt(v) <= 9_223_372_036_854_775_807n,
+      'Offset exceeds the int64 maximum'
+    ),
 });
 
 // Consumer-group id — reused by subscribe and the group admin ops.
 const KafkaGroupIdSchema = z.string().min(1).max(256);
 
+/** Fields that only make sense for a group member; browse mode refuses them. */
+const GROUP_ONLY_SUBSCRIBE_FIELDS = [
+  'groupId',
+  'groupInstanceId',
+  'groupRemoteAssignor',
+  'fallbackMode',
+  'autoCommitIntervalMs',
+  'sessionTimeoutMs',
+  'rebalanceTimeoutMs',
+  'heartbeatIntervalMs',
+  'lagIntervalMs',
+] as const;
+
+/** Kafka offsets and timestamps are signed 64-bit; browse turns them into BigInts. */
+const INT64_MAX = 9_223_372_036_854_775_807n;
+const exceedsInt64 = (value: string | undefined): boolean =>
+  value !== undefined && /^\d+$/.test(value) && BigInt(value) > INT64_MAX;
+
+function refineSubscribeMembership(
+  cfg: {
+    membership: 'browse' | 'group';
+    mode: string;
+    groupId?: string | undefined;
+    groupInstanceId?: string | undefined;
+    groupRemoteAssignor?: string | undefined;
+    fallbackMode?: string | undefined;
+    autoCommitIntervalMs?: number | undefined;
+    sessionTimeoutMs?: number | undefined;
+    rebalanceTimeoutMs?: number | undefined;
+    heartbeatIntervalMs?: number | undefined;
+    lagIntervalMs?: number | undefined;
+    offsets?: Array<{ offset: string }> | undefined;
+    timestamp?: string | undefined;
+    commitPolicy?: 'auto' | 'manual' | undefined;
+    groupProtocol?: 'classic' | 'consumer' | undefined;
+    lastN?: number | undefined;
+    maxMessages?: number | undefined;
+  },
+  ctx: z.RefinementCtx
+): void {
+  const issue = (path: string, message: string): void =>
+    ctx.addIssue({ code: 'custom', path: [path], message });
+  if (cfg.mode === 'last-n' && cfg.lastN === undefined) {
+    issue('lastN', 'last-n mode requires lastN.');
+  }
+  if (cfg.membership === 'group') {
+    if (!cfg.groupId) issue('groupId', 'Consumer-group mode requires a groupId.');
+    if (cfg.mode === 'last-n') issue('mode', 'last-n is only available in browse mode.');
+    if (cfg.maxMessages !== undefined) {
+      issue('maxMessages', 'A stop-after limit is only available in browse mode.');
+    }
+    return;
+  }
+  // Browse: nothing below may reach a group coordinator.
+  for (const field of GROUP_ONLY_SUBSCRIBE_FIELDS) {
+    if (cfg[field] !== undefined) issue(field, 'Browse mode never uses a consumer group.');
+  }
+  if (cfg.mode === 'committed') {
+    issue('mode', 'Browse mode has no consumer group, so there are no committed offsets.');
+  }
+  if (cfg.commitPolicy === 'manual') issue('commitPolicy', 'Browse mode never commits offsets.');
+  if (cfg.groupProtocol === 'consumer') {
+    issue('groupProtocol', 'Browse mode never uses a consumer group.');
+  }
+  cfg.offsets?.forEach(({ offset }, index) => {
+    if (exceedsInt64(offset)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['offsets', index, 'offset'],
+        message: 'Offset exceeds the Kafka 64-bit maximum.',
+      });
+    }
+  });
+  if (exceedsInt64(cfg.timestamp)) issue('timestamp', 'Timestamp exceeds the 64-bit maximum.');
+}
+
 export const KafkaSubscribeSchema = z
   .object({
     connectionId: KafkaConnectionIdSchema,
-    groupId: KafkaGroupIdSchema,
+    /** `browse` reads without joining/creating a group or committing (#930). */
+    membership: z.enum(['browse', 'group']).default('group'),
+    /** Required in group mode; refused in browse mode. */
+    groupId: KafkaGroupIdSchema.optional(),
     topics: z.array(KafkaTopicSchema).min(1).max(50),
-    mode: z.enum(['committed', 'latest', 'earliest', 'manual', 'timestamp']).default('committed'),
+    mode: z
+      .enum(['committed', 'latest', 'earliest', 'manual', 'timestamp', 'last-n'])
+      .default('committed'),
+    /** Browse `last-n`: start each partition at max(earliest, latest - lastN). */
+    lastN: z.number().int().positive().max(1_000_000).optional(),
+    /** Browse only: stop after this many records in total. */
+    maxMessages: z.number().int().positive().max(1_000_000).optional(),
     /** Accepted during the v1->v2 renderer migration; ignored by the main process. */
     fromBeginning: z.boolean().optional(),
     fallbackMode: z.enum(['latest', 'earliest', 'fail']).optional(),
@@ -290,6 +397,7 @@ export const KafkaSubscribeSchema = z
     lagIntervalMs: z.number().int().min(250).max(3_600_000).optional(),
   })
   .superRefine((cfg, ctx) => {
+    refineSubscribeMembership(cfg, ctx);
     if (cfg.mode === 'manual' && !cfg.offsets?.length) {
       ctx.addIssue({ code: 'custom', path: ['offsets'], message: 'Manual mode requires offsets.' });
     }
@@ -365,15 +473,39 @@ export const KafkaInspectGroupSchema = z.object({
   groupId: KafkaGroupIdSchema,
 });
 
-// Reset a consumer group's committed offsets for one topic. 'earliest'/'latest'
-// resolve the target offsets broker-side; 'specific' takes explicit per-partition
-// offsets (required in that case). Kafka rejects this unless the group is inactive.
+// Scope shared by offset reset/delete: exactly one of a single `topic` or
+// `allTopics: true` (every topic the group has committed offsets for).
+const requireOffsetScope = (
+  v: { topic?: string | undefined; allTopics?: boolean | undefined },
+  ctx: z.RefinementCtx
+): void => {
+  if (v.allTopics === true && v.topic !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Use either topic or allTopics, not both',
+      path: ['topic'],
+    });
+  } else if (v.allTopics !== true && v.topic === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'topic is required unless allTopics is true',
+      path: ['topic'],
+    });
+  }
+};
+
+// Reset a consumer group's committed offsets (handler: kafka/offset-reset.ts).
+// earliest/latest/timestamp resolve broker-side via ListOffsets; shift moves the
+// committed offset by ±N, clamped to [earliest, latest]; specific takes explicit
+// per-partition offsets. dryRun returns the plan without committing it. The group
+// must be inactive — checked before applying and enforced by the broker.
 export const KafkaResetGroupOffsetsSchema = z
   .object({
     connectionId: KafkaConnectionIdSchema,
     groupId: KafkaGroupIdSchema,
-    topic: KafkaTopicSchema,
-    to: z.enum(['earliest', 'latest', 'specific']),
+    topic: KafkaTopicSchema.optional(),
+    allTopics: z.boolean().optional(),
+    to: z.enum(['earliest', 'latest', 'specific', 'timestamp', 'shift']),
     // Same per-partition offset shape as the MANUAL-seek spec, minus the topic
     // (the topic is a top-level field here).
     partitions: z
@@ -381,10 +513,67 @@ export const KafkaResetGroupOffsetsSchema = z
       .min(1)
       .max(1000)
       .optional(),
+    // Epoch milliseconds (to === 'timestamp'); capped at the max JS Date.
+    timestamp: z.number().int().nonnegative().max(8_640_000_000_000_000).optional(),
+    // Relative move (to === 'shift'); negative rewinds.
+    shift: z.number().int().min(-Number.MAX_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER).optional(),
+    dryRun: z.boolean().optional(),
   })
-  .refine((v) => v.to !== 'specific' || (v.partitions?.length ?? 0) > 0, {
-    message: "partitions (with offsets) are required when to === 'specific'",
-    path: ['partitions'],
+  .superRefine((v, ctx) => {
+    requireOffsetScope(v, ctx);
+    if (v.to === 'specific' && (v.partitions?.length ?? 0) === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: "partitions (with offsets) are required when to === 'specific'",
+        path: ['partitions'],
+      });
+    }
+    if (v.to === 'specific' && v.allTopics === true) {
+      ctx.addIssue({
+        code: 'custom',
+        message: "allTopics cannot be combined with to === 'specific'",
+        path: ['allTopics'],
+      });
+    }
+    if (v.to === 'timestamp' && v.timestamp === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: "timestamp is required when to === 'timestamp'",
+        path: ['timestamp'],
+      });
+    }
+    if (v.to === 'shift' && v.shift === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: "shift is required when to === 'shift'",
+        path: ['shift'],
+      });
+    }
+  });
+
+// Delete a group's committed offsets (KIP-496 OffsetDelete). Optional partition
+// subset for a single topic; the group must be inactive.
+export const KafkaDeleteGroupOffsetsSchema = z
+  .object({
+    connectionId: KafkaConnectionIdSchema,
+    groupId: KafkaGroupIdSchema,
+    topic: KafkaTopicSchema.optional(),
+    allTopics: z.boolean().optional(),
+    partitions: z
+      .array(z.number().int().nonnegative().max(2_147_483_647))
+      .min(1)
+      .max(1000)
+      .optional(),
+  })
+  .superRefine((v, ctx) => {
+    requireOffsetScope(v, ctx);
+    if (v.allTopics === true && v.partitions !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'partitions can only be used with a single topic',
+        path: ['partitions'],
+      });
+    }
   });
 
 export const KafkaDeleteGroupSchema = z.object({
@@ -563,6 +752,7 @@ export type KafkaListGroupsConfig = z.infer<typeof KafkaListGroupsSchema>;
 export type KafkaInspectTopicConfig = z.infer<typeof KafkaInspectTopicSchema>;
 export type KafkaInspectGroupConfig = z.infer<typeof KafkaInspectGroupSchema>;
 export type KafkaResetGroupOffsetsConfig = z.infer<typeof KafkaResetGroupOffsetsSchema>;
+export type KafkaDeleteGroupOffsetsConfig = z.infer<typeof KafkaDeleteGroupOffsetsSchema>;
 export type KafkaDeleteGroupConfig = z.infer<typeof KafkaDeleteGroupSchema>;
 export type KafkaCreatePartitionsConfig = z.infer<typeof KafkaCreatePartitionsSchema>;
 export type KafkaAlterTopicConfigsConfig = z.infer<typeof KafkaAlterTopicConfigsSchema>;

@@ -45,6 +45,12 @@ export const protocolApi: ProtocolApi = {
     connect: invoke<ElectronAPI['mcp']['connect']>(IPC.mcp.connect),
     request: invoke<ElectronAPI['mcp']['request']>(IPC.mcp.request),
     disconnect: invoke<ElectronAPI['mcp']['disconnect']>(IPC.mcp.disconnect),
+    respondClientRequest: invoke<ElectronAPI['mcp']['respondClientRequest']>(
+      IPC.mcp.clientResponse
+    ),
+    setRoots: invoke<ElectronAPI['mcp']['setRoots']>(IPC.mcp.setRoots),
+    oauthStatus: invoke<ElectronAPI['mcp']['oauthStatus']>(IPC.mcp.oauthStatus),
+    oauthSignOut: invoke<ElectronAPI['mcp']['oauthSignOut']>(IPC.mcp.oauthSignOut),
     ...channelEventBridge(CHANNEL_PREFIXES.mcp),
   },
   kafka: {
@@ -78,6 +84,9 @@ export const protocolApi: ProtocolApi = {
       IPC.kafka.resetGroupOffsets
     ),
     deleteGroup: invoke<ElectronAPI['kafka']['deleteGroup']>(IPC.kafka.deleteGroup),
+    deleteGroupOffsets: invoke<ElectronAPI['kafka']['deleteGroupOffsets']>(
+      IPC.kafka.deleteGroupOffsets
+    ),
     createPartitions: invoke<ElectronAPI['kafka']['createPartitions']>(IPC.kafka.createPartitions),
     alterTopicConfigs: invoke<ElectronAPI['kafka']['alterTopicConfigs']>(
       IPC.kafka.alterTopicConfigs

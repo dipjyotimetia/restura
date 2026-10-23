@@ -231,13 +231,31 @@ export interface ElectronSocketIoAPI {
   removeAllListeners: (channel: string) => void;
 }
 
+export interface McpOAuthStatusIpc {
+  signedIn: boolean;
+  canRefresh: boolean;
+  expiresAt?: number;
+  scope?: string;
+  dynamicallyRegistered: boolean;
+}
+
 export interface ElectronMcpAPI {
   connect: (config: {
     connectionId: string;
     url: string;
     transport: 'streamable-http' | 'http-sse';
     headers?: Record<string, string>;
-  }) => Promise<{ success: boolean; error?: string }>;
+    /**
+     * Header-shaped connection auth (#896). SecretRef handles are resolved in
+     * Electron main at connect time — the renderer never sees the plaintext.
+     */
+    auth?: import('../../../shared/types/auth').AuthConfig;
+  }) => Promise<{
+    success: boolean;
+    error?: string;
+    /** #856: the OAuth sign-in lapsed and can't refresh — prompt to sign in again. */
+    authRequired?: boolean;
+  }>;
   request: (config: {
     connectionId: string;
     method: string;
@@ -249,12 +267,54 @@ export interface ElectronMcpAPI {
     result?: unknown;
     error?: string;
     jsonRpcError?: { code: number; message: string; data?: unknown };
+    /** #856: the OAuth sign-in lapsed and can't refresh — prompt to sign in again. */
+    authRequired?: boolean;
   }>;
   disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
+  /** Answer a server→client request delivered on `mcp:client-request:<connectionId>` (#860). */
+  respondClientRequest: (
+    response: McpClientResponseIpc
+  ) => Promise<
+    { success: true } | { success: false; error: string; fieldErrors?: Record<string, string> }
+  >;
+  /** Replace the connection's roots; live sessions get notifications/roots/list_changed. */
+  setRoots: (config: {
+    connectionId: string;
+    roots: McpRootIpc[];
+  }) => Promise<{ success: true; notified: number } | { success: false; error: string }>;
+  /**
+   * MCP OAuth 2.1 (#856): plaintext-free sign-in status for a server (+ static
+   * client id). Tokens never cross IPC.
+   */
+  oauthStatus: (target: { url: string; clientId?: string }) => Promise<McpOAuthStatusIpc>;
+  /** Forget the stored MCP OAuth tokens / registration for a server. */
+  oauthSignOut: (target: { url: string; clientId?: string }) => Promise<{ success: boolean }>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeAllListeners: (channel: string) => void;
 }
+
+export interface McpRootIpc {
+  uri: string;
+  name?: string;
+}
+
+export type McpClientResponseIpc =
+  | {
+      kind: 'elicitation';
+      connectionId: string;
+      requestId: string;
+      response:
+        | { action: 'accept'; content: Record<string, string | number | boolean | string[]> }
+        | { action: 'decline' }
+        | { action: 'cancel' };
+    }
+  | {
+      kind: 'sampling';
+      connectionId: string;
+      requestId: string;
+      response: { action: 'approve'; text: string; model: string } | { action: 'reject' };
+    };
 
 export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512' | 'OAUTHBEARER';
 
@@ -389,6 +449,29 @@ export interface KafkaPartitionLag {
   lag: string;
 }
 
+export type KafkaOffsetResetTarget = 'earliest' | 'latest' | 'specific' | 'timestamp' | 'shift';
+
+/** One partition of an offset-reset plan/result. */
+export interface KafkaOffsetResetRow {
+  topic: string;
+  partition: number;
+  /** Committed offset before the reset, or null when none was committed. */
+  previous: string | null;
+  offset: string;
+  /** Why the target differs from the literal request (timestamp fallback / shift clamp). */
+  note?: 'timestamp-fallback-latest' | 'clamped-earliest' | 'clamped-latest';
+}
+
+/**
+ * A partition left untouched: a shift reset with no committed offset to move, or
+ * (all-topics scope) a committed topic that has since been deleted.
+ */
+export interface KafkaOffsetResetSkip {
+  topic: string;
+  partition: number;
+  reason: 'no-committed-offset' | 'unknown-topic';
+}
+
 export interface ElectronKafkaAPI {
   connect: (config: {
     connectionId: string;
@@ -431,9 +514,16 @@ export interface ElectronKafkaAPI {
   }) => Promise<{ success: boolean; error?: string }>;
   subscribe: (config: {
     connectionId: string;
-    groupId: string;
+    /** `browse` = no consumer group, no commits (#930). Omitted means `group`. */
+    membership?: 'browse' | 'group';
+    /** Required in group mode; must be omitted in browse mode. */
+    groupId?: string;
     topics: string[];
-    mode: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp';
+    mode: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp' | 'last-n';
+    /** Browse `last-n` start: records per partition. */
+    lastN?: number;
+    /** Browse only: stop after this many records in total. */
+    maxMessages?: number;
     fallbackMode?: 'latest' | 'earliest' | 'fail';
     offsets?: KafkaPartitionOffset[];
     timestamp?: string;
@@ -497,14 +587,42 @@ export interface ElectronKafkaAPI {
     offsets?: KafkaPartitionLag[];
     error?: string;
   }>;
-  /** Reset a group's committed offsets for one topic (group must be inactive). */
+  /**
+   * Reset a group's committed offsets for one topic or all committed topics
+   * (group must be inactive). `dryRun` returns the plan without committing it.
+   */
   resetGroupOffsets: (config: {
     connectionId: string;
     groupId: string;
-    topic: string;
-    to: 'earliest' | 'latest' | 'specific';
+    topic?: string;
+    allTopics?: boolean;
+    to: KafkaOffsetResetTarget;
     partitions?: { partition: number; offset: string }[];
-  }) => Promise<{ success: boolean; error?: string }>;
+    /** Epoch milliseconds, for `to: 'timestamp'`. */
+    timestamp?: number;
+    /** Relative move (±N), for `to: 'shift'`. */
+    shift?: number;
+    dryRun?: boolean;
+  }) => Promise<{
+    success: boolean;
+    offsets?: KafkaOffsetResetRow[];
+    skipped?: KafkaOffsetResetSkip[];
+    dryRun?: boolean;
+    error?: string;
+  }>;
+  /** Delete a group's committed offsets (KIP-496 OffsetDelete; group must be inactive). */
+  deleteGroupOffsets: (config: {
+    connectionId: string;
+    groupId: string;
+    topic?: string;
+    allTopics?: boolean;
+    partitions?: number[];
+  }) => Promise<{
+    success: boolean;
+    deleted?: { topic: string; partitions: number[] }[];
+    skipped?: KafkaOffsetResetSkip[];
+    error?: string;
+  }>;
   /** Delete a consumer group (group must be empty/inactive). */
   deleteGroup: (config: {
     connectionId: string;

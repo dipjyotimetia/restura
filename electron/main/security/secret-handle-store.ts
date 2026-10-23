@@ -108,12 +108,48 @@ export function storeSecretHandle(args: {
 }
 
 /**
+ * Scope prefix for main-owned records (e.g. MCP OAuth tokens, #856). Such a
+ * record is written and read only by main-process code through the
+ * `*InternalSecretHandle` helpers: {@link resolveSecretHandle} (the path every
+ * renderer-supplied `{ kind: 'handle', id }` takes) refuses it, so a renderer
+ * can't splice an internal handle id into, say, a bearer field aimed at an
+ * attacker's host; and `secret:store` refuses to overwrite it. The renderer
+ * may still list (metadata only) and delete one — that's "sign out".
+ */
+export const INTERNAL_SECRET_SCOPE_PREFIX = 'internal:';
+
+function isInternalRecord(record: HandleRecord | undefined): boolean {
+  return record?.scope?.startsWith(INTERNAL_SECRET_SCOPE_PREFIX) === true;
+}
+
+/**
  * Resolve a handle to its plaintext value. Main-process only — DO NOT
- * surface this via the preload bridge.
+ * surface this via the preload bridge. Internal (main-owned) records never
+ * resolve here — see {@link INTERNAL_SECRET_SCOPE_PREFIX}.
  */
 export function resolveSecretHandle(id: string): string | undefined {
   const record = getStore().get(id);
+  if (isInternalRecord(record)) return undefined;
   return record?.value;
+}
+
+/** Write a main-owned record under an `internal:` scope. */
+export function storeInternalSecretHandle(args: {
+  id: string;
+  value: string;
+  scope: string;
+  label?: string;
+}): void {
+  if (!args.scope.startsWith(INTERNAL_SECRET_SCOPE_PREFIX)) {
+    throw new Error('internal secret handles need an internal: scope');
+  }
+  storeSecretHandle(args);
+}
+
+/** Read a main-owned record; only resolves when the record carries exactly `scope`. */
+export function resolveInternalSecretHandle(id: string, scope: string): string | undefined {
+  const record = getStore().get(id);
+  return record && record.scope === scope ? record.value : undefined;
 }
 
 /** Delete a handle. Idempotent — silent if the id is unknown. */
@@ -214,6 +250,13 @@ function handleSecretChannel<TInput>(
  */
 export function registerSecretHandleIPC(): void {
   handleSecretChannel(IPC.secret.store, StoreInputSchema, (args) => {
+    // Main-owned records (MCP OAuth tokens, …) are not renderer-writable.
+    if (
+      args.scope?.startsWith(INTERNAL_SECRET_SCOPE_PREFIX) ||
+      (args.id !== undefined && isInternalRecord(getStore().get(args.id)))
+    ) {
+      return { ok: false, error: 'This secret is managed by Restura and cannot be overwritten' };
+    }
     const { id } = storeSecretHandle({
       value: args.value,
       ...(args.label !== undefined ? { label: args.label } : {}),

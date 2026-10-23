@@ -1,27 +1,49 @@
 import { useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Floater } from '@/components/ui/spatial';
+import {
+  displayHost,
+  McpClientRequestDialog,
+} from '@/features/mcp/components/McpClientRequestDialog';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { McpConnectionPanel } from '@/features/mcp/components/McpConnectionPanel';
 import {
   McpDiscoveryPanel,
   type McpDiscoveryTab,
 } from '@/features/mcp/components/McpDiscoveryPanel';
 import { McpInvokeForm } from '@/features/mcp/components/McpInvokeForm';
+import { McpRootsPanel } from '@/features/mcp/components/McpRootsPanel';
+import { useMcpClientRequests } from '@/features/mcp/hooks/useMcpClientRequests';
 import { useMcpConnectionActions } from '@/features/mcp/hooks/useMcpConnectionActions';
+import { useMcpServerEvents } from '@/features/mcp/hooks/useMcpServerEvents';
+import { buildMcpConnectAuth } from '@/features/mcp/lib/mcpAuth';
 import { type McpCall, McpClient } from '@/features/mcp/lib/mcpClient';
+import { pushMcpRoots } from '@/features/mcp/lib/mcpClientRequests';
+import { supportsMcpServerEvents } from '@/features/mcp/lib/mcpEventBridge';
+import { errorEntry } from '@/features/mcp/lib/mcpNotifications';
 import {
   type McpOperation,
   parseMcpOperation,
   serializeMcpOperation,
 } from '@/features/mcp/lib/mcpOperation';
-import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import {
+  useMcpNotificationStore,
+  useMcpNotifications,
+  useMcpSubscribedUris,
+} from '@/features/mcp/store/useMcpNotificationStore';
+import { type McpRoot, useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
+import { isElectron } from '@/lib/shared/platform';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useActiveRequest, useActiveTabId } from '@/store/selectors';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { McpRequest } from '@/types';
+
+const NO_ROOTS: McpRoot[] = [];
+const MCP_REAUTH_PROMPT =
+  'Your MCP sign-in expired and could not be refreshed — click Connect to sign in again.';
 
 interface McpClientSession {
   connectionId: string;
@@ -57,6 +79,7 @@ export default function McpRequestBuilder() {
     setUrl,
     setTransport,
     setHeaders,
+    setRoots,
     setStatus,
     setCapabilities,
     resetConnectionSession,
@@ -74,6 +97,44 @@ export default function McpRequestBuilder() {
   const [discoveryTab, setDiscoveryTab] = useState<McpDiscoveryTab>(() =>
     discoveryTabFor(operation)
   );
+  const notifications = useMcpNotifications(active?.id);
+  const subscribedUris = useMcpSubscribedUris(active?.id);
+
+  // Server→client events (#858). Callbacks only touch refs/stable actions,
+  // so they are safe to define before the early return below.
+  const { attach: attachServerEvents, detach: detachServerEvents } = useMcpServerEvents({
+    onListChanged: () => {
+      const session = clientRef.current;
+      if (!session) return;
+      const generation = clientGenerationRef.current;
+      void session.client.discoverCapabilities().then((capabilities) => {
+        if (
+          clientGenerationRef.current !== generation ||
+          clientRef.current?.client !== session.client
+        ) {
+          return;
+        }
+        if ('error' in capabilities) {
+          useMcpNotificationStore
+            .getState()
+            .push(session.connectionId, errorEntry(`Re-discovery failed: ${capabilities.error}`));
+          return;
+        }
+        setCapabilities(session.connectionId, capabilities);
+      });
+    },
+    onUpstreamClosed: (connectionId, reason, error) => {
+      if (clientRef.current?.connectionId === connectionId) {
+        clientGenerationRef.current += 1;
+        clientRef.current = null;
+      }
+      setStatus(
+        connectionId,
+        'error',
+        error ? `Connection closed: ${error}` : `Server closed the connection (${reason})`
+      );
+    },
+  });
 
   useEffect(() => {
     if (!hasConnections) createConnection('');
@@ -125,9 +186,16 @@ export default function McpRequestBuilder() {
         clientRef.current = null;
         void session.client.disconnect();
       }
-      if (activeIdForCleanup) resetConnectionSession(activeIdForCleanup);
+      detachServerEvents();
+      if (activeIdForCleanup) {
+        resetConnectionSession(activeIdForCleanup);
+        useMcpNotificationStore.getState().resetSubscriptions(activeIdForCleanup);
+      }
     };
-  }, [activeIdForCleanup, activeTabId, resetConnectionSession]);
+  }, [activeIdForCleanup, activeTabId, resetConnectionSession, detachServerEvents]);
+
+  // Server→client requests (elicitation / sampling) are desktop-only (#860).
+  useMcpClientRequests(active?.id, active?.status);
 
   const sendShortcut = useSendShortcut();
   if (!active || !request) return null;
@@ -158,25 +226,46 @@ export default function McpRequestBuilder() {
   const resources = active.capabilities?.resources ?? [];
   const prompts = active.capabilities?.prompts ?? [];
 
-  const buildClient = () => {
+  const buildClient = (): McpClient | { error: string } => {
     const rawHeaders = keyValuePairsToRecord(request.headers);
     const headers = Object.fromEntries(
       Object.entries(rawHeaders).map(([key, value]) => [key, resolveVariables(value)])
     );
+    // #896: apply McpRequest.auth (inline on web, main-resolved on desktop).
+    const auth = buildMcpConnectAuth({
+      auth: request.auth,
+      inherited: resolveInheritedAuthFor(request),
+      headers,
+      resolve: resolveVariables,
+      desktop: isElectron(),
+    });
+    if (!auth.ok) return { error: auth.error };
     return new McpClient({
       url: resolveVariables(request.url),
       transport: request.transport,
-      headers,
+      headers: auth.headers,
+      ...(auth.mainSideAuth ? { auth: auth.mainSideAuth } : {}),
       connectionId: active.id,
     });
   };
 
   // Keep the store log and unified console in one callback so every interactive
   // MCP invocation has identical result visibility.
-  const logCall = (method: string, params: unknown, result: McpCall): void => {
+  const logCall = (
+    method: string,
+    params: unknown,
+    result: McpCall,
+    outputSchema?: unknown
+  ): void => {
+    // #856: the desktop OAuth session lapsed and couldn't refresh — prompt a
+    // fresh sign-in (Connect re-runs the browser flow).
+    if (!result.ok && result.authRequired) {
+      setStatus(active.id, 'error', MCP_REAUTH_PROMPT);
+    }
     appendLog(active.id, {
       method,
       params,
+      ...(outputSchema !== undefined ? { outputSchema } : {}),
       ...(result.ok
         ? { result: result.result }
         : {
@@ -228,16 +317,36 @@ export default function McpRequestBuilder() {
     clientRef.current = null;
     void previousSession?.client.disconnect();
     resetConnectionSession(active.id);
+    const built = buildClient();
+    if ('error' in built) {
+      setStatus(active.id, 'error', built.error);
+      return;
+    }
     setStatus(active.id, 'connecting');
-    const client = buildClient();
+    const client = built;
     clientRef.current = { connectionId: active.id, client };
     const isCurrent = () =>
       clientGenerationRef.current === generation && clientRef.current?.client === client;
 
+    // Roots must be in main before the server can ask for them.
+    if (isElectron()) {
+      const pushed = await pushMcpRoots(active.id, active.roots ?? NO_ROOTS);
+      if (!isCurrent()) return;
+      if (!pushed.ok) {
+        setStatus(active.id, 'error', pushed.error);
+        return;
+      }
+    }
+    // Subscribe BEFORE connect: main can emit during the handshake.
+    useMcpNotificationStore.getState().resetSubscriptions(active.id);
+    // Refresh bumps the generation but keeps the session, so events are keyed
+    // on session (client) identity rather than the discovery generation.
+    attachServerEvents(active.id, () => clientRef.current?.client === client);
     const open = await client.connect();
     if (!isCurrent()) return;
     if (!open.ok) {
-      setStatus(active.id, 'error', open.error);
+      detachServerEvents();
+      setStatus(active.id, 'error', open.authRequired ? MCP_REAUTH_PROMPT : open.error);
       return;
     }
     const capabilities = await client.discoverCapabilities();
@@ -254,6 +363,8 @@ export default function McpRequestBuilder() {
     clientGenerationRef.current += 1;
     const session = clientRef.current;
     if (session?.connectionId === active.id) clientRef.current = null;
+    detachServerEvents();
+    useMcpNotificationStore.getState().resetSubscriptions(active.id);
     resetConnectionSession(active.id);
     if (session?.connectionId === active.id) await session.client.disconnect();
   };
@@ -286,6 +397,30 @@ export default function McpRequestBuilder() {
     return session.client;
   };
 
+  const eventsSupported = supportsMcpServerEvents();
+  const canSubscribe =
+    eventsSupported &&
+    active.status === 'connected' &&
+    active.capabilities?.capabilities?.resources?.subscribe === true;
+
+  const toggleResourceSubscription = async (uri: string, subscribe: boolean) => {
+    const client = getCurrentClient();
+    if (!client) return;
+    const result = subscribe
+      ? await client.subscribeResource(uri)
+      : await client.unsubscribeResource(uri);
+    logCall(subscribe ? 'resources/subscribe' : 'resources/unsubscribe', { uri }, result);
+    const notificationStore = useMcpNotificationStore.getState();
+    if (result.ok) {
+      notificationStore.setSubscribed(active.id, uri, subscribe);
+    } else {
+      notificationStore.push(
+        active.id,
+        errorEntry(`${subscribe ? 'Subscribe' : 'Unsubscribe'} failed: ${result.error}`)
+      );
+    }
+  };
+
   sendShortcut.current =
     active.status === 'disconnected' || active.status === 'error'
       ? request.url.trim()
@@ -307,9 +442,27 @@ export default function McpRequestBuilder() {
         onUrlChange={(url) => update({ url })}
         onTransportChange={(transport) => update({ transport })}
         onHeadersChange={(headers) => update({ headers })}
+        requestId={request.id}
+        auth={request.auth ?? { type: 'none' }}
+        onAuthChange={(auth) => update({ auth })}
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
         onRefresh={handleRefresh}
+      />
+      {isElectron() && (
+        <McpRootsPanel
+          roots={active.roots ?? NO_ROOTS}
+          onSave={async (roots) => {
+            const result = await pushMcpRoots(active.id, roots);
+            if (result.ok) setRoots(active.id, roots);
+            return result;
+          }}
+        />
+      )}
+      <McpClientRequestDialog
+        connectionId={active.id}
+        connectionName={request.name || 'MCP connection'}
+        serverHost={displayHost(resolveVariables(request.url))}
       />
 
       <div className="flex-1 flex gap-2.5 px-3 pb-3 overflow-hidden min-h-0">
@@ -338,6 +491,22 @@ export default function McpRequestBuilder() {
             onHide={() => setShowCatalog(false)}
             tab={discoveryTab}
             onTabChange={setDiscoveryTab}
+            {...(eventsSupported
+              ? {
+                  events: {
+                    entries: notifications,
+                    onClear: () => useMcpNotificationStore.getState().clear(active.id),
+                  },
+                }
+              : {})}
+            {...(canSubscribe
+              ? {
+                  resourceSubscriptions: {
+                    subscribed: subscribedUris,
+                    onToggle: toggleResourceSubscription,
+                  },
+                }
+              : {})}
           />
         )}
 
@@ -366,7 +535,7 @@ export default function McpRequestBuilder() {
               const client = getCurrentClient();
               if (!client) return;
               const result = await client.callTool(tool.name, args);
-              logCall(`tools/call:${tool.name}`, args, result);
+              logCall(`tools/call:${tool.name}`, args, result, tool.outputSchema);
             }}
             onGet={async (prompt, args) => {
               const client = getCurrentClient();

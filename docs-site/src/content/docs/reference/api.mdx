@@ -19,6 +19,7 @@ The Restura server exposes these HTTP endpoints. The same Hono app runs in the C
 | `POST` | `/api/grpc/reflection` | gRPC reflection requests. |
 | `POST` | `/api/grpc-web` | gRPC-Web unary + server streaming; streams NDJSON events back. |
 | `POST` | `/api/mcp` | MCP client proxy (streamable HTTP; the HTTP-SSE transport is desktop-only). |
+| `POST` | `/api/mcp/terminate` | End an MCP session: sends `DELETE` with `Mcp-Session-Id` to the server (same SSRF guard as `/api/mcp`). |
 | `POST` | `/api/telemetry/error` | Scrubbed renderer error reports (opt-out). Public — no token required. |
 | `GET` | `/api/feature-flags` | Protocol kill-switch flags. Public — no token required. |
 | `POST` | `/api/ws-ticket` | Mint a short-lived ticket for the WebSocket proxy. |

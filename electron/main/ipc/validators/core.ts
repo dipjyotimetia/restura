@@ -223,6 +223,7 @@ const AuthConfigSchema = z.object({
       deviceAuthorizationUrl: z.string().optional(),
       scope: z.string().optional(),
       redirectUri: z.string().optional(),
+      issuer: z.string().max(2048).optional(),
       username: z.string().optional(),
       password: protocolSecretValueSchema.optional(),
     })
@@ -763,6 +764,11 @@ export const McpConnectSchema = z.object({
       }
     )
     .optional(),
+  // #896: header-shaped connection auth. SecretRef handle / external refs are
+  // resolved in main at connect time (ADR-0007) — plaintext never crosses IPC
+  // for them. Unsupported types / query placement are rejected by the handler
+  // via the shared `mcpAuthUnsupportedReason` policy.
+  auth: AuthConfigSchema.optional(),
 });
 
 // JSON-RPC method names for MCP. We don't lock down to a fixed enum since the

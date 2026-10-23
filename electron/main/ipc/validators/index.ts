@@ -4,5 +4,6 @@ export * from './core';
 export * from './external-secrets';
 export * from './git';
 export * from './kafka';
+export * from './mcp-client-requests';
 export * from './mqtt';
 export * from './websocket-control';

@@ -39,6 +39,7 @@ timeline
   2026-07-03 : 0027 — Telemetry + privacy-preserving usage
   2026-07-16 : 0028 — TypeScript architecture boundaries
   2026-10-13 : 0029 — Digest auth via challenge-retry
+  2026-10-18 : 0031 — MCP OAuth 2.1 in Electron main
 ```
 
 <CardGrid>
@@ -186,6 +187,11 @@ timeline
     title="0029 — Digest auth via challenge-retry"
     description="Digest answered once in the shared HTTP core: no credentials before the 401, one same-origin retry sharing the redirect budget, secrets resolved at the wire."
     href="/architecture/adrs/0029-digest-auth-challenge-retry/"
+  />
+  <LinkCard
+    title="0031 — MCP OAuth 2.1 in Electron main"
+    description="MCP authorization (PRM discovery, DCR, PKCE, resource indicators) driven from the main process: system browser + loopback redirect, guarded OAuth fetches, tokens only in internal-scope keychain handles."
+    href="/architecture/adrs/0031-mcp-oauth-in-electron-main/"
   />
 </CardGrid>
 

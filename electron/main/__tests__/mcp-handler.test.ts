@@ -98,6 +98,8 @@ vi.mock('@modelcontextprotocol/client', () => ({
     getServerVersion = vi.fn(() => ({ name: 'mock-server', version: '9.9.9' }));
     getNegotiatedProtocolVersion = vi.fn(() => sdkState.negotiatedProtocolVersion);
     getProtocolEra = vi.fn(() => 'modern');
+    setRequestHandler = vi.fn();
+    sendRootsListChanged = vi.fn(async () => undefined);
     constructor() {
       const client = this as unknown as MockClientShape;
       sdkState.clients.push(client);
@@ -720,6 +722,60 @@ describe('mcp-handler (SDK-backed)', () => {
     mockEmitTo.mockClear();
     client.onclose?.();
     expect(mockEmitTo).not.toHaveBeenCalled();
+  });
+
+  it('routes server→client requests to the owner and rejects them on disconnect (#860)', async () => {
+    await connect();
+    const client = sdkState.clients[0] as unknown as {
+      setRequestHandler: ReturnType<typeof vi.fn>;
+    };
+    const handlers = new Map(
+      client.setRequestHandler.mock.calls.map((call) => [call[0] as string, call[1]])
+    );
+    expect([...handlers.keys()].sort()).toEqual([
+      'elicitation/create',
+      'roots/list',
+      'sampling/createMessage',
+    ]);
+
+    const elicit = handlers.get('elicitation/create') as (
+      request: unknown,
+      ctx: unknown
+    ) => Promise<unknown>;
+    const pending = elicit(
+      { params: { message: 'ok?', requestedSchema: { type: 'object', properties: {} } } },
+      { mcpReq: { signal: new AbortController().signal } }
+    );
+    expect(mockEmitTo).toHaveBeenCalledWith(
+      1,
+      'mcp:client-request:conn-1',
+      expect.objectContaining({ kind: 'elicitation' })
+    );
+
+    await handlerFor('mcp:disconnect')(trustedEvent(), { connectionId: 'conn-1' });
+    await expect(pending).rejects.toMatchObject({ message: 'MCP connection closed' });
+    expect(mockEmitTo).toHaveBeenCalledWith(
+      1,
+      'mcp:client-request-cancelled:conn-1',
+      expect.objectContaining({ reason: 'closed' })
+    );
+  });
+
+  it('rejects pending server→client requests when the server closes the session', async () => {
+    await connect();
+    const client = sdkState.clients[0] as unknown as {
+      setRequestHandler: ReturnType<typeof vi.fn>;
+      onclose?: () => void;
+    };
+    const sample = client.setRequestHandler.mock.calls.find(
+      (call) => call[0] === 'sampling/createMessage'
+    )?.[1] as (request: unknown, ctx: unknown) => Promise<unknown>;
+    const pending = sample(
+      { params: { messages: [], maxTokens: 1 } },
+      { mcpReq: { signal: new AbortController().signal } }
+    );
+    client.onclose?.();
+    await expect(pending).rejects.toMatchObject({ message: 'MCP connection closed' });
   });
 
   it('rejects calls from an untrusted frame', async () => {
