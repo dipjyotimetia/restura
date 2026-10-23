@@ -61,7 +61,7 @@ test.describe('Desktop MCP (official SDK client)', () => {
     await page.getByPlaceholder('https://mcp.example.com/v1/server').fill(servers.mcpV2.url);
     await page.getByRole('button', { name: /Connect/i }).click();
     await showCatalog(page);
-    await expect(page.getByRole('tab', { name: /Tools\s+5/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('tab', { name: /Tools\s+7/ })).toBeVisible({ timeout: 15_000 });
 
     // Modern era: Subscribe opens a subscriptions/listen stream in main.
     await page.getByRole('tab', { name: /Resources/ }).click();
