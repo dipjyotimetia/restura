@@ -383,9 +383,10 @@ export interface ElectronExternalSecretsAPI {
 }
 
 export interface ElectronVaultAPI {
-  get: (key: string) => Promise<{ value: string | null }>;
-  set: (key: string, value: string) => Promise<{ ok: true }>;
-  unset: (key: string) => Promise<{ ok: true }>;
+  /** `ok:false` only for keys the store cannot parse (e.g. `a[x`). */
+  get: (key: string) => Promise<{ value: string | null; ok?: false; error?: string }>;
+  set: (key: string, value: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  unset: (key: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   clear: () => Promise<{ ok: true }>;
 }
 

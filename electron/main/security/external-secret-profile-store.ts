@@ -1,11 +1,12 @@
 /** Encrypted persistence and renderer-safe IPC for external provider profiles. */
-import * as crypto from 'crypto';
-import { ipcMain } from 'electron';
+
 import {
-  externalSecretProfileListSchema,
   type ExternalSecretProfile,
   type ExternalSecretProfileInput,
+  externalSecretProfileListSchema,
 } from '@shared/secrets/external-secret-profile';
+import * as crypto from 'crypto';
+import { ipcMain } from 'electron';
 import { IPC } from '../../shared/channels';
 import {
   createValidatedHandler,
@@ -14,10 +15,9 @@ import {
   ExternalSecretProfileUpdateSchema,
   NoInputSchema,
 } from '../ipc/ipc-validators';
+import { createResilientStore } from '../storage/resilient-store';
 import { getOrCreateEncryptedKey } from './encrypted-key';
 import { replaceExternalSecretProfiles } from './external-secret-providers';
-
-const Store = require('electron-store').default;
 
 interface ProfileStoreShape {
   get: (key: string) => unknown;
@@ -34,14 +34,13 @@ export function __setExternalSecretProfileStoreForTests(store: ProfileStoreShape
 
 function getStore(): ProfileStoreShape {
   if (storeInstance) return storeInstance;
-  storeInstance = new Store({
+  storeInstance = createResilientStore<ProfileStoreShape>({
     name: 'restura-external-secret-profiles',
     encryptionKey: getOrCreateEncryptedKey({
       fileName: '.external-secret-profiles-key',
       storeLabel: 'external secret profile store',
     }),
-    clearInvalidConfig: true,
-  }) as ProfileStoreShape;
+  });
   return storeInstance;
 }
 
