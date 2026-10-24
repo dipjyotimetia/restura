@@ -28,7 +28,6 @@ import type {
   KafkaPartitionWatermark,
   KafkaRecordFieldIpc,
   KafkaRegistryIpc,
-  KafkaSchemaRefIpc,
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
 import { isKafkaBrowse, type KafkaSubscribePayload, toBrowseSubscribe } from './kafkaBrowse';

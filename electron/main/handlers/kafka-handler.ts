@@ -24,6 +24,12 @@ import type { LogEntry } from '../lifecycle/request-logger';
 import { getExecutionPolicy } from '../security/execution-policy';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
+import {
+  browseConsumerOptions,
+  onBrowseStreamFinished,
+  openBrowseStream,
+} from './kafka/browse-consumer';
+import { buildClientOptions, type KafkaClientOptions } from './kafka/client-options';
 import { registerKafkaConsumerControlHandlers } from './kafka/consumer-control-handlers';
 import {
   type ConsumerStreamHooks,
@@ -31,12 +37,6 @@ import {
   type KafkaConsumerSession,
   subscriptionSession,
 } from './kafka/consumer-session';
-import {
-  browseConsumerOptions,
-  onBrowseStreamFinished,
-  openBrowseStream,
-} from './kafka/browse-consumer';
-import { buildClientOptions, type KafkaClientOptions } from './kafka/client-options';
 import {
   type AppProducer,
   closeKafkaProducerSessions,
@@ -250,6 +250,22 @@ function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
   };
 }
 
+/**
+ * Browse mode is group-less: no commits, rebalances or partition assignment, so
+ * it has no consumer session (flow control / partition pause / seek). It only
+ * needs ordered emission and the stream lifecycle events.
+ */
+function bindBrowseListeners(entry: ActiveKafka, stream: AppStream): void {
+  const hooks = consumerStreamHooks(entry);
+  const signal = new AbortController().signal;
+  stream.on('data', (msg: AppMessage) => {
+    // One bad decode must not wedge the ordered emission chain.
+    entry.emitChain = entry.emitChain.then(() => hooks.deliver(msg, signal)).catch(() => {});
+  });
+  stream.on('error', (err: Error) => hooks.onError(err));
+  stream.on('close', () => hooks.onClose());
+}
+
 export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
   registerKafkaProducerHandlers((connectionId, ownerId) =>
     activeConnections.getForOwner(connectionId, ownerId)
@@ -436,7 +452,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
             await closeConsumerQuietly(consumer);
             return { success: false, error: 'Not connected' };
           }
-          bindStreamListeners(entry, stream as unknown as AppStream);
+          bindBrowseListeners(entry, stream as unknown as AppStream);
           Object.assign(entry, { consumer, stream, manualCommit: false });
           // Stop-after-N or a failure frees the slot once queued records are forwarded.
           onBrowseStreamFinished(stream, () => {

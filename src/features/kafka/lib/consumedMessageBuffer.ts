@@ -1,6 +1,6 @@
 import type { KafkaMessageInput } from '@/features/kafka/store/useKafkaStore';
-import type { KafkaSchemaRefIpc } from '../../../../electron/types/electron-api';
 import { MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
+import type { KafkaSchemaRefIpc } from '../../../../electron/types/electron-api';
 
 /**
  * Consumed records are buffered and flushed to the store on this interval

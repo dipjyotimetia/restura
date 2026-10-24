@@ -67,8 +67,15 @@ export function registerKafkaConsumerControlHandlers<E extends KafkaConsumerCont
       channel,
       createValidatedEventHandler(channel, KafkaConsumerControlSchema, async (cfg, event) => {
         const entry = deps.getEntry(cfg.connectionId, event.sender.id);
-        if (!entry?.session) return NO_CONSUMER;
-        entry.session.flow.setUserPaused(paused);
+        if (entry && !entry.session && entry.stream) {
+          // Browse mode has no session: pause the raw stream.
+          if (paused) entry.stream.pause();
+          else entry.stream.resume();
+        } else if (entry?.session) {
+          entry.session.flow.setUserPaused(paused);
+        } else {
+          return NO_CONSUMER;
+        }
         deps.emitStatus(entry, { state: paused ? 'paused' : 'resumed' });
         return { success: true };
       })

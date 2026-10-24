@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../../electron/shared/kafka-channels';
+import { KAFKA_FLUSH_INTERVAL_MS } from '../consumedMessageBuffer';
 
 function installElectronMock() {
   const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
@@ -193,6 +194,8 @@ describe('kafkaManager (Electron path)', () => {
       value: 'once',
       timestamp: 1,
     });
+    // Consumed records are batched into the store (#938).
+    await new Promise((r) => setTimeout(r, KAFKA_FLUSH_INTERVAL_MS + 20));
     const received = useKafkaStore
       .getState()
       .connections[id]!.messages.filter((m) => m.direction === 'received');
