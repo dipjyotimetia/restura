@@ -4,24 +4,20 @@ import {
   mcpAuthUnsupportedReason,
 } from '@shared/protocol/mcp-auth';
 import { validateMcpSpec } from '@shared/protocol/mcp-proxy';
-import { isMcpToolError, mcpToolErrorText } from '@shared/protocol/mcp-result';
+import {
+  buildMcpRunReply,
+  mcpMissingMethodMessage,
+  mcpSessionKey,
+  parseMcpRunParams,
+} from '@shared/protocol/mcp-run';
 import type { AuthConfig, McpRequest } from '@shared/types';
-import { request as undiciRequest } from 'undici';
-import { v4 as uuidv4 } from 'uuid';
 import type { LoadedRequest } from '../collectionLoader';
+import { type CliMcpSession, openCliMcpSession } from '../mcpSession';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 
-/**
- * MCP (Model Context Protocol) executor. Fires a one-shot JSON-RPC POST and
- * captures the response. `validateMcpSpec` from the shared proxy handles URL
- * validation, header sanitisation, and envelope construction — we just dispatch.
- *
- * Subscription / streaming MCP transports are out of scope for CLI v0.2 — we
- * run the request as a single round trip even when `transport: http-sse`.
- */
 /**
  * Resolve `{{vars}}` in the header-shaped credential fields BEFORE headers are
  * built (Basic is base64-encoded and `apiKey.key` is a header name), matching
@@ -87,6 +83,16 @@ function resolveMcpAuthVars(auth: AuthConfig | undefined, vars: Record<string, s
   }
 }
 
+/**
+ * MCP (Model Context Protocol) executor (#901). Runs the saved operation
+ * (`defaultMethod` + `defaultParams`) over a real MCP session — initialize
+ * once per server per run (pooled by the runner), then the call — and returns
+ * the JSON-RPC envelope as the response body, exactly like the in-app
+ * collection runner (`@shared/protocol/mcp-run`):
+ *
+ *   rs.response.json().result          — the result (incl. `isError`)
+ *   rs.response.json().error           — a JSON-RPC error { code, message, data }
+ */
 export async function executeMcp(
   item: LoadedRequest,
   opts: ExecuteOptions
@@ -125,10 +131,7 @@ export async function executeMcp(
       passed: false,
       durationMs: 0,
       bodyBytes: 0,
-      errorMessage:
-        `No MCP method configured for "${req.name}". Set defaultMethod (e.g. "tools/call", ` +
-        `"resources/read", "prompts/get") and defaultParams (e.g. {"name":"<tool>","arguments":{}}) ` +
-        'on the request — open it in Restura, build the operation, and save it to the collection again.',
+      errorMessage: mcpMissingMethodMessage(req.name),
     };
   }
 
@@ -180,34 +183,31 @@ export async function executeMcp(
     };
   }
 
-  // Build a JSON-RPC envelope from defaultMethod/defaultParams. Real MCP usage
-  // would walk a script-driven dialog; the CLI's contract is "send one call".
-  let params: unknown = undefined;
-  if (req.defaultParams) {
-    const resolved = resolveVarsDeep(req.defaultParams, opts.vars);
-    try {
-      params = JSON.parse(resolved);
-    } catch {
-      params = resolved; // pass through verbatim if not JSON
-    }
+  const parsedParams = parseMcpRunParams(
+    req.defaultParams ? resolveVarsDeep(req.defaultParams, opts.vars) : undefined
+  );
+  if (!parsedParams.ok) {
+    return {
+      status: 0,
+      passed: false,
+      durationMs: 0,
+      bodyBytes: 0,
+      errorMessage: parsedParams.error,
+    };
   }
-  const id = uuidv4();
 
+  // Shared URL guard + header sanitisation; the SDK session owns the wire.
   const validation = validateMcpSpec(
     {
       url,
       transport: req.transport,
-      // The CLI fires a single JSON-RPC POST. For the http-sse transport the
-      // shared validator requires an explicit POST endpoint (it otherwise only
-      // has the SSE GET url); for a one-shot call that endpoint is the url.
       ...(req.transport === 'http-sse' ? { postEndpoint: url } : {}),
       headers,
-      jsonRpc: { method, params, id },
+      jsonRpc: { method, id: 0 },
       timeout: opts.timeoutMs,
     },
     opts.allowLocalhost
   );
-
   if (!validation.ok) {
     return {
       status: validation.status,
@@ -218,60 +218,51 @@ export async function executeMcp(
     };
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), validation.timeoutMs);
-  const start = Date.now();
-  try {
-    const response = await undiciRequest(validation.targetUrl, {
-      method: 'POST',
+  // Narrowed above: stdio was refused, so only the HTTP transports remain.
+  const transport = req.transport;
+  const open = () =>
+    openCliMcpSession({
+      url,
+      transport,
       headers: validation.headers,
-      body: validation.body,
-      signal: controller.signal,
+      allowLocalhost: opts.allowLocalhost,
+      timeoutMs: validation.timeoutMs,
       ...(opts.dispatcher ? { dispatcher: opts.dispatcher } : {}),
+      ...(opts.tls ? { tls: opts.tls } : {}),
+      ...(opts.proxy ? { proxy: opts.proxy } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
-    const status = response.statusCode;
-    const text = await response.body.text();
-    const responseHeaders: Record<string, string> = {};
-    for (const [k, v] of Object.entries(response.headers)) {
-      if (v === undefined) continue;
-      responseHeaders[k] = Array.isArray(v) ? v.join(', ') : String(v);
-    }
-
-    let passed = status >= 200 && status < 300;
-    let errorMessage: string | undefined;
-    // A 2xx with a JSON-RPC `error` field is still a failure from the caller's POV.
-    if (passed) {
-      try {
-        const parsed = JSON.parse(text);
-        if (parsed && typeof parsed === 'object' && 'error' in parsed && parsed.error) {
-          passed = false;
-          const e = parsed.error as { message?: string; code?: number };
-          errorMessage = `JSON-RPC error ${e.code ?? ''}: ${e.message ?? text}`;
-        } else if (parsed && typeof parsed === 'object' && isMcpToolError(parsed.result)) {
-          // Tool execution errors ride a *successful* JSON-RPC response with
-          // `result.isError: true` (MCP 2025-06-18). Fail the item, and word it
-          // differently from a protocol error so reports can tell them apart.
-          passed = false;
-          errorMessage = `MCP tool error (isError: true): ${mcpToolErrorText(parsed.result)}`;
-        }
-      } catch {
-        // Non-JSON body — leave passed as is; the script can decide.
-      }
-    } else {
-      errorMessage = `MCP upstream returned ${status}`;
-    }
-
+  // Pooled (a `restura run`): one initialized session per server for the
+  // whole run, closed by the runner. Unpooled: a session for this call only.
+  const pool = opts.mcpSessions;
+  const sessionKey = mcpSessionKey(url, req.transport, validation.headers);
+  const start = Date.now();
+  let session: CliMcpSession | undefined;
+  try {
+    session = pool ? await pool.get(sessionKey, open) : await open();
+    const reply = buildMcpRunReply(
+      await session.request(method, parsedParams.params, {
+        timeoutMs: validation.timeoutMs,
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      })
+    );
     const outcome: ExecuteOutcome = {
-      status,
-      passed,
+      // The JSON-RPC call completed; HTTP-level failures throw below.
+      status: 200,
+      passed: reply.outcome === 'result',
       durationMs: Date.now() - start,
-      bodyBytes: text.length,
-      responseHeaders,
-      responseBody: text,
+      bodyBytes: Buffer.byteLength(reply.body),
+      responseHeaders: {},
+      responseBody: reply.body,
     };
-    if (errorMessage) outcome.errorMessage = errorMessage;
+    // JSON-RPC errors and tool `isError` results stay assertable: they fail
+    // the item only when no test assertion decides (see runner).
+    if (reply.outcome !== 'result') outcome.protocolError = reply.statusText;
     return outcome;
   } catch (err) {
+    // A transport-level failure (JSON-RPC errors are returned, not thrown)
+    // may have broken the session: evict it so a retry / later item reconnects.
+    pool?.evict(sessionKey);
     return {
       status: 0,
       passed: false,
@@ -280,6 +271,6 @@ export async function executeMcp(
       errorMessage: err instanceof Error ? err.message : String(err),
     };
   } finally {
-    clearTimeout(timer);
+    if (!pool) await session?.close();
   }
 }

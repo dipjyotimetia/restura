@@ -112,8 +112,10 @@ describe('CLI MCP operation vs the v2 MCP mock', () => {
     expect(outcome.errorMessage).toBeUndefined();
     expect(outcome.status).toBe(200);
     expect(outcome.passed).toBe(true);
-    expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject({
+    // The session handshake (discover / initialize) precedes exactly one call.
+    const calls = received.filter((m) => m.method === 'tools/call');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
       jsonrpc: '2.0',
       method: 'tools/call',
       params: { name: 'echo', arguments: { text: 'hello' } },
@@ -183,8 +185,10 @@ describe('CLI MCP operation vs the v2 MCP mock', () => {
 
     expect(outcome.errorMessage).toBeUndefined();
     expect(outcome.status).toBe(200);
-    expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject({
+    // The session handshake (discover / initialize) precedes exactly one call.
+    const calls = received.filter((m) => m.method === 'tools/call');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
       jsonrpc: '2.0',
       method: 'tools/call',
       params: { name: 'echo', arguments: { text: 'from-yaml' } },

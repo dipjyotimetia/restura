@@ -72,13 +72,18 @@ export interface TlsOptions {
  * (`requestTls`). The env-var proxy is NOT composed with TLS flags, so pass
  * `--proxy` explicitly to use a proxy together with `--ca`/`--insecure`/mTLS.
  */
-export function buildDispatcher(tls?: TlsOptions, proxy?: string): Dispatcher | undefined {
+export function tlsConnectOptions(tls?: TlsOptions): Record<string, unknown> {
   const connect: Record<string, unknown> = {};
   if (tls?.rejectUnauthorized !== undefined) connect.rejectUnauthorized = tls.rejectUnauthorized;
   if (tls?.ca) connect.ca = tls.ca;
   if (tls?.cert) connect.cert = tls.cert;
   if (tls?.key) connect.key = tls.key;
   if (tls?.passphrase) connect.passphrase = tls.passphrase;
+  return connect;
+}
+
+export function buildDispatcher(tls?: TlsOptions, proxy?: string): Dispatcher | undefined {
+  const connect = tlsConnectOptions(tls);
   const hasTls = Object.keys(connect).length > 0;
   if (proxy) {
     return new ProxyAgent({ uri: proxy, ...(hasTls ? { requestTls: connect } : {}) });
