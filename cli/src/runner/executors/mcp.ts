@@ -121,10 +121,12 @@ export async function executeMcp(
     };
   }
 
+  // Narrowed above: stdio was refused, so only the HTTP transports remain.
+  const transport = req.transport;
   const open = () =>
     openCliMcpSession({
       url,
-      transport: req.transport,
+      transport,
       headers: validation.headers,
       allowLocalhost: opts.allowLocalhost,
       timeoutMs: validation.timeoutMs,
