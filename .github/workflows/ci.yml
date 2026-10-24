@@ -5,15 +5,64 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # Nightly run on main so e2e/desktop regressions cannot sit unseen between
+  # app-path changes. Scheduled runs execute the e2e jobs regardless of paths.
+  schedule:
+    - cron: '17 3 * * *'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Keep the nightly run from cancelling (or being cancelled by) a main push.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'schedule' && 'nightly' || 'ci' }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  # Gate for the heavy browser/desktop jobs (web e2e, Electron e2e, pack smoke).
+  # They run for PRs and main pushes only when app paths changed, and always for
+  # the nightly schedule. A plain diff keeps this free of third-party actions.
+  changes:
+    name: Detect app changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Detect app-path changes
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Paths that can change app behaviour covered by the e2e jobs (plus this
+          # workflow, so CI edits exercise them).
+          pattern='^(src/features/|src/components/|electron/|e2e/|e2e-electron/|shared/|worker/|\.github/workflows/ci\.yml$)'
+          case "$EVENT_NAME" in
+            pull_request) range="$PR_BASE_SHA...$PR_HEAD_SHA" ;;
+            push) range="$PUSH_BEFORE..$PUSH_SHA" ;;
+            *) echo 'app=true' >> "$GITHUB_OUTPUT"; echo "event $EVENT_NAME: run always"; exit 0 ;;
+          esac
+          # New branch / force-push: the base commit may be missing; be conservative.
+          if ! git diff --name-only "$range" > changed.txt 2> diff.err; then
+            echo "diff failed for $range, running e2e:"; cat diff.err
+            echo 'app=true' >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          cat changed.txt
+          if grep -Eq "$pattern" changed.txt; then
+            echo 'app=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'app=false' >> "$GITHUB_OUTPUT"
+          fi
+
   vitest-shards:
     name: Vitest (shard ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
@@ -268,8 +317,8 @@ jobs:
     # postinstall (native rebuild), which the Dependabot runs deliberately skip
     # via --ignore-scripts. Electron dep bumps still get desktop coverage at
     # release-preflight time. Not a required check, so skipping never blocks merge.
-    if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
-    needs: [validate, validate-static-build]
+    if: ${{ needs.changes.outputs.app == 'true' && github.actor != 'dependabot[bot]' }}
+    needs: [changes, validate, validate-static-build]
     strategy:
       fail-fast: false
       matrix:
@@ -321,7 +370,8 @@ jobs:
           node scripts/verify-asar-renderer.mjs "$asar"
 
   e2e:
-    if: github.event_name == 'pull_request'
+    needs: [changes]
+    if: ${{ needs.changes.outputs.app == 'true' }}
     # Two shards run in parallel on separate runners — each boots its own dev
     # server, so playwright.config.ts's `workers: 1` / `fullyParallel: false`
     # (which keeps suites within a shard from racing on shared dev-server
@@ -452,7 +502,7 @@ jobs:
   e2e-electron:
     # Skip for Dependabot (see electron-smoke): needs the native-rebuild
     # postinstall that --ignore-scripts skips on Dependabot runs.
-    if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
+    if: ${{ needs.changes.outputs.app == 'true' && github.actor != 'dependabot[bot]' }}
     # Desktop e2e: launches the compiled, unpacked app via Playwright's
     # `_electron` API (no electron-builder packaging, no Vite dev server). The
     # specs spin up in-process mock upstreams + a spawned native gRPC server,
@@ -460,7 +510,7 @@ jobs:
     # builds a different target (electron:compile, not the SPA + Worker) and
     # needs a virtual display.
     name: Electron desktop E2E
-    needs: [validate, validate-static-build]
+    needs: [changes, validate, validate-static-build]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -563,11 +613,12 @@ jobs:
   deploy-preview:
     name: Deploy preview
     needs: [validate, validate-static-build, e2e]
+    # e2e is skipped when no app paths changed; that must not block the preview.
     # Same-repo PRs only. Forked PRs receive neither the Cloudflare secrets nor a
     # writable token, so every step here would fail — skip the job for forks.
     # Dependabot is also excluded: its runs get no secrets (deploy would fail)
     # and a preview deploy of a dep bump has no value.
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+    if: ${{ !cancelled() && needs.validate.result == 'success' && needs.validate-static-build.result == 'success' && (needs.e2e.result == 'success' || needs.e2e.result == 'skipped') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     concurrency:
       group: deploy-preview-${{ github.event.pull_request.number }}
@@ -714,6 +765,7 @@ jobs:
   # site. (`deploy-preview` only builds docs on same-repo PRs, after e2e.)
   docs:
     name: Docs site (type-check + build + production deploy)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
