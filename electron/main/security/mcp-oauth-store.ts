@@ -53,6 +53,10 @@ export function canonicalMcpResource(serverUrl: string): string {
  * Deterministic, UUID-shaped (version 8, RFC 9562 custom) handle id so the
  * record can be found again on the next connect without an index, and so the
  * Settings → Secrets UI can delete it through the uuid-validated channel.
+ *
+ * This is a lookup key, not a password hash: only the public resource URL and
+ * the public OAuth client id are hashed — the client secret and tokens never
+ * reach it. Changing the derivation orphans every stored sign-in.
  */
 export function mcpOAuthHandleId(serverUrl: string, clientId: string | undefined): string {
   const hex = crypto
