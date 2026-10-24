@@ -5,6 +5,7 @@ import type {
   BodyType,
   Collection,
   CollectionItem,
+  CollectionRequest,
   GrpcMethodType,
   GrpcRequest,
   HttpMethod,
@@ -15,10 +16,17 @@ import type {
   SseRequest,
 } from '../types';
 import { AUTH_EXTENSION_KEY, applyAuthExtension } from './auth-extension';
+import {
+  KAFKA_EXTENSION_KEY,
+  kafkaEntryToInternal,
+  MQTT_EXTENSION_KEY,
+  mqttEntryToInternal,
+} from './broker-items';
 import { graphqlMethodFromOC } from './graphql-item';
 import { applyGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-extension';
 import { applyGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
 import { applyHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
+import { kvToInternal } from './key-value';
 import type { OpenCollection } from './schemas';
 
 /**
@@ -33,9 +41,11 @@ import type { OpenCollection } from './schemas';
  *                       "<original> (WebSocket)". Restura has UI for WebSocket but no
  *                       persistent internal type yet — folders preserve visibility
  *                       without lying about runnability. Tracked as DONE_WITH_CONCERNS.
- *   - extensions['x-restura-sse'] / ['x-restura-mcp']
- *                     → SseRequest / McpRequest items, placed in the folder named
- *                       by each entry's `folderPath` (collection root when absent).
+ *   - extensions['x-restura-sse'] / ['x-restura-mcp'] / ['x-restura-kafka'] /
+ *     ['x-restura-mqtt']
+ *                     → SseRequest / McpRequest / Kafka / MQTT preset items, placed
+ *                       in the folder named by each entry's `folderPath`
+ *                       (collection root when absent). See broker-items.ts.
  *   - extensions['x-restura-auth']
  *                     → OAuth1/NTLM/WSSE knobs the schema lacks, re-applied onto
  *                       root/folder/request auth (see auth-extension.ts).
@@ -114,7 +124,7 @@ export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
     collection,
     (oc.extensions as Record<string, unknown> | undefined)?.[AUTH_EXTENSION_KEY]
   );
-  collection._oc = oc;
+  collection._oc = withoutBrokerExtensions(oc);
   return collection;
 }
 
@@ -390,18 +400,6 @@ function requestDefaultsScripts(
   return collectScripts((request as { scripts?: unknown } | undefined)?.scripts, contextName);
 }
 
-function kvToInternal(kv: unknown): KeyValue {
-  const k = (kv ?? {}) as Record<string, unknown>;
-  const out: KeyValue = {
-    id: uuid(),
-    key: (k.name as string) ?? (k.key as string) ?? '',
-    value: (k.value as string) ?? '',
-    enabled: typeof k.enabled === 'boolean' ? (k.enabled as boolean) : true,
-  };
-  if (typeof k.description === 'string') out.description = k.description;
-  return out;
-}
-
 /**
  * Tracks whether the importer encountered a body shape it didn't recognize
  * during the most recent ocToInternal call. UI surfaces (toasts) read this
@@ -647,8 +645,8 @@ function extractRootVariables(oc: OpenCollection): KeyValue[] {
 }
 
 /**
- * Place `x-restura-sse` / `x-restura-mcp` extension entries into the internal
- * tree. OpenCollection has no native SSE/MCP item, so they ride in root
+ * Place `x-restura-sse` / `-mcp` / `-kafka` / `-mqtt` extension entries into the
+ * internal tree. OpenCollection has no native item for these, so they ride in root
  * `extensions`; each entry carries an optional `folderPath` (folder names from
  * the root) recording where it lives (#866). Entries without one — or whose
  * folder no longer exists — land at the collection root (backward compatible
@@ -659,13 +657,18 @@ function placeExtensionItems(
   ext: Record<string, unknown> | undefined
 ): void {
   const placed: Array<{ entry: Record<string, unknown>; item: WithOC<CollectionItem> }> = [];
-  for (const s of (ext?.['x-restura-sse'] as unknown[] | undefined) ?? []) {
-    const entry = (s ?? {}) as Record<string, unknown>;
-    placed.push({ entry, item: extensionRequestItem(sseEntryToInternal(entry), entry) });
-  }
-  for (const m of (ext?.['x-restura-mcp'] as unknown[] | undefined) ?? []) {
-    const entry = (m ?? {}) as Record<string, unknown>;
-    placed.push({ entry, item: extensionRequestItem(mcpEntryToInternal(entry), entry) });
+  const lists: Array<[string, (entry: Record<string, unknown>) => CollectionRequest]> = [
+    ['x-restura-sse', sseEntryToInternal],
+    ['x-restura-mcp', mcpEntryToInternal],
+    [KAFKA_EXTENSION_KEY, kafkaEntryToInternal],
+    [MQTT_EXTENSION_KEY, mqttEntryToInternal],
+  ];
+  for (const [key, toInternal] of lists) {
+    const list = ext?.[key];
+    for (const raw of Array.isArray(list) ? list : []) {
+      const entry = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      placed.push({ entry, item: extensionRequestItem(toInternal(entry), entry) });
+    }
   }
   for (const { entry, item } of placed) {
     (resolveFolderItems(rootItems, entry.folderPath) ?? rootItems).push(item);
@@ -673,7 +676,7 @@ function placeExtensionItems(
 }
 
 function extensionRequestItem(
-  req: SseRequest | McpRequest,
+  req: CollectionRequest,
   entry: Record<string, unknown>
 ): WithOC<CollectionItem> {
   const item: WithOC<CollectionItem> = {
@@ -682,8 +685,19 @@ function extensionRequestItem(
     name: req.name,
     request: req,
   };
-  item._oc = entry;
+  // Kafka / MQTT presets keep NO verbatim bag: the typed preset is lossless,
+  // and a raw entry could smuggle credential keys (sasl.password, …) past the
+  // secret-free preset types into persistence and re-export (#984).
+  if (req.type !== 'kafka' && req.type !== 'mqtt') item._oc = entry;
   return item;
+}
+
+/** The root bag minus the broker preset lists (see extensionRequestItem). */
+function withoutBrokerExtensions(oc: OpenCollection): OpenCollection {
+  const ext = oc.extensions as Record<string, unknown> | undefined;
+  if (!ext || !(KAFKA_EXTENSION_KEY in ext || MQTT_EXTENSION_KEY in ext)) return oc;
+  const { [KAFKA_EXTENSION_KEY]: _kafka, [MQTT_EXTENSION_KEY]: _mqtt, ...rest } = ext;
+  return { ...oc, extensions: rest } as OpenCollection;
 }
 
 /**

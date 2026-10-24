@@ -487,7 +487,7 @@ main.ts (entry — owns the IPC_MODULES register/dispose registry)
 
 ## Collection format
 
-Restura speaks **OpenCollection v1.0.0** natively (the format Bruno 3.1+ uses). The runtime-neutral implementation lives at [`shared/opencollection/`](../shared/opencollection/) — vendored JSON Schema, generated TS types, Zod runtime validators, YAML serializer, Node fs adapters, and bidirectional bridges to the internal `Collection` model. Renderer paths under `src/lib/opencollection/` are compatibility re-exports. SSE and MCP requests live under the spec's `extensions` field as `x-restura-sse` / `x-restura-mcp` (round-trip stable).
+Restura speaks **OpenCollection v1.0.0** natively (the format Bruno 3.1+ uses). The runtime-neutral implementation lives at [`shared/opencollection/`](../shared/opencollection/) — vendored JSON Schema, generated TS types, Zod runtime validators, YAML serializer, Node fs adapters, and bidirectional bridges to the internal `Collection` model. Renderer paths under `src/lib/opencollection/` are compatibility re-exports. SSE and MCP requests live under the spec's `extensions` field as `x-restura-sse` / `x-restura-mcp` (round-trip stable), as do Kafka / MQTT connection presets (`x-restura-kafka` / `x-restura-mqtt`, secret-free — credentials stay in the desktop secure store).
 
 A legacy `.http.yaml`/`.grpc.yaml`/`.sse.yaml`/`.mcp.yaml` per-request format also exists at `shared/collections/legacy-file-schema.ts` (with a renderer compatibility re-export) and is still used by the CLI runner and the existing Electron file watcher; it's marked `@deprecated` and migration to OpenCollection is tracked in the Phase 1/3 roadmap. See [`docs/opencollection.md`](./opencollection.md) for the user-facing format guide.
 

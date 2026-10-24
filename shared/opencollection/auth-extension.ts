@@ -102,7 +102,7 @@ function walk(
       walk(it.items, path, visit);
       continue;
     }
-    if (it.request) visit('request', path, it.request.auth);
+    if (it.request && 'auth' in it.request) visit('request', path, it.request.auth);
   }
 }
 

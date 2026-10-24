@@ -245,6 +245,8 @@ class KafkaManager {
     compression?: KafkaCompression;
     valueSchemaId?: number;
     keySchemaId?: number;
+    /** Transcript copy with secret `{{var}}` values masked (kafkaVariables.ts). */
+    display?: { key?: string; value?: string; headers?: Record<string, string> };
   }): Promise<
     | { ok: true; ack: { topic: string; partition: number; offset: string; timestamp: number } }
     | { ok: false; error: string }
@@ -314,12 +316,12 @@ class KafkaManager {
       topic: result.ack.topic,
       partition: result.ack.partition,
       offset: result.ack.offset,
-      ...(params.key !== undefined ? { key: params.key } : {}),
+      ...(params.key !== undefined ? { key: params.display?.key ?? params.key } : {}),
       ...(params.keyEncoding !== undefined ? { keyEncoding: params.keyEncoding } : {}),
-      value: params.value ?? '<tombstone>',
+      value: params.value === null ? '<tombstone>' : (params.display?.value ?? params.value),
       ...(params.value === null ? { tombstone: true } : {}),
       ...(params.valueEncoding !== undefined ? { valueEncoding: params.valueEncoding } : {}),
-      ...(params.headers ? { headers: params.headers } : {}),
+      ...(params.headers ? { headers: params.display?.headers ?? params.headers } : {}),
     });
     return { ok: true, ack: result.ack };
   }
@@ -332,6 +334,8 @@ class KafkaManager {
     mode?: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp' | 'last-n';
     offsets?: Array<{ topic: string; partition: number; offset: string }>;
     timestamp?: string;
+    /** Unresolved `{{var}}` forms to persist instead of the wire values (#984). */
+    stored?: { groupId: string; topics: string[] };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!isElectron()) return { ok: false, error: 'Kafka is desktop-only.' };
     const api = getElectronAPI();
@@ -342,8 +346,8 @@ class KafkaManager {
     // mode/offsets are transient subscribe-time inputs, so don't push them there.
     store.updateConsumer(params.connectionId, {
       status: 'subscribing',
-      groupId: params.groupId,
-      topics: params.topics,
+      groupId: params.stored?.groupId ?? params.groupId,
+      topics: params.stored?.topics ?? params.topics,
       fromBeginning: params.fromBeginning,
     });
     this.bindMessageListener(params.connectionId);

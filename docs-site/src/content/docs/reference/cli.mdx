@@ -90,6 +90,7 @@ The legacy format prints a stderr deprecation warning the first time it's loaded
 | **SSE** | Captures events for `--sse-duration` ms, or until `--sse-events N` |
 | **MCP** | Single JSON-RPC POST per request, sending the saved operation — `defaultMethod` + `defaultParams` (e.g. `tools/call` with `{"name":"…","arguments":{…}}`), with `{{var}}`s resolved. An MCP item with no method **fails** with an actionable error instead of sending a `ping`. |
 | **WebSocket** | Not run in collection batches (matches the desktop collection runner, which skips streaming protocols) |
+| **Kafka / MQTT presets** | Skipped with a notice on stderr — connection presets open in the desktop app; the CLI has no broker transport |
 
 <Aside type="caution" title="gRPC wire format">
 The CLI uses **Connect-over-HTTP**, not gRPC-over-HTTP/2 binary framing. If your server only speaks classic gRPC, requests come back `UNKNOWN`.

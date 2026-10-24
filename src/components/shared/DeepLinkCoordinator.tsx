@@ -1,10 +1,10 @@
 import type { DeepLinkPayload } from '@shared/deep-link';
 import type { CollectionItem } from '@shared/types/collection';
 import { useEffect, useRef } from 'react';
+import { openCollectionItem } from '@/features/collections/lib/openCollectionItem';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useRequestStore } from '@/store/useRequestStore';
 
 function findRequest(items: CollectionItem[], id: string): CollectionItem | undefined {
   for (const item of items) {
@@ -42,12 +42,7 @@ function applyDeepLink(payload: DeepLinkPayload): boolean {
     case 'request': {
       const collection = useCollectionStore.getState().getCollectionByItemId(payload.id);
       const item = collection ? findRequest(collection.items, payload.id) : undefined;
-      if (!item?.request) return false;
-      const requests = useRequestStore.getState();
-      const existing = requests.tabs.find((tab) => tab.savedRequestId === payload.id);
-      if (existing) requests.switchTab(existing.id);
-      else requests.openTab(item.request, { savedRequestId: payload.id });
-      return true;
+      return item ? openCollectionItem(item) : false;
     }
     case 'settings':
       dispatch('restura:open-settings', payload.section);

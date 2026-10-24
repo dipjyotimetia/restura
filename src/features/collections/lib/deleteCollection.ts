@@ -3,6 +3,7 @@ import { useFileCollectionStore } from '@/store/useFileCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type { CollectionItem } from '@/types';
+import { reapBrokerPresetSecrets } from './brokerPresets';
 
 function collectItemIds(items: CollectionItem[], ids = new Set<string>()): Set<string> {
   for (const item of items) {
@@ -47,5 +48,7 @@ export async function deleteCollectionWithCleanup(
   useWorkflowStore.getState().removeWorkflowsByCollectionId(collectionId);
   if (fileInfo) fileStore.unregisterFileCollection(collectionId);
   collectionStore.removeCollection(collectionId);
+  // Kafka / MQTT presets: drop their stored credentials too (#984).
+  reapBrokerPresetSecrets(collection.items);
   return { success: true };
 }

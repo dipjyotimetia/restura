@@ -44,7 +44,10 @@ export function getCollectionExportWarnings(
       } else if (format === 'postman' && item.request.params.some((param) => !param.enabled)) {
         warnings.add('Postman export omits disabled query parameters');
       }
-      if (format === 'insomnia' && (item.request.preRequestScript || item.request.testScript)) {
+      const scripted =
+        'preRequestScript' in item.request &&
+        (item.request.preRequestScript || item.request.testScript);
+      if (format === 'insomnia' && scripted) {
         warnings.add('Insomnia export omits request scripts');
       }
     }
@@ -145,19 +148,20 @@ function convertToPostmanItem(item: CollectionItem): PostmanItem {
 
   // Postman supports only HTTP-style requests; emit a stub for unsupported protocols
   // so the surrounding folder structure round-trips, with a clear name marker.
-  if (item.request && item.request.type !== 'http') {
-    const r = item.request;
+  const request = item.request;
+  if (request?.type !== 'http') {
     return {
-      name: `${item.name} [${r.type.toUpperCase()} — not supported in Postman]`,
+      name: request
+        ? `${item.name} [${request.type.toUpperCase()} — not supported in Postman]`
+        : item.name,
       request: {
         method: 'GET',
         header: [],
-        url: 'url' in r ? r.url : '',
+        url: request && 'url' in request ? request.url : '',
       },
     };
   }
 
-  const request = item.request as HttpRequest;
   // Emit the URL as a string with enabled params inlined — see the
   // PostmanRequest.url type for why the `{ raw, query }` object form breaks
   // on re-import. Disabled params can't be represented in the string form
@@ -305,19 +309,20 @@ export function exportToInsomnia(collection: Collection): {
       (item.items || []).forEach((child) => processItem(child, folderId));
     } else {
       // Insomnia supports only HTTP-style requests; emit a stub for other protocols.
-      if (item.request && item.request.type !== 'http') {
-        const r = item.request;
+      const request = item.request;
+      if (request?.type !== 'http') {
         resources.push({
           _id: `req_${generateId()}`,
           _type: 'request',
-          name: `${item.name} [${r.type.toUpperCase()} — not supported in Insomnia]`,
+          name: request
+            ? `${item.name} [${request.type.toUpperCase()} — not supported in Insomnia]`
+            : item.name,
           method: 'GET',
-          url: 'url' in r ? r.url : '',
+          url: request && 'url' in request ? request.url : '',
           parentId,
         });
         return;
       }
-      const request = item.request as HttpRequest;
       const requestId = `req_${generateId()}`;
 
       resources.push({
@@ -419,7 +424,7 @@ export function exportToHAR(collection: Collection): object {
       if (item.type === 'folder') {
         collectEntries(item.items || []);
       } else if (item.request?.type === 'http') {
-        const req = item.request as HttpRequest;
+        const req = item.request;
         const postData = buildHarPostData(req.body);
         const queryString = req.params
           .filter((p) => p.enabled && p.key)
@@ -505,7 +510,7 @@ export function exportToOpenAPI(collection: Collection, warnings?: string[]): ob
       if (item.type === 'folder') {
         collectRequests(item.items || []);
       } else if (item.request?.type === 'http') {
-        const req = item.request as HttpRequest;
+        const req = item.request;
         const normalized = normalizeHttpMethod(req.method);
         if (!isKnownHttpMethod(normalized)) {
           warnings?.push(`OpenAPI 3.0 has no operation for ${normalized} — skipped "${item.name}"`);
@@ -613,7 +618,7 @@ export function exportToOpenAPI(collection: Collection, warnings?: string[]): ob
       if (item.type === 'folder') extractUrls(item.items || []);
       else if (item.request?.type === 'http') {
         try {
-          const u = new URL((item.request as HttpRequest).url);
+          const u = new URL(item.request.url);
           urls.add(`${u.protocol}//${u.host}`);
         } catch {
           // invalid URL

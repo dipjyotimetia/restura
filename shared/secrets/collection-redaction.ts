@@ -1,5 +1,6 @@
 import type { AuthConfig, Collection, CollectionItem } from '../types';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from './auth-fields';
+import { countBrokerPresetSecrets, redactBrokerPreset } from './broker-preset-redaction';
 import {
   countSecretKeyValues,
   isSecretFieldName,
@@ -248,7 +249,12 @@ function countNonEmptyStrings(obj: Record<string, unknown>, fields: Set<string>)
 const MODELLED_OC_ITEM_TYPES = new Set(['http', 'graphql', 'grpc']);
 
 /** OC extension lists whose entries `placeExtensionItems` imports as typed requests. */
-const MODELLED_OC_EXTENSION_LISTS = new Set(['x-restura-sse', 'x-restura-mcp']);
+const MODELLED_OC_EXTENSION_LISTS = new Set([
+  'x-restura-sse',
+  'x-restura-mcp',
+  'x-restura-kafka',
+  'x-restura-mqtt',
+]);
 
 /** True for an OC item node that `itemToInternal` keeps only as an opaque `_oc` bag. */
 function isOpaqueOcItem(obj: Record<string, unknown>): boolean {
@@ -363,7 +369,8 @@ function redactItem(item: CollectionItem): CollectionItem {
     if (Array.isArray(req.metadata))
       req.metadata = redactSecretKeyValues(req.metadata as SecretableRow[]);
     if ('auth' in req) req.auth = redactAuthConfigSecrets(req.auth as AuthConfig);
-    next.request = req as unknown as typeof next.request;
+    // Kafka / MQTT presets (#984): URL userinfo, record headers, user properties.
+    next.request = redactBrokerPreset(req as unknown as NonNullable<typeof next.request>);
   }
   return next;
 }
@@ -423,6 +430,7 @@ export function countCollectionInlineSecrets(collection: Collection): number {
         count += countSecretKeyValues(req.headers as SecretableRow[] | undefined);
         count += countSecretKeyValues(req.params as SecretableRow[] | undefined);
         count += countSecretKeyValues(req.metadata as SecretableRow[] | undefined);
+        count += countBrokerPresetSecrets(item.request);
       }
       if (item.items) walk(item.items);
     }

@@ -61,6 +61,7 @@ export type CapabilityName =
   | 'aiLab.agentSandboxes'
   | 'collections.file'
   | 'collections.git'
+  | 'collections.brokerPresets'
   | 'workflows.ows'
   | 'mock.localServer'
   | 'capture.desktopBridge'
@@ -395,6 +396,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes:
       'System-Git status, diff, staging, commits, branches, fetch/pull/push, and explicit resumable merges for registered OpenCollection directories; structured YAML conflict resolution validates before staging',
+  },
+  'collections.brokerPresets': {
+    label: 'Kafka / MQTT connection presets in collections',
+    web: false,
+    desktop: true,
+    notes:
+      'Save a Kafka or MQTT tab to a collection and reopen it prefilled; {{var}} resolved at send time. Presets round-trip through OpenCollection (x-restura-kafka / x-restura-mqtt) and git-native collections; credentials stay in the desktop secure store and are never exported. Web lists imported presets but opens the desktop-only panel; the CLI skips them',
   },
   'workflows.ows': {
     label: 'Workflows',

@@ -197,6 +197,12 @@ function walkItems(
     const req = item.request;
     if (!req) continue;
     const t = req.type;
+    if (t === 'kafka' || t === 'mqtt') {
+      // Kafka / MQTT connection presets (#984) hold no runnable request — the
+      // CLI has no broker transport. Report the skip instead of failing.
+      reportSkippedPreset(t, [...folderPath, item.name].join('/'));
+      continue;
+    }
     if (t !== 'http' && t !== 'grpc' && t !== 'sse' && t !== 'mcp') {
       // GraphQL/WebSocket are not in the internal Request union; ocToInternal
       // already converted GraphQL → http-body=graphql and surfaced WebSocket
@@ -226,6 +232,14 @@ function walkItems(
       request: effective,
     });
   }
+}
+
+function reportSkippedPreset(type: 'kafka' | 'mqtt', path: string): void {
+  const label = type === 'kafka' ? 'Kafka' : 'MQTT';
+  process.stderr.write(
+    `[restura] skipping ${label} preset "${path}": Kafka and MQTT connection presets ` +
+      'open in the Restura desktop app and are not run by the CLI.\n'
+  );
 }
 
 // ---------------------------------------------------------------------------

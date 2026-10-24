@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { requestOf } from '../../tests/helpers/requestOf';
 import type { AuthConfig, Collection, CollectionItem, McpRequest, SseRequest } from '../types';
 import { applyAuthExtension, buildAuthExtension } from './auth-extension';
 import { authFromInternal, unwrapAuthForCompare } from './auth-from-internal';
@@ -108,8 +109,8 @@ describe('applyAuthExtension tolerates malformed sidecars', () => {
       ],
     });
     expect(c.auth?.wsse?.passwordType).toBeUndefined();
-    expect(c.items[0]?.request?.auth.oauth1?.addParamsToBody).toBeUndefined();
-    expect(c.items[1]?.request?.auth.ntlm?.workstation).toBeUndefined();
+    expect(requestOf(c.items[0]).auth.oauth1?.addParamsToBody).toBeUndefined();
+    expect(requestOf(c.items[1]).auth.ntlm?.workstation).toBeUndefined();
   });
 });
 

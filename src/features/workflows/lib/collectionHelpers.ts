@@ -6,7 +6,8 @@
  * each had its own recursive `findRequestInItems` / `traverse` walk;
  * `find` / `walk` here are the shared implementation.
  */
-import type { CollectionItem, HttpRequest, Request } from '@/types';
+import type { CollectionItem, CollectionRequest, HttpRequest, Request } from '@/types';
+import { isBrokerRequest } from '@/types';
 
 /** Find a single request by id. Returns `undefined` if missing. */
 export function findRequestInItems(
@@ -15,7 +16,8 @@ export function findRequestInItems(
 ): Request | undefined {
   for (const item of items) {
     if (item.type === 'request' && item.request?.id === requestId) {
-      return item.request;
+      // Kafka / MQTT presets (#984) cannot be bound to a workflow request node.
+      return isBrokerRequest(item.request) ? undefined : item.request;
     }
     if (item.items) {
       const found = findRequestInItems(item.items, requestId);
@@ -41,7 +43,7 @@ export function findRequestByReference(
     const segment = encodeURIComponent(item.name);
     const logicalPath = parentPath ? `${parentPath}/${segment}` : segment;
     if (item.type === 'request' && item.request && logicalPath === reference) {
-      return item.request;
+      return isBrokerRequest(item.request) ? undefined : item.request;
     }
     if (item.items) {
       const found = findRequestByReference(item.items, reference, logicalPath);
@@ -59,7 +61,7 @@ export interface RequestSummary {
   /** HTTP method, or the uppercased `request.type` for non-HTTP protocols. */
   method: string;
   /** Underlying request `type` discriminator — `'http' | 'grpc' | 'sse' | 'mcp' | ...`. */
-  kind: Request['type'];
+  kind: CollectionRequest['type'];
   /** Execution adapter selected by a workflow binding for HTTP-shaped requests. */
   workflowProtocol: 'http' | 'graphql' | null;
   /** Slash-joined breadcrumb of folder names. */

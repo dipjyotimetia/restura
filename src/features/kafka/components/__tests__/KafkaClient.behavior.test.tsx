@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getKafkaProduceDraft, setKafkaProduceDraft } from '@/lib/shared/streaming/composerDrafts';
 import type { KafkaConnection } from '../../store/useKafkaStore';
 import KafkaClient from '../KafkaClient';
 
@@ -279,6 +280,31 @@ describe('KafkaClient orchestration', () => {
     expect(mocks.pauseConsumer).toHaveBeenCalledWith({ connectionId: connection.id });
     expect(mocks.resumeConsumer).toHaveBeenCalledWith({ connectionId: connection.id });
     expect(mocks.unsubscribe).toHaveBeenCalledWith(connection.id);
+  });
+
+  it('opens with a collection preset draft and mirrors edits for Save to Collection (#984)', async () => {
+    setKafkaProduceDraft(connection.id, {
+      key: 'k-1',
+      keyEncoding: 'utf8',
+      value: 'seeded',
+      valueEncoding: 'utf8',
+      headers: [],
+      partition: '',
+    });
+    const user = userEvent.setup();
+    render(<KafkaClient />);
+    await user.click(screen.getByRole('button', { name: 'Publish from panel' }));
+    expect(mocks.produce).toHaveBeenLastCalledWith(
+      expect.objectContaining({ topic: 'orders', key: 'k-1', value: 'seeded' })
+    );
+    // A successful send keeps the payload, so a later save-back keeps the template.
+    expect(getKafkaProduceDraft(connection.id)?.value).toBe('seeded');
+    await user.click(screen.getByRole('button', { name: 'Configure structured record' }));
+    expect(getKafkaProduceDraft(connection.id)).toMatchObject({
+      value: '{"event":"created"}',
+      valueEncoding: 'json',
+      partition: '2',
+    });
   });
 
   it('renders the native desktop guidance when Kafka is unavailable in the browser', () => {

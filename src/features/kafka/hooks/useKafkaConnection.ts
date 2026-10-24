@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
+import { resolveKafkaList, warnUnresolved } from '@/features/kafka/lib/kafkaVariables';
 import type {
   KafkaAuth,
   KafkaRegistry,
@@ -9,6 +10,7 @@ import type {
 import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
+import { clearPendingSecrets, setPendingSecret } from '@/lib/shared/streaming/composerDrafts';
 import { useActiveTabId } from '@/store/selectors';
 
 /**
@@ -50,6 +52,32 @@ export function useKafkaConnection() {
     setRegistryPasswordDraft('');
     setBrokerDraft('');
   }, [activeConnectionId]);
+
+  // Typed-but-not-yet-stored credentials, so Save to Collection before
+  // Connect still captures them (in memory only, #984).
+  const connectionId = connection?.id;
+  const oauth = connection?.auth.sasl?.mechanism === 'OAUTHBEARER';
+  const mirroredFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!connectionId) return;
+    // Skip the commit right after a switch: the drafts are the previous one's.
+    if (mirroredFor.current !== connectionId) {
+      mirroredFor.current = connectionId;
+      return;
+    }
+    setPendingSecret(
+      kafkaSecretKey(connectionId, oauth ? 'oauth-token' : 'sasl-password'),
+      saslPasswordDraft
+    );
+    setPendingSecret(kafkaSecretKey(connectionId, oauth ? 'sasl-password' : 'oauth-token'), '');
+    setPendingSecret(kafkaSecretKey(connectionId, 'tls-passphrase'), tlsPassphraseDraft);
+    setPendingSecret(kafkaSecretKey(connectionId, 'registry-password'), registryPasswordDraft);
+  }, [connectionId, oauth, saslPasswordDraft, tlsPassphraseDraft, registryPasswordDraft]);
+  // The drafts reset on a switch / unmount, so their pending copies go too.
+  useEffect(() => {
+    if (!connectionId) return;
+    return () => clearPendingSecrets(connectionId);
+  }, [connectionId]);
 
   const connect = async (): Promise<void> => {
     if (!connection) return;
@@ -99,7 +127,16 @@ export function useKafkaConnection() {
       updateConnection(connection.id, { registry: nextRegistry });
     }
 
-    await kafkaManager.connect({ ...connection, auth: nextAuth, registry: nextRegistry });
+    // Brokers may hold {{var}} tokens (e.g. from a collection preset, #984);
+    // resolve them at connect time — the stored list stays unresolved.
+    const brokers = resolveKafkaList(connection.bootstrapBrokers);
+    warnUnresolved(connection.id, '', brokers.unresolved);
+    await kafkaManager.connect({
+      ...connection,
+      bootstrapBrokers: brokers.values,
+      auth: nextAuth,
+      registry: nextRegistry,
+    });
   };
 
   const disconnect = async (): Promise<void> => {

@@ -122,6 +122,52 @@ describe('kafkaManager (Electron path)', () => {
     });
   });
 
+  it('sends resolved values but logs the masked display copy (#984)', async () => {
+    const { kafka } = installElectronMock();
+    kafka.produce.mockResolvedValueOnce({
+      success: true,
+      ack: { topic: 'orders', partition: 0, offset: '8', timestamp: 124 },
+    });
+    const id = useKafkaStore.getState().createConnection();
+
+    await kafkaManager.produce({
+      connectionId: id,
+      topic: 'orders',
+      key: 'k-secret',
+      value: 'v-secret',
+      headers: { auth: 'h-secret' },
+      acks: 1,
+      display: { key: 'k-•', value: 'v-•', headers: { auth: 'h-•' } },
+    });
+
+    expect(kafka.produce).toHaveBeenCalledWith(
+      expect.objectContaining({
+        record: expect.objectContaining({ value: { encoding: 'utf8', data: 'v-secret' } }),
+      })
+    );
+    expect(useKafkaStore.getState().connections[id]!.messages[0]).toMatchObject({
+      key: 'k-•',
+      value: 'v-•',
+      headers: { auth: 'h-•' },
+    });
+  });
+
+  it('persists the unresolved {{var}} consumer targets, not the wire values (#984)', async () => {
+    installElectronMock();
+    const id = useKafkaStore.getState().createConnection();
+    await kafkaManager.subscribe({
+      connectionId: id,
+      groupId: 'g-prod',
+      topics: ['orders.prod'],
+      fromBeginning: false,
+      stored: { groupId: 'g-{{env}}', topics: ['orders.{{env}}'] },
+    });
+    expect(useKafkaStore.getState().connections[id]!.consumer).toMatchObject({
+      groupId: 'g-{{env}}',
+      topics: ['orders.{{env}}'],
+    });
+  });
+
   it('does not stack message listeners when re-subscribing after the consumer closed itself', async () => {
     const { emit, handlerCount } = installElectronMock();
     const id = useKafkaStore.getState().createConnection();

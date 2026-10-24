@@ -1,5 +1,6 @@
 import { FolderPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/components/ui/button';
@@ -19,11 +20,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  snapshotBrokerTab,
+  USERINFO_STRIPPED_WARNING,
+} from '@/features/collections/lib/brokerPresets';
 import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
 import { isNameTaken, siblingNamesForParent } from '@/features/collections/lib/names';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { CollectionItem } from '@/types';
+import { isBrokerMode } from '@/types';
 
 interface FolderEntry {
   id: string;
@@ -115,6 +121,13 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
 
   const handleSave = () => {
     if (blockedReason) return;
+    // Kafka / MQTT tabs save a secret-free connection preset (#984) built from
+    // the live panel connection, not the tab's HTTP placeholder request.
+    const broker = tab.modeOverride ? snapshotBrokerTab(tab, effectiveRequestName) : null;
+    if (isBrokerMode(tab.modeOverride) && !broker) {
+      toast.error('Open the connection panel once before saving it to a collection');
+      return;
+    }
     let collectionId: string;
 
     if (effectiveMode === 'new') {
@@ -138,10 +151,17 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
         id: itemId,
         name: effectiveRequestName,
         type: 'request',
-        request: { ...tab.request, name: effectiveRequestName },
+        request: broker ? broker.request : { ...tab.request, name: effectiveRequestName },
       },
       safeFolderId
     );
+    if (broker) {
+      if (broker.strippedUserinfo) toast.warning(USERINFO_STRIPPED_WARNING);
+      // Credentials go to the preset's secure-storage scope, never the item.
+      void broker.persistSecrets().catch(() => {
+        toast.error('Saved without credentials — re-enter them after opening the preset');
+      });
+    }
     linkTabToSavedRequest(tabId, itemId);
     onOpenChange(false);
   };
