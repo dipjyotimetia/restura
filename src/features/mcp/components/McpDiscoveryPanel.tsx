@@ -6,9 +6,9 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Floater, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import { McpNotificationsPanel } from '@/features/mcp/components/McpNotificationsPanel';
+import { McpTemplatesPanel } from '@/features/mcp/components/McpTemplatesPanel';
 import { McpToolHintBadges } from '@/features/mcp/components/McpToolHintBadges';
 import type { McpNotificationEntry } from '@/features/mcp/lib/mcpNotifications';
-import { McpTemplatesPanel } from '@/features/mcp/components/McpTemplatesPanel';
 import type { McpInvocationLog } from '@/features/mcp/store/useMcpStore';
 import { cn } from '@/lib/shared/utils';
 import type {

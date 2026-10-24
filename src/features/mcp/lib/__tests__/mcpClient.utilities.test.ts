@@ -14,6 +14,12 @@ function proxyError(error: unknown): Response {
     headers: { 'Content-Type': 'application/json' },
   });
 }
+function accepted(): Response {
+  return new Response(JSON.stringify({ ok: true, accepted: true }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 function body(init: RequestInit | undefined) {
   return JSON.parse(String(init?.body)) as { jsonRpc: { method: string; params?: unknown } };
 }
@@ -41,6 +47,8 @@ describe('McpClient discovery of resource templates', () => {
       switch (jsonRpc.method) {
         case 'initialize':
           return proxyResult({ capabilities: { resources: {}, completions: {} } });
+        case 'notifications/initialized':
+          return accepted();
         case 'resources/list':
           return proxyResult({ resources: [] });
         case 'resources/templates/list':

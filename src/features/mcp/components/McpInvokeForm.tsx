@@ -8,8 +8,8 @@ import {
   McpArgumentField,
   type McpArgumentField as McpArgumentFieldType,
 } from '@/features/mcp/components/McpArgumentField';
-import { McpToolHintBadges } from '@/features/mcp/components/McpToolHintBadges';
 import { McpCompletableTextField } from '@/features/mcp/components/McpCompletableTextField';
+import { McpToolHintBadges } from '@/features/mcp/components/McpToolHintBadges';
 import { parseMcpArgument } from '@/features/mcp/lib/mcpArgumentValidation';
 import { generateMcpTemplate } from '@/features/mcp/lib/mcpClient';
 import type { McpJsonSchema, McpPromptDescriptor, McpToolDescriptor } from '@/types';

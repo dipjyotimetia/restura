@@ -12,11 +12,11 @@ import {
   type McpDiscoveryTab,
 } from '@/features/mcp/components/McpDiscoveryPanel';
 import { McpInvokeForm } from '@/features/mcp/components/McpInvokeForm';
-import { McpRootsPanel } from '@/features/mcp/components/McpRootsPanel';
-import { useMcpClientRequests } from '@/features/mcp/hooks/useMcpClientRequests';
 import { McpLogLevelPicker } from '@/features/mcp/components/McpLogLevelPicker';
 import { McpPingButton } from '@/features/mcp/components/McpPingButton';
+import { McpRootsPanel } from '@/features/mcp/components/McpRootsPanel';
 import { McpTemplateForm } from '@/features/mcp/components/McpTemplateForm';
+import { useMcpClientRequests } from '@/features/mcp/hooks/useMcpClientRequests';
 import { useMcpConnectionActions } from '@/features/mcp/hooks/useMcpConnectionActions';
 import { useMcpServerEvents } from '@/features/mcp/hooks/useMcpServerEvents';
 import { buildMcpConnectAuth } from '@/features/mcp/lib/mcpAuth';
