@@ -12,6 +12,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { type KafkaSecretField, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
 import {
+  isKafkaPasswordSasl,
+  isKafkaStaticOAuthSasl,
   KAFKA_SECRET_SENTINEL,
   type KafkaAuth,
   type KafkaConnection,
@@ -58,14 +60,15 @@ function presetConnection(conn: KafkaConnection): KafkaPresetConnection {
     compression: conn.compression,
     idempotent: conn.idempotent,
   };
-  if (auth.sasl) {
-    out.sasl =
-      auth.sasl.mechanism === 'OAUTHBEARER'
-        ? {
-            mechanism: 'OAUTHBEARER',
-            ...(auth.sasl.extensions ? { extensions: { ...auth.sasl.extensions } } : {}),
-          }
-        : { mechanism: auth.sasl.mechanism, username: auth.sasl.username };
+  // Only password and static-token SASL fit a preset. OAuth client-credentials,
+  // AWS MSK IAM and GSSAPI are SecretRef/profile-backed and are re-entered on open.
+  if (isKafkaStaticOAuthSasl(auth.sasl)) {
+    out.sasl = {
+      mechanism: 'OAUTHBEARER',
+      ...(auth.sasl.extensions ? { extensions: { ...auth.sasl.extensions } } : {}),
+    };
+  } else if (isKafkaPasswordSasl(auth.sasl)) {
+    out.sasl = { mechanism: auth.sasl.mechanism, username: auth.sasl.username };
   }
   if (auth.tls) {
     const { caPath, certPath, keyPath, rejectUnauthorized } = auth.tls;
@@ -206,8 +209,8 @@ export async function storeKafkaPresetSecrets(
   const target = kafkaPresetSecretScope(requestId);
   const sasl = conn.auth.sasl;
   const fieldValue: Record<KafkaSecretField, string | undefined> = {
-    'sasl-password': sasl && sasl.mechanism !== 'OAUTHBEARER' ? sasl.password : undefined,
-    'oauth-token': sasl?.mechanism === 'OAUTHBEARER' ? sasl.token : undefined,
+    'sasl-password': isKafkaPasswordSasl(sasl) ? sasl.password : undefined,
+    'oauth-token': isKafkaStaticOAuthSasl(sasl) ? sasl.token : undefined,
     'tls-passphrase': conn.auth.tls?.passphrase,
     'registry-password': conn.registry?.auth?.password,
     // Handles / external refs are references, not plaintext — only strings are stored.
@@ -246,9 +249,9 @@ export function applyKafkaPresetSecrets(connectionId: string, secrets: KafkaPres
   const conn = store.connections[connectionId];
   if (!conn) return;
   const auth: KafkaAuth = { ...conn.auth };
-  if (auth.sasl?.mechanism === 'OAUTHBEARER' && secrets['oauth-token']) {
+  if (isKafkaStaticOAuthSasl(auth.sasl) && secrets['oauth-token']) {
     auth.sasl = { ...auth.sasl, token: KAFKA_SECRET_SENTINEL };
-  } else if (auth.sasl && auth.sasl.mechanism !== 'OAUTHBEARER' && secrets['sasl-password']) {
+  } else if (isKafkaPasswordSasl(auth.sasl) && secrets['sasl-password']) {
     auth.sasl = { ...auth.sasl, password: KAFKA_SECRET_SENTINEL };
   }
   if (auth.tls && secrets['tls-passphrase']) {

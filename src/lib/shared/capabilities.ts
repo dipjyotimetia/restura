@@ -292,6 +292,7 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes:
       'Desktop main-process client: Basic or Bearer (SecretRef) auth, Settings TLS policy (custom CA, mTLS, verify) for HTTPS, broker-aligned SSRF policy (per-socket DNS checks refuse metadata and disabled loopback), no credentials over public plain HTTP; Avro/JSON Schema example generation, Protobuf view-only',
+  },
   'kafka.saslOAuthRefresh': {
     label: 'Kafka SASL/OAUTHBEARER client-credentials (auto-refresh)',
     web: false,

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
-import { resolveKafkaList, warnUnresolved } from '@/features/kafka/lib/kafkaVariables';
 import {
   type KafkaHandleSecretDrafts,
   type KafkaHandleSecretField,
@@ -9,6 +8,7 @@ import {
   kafkaSaslPreflightError,
   persistKafkaSaslSecrets,
 } from '@/features/kafka/lib/kafkaSaslSecrets';
+import { resolveKafkaList, warnUnresolved } from '@/features/kafka/lib/kafkaVariables';
 import type {
   KafkaAuth,
   KafkaRegistry,

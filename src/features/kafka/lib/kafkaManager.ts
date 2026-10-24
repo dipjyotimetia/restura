@@ -14,10 +14,6 @@ import {
   isKafkaPasswordSasl,
   isKafkaStaticOAuthSasl,
   KAFKA_SECRET_SENTINEL,
-  useKafkaStore,
-} from '@/features/kafka/store/useKafkaStore';
-import {
-  KAFKA_SECRET_SENTINEL,
   onKafkaMessagesCleared,
   useKafkaStore,
 } from '@/features/kafka/store/useKafkaStore';
