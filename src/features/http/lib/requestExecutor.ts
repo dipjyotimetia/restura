@@ -7,6 +7,10 @@ import {
   SET_COOKIE_SIDE_CHANNEL_HEADER,
   type SetCookieSource,
 } from '@shared/protocol/set-cookie';
+import {
+  basicAuthReferencesSecretVariable,
+  replaceSecretVariableTokenMatches,
+} from '@shared/variables/secret-variable-token';
 import { Cookie } from 'tough-cookie';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -14,7 +18,8 @@ import {
   applyAuthHeaders,
   assertHandleSupported,
 } from '@/features/auth/lib/applyAuthHeaders';
-import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
+import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
+import { persistableRefreshedAuth, refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import {
   executeProxiedRequestWithProgress,
@@ -123,7 +128,11 @@ interface BuiltSpec {
   effectiveSettings: RequestSettings;
   /** Sent headers post-cookie-merge, returned to callers for the response panel. */
   sentHeaders: Record<string, string>;
-  effectiveAuth: HttpRequest['auth'];
+  /**
+   * Set only when OAuth2 refresh issued a new token: the request's template
+   * auth with the issued token folded in (never resolved `{{var}}` values).
+   */
+  refreshedAuth?: HttpRequest['auth'];
   /**
    * Desktop-only transport config (proxy / mTLS client cert / custom CA /
    * verifySsl / TLS knobs). Carried alongside the spec — NOT inside it —
@@ -223,14 +232,18 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     // Keep SecretRef tokens opaque in the renderer. The store-level resolver
     // otherwise sees the variable's placeholder value and would consume the
     // token before Electron main can materialize its handle at the wire edge.
+    // Same token grammar as main's materializer, so `{{ name }}` is opaque too.
     const protectedSecrets = new Map<string, string>();
-    for (const key of Object.keys(secretVariables ?? {})) {
-      const token = `{{${key}}}`;
-      const marker = `__restura_secret_${protectedSecrets.size}__`;
-      if (result.includes(token)) {
-        result = result.replaceAll(token, marker);
-        protectedSecrets.set(marker, token);
-      }
+    if (secretVariables) {
+      result = replaceSecretVariableTokenMatches(
+        result,
+        (name) => Object.hasOwn(secretVariables, name),
+        (_name, token) => {
+          const marker = `__restura_secret_${protectedSecrets.size}__`;
+          protectedSecrets.set(marker, token);
+          return marker;
+        }
+      );
     }
     result = resolveVariables(result);
     for (const [marker, token] of protectedSecrets) result = result.replaceAll(marker, token);
@@ -276,15 +289,38 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       ? resolveLocal(request.body.raw)
       : request.body.raw;
 
-  const effectiveAuth = await refreshOAuth2Auth(request.auth, Date.now(), options.signal);
+  // Resolve {{vars}} in every auth type with the same scope as the URL/headers/
+  // body (secret-variable tokens and handle SecretRefs stay opaque for main).
+  // The resolved copy is what's applied to headers AND sent as `spec.auth`
+  // for sign-at-wire schemes (SigV4 / OAuth1 / WSSE / Digest / NTLM).
+  const resolvedAuth = resolveAuthVariables(request.auth, resolveLocal);
+  const effectiveAuth = await refreshOAuth2Auth(resolvedAuth, Date.now(), options.signal);
+  // Only a real token refresh is reported for persistence — and it's folded
+  // back onto the template so resolved variable values never get saved.
+  const refreshedAuth =
+    effectiveAuth !== resolvedAuth
+      ? persistableRefreshedAuth(request.auth, resolvedAuth, effectiveAuth)
+      : undefined;
 
-  const headersWithAuth = await applyAuthHeaders(
-    effectiveAuth,
-    headers,
-    resolvedUrl,
-    request.method,
-    request.body.type !== 'none' ? resolvedRaw : undefined
-  );
+  // Basic is base64-encoded here, which would bake an opaque `{{secretVar}}`
+  // token into the header where main can no longer substitute it. Defer it
+  // like a handle: main materializes the token in `spec.auth` and builds the
+  // Authorization header (auth-applier). Web can't materialize → fails fast.
+  const deferBasic =
+    effectiveAuth.type === 'basic' &&
+    secretVariables !== undefined &&
+    basicAuthReferencesSecretVariable(effectiveAuth.basic, (name) =>
+      Object.hasOwn(secretVariables, name)
+    );
+  const headersWithAuth = deferBasic
+    ? { headers, requiresMainSideApply: true }
+    : await applyAuthHeaders(
+        effectiveAuth,
+        headers,
+        resolvedUrl,
+        request.method,
+        request.body.type !== 'none' ? resolvedRaw : undefined
+      );
   assertHandleSupported(headersWithAuth);
   Object.assign(headers, headersWithAuth.headers);
 
@@ -379,7 +415,7 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     spec,
     effectiveSettings,
     sentHeaders: headers,
-    effectiveAuth,
+    ...(refreshedAuth ? { refreshedAuth } : {}),
     ...(desktop ? { desktop } : {}),
   };
 }
@@ -535,7 +571,7 @@ export async function executeRequest(
     }
   }
 
-  const { spec, effectiveSettings, sentHeaders, effectiveAuth, desktop } =
+  const { spec, effectiveSettings, sentHeaders, refreshedAuth, desktop } =
     await buildProxyRequestSpec(options);
 
   let responseData: ApiResponse;
@@ -670,8 +706,8 @@ export async function executeRequest(
     ...(spec.params && Object.keys(spec.params).length > 0 ? { sentParams: spec.params } : {}),
     ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
   };
-  if (effectiveAuth !== request.auth) {
-    result.refreshedAuth = effectiveAuth;
+  if (refreshedAuth) {
+    result.refreshedAuth = refreshedAuth;
   }
   return result;
 }

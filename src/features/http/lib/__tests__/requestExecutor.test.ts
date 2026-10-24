@@ -18,6 +18,18 @@ vi.mock('@/lib/shared/transport', () => ({
   ProxyTransportError: class ProxyTransportError extends Error {},
 }));
 
+const platform = vi.hoisted(() => ({ electron: false }));
+vi.mock('@/lib/shared/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/shared/platform')>()),
+  isElectron: () => platform.electron,
+}));
+
+const fetchRefreshTokenMock = vi.fn();
+vi.mock('@/features/auth/lib/oauth2', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/auth/lib/oauth2')>()),
+  fetchRefreshToken: (...args: unknown[]) => fetchRefreshTokenMock(...args),
+}));
+
 vi.mock('@/features/scripts/lib/pmSendRequestHost', () => ({
   makeRendererSendRequest: (options: unknown) => makeRendererSendRequestMock(options),
 }));
@@ -535,5 +547,274 @@ describe('executeStreamingRequest — Set-Cookie side channel (#855)', () => {
 
     expect(responseMeta.setCookies).toBeUndefined();
     expect(useCookieStore.getState().cookies).toEqual([]);
+  });
+});
+
+describe('executeRequest — auth {{vars}} resolution', () => {
+  const settings = useSettingsStore.getState().settings;
+  beforeEach(() => {
+    executeProxiedRequestMock.mockReset();
+    fetchRefreshTokenMock.mockReset();
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: '',
+      size: 0,
+    });
+  });
+  type SentSpec = {
+    headers: Record<string, string>;
+    params?: Record<string, string>;
+    auth?: HttpRequest['auth'];
+  };
+  const sentSpec = () => executeProxiedRequestMock.mock.calls[0]?.[0] as SentSpec;
+  const sentDesktop = () =>
+    executeProxiedRequestMock.mock.calls[0]?.[2] as { secretVariables?: unknown } | undefined;
+  const envVars = { tok: 'x', user: 'alice', pw: 's3cret', k: 'X-Key', region: 'ap-southeast-2' };
+  const send = (auth: HttpRequest['auth'], extra: Record<string, unknown> = {}) =>
+    executeRequest({
+      request: makeRequest({ auth }),
+      envVars: { ...envVars },
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+      ...extra,
+    });
+
+  it('resolves a bearer token template into the Authorization header', async () => {
+    const result = await send({ type: 'bearer', bearer: { token: '{{tok}}' } });
+    expect(sentSpec().headers['Authorization']).toBe('Bearer x');
+    expect(result.sentHeaders['Authorization']).toBe('Bearer x');
+    // Variable resolution alone must never be reported as a refresh to persist.
+    expect(result.refreshedAuth).toBeUndefined();
+  });
+
+  it('resolves basic username/password before encoding', async () => {
+    await send({ type: 'basic', basic: { username: '{{user}}', password: '{{pw}}' } });
+    expect(sentSpec().headers['Authorization']).toBe(`Basic ${btoa('alice:s3cret')}`);
+  });
+
+  it('resolves api-key key and value in a header and in the query', async () => {
+    await send({ type: 'api-key', apiKey: { key: '{{k}}', value: '{{tok}}', in: 'header' } });
+    expect(sentSpec().headers['X-Key']).toBe('x');
+    executeProxiedRequestMock.mockClear();
+    await send({ type: 'api-key', apiKey: { key: 'api_key', value: '{{tok}}', in: 'query' } });
+    expect(sentSpec().params?.['api_key']).toBe('x');
+  });
+
+  it('carries resolved digest credentials in spec.auth for the wire-side challenge retry', async () => {
+    await send({ type: 'digest', digest: { username: '{{user}}', password: '{{pw}}' } });
+    expect(sentSpec().auth).toEqual({
+      type: 'digest',
+      digest: { username: 'alice', password: 's3cret' },
+    });
+  });
+
+  it('resolves sign-at-wire descriptors (aws, oauth1, wsse) in spec.auth', async () => {
+    await send({
+      type: 'aws-signature',
+      awsSignature: {
+        accessKey: '{{user}}',
+        secretKey: '{{pw}}',
+        region: '{{region}}',
+        service: 's3',
+      },
+    });
+    expect(sentSpec().auth?.awsSignature).toEqual({
+      accessKey: 'alice',
+      secretKey: 's3cret',
+      region: 'ap-southeast-2',
+      service: 's3',
+    });
+    executeProxiedRequestMock.mockClear();
+    await send({
+      type: 'oauth1',
+      oauth1: { consumerKey: '{{user}}', consumerSecret: { kind: 'inline', value: '{{pw}}' } },
+    });
+    expect(sentSpec().auth?.oauth1).toEqual({
+      consumerKey: 'alice',
+      consumerSecret: { kind: 'inline', value: 's3cret' },
+    });
+    executeProxiedRequestMock.mockClear();
+    await send({ type: 'wsse', wsse: { username: '{{user}}', password: '{{pw}}' } });
+    expect(sentSpec().auth?.wsse).toEqual({ username: 'alice', password: 's3cret' });
+  });
+
+  it('leaves handle-backed SecretRefs and secret-variable tokens opaque for Electron main', async () => {
+    const handle = { kind: 'handle', id: 'h-1' } as const;
+    const secretOpts = {
+      secretVariables: { apiKey: { kind: 'handle', id: 'h2' } },
+      resolveVariables: (text: string) => text.replaceAll('{{apiKey}}', '••••••••'),
+    };
+    await send({ type: 'digest', digest: { username: '{{user}}', password: handle } }, secretOpts);
+    expect(sentSpec().auth?.digest?.password).toBe(handle);
+    executeProxiedRequestMock.mockClear();
+    await send(
+      { type: 'wsse', wsse: { username: '{{user}}', password: '{{apiKey}}' } },
+      secretOpts
+    );
+    expect(sentSpec().auth?.wsse).toEqual({ username: 'alice', password: '{{apiKey}}' });
+    expect(sentDesktop()?.secretVariables).toEqual({ apiKey: { kind: 'handle', id: 'h2' } });
+  });
+
+  it('refreshes OAuth2 with resolved config but reports the template back for persistence', async () => {
+    fetchRefreshTokenMock.mockResolvedValue({ access_token: 'fresh', expires_in: 3600 });
+    const result = await send({
+      type: 'oauth2',
+      oauth2: {
+        accessToken: 'stale',
+        refreshToken: '{{pw}}',
+        clientId: '{{user}}',
+        tokenUrl: 'https://auth.example.com/token',
+        tokenType: 'Bearer',
+        expiresAt: Date.now() - 1_000,
+      },
+    });
+    expect(fetchRefreshTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({ clientId: 'alice', refreshToken: 's3cret' }),
+      undefined
+    );
+    expect(sentSpec().headers['Authorization']).toBe('Bearer fresh');
+    // Persisted auth keeps the {{var}} templates; only the new token lands.
+    expect(result.refreshedAuth?.oauth2).toMatchObject({
+      accessToken: 'fresh',
+      refreshToken: '{{pw}}',
+      clientId: '{{user}}',
+      tokenType: 'Bearer',
+    });
+    expect(result.refreshedAuth?.oauth2?.expiresAt).toBeGreaterThan(Date.now());
+  });
+
+  it('persists a rotated refresh token and server token_type from the refresh response', async () => {
+    fetchRefreshTokenMock.mockResolvedValue({
+      access_token: 'fresh',
+      refresh_token: 'rotated',
+      token_type: 'DPoP',
+    });
+    const result = await send({
+      type: 'oauth2',
+      oauth2: {
+        accessToken: '{{tok}}',
+        refreshToken: '{{pw}}',
+        clientId: 'c',
+        tokenUrl: 'https://auth.example.com/token',
+        tokenType: '{{tt}}',
+        expiresAt: Date.now() - 1_000,
+      },
+    });
+    expect(result.refreshedAuth?.oauth2).toMatchObject({
+      accessToken: 'fresh',
+      refreshToken: 'rotated',
+      tokenType: 'DPoP',
+    });
+  });
+
+  describe('Basic auth referencing a desktop secret variable', () => {
+    const secretOpts = {
+      secretVariables: { pw: { kind: 'handle' as const, id: 'h2' } },
+      resolveVariables: (text: string) => text.replaceAll('{{pw}}', '••••••••'),
+    };
+    afterEach(() => {
+      platform.electron = false;
+    });
+
+    it('defers the Authorization header to Electron main instead of encoding the token', async () => {
+      platform.electron = true;
+      const result = await executeRequest({
+        request: makeRequest({
+          auth: { type: 'basic', basic: { username: '{{user}}', password: '{{pw}}' } },
+        }),
+        envVars: { user: 'alice' },
+        globalSettings: settings,
+        ...secretOpts,
+      });
+      const spec = sentSpec();
+      expect(spec.headers['Authorization']).toBeUndefined();
+      expect(result.sentHeaders['Authorization']).toBeUndefined();
+      // Main materializes {{pw}} into spec.auth, then builds the header.
+      expect(spec.auth).toEqual({
+        type: 'basic',
+        basic: { username: 'alice', password: '{{pw}}' },
+      });
+      expect(sentDesktop()?.secretVariables).toEqual(secretOpts.secretVariables);
+    });
+
+    it('fails fast on web, where secret variables cannot be materialized', async () => {
+      await expect(
+        executeRequest({
+          request: makeRequest({
+            auth: { type: 'basic', basic: { username: 'alice', password: '{{pw}}' } },
+          }),
+          envVars: {},
+          globalSettings: settings,
+          ...secretOpts,
+        })
+      ).rejects.toThrow(/desktop app/);
+      expect(executeProxiedRequestMock).not.toHaveBeenCalled();
+    });
+
+    it('still encodes in the renderer when no secret variable is referenced', async () => {
+      platform.electron = true;
+      await executeRequest({
+        request: makeRequest({
+          auth: { type: 'basic', basic: { username: '{{user}}', password: 'plain' } },
+        }),
+        envVars: { user: 'alice' },
+        globalSettings: settings,
+        ...secretOpts,
+      });
+      expect(sentSpec().headers['Authorization']).toBe(`Basic ${btoa('alice:plain')}`);
+    });
+
+    it('detects a whitespace-padded {{ pw }} token the same way main does', async () => {
+      platform.electron = true;
+      await executeRequest({
+        request: makeRequest({
+          auth: { type: 'basic', basic: { username: 'alice', password: '{{ pw }}' } },
+        }),
+        envVars: {},
+        globalSettings: settings,
+        secretVariables: secretOpts.secretVariables,
+        // A store resolver that tolerates whitespace would otherwise consume it.
+        resolveVariables: (text: string) => text.replace(/\{\{\s*pw\s*\}\}/g, '••••••••'),
+      });
+      expect(sentSpec().headers['Authorization']).toBeUndefined();
+      expect(sentSpec().auth?.basic?.password).toBe('{{ pw }}');
+    });
+
+    it('does not throw on a basic block missing username/password (hand-edited import)', async () => {
+      platform.electron = true;
+      const basic = {} as unknown as NonNullable<HttpRequest['auth']['basic']>;
+      await expect(
+        executeRequest({
+          request: makeRequest({ auth: { type: 'basic', basic } }),
+          envVars: {},
+          globalSettings: settings,
+          ...secretOpts,
+        })
+      ).resolves.toBeDefined();
+    });
+  });
+
+  it('keeps a whitespace-padded secret-variable token opaque in the body', async () => {
+    await executeRequest({
+      request: makeRequest({ method: 'POST', body: { type: 'text', raw: 'k={{ apiKey }}' } }),
+      envVars: {},
+      secretVariables: { apiKey: { kind: 'handle', id: 'h1' } },
+      globalSettings: settings,
+      resolveVariables: (text) => text.replace(/\{\{\s*apiKey\s*\}\}/g, '••••••••'),
+    });
+    expect((executeProxiedRequestMock.mock.calls[0]?.[0] as { data?: string }).data).toBe(
+      'k={{ apiKey }}'
+    );
+  });
+
+  it('does not report refreshedAuth when only variables were resolved', async () => {
+    const result = await send({
+      type: 'oauth2',
+      oauth2: { accessToken: '{{tok}}', tokenType: 'Bearer' },
+    });
+    expect(sentSpec().headers['Authorization']).toBe('Bearer x');
+    expect(result.refreshedAuth).toBeUndefined();
   });
 });
