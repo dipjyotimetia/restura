@@ -1,8 +1,10 @@
 /**
  * MCP (Model Context Protocol) protocol module.
  *
- * - `runRequest` still throws — the interactive UI drives a long-lived
- *   McpClient via useMcpStore.
+ * - `runRequest` runs a saved request's single operation (`defaultMethod` +
+ *   `defaultParams`) with pre-request / test scripts, for the collection
+ *   runner (#901) — see `lib/mcpRunRequest.ts`. The interactive builder
+ *   still drives a long-lived McpClient via useMcpStore.
  * - `runJsonRpc` is the reusable single-call surface. It
  *   accepts an optional `clientPool` keyed by an executor-supplied
  *   `cacheKey` (typically a saved-resource id). When the pool has a
@@ -22,6 +24,7 @@ import type { McpRequest, Request } from '@/types';
 import { buildMcpConnectAuth } from './lib/mcpAuth';
 import { McpClient } from './lib/mcpClient';
 import { buildMcpInitializeParams } from './lib/mcpWebSession';
+import { injectMcpVariables, runMcpRequest } from './lib/mcpRunRequest';
 
 function createDefaultMcpRequest(): McpRequest {
   return {
@@ -136,10 +139,17 @@ async function createAndInitClient(mcp: McpRequest, method: string): Promise<Mcp
   // `initialize` themselves.
   if (method !== 'initialize') {
     const init = await initializeClient(client);
-    if (!init.ok) throw new McpInitError(init.error, init.jsonRpcError);
+    if (!init.ok) {
+      // Never leak a half-open connection (desktop IPC session) on a failed init.
+      await client.disconnect().catch(() => undefined);
+      throw new McpInitError(init.error, init.jsonRpcError);
+    }
   } else {
     const conn = await client.connect();
-    if (!conn.ok) throw new McpInitError(conn.error);
+    if (!conn.ok) {
+      await client.disconnect().catch(() => undefined);
+      throw new McpInitError(conn.error);
+    }
   }
   return client;
 }
@@ -237,11 +247,7 @@ export const mcpProtocol: McpProtocolModule = {
   label: 'MCP',
   tabType: 'mcp',
   defaultRequest: createDefaultMcpRequest,
-  runRequest: async () => {
-    throw new Error(
-      'MCP runs through useMcpStore + McpClient (session-based JSON-RPC); ' +
-        'use the McpRequestBuilder, not the registry runner.'
-    );
-  },
+  injectVariables: injectMcpVariables,
+  runRequest: (request, ctx) => runMcpRequest(request, ctx, mcpRunJsonRpc),
   runJsonRpc: mcpRunJsonRpc,
 };

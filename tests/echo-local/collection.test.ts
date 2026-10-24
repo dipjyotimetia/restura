@@ -1,6 +1,12 @@
+import { internalToOC } from '@shared/opencollection/from-internal';
+import {
+  parseOpenCollectionYAML,
+  serializeOpenCollectionYAML,
+} from '@shared/opencollection/serializer';
+import { ocToInternal } from '@shared/opencollection/to-internal';
 import { describe, expect, it } from 'vitest';
 import { importOpenCollection } from '@/features/collections/lib/importers/opencollection';
-import type { CollectionItem, Request } from '@/types';
+import type { CollectionItem, McpRequest, Request } from '@/types';
 import { buildCollection } from '../../echo-local/collection';
 import { requestOf } from '../helpers/requestOf';
 
@@ -65,5 +71,54 @@ describe('echo-local generated collection', () => {
     expect(grpc?.grpc?.url).toBe('http://localhost:50051');
     const httpJson = oc.items.find((i) => i.http?.url.endsWith('/json'));
     expect(httpJson?.http?.url).toBe('http://localhost:8080/json');
+  });
+});
+
+describe('echo-local MCP examples (#901)', () => {
+  const mcpRequests = (items: CollectionItem[]) =>
+    flattenRequests(items).filter((r): r is McpRequest => r.type === 'mcp');
+
+  it('import as runnable operations carrying method, params and a test script', () => {
+    const { collection } = importOpenCollection(buildCollection());
+    const mcp = mcpRequests(collection.items);
+    expect(mcp.length).toBeGreaterThanOrEqual(3);
+    for (const r of mcp) {
+      expect(r.defaultMethod).toBeTruthy();
+      expect(() => JSON.parse(r.defaultParams ?? '')).not.toThrow();
+      expect(r.testScript).toMatch(/rs\.test\(/);
+    }
+    expect(mcp.some((r) => r.testScript?.includes('isError'))).toBe(true);
+    expect(mcp.some((r) => r.testScript?.includes('error.code'))).toBe(true);
+  });
+
+  it('method + params round-trip through OpenCollection, including after an edit', () => {
+    const { collection } = importOpenCollection(buildCollection());
+    const before = mcpRequests(collection.items);
+    const reimported = ocToInternal(
+      parseOpenCollectionYAML(serializeOpenCollectionYAML(internalToOC(collection)))
+    );
+    expect(
+      mcpRequests(reimported.items).map((r) => [r.name, r.defaultMethod, r.defaultParams])
+    ).toEqual(before.map((r) => [r.name, r.defaultMethod, r.defaultParams]));
+
+    // An in-app edit drops the cached `_oc` entry; the export must carry the new operation.
+    const item = collection.items.find((i) => i.request?.type === 'mcp') as
+      | (CollectionItem & { _oc?: unknown })
+      | undefined;
+    if (!item?.request) throw new Error('no MCP item');
+    item.request = {
+      ...(item.request as McpRequest),
+      defaultMethod: 'prompts/get',
+      defaultParams: '{"name":"greet","arguments":{"name":"Ada"}}',
+    };
+    delete item._oc;
+    const edited = mcpRequests(
+      ocToInternal(parseOpenCollectionYAML(serializeOpenCollectionYAML(internalToOC(collection))))
+        .items
+    ).find((r) => r.name === item.name);
+    expect(edited).toMatchObject({
+      defaultMethod: 'prompts/get',
+      defaultParams: '{"name":"greet","arguments":{"name":"Ada"}}',
+    });
   });
 });

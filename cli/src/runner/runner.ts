@@ -6,6 +6,7 @@ import { type LoadedRequest, loadCollection } from './collectionLoader.js';
 import type { CliIterationRow } from './dataLoader.js';
 import { executeRequest } from './executors/dispatch.js';
 import { applyFilters, type FilterOptions } from './filter.js';
+import { CliMcpSessionPool } from './mcpSession.js';
 import { DEFAULT_RETRY, type RetryOptions, withRetry } from './retry.js';
 import {
   applyPreRequestMetadata,
@@ -76,6 +77,21 @@ export async function runCollection(
   collectionDir: string,
   options: RunOptions,
   reporter: Reporter
+): Promise<RunResult> {
+  // One MCP session per server for the whole run, closed however it ends (#901).
+  const mcpSessions = new CliMcpSessionPool();
+  try {
+    return await runCollectionWithSessions(collectionDir, options, reporter, mcpSessions);
+  } finally {
+    await mcpSessions.dispose();
+  }
+}
+
+async function runCollectionWithSessions(
+  collectionDir: string,
+  options: RunOptions,
+  reporter: Reporter,
+  mcpSessions: CliMcpSessionPool
 ): Promise<RunResult> {
   const loaded = await loadCollection(collectionDir);
 
@@ -198,6 +214,9 @@ export async function runCollection(
               : {}),
             ...(options.sseMaxEvents !== undefined ? { sseMaxEvents: options.sseMaxEvents } : {}),
             ...(dispatcher ? { dispatcher } : {}),
+            ...(options.tls ? { tls: options.tls } : {}),
+            ...(options.proxy ? { proxy: options.proxy } : {}),
+            mcpSessions,
             ...(options.externalSecretResolver
               ? { externalSecretResolver: options.externalSecretResolver }
               : {}),
@@ -228,6 +247,11 @@ export async function runCollection(
       // A transport-level failure can never be a pass, even if the test script
       // happens to contain a response-independent assertion that passed.
       if (outcome.errorMessage !== undefined) passed = false;
+      // A protocol-level failure (MCP JSON-RPC error / tool isError) is the
+      // reason an unasserted item failed; assertions override it.
+      const failureReason =
+        outcome.errorMessage ??
+        (allAssertions.length === 0 && !passed ? outcome.protocolError : undefined);
 
       const result: RequestRunResult = {
         request: item,
@@ -237,11 +261,9 @@ export async function runCollection(
         bodyBytes: outcome.bodyBytes,
         ...(outcome.responseHeaders ? { responseHeaders: outcome.responseHeaders } : {}),
         ...(outcome.setCookies ? { setCookies: outcome.setCookies } : {}),
-        ...(outcome.errorMessage !== undefined
+        ...(failureReason !== undefined
           ? {
-              errorMessage: scriptError
-                ? `${outcome.errorMessage}; ${scriptError}`
-                : outcome.errorMessage,
+              errorMessage: scriptError ? `${failureReason}; ${scriptError}` : failureReason,
             }
           : scriptError !== undefined
             ? { errorMessage: scriptError }

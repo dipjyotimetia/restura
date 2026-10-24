@@ -1,6 +1,6 @@
 import { applyScriptMetadata, grpcMetadataForScript } from '@shared/scripts/grpc-script-metadata';
 import ScriptExecutor, { type ScriptResult } from '@shared/scripts/script-executor';
-import type { GrpcRequest, HttpRequest } from '@shared/types';
+import type { GrpcRequest, HttpRequest, McpRequest } from '@shared/types';
 import type { LoadedRequest } from './collectionLoader.js';
 import type { ExecuteOutcome } from './executors/types.js';
 
@@ -152,6 +152,20 @@ function buildRequestContext(
       headers: metadata,
       metadata,
       body: req.message,
+    };
+  }
+  if (item.type === 'mcp') {
+    // `rs.request.method` is the JSON-RPC method; `body` the params JSON.
+    const req = item.request as McpRequest;
+    const headers: Record<string, string> = {};
+    for (const h of req.headers ?? []) {
+      if (h.enabled && h.key) headers[h.key] = resolveVars(h.value, vars);
+    }
+    return {
+      url: resolveVars(req.url, vars),
+      method: resolveVars(req.defaultMethod ?? '', vars),
+      headers,
+      body: resolveVars(req.defaultParams ?? '', vars),
     };
   }
   // Non-HTTP protocols still expose URL + method so scripts can introspect.

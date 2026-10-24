@@ -209,6 +209,36 @@ While a tool call or prompt fetch is in flight, the Invoke form shows a **Cancel
 - **Desktop**: the renderer calls the validated, owner-scoped `mcp:cancel` IPC channel, which aborts the SDK request signal; the SDK emits `notifications/cancelled`.
 - **Web and self-hosted**: the browser aborts its `/api/mcp` fetch and posts a separate `notifications/cancelled` notification (with the session id when the server issued one) through the same proxy.
 
+### Testing MCP servers in collections and CI
+
+A saved MCP request is one operation: the method and params you build in the invoke form (for example `tools/call` with `{"name":"echo","arguments":{"text":"hi"}}`). Saved requests run in the **collection runner** (desktop and web) and in [`restura run`](/reference/cli/) with pre-request and test scripts, so you can regression-test an MCP server the same way you test an HTTP API.
+
+- **One session per server per run.** The runner connects and initializes once per server (same URL, transport and headers), reuses that session for every MCP item, and closes it when the run ends.
+- **`{{variables}}`** resolve in the URL, headers, method and params. A pre-request script can set them, for example to choose the tool arguments for the call. In params, variables are substituted as text before the JSON is parsed, the same as in HTTP bodies. A value containing quotes or other JSON syntax changes the params structure, so only use trusted values there.
+- **The response body is the JSON-RPC reply**, without the transport id, so a test can tell the outcomes apart:
+
+```js
+const body = rs.response.json();
+// Success: { jsonrpc: '2.0', result: { content: [...], isError?: true } }
+// JSON-RPC error: { jsonrpc: '2.0', error: { code, message, data? } }
+// Test script of a `tools/call` request for the echo tool:
+rs.test('echo tool replies', () => {
+  rs.expect(body.result.isError).to.not.equal(true);
+  rs.expect(body.result.content[0].text).to.equal('echo:hi');
+});
+// Test script of a request whose method the server doesn't implement:
+rs.test('unknown method is rejected', () => {
+  rs.expect(body.error.code).to.equal(-32601); // Method not found
+});
+```
+
+- **Pass/fail.** With no assertions, an item passes only on a plain result. A tool result with `isError: true` or a JSON-RPC error fails it, and the reason is shown. With assertions, the assertions decide, so you can write negative tests that expect an error. A connection, HTTP or timeout failure always fails the item, whatever the test script asserts.
+- **No saved method:** the item fails with an actionable error. Nothing is sent.
+- **Auth:** both runners apply the request's own auth, or the folder/collection auth it inherits, as headers: Bearer, Basic, API key (header only; MCP has no query channel) and OAuth2 access tokens. The desktop OAuth 2.1 authorization-code sign-in uses the interactive desktop connection and is not available in collection runs; in CI pass a token through a variable or Bearer auth. Keychain handles (`SecretRef`) are desktop-only and rejected by collection runs, so use inline or variable values there. You can still set a header directly, for example `Authorization: Bearer {{token}}`.
+- **Transports:** `http-sse` runs on desktop and in the CLI. The web runner supports `streamable-http` only.
+
+The local echo stack's generated collection (`npm run echo:local`, see `echo-local/README.md`) includes runnable MCP examples for a tool call, a tool `isError` result, a JSON-RPC error and a resource read. Each example has its own test script.
+
 ## As an MCP server
 
 Restura can also _be_ an MCP server for an agent like Claude. The server ships today but fails closed — it exposes no saved data until collection sync and consent controls land ([progress](/overview/delivery-plan/#plan-mcp-server)).
