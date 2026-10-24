@@ -20,10 +20,9 @@ import { GRAPHQL_SENT_BODY_OPTION } from '@/features/graphql/lib/graphqlErrors';
 import {
   buildGraphQLWireRequest,
   createIncrementalProgress,
-  type GraphQLEnvelope,
+  graphqlEnvelopeFromBody,
   normalizeGraphQLResponse,
 } from '@/features/graphql/lib/graphqlHttp';
-import { buildGraphQLRequestBody } from '@/features/graphql/lib/queryParser';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import type { ProtocolModule } from '@/features/registry/types';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
@@ -134,45 +133,13 @@ function injectInJson(value: unknown, inject: (s: string) => string): unknown {
 }
 
 /**
- * Turn a saved GraphQL body (`type: 'graphql'`, `raw` = query document or an
- * envelope, `graphqlVariables` = variables JSON) into the envelope the wire
- * builder sends. A plain document goes through `buildGraphQLRequestBody`, the
- * same builder interactive Send uses, so both paths put the same bytes on the
- * wire (including the derived `operationName`).
- */
-function toEnvelope(body: HttpRequest['body']): GraphQLEnvelope {
-  const storedVariables = (() => {
-    if (body.graphqlVariables === undefined) return undefined;
-    try {
-      const parsed = JSON.parse(body.graphqlVariables ?? '{}');
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-      return {};
-    }
-  })();
-  const raw = body.raw ?? '';
-  let envelope: Record<string, unknown> | undefined;
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (typeof parsed.query === 'string') envelope = parsed;
-  } catch {
-    // Not JSON: a plain query document.
-  }
-  return (
-    envelope
-      ? { ...envelope, ...(storedVariables === undefined ? {} : { variables: storedVariables }) }
-      : buildGraphQLRequestBody(raw, storedVariables ?? {}, body.graphqlOperationName)
-  ) as GraphQLEnvelope;
-}
-
-/**
  * Saved GraphQL requests retain the query document as `body.raw` and a
  * `graphql` body marker; shape them for the wire (method, Accept, envelope or
  * GET params). Interactive Send arrives already shaped and passes through.
  */
 function toExecutable(http: HttpRequest): HttpRequest {
   if (http.body.type !== 'graphql') return http;
-  const wire = buildGraphQLWireRequest(http, toEnvelope(http.body));
+  const wire = buildGraphQLWireRequest(http, graphqlEnvelopeFromBody(http.body));
   if (!wire.ok) throw new Error(wire.error);
   return wire.request;
 }

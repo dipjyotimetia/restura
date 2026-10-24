@@ -1,8 +1,8 @@
-import { buildGraphQLRequestBody } from '@shared/graphql/operations';
+import { buildGraphQLWireRequest, graphqlEnvelopeFromBody } from '@shared/graphql/wire';
 import type { FormField, ProxyBodyType as ProtocolBodyType } from '@shared/protocol/body-builder';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import type { RedirectPolicy } from '@shared/protocol/types';
-import type { BodyType, FormDataItem, HttpRequest } from '@shared/types';
+import type { BodyType, FormDataItem, HttpRequest, KeyValue } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
 import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
@@ -25,7 +25,20 @@ export async function executeHttp(
   if (item.type !== 'http') {
     return errorOutcome(`HTTP executor received non-http request: ${item.type}`);
   }
-  const req = item.request as HttpRequest;
+  let req = item.request as HttpRequest;
+
+  // GraphQL: shape the wire request exactly as the app does (shared
+  // `buildGraphQLWireRequest`) — spec Accept header, and for GET the query /
+  // variables / operationName / extensions move into URL params (#1109).
+  let graphqlBuilt: BuiltBody | undefined;
+  const preResolvedParams = new Set<KeyValue>();
+  if (req.body.type === 'graphql') {
+    const shaped = shapeGraphQL(req, opts.vars);
+    if (!shaped.ok) return errorOutcome(shaped.error);
+    req = shaped.request;
+    graphqlBuilt = shaped.built;
+    for (const p of shaped.addedParams) preResolvedParams.add(p);
+  }
 
   const url = resolveVarsDeep(req.url, opts.vars);
   const headers: Record<string, string> = {};
@@ -42,10 +55,13 @@ export async function executeHttp(
   }
   const params: Record<string, string> = {};
   for (const p of req.params) {
-    if (p.enabled && p.key) params[p.key] = resolveVarsDeep(p.value, opts.vars);
+    if (!p.enabled || !p.key) continue;
+    // GraphQL GET params were built from already-resolved values; resolving
+    // them again would re-expand `{{…}}` text inside the resolved document.
+    params[p.key] = preResolvedParams.has(p) ? p.value : resolveVarsDeep(p.value, opts.vars);
   }
 
-  const built = buildBody(req.body, opts.vars);
+  const built = graphqlBuilt ?? buildBody(req.body, opts.vars);
 
   const start = Date.now();
   try {
@@ -153,6 +169,39 @@ function errorOutcome(msg: string): ExecuteOutcome {
   };
 }
 
+type ShapedGraphQL =
+  | { ok: true; request: HttpRequest; built: BuiltBody; addedParams: KeyValue[] }
+  | { ok: false; error: string };
+
+/**
+ * Resolve `{{vars}}` in the GraphQL document + variables, build the envelope
+ * (stored envelope, or the document via the shared envelope builder) and shape
+ * it for the wire with the same builder the app uses. GET refuses mutations /
+ * subscriptions (spec-unsafe) before anything is sent.
+ */
+function shapeGraphQL(req: HttpRequest, vars: Record<string, string>): ShapedGraphQL {
+  const body = req.body;
+  const resolvedBody: HttpRequest['body'] = {
+    ...body,
+    ...(body.raw !== undefined ? { raw: resolveVarsDeep(body.raw, vars) } : {}),
+    ...(body.graphqlVariables !== undefined
+      ? { graphqlVariables: resolveVarsDeep(body.graphqlVariables, vars) }
+      : {}),
+  };
+  const wire = buildGraphQLWireRequest(req, graphqlEnvelopeFromBody(resolvedBody));
+  if (!wire.ok) return wire;
+  const existing = new Set(req.params);
+  const addedParams = wire.request.params.filter((p) => !existing.has(p));
+  const built: BuiltBody =
+    wire.method === 'GET'
+      ? { bodyType: 'none' }
+      : {
+          bodyType: 'json',
+          ...(wire.request.body.raw !== undefined ? { data: wire.request.body.raw } : {}),
+        };
+  return { ok: true, request: wire.request, built, addedParams };
+}
+
 interface BuiltBody {
   bodyType: ProtocolBodyType | 'none';
   data?: string;
@@ -173,35 +222,8 @@ function buildBody(body: HttpRequest['body'] | undefined, vars: Record<string, s
     case 'text':
       return { bodyType: 'text', ...(raw !== undefined ? { data: raw } : {}) };
     case 'graphql':
-      // Keep the editor's query + variables representation portable while
-      // sending the standard GraphQL JSON envelope over the wire.
-      if (raw === undefined) return { bodyType: 'json' };
-      try {
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        if (typeof parsed.query === 'string') return { bodyType: 'json', data: raw };
-      } catch {
-        // A query document is expected while it is being authored.
-      }
-      return {
-        bodyType: 'json',
-        // Same envelope builder as the app: the selected operation's name
-        // (default: the first operation) rides along as operationName.
-        data: JSON.stringify(
-          buildGraphQLRequestBody(
-            raw,
-            (() => {
-              if (body.graphqlVariables === undefined) return {};
-              try {
-                const parsed = JSON.parse(resolveVarsDeep(body.graphqlVariables, vars));
-                return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-              } catch {
-                return {};
-              }
-            })(),
-            body.graphqlOperationName
-          )
-        ),
-      };
+      // Shaped up front by `shapeGraphQL`; reached only if a caller bypasses it.
+      return { bodyType: 'json', ...(raw !== undefined ? { data: raw } : {}) };
     case 'xml':
       // 'raw' bodyType emits with no content-type; executeHttp defaults the
       // header to application/xml (as the app does).
