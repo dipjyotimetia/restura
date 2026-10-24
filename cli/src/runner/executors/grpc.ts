@@ -278,7 +278,7 @@ async function executeGrpcWeb(
       method: req.method,
       metadata,
       message: encoded,
-      timeout: req.timeout ?? opts.timeoutMs,
+      timeout: req.timeout && req.timeout > 0 ? req.timeout : opts.timeoutMs,
       format: req.wireProtocol === 'grpc-web-text' ? 'text' : 'binary',
     },
     fetcher,
