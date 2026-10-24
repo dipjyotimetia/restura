@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Floater } from '@/components/ui/spatial';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import {
   displayHost,
   McpClientRequestDialog,
 } from '@/features/mcp/components/McpClientRequestDialog';
-import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { McpConnectionPanel } from '@/features/mcp/components/McpConnectionPanel';
 import {
   McpDiscoveryPanel,

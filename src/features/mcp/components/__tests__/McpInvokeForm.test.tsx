@@ -153,7 +153,9 @@ describe('McpInvokeForm', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Invoke' }));
       const dialog = await screen.findByRole('alertdialog');
       fireEvent.click(within(dialog).getByRole('button', { name: 'Invoke' }));
-      await waitFor(() => expect(onCall).toHaveBeenCalledWith(destructive, {}, expect.any(AbortSignal)));
+      await waitFor(() =>
+        expect(onCall).toHaveBeenCalledWith(destructive, {}, expect.any(AbortSignal))
+      );
     });
 
     it('does not prompt for read-only or unannotated tools', async () => {

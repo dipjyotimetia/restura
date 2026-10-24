@@ -58,7 +58,7 @@ describe('mcp handler', () => {
     });
     expect(res.status).toBe(400);
     const json = (await res.json()) as Record<string, unknown>;
-    expect(json.error).toMatch(/method and id are required/);
+    expect(json.error).toMatch(/id is required for requests/);
   });
 
   it('rejects a notification targeting a private/metadata IP', async () => {

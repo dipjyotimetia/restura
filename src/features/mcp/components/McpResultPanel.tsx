@@ -33,11 +33,11 @@ function McpResult({ entry }: { entry: McpInvocationLog }) {
     : showStructured
       ? structured
       : entry.error !== undefined
-      ? {
-          error: entry.error,
-          ...(entry.jsonRpcError ? { jsonRpcError: entry.jsonRpcError } : {}),
-        }
-      : entry.result;
+        ? {
+            error: entry.error,
+            ...(entry.jsonRpcError ? { jsonRpcError: entry.jsonRpcError } : {}),
+          }
+        : entry.result;
   const json = JSON.stringify(payload, null, 2);
   const bytes = new TextEncoder().encode(json).length;
   const sizeLabel = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;

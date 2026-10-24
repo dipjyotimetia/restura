@@ -394,7 +394,13 @@ function LogList({ log, onClear }: { log: McpInvocationLog[]; onClear: () => voi
                             : 'var(--color-danger)',
                       }}
                     >
-                      {cancelled ? 'CANCELLED' : kind === 'ok' ? 'OK' : kind === 'tool-error' ? 'TOOL ERR' : 'ERR'}
+                      {cancelled
+                        ? 'CANCELLED'
+                        : kind === 'ok'
+                          ? 'OK'
+                          : kind === 'tool-error'
+                            ? 'TOOL ERR'
+                            : 'ERR'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-0.5">
