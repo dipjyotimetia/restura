@@ -170,3 +170,14 @@ describe('CLI gRPC metadata cap (#895)', () => {
     expect(outcome.errorMessage ?? '').not.toMatch(/exceeds maximum/);
   });
 });
+
+describe('CLI gRPC auth variables', () => {
+  it('resolves {{vars}} in bearer auth before it becomes metadata', async () => {
+    await executeGrpc(
+      item({ wireProtocol: 'connect', auth: { type: 'bearer', bearer: { token: '{{tok}}' } } }),
+      { ...opts, vars: { tok: 'x' } }
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.headers.authorization).toBe('Bearer x');
+  });
+});

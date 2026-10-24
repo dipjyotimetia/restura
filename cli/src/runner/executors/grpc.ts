@@ -105,7 +105,9 @@ export async function executeGrpc(
   try {
     // Header-based auth (Bearer / Basic / API-key / OAuth2) → gRPC metadata.
     // gRPC has no query channel, so api-key `in: query` is unsupported here.
-    const resolvedAuth = await resolveOAuth2Token(req.auth, opts.vars, {
+    // `{{vars}}` in auth fields (e.g. a bearer `{{token}}`) resolve against
+    // the run's variables before they become metadata, as on the HTTP path.
+    const resolvedAuth = await resolveOAuth2Token(resolveAuthVars(req.auth, opts.vars), opts.vars, {
       allowLocalhost: opts.allowLocalhost,
     });
     applyAuthHeaders(resolvedAuth, metadata, {});
@@ -180,6 +182,26 @@ export async function executeGrpc(
       errorMessage: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * Resolve `{{vars}}` in every string field of an auth config (nested objects
+ * included). `type` is left alone, and SecretRef handles are kept intact so
+ * `secretString` still fails them loudly.
+ */
+function resolveAuthVars<T>(value: T, vars: Record<string, string>): T {
+  const walk = (v: unknown, key?: string): unknown => {
+    if (typeof v === 'string') return key === 'type' ? v : resolveVarsDeep(v, vars);
+    if (Array.isArray(v)) return v.map((item) => walk(item));
+    if (v && typeof v === 'object') {
+      if ((v as { kind?: unknown }).kind === 'handle') return v;
+      const out: Record<string, unknown> = {};
+      for (const [k, inner] of Object.entries(v)) out[k] = walk(inner, k);
+      return out;
+    }
+    return v;
+  };
+  return walk(value) as T;
 }
 
 function grpcFailure(code: GrpcStatusCode, message: string, durationMs = 0): ExecuteOutcome {
