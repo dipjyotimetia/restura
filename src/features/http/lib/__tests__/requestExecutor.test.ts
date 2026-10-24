@@ -765,6 +765,48 @@ describe('executeRequest — auth {{vars}} resolution', () => {
       });
       expect(sentSpec().headers['Authorization']).toBe(`Basic ${btoa('alice:plain')}`);
     });
+
+    it('detects a whitespace-padded {{ pw }} token the same way main does', async () => {
+      platform.electron = true;
+      await executeRequest({
+        request: makeRequest({
+          auth: { type: 'basic', basic: { username: 'alice', password: '{{ pw }}' } },
+        }),
+        envVars: {},
+        globalSettings: settings,
+        secretVariables: secretOpts.secretVariables,
+        // A store resolver that tolerates whitespace would otherwise consume it.
+        resolveVariables: (text: string) => text.replace(/\{\{\s*pw\s*\}\}/g, '••••••••'),
+      });
+      expect(sentSpec().headers['Authorization']).toBeUndefined();
+      expect(sentSpec().auth?.basic?.password).toBe('{{ pw }}');
+    });
+
+    it('does not throw on a basic block missing username/password (hand-edited import)', async () => {
+      platform.electron = true;
+      const basic = {} as unknown as NonNullable<HttpRequest['auth']['basic']>;
+      await expect(
+        executeRequest({
+          request: makeRequest({ auth: { type: 'basic', basic } }),
+          envVars: {},
+          globalSettings: settings,
+          ...secretOpts,
+        })
+      ).resolves.toBeDefined();
+    });
+  });
+
+  it('keeps a whitespace-padded secret-variable token opaque in the body', async () => {
+    await executeRequest({
+      request: makeRequest({ method: 'POST', body: { type: 'text', raw: 'k={{ apiKey }}' } }),
+      envVars: {},
+      secretVariables: { apiKey: { kind: 'handle', id: 'h1' } },
+      globalSettings: settings,
+      resolveVariables: (text) => text.replace(/\{\{\s*apiKey\s*\}\}/g, '••••••••'),
+    });
+    expect((executeProxiedRequestMock.mock.calls[0]?.[0] as { data?: string }).data).toBe(
+      'k={{ apiKey }}'
+    );
   });
 
   it('does not report refreshedAuth when only variables were resolved', async () => {
