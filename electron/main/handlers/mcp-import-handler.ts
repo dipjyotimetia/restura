@@ -6,14 +6,15 @@ import {
   MCP_IMPORT_LIMITS,
   McpConfigParseError,
   type ParsedMcpEntry,
+  type ParsedMcpHttpEntry,
   type ParsedMcpStdioEntry,
   parseMcpConfigText,
   sanitizeImportLabel,
 } from '@shared/mcp-import/mcp-config-parser';
 import {
-  buildHttpDraft,
   isPlaceholderOnly,
   type McpImportDraft,
+  type McpImportDraftAuth,
   type McpImportDraftRow,
   type McpImportPreviewSource,
   toPreviewEntry,
@@ -31,6 +32,7 @@ import {
   McpStdioConnectSchema,
   StdioCwdSchema,
 } from '../ipc/validators';
+import { MCP_REQUEST_TRANSPORT } from '../security/mcp-connect-auth';
 import {
   hasControlChars,
   isExecutionSensitiveEnvName,
@@ -44,8 +46,9 @@ import { displayPath, knownMcpConfigSources } from './mcp-import-paths';
 //
 // Main reads the files, so file paths and secret env values never need to
 // exist in the renderer: a scan returns a preview with secret values omitted,
-// and a commit stores credential-named stdio env values as secret handles
-// (ADR-0007) and returns only the handle. Nothing here can approve a stdio
+// and a commit stores credential-named stdio env values and HTTP credential
+// headers (hoisted into bearer / api-key auth) as secret handles (ADR-0007)
+// and returns only the handle. Nothing here can approve a stdio
 // launch: the consent gate in mcp-stdio-consent.ts prompts on first connect
 // exactly as for a hand-entered server.
 // ===========================
@@ -268,6 +271,89 @@ export function buildStdioDraft(entry: ParsedMcpStdioEntry): StdioBuild {
   }
 }
 
+/** An HTTP header row main can move into keychain-backed auth. */
+export function headerIsHandleBacked(row: { name: string; value: string }): boolean {
+  return (
+    row.value !== '' &&
+    row.value.length <= MCP_STDIO_LIMITS.envValueMaxLength &&
+    !isPlaceholderOnly(row.value) &&
+    !row.value.includes('{{') &&
+    isSecretFieldName(row.name)
+  );
+}
+
+const BEARER_VALUE = /^Bearer\s+(\S.*)$/is;
+
+/**
+ * Credential headers never reach the renderer as plaintext. MCP headers are a
+ * plain string map with no per-row SecretRef, so the first credential header
+ * becomes the request's handle-backed auth (an `Authorization: Bearer` header
+ * becomes bearer auth, anything else an api-key header), resolved in main at
+ * connect time. Further credential headers are dropped with a warning: the
+ * user re-adds them in the auth editor rather than having them stored in
+ * plaintext. Handles are tracked so a failed batch can roll them back.
+ */
+export function buildHttpDraftWithHandles(entry: ParsedMcpHttpEntry): {
+  draft: McpImportDraft;
+  handleIds: string[];
+} {
+  const warnings = [...entry.warnings];
+  const stored: string[] = [];
+  const secretRows = entry.headers.filter(headerIsHandleBacked);
+  const bearerRow = secretRows.find(
+    (r) => r.name.toLowerCase() === 'authorization' && BEARER_VALUE.test(r.value)
+  );
+  // A header the MCP transport refuses at connect (e.g. Cookie) can't carry the
+  // credential; prefer the first one it will actually send.
+  const chosen =
+    bearerRow ?? secretRows.find((r) => !MCP_REQUEST_TRANSPORT.isForbiddenHeader(r.name));
+  let auth: McpImportDraftAuth | undefined;
+  try {
+    if (chosen) {
+      const label = importHandleLabel(entry.name, chosen.name);
+      const { id } = storeSecretHandle({
+        value: bearerRow ? (BEARER_VALUE.exec(chosen.value)?.[1] ?? chosen.value) : chosen.value,
+        label,
+        scope: 'mcp-import',
+      });
+      stored.push(id);
+      const ref = { kind: 'handle' as const, id, label };
+      auth = bearerRow
+        ? { type: 'bearer', bearer: { token: ref } }
+        : { type: 'api-key', apiKey: { key: chosen.name, value: ref, in: 'header' } };
+    }
+    const headers: McpImportDraftRow[] = [];
+    for (const row of entry.headers) {
+      if (row === chosen) continue;
+      if (secretRows.includes(row)) {
+        warnings.push(
+          `Header "${sanitizeImportLabel(row.name, 80)}" holds a credential and was not imported. Add it in the auth settings.`
+        );
+        continue;
+      }
+      headers.push({
+        key: row.name,
+        value: row.value,
+        ...(isSecretFieldName(row.name) ? { secret: true } : {}),
+      });
+    }
+    return {
+      handleIds: stored,
+      draft: {
+        name: entry.name,
+        transport: entry.transport,
+        url: entry.url,
+        headers,
+        ...(auth ? { auth } : {}),
+        warnings,
+      },
+    };
+  } catch (err) {
+    for (const id of stored) deleteSecretHandle(id);
+    throw err;
+  }
+}
+
 export function commitEntries(
   entries: Map<string, ParsedMcpEntry>,
   keys: string[]
@@ -283,7 +369,9 @@ export function commitEntries(
       } else if (entry.kind === 'invalid') {
         skipped.push({ key, name: entry.name, reason: entry.reason });
       } else if (entry.kind === 'http') {
-        drafts.push(buildHttpDraft(entry));
+        const built = buildHttpDraftWithHandles(entry);
+        drafts.push(built.draft);
+        written.push(...built.handleIds);
       } else {
         const built = buildStdioDraft(entry);
         if ('draft' in built) {
