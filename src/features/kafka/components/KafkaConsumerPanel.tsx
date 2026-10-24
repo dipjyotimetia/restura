@@ -13,6 +13,7 @@ import {
   type KafkaConsumerMembership,
   type KafkaConsumerState,
 } from '@/features/kafka/store/useKafkaStore';
+import { KafkaPartitionControls } from './KafkaPartitionControls';
 import { KAFKA_PINK } from './shared';
 
 export type ConsumeMode =
@@ -491,6 +492,7 @@ export function KafkaConsumerPanel({
             )}
           </div>
         </div>
+        <KafkaPartitionControls connection={connection} />
       </Floater>
     </TabsContent>
   );

@@ -421,6 +421,24 @@ export interface KafkaPartitionOffset {
   offset: string;
 }
 
+/** A topic partition addressed by a live-consumer control (pause/resume/seek). */
+export interface KafkaTopicPartition {
+  topic: string;
+  partition: number;
+}
+
+/** Result of a partition pause/resume: the partitions still paused afterwards. */
+export interface KafkaPartitionControlResult {
+  success: boolean;
+  error?: string;
+  pausedPartitions?: KafkaTopicPartition[];
+}
+
+/** Where a live seek lands: an exact offset, or the first record at/after a timestamp (epoch ms). */
+export type KafkaSeekTarget =
+  | { kind: 'offset'; offset: string }
+  | { kind: 'timestamp'; timestamp: string };
+
 /** A consumer group as returned by Admin.listGroups (Map flattened to an array). */
 export interface KafkaGroupInfo {
   id: string;
@@ -574,6 +592,23 @@ export interface ElectronKafkaAPI {
   resumeConsumer: (config: {
     connectionId: string;
   }) => Promise<{ success: boolean; error?: string }>;
+  /** Withhold records from these partitions; the rest of the subscription keeps flowing. */
+  pausePartitions: (config: {
+    connectionId: string;
+    partitions: KafkaTopicPartition[];
+  }) => Promise<KafkaPartitionControlResult>;
+  /** Resume paused partitions from the first record withheld while they were paused. */
+  resumePartitions: (config: {
+    connectionId: string;
+    partitions: KafkaTopicPartition[];
+  }) => Promise<KafkaPartitionControlResult>;
+  /** Reposition one partition of the live consumer; resolves with the offset it landed on. */
+  seekConsumer: (config: {
+    connectionId: string;
+    topic: string;
+    partition: number;
+    target: KafkaSeekTarget;
+  }) => Promise<{ success: boolean; error?: string; offset?: string }>;
   commitMessage: (config: {
     connectionId: string;
     commitToken: string;

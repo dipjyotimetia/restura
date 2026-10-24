@@ -4,7 +4,7 @@ import { createLogger } from '@shared/runtime/logger';
 import type { WebContents } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import { IPC } from '../../shared/channels';
-import { KAFKA_CHANNEL, kafkaChannel } from '../../shared/kafka-channels';
+import { KAFKA_CHANNEL, type KafkaChannelPrefix, kafkaChannel } from '../../shared/kafka-channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
@@ -14,7 +14,6 @@ import {
   type KafkaCommitMessageConfig,
   KafkaCommitMessageSchema,
   KafkaConnectSchema,
-  KafkaConsumerControlSchema,
   KafkaDisconnectSchema,
   KafkaSubscribeSchema,
   KafkaUnsubscribeSchema,
@@ -31,6 +30,13 @@ import {
   openBrowseStream,
 } from './kafka/browse-consumer';
 import { buildClientOptions, type KafkaClientOptions } from './kafka/client-options';
+import { registerKafkaConsumerControlHandlers } from './kafka/consumer-control-handlers';
+import {
+  type ConsumerStreamHooks,
+  fallbackModeValue,
+  type KafkaConsumerSession,
+  subscriptionSession,
+} from './kafka/consumer-session';
 import {
   type AppProducer,
   closeKafkaProducerSessions,
@@ -77,6 +83,8 @@ interface ActiveKafka extends KafkaProducerEntry {
   transactionalId?: string;
   /** Serializes async decode/emission in arrival order. */
   emitChain: Promise<void>;
+  /** Flow control, partition pauses and repositioning for the active consumer stream. */
+  session?: KafkaConsumerSession;
   pendingCommits: Map<string, AppMessage>;
   manualCommit: boolean;
   wc?: WebContents;
@@ -148,6 +156,7 @@ function emitToEntry(entry: ActiveKafka, channel: string, ...args: unknown[]): v
 }
 
 async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
+  await entry.session?.close(); // final commit of delivered positions
   if (entry.stream) {
     try {
       await Promise.resolve(entry.stream.close());
@@ -155,6 +164,7 @@ async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
       /* ignore */
     }
     entry.stream = undefined;
+    entry.session = undefined;
   }
   if (entry.consumer) {
     try {
@@ -187,13 +197,18 @@ async function closeConnection(entry: ActiveKafka): Promise<void> {
   entry.registry?.close();
 }
 
-async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise<void> {
+async function emitConsumedMessage(
+  entry: ActiveKafka,
+  msg: AppMessage,
+  signal?: AbortSignal
+): Promise<void> {
   const key = msg.key == null ? undefined : await decodeDisplayField(entry.registry, msg.key);
   const value =
     msg.value == null
       ? { value: '', encoding: 'utf8' as const }
       : await decodeDisplayField(entry.registry, msg.value);
-  if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
+  if (signal?.aborted || activeConnections.get(entry.connectionId, entry.webContentsId) !== entry)
+    return;
   let commitToken: string | undefined;
   if (entry.manualCommit) {
     commitToken = randomUUID();
@@ -223,24 +238,32 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
     ...(commitToken ? { commitToken } : {}),
   });
 }
-function bindStreamListeners(entry: ActiveKafka, stream: AppStream): void {
+function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
+  const isCurrent = () => activeConnections.get(entry.connectionId, entry.webContentsId) === entry;
+  const emit = (prefix: KafkaChannelPrefix, payload: unknown): void => {
+    if (isCurrent()) emitToEntry(entry, kafkaChannel(prefix, entry.connectionId), payload);
+  };
+  return {
+    deliver: (msg, signal) => emitConsumedMessage(entry, msg, signal),
+    onError: (err) => emit(KAFKA_CHANNEL.ERROR, { scope: 'consumer', message: err.message }),
+    onClose: () => emit(KAFKA_CHANNEL.CONSUMER_CLOSED, {}),
+  };
+}
+
+/**
+ * Browse mode is group-less: no commits, rebalances or partition assignment, so
+ * it has no consumer session (flow control / partition pause / seek). It only
+ * needs ordered emission and the stream lifecycle events.
+ */
+function bindBrowseListeners(entry: ActiveKafka, stream: AppStream): void {
+  const hooks = consumerStreamHooks(entry);
+  const signal = new AbortController().signal;
   stream.on('data', (msg: AppMessage) => {
     // One bad decode must not wedge the ordered emission chain.
-    entry.emitChain = entry.emitChain.then(() => emitConsumedMessage(entry, msg)).catch(() => {});
+    entry.emitChain = entry.emitChain.then(() => hooks.deliver(msg, signal)).catch(() => {});
   });
-
-  stream.on('error', (err: Error) => {
-    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
-    emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.ERROR, entry.connectionId), {
-      scope: 'consumer',
-      message: err.message,
-    });
-  });
-
-  stream.on('close', () => {
-    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
-    emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, entry.connectionId), {});
-  });
+  stream.on('error', (err: Error) => hooks.onError(err));
+  stream.on('close', () => hooks.onClose());
 }
 
 export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
@@ -429,7 +452,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
             await closeConsumerQuietly(consumer);
             return { success: false, error: 'Not connected' };
           }
-          bindStreamListeners(entry, stream as unknown as AppStream);
+          bindBrowseListeners(entry, stream as unknown as AppStream);
           Object.assign(entry, { consumer, stream, manualCommit: false });
           // Stop-after-N or a failure frees the slot once queued records are forwarded.
           onBrowseStreamFinished(stream, () => {
@@ -456,7 +479,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           ...(cfg.groupProtocol !== 'consumer' && cfg.heartbeatIntervalMs
             ? { heartbeatInterval: cfg.heartbeatIntervalMs }
             : {}),
-          autocommit: cfg.commitPolicy === 'manual' ? false : (cfg.autoCommitIntervalMs ?? true),
+          // The session commits *delivered* positions itself (never withheld records).
+          autocommit: false,
           isolationLevel: cfg.isolation === 'read-committed' ? 1 : 0,
           ...(cfg.minBytes !== undefined ? { minBytes: cfg.minBytes } : {}),
           ...(cfg.maxBytes !== undefined ? { maxBytes: cfg.maxBytes } : {}),
@@ -519,19 +543,11 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           mode = M.LATEST;
         } else mode = M.COMMITTED;
 
+        const fallbackMode = fallbackModeValue(kafka, cfg.fallbackMode);
         const stream = await (consumer.consume({
           topics: cfg.topics,
           mode,
-          ...(cfg.fallbackMode
-            ? {
-                fallbackMode:
-                  cfg.fallbackMode === 'earliest'
-                    ? kafka.MessagesStreamFallbackModes.EARLIEST
-                    : cfg.fallbackMode === 'fail'
-                      ? kafka.MessagesStreamFallbackModes.FAIL
-                      : kafka.MessagesStreamFallbackModes.LATEST,
-              }
-            : {}),
+          ...(fallbackMode ? { fallbackMode } : {}),
           ...(offsets ? { offsets } : {}),
         }) as Promise<AppStream>);
 
@@ -539,9 +555,9 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           await closeConsumerQuietly(consumer);
           return { success: false, error: 'Not connected' };
         }
-        bindStreamListeners(entry, stream);
         entry.consumer = consumer;
-        entry.stream = stream;
+        entry.session = subscriptionSession(cfg, kafka, consumerStreamHooks(entry));
+        entry.session.bind(entry, stream);
         entry.manualCommit = cfg.commitPolicy === 'manual';
         consumer.on('consumer:group:join', (payload) => {
           emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
@@ -580,39 +596,13 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     })
   );
 
-  ipcMain.handle(
-    IPC.kafka.pauseConsumer,
-    createValidatedEventHandler(
-      IPC.kafka.pauseConsumer,
-      KafkaConsumerControlSchema,
-      async (cfg, event) => {
-        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
-        if (!entry?.stream) return { success: false, error: 'No consumer is active.' };
-        entry.stream.pause();
-        emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
-          state: 'paused',
-        });
-        return { success: true };
-      }
-    )
-  );
-
-  ipcMain.handle(
-    IPC.kafka.resumeConsumer,
-    createValidatedEventHandler(
-      IPC.kafka.resumeConsumer,
-      KafkaConsumerControlSchema,
-      async (cfg, event) => {
-        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
-        if (!entry?.stream) return { success: false, error: 'No consumer is active.' };
-        entry.stream.resume();
-        emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
-          state: 'resumed',
-        });
-        return { success: true };
-      }
-    )
-  );
+  registerKafkaConsumerControlHandlers({
+    getEntry: (connectionId, ownerId) => activeConnections.getForOwner(connectionId, ownerId),
+    getKafka,
+    rateLimiter: kafkaRateLimiter,
+    emitStatus: (entry, payload) =>
+      emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), payload),
+  });
 
   ipcMain.handle(
     IPC.kafka.commitMessage,

@@ -415,7 +415,7 @@ export function computeGroupLag(
   return rows.sort((a, b) => a.topic.localeCompare(b.topic) || a.partition - b.partition);
 }
 
-/** UTF-8 convenience view of consumed record headers (raw bytes travel separately). */
+/** Record headers as a UTF-8 convenience map (the raw bytes travel separately as Base64). */
 export function headersFromMap(map: Map<Buffer, Buffer> | undefined): Record<string, string> {
   if (!map) return {};
   const out: Record<string, string> = {};

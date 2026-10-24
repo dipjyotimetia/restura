@@ -5,6 +5,7 @@ import {
   migrateKafkaV2ToV3,
   useKafkaStore,
 } from '@/features/kafka/store/useKafkaStore';
+import { useConsoleStore } from '@/store/useConsoleStore';
 
 function resetStore(): void {
   useKafkaStore.setState({
@@ -125,6 +126,51 @@ describe('useKafkaStore', () => {
     // Oldest dropped; newest preserved
     expect(conn.messages[0]!.value).toBe('m100');
     expect(conn.messages[999]!.value).toBe('m1099');
+  });
+
+  it('appends a batch in one store update, capped at 1000, with console frames for each', () => {
+    const id = useKafkaStore.getState().createConnection();
+    useKafkaStore.getState().addMessage(id, { direction: 'system', topic: '', value: 'first' });
+    useConsoleStore.getState().clearFrames();
+    let updates = 0;
+    const unsubscribe = useKafkaStore.subscribe(() => {
+      updates += 1;
+    });
+    useKafkaStore.getState().addMessages(
+      id,
+      Array.from({ length: 1100 }, (_, i) => ({
+        direction: 'received' as const,
+        topic: 'orders',
+        partition: 0,
+        offset: String(i),
+        value: `m${i}`,
+        timestamp: 1_000 + i,
+      }))
+    );
+    unsubscribe();
+    expect(updates).toBe(1);
+    const conn = useKafkaStore.getState().connections[id]!;
+    expect(conn.messages).toHaveLength(1000);
+    expect(conn.messages[0]!.value).toBe('m100');
+    expect(conn.messages[999]).toMatchObject({ value: 'm1099', timestamp: 2_099 });
+    expect(new Set(conn.messages.map((m) => m.id)).size).toBe(1000);
+    expect(useConsoleStore.getState().frames.length).toBeGreaterThan(0);
+    expect(useConsoleStore.getState().frames.at(-1)).toMatchObject({
+      protocol: 'kafka',
+      direction: 'in',
+      label: 'orders',
+      payload: 'm1099',
+    });
+  });
+
+  it('ignores empty batches and unknown connections', () => {
+    const id = useKafkaStore.getState().createConnection();
+    const before = useKafkaStore.getState().connections;
+    useKafkaStore.getState().addMessages(id, []);
+    useKafkaStore
+      .getState()
+      .addMessages('missing', [{ direction: 'received', topic: 't', value: 'v' }]);
+    expect(useKafkaStore.getState().connections).toBe(before);
   });
 
   it('filters messages by direction and search query', () => {

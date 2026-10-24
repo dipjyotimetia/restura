@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../../electron/shared/kafka-channels';
+import { KAFKA_FLUSH_INTERVAL_MS } from '../consumedMessageBuffer';
 
 function installElectronMock() {
   const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
@@ -193,6 +194,8 @@ describe('kafkaManager (Electron path)', () => {
       value: 'once',
       timestamp: 1,
     });
+    // Consumed records are batched into the store (#938).
+    await new Promise((r) => setTimeout(r, KAFKA_FLUSH_INTERVAL_MS + 20));
     const received = useKafkaStore
       .getState()
       .connections[id]!.messages.filter((m) => m.direction === 'received');
@@ -228,6 +231,7 @@ describe('kafkaManager (Electron path)', () => {
       tombstone: true,
       timestamp: 123,
     });
+    await kafkaManager.unsubscribe(id);
 
     expect(useKafkaStore.getState().connections[id]!.messages).toEqual(
       expect.arrayContaining([
@@ -235,6 +239,131 @@ describe('kafkaManager (Electron path)', () => {
         expect.objectContaining({ direction: 'received', value: '<tombstone>', tombstone: true }),
       ])
     );
+  });
+
+  describe('consumed-record batching', () => {
+    const record = (offset: number, extra: Record<string, unknown> = {}) => ({
+      topic: 'orders',
+      partition: 0,
+      offset: String(offset),
+      value: `v${offset}`,
+      timestamp: 1_000 + offset,
+      ...extra,
+    });
+
+    async function subscribed() {
+      const mock = installElectronMock();
+      const id = useKafkaStore.getState().createConnection();
+      await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+      await kafkaManager.subscribe({
+        connectionId: id,
+        groupId: 'g',
+        topics: ['orders'],
+        fromBeginning: false,
+      });
+      const received = () =>
+        useKafkaStore
+          .getState()
+          .connections[id]!.messages.filter((m) => m.direction === 'received');
+      return { ...mock, id, received };
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('updates the store at most once per 100 ms per connection, in arrival order', async () => {
+      vi.useFakeTimers();
+      const { emit, id, received } = await subscribed();
+      let updates = 0;
+      const unsubscribe = useKafkaStore.subscribe(() => {
+        updates += 1;
+      });
+
+      // 300 records spread across 250 ms → at most 3 flushes.
+      for (let i = 0; i < 300; i += 1) {
+        emit(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id), record(i));
+        if (i % 60 === 59) vi.advanceTimersByTime(50);
+      }
+      expect(updates).toBeLessThanOrEqual(2);
+      vi.advanceTimersByTime(100);
+      unsubscribe();
+
+      expect(updates).toBeLessThanOrEqual(3);
+      expect(received().map((m) => m.offset)).toEqual(
+        Array.from({ length: 300 }, (_, i) => String(i))
+      );
+    });
+
+    it('buffers at most 1000 records between flushes, keeping the newest', async () => {
+      vi.useFakeTimers();
+      const { emit, id, received } = await subscribed();
+      for (let i = 0; i < 1500; i += 1) emit(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id), record(i));
+      vi.advanceTimersByTime(100);
+      const offsets = received().map((m) => m.offset);
+      expect(offsets).toHaveLength(1000);
+      expect(offsets[0]).toBe('500');
+      expect(offsets.at(-1)).toBe('1499');
+    });
+
+    it('drops records still waiting for a flush when the log is cleared', async () => {
+      vi.useFakeTimers();
+      const { emit, id, received } = await subscribed();
+      emit(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id), record(1));
+      useKafkaStore.getState().clearMessages(id);
+      vi.advanceTimersByTime(100);
+      expect(received()).toHaveLength(0);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('prunes paused partitions that a rebalance moved to another member', async () => {
+      const { emit, id } = await subscribed();
+      useKafkaStore.getState().updateConsumer(id, { pausedPartitions: ['orders:0', 'orders:1'] });
+      emit(kafkaChannel(KAFKA_CHANNEL.CONSUMER_LAG, id), {
+        lag: [{ topic: 'orders', offsets: ['4', '-1'] }],
+      });
+      expect(useKafkaStore.getState().connections[id]!.consumer.pausedPartitions).toEqual([
+        'orders:0',
+      ]);
+      await kafkaManager.unsubscribe(id);
+      expect(useKafkaStore.getState().connections[id]!.consumer.pausedPartitions).toBeUndefined();
+    });
+
+    it('holds records until the interval elapses and keeps manual-commit tokens', async () => {
+      vi.useFakeTimers();
+      const { emit, id, received } = await subscribed();
+      emit(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id), record(1, { commitToken: 'tok-1' }));
+      vi.advanceTimersByTime(99);
+      expect(received()).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+      expect(received()).toEqual([
+        expect.objectContaining({ offset: '1', commitToken: 'tok-1', timestamp: 1_001 }),
+      ]);
+    });
+
+    it('flushes buffered records before consumer-closed, error, and disconnect bookkeeping', async () => {
+      vi.useFakeTimers();
+      const { emit, id } = await subscribed();
+      const values = () => useKafkaStore.getState().connections[id]!.messages.map((m) => m.value);
+
+      emit(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id), record(1));
+      emit(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, id), {});
+      expect(values().slice(-2)).toEqual(['v1', 'Consumer closed']);
+
+      emit(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id), record(2));
+      emit(kafkaChannel(KAFKA_CHANNEL.ERROR, id), { scope: 'consumer', message: 'boom' });
+      expect(values().slice(-2)).toEqual(['v2', '[consumer] boom']);
+
+      emit(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id), record(3));
+      emit(kafkaChannel(KAFKA_CHANNEL.CLOSE, id), {});
+      expect(values().slice(-2)).toEqual(['v3', 'Connection closed']);
+
+      emit(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id), record(4));
+      await kafkaManager.disconnect(id);
+      expect(values().at(-1)).toBe('v4');
+      // No timer left armed after the drain.
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 
   it('resolves OAuth, transactional, registry, and TLS options before IPC', async () => {
