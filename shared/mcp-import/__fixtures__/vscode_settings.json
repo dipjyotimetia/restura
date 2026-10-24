@@ -1,0 +1,8 @@
+{
+  "editor.fontSize": 14,
+  "mcp": {
+    "servers": {
+      "fetch": { "command": "uvx", "args": ["mcp-server-fetch"] }
+    }
+  }
+}

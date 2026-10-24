@@ -120,6 +120,22 @@ Environment values are exported like request headers. When secrets are excluded 
 
 stdio is not available in the web app, the self-hosted server, or the CLI. A saved stdio request opened there explains that it needs the desktop app, and `restura run` fails the item without starting anything. The design and its residual risks are recorded in [ADR 0030](/architecture/adrs/0030-mcp-stdio-transport/).
 
+### Importing from Claude Desktop, Cursor or VS Code
+
+Click **Import** next to **Tools** in an MCP request to bring in servers you already configured elsewhere. Restura understands:
+
+- Claude Desktop `claude_desktop_config.json` and Cursor `mcp.json` (the `mcpServers` map)
+- VS Code `mcp.json` (the `servers` map and `inputs`) and the `mcp.servers` setting in `settings.json`
+
+Local entries (`command`, `args`, `env`, `cwd`) become stdio requests; remote entries (`url`, `type` of `http`, `streamable-http` or `sse`, `headers`) become Streamable HTTP or HTTP + SSE requests. You always get a preview with a checkbox per server before anything is created, and the servers are saved together in an **Imported MCP servers** collection.
+
+- **Desktop.** **Detect installed apps** looks in the standard locations for Claude Desktop, Cursor (`~/.cursor/mcp.json`) and VS Code. **Choose file…** opens a native file picker, which is the way to import a project's `.cursor/mcp.json` or `.vscode/mcp.json`. The desktop app reads the file itself; nothing outside those locations and the file you pick is read.
+- **Web.** Paste the JSON or upload a file (up to 1 MB). Only remote (HTTP) servers can be imported; local servers are listed as desktop-only.
+- **Secrets.** On desktop, environment variables with credential-like names (for example `GITHUB_TOKEN` or `API_KEY`) are stored in the secret store, never shown in the preview and never saved in your collection. Other variables stay visible so you see exactly what a server will start with, including variables that change how a program runs (such as `NPM_CONFIG_*` settings), which can't be hidden and are shown in full in the approval prompt. Credentials written into arguments (`--token abc`) or URLs (`?api_key=`) are masked in the preview only and are imported exactly as written, so review them before you import.
+- **Approval is still required.** Importing a local server never approves it. The first time you connect, Restura shows the same approval prompt as for a server you typed in yourself.
+- **VS Code placeholders.** `${input:id}` and `${env:NAME}` are turned into Restura `{{id}}` and `{{NAME}}` variables (define them in an environment) and Restura warns you. It does not read variables from your computer's environment. A working directory like `${workspaceFolder}` is dropped, because the directory must be an absolute path.
+- **Files that can't be imported.** Files over 1 MB, files that are not valid JSON, and entries of an unknown type are reported in the preview and skipped.
+
 ### Desktop protocol compatibility
 
 The desktop app connects with the current MCP v2 client. Its automatic version negotiation supports both modern v2 servers and legacy MCP servers during the connection handshake, so saved MCP requests do not need a protocol-version setting. stdio servers are the exception: they connect with the standard `initialize` handshake, because the client's automatic negotiation would start a second, hidden copy of the server to probe it.

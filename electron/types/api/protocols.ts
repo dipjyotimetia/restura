@@ -266,6 +266,17 @@ export interface McpOAuthStatusIpc {
   dynamicallyRegistered: boolean;
 }
 
+export interface McpImportScanResult {
+  /** Null when the user cancelled the picker or nothing was found. */
+  sessionId: string | null;
+  sources: import('../../../shared/mcp-import/mcp-import-model').McpImportPreviewSource[];
+}
+
+export interface McpImportCommitResult {
+  drafts: import('../../../shared/mcp-import/mcp-import-model').McpImportDraft[];
+  skipped: Array<{ key: string; name: string; reason: string }>;
+}
+
 export interface ElectronMcpAPI {
   connect: (config: McpConnectIpcConfig) => Promise<{
     success: boolean;
@@ -315,6 +326,10 @@ export interface ElectronMcpAPI {
   oauthStatus: (target: { url: string; clientId?: string }) => Promise<McpOAuthStatusIpc>;
   /** Forget the stored MCP OAuth tokens / registration for a server. */
   oauthSignOut: (target: { url: string; clientId?: string }) => Promise<{ success: boolean }>;
+  /** Scan well-known MCP client configs, or a file the user picks in a main-owned dialog. */
+  importScan: (input: { source: 'detect' | 'pick' }) => Promise<McpImportScanResult>;
+  /** Create drafts for the selected scan entries; secret env values are stored as handles in main. */
+  importCommit: (input: { sessionId: string; keys: string[] }) => Promise<McpImportCommitResult>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeAllListeners: (channel: string) => void;

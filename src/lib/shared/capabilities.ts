@@ -39,6 +39,7 @@ export type CapabilityName =
   | 'mcp.resourceSubscriptions'
   | 'mcp.auth'
   | 'mcp.oauth'
+  | 'mcp.configImport'
   | 'grpc.basic'
   | 'grpc.reflection'
   | 'grpc.web'
@@ -266,6 +267,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes:
       'Desktop main process spawns the command without a shell after a per-launch native consent prompt; the child gets an allowlisted environment, and is killed on disconnect/quit. Web and the CLI never spawn processes',
+  },
+  'mcp.configImport': {
+    label: 'Import MCP servers from Claude Desktop / Cursor / VS Code configs',
+    web: true,
+    desktop: true,
+    notes:
+      'Desktop reads the well-known config locations or a native file picker in the main process, stores credential-named stdio env values as secret handles, and imported stdio servers still need the per-launch consent prompt. Web accepts pasted or uploaded JSON (1 MB cap) and imports remote (HTTP) servers only; stdio entries are shown as desktop-only',
   },
   'grpc.basic': {
     label: 'gRPC unary + streaming',

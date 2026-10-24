@@ -5,6 +5,7 @@ import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { Floater, ProtoChip, Segmented, VariableText } from '@/components/ui/spatial';
 import { McpAuthPanel } from '@/features/mcp/components/McpAuthPanel';
+import { McpImportDialog } from '@/features/mcp/components/McpImportDialog';
 import {
   EMPTY_STDIO_CONFIG,
   McpStderrPanel,
@@ -209,6 +210,7 @@ export function McpConnectionPanel({
           <PanelLeft className="h-3.5 w-3.5" />
           Tools
         </Button>
+        <McpImportDialog />
         <Floater
           radius="panel"
           elevation="float"

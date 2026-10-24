@@ -6,6 +6,7 @@ export * from './git';
 export * from './kafka';
 export * from './kafka-consumer-flow';
 export * from './mcp-client-requests';
+export * from './mcp-import';
 export * from './mcp-stdio';
 export * from './mqtt';
 export * from './websocket-control';

@@ -88,6 +88,10 @@ export const IPC = {
     setRoots: 'mcp:set-roots',
     oauthStatus: 'mcp:oauth:status',
     oauthSignOut: 'mcp:oauth:signOut',
+    /** Read well-known MCP client configs or a user-picked file in main (#906). */
+    importScan: 'mcp:import:scan',
+    /** Turn a scan selection into drafts; secret env values become handles in main (#906). */
+    importCommit: 'mcp:import:commit',
   },
   kafka: {
     connect: 'kafka:connect',
