@@ -112,6 +112,7 @@ async function run(
   extra: {
     stream?: Parameters<typeof grpcProtocol.runRequest>[1]['stream'];
     signal?: AbortSignal;
+    timeoutMs?: number;
   } = {}
 ) {
   let scripts: ProtocolScriptResult | undefined;
@@ -121,7 +122,7 @@ async function run(
     onScriptResult: (r) => {
       scripts = r;
     },
-    protocolOptions: { descriptors: ['AAA='], timeoutMs: 1234 },
+    protocolOptions: { descriptors: ['AAA='], timeoutMs: extra.timeoutMs ?? 1234 },
     ...(extra.stream ? { stream: extra.stream } : {}),
   })) as GrpcResponse;
   return { res, scripts };
@@ -179,6 +180,11 @@ describe('gRPC streaming through the protocol runner (#917)', () => {
       isStreaming: true,
     });
     expect(JSON.parse(res.body)).toEqual([{ n: 1 }, { n: 2 }]);
+  });
+
+  it('keeps "No deadline" (0) for a stream instead of defaulting to 30s', async () => {
+    await run(grpcReq(), { timeoutMs: 0 });
+    expect(startCalls[0]!.timeoutMs).toBe(0);
   });
 
   it('feeds live hooks: onOpen gets controls, onMessage sees each message', async () => {
