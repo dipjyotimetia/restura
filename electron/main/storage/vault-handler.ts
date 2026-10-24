@@ -76,9 +76,12 @@ const INVALID_KEY_ERROR = 'Invalid vault key: not a valid key path';
  * paths, keep mapping to the same stored data; only the unparseable ones are
  * turned into a clean failure instead of an unhandled IPC throw.
  */
-function withKey<T>(op: () => T): T | VaultFailure {
+function withKey<T>(op: (store: ReturnType<typeof getStore>) => T): T | VaultFailure {
+  // Open the store outside the try so only the key operation's own TypeError
+  // is reported as an invalid key; store failures still propagate.
+  const store = getStore();
   try {
-    return op();
+    return op(store);
   } catch (err) {
     if (err instanceof TypeError) return { ok: false, error: INVALID_KEY_ERROR };
     throw err;
@@ -86,25 +89,23 @@ function withKey<T>(op: () => T): T | VaultFailure {
 }
 
 export function vaultGet(key: string): { value: string | null } | (VaultFailure & { value: null }) {
-  try {
-    const rec = getStore().get(key);
+  const result = withKey((store) => {
+    const rec = store.get(key);
     return rec ? { value: rec.value } : { value: null };
-  } catch (err) {
-    if (err instanceof TypeError) return { ok: false, error: INVALID_KEY_ERROR, value: null };
-    throw err;
-  }
+  });
+  return 'ok' in result ? { ...result, value: null } : result;
 }
 
 export function vaultSet(key: string, value: string): { ok: true } | VaultFailure {
-  return withKey(() => {
-    getStore().set(key, { value, updatedAt: Date.now() });
+  return withKey((store) => {
+    store.set(key, { value, updatedAt: Date.now() });
     return { ok: true as const };
   });
 }
 
 export function vaultUnset(key: string): { ok: true } | VaultFailure {
-  return withKey(() => {
-    getStore().delete(key);
+  return withKey((store) => {
+    store.delete(key);
     return { ok: true as const };
   });
 }

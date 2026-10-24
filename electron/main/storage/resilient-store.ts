@@ -79,6 +79,12 @@ function backupUnreadableFile(file: string): void {
   }
   const target = backupName(base, when);
   fs.renameSync(file, path.join(dir, target));
+  try {
+    // The backup outlives the handle lifecycle; keep it owner-only.
+    fs.chmodSync(path.join(dir, target), 0o600);
+  } catch {
+    // Best effort (e.g. filesystems without POSIX modes).
+  }
   log.warn('unreadable store file preserved before reset', { store: base, backup: target });
 
   const prefix = `${base}.corrupt-`;
