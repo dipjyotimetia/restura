@@ -32,6 +32,7 @@ import {
   McpStdioConnectSchema,
   StdioCwdSchema,
 } from '../ipc/validators';
+import { MCP_REQUEST_TRANSPORT } from '../security/mcp-connect-auth';
 import {
   hasControlChars,
   isExecutionSensitiveEnvName,
@@ -302,7 +303,10 @@ export function buildHttpDraftWithHandles(entry: ParsedMcpHttpEntry): {
   const bearerRow = secretRows.find(
     (r) => r.name.toLowerCase() === 'authorization' && BEARER_VALUE.test(r.value)
   );
-  const chosen = bearerRow ?? secretRows[0];
+  // A header the MCP transport refuses at connect (e.g. Cookie) can't carry the
+  // credential; prefer the first one it will actually send.
+  const chosen =
+    bearerRow ?? secretRows.find((r) => !MCP_REQUEST_TRANSPORT.isForbiddenHeader(r.name));
   let auth: McpImportDraftAuth | undefined;
   try {
     if (chosen) {
