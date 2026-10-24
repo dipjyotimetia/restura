@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildSetCookieSideChannel,
   combineSetCookieHeader,
   decodeSetCookieSideChannel,
   encodeSetCookieSideChannel,
@@ -7,6 +8,8 @@ import {
   parseSetCookie,
   responseHeaderEntries,
   responseSetCookies,
+  SET_COOKIE_OMITTED_HEADER,
+  SET_COOKIE_SIDE_CHANNEL_MAX_BYTES,
   splitFoldedSetCookie,
 } from './set-cookie';
 
@@ -153,5 +156,40 @@ describe('set-cookie side channel', () => {
     expect(decodeSetCookieSideChannel('not json')).toEqual([]);
     expect(decodeSetCookieSideChannel('{"a":1}')).toEqual([]);
     expect(decodeSetCookieSideChannel('["a=1", 2, null]')).toEqual(['a=1']);
+  });
+});
+
+describe('set-cookie side channel size cap', () => {
+  it('encodeSetCookieSideChannel alone is unbounded (60 x 4KB > 16KB)', () => {
+    const cookies = Array.from({ length: 60 }, (_, i) => `c${i}=${'v'.repeat(4096)}; Path=/`);
+    expect(encodeSetCookieSideChannel(cookies).length).toBeGreaterThan(16 * 1024);
+  });
+
+  it('buildSetCookieSideChannel caps the header and reports omitted cookies', () => {
+    const cookies = Array.from({ length: 60 }, (_, i) => `c${i}=${'v'.repeat(4096)}; Path=/`);
+    const { value, omitted } = buildSetCookieSideChannel(cookies);
+    expect(value.length).toBeLessThanOrEqual(SET_COOKIE_SIDE_CHANNEL_MAX_BYTES);
+    const kept = decodeSetCookieSideChannel(value);
+    expect(kept).toEqual(cookies.slice(0, kept.length));
+    expect(kept.length).toBeGreaterThan(0);
+    expect(omitted).toBe(60 - kept.length);
+    expect(SET_COOKIE_OMITTED_HEADER).toBe('x-restura-set-cookies-omitted');
+  });
+
+  it('keeps everything and reports 0 omitted when under the cap', () => {
+    const cookies = ['a=1', 'b=2'];
+    const { value, omitted } = buildSetCookieSideChannel(cookies);
+    expect(omitted).toBe(0);
+    expect(decodeSetCookieSideChannel(value)).toEqual(cookies);
+  });
+
+  it('skips an individually oversized cookie but keeps later ones that fit', () => {
+    const { value, omitted } = buildSetCookieSideChannel([
+      'a=1',
+      `big=${'x'.repeat(20000)}`,
+      'b=2',
+    ]);
+    expect(omitted).toBe(1);
+    expect(decodeSetCookieSideChannel(value)).toEqual(['a=1', 'b=2']);
   });
 });

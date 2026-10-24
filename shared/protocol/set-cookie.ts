@@ -159,6 +159,39 @@ export function encodeSetCookieSideChannel(cookies: string[]): string {
   );
 }
 
+/**
+ * Cap on the encoded side-channel header. Node's default max header size is
+ * 16KB for the whole header block, so one header must stay well under it.
+ */
+export const SET_COOKIE_SIDE_CHANNEL_MAX_BYTES = 8 * 1024;
+
+/** Carries the count of cookies dropped to honour the cap (absent when none). */
+export const SET_COOKIE_OMITTED_HEADER = 'x-restura-set-cookies-omitted';
+
+/**
+ * Encode as many cookies as fit under `maxBytes` (in order; a cookie that
+ * doesn't fit is skipped, later smaller ones may still ride) and report how
+ * many were omitted so the renderer can tell the user.
+ */
+export function buildSetCookieSideChannel(
+  cookies: string[],
+  maxBytes: number = SET_COOKIE_SIDE_CHANNEL_MAX_BYTES
+): { value: string; omitted: number } {
+  const full = encodeSetCookieSideChannel(cookies);
+  if (full.length <= maxBytes) return { value: full, omitted: 0 };
+  const kept: string[] = [];
+  let size = 2; // []
+  for (const cookie of cookies) {
+    const encoded = encodeSetCookieSideChannel([cookie]);
+    const cost = encoded.length - 2 + (kept.length > 0 ? 1 : 0);
+    if (size + cost <= maxBytes) {
+      kept.push(cookie);
+      size += cost;
+    }
+  }
+  return { value: encodeSetCookieSideChannel(kept), omitted: cookies.length - kept.length };
+}
+
 /** Decode {@link SET_COOKIE_SIDE_CHANNEL_HEADER}; anything malformed → `[]`. */
 export function decodeSetCookieSideChannel(value: string | null | undefined): string[] {
   if (!value) return [];
