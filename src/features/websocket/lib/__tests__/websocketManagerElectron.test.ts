@@ -201,6 +201,66 @@ describe('websocketManager on Electron', () => {
       expect(conn(id)?.reconnectAttempts).toBe(2);
     });
 
+    it.each([1008, 4400, 4401, 4403, 4499])(
+      'treats close code %i as terminal: no reconnect, clear message, args dropped',
+      async (code) => {
+        websocketManager.connect(id, 'ws://example.com', undefined, { Authorization: 'Bearer s' });
+        for (let i = 0; i < 6; i++) {
+          api.emit(`ws:open:${id}`);
+          api.emit(`ws:close:${id}`, { code, reason: 'nope' });
+          await vi.advanceTimersByTimeAsync(5_000);
+        }
+        expect(api.connect).toHaveBeenCalledTimes(1);
+        expect(status(id)).toBe('disconnected');
+        expect(conn(id)?.messages.some((m) => m.content.includes('Not reconnecting'))).toBe(true);
+        expect(
+          (websocketManager as unknown as { connectArgs: Map<string, unknown> }).connectArgs.has(id)
+        ).toBe(false);
+      }
+    );
+
+    it('accept-then-close (1006) loops stop at maxReconnectAttempts', async () => {
+      useWebSocketStore.setState((s) => ({
+        connections: {
+          ...s.connections,
+          [id]: { ...s.connections[id]!, maxReconnectAttempts: 3, reconnectDelay: 100 },
+        },
+      }));
+      websocketManager.connect(id, 'ws://example.com');
+      for (let i = 0; i < 10; i++) {
+        api.emit(`ws:open:${id}`);
+        api.emit(`ws:close:${id}`, { code: 1006, reason: '' });
+        await vi.advanceTimersByTimeAsync(1_000);
+      }
+      expect(api.connect).toHaveBeenCalledTimes(4); // 1 initial + 3 retries
+      expect(status(id)).toBe('disconnected');
+    });
+
+    it('resets the attempt counter only after a 10s stable open', async () => {
+      websocketManager.connect(id, 'ws://example.com');
+      api.emit(`ws:open:${id}`);
+      api.emit(`ws:close:${id}`, { code: 1006, reason: '' });
+      await vi.advanceTimersByTimeAsync(conn(id)!.reconnectDelay);
+      expect(conn(id)?.reconnectAttempts).toBe(1);
+      api.emit(`ws:open:${id}`);
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(conn(id)?.reconnectAttempts).toBe(1);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(conn(id)?.reconnectAttempts).toBe(0);
+      api.emit(`ws:close:${id}`, { code: 1006, reason: '' });
+      expect(status(id)).toBe('reconnecting');
+      expect(conn(id)?.reconnectAttempts).toBe(1);
+    });
+
+    it('drops the resolved url/headers after a server 1000 close', () => {
+      websocketManager.connect(id, 'ws://example.com', undefined, { Authorization: 'Bearer s' });
+      api.emit(`ws:open:${id}`);
+      api.emit(`ws:close:${id}`, { code: 1000, reason: 'bye' });
+      expect(
+        (websocketManager as unknown as { connectArgs: Map<string, unknown> }).connectArgs.has(id)
+      ).toBe(false);
+    });
+
     it('does not reconnect on a normal (1000) server close', async () => {
       websocketManager.connect(id, 'ws://example.com');
       api.emit(`ws:open:${id}`);
