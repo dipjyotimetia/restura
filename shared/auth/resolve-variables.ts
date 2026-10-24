@@ -1,4 +1,3 @@
-import type { SecretValue } from '../secrets/secret-ref';
 import type { AuthConfig, AuthType } from '../types';
 
 /**
@@ -69,28 +68,58 @@ const SECRET_FIELDS = {
   wsse: ['password'],
 } as const satisfies Record<AuthBlockKey, readonly string[]>;
 
-function resolveSecret(value: SecretValue, resolve: (text: string) => string): SecretValue {
+/**
+ * Fields that are header / query-param NAMES rather than values. Callers that
+ * substitute secret material (Electron main's secret-variable materializer)
+ * skip these so a secret-derived name can't surface in header errors.
+ */
+const NAME_FIELDS: Partial<Record<AuthBlockKey, readonly string[]>> = {
+  apiKey: ['key'],
+};
+
+function resolveSecret(value: unknown, resolve: (text: string) => string): unknown {
   if (typeof value === 'string') return resolve(value);
-  if (value.kind === 'inline') {
-    const next = resolve(value.value);
-    return next === value.value ? value : { ...value, value: next };
+  if (
+    value !== null &&
+    typeof value === 'object' &&
+    (value as { kind?: unknown }).kind === 'inline' &&
+    typeof (value as { value?: unknown }).value === 'string'
+  ) {
+    const inline = value as { kind: 'inline'; value: string };
+    const next = resolve(inline.value);
+    return next === inline.value ? value : { ...inline, value: next };
   }
+  // handle / external refs (and anything malformed) stay opaque.
   return value;
 }
 
-export function resolveAuthVariables(
-  auth: AuthConfig,
-  resolve: (text: string) => string
-): AuthConfig {
-  const blockKey = BLOCK_BY_TYPE[auth.type];
+export interface ResolveAuthFieldOptions {
+  /** Also resolve header/param NAME fields (`apiKey.key`). Default true. */
+  includeNames?: boolean;
+}
+
+/**
+ * Structural form of {@link resolveAuthVariables} for any auth-shaped object
+ * keyed like `AuthConfig` (e.g. the wire-side `ProtocolAuthConfig`), so the
+ * renderer, CLI and Electron main share one field map.
+ */
+export function resolveAuthFieldVariables<T extends { type: string }>(
+  auth: T,
+  resolve: (text: string) => string,
+  options: ResolveAuthFieldOptions = {}
+): T {
+  const blockKey = BLOCK_BY_TYPE[auth.type as AuthType];
   if (!blockKey) return auth;
-  const block = auth[blockKey] as Record<string, unknown> | undefined;
-  if (!block) return auth;
+  const block = (auth as Record<string, unknown>)[blockKey];
+  if (!block || typeof block !== 'object') return auth;
+  const source = block as Record<string, unknown>;
+  const skip = options.includeNames === false ? (NAME_FIELDS[blockKey] ?? []) : [];
 
   let changed = false;
-  const next: Record<string, unknown> = { ...block };
+  const next: Record<string, unknown> = { ...source };
   for (const field of TEXT_FIELDS[blockKey] as readonly string[]) {
-    const value = block[field];
+    if (skip.includes(field)) continue;
+    const value = source[field];
     if (typeof value !== 'string') continue;
     const resolved = resolve(value);
     if (resolved !== value) {
@@ -99,14 +128,20 @@ export function resolveAuthVariables(
     }
   }
   for (const field of SECRET_FIELDS[blockKey] as readonly string[]) {
-    const value = block[field];
-    if (value === undefined || value === null) continue;
-    if (typeof value !== 'string' && typeof value !== 'object') continue;
-    const resolved = resolveSecret(value as SecretValue, resolve);
+    const value = source[field];
+    if (value === undefined) continue;
+    const resolved = resolveSecret(value, resolve);
     if (resolved !== value) {
       next[field] = resolved;
       changed = true;
     }
   }
-  return changed ? ({ ...auth, [blockKey]: next } as AuthConfig) : auth;
+  return changed ? ({ ...auth, [blockKey]: next } as T) : auth;
+}
+
+export function resolveAuthVariables(
+  auth: AuthConfig,
+  resolve: (text: string) => string
+): AuthConfig {
+  return resolveAuthFieldVariables(auth, resolve);
 }

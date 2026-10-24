@@ -211,6 +211,22 @@ export function buildDesktopTransportConfig(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** True when a Basic credential still carries an opaque desktop secret-variable token. */
+function basicReferencesSecretVariable(
+  auth: HttpRequest['auth'],
+  secretVariables: Record<string, SecretValue> | undefined
+): boolean {
+  if (auth.type !== 'basic' || !auth.basic || !secretVariables) return false;
+  const names = Object.keys(secretVariables);
+  if (names.length === 0) return false;
+  const password = auth.basic.password;
+  const texts = [
+    auth.basic.username,
+    typeof password === 'string' ? password : password.kind === 'inline' ? password.value : '',
+  ];
+  return names.some((name) => texts.some((text) => text.includes(`{{${name}}}`)));
+}
+
 // Sign-at-wire auth (SigV4 / OAuth1 / WSSE) is intentionally NOT applied
 // here — the descriptor flows through `spec.auth` so the proxy signs
 // against the exact bytes it sends. Bearer / Basic / API-key / OAuth2 go
@@ -294,13 +310,19 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       ? persistableRefreshedAuth(request.auth, resolvedAuth, effectiveAuth)
       : undefined;
 
-  const headersWithAuth = await applyAuthHeaders(
-    effectiveAuth,
-    headers,
-    resolvedUrl,
-    request.method,
-    request.body.type !== 'none' ? resolvedRaw : undefined
-  );
+  // Basic is base64-encoded here, which would bake an opaque `{{secretVar}}`
+  // token into the header where main can no longer substitute it. Defer it
+  // like a handle: main materializes the token in `spec.auth` and builds the
+  // Authorization header (auth-applier). Web can't materialize → fails fast.
+  const headersWithAuth = basicReferencesSecretVariable(effectiveAuth, secretVariables)
+    ? { headers, requiresMainSideApply: true }
+    : await applyAuthHeaders(
+        effectiveAuth,
+        headers,
+        resolvedUrl,
+        request.method,
+        request.body.type !== 'none' ? resolvedRaw : undefined
+      );
   assertHandleSupported(headersWithAuth);
   Object.assign(headers, headersWithAuth.headers);
 

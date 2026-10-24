@@ -18,6 +18,12 @@ vi.mock('@/lib/shared/transport', () => ({
   ProxyTransportError: class ProxyTransportError extends Error {},
 }));
 
+const platform = vi.hoisted(() => ({ electron: false }));
+vi.mock('@/lib/shared/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/shared/platform')>()),
+  isElectron: () => platform.electron,
+}));
+
 const fetchRefreshTokenMock = vi.fn();
 vi.mock('@/features/auth/lib/oauth2', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/auth/lib/oauth2')>()),
@@ -722,6 +728,64 @@ describe('executeRequest — auth {{vars}} resolution', () => {
       accessToken: 'fresh',
       refreshToken: 'rotated',
       tokenType: 'DPoP',
+    });
+  });
+
+  describe('Basic auth referencing a desktop secret variable', () => {
+    const secretOpts = {
+      secretVariables: { pw: { kind: 'handle' as const, id: 'h2' } },
+      resolveVariables: (text: string) => text.replaceAll('{{pw}}', '••••••••'),
+    };
+    afterEach(() => {
+      platform.electron = false;
+    });
+
+    it('defers the Authorization header to Electron main instead of encoding the token', async () => {
+      platform.electron = true;
+      const result = await executeRequest({
+        request: makeRequest({
+          auth: { type: 'basic', basic: { username: '{{user}}', password: '{{pw}}' } },
+        }),
+        envVars: { user: 'alice' },
+        globalSettings: settings,
+        ...secretOpts,
+      });
+      const spec = sentSpec();
+      expect(spec.headers['Authorization']).toBeUndefined();
+      expect(result.sentHeaders['Authorization']).toBeUndefined();
+      // Main materializes {{pw}} into spec.auth, then builds the header.
+      expect(spec.auth).toEqual({
+        type: 'basic',
+        basic: { username: 'alice', password: '{{pw}}' },
+      });
+      expect(sentDesktop()?.secretVariables).toEqual(secretOpts.secretVariables);
+    });
+
+    it('fails fast on web, where secret variables cannot be materialized', async () => {
+      await expect(
+        executeRequest({
+          request: makeRequest({
+            auth: { type: 'basic', basic: { username: 'alice', password: '{{pw}}' } },
+          }),
+          envVars: {},
+          globalSettings: settings,
+          ...secretOpts,
+        })
+      ).rejects.toThrow(/desktop app/);
+      expect(executeProxiedRequestMock).not.toHaveBeenCalled();
+    });
+
+    it('still encodes in the renderer when no secret variable is referenced', async () => {
+      platform.electron = true;
+      await executeRequest({
+        request: makeRequest({
+          auth: { type: 'basic', basic: { username: '{{user}}', password: 'plain' } },
+        }),
+        envVars: { user: 'alice' },
+        globalSettings: settings,
+        ...secretOpts,
+      });
+      expect(sentSpec().headers['Authorization']).toBe(`Basic ${btoa('alice:plain')}`);
     });
   });
 

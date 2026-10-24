@@ -1,6 +1,10 @@
+import { resolveAuthFieldVariables } from '@shared/auth/resolve-variables';
 import type { FormField } from '@shared/protocol/body-builder';
 import { isProtocolExternalSecret } from '@shared/protocol/secret-value-schema';
-import type { ProtocolSecretValue as SecretValue } from '@shared/protocol/types';
+import type {
+  ProtocolAuthConfig,
+  ProtocolSecretValue as SecretValue,
+} from '@shared/protocol/types';
 import { desktopExternalSecretResolver } from './external-secret-providers';
 import { unwrapSecretValueMain } from './secret-handle-store';
 
@@ -10,6 +14,7 @@ export interface SecretVariableHttpConfig {
   params?: Record<string, string>;
   data?: string;
   formData?: FormField[];
+  auth?: ProtocolAuthConfig;
   secretVariables?: Record<string, SecretValue>;
 }
 
@@ -68,6 +73,13 @@ export async function materializeSecretVariables<T extends SecretVariableHttpCon
     ...(config.data !== undefined ? { data: replace(config.data) } : {}),
     ...(config.formData
       ? { formData: config.formData.map((field) => ({ ...field, value: replace(field.value) })) }
+      : {}),
+    // Auth descriptor value fields (sign-at-wire credentials, and Basic,
+    // which the renderer defers here when it references a secret variable).
+    // Same field map as the renderer/CLI resolver; header/param NAMES are
+    // skipped so secret-derived names can't surface in header errors.
+    ...(config.auth
+      ? { auth: resolveAuthFieldVariables(config.auth, replace, { includeNames: false }) }
       : {}),
     secretVariables: undefined,
   };
