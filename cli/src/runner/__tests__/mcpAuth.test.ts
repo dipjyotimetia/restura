@@ -31,7 +31,14 @@ beforeAll(async () => {
           : {}),
         ...(req.url ? { url: req.url } : {}),
       });
-      const parsed = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as {
+      const raw = Buffer.concat(chunks).toString('utf-8');
+      if (!raw) {
+        // Session teardown (DELETE) or a GET probe: nothing to answer.
+        res.statusCode = 202;
+        res.end();
+        return;
+      }
+      const parsed = JSON.parse(raw) as {
         id?: unknown;
         method?: string;
       };
