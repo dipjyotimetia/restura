@@ -106,6 +106,9 @@ function renderForm(
     setRegistryPasswordDraft: vi.fn(),
     registryTokenDraft: tokenDraft,
     setRegistryTokenDraft: vi.fn(),
+    secretDrafts: {},
+    setSecretDraft: vi.fn(),
+    replaceSasl: vi.fn(),
     patchRegistry: vi.fn(),
     addBroker: vi.fn(),
     removeBroker: vi.fn(),
@@ -241,17 +244,17 @@ describe('KafkaConnectionForm — broker auth', () => {
     );
 
     await user.selectOptions(screen.getAllByRole('combobox')[1]!, 'OAUTHBEARER');
-    expect(controller.updateAuth).toHaveBeenLastCalledWith(
-      'connection-1',
-      expect.objectContaining({ sasl: { mechanism: 'OAUTHBEARER', token: '' } })
-    );
+    expect(controller.replaceSasl).toHaveBeenLastCalledWith({
+      mechanism: 'OAUTHBEARER',
+      mode: 'static',
+      token: '',
+    });
     await user.selectOptions(screen.getAllByRole('combobox')[1]!, 'SCRAM-SHA-256');
-    expect(controller.updateAuth).toHaveBeenLastCalledWith(
-      'connection-1',
-      expect.objectContaining({
-        sasl: { mechanism: 'SCRAM-SHA-256', username: '', password: '' },
-      })
-    );
+    expect(controller.replaceSasl).toHaveBeenLastCalledWith({
+      mechanism: 'SCRAM-SHA-256',
+      username: '',
+      password: '',
+    });
     await user.selectOptions(screen.getAllByRole('combobox')[0]!, 'SSL');
     expect(controller.setSecurityProtocol).toHaveBeenCalledWith('SSL');
   });

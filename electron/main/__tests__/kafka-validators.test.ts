@@ -189,6 +189,148 @@ describe('Kafka IPC validators', () => {
       ).toBe(false);
     });
 
+    describe('SASL mechanisms beyond PLAIN/SCRAM (#918)', () => {
+      const base = { connectionId: 'abc', clientId: 'r', bootstrapBrokers: ['b:9092'] };
+      const parse = (
+        sasl: unknown,
+        securityProtocol = 'SASL_SSL',
+        bootstrapBrokers: string[] = base.bootstrapBrokers
+      ) =>
+        KafkaConnectSchema.safeParse({
+          ...base,
+          bootstrapBrokers,
+          auth: { securityProtocol, sasl },
+        }).success;
+      const mskUsEast = ['b-1.demo.abc123.c2.kafka.us-east-1.amazonaws.com:9098'];
+      const handle = { kind: 'handle', id: '00000000-0000-4000-8000-000000000001' };
+
+      it('accepts OAUTHBEARER client-credentials with a SecretRef client secret', () => {
+        const cc = {
+          mechanism: 'OAUTHBEARER',
+          mode: 'client-credentials',
+          tokenEndpoint: 'https://idp.example.com/oauth2/token',
+          clientId: 'kafka',
+          clientSecret: handle,
+          scope: 'kafka:produce',
+          extensions: { logicalCluster: 'lkc-1' },
+        };
+        expect(parse(cc)).toBe(true);
+        expect(parse({ ...cc, mode: undefined })).toBe(false);
+        expect(parse({ ...cc, tokenEndpoint: 'ftp://idp.example.com/token' })).toBe(false);
+        expect(parse({ ...cc, clientSecret: '' })).toBe(false);
+        expect(parse({ ...cc, clientSecret: { kind: 'inline', value: '' } })).toBe(false);
+        expect(parse({ ...cc, clientSecret: undefined })).toBe(false);
+        // An explicit static mode keeps the legacy token shape.
+        expect(parse({ mechanism: 'OAUTHBEARER', mode: 'static', token: 't' })).toBe(true);
+      });
+
+      it('accepts GSSAPI with validated Kerberos names', () => {
+        expect(parse({ mechanism: 'GSSAPI' })).toBe(true);
+        expect(
+          parse({ mechanism: 'GSSAPI', serviceName: 'kafka', principal: 'svc/host@CORP.EXAMPLE' })
+        ).toBe(true);
+        expect(parse({ mechanism: 'GSSAPI', serviceName: 'kafka@evil' })).toBe(false);
+        expect(parse({ mechanism: 'GSSAPI', principal: 'bad principal' })).toBe(false);
+      });
+
+      it('accepts AWS_MSK_IAM with static handles or a named profile, over SASL_SSL only', () => {
+        const staticCreds = {
+          mechanism: 'AWS_MSK_IAM',
+          region: 'us-east-1',
+          credentials: {
+            source: 'static',
+            accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+            secretAccessKey: handle,
+            sessionToken: handle,
+          },
+        };
+        expect(parse(staticCreds, 'SASL_SSL', mskUsEast)).toBe(true);
+        expect(
+          parse(
+            {
+              mechanism: 'AWS_MSK_IAM',
+              region: 'eu-west-1',
+              credentials: { source: 'profile', profile: 'msk-dev' },
+            },
+            'SASL_SSL',
+            ['boot-x.c1.kafka-serverless.eu-west-1.amazonaws.com:9098']
+          )
+        ).toBe(true);
+        expect(parse({ ...staticCreds, region: 'not a region' }, 'SASL_SSL', mskUsEast)).toBe(
+          false
+        );
+        expect(
+          parse(
+            { ...staticCreds, credentials: { ...staticCreds.credentials, accessKeyId: 'lower' } },
+            'SASL_SSL',
+            mskUsEast
+          )
+        ).toBe(false);
+        expect(parse(staticCreds, 'SASL_PLAINTEXT', mskUsEast)).toBe(false);
+      });
+
+      it('binds AWS_MSK_IAM to MSK broker hosts in the signer region unless explicitly opted out', () => {
+        const msk = {
+          mechanism: 'AWS_MSK_IAM',
+          region: 'us-east-1',
+          credentials: { source: 'profile', profile: 'default' },
+        };
+        // Arbitrary broker: a signed token for the ambient AWS identity must not go there.
+        expect(parse(msk, 'SASL_SSL', ['attacker.example:9098'])).toBe(false);
+        // Mixed list: one non-MSK broker is enough to refuse.
+        expect(parse(msk, 'SASL_SSL', [...mskUsEast, 'attacker.example:9098'])).toBe(false);
+        // Region mismatch between broker host and signer.
+        expect(parse(msk, 'SASL_SSL', ['b-1.demo.c2.kafka.us-west-2.amazonaws.com:9098'])).toBe(
+          false
+        );
+        // Explicit opt-in for PrivateLink / custom DNS.
+        expect(
+          parse({ ...msk, allowNonAwsBrokerHosts: true }, 'SASL_SSL', ['msk.internal.corp:9098'])
+        ).toBe(true);
+        expect(
+          parse({ ...msk, allowNonAwsBrokerHosts: false }, 'SASL_SSL', ['msk.internal.corp:9098'])
+        ).toBe(false);
+      });
+
+      it('requires https token endpoints except for loopback / private IP literals', () => {
+        const cc = (tokenEndpoint: string) => ({
+          mechanism: 'OAUTHBEARER',
+          mode: 'client-credentials',
+          tokenEndpoint,
+          clientId: 'c',
+          clientSecret: handle,
+        });
+        expect(parse(cc('https://idp.example.com/token'))).toBe(true);
+        expect(parse(cc('http://idp.example.com/token'))).toBe(false);
+        expect(parse(cc('http://localhost:8080/realms/x/token'))).toBe(true);
+        expect(parse(cc('http://10.0.0.5/token'))).toBe(true);
+      });
+
+      it('rejects control characters in OAuth extensions and caps their number', () => {
+        const withExt = (extensions: Record<string, string>) => ({
+          mechanism: 'OAUTHBEARER',
+          token: 't',
+          extensions,
+        });
+        expect(parse(withExt({ logicalCluster: 'lkc-1' }))).toBe(true);
+        expect(parse(withExt({ a: 'x\x01auth=Bearer forged' }))).toBe(false);
+        expect(parse(withExt({ 'a\nb': 'x' }))).toBe(false);
+        // RFC 7628: letters-only keys; `auth` is the authenticator's own field.
+        // Non-empty values are an application limit (RFC allows empty, Apache Kafka rejects it).
+        expect(parse(withExt({ auth: 'x' }))).toBe(false);
+        expect(parse(withExt({ 'a=b': 'x' }))).toBe(false);
+        expect(parse(withExt({ 'logical-cluster': 'x' }))).toBe(false);
+        expect(parse(withExt({ a: '' }))).toBe(false);
+        expect(parse(withExt({ a: 'tab\tok' }))).toBe(true);
+        const letterKey = (i: number) =>
+          `k${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(65 + Math.floor(i / 26))}`;
+        const many = Object.fromEntries(Array.from({ length: 33 }, (_, i) => [letterKey(i), 'v']));
+        expect(parse(withExt(many))).toBe(false);
+        const max = Object.fromEntries(Array.from({ length: 32 }, (_, i) => [letterKey(i), 'v']));
+        expect(parse(withExt(max))).toBe(true);
+      });
+    });
+
     it('rejects bad broker syntax', () => {
       const result = KafkaConnectSchema.safeParse({
         connectionId: 'abc',

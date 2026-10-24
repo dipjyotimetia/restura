@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => ({
   disconnect: vi.fn(),
   setSecret: vi.fn(),
   openFile: vi.fn(),
-  electronApi: null as null | { dialog: { openFile: typeof vi.fn } },
+  electronApi: null as null | Record<string, unknown>,
+  storeSecret: vi.fn(),
 }));
 
 vi.mock('@/store/selectors', () => ({
@@ -37,6 +38,7 @@ describe('useKafkaConnection', () => {
     mocks.disconnect.mockReset().mockResolvedValue(undefined);
     mocks.setSecret.mockReset();
     mocks.openFile.mockReset();
+    mocks.storeSecret.mockReset();
     mocks.electronApi = null;
     useKafkaStore.setState({
       connections: {},
@@ -201,5 +203,156 @@ describe('useKafkaConnection', () => {
 
     await act(async () => result.current.disconnect());
     expect(mocks.disconnect).toHaveBeenCalledWith(connection.id);
+  });
+
+  it('stores OAuth client-credentials and MSK IAM secrets as SecretRef handles before connecting', async () => {
+    mocks.electronApi = { secrets: { store: mocks.storeSecret } };
+    mocks.storeSecret.mockImplementation(async (args: { id?: string }) => ({
+      ok: true,
+      id: args.id ?? 'handle-1',
+    }));
+    const { result } = renderHook(() => useKafkaConnection());
+    const connection = result.current.connection!;
+
+    act(() => {
+      result.current.updateAuth(connection.id, {
+        securityProtocol: 'SASL_SSL',
+        sasl: {
+          mechanism: 'OAUTHBEARER',
+          mode: 'client-credentials',
+          tokenEndpoint: 'https://idp.example.com/token',
+          clientId: 'cid',
+        },
+      });
+      result.current.setSecretDraft('oauthClientSecret', 'client-secret');
+    });
+    expect(result.current.secretDrafts).toEqual({ oauthClientSecret: 'client-secret' });
+
+    await act(async () => result.current.connect());
+
+    expect(mocks.storeSecret).toHaveBeenCalledWith(
+      expect.objectContaining({ value: 'client-secret', scope: 'kafka' })
+    );
+    expect(mocks.setSecret).not.toHaveBeenCalled();
+    expect(mocks.connect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        auth: expect.objectContaining({
+          sasl: expect.objectContaining({
+            clientSecret: expect.objectContaining({ kind: 'handle', id: 'handle-1' }),
+          }),
+        }),
+      })
+    );
+    // The store holds only the handle; the draft is cleared.
+    expect(JSON.stringify(useKafkaStore.getState().connections[connection.id])).not.toContain(
+      'client-secret"'
+    );
+    expect(result.current.secretDrafts).toEqual({});
+  });
+
+  it('aborts the connect with a visible error when the secret cannot be stored', async () => {
+    mocks.electronApi = { secrets: { store: mocks.storeSecret } };
+    mocks.storeSecret.mockResolvedValue({ ok: false, error: 'keychain locked' });
+    const { result } = renderHook(() => useKafkaConnection());
+    const connection = result.current.connection!;
+
+    act(() => {
+      result.current.updateConnection(connection.id, {
+        bootstrapBrokers: ['b-1.demo.c2.kafka.us-east-1.amazonaws.com:9098'],
+      });
+      result.current.updateAuth(connection.id, {
+        securityProtocol: 'SASL_SSL',
+        sasl: {
+          mechanism: 'AWS_MSK_IAM',
+          region: 'us-east-1',
+          credentialSource: 'static',
+          accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+        },
+      });
+      result.current.setSecretDraft('awsSecretAccessKey', 'aws-secret');
+    });
+    await act(async () => result.current.connect());
+
+    expect(mocks.connect).not.toHaveBeenCalled();
+    const messages = useKafkaStore.getState().connections[connection.id]!.messages;
+    expect(messages.at(-1)).toMatchObject({
+      direction: 'system',
+      error: expect.stringContaining('keychain locked'),
+    });
+  });
+
+  it('replaceSasl discards drafts, deletes orphaned handles and forces SASL_SSL for MSK IAM', async () => {
+    const deleteSecret = vi.fn(async () => ({ ok: true }));
+    mocks.electronApi = { secrets: { store: mocks.storeSecret, delete: deleteSecret } };
+    const { result } = renderHook(() => useKafkaConnection());
+    const connection = result.current.connection!;
+    const handle = { kind: 'handle' as const, id: 'old-handle' };
+
+    act(() => {
+      result.current.updateAuth(connection.id, {
+        securityProtocol: 'SASL_PLAINTEXT',
+        sasl: {
+          mechanism: 'OAUTHBEARER',
+          mode: 'client-credentials',
+          tokenEndpoint: 'https://idp/token',
+          clientId: 'c',
+          clientSecret: handle,
+        },
+      });
+      result.current.setSaslPasswordDraft('typed');
+      result.current.setSecretDraft('oauthClientSecret', 'typed-secret');
+    });
+
+    // Field-level edits that keep the handle do not delete it.
+    act(() =>
+      result.current.replaceSasl({
+        mechanism: 'OAUTHBEARER',
+        mode: 'client-credentials',
+        tokenEndpoint: 'https://idp/token2',
+        clientId: 'c',
+        clientSecret: handle,
+      })
+    );
+    expect(deleteSecret).not.toHaveBeenCalled();
+    expect(result.current.secretDrafts).toEqual({});
+    expect(result.current.saslPasswordDraft).toBe('');
+
+    act(() =>
+      result.current.replaceSasl({
+        mechanism: 'AWS_MSK_IAM',
+        region: 'us-east-1',
+        credentialSource: 'profile',
+      })
+    );
+    expect(deleteSecret).toHaveBeenCalledWith('old-handle');
+    expect(result.current.connection?.auth.securityProtocol).toBe('SASL_SSL');
+    expect(result.current.connection?.auth.tls).toEqual({});
+
+    // Without an Electron API there is nothing to delete; the switch still applies.
+    mocks.electronApi = null;
+    act(() => result.current.replaceSasl({ mechanism: 'PLAIN', username: '', password: '' }));
+    expect(result.current.connection?.auth.sasl?.mechanism).toBe('PLAIN');
+    expect(result.current.connection?.auth.securityProtocol).toBe('SASL_SSL');
+  });
+
+  it('blocks connect with an inline reason when MSK IAM preconditions fail', async () => {
+    const { result } = renderHook(() => useKafkaConnection());
+    const connection = result.current.connection!;
+    act(() => {
+      result.current.updateAuth(connection.id, {
+        securityProtocol: 'SASL_PLAINTEXT',
+        sasl: {
+          mechanism: 'AWS_MSK_IAM',
+          region: 'us-east-1',
+          credentialSource: 'profile',
+          profile: 'p',
+        },
+      });
+    });
+    await act(async () => result.current.connect());
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(useKafkaStore.getState().connections[connection.id]!.messages.at(-1)).toMatchObject({
+      error: expect.stringContaining('requires the SASL_SSL'),
+    });
   });
 });

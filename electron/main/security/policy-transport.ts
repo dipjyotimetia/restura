@@ -1,7 +1,12 @@
 import { selectCertForUrl } from '@shared/protocol/cert-matcher';
 import { assertExecutionPolicyReady, getExecutionPolicy } from './execution-policy';
 import { isProxyBypassed } from './proxy-bypass';
-import { createPinnedFetch, type SafeAddress } from './safe-connect';
+import {
+  type ClosablePinnedFetch,
+  createClosablePinnedFetch,
+  createPinnedFetch,
+  type SafeAddress,
+} from './safe-connect';
 import { buildTlsClientMaterial } from './tls-material';
 
 export interface PolicyTransportProxy {
@@ -81,11 +86,24 @@ export function createPolicyPinnedFetch(
   pinned: SafeAddress
 ): typeof globalThis.fetch {
   assertPinnedFetchCanHonorPolicy(config);
-  return createPinnedFetch(pinned.host, pinned.ip, {
+  return createPinnedFetch(pinned.host, pinned.ip, policyConnectOptions(config));
+}
+
+function policyConnectOptions(config: PolicyTransportConfig): Record<string, unknown> {
+  return {
     rejectUnauthorized: config.verifySsl,
     ...buildTlsClientMaterial(config),
     ...(config.serverCipherOrder ? { honorCipherOrder: true } : {}),
     ...(config.minTlsVersion ? { minVersion: config.minTlsVersion } : {}),
     ...(config.cipherSuites ? { ciphers: config.cipherSuites } : {}),
-  });
+  };
+}
+
+/** {@link createPolicyPinnedFetch} with a `close()` that releases the Agent. */
+export function createClosablePolicyPinnedFetch(
+  config: PolicyTransportConfig,
+  pinned: SafeAddress
+): ClosablePinnedFetch {
+  assertPinnedFetchCanHonorPolicy(config);
+  return createClosablePinnedFetch(pinned.host, pinned.ip, policyConnectOptions(config));
 }

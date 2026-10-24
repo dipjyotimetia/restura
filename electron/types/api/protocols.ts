@@ -316,7 +316,13 @@ export type McpClientResponseIpc =
       response: { action: 'approve'; text: string; model: string } | { action: 'reject' };
     };
 
-export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512' | 'OAUTHBEARER';
+export type KafkaSaslMechanism =
+  | 'PLAIN'
+  | 'SCRAM-SHA-256'
+  | 'SCRAM-SHA-512'
+  | 'OAUTHBEARER'
+  | 'GSSAPI'
+  | 'AWS_MSK_IAM';
 
 export interface KafkaTlsIpc {
   ca?: string;
@@ -328,11 +334,43 @@ export interface KafkaTlsIpc {
 
 export type KafkaSaslIpc =
   | {
-      mechanism: Exclude<KafkaSaslMechanism, 'OAUTHBEARER'>;
+      mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
       username: string;
       password: string;
     }
-  | { mechanism: 'OAUTHBEARER'; token: string; extensions?: Record<string, string> };
+  | {
+      mechanism: 'OAUTHBEARER';
+      mode?: 'static';
+      token: string;
+      extensions?: Record<string, string>;
+    }
+  | {
+      // OAuth 2.0 client-credentials — main fetches + refreshes the token.
+      mechanism: 'OAUTHBEARER';
+      mode: 'client-credentials';
+      tokenEndpoint: string;
+      clientId: string;
+      /** SecretValue (ADR-0007) — resolved to plaintext in the main process. */
+      clientSecret: ProtocolSecretValue;
+      scope?: string;
+      extensions?: Record<string, string>;
+    }
+  | { mechanism: 'GSSAPI'; serviceName?: string; principal?: string }
+  | {
+      mechanism: 'AWS_MSK_IAM';
+      region: string;
+      /** Opt-in: allow brokers outside *.kafka.<region>.amazonaws.com (PrivateLink / custom DNS). */
+      allowNonAwsBrokerHosts?: boolean;
+      credentials:
+        | {
+            source: 'static';
+            accessKeyId: string;
+            /** SecretValue (ADR-0007) — resolved to plaintext in the main process. */
+            secretAccessKey: ProtocolSecretValue;
+            sessionToken?: ProtocolSecretValue;
+          }
+        | { source: 'profile'; profile: string };
+    };
 
 export type KafkaAuthIpc =
   | { securityProtocol: 'PLAINTEXT' }

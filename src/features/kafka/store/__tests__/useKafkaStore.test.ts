@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  defaultKafkaSasl,
+  isKafkaPasswordSasl,
   KAFKA_SECRET_SENTINEL,
   migrateKafkaV1ToV2,
   migrateKafkaV2ToV3,
+  redactKafkaSasl,
   useKafkaStore,
 } from '@/features/kafka/store/useKafkaStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
@@ -213,8 +216,8 @@ describe('useKafkaStore', () => {
     });
     const conn = useKafkaStore.getState().connections[id]!;
     expect(conn.auth.sasl?.mechanism).toBe('PLAIN');
-    if (conn.auth.sasl?.mechanism !== 'OAUTHBEARER') {
-      expect(conn.auth.sasl?.password).toBe('super-secret-pw');
+    if (isKafkaPasswordSasl(conn.auth.sasl)) {
+      expect(conn.auth.sasl.password).toBe('super-secret-pw');
     }
     // partialize is exercised by Zustand persist's setItem call; in unit tests
     // the dexie mock returns immediately. The key behaviour we care about is
@@ -299,6 +302,119 @@ describe('useKafkaStore', () => {
       const id = useKafkaStore.getState().ensureConnectionForTab('tab-A');
       useKafkaStore.getState().removeConnection(id);
       expect(useKafkaStore.getState().connectionByTabId['tab-A']).toBeUndefined();
+    });
+  });
+
+  describe('SASL persistence redaction (#918)', () => {
+    const handle = { kind: 'handle' as const, id: 'h-1', label: 'Kafka / secret' };
+
+    it('keeps legacy shapes and replaces password/static-token plaintext with the sentinel', () => {
+      expect(redactKafkaSasl({ mechanism: 'PLAIN', username: 'u', password: 'pw' })).toEqual({
+        mechanism: 'PLAIN',
+        username: 'u',
+        password: KAFKA_SECRET_SENTINEL,
+      });
+      expect(redactKafkaSasl({ mechanism: 'SCRAM-SHA-256', username: 'u', password: '' })).toEqual({
+        mechanism: 'SCRAM-SHA-256',
+        username: 'u',
+        password: '',
+      });
+      // Pre-#918 static OAuth (no `mode`) persists unchanged in shape.
+      expect(
+        redactKafkaSasl({ mechanism: 'OAUTHBEARER', token: 'jwt', extensions: { a: 'b' } })
+      ).toEqual({ mechanism: 'OAUTHBEARER', token: KAFKA_SECRET_SENTINEL, extensions: { a: 'b' } });
+      expect(redactKafkaSasl({ mechanism: 'OAUTHBEARER', mode: 'static', token: '' })).toEqual({
+        mechanism: 'OAUTHBEARER',
+        mode: 'static',
+        token: '',
+      });
+    });
+
+    it('persists only SecretRef handles for client-credentials and MSK IAM secrets', () => {
+      expect(
+        redactKafkaSasl({
+          mechanism: 'OAUTHBEARER',
+          mode: 'client-credentials',
+          tokenEndpoint: 'https://idp/token',
+          clientId: 'c',
+          clientSecret: handle,
+          scope: 'kafka',
+          extensions: { x: 'y' },
+        })
+      ).toEqual({
+        mechanism: 'OAUTHBEARER',
+        mode: 'client-credentials',
+        tokenEndpoint: 'https://idp/token',
+        clientId: 'c',
+        clientSecret: handle,
+        scope: 'kafka',
+        extensions: { x: 'y' },
+      });
+      // A plaintext value smuggled into a handle-only field is dropped, never persisted.
+      const leaky = redactKafkaSasl({
+        mechanism: 'AWS_MSK_IAM',
+        region: 'us-east-1',
+        credentialSource: 'static',
+        accessKeyId: 'AKIA',
+        secretAccessKey: { kind: 'inline', value: 'plaintext' } as never,
+        sessionToken: handle,
+      });
+      expect(JSON.stringify(leaky)).not.toContain('plaintext');
+      expect(leaky).toEqual({
+        mechanism: 'AWS_MSK_IAM',
+        region: 'us-east-1',
+        credentialSource: 'static',
+        accessKeyId: 'AKIA',
+        sessionToken: { kind: 'handle', id: 'h-1', label: 'Kafka / secret' },
+      });
+      expect(
+        redactKafkaSasl({
+          mechanism: 'AWS_MSK_IAM',
+          region: 'eu-west-1',
+          credentialSource: 'profile',
+          profile: 'dev',
+          allowNonAwsBrokerHosts: true,
+          secretAccessKey: 'plain' as never,
+        })
+      ).toEqual({
+        mechanism: 'AWS_MSK_IAM',
+        region: 'eu-west-1',
+        credentialSource: 'profile',
+        profile: 'dev',
+        allowNonAwsBrokerHosts: true,
+      });
+      expect(
+        redactKafkaSasl({
+          mechanism: 'OAUTHBEARER',
+          mode: 'client-credentials',
+          tokenEndpoint: '',
+          clientId: '',
+        })
+      ).toEqual({
+        mechanism: 'OAUTHBEARER',
+        mode: 'client-credentials',
+        tokenEndpoint: '',
+        clientId: '',
+      });
+    });
+
+    it('copies GSSAPI names and builds per-mechanism defaults', () => {
+      expect(
+        redactKafkaSasl({ mechanism: 'GSSAPI', serviceName: 'kafka', principal: 'a@B' })
+      ).toEqual({ mechanism: 'GSSAPI', serviceName: 'kafka', principal: 'a@B' });
+      expect(redactKafkaSasl({ mechanism: 'GSSAPI' })).toEqual({ mechanism: 'GSSAPI' });
+      expect(defaultKafkaSasl('PLAIN')).toEqual({ mechanism: 'PLAIN', username: '', password: '' });
+      expect(defaultKafkaSasl('OAUTHBEARER')).toEqual({
+        mechanism: 'OAUTHBEARER',
+        mode: 'static',
+        token: '',
+      });
+      expect(defaultKafkaSasl('GSSAPI')).toEqual({ mechanism: 'GSSAPI', serviceName: 'kafka' });
+      expect(defaultKafkaSasl('AWS_MSK_IAM')).toEqual({
+        mechanism: 'AWS_MSK_IAM',
+        region: '',
+        credentialSource: 'static',
+      });
     });
   });
 });

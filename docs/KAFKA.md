@@ -36,9 +36,26 @@ Persisted v1 connections keep their earliest/latest choice during the v2 migrati
 
 ## Authentication
 
-Supported SASL mechanisms are PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, and static-token OAUTHBEARER. Passwords, TLS passphrases, registry passwords, inline registry bearer tokens, and OAuth tokens are stored through desktop secure storage and replaced by sentinels in persisted renderer state.
+Supported SASL mechanisms (all configured declaratively; the credential providers are built in main by `electron/main/handlers/kafka/sasl*.ts`):
 
-GSSAPI and custom authentication callbacks are intentionally not exposed because they require executable callback/provider code rather than bounded declarative configuration.
+| Mechanism | Configuration | Notes |
+| --- | --- | --- |
+| `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` | username + password | |
+| `OAUTHBEARER` — static token | bearer token, optional extensions | No refresh; the session fails once the broker re-authenticates after the token expires. |
+| `OAUTHBEARER` — client credentials | token endpoint, client ID, client secret, optional scope + extensions | Main fetches the token (`client_secret_post`) and the library's token provider hook asks for it on every (re)authentication, including KIP-368 re-auth. The cached token is refreshed once less than max(30 s, 25 % of its lifetime) remains — the library re-authenticates at 0.8 × the session lifetime, so re-auth always presents a new token. Lifetime comes from `expires_in`, else the JWT `exp`, else 60 s. |
+| `AWS_MSK_IAM` | region + access key ID / secret access key / optional session token, **or** a named AWS profile | Sent as MSK's SASL/OAUTHBEARER variant: a SigV4-presigned `kafka-cluster:Connect` URL, valid 15 minutes or until the temporary credentials expire (whichever is sooner), re-signed under the same refresh rule. Requires `SASL_SSL` (the MSK IAM listener, port 9098). |
+| `GSSAPI` (Kerberos) | optional service name (default `kafka`) and client principal | **Not available in this build.** The authenticator (RFC 4752, 30 s overall timeout) is implemented in main, but it needs the native [`kerberos`](https://www.npmjs.com/package/kerberos) module, which the desktop build does not bundle. The form shows the option disabled; an existing GSSAPI config fails with an explicit error. |
+
+### SASL security controls
+
+- **Token endpoint.** `https` is required; plain `http` is accepted only for loopback hosts and private IP literals (a local IdP). The request goes through the desktop SSRF policy (private addresses rejected unless "allow private IPs" is on), is DNS-pinned, does not follow redirects, is bounded by a 30 s timeout and a 1 MB response cap, and the per-request connection pool is closed afterwards.
+- **MSK IAM broker binding.** MSK IAM tokens are not bound to a cluster, so every bootstrap broker must be an MSK endpoint in the signing region (`*.kafka.<region>.amazonaws.com`, `*.kafka-serverless.<region>.amazonaws.com`, or the `.amazonaws.com.cn` forms). PrivateLink / custom-DNS setups enable **Allow non-AWS broker hostnames**, which the form gates behind a warning; the IPC validator enforces the same rule.
+- **Secrets.** The OAuth client secret and AWS secret key / session token are stored as `SecretRef` handles with the `kafka` scope (ADR-0007). Main resolves only `kafka`-scoped handles for Kafka SASL, so a connection cannot reference a handle created for another feature; external secret-manager references are refused for Kafka. Switching mechanism, OAuth mode or AWS credential source discards typed drafts and deletes handles the new configuration no longer references.
+- **Extensions.** OAUTHBEARER extension keys follow RFC 7628 (ASCII letters only) and values may contain only printable ASCII, spaces, tabs and line breaks — never the `\x01` field separator. The key `auth` is rejected because it is not an extension: it is the protocol field the authenticator supplies (`auth=Bearer <token>`). Two further checks are application limits rather than RFC requirements: values must be non-empty (RFC 7628 allows empty values, but Apache Kafka's OAUTHBEARER implementation rejects them, so they would only surface as an opaque authentication failure), and at most 32 extensions are accepted per connection.
+
+Passwords, static OAuth tokens, TLS passphrases, registry passwords, and inline registry bearer tokens are stored through desktop secure storage and replaced by sentinels in persisted renderer state. AWS profiles are read in main via `fromIni`.
+
+Arbitrary custom authentication callbacks remain intentionally unexposed because they would require executable callback code rather than bounded declarative configuration.
 
 ## Schema Registry
 

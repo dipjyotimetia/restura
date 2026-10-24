@@ -384,6 +384,63 @@ describe('kafka-handler', () => {
     expect(JSON.stringify(mockOnComplete.mock.calls)).not.toContain('broker.example.com');
   });
 
+  it('wires refreshable SASL providers (OAuth client-credentials, MSK IAM) and GSSAPI into the client', async () => {
+    const connectWith = async (
+      id: string,
+      sasl: Record<string, unknown>,
+      bootstrapBrokers = ['broker.example.com:9092']
+    ) => {
+      const { event } = makeEvent();
+      return handlerFor(IPC.kafka.connect)(
+        event,
+        validConnect(id, { bootstrapBrokers, auth: { securityProtocol: 'SASL_SSL', sasl } })
+      );
+    };
+    await expect(
+      connectWith('oauth', {
+        mechanism: 'OAUTHBEARER',
+        mode: 'client-credentials',
+        tokenEndpoint: 'https://idp.example.com/token',
+        clientId: 'cid',
+        clientSecret: { kind: 'handle', id: '00000000-0000-4000-8000-000000000001' },
+      })
+    ).resolves.toEqual({ success: true });
+    await expect(
+      connectWith(
+        'msk',
+        {
+          mechanism: 'AWS_MSK_IAM',
+          region: 'us-east-1',
+          credentials: { source: 'profile', profile: 'default' },
+        },
+        ['b-1.demo.c2.kafka.us-east-1.amazonaws.com:9098']
+      )
+    ).resolves.toEqual({ success: true });
+    await expect(
+      connectWith('krb', { mechanism: 'GSSAPI', serviceName: 'kafka' })
+    ).resolves.toEqual({ success: true });
+
+    const before = FakeProducer.instances.length;
+    await expect(
+      connectWith('msk-evil', {
+        mechanism: 'AWS_MSK_IAM',
+        region: 'us-east-1',
+        credentials: { source: 'profile', profile: 'default' },
+      })
+    ).rejects.toThrow(/Invalid IPC payload for kafka:connect/);
+    expect(FakeProducer.instances.length).toBe(before);
+
+    const saslOf = (i: number) =>
+      (FakeProducer.instances[i]!.options as { sasl: KafkaLib.SASLOptions }).sasl;
+    expect(saslOf(0).mechanism).toBe('OAUTHBEARER');
+    expect(typeof saslOf(0).token).toBe('function');
+    // MSK IAM rides on OAUTHBEARER — the library rejects unknown mechanisms.
+    expect(saslOf(1).mechanism).toBe('OAUTHBEARER');
+    expect(typeof saslOf(1).token).toBe('function');
+    expect(saslOf(2).mechanism).toBe('GSSAPI');
+    expect(typeof saslOf(2).authenticate).toBe('function');
+  });
+
   it('maps a broker-guard rejection to { success: false } without constructing a producer', async () => {
     mockBrokersSafe.mockImplementationOnce(() => {
       throw new Error('Broker address not allowed');
