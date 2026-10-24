@@ -8,10 +8,27 @@ import {
   SSEClientTransport,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { z } from 'zod';
+import type { TrackedChild } from './mcp-stdio-session';
 import { McpSubscriptionManager } from './mcp-subscriptions';
 
 export type McpSdkTransport = 'streamable-http' | 'http-sse';
+
+/**
+ * Fully resolved stdio launch (secrets already materialized, env already
+ * allowlisted — see security/mcp-stdio-policy.ts). Spawned by the SDK's
+ * `StdioClientTransport`, which uses cross-spawn with `shell: false`.
+ */
+export interface McpSdkStdioParams {
+  command: string;
+  args: string[];
+  cwd: string;
+  env: Record<string, string>;
+  onStderr?: (chunk: Buffer | string) => void;
+  /** Called once the OS process exists, before the MCP handshake. */
+  onSpawn?: (child: TrackedChild) => void;
+}
 
 export interface McpSdkTransportOptions {
   fetch: (url: string | URL, init?: RequestInit) => Promise<Response>;
@@ -59,14 +76,19 @@ export interface McpSdkClientRequestHandlers {
   listRoots(): { roots: Array<{ uri: string; name?: string | undefined }> };
 }
 
-export interface McpSdkConnectOptions {
-  url: URL;
-  transport: McpSdkTransport;
-  transportOptions: McpSdkTransportOptions;
+interface McpSdkConnectCommon {
   events?: McpSdkClientEvents;
   clientRequests?: McpSdkClientRequestHandlers;
   onClientCreated?: (client: McpSdkClient) => void;
 }
+
+export type McpSdkConnectOptions =
+  | (McpSdkConnectCommon & {
+      url: URL;
+      transport: McpSdkTransport;
+      transportOptions: McpSdkTransportOptions;
+    })
+  | (McpSdkConnectCommon & { transport: 'stdio'; stdio: McpSdkStdioParams });
 
 const CLIENT_INFO = { name: 'restura', version: '1.0.0' };
 // Standard MCP methods are dispatched through the SDK's typed APIs below.
@@ -82,8 +104,41 @@ const CLIENT_REQUEST_CAPABILITIES = {
   roots: { listChanged: true },
 };
 
+/**
+ * Build the SDK stdio transport. Two deliberate choices:
+ *  - `stderr: 'pipe'` so output reaches the UI log (bounded by the caller)
+ *    instead of being inherited onto Restura's own stderr.
+ *  - The process handle is surfaced via `onSpawn` so main can track and kill
+ *    it. The SDK keeps it private (`_process`); we read it right after
+ *    `start()` and fail closed (kill via close) if the shape ever changes.
+ */
+function createStdioTransport(params: McpSdkStdioParams): StdioClientTransport {
+  const transport = new StdioClientTransport({
+    command: params.command,
+    args: params.args,
+    cwd: params.cwd,
+    env: params.env,
+    stderr: 'pipe',
+  });
+  if (params.onStderr) transport.stderr?.on('data', params.onStderr);
+  const start = transport.start.bind(transport);
+  transport.start = async () => {
+    await start();
+    const child = (transport as unknown as { _process?: TrackedChild })._process;
+    if (!child || typeof child.once !== 'function') {
+      await transport.close().catch(() => undefined);
+      throw new Error('MCP stdio transport did not expose its child process; refusing to run');
+    }
+    params.onSpawn?.(child);
+  };
+  return transport;
+}
+
 class ResturaMcpSdkClient implements McpSdkClient {
-  private readonly transport: StreamableHTTPClientTransport | SSEClientTransport;
+  private readonly transport:
+    | StreamableHTTPClientTransport
+    | SSEClientTransport
+    | StdioClientTransport;
   private readonly client: Client;
   private events: McpSdkClientEvents | undefined;
   private progressSeq = 0;
@@ -91,18 +146,28 @@ class ResturaMcpSdkClient implements McpSdkClient {
   private readonly subscriptions: McpSubscriptionManager;
 
   constructor(options: McpSdkConnectOptions) {
+    let versionMode: 'auto' | 'legacy' = 'auto';
+    if (options.transport === 'stdio') {
+      this.transport = createStdioTransport(options.stdio);
+      // stdio uses the plain `initialize` handshake. `auto` negotiation would
+      // spawn a hidden second copy of the server (the SDK's disposable
+      // "sibling" probe) — an extra, untracked launch of a user-approved
+      // command whose stderr is discarded. One consented launch, one process.
+      versionMode = 'legacy';
+    } else {
+      this.transport =
+        options.transport === 'streamable-http'
+          ? new StreamableHTTPClientTransport(options.url, options.transportOptions)
+          : new SSEClientTransport(options.url, options.transportOptions);
+    }
     this.client = new Client(CLIENT_INFO, {
       capabilities: options.clientRequests ? CLIENT_REQUEST_CAPABILITIES : {},
-      versionNegotiation: { mode: 'auto' },
+      versionNegotiation: { mode: versionMode },
     });
     if (options.clientRequests) installClientRequestHandlers(this.client, options.clientRequests);
     this.subscriptions = new McpSubscriptionManager(this.client, (notification) => {
       void this.events?.onNotification(notification);
     });
-    this.transport =
-      options.transport === 'streamable-http'
-        ? new StreamableHTTPClientTransport(options.url, options.transportOptions)
-        : new SSEClientTransport(options.url, options.transportOptions);
     if (options.events) this.setEvents(options.events);
   }
 

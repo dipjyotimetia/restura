@@ -20,6 +20,8 @@ vi.mock('../ipc/ipc-utils', async (importOriginal) => {
   return { ...actual, emitTo: mockEmitTo };
 });
 vi.mock('../security/secret-handle-store', () => ({
+  describeSecretHandle: vi.fn(),
+  resolveSecretHandle: vi.fn(),
   unwrapSecretValueMain: (v: unknown): string | undefined => {
     if (typeof v === 'string') return v;
     const ref = v as { kind?: string; value?: string; id?: string } | undefined;

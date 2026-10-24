@@ -12,6 +12,7 @@ import {
   ShellUrlSchema,
   WriteFileSchema,
 } from '../ipc/ipc-validators';
+import { isMainOwnedUserDataFile } from './userdata-guard';
 
 // Security: Maximum file size to prevent memory exhaustion
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
@@ -142,6 +143,14 @@ export function isPathSafe(filePath: string): boolean {
       (root) => resolved === root || resolved.startsWith(root + path.sep)
     );
     if (!underAllowed) return false;
+
+    // Main-owned state lives directly in userData: electron-store files
+    // (`restura-*.json` — secret handles, stdio consent, vault, …) and key
+    // blobs (dotfiles). The renderer-facing fs channels must never read or
+    // overwrite them, or a compromised renderer could forge main's own
+    // decisions. Subdirectories (e.g. userData/collections) stay reachable.
+    // Compared on a canonical form (realpath, Win32 name aliases, case).
+    if (isMainOwnedUserDataFile(resolved, userDataPath)) return false;
 
     // $HOME-specific denylist
     if (resolved === homePath || resolved.startsWith(homePath + path.sep)) {

@@ -48,8 +48,14 @@ describe('isPathSafe', () => {
     expect(isPathSafe('/tmp/test-userData/sub/../../file.json')).toBe(false);
   });
 
-  it('/tmp/test-userData/sub/../file.json stays inside userData and is allowed', () => {
-    expect(isPathSafe('/tmp/test-userData/sub/../file.json')).toBe(true);
+  it('/tmp/test-userData/sub/../data/file.json stays inside userData and is allowed', () => {
+    expect(isPathSafe('/tmp/test-userData/sub/../data/file.json')).toBe(true);
+  });
+
+  it('a traversal that lands on a main-owned store file at the userData root is blocked', () => {
+    expect(isPathSafe('/tmp/test-userData/sub/../file.json')).toBe(false);
+    expect(isPathSafe('/tmp/test-userData/sub/../restura-mcp-stdio-consent.json')).toBe(false);
+    expect(isPathSafe('/tmp/test-userData/sub/../.mcp-stdio-consent-key')).toBe(false);
   });
 
   it('/tmp/test-documents/../test-userData-evil/file.json traverses to non-allowed path and is blocked', () => {

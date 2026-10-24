@@ -72,7 +72,24 @@ describe('file operations IPC surface', () => {
 
 describe('isPathSafe', () => {
   it('path inside userData returns true', () => {
-    expect(isPathSafe('/tmp/test-userData/myfile.json')).toBe(true);
+    expect(isPathSafe('/tmp/test-userData/collections/myfile.json')).toBe(true);
+    expect(isPathSafe('/tmp/test-userData/notes.txt')).toBe(true);
+  });
+
+  it('denies main-owned store files and key blobs at the userData root', () => {
+    for (const name of [
+      'restura-mcp-stdio-consent.json',
+      'restura-secret-handles.json',
+      'restura-encrypted-store.json',
+      'config.json',
+      'Anything.JSON',
+      '.secret-handles-key',
+      '.mcp-stdio-consent-key',
+    ]) {
+      expect(isPathSafe(`/tmp/test-userData/${name}`)).toBe(false);
+    }
+    // Traversal back to the root is still the root.
+    expect(isPathSafe('/tmp/test-userData/sub/../restura-secret-handles.json')).toBe(false);
   });
 
   it('path inside documents returns true', () => {
@@ -108,7 +125,7 @@ describe('isPathSafe', () => {
   });
 
   it('path traversal within allowed dir returns true', () => {
-    expect(isPathSafe('/tmp/test-userData/sub/../file.json')).toBe(true);
+    expect(isPathSafe('/tmp/test-userData/sub/../other/file.json')).toBe(true);
   });
 
   it('prefix collision path returns false', () => {

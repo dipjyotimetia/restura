@@ -1,3 +1,4 @@
+import type { SecretValue } from '../secrets/secret-ref';
 import type { AuthConfig } from './auth';
 import type { KeyValue } from './common';
 import type { Response } from './http';
@@ -37,7 +38,34 @@ export interface SseEventPayload {
 
 // MCP (Model Context Protocol) types
 
-export type McpTransportType = 'streamable-http' | 'http-sse';
+/**
+ * `stdio` is desktop-only: the Electron main process spawns the configured
+ * command (no shell) after an explicit, main-owned consent prompt. Web and
+ * the CLI refuse it. See docs/adr/0030-mcp-stdio-transport.md.
+ */
+export type McpTransportType = 'streamable-http' | 'http-sse' | 'stdio';
+
+/**
+ * One environment variable handed to a stdio MCP server. Mirrors the scoped
+ * variable shape: `value` is the editable plaintext; when `secretRef` is set
+ * (e.g. a `{ kind: 'handle' }` SecretRef from an mcp.json import) it wins and
+ * is resolved in the main process at spawn time, never in the renderer.
+ */
+export interface McpStdioEnvVar extends KeyValue {
+  secretRef?: SecretValue;
+}
+
+/** Launch configuration for a local stdio MCP server (desktop only). */
+export interface McpStdioConfig {
+  /** Executable — a bare name resolved via PATH, or an absolute path. */
+  command: string;
+  /** Arguments passed verbatim (argv); never parsed by a shell. */
+  args: string[];
+  /** Absolute working directory; defaults to the user's home directory. */
+  cwd?: string;
+  /** Extra environment variables. The child never inherits the app's env. */
+  env?: McpStdioEnvVar[];
+}
 
 export interface McpRequest {
   id: string;
@@ -45,6 +73,8 @@ export interface McpRequest {
   type: 'mcp';
   url: string;
   transport: McpTransportType;
+  /** Launch config, used only when `transport === 'stdio'` (url is ignored). */
+  stdio?: McpStdioConfig;
   headers: KeyValue[];
   auth: AuthConfig;
   /** Optional default JSON-RPC method to invoke when "Send" is pressed */

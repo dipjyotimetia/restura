@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -63,6 +63,33 @@ function mcpCollection(yaml: string): string {
 }
 
 describe('MCP executor', () => {
+  it('refuses the desktop-only stdio transport without launching anything (#854)', async () => {
+    const markerDir = mkdtempSync(join(tmpdir(), 'restura-mcp-stdio-'));
+    const marker = join(markerDir, 'spawned');
+    const dir = mcpCollection(
+      [
+        'name: Local',
+        "url: ''",
+        'transport: stdio',
+        'defaultMethod: tools/list',
+        'stdio:',
+        `  command: ${JSON.stringify(process.execPath)}`,
+        '  args:',
+        "    - '-e'",
+        `    - ${JSON.stringify(`require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`)}`,
+        '',
+      ].join('\n')
+    );
+    const result = await runCollection(
+      dir,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new NoopReporter()
+    );
+    expect(result.requests[0]?.passed).toBe(false);
+    expect(result.requests[0]?.errorMessage).toMatch(/stdio transport is desktop-only/);
+    expect(existsSync(marker)).toBe(false);
+  });
+
   it('http-sse transport reaches the upstream instead of failing validation', async () => {
     // Regression: validateMcpSpec rejects http-sse without a postEndpoint, so a
     // CLI run previously 400'd before any I/O. The executor now supplies the url

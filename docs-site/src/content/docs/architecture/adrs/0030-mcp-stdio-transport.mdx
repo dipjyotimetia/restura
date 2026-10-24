@@ -1,0 +1,134 @@
+---
+title: ADR 0030 — MCP stdio transport and the local-process consent boundary
+description: Desktop-only stdio MCP servers, resolved and spawned by main without a shell after a main-owned consent check on every launch (a native prompt unless a matching approval, keyed by an unforgeable HMAC, is remembered), with an allowlisted environment and main-owned process lifetime.
+sidebar:
+  order: 30
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-10-18" variant="success" />
+
+## Context
+
+Most MCP servers in the ecosystem run as local processes started with `npx`, `uvx`, `docker run` or a binary, and talk JSON-RPC over stdin/stdout. The MCP spec says "Clients SHOULD support stdio whenever possible." Restura's MCP client only had the remote transports (`streamable-http`, `http-sse`), so it could not reach most servers ([#854](https://github.com/dipjyotimetia/restura/issues/854)).
+
+stdio is a different kind of feature from every other protocol in Restura. Supporting it means **Restura starts programs on the user's machine with the user's privileges**, from configuration that can come from an imported collection, a git-synced collection folder, an `mcp.json` import ([#906](https://github.com/dipjyotimetia/restura/issues/906)), or a compromised renderer. No previous feature crossed that boundary. The SSRF guard, header policy and secret handling ([ADR 0007](/architecture/adrs/0007-secret-ref-pattern/)) protect *outbound requests*; none of them covers "run this command".
+
+A browser cannot spawn processes, and the Worker/self-host server must never spawn one on behalf of a remote caller. So stdio is desktop-only, and the Electron main process is the only place that can own the decision.
+
+## Decision
+
+Add a desktop-only `stdio` transport. The renderer describes a launch; **main decides whether it runs, spawns it, and owns its lifetime.** The renderer is treated as untrusted throughout: nothing it sends, and nothing it can write to disk, can widen what main will run without a fresh prompt.
+
+### Shape (forward-compatible with `mcp.json` import)
+
+`McpRequest.transport` gains `'stdio'` and an optional `stdio: { command, args[], cwd?, env? }`. `env` rows are `KeyValue & { secretRef?: SecretValue }`, the same shape as scoped variables. An importer can store an env value as a `{ kind: 'handle' }` SecretRef. The renderer forwards the ref and main resolves it at spawn time, so the plaintext never enters renderer state. The OpenCollection `x-restura-mcp` extension carries the `stdio` block; nothing in it can express consent.
+
+Exports and file-backed collections follow ADR 0007, exactly like request headers. When the redaction layer runs (`redactCollectionSecrets`, used by exports unless the user chooses to include secrets, and always by the file-collection writer), credential-named env values (the same name patterns as header/param redaction) and rows flagged `secret` are written value-less with `secret: true`, inline SecretRefs are blanked, and only opaque handle references are kept. It covers the typed model and cached OpenCollection passthrough bags, and the export inline-secret counter includes these rows. The OpenCollection serializer itself writes rows verbatim.
+
+### Input rules (IPC schema, `.strict()`)
+
+- Bounded sizes: command ≤ 4096, at most 128 args of ≤ 8192 characters (64 KB total), cwd ≤ 4096, at most 100 env vars.
+- No Unicode control, format or separator characters (Cc, Cf, Zl, Zp: C0/C1 controls including NEL, bidi overrides and isolates, zero-width characters, BOM, U+2028/U+2029) in the command, args, cwd or handle labels (renderer-supplied labels and labels stored with `secret:store`). Env values may additionally contain TAB, LF and CR (PEM blocks, JSON); nothing else. These characters could make the consent dialog display something other than what runs.
+- Independently of input validation, the dialog escapes every such character it displays as a visible `\u{XXXX}`. That covers text that never passed the IPC schema, such as a path resolved from the inherited `PATH` or the default home-directory cwd.
+- cwd must be absolute. On Windows, UNC and device-namespace paths (two leading slashes or backslashes) are refused for the cwd and the command.
+- Env names match `[A-Za-z_][A-Za-z0-9_]*`. Values are plain strings, inline SecretRefs or handle references; external vault refs are refused.
+- Secret-store handles are accepted only for credential-named env vars that are not execution-sensitive. Every other var must be a plain value, so the dialog can show it.
+
+### Command resolution: main picks the exact file
+
+Main resolves the command to an absolute path **before** asking, so the dialog shows, the consent key covers, and the spawn uses the same file.
+
+- A bare name is looked up on the child's `PATH` (the allowlisted env plus the user's `PATH`, if set). Relative `PATH` entries are skipped, so the working directory is never searched. This matters on Windows, where `CreateProcess`-style lookup would otherwise prefer a same-named file in the cwd. On Windows, UNC `PATH` entries are skipped too.
+- Relative command paths (`./server`) are refused: use a bare name or an absolute path.
+- POSIX: the file must be a regular, executable file.
+- Windows: only `.exe`/`.com` (spawned directly) and `.cmd`/`.bat` (run through `cmd.exe`) are accepted, via `PATHEXT` limited to those four.
+
+### Spawn: the SDK transport, never a shell
+
+Main spawns the resolved path through the official SDK `StdioClientTransport` (`@modelcontextprotocol/client/stdio`), which calls `cross-spawn` with `shell: false`.
+
+- **POSIX:** `execvp`-style spawn with an argv array; no shell parses anything.
+- **Windows `.exe`/`.com`:** spawned directly with an argv array.
+- **Windows `.cmd`/`.bat`** (`npx.cmd` and similar): Node refuses to spawn these without a shell since the April 2024 "BatBadBut" fix, so cross-spawn runs `cmd.exe /d /s /c "<command line>"` itself. It quotes each argument and caret-escapes cmd metacharacters, which protects the outer `cmd.exe` parse. It does **not** protect the batch file's own re-parsing of its arguments (`%*`, `%1`), where double quotes and `%`/`!` expansion can still change the command. So for a `.cmd`/`.bat` target, main refuses any argument containing `"`, `%` or `!`, and the dialog states that the launch goes through `cmd.exe`.
+
+The client uses the plain `initialize` handshake for stdio (`versionNegotiation: { mode: 'legacy' }`). The SDK's `auto` mode would start a hidden second copy of the server (its disposable "sibling" probe for `server/discover`) from the same parameters, with stderr discarded and outside our process tracking. That breaks "one approved launch, one tracked process". Modern-era negotiation over stdio can be revisited when the SDK can probe in place.
+
+### Consent: a native dialog owned by main
+
+Before the first spawn of any new launch, main shows `dialog.showMessageBox` (Cancel / Allow once / Always allow; Cancel is the default and the escape action). The detail lists the resolved program (and the name it was requested as), a `cmd.exe` note when relevant, every argument JSON-quoted, the effective working directory and every env var.
+
+- **Display.** Plain env values are shown in full, except values whose *name* looks like a credential (the shared header/param redaction patterns). Those are hidden but counted. A value is always shown when the name is execution-sensitive or the value looks like a filesystem path. Handle-backed values show the label stored *with the handle in main*; the renderer's copy of the label is ignored, and an unknown handle id is refused before any prompt. Any argument or value longer than 512 characters is cut with an explicit "N more characters not shown" marker. The whole detail is capped at 8 KB, with an "N more lines not shown" marker. When anything is cut, only Cancel and Allow once are offered.
+- **Key.** An HMAC-SHA256 over a versioned canonical JSON of `{ resolved path, cmd.exe routing, args (ordered), effective cwd, env (sorted names → value; for a handle, its id and a SHA-256 of its current plaintext) }`. Any change to any of these is a new key and a new prompt, including rotating the secret behind a handle. Env values are included because a changed `NPM_CONFIG_REGISTRY` or `NODE_OPTIONS` runs a different program.
+- **Store.** "Always allow" persists `{ approvedAt, program }` under the key in a main-only electron-store (`restura-mcp-stdio-consent`, capped at 500 entries).
+  - The HMAC key is 32 random bytes sealed with Electron `safeStorage` (OS keychain) in `userData/.mcp-stdio-consent-key`. A renderer that can compute the canonical spec cannot compute a valid key, so entries written into the store file never match a real launch.
+  - If `safeStorage` is unavailable (including Linux's `basic_text` fallback), approvals are never remembered: only Cancel and Allow once are offered, and every launch prompts.
+  - A new key is minted only when the key file does not exist. If the file exists but cannot be read or decrypted (the keychain changed, or the file was damaged or replaced), it is left untouched and approvals are disabled for the session, so every launch prompts.
+- **Store files are not reachable from the renderer.** The renderer-facing `fs:readFile`/`fs:writeFile` channels refuse files directly in `userData` that are `*.json` (electron-store files: consent, secret handles, vault, …) or dotfiles (key blobs). This also closes the same class of tampering for the secret-handle store.
+  - The comparison runs on a canonical path: the nearest existing ancestor is resolved with `realpath.native` (symlinks; Windows 8.3 short names of existing entries). On Windows, trailing dots and spaces and NTFS stream suffixes (`name:stream`) are stripped. On Windows and macOS, case is folded.
+  - What is guaranteed: any spelling that the OS maps to a store file or key blob directly in `userData` is refused, as long as the alias is one of those forms.
+  - What is not guaranteed: these channels still check the target *lexically* against their allowed roots and do not resolve symlinks before writing (a pre-existing gap tracked separately). A symlink created elsewhere that points into `userData` is outside this rule. The HMAC key, not the path rule, is what makes approvals unforgeable.
+- **Nothing can pre-approve.** The `mcp:connect` stdio schema is `.strict()`, so a payload carrying an approval field is rejected before the gate runs. Imported collections, git-synced collection folders and interactive desktop connections all reach main through the same channel and get the same gate. `mcp.json` import ([#906](https://github.com/dipjyotimetia/restura/issues/906)) is a follow-up that must use this channel; AI Lab agent tool sources refuse stdio today.
+- **Revoke.** The renderer can call `mcp:stdio:revoke-approvals` (rate-limited, validated to take no input). It clears the store and can only narrow privilege.
+- **Ordering.** Prompts are serialized, so a misbehaving renderer cannot stack dialogs. Concurrent requests share a prompt only when they come from the same connection for the same launch; "Allow once" is never shared across connections. The claim is re-checked after the dialog, so a launch approved after its tab disconnected or its renderer died never spawns. The working directory is not touched until after consent.
+
+### Environment: allowlist, not inheritance
+
+The child never inherits `process.env`. It gets a minimal set read from the app's environment (POSIX: `HOME LOGNAME PATH SHELL TERM USER TMPDIR`; Windows: `APPDATA COMSPEC HOMEDRIVE HOMEPATH LOCALAPPDATA PATH PATHEXT PROCESSOR_ARCHITECTURE PROGRAMDATA PROGRAMFILES* SYSTEMDRIVE SYSTEMROOT TEMP TMP USERNAME USERPROFILE WINDIR`; plus locale vars `LANG LANGUAGE LC_* TZ`), and the user's variables on top. Values that look like exported bash functions are skipped.
+
+On Windows, names are canonicalised: a user `Path` replaces the inherited `PATH` under the canonical spelling, so no case-variant duplicates reach the process.
+
+The SDK always spawns with `{ ...getDefaultEnvironment(), ...params.env }`, and there is no way to turn that off. We therefore pass a fully computed env and keep our allowlist a **superset** of the SDK's `DEFAULT_INHERITED_ENV_VARS`, so the SDK merge cannot add anything we did not choose. A unit test pins that relation: if a future SDK widens its list, the test fails and the change gets reviewed here.
+
+**Execution-sensitive variables** change what runs or where it connects: loader injection, interpreter and runtime startup hooks, package-registry and config redirection, search paths, proxies, trust stores and helper programs. Examples are `PATH`, `NODE_OPTIONS`, `LD_*`, `DYLD_*`, `NPM_CONFIG_*`, `PYTHON*`, `PIP_*`, `UV_*`, `GIT_*`, `DOTNET_STARTUP_HOOKS`, `COR_PROFILER*`, `CORECLR_PROFILER*`, `GCONV_PATH`, `XDG_CONFIG_HOME`, proxy and CA-bundle variables, pager/editor/askpass helpers, JVM options, `COREPACK_*`, `PNPM_*`, `BUNDLE_*`, `GEM_*`, `CONDA_*`, `VIRTUAL_ENV`, `PHPRC`, `LUA_INIT*` and `DOCKER_*`. They must be plain values and are always displayed in full.
+
+### Lifecycle: main owns the process
+
+Each child is tracked by its `ChildProcess` handle from spawn until exit (never by bare pid, so a recycled pid is never signalled). It is killed:
+
+- on disconnect;
+- on renderer destruction (claim and stream-registry cleanup);
+- when the `IPC_MODULES` entry is disposed at app quit (`stopMcpCleanup` awaits exit, inside the existing 3 s quit budget);
+- by a synchronous `SIGKILL` sweep in the main process's `exit` handler, as a last resort.
+
+Termination sends `SIGTERM` and escalates to `SIGKILL` after 1 s. On Windows it runs `%SystemRoot%\System32\taskkill.exe /T /F` (an absolute path, never resolved through `PATH`), so the real server under a `cmd.exe` shim dies too.
+
+At most 8 stdio servers run or are pending at once. A slot is reserved synchronously before any await, so parallel connects cannot all pass the cap while their dialogs are open.
+
+### stderr
+
+stderr is piped, not inherited, and sent to the renderer on `mcp:stderr:<connectionId>`. Each chunk is capped at 4 KB and the total at 512 KB per session, after which one truncation notice is sent. The renderer keeps the newest 64 KB, which is never persisted. A connect failure includes the last ~600 characters of stderr, so "command not found" or "missing API key" shows up where the user is looking.
+
+### Other harnesses
+
+- **Web / self-host:** the transport selector hides `stdio` (`capabilities.ts` → `mcp.stdio`, `web: false`). A saved stdio request opened on the web explains that it needs the desktop app, and the client refuses to connect. The Worker's `/api/mcp` validator already rejects any transport other than the two HTTP ones.
+- **CLI:** `restura run` fails a stdio MCP item before any I/O. A CI runner must never launch processes from collection data.
+- **AI Lab agent tool sources** refuse stdio profiles for now (a follow-up can route them through the same consent gate).
+
+## Consequences
+
+**Positive**
+
+- Restura can reach the large majority of MCP servers, with the same discovery and invoke UI as the remote transports.
+- The new trust boundary is explicit, in one place (main), and covered by tests:
+  - validator bounds, strictness, Unicode and UNC rules;
+  - consent key sensitivity, unforgeability and fail-closed behaviour;
+  - command resolution;
+  - the env allowlist and Windows canonicalisation;
+  - export redaction;
+  - the slot cap under parallel connects;
+  - real-process tests that the child pid is gone after disconnect, renderer destruction and dispose.
+- The persisted shape already fits `mcp.json` import with secret handles.
+
+**Negative / residual risk**
+
+- **Approval covers the path and argv, not the file contents or what they load.** The program file, a script it runs, or a package cache can change after approval: a `git pull` in the server's repo, an `npx` cache refresh, or a new `@latest` release. `npx -y some-package` runs whatever that package publishes at the time. A future option is expiring "Always allow" approvals or keying them on a content hash of the resolved file.
+- **Secrets reach the child by design.** A handle's plaintext is handed to the server process. A server can print it, and stderr is forwarded to the UI log, so a careless or hostile server can surface a secret there.
+- **Grandchildren.** On POSIX, main signals the direct child; it does not create or kill a process group. Launchers like `npx`/`uvx` forward signals, and servers also see EOF on stdin, but a server that double-forks and ignores both can outlive Restura.
+- **An approved server is a network egress path outside `url-validation`.** The server process makes its own network connections, which Restura's SSRF guard does not see or restrict. This is inherent to running a local program.
+- **GUI-launched macOS apps get a minimal `PATH`** (no Homebrew or nvm), so `npx` may not be found. Users can set `PATH` in the server's env or use an absolute command. Resolving the login-shell `PATH` is a follow-up.
+- **Modern-era negotiation is off for stdio** (see above). Servers that only speak the 2026-07-28 era over stdio are not reachable until the SDK can probe without a second spawn.
+- **Windows batch-file launchers** cannot take arguments containing `"`, `%` or `!`. Users can call the underlying `.exe` directly (e.g. `node.exe` with the script path) instead.
+- **Broad execution-sensitive prefixes force some credentials to be plain.** `GIT_*`, `DOCKER_*`, `GEM_*`, `BUNDLE_*`, `UV_*`, `PIP_*` (and the other prefix families) are always shown and cannot come from the secret store. A credential in one of those families, such as a Docker registry password variable, must therefore be a plain value and appears in full in the consent dialog. The alternative, letting a handle hide a value that redirects what runs, was judged worse. A per-row "store as secret" action in the env table is a follow-up.
+- **macOS automount roots.** Commands and `PATH` entries under `/net` and `/Network` are refused before any filesystem probe, because touching them can trigger a network mount.

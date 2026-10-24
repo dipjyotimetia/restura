@@ -1,5 +1,6 @@
 import { jsonRpcErrorToMessage, parseJsonRpcError } from '@shared/protocol/mcp-proxy';
 import { normalizeMcpToolDescriptor } from '@shared/protocol/mcp-tool-descriptor';
+import type { SecretValue } from '@shared/secrets/secret-ref';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import type {
   AuthConfig,
@@ -11,6 +12,7 @@ import type {
   McpToolDescriptor,
   McpTransportType,
 } from '@/types';
+import { MCP_STDIO_WEB_ERROR } from './mcpStdioLaunch';
 import { buildMcpInitializeParams, McpWebSession } from './mcpWebSession';
 
 /** RFC 5424 syslog levels accepted by `logging/setLevel` (MCP 2025-06-18). */
@@ -80,6 +82,15 @@ interface PromptsListResult {
 /** Cap on pagination iterations to defend against a server that never stops. */
 const MAX_LIST_PAGES = 100;
 
+/** Resolved stdio launch config for `transport: 'stdio'` (desktop only). */
+export interface McpClientStdioOptions {
+  command: string;
+  args: string[];
+  cwd?: string;
+  /** Values may be SecretRef handles — main resolves them at spawn time. */
+  env?: Record<string, SecretValue>;
+}
+
 interface McpClientOptions {
   url: string;
   transport: McpTransportType;
@@ -92,8 +103,33 @@ interface McpClientOptions {
   auth?: AuthConfig;
   /** Stable identifier for the connection (used to key Electron IPC sessions) */
   connectionId: string;
+  stdio?: McpClientStdioOptions;
+  /** Bounded stderr text from a stdio server process. */
+  onStderr?: (text: string) => void;
   /** Web: receives server-originated messages interleaved in SSE replies. */
   onServerMessage?: (message: unknown) => void;
+}
+
+type StdioEnvIpc = Record<
+  string,
+  string | { kind: 'inline'; value: string } | { kind: 'handle'; id: string; label?: string }
+>;
+
+/** External vault refs are not resolvable in the stdio spawn path. */
+function toStdioEnvIpc(
+  env: Record<string, SecretValue> | undefined
+): { ok: true; env: StdioEnvIpc } | { ok: false; error: string } {
+  const out: StdioEnvIpc = {};
+  for (const [name, value] of Object.entries(env ?? {})) {
+    if (typeof value === 'object' && value.kind === 'external') {
+      return {
+        ok: false,
+        error: `Environment variable ${name}: external vault secrets are not supported for stdio servers`,
+      };
+    }
+    out[name] = value;
+  }
+  return { ok: true, env: out };
 }
 
 /**
@@ -106,6 +142,8 @@ interface McpClientOptions {
 export class McpClient {
   /** Counter for client-generated request ids */
   private nextId = 1;
+  /** Unsubscribe for the stdio stderr listener (Electron only). */
+  private stderrUnsubscribe: (() => void) | undefined;
   /** Web-mode Streamable HTTP session state (session id, negotiated version). */
   private readonly web: McpWebSession;
   /** Protocol version negotiated by the last successful `initialize`. */
@@ -137,6 +175,7 @@ export class McpClient {
     if (isElectron()) {
       const api = getElectronAPI();
       if (!api?.mcp) return { ok: false, error: 'Electron MCP API not available' };
+      if (this.opts.transport === 'stdio') return this.connectStdio(api.mcp);
       const res = await api.mcp.connect({
         connectionId: this.opts.connectionId,
         url: this.opts.url,
@@ -152,6 +191,8 @@ export class McpClient {
       };
     }
 
+    if (this.opts.transport === 'stdio') return { ok: false, error: MCP_STDIO_WEB_ERROR };
+
     // Web mode: streamable-http requires no setup; http-sse needs the persistent stream.
     if (this.opts.transport === 'http-sse') {
       // For now web mode doesn't support http-sse subscriptions through the Worker
@@ -166,7 +207,55 @@ export class McpClient {
     return { ok: true };
   }
 
+  /**
+   * stdio: subscribe to the stderr channel BEFORE invoking connect (spawn
+   * errors such as "command not found" arrive during the handshake), then
+   * ask main to spawn. Main shows its own consent dialog; nothing here can
+   * approve a launch.
+   */
+  private async connectStdio(
+    mcp: NonNullable<ReturnType<typeof getElectronAPI>>['mcp']
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const stdio = this.opts.stdio;
+    if (!stdio?.command.trim()) return { ok: false, error: 'A command is required for stdio' };
+    const env = toStdioEnvIpc(stdio.env);
+    if (!env.ok) return env;
+    this.subscribeStderr(mcp);
+    const res = await mcp.connect({
+      connectionId: this.opts.connectionId,
+      transport: 'stdio',
+      command: stdio.command.trim(),
+      args: stdio.args,
+      ...(stdio.cwd?.trim() ? { cwd: stdio.cwd.trim() } : {}),
+      ...(Object.keys(env.env).length > 0 ? { env: env.env } : {}),
+    });
+    if (!res.success) {
+      this.unsubscribeStderr();
+      return { ok: false, error: res.error ?? 'Connect failed' };
+    }
+    return { ok: true };
+  }
+
+  private subscribeStderr(mcp: NonNullable<ReturnType<typeof getElectronAPI>>['mcp']): void {
+    this.unsubscribeStderr();
+    const onStderr = this.opts.onStderr;
+    if (!onStderr) return;
+    const channel = `mcp:stderr:${this.opts.connectionId}`;
+    const listener = (payload: unknown) => {
+      const text = (payload as { text?: unknown } | undefined)?.text;
+      if (typeof text === 'string') onStderr(text);
+    };
+    mcp.on(channel, listener);
+    this.stderrUnsubscribe = () => mcp.removeListener(channel, listener);
+  }
+
+  private unsubscribeStderr(): void {
+    this.stderrUnsubscribe?.();
+    this.stderrUnsubscribe = undefined;
+  }
+
   async disconnect(): Promise<void> {
+    this.unsubscribeStderr();
     if (isElectron()) {
       const api = getElectronAPI();
       await api?.mcp?.disconnect({ connectionId: this.opts.connectionId });
@@ -253,6 +342,9 @@ export class McpClient {
         };
       }
 
+      if (this.opts.transport === 'stdio') {
+        return { ok: false, error: MCP_STDIO_WEB_ERROR, durationMs: 0 };
+      }
       // Web: `initialize` runs the full handshake (incl. notifications/initialized);
       // later calls carry Mcp-Session-Id + MCP-Protocol-Version and survive one 404.
       const outcome = await this.web.call(method, params, timeout, signal);

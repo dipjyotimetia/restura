@@ -1,6 +1,7 @@
 import { isMcpOAuthFlow } from '@shared/protocol/mcp-auth';
 import { createLogger } from '@shared/runtime/logger';
-import { ipcMain, type WebContents } from 'electron';
+import { type IpcMainInvokeEvent, ipcMain, type WebContents } from 'electron';
+import { z } from 'zod';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
@@ -8,10 +9,13 @@ import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
   assertTrustedSender,
   createValidatedEventHandler,
+  createValidatedHandler,
+  isStdioConnectPayload,
   McpCancelSchema,
   McpConnectSchema,
   McpDisconnectSchema,
   McpRequestSchema,
+  McpStdioConnectSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
@@ -23,6 +27,7 @@ import {
 } from '../security/mcp-connect-auth';
 import { createMcpOAuthSession, registerMcpOAuthIPC } from '../security/mcp-oauth-connect';
 import { isMcpOAuthReauthRequired, type McpOAuthSession } from '../security/mcp-oauth-provider';
+import { revokeAllStdioConsents } from '../security/mcp-stdio-consent';
 import {
   assertPinnedFetchCanHonorPolicy,
   createPolicyPinnedFetch,
@@ -36,6 +41,8 @@ import {
   stopMcpClientRequests,
 } from './mcp-client-requests';
 import { connectMcpSdkClient, type McpSdkClient } from './mcp-sdk-client';
+import { connectStdioSdkClient } from './mcp-stdio-connect';
+import { terminateAllStdioChildren } from './mcp-stdio-session';
 
 const log = createLogger('mcp');
 
@@ -80,6 +87,8 @@ interface McpSession {
   oauth?: McpOAuthSession;
   /** Set before an intentional close so onclose/onerror don't emit events. */
   disposed: boolean;
+  /** stdio only: kill the spawned server process (see mcp-stdio-session.ts). */
+  onDispose?: () => void;
   /** In-flight requests by renderer `requestId`, so `mcp:cancel` can abort them. */
   inflight: Map<string, AbortController>;
 }
@@ -87,6 +96,7 @@ interface McpSession {
 function disposeSession(s: McpSession): void {
   if (s.disposed) return;
   s.disposed = true;
+  s.onDispose?.();
   s.clientRequests?.dispose();
   s.oauth?.dispose();
   for (const controller of s.inflight.values()) controller.abort();
@@ -199,6 +209,9 @@ export function registerMcpHandlerIPC(): void {
   registerMcpOAuthIPC();
   ipcMain.handle(IPC.mcp.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.mcp.connect, event);
+    if (isStdioConnectPayload(rawConfig)) {
+      return connectStdio(event, rawConfig);
+    }
     const config = validateIpcInput(McpConnectSchema, rawConfig, IPC.mcp.connect);
     const webContentsId = event.sender.id;
 
@@ -553,13 +566,101 @@ export function registerMcpHandlerIPC(): void {
       return { success: true };
     })
   );
+
+  ipcMain.handle(
+    IPC.mcp.revokeStdioApprovals,
+    rateLimited(
+      mcpRateLimiter,
+      createValidatedHandler(IPC.mcp.revokeStdioApprovals, z.undefined(), () => ({
+        success: true,
+        revoked: revokeAllStdioConsents(),
+      }))
+    )
+  );
 }
 
-export function stopMcpCleanup(): void {
+const MAX_CONCURRENT_STDIO = 8;
+
+/**
+ * stdio transport (#854, desktop only): validate → claim → consent (native
+ * dialog in main) → spawn via the SDK → commit. Every exit path that does not
+ * commit disposes the session, which kills the child.
+ */
+async function connectStdio(
+  event: IpcMainInvokeEvent,
+  rawConfig: unknown
+): Promise<{ success: boolean; error?: string }> {
+  const config = validateIpcInput(McpStdioConnectSchema, rawConfig, IPC.mcp.connect);
+  const webContentsId = event.sender.id;
+  if (!mcpRateLimiter.check(webContentsId)) {
+    return { success: false, error: 'Rate limit exceeded.' };
+  }
+  if (sessions.size() + pendingSessions.size >= MAX_CONCURRENT_MCP) {
+    return { success: false, error: 'Too many open MCP connections.' };
+  }
+  const claim = reserveMcpClaim(config.connectionId, event.sender);
+  if (!claim) return { success: false, error: 'Not connected' };
+  const key = ownerScopedKey(config.connectionId, webContentsId);
+  const isCurrentClaim = () => pendingSessions.get(key)?.token === claim.token;
+
+  try {
+    const session: McpSession = {
+      connectionId: config.connectionId,
+      url: `stdio:${config.command}`,
+      webContentsId,
+      createdAt: Date.now(),
+      // stdio has no main-resolved header auth to scrub from results.
+      redact: (text) => text,
+      scrub: (value) => value,
+      disposed: false,
+      inflight: new Map(),
+    };
+    const result = await connectStdioSdkClient({
+      config,
+      owner: event.sender,
+      requester: key,
+      maxConcurrentChildren: MAX_CONCURRENT_STDIO,
+      isCurrent: isCurrentClaim,
+      session,
+      registerPending: () => {
+        claim.pendingSession = session;
+      },
+      emit: (prefix, payload) =>
+        emitTo(webContentsId, eventChannel(prefix, config.connectionId), payload),
+      isLive: () => sessions.get(config.connectionId, webContentsId) === session,
+      removeLive: () => sessions.remove(config.connectionId, webContentsId),
+      log,
+    });
+    if (!result.ok) return { success: false, error: result.error };
+
+    const claimed =
+      isCurrentClaim() &&
+      (claim.ownerEntry
+        ? sessions.get(config.connectionId, webContentsId) === claim.ownerEntry &&
+          sessions.replaceForOwner(config.connectionId, webContentsId, session)
+        : sessions.tryAdd(config.connectionId, event.sender, session));
+    if (!claimed) {
+      disposeSession(session);
+      return { success: false, error: 'Not connected' };
+    }
+    emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.open, config.connectionId));
+    return { success: true };
+  } finally {
+    releaseMcpClaim(config.connectionId, claim);
+  }
+}
+
+/**
+ * Dispose every session and kill every stdio child. Returns a promise so the
+ * app-quit path (IPC_MODULES dispose) can await process exit, bounded by its
+ * own quit timeout; the main-process `exit` hook SIGKILLs any straggler.
+ */
+export function stopMcpCleanup(): Promise<void> {
   for (const claim of pendingSessions.values()) {
     disposePendingMcpClaim(claim);
   }
   pendingSessions.clear();
   sessions.disposeAll();
+  return terminateAllStdioChildren();
   stopMcpClientRequests();
 }

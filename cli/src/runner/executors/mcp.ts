@@ -102,6 +102,19 @@ export async function executeMcp(
   }
   const req = item.request as McpRequest;
 
+  // The stdio transport launches a local process. That is a desktop-only
+  // capability gated by an interactive consent prompt (ADR 0030); the CLI
+  // must never spawn processes from collection data, so refuse before any I/O.
+  if (req.transport === 'stdio') {
+    return {
+      status: 0,
+      passed: false,
+      durationMs: 0,
+      bodyBytes: 0,
+      errorMessage: `MCP stdio transport is desktop-only; "${req.name}" was not run (the CLI never launches local processes from a collection).`,
+    };
+  }
+
   // A saved MCP request is ONE operation (`defaultMethod` + `defaultParams`).
   // Without a method there is nothing meaningful to run — fail the item loudly
   // instead of silently substituting `ping` (#877), before any I/O.

@@ -33,6 +33,7 @@ export type CapabilityName =
   | 'sse.basic'
   | 'sse.customHeaders'
   | 'mcp.basic'
+  | 'mcp.stdio'
   | 'mcp.clientRequests'
   | 'mcp.serverNotifications'
   | 'mcp.resourceSubscriptions'
@@ -258,6 +259,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes:
       'Desktop runs the flow in the main process: system browser + 127.0.0.1 loopback redirect, tokens kept only in the OS-keychain-encrypted secret store and refreshed automatically (ADR 0031). Web/self-host and the CLI do not run the browser sign-in — paste an access token as Bearer auth instead',
+  },
+  'mcp.stdio': {
+    label: 'MCP stdio transport (local server process)',
+    web: false,
+    desktop: true,
+    notes:
+      'Desktop main process spawns the command without a shell after a per-launch native consent prompt; the child gets an allowlisted environment, and is killed on disconnect/quit. Web and the CLI never spawn processes',
   },
   'grpc.basic': {
     label: 'gRPC unary + streaming',

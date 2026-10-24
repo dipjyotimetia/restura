@@ -231,6 +231,33 @@ export interface ElectronSocketIoAPI {
   removeAllListeners: (channel: string) => void;
 }
 
+/** SecretRef-shaped env value for a stdio MCP server; handles resolve in main. */
+export type McpStdioEnvValueIpc =
+  | string
+  | { kind: 'inline'; value: string }
+  | { kind: 'handle'; id: string; label?: string };
+
+export type McpConnectIpcConfig =
+  | {
+      connectionId: string;
+      url: string;
+      transport: 'streamable-http' | 'http-sse';
+      headers?: Record<string, string>;
+      /**
+       * Header-shaped connection auth (#896). SecretRef handles are resolved in
+       * Electron main at connect time — the renderer never sees the plaintext.
+       */
+      auth?: import('../../../shared/types/auth').AuthConfig;
+    }
+  | {
+      connectionId: string;
+      transport: 'stdio';
+      command: string;
+      args?: string[];
+      cwd?: string;
+      env?: Record<string, McpStdioEnvValueIpc>;
+    };
+
 export interface McpOAuthStatusIpc {
   signedIn: boolean;
   canRefresh: boolean;
@@ -240,17 +267,7 @@ export interface McpOAuthStatusIpc {
 }
 
 export interface ElectronMcpAPI {
-  connect: (config: {
-    connectionId: string;
-    url: string;
-    transport: 'streamable-http' | 'http-sse';
-    headers?: Record<string, string>;
-    /**
-     * Header-shaped connection auth (#896). SecretRef handles are resolved in
-     * Electron main at connect time — the renderer never sees the plaintext.
-     */
-    auth?: import('../../../shared/types/auth').AuthConfig;
-  }) => Promise<{
+  connect: (config: McpConnectIpcConfig) => Promise<{
     success: boolean;
     error?: string;
     /** #856: the OAuth sign-in lapsed and can't refresh — prompt to sign in again. */
@@ -278,6 +295,8 @@ export interface ElectronMcpAPI {
     requestId: string | number;
   }) => Promise<{ success: boolean }>;
   disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
+  /** Forget every "Always allow" stdio launch approval. */
+  revokeStdioApprovals: () => Promise<{ success: boolean; revoked: number }>;
   /** Answer a server→client request delivered on `mcp:client-request:<connectionId>` (#860). */
   respondClientRequest: (
     response: McpClientResponseIpc

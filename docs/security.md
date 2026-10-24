@@ -169,7 +169,10 @@ the address we validated:
 - **SSE** (`sse-handler.ts`) — `createPinnedFetch`, an undici dispatcher whose
   `connect.lookup` returns the validated IP.
 - **MCP** (`mcp-handler.ts`) — `resolveSafeAddress` + a policy-aware pinned
-  fetch supplied to the MCP SDK transport.
+  fetch supplied to the MCP SDK transport. The desktop-only **stdio** transport
+  makes no network connection; it launches a local process instead, gated by a
+  native per-launch consent prompt in main with an allowlisted child
+  environment ([ADR 0030](adr/0030-mcp-stdio-transport.md)).
 - **gRPC reflection** (`grpc-reflection-handler.ts`) — the same pinned
   ConnectRPC dial path as unary and streaming gRPC calls.
 

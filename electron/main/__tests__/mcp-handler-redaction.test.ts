@@ -41,7 +41,11 @@ vi.mock('../security/policy-transport', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../security/policy-transport')>();
   return { ...actual, createPolicyPinnedFetch: vi.fn(() => vi.fn()) };
 });
-vi.mock('../security/secret-handle-store', () => ({ unwrapSecretValueMain: mockUnwrap }));
+vi.mock('../security/secret-handle-store', () => ({
+  describeSecretHandle: vi.fn(),
+  resolveSecretHandle: vi.fn(),
+  unwrapSecretValueMain: mockUnwrap,
+}));
 vi.mock('../handlers/mcp-sdk-client', () => ({
   connectMcpSdkClient: vi.fn(
     async (opts: {

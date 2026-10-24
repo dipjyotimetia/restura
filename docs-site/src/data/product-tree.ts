@@ -203,7 +203,7 @@ export const features: Feature[] = [
     'protocols',
     'mcp',
     'MCP client',
-    'Connect to MCP servers and inspect their tools, resources, and messages. The legacy HTTP+SSE transport is desktop-only.',
+    'Connect to MCP servers and inspect their tools, resources, and messages. The legacy HTTP+SSE transport and local stdio servers, started after a consent prompt, are desktop-only.',
     'shipped',
     all,
     '/protocols/mcp/'

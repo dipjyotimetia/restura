@@ -2,6 +2,7 @@ import type { CollectionItem, McpRequest, SseRequest } from '../types';
 import { authFromInternal } from './auth-from-internal';
 import { kafkaToOC, mqttToOC } from './broker-items';
 import { kvFromInternal } from './key-value';
+import { mcpStdioToOC } from './mcp-stdio-extension';
 
 /**
  * Export-side helpers for request kinds that OpenCollection has no item type
@@ -106,6 +107,7 @@ function sseToOC(name: string, r: SseRequest): unknown {
 /** Every `McpRequest` field is carried (#863), incl. the saved operation. */
 function mcpToOC(name: string, r: McpRequest): unknown {
   const mcp: Record<string, unknown> = { url: r.url, transport: r.transport };
+  if (r.stdio) mcp.stdio = mcpStdioToOC(r.stdio);
   if (r.headers?.length) {
     mcp.headers = r.headers.map(kvFromInternal);
   }

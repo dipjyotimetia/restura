@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { McpConnection } from '../useMcpStore';
-import { useMcpStore } from '../useMcpStore';
+import { MAX_STDERR_CHARS, useMcpStore } from '../useMcpStore';
 
 function connection(overrides: Partial<McpConnection> = {}): McpConnection {
   return {
@@ -89,5 +89,34 @@ describe('useMcpStore.createConnection', () => {
       headers: [{ key: 'Authorization', value: '[REDACTED]' }],
       log: [],
     });
+  });
+});
+
+describe('useMcpStore stdio stderr buffer', () => {
+  beforeEach(() => {
+    useMcpStore.setState({ connections: {}, activeConnectionId: null });
+  });
+
+  it('appends, keeps only the newest MAX_STDERR_CHARS, clears, and is never persisted', () => {
+    const id = useMcpStore.getState().createConnection('', 'stdio');
+    useMcpStore.getState().appendStderr(id, '');
+    expect(useMcpStore.getState().connections[id]).not.toHaveProperty('stderr');
+    useMcpStore.getState().appendStderr(id, 'a'.repeat(MAX_STDERR_CHARS));
+    useMcpStore.getState().appendStderr(id, 'tail');
+    const stderr = useMcpStore.getState().connections[id]?.stderr ?? '';
+    expect(stderr).toHaveLength(MAX_STDERR_CHARS);
+    expect(stderr.endsWith('tail')).toBe(true);
+
+    const persisted = useMcpStore.persist.getOptions().partialize?.(useMcpStore.getState()) as {
+      connections: Record<string, object>;
+    };
+    expect(persisted.connections[id]).not.toHaveProperty('stderr');
+
+    useMcpStore.getState().clearStderr(id);
+    expect(useMcpStore.getState().connections[id]).not.toHaveProperty('stderr');
+    const before = useMcpStore.getState().connections;
+    useMcpStore.getState().clearStderr(id);
+    useMcpStore.getState().appendStderr('missing', 'x');
+    expect(useMcpStore.getState().connections).toBe(before);
   });
 });

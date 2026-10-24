@@ -33,6 +33,8 @@ export interface McpConnection {
   capabilities: McpServerCapabilities | null;
   /** Recent calls for the result viewer & history */
   log: McpInvocationLog[];
+  /** stdio only: recent server stderr (bounded, never persisted). */
+  stderr?: string;
   lastError?: string;
   createdAt: number;
   /** Client roots (file:// URIs) exposed to the server via roots/list (desktop, #860). */
@@ -63,11 +65,15 @@ interface McpState {
   resetConnectionSession: (id: string) => void;
   appendLog: (id: string, entry: Omit<McpInvocationLog, 'id' | 'timestamp'>) => void;
   clearLog: (id: string) => void;
+  /** Append stdio server stderr, keeping only the most recent MAX_STDERR_CHARS. */
+  appendStderr: (id: string, text: string) => void;
+  clearStderr: (id: string) => void;
 
   getActive: () => McpConnection | null;
 }
 
 const MAX_LOG = 200;
+export const MAX_STDERR_CHARS = 64 * 1024;
 
 export const useMcpStore = create<McpState>()(
   persist(
@@ -194,6 +200,22 @@ export const useMcpStore = create<McpState>()(
           return { connections: { ...s.connections, [id]: { ...c, log: [] } } };
         }),
 
+      appendStderr: (id, text) =>
+        set((s) => {
+          const c = s.connections[id];
+          if (!c || text.length === 0) return s;
+          const stderr = `${c.stderr ?? ''}${text}`.slice(-MAX_STDERR_CHARS);
+          return { connections: { ...s.connections, [id]: { ...c, stderr } } };
+        }),
+
+      clearStderr: (id) =>
+        set((s) => {
+          const c = s.connections[id];
+          if (!c?.stderr) return s;
+          const { stderr: _stderr, ...rest } = c;
+          return { connections: { ...s.connections, [id]: rest } };
+        }),
+
       getActive: () => {
         const { connections, activeConnectionId } = get();
         return activeConnectionId ? (connections[activeConnectionId] ?? null) : null;
@@ -206,7 +228,7 @@ export const useMcpStore = create<McpState>()(
       steps: [],
       partialize: (state) => ({
         connections: Object.fromEntries(
-          Object.entries(state.connections).map(([id, c]) => [
+          Object.entries(state.connections).map(([id, { stderr: _stderr, ...c }]) => [
             id,
             {
               // #896: the browser's IndexedDB is unencrypted — never persist

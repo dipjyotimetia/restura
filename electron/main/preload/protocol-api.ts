@@ -46,6 +46,9 @@ export const protocolApi: ProtocolApi = {
     request: invoke<ElectronAPI['mcp']['request']>(IPC.mcp.request),
     cancel: invoke<ElectronAPI['mcp']['cancel']>(IPC.mcp.cancel),
     disconnect: invoke<ElectronAPI['mcp']['disconnect']>(IPC.mcp.disconnect),
+    revokeStdioApprovals: invoke<ElectronAPI['mcp']['revokeStdioApprovals']>(
+      IPC.mcp.revokeStdioApprovals
+    ),
     respondClientRequest: invoke<ElectronAPI['mcp']['respondClientRequest']>(
       IPC.mcp.clientResponse
     ),

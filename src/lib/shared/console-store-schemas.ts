@@ -32,7 +32,7 @@ export const ConsoleNativeDraftSchema = z.discriminatedUnion('kind', [
     kind: z.literal('mcp'),
     credentialsOmitted: z.literal(true),
     url: z.string(),
-    transport: z.enum(['streamable-http', 'http-sse']),
+    transport: z.enum(['streamable-http', 'http-sse', 'stdio']),
     headers: z.record(z.string(), z.string()),
     method: z.string().optional(),
     params: z.string().optional(),

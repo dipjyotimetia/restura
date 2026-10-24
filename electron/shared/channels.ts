@@ -80,6 +80,8 @@ export const IPC = {
     request: 'mcp:request',
     cancel: 'mcp:cancel',
     disconnect: 'mcp:disconnect',
+    /** Clear every persisted stdio launch approval (narrows privilege only). */
+    revokeStdioApprovals: 'mcp:stdio:revoke-approvals',
     /** Renderer → main answer to a server→client request (elicitation / sampling). */
     clientResponse: 'mcp:client-response',
     /** Replace a connection's roots; sends notifications/roots/list_changed. */
@@ -298,6 +300,8 @@ export const EVENT_PREFIX = {
     notification: 'mcp:notification:',
     error: 'mcp:error:',
     close: 'mcp:close:',
+    /** Bounded stderr text from a stdio server process (desktop only). */
+    stderr: 'mcp:stderr:',
     /** Main → renderer: a server→client request awaiting the user (elicitation / sampling). */
     clientRequest: 'mcp:client-request:',
     /** Main → renderer: a pending client request was cancelled, timed out, or its connection closed. */
