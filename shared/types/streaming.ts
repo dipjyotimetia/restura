@@ -85,6 +85,14 @@ export interface McpResourceDescriptor {
   mimeType?: string;
 }
 
+/** A parameterised resource advertised via `resources/templates/list` (RFC 6570 URI template). */
+export interface McpResourceTemplateDescriptor {
+  uriTemplate: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+}
+
 export interface McpPromptDescriptor {
   name: string;
   description?: string;
@@ -122,9 +130,12 @@ export interface McpServerCapabilities {
     resources?: { listChanged?: boolean; subscribe?: boolean };
     prompts?: { listChanged?: boolean };
     logging?: Record<string, unknown>;
+    completions?: Record<string, unknown>;
   };
   tools: McpToolDescriptor[];
   resources: McpResourceDescriptor[];
+  /** From `resources/templates/list`; absent when the server has no resources capability. */
+  resourceTemplates?: McpResourceTemplateDescriptor[];
   prompts: McpPromptDescriptor[];
 }
 

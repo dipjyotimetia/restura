@@ -6,11 +6,30 @@ import type {
   McpJsonSchema,
   McpPromptDescriptor,
   McpResourceDescriptor,
+  McpResourceTemplateDescriptor,
   McpServerCapabilities,
   McpToolDescriptor,
   McpTransportType,
 } from '@/types';
 import { buildMcpInitializeParams, McpWebSession } from './mcpWebSession';
+
+/** RFC 5424 syslog levels accepted by `logging/setLevel` (MCP 2025-06-18). */
+export const MCP_LOG_LEVELS = [
+  'debug',
+  'info',
+  'notice',
+  'warning',
+  'error',
+  'critical',
+  'alert',
+  'emergency',
+] as const;
+export type McpLogLevel = (typeof MCP_LOG_LEVELS)[number];
+
+/** Reference types for `completion/complete`. */
+export type McpCompletionRef =
+  | { type: 'ref/prompt'; name: string }
+  | { type: 'ref/resource'; uri: string };
 
 /** Result of one JSON-RPC call */
 export interface McpCallResult<T = unknown> {
@@ -47,6 +66,10 @@ interface ToolsListResult {
 }
 interface ResourcesListResult {
   resources?: McpResourceDescriptor[];
+  nextCursor?: string;
+}
+interface ResourceTemplatesListResult {
+  resourceTemplates?: McpResourceTemplateDescriptor[];
   nextCursor?: string;
 }
 interface PromptsListResult {
@@ -307,7 +330,7 @@ export class McpClient {
 
     // Each list paginates sequentially (cursor-driven), but the three run
     // concurrently — same shape as the old single-shot Promise.all.
-    const [tools, resources, prompts] = await Promise.all([
+    const [tools, resources, resourceTemplates, prompts] = await Promise.all([
       wantTools
         ? this.listAll<ToolsListResult, McpToolDescriptor>('tools/list', (r) => ({
             // Same normalizer for desktop (SDK result) and web (Worker JSON-RPC body).
@@ -322,6 +345,13 @@ export class McpClient {
             items: r.resources,
             nextCursor: r.nextCursor,
           }))
+        : [],
+      // Templates belong to the `resources` capability (MCP 2025-06-18).
+      wantResources
+        ? this.listAll<ResourceTemplatesListResult, McpResourceTemplateDescriptor>(
+            'resources/templates/list',
+            (r) => ({ items: r.resourceTemplates, nextCursor: r.nextCursor })
+          )
         : [],
       wantPrompts
         ? this.listAll<PromptsListResult, McpPromptDescriptor>('prompts/list', (r) => ({
@@ -338,6 +368,7 @@ export class McpClient {
       ...(advertised ? { capabilities: advertised } : {}),
       tools,
       resources,
+      resourceTemplates,
       prompts,
     };
   }
@@ -361,6 +392,40 @@ export class McpClient {
 
   unsubscribeResource(uri: string): Promise<McpCall> {
     return this.request('resources/unsubscribe', { uri });
+  }
+
+  /** `ping` — resolves with the round-trip time in `durationMs`. */
+  ping(): Promise<McpCall> {
+    return this.request('ping');
+  }
+
+  /** `logging/setLevel` — only valid when the server advertises `logging`. */
+  setLogLevel(level: McpLogLevel): Promise<McpCall> {
+    return this.request('logging/setLevel', { level });
+  }
+
+  /**
+   * `completion/complete` — argument autocompletion for a prompt or a resource
+   * template. Never throws: a server that rejects the call (or does not
+   * implement it) yields no suggestions.
+   */
+  async complete(
+    ref: McpCompletionRef,
+    argument: { name: string; value: string },
+    contextArguments?: Record<string, string>
+  ): Promise<string[]> {
+    const res = await this.request<{ completion?: { values?: unknown } }>('completion/complete', {
+      ref,
+      argument,
+      ...(contextArguments && Object.keys(contextArguments).length > 0
+        ? { context: { arguments: contextArguments } }
+        : {}),
+    });
+    if (!res.ok) return [];
+    const values = res.result?.completion?.values;
+    return Array.isArray(values)
+      ? values.filter((v): v is string => typeof v === 'string').slice(0, 100)
+      : [];
   }
 
   getPrompt(name: string, args?: Record<string, string>, signal?: AbortSignal): Promise<McpCall> {
