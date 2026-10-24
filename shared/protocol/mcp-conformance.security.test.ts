@@ -279,4 +279,11 @@ describe('markdown injection hardening', () => {
     expect(hashJson({ a: 1 })).not.toBe(hashJson({ a: 2 }));
     expect(sanitizeText('abcdefgh-secret', ['abcdefgh-secret'])).toBe('[redacted]');
   });
+
+  it('does not let an embedded control character smuggle a secret past the scrubber', () => {
+    const secret = 'Bearer-super-secret-token';
+    const split = `${secret.slice(0, 4)}\u0000${secret.slice(4)}`;
+    expect(sanitizeText(`echo ${split}`, [secret])).not.toContain(secret);
+    expect(sanitizeText(`echo ${split}`, [secret])).toContain('[redacted]');
+  });
 });

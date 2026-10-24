@@ -78,7 +78,8 @@ describe('restura mcp conformance', () => {
     expect(deps.out).toEqual([]);
     const [path, data] = deps.files[0] ?? [];
     expect(path).toBe('r.json');
-    expect(JSON.parse(data ?? '{}').summary.errors).toBe(1);
+    // A refused connection says nothing about era support: both eras fail.
+    expect(JSON.parse(data ?? '{}').summary.errors).toBe(2);
   });
 
   it('honours --fail-on', () => {

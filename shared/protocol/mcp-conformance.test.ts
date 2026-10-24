@@ -114,6 +114,37 @@ describe('runMcpConformance', () => {
     expect(r2.summary.errors).toBe(1);
   });
 
+  it('reports a modern-era timeout or auth failure as failed, not unsupported', async () => {
+    const r1 = await runMcpConformance(
+      deps({ legacy: {}, modern: new Error('request timed out after 5000ms') })
+    );
+    expect(r1.eras[1]?.status).toBe('failed');
+    expect(codes(r1)).toContain('era.connect-failed');
+    expect(r1.summary.errors).toBe(1);
+
+    const r2 = await runMcpConformance(deps({ legacy: {}, modern: new Error('HTTP 401') }));
+    expect(r2.eras[1]?.status).toBe('failed');
+  });
+
+  it('does not spread an oversized page into push()', async () => {
+    const big = Array.from({ length: 300_000 }, (_, i) => ({ name: `t${i}` }));
+    const report = await runMcpConformance(deps({ legacy: { tools: big } }), {
+      eras: ['legacy'],
+    });
+    expect(codes(report)).toContain('list.truncated');
+  });
+
+  it('does not report an empty capability object as a divergence from a populated one', async () => {
+    const report = await runMcpConformance(
+      deps({
+        legacy: { capabilities: { tools: {} } },
+        modern: { protocolVersion: '2026-07-28', capabilities: { tools: { listChanged: true } } },
+      })
+    );
+    expect(report.diff?.capabilities.onlyLegacy).toEqual([]);
+    expect(report.diff?.capabilities.onlyModern).toEqual(['tools.listChanged']);
+  });
+
   it('supports a single-era run (web path)', async () => {
     const report = await runMcpConformance(deps({ legacy: { tools: [goodTool] } }), {
       eras: ['legacy'],

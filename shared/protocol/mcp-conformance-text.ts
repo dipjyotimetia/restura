@@ -58,7 +58,10 @@ export function scrubSecrets(text: string, secrets: readonly string[]): string {
 
 /** Full pipeline for any server-derived string stored in a report. */
 export function sanitizeText(text: string, secrets: readonly string[] = [], max = MAX_TEXT) {
-  return clipText(stripControl(scrubSecrets(text, secrets)), max);
+  // Strip control characters BEFORE scrubbing: otherwise a server can echo a
+  // secret with an embedded control char, dodge the exact match, and have it
+  // reassembled by the strip.
+  return clipText(scrubSecrets(stripControl(text), secrets), max);
 }
 
 /** Escape Markdown metacharacters in an untrusted inline string. */

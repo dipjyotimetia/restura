@@ -68,7 +68,7 @@ describe('mcp:conformance bounds and cleanup', () => {
     const res = await run(event(1));
     expect(res.success).toBe(true);
     const report = res.report as { eras: Array<{ era: string; status: string }> };
-    expect(report.eras.map((e) => e.status)).toEqual(['failed', 'unsupported']);
+    expect(report.eras.map((e) => e.status)).toEqual(['failed', 'failed']);
     expect(close).toHaveBeenCalled();
 
     // The renderer slot was released: a second run is accepted, not rejected as in-progress.

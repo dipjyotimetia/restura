@@ -89,6 +89,7 @@ describe('McpClient web (Worker proxy) paths', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(json({ ok: true, sessionId: 'sess-1', jsonRpc: { result: {} } }))
+      .mockResolvedValueOnce(json({ ok: true, accepted: true })) // notifications/initialized
       .mockResolvedValueOnce(json({ ok: true, jsonRpc: { result: 1 } }))
       .mockResolvedValueOnce(json({ error: 'upstream 502' }, 502))
       .mockResolvedValueOnce(json({}, 500))
@@ -97,7 +98,7 @@ describe('McpClient web (Worker proxy) paths', () => {
     const c = make();
     await c.request('initialize', { a: 1 }, 1234);
     await c.request('ping');
-    const second = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    const second = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
     expect(second.sessionId).toBe('sess-1');
     const first = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(first.timeout).toBe(1234);
@@ -124,7 +125,12 @@ describe('McpClient web (Worker proxy) paths', () => {
     const methods = fetchMock.mock.calls.map(
       (c) => (JSON.parse(String(c[1]?.body)) as { jsonRpc: { method: string } }).jsonRpc.method
     );
-    expect(methods).toEqual(['initialize', 'resources/list']);
+    expect(methods).toEqual([
+      'initialize',
+      'notifications/initialized',
+      'resources/list',
+      'resources/templates/list',
+    ]);
 
     vi.stubGlobal('fetch', async () => json({ error: 'bad' }, 500));
     expect(await make().discoverCapabilities()).toEqual({ error: 'bad' });
@@ -155,7 +161,8 @@ describe('McpClient web (Worker proxy) paths', () => {
       protocolVersion: '2025-06-18',
     });
     expect('capabilities' in caps).toBe(false);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // initialize + notifications/initialized + tools/resources/templates/prompts lists
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     vi.unstubAllGlobals();
   });
 

@@ -9,7 +9,7 @@ import type { McpTransportType } from '@/types';
 
 export interface McpConformanceRunInput {
   url: string;
-  transport: McpTransportType;
+  transport: Exclude<McpTransportType, 'stdio'>;
   /** Variable-resolved headers. */
   headers: Record<string, string>;
   sampleCalls: McpSampleCallMode;

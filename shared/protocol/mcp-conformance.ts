@@ -127,6 +127,17 @@ const VERSION_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 type Add = (severity: McpFindingSeverity, code: string, message: string, subject?: string) => void;
 
+/** Connection problems that say nothing about protocol-era support. */
+function isNonNegotiationFailure(err: unknown, signal: AbortSignal | undefined): boolean {
+  if (signal?.aborted) return true;
+  const text = `${errMessage(err)} ${
+    err instanceof Error && err.cause ? errMessage(err.cause) : ''
+  }`;
+  return /time(d)? ?out|abort|ECONN|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ETIMEDOUT|fetch failed|network|socket|refused|\b(401|403|407|429)\b|unauthori[sz]ed|forbidden|certificate/i.test(
+    text
+  );
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -266,9 +277,11 @@ async function listAll(
       add('error', 'list.malformed', `${method} result is missing the "${key}" array`, method);
       return items;
     }
-    items.push(...arr);
+    // Never spread a server-controlled array into push(): a huge page throws RangeError.
+    const room = MAX_LIST_ITEMS - items.length;
+    for (let i = 0; i < arr.length && i < room; i++) items.push(arr[i]);
     if (items.length >= MAX_LIST_ITEMS) {
-      if (items.length > MAX_LIST_ITEMS || res.nextCursor) {
+      if (arr.length > room || res.nextCursor) {
         add(
           'warning',
           'list.truncated',
@@ -276,7 +289,7 @@ async function listAll(
           method
         );
       }
-      return items.slice(0, MAX_LIST_ITEMS);
+      return items;
     }
     const next = res.nextCursor;
     if (next === undefined || next === null) return items;
@@ -530,7 +543,9 @@ async function runEra(
   } catch (err) {
     // A server that only speaks the other era is legitimate; only a legacy
     // failure (the baseline every client must support) is a violation.
-    const modern = era === 'modern';
+    // Only a genuine negotiation refusal means "modern era unsupported"; a
+    // timeout, network error, auth rejection or aborted run is a failure.
+    const modern = era === 'modern' && !isNonNegotiationFailure(err, opts.signal);
     result.status = modern ? 'unsupported' : 'failed';
     result.error = sanitizeText(errMessage(err), opts.secrets, MAX_ERROR_TEXT);
     add(

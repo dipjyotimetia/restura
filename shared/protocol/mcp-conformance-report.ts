@@ -34,9 +34,15 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** Flatten nested capability objects to dotted leaf paths -> value. */
+/**
+ * Flatten nested capability objects to dotted paths -> value. Every object node
+ * is emitted as a presence marker too, so `tools: {}` in one era and
+ * `tools: { listChanged: true }` in the other both contain the `tools` key and
+ * only the real difference (`tools.listChanged`) is reported.
+ */
 function flatten(value: unknown, prefix = '', out: Record<string, unknown> = {}) {
-  if (isRecord(value) && Object.keys(value).length > 0) {
+  if (isRecord(value)) {
+    if (prefix) out[prefix] = '{}';
     for (const [k, v] of Object.entries(value)) flatten(v, prefix ? `${prefix}.${k}` : k, out);
   } else if (prefix) {
     out[prefix] = value;

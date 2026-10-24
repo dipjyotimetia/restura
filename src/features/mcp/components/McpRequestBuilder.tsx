@@ -262,7 +262,8 @@ export default function McpRequestBuilder() {
     });
     return {
       url: resolveVariables(request.url),
-      transport: request.transport,
+      // stdio has no URL, so the Conformance action is disabled for it.
+      transport: request.transport === 'stdio' ? ('streamable-http' as const) : request.transport,
       headers: endpointAuth.ok ? endpointAuth.headers : headers,
     };
   };

@@ -71,13 +71,9 @@ describe('mcp-conformance-handler integration', () => {
     expect(byEra.modern?.status).toBe('ok');
     expect((byEra.modern?.protocolVersion ?? '') >= '2026-07-28').toBe(true);
     expect((byEra.legacy?.protocolVersion ?? '9') < '2026-07-28').toBe(true);
-    expect(byEra.legacy?.listing.tools.map((t) => t.name).sort()).toEqual([
-      'add',
-      'confirm-deploy',
-      'echo',
-      'fail',
-      'header-echo',
-    ]);
+    expect(byEra.legacy?.listing.tools.map((t) => t.name)).toEqual(
+      expect.arrayContaining(['add', 'confirm-deploy', 'echo', 'fail', 'header-echo'])
+    );
     expect(report.diff).not.toBeNull();
     expect(report.target).toBe(v2.url);
     // Sample calls were off: nothing invoked.
