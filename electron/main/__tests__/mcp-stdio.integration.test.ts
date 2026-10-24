@@ -252,13 +252,14 @@ describe('MCP stdio transport (real process)', () => {
     });
     const pid = Number(await callText(event, 's-reload', 'pid'));
     // createHashRouter: same-document navigations keep the page (and its sessions).
-    event.sender.emit('did-start-navigation', { isMainFrame: true, isSameDocument: true });
-    event.sender.emit('did-start-navigation', { isMainFrame: false, isSameDocument: false });
+    event.sender.emit('did-navigate-in-page', {}, 'file:///app/index.html#/mcp', true);
+    // A navigation the will-navigate guard blocks starts but never commits.
+    event.sender.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
     expect(await callText(event, 's-reload', 'pid')).toBe(String(pid));
     expect(liveStdioChildCount()).toBe(1);
 
     // View → Reload keeps the webContents but replaces the document.
-    event.sender.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    event.sender.emit('did-navigate', {}, 'file:///app/dist/web/index.html', 200, 'OK');
     expect(await waitUntilGone(pid)).toBe(true);
     await vi.waitFor(() => expect(liveStdioChildCount()).toBe(0));
     const after = await handlerFor('mcp:request')(event, {

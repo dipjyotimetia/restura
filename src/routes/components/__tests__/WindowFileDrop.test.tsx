@@ -49,3 +49,31 @@ describe('WindowFileDrop', () => {
     expect(screen.queryByText(/Drop to import/)).toBeNull();
   });
 });
+
+describe('WindowFileDrop — non-file drops', () => {
+  it('cancels a dropped link so the window never tries to navigate to it', () => {
+    const onFile = vi.fn();
+    render(<WindowFileDrop onFile={onFile} />);
+    const over = dragEvent('dragover', { types: ['text/uri-list', 'text/plain'] });
+    window.dispatchEvent(over);
+    expect(over.defaultPrevented).toBe(true);
+    const drop = dragEvent('drop', { types: ['text/uri-list', 'text/plain'] });
+    window.dispatchEvent(drop);
+    expect(drop.defaultPrevented).toBe(true);
+    expect(onFile).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Drop to import/)).toBeNull();
+  });
+
+  it('leaves text/link drops into editable fields to the browser', () => {
+    render(<WindowFileDrop onFile={vi.fn()} />);
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    const over = dragEvent('dragover', { types: ['text/uri-list', 'text/plain'] });
+    input.dispatchEvent(over);
+    const drop = dragEvent('drop', { types: ['text/uri-list', 'text/plain'] });
+    input.dispatchEvent(drop);
+    expect(over.defaultPrevented).toBe(false);
+    expect(drop.defaultPrevented).toBe(false);
+    input.remove();
+  });
+});
