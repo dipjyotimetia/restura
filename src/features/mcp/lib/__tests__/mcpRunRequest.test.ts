@@ -73,7 +73,7 @@ describe('runMcpRequest', () => {
     expect(opts.cacheKey).not.toContain('x-off');
   });
 
-  it('applies Bearer auth as a header and keys the session by it', async () => {
+  it('resolves {{vars}} in Bearer auth (one auth path) and keys the session by it', async () => {
     const runJsonRpc = vi.fn<McpRunJsonRpc>().mockResolvedValue({ ok: true, result: {} });
     const pool = new Map<string, Promise<McpClient>>();
     await runMcpRequest(
@@ -82,10 +82,12 @@ describe('runMcpRequest', () => {
       runJsonRpc
     );
     const [sent, , opts] = runJsonRpc.mock.calls[0]!;
-    expect((sent as McpRequest).headers).toContainEqual(
-      expect.objectContaining({ key: 'Authorization', value: 'Bearer tok-val', enabled: true })
-    );
+    // The resolved auth rides the request; runJsonRpc applies it through
+    // buildMcpConnectAuth (no pre-folded header to be overwritten).
+    expect((sent as McpRequest).auth).toEqual({ type: 'bearer', bearer: { token: 'tok-val' } });
+    expect((sent as McpRequest).headers.some((h) => h.key === 'Authorization')).toBe(false);
     expect(opts.cacheKey).toContain('authorization');
+    expect(opts.cacheKey).toContain('Bearer tok-val');
   });
 
   it('evicts and disconnects a pooled client after a transport failure, not a replacement', async () => {
