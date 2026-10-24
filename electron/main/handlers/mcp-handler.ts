@@ -60,7 +60,13 @@ const log = createLogger('mcp');
  * renderer lifecycle cleanup.
  */
 
+/** Connect / conformance / approval-revoke budget (each can open a connection or prompt). */
 export const mcpRateLimiter = createKeyedRateLimiter(60, 60_000);
+/**
+ * `mcp:request` budget, kept separate from {@link mcpRateLimiter} so collection
+ * runs (many requests per minute) can never starve connects, and vice versa.
+ */
+export const mcpRequestRateLimiter = createKeyedRateLimiter(600, 60_000);
 /** Separate, generous budget so an exhausted request limiter can never block a cancel. */
 export const mcpCancelRateLimiter = createKeyedRateLimiter(600, 60_000);
 const MAX_CONCURRENT_MCP = 20;
@@ -452,7 +458,7 @@ export function registerMcpHandlerIPC(): void {
   ipcMain.handle(
     IPC.mcp.request,
     rateLimited(
-      mcpRateLimiter,
+      mcpRequestRateLimiter,
       createValidatedEventHandler(IPC.mcp.request, McpRequestSchema, async (config, event) => {
         const session = sessions.getForOwner(config.connectionId, event.sender.id);
         if (!session?.client) {
@@ -613,6 +619,9 @@ async function connectStdio(
       redact: (text) => text,
       scrub: (value) => value,
       disposed: false,
+      // Same owner-bound server→client bridge as HTTP sessions (#860): roots,
+      // elicitation and sampling all reach only this renderer, with consent.
+      clientRequests: new McpClientRequestBridge(config.connectionId, webContentsId),
       inflight: new Map(),
     };
     const result = await connectStdioSdkClient({
@@ -631,7 +640,11 @@ async function connectStdio(
       removeLive: () => sessions.remove(config.connectionId, webContentsId),
       log,
     });
-    if (!result.ok) return { success: false, error: result.error };
+    if (!result.ok) {
+      // Early exits (denied consent, unknown secret, …) never reach a teardown.
+      session.clientRequests?.dispose();
+      return { success: false, error: result.error };
+    }
 
     const claimed =
       isCurrentClaim() &&
@@ -661,6 +674,8 @@ export function stopMcpCleanup(): Promise<void> {
   }
   pendingSessions.clear();
   sessions.disposeAll();
-  return terminateAllStdioChildren();
+  // Before the (async) child termination: reject parked prompts and forget
+  // stored roots synchronously, so nothing survives a module stop.
   stopMcpClientRequests();
+  return terminateAllStdioChildren();
 }
