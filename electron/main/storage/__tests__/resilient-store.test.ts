@@ -53,6 +53,9 @@ describe('createResilientStore', () => {
     const files = backups('p');
     expect(files).toHaveLength(1);
     expect(fs.readFileSync(path.join(dir, files[0] as string), 'utf8')).toBe('{ not json');
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(path.join(dir, files[0] as string)).mode & 0o777).toBe(0o600);
+    }
     s.set('x', 1);
     expect(s.get('x')).toBe(1);
   });
