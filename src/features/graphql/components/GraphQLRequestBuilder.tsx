@@ -111,7 +111,7 @@ function GraphQLRequestBuilder() {
   );
   const schemaLoading = useGraphQLSchemaStore((s) => (url ? (s.loading[url] ?? false) : false));
   const { run: runViaRegistry, abort: abortRun } = useRequestRunner();
-  const [activeTab, setActiveTab] = useState<TabValue>('query');
+  const [selectedTab, setActiveTab] = useState<TabValue>('query');
   // Schema explorer is hidden by default so the query editor gets the full
   // builder width (side-by-side leaves the pane narrow); the URL-bar toggle
   // reveals it on demand, matching the gRPC/MCP catalog pattern.
@@ -139,6 +139,10 @@ function GraphQLRequestBuilder() {
   // Operation + transport come from the AST of the selected operation (#903).
   const operationState = resolveGraphQLOperationState(query, httpRequest.body.graphqlOperationName);
   const { operationType, isSubscription } = operationState;
+  // The Messages tab only exists for subscriptions; fall back to the editor if
+  // the selected operation stops being one while it is active.
+  const activeTab: TabValue =
+    selectedTab === 'subscription' && !isSubscription ? 'query' : selectedTab;
 
   const activeHeaderCount = httpRequest.headers.filter((h) => h.enabled && h.key).length;
   const detectedVarCount = (() => {
