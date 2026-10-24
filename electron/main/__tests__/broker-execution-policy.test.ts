@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   resolveKafkaExecutionPolicy,
   resolveMqttExecutionPolicy,
+  resolveSchemaRegistryExecutionPolicy,
 } from '../security/broker-execution-policy';
 import { setExecutionPolicy } from '../security/execution-policy';
 
@@ -109,5 +110,74 @@ describe('broker execution policy', () => {
         usesTls: true,
       })
     ).toThrow(/Kafka client cannot honor the configured SOCKS5 proxy/);
+  });
+
+  describe('schema registry', () => {
+    const noProxy = { enabled: false, type: 'http' as const, host: '', port: 8080, bypassList: [] };
+
+    it('applies host-selected CA, mTLS and the verify toggle to HTTPS registries', () => {
+      setExecutionPolicy({
+        security: { allowLocalhost: true, allowPrivateIPs: false },
+        proxy: noProxy,
+        timeout: 12_000,
+        tls: { verifySsl: false, serverCipherOrder: false, minTlsVersion: 'TLSv1.2' },
+        certificates: {
+          clientCert: globalClientCert,
+          caCert: { pem: 'GLOBAL-CA' },
+          clientCertificates: [
+            { id: 'reg-client', host: 'registry.example.test', cert: hostClientCert },
+          ],
+          caCertificates: [{ id: 'reg-ca', host: 'registry.example.test', pem: 'REGISTRY-CA' }],
+        },
+      });
+      const resolved = resolveSchemaRegistryExecutionPolicy('https://registry.example.test:8081');
+      expect(resolved.timeout).toBe(12_000);
+      expect(resolved.tls).toMatchObject({
+        ca: 'REGISTRY-CA',
+        pfx: expect.any(Buffer),
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2',
+      });
+    });
+
+    it('falls back to global TLS material and verifies by default', () => {
+      setExecutionPolicy({
+        security: { allowLocalhost: true, allowPrivateIPs: false },
+        proxy: noProxy,
+        timeout: 30_000,
+        tls: { verifySsl: true, serverCipherOrder: false },
+        certificates: {
+          clientCert: globalClientCert,
+          caCert: { pem: 'GLOBAL-CA' },
+          clientCertificates: [],
+          caCertificates: [],
+        },
+      });
+      expect(resolveSchemaRegistryExecutionPolicy('https://other.example.test').tls).toEqual({
+        cert: 'GLOBAL-CERT',
+        key: 'GLOBAL-KEY',
+        ca: 'GLOBAL-CA',
+        rejectUnauthorized: true,
+      });
+    });
+
+    it('omits TLS material for plain HTTP registries', () => {
+      setExecutionPolicy({
+        security: { allowLocalhost: true, allowPrivateIPs: false },
+        proxy: noProxy,
+        timeout: 30_000,
+        tls: { verifySsl: true, serverCipherOrder: false },
+        certificates: { clientCertificates: [], caCertificates: [] },
+      });
+      expect(resolveSchemaRegistryExecutionPolicy('http://localhost:8081')).toEqual({
+        timeout: 30_000,
+      });
+    });
+
+    it('fails closed when a proxy applies to the registry host', () => {
+      expect(() => resolveSchemaRegistryExecutionPolicy('https://registry.example.test')).toThrow(
+        /Schema Registry client cannot honor the configured SOCKS5 proxy/
+      );
+    });
   });
 });

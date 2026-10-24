@@ -348,13 +348,37 @@ export type KafkaAuthIpc =
   | { securityProtocol: 'SSL'; tls: KafkaTlsIpc };
 
 /**
- * Confluent Schema Registry config (resolved plaintext auth — secrets are
- * resolved main-side by kafkaManager before the IPC call). When present, the
- * consumer decodes Avro/Protobuf/JSON Schema messages via the registry.
+ * Confluent Schema Registry config. Basic auth arrives as resolved plaintext
+ * (kafkaManager resolves secureStorage sentinels); a bearer token is a
+ * SecretValue — keychain handles / external refs are resolved only in main.
+ * Registry HTTPS uses the execution policy's TLS selection (CA, mTLS, verify).
  */
+export type KafkaRegistryAuthIpc =
+  | { type?: 'basic'; username?: string; password?: string }
+  | { type: 'bearer'; token: ProtocolSecretValue };
+
 export interface KafkaRegistryIpc {
   url: string;
-  auth?: { username?: string; password?: string };
+  auth?: KafkaRegistryAuthIpc;
+}
+
+export type KafkaRegistryVersionIpc = number | 'latest';
+export type KafkaRegistrySchemaType = 'AVRO' | 'JSON' | 'PROTOBUF';
+
+export interface KafkaRegistrySchemaIpc {
+  id: number;
+  subject: string;
+  version: number;
+  schemaType: KafkaRegistrySchemaType;
+  schema: string;
+  references: { name: string; subject: string; version: number }[];
+}
+
+/** Registry schema that decoded a consumed field (subject/version when resolvable). */
+export interface KafkaSchemaRefIpc {
+  id: number;
+  subject?: string;
+  version?: number;
 }
 
 export interface KafkaAck {
@@ -371,6 +395,7 @@ export type KafkaDataFieldIpc =
 export type KafkaRecordFieldIpc =
   | KafkaDataFieldIpc
   | { encoding: 'schema'; schemaId: number; data: string }
+  | { encoding: 'schema'; subject: string; version: KafkaRegistryVersionIpc; data: string }
   | { encoding: 'null' };
 
 export interface KafkaRecordIpc {
@@ -696,6 +721,19 @@ export interface ElectronKafkaAPI {
     validateOnly: boolean;
     confirmation?: string;
   }) => Promise<{ success: boolean; results?: unknown[]; error?: string }>;
+  // Schema Registry browsing (subject picker / schema viewer).
+  registryListSubjects: (config: {
+    connectionId: string;
+  }) => Promise<{ success: boolean; subjects?: string[]; error?: string }>;
+  registryListVersions: (config: {
+    connectionId: string;
+    subject: string;
+  }) => Promise<{ success: boolean; versions?: number[]; error?: string }>;
+  registryGetSchema: (config: {
+    connectionId: string;
+    subject: string;
+    version: KafkaRegistryVersionIpc;
+  }) => Promise<{ success: boolean; schema?: KafkaRegistrySchemaIpc; error?: string }>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeAllListeners: (channel: string) => void;

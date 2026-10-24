@@ -2,6 +2,8 @@
 // sub-components (KafkaTopicInspector / KafkaGroupInspector) so per-partition
 // coloring and the accent stay consistent across the feature.
 
+import type { KafkaSchemaRef } from '../store/useKafkaStore';
+
 export const KAFKA_PINK = 'var(--color-proto-kafka)';
 
 // Rotated palette for per-partition pills + PART columns.
@@ -17,4 +19,12 @@ export const PARTITION_COLORS = [
 export function partitionColor(p: number | undefined): string {
   if (p === undefined || p < 0) return 'var(--color-neutral)';
   return PARTITION_COLORS[p % PARTITION_COLORS.length] ?? 'var(--color-neutral)';
+}
+
+/** " · Schema 12 (orders-value v3)" suffix for a registry-decoded field label. */
+export function schemaLabel(ref: KafkaSchemaRef | undefined): string {
+  if (!ref) return '';
+  if (!ref.subject) return ` · Schema ${ref.id}`;
+  const version = ref.version !== undefined ? ` v${ref.version}` : '';
+  return ` · Schema ${ref.id} (${ref.subject}${version})`;
 }

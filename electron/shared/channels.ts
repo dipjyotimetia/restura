@@ -119,6 +119,9 @@ export const IPC = {
     deleteAcls: 'kafka:delete-acls',
     describeQuotas: 'kafka:describe-quotas',
     alterQuotas: 'kafka:alter-quotas',
+    registryListSubjects: 'kafka:registry-list-subjects',
+    registryListVersions: 'kafka:registry-list-versions',
+    registryGetSchema: 'kafka:registry-get-schema',
   },
   mqtt: {
     connect: 'mqtt:connect',

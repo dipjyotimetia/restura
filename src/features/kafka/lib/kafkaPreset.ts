@@ -31,6 +31,7 @@ const SECRET_FIELDS: readonly KafkaSecretField[] = [
   'oauth-token',
   'tls-passphrase',
   'registry-password',
+  'registry-token',
 ];
 
 /** Secure-storage scope that holds a saved preset's credentials. */
@@ -209,6 +210,9 @@ export async function storeKafkaPresetSecrets(
     'oauth-token': sasl?.mechanism === 'OAUTHBEARER' ? sasl.token : undefined,
     'tls-passphrase': conn.auth.tls?.passphrase,
     'registry-password': conn.registry?.auth?.password,
+    // Handles / external refs are references, not plaintext — only strings are stored.
+    'registry-token':
+      typeof conn.registry?.bearerToken === 'string' ? conn.registry.bearerToken : undefined,
   };
   for (const field of SECRET_FIELDS) {
     const value = await heldSecret(conn.id, field, fieldValue[field]);
@@ -251,7 +255,11 @@ export function applyKafkaPresetSecrets(connectionId: string, secrets: KafkaPres
     auth.tls = { ...auth.tls, passphrase: KAFKA_SECRET_SENTINEL };
   }
   store.updateAuth(connectionId, auth);
-  if (conn.registry && secrets['registry-password']) {
+  if (conn.registry && secrets['registry-token']) {
+    store.updateConnection(connectionId, {
+      registry: { ...conn.registry, bearerToken: KAFKA_SECRET_SENTINEL },
+    });
+  } else if (conn.registry && secrets['registry-password']) {
     store.updateConnection(connectionId, {
       registry: {
         ...conn.registry,

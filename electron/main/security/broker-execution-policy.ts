@@ -125,3 +125,28 @@ export function resolveKafkaExecutionPolicy<T extends KafkaPolicyInput>(
     ...(config.usesTls ? { tls: selectedTls(url, config.tls) } : {}),
   };
 }
+
+/**
+ * Folds acknowledged global policy into a Confluent Schema Registry HTTP(S)
+ * client. HTTPS registries get the same host-selected TLS material as broker
+ * connections (custom CA, mTLS client cert, verify toggle, cipher/min-version).
+ * Like the Kafka brokers it serves, the registry client has no proxy hook, so
+ * an active proxy for the registry host fails closed instead of bypassing it.
+ */
+export function resolveSchemaRegistryExecutionPolicy(registryUrl: string): {
+  timeout: number;
+  tls?: BrokerTlsOptions;
+} {
+  assertExecutionPolicyReady();
+  const url = new URL(registryUrl);
+  const proxy = getActiveProxy(url);
+  if (proxy) {
+    throw new Error(
+      `Schema Registry client cannot honor the configured ${proxy.type.toUpperCase()} proxy`
+    );
+  }
+  return {
+    timeout: getExecutionPolicy().timeout,
+    ...(url.protocol === 'https:' ? { tls: selectedTls(url) } : {}),
+  };
+}

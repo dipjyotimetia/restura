@@ -1,3 +1,4 @@
+import { isExternalSecretRef, isSecretHandle } from '@shared/secrets/secret-ref';
 import { Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,7 +14,9 @@ import {
 import { Floater } from '@/components/ui/spatial';
 import { Switch } from '@/components/ui/switch';
 import { TabsContent } from '@/components/ui/tabs';
+import SecretInput from '@/features/auth/components/SecretInput';
 import type { KafkaConnectionFormController } from '../hooks/useKafkaConnection';
+import { registryTransportWarning } from '../lib/registryTransport';
 import type {
   KafkaConnection,
   KafkaSaslMechanism,
@@ -52,12 +55,17 @@ export function KafkaConnectionForm({ connection, controller }: KafkaConnectionF
     setTlsPassphraseDraft,
     registryPasswordDraft,
     setRegistryPasswordDraft,
+    registryTokenDraft,
+    setRegistryTokenDraft,
     patchRegistry,
     addBroker,
     removeBroker,
     pickTlsFile,
     setSecurityProtocol,
   } = controller;
+  const registryWarning = connection.registry
+    ? registryTransportWarning(connection.registry)
+    : null;
 
   return (
     <TabsContent value="connection" className="flex-1 overflow-auto m-0">
@@ -252,29 +260,86 @@ export function KafkaConnectionForm({ connection, controller }: KafkaConnectionF
                 placeholder="https://schema-registry:8081"
                 className="h-8 text-xs font-mono"
               />
-              <Input
-                value={connection.registry.auth?.username ?? ''}
-                onChange={(event) =>
-                  patchRegistry({
-                    auth: { ...(connection.registry!.auth ?? {}), username: event.target.value },
-                  })
-                }
-                placeholder="Username (optional)"
-                className="h-8 text-xs font-mono"
-              />
-              <Input
-                type="password"
-                value={registryPasswordDraft}
-                onChange={(event) => setRegistryPasswordDraft(event.target.value)}
-                placeholder={
-                  connection.registry.auth?.password === KAFKA_SECRET_SENTINEL
-                    ? 'Password (stored — leave blank to keep)'
-                    : 'Password (optional)'
-                }
-                className="h-8 text-xs font-mono"
-              />
+              <Select
+                value={connection.registry.authType ?? 'basic'}
+                onValueChange={(value) => patchRegistry({ authType: value as 'basic' | 'bearer' })}
+              >
+                <SelectTrigger aria-label="Schema Registry auth" className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="basic">HTTP Basic</SelectItem>
+                  <SelectItem value="bearer">Bearer token</SelectItem>
+                </SelectContent>
+              </Select>
+              {connection.registry.authType === 'bearer' ? (
+                <SecretInput
+                  id="kafka-registry-bearer"
+                  value={
+                    isSecretHandle(connection.registry.bearerToken) ||
+                    isExternalSecretRef(connection.registry.bearerToken)
+                      ? connection.registry.bearerToken
+                      : registryTokenDraft
+                  }
+                  onChange={(next) => {
+                    if (isSecretHandle(next) || isExternalSecretRef(next)) {
+                      patchRegistry({ bearerToken: next });
+                      setRegistryTokenDraft('');
+                      return;
+                    }
+                    setRegistryTokenDraft(typeof next === 'string' ? next : next.value);
+                    const stored = connection.registry!.bearerToken;
+                    if (isSecretHandle(stored) || isExternalSecretRef(stored)) {
+                      patchRegistry({ bearerToken: undefined });
+                    }
+                  }}
+                  placeholder={
+                    connection.registry.bearerToken === KAFKA_SECRET_SENTINEL
+                      ? 'Token (stored — leave blank to keep)'
+                      : 'Bearer token'
+                  }
+                  storageLabel={`${connection.name} / schema registry token`}
+                  scope="kafka"
+                  className="text-xs"
+                />
+              ) : (
+                <>
+                  <Input
+                    value={connection.registry.auth?.username ?? ''}
+                    onChange={(event) =>
+                      patchRegistry({
+                        auth: {
+                          ...(connection.registry!.auth ?? {}),
+                          username: event.target.value,
+                        },
+                      })
+                    }
+                    placeholder="Username (optional)"
+                    className="h-8 text-xs font-mono"
+                  />
+                  <Input
+                    type="password"
+                    value={registryPasswordDraft}
+                    onChange={(event) => setRegistryPasswordDraft(event.target.value)}
+                    placeholder={
+                      connection.registry.auth?.password === KAFKA_SECRET_SENTINEL
+                        ? 'Password (stored — leave blank to keep)'
+                        : 'Password (optional)'
+                    }
+                    className="h-8 text-xs font-mono"
+                  />
+                </>
+              )}
+              {registryWarning && (
+                <p role="alert" className="text-xs text-[var(--color-warning)]">
+                  {registryWarning}
+                </p>
+              )}
               <p className="text-sp-11 text-sp-muted">
-                Decodes Avro / Protobuf / JSON messages on consume.
+                Decodes Avro / Protobuf / JSON messages on consume and enables subject-based
+                produce. HTTPS honours Settings → Certificates (custom CA, client certificate) and
+                the TLS verification setting for the registry host. Credentials are resolved when
+                you connect — reconnect after rotating a stored token.
               </p>
             </>
           )}

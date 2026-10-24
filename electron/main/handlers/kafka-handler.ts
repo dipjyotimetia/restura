@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import type * as SchemaRegistryLib from '@kafkajs/confluent-schema-registry';
 import type * as KafkaLib from '@platformatic/kafka';
 import { createLogger } from '@shared/runtime/logger';
 import type { WebContents } from 'electron';
@@ -38,10 +37,11 @@ import {
   type KafkaProducerEntry,
   registerKafkaProducerHandlers,
 } from './kafka/producer-handlers';
+import { createKafkaRegistryClient, type KafkaRegistryClient } from './kafka/registry';
+import { registerKafkaRegistryHandlers } from './kafka/registry-handlers';
 import { decodeDisplayField, headersFromMap } from './kafka-serde';
 
 const log = createLogger('kafka');
-type SchemaRegistry = SchemaRegistryLib.SchemaRegistry;
 type Consumer<K, V, HK, HV> = KafkaLib.Consumer<K, V, HK, HV>;
 type ConsumerOptions<K, V, HK, HV> = KafkaLib.ConsumerOptions<K, V, HK, HV>;
 type Message<K, V, HK, HV> = KafkaLib.Message<K, V, HK, HV>;
@@ -56,9 +56,6 @@ const getKafka = (): typeof KafkaLib => (_kafka ??= require('@platformatic/kafka
 export function __setKafkaForTests(lib: typeof KafkaLib | undefined): void {
   _kafka = lib;
 }
-let _schemaRegistryLib: typeof SchemaRegistryLib | undefined;
-const getSchemaRegistryLib = (): typeof SchemaRegistryLib =>
-  (_schemaRegistryLib ??= require('@kafkajs/confluent-schema-registry'));
 
 const rawSerializer = (data: Buffer | undefined): Buffer | undefined => data;
 const rawDeserializer = (data: Buffer): Buffer | undefined =>
@@ -78,7 +75,6 @@ interface ActiveKafka extends KafkaProducerEntry {
   /** Producer-only option; the shared client options also feed Consumer/Admin. */
   idempotent: boolean;
   transactionalId?: string;
-  registry?: SchemaRegistry;
   /** Serializes async decode/emission in arrival order. */
   emitChain: Promise<void>;
   pendingCommits: Map<string, AppMessage>;
@@ -188,6 +184,7 @@ async function closeConnection(entry: ActiveKafka): Promise<void> {
   } catch {
     /* ignore */
   }
+  entry.registry?.close();
 }
 
 async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise<void> {
@@ -212,8 +209,10 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
     partition: msg.partition,
     offset: msg.offset.toString(),
     ...(key ? { key: key.value, keyEncoding: key.encoding } : {}),
+    ...(key?.schema ? { keySchema: key.schema } : {}),
     value: value.value,
     valueEncoding: value.encoding,
+    ...(value.schema ? { valueSchema: value.schema } : {}),
     ...(msg.value == null ? { tombstone: true } : {}),
     headers: headersFromMap(msg.headers),
     binaryHeaders: Array.from(msg.headers ?? [], ([headerKey, headerValue]) => ({
@@ -283,6 +282,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     const claim = reserveKafkaClaim(connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
     const key = ownerScopedKey(connectionId, webContentsId);
+    let registry: KafkaRegistryClient | undefined; // closed in finally unless an entry owns it
     try {
       if (claim.ownerEntry) {
         const existing = claim.ownerEntry;
@@ -321,17 +321,9 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         const clientOptions = buildClientOptions(cfg);
         const kafka = getKafka();
 
-        // Registry encodes/decodes both fields; IPC accepts HTTP Basic only.
-        let registry: SchemaRegistry | undefined;
-        if (cfg.registry) {
-          const auth = cfg.registry.auth;
-          registry = new (getSchemaRegistryLib().SchemaRegistry)({
-            host: cfg.registry.url,
-            ...(auth?.username
-              ? { auth: { username: auth.username, password: auth.password ?? '' } }
-              : {}),
-          });
-        }
+        // Registry encodes/decodes both fields over a TLS-policy, SSRF-guarded agent.
+        const security = getExecutionPolicy().security;
+        registry = cfg.registry && (await createKafkaRegistryClient(cfg.registry, security));
 
         // Registry payloads are encoded here; plain strings are UTF-8 encoded.
         const producerOptions = {
@@ -382,6 +374,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           return { success: false, error: 'Not connected' };
         }
         claim.pendingProducer = undefined;
+        registry = undefined;
 
         emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId), {
           timestamp: Date.now(),
@@ -405,6 +398,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         return { success: false, error: msg };
       }
     } finally {
+      registry?.close();
       releaseKafkaClaim(connectionId, claim);
     }
   });
@@ -670,11 +664,10 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     })
   );
 
-  registerKafkaAdminHandlers({
-    getEntry: (connectionId, ownerId) => activeConnections.getForOwner(connectionId, ownerId),
-    getKafka,
-    rateLimiter: kafkaRateLimiter,
-  });
+  const getEntry = (connectionId: string, ownerId: number) =>
+    activeConnections.getForOwner(connectionId, ownerId);
+  registerKafkaAdminHandlers({ getEntry, getKafka, rateLimiter: kafkaRateLimiter });
+  registerKafkaRegistryHandlers({ getEntry, rateLimiter: kafkaRateLimiter });
 }
 
 export async function stopKafkaCleanup(): Promise<void> {

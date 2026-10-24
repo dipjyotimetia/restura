@@ -10,6 +10,8 @@ export type KafkaPayloadEncoding = 'utf8' | 'base64';
 export interface KafkaDisplayField {
   value: string;
   encoding: KafkaPayloadEncoding;
+  /** Registry schema that decoded the field (id, plus subject/version when known). */
+  schema?: { id: number; subject?: string; version?: number };
 }
 
 /**
@@ -83,6 +85,8 @@ export interface SchemaEncoder {
 }
 export interface SchemaDecoder {
   decode(buffer: Buffer): Promise<unknown>;
+  /** Optional id → subject/version lookup (cached by the registry client). */
+  describeSchemaId?(id: number): Promise<{ id: number; subject?: string; version?: number }>;
 }
 
 /**
@@ -133,13 +137,40 @@ export async function decodeField(
  * Registry-decoded values are textual JSON; raw invalid UTF-8 is emitted as
  * canonical Base64 so a user can inspect and republish the exact byte sequence.
  */
+/** Upper bound the consume path waits for an id → subject/version label. */
+export const SCHEMA_LABEL_WAIT_MS = 2_000;
+
+/**
+ * Best-effort schema label: never rejects and never holds the ordered
+ * consume chain longer than `waitMs` — a slow registry yields the bare id.
+ */
+async function schemaLabel(
+  registry: SchemaDecoder,
+  id: number,
+  waitMs: number
+): Promise<{ id: number; subject?: string; version?: number }> {
+  if (!registry.describeSchemaId) return { id };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const fallback = new Promise<{ id: number }>((resolve) => {
+    timer = setTimeout(() => resolve({ id }), waitMs);
+  });
+  try {
+    return await Promise.race([registry.describeSchemaId(id).catch(() => ({ id })), fallback]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function decodeDisplayField(
   registry: SchemaDecoder | undefined,
-  buf: Buffer
+  buf: Buffer,
+  labelWaitMs = SCHEMA_LABEL_WAIT_MS
 ): Promise<KafkaDisplayField> {
   if (registry && isConfluentEncoded(buf)) {
     try {
-      return { value: valueToString(await registry.decode(buf)), encoding: 'utf8' };
+      const value = valueToString(await registry.decode(buf));
+      const schema = await schemaLabel(registry, buf.readUInt32BE(1), labelWaitMs);
+      return { value, encoding: 'utf8', schema };
     } catch {
       /* fall through to raw bytes */
     }
