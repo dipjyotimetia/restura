@@ -65,11 +65,20 @@ export interface McpImportDraftRow {
   secretRef?: { kind: 'handle'; id: string; label?: string };
 }
 
+export type McpImportHandleRef = { kind: 'handle'; id: string; label?: string };
+
+/** Desktop only: a credential header hoisted into the request's auth, value held as a handle. */
+export type McpImportDraftAuth =
+  | { type: 'bearer'; bearer: { token: McpImportHandleRef } }
+  | { type: 'api-key'; apiKey: { key: string; value: McpImportHandleRef; in: 'header' } };
+
 export interface McpImportDraft {
   name: string;
   transport: McpImportTransport | 'stdio';
   url: string;
   headers: McpImportDraftRow[];
+  /** Present when main moved a credential header into handle-backed auth. */
+  auth?: McpImportDraftAuth;
   stdio?: { command: string; args: string[]; cwd?: string; env: McpImportDraftRow[] };
   warnings: string[];
 }
@@ -207,9 +216,10 @@ export function toPreviewEntry(
 }
 
 /**
- * HTTP entries need no secret store: headers persist as typed, exactly like
- * headers entered by hand, with the `secret` flag set for credential names so
- * export redaction and masking treat them consistently.
+ * Plain HTTP draft (web / paste path, where no secret store exists): headers
+ * persist as typed, with the `secret` flag set for credential names. The
+ * desktop commit does NOT use this for credential headers: main hoists them
+ * into handle-backed auth first (mcp-import-handler.ts).
  */
 export function buildHttpDraft(entry: ParsedMcpHttpEntry): McpImportDraft {
   return {

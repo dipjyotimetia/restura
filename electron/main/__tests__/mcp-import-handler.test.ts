@@ -176,7 +176,11 @@ describe('buildStdioDraft / commitEntries', () => {
     const entries = new Map(cfg.entries.map((e) => [`0.${e.key}`, e]));
     const res = commitEntries(entries, ['0.0', '0.1', '0.2', '0.99', '0.0']);
     expect(res.drafts.map((d) => d.name)).toEqual(['web', 'loc']);
-    expect(res.drafts[0]?.headers[0]).toMatchObject({ key: 'Authorization', secret: true });
+    expect(res.drafts[0]?.headers).toEqual([]);
+    expect(res.drafts[0]?.auth).toMatchObject({
+      type: 'bearer',
+      bearer: { token: { kind: 'handle' } },
+    });
     expect(res.skipped.map((s) => s.key)).toEqual(['0.2', '0.99']);
   });
 });
