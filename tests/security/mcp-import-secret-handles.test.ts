@@ -96,6 +96,20 @@ describe('MCP import: HTTP header secrets never reach the renderer', () => {
     expect(out.headers['X-API-Key']).toBe(APIKEY);
   });
 
+  it('skips a header the MCP transport refuses when choosing the credential', () => {
+    const entries = entriesFor({
+      url: 'https://x.test/mcp',
+      headers: { Cookie: 'session=abc', 'X-API-Key': APIKEY },
+    });
+    const res = commitEntries(entries, ['0.0']);
+    expect(res.drafts[0]?.auth).toMatchObject({
+      type: 'api-key',
+      apiKey: { key: 'X-API-Key', value: { kind: 'handle' } },
+    });
+    expect(JSON.stringify(res)).not.toContain(APIKEY);
+    expect(JSON.stringify(res)).not.toContain('session=abc');
+  });
+
   it('never leaves a further secret header in plaintext when auth is already taken', () => {
     const entries = entriesFor({
       url: 'https://x.test/mcp',
