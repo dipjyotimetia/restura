@@ -125,8 +125,24 @@ describe('WebSocketManager desktop binary frames over IPC (#897)', () => {
 });
 
 describe('WebSocketManager.hexToArrayBuffer validation (#912)', () => {
-  it.each(['zz', '123', 'g1', '48 zz 65', 'f', '0x48'])('rejects invalid hex %j', (input) => {
-    expect(() => websocketManager.hexToArrayBuffer(input)).toThrow(/hex/i);
+  it.each(['zz', '123', 'g1', '48 zz 65', 'f', '0x4', '0x', '0x123'])(
+    'rejects invalid hex %j',
+    (input) => {
+      expect(() => websocketManager.hexToArrayBuffer(input)).toThrow(/hex/i);
+    }
+  );
+
+  it.each([
+    ['0x48 0x65', [0x48, 0x65]],
+    ['0X48 0x65', [0x48, 0x65]],
+    ['0x48656c6c6f', [0x48, 0x65, 0x6c, 0x6c, 0x6f]],
+    ['48\n65', [0x48, 0x65]],
+  ])('accepts %j', (input, expected) => {
+    expect(Array.from(new Uint8Array(websocketManager.hexToArrayBuffer(input)))).toEqual(expected);
+  });
+
+  it('mentions the 0x prefix in the error', () => {
+    expect(() => websocketManager.hexToArrayBuffer('4')).toThrow(/0x/);
   });
 
   it('parses valid space-separated hex unchanged', () => {
