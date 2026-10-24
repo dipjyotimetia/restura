@@ -181,6 +181,26 @@ describe('McpRequestBuilder server events (desktop)', () => {
     expect(bridge.listenerCount()).toBe(0);
   });
 
+  it('releases a crashed stdio client’s stderr listener, so a reconnect shows each line once', async () => {
+    useRequestStore.getState().updateRequest({
+      transport: 'stdio',
+      stdio: { command: 'node', args: ['server.js'] },
+    });
+    await connect();
+    const id = connectionId();
+    expect(bridge.listenerCount(`mcp:stderr:${id}`)).toBe(1);
+
+    act(() => bridge.emit(`mcp:close:${id}`, { reason: 'server process ended' }));
+    expect(screen.getByLabelText('status')).toHaveTextContent('error');
+    expect(bridge.listenerCount(`mcp:stderr:${id}`)).toBe(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await waitFor(() => expect(screen.getByLabelText('status')).toHaveTextContent('connected'));
+    expect(bridge.listenerCount(`mcp:stderr:${id}`)).toBe(1);
+    act(() => bridge.emit(`mcp:stderr:${id}`, { text: 'boom\n' }));
+    expect(useMcpStore.getState().connections[id]?.stderr).toBe('boom\n');
+  });
+
   it('keeps delivering server events after a manual Refresh', async () => {
     await connect();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));

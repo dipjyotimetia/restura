@@ -23,11 +23,20 @@ import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import type { McpToolDescriptor } from '@/types';
 
+/** The connection's endpoint, or why its configured auth can't be applied to a probe. */
+export type McpConformanceEndpoint =
+  | Pick<McpConformanceRunInput, 'url' | 'transport' | 'headers' | 'auth'>
+  | { error: string };
+
 interface McpConformanceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Resolve the connection's current endpoint (variables substituted) at run time. */
-  getEndpoint: () => Pick<McpConformanceRunInput, 'url' | 'transport' | 'headers'>;
+  /**
+   * Resolve the connection's current endpoint (variables substituted) at run
+   * time. An `error` fails the run closed — never probe anonymously when the
+   * connection has auth configured.
+   */
+  getEndpoint: () => McpConformanceEndpoint;
   /** Tools discovered on the live connection, if any (drives the sample-call picker). */
   tools: McpToolDescriptor[];
   /** Injectable for tests. */
@@ -170,8 +179,14 @@ export function McpConformanceDialog({
     setRunning(true);
     setError(null);
     setReport(null);
+    const endpoint = getEndpoint();
+    if ('error' in endpoint) {
+      setRunning(false);
+      setError(endpoint.error);
+      return;
+    }
     const result = await run({
-      ...getEndpoint(),
+      ...endpoint,
       sampleCalls: mode,
       approvedTools: mode === 'selected' ? [...approved] : [],
     });
