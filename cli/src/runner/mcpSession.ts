@@ -11,6 +11,7 @@ import { z } from 'zod';
 import {
   configuredProxyEnvironment,
   createPinnedLookup,
+  isNoProxyDestination,
   resolvePinnedMcpAddress,
 } from './pinnedMcpFetch.js';
 import { type TlsOptions, tlsConnectOptions } from './undiciFetcher.js';
@@ -121,7 +122,10 @@ export function createGuardedMcpFetch(
     // only the pre-flight check above applies. Otherwise dial ONLY the
     // validated IP (no second DNS lookup), keeping the hostname for SNI/Host.
     const viaProxy =
-      Boolean(options.proxy) || (!options.dispatcher && configuredProxyEnvironment());
+      Boolean(options.proxy) ||
+      (!options.dispatcher &&
+        Boolean(configuredProxyEnvironment()) &&
+        !isNoProxyDestination(rawUrl));
     const dispatcher = viaProxy ? options.dispatcher : agentFor(address.host, address.ip);
     const response = await undiciFetch(rawUrl, {
       ...(init as Parameters<typeof undiciFetch>[1]),

@@ -234,7 +234,7 @@ rs.test('unknown method is rejected', () => {
 
 - **Pass/fail.** With no assertions, an item passes only on a plain result. A tool result with `isError: true` or a JSON-RPC error fails it, and the reason is shown. With assertions, the assertions decide, so you can write negative tests that expect an error. A connection, HTTP or timeout failure always fails the item, whatever the test script asserts.
 - **No saved method:** the item fails with an actionable error. Nothing is sent.
-- **Auth:** the in-app runner sends the request's connection headers but does not yet apply the request's or collection's `auth` settings. Put tokens in a header such as `Authorization: Bearer {{token}}`. `restura run` applies header-based auth (Bearer, Basic, API key, OAuth2 client credentials).
+- **Auth:** both runners apply the request's own auth, or the folder/collection auth it inherits, as headers: Bearer, Basic, API key (header only; MCP has no query channel) and OAuth2 access tokens. The desktop OAuth 2.1 authorization-code sign-in uses the interactive desktop connection and is not available in collection runs; in CI pass a token through a variable or Bearer auth. Keychain handles (`SecretRef`) are desktop-only and rejected by collection runs, so use inline or variable values there. You can still set a header directly, for example `Authorization: Bearer {{token}}`.
 - **Transports:** `http-sse` runs on desktop and in the CLI. The web runner supports `streamable-http` only.
 
 The local echo stack's generated collection (`npm run echo:local`, see `echo-local/README.md`) includes runnable MCP examples for a tool call, a tool `isError` result, a JSON-RPC error and a resource read. Each example has its own test script.

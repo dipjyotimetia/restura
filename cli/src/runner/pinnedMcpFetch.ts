@@ -88,6 +88,41 @@ export function configuredProxyEnvironment(): string | undefined {
   );
 }
 
+/**
+ * True when `NO_PROXY` / `no_proxy` excludes the destination, so the env proxy
+ * is bypassed and the connection is direct (and must therefore be pinned).
+ * Mirrors undici's matching: `*`, exact host, or domain suffix, with an
+ * optional `:port`.
+ */
+export function isNoProxyDestination(rawUrl: string): boolean {
+  const list = process.env.NO_PROXY ?? process.env.no_proxy;
+  if (!list) return false;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+  for (const raw of list.split(/[,\s]+/)) {
+    const entry = raw.trim().toLowerCase();
+    if (!entry) continue;
+    if (entry === '*') return true;
+    let entryHost = entry;
+    let entryPort = '';
+    const m = /^(.*):(\d+)$/.exec(entry);
+    if (m && !entry.includes(']')) {
+      entryHost = m[1] ?? '';
+      entryPort = m[2] ?? '';
+    }
+    if (entryPort && entryPort !== port) continue;
+    entryHost = entryHost.replace(/^\*?\./, '').replace(/^\[|\]$/g, '');
+    if (host === entryHost || host.endsWith(`.${entryHost}`)) return true;
+  }
+  return false;
+}
+
 function createPinnedAgent(address: PinnedAddress): Agent {
   return new Agent({
     connect: { lookup: createPinnedLookup(address.host, address.ip) } as Agent.Options['connect'],

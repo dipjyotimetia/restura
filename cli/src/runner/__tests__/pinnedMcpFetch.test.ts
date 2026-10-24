@@ -4,7 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const lookup = vi.hoisted(() => vi.fn());
 vi.mock('node:dns/promises', () => ({ lookup }));
 
-import { createPinnedMcpFetchSession, resolvePinnedMcpAddress } from '../pinnedMcpFetch.js';
+import {
+  createPinnedMcpFetchSession,
+  isNoProxyDestination,
+  resolvePinnedMcpAddress,
+} from '../pinnedMcpFetch.js';
 
 describe('pinned MCP fetch', () => {
   afterEach(() => {
@@ -116,5 +120,27 @@ describe('pinned MCP fetch', () => {
       if (previous === undefined) delete process.env.HTTPS_PROXY;
       else process.env.HTTPS_PROXY = previous;
     }
+  });
+});
+
+describe('isNoProxyDestination', () => {
+  afterEach(() => {
+    delete process.env.NO_PROXY;
+    delete process.env.no_proxy;
+  });
+
+  it('is false without NO_PROXY', () => {
+    expect(isNoProxyDestination('https://mcp.example.com/x')).toBe(false);
+  });
+
+  it('matches exact hosts, domain suffixes, wildcards and ports', () => {
+    process.env.NO_PROXY = 'internal.test, .corp.example, other.test:8443';
+    expect(isNoProxyDestination('https://internal.test/mcp')).toBe(true);
+    expect(isNoProxyDestination('https://a.corp.example/mcp')).toBe(true);
+    expect(isNoProxyDestination('https://notcorp.example/mcp')).toBe(false);
+    expect(isNoProxyDestination('https://other.test:8443/mcp')).toBe(true);
+    expect(isNoProxyDestination('https://other.test/mcp')).toBe(false);
+    process.env.NO_PROXY = '*';
+    expect(isNoProxyDestination('https://anything.test')).toBe(true);
   });
 });
