@@ -199,7 +199,7 @@ export function McpConnectionPanel({
         )}
       </div>
 
-      <div className="px-3 pb-2 shrink-0 flex items-stretch gap-2">
+      <div className="px-3 pb-2 shrink-0 flex flex-wrap items-stretch gap-2">
         <div className="flex items-center px-2 rounded-sp-panel shrink-0 bg-sp-surface border border-sp-line">
           <Segmented<McpTransportType>
             options={mcpTransportOptions(desktop)}
@@ -235,10 +235,13 @@ export function McpConnectionPanel({
             Conformance
           </Button>
         )}
+      </div>
+
+      <div className="px-3 pb-2 shrink-0">
         <Floater
           radius="panel"
           elevation="float"
-          className="flex-1 min-w-0 bg-sp-surface border border-sp-line overflow-hidden"
+          className="bg-sp-surface border border-sp-line overflow-hidden"
         >
           <button
             type="button"

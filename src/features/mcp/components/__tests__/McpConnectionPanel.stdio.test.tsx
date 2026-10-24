@@ -90,6 +90,19 @@ describe('MCP stdio transport UI', () => {
     expect(props.onTransportChange).toHaveBeenCalledWith('stdio');
   });
 
+  it('keeps the launch-settings toggle on its own row, apart from the wrapping action row', () => {
+    platform.electron = true;
+    renderPanel(connection(), { command: '', args: [] });
+    const toggle = screen.getByRole('button', { name: /Launch settings/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    const actionRow = screen.getByRole('button', { name: 'Tools' }).parentElement as HTMLElement;
+    expect(actionRow.className).toContain('flex-wrap');
+    expect(actionRow.contains(toggle)).toBe(false);
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByLabelText('stdio arguments')).toBeInTheDocument();
+  });
+
   it('enables Connect only once a command is set, and edits launch settings', () => {
     platform.electron = true;
     const props = renderPanel(connection(), { command: '', args: [] });
