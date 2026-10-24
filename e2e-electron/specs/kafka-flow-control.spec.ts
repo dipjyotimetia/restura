@@ -41,6 +41,8 @@ describeOrSkip('Desktop Kafka flow control (live Redpanda broker)', () => {
 
       await page.getByRole('tab', { name: 'Consume' }).click();
       const consume = page.getByRole('tabpanel', { name: 'Consume' });
+      // New tabs default to read-only Browse; partition controls need a group.
+      await consume.getByRole('radio', { name: 'Consumer group' }).click();
       const groupId = await consume
         .locator('xpath=.//label[normalize-space()="Consumer group ID"]/following-sibling::input')
         .inputValue();
