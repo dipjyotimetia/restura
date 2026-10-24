@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -58,6 +58,31 @@ function item(name: string, method: string, params?: unknown, testScript?: strin
     '',
   ].join('\n');
 }
+
+describe('MCP stdio refusal (#854)', () => {
+  it('refuses the desktop-only stdio transport without launching anything', async () => {
+    const markerDir = mkdtempSync(join(tmpdir(), 'restura-mcp-stdio-'));
+    const marker = join(markerDir, 'spawned');
+    const dir = mcpCollection(
+      [
+        'name: Local',
+        "url: ''",
+        'transport: stdio',
+        'defaultMethod: tools/list',
+        'stdio:',
+        `  command: ${JSON.stringify(process.execPath)}`,
+        '  args:',
+        "    - '-e'",
+        `    - ${JSON.stringify(`require('fs').writeFileSync(${JSON.stringify(marker)}, 'x')`)}`,
+        '',
+      ].join('\n')
+    );
+    const result = await run(dir);
+    expect(result.requests[0]?.passed).toBe(false);
+    expect(result.requests[0]?.errorMessage).toMatch(/stdio transport is desktop-only/);
+    expect(existsSync(marker)).toBe(false);
+  });
+});
 
 describe('MCP executor (restura run)', () => {
   it('fails the item with an actionable error when no defaultMethod is configured', async () => {
