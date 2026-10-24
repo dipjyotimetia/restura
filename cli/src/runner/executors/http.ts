@@ -1,3 +1,4 @@
+import { resolveAuthVariables } from '@shared/auth/resolve-variables';
 import { buildGraphQLRequestBody } from '@shared/graphql/operations';
 import type { FormField, ProxyBodyType as ProtocolBodyType } from '@shared/protocol/body-builder';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
@@ -58,8 +59,13 @@ export async function executeHttp(
     // Acquire an OAuth2 client_credentials token when the auth declares a token
     // endpoint but carries no access token (e.g. a CI collection). No-op for
     // every other auth type.
+    // `{{vars}}` resolve in every auth type first (same shared field map as the
+    // app), so external-secret plaintext is never itself template-expanded.
+    const varResolvedAuth = req.auth
+      ? resolveAuthVariables(req.auth, (text) => resolveVarsDeep(text, opts.vars))
+      : req.auth;
     const externalMaterializedAuth = await materializeExternalSecretsInAuth(
-      req.auth,
+      varResolvedAuth,
       opts.externalSecretResolver
     );
     const resolvedAuth = await resolveOAuth2Token(externalMaterializedAuth, opts.vars, {

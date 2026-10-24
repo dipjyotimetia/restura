@@ -14,7 +14,8 @@ import {
   applyAuthHeaders,
   assertHandleSupported,
 } from '@/features/auth/lib/applyAuthHeaders';
-import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
+import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
+import { persistableRefreshedAuth, refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import {
   executeProxiedRequestWithProgress,
@@ -123,7 +124,11 @@ interface BuiltSpec {
   effectiveSettings: RequestSettings;
   /** Sent headers post-cookie-merge, returned to callers for the response panel. */
   sentHeaders: Record<string, string>;
-  effectiveAuth: HttpRequest['auth'];
+  /**
+   * Set only when OAuth2 refresh issued a new token: the request's template
+   * auth with the issued token folded in (never resolved `{{var}}` values).
+   */
+  refreshedAuth?: HttpRequest['auth'];
   /**
    * Desktop-only transport config (proxy / mTLS client cert / custom CA /
    * verifySsl / TLS knobs). Carried alongside the spec — NOT inside it —
@@ -276,7 +281,18 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       ? resolveLocal(request.body.raw)
       : request.body.raw;
 
-  const effectiveAuth = await refreshOAuth2Auth(request.auth, Date.now(), options.signal);
+  // Resolve {{vars}} in every auth type with the same scope as the URL/headers/
+  // body (secret-variable tokens and handle SecretRefs stay opaque for main).
+  // The resolved copy is what's applied to headers AND sent as `spec.auth`
+  // for sign-at-wire schemes (SigV4 / OAuth1 / WSSE / Digest / NTLM).
+  const resolvedAuth = resolveAuthVariables(request.auth, resolveLocal);
+  const effectiveAuth = await refreshOAuth2Auth(resolvedAuth, Date.now(), options.signal);
+  // Only a real token refresh is reported for persistence — and it's folded
+  // back onto the template so resolved variable values never get saved.
+  const refreshedAuth =
+    effectiveAuth !== resolvedAuth
+      ? persistableRefreshedAuth(request.auth, resolvedAuth, effectiveAuth)
+      : undefined;
 
   const headersWithAuth = await applyAuthHeaders(
     effectiveAuth,
@@ -379,7 +395,7 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     spec,
     effectiveSettings,
     sentHeaders: headers,
-    effectiveAuth,
+    ...(refreshedAuth ? { refreshedAuth } : {}),
     ...(desktop ? { desktop } : {}),
   };
 }
@@ -535,7 +551,7 @@ export async function executeRequest(
     }
   }
 
-  const { spec, effectiveSettings, sentHeaders, effectiveAuth, desktop } =
+  const { spec, effectiveSettings, sentHeaders, refreshedAuth, desktop } =
     await buildProxyRequestSpec(options);
 
   let responseData: ApiResponse;
@@ -670,8 +686,8 @@ export async function executeRequest(
     ...(spec.params && Object.keys(spec.params).length > 0 ? { sentParams: spec.params } : {}),
     ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
   };
-  if (effectiveAuth !== request.auth) {
-    result.refreshedAuth = effectiveAuth;
+  if (refreshedAuth) {
+    result.refreshedAuth = refreshedAuth;
   }
   return result;
 }
