@@ -10,41 +10,12 @@ const boundByHandler = new WeakMap<object, Set<number>>();
 
 /**
  * Per-webContents fan-out for "the renderer document went away but the
- * webContents lives on" (View → Reload, a renderer crash, a full navigation).
+ * webContents lives on" (View → Reload, a renderer crash, a committed full
+ * navigation).
  * One listener pair per webContents however many handlers bind, so a dozen
  * protocol registries don't trip Node's max-listener warning.
  */
 const resetHooks = new WeakMap<WebContents, Set<() => void>>();
-
-/** Electron ≥ 30 passes a details object first; older versions pass positional args. */
-interface NavigationDetails {
-  isSameDocument?: unknown;
-  isMainFrame?: unknown;
-}
-
-/**
- * True for a main-frame, cross-document navigation (reload, `location`
- * change, loadURL/loadFile). Same-document navigations — the hash router,
- * pushState — and sub-frame loads keep the renderer's state and must NOT tear
- * anything down. Unknown argument shapes keep live state (`destroyed` still
- * cleans up).
- */
-export function isDocumentReplacingNavigation(args: readonly unknown[]): boolean {
-  const [first] = args;
-  if (first && typeof first === 'object') {
-    const details = first as NavigationDetails;
-    if (typeof details.isMainFrame === 'boolean' && typeof details.isSameDocument === 'boolean') {
-      return details.isMainFrame && !details.isSameDocument;
-    }
-  }
-  // Deprecated positional form: (event, url, isInPlace, isMainFrame, …).
-  const isInPlace = args[2];
-  const isMainFrame = args[3];
-  if (typeof isInPlace === 'boolean' && typeof isMainFrame === 'boolean') {
-    return isMainFrame && !isInPlace;
-  }
-  return false;
-}
 
 function addResetHook(webContents: WebContents, hook: () => void): () => void {
   // Test doubles (and any non-EventEmitter shape) only support `once('destroyed')`.
@@ -57,9 +28,13 @@ function addResetHook(webContents: WebContents, hook: () => void): () => void {
     const runAll = () => {
       for (const run of [...created]) run();
     };
-    webContents.on('did-start-navigation', (...args: unknown[]) => {
-      if (isDocumentReplacingNavigation(args)) runAll();
-    });
+    // `did-navigate` = a COMMITTED main-frame cross-document navigation
+    // (reload included). Same-document (hash router / pushState) navigations
+    // emit `did-navigate-in-page` and sub-frames `did-frame-navigate`, so they
+    // never get here. Not `did-start-navigation`: a navigation the main.ts
+    // will-navigate guard cancels (e.g. a link dropped on the window) starts
+    // but never commits, and must not tear down the page's live sessions.
+    webContents.on('did-navigate', runAll);
     webContents.on('render-process-gone', runAll);
   }
   const set = hooks;
@@ -73,7 +48,7 @@ function addResetHook(webContents: WebContents, hook: () => void): () => void {
  * Idempotently registers renderer cleanup for `webContents`:
  * `teardown(webContentsId)` runs when the webContents is destroyed AND
  * whenever its document is replaced while the webContents survives (reload,
- * main-frame cross-document navigation, renderer crash) — otherwise sessions
+ * committed main-frame cross-document navigation, renderer crash) — otherwise sessions
  * and child processes would outlive the page that owns them with nothing left
  * to close them. Same-document (hash-router) navigations never trigger it.
  * `handlerKey` dedupes across reconnects (the handler's `activeConnections`

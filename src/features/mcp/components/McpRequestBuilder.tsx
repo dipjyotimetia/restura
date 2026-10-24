@@ -570,6 +570,11 @@ export default function McpRequestBuilder() {
         connectionId={active.id}
         connectionName={request.name || 'MCP connection'}
         serverHost={displayHost(resolveVariables(request.url))}
+        localCommand={
+          request.transport === 'stdio'
+            ? resolveVariables(request.stdio?.command ?? '').trim()
+            : undefined
+        }
       />
 
       {active.status === 'connected' && (

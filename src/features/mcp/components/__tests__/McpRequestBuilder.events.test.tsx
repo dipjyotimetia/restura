@@ -47,6 +47,7 @@ vi.mock('@/features/mcp/components/McpConnectionPanel', () => ({
 }));
 
 import McpRequestBuilder from '@/features/mcp/components/McpRequestBuilder';
+import { useMcpClientRequestStore } from '@/features/mcp/store/useMcpClientRequestStore';
 import { useMcpNotificationStore } from '@/features/mcp/store/useMcpNotificationStore';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -111,6 +112,7 @@ beforeEach(() => {
   );
   useMcpStore.setState({ connections: {}, activeConnectionId: null });
   useMcpNotificationStore.setState({ entries: {}, subscriptions: {} });
+  useMcpClientRequestStore.setState({ requests: [] });
   useRequestStore.setState({ tabs: [], activeTabId: null, isLoading: false });
   useRequestStore.getState().createNewRequest('mcp');
   useRequestStore.getState().updateRequest({ url: 'https://mcp.example.com/mcp' });
@@ -199,6 +201,29 @@ describe('McpRequestBuilder server events (desktop)', () => {
     expect(bridge.listenerCount(`mcp:stderr:${id}`)).toBe(1);
     act(() => bridge.emit(`mcp:stderr:${id}`, { text: 'boom\n' }));
     expect(useMcpStore.getState().connections[id]?.stderr).toBe('boom\n');
+  });
+
+  it('names the local stdio process (not a stale HTTP URL) in server→client prompts', async () => {
+    useRequestStore.getState().updateRequest({
+      transport: 'stdio',
+      stdio: { command: '/opt/bin/my-mcp-server', args: ['--flag'] },
+    });
+    await connect();
+    act(() => {
+      useMcpClientRequestStore.getState().add({
+        requestId: '0f0e0d0c-0b0a-4908-8706-050403020100',
+        connectionId: connectionId(),
+        kind: 'elicitation',
+        params: { message: 'Pick one', requestedSchema: { type: 'object', properties: {} } },
+        receivedAt: Date.now(),
+      });
+    });
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('local process /opt/bin/my-mcp-server');
+    expect(dialog).toHaveTextContent(
+      'Anything you enter is sent to the local process /opt/bin/my-mcp-server'
+    );
+    expect(dialog).not.toHaveTextContent('mcp.example.com');
   });
 
   it('keeps delivering server events after a manual Refresh', async () => {

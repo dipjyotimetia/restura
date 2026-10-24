@@ -2,7 +2,7 @@
 import { EventEmitter } from 'node:events';
 import type { WebContents } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
-import { bindRendererCleanup, isDocumentReplacingNavigation } from '../ipc/connection-cleanup';
+import { bindRendererCleanup } from '../ipc/connection-cleanup';
 
 let nextId = 5000;
 function fakeWebContents() {
@@ -21,20 +21,41 @@ function fakeWebContents() {
   };
 }
 
-const crossDocument = { isMainFrame: true, isSameDocument: false };
+/** Committed main-frame cross-document navigation (reload included): (event, url, code, text). */
+function commitNavigation(emitter: EventEmitter) {
+  emitter.emit('did-navigate', {}, 'file:///app/dist/web/index.html', 200, 'OK');
+}
 
 describe('bindRendererCleanup', () => {
-  it('runs teardown on a main-frame reload but not on same-document (hash router) navigation', () => {
+  it('runs teardown on a committed main-frame reload but not on hash-router or sub-frame navigation', () => {
     const { wc, emitter } = fakeWebContents();
     const teardown = vi.fn();
     bindRendererCleanup({}, wc, teardown);
 
-    emitter.emit('did-start-navigation', { isMainFrame: true, isSameDocument: true });
-    emitter.emit('did-start-navigation', { isMainFrame: false, isSameDocument: false });
+    emitter.emit('did-navigate-in-page', {}, 'file:///app/index.html#/mcp', true);
+    emitter.emit('did-frame-navigate', {}, 'about:blank', 200, 'OK', false);
+    emitter.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
     expect(teardown).not.toHaveBeenCalled();
 
-    emitter.emit('did-start-navigation', crossDocument);
+    commitNavigation(emitter);
     expect(teardown).toHaveBeenCalledWith(wc.id);
+  });
+
+  it('a blocked navigation does not tear down', () => {
+    const { wc, emitter } = fakeWebContents();
+    const teardown = vi.fn();
+    bindRendererCleanup({}, wc, teardown);
+    // main.ts will-navigate guard cancels it (e.g. a link dropped on the window):
+    // the navigation starts but never commits, so the page and its sessions live on.
+    const event = { preventDefault: vi.fn() };
+    emitter.emit('will-navigate', event, 'https://example.com/');
+    event.preventDefault();
+    emitter.emit('did-start-navigation', {
+      url: 'https://example.com/',
+      isMainFrame: true,
+      isSameDocument: false,
+    });
+    expect(teardown).not.toHaveBeenCalled();
   });
 
   it('stays bound across reloads (the next document reuses the webContents id)', () => {
@@ -42,10 +63,10 @@ describe('bindRendererCleanup', () => {
     const key = {};
     const teardown = vi.fn();
     bindRendererCleanup(key, wc, teardown);
-    emitter.emit('did-start-navigation', crossDocument);
+    commitNavigation(emitter);
     // The reloaded page reconnects: the dedupe keeps a single binding.
     bindRendererCleanup(key, wc, teardown);
-    emitter.emit('did-start-navigation', crossDocument);
+    commitNavigation(emitter);
     expect(teardown).toHaveBeenCalledTimes(2);
   });
 
@@ -63,17 +84,17 @@ describe('bindRendererCleanup', () => {
     const b = vi.fn();
     bindRendererCleanup({}, wc, a);
     bindRendererCleanup({}, wc, b);
-    expect(emitter.listenerCount('did-start-navigation')).toBe(1);
+    expect(emitter.listenerCount('did-navigate')).toBe(1);
     expect(emitter.listenerCount('render-process-gone')).toBe(1);
 
-    emitter.emit('did-start-navigation', crossDocument);
+    commitNavigation(emitter);
     expect(a).toHaveBeenCalledTimes(1);
     expect(b).toHaveBeenCalledTimes(1);
 
     destroy();
     expect(a).toHaveBeenCalledTimes(2);
     expect(b).toHaveBeenCalledTimes(2);
-    emitter.emit('did-start-navigation', crossDocument);
+    commitNavigation(emitter);
     expect(a).toHaveBeenCalledTimes(2);
   });
 
@@ -84,7 +105,7 @@ describe('bindRendererCleanup', () => {
       throw new Error('boom');
     });
     bindRendererCleanup({}, wc, ok);
-    emitter.emit('did-start-navigation', crossDocument);
+    commitNavigation(emitter);
     expect(ok).toHaveBeenCalledTimes(1);
   });
 
@@ -99,28 +120,5 @@ describe('bindRendererCleanup', () => {
     bindRendererCleanup({}, wc, teardown);
     for (const cb of listeners) cb();
     expect(teardown).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('isDocumentReplacingNavigation', () => {
-  it('reads the Electron details object', () => {
-    expect(isDocumentReplacingNavigation([crossDocument])).toBe(true);
-    expect(isDocumentReplacingNavigation([{ isMainFrame: true, isSameDocument: true }])).toBe(
-      false
-    );
-    expect(isDocumentReplacingNavigation([{ isMainFrame: false, isSameDocument: false }])).toBe(
-      false
-    );
-  });
-
-  it('reads the deprecated positional form (event, url, isInPlace, isMainFrame)', () => {
-    expect(isDocumentReplacingNavigation([{}, 'file:///x', false, true])).toBe(true);
-    expect(isDocumentReplacingNavigation([{}, 'file:///x#/a', true, true])).toBe(false);
-    expect(isDocumentReplacingNavigation([{}, 'file:///x', false, false])).toBe(false);
-  });
-
-  it('keeps state for unknown shapes', () => {
-    expect(isDocumentReplacingNavigation([])).toBe(false);
-    expect(isDocumentReplacingNavigation(['x'])).toBe(false);
   });
 });
