@@ -92,6 +92,7 @@ export const IPC = {
     importScan: 'mcp:import:scan',
     /** Turn a scan selection into drafts; secret env values become handles in main (#906). */
     importCommit: 'mcp:import:commit',
+    conformance: 'mcp:conformance',
   },
   kafka: {
     connect: 'kafka:connect',

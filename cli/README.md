@@ -282,6 +282,32 @@ A Bundle may also use deterministic, read-only fixture tools; its baseline gates
 
 > `--output` writes the complete local trace, which can include task inputs and model/tool outputs. Protect and expire that CI artifact according to your data policy.
 
+## MCP conformance
+
+`restura mcp conformance <url>` connects to an MCP server in both protocol eras (legacy `initialize` and modern 2026-07-28 `server/discover`), checks the handshake, listings, descriptors and (optionally) `structuredContent` against each tool's `outputSchema`, diffs the two eras, and prints a Markdown or JSON report. It is the same engine as the **Conformance** action in the app.
+
+```bash
+restura mcp conformance https://mcp.example.test/mcp \
+  --header-env "Authorization=MCP_TOKEN" \
+  --sample-calls read-only --format json --output conformance.json
+```
+
+| Flag                       | Default           | Description                                                                                                         |
+| -------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `--transport <t>`          | `streamable-http` | `streamable-http` or `http-sse` (the modern era needs `streamable-http`).                                           |
+| `--eras <list>`            | `legacy,modern`   | Eras to test.                                                                                                       |
+| `--sample-calls <mode>`    | `off`             | `off`; `read-only` calls tools annotated `readOnlyHint`; `selected` also calls each `--approve-tool`.               |
+| `--approve-tool <name>`    |                   | Non-read-only tool you approve calling (repeatable, needs `--sample-calls selected`). Destructive tools are never called. |
+| `-H, --header <h>`         |                   | `"Name: value"` request header (repeatable).                                                                        |
+| `--header-env <spec>`      |                   | `"Name=ENV_VAR"`: header value read from the environment, keeping secrets out of argv (repeatable).                  |
+| `--format <f>`             | `markdown`        | `markdown` or `json`.                                                                                               |
+| `--output <file>`          |                   | Write the report to a file instead of stdout.                                                                       |
+| `--timeout <ms>`           | `30000`           | Per-request timeout.                                                                                                |
+| `--allow-localhost`        | `false`           | Permit localhost targets (SSRF guard is on by default; connections are DNS-pinned and redirects are refused).       |
+| `--fail-on <level>`        | `error`           | Exit `1` on `error`, `warning`, or `never`.                                                                         |
+
+Exit codes: `0` when no finding reaches `--fail-on`, `1` when one does, `2` for invalid input or I/O failure. A server that only speaks one era is reported as `unsupported` for the other (an informational note); failing to connect in the legacy era is an error. `HTTP_PROXY`/`HTTPS_PROXY` must be unset (the DNS-pinned transport does not proxy).
+
 ## CI examples
 
 Copy-paste pipelines for [GitHub Actions](https://github.com/dipjyotimetia/restura/blob/main/docs/cli/ci-examples/github-actions.yml), [GitLab CI](https://github.com/dipjyotimetia/restura/blob/main/docs/cli/ci-examples/gitlab-ci.yml), and [CircleCI](https://github.com/dipjyotimetia/restura/blob/main/docs/cli/ci-examples/circleci.yml).

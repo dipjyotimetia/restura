@@ -14,6 +14,10 @@ import { registerGrpcHandlerIPC, stopStreamCleanup } from './handlers/grpc-handl
 import { registerGrpcReflectionIPC } from './handlers/grpc-reflection-handler';
 import { registerHttpHandlerIPC } from './handlers/http-handler';
 import { registerKafkaHandlerIPC, stopKafkaCleanup } from './handlers/kafka-handler';
+import {
+  registerMcpConformanceIPC,
+  stopMcpConformanceCleanup,
+} from './handlers/mcp-conformance-handler';
 import { loadMcpDispatchContext } from './handlers/mcp-context-loader';
 import { registerMcpHandlerIPC, stopMcpCleanup } from './handlers/mcp-handler';
 import { registerMcpImportIPC, unregisterMcpImportIPC } from './handlers/mcp-import-handler';
@@ -163,6 +167,7 @@ const IPC_MODULES: IpcModule[] = [
     register: () => registerMcpImportIPC(getMainWindow),
     dispose: () => unregisterMcpImportIPC(),
   },
+  { register: () => registerMcpConformanceIPC(), dispose: () => stopMcpConformanceCleanup() },
   { register: () => registerKafkaHandlerIPC(logRequest), dispose: () => stopKafkaCleanup() },
   { register: () => registerMqttHandlerIPC(logRequest), dispose: () => stopMqttCleanup() },
   { register: () => registerRequestLoggerIPC() },

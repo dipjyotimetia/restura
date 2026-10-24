@@ -209,6 +209,29 @@ While a tool call or prompt fetch is in flight, the Invoke form shows a **Cancel
 - **Desktop**: the renderer calls the validated, owner-scoped `mcp:cancel` IPC channel, which aborts the SDK request signal; the SDK emits `notifications/cancelled`.
 - **Web and self-hosted**: the browser aborts its `/api/mcp` fetch and posts a separate `notifications/cancelled` notification (with the session id when the server issued one) through the same proxy.
 
+### Conformance report
+
+The **Conformance** action on an MCP connection answers "does my server work across client eras?". It connects to the server separately in the **legacy** era (`initialize`, protocol versions up to 2025-06-18) and the **modern** era (`server/discover`, 2026-07-28), runs the same scripted sequence in each, and renders a report you can export as **Markdown** or **JSON**.
+
+Per era it checks:
+
+- the negotiated protocol version and `serverInfo` (name and version), and that `capabilities` is a well-formed object;
+- that an unknown method is rejected with JSON-RPC `-32601`;
+- `tools/list`, `resources/list` and `prompts/list` (only the ones the server advertised): result shape, `nextCursor` pagination (empty or repeated cursors, runaway paging), duplicate names or URIs, and tool descriptors that fail normalization (missing `inputSchema`, malformed `outputSchema` or `annotations`);
+- optional **sample tool calls**: `structuredContent` validated against the tool's `outputSchema`, a missing `structuredContent` when an `outputSchema` is declared, and `structuredContent` without a text content block.
+
+It then **diffs** the two eras (protocol version, `serverInfo`, capabilities, and the tool, resource and prompt listings including changed descriptors). A server that only speaks one era is reported as such, not as a violation of the other; failing to connect in the legacy era is an error.
+
+Sample calls are off by default. **Read-only tools** calls only tools the server *claims* are read-only (`readOnlyHint: true`; the claim is not verified), with minimal arguments synthesized from the `inputSchema`. **Read-only + chosen tools** additionally calls the non-read-only tools you tick. Tools marked `destructiveHint: true` (including ones that also claim `readOnlyHint`) and tools with duplicate names are never called in any mode, and annotations are server-declared hints, so only tick tools you trust. Call payloads are never stored in the report. Descriptor bodies (schemas, descriptions) are reduced to a name plus content hashes, server-provided strings are length-bounded, stripped of control characters and escaped in Markdown, your header values are scrubbed from every string, lists and findings are capped (1000 / 500), and the report's target has credentials and query string removed. The whole run has a hard deadline and every connect is bounded by the configured timeout.
+
+| Where | Eras covered |
+| --- | --- |
+| Desktop app | Both (legacy and a pinned 2026-07-28 connection) |
+| Web / self-hosted app | Legacy only: the `/api/mcp` proxy is a stateless JSON-RPC relay with no era negotiation |
+| CLI (`restura mcp conformance <url>`) | Both, over `streamable-http` or `http-sse` (the modern era needs `streamable-http`) |
+
+The desktop and CLI runs use the official SDK client's list calls, which validate and aggregate pages themselves, so a server that violates the wire schema surfaces as a failed list call rather than as individual descriptor findings.
+
 ### Testing MCP servers in collections and CI
 
 A saved MCP request is one operation: the method and params you build in the invoke form (for example `tools/call` with `{"name":"echo","arguments":{"text":"hi"}}`). Saved requests run in the **collection runner** (desktop and web) and in [`restura run`](/reference/cli/) with pre-request and test scripts, so you can regression-test an MCP server the same way you test an HTTP API.

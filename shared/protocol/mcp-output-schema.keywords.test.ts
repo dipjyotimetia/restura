@@ -176,3 +176,27 @@ describe('review-feedback regressions', () => {
     }
   );
 });
+
+describe('keywords the validator cannot fully evaluate', () => {
+  it('does not apply items to prefixItems positions', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        pair: { type: 'array', prefixItems: [{ type: 'string' }], items: { type: 'number' } },
+      },
+    };
+    const res = validateToolOutput(schema, { structuredContent: { pair: ['a', 1] } });
+    expect(res.status).toBe('valid');
+  });
+
+  it('does not reject pattern-covered keys under additionalProperties:false', () => {
+    const schema = {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      patternProperties: { '^x-': { type: 'string' } },
+      additionalProperties: false,
+    };
+    const res = validateToolOutput(schema, { structuredContent: { id: 'a', 'x-extra': 'b' } });
+    expect(res.status).toBe('valid');
+  });
+});

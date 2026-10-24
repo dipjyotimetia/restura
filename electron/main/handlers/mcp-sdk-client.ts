@@ -80,6 +80,11 @@ interface McpSdkConnectCommon {
   events?: McpSdkClientEvents;
   clientRequests?: McpSdkClientRequestHandlers;
   onClientCreated?: (client: McpSdkClient) => void;
+  /**
+   * Pin the protocol era (conformance runs, #911). Default: auto-negotiate with
+   * legacy fallback, which is what interactive sessions use.
+   */
+  era?: 'legacy' | 'modern';
 }
 
 export type McpSdkConnectOptions =
@@ -89,6 +94,9 @@ export type McpSdkConnectOptions =
       transportOptions: McpSdkTransportOptions;
     })
   | (McpSdkConnectCommon & { transport: 'stdio'; stdio: McpSdkStdioParams });
+
+/** First revision of the modern (server/discover) era. */
+export const MCP_MODERN_PIN = '2026-07-28';
 
 const CLIENT_INFO = { name: 'restura', version: '1.0.0' };
 // Standard MCP methods are dispatched through the SDK's typed APIs below.
@@ -146,7 +154,12 @@ class ResturaMcpSdkClient implements McpSdkClient {
   private readonly subscriptions: McpSubscriptionManager;
 
   constructor(options: McpSdkConnectOptions) {
-    let versionMode: 'auto' | 'legacy' = 'auto';
+    let versionMode: 'auto' | 'legacy' | { pin: string } =
+      options.era === 'legacy'
+        ? 'legacy'
+        : options.era === 'modern'
+          ? { pin: MCP_MODERN_PIN }
+          : 'auto';
     if (options.transport === 'stdio') {
       this.transport = createStdioTransport(options.stdio);
       // stdio uses the plain `initialize` handshake. `auto` negotiation would

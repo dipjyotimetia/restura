@@ -8,5 +8,6 @@ export * from './kafka-consumer-flow';
 export * from './mcp-client-requests';
 export * from './mcp-import';
 export * from './mcp-stdio';
+export * from './mcp-conformance';
 export * from './mqtt';
 export * from './websocket-control';

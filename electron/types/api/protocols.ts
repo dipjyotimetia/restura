@@ -330,6 +330,21 @@ export interface ElectronMcpAPI {
   importScan: (input: { source: 'detect' | 'pick' }) => Promise<McpImportScanResult>;
   /** Create drafts for the selected scan entries; secret env values are stored as handles in main. */
   importCommit: (input: { sessionId: string; keys: string[] }) => Promise<McpImportCommitResult>;
+  /** Era/conformance run (#911); the report is JSON-safe (`McpConformanceReport`). */
+  conformance: (config: {
+    url: string;
+    transport: 'streamable-http' | 'http-sse';
+    headers?: Record<string, string>;
+    sampleCalls?: 'off' | 'read-only' | 'selected';
+    approvedTools?: string[];
+    eras?: Array<'legacy' | 'modern'>;
+  }) => Promise<
+    | {
+        success: true;
+        report: import('../../../shared/protocol/mcp-conformance').McpConformanceReport;
+      }
+    | { success: false; error: string }
+  >;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeAllListeners: (channel: string) => void;

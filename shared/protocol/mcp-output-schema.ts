@@ -237,7 +237,8 @@ function check(
       add(`must have >= ${schema.minItems} items`);
     if (typeof schema.maxItems === 'number' && value.length > schema.maxItems)
       add(`must have <= ${schema.maxItems} items`);
-    if (isRecord(schema.items)) {
+    // With `prefixItems`, `items` only covers the tail; we cannot split it, so skip.
+    if (isRecord(schema.items) && !Array.isArray(schema.prefixItems)) {
       value.forEach((item, i) =>
         check(ctx, schema.items, item, `${path}[${i}]`, issues, depth + 1)
       );
@@ -257,7 +258,11 @@ function check(
       if (Object.hasOwn(value, key))
         check(ctx, sub, value[key], `${path}.${key}`, issues, depth + 1);
     }
-    if (schema.additionalProperties === false) {
+    // `patternProperties` decides which extra keys are covered; we do not
+    // evaluate patterns here, so never report extras when it is present.
+    if (isRecord(schema.patternProperties)) {
+      // not evaluated
+    } else if (schema.additionalProperties === false) {
       for (const key of Object.keys(value)) {
         if (!Object.hasOwn(props, key)) add('additional property is not allowed', `${path}.${key}`);
       }
