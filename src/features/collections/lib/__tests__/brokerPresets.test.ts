@@ -13,6 +13,7 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { CollectionItem, KafkaRequest, MqttRequest } from '@/types';
 import {
+  bindBrokerPresetCredentials,
   copyBrokerPresetSecrets,
   openBrokerPreset,
   reapBrokerPresetSecrets,
@@ -110,6 +111,7 @@ describe('opening and saving Kafka / MQTT presets (#984)', () => {
 
   it('opens a Kafka preset in a linked Kafka tab with the panel prefilled', async () => {
     vault.set(kafkaSecretKey(kafkaPresetSecretScope(KAFKA.id), 'sasl-password'), 'pw');
+    bindBrokerPresetCredentials(KAFKA);
     const tabId = await openBrokerPreset('item-1', KAFKA);
 
     const tab = useRequestStore.getState().tabs.find((t) => t.id === tabId)!;
@@ -128,6 +130,59 @@ describe('opening and saving Kafka / MQTT presets (#984)', () => {
     });
     expect(getKafkaProduceDraft(connectionId)?.value).toBe('{"id":"{{orderId}}"}');
     expect(vault.get(kafkaSecretKey(connectionId, 'sasl-password'))).toBe('pw');
+  });
+
+  it('does not attach stored credentials when the preset brokers were repointed', async () => {
+    vault.set(kafkaSecretKey(kafkaPresetSecretScope(KAFKA.id), 'sasl-password'), 'pw');
+    bindBrokerPresetCredentials(KAFKA);
+    const repointed: KafkaRequest = {
+      ...KAFKA,
+      connection: { ...KAFKA.connection, bootstrapBrokers: ['evil.example:9092'] },
+    };
+    const tabId = await openBrokerPreset('item-evil', repointed);
+    const connectionId = useKafkaStore.getState().connectionByTabId[tabId]!;
+    const conn = useKafkaStore.getState().connections[connectionId]!;
+    expect(conn.bootstrapBrokers).toEqual(['evil.example:9092']);
+    expect(conn.auth.sasl).toMatchObject({ password: '' });
+    expect(vault.get(kafkaSecretKey(connectionId, 'sasl-password'))).toBeUndefined();
+    expect(toastWarning).toHaveBeenCalled();
+  });
+
+  it('attaches credentials when brokers only differ by order, case or whitespace', async () => {
+    const two: KafkaRequest = {
+      ...KAFKA,
+      connection: { ...KAFKA.connection, bootstrapBrokers: ['a:9092', 'B:9092'] },
+    };
+    vault.set(kafkaSecretKey(kafkaPresetSecretScope(KAFKA.id), 'sasl-password'), 'pw');
+    bindBrokerPresetCredentials(two);
+    const reordered: KafkaRequest = {
+      ...two,
+      connection: { ...two.connection, bootstrapBrokers: [' b:9092', 'A:9092'] },
+    };
+    const tabId = await openBrokerPreset('item-ok', reordered);
+    const connectionId = useKafkaStore.getState().connectionByTabId[tabId]!;
+    expect(vault.get(kafkaSecretKey(connectionId, 'sasl-password'))).toBe('pw');
+  });
+
+  it('does not attach MQTT credentials after the broker URL is repointed, nor for unbound legacy secrets', async () => {
+    vault.set(`mqtt:preset-${MQTT.id}:password`, 'mpw');
+    // Legacy: secrets exist but no binding was ever recorded.
+    let tabId = await openBrokerPreset('item-legacy', MQTT);
+    let connectionId = useMqttStore.getState().connectionByTabId[tabId]!;
+    expect(vault.get(`mqtt:${connectionId}:password`)).toBeUndefined();
+
+    bindBrokerPresetCredentials(MQTT);
+    const repointed: MqttRequest = {
+      ...MQTT,
+      connection: { ...MQTT.connection, brokerUrl: 'mqtt://evil.example:1883' },
+    };
+    tabId = await openBrokerPreset('item-evil-mqtt', repointed);
+    connectionId = useMqttStore.getState().connectionByTabId[tabId]!;
+    expect(vault.get(`mqtt:${connectionId}:password`)).toBeUndefined();
+
+    tabId = await openBrokerPreset('item-good-mqtt', MQTT);
+    connectionId = useMqttStore.getState().connectionByTabId[tabId]!;
+    expect(vault.get(`mqtt:${connectionId}:password`)).toBe('mpw');
   });
 
   it('opens an MQTT preset with the composer seeded', async () => {
@@ -217,6 +272,10 @@ describe('opening and saving Kafka / MQTT presets (#984)', () => {
     expect(
       vault.get(kafkaSecretKey(kafkaPresetSecretScope(snap.request.id), 'sasl-password'))
     ).toBe('pw');
+    // Saving binds the credentials to the saved broker address, so reopening works.
+    const reopened = await openBrokerPreset('item-roundtrip', snap.request);
+    const reopenedConn = useKafkaStore.getState().connectionByTabId[reopened]!;
+    expect(vault.get(kafkaSecretKey(reopenedConn, 'sasl-password'))).toBe('pw');
 
     const mqttTab = useRequestStore.getState().openTabWithMode('mqtt');
     expect(snapshotBrokerTab({ id: mqttTab, modeOverride: 'mqtt' }, 'S')).toBeNull();
@@ -267,6 +326,7 @@ describe('preset save-back, credential lifecycle and runner reporting (#984 revi
 
   it('restores credentials before the tab opens (no Connect race)', async () => {
     vault.set(kafkaSecretKey(kafkaPresetSecretScope(KAFKA.id), 'sasl-password'), 'pw');
+    bindBrokerPresetCredentials(KAFKA);
     const pending = openBrokerPreset('item-k', KAFKA);
     expect(useRequestStore.getState().tabs).toHaveLength(0);
     const tabId = await pending;
@@ -307,6 +367,8 @@ describe('preset save-back, credential lifecycle and runner reporting (#984 revi
     const kScope = kafkaSecretKey(kafkaPresetSecretScope(KAFKA.id), 'sasl-password');
     vault.set(kScope, 'pw');
     vault.set(`mqtt:${`preset-${MQTT.id}`}:password`, 'mpw');
+    bindBrokerPresetCredentials(KAFKA);
+    bindBrokerPresetCredentials(MQTT);
 
     const folder: CollectionItem = { id: 'f', name: 'F', type: 'folder', items: [item(KAFKA)] };
     const dup = duplicateRequestItem(item(KAFKA), []);
