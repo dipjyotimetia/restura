@@ -243,6 +243,11 @@ export type McpConnectIpcConfig =
       url: string;
       transport: 'streamable-http' | 'http-sse';
       headers?: Record<string, string>;
+      /**
+       * Header-shaped connection auth (#896). SecretRef handles are resolved in
+       * Electron main at connect time — the renderer never sees the plaintext.
+       */
+      auth?: import('../../../shared/types/auth').AuthConfig;
     }
   | {
       connectionId: string;
@@ -253,8 +258,21 @@ export type McpConnectIpcConfig =
       env?: Record<string, McpStdioEnvValueIpc>;
     };
 
+export interface McpOAuthStatusIpc {
+  signedIn: boolean;
+  canRefresh: boolean;
+  expiresAt?: number;
+  scope?: string;
+  dynamicallyRegistered: boolean;
+}
+
 export interface ElectronMcpAPI {
-  connect: (config: McpConnectIpcConfig) => Promise<{ success: boolean; error?: string }>;
+  connect: (config: McpConnectIpcConfig) => Promise<{
+    success: boolean;
+    error?: string;
+    /** #856: the OAuth sign-in lapsed and can't refresh — prompt to sign in again. */
+    authRequired?: boolean;
+  }>;
   request: (config: {
     connectionId: string;
     method: string;
@@ -266,16 +284,71 @@ export interface ElectronMcpAPI {
     result?: unknown;
     error?: string;
     jsonRpcError?: { code: number; message: string; data?: unknown };
+    /** #856: the OAuth sign-in lapsed and can't refresh — prompt to sign in again. */
+    authRequired?: boolean;
+    /** True when the request was aborted via `cancel` (distinct from an error). */
+    cancelled?: boolean;
   }>;
+  /** Abort one in-flight request; the SDK sends `notifications/cancelled`. */
+  cancel: (config: {
+    connectionId: string;
+    requestId: string | number;
+  }) => Promise<{ success: boolean }>;
   disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
   /** Forget every "Always allow" stdio launch approval. */
   revokeStdioApprovals: () => Promise<{ success: boolean; revoked: number }>;
+  /** Answer a server→client request delivered on `mcp:client-request:<connectionId>` (#860). */
+  respondClientRequest: (
+    response: McpClientResponseIpc
+  ) => Promise<
+    { success: true } | { success: false; error: string; fieldErrors?: Record<string, string> }
+  >;
+  /** Replace the connection's roots; live sessions get notifications/roots/list_changed. */
+  setRoots: (config: {
+    connectionId: string;
+    roots: McpRootIpc[];
+  }) => Promise<{ success: true; notified: number } | { success: false; error: string }>;
+  /**
+   * MCP OAuth 2.1 (#856): plaintext-free sign-in status for a server (+ static
+   * client id). Tokens never cross IPC.
+   */
+  oauthStatus: (target: { url: string; clientId?: string }) => Promise<McpOAuthStatusIpc>;
+  /** Forget the stored MCP OAuth tokens / registration for a server. */
+  oauthSignOut: (target: { url: string; clientId?: string }) => Promise<{ success: boolean }>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeAllListeners: (channel: string) => void;
 }
 
-export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512' | 'OAUTHBEARER';
+export interface McpRootIpc {
+  uri: string;
+  name?: string;
+}
+
+export type McpClientResponseIpc =
+  | {
+      kind: 'elicitation';
+      connectionId: string;
+      requestId: string;
+      response:
+        | { action: 'accept'; content: Record<string, string | number | boolean | string[]> }
+        | { action: 'decline' }
+        | { action: 'cancel' };
+    }
+  | {
+      kind: 'sampling';
+      connectionId: string;
+      requestId: string;
+      response: { action: 'approve'; text: string; model: string } | { action: 'reject' };
+    };
+
+export type KafkaSaslMechanism =
+  | 'PLAIN'
+  | 'SCRAM-SHA-256'
+  | 'SCRAM-SHA-512'
+  | 'OAUTHBEARER'
+  | 'GSSAPI'
+  | 'AWS_MSK_IAM';
 
 export interface KafkaTlsIpc {
   ca?: string;
@@ -287,11 +360,43 @@ export interface KafkaTlsIpc {
 
 export type KafkaSaslIpc =
   | {
-      mechanism: Exclude<KafkaSaslMechanism, 'OAUTHBEARER'>;
+      mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
       username: string;
       password: string;
     }
-  | { mechanism: 'OAUTHBEARER'; token: string; extensions?: Record<string, string> };
+  | {
+      mechanism: 'OAUTHBEARER';
+      mode?: 'static';
+      token: string;
+      extensions?: Record<string, string>;
+    }
+  | {
+      // OAuth 2.0 client-credentials — main fetches + refreshes the token.
+      mechanism: 'OAUTHBEARER';
+      mode: 'client-credentials';
+      tokenEndpoint: string;
+      clientId: string;
+      /** SecretValue (ADR-0007) — resolved to plaintext in the main process. */
+      clientSecret: ProtocolSecretValue;
+      scope?: string;
+      extensions?: Record<string, string>;
+    }
+  | { mechanism: 'GSSAPI'; serviceName?: string; principal?: string }
+  | {
+      mechanism: 'AWS_MSK_IAM';
+      region: string;
+      /** Opt-in: allow brokers outside *.kafka.<region>.amazonaws.com (PrivateLink / custom DNS). */
+      allowNonAwsBrokerHosts?: boolean;
+      credentials:
+        | {
+            source: 'static';
+            accessKeyId: string;
+            /** SecretValue (ADR-0007) — resolved to plaintext in the main process. */
+            secretAccessKey: ProtocolSecretValue;
+            sessionToken?: ProtocolSecretValue;
+          }
+        | { source: 'profile'; profile: string };
+    };
 
 export type KafkaAuthIpc =
   | { securityProtocol: 'PLAINTEXT' }
@@ -307,13 +412,37 @@ export type KafkaAuthIpc =
   | { securityProtocol: 'SSL'; tls: KafkaTlsIpc };
 
 /**
- * Confluent Schema Registry config (resolved plaintext auth — secrets are
- * resolved main-side by kafkaManager before the IPC call). When present, the
- * consumer decodes Avro/Protobuf/JSON Schema messages via the registry.
+ * Confluent Schema Registry config. Basic auth arrives as resolved plaintext
+ * (kafkaManager resolves secureStorage sentinels); a bearer token is a
+ * SecretValue — keychain handles / external refs are resolved only in main.
+ * Registry HTTPS uses the execution policy's TLS selection (CA, mTLS, verify).
  */
+export type KafkaRegistryAuthIpc =
+  | { type?: 'basic'; username?: string; password?: string }
+  | { type: 'bearer'; token: ProtocolSecretValue };
+
 export interface KafkaRegistryIpc {
   url: string;
-  auth?: { username?: string; password?: string };
+  auth?: KafkaRegistryAuthIpc;
+}
+
+export type KafkaRegistryVersionIpc = number | 'latest';
+export type KafkaRegistrySchemaType = 'AVRO' | 'JSON' | 'PROTOBUF';
+
+export interface KafkaRegistrySchemaIpc {
+  id: number;
+  subject: string;
+  version: number;
+  schemaType: KafkaRegistrySchemaType;
+  schema: string;
+  references: { name: string; subject: string; version: number }[];
+}
+
+/** Registry schema that decoded a consumed field (subject/version when resolvable). */
+export interface KafkaSchemaRefIpc {
+  id: number;
+  subject?: string;
+  version?: number;
 }
 
 export interface KafkaAck {
@@ -330,6 +459,7 @@ export type KafkaDataFieldIpc =
 export type KafkaRecordFieldIpc =
   | KafkaDataFieldIpc
   | { encoding: 'schema'; schemaId: number; data: string }
+  | { encoding: 'schema'; subject: string; version: KafkaRegistryVersionIpc; data: string }
   | { encoding: 'null' };
 
 export interface KafkaRecordIpc {
@@ -354,6 +484,24 @@ export interface KafkaPartitionOffset {
   partition: number;
   offset: string;
 }
+
+/** A topic partition addressed by a live-consumer control (pause/resume/seek). */
+export interface KafkaTopicPartition {
+  topic: string;
+  partition: number;
+}
+
+/** Result of a partition pause/resume: the partitions still paused afterwards. */
+export interface KafkaPartitionControlResult {
+  success: boolean;
+  error?: string;
+  pausedPartitions?: KafkaTopicPartition[];
+}
+
+/** Where a live seek lands: an exact offset, or the first record at/after a timestamp (epoch ms). */
+export type KafkaSeekTarget =
+  | { kind: 'offset'; offset: string }
+  | { kind: 'timestamp'; timestamp: string };
 
 /** A consumer group as returned by Admin.listGroups (Map flattened to an array). */
 export interface KafkaGroupInfo {
@@ -408,6 +556,29 @@ export interface KafkaPartitionLag {
   lag: string;
 }
 
+export type KafkaOffsetResetTarget = 'earliest' | 'latest' | 'specific' | 'timestamp' | 'shift';
+
+/** One partition of an offset-reset plan/result. */
+export interface KafkaOffsetResetRow {
+  topic: string;
+  partition: number;
+  /** Committed offset before the reset, or null when none was committed. */
+  previous: string | null;
+  offset: string;
+  /** Why the target differs from the literal request (timestamp fallback / shift clamp). */
+  note?: 'timestamp-fallback-latest' | 'clamped-earliest' | 'clamped-latest';
+}
+
+/**
+ * A partition left untouched: a shift reset with no committed offset to move, or
+ * (all-topics scope) a committed topic that has since been deleted.
+ */
+export interface KafkaOffsetResetSkip {
+  topic: string;
+  partition: number;
+  reason: 'no-committed-offset' | 'unknown-topic';
+}
+
 export interface ElectronKafkaAPI {
   connect: (config: {
     connectionId: string;
@@ -450,9 +621,16 @@ export interface ElectronKafkaAPI {
   }) => Promise<{ success: boolean; error?: string }>;
   subscribe: (config: {
     connectionId: string;
-    groupId: string;
+    /** `browse` = no consumer group, no commits (#930). Omitted means `group`. */
+    membership?: 'browse' | 'group';
+    /** Required in group mode; must be omitted in browse mode. */
+    groupId?: string;
     topics: string[];
-    mode: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp';
+    mode: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp' | 'last-n';
+    /** Browse `last-n` start: records per partition. */
+    lastN?: number;
+    /** Browse only: stop after this many records in total. */
+    maxMessages?: number;
     fallbackMode?: 'latest' | 'earliest' | 'fail';
     offsets?: KafkaPartitionOffset[];
     timestamp?: string;
@@ -478,6 +656,23 @@ export interface ElectronKafkaAPI {
   resumeConsumer: (config: {
     connectionId: string;
   }) => Promise<{ success: boolean; error?: string }>;
+  /** Withhold records from these partitions; the rest of the subscription keeps flowing. */
+  pausePartitions: (config: {
+    connectionId: string;
+    partitions: KafkaTopicPartition[];
+  }) => Promise<KafkaPartitionControlResult>;
+  /** Resume paused partitions from the first record withheld while they were paused. */
+  resumePartitions: (config: {
+    connectionId: string;
+    partitions: KafkaTopicPartition[];
+  }) => Promise<KafkaPartitionControlResult>;
+  /** Reposition one partition of the live consumer; resolves with the offset it landed on. */
+  seekConsumer: (config: {
+    connectionId: string;
+    topic: string;
+    partition: number;
+    target: KafkaSeekTarget;
+  }) => Promise<{ success: boolean; error?: string; offset?: string }>;
   commitMessage: (config: {
     connectionId: string;
     commitToken: string;
@@ -516,14 +711,42 @@ export interface ElectronKafkaAPI {
     offsets?: KafkaPartitionLag[];
     error?: string;
   }>;
-  /** Reset a group's committed offsets for one topic (group must be inactive). */
+  /**
+   * Reset a group's committed offsets for one topic or all committed topics
+   * (group must be inactive). `dryRun` returns the plan without committing it.
+   */
   resetGroupOffsets: (config: {
     connectionId: string;
     groupId: string;
-    topic: string;
-    to: 'earliest' | 'latest' | 'specific';
+    topic?: string;
+    allTopics?: boolean;
+    to: KafkaOffsetResetTarget;
     partitions?: { partition: number; offset: string }[];
-  }) => Promise<{ success: boolean; error?: string }>;
+    /** Epoch milliseconds, for `to: 'timestamp'`. */
+    timestamp?: number;
+    /** Relative move (±N), for `to: 'shift'`. */
+    shift?: number;
+    dryRun?: boolean;
+  }) => Promise<{
+    success: boolean;
+    offsets?: KafkaOffsetResetRow[];
+    skipped?: KafkaOffsetResetSkip[];
+    dryRun?: boolean;
+    error?: string;
+  }>;
+  /** Delete a group's committed offsets (KIP-496 OffsetDelete; group must be inactive). */
+  deleteGroupOffsets: (config: {
+    connectionId: string;
+    groupId: string;
+    topic?: string;
+    allTopics?: boolean;
+    partitions?: number[];
+  }) => Promise<{
+    success: boolean;
+    deleted?: { topic: string; partitions: number[] }[];
+    skipped?: KafkaOffsetResetSkip[];
+    error?: string;
+  }>;
   /** Delete a consumer group (group must be empty/inactive). */
   deleteGroup: (config: {
     connectionId: string;
@@ -597,6 +820,19 @@ export interface ElectronKafkaAPI {
     validateOnly: boolean;
     confirmation?: string;
   }) => Promise<{ success: boolean; results?: unknown[]; error?: string }>;
+  // Schema Registry browsing (subject picker / schema viewer).
+  registryListSubjects: (config: {
+    connectionId: string;
+  }) => Promise<{ success: boolean; subjects?: string[]; error?: string }>;
+  registryListVersions: (config: {
+    connectionId: string;
+    subject: string;
+  }) => Promise<{ success: boolean; versions?: number[]; error?: string }>;
+  registryGetSchema: (config: {
+    connectionId: string;
+    subject: string;
+    version: KafkaRegistryVersionIpc;
+  }) => Promise<{ success: boolean; schema?: KafkaRegistrySchemaIpc; error?: string }>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeAllListeners: (channel: string) => void;

@@ -18,6 +18,11 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { type OwsStoredWorkflow, useWorkflowStore } from '@/store/useWorkflowStore';
 import type { ActivePanel, CollectionItem } from '@/types';
 import { useCollectionSidebarCommands } from '../hooks/useCollectionSidebarCommands';
+import {
+  copyBrokerPresetSecrets,
+  DUPLICATE_CREDENTIALS_FAILED,
+  reapBrokerPresetSecretsForItem,
+} from '../lib/brokerPresets';
 import { duplicateRequestItem, makeFolderItem, makeRequestItem } from '../lib/itemFactory';
 import {
   folderPathTo,
@@ -26,6 +31,7 @@ import {
   siblingNamesForParent,
   uniqueName,
 } from '../lib/names';
+import { openCollectionItem } from '../lib/openCollectionItem';
 import { filterCollectionTree, historyItemMatches } from '../lib/sidebarSearch';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
 import { selectionKey, type TreeActions, type TreeState } from './CollectionTree';
@@ -264,18 +270,9 @@ function Sidebar({ activePanel }: SidebarProps) {
     [getHistoryById, openTab, switchTab]
   );
 
-  const handleOpenCollectionItem = useCallback(
-    (item: CollectionItem) => {
-      if (item.type !== 'request' || !item.request) return;
-      const existing = useRequestStore.getState().tabs.find((t) => t.savedRequestId === item.id);
-      if (existing) {
-        switchTab(existing.id);
-        return;
-      }
-      openTab(item.request, { savedRequestId: item.id });
-    },
-    [openTab, switchTab]
-  );
+  const handleOpenCollectionItem = useCallback((item: CollectionItem) => {
+    openCollectionItem(item);
+  }, []);
 
   const handleAddFolder = useCallback(
     (collectionId: string, parentId?: string) => {
@@ -294,9 +291,9 @@ function Sidebar({ activePanel }: SidebarProps) {
       addItemToCollection(collectionId, item, parentId);
       revealLocation(collectionId, parentId);
       // Land the user in the builder for the new saved request.
-      if (item.request) openTab(item.request, { savedRequestId: item.id, switchTo: true });
+      openCollectionItem(item);
     },
-    [addItemToCollection, revealLocation, openTab]
+    [addItemToCollection, revealLocation]
   );
 
   const handleDuplicateItem = useCallback(
@@ -306,13 +303,20 @@ function Sidebar({ activePanel }: SidebarProps) {
       const parentId = collection ? parentFolderIdOf(collection.items, item.id) : undefined;
       const dup = duplicateRequestItem(item, siblingNames(collectionId, parentId));
       addItemToCollection(collectionId, dup, parentId);
+      // Kafka / MQTT presets: credentials follow the copy (#984).
+      copyBrokerPresetSecrets([item], [dup]).catch(() => {
+        toast.error(DUPLICATE_CREDENTIALS_FAILED);
+      });
     },
     [addItemToCollection]
   );
 
   const handleConfirmItemDelete = useCallback(() => {
     if (itemToDelete) {
+      const items = getCollectionById(itemToDelete.collectionId)?.items ?? [];
       for (const itemId of itemToDelete.itemIds) {
+        // Kafka / MQTT presets: drop their stored credentials too (#984).
+        reapBrokerPresetSecretsForItem(items, itemId);
         removeCollectionItem(itemToDelete.collectionId, itemId);
       }
       setSelectedKeys((prev) => (prev.size === 0 ? prev : new Set()));

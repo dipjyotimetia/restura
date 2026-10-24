@@ -1,28 +1,58 @@
 import { useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Floater } from '@/components/ui/spatial';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import {
+  displayHost,
+  McpClientRequestDialog,
+} from '@/features/mcp/components/McpClientRequestDialog';
 import { McpConnectionPanel } from '@/features/mcp/components/McpConnectionPanel';
 import {
   McpDiscoveryPanel,
   type McpDiscoveryTab,
 } from '@/features/mcp/components/McpDiscoveryPanel';
 import { McpInvokeForm } from '@/features/mcp/components/McpInvokeForm';
+import { McpLogLevelPicker } from '@/features/mcp/components/McpLogLevelPicker';
+import { McpPingButton } from '@/features/mcp/components/McpPingButton';
+import { McpRootsPanel } from '@/features/mcp/components/McpRootsPanel';
+import { McpTemplateForm } from '@/features/mcp/components/McpTemplateForm';
+import { useMcpClientRequests } from '@/features/mcp/hooks/useMcpClientRequests';
 import { useMcpConnectionActions } from '@/features/mcp/hooks/useMcpConnectionActions';
-import { type McpCall, McpClient } from '@/features/mcp/lib/mcpClient';
+import { useMcpServerEvents } from '@/features/mcp/hooks/useMcpServerEvents';
+import { buildMcpConnectAuth } from '@/features/mcp/lib/mcpAuth';
+import {
+  type McpCall,
+  McpClient,
+  type McpCompletionRef,
+  type McpLogLevel,
+} from '@/features/mcp/lib/mcpClient';
+import { pushMcpRoots } from '@/features/mcp/lib/mcpClientRequests';
+import { supportsMcpServerEvents } from '@/features/mcp/lib/mcpEventBridge';
+import { errorEntry } from '@/features/mcp/lib/mcpNotifications';
 import {
   type McpOperation,
   parseMcpOperation,
   serializeMcpOperation,
 } from '@/features/mcp/lib/mcpOperation';
 import { buildStdioLaunch } from '@/features/mcp/lib/mcpStdioLaunch';
-import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import {
+  useMcpNotificationStore,
+  useMcpNotifications,
+  useMcpSubscribedUris,
+} from '@/features/mcp/store/useMcpNotificationStore';
+import { type McpRoot, useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
+import { isElectron } from '@/lib/shared/platform';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useActiveRequest, useActiveTabId } from '@/store/selectors';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { McpRequest } from '@/types';
+
+const NO_ROOTS: McpRoot[] = [];
+const MCP_REAUTH_PROMPT =
+  'Your MCP sign-in expired and could not be refreshed — click Connect to sign in again.';
 
 interface McpClientSession {
   connectionId: string;
@@ -58,6 +88,7 @@ export default function McpRequestBuilder() {
     setUrl,
     setTransport,
     setHeaders,
+    setRoots,
     setStatus,
     setCapabilities,
     resetConnectionSession,
@@ -73,10 +104,49 @@ export default function McpRequestBuilder() {
   const clientRef = useRef<McpClientSession | null>(null);
   const clientGenerationRef = useRef(0);
   const [showCatalog, setShowCatalog] = useState(false);
+  const [selectedTemplateUri, setSelectedTemplateUri] = useState<string | null>(null);
   const operation = request ? parseMcpOperation(request) : null;
   const [discoveryTab, setDiscoveryTab] = useState<McpDiscoveryTab>(() =>
     discoveryTabFor(operation)
   );
+  const notifications = useMcpNotifications(active?.id);
+  const subscribedUris = useMcpSubscribedUris(active?.id);
+
+  // Server→client events (#858). Callbacks only touch refs/stable actions,
+  // so they are safe to define before the early return below.
+  const { attach: attachServerEvents, detach: detachServerEvents } = useMcpServerEvents({
+    onListChanged: () => {
+      const session = clientRef.current;
+      if (!session) return;
+      const generation = clientGenerationRef.current;
+      void session.client.discoverCapabilities().then((capabilities) => {
+        if (
+          clientGenerationRef.current !== generation ||
+          clientRef.current?.client !== session.client
+        ) {
+          return;
+        }
+        if ('error' in capabilities) {
+          useMcpNotificationStore
+            .getState()
+            .push(session.connectionId, errorEntry(`Re-discovery failed: ${capabilities.error}`));
+          return;
+        }
+        setCapabilities(session.connectionId, capabilities);
+      });
+    },
+    onUpstreamClosed: (connectionId, reason, error) => {
+      if (clientRef.current?.connectionId === connectionId) {
+        clientGenerationRef.current += 1;
+        clientRef.current = null;
+      }
+      setStatus(
+        connectionId,
+        'error',
+        error ? `Connection closed: ${error}` : `Server closed the connection (${reason})`
+      );
+    },
+  });
 
   useEffect(() => {
     if (!hasConnections) createConnection('');
@@ -128,9 +198,16 @@ export default function McpRequestBuilder() {
         clientRef.current = null;
         void session.client.disconnect();
       }
-      if (activeIdForCleanup) resetConnectionSession(activeIdForCleanup);
+      detachServerEvents();
+      if (activeIdForCleanup) {
+        resetConnectionSession(activeIdForCleanup);
+        useMcpNotificationStore.getState().resetSubscriptions(activeIdForCleanup);
+      }
     };
-  }, [activeIdForCleanup, activeTabId, resetConnectionSession]);
+  }, [activeIdForCleanup, activeTabId, resetConnectionSession, detachServerEvents]);
+
+  // Server→client requests (elicitation / sampling) are desktop-only (#860).
+  useMcpClientRequests(active?.id, active?.status);
 
   const sendShortcut = useSendShortcut();
   if (!active || !request) return null;
@@ -160,17 +237,33 @@ export default function McpRequestBuilder() {
   const tools = active.capabilities?.tools ?? [];
   const resources = active.capabilities?.resources ?? [];
   const prompts = active.capabilities?.prompts ?? [];
+  const advertised = active.capabilities?.capabilities;
+  const discoveredTemplates = active.capabilities?.resourceTemplates ?? [];
+  const templates =
+    advertised?.resources || discoveredTemplates.length > 0 ? discoveredTemplates : undefined;
+  const supportsCompletion = advertised?.completions !== undefined;
+  const supportsLogging = advertised?.logging !== undefined;
 
-  const buildClient = () => {
+  const buildClient = (): McpClient | { error: string } => {
     const rawHeaders = keyValuePairsToRecord(request.headers);
     const headers = Object.fromEntries(
       Object.entries(rawHeaders).map(([key, value]) => [key, resolveVariables(value)])
     );
     const connectionId = active.id;
+    // #896: apply McpRequest.auth (inline on web, main-resolved on desktop).
+    const auth = buildMcpConnectAuth({
+      auth: request.auth,
+      inherited: resolveInheritedAuthFor(request),
+      headers,
+      resolve: resolveVariables,
+      desktop: isElectron(),
+    });
+    if (!auth.ok) return { error: auth.error };
     return new McpClient({
       url: resolveVariables(request.url),
       transport: request.transport,
-      headers,
+      headers: auth.headers,
+      ...(auth.mainSideAuth ? { auth: auth.mainSideAuth } : {}),
       connectionId,
       ...(request.transport === 'stdio'
         ? {
@@ -186,14 +279,26 @@ export default function McpRequestBuilder() {
   // stdio has no URL; label console entries by command only (args may hold secrets).
   const consoleUrl =
     request.transport === 'stdio' ? `stdio:${request.stdio?.command ?? ''}` : request.url;
-  const logCall = (method: string, params: unknown, result: McpCall): void => {
+  const logCall = (
+    method: string,
+    params: unknown,
+    result: McpCall,
+    outputSchema?: unknown
+  ): void => {
+    // #856: the desktop OAuth session lapsed and couldn't refresh — prompt a
+    // fresh sign-in (Connect re-runs the browser flow).
+    if (!result.ok && result.authRequired) {
+      setStatus(active.id, 'error', MCP_REAUTH_PROMPT);
+    }
     appendLog(active.id, {
       method,
       params,
+      ...(outputSchema !== undefined ? { outputSchema } : {}),
       ...(result.ok
         ? { result: result.result }
         : {
             error: result.error,
+            ...(result.cancelled ? { cancelled: true } : {}),
             ...(result.jsonRpcError ? { jsonRpcError: result.jsonRpcError } : {}),
           }),
       durationMs: result.durationMs,
@@ -214,7 +319,7 @@ export default function McpRequestBuilder() {
           id: uuidv4(),
           requestId: active.id,
           status: result.ok ? 200 : 0,
-          statusText: result.ok ? 'OK' : (result.error ?? 'Error'),
+          statusText: result.ok ? 'OK' : result.cancelled ? 'Cancelled' : (result.error ?? 'Error'),
           headers: {},
           body: body ?? '',
           size: body ? new TextEncoder().encode(body).length : 0,
@@ -242,16 +347,36 @@ export default function McpRequestBuilder() {
     void previousSession?.client.disconnect();
     resetConnectionSession(active.id);
     clearStderr(active.id);
+    const built = buildClient();
+    if ('error' in built) {
+      setStatus(active.id, 'error', built.error);
+      return;
+    }
     setStatus(active.id, 'connecting');
-    const client = buildClient();
+    const client = built;
     clientRef.current = { connectionId: active.id, client };
     const isCurrent = () =>
       clientGenerationRef.current === generation && clientRef.current?.client === client;
 
+    // Roots must be in main before the server can ask for them.
+    if (isElectron()) {
+      const pushed = await pushMcpRoots(active.id, active.roots ?? NO_ROOTS);
+      if (!isCurrent()) return;
+      if (!pushed.ok) {
+        setStatus(active.id, 'error', pushed.error);
+        return;
+      }
+    }
+    // Subscribe BEFORE connect: main can emit during the handshake.
+    useMcpNotificationStore.getState().resetSubscriptions(active.id);
+    // Refresh bumps the generation but keeps the session, so events are keyed
+    // on session (client) identity rather than the discovery generation.
+    attachServerEvents(active.id, () => clientRef.current?.client === client);
     const open = await client.connect();
     if (!isCurrent()) return;
     if (!open.ok) {
-      setStatus(active.id, 'error', open.error);
+      detachServerEvents();
+      setStatus(active.id, 'error', open.authRequired ? MCP_REAUTH_PROMPT : open.error);
       return;
     }
     const capabilities = await client.discoverCapabilities();
@@ -268,6 +393,8 @@ export default function McpRequestBuilder() {
     clientGenerationRef.current += 1;
     const session = clientRef.current;
     if (session?.connectionId === active.id) clientRef.current = null;
+    detachServerEvents();
+    useMcpNotificationStore.getState().resetSubscriptions(active.id);
     resetConnectionSession(active.id);
     if (session?.connectionId === active.id) await session.client.disconnect();
   };
@@ -300,6 +427,63 @@ export default function McpRequestBuilder() {
     return session.client;
   };
 
+  const eventsSupported = supportsMcpServerEvents();
+  const canSubscribe =
+    eventsSupported &&
+    active.status === 'connected' &&
+    active.capabilities?.capabilities?.resources?.subscribe === true;
+
+  const toggleResourceSubscription = async (uri: string, subscribe: boolean) => {
+    const client = getCurrentClient();
+    if (!client) return;
+    const result = subscribe
+      ? await client.subscribeResource(uri)
+      : await client.unsubscribeResource(uri);
+    logCall(subscribe ? 'resources/subscribe' : 'resources/unsubscribe', { uri }, result);
+    const notificationStore = useMcpNotificationStore.getState();
+    if (result.ok) {
+      notificationStore.setSubscribed(active.id, uri, subscribe);
+    } else {
+      notificationStore.push(
+        active.id,
+        errorEntry(`${subscribe ? 'Subscribe' : 'Unsubscribe'} failed: ${result.error}`)
+      );
+    }
+  };
+
+  // Completion is non-interactive plumbing: not written to the call log/console.
+  const completeWith =
+    (ref: McpCompletionRef) =>
+    async (
+      argument: { name: string; value: string },
+      context: Record<string, string>
+    ): Promise<string[]> => {
+      const client = getCurrentClient();
+      if (!client) return [];
+      const filled = Object.fromEntries(Object.entries(context).filter(([, v]) => v !== ''));
+      return client.complete(ref, argument, filled);
+    };
+
+  const handlePing = async () => {
+    const client = getCurrentClient();
+    if (!client) return { ok: false, durationMs: 0, error: 'Not connected' };
+    const result = await client.ping();
+    logCall('ping', undefined, result);
+    return result.ok
+      ? { ok: true, durationMs: result.durationMs }
+      : { ok: false, durationMs: result.durationMs, error: result.error };
+  };
+
+  const handleSetLogLevel = async (level: McpLogLevel) => {
+    const client = getCurrentClient();
+    if (!client) return { ok: false, error: 'Not connected' };
+    const result = await client.setLogLevel(level);
+    logCall('logging/setLevel', { level }, result);
+    return result.ok ? { ok: true } : { ok: false, error: result.error };
+  };
+
+  const selectedTemplate = templates?.find((t) => t.uriTemplate === selectedTemplateUri) ?? null;
+
   sendShortcut.current =
     active.status === 'disconnected' || active.status === 'error'
       ? (request.transport === 'stdio' ? request.stdio?.command.trim() : request.url.trim())
@@ -324,16 +508,44 @@ export default function McpRequestBuilder() {
         stdio={request.stdio}
         onStdioChange={(stdio) => update({ stdio })}
         onClearStderr={() => clearStderr(active.id)}
+        requestId={request.id}
+        auth={request.auth ?? { type: 'none' }}
+        onAuthChange={(auth) => update({ auth })}
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
         onRefresh={handleRefresh}
       />
+      {isElectron() && (
+        <McpRootsPanel
+          roots={active.roots ?? NO_ROOTS}
+          onSave={async (roots) => {
+            const result = await pushMcpRoots(active.id, roots);
+            if (result.ok) setRoots(active.id, roots);
+            return result;
+          }}
+        />
+      )}
+      <McpClientRequestDialog
+        connectionId={active.id}
+        connectionName={request.name || 'MCP connection'}
+        serverHost={displayHost(resolveVariables(request.url))}
+      />
+
+      {active.status === 'connected' && (
+        <div className="flex items-center gap-3 px-3 pb-2 shrink-0">
+          <McpPingButton onPing={handlePing} />
+          {supportsLogging && <McpLogLevelPicker onSetLevel={handleSetLogLevel} />}
+        </div>
+      )}
 
       <div className="flex-1 flex gap-2.5 px-3 pb-3 overflow-hidden min-h-0">
         {showCatalog && (
           <McpDiscoveryPanel
             tools={tools}
             resources={resources}
+            templates={templates}
+            selectedTemplateUri={selectedTemplateUri}
+            onTemplateSelect={setSelectedTemplateUri}
             prompts={prompts}
             log={active.log}
             selectedToolName={selectedToolName}
@@ -355,6 +567,22 @@ export default function McpRequestBuilder() {
             onHide={() => setShowCatalog(false)}
             tab={discoveryTab}
             onTabChange={setDiscoveryTab}
+            {...(eventsSupported
+              ? {
+                  events: {
+                    entries: notifications,
+                    onClear: () => useMcpNotificationStore.getState().clear(active.id),
+                  },
+                }
+              : {})}
+            {...(canSubscribe
+              ? {
+                  resourceSubscriptions: {
+                    subscribed: subscribedUris,
+                    onToggle: toggleResourceSubscription,
+                  },
+                }
+              : {})}
           />
         )}
 
@@ -363,35 +591,60 @@ export default function McpRequestBuilder() {
           elevation="float"
           className="flex-1 min-w-0 bg-sp-surface border border-sp-line flex flex-col overflow-hidden min-h-0"
         >
-          <McpInvokeForm
-            tab={discoveryTab}
-            tool={tools.find((tool) => tool.name === selectedToolName) ?? null}
-            prompt={prompts.find((prompt) => prompt.name === selectedPromptName) ?? null}
-            toolArguments={operation?.kind === 'tool' ? operation.arguments : undefined}
-            onToolArgumentsChange={(args) => {
-              if (selectedToolName) {
-                persistOperation({ kind: 'tool', name: selectedToolName, arguments: args });
+          {discoveryTab === 'templates' ? (
+            <McpTemplateForm
+              template={selectedTemplate}
+              onRead={async (uri) => {
+                persistOperation({ kind: 'resource', uri });
+                const client = getCurrentClient();
+                if (!client) return;
+                const result = await client.readResource(uri);
+                logCall('resources/read', { uri }, result);
+              }}
+              onComplete={
+                supportsCompletion
+                  ? (uriTemplate, argument, context) =>
+                      completeWith({ type: 'ref/resource', uri: uriTemplate })(argument, context)
+                  : undefined
               }
-            }}
-            promptArguments={operation?.kind === 'prompt' ? operation.arguments : undefined}
-            onPromptArgumentsChange={(args) => {
-              if (selectedPromptName) {
-                persistOperation({ kind: 'prompt', name: selectedPromptName, arguments: args });
+            />
+          ) : (
+            <McpInvokeForm
+              tab={discoveryTab}
+              tool={tools.find((tool) => tool.name === selectedToolName) ?? null}
+              prompt={prompts.find((prompt) => prompt.name === selectedPromptName) ?? null}
+              toolArguments={operation?.kind === 'tool' ? operation.arguments : undefined}
+              onToolArgumentsChange={(args) => {
+                if (selectedToolName) {
+                  persistOperation({ kind: 'tool', name: selectedToolName, arguments: args });
+                }
+              }}
+              promptArguments={operation?.kind === 'prompt' ? operation.arguments : undefined}
+              onPromptArgumentsChange={(args) => {
+                if (selectedPromptName) {
+                  persistOperation({ kind: 'prompt', name: selectedPromptName, arguments: args });
+                }
+              }}
+              onCall={async (tool, args, signal) => {
+                const client = getCurrentClient();
+                if (!client) return;
+                const result = await client.callTool(tool.name, args, signal);
+                logCall(`tools/call:${tool.name}`, args, result, tool.outputSchema);
+              }}
+              onGet={async (prompt, args, signal) => {
+                const client = getCurrentClient();
+                if (!client) return;
+                const result = await client.getPrompt(prompt.name, args, signal);
+                logCall(`prompts/get:${prompt.name}`, args, result);
+              }}
+              onCompletePrompt={
+                supportsCompletion
+                  ? (promptName, argument, context) =>
+                      completeWith({ type: 'ref/prompt', name: promptName })(argument, context)
+                  : undefined
               }
-            }}
-            onCall={async (tool, args) => {
-              const client = getCurrentClient();
-              if (!client) return;
-              const result = await client.callTool(tool.name, args);
-              logCall(`tools/call:${tool.name}`, args, result);
-            }}
-            onGet={async (prompt, args) => {
-              const client = getCurrentClient();
-              if (!client) return;
-              const result = await client.getPrompt(prompt.name, args);
-              logCall(`prompts/get:${prompt.name}`, args, result);
-            }}
-          />
+            />
+          )}
         </Floater>
       </div>
     </div>

@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { redactMcpCollectionsForWebPersistence } from '@/lib/shared/mcpWebPersistence';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
 import { validateCollection } from '@/lib/shared/store-validators';
 import type { Collection, CollectionItem } from '@/types';
@@ -418,6 +419,12 @@ export const useCollectionStore = create<CollectionState>()(
       name: 'collection-storage',
       version: 3, // v3: SecretValue widening (ADR-0007)
       storage: dexieStorageAdapters.collections(),
+      // #896: saved MCP credentials never reach the browser's unencrypted
+      // IndexedDB (desktop passes through — its store is keychain-encrypted).
+      partialize: (state) => ({
+        ...state,
+        collections: redactMcpCollectionsForWebPersistence(state.collections),
+      }),
       migrate: (persistedState, version) => {
         let state = persistedState as CollectionState | null;
         if (state && version < 3 && Array.isArray(state.collections)) {

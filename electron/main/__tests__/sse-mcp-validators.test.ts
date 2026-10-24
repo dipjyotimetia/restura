@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  McpCancelSchema,
   McpConnectSchema,
   McpDisconnectSchema,
   McpRequestSchema,
@@ -160,6 +161,32 @@ describe('McpRequestSchema', () => {
         timeout: 999_999,
       }).success
     ).toBe(false);
+  });
+});
+
+describe('McpRequestSchema requestId bounds', () => {
+  it('rejects empty and oversized string request ids', () => {
+    expect(
+      McpRequestSchema.safeParse({ connectionId: 'a', method: 'm', requestId: '' }).success
+    ).toBe(false);
+    expect(
+      McpRequestSchema.safeParse({ connectionId: 'a', method: 'm', requestId: 'x'.repeat(257) })
+        .success
+    ).toBe(false);
+  });
+});
+
+describe('McpCancelSchema', () => {
+  it('accepts a connection id with a string or numeric request id', () => {
+    expect(McpCancelSchema.safeParse({ connectionId: 'a', requestId: 3 }).success).toBe(true);
+    expect(McpCancelSchema.safeParse({ connectionId: 'a', requestId: 'r-1' }).success).toBe(true);
+  });
+
+  it('requires requestId and a valid connectionId', () => {
+    expect(McpCancelSchema.safeParse({ connectionId: 'a' }).success).toBe(false);
+    expect(McpCancelSchema.safeParse({ connectionId: '', requestId: 1 }).success).toBe(false);
+    expect(McpCancelSchema.safeParse({ connectionId: 'a', requestId: '' }).success).toBe(false);
+    expect(McpCancelSchema.safeParse({ connectionId: 'a', requestId: {} }).success).toBe(false);
   });
 });
 

@@ -1,0 +1,487 @@
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useAiChatStore } from '@/features/ai/store';
+import {
+  displayHost,
+  McpClientRequestDialog,
+} from '@/features/mcp/components/McpClientRequestDialog';
+import { McpRootsPanel } from '@/features/mcp/components/McpRootsPanel';
+import { useMcpClientRequestStore } from '@/features/mcp/store/useMcpClientRequestStore';
+
+const mcp = {
+  on: vi.fn(),
+  removeListener: vi.fn(),
+  respondClientRequest: vi.fn(),
+  setRoots: vi.fn(),
+};
+
+const ELICIT_ID = '0f0e0d0c-0b0a-4908-8706-050403020100';
+const SAMPLE_ID = '1f0e0d0c-0b0a-4908-8706-050403020100';
+
+function queue(kind: 'elicitation' | 'sampling', params: unknown, requestId: string) {
+  act(() => {
+    useMcpClientRequestStore.getState().add({
+      requestId,
+      connectionId: 'conn-1',
+      kind,
+      params,
+      receivedAt: Date.now(),
+    });
+  });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mcp.respondClientRequest.mockResolvedValue({ success: true });
+  useMcpClientRequestStore.setState({ requests: [] });
+  useAiChatStore.setState({
+    providerConfigs: { openai: null, anthropic: null, openrouter: null, 'openai-compatible': null },
+  });
+  (window as unknown as { electron: unknown }).electron = { isElectron: true, mcp };
+});
+
+afterEach(() => {
+  delete (window as unknown as { electron?: unknown }).electron;
+});
+
+describe('McpClientRequestDialog — elicitation', () => {
+  const params = {
+    message: 'Deploy to prod?',
+    requestedSchema: {
+      type: 'object',
+      properties: { confirm: { type: 'boolean', description: 'Really?' } },
+      required: ['confirm'],
+    },
+  };
+
+  it('renders nothing without a pending request for the connection', () => {
+    const { container } = render(
+      <McpClientRequestDialog
+        connectionId="conn-2"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('elicitation', params, ELICIT_ID);
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText('Deploy to prod?')).toBeNull();
+  });
+
+  it('validates the form against the requested schema before accepting', async () => {
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('elicitation', params, ELICIT_ID);
+    expect(screen.getByText('Deploy to prod?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+    expect(await screen.findByText('Required.')).toBeInTheDocument();
+    expect(mcp.respondClientRequest).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByPlaceholderText('true / false'), { target: { value: 'true' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+    await waitFor(() =>
+      expect(mcp.respondClientRequest).toHaveBeenCalledWith({
+        kind: 'elicitation',
+        connectionId: 'conn-1',
+        requestId: ELICIT_ID,
+        response: { action: 'accept', content: { confirm: true } },
+      })
+    );
+    await waitFor(() => expect(screen.queryByText('Deploy to prod?')).toBeNull());
+  });
+
+  it.each(['Decline', 'Cancel'])('sends %s without content', async (label) => {
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('elicitation', params, ELICIT_ID);
+    fireEvent.click(screen.getByRole('button', { name: label }));
+    await waitFor(() =>
+      expect(mcp.respondClientRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ response: { action: label.toLowerCase() } })
+      )
+    );
+  });
+
+  it('shows field errors returned by main', async () => {
+    mcp.respondClientRequest.mockResolvedValueOnce({
+      success: false,
+      error: 'Content does not match the requested schema',
+      fieldErrors: { confirm: 'Must be true or false.' },
+    });
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('elicitation', params, ELICIT_ID);
+    fireEvent.change(screen.getByPlaceholderText('true / false'), { target: { value: 'false' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
+    expect(await screen.findByText('Must be true or false.')).toBeInTheDocument();
+  });
+
+  it('dismissing the dialog answers cancel', async () => {
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('elicitation', params, ELICIT_ID);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() =>
+      expect(mcp.respondClientRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'elicitation', response: { action: 'cancel' } })
+      )
+    );
+  });
+
+  it('flags an unsupported schema', () => {
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('elicitation', { message: 'x', requestedSchema: { properties: 1 } }, ELICIT_ID);
+    expect(screen.getByText(/unsupported form schema/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept' })).toBeDisabled();
+  });
+});
+
+describe('McpClientRequestDialog — sampling', () => {
+  const params = {
+    systemPrompt: 'You are terse',
+    maxTokens: 32,
+    modelPreferences: { hints: [{ name: 'claude' }], speedPriority: 0.5 },
+    messages: [{ role: 'user', content: { type: 'text', text: 'Summarise the log' } }],
+  };
+
+  it('shows the full request and requires explicit approval with text', async () => {
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('sampling', params, SAMPLE_ID);
+    queue('elicitation', { message: 'later', requestedSchema: { properties: {} } }, ELICIT_ID);
+
+    expect(screen.getByText('Summarise the log')).toBeInTheDocument();
+    expect(screen.getByText('You are terse')).toBeInTheDocument();
+    expect(screen.getByText('maxTokens: 32')).toBeInTheDocument();
+    expect(screen.getByText('model hints: claude')).toBeInTheDocument();
+    expect(screen.getByText(/1 more waiting/)).toBeInTheDocument();
+    // No configured AI provider → no draft button.
+    expect(screen.queryByRole('button', { name: /Draft with/ })).toBeNull();
+
+    const approve = screen.getByRole('button', { name: 'Approve & send' });
+    expect(approve).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Sampling response'), {
+      target: { value: 'All good.' },
+    });
+    fireEvent.click(approve);
+    await waitFor(() =>
+      expect(mcp.respondClientRequest).toHaveBeenCalledWith({
+        kind: 'sampling',
+        connectionId: 'conn-1',
+        requestId: SAMPLE_ID,
+        response: { action: 'approve', text: 'All good.', model: 'restura-manual' },
+      })
+    );
+    // The next queued request takes over.
+    expect(await screen.findByText('later')).toBeInTheDocument();
+  });
+
+  it('rejects on Reject and surfaces errors', async () => {
+    mcp.respondClientRequest.mockResolvedValueOnce({ success: false, error: 'boom' });
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('sampling', params, SAMPLE_ID);
+    fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
+    expect(await screen.findByText('boom')).toBeInTheDocument();
+    expect(mcp.respondClientRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ response: { action: 'reject' } })
+    );
+  });
+
+  it('offers an AI-provider draft that still needs approval', async () => {
+    const ai = {
+      chat: vi.fn(async (spec: { streamId: string }) => {
+        queueMicrotask(() => {
+          chunk?.({ type: 'delta', text: 'Drafted.' });
+          end?.({ reason: 'done' });
+        });
+        return { ok: true, streamId: spec.streamId };
+      }),
+      onChunk: vi.fn((_id: string, cb: (e: unknown) => void) => {
+        chunk = cb;
+        return () => undefined;
+      }),
+      onEnd: vi.fn((_id: string, cb: (e: unknown) => void) => {
+        end = cb;
+        return () => undefined;
+      }),
+    };
+    let chunk: ((e: unknown) => void) | undefined;
+    let end: ((e: unknown) => void) | undefined;
+    (window as unknown as { electron: unknown }).electron = { isElectron: true, mcp, ai };
+    useAiChatStore.setState({
+      activeProvider: 'openai',
+      providerConfigs: {
+        openai: { provider: 'openai', defaultModel: 'gpt-test' },
+        anthropic: null,
+        openrouter: null,
+        'openai-compatible': null,
+      },
+    });
+
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('sampling', params, SAMPLE_ID);
+    fireEvent.click(screen.getByRole('button', { name: /Draft with gpt-test/ }));
+    await waitFor(() => expect(screen.getByLabelText('Sampling response')).toHaveValue('Drafted.'));
+    expect(screen.getByLabelText('Response model')).toHaveValue('gpt-test');
+    expect(mcp.respondClientRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe('McpRootsPanel', () => {
+  it('drafts edits locally and saves only valid file:// roots', async () => {
+    const onSave = vi.fn(async () => ({ ok: true as const }));
+    render(<McpRootsPanel roots={[]} onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: /Roots/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Add root/ }));
+    fireEvent.change(screen.getByLabelText('Root 1 URI'), { target: { value: 'https://x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save roots' }));
+    expect(
+      await screen.findByText('Every root must be a local file:// URI (no remote host).')
+    ).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('Root 1 URI'), {
+      target: { value: 'file:///repo' },
+    });
+    fireEvent.change(screen.getByLabelText('Root 1 name'), { target: { value: 'repo' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save roots' }));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith([{ uri: 'file:///repo', name: 'repo' }])
+    );
+  });
+
+  it('removes rows and surfaces save failures', async () => {
+    const onSave = vi.fn(async () => ({ ok: false as const, error: 'Not allowed' }));
+    render(
+      <McpRootsPanel
+        roots={[{ uri: 'file:///a' }, { uri: 'file:///b', name: 'b' }]}
+        onSave={onSave}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Roots/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove root 1' }));
+    fireEvent.change(screen.getByLabelText('Root 1 name'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save roots' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith([{ uri: 'file:///b' }]));
+    expect(await screen.findByText('Not allowed')).toBeInTheDocument();
+  });
+});
+
+describe('McpClientRequestDialog — edge cases', () => {
+  it('falls back for malformed elicitation params and never submits without a form', () => {
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('elicitation', null, ELICIT_ID);
+    expect(screen.getByText('The server is requesting input.')).toBeInTheDocument();
+    const form = screen.getByRole('button', { name: 'Accept' }).closest('form');
+    if (!form) throw new Error('form missing');
+    fireEvent.submit(form);
+    expect(mcp.respondClientRequest).not.toHaveBeenCalled();
+  });
+
+  it('shows a form-level error when main rejects without field errors', async () => {
+    mcp.respondClientRequest.mockResolvedValueOnce({ success: false, error: 'Bridge gone' });
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('elicitation', { message: 'm', requestedSchema: { properties: {} } }, ELICIT_ID);
+    fireEvent.click(screen.getByRole('button', { name: 'Decline' }));
+    expect(await screen.findByText('Bridge gone')).toBeInTheDocument();
+  });
+
+  it('dismissing a sampling prompt rejects it and shows request settings', async () => {
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('sampling', { messages: [], temperature: 0.7, includeContext: 'none' }, SAMPLE_ID);
+    expect(screen.getByText('temperature: 0.7')).toBeInTheDocument();
+    expect(screen.getByText('includeContext: none')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() =>
+      expect(mcp.respondClientRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'sampling', response: { action: 'reject' } })
+      )
+    );
+  });
+
+  it('surfaces an AI draft failure without touching the response', async () => {
+    const ai = {
+      chat: vi.fn(async () => ({ ok: false, error: 'no key' })),
+      onChunk: vi.fn(() => () => undefined),
+      onEnd: vi.fn(() => () => undefined),
+    };
+    (window as unknown as { electron: unknown }).electron = { isElectron: true, mcp, ai };
+    useAiChatStore.setState({
+      activeProvider: 'openai',
+      providerConfigs: {
+        openai: { provider: 'openai', defaultModel: 'gpt-test' },
+        anthropic: null,
+        openrouter: null,
+        'openai-compatible': null,
+      },
+    });
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('sampling', { messages: [] }, SAMPLE_ID);
+    fireEvent.click(screen.getByRole('button', { name: /Draft with gpt-test/ }));
+    expect(await screen.findByText('no key')).toBeInTheDocument();
+    expect(screen.getByLabelText('Sampling response')).toHaveValue('');
+  });
+
+  it('roots panel edits only the targeted row', async () => {
+    const onSave = vi.fn(async () => ({ ok: true as const }));
+    render(<McpRootsPanel roots={[{ uri: 'file:///a' }, { uri: 'file:///b' }]} onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: /Roots/ }));
+    fireEvent.change(screen.getByLabelText('Root 2 name'), { target: { value: 'b' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save roots' }));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith([{ uri: 'file:///a' }, { uri: 'file:///b', name: 'b' }])
+    );
+  });
+});
+
+describe('McpClientRequestDialog — origin and phishing guards', () => {
+  it('names the connection, warns about secrets, and focuses the safe action', async () => {
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue(
+      'elicitation',
+      {
+        message: 'Log in',
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            user: { type: 'string' },
+            password: { type: 'string' },
+            pin: { type: 'string', format: 'password' },
+          },
+        },
+      },
+      ELICIT_ID
+    );
+    expect(screen.getByText('Prod MCP')).toBeInTheDocument();
+    expect(screen.getByText(/\(mcp\.example\.com\)/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Anything you enter is sent to mcp.example.com. Never enter passwords or API keys.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('password')).toHaveAttribute('type', 'password');
+    expect(screen.getByLabelText('pin')).toHaveAttribute('type', 'password');
+    expect(screen.getByLabelText('user')).not.toHaveAttribute('type', 'password');
+    expect(screen.getAllByText(/This looks like a secret/)).toHaveLength(2);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Decline' })).toHaveFocus());
+  });
+
+  it('pressing Enter in a field never accepts', () => {
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue(
+      'elicitation',
+      {
+        message: 'm',
+        requestedSchema: { type: 'object', properties: { note: { type: 'string' } } },
+      },
+      ELICIT_ID
+    );
+    const input = screen.getByLabelText('note');
+    fireEvent.change(input, { target: { value: 'hello' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    const form = input.closest('form');
+    if (!form) throw new Error('form missing');
+    fireEvent.submit(form);
+    expect(mcp.respondClientRequest).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Accept' })).toHaveAttribute('type', 'button');
+  });
+
+  it('focuses Reject for sampling prompts', async () => {
+    render(
+      <McpClientRequestDialog
+        connectionId="conn-1"
+        connectionName="Prod MCP"
+        serverHost="mcp.example.com"
+      />
+    );
+    queue('sampling', { messages: [] }, SAMPLE_ID);
+    expect(screen.getByText(/Never enter passwords or API keys/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reject' })).toHaveFocus());
+  });
+});
+
+describe('displayHost', () => {
+  it('extracts the host and falls back to the raw value', () => {
+    expect(displayHost('https://mcp.example.com:8443/mcp')).toBe('mcp.example.com:8443');
+    expect(displayHost('{{base}}/mcp')).toBe('{{base}}/mcp');
+  });
+});

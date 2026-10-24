@@ -50,7 +50,7 @@ describe('mcp handler', () => {
     expect(json.error).toMatch(/jsonRpc/i);
   });
 
-  it('schema violation (jsonRpc missing id) returns 400', async () => {
+  it('non-notification jsonRpc missing id returns 400', async () => {
     const res = await makeRequest({
       url: 'https://api.example.com',
       transport: 'streamable-http',
@@ -58,7 +58,48 @@ describe('mcp handler', () => {
     });
     expect(res.status).toBe(400);
     const json = (await res.json()) as Record<string, unknown>;
-    expect(json.error).toMatch(/Invalid request body/);
+    expect(json.error).toMatch(/id is required for requests/);
+  });
+
+  it('rejects a notification targeting a private/metadata IP', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+    for (const url of ['http://169.254.169.254/mcp', 'http://10.0.0.5/mcp']) {
+      const res = await makeRequest({
+        url,
+        transport: 'streamable-http',
+        jsonRpc: { method: 'notifications/cancelled', params: { requestId: 1 } },
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('forwards notifications/cancelled without an id and accepts the 202', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 202, statusText: 'Accepted' }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const res = await makeRequest({
+      url: 'https://api.example.com',
+      transport: 'streamable-http',
+      sessionId: 'sess-1',
+      jsonRpc: {
+        method: 'notifications/cancelled',
+        params: { requestId: 7, reason: 'Cancelled by user' },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, accepted: true });
+    const init = mockFetch.mock.calls[0]![1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toEqual({
+      jsonrpc: '2.0',
+      method: 'notifications/cancelled',
+      params: { requestId: 7, reason: 'Cancelled by user' },
+    });
+    expect((init.headers as Record<string, string>)['Mcp-Session-Id']).toBe('sess-1');
   });
 
   it('invalid transport (passes Zod but fails validateMcpSpec) returns 400', async () => {
@@ -124,5 +165,28 @@ describe('mcp handler', () => {
       allowPrivateIPs: false,
     });
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('mcp handler — connection auth on the wire (#896)', () => {
+  it('forwards renderer-applied MCP credentials (Bearer / API-key headers) upstream', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', mockFetch);
+    const res = await makeRequest({
+      url: 'https://api.example.com/mcp',
+      transport: 'streamable-http',
+      headers: { Authorization: 'Bearer web-token', 'X-API-Key': 'k-1', Cookie: 'sess=1' },
+      jsonRpc: { method: 'tools/list', id: 1 },
+    });
+    expect(res.status).toBe(200);
+    const sent = mockFetch.mock.calls[0]?.[1] as { headers: Record<string, string> };
+    expect(sent.headers.Authorization).toBe('Bearer web-token');
+    expect(sent.headers['X-API-Key']).toBe('k-1');
+    expect(sent.headers.Cookie).toBeUndefined();
   });
 });

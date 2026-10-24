@@ -1,0 +1,566 @@
+/**
+ * MCP OAuth 2.1 client for Electron main (#856, ADR 0031).
+ *
+ * Implements the MCP SDK's `OAuthClientProvider` and drives the SDK `auth()`
+ * orchestrator itself, handing the MCP transport only a minimal
+ * `AuthProvider` ({ token, onUnauthorized }). Driving `auth()` here — instead
+ * of passing the OAuth provider straight to the transport — lets every OAuth
+ * request use the dedicated SSRF-guarded, size-capped fetch
+ * (`mcp-oauth-fetch.ts`) while the MCP transport keeps its DNS-pinned fetch.
+ *
+ * What the SDK does for us (spec-compliant, not re-implemented):
+ *   - RFC 9728 Protected Resource Metadata discovery (from the 401's
+ *     `WWW-Authenticate: resource_metadata=` or the well-known URL) and the
+ *     resource ↔ server match check;
+ *   - RFC 8414 / OIDC AS metadata discovery with the issuer-echo check
+ *     (`skipIssuerMetadataValidation` is never set);
+ *   - RFC 7591 Dynamic Client Registration;
+ *   - PKCE S256, RFC 8707 `resource` on authorize + token requests, RFC 9207
+ *     `iss` validation on the callback, refresh_token grant, https-only token
+ *     endpoint (loopback exempt).
+ *
+ * What Restura adds:
+ *   - system-browser authorization (`shell.openExternal`, after URL validation)
+ *     with an RFC 8252 loopback redirect (`mcp-oauth-loopback.ts`, exact
+ *     state check, single use, timeout);
+ *   - storage of tokens + DCR registrations ONLY in the encrypted secret handle
+ *     store under an internal scope (`mcp-oauth-store.ts`); the PKCE verifier,
+ *     state and discovery state live in memory for one flow;
+ *   - proactive refresh before expiry; when a refresh fails mid-session, NO
+ *     browser pops up — {@link McpOAuthReauthRequiredError} is raised and the
+ *     renderer shows a "sign in again" prompt (reconnect = interactive);
+ *   - a live redactor over every token / secret / code this session has seen.
+ */
+
+import * as crypto from 'node:crypto';
+import {
+  type AuthProvider,
+  auth,
+  extractWWWAuthenticateParams,
+  type OAuthClientMetadata,
+  type OAuthClientProvider,
+  type OAuthDiscoveryState,
+  type StoredOAuthClientInformation,
+  type StoredOAuthTokens,
+} from '@modelcontextprotocol/client';
+import {
+  assertOAuthEndpointUrl,
+  createMcpOAuthFetch,
+  type McpOAuthCarveOut,
+  mcpOAuthCarveOut,
+  mcpOAuthUrlPolicy,
+  type OAuthFetchLike,
+} from './mcp-oauth-fetch';
+import {
+  DEFAULT_AUTHORIZATION_TIMEOUT_MS,
+  LOOPBACK_CALLBACK_PATH,
+  type LoopbackReceiver,
+  startLoopbackReceiver,
+} from './mcp-oauth-loopback';
+import {
+  clearMcpOAuthRecord,
+  loadMcpOAuthRecord,
+  type McpOAuthRecord,
+  saveMcpOAuthRecord,
+} from './mcp-oauth-store';
+import { createSecretRedactor, type SecretRedactor } from './ws-handshake-auth';
+
+/** Refresh this long before the recorded expiry. */
+export const TOKEN_EXPIRY_SKEW_MS = 60_000;
+
+const REAUTH_MESSAGE =
+  'MCP authorization expired and could not be refreshed — reconnect to sign in again.';
+
+/** Raised when re-authorization needs the browser but the session is non-interactive. */
+export class McpOAuthReauthRequiredError extends Error {
+  readonly reauthRequired = true;
+  constructor(message = REAUTH_MESSAGE) {
+    super(message);
+    this.name = 'McpOAuthReauthRequiredError';
+  }
+}
+
+/**
+ * Internal: the silent refresh-only pass hit a step that needs the browser
+ * (no usable refresh token, or a DCR registration is missing). Never escapes
+ * {@link McpOAuthSession.authorize}.
+ */
+class BrowserSignInNeeded extends Error {
+  constructor() {
+    super('Browser sign-in needed');
+    this.name = 'BrowserSignInNeeded';
+  }
+}
+
+/** Type / flag check, following `cause` in case a transport wraps the error. */
+export function isMcpOAuthReauthRequired(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e && depth < 4; depth++) {
+    if (e instanceof McpOAuthReauthRequiredError) return true;
+    if (typeof e === 'object' && (e as { reauthRequired?: unknown }).reauthRequired === true) {
+      return true;
+    }
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+const MAX_OAUTH_ERROR_CHARS = 300;
+
+/**
+ * Collapse an OAuth / registration / discovery failure to `code: short
+ * message` before it reaches the renderer or logs — AS / RS error bodies are
+ * attacker-controlled (and can be large).
+ */
+export function describeOAuthError(err: unknown): string {
+  const e = err as { code?: unknown; name?: unknown; message?: unknown } | null;
+  const code =
+    typeof e?.code === 'string' && /^[\w.-]{1,64}$/.test(e.code)
+      ? e.code
+      : typeof e?.name === 'string' && /^[\w.-]{1,64}$/.test(e.name)
+        ? e.name
+        : 'Error';
+  const raw = typeof e?.message === 'string' ? e.message : String(err);
+  const message = raw.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
+  const short =
+    message.length > MAX_OAUTH_ERROR_CHARS
+      ? `${message.slice(0, MAX_OAUTH_ERROR_CHARS)}…`
+      : message;
+  return `MCP OAuth failed (${code}): ${short}`;
+}
+
+export interface McpOAuthConfig {
+  /** The MCP server URL (the protected resource). */
+  serverUrl: string;
+  /** Pre-registered client id. Absent → RFC 7591 dynamic registration. */
+  clientId?: string;
+  /** Resolved (main-only) client secret for a confidential static client. */
+  clientSecret?: string;
+  /** Requested scope; the 401 challenge's / PRM's scope wins when absent. */
+  scope?: string;
+  /** Exact loopback redirect URI for an AS that requires a fixed one. */
+  redirectUrl?: string;
+  /**
+   * Issuer the static client is registered with. Required with a client
+   * secret; for a public static client the first successful sign-in pins it.
+   */
+  issuer?: string;
+  /** Where OAuth endpoints may live, derived from the MCP server (remote → local pivot guard). */
+  carveOut?: McpOAuthCarveOut;
+}
+
+export interface McpOAuthDeps {
+  fetchFn?: OAuthFetchLike;
+  openExternal?: (url: string) => Promise<void>;
+  startReceiver?: typeof startLoopbackReceiver;
+  now?: () => number;
+  authorizationTimeoutMs?: number;
+  /** Called while the user is in the browser (the connect timeout pauses). */
+  onAuthorizationWait?: (waiting: boolean) => void;
+}
+
+/** Validate a user-supplied fixed redirect URI: loopback http with an explicit port. */
+export function parseLoopbackRedirect(raw: string): { url: URL; port: number } {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error('Redirect URI is not a valid URL');
+  }
+  // The receiver listens on 127.0.0.1 only: `localhost` may resolve to ::1
+  // (or be remapped), and [::1] would need an IPv6 listener.
+  if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1') {
+    throw new Error(
+      'MCP OAuth redirect URI must be a loopback http://127.0.0.1:<port>/… address (RFC 8252)'
+    );
+  }
+  if (!url.port) throw new Error('MCP OAuth redirect URI needs an explicit port');
+  if (url.search || url.hash || url.username || url.password) {
+    throw new Error('MCP OAuth redirect URI must not carry a query, fragment or credentials');
+  }
+  return { url, port: Number(url.port) };
+}
+
+async function defaultOpenExternal(url: string): Promise<void> {
+  const { shell } = await import('electron');
+  await shell.openExternal(url, { activate: true });
+}
+
+function placeholderRedirect(): string {
+  return `http://127.0.0.1${LOOPBACK_CALLBACK_PATH}`;
+}
+
+export class McpOAuthSession {
+  /** Hand this to the MCP transport as `authProvider`. */
+  readonly authProvider: AuthProvider;
+  /** The SDK-facing OAuth client provider (exposed for tests). */
+  readonly provider: OAuthClientProvider;
+  /** Set once a refresh failed and the browser is needed (non-interactive). */
+  reauthRequired = false;
+
+  private interactive = true;
+  /**
+   * Set while a refresh token is tried before any loopback receiver exists:
+   * a refresh needs no redirect listener, so a busy pinned redirect port must
+   * not fail it, nor an ephemeral-port change invalidate the registration.
+   */
+  private refreshOnly = false;
+  private readonly abort = new AbortController();
+  private readonly fetchFn: OAuthFetchLike;
+  private readonly openExternal: (url: string) => Promise<void>;
+  private readonly startReceiver: typeof startLoopbackReceiver;
+  private readonly now: () => number;
+  private readonly secrets = new Set<string>();
+  private redactor: SecretRedactor = (text) => text;
+  private inflight: Promise<void> | undefined;
+  private redirect: string;
+  private codeVerifierValue: string | undefined;
+  private discovery: OAuthDiscoveryState | undefined;
+  private receiver: LoopbackReceiver | undefined;
+  private pendingCallback: Promise<URLSearchParams> | undefined;
+  private record: McpOAuthRecord | undefined;
+  /** A stored record backed this session — a later store miss means sign-out. */
+  private hadRecord = false;
+  private readonly carveOut: McpOAuthCarveOut;
+
+  constructor(
+    private readonly config: McpOAuthConfig,
+    private readonly deps: McpOAuthDeps = {}
+  ) {
+    if (config.redirectUrl) parseLoopbackRedirect(config.redirectUrl);
+    this.carveOut = config.carveOut ?? mcpOAuthCarveOut(config.serverUrl);
+    this.fetchFn =
+      deps.fetchFn ??
+      createMcpOAuthFetch({
+        signal: this.abort.signal,
+        policy: () => mcpOAuthUrlPolicy(this.carveOut),
+      });
+    this.openExternal = deps.openExternal ?? defaultOpenExternal;
+    this.startReceiver = deps.startReceiver ?? startLoopbackReceiver;
+    this.now = deps.now ?? Date.now;
+    this.record = loadMcpOAuthRecord(config.serverUrl, config.clientId);
+    this.hadRecord = this.record !== undefined;
+    this.redirect =
+      config.redirectUrl ?? this.record?.registeredRedirectUrl ?? placeholderRedirect();
+    this.track(config.clientSecret);
+    this.trackRecord(this.record);
+    this.provider = this.buildProvider();
+    this.authProvider = {
+      token: () => this.currentToken(),
+      onUnauthorized: async (ctx) => {
+        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(ctx.response);
+        await this.authorize({ resourceMetadataUrl, scope });
+      },
+    };
+  }
+
+  /** Scrub every token / secret / code this session has handled. */
+  readonly redact = (text: string): string => this.redactor(text);
+
+  /**
+   * Connect-time, after the handshake: when no usable token is stored, sign
+   * in now. A server that lets `initialize` through anonymously but gates
+   * later requests would otherwise only 401 once the session is
+   * non-interactive, and every reconnect would end in the same re-auth prompt.
+   */
+  async ensureSignedIn(): Promise<void> {
+    if (!this.interactive) return;
+    if (await this.currentToken()) return;
+    await this.authorize({});
+  }
+
+  /** After the initial connect, a lapsed session prompts instead of opening a browser. */
+  endInteractive(): void {
+    this.interactive = false;
+  }
+
+  dispose(): void {
+    this.abort.abort();
+    this.receiver?.close();
+  }
+
+  private track(value: string | undefined): void {
+    if (!value || value.length < 4 || this.secrets.has(value)) return;
+    this.secrets.add(value);
+    this.redactor = createSecretRedactor(this.secrets);
+  }
+
+  private trackRecord(record: McpOAuthRecord | undefined): void {
+    this.track(record?.tokens?.access_token);
+    this.track(record?.tokens?.refresh_token);
+    this.track(record?.registration?.client_secret);
+  }
+
+  private persist(patch: Parameters<typeof saveMcpOAuthRecord>[2]): void {
+    this.record = saveMcpOAuthRecord(this.config.serverUrl, this.config.clientId, patch);
+    this.hadRecord = true;
+  }
+
+  /**
+   * Re-read the stored record. If one backed this session and it is gone
+   * (sign-out, or deleted in Settings → Secrets), a non-interactive session
+   * must not keep using the in-memory copy — it needs a fresh sign-in.
+   */
+  private reloadRecord(): void {
+    const fresh = loadMcpOAuthRecord(this.config.serverUrl, this.config.clientId);
+    if (!fresh && this.hadRecord) {
+      this.record = undefined;
+      if (!this.interactive) {
+        this.reauthRequired = true;
+        throw new McpOAuthReauthRequiredError();
+      }
+      this.hadRecord = false;
+    }
+    this.record = fresh;
+    this.trackRecord(fresh);
+  }
+
+  /** The static client's AS binding: configured issuer, else the TOFU pin. */
+  private staticIssuer(): string | undefined {
+    return this.config.issuer ?? this.record?.staticClientIssuer;
+  }
+
+  private buildProvider(): OAuthClientProvider {
+    const session = this;
+    const isStatic = Boolean(this.config.clientId);
+    const provider: OAuthClientProvider = {
+      get redirectUrl() {
+        return session.redirect;
+      },
+      get clientMetadata(): OAuthClientMetadata {
+        return {
+          client_name: 'Restura',
+          redirect_uris: [session.redirect],
+          grant_types: ['authorization_code', 'refresh_token'],
+          response_types: ['code'],
+          // Public native client: PKCE, no client secret (RFC 8252 §8.4).
+          token_endpoint_auth_method: 'none',
+          ...(session.config.scope ? { scope: session.config.scope } : {}),
+        };
+      },
+      state: () => {
+        if (session.refreshOnly) throw new BrowserSignInNeeded();
+        const state = crypto.randomBytes(32).toString('base64url');
+        if (!session.interactive || !session.receiver) {
+          session.reauthRequired = true;
+          throw new McpOAuthReauthRequiredError();
+        }
+        // Arm before the browser opens so a fast callback can't be missed.
+        session.pendingCallback = session.receiver.waitForCallback(state);
+        session.pendingCallback.catch(() => undefined);
+        return state;
+      },
+      clientInformation: (): StoredOAuthClientInformation | undefined => {
+        if (isStatic) {
+          // Stamped with the bound issuer: if discovery lands on another AS
+          // the SDK throws AuthorizationServerMismatchError before any token
+          // request, so the client secret is never sent elsewhere.
+          const issuer = session.staticIssuer();
+          return {
+            client_id: session.config.clientId!,
+            ...(session.config.clientSecret ? { client_secret: session.config.clientSecret } : {}),
+            ...(issuer ? { issuer } : {}),
+          };
+        }
+        const reg = session.record?.registration;
+        // Don't register a redirect URI nobody is listening on yet.
+        if (!reg && session.refreshOnly) throw new BrowserSignInNeeded();
+        if (!reg) return undefined;
+        // A DCR registration is bound to its redirect URI; a new loopback port
+        // in an interactive flow means registering again.
+        if (
+          session.interactive &&
+          !session.refreshOnly &&
+          session.record?.registeredRedirectUrl !== session.redirect
+        ) {
+          return undefined;
+        }
+        return reg;
+      },
+      tokens: () => session.record?.tokens,
+      saveTokens: (tokens: StoredOAuthTokens) => {
+        session.track(tokens.access_token);
+        session.track(tokens.refresh_token);
+        // Keep the old refresh token when the AS doesn't rotate it.
+        const merged: StoredOAuthTokens = {
+          ...tokens,
+          ...(!tokens.refresh_token && session.record?.tokens?.refresh_token
+            ? { refresh_token: session.record.tokens.refresh_token }
+            : {}),
+        };
+        // Public static client: trust-on-first-use pin of the AS it signed in with.
+        const pin =
+          isStatic && !session.staticIssuer() && typeof tokens.issuer === 'string'
+            ? { staticClientIssuer: tokens.issuer }
+            : {};
+        session.persist({
+          ...pin,
+          tokens: merged,
+          expiresAt:
+            typeof tokens.expires_in === 'number'
+              ? session.now() + tokens.expires_in * 1000
+              : undefined,
+        });
+        session.reauthRequired = false;
+      },
+      redirectToAuthorization: async (authorizationUrl: URL) => {
+        if (!session.interactive) {
+          session.reauthRequired = true;
+          throw new McpOAuthReauthRequiredError();
+        }
+        const url = assertOAuthEndpointUrl(
+          authorizationUrl.href,
+          mcpOAuthUrlPolicy(session.carveOut)
+        );
+        session.deps.onAuthorizationWait?.(true);
+        await session.openExternal(url.href);
+      },
+      saveCodeVerifier: (verifier: string) => {
+        session.codeVerifierValue = verifier;
+      },
+      codeVerifier: () => {
+        if (!session.codeVerifierValue) throw new Error('No PKCE code verifier for this flow');
+        return session.codeVerifierValue;
+      },
+      saveDiscoveryState: (state: OAuthDiscoveryState) => {
+        session.discovery = state;
+      },
+      discoveryState: () => session.discovery,
+      invalidateCredentials: (scope) => {
+        if (scope === 'all') {
+          clearMcpOAuthRecord(session.config.serverUrl, session.config.clientId);
+          session.record = undefined;
+          session.hadRecord = false;
+          session.codeVerifierValue = undefined;
+          session.discovery = undefined;
+          return;
+        }
+        if (scope === 'tokens') session.persist({ tokens: undefined, expiresAt: undefined });
+        if (scope === 'client' && !isStatic) {
+          session.persist({ registration: undefined, registeredRedirectUrl: undefined });
+        }
+        if (scope === 'verifier') session.codeVerifierValue = undefined;
+        if (scope === 'discovery') session.discovery = undefined;
+      },
+    };
+    if (!isStatic) {
+      provider.saveClientInformation = (info: StoredOAuthClientInformation) => {
+        session.track(info.client_secret);
+        session.persist({ registration: info, registeredRedirectUrl: session.redirect });
+      };
+    }
+    return provider;
+  }
+
+  private async currentToken(): Promise<string | undefined> {
+    this.reloadRecord();
+    const tokens = this.record?.tokens;
+    if (!tokens?.access_token) return undefined;
+    const expiresAt = this.record?.expiresAt;
+    if (expiresAt !== undefined && this.now() >= expiresAt - TOKEN_EXPIRY_SKEW_MS) {
+      if (!tokens.refresh_token) return undefined; // let the 401 drive re-authorization
+      await this.authorize({});
+      return this.record?.tokens?.access_token;
+    }
+    return tokens.access_token;
+  }
+
+  /** Serialized: concurrent 401s (POST + GET SSE) share one flow. */
+  authorize(opts: {
+    resourceMetadataUrl?: URL | undefined;
+    scope?: string | undefined;
+  }): Promise<void> {
+    if (!this.inflight) {
+      this.inflight = this.runAuthorize(opts).finally(() => {
+        this.inflight = undefined;
+      });
+    }
+    return this.inflight;
+  }
+
+  private async openReceiver(): Promise<void> {
+    const timeoutMs = this.deps.authorizationTimeoutMs ?? DEFAULT_AUTHORIZATION_TIMEOUT_MS;
+    const signal = this.abort.signal;
+    if (this.config.redirectUrl) {
+      const { url, port } = parseLoopbackRedirect(this.config.redirectUrl);
+      try {
+        this.receiver = await this.startReceiver({ port, path: url.pathname, timeoutMs, signal });
+      } catch {
+        throw new Error(
+          `Could not listen on the configured OAuth redirect port ${port} — free it or change the redirect URI`
+        );
+      }
+      this.redirect = this.config.redirectUrl;
+      return;
+    }
+    // Reuse a DCR registration's port when it's free so the registration stays valid.
+    const registered = this.record?.registeredRedirectUrl;
+    const preferredPort = registered ? Number(new URL(registered).port) || 0 : 0;
+    try {
+      this.receiver = await this.startReceiver({ port: preferredPort, timeoutMs, signal });
+    } catch {
+      this.receiver = await this.startReceiver({ port: 0, timeoutMs, signal });
+    }
+    this.redirect = this.receiver.redirectUrl;
+  }
+
+  /** Refresh-token grant with no loopback receiver; false → the browser is needed. */
+  private async trySilentRefresh(options: Parameters<typeof auth>[1]): Promise<boolean> {
+    this.refreshOnly = true;
+    try {
+      return (await auth(this.provider, options)) === 'AUTHORIZED';
+    } catch (err) {
+      if (err instanceof BrowserSignInNeeded) return false;
+      if (isMcpOAuthReauthRequired(err)) throw err;
+      throw new Error(describeOAuthError(err));
+    } finally {
+      this.refreshOnly = false;
+    }
+  }
+
+  private async runAuthorize(opts: {
+    resourceMetadataUrl?: URL | undefined;
+    scope?: string | undefined;
+  }): Promise<void> {
+    if (this.abort.signal.aborted) throw new Error('MCP connection closed');
+    this.reloadRecord();
+    const scope = opts.scope ?? this.config.scope;
+    const base = {
+      serverUrl: this.config.serverUrl,
+      fetchFn: this.fetchFn,
+      ...(scope ? { scope } : {}),
+    };
+    const first = {
+      ...base,
+      ...(opts.resourceMetadataUrl ? { resourceMetadataUrl: opts.resourceMetadataUrl } : {}),
+    };
+    if (this.interactive && this.record?.tokens?.refresh_token) {
+      if (await this.trySilentRefresh(first)) return;
+    }
+    if (this.interactive) await this.openReceiver();
+    try {
+      const result = await auth(this.provider, first);
+      if (result === 'AUTHORIZED') return;
+      if (!this.pendingCallback) throw new Error('Authorization flow did not start');
+      const params = await this.pendingCallback;
+      this.deps.onAuthorizationWait?.(false);
+      const code = params.get('code') ?? '';
+      this.track(code);
+      const iss = params.get('iss');
+      const done = await auth(this.provider, {
+        ...base,
+        authorizationCode: code,
+        ...(iss !== null ? { iss } : {}),
+      });
+      if (done !== 'AUTHORIZED') throw new Error('Authorization did not complete');
+    } catch (err) {
+      if (isMcpOAuthReauthRequired(err)) throw err;
+      throw new Error(describeOAuthError(err));
+    } finally {
+      this.deps.onAuthorizationWait?.(false);
+      this.receiver?.close();
+      this.receiver = undefined;
+      this.pendingCallback = undefined;
+      this.codeVerifierValue = undefined;
+    }
+  }
+}

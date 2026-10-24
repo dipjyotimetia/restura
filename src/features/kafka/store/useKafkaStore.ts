@@ -1,13 +1,27 @@
+import {
+  isExternalSecretRef,
+  isSecretHandle,
+  type SecretValue,
+  unwrapSecret,
+} from '@shared/secrets/secret-ref';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { capMessages } from '@/lib/shared/message-cap';
+import { capMessages, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
-import { useConsoleStore } from '@/store/useConsoleStore';
+import { clearComposerDrafts } from '@/lib/shared/streaming/composerDrafts';
+import { type ConsoleFrame, useConsoleStore } from '@/store/useConsoleStore';
 import { emitStreamEvent } from '@/store/useStreamTimelineStore';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
-export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512' | 'OAUTHBEARER';
+export type KafkaSaslMechanism =
+  | 'PLAIN'
+  | 'SCRAM-SHA-256'
+  | 'SCRAM-SHA-512'
+  | 'OAUTHBEARER'
+  | 'GSSAPI'
+  | 'AWS_MSK_IAM';
+export type KafkaPasswordMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
 export type KafkaCompression = 'none' | 'gzip' | 'snappy' | 'lz4' | 'zstd';
 export type KafkaAcks = 0 | 1 | -1;
 
@@ -18,19 +32,91 @@ export type KafkaAcks = 0 | 1 | -1;
  */
 export const KAFKA_SECRET_SENTINEL = '__restura_secret__';
 
+/**
+ * Opaque reference to a secret held in the main-process SecretRef handle store
+ * (ADR-0007). The renderer never sees the plaintext — main resolves it at
+ * connect / token-refresh time. Only handles are ever persisted.
+ */
+export interface KafkaSecretHandle {
+  kind: 'handle';
+  id: string;
+  label?: string;
+}
+
+export interface KafkaOAuthClientCredentialsSasl {
+  mechanism: 'OAUTHBEARER';
+  mode: 'client-credentials';
+  tokenEndpoint: string;
+  clientId: string;
+  clientSecret?: KafkaSecretHandle;
+  scope?: string;
+  extensions?: Record<string, string>;
+}
+
+export interface KafkaMskIamSasl {
+  mechanism: 'AWS_MSK_IAM';
+  region: string;
+  credentialSource: 'static' | 'profile';
+  accessKeyId?: string;
+  secretAccessKey?: KafkaSecretHandle;
+  sessionToken?: KafkaSecretHandle;
+  /** Named profile from ~/.aws/config|credentials (resolved in main). */
+  profile?: string;
+  /**
+   * Explicit opt-in to send the signed MSK IAM token to brokers that are not
+   * `*.kafka.<region>.amazonaws.com` hosts (PrivateLink / custom DNS).
+   */
+  allowNonAwsBrokerHosts?: boolean;
+}
+
 export type KafkaSasl =
   | {
-      mechanism: Exclude<KafkaSaslMechanism, 'OAUTHBEARER'>;
+      mechanism: KafkaPasswordMechanism;
       username: string;
       /** Persisted as the sentinel; real value comes from secureStorage */
       password: string;
     }
   | {
       mechanism: 'OAUTHBEARER';
+      /** Absent on configs saved before client-credentials support. */
+      mode?: 'static';
       /** Persisted as the sentinel; real value comes from secureStorage */
       token: string;
       extensions?: Record<string, string>;
-    };
+    }
+  | KafkaOAuthClientCredentialsSasl
+  | { mechanism: 'GSSAPI'; serviceName?: string; principal?: string }
+  | KafkaMskIamSasl;
+
+export function isKafkaPasswordSasl(
+  sasl: KafkaSasl | undefined
+): sasl is Extract<KafkaSasl, { mechanism: KafkaPasswordMechanism }> {
+  return (
+    sasl?.mechanism === 'PLAIN' ||
+    sasl?.mechanism === 'SCRAM-SHA-256' ||
+    sasl?.mechanism === 'SCRAM-SHA-512'
+  );
+}
+
+export function isKafkaStaticOAuthSasl(
+  sasl: KafkaSasl | undefined
+): sasl is Extract<KafkaSasl, { mechanism: 'OAUTHBEARER'; token: string }> {
+  return sasl?.mechanism === 'OAUTHBEARER' && sasl.mode !== 'client-credentials';
+}
+
+/** Default SASL block when the user picks a mechanism in the connection form. */
+export function defaultKafkaSasl(mechanism: KafkaSaslMechanism): KafkaSasl {
+  switch (mechanism) {
+    case 'OAUTHBEARER':
+      return { mechanism, mode: 'static', token: '' };
+    case 'GSSAPI':
+      return { mechanism, serviceName: 'kafka' };
+    case 'AWS_MSK_IAM':
+      return { mechanism, region: '', credentialSource: 'static' };
+    default:
+      return { mechanism, username: '', password: '' };
+  }
+}
 
 export interface KafkaTls {
   caPath?: string;
@@ -51,14 +137,29 @@ export interface KafkaAuth {
  * Confluent Schema Registry config. When set, the consumer decodes
  * Avro/Protobuf/JSON Schema messages via the registry. Auth secrets persist as
  * the sentinel; real values live in secureStorage (resolved by kafkaManager).
+ * HTTPS uses the Settings TLS policy (custom CA, mTLS, verify) for its host.
  */
 export interface KafkaRegistry {
   url: string;
+  /** Registry auth scheme; absent means HTTP Basic (the pre-bearer shape). */
+  authType?: 'basic' | 'bearer';
   auth?: {
     username?: string;
     /** Persisted as the sentinel; real value comes from secureStorage */
     password?: string;
   };
+  /**
+   * Bearer token (ADR-0007): keychain handles / external references persist
+   * as-is and resolve only in main; an inline token persists as the sentinel.
+   */
+  bearerToken?: SecretValue;
+}
+
+/** Registry schema that decoded a consumed field. */
+export interface KafkaSchemaRef {
+  id: number;
+  subject?: string;
+  version?: number;
 }
 
 export interface KafkaProducedAck {
@@ -79,8 +180,10 @@ export interface KafkaMessage {
   offset?: string;
   key?: string;
   keyEncoding?: KafkaPayloadEncoding;
+  keySchema?: KafkaSchemaRef;
   value: string;
   valueEncoding?: KafkaPayloadEncoding;
+  valueSchema?: KafkaSchemaRef;
   tombstone?: boolean;
   headers?: Record<string, string>;
   binaryHeaders?: { key: string; value: string }[];
@@ -89,11 +192,27 @@ export interface KafkaMessage {
   error?: string;
 }
 
+/**
+ * `browse` reads without joining/creating a consumer group or committing
+ * offsets (#930); `group` is a regular group member. Absent means `group` —
+ * the behaviour every connection had before browse mode existed.
+ */
+export type KafkaConsumerMembership = 'browse' | 'group';
+
+/** Default "last N per partition" for a fresh browse. */
+export const KAFKA_DEFAULT_BROWSE_LAST_N = 50;
+
 export interface KafkaConsumerState {
+  membership?: KafkaConsumerMembership;
+  /** Used in group mode only. */
   groupId: string;
   topics: string[];
   fromBeginning: boolean;
-  mode: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp';
+  mode: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp' | 'last-n';
+  /** Browse `last-n` start: records per partition. */
+  lastN?: number;
+  /** Browse only: stop after this many records in total. */
+  maxMessages?: number;
   fallbackMode: 'latest' | 'earliest' | 'fail';
   commitPolicy: 'auto' | 'manual';
   isolation: 'read-uncommitted' | 'read-committed';
@@ -111,6 +230,11 @@ export interface KafkaConsumerState {
   maxBytesPerPartition?: number;
   maxWaitTimeMs?: number;
   highWaterMark?: number;
+  /**
+   * Partitions (`topic:partition`) paused on the live consumer. Runtime-only:
+   * cleared whenever the subscription leaves 'subscribed' and never persisted.
+   */
+  pausedPartitions?: string[];
   status: 'idle' | 'subscribing' | 'subscribed' | 'error';
 }
 
@@ -169,10 +293,12 @@ interface KafkaState {
   updateStatus: (id: string, status: KafkaConnection['status']) => void;
 
   // Messages
-  addMessage: (
-    connectionId: string,
-    message: Omit<KafkaMessage, 'id' | 'timestamp'> & { timestamp?: number }
-  ) => void;
+  addMessage: (connectionId: string, message: KafkaMessageInput) => void;
+  /**
+   * Append a batch in one store update (one console write, one re-render).
+   * Used by the consumer path, which buffers inbound records and flushes ~10 Hz.
+   */
+  addMessages: (connectionId: string, messages: KafkaMessageInput[]) => void;
   clearMessages: (connectionId: string) => void;
 
   // Filter
@@ -182,6 +308,48 @@ interface KafkaState {
   // Selectors
   getActiveConnection: () => KafkaConnection | null;
   getFilteredMessages: (connectionId: string) => KafkaMessage[];
+}
+
+const clearListeners = new Set<(connectionId: string) => void>();
+
+/** Notified when a connection's message log is cleared (the inbound buffer drops pending records). */
+export function onKafkaMessagesCleared(listener: (connectionId: string) => void): () => void {
+  clearListeners.add(listener);
+  return () => clearListeners.delete(listener);
+}
+
+export type KafkaMessageInput = Omit<KafkaMessage, 'id' | 'timestamp'> & { timestamp?: number };
+
+function buildKafkaMessage(message: KafkaMessageInput): KafkaMessage {
+  return { ...message, id: uuidv4(), timestamp: message.timestamp ?? Date.now() };
+}
+
+function frameDirection(direction: KafkaMessageDirection): 'out' | 'in' | 'system' {
+  return direction === 'sent' ? 'out' : direction === 'received' ? 'in' : 'system';
+}
+
+function toConsoleFrame(connectionId: string, m: KafkaMessage): Omit<ConsoleFrame, 'id'> {
+  return {
+    timestamp: m.timestamp,
+    protocol: 'kafka',
+    direction: frameDirection(m.direction),
+    connectionId,
+    label: m.topic,
+    payload: m.value ?? '',
+  };
+}
+
+function emitKafkaTimeline(connectionId: string, m: KafkaMessage): void {
+  emitStreamEvent({
+    ts: m.timestamp,
+    protocol: 'kafka',
+    connectionId,
+    direction: frameDirection(m.direction),
+    kind: m.error ? 'error' : undefined,
+    label: m.topic,
+    payload: m.value ?? '',
+    meta: { partition: m.partition, offset: m.offset, key: m.key, tombstone: m.tombstone },
+  });
 }
 
 function makeDefaultConnection(
@@ -201,10 +369,12 @@ function makeDefaultConnection(
     compression: 'none',
     idempotent: false,
     consumer: {
+      membership: 'browse',
       groupId: `restura-${id.slice(0, 8)}`,
       topics: [],
       fromBeginning: false,
-      mode: 'committed',
+      mode: 'last-n',
+      lastN: KAFKA_DEFAULT_BROWSE_LAST_N,
       fallbackMode: 'latest',
       commitPolicy: 'auto',
       isolation: 'read-uncommitted',
@@ -237,6 +407,38 @@ export function migrateKafkaV1ToV2(state: unknown): unknown {
           },
         },
       ])
+    ),
+  };
+}
+
+/**
+ * v3 adds `membership`. A connection whose group id was changed from the
+ * generated `restura-<id8>` default was deliberately pointed at a group, so it
+ * stays in group mode. Untouched defaults move to browse — the side-effect-free
+ * default for new tabs — and a `committed` start (meaningless without a group)
+ * becomes "last N per partition".
+ */
+export function migrateKafkaV2ToV3(state: unknown): unknown {
+  if (!state || typeof state !== 'object') return state;
+  const root = state as { connections?: Record<string, KafkaConnection> };
+  if (!root.connections) return state;
+  return {
+    ...root,
+    connections: Object.fromEntries(
+      Object.entries(root.connections).map(([key, connection]) => {
+        const consumer = connection.consumer;
+        if (!consumer || consumer.membership) return [key, connection];
+        const id = connection.id ?? key;
+        if (consumer.groupId !== `restura-${id.slice(0, 8)}`) {
+          return [key, { ...connection, consumer: { ...consumer, membership: 'group' } }];
+        }
+        const browse: KafkaConsumerState = { ...consumer, membership: 'browse' };
+        if (consumer.mode === 'committed') {
+          browse.mode = 'last-n';
+          browse.lastN = KAFKA_DEFAULT_BROWSE_LAST_N;
+        }
+        return [key, { ...connection, consumer: browse }];
+      })
     ),
   };
 }
@@ -276,6 +478,7 @@ export const useKafkaStore = create<KafkaState>()(
       cleanupConnectionForTab: (tabId) => {
         const connectionId = get().connectionByTabId[tabId];
         if (!connectionId) return;
+        clearComposerDrafts(connectionId);
         set((state) => {
           const { [connectionId]: _drop, ...restConns } = state.connections;
           const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;
@@ -290,6 +493,7 @@ export const useKafkaStore = create<KafkaState>()(
 
       removeConnection: (id) =>
         set((state) => {
+          clearComposerDrafts(id);
           const { [id]: _removed, ...rest } = state.connections;
           const nextMap = Object.fromEntries(
             Object.entries(state.connectionByTabId).filter(([, cid]) => cid !== id)
@@ -325,12 +529,10 @@ export const useKafkaStore = create<KafkaState>()(
         set((state) => {
           const conn = state.connections[id];
           if (!conn) return state;
-          return {
-            connections: {
-              ...state.connections,
-              [id]: { ...conn, consumer: { ...conn.consumer, ...patch } },
-            },
-          };
+          const consumer = { ...conn.consumer, ...patch };
+          // A subscription that ended (or restarts) starts with every partition running.
+          if (patch.status && patch.status !== 'subscribed') delete consumer.pausedPartitions;
+          return { connections: { ...state.connections, [id]: { ...conn, consumer } } };
         }),
 
       updateStatus: (id, status) =>
@@ -348,38 +550,9 @@ export const useKafkaStore = create<KafkaState>()(
         set((state) => {
           const conn = state.connections[connectionId];
           if (!conn) return state;
-          const next: KafkaMessage = {
-            ...message,
-            id: uuidv4(),
-            timestamp: message.timestamp ?? Date.now(),
-          };
-
-          useConsoleStore.getState().addFrame({
-            timestamp: next.timestamp,
-            protocol: 'kafka',
-            direction:
-              next.direction === 'sent' ? 'out' : next.direction === 'received' ? 'in' : 'system',
-            connectionId,
-            label: next.topic,
-            payload: next.value ?? '',
-          });
-          emitStreamEvent({
-            ts: next.timestamp,
-            protocol: 'kafka',
-            connectionId,
-            direction:
-              next.direction === 'sent' ? 'out' : next.direction === 'received' ? 'in' : 'system',
-            kind: next.error ? 'error' : undefined,
-            label: next.topic,
-            payload: next.value ?? '',
-            meta: {
-              partition: next.partition,
-              offset: next.offset,
-              key: next.key,
-              tombstone: next.tombstone,
-            },
-          });
-
+          const next = buildKafkaMessage(message);
+          useConsoleStore.getState().addFrame(toConsoleFrame(connectionId, next));
+          emitKafkaTimeline(connectionId, next);
           return {
             connections: {
               ...state.connections,
@@ -388,8 +561,27 @@ export const useKafkaStore = create<KafkaState>()(
           };
         }),
 
+      addMessages: (connectionId, messages) =>
+        set((state) => {
+          const conn = state.connections[connectionId];
+          if (!conn || messages.length === 0) return state;
+          const built = messages.map(buildKafkaMessage);
+          useConsoleStore.getState().addFrames(built.map((m) => toConsoleFrame(connectionId, m)));
+          for (const m of built) emitKafkaTimeline(connectionId, m);
+          const merged = conn.messages.concat(built);
+          const capped =
+            merged.length > MAX_MESSAGES_PER_CONNECTION
+              ? merged.slice(merged.length - MAX_MESSAGES_PER_CONNECTION)
+              : merged;
+          return {
+            connections: { ...state.connections, [connectionId]: { ...conn, messages: capped } },
+          };
+        }),
+
       clearMessages: (connectionId) =>
         set((state) => {
+          // Drop records still buffered for the next flush, or they'd reappear.
+          for (const listener of clearListeners) listener(connectionId);
           const conn = state.connections[connectionId];
           if (!conn) return state;
           return {
@@ -428,12 +620,17 @@ export const useKafkaStore = create<KafkaState>()(
     createPersistedStore<KafkaState>({
       store: 'kafkaConnections',
       persistName: 'kafka-storage',
-      version: 2,
+      version: 3,
       steps: [
         {
           name: 'kafka-consumer-v2-committed-defaults',
           fromVersion: 1,
           apply: (state) => ({ state: migrateKafkaV1ToV2(state) }),
+        },
+        {
+          name: 'kafka-consumer-v3-browse-membership',
+          fromVersion: 2,
+          apply: (state) => ({ state: migrateKafkaV2ToV3(state) }),
         },
       ],
       partialize: (state) => ({
@@ -448,7 +645,7 @@ export const useKafkaStore = create<KafkaState>()(
               messages: [] as KafkaMessage[],
               auth: redactSecrets(conn.auth),
               registry: conn.registry ? redactRegistry(conn.registry) : undefined,
-              consumer: { ...conn.consumer, status: 'idle' as const },
+              consumer: { ...conn.consumer, status: 'idle' as const, pausedPartitions: undefined },
             },
           ])
         ),
@@ -459,22 +656,70 @@ export const useKafkaStore = create<KafkaState>()(
   )
 );
 
+/** Keep only opaque handles — anything else must never reach persistence. */
+function onlyHandle(value: unknown): KafkaSecretHandle | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const ref = value as { kind?: unknown; id?: unknown; label?: unknown };
+  if (ref.kind !== 'handle' || typeof ref.id !== 'string') return undefined;
+  return {
+    kind: 'handle',
+    id: ref.id,
+    ...(typeof ref.label === 'string' ? { label: ref.label } : {}),
+  };
+}
+
+export function redactKafkaSasl(sasl: KafkaSasl): KafkaSasl {
+  if (isKafkaPasswordSasl(sasl)) {
+    return {
+      mechanism: sasl.mechanism,
+      username: sasl.username,
+      password: sasl.password ? KAFKA_SECRET_SENTINEL : '',
+    };
+  }
+  if (isKafkaStaticOAuthSasl(sasl)) {
+    return {
+      mechanism: 'OAUTHBEARER',
+      ...(sasl.mode ? { mode: sasl.mode } : {}),
+      token: sasl.token ? KAFKA_SECRET_SENTINEL : '',
+      ...(sasl.extensions ? { extensions: sasl.extensions } : {}),
+    };
+  }
+  if (sasl.mechanism === 'OAUTHBEARER') {
+    const clientSecret = onlyHandle(sasl.clientSecret);
+    return {
+      mechanism: 'OAUTHBEARER',
+      mode: 'client-credentials',
+      tokenEndpoint: sasl.tokenEndpoint,
+      clientId: sasl.clientId,
+      ...(clientSecret ? { clientSecret } : {}),
+      ...(sasl.scope ? { scope: sasl.scope } : {}),
+      ...(sasl.extensions ? { extensions: sasl.extensions } : {}),
+    };
+  }
+  if (sasl.mechanism === 'GSSAPI') {
+    return {
+      mechanism: 'GSSAPI',
+      ...(sasl.serviceName ? { serviceName: sasl.serviceName } : {}),
+      ...(sasl.principal ? { principal: sasl.principal } : {}),
+    };
+  }
+  const secretAccessKey = onlyHandle(sasl.secretAccessKey);
+  const sessionToken = onlyHandle(sasl.sessionToken);
+  return {
+    mechanism: 'AWS_MSK_IAM',
+    region: sasl.region,
+    credentialSource: sasl.credentialSource,
+    ...(sasl.accessKeyId ? { accessKeyId: sasl.accessKeyId } : {}),
+    ...(secretAccessKey ? { secretAccessKey } : {}),
+    ...(sessionToken ? { sessionToken } : {}),
+    ...(sasl.profile ? { profile: sasl.profile } : {}),
+    ...(sasl.allowNonAwsBrokerHosts === true ? { allowNonAwsBrokerHosts: true } : {}),
+  };
+}
+
 function redactSecrets(auth: KafkaAuth): KafkaAuth {
   const next: KafkaAuth = { securityProtocol: auth.securityProtocol };
-  if (auth.sasl) {
-    next.sasl =
-      auth.sasl.mechanism === 'OAUTHBEARER'
-        ? {
-            mechanism: 'OAUTHBEARER',
-            token: auth.sasl.token ? KAFKA_SECRET_SENTINEL : '',
-            ...(auth.sasl.extensions ? { extensions: auth.sasl.extensions } : {}),
-          }
-        : {
-            mechanism: auth.sasl.mechanism,
-            username: auth.sasl.username,
-            password: auth.sasl.password ? KAFKA_SECRET_SENTINEL : '',
-          };
-  }
+  if (auth.sasl) next.sasl = redactKafkaSasl(auth.sasl);
   if (auth.tls) {
     const tls: KafkaTls = {};
     if (auth.tls.caPath !== undefined) tls.caPath = auth.tls.caPath;
@@ -488,10 +733,19 @@ function redactSecrets(auth: KafkaAuth): KafkaAuth {
   return next;
 }
 
-function redactRegistry(registry: KafkaRegistry): KafkaRegistry {
-  if (!registry.auth) return { url: registry.url };
-  const auth: NonNullable<KafkaRegistry['auth']> = {};
-  if (registry.auth.username !== undefined) auth.username = registry.auth.username;
-  if (registry.auth.password) auth.password = KAFKA_SECRET_SENTINEL;
-  return { url: registry.url, auth };
+export function redactRegistry(registry: KafkaRegistry): KafkaRegistry {
+  const next: KafkaRegistry = { url: registry.url };
+  if (registry.authType) next.authType = registry.authType;
+  if (registry.auth) {
+    const auth: NonNullable<KafkaRegistry['auth']> = {};
+    if (registry.auth.username !== undefined) auth.username = registry.auth.username;
+    if (registry.auth.password) auth.password = KAFKA_SECRET_SENTINEL;
+    next.auth = auth;
+  }
+  const token = registry.bearerToken;
+  if (isSecretHandle(token) || isExternalSecretRef(token)) next.bearerToken = token;
+  else if (unwrapSecret(token)) {
+    next.bearerToken = KAFKA_SECRET_SENTINEL;
+  }
+  return next;
 }

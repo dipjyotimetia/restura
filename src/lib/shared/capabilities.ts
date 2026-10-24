@@ -34,10 +34,19 @@ export type CapabilityName =
   | 'sse.customHeaders'
   | 'mcp.basic'
   | 'mcp.stdio'
+  | 'mcp.clientRequests'
+  | 'mcp.serverNotifications'
+  | 'mcp.resourceSubscriptions'
+  | 'mcp.auth'
+  | 'mcp.oauth'
   | 'grpc.basic'
   | 'grpc.reflection'
   | 'grpc.web'
   | 'kafka.basic'
+  | 'kafka.schemaRegistry'
+  | 'kafka.saslOAuthRefresh'
+  | 'kafka.saslMskIam'
+  | 'kafka.saslGssapi'
   | 'mqtt.basic'
   | 'socketio.basic'
   | 'ai.basic'
@@ -57,6 +66,7 @@ export type CapabilityName =
   | 'aiLab.agentSandboxes'
   | 'collections.file'
   | 'collections.git'
+  | 'collections.brokerPresets'
   | 'workflows.ows'
   | 'mock.localServer'
   | 'capture.desktopBridge'
@@ -213,7 +223,42 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: true,
     desktop: true,
     notes:
-      'http-sse transport is desktop-only; web supports streamable-http and rejects http-sse at connect time',
+      'http-sse transport is desktop-only; web supports streamable-http and rejects http-sse at connect time. Web runs the initialize/initialized handshake, MCP-Protocol-Version, DELETE on disconnect and one re-initialize on 404 session expiry, and surfaces server messages interleaved in a reply; it has no standalone GET listening stream and no Last-Event-ID resumption (desktop only)',
+  },
+  'mcp.clientRequests': {
+    label: 'MCP elicitation, sampling and roots (incl. 2026-07-28 input_required)',
+    web: false,
+    desktop: true,
+    notes:
+      'Server→client requests need a persistent channel back to the client; the web Worker proxy is request/response only. Desktop: form-mode elicitation (URL mode not advertised), sampling with per-request human approval (manual text or an AI-assistant provider draft), per-connection file:// roots with list_changed',
+  },
+  'mcp.serverNotifications': {
+    label: 'MCP server notifications (progress, logging, list_changed, resources/updated)',
+    web: false,
+    desktop: true,
+    notes:
+      'Desktop streams server→client events over IPC into the Events pane and re-discovers on list_changed; on 2026-07-28 servers list_changed rides an auto-opened subscriptions/listen stream. The web Worker proxy is request/response only, so there is no server→client channel',
+  },
+  'mcp.resourceSubscriptions': {
+    label: 'MCP resource subscriptions',
+    web: false,
+    desktop: true,
+    notes:
+      'Subscribe/Unsubscribe toggle when the server advertises resources.subscribe; 2025-era servers use resources/subscribe, 2026-07-28 servers a per-resource subscriptions/listen stream (max 32 per connection). Needs the desktop server→client channel',
+  },
+  'mcp.auth': {
+    label: 'MCP connection auth (Bearer / API-key header)',
+    web: true,
+    desktop: true,
+    notes:
+      'Desktop can store the credential as an OS-keychain or external SecretRef handle, resolved in the main process at connect time; web is inline-only and never persists the request’s own MCP credentials to IndexedDB (re-enter after reload). SecretRef-backed {{secret variables}} in MCP auth/headers are not resolved yet on either platform',
+  },
+  'mcp.oauth': {
+    label: 'MCP OAuth 2.1 sign-in (PKCE, PRM discovery, dynamic registration)',
+    web: false,
+    desktop: true,
+    notes:
+      'Desktop runs the flow in the main process: system browser + 127.0.0.1 loopback redirect, tokens kept only in the OS-keychain-encrypted secret store and refreshed automatically (ADR 0031). Web/self-host and the CLI do not run the browser sign-in — paste an access token as Bearer auth instead',
   },
   'mcp.stdio': {
     label: 'MCP stdio transport (local server process)',
@@ -248,6 +293,34 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes: 'Native broker protocol; no browser TCP',
+  },
+  'kafka.schemaRegistry': {
+    label: 'Kafka Confluent Schema Registry (subject produce, browse, decode)',
+    web: false,
+    desktop: true,
+    notes:
+      'Desktop main-process client: Basic or Bearer (SecretRef) auth, Settings TLS policy (custom CA, mTLS, verify) for HTTPS, broker-aligned SSRF policy (per-socket DNS checks refuse metadata and disabled loopback), no credentials over public plain HTTP; Avro/JSON Schema example generation, Protobuf view-only',
+  },
+  'kafka.saslOAuthRefresh': {
+    label: 'Kafka SASL/OAUTHBEARER client-credentials (auto-refresh)',
+    web: false,
+    desktop: true,
+    notes:
+      'Token fetched in main through the SSRF-guarded, DNS-pinned fetch; https is required except for loopback hosts and private IP literals (private addresses still need the "allow private IPs" setting); refreshed once < max(30s, 25% of lifetime) remains; client secret is a kafka-scoped SecretRef handle',
+  },
+  'kafka.saslMskIam': {
+    label: 'Kafka AWS MSK IAM',
+    web: false,
+    desktop: true,
+    notes:
+      'SigV4-presigned OAUTHBEARER token; access keys (SecretRef handles) or a named AWS profile; SASL_SSL only; brokers must be MSK hosts in the region unless explicitly opted out',
+  },
+  'kafka.saslGssapi': {
+    label: 'Kafka SASL/GSSAPI (Kerberos)',
+    web: false,
+    desktop: false,
+    notes:
+      'Authenticator is implemented, but the native kerberos module is not bundled; the option is disabled in the form',
   },
   'mqtt.basic': {
     label: 'MQTT publish / subscribe',
@@ -363,6 +436,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes:
       'System-Git status, diff, staging, commits, branches, fetch/pull/push, and explicit resumable merges for registered OpenCollection directories; structured YAML conflict resolution validates before staging',
+  },
+  'collections.brokerPresets': {
+    label: 'Kafka / MQTT connection presets in collections',
+    web: false,
+    desktop: true,
+    notes:
+      'Save a Kafka or MQTT tab to a collection and reopen it prefilled; {{var}} resolved at send time. Presets round-trip through OpenCollection (x-restura-kafka / x-restura-mqtt) and git-native collections; credentials stay in the desktop secure store and are never exported. Web lists imported presets but opens the desktop-only panel; the CLI skips them',
   },
   'workflows.ows': {
     label: 'Workflows',

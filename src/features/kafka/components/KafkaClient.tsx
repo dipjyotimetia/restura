@@ -1,16 +1,22 @@
 import { Plug, PlugZap, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Button } from '@/components/ui/button';
 import { ConnectionBadge, Floater, ProtoChip, VariableText } from '@/components/ui/spatial';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { isValidManualOffset } from '@/features/kafka/lib/kafkaConsumerValidation';
-import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
+import { type KafkaSubjectSelection, kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import {
   validateJsonPayload,
   validateKafkaHeaders,
   validateOptionalSchemaId,
 } from '@/features/kafka/lib/kafkaProducerValidation';
+import {
+  produceWithVariables,
+  resolveKafkaList,
+  warnUnresolved,
+} from '@/features/kafka/lib/kafkaVariables';
+import { getKafkaProduceDraft, setKafkaProduceDraft } from '@/lib/shared/streaming/composerDrafts';
 import { useKafkaConnection } from '../hooks/useKafkaConnection';
 import { KafkaAdminPanel } from './KafkaAdminPanel';
 import { KafkaConnectionForm } from './KafkaConnectionForm';
@@ -62,6 +68,10 @@ export function KafkaClient() {
   const [producePartition, setProducePartition] = useState('');
   const [produceSchemaId, setProduceSchemaId] = useState('');
   const [produceKeySchemaId, setProduceKeySchemaId] = useState('');
+  const [produceValueSubject, setProduceValueSubject] = useState<KafkaSubjectSelection | null>(
+    null
+  );
+  const [produceKeySubject, setProduceKeySubject] = useState<KafkaSubjectSelection | null>(null);
   const [produceError, setProduceError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -70,15 +80,47 @@ export function KafkaClient() {
     setConsumerPaused(false);
     setTopicDraft('');
     setTimestampDraft('');
-    setProduceKey('');
-    setProduceKeyEncoding('utf8');
-    setProduceValue('');
+    // A collection preset (#984) seeds the draft before the panel mounts.
+    const seed = getKafkaProduceDraft(activeConnectionId);
+    setProduceKey(seed?.key ?? '');
+    setProduceKeyEncoding(seed?.keyEncoding ?? 'utf8');
+    setProduceValue(seed?.value ?? '');
     setProduceTombstone(false);
-    setProduceValueEncoding('utf8');
-    setProduceHeaders([]);
-    setProducePartition('');
+    setProduceValueEncoding(seed?.valueEncoding ?? 'utf8');
+    setProduceHeaders(seed?.headers ?? []);
+    setProducePartition(seed?.partition ?? '');
+    setProduceValueSubject(null);
+    setProduceKeySubject(null);
     setProduceError(null);
   }, [activeConnectionId]);
+
+  // Mirror the produce draft so Save to Collection can capture it (#984). The
+  // first commit after a connection switch still holds the previous
+  // connection's draft, so it is skipped rather than written under the new id.
+  const mirroredFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!connection) return;
+    if (mirroredFor.current !== connection.id) {
+      mirroredFor.current = connection.id;
+      return;
+    }
+    setKafkaProduceDraft(connection.id, {
+      key: produceKey,
+      keyEncoding: produceKeyEncoding,
+      value: produceValue,
+      valueEncoding: produceValueEncoding,
+      headers: produceHeaders,
+      partition: producePartition,
+    });
+  }, [
+    connection?.id,
+    produceKey,
+    produceKeyEncoding,
+    produceValue,
+    produceValueEncoding,
+    produceHeaders,
+    producePartition,
+  ]);
 
   useEffect(() => {
     if (connection) {
@@ -121,11 +163,13 @@ export function KafkaClient() {
         return;
       }
     }
-    if (produceValueEncoding === 'base64' && valueSchema.value !== undefined) {
+    const valueSubject = connection.registry ? produceValueSubject : null;
+    const keySubject = connection.registry ? produceKeySubject : null;
+    if (produceValueEncoding === 'base64' && (valueSchema.value !== undefined || valueSubject)) {
       setProduceError('A Base64 value cannot also use a Schema Registry schema.');
       return;
     }
-    if (produceKeyEncoding === 'base64' && keySchema.value !== undefined) {
+    if (produceKeyEncoding === 'base64' && (keySchema.value !== undefined || keySubject)) {
       setProduceError('A Base64 key cannot also use a Schema Registry schema.');
       return;
     }
@@ -140,22 +184,28 @@ export function KafkaClient() {
       return;
     }
     setProduceError(null);
-    const result = await kafkaManager.produce({
-      connectionId: connection.id,
-      topic: connection.defaultTopic,
-      ...(produceKey ? { key: produceKey } : {}),
-      ...(produceKey ? { keyEncoding: produceKeyEncoding === 'base64' ? 'base64' : 'utf8' } : {}),
-      value: produceTombstone ? null : produceValue,
-      valueEncoding: produceValueEncoding === 'base64' ? 'base64' : 'utf8',
-      acks: connection.acks,
-      ...(connection.compression !== 'none' ? { compression: connection.compression } : {}),
-      ...(Object.keys(headers.value).length > 0 ? { headers: headers.value } : {}),
-      ...(partition !== undefined ? { partition } : {}),
-      ...(valueSchema.value !== undefined ? { valueSchemaId: valueSchema.value } : {}),
-      ...(keySchema.value !== undefined ? { keySchemaId: keySchema.value } : {}),
-    });
-    if (result.ok) setProduceValue('');
-    else setProduceError(result.error);
+    // {{var}} resolution + secret masking at send time (#984).
+    const result = await produceWithVariables(
+      {
+        connectionId: connection.id,
+        topic: connection.defaultTopic,
+        ...(produceKey ? { key: produceKey } : {}),
+        ...(produceKey ? { keyEncoding: produceKeyEncoding === 'base64' ? 'base64' : 'utf8' } : {}),
+        value: produceTombstone ? null : produceValue,
+        valueEncoding: produceValueEncoding === 'base64' ? 'base64' : 'utf8',
+        acks: connection.acks,
+        ...(connection.compression !== 'none' ? { compression: connection.compression } : {}),
+        ...(Object.keys(headers.value).length > 0 ? { headers: headers.value } : {}),
+        ...(partition !== undefined ? { partition } : {}),
+        ...(valueSchema.value !== undefined ? { valueSchemaId: valueSchema.value } : {}),
+        ...(keySchema.value !== undefined ? { keySchemaId: keySchema.value } : {}),
+        ...(valueSubject ? { valueSubject } : {}),
+        ...(keySubject ? { keySubject } : {}),
+      },
+      { json: produceValueEncoding === 'json', keyJson: produceKeyEncoding === 'json' }
+    );
+    // The payload stays in the composer: it is the preset's template (#984).
+    if (!result.ok) setProduceError(result.error);
   };
   const handleConsumeModeChange = (mode: ConsumeMode): void => {
     setConsumeMode(mode);
@@ -172,15 +222,20 @@ export function KafkaClient() {
     const offsetsValid = useManual && isValidManualOffset(offsetPartition, offsetValue);
     const timestampMs = useTimestamp ? new Date(timestampDraft).getTime() : NaN;
     const mode = useManual ? 'manual' : useTimestamp ? 'timestamp' : consumeMode;
+    const topics = resolveKafkaList(connection.consumer.topics);
+    const groupId = resolveKafkaList([connection.consumer.groupId]);
+    warnUnresolved(connection.id, '', [...new Set([...topics.unresolved, ...groupId.unresolved])]);
     await kafkaManager.subscribe({
       connectionId: connection.id,
-      groupId: connection.consumer.groupId,
-      topics: connection.consumer.topics,
+      groupId: groupId.values[0] ?? connection.consumer.groupId,
+      topics: topics.values,
+      // Keep the {{var}} templates in the persisted consumer state (#984).
+      stored: { groupId: connection.consumer.groupId, topics: connection.consumer.topics },
       fromBeginning: connection.consumer.fromBeginning,
       mode,
       ...(offsetsValid
         ? {
-            offsets: connection.consumer.topics.map((topic) => ({
+            offsets: topics.values.map((topic) => ({
               topic,
               partition: Number(offsetPartition),
               offset: offsetValue.trim(),
@@ -318,6 +373,10 @@ export function KafkaClient() {
             setProduceSchemaId={setProduceSchemaId}
             produceKeySchemaId={produceKeySchemaId}
             setProduceKeySchemaId={setProduceKeySchemaId}
+            produceValueSubject={produceValueSubject}
+            setProduceValueSubject={setProduceValueSubject}
+            produceKeySubject={produceKeySubject}
+            setProduceKeySubject={setProduceKeySubject}
             produceError={produceError}
             produceTombstone={produceTombstone}
             setProduceTombstone={setProduceTombstone}

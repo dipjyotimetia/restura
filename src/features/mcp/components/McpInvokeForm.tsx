@@ -1,24 +1,36 @@
-import { Play, Sparkles } from 'lucide-react';
+import { isDestructiveTool, mcpToolDisplayName } from '@shared/protocol/mcp-tool-descriptor';
+import { Play, Sparkles, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { TextField } from '@/components/ui/spatial';
 import {
   McpArgumentField,
   type McpArgumentField as McpArgumentFieldType,
 } from '@/features/mcp/components/McpArgumentField';
+import { McpCompletableTextField } from '@/features/mcp/components/McpCompletableTextField';
+import { McpToolHintBadges } from '@/features/mcp/components/McpToolHintBadges';
 import { parseMcpArgument } from '@/features/mcp/lib/mcpArgumentValidation';
 import { generateMcpTemplate } from '@/features/mcp/lib/mcpClient';
 import type { McpJsonSchema, McpPromptDescriptor, McpToolDescriptor } from '@/types';
 
-export type McpInvokeTab = 'tools' | 'resources' | 'prompts' | 'log';
+export type McpInvokeTab = 'tools' | 'resources' | 'templates' | 'prompts' | 'log' | 'events';
 
 interface McpInvokeFormProps {
   tab: McpInvokeTab;
   tool: McpToolDescriptor | null;
   prompt: McpPromptDescriptor | null;
-  onCall: (tool: McpToolDescriptor, args: Record<string, unknown>) => Promise<void>;
-  onGet: (prompt: McpPromptDescriptor, args: Record<string, string>) => Promise<void>;
+  /** `signal` aborts the in-flight call (Cancel button); the callee records it as cancelled. */
+  onCall: (
+    tool: McpToolDescriptor,
+    args: Record<string, unknown>,
+    signal: AbortSignal
+  ) => Promise<void>;
+  onGet: (
+    prompt: McpPromptDescriptor,
+    args: Record<string, string>,
+    signal: AbortSignal
+  ) => Promise<void>;
   /**
    * Saved argument values for `tool` (from the tab's request). Seeds the form
    * when the tool loads; when undefined the schema template is used instead.
@@ -30,6 +42,12 @@ interface McpInvokeFormProps {
   promptArguments?: Record<string, string> | undefined;
   /** Reports the current prompt arguments on every edit. */
   onPromptArgumentsChange?: (args: Record<string, string>) => void;
+  /** `completion/complete` for a prompt argument; omitted when the server lacks the capability. */
+  onCompletePrompt?: (
+    promptName: string,
+    argument: { name: string; value: string },
+    context: Record<string, string>
+  ) => Promise<string[]>;
 }
 
 /** The invocation surface deliberately delegates transport work to the builder-owned client. */
@@ -43,6 +61,7 @@ export function McpInvokeForm({
   onToolArgumentsChange,
   promptArguments,
   onPromptArgumentsChange,
+  onCompletePrompt,
 }: McpInvokeFormProps) {
   if (tab === 'tools')
     return (
@@ -60,6 +79,7 @@ export function McpInvokeForm({
         onGet={onGet}
         initialArguments={promptArguments}
         onArgumentsChange={onPromptArgumentsChange}
+        onComplete={onCompletePrompt}
       />
     );
   return <EmptyMcpInvokeForm tab={tab} />;
@@ -151,7 +171,7 @@ function InvokeToolForm({
   onArgumentsChange,
 }: {
   tool: McpToolDescriptor | null;
-  onCall: (tool: McpToolDescriptor, args: Record<string, unknown>) => Promise<void>;
+  onCall: McpInvokeFormProps['onCall'];
   initialArguments?: Record<string, unknown> | undefined;
   onArgumentsChange?: ((args: Record<string, unknown>) => void) | undefined;
 }) {
@@ -159,6 +179,8 @@ function InvokeToolForm({
   const [values, setValues] = useState<Record<string, string>>({});
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
+  const [pendingArgs, setPendingArgs] = useState<Record<string, unknown> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   // Read through a ref so persisting an edit (which feeds back in as
   // `initialArguments`) never re-runs the seeding effect below.
   const initialArgumentsRef = useRef(initialArguments);
@@ -228,10 +250,23 @@ function InvokeToolForm({
       return;
     }
     setValidationErrors({});
+    // Hints are untrusted, but an explicit destructiveHint is still worth a
+    // speed bump before the call leaves the client.
+    if (isDestructiveTool(tool)) {
+      setPendingArgs(args);
+      return;
+    }
+    await runCall(tool, args);
+  };
+
+  const runCall = async (target: McpToolDescriptor, args: Record<string, unknown>) => {
+    const controller = new AbortController();
+    abortRef.current = controller;
     setRunning(true);
     try {
-      await onCall(tool, args);
+      await onCall(target, args, controller.signal);
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setRunning(false);
     }
   };
@@ -241,20 +276,16 @@ function InvokeToolForm({
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-sp-line shrink-0">
-        <InvokeTitle name={tool.name} />
-        <Button
-          variant="glow"
-          size="sm"
-          onClick={handleCall}
-          loading={running}
-          className="h-7 px-3 text-sp-12 rounded-sp-btn"
-        >
-          <Play className="h-3.5 w-3.5" />
-          Invoke
-        </Button>
+        <InvokeTitle name={mcpToolDisplayName(tool)} />
+        <InvokeActions
+          running={running}
+          onInvoke={handleCall}
+          onCancel={() => abortRef.current?.abort()}
+        />
       </div>
       <ScrollArea className="flex-1 min-h-0">
         <div className="p-3 space-y-3">
+          <McpToolHintBadges tool={tool} />
           {tool.description && <p className="text-sp-12 text-sp-muted">{tool.description}</p>}
           {fields.length === 0 ? (
             <div className="text-sp-12 text-sp-dim italic">This tool takes no arguments.</div>
@@ -280,6 +311,21 @@ function InvokeToolForm({
           )}
         </div>
       </ScrollArea>
+      <ConfirmDialog
+        open={pendingArgs !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingArgs(null);
+        }}
+        title={`Invoke destructive tool "${mcpToolDisplayName(tool)}"?`}
+        description="This server marks the tool as destructive (it may modify or delete data). Hints come from the server and are not verified. Continue only if you trust this server."
+        confirmText="Invoke"
+        variant="destructive"
+        onConfirm={() => {
+          const args = pendingArgs;
+          setPendingArgs(null);
+          if (args) void runCall(tool, args);
+        }}
+      />
     </div>
   );
 }
@@ -289,14 +335,17 @@ function InvokePromptForm({
   onGet,
   initialArguments,
   onArgumentsChange,
+  onComplete,
 }: {
   prompt: McpPromptDescriptor | null;
-  onGet: (prompt: McpPromptDescriptor, args: Record<string, string>) => Promise<void>;
+  onGet: McpInvokeFormProps['onGet'];
   initialArguments?: Record<string, string> | undefined;
   onArgumentsChange?: ((args: Record<string, string>) => void) | undefined;
+  onComplete?: McpInvokeFormProps['onCompletePrompt'] | undefined;
 }) {
   const [args, setArgs] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const initialArgumentsRef = useRef(initialArguments);
   initialArgumentsRef.current = initialArguments;
 
@@ -309,10 +358,13 @@ function InvokePromptForm({
   const fields = prompt.arguments ?? [];
 
   const handleGet = async () => {
+    const controller = new AbortController();
+    abortRef.current = controller;
     setRunning(true);
     try {
-      await onGet(prompt, args);
+      await onGet(prompt, args, controller.signal);
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setRunning(false);
     }
   };
@@ -321,16 +373,11 @@ function InvokePromptForm({
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-sp-line shrink-0">
         <InvokeTitle name={prompt.name} />
-        <Button
-          variant="glow"
-          size="sm"
-          onClick={handleGet}
-          loading={running}
-          className="h-7 px-3 text-sp-12 rounded-sp-btn"
-        >
-          <Play className="h-3.5 w-3.5" />
-          Invoke
-        </Button>
+        <InvokeActions
+          running={running}
+          onInvoke={handleGet}
+          onCancel={() => abortRef.current?.abort()}
+        />
       </div>
       <ScrollArea className="flex-1 min-h-0">
         <div className="p-3 space-y-3">
@@ -360,22 +407,64 @@ function InvokePromptForm({
                 {argument.description && (
                   <div className="text-sp-11-5 text-sp-muted">{argument.description}</div>
                 )}
-                <TextField
-                  mono
+                <McpCompletableTextField
+                  label={argument.name}
                   value={args[argument.name] ?? ''}
-                  onChange={(event) => {
-                    const next = { ...args, [argument.name]: event.target.value };
+                  onChange={(value) => {
+                    const next = { ...args, [argument.name]: value };
                     setArgs(next);
                     onArgumentsChange?.(next);
                   }}
-                  placeholder=""
-                  className="w-full"
+                  complete={
+                    onComplete
+                      ? (value) => {
+                          const { [argument.name]: _self, ...context } = args;
+                          return onComplete(prompt.name, { name: argument.name, value }, context);
+                        }
+                      : undefined
+                  }
                 />
               </div>
             ))
           )}
         </div>
       </ScrollArea>
+    </div>
+  );
+}
+
+function InvokeActions({
+  running,
+  onInvoke,
+  onCancel,
+}: {
+  running: boolean;
+  onInvoke: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 shrink-0">
+      {running && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onCancel}
+          className="h-7 px-3 text-sp-12 rounded-sp-btn"
+        >
+          <X className="h-3.5 w-3.5" />
+          Cancel
+        </Button>
+      )}
+      <Button
+        variant="glow"
+        size="sm"
+        onClick={onInvoke}
+        loading={running}
+        className="h-7 px-3 text-sp-12 rounded-sp-btn"
+      >
+        <Play className="h-3.5 w-3.5" />
+        Invoke
+      </Button>
     </div>
   );
 }
@@ -398,9 +487,13 @@ function EmptyMcpInvokeForm({ tab }: { tab: McpInvokeTab }) {
   const hint =
     tab === 'resources'
       ? 'Select a resource from the list and press Read.'
-      : tab === 'log'
-        ? 'The latest call appears in the Result panel.'
-        : 'Pick a tool or prompt.';
+      : tab === 'templates'
+        ? 'Select a resource template to fill in its parameters.'
+        : tab === 'log'
+          ? 'The latest call appears in the Result panel.'
+          : tab === 'events'
+            ? 'Server notifications stream into the Events list.'
+            : 'Pick a tool or prompt.';
   return (
     <div className="flex-1 grid place-items-center">
       <div className="text-center text-sp-muted text-sp-12">{hint}</div>

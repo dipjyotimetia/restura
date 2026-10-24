@@ -1,29 +1,50 @@
+import {
+  ConsumedMessageBuffer,
+  type KafkaConsumedPayload,
+  toReceivedMessage,
+} from '@/features/kafka/lib/consumedMessageBuffer';
 import type {
   KafkaAuth,
   KafkaCompression,
   KafkaConnection,
-  KafkaMessageDirection,
   KafkaRegistry,
+  KafkaSasl,
 } from '@/features/kafka/store/useKafkaStore';
-import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import {
+  isKafkaPasswordSasl,
+  isKafkaStaticOAuthSasl,
+  KAFKA_SECRET_SENTINEL,
+  onKafkaMessagesCleared,
+  useKafkaStore,
+} from '@/features/kafka/store/useKafkaStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
 import type {
+  ElectronKafkaAPI,
   KafkaAuthIpc,
   KafkaGroupDescription,
   KafkaGroupInfo,
+  KafkaOffsetResetRow,
+  KafkaOffsetResetSkip,
   KafkaPartitionLag,
   KafkaPartitionWatermark,
+  KafkaRecordFieldIpc,
   KafkaRegistryIpc,
+  KafkaSaslIpc,
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
+import { isKafkaBrowse, type KafkaSubscribePayload, toBrowseSubscribe } from './kafkaBrowse';
+
+export type KafkaResetGroupOffsetsParams = Parameters<ElectronKafkaAPI['resetGroupOffsets']>[0];
+export type KafkaDeleteGroupOffsetsParams = Parameters<ElectronKafkaAPI['deleteGroupOffsets']>[0];
 
 export type KafkaSecretField =
   | 'sasl-password'
   | 'oauth-token'
   | 'tls-passphrase'
-  | 'registry-password';
+  | 'registry-password'
+  | 'registry-token';
 
 export function kafkaSecretKey(connectionId: string, field: KafkaSecretField): string {
   // Every field name matches a secureStorage sensitive-key pattern
@@ -46,6 +67,17 @@ async function resolveRegistry(
 ): Promise<KafkaRegistryIpc | undefined> {
   if (!registry) return undefined;
   const out: KafkaRegistryIpc = { url: registry.url };
+  if (registry.authType === 'bearer') {
+    // Handles / external refs cross IPC as references and resolve only in main.
+    const stored = registry.bearerToken;
+    const token =
+      stored === KAFKA_SECRET_SENTINEL ? await readSecret(connectionId, 'registry-token') : stored;
+    if (!token || (typeof token === 'object' && token.kind === 'inline' && !token.value)) {
+      throw new Error('Missing Schema Registry bearer token — re-enter it.');
+    }
+    out.auth = { type: 'bearer', token };
+    return out;
+  }
   if (registry.auth) {
     // A sentinel means the real value lives in secureStorage; otherwise it's
     // the inline value (or undefined).
@@ -53,13 +85,90 @@ async function resolveRegistry(
       value === KAFKA_SECRET_SENTINEL
         ? readSecret(connectionId, field)
         : Promise.resolve(value ?? null);
-    const auth: NonNullable<KafkaRegistryIpc['auth']> = {};
+    // Basic stays in the untyped wire shape (main normalises it to type 'basic').
+    const auth: { username?: string; password?: string } = {};
     if (registry.auth.username) auth.username = registry.auth.username;
     const password = await resolve(registry.auth.password, 'registry-password');
     if (password) auth.password = password;
     if (Object.keys(auth).length > 0) out.auth = auth;
   }
   return out;
+}
+
+/**
+ * Resolve the persisted SASL block into its IPC shape. Legacy password/static
+ * token secrets are read from secureStorage (sentinel); SecretRef handles for
+ * OAuth client secrets and AWS keys are forwarded as handles and resolved only
+ * in main. Returns null when a required credential is missing.
+ */
+async function resolveSasl(connectionId: string, sasl: KafkaSasl): Promise<KafkaSaslIpc | null> {
+  if (isKafkaPasswordSasl(sasl)) {
+    const password =
+      sasl.password === KAFKA_SECRET_SENTINEL
+        ? ((await readSecret(connectionId, 'sasl-password')) ?? '')
+        : sasl.password;
+    return password ? { mechanism: sasl.mechanism, username: sasl.username, password } : null;
+  }
+  if (isKafkaStaticOAuthSasl(sasl)) {
+    const token =
+      sasl.token === KAFKA_SECRET_SENTINEL
+        ? ((await readSecret(connectionId, 'oauth-token')) ?? '')
+        : sasl.token;
+    if (!token) return null;
+    return {
+      mechanism: 'OAUTHBEARER',
+      token,
+      ...(sasl.extensions ? { extensions: sasl.extensions } : {}),
+    };
+  }
+  if (sasl.mechanism === 'OAUTHBEARER') {
+    const tokenEndpoint = sasl.tokenEndpoint.trim();
+    const clientId = sasl.clientId.trim();
+    if (!tokenEndpoint || !clientId || !sasl.clientSecret) return null;
+    return {
+      mechanism: 'OAUTHBEARER',
+      mode: 'client-credentials',
+      tokenEndpoint,
+      clientId,
+      clientSecret: sasl.clientSecret,
+      ...(sasl.scope?.trim() ? { scope: sasl.scope.trim() } : {}),
+      ...(sasl.extensions ? { extensions: sasl.extensions } : {}),
+    };
+  }
+  if (sasl.mechanism === 'GSSAPI') {
+    return {
+      mechanism: 'GSSAPI',
+      ...(sasl.serviceName?.trim() ? { serviceName: sasl.serviceName.trim() } : {}),
+      ...(sasl.principal?.trim() ? { principal: sasl.principal.trim() } : {}),
+    };
+  }
+  const region = sasl.region.trim();
+  if (!region) return null;
+  const optIn = sasl.allowNonAwsBrokerHosts === true ? { allowNonAwsBrokerHosts: true } : {};
+  if (sasl.credentialSource === 'profile') {
+    const profile = sasl.profile?.trim();
+    return profile
+      ? {
+          mechanism: 'AWS_MSK_IAM',
+          region,
+          ...optIn,
+          credentials: { source: 'profile', profile },
+        }
+      : null;
+  }
+  const accessKeyId = sasl.accessKeyId?.trim();
+  if (!accessKeyId || !sasl.secretAccessKey) return null;
+  return {
+    mechanism: 'AWS_MSK_IAM',
+    region,
+    ...optIn,
+    credentials: {
+      source: 'static',
+      accessKeyId,
+      secretAccessKey: sasl.secretAccessKey,
+      ...(sasl.sessionToken ? { sessionToken: sasl.sessionToken } : {}),
+    },
+  };
 }
 
 /**
@@ -122,30 +231,8 @@ async function resolveAuth(connectionId: string, auth: KafkaAuth): Promise<Kafka
   }
 
   if (!auth.sasl) return null;
-  const sasl: Extract<KafkaAuthIpc, { securityProtocol: 'SASL_PLAINTEXT' }>['sasl'] =
-    auth.sasl.mechanism === 'OAUTHBEARER'
-      ? {
-          mechanism: 'OAUTHBEARER',
-          token:
-            auth.sasl.token === KAFKA_SECRET_SENTINEL
-              ? ((await readSecret(connectionId, 'oauth-token')) ?? '')
-              : auth.sasl.token,
-          ...(auth.sasl.extensions ? { extensions: auth.sasl.extensions } : {}),
-        }
-      : {
-          mechanism: auth.sasl.mechanism,
-          username: auth.sasl.username,
-          password:
-            auth.sasl.password === KAFKA_SECRET_SENTINEL
-              ? ((await readSecret(connectionId, 'sasl-password')) ?? '')
-              : auth.sasl.password,
-        };
-  if (
-    (sasl.mechanism === 'OAUTHBEARER' && !sasl.token) ||
-    (sasl.mechanism !== 'OAUTHBEARER' && !sasl.password)
-  ) {
-    return null;
-  }
+  const sasl = await resolveSasl(connectionId, auth.sasl);
+  if (!sasl) return null;
 
   if (auth.securityProtocol === 'SASL_PLAINTEXT') {
     return { securityProtocol: 'SASL_PLAINTEXT', sasl };
@@ -153,8 +240,33 @@ async function resolveAuth(connectionId: string, auth: KafkaAuth): Promise<Kafka
   return { securityProtocol: 'SASL_SSL', sasl, ...(tlsIpc ? { tls: tlsIpc } : {}) };
 }
 
+export interface KafkaSubjectSelection {
+  subject: string;
+  version: number | 'latest';
+}
+
+/** Schema-encoded IPC field: by subject + version when chosen, else by numeric id. */
+function schemaField(
+  data: string,
+  schemaId: number | undefined,
+  subject: KafkaSubjectSelection | undefined
+): KafkaRecordFieldIpc | undefined {
+  if (subject)
+    return { encoding: 'schema', subject: subject.subject, version: subject.version, data };
+  if (schemaId !== undefined) return { encoding: 'schema', schemaId, data };
+  return undefined;
+}
+
 class KafkaManager {
   private subscribed: Set<string> = new Set();
+  /** Batches consumed records into one store update per connection per tick. */
+  private inbound = new ConsumedMessageBuffer((connectionId, batch) =>
+    useKafkaStore.getState().addMessages(connectionId, batch)
+  );
+  constructor() {
+    // Clearing the log must also drop records still waiting for the next flush.
+    onKafkaMessagesCleared((id) => this.inbound.discard(id));
+  }
 
   async connect(connection: KafkaConnection): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!isElectron()) {
@@ -167,8 +279,10 @@ class KafkaManager {
     store.updateStatus(connection.id, 'connecting');
 
     let ipcAuth: KafkaAuthIpc | null;
+    let registry: KafkaRegistryIpc | undefined;
     try {
       ipcAuth = await resolveAuth(connection.id, connection.auth);
+      registry = await resolveRegistry(connection.id, connection.registry);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to resolve Kafka credentials';
       store.updateStatus(connection.id, 'disconnected');
@@ -177,7 +291,7 @@ class KafkaManager {
     }
     if (!ipcAuth) {
       store.updateStatus(connection.id, 'disconnected');
-      const msg = 'Missing SASL password or TLS material — re-enter credentials.';
+      const msg = 'Missing SASL credentials or TLS material — re-enter credentials.';
       store.addMessage(connection.id, { direction: 'system', topic: '', value: msg, error: msg });
       return { ok: false, error: msg };
     }
@@ -188,7 +302,6 @@ class KafkaManager {
     this.unbindLifecycleListeners(connection.id);
     this.bindLifecycleListeners(connection.id);
 
-    const registry = await resolveRegistry(connection.id, connection.registry);
     let result: Awaited<ReturnType<typeof api.kafka.connect>>;
     try {
       result = await api.kafka.connect({
@@ -238,6 +351,11 @@ class KafkaManager {
     compression?: KafkaCompression;
     valueSchemaId?: number;
     keySchemaId?: number;
+    /** Transcript copy with secret `{{var}}` values masked (kafkaVariables.ts). */
+    display?: { key?: string; value?: string; headers?: Record<string, string> };
+    /** Subject + version alternative to a numeric schema id (resolved in main). */
+    valueSubject?: KafkaSubjectSelection;
+    keySubject?: KafkaSubjectSelection;
   }): Promise<
     | { ok: true; ack: { topic: string; partition: number; offset: string; timestamp: number } }
     | { ok: false; error: string }
@@ -254,27 +372,17 @@ class KafkaManager {
         ...(params.key !== undefined
           ? {
               key:
-                params.keySchemaId !== undefined
-                  ? { encoding: 'schema' as const, schemaId: params.keySchemaId, data: params.key }
-                  : {
-                      encoding: params.keyEncoding ?? ('utf8' as const),
-                      data: params.key,
-                    },
+                schemaField(params.key, params.keySchemaId, params.keySubject) ??
+                ({ encoding: params.keyEncoding ?? 'utf8', data: params.key } as const),
             }
           : {}),
         value:
           params.value === null
             ? { encoding: 'null' }
-            : params.valueSchemaId !== undefined
-              ? {
-                  encoding: 'schema',
-                  schemaId: params.valueSchemaId,
-                  data: params.value,
-                }
-              : {
-                  encoding: params.valueEncoding ?? 'utf8',
-                  data: params.value,
-                },
+            : (schemaField(params.value, params.valueSchemaId, params.valueSubject) ?? {
+                encoding: params.valueEncoding ?? 'utf8',
+                data: params.value,
+              }),
         ...(params.headers
           ? {
               headers: Object.entries(params.headers).map(([key, value]) => ({
@@ -307,12 +415,12 @@ class KafkaManager {
       topic: result.ack.topic,
       partition: result.ack.partition,
       offset: result.ack.offset,
-      ...(params.key !== undefined ? { key: params.key } : {}),
+      ...(params.key !== undefined ? { key: params.display?.key ?? params.key } : {}),
       ...(params.keyEncoding !== undefined ? { keyEncoding: params.keyEncoding } : {}),
-      value: params.value ?? '<tombstone>',
+      value: params.value === null ? '<tombstone>' : (params.display?.value ?? params.value),
       ...(params.value === null ? { tombstone: true } : {}),
       ...(params.valueEncoding !== undefined ? { valueEncoding: params.valueEncoding } : {}),
-      ...(params.headers ? { headers: params.headers } : {}),
+      ...(params.headers ? { headers: params.display?.headers ?? params.headers } : {}),
     });
     return { ok: true, ack: result.ack };
   }
@@ -322,9 +430,11 @@ class KafkaManager {
     groupId: string;
     topics: string[];
     fromBeginning: boolean;
-    mode?: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp';
+    mode?: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp' | 'last-n';
     offsets?: Array<{ topic: string; partition: number; offset: string }>;
     timestamp?: string;
+    /** Unresolved `{{var}}` forms to persist instead of the wire values (#984). */
+    stored?: { groupId: string; topics: string[] };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!isElectron()) return { ok: false, error: 'Kafka is desktop-only.' };
     const api = getElectronAPI();
@@ -335,14 +445,14 @@ class KafkaManager {
     // mode/offsets are transient subscribe-time inputs, so don't push them there.
     store.updateConsumer(params.connectionId, {
       status: 'subscribing',
-      groupId: params.groupId,
-      topics: params.topics,
+      groupId: params.stored?.groupId ?? params.groupId,
+      topics: params.stored?.topics ?? params.topics,
       fromBeginning: params.fromBeginning,
     });
     this.bindMessageListener(params.connectionId);
 
     const consumer = store.connections[params.connectionId]?.consumer;
-    const result = await api.kafka.subscribe({
+    const payload: KafkaSubscribePayload = {
       connectionId: params.connectionId,
       groupId: params.groupId,
       topics: params.topics,
@@ -373,7 +483,11 @@ class KafkaManager {
       ...(consumer?.highWaterMark ? { highWaterMark: consumer.highWaterMark } : {}),
       ...(params.offsets ? { offsets: params.offsets } : {}),
       ...(params.timestamp ? { timestamp: params.timestamp } : {}),
-    });
+    };
+    const browse = isKafkaBrowse(consumer);
+    const result = await api.kafka.subscribe(
+      browse ? toBrowseSubscribe(payload, consumer ?? {}) : payload
+    );
     if (!result.success) {
       store.updateConsumer(params.connectionId, { status: 'error' });
       const msg = result.error ?? 'Subscribe failed';
@@ -392,7 +506,9 @@ class KafkaManager {
     store.addMessage(params.connectionId, {
       direction: 'system',
       topic: params.topics.join(','),
-      value: `Subscribed to ${params.topics.join(', ')} (groupId=${params.groupId})`,
+      value: browse
+        ? `Browsing ${params.topics.join(', ')} (read-only, no consumer group)`
+        : `Subscribed to ${params.topics.join(', ')} (groupId=${params.groupId})`,
     });
     return { ok: true };
   }
@@ -502,18 +618,40 @@ class KafkaManager {
     return { ok: true, group: result.group ?? null, offsets: result.offsets };
   }
 
-  async resetGroupOffsets(params: {
-    connectionId: string;
-    groupId: string;
-    topic: string;
-    to: 'earliest' | 'latest' | 'specific';
-    partitions?: Array<{ partition: number; offset: string }>;
-  }): Promise<{ ok: true } | { ok: false; error: string }> {
+  async resetGroupOffsets(params: KafkaResetGroupOffsetsParams): Promise<
+    | {
+        ok: true;
+        offsets: KafkaOffsetResetRow[];
+        skipped: KafkaOffsetResetSkip[];
+        dryRun: boolean;
+      }
+    | { ok: false; error: string }
+  > {
     const api = getElectronAPI();
     if (!api) return { ok: false, error: 'Electron API unavailable.' };
     const result = await api.kafka.resetGroupOffsets(params);
     if (!result.success) return { ok: false, error: result.error ?? 'Reset offsets failed' };
-    return { ok: true };
+    return {
+      ok: true,
+      offsets: result.offsets ?? [],
+      skipped: result.skipped ?? [],
+      dryRun: result.dryRun ?? false,
+    };
+  }
+
+  async deleteGroupOffsets(params: KafkaDeleteGroupOffsetsParams): Promise<
+    | {
+        ok: true;
+        deleted: { topic: string; partitions: number[] }[];
+        skipped: KafkaOffsetResetSkip[];
+      }
+    | { ok: false; error: string }
+  > {
+    const api = getElectronAPI();
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+    const result = await api.kafka.deleteGroupOffsets(params);
+    if (!result.success) return { ok: false, error: result.error ?? 'Delete offsets failed' };
+    return { ok: true, deleted: result.deleted ?? [], skipped: result.skipped ?? [] };
   }
 
   async deleteGroup(
@@ -532,6 +670,7 @@ class KafkaManager {
     if (!api?.kafka) return;
 
     api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CLOSE, connectionId), () => {
+      this.inbound.flush(connectionId);
       const store = useKafkaStore.getState();
       store.updateStatus(connectionId, 'disconnected');
       store.addMessage(connectionId, {
@@ -542,6 +681,7 @@ class KafkaManager {
     });
 
     api.kafka.on(kafkaChannel(KAFKA_CHANNEL.ERROR, connectionId), (payload: unknown) => {
+      this.inbound.flush(connectionId);
       const err = payload as { scope?: string; message?: string };
       const msg = err.message ?? 'Kafka error';
       useKafkaStore.getState().addMessage(connectionId, {
@@ -553,6 +693,7 @@ class KafkaManager {
     });
 
     api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, connectionId), () => {
+      this.inbound.flush(connectionId);
       const store = useKafkaStore.getState();
       store.updateConsumer(connectionId, { status: 'idle' });
       store.addMessage(connectionId, { direction: 'system', topic: '', value: 'Consumer closed' });
@@ -565,7 +706,19 @@ class KafkaManager {
     });
     api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CONSUMER_LAG, connectionId), (payload: unknown) => {
       const event = payload as { lag?: { topic: string; offsets: string[] }[] };
-      if (event.lag) useKafkaStore.getState().updateConsumer(connectionId, { lag: event.lag });
+      if (!event.lag) return;
+      const store = useKafkaStore.getState();
+      const paused = store.connections[connectionId]?.consumer.pausedPartitions;
+      // Lag -1 = no longer assigned to this member: main already dropped its pause.
+      const assigned = (key: string) => {
+        const sep = key.lastIndexOf(':');
+        const topic = event.lag?.find((l) => l.topic === key.slice(0, sep));
+        return topic?.offsets[Number(key.slice(sep + 1))] !== '-1';
+      };
+      store.updateConsumer(connectionId, {
+        lag: event.lag,
+        ...(paused?.length ? { pausedPartitions: paused.filter(assigned) } : {}),
+      });
     });
   }
 
@@ -583,40 +736,17 @@ class KafkaManager {
   private bindMessageListener(connectionId: string): void {
     const api = getElectronAPI();
     if (!api?.kafka) return;
+    // Idempotent: a consumer can close main-side (browse stop-after-N, fetch
+    // error) without an unsubscribe, so a re-subscribe must not stack listeners.
+    this.unbindMessageListener(connectionId);
     api.kafka.on(kafkaChannel(KAFKA_CHANNEL.MESSAGE, connectionId), (payload: unknown) => {
-      const msg = payload as {
-        topic: string;
-        partition: number;
-        offset: string;
-        key?: string;
-        keyEncoding?: 'utf8' | 'base64';
-        value: string;
-        valueEncoding?: 'utf8' | 'base64';
-        tombstone?: boolean;
-        headers?: Record<string, string>;
-        binaryHeaders?: { key: string; value: string }[];
-        commitToken?: string;
-        timestamp: number;
-      };
-      useKafkaStore.getState().addMessage(connectionId, {
-        direction: 'received' as KafkaMessageDirection,
-        topic: msg.topic,
-        partition: msg.partition,
-        offset: msg.offset,
-        ...(msg.key !== undefined ? { key: msg.key } : {}),
-        ...(msg.keyEncoding !== undefined ? { keyEncoding: msg.keyEncoding } : {}),
-        value: msg.tombstone ? '<tombstone>' : msg.value,
-        ...(msg.tombstone ? { tombstone: true } : {}),
-        ...(msg.valueEncoding !== undefined ? { valueEncoding: msg.valueEncoding } : {}),
-        ...(msg.headers ? { headers: msg.headers } : {}),
-        ...(msg.binaryHeaders ? { binaryHeaders: msg.binaryHeaders } : {}),
-        ...(msg.commitToken ? { commitToken: msg.commitToken } : {}),
-        timestamp: msg.timestamp,
-      });
+      this.inbound.push(connectionId, toReceivedMessage(payload as KafkaConsumedPayload));
     });
   }
 
   private unbindMessageListener(connectionId: string): void {
+    // Drain buffered records first so the last ~100 ms aren't dropped.
+    this.inbound.flush(connectionId);
     const api = getElectronAPI();
     if (!api?.kafka) return;
     api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.MESSAGE, connectionId));

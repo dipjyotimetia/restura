@@ -8,7 +8,10 @@ import { CLOSE_ACTIVE_TAB_EVENT, TabBar } from './TabBar';
 const platform = vi.hoisted(() => ({ electron: true }));
 const saveBack = vi.hoisted(() => ({ saveTabBackToCollection: vi.fn() }));
 
-vi.mock('@/features/collections/lib/saveBack', () => saveBack);
+vi.mock('@/features/collections/lib/saveBack', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/collections/lib/saveBack')>()),
+  saveTabBackToCollection: saveBack.saveTabBackToCollection,
+}));
 
 vi.mock('@/lib/shared/platform', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/shared/platform')>();
@@ -162,9 +165,26 @@ describe('TabBar', () => {
 
       expect(saveBack.saveTabBackToCollection).toHaveBeenCalledWith(
         expect.objectContaining({ name: 'Bound' }),
-        'saved-1'
+        'saved-1',
+        expect.objectContaining({ savedRequestId: 'saved-1' })
       );
       expect(useRequestStore.getState().tabs).toHaveLength(0);
+    });
+
+    it('offers Save changes on a clean tab linked to a Kafka preset (#984)', async () => {
+      const user = userEvent.setup();
+      saveBack.saveTabBackToCollection.mockReturnValue(true);
+      const id = useRequestStore.getState().openTabWithMode('kafka');
+      useRequestStore.getState().linkTabToSavedRequest(id, 'preset-1');
+      render(<TabBar />);
+
+      fireEvent.contextMenu(screen.getAllByRole('tab')[0]!);
+      await user.click(await screen.findByRole('menuitem', { name: 'Save changes' }));
+      expect(saveBack.saveTabBackToCollection).toHaveBeenCalledWith(
+        expect.anything(),
+        'preset-1',
+        expect.objectContaining({ id, modeOverride: 'kafka' })
+      );
     });
 
     it('keeps the tab open when writing back fails', async () => {
@@ -331,8 +351,6 @@ describe('TabBar', () => {
     it.each([
       ['websocket', 'WebSocket'],
       ['socketio', 'Socket.IO'],
-      ['kafka', 'Kafka'],
-      ['mqtt', 'MQTT'],
     ] as const)('is disabled with an explanation for %s tabs', async (mode, label) => {
       // The disabled item has pointer-events: none; click it anyway.
       const user = userEvent.setup({ pointerEventsCheck: 0 });
@@ -350,6 +368,42 @@ describe('TabBar', () => {
       );
       await user.click(item);
       expect(onSaveToCollection).not.toHaveBeenCalled();
+    });
+
+    it.each(['kafka', 'mqtt'] as const)(
+      'is enabled for %s tabs on desktop (connection presets, #984)',
+      async (mode) => {
+        const user = userEvent.setup();
+        const onSaveToCollection = vi.fn();
+        const id = useRequestStore.getState().openTabWithMode(mode);
+        render(<TabBar onSaveToCollection={onSaveToCollection} />);
+
+        fireEvent.contextMenu(screen.getAllByRole('tab')[0]!);
+        const item = await screen.findByRole('menuitem', { name: /Save to Collection/ });
+        expect(item).not.toHaveAttribute('data-disabled');
+        await user.click(item);
+        expect(onSaveToCollection).toHaveBeenCalledWith(id);
+      }
+    );
+
+    it.each([
+      ['kafka', 'Kafka'],
+      ['mqtt', 'MQTT'],
+    ] as const)('is desktop-only for %s tabs on the web build', async (mode, label) => {
+      platform.electron = false;
+      try {
+        useRequestStore.getState().openTabWithMode(mode);
+        render(<TabBar onSaveToCollection={vi.fn()} />);
+        fireEvent.contextMenu(screen.getAllByRole('tab')[0]!);
+        const item = await screen.findByRole('menuitem', { name: /Save to Collection/ });
+        expect(item).toHaveAttribute('data-disabled');
+        expect(item).toHaveAttribute(
+          'aria-description',
+          `${label} presets can only be saved from the Restura desktop app.`
+        );
+      } finally {
+        platform.electron = true;
+      }
     });
 
     it.each(['http', 'grpc', 'sse', 'mcp'] as const)('stays enabled for %s tabs', async (type) => {

@@ -5,7 +5,7 @@ Kafka is a desktop-only client because browser targets cannot open Kafka TCP con
 ## Produce
 
 - Records use explicit UTF-8, Base64, Schema Registry, or null field variants. An empty UTF-8/Base64 payload is different from a null tombstone.
-- Keys and values can use independent encodings and Schema Registry IDs.
+- Keys and values can use independent encodings and Schema Registry schemas, named either by numeric schema ID or by `{ subject, version }` where version is a number or `latest`. The main process resolves subjects to IDs (`getLatestSchemaId` / `getRegistryId`) at send time; an unknown subject fails the produce with the registry's error.
 - Headers preserve their raw bytes; the message inspector exposes Base64 alongside the UTF-8 convenience view.
 - A record may set a partition and precision-safe epoch-millisecond timestamp.
 - Interactive batches accept up to 1,000 typed records.
@@ -14,17 +14,59 @@ Kafka is a desktop-only client because browser targets cannot open Kafka TCP con
 
 ## Consume
 
-New connections start from committed group offsets and fall back to latest when no commit exists. Persisted v1 connections retain their previous earliest/latest choice during the v2 migration.
+A consumer runs in one of two modes (`membership` on the `kafka:subscribe` IPC payload):
 
-Consumers support committed, latest, earliest, explicit offset, and timestamp starts; automatic or per-message manual commits; read-committed isolation; classic or consumer group protocols; static membership; fetch/heartbeat/rebalance tuning; real stream pause/resume; group lifecycle events; and periodic lag.
+- **Browse** (default for new connections) is read-only. It never joins or creates a consumer group and never commits offsets (#930, #980). `@platformatic/kafka`'s `Consumer.consume()` always joins a group first, so browse mode does not use it. `electron/main/handlers/kafka/browse-consumer.ts` resolves start positions with `listOffsets()` (ListOffsets) and drives a fetch loop over `Consumer.fetch()` (Metadata + Fetch against each partition leader). The loop is exposed as a Readable, so pause/resume, unsubscribe and backpressure work as they do for the native stream. The Consumer is built with a placeholder group ID that is never sent, because no group API (`consume`, `commit`, `joinGroup`, lag monitoring) is called and the classic protocol's `close()` only leaves a group it joined. Starts: latest, earliest, last N per partition (`max(earliest, latest − N)`), explicit offsets (only the listed partitions, clamped to the retained range), and timestamp (offset `-1` waits at latest). An optional `maxMessages` ends the stream; the handler forwards any records still being decoded, then closes the stream and releases the consumer (a fetch error releases it too). Each partition leader runs its own fetch loop, so a quiet leader's long-poll never delays another; an empty fetch backs that leader off for 200 ms, `maxWaitTime` is floored at 100 ms, and a full buffer stops new fetches until the stream is read. `OFFSET_OUT_OF_RANGE` (retention moved the log start) re-runs ListOffsets for the affected partitions and clamps them into the retained range. The partition set is fixed when the stream opens: partitions added later are not picked up until the next subscribe. Browse connects to the leaders the cluster advertises, exactly like group mode, so it inherits the advertised-leader residual risk described in ADR-0006 (the broker guard checks bootstrap addresses only). The IPC schema rejects `groupId`, `committed`, manual commits, the consumer group protocol, static membership and the group-only tuning fields (`fallbackMode`, `autoCommitIntervalMs`, session/rebalance/heartbeat timeouts, `lagIntervalMs`) in browse mode, and caps browse offsets and timestamps at the signed 64-bit maximum.
+- **Consumer group** is unchanged. It supports committed, latest, earliest, explicit offset and timestamp starts; automatic or per-message manual commits; classic or consumer group protocols; static membership; fetch/heartbeat/rebalance tuning; group lifecycle events; and periodic lag. A missing commit falls back to latest by default.
+
+Both modes support read-committed isolation and real stream pause/resume. Live per-partition pause/resume and seek apply to a running consumer (see Flow control below).
+
+Persisted v1 connections keep their earliest/latest choice during the v2 migration. The v3 migration adds `membership`. Connections whose group ID was changed from the generated `restura-<id8>` stay in group mode. Default-group connections move to browse, and a `committed` start becomes "last 50 per partition".
 
 “Freeze view” only freezes the renderer list. “Pause consumer” invokes the Kafka stream pause primitive.
 
+### Flow control (`electron/main/handlers/kafka/`)
+
+- **Batching** — the renderer buffers consumed records per connection and flushes them every 100 ms through one `addMessages` store update (`src/features/kafka/lib/consumedMessageBuffer.ts`). Buffers drain before consumer-closed/error/close events and on unsubscribe/disconnect.
+- **Backpressure** — main counts records queued in the ordered decode/emit chain and pauses the native stream above 500, resuming at 250 (`consumer-flow.ts`). The user pause and backpressure are independent reasons; the stream resumes only when neither holds.
+- **Partition pause** — `@platformatic/kafka` 2.14 has no partition-level pause, so it is emulated (`partition-pause.ts`): records from a paused partition are dropped before decode and the first withheld offset becomes the resume point. Paused partitions are still fetched. Only partitions assigned to this member can be paused or seeked (at most 1,000 paused); a rebalance that revokes a paused partition drops its pause state, and the new owner starts at the group's committed offset.
+- **Automatic commits of delivered positions** — the library's own autocommit queues `lastOffset + 1` per fetched batch at fetch time and flushes it on close, which would commit records withheld from a paused partition or never decoded. Every subscription therefore runs the library with `autocommit: false`. In automatic-commit mode `delivered-offset-committer.ts` records `offset + 1` only after a record reached the renderer and commits on the configured interval (default 1 s), before a stream swap, and on unsubscribe/disconnect (before the stream and consumer close). Manual-commit mode is unchanged (per-message tokens). Commits are last-write-wins: after a backward seek the group's committed offset moves back. A record whose decode (e.g. a hung Schema Registry lookup) exceeds 30 s is skipped and reported, so it cannot stall the queue.
+- **Live seek** — the library has no mid-stream seek (the stream's `offsetsToFetch` map is overwritten by in-flight fetches and reset on rejoin), so a seek or a partition resume swaps the stream (`consumer-session.ts`): pause and drain the old stream through the normal listener, snapshot its next-fetch offsets, apply the override, open a `MANUAL`-mode replacement **before** closing the old one (topics stay tracked, so no group rejoin), then rebind and close. Seek targets are clamped to the partition's earliest/latest offsets; a timestamp with no later record lands at the end. The replacement keeps the subscription's missing-commit fallback, includes only partitions currently assigned to this member, and must open within 30 s or the old stream is kept. Because a MANUAL stream would keep stale positions across a rebalance, every group join after a swap repositions newly assigned partitions to the group's committed offset (or the fallback — with `fail`, a missing commit stops the consumer, as the library's committed mode does), keeping explicit positions only for partitions this member still owns. Records fetched before a seek that finish delivering after it never move that partition's commit; the seek target itself is only committed once its records are delivered. Manual-commit tokens from the old stream stay valid (commits go through the shared consumer).
+- IPC: `kafka:consumer-pause-partitions`, `kafka:consumer-resume-partitions`, `kafka:consumer-seek` — Zod-validated (`validators/kafka-consumer-flow.ts`) and rate-limited with the shared Kafka limiter.
+
 ## Authentication
 
-Supported SASL mechanisms are PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, and static-token OAUTHBEARER. Passwords, TLS passphrases, registry passwords, and OAuth tokens are stored through desktop secure storage and replaced by sentinels in persisted renderer state.
+Supported SASL mechanisms (all configured declaratively; the credential providers are built in main by `electron/main/handlers/kafka/sasl*.ts`):
 
-GSSAPI and custom authentication callbacks are intentionally not exposed because they require executable callback/provider code rather than bounded declarative configuration.
+| Mechanism | Configuration | Notes |
+| --- | --- | --- |
+| `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` | username + password | |
+| `OAUTHBEARER` — static token | bearer token, optional extensions | No refresh; the session fails once the broker re-authenticates after the token expires. |
+| `OAUTHBEARER` — client credentials | token endpoint, client ID, client secret, optional scope + extensions | Main fetches the token (`client_secret_post`) and the library's token provider hook asks for it on every (re)authentication, including KIP-368 re-auth. The cached token is refreshed once less than max(30 s, 25 % of its lifetime) remains — the library re-authenticates at 0.8 × the session lifetime, so re-auth always presents a new token. Lifetime comes from `expires_in`, else the JWT `exp`, else 60 s. |
+| `AWS_MSK_IAM` | region + access key ID / secret access key / optional session token, **or** a named AWS profile | Sent as MSK's SASL/OAUTHBEARER variant: a SigV4-presigned `kafka-cluster:Connect` URL, valid 15 minutes or until the temporary credentials expire (whichever is sooner), re-signed under the same refresh rule. Requires `SASL_SSL` (the MSK IAM listener, port 9098). |
+| `GSSAPI` (Kerberos) | optional service name (default `kafka`) and client principal | **Not available in this build.** The authenticator (RFC 4752, 30 s overall timeout) is implemented in main, but it needs the native [`kerberos`](https://www.npmjs.com/package/kerberos) module, which the desktop build does not bundle. The form shows the option disabled; an existing GSSAPI config fails with an explicit error. |
+
+### SASL security controls
+
+- **Token endpoint.** `https` is required; plain `http` is accepted only for loopback hosts and private IP literals (a local IdP). The request goes through the desktop SSRF policy (private addresses rejected unless "allow private IPs" is on), is DNS-pinned, does not follow redirects, is bounded by a 30 s timeout and a 1 MB response cap, and the per-request connection pool is closed afterwards.
+- **MSK IAM broker binding.** MSK IAM tokens are not bound to a cluster, so every bootstrap broker must be an MSK endpoint in the signing region (`*.kafka.<region>.amazonaws.com`, `*.kafka-serverless.<region>.amazonaws.com`, or the `.amazonaws.com.cn` forms). PrivateLink / custom-DNS setups enable **Allow non-AWS broker hostnames**, which the form gates behind a warning; the IPC validator enforces the same rule.
+- **Secrets.** The OAuth client secret and AWS secret key / session token are stored as `SecretRef` handles with the `kafka` scope (ADR-0007). Main resolves only `kafka`-scoped handles for Kafka SASL, so a connection cannot reference a handle created for another feature; external secret-manager references are refused for Kafka. Switching mechanism, OAuth mode or AWS credential source discards typed drafts and deletes handles the new configuration no longer references.
+- **Extensions.** OAUTHBEARER extension keys follow RFC 7628 (ASCII letters only) and values may contain only printable ASCII, spaces, tabs and line breaks — never the `\x01` field separator. The key `auth` is rejected because it is not an extension: it is the protocol field the authenticator supplies (`auth=Bearer <token>`). Two further checks are application limits rather than RFC requirements: values must be non-empty (RFC 7628 allows empty values, but Apache Kafka's OAUTHBEARER implementation rejects them, so they would only surface as an opaque authentication failure), and at most 32 extensions are accepted per connection.
+
+Passwords, static OAuth tokens, TLS passphrases, registry passwords, and inline registry bearer tokens are stored through desktop secure storage and replaced by sentinels in persisted renderer state. AWS profiles are read in main via `fromIni`.
+
+Arbitrary custom authentication callbacks remain intentionally unexposed because they would require executable callback code rather than bounded declarative configuration.
+
+## Schema Registry
+
+The registry client lives in `electron/main/handlers/kafka/registry.ts`, one per connection. Every registry request — library encode/decode/resolve and the read-only browse IPC (`kafka:registry-list-subjects`, `kafka:registry-list-versions`, `kafka:registry-get-schema`; validated and rate-limited) — goes through a single Node agent that:
+
+- carries the execution policy's host-selected TLS material for HTTPS registries (`resolveSchemaRegistryExecutionPolicy`: custom CA, mTLS client certificate, verify toggle, TLS version/ciphers); an active proxy fails closed;
+- resolves the registry hostname on every new socket and refuses any other hostname. Answers follow the broker posture: cloud-metadata addresses (including IPv4-mapped / embedded IPv6 forms) are always refused and loopback only when `allowLocalhost` is off; private addresses are allowed, as they are for broker hostnames. The URL as written gets the same string-level check as brokers (`assertRegistryUrlSafe`), so literal private IPs follow `allowPrivateIPs`.
+
+Auth is HTTP Basic (unchanged; the untyped legacy IPC shape still means Basic) or Bearer. The bearer token is a `SecretValue`: inline tokens follow the sentinel + secure-storage path, keychain handles and external references cross IPC as references and are resolved only in main (ADR-0007). Handles must carry the `kafka` scope (the token field stores them that way); other handles are refused. Tokens are resolved once at connect, so rotating a stored handle needs a reconnect. Credentials are refused over plain HTTP unless the registry is loopback or every DNS answer is private; for credentialed `http://` hostnames the private-answer rule is re-checked on every new socket.
+
+Avro `bytes` / `fixed` values are accepted as strings (code points 0-255, the Avro JSON convention) and converted to bytes before encoding, so generated examples encode as-is. Schema-label lookups on the consume path wait at most 2 s; 404/405 misses are cached for good, other failures and timeouts for 30 s before the id is retried. Consumed registry-decoded fields carry `{ id, subject?, version? }`, looked up once per schema ID via `/schemas/ids/{id}/versions` and cached.
 
 ## Administration
 
@@ -34,7 +76,9 @@ The UI does not expose dependency extension points that execute arbitrary code, 
 
 ## Security limitation
 
-Bootstrap brokers pass the Kafka broker guard before connection. `@platformatic/kafka` 2.8 does not expose a supported DNS lookup/connection injection point, and metadata may discover additional brokers, so DNS pinning and post-discovery broker validation are not currently possible. See [ADR 0006](adr/0006-electron-connection-and-dns-hardening.md).
+Bootstrap brokers pass the Kafka broker guard before connection. `@platformatic/kafka` 2.14 does not expose a supported DNS lookup/connection injection point, and metadata may discover additional brokers, so DNS pinning and post-discovery broker validation are not currently possible. See [ADR 0006](adr/0006-electron-connection-and-dns-hardening.md).
+
+Brokers are entered as `host:port`; IPv6 literals use brackets (`[2001:db8::10]:9093`, RFC 3986). The same guard applies to the address, so under a restrictive execution policy IPv6 loopback, ULA, link-local and IPv4-mapped literals are rejected like their IPv4 equivalents.
 
 ## Local verification
 

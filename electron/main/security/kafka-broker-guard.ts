@@ -48,12 +48,16 @@ export function assertKafkaBrokersSafe(
 }
 
 /**
- * Pre-flight SSRF guard for a Confluent Schema Registry URL. Same trust posture
- * as the brokers (registries live on the same private/VPC networks), unless the
- * active global execution policy narrows that allowance. Cloud-metadata
- * endpoints and blocked hostnames are always rejected.
- * String-policy only — the same residual DNS-rebind gap as the broker guard
- * applies (documented in ADR-0006).
+ * Pre-flight SSRF guard for a Confluent Schema Registry URL — the same
+ * string-level check as the brokers: literal IPs follow the execution policy's
+ * localhost / private-IP toggles; cloud-metadata endpoints and blocked
+ * hostnames are always rejected.
+ * Hostnames are additionally resolved by the registry client
+ * (handlers/kafka/registry.ts) on every new socket: metadata answers are always
+ * refused and loopback answers only when localhost is disabled, but private /
+ * VPC answers are allowed — matching brokers, which the Kafka client resolves
+ * without a private-IP check. Unlike brokers, a later DNS rebind to a metadata
+ * or (disabled) loopback address is therefore still caught.
  */
 export function assertRegistryUrlSafe(
   url: string,

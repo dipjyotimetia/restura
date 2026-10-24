@@ -16,6 +16,7 @@ import { Floater } from '@/components/ui/spatial';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import type { KafkaSubjectSelection } from '@/features/kafka/lib/kafkaManager';
 import type {
   KafkaAcks,
   KafkaCompression,
@@ -26,6 +27,7 @@ import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { getElectronAPI } from '@/lib/shared/platform';
 import type { KeyValue } from '@/types';
 import type { KafkaRecordIpc } from '../../../../electron/types/electron-api';
+import { SchemaRegistryFieldPicker } from './SchemaRegistryPicker';
 import { KAFKA_PINK } from './shared';
 
 const CodeEditor = lazyComponent(
@@ -57,6 +59,10 @@ interface KafkaProducerPanelProps {
   setProduceSchemaId: Dispatch<SetStateAction<string>>;
   produceKeySchemaId: string;
   setProduceKeySchemaId: Dispatch<SetStateAction<string>>;
+  produceValueSubject: KafkaSubjectSelection | null;
+  setProduceValueSubject: (value: KafkaSubjectSelection | null) => void;
+  produceKeySubject: KafkaSubjectSelection | null;
+  setProduceKeySubject: (value: KafkaSubjectSelection | null) => void;
   produceError: string | null;
   produceTombstone: boolean;
   setProduceTombstone: Dispatch<SetStateAction<boolean>>;
@@ -138,6 +144,10 @@ export function KafkaProducerPanel({
   setProduceSchemaId,
   produceKeySchemaId,
   setProduceKeySchemaId,
+  produceValueSubject,
+  setProduceValueSubject,
+  produceKeySubject,
+  setProduceKeySubject,
   produceError,
   produceTombstone,
   setProduceTombstone,
@@ -344,42 +354,41 @@ export function KafkaProducerPanel({
                 </p>
               )}
             </div>
-            {connection.registry &&
-              [
-                {
-                  label: 'Value schema ID (optional)',
-                  value: produceSchemaId,
-                  onChange: setProduceSchemaId,
-                  placeholder: 'e.g. 1 — encode the value with this registry schema',
-                  encodedHint:
-                    'Value is parsed as JSON and Confluent-encoded with this schema (decoded on consume).',
-                  plainHint: 'No schema ID — the value is sent as a plain string.',
-                },
-                {
-                  label: 'Key schema ID (optional)',
-                  value: produceKeySchemaId,
-                  onChange: setProduceKeySchemaId,
-                  placeholder: 'e.g. 2 — encode the key with this registry schema',
-                  encodedHint:
-                    'Key is parsed as JSON and Confluent-encoded with this schema (requires a key; decoded on consume).',
-                  plainHint: 'No schema ID — the key is sent as a plain string.',
-                },
-              ].map((field) => (
-                <div key={field.label} className="space-y-2">
-                  <Label className="text-xs sp-label">{field.label}</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={field.value}
-                    onChange={(e) => field.onChange(e.target.value)}
-                    placeholder={field.placeholder}
-                    className="h-8 text-xs font-mono"
-                  />
-                  <p className="text-sp-11 text-sp-muted">
-                    {field.value.trim() ? field.encodedHint : field.plainHint}
-                  </p>
-                </div>
-              ))}
+            {connection.registry && (
+              <>
+                <SchemaRegistryFieldPicker
+                  key={`${connection.id}-value`}
+                  field="value"
+                  connectionId={connection.id}
+                  connected={connection.status === 'connected'}
+                  topic={connection.defaultTopic}
+                  schemaId={produceSchemaId}
+                  onSchemaIdChange={setProduceSchemaId}
+                  subject={produceValueSubject}
+                  onSubjectChange={setProduceValueSubject}
+                  onGenerateExample={(json) => {
+                    setProduceValue(json);
+                    setProduceValueEncoding('json');
+                  }}
+                />
+                <SchemaRegistryFieldPicker
+                  key={`${connection.id}-key`}
+                  field="key"
+                  connectionId={connection.id}
+                  connected={connection.status === 'connected'}
+                  topic={connection.defaultTopic}
+                  schemaId={produceKeySchemaId}
+                  onSchemaIdChange={setProduceKeySchemaId}
+                  subject={produceKeySubject}
+                  onSubjectChange={setProduceKeySubject}
+                  onGenerateExample={(json) => {
+                    // The key editor is single-line; keep the example compact.
+                    setProduceKey(JSON.stringify(JSON.parse(json)));
+                    setProduceKeyEncoding('json');
+                  }}
+                />
+              </>
+            )}
             {produceError && <p className="text-xs text-red-400">{produceError}</p>}
             <Button
               onClick={onPublish}

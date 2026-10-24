@@ -1,6 +1,6 @@
 import { cleanupConnectionLifecycle } from '@/lib/shared/connection-lifecycle';
-import { kafkaManager } from './kafkaManager';
 import { useKafkaStore } from '../store/useKafkaStore';
+import { kafkaManager } from './kafkaManager';
 
 export function cleanupKafkaConnectionForTab(tabId: string): void {
   cleanupConnectionLifecycle(tabId, {

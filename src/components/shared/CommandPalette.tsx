@@ -37,6 +37,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { CLOSE_ACTIVE_TAB_EVENT } from '@/components/shared/TabBar';
 import { REPLAY_ONBOARDING_EVENT } from '@/components/shared/WelcomeOnboarding';
 import { Kbd } from '@/components/ui/spatial';
+import { openCollectionItem } from '@/features/collections/lib/openCollectionItem';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import { generateRequestCode } from '@/features/http/lib/requestCode';
 import { useVariableDetails } from '@/hooks/useVariableStatus';
@@ -53,7 +54,7 @@ import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useUiStore } from '@/store/useUiStore';
-import type { Collection, CollectionItem, RequestType } from '@/types';
+import type { Collection, CollectionItem, CollectionRequest, RequestType } from '@/types';
 import { isConnectionMode } from '@/types';
 
 interface CommandPaletteProps {
@@ -81,7 +82,7 @@ interface CommandPaletteProps {
  * every other protocol shows its ProtoChip — an HTTP MethodChip on a gRPC or
  * WebSocket entry would be wrong (and used to render a misleading "GET").
  */
-function chipForRequest(req: { type: RequestType; method?: unknown }): {
+function chipForRequest(req: { type: CollectionRequest['type']; method?: unknown }): {
   method?: string;
   proto?: string;
 } {
@@ -251,7 +252,7 @@ export default function CommandPalette({
                 if (it.type === 'folder') {
                   stack.push(...(it.items ?? []));
                 } else if (it.id === r.id && it.request) {
-                  openTab(it.request, { savedRequestId: it.id, switchTo: true });
+                  openCollectionItem(it);
                   return;
                 }
               }

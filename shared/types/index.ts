@@ -8,6 +8,7 @@
  */
 
 export * from './auth';
+export * from './broker';
 export * from './collection';
 export * from './common';
 export * from './grpc';

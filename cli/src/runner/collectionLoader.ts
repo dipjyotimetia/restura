@@ -14,6 +14,7 @@ import {
   loadCollectionFromFile,
 } from '@shared/opencollection/node/fs-reader';
 import { ocToInternal } from '@shared/opencollection/to-internal';
+import { resolveMcpEffectiveAuth } from '@shared/protocol/mcp-auth';
 import type {
   AuthConfig,
   Collection,
@@ -196,6 +197,12 @@ function walkItems(
     const req = item.request;
     if (!req) continue;
     const t = req.type;
+    if (t === 'kafka' || t === 'mqtt') {
+      // Kafka / MQTT connection presets (#984) hold no runnable request — the
+      // CLI has no broker transport. Report the skip instead of failing.
+      reportSkippedPreset(t, [...folderPath, item.name].join('/'));
+      continue;
+    }
     if (t !== 'http' && t !== 'grpc' && t !== 'sse' && t !== 'mcp') {
       // GraphQL/WebSocket are not in the internal Request union; ocToInternal
       // already converted GraphQL → http-body=graphql and surfaced WebSocket
@@ -209,7 +216,12 @@ function walkItems(
     const test = combineScripts([...inheritedTest, req.testScript]);
     const effective = {
       ...req,
-      auth: resolveEffectiveAuth(req.auth, inheritedAuth),
+      // MCP skips an inherited scheme it can't carry (shared policy, #896) —
+      // the same rule the app applies at connect time.
+      auth:
+        t === 'mcp'
+          ? (resolveMcpEffectiveAuth(req.auth, inheritedAuth).auth ?? req.auth)
+          : resolveEffectiveAuth(req.auth, inheritedAuth),
       ...(pre !== undefined ? { preRequestScript: pre } : {}),
       ...(test !== undefined ? { testScript: test } : {}),
     } as HttpRequest | GrpcRequest | SseRequest | McpRequest;
@@ -220,6 +232,14 @@ function walkItems(
       request: effective,
     });
   }
+}
+
+function reportSkippedPreset(type: 'kafka' | 'mqtt', path: string): void {
+  const label = type === 'kafka' ? 'Kafka' : 'MQTT';
+  process.stderr.write(
+    `[restura] skipping ${label} preset "${path}": Kafka and MQTT connection presets ` +
+      'open in the Restura desktop app and are not run by the CLI.\n'
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -75,7 +75,8 @@ function itemHasScripts(items: CollectionItem[], requestId: string, inherited = 
     if ((item.id === requestId || item.request?.id === requestId) && item.request) {
       return (
         scripted ||
-        Boolean(item.request.preRequestScript?.trim() || item.request.testScript?.trim())
+        ('preRequestScript' in item.request &&
+          Boolean(item.request.preRequestScript?.trim() || item.request.testScript?.trim()))
       );
     }
     if (item.items && itemHasScripts(item.items, requestId, scripted)) return true;

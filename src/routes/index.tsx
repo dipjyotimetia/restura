@@ -15,7 +15,7 @@ import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import { motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
 import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
-import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
+import { isBrokerPresetTab, saveTabBackToCollection } from '@/features/collections/lib/saveBack';
 import { type Keybinding, useKeybindings } from '@/hooks/useKeybindings';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
@@ -192,9 +192,10 @@ export default function Home() {
       allowInInput: true,
       handler: () => {
         const tab = activeTabRef.current;
-        if (!tab?.isDirty) return;
+        // Kafka / MQTT preset tabs never mark themselves dirty (#984).
+        if (!tab || (!tab.isDirty && !isBrokerPresetTab(tab))) return;
         if (tab.savedRequestId) {
-          if (saveTabBackToCollection(tab.request, tab.savedRequestId)) {
+          if (saveTabBackToCollection(tab.request, tab.savedRequestId, tab)) {
             useRequestStore.getState().clearTabDirty(tab.id);
           }
         } else {

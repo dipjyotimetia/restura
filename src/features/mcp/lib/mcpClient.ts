@@ -1,34 +1,59 @@
 import { jsonRpcErrorToMessage, parseJsonRpcError } from '@shared/protocol/mcp-proxy';
+import { normalizeMcpToolDescriptor } from '@shared/protocol/mcp-tool-descriptor';
 import type { SecretValue } from '@shared/secrets/secret-ref';
-import {
-  getElectronAPI,
-  isElectron,
-  workerAuthHeaders,
-  workerBaseUrl,
-} from '@/lib/shared/platform';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import type {
+  AuthConfig,
   McpJsonSchema,
   McpPromptDescriptor,
   McpResourceDescriptor,
+  McpResourceTemplateDescriptor,
   McpServerCapabilities,
   McpToolDescriptor,
   McpTransportType,
 } from '@/types';
 import { MCP_STDIO_WEB_ERROR } from './mcpStdioLaunch';
+import { buildMcpInitializeParams, McpWebSession } from './mcpWebSession';
+
+/** RFC 5424 syslog levels accepted by `logging/setLevel` (MCP 2025-06-18). */
+export const MCP_LOG_LEVELS = [
+  'debug',
+  'info',
+  'notice',
+  'warning',
+  'error',
+  'critical',
+  'alert',
+  'emergency',
+] as const;
+export type McpLogLevel = (typeof MCP_LOG_LEVELS)[number];
+
+/** Reference types for `completion/complete`. */
+export type McpCompletionRef =
+  | { type: 'ref/prompt'; name: string }
+  | { type: 'ref/resource'; uri: string };
 
 /** Result of one JSON-RPC call */
 export interface McpCallResult<T = unknown> {
   ok: true;
   result: T;
   durationMs: number;
+  /** Web: server notifications/requests interleaved in the SSE reply (#888). */
+  serverMessages?: unknown[];
 }
 
 export interface McpCallError {
   ok: false;
   error: string;
+  /** #856: the desktop OAuth sign-in lapsed and couldn't refresh — prompt to reconnect. */
+  authRequired?: boolean;
   jsonRpcError?: { code: number; message: string; data?: unknown };
+  /** True when the user cancelled the call; distinct from a failure. */
+  cancelled?: true;
   durationMs: number;
 }
+
+export { MCP_CANCEL_REASON } from './mcpWebSession';
 
 export type McpCall<T = unknown> = McpCallResult<T> | McpCallError;
 
@@ -38,11 +63,15 @@ interface ListPage<T> {
   items?: T[];
 }
 interface ToolsListResult {
-  tools?: McpToolDescriptor[];
+  tools?: unknown[];
   nextCursor?: string;
 }
 interface ResourcesListResult {
   resources?: McpResourceDescriptor[];
+  nextCursor?: string;
+}
+interface ResourceTemplatesListResult {
+  resourceTemplates?: McpResourceTemplateDescriptor[];
   nextCursor?: string;
 }
 interface PromptsListResult {
@@ -66,11 +95,19 @@ interface McpClientOptions {
   url: string;
   transport: McpTransportType;
   headers: Record<string, string>;
+  /**
+   * Desktop only (#896): header-shaped auth Electron main resolves at connect
+   * time (SecretRef handles stay opaque here). On web, credentials are already
+   * applied into `headers` — see `buildMcpConnectAuth`.
+   */
+  auth?: AuthConfig;
   /** Stable identifier for the connection (used to key Electron IPC sessions) */
   connectionId: string;
   stdio?: McpClientStdioOptions;
   /** Bounded stderr text from a stdio server process. */
   onStderr?: (text: string) => void;
+  /** Web: receives server-originated messages interleaved in SSE replies. */
+  onServerMessage?: (message: unknown) => void;
 }
 
 type StdioEnvIpc = Record<
@@ -103,21 +140,38 @@ function toStdioEnvIpc(
  * The renderer surface is the same in both — caller doesn't need to branch.
  */
 export class McpClient {
-  /** Mcp-Session-Id captured from a streamable-http response */
-  private sessionId?: string;
   /** Counter for client-generated request ids */
   private nextId = 1;
   /** Unsubscribe for the stdio stderr listener (Electron only). */
   private stderrUnsubscribe: (() => void) | undefined;
+  /** Web-mode Streamable HTTP session state (session id, negotiated version). */
+  private readonly web: McpWebSession;
+  /** Protocol version negotiated by the last successful `initialize`. */
+  private negotiatedVersion?: string;
 
-  constructor(private opts: McpClientOptions) {}
+  constructor(private opts: McpClientOptions) {
+    this.web = new McpWebSession(
+      {
+        url: opts.url,
+        transport: opts.transport,
+        headers: opts.headers,
+        ...(opts.onServerMessage ? { onServerMessage: opts.onServerMessage } : {}),
+      },
+      () => this.nextId++
+    );
+  }
+
+  /** Protocol version negotiated with the server (after `initialize`). */
+  get protocolVersion(): string | undefined {
+    return this.negotiatedVersion;
+  }
 
   /**
    * Open the transport. Required before `request` for http-sse (so we can
    * receive the `endpoint` event); a no-op for streamable-http but still
    * useful to surface auth errors early.
    */
-  async connect(): Promise<{ ok: true } | { ok: false; error: string }> {
+  async connect(): Promise<{ ok: true } | { ok: false; error: string; authRequired?: boolean }> {
     if (isElectron()) {
       const api = getElectronAPI();
       if (!api?.mcp) return { ok: false, error: 'Electron MCP API not available' };
@@ -127,8 +181,14 @@ export class McpClient {
         url: this.opts.url,
         transport: this.opts.transport,
         headers: this.opts.headers,
+        ...(this.opts.auth ? { auth: this.opts.auth } : {}),
       });
-      return res.success ? { ok: true } : { ok: false, error: res.error ?? 'Connect failed' };
+      if (res.success) return { ok: true };
+      return {
+        ok: false,
+        error: res.error ?? 'Connect failed',
+        ...(res.authRequired ? { authRequired: true } : {}),
+      };
     }
 
     if (this.opts.transport === 'stdio') return { ok: false, error: MCP_STDIO_WEB_ERROR };
@@ -195,37 +255,79 @@ export class McpClient {
   }
 
   async disconnect(): Promise<void> {
+    this.unsubscribeStderr();
     if (isElectron()) {
       const api = getElectronAPI();
       await api?.mcp?.disconnect({ connectionId: this.opts.connectionId });
+      return;
     }
-    this.unsubscribeStderr();
-    // Web has no persistent state — nothing to tear down
+    // Web: end the server-side session with DELETE + Mcp-Session-Id (#888).
+    this.negotiatedVersion = undefined;
+    await this.web.terminate();
   }
 
   /** Send one JSON-RPC request; resolves with either a result or an error wrapper. */
   async request<T = unknown>(
     method: string,
     params?: unknown,
-    timeout?: number
+    timeout?: number,
+    signal?: AbortSignal
   ): Promise<McpCall<T>> {
     const start = performance.now();
     const requestId = this.nextId++;
+    const cancelled = (): McpCallError => ({
+      ok: false,
+      error: 'Request cancelled',
+      cancelled: true,
+      durationMs: performance.now() - start,
+    });
+    if (signal?.aborted) return cancelled();
     try {
       if (isElectron()) {
         const api = getElectronAPI();
         if (!api?.mcp) {
           return { ok: false, error: 'Electron MCP API not available', durationMs: 0 };
         }
-        const res = await api.mcp.request({
+        const pending = api.mcp.request({
           connectionId: this.opts.connectionId,
           method,
           ...(params !== undefined ? { params } : {}),
           requestId,
           ...(timeout !== undefined ? { timeout } : {}),
         });
+        let res: Awaited<typeof pending>;
+        if (signal) {
+          // Main aborts the SDK request (which sends notifications/cancelled).
+          // Settle immediately so a late response can never overwrite the
+          // cancelled state.
+          let onAbort: () => void = () => undefined;
+          const aborted = new Promise<'aborted'>((resolve) => {
+            onAbort = () => {
+              void api.mcp
+                .cancel({ connectionId: this.opts.connectionId, requestId })
+                .catch(() => undefined);
+              resolve('aborted');
+            };
+            signal.addEventListener('abort', onAbort, { once: true });
+          });
+          pending.catch(() => undefined);
+          try {
+            const outcome = await Promise.race([pending, aborted]);
+            if (outcome === 'aborted') return cancelled();
+            res = outcome;
+          } finally {
+            signal.removeEventListener('abort', onAbort);
+          }
+        } else {
+          res = await pending;
+        }
+        if (res.cancelled) return cancelled();
         const durationMs = performance.now() - start;
         if (res.success) {
+          if (method === 'initialize') {
+            const v = (res.result as { protocolVersion?: unknown } | undefined)?.protocolVersion;
+            if (typeof v === 'string') this.negotiatedVersion = v;
+          }
           return { ok: true, result: res.result as T, durationMs };
         }
         const jsonRpcError = parseJsonRpcError(res.jsonRpcError);
@@ -235,6 +337,7 @@ export class McpClient {
             ? jsonRpcErrorToMessage(jsonRpcError)
             : (res.error ?? 'MCP request failed'),
           ...(jsonRpcError ? { jsonRpcError } : {}),
+          ...(res.authRequired ? { authRequired: true } : {}),
           durationMs,
         };
       }
@@ -242,41 +345,30 @@ export class McpClient {
       if (this.opts.transport === 'stdio') {
         return { ok: false, error: MCP_STDIO_WEB_ERROR, durationMs: 0 };
       }
-      const response = await fetch(`${workerBaseUrl()}/api/mcp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
-        body: JSON.stringify({
-          url: this.opts.url,
-          transport: this.opts.transport,
-          headers: this.opts.headers,
-          ...(this.sessionId ? { sessionId: this.sessionId } : {}),
-          jsonRpc: { method, id: requestId, ...(params !== undefined ? { params } : {}) },
-          ...(timeout !== undefined ? { timeout } : {}),
-        }),
-      });
+      // Web: `initialize` runs the full handshake (incl. notifications/initialized);
+      // later calls carry Mcp-Session-Id + MCP-Protocol-Version and survive one 404.
+      const outcome = await this.web.call(method, params, timeout, signal);
       const durationMs = performance.now() - start;
-      const body = (await response.json()) as {
-        ok?: boolean;
-        jsonRpc?: { result?: unknown; error?: unknown };
-        sessionId?: string;
-        error?: string;
-      };
-      if (body.sessionId) this.sessionId = body.sessionId;
-
-      if (!response.ok) {
-        return { ok: false, error: body.error ?? `HTTP ${response.status}`, durationMs };
-      }
-      if (body.jsonRpc?.error) {
-        const jsonRpcError = parseJsonRpcError(body.jsonRpc.error);
+      if (!outcome.ok) {
+        const jsonRpcError = parseJsonRpcError(outcome.rawJsonRpcError);
         return {
           ok: false,
-          error: jsonRpcErrorToMessage(body.jsonRpc.error),
+          error: outcome.error,
           ...(jsonRpcError ? { jsonRpcError } : {}),
           durationMs,
         };
       }
-      return { ok: true, result: body.jsonRpc?.result as T, durationMs };
+      if (method === 'initialize') this.negotiatedVersion = this.web.negotiatedProtocolVersion;
+      return {
+        ok: true,
+        result: outcome.result as T,
+        durationMs,
+        ...(outcome.serverMessages ? { serverMessages: outcome.serverMessages } : {}),
+      };
     } catch (err) {
+      // An abort (user cancel) rejects the fetch / body read; report it as
+      // cancelled, never as a failure, and drop whatever the server sends later.
+      if (signal?.aborted) return cancelled();
       return {
         ok: false,
         error: err instanceof Error ? err.message : 'Unknown error',
@@ -317,11 +409,7 @@ export class McpClient {
       protocolVersion?: string;
       serverInfo?: { name?: string; version?: string };
       capabilities?: McpServerCapabilities['capabilities'];
-    }>('initialize', {
-      protocolVersion: '2024-11-05',
-      capabilities: {},
-      clientInfo: { name: 'restura', version: '1.0.0' },
-    });
+    }>('initialize', buildMcpInitializeParams());
     if (!init.ok) return { error: init.error };
 
     // Only issue list calls for capabilities the server advertised in `initialize`.
@@ -334,10 +422,13 @@ export class McpClient {
 
     // Each list paginates sequentially (cursor-driven), but the three run
     // concurrently — same shape as the old single-shot Promise.all.
-    const [tools, resources, prompts] = await Promise.all([
+    const [tools, resources, resourceTemplates, prompts] = await Promise.all([
       wantTools
         ? this.listAll<ToolsListResult, McpToolDescriptor>('tools/list', (r) => ({
-            items: r.tools,
+            // Same normalizer for desktop (SDK result) and web (Worker JSON-RPC body).
+            items: r.tools
+              ?.map(normalizeMcpToolDescriptor)
+              .filter((t): t is McpToolDescriptor => t !== null),
             nextCursor: r.nextCursor,
           }))
         : [],
@@ -346,6 +437,13 @@ export class McpClient {
             items: r.resources,
             nextCursor: r.nextCursor,
           }))
+        : [],
+      // Templates belong to the `resources` capability (MCP 2025-06-18).
+      wantResources
+        ? this.listAll<ResourceTemplatesListResult, McpResourceTemplateDescriptor>(
+            'resources/templates/list',
+            (r) => ({ items: r.resourceTemplates, nextCursor: r.nextCursor })
+          )
         : [],
       wantPrompts
         ? this.listAll<PromptsListResult, McpPromptDescriptor>('prompts/list', (r) => ({
@@ -358,25 +456,77 @@ export class McpClient {
     return {
       ...(init.result.serverInfo?.name ? { serverName: init.result.serverInfo.name } : {}),
       ...(init.result.serverInfo?.version ? { serverVersion: init.result.serverInfo.version } : {}),
-      ...(init.result.protocolVersion ? { protocolVersion: init.result.protocolVersion } : {}),
+      ...(this.negotiatedVersion ? { protocolVersion: this.negotiatedVersion } : {}),
       ...(advertised ? { capabilities: advertised } : {}),
       tools,
       resources,
+      resourceTemplates,
       prompts,
     };
   }
 
   /** Convenience wrappers for the common per-capability calls. */
-  callTool(name: string, args: unknown): Promise<McpCall> {
-    return this.request('tools/call', { name, arguments: args });
+  callTool(name: string, args: unknown, signal?: AbortSignal): Promise<McpCall> {
+    return this.request('tools/call', { name, arguments: args }, undefined, signal);
   }
 
-  readResource(uri: string): Promise<McpCall> {
-    return this.request('resources/read', { uri });
+  readResource(uri: string, signal?: AbortSignal): Promise<McpCall> {
+    return this.request('resources/read', { uri }, undefined, signal);
   }
 
-  getPrompt(name: string, args?: Record<string, string>): Promise<McpCall> {
-    return this.request('prompts/get', { name, ...(args ? { arguments: args } : {}) });
+  /**
+   * Desktop main picks the era-correct wire method: `resources/subscribe` on
+   * 2025-era servers, a `subscriptions/listen` stream on 2026-07-28 (#872).
+   */
+  subscribeResource(uri: string): Promise<McpCall> {
+    return this.request('resources/subscribe', { uri });
+  }
+
+  unsubscribeResource(uri: string): Promise<McpCall> {
+    return this.request('resources/unsubscribe', { uri });
+  }
+
+  /** `ping` — resolves with the round-trip time in `durationMs`. */
+  ping(): Promise<McpCall> {
+    return this.request('ping');
+  }
+
+  /** `logging/setLevel` — only valid when the server advertises `logging`. */
+  setLogLevel(level: McpLogLevel): Promise<McpCall> {
+    return this.request('logging/setLevel', { level });
+  }
+
+  /**
+   * `completion/complete` — argument autocompletion for a prompt or a resource
+   * template. Never throws: a server that rejects the call (or does not
+   * implement it) yields no suggestions.
+   */
+  async complete(
+    ref: McpCompletionRef,
+    argument: { name: string; value: string },
+    contextArguments?: Record<string, string>
+  ): Promise<string[]> {
+    const res = await this.request<{ completion?: { values?: unknown } }>('completion/complete', {
+      ref,
+      argument,
+      ...(contextArguments && Object.keys(contextArguments).length > 0
+        ? { context: { arguments: contextArguments } }
+        : {}),
+    });
+    if (!res.ok) return [];
+    const values = res.result?.completion?.values;
+    return Array.isArray(values)
+      ? values.filter((v): v is string => typeof v === 'string').slice(0, 100)
+      : [];
+  }
+
+  getPrompt(name: string, args?: Record<string, string>, signal?: AbortSignal): Promise<McpCall> {
+    return this.request(
+      'prompts/get',
+      { name, ...(args ? { arguments: args } : {}) },
+      undefined,
+      signal
+    );
   }
 }
 

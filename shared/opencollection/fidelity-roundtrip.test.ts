@@ -9,11 +9,14 @@ import type {
   CollectionItem,
   GrpcRequest,
   HttpRequest,
+  KafkaRequest,
   KeyValue,
   McpRequest,
+  MqttRequest,
   Request,
   SseRequest,
 } from '../types';
+import { isBrokerRequest } from '../types';
 import { internalToOC } from './from-internal';
 import { grpcSchemaHash } from './grpc-schema-extension';
 import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
@@ -251,9 +254,101 @@ const MCP_FIXTURE: Required<McpRequest> = {
   testScript: 'rs.test("mcp", () => {});',
 };
 
+// Kafka / MQTT connection presets (#984). Nested optionals are populated too so
+// the deep-equal covers every carried connection/operation field. No field is
+// a secret: credentials live in the desktop secure store, never on the preset.
+const KAFKA_FIELDS = {
+  id: 'regenerated',
+  name: 'roundtrip',
+  type: 'roundtrip',
+  description: 'roundtrip',
+  connection: 'roundtrip',
+  produce: 'roundtrip',
+  consume: 'roundtrip',
+} as const satisfies Record<keyof KafkaRequest, FieldPolicy>;
+
+const KAFKA_FIXTURE: Required<KafkaRequest> = {
+  id: 'kafka-1',
+  name: 'Orders topic',
+  type: 'kafka',
+  description: 'Produce to the orders topic',
+  connection: {
+    bootstrapBrokers: ['{{kafkaHost}}:9092', 'broker-2:9093'],
+    clientId: 'restura-orders',
+    securityProtocol: 'SASL_SSL',
+    sasl: { mechanism: 'SCRAM-SHA-512', username: '{{kafkaUser}}' },
+    tls: {
+      caPath: '/certs/ca.pem',
+      certPath: '/certs/c.pem',
+      keyPath: '/certs/k.pem',
+      rejectUnauthorized: false,
+    },
+    registry: { url: 'https://registry.example.test', username: 'reg' },
+    acks: -1,
+    compression: 'zstd',
+    idempotent: true,
+    transactionalId: 'tx-1',
+  },
+  produce: {
+    topic: 'orders.{{env}}',
+    key: 'order-{{$randomInt}}',
+    keyEncoding: 'utf8',
+    value: '{"id":"{{orderId}}"}',
+    valueEncoding: 'json',
+    headers: [kv('trace', '{{traceId}}'), kv('X-Off', 'v', { enabled: false, description: 'off' })],
+    partition: 3,
+  },
+  consume: { groupId: 'restura-orders', topics: ['orders.{{env}}', 'dlq'], mode: 'earliest' },
+};
+
+const MQTT_FIELDS = {
+  id: 'regenerated',
+  name: 'roundtrip',
+  type: 'roundtrip',
+  description: 'roundtrip',
+  connection: 'roundtrip',
+  publish: 'roundtrip',
+  subscribe: 'roundtrip',
+  templates: 'roundtrip',
+} as const satisfies Record<keyof MqttRequest, FieldPolicy>;
+
+const MQTT_FIXTURE: Required<MqttRequest> = {
+  id: 'mqtt-1',
+  name: 'Device telemetry',
+  type: 'mqtt',
+  description: 'Telemetry broker',
+  connection: {
+    brokerUrl: 'mqtts://{{mqttHost}}:8883',
+    protocolVersion: 4,
+    clientId: 'restura-dev',
+    keepalive: 30,
+    cleanStart: false,
+    connectTimeout: 10_000,
+    autoReconnect: false,
+    username: 'device',
+    tls: { caPath: '/certs/ca.pem', rejectUnauthorized: true },
+    lwt: { topic: 'devices/gone', payload: 'bye', qos: 1, retain: true },
+    sessionExpiryInterval: 120,
+  },
+  publish: { topic: 'devices/{{id}}/cmd', payload: '{"on":true}', qos: 2, retain: true },
+  subscribe: { topicFilter: 'devices/+/telemetry', qos: 1 },
+  templates: [
+    {
+      name: 'Reboot',
+      topic: 'devices/{{id}}/cmd',
+      payload: 'reboot',
+      qos: 1,
+      retain: false,
+      contentType: 'text/plain',
+      responseTopic: 'devices/{{id}}/ack',
+      userProperties: { source: 'restura' },
+    },
+  ],
+};
+
 interface Case {
   label: string;
-  fixture: Request;
+  fixture: Request | KafkaRequest | MqttRequest;
   policy: Record<string, FieldPolicy>;
 }
 
@@ -262,6 +357,8 @@ const CASES: Case[] = [
   { label: 'grpc', fixture: GRPC_FIXTURE, policy: GRPC_FIELDS },
   { label: 'sse', fixture: SSE_FIXTURE, policy: SSE_FIELDS },
   { label: 'mcp', fixture: MCP_FIXTURE, policy: MCP_FIELDS },
+  { label: 'kafka', fixture: KAFKA_FIXTURE, policy: KAFKA_FIELDS },
+  { label: 'mqtt', fixture: MQTT_FIXTURE, policy: MQTT_FIELDS },
 ];
 
 // ---------------------------------------------------------------------------
@@ -282,7 +379,10 @@ function stripIds(value: unknown): unknown {
   return value;
 }
 
-function pickRoundtrip(r: Request, policy: Record<string, FieldPolicy>): Record<string, unknown> {
+function pickRoundtrip(
+  r: Request | KafkaRequest | MqttRequest,
+  policy: Record<string, FieldPolicy>
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [field, p] of Object.entries(policy)) {
     if (p !== 'roundtrip') continue;
@@ -291,7 +391,7 @@ function pickRoundtrip(r: Request, policy: Record<string, FieldPolicy>): Record<
   return stripIds(out) as Record<string, unknown>;
 }
 
-const reqItem = (r: Request, idSuffix: string): CollectionItem => ({
+const reqItem = (r: Request | KafkaRequest | MqttRequest, idSuffix: string): CollectionItem => ({
   id: `item-${r.id}-${idSuffix}`,
   name: r.name,
   type: 'request',
@@ -310,9 +410,22 @@ function findFolder(items: CollectionItem[], name: string): CollectionItem {
   return f;
 }
 
-function findRequest(items: CollectionItem[] | undefined, name: string): Request {
+function findAnyRequest(
+  items: CollectionItem[] | undefined,
+  name: string
+): Request | KafkaRequest | MqttRequest {
   const it = (items ?? []).find((i) => i.type === 'request' && i.name === name);
   if (!it?.request) {
+    throw new Error(
+      `request ${name} not found in [${(items ?? []).map((i) => i.name).join(', ')}]`
+    );
+  }
+  return it.request;
+}
+
+function findRequest(items: CollectionItem[] | undefined, name: string): Request {
+  const it = (items ?? []).find((i) => i.type === 'request' && i.name === name);
+  if (!it?.request || isBrokerRequest(it.request)) {
     throw new Error(
       `request ${name} not found in [${(items ?? []).map((i) => i.name).join(', ')}]`
     );
@@ -345,7 +458,7 @@ describe('OpenCollection fidelity harness', () => {
 
     it('every roundtrip field survives export → import at the root', () => {
       const back = roundTrip(collection);
-      const r = findRequest(back.items, fixture.name);
+      const r = findAnyRequest(back.items, fixture.name);
       expect(pickRoundtrip(r, policy)).toEqual(pickRoundtrip(fixture, policy));
     });
 
@@ -354,7 +467,7 @@ describe('OpenCollection fidelity harness', () => {
       // Exactly one root copy — the nested one was not hoisted.
       expect(back.items.filter((i) => i.type === 'request')).toHaveLength(1);
       const sub = findFolder(findFolder(back.items, 'Folder').items ?? [], 'Sub');
-      const r = findRequest(sub.items, fixture.name);
+      const r = findAnyRequest(sub.items, fixture.name);
       expect(pickRoundtrip(r, policy)).toEqual(pickRoundtrip(fixture, policy));
     });
 
@@ -579,7 +692,12 @@ extensions:
           id: 'f',
           name: 'Folder',
           type: 'folder',
-          items: [reqItem(SSE_FIXTURE, 'n'), reqItem(MCP_FIXTURE, 'n')],
+          items: [
+            reqItem(SSE_FIXTURE, 'n'),
+            reqItem(MCP_FIXTURE, 'n'),
+            reqItem(KAFKA_FIXTURE, 'n'),
+            reqItem(MQTT_FIXTURE, 'n'),
+          ],
         },
       ],
     };

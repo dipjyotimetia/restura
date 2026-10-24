@@ -18,7 +18,12 @@ const v2State = vi.hoisted(() => ({
     unsubscribeResource: ReturnType<typeof vi.fn>;
     listPrompts: ReturnType<typeof vi.fn>;
     getPrompt: ReturnType<typeof vi.fn>;
+    listen: ReturnType<typeof vi.fn>;
+    fallbackNotificationHandler?: (notification: unknown) => Promise<void>;
   }>,
+  era: 'modern' as 'legacy' | 'modern',
+  serverCapabilities: { tools: {} } as unknown,
+  listenError: undefined as Error | undefined,
   connectError: undefined as Error | undefined,
   clientOptions: [] as unknown[],
   negotiatedProtocolVersion: '2026-07-28' as string | undefined,
@@ -45,10 +50,20 @@ vi.mock('@modelcontextprotocol/client', () => ({
     listPrompts = vi.fn(async () => ({ prompts: [] }));
     getPrompt = vi.fn(async () => ({ messages: [] }));
     notification = vi.fn(async () => undefined);
-    getServerCapabilities = vi.fn(() => ({ tools: {} }));
+    listen = vi.fn(async (filter: unknown) => {
+      if (v2State.listenError) throw v2State.listenError;
+      return {
+        honoredFilter: filter,
+        closed: new Promise(() => undefined),
+        close: vi.fn(async () => undefined),
+      };
+    });
+    getServerCapabilities = vi.fn(() => v2State.serverCapabilities);
     getServerVersion = vi.fn(() => ({ name: 'v2-server', version: '2.0.0' }));
     getNegotiatedProtocolVersion = vi.fn(() => v2State.negotiatedProtocolVersion);
-    getProtocolEra = vi.fn(() => 'modern');
+    getProtocolEra = vi.fn(() => v2State.era);
+    setRequestHandler = vi.fn();
+    sendRootsListChanged = vi.fn(async () => undefined);
     constructor(_clientInfo: unknown, options: unknown) {
       v2State.clientOptions.push(options);
       v2State.clients.push(this);
@@ -77,6 +92,9 @@ afterEach(() => {
   v2State.clientOptions.length = 0;
   v2State.connectError = undefined;
   v2State.negotiatedProtocolVersion = '2026-07-28';
+  v2State.era = 'modern';
+  v2State.serverCapabilities = { tools: {} };
+  v2State.listenError = undefined;
 });
 
 describe('connectMcpSdkClient', () => {
@@ -100,6 +118,7 @@ describe('connectMcpSdkClient', () => {
   };
 
   it('uses all native v2 client operations for standard MCP methods', async () => {
+    v2State.era = 'legacy';
     const client = await connectMcpSdkClient(options);
     await nativeRequests(client);
     const sdk = v2State.clients[0]!;
@@ -113,7 +132,7 @@ describe('connectMcpSdkClient', () => {
     expect(sdk.listTools).toHaveBeenCalledWith({ cursor: 'tools' }, { timeout: 5000 });
     expect(sdk.callTool).toHaveBeenCalledWith(
       { name: 'echo', arguments: { text: 'hello' } },
-      { timeout: 5000 }
+      { timeout: 5000, onprogress: expect.any(Function) }
     );
     expect(sdk.listResources).toHaveBeenCalledWith({ cursor: 'resources' }, { timeout: 5000 });
     expect(sdk.listResourceTemplates).toHaveBeenCalledWith(
@@ -183,5 +202,99 @@ describe('connectMcpSdkClient', () => {
 
     expect(v2State.clients).toHaveLength(1);
     expect(v2State.clients[0]!.close).toHaveBeenCalledOnce();
+  });
+
+  it('subscribes to resources over subscriptions/listen on a modern connection (#872)', async () => {
+    const client = await connectMcpSdkClient(options);
+    const sdk = v2State.clients[0]!;
+
+    await client.request('resources/subscribe', { uri: 'restura://readme' }, 5000);
+    await client.request('resources/unsubscribe', { uri: 'restura://readme' }, 5000);
+
+    expect(sdk.subscribeResource).not.toHaveBeenCalled();
+    expect(sdk.unsubscribeResource).not.toHaveBeenCalled();
+    expect(sdk.listen).toHaveBeenCalledWith(
+      { resourceSubscriptions: ['restura://readme'] },
+      { timeout: 5000 }
+    );
+    const subscription = await sdk.listen.mock.results[0]!.value;
+    expect(subscription.close).toHaveBeenCalledOnce();
+  });
+
+  it('refuses a raw subscriptions/listen instead of sending it as an extension request', async () => {
+    const client = await connectMcpSdkClient(options);
+
+    await expect(
+      client.request('subscriptions/listen', { notifications: {} }, 5000)
+    ).rejects.toThrow(/managed by Restura/);
+    expect(v2State.clients[0]!.request).not.toHaveBeenCalled();
+  });
+
+  it('opens the list_changed listen stream after connect and closes it on close (#858)', async () => {
+    v2State.serverCapabilities = { tools: { listChanged: true } };
+    const client = await connectMcpSdkClient(options);
+    const sdk = v2State.clients[0]!;
+    await vi.waitFor(() => expect(sdk.listen).toHaveBeenCalledOnce());
+    expect(sdk.listen).toHaveBeenCalledWith({ toolsListChanged: true }, undefined);
+    const subscription = await sdk.listen.mock.results[0]!.value;
+
+    await client.close();
+
+    expect(subscription.close).toHaveBeenCalledOnce();
+    expect(sdk.close).toHaveBeenCalledOnce();
+  });
+
+  it('reports a failed list_changed listen through onError without failing connect', async () => {
+    v2State.serverCapabilities = { tools: { listChanged: true } };
+    v2State.listenError = new Error('listen refused');
+    const events = {
+      onNotification: vi.fn(async () => undefined),
+      onError: vi.fn(),
+      onClose: vi.fn(),
+    };
+
+    await expect(connectMcpSdkClient({ ...options, events })).resolves.toBeDefined();
+
+    await vi.waitFor(() => expect(events.onError).toHaveBeenCalledOnce());
+    expect((events.onError.mock.calls[0] as unknown[])[0]).toMatchObject({
+      message: 'listen refused',
+    });
+  });
+
+  it('forwards tool-call progress as notifications/progress with a per-call key', async () => {
+    const events = {
+      onNotification: vi.fn(async () => undefined),
+      onError: vi.fn(),
+      onClose: vi.fn(),
+    };
+    const client = await connectMcpSdkClient({ ...options, events });
+    const sdk = v2State.clients[0]!;
+    sdk.callTool.mockImplementation(
+      async (_params: unknown, opts: { onprogress: (p: unknown) => void }) => {
+        opts.onprogress({ progress: 1, total: 2, message: 'half' });
+        opts.onprogress({ progress: 2, total: 2 });
+        return { content: [] };
+      }
+    );
+
+    await client.request('tools/call', { name: 'slow', arguments: {} }, 5000);
+    await client.request('tools/call', { name: 'slow', arguments: {} }, 5000);
+
+    const calls = events.onNotification.mock.calls.map(
+      (call) => (call as unknown[])[0] as { method: string; params: Record<string, unknown> }
+    );
+    expect(calls).toHaveLength(4);
+    expect(calls[0]).toEqual({
+      method: 'notifications/progress',
+      params: {
+        progress: 1,
+        total: 2,
+        message: 'half',
+        progressKey: 'tools/call#1',
+        requestMethod: 'tools/call',
+        name: 'slow',
+      },
+    });
+    expect(calls[2]!.params.progressKey).toBe('tools/call#2');
   });
 });

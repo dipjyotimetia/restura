@@ -1,26 +1,17 @@
 import { RefreshCw, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import type {
   KafkaGroupDescription,
   KafkaPartitionLag,
 } from '../../../../electron/types/electron-api';
+import { KafkaOffsetResetPanel } from './KafkaOffsetResetPanel';
 import { partitionColor } from './shared';
 import { useInspectorFetch } from './useInspectorFetch';
-
-type ResetTarget = 'earliest' | 'latest' | 'specific';
 
 function stateTone(state: string): 'green' | 'amber' | 'muted' {
   if (state === 'STABLE') return 'green';
@@ -36,8 +27,8 @@ const TONE_COLOR: Record<'green' | 'amber' | 'muted', string> = {
 
 /**
  * Consumer-group inspector — members/state, per-partition committed offset, topic
- * log-end and computed lag, plus offset-reset and delete-group actions. Reset and
- * delete require an inactive group broker-side; that rejection surfaces inline.
+ * log-end and computed lag, plus offset reset/delete (KafkaOffsetResetPanel) and
+ * delete-group actions. These require an inactive group; rejections surface inline.
  */
 export function KafkaGroupInspector({
   connectionId,
@@ -53,11 +44,6 @@ export function KafkaGroupInspector({
   const [group, setGroup] = useState<KafkaGroupDescription | null>(null);
   const [offsets, setOffsets] = useState<KafkaPartitionLag[] | null>(null);
 
-  // Offset-reset form (per group; applies to one committed topic).
-  const [resetTopic, setResetTopic] = useState('');
-  const [resetTo, setResetTo] = useState<ResetTarget>('latest');
-  const [resetOffsets, setResetOffsets] = useState<Record<number, string>>({});
-  const [resetConfirm, setResetConfirm] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   const { busy, error, refresh, run } = useInspectorFetch(
@@ -72,57 +58,6 @@ export function KafkaGroupInspector({
     }
   );
 
-  const committedTopics = useMemo(
-    () => Array.from(new Set((offsets ?? []).map((o) => o.topic))).sort(),
-    [offsets]
-  );
-  const resetPartitions = useMemo(
-    () => (offsets ?? []).filter((offset) => offset.topic === resetTopic),
-    [offsets, resetTopic]
-  );
-
-  // Keep the reset-topic selection valid as offsets load / change.
-  useEffect(() => {
-    if (committedTopics.length === 0) {
-      if (resetTopic !== '') setResetTopic('');
-    } else if (!committedTopics.includes(resetTopic)) {
-      setResetTopic(committedTopics[0] ?? '');
-    }
-  }, [committedTopics, resetTopic]);
-
-  useEffect(() => {
-    setResetOffsets((current) =>
-      Object.fromEntries(
-        resetPartitions.map((offset) => [
-          offset.partition,
-          current[offset.partition] ?? offset.committed ?? '0',
-        ])
-      )
-    );
-  }, [resetPartitions]);
-
-  const handleReset = async (): Promise<void> => {
-    if (!resetTopic) return;
-    setResetConfirm(false);
-    const partitions =
-      resetTo === 'specific'
-        ? resetPartitions.map((offset) => ({
-            partition: offset.partition,
-            offset: resetOffsets[offset.partition]?.trim() ?? '',
-          }))
-        : undefined;
-    const result = await run(() =>
-      kafkaManager.resetGroupOffsets({
-        connectionId,
-        groupId,
-        topic: resetTopic,
-        to: resetTo,
-        ...(partitions ? { partitions } : {}),
-      })
-    );
-    if (result.ok) await refresh();
-  };
-
   const handleDelete = async (): Promise<void> => {
     setDeleteConfirm(false);
     const result = await run(() => kafkaManager.deleteGroup(connectionId, groupId));
@@ -130,9 +65,6 @@ export function KafkaGroupInspector({
   };
 
   const tone = group ? stateTone(group.state) : 'muted';
-  const resetOffsetInvalid =
-    resetTo === 'specific' &&
-    resetPartitions.some((offset) => !/^\d+$/.test(resetOffsets[offset.partition]?.trim() ?? ''));
 
   return (
     <div className="space-y-3 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
@@ -263,80 +195,18 @@ export function KafkaGroupInspector({
         )}
       </div>
 
-      {/* Reset offsets */}
-      {committedTopics.length > 0 && (
-        <div className="space-y-2 rounded-sp-btn border border-sp-line p-2">
-          <Label className="text-xs sp-label">Reset offsets</Label>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={resetTopic} onValueChange={setResetTopic}>
-              <SelectTrigger className="h-8 w-40 text-xs font-mono">
-                <SelectValue placeholder="topic" />
-              </SelectTrigger>
-              <SelectContent>
-                {committedTopics.map((t) => (
-                  <SelectItem key={t} value={t} className="text-xs font-mono">
-                    {t}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={resetTo} onValueChange={(v) => setResetTo(v as ResetTarget)}>
-              <SelectTrigger className="h-8 w-32 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="earliest" className="text-xs">
-                  earliest
-                </SelectItem>
-                <SelectItem value="latest" className="text-xs">
-                  latest
-                </SelectItem>
-                <SelectItem value="specific" className="text-xs">
-                  specific
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            {resetTo === 'specific' &&
-              resetPartitions.map((offset) => (
-                <Input
-                  key={offset.partition}
-                  value={resetOffsets[offset.partition] ?? ''}
-                  onChange={(e) =>
-                    setResetOffsets((current) => ({
-                      ...current,
-                      [offset.partition]: e.target.value,
-                    }))
-                  }
-                  inputMode="numeric"
-                  placeholder={`P${offset.partition} offset`}
-                  className="h-8 w-28 text-xs font-mono"
-                  title={`Offset for partition ${offset.partition}`}
-                />
-              ))}
-            {resetConfirm ? (
-              <div className="flex items-center gap-1.5">
-                <Button size="sm" variant="destructive" onClick={handleReset} disabled={busy}>
-                  Confirm reset
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setResetConfirm(false)}>
-                  Cancel
-                </Button>
-              </div>
-            ) : (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => setResetConfirm(true)}
-                disabled={busy || !resetTopic || resetOffsetInvalid}
-              >
-                Reset
-              </Button>
-            )}
-          </div>
-          <p className="text-sp-11 text-sp-dim">
-            The group must be inactive (no members) to reset committed offsets.
-          </p>
-        </div>
+      {/* Reset / delete committed offsets */}
+      {offsets && (
+        <KafkaOffsetResetPanel
+          // Remount per group so preview/applied results and inputs never leak.
+          key={`${connectionId}:${groupId}`}
+          connectionId={connectionId}
+          groupId={groupId}
+          offsets={offsets}
+          busy={busy}
+          run={run}
+          onChanged={refresh}
+        />
       )}
 
       {/* Delete group */}

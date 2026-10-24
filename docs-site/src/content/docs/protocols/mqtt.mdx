@@ -11,7 +11,8 @@ import { Badge } from '@astrojs/starlight/components';
 
 - **Connect** — `mqtt://` or `mqtts://` brokers; pick **MQTT 3.1.1** or **MQTT 5.0** per connection.
 - **Publish** — send to a topic with a chosen **QoS** (0, 1, or 2) and an optional **retain** flag; payloads are text, JSON, or binary.
-- **`{{variables}}` in publishes** — topic and payload are resolved at publish time with the same scopes as HTTP; unresolved names are sent literally and flagged in the message log, and secret values are masked in the logged copy.
+- **`{{variables}}`** — publish topic and payload are resolved at publish time with the same scopes as HTTP, as are the broker URL (at connect) and subscribe topic filters; unresolved names are sent literally and flagged in the message log, and secret values are masked in the logged copy.
+- **Save to a collection** — **Save to Collection** on an MQTT tab stores a shareable *connection preset* (broker URL, protocol version, client id, session options, username, TLS paths, last will, the publish / subscribe drafts and saved publishes). Opening it from the sidebar opens this panel prefilled. The password and key passphrase stay in the encrypted local store and are never exported. See [Kafka and MQTT connection presets](/guides/collections/#kafka-and-mqtt-connection-presets).
 - **Saved publishes** — the **Publish** tab keeps named publishes per connection (topic + payload + QoS + retain). Save, rename, reorder and delete them; click to load into the form, or publish directly with the send button / <kbd>Shift</kbd>+<kbd>Enter</kbd>. They are stored unresolved.
 - **Subscribe** — one or more topic filters (wildcards included); messages stream live with topic, QoS, retain / dup flags, and timestamp.
 - **Export the log** — download the current filtered messages as JSON or NDJSON (one message per line).

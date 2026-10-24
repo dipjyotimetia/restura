@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  defaultKafkaSasl,
+  isKafkaPasswordSasl,
   KAFKA_SECRET_SENTINEL,
   migrateKafkaV1ToV2,
+  migrateKafkaV2ToV3,
+  redactKafkaSasl,
   useKafkaStore,
 } from '@/features/kafka/store/useKafkaStore';
+import { useConsoleStore } from '@/store/useConsoleStore';
 
 function resetStore(): void {
   useKafkaStore.setState({
@@ -19,7 +24,59 @@ describe('useKafkaStore', () => {
     resetStore();
   });
 
-  it('preserves legacy earliest/latest intent while new connections default committed/latest', () => {
+  it('defaults new connections to read-only browse mode showing the last 50 per partition', () => {
+    const id = useKafkaStore.getState().createConnection();
+    const consumer = useKafkaStore.getState().connections[id]!.consumer;
+    expect(consumer).toMatchObject({ membership: 'browse', mode: 'last-n', lastN: 50 });
+    // A group id is still prepared for an explicit switch to consumer-group mode.
+    expect(consumer.groupId).toBe(`restura-${id.slice(0, 8)}`);
+  });
+
+  it('v3 migration keeps custom groups in group mode and moves default groups to browse', () => {
+    const migrated = migrateKafkaV2ToV3({
+      connections: {
+        'abcdef12-0000': {
+          id: 'abcdef12-0000',
+          consumer: { groupId: 'restura-abcdef12', mode: 'committed' },
+        },
+        'bbbbbbbb-0000': {
+          id: 'bbbbbbbb-0000',
+          consumer: { groupId: 'restura-bbbbbbbb', mode: 'earliest' },
+        },
+        'cccccccc-0000': {
+          id: 'cccccccc-0000',
+          consumer: { groupId: 'orders-workers', mode: 'committed' },
+        },
+        'dddddddd-0000': {
+          id: 'dddddddd-0000',
+          consumer: { groupId: 'restura-dddddddd', mode: 'latest', membership: 'group' },
+        },
+      },
+    }) as {
+      connections: Record<
+        string,
+        { consumer: { membership: string; mode: string; lastN?: number } }
+      >;
+    };
+    expect(migrated.connections['abcdef12-0000']!.consumer).toMatchObject({
+      membership: 'browse',
+      mode: 'last-n',
+      lastN: 50,
+    });
+    expect(migrated.connections['bbbbbbbb-0000']!.consumer).toMatchObject({
+      membership: 'browse',
+      mode: 'earliest',
+    });
+    expect(migrated.connections['cccccccc-0000']!.consumer).toMatchObject({
+      membership: 'group',
+      mode: 'committed',
+    });
+    expect(migrated.connections['dddddddd-0000']!.consumer.membership).toBe('group');
+    expect(migrateKafkaV2ToV3(null)).toBeNull();
+    expect(migrateKafkaV2ToV3({})).toEqual({});
+  });
+
+  it('preserves legacy earliest/latest intent from the v1 migration', () => {
     const migrated = migrateKafkaV1ToV2({
       connections: {
         earliest: { consumer: { fromBeginning: true } },
@@ -33,7 +90,6 @@ describe('useKafkaStore', () => {
 
     const id = useKafkaStore.getState().createConnection();
     expect(useKafkaStore.getState().connections[id]!.consumer).toMatchObject({
-      mode: 'committed',
       fallbackMode: 'latest',
     });
   });
@@ -73,6 +129,51 @@ describe('useKafkaStore', () => {
     // Oldest dropped; newest preserved
     expect(conn.messages[0]!.value).toBe('m100');
     expect(conn.messages[999]!.value).toBe('m1099');
+  });
+
+  it('appends a batch in one store update, capped at 1000, with console frames for each', () => {
+    const id = useKafkaStore.getState().createConnection();
+    useKafkaStore.getState().addMessage(id, { direction: 'system', topic: '', value: 'first' });
+    useConsoleStore.getState().clearFrames();
+    let updates = 0;
+    const unsubscribe = useKafkaStore.subscribe(() => {
+      updates += 1;
+    });
+    useKafkaStore.getState().addMessages(
+      id,
+      Array.from({ length: 1100 }, (_, i) => ({
+        direction: 'received' as const,
+        topic: 'orders',
+        partition: 0,
+        offset: String(i),
+        value: `m${i}`,
+        timestamp: 1_000 + i,
+      }))
+    );
+    unsubscribe();
+    expect(updates).toBe(1);
+    const conn = useKafkaStore.getState().connections[id]!;
+    expect(conn.messages).toHaveLength(1000);
+    expect(conn.messages[0]!.value).toBe('m100');
+    expect(conn.messages[999]).toMatchObject({ value: 'm1099', timestamp: 2_099 });
+    expect(new Set(conn.messages.map((m) => m.id)).size).toBe(1000);
+    expect(useConsoleStore.getState().frames.length).toBeGreaterThan(0);
+    expect(useConsoleStore.getState().frames.at(-1)).toMatchObject({
+      protocol: 'kafka',
+      direction: 'in',
+      label: 'orders',
+      payload: 'm1099',
+    });
+  });
+
+  it('ignores empty batches and unknown connections', () => {
+    const id = useKafkaStore.getState().createConnection();
+    const before = useKafkaStore.getState().connections;
+    useKafkaStore.getState().addMessages(id, []);
+    useKafkaStore
+      .getState()
+      .addMessages('missing', [{ direction: 'received', topic: 't', value: 'v' }]);
+    expect(useKafkaStore.getState().connections).toBe(before);
   });
 
   it('filters messages by direction and search query', () => {
@@ -115,8 +216,8 @@ describe('useKafkaStore', () => {
     });
     const conn = useKafkaStore.getState().connections[id]!;
     expect(conn.auth.sasl?.mechanism).toBe('PLAIN');
-    if (conn.auth.sasl?.mechanism !== 'OAUTHBEARER') {
-      expect(conn.auth.sasl?.password).toBe('super-secret-pw');
+    if (isKafkaPasswordSasl(conn.auth.sasl)) {
+      expect(conn.auth.sasl.password).toBe('super-secret-pw');
     }
     // partialize is exercised by Zustand persist's setItem call; in unit tests
     // the dexie mock returns immediately. The key behaviour we care about is
@@ -201,6 +302,119 @@ describe('useKafkaStore', () => {
       const id = useKafkaStore.getState().ensureConnectionForTab('tab-A');
       useKafkaStore.getState().removeConnection(id);
       expect(useKafkaStore.getState().connectionByTabId['tab-A']).toBeUndefined();
+    });
+  });
+
+  describe('SASL persistence redaction (#918)', () => {
+    const handle = { kind: 'handle' as const, id: 'h-1', label: 'Kafka / secret' };
+
+    it('keeps legacy shapes and replaces password/static-token plaintext with the sentinel', () => {
+      expect(redactKafkaSasl({ mechanism: 'PLAIN', username: 'u', password: 'pw' })).toEqual({
+        mechanism: 'PLAIN',
+        username: 'u',
+        password: KAFKA_SECRET_SENTINEL,
+      });
+      expect(redactKafkaSasl({ mechanism: 'SCRAM-SHA-256', username: 'u', password: '' })).toEqual({
+        mechanism: 'SCRAM-SHA-256',
+        username: 'u',
+        password: '',
+      });
+      // Pre-#918 static OAuth (no `mode`) persists unchanged in shape.
+      expect(
+        redactKafkaSasl({ mechanism: 'OAUTHBEARER', token: 'jwt', extensions: { a: 'b' } })
+      ).toEqual({ mechanism: 'OAUTHBEARER', token: KAFKA_SECRET_SENTINEL, extensions: { a: 'b' } });
+      expect(redactKafkaSasl({ mechanism: 'OAUTHBEARER', mode: 'static', token: '' })).toEqual({
+        mechanism: 'OAUTHBEARER',
+        mode: 'static',
+        token: '',
+      });
+    });
+
+    it('persists only SecretRef handles for client-credentials and MSK IAM secrets', () => {
+      expect(
+        redactKafkaSasl({
+          mechanism: 'OAUTHBEARER',
+          mode: 'client-credentials',
+          tokenEndpoint: 'https://idp/token',
+          clientId: 'c',
+          clientSecret: handle,
+          scope: 'kafka',
+          extensions: { x: 'y' },
+        })
+      ).toEqual({
+        mechanism: 'OAUTHBEARER',
+        mode: 'client-credentials',
+        tokenEndpoint: 'https://idp/token',
+        clientId: 'c',
+        clientSecret: handle,
+        scope: 'kafka',
+        extensions: { x: 'y' },
+      });
+      // A plaintext value smuggled into a handle-only field is dropped, never persisted.
+      const leaky = redactKafkaSasl({
+        mechanism: 'AWS_MSK_IAM',
+        region: 'us-east-1',
+        credentialSource: 'static',
+        accessKeyId: 'AKIA',
+        secretAccessKey: { kind: 'inline', value: 'plaintext' } as never,
+        sessionToken: handle,
+      });
+      expect(JSON.stringify(leaky)).not.toContain('plaintext');
+      expect(leaky).toEqual({
+        mechanism: 'AWS_MSK_IAM',
+        region: 'us-east-1',
+        credentialSource: 'static',
+        accessKeyId: 'AKIA',
+        sessionToken: { kind: 'handle', id: 'h-1', label: 'Kafka / secret' },
+      });
+      expect(
+        redactKafkaSasl({
+          mechanism: 'AWS_MSK_IAM',
+          region: 'eu-west-1',
+          credentialSource: 'profile',
+          profile: 'dev',
+          allowNonAwsBrokerHosts: true,
+          secretAccessKey: 'plain' as never,
+        })
+      ).toEqual({
+        mechanism: 'AWS_MSK_IAM',
+        region: 'eu-west-1',
+        credentialSource: 'profile',
+        profile: 'dev',
+        allowNonAwsBrokerHosts: true,
+      });
+      expect(
+        redactKafkaSasl({
+          mechanism: 'OAUTHBEARER',
+          mode: 'client-credentials',
+          tokenEndpoint: '',
+          clientId: '',
+        })
+      ).toEqual({
+        mechanism: 'OAUTHBEARER',
+        mode: 'client-credentials',
+        tokenEndpoint: '',
+        clientId: '',
+      });
+    });
+
+    it('copies GSSAPI names and builds per-mechanism defaults', () => {
+      expect(
+        redactKafkaSasl({ mechanism: 'GSSAPI', serviceName: 'kafka', principal: 'a@B' })
+      ).toEqual({ mechanism: 'GSSAPI', serviceName: 'kafka', principal: 'a@B' });
+      expect(redactKafkaSasl({ mechanism: 'GSSAPI' })).toEqual({ mechanism: 'GSSAPI' });
+      expect(defaultKafkaSasl('PLAIN')).toEqual({ mechanism: 'PLAIN', username: '', password: '' });
+      expect(defaultKafkaSasl('OAUTHBEARER')).toEqual({
+        mechanism: 'OAUTHBEARER',
+        mode: 'static',
+        token: '',
+      });
+      expect(defaultKafkaSasl('GSSAPI')).toEqual({ mechanism: 'GSSAPI', serviceName: 'kafka' });
+      expect(defaultKafkaSasl('AWS_MSK_IAM')).toEqual({
+        mechanism: 'AWS_MSK_IAM',
+        region: '',
+        credentialSource: 'static',
+      });
     });
   });
 });

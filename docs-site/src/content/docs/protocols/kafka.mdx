@@ -11,26 +11,87 @@ import { Badge } from '@astrojs/starlight/components';
 
 - **Produce** — pick a topic, set text headers, target an optional partition, and send a key + value as UTF-8 text, validated JSON, or Base64-encoded arbitrary bytes. Base64 is decoded only at the Electron boundary, so invalid UTF-8 bytes are preserved exactly.
   Record headers use a key/value table with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; they're produced exactly as typed.
-- **Consume** — subscribe to a topic, see messages live with partition / offset / timestamp. Start from **latest**, **earliest**, a specific **offset**, or a **timestamp** (seeks each partition to its first message at or after the chosen time).
+- **Consume** — read a topic and see messages live with partition / offset / timestamp, either in read-only **Browse** mode (the default) or as a **Consumer group** member. See [Consume modes](#consume-modes).
+- **Live consumer controls** — pause and resume the whole consumer, or individual partitions assigned to it from the **Partitions** table under the consume controls (other partitions keep flowing). **Seek** one assigned partition of the running consumer to an exact offset or to the first record at or after a timestamp, without resubscribing. Seek targets are clamped to the partition's current earliest/latest offsets; a timestamp newer than every record lands at the end. While this consumer keeps the partition, a paused partition resumes from the first record it withheld (or from where you seeked it), and withheld records are never auto-committed. If a rebalance moves a paused partition to another member, its pause is dropped and the new owner starts from the group's committed offset.
+- **Smooth high-throughput consumption** — records are batched into the message view about ten times a second, and the desktop main process pauses fetching while more than 500 decoded records are waiting to be delivered (resuming at 250), so a fast topic can't swamp the UI or memory. Your own pause always wins: a drained backlog never resumes a consumer you paused.
 - **Export the log** — download the current filtered messages as JSON or NDJSON (one message per line).
 - **Topic inspector** — per-partition earliest/latest watermarks (and the approximate message count) plus the topic's broker config.
 - **Consumer-group inspector** — members and state, committed offset per partition, and **consumer lag** (topic log-end minus the group's committed offset) — computed on demand for any group, no active subscription needed.
-- **Reset consumer-group offsets** — to earliest, latest, or specific per-partition offsets (the group must be inactive).
+- **Reset consumer-group offsets** — for one committed topic or **all committed topics** of the group (committed topics that have since been deleted are skipped and listed), to:
+  - **earliest** / **latest** — the partition's log start / end;
+  - **specific** — explicit per-partition offsets (single topic only);
+  - **date/time** — each partition's first record at or after the chosen local time (Kafka `ListOffsets` by timestamp). A partition with no record at or after that time resets to **latest**;
+  - **shift by ±N** — move each committed offset forward or back, clamped to the partition's earliest/latest range. Partitions without a committed offset are skipped and listed (they keep following the consumer's `auto.offset.reset`).
+
+  **Preview** runs a dry run and shows current → new offsets per partition (with clamp/fallback notes) without committing anything; **Reset** asks for confirmation and then shows the applied offsets.
+- **Delete committed offsets** — remove the group's committed offsets for one topic or all committed topics (KIP-496 `OffsetDelete`), confirm-gated. Consumers then fall back to `auto.offset.reset`.
+
+  Resetting and deleting offsets both require an **inactive group** (no members, not rebalancing): Restura checks this before writing and the broker enforces it too.
 - **Delete consumer group** — for empty/inactive groups.
 - **Multiple brokers** — bootstrap list, broker discovery happens through the cluster.
-- **SASL** — `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` over `SASL_PLAINTEXT` or `SASL_SSL`.
+- **SASL** over `SASL_PLAINTEXT` or `SASL_SSL`:
+  - `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` — username and password.
+  - `OAUTHBEARER` with a **static token** (no automatic refresh), or with the OAuth 2.0 **client-credentials** flow — token endpoint, client ID, client secret, optional scope. The desktop app fetches the token and refreshes it once less than a quarter of its lifetime (at least 30 seconds) remains, so broker re-authentication always gets a fresh token. The token endpoint must use `https` (plain `http` only for `localhost` or a private IP) and follows the same [SSRF policy](/architecture/security/) as HTTP requests.
+  - `AWS_MSK_IAM` — access keys (optional session token) or a named AWS profile; signed with SigV4 and sent as MSK's OAUTHBEARER token. Requires `SASL_SSL`, and the bootstrap brokers must be MSK endpoints in the chosen region. For PrivateLink or custom DNS, turn on **Allow non-AWS broker hostnames** — only for brokers you control, because the signed token is sent to every broker in the list.
+  - `GSSAPI` (Kerberos) — listed but **not available in this build**: it needs the native `kerberos` module, which the desktop app doesn't bundle yet.
+
+  The OAuth client secret and AWS keys are stored as OS-keychain handles scoped to Kafka; the UI never reads them back.
 - **TLS** — pick `SSL` for TLS without SASL (encryption plus optional client-certificate mTLS), or layer it under `SASL_SSL`; server certificate validation either way.
 - **Compression** — gzip / snappy / lz4 / zstd negotiated automatically.
-- **Confluent Schema Registry** — point a connection at a registry URL (optional Basic auth); produce schema-encoded **keys and values** by schema ID, and consume with automatic Avro / Protobuf / JSON decode of both. Powered by `@kafkajs/confluent-schema-registry`.
+- **Save to a collection** — **Save to Collection** on a Kafka tab stores a shareable *connection preset* (brokers, auth mode, TLS paths, client id, produce topic / key / payload template / headers, consumer group and topics). Opening it from the sidebar opens this panel prefilled. Passwords, OAuth tokens and key passphrases stay in the encrypted local store and are never exported. See [Kafka and MQTT connection presets](/guides/collections/#kafka-and-mqtt-connection-presets).
+- **`{{variables}}`** — bootstrap brokers (at connect), consumer group and topics (at subscribe), and the produced topic, key, value and header names/values (at send) are resolved with the same scopes as HTTP. In **JSON** mode a value substituted inside a string literal is JSON-escaped. Unresolved names are sent literally and flagged in the message log; secret values are masked in the logged copy.
+- **Confluent Schema Registry** — point a connection at a registry URL (HTTP Basic or Bearer auth, HTTPS with your custom CA / mTLS); produce schema-encoded **keys and values** by **subject + version** (or `latest`) or by raw schema ID, browse subjects and view schemas, and consume with automatic Avro / Protobuf / JSON decode of both. Powered by `@kafkajs/confluent-schema-registry`. See [Schema Registry](#schema-registry).
+
+## Schema Registry
+
+Enable **Schema Registry** on the connection form and enter the registry URL.
+
+- **Auth** — choose **HTTP Basic** (username + password, stored encrypted) or **Bearer token** (for OAuth-fronted registries such as Confluent Cloud with OAuth, Apicurio or Karapace behind a gateway). The bearer token field supports inline entry, a keychain-stored secret handle, or an external secret reference; handles and external references are resolved only in the desktop main process and never reach the renderer. Stored handles must be created from the Kafka token field (they are scoped to Kafka); a handle stored for another feature is refused. Credentials are resolved when you connect, so **reconnect after rotating a stored token**. Credentials are only sent over plain `http://` to a loopback or private-network registry; public registries need `https://`.
+- **TLS** — HTTPS registries use the same TLS selection as the brokers' policy: the host-matched (or global) **custom CA** and **client certificate** (mTLS) from **Settings → Certificates**, plus the **Verify SSL certificates** toggle and TLS version / cipher settings. An active global proxy is not supported for the registry connection and fails the connect rather than bypassing the proxy.
+- **Network policy** — the same as the brokers: the URL as written is checked against the **Settings → Security** localhost / private-network toggles (so a literal private IP needs **Allow private / internal IPs**), and cloud-metadata endpoints are always refused. A registry **hostname** on a Docker or VPC network that resolves to a private address works with the default settings, just like a broker hostname. Every new registry connection re-checks the DNS answers, refusing cloud-metadata addresses always and loopback addresses when **Allow localhost** is off.
+
+**Producing with a subject.** In the producer, set the key or value **schema** to **Registry subject**. The subject list is filtered to `<topic>-value` / `<topic>-key` by default (and pre-selected when it exists); pick a **version** or `latest`. The desktop app resolves the subject and version to a schema ID when you publish, so `latest` always follows the newest registered version. The selected schema is shown read-only next to the editor, and **Generate example** fills the payload with a JSON skeleton for **Avro** and **JSON Schema** subjects (Protobuf schemas are viewable but not yet generated). Avro `bytes` and `fixed` values are written as strings, one character (code point 0-255) per byte, following the Avro JSON convention. The numeric **Schema ID** mode is still available.
+
+**Consuming.** Registry-decoded keys and values show which schema decoded them — `Schema 12 (orders-value v3)` — when the registry can map the ID back to a subject and version (looked up once per ID and cached).
+
+## Consume modes
+
+The **Consume** tab has a mode toggle. New Kafka tabs start in **Browse**.
+
+| | Browse (read-only) | Consumer group |
+| --- | --- | --- |
+| Joins or creates a consumer group | No | Yes, using the **Consumer group ID** |
+| Commits offsets | Never | Automatically, or per message with **Manual per message** |
+| Needs `GROUP` ACLs | No, only `READ` on the topic | Yes |
+| Start positions | Latest, earliest, **last N per partition**, specific offset, timestamp | Committed offset (with a fallback), latest, earliest, specific offset, timestamp |
+| Stop condition | Optional **Stop after N records** | Runs until you unsubscribe |
+| Lag, rebalance and member events | Not available because there's no group | Shown |
+
+**Browse** is for looking at data. Restura assigns the partitions directly and reads them with the Kafka `ListOffsets` and `Fetch` APIs. It never sends `FindCoordinator`, `JoinGroup` or `OffsetCommit`. Peeking at a shared or production cluster leaves nothing behind: no `restura-…` group appears in `kafka-consumer-groups --list`, and nothing is committed. The panel shows a **Read-only — no group** badge, and the group, commit and rebalance settings are hidden.
+
+- **Last N per partition** starts each partition at `max(earliest, latest − N)` and then keeps streaming new records. An empty partition starts at its end.
+- **Timestamp** starts each partition at its first record at or after that time. A partition with nothing that new starts at its end and waits for new records.
+- **Specific offset** reads only the partitions you name. Offsets outside the retained range are clamped to the earliest or latest offset.
+- **Read committed** isolation is honoured, so `latest` is the last stable offset.
+- The set of partitions is fixed when you subscribe. Partitions added to the topic afterwards aren't picked up until you subscribe again.
+- If retention deletes records you haven't read yet, Browse moves that partition forward to its new earliest offset and carries on.
+- Browse connects to whichever partition leaders the cluster advertises, the same as Consumer group mode. The broker guard checks the bootstrap addresses, not the advertised leaders, so the residual risk in [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/) applies to both modes.
+
+**Consumer group** joins the group named in **Consumer group ID** and behaves like any other member. Use it when you want to resume from committed offsets, test a group's behaviour, or commit offsets on purpose. The [consumer-group inspector](#what-works) and the reset and delete actions work on any group in either mode.
+
+Saved connections from before Browse mode existed keep **Consumer group** mode if you changed the group ID from the generated `restura-…` default. Connections still using the default group ID switch to **Browse**. If they started from the committed offset, they now start from the last 50 records per partition.
 
 ## Broker guard
 
-Every broker address (and Schema Registry URL) runs through a pre-flight [SSRF check](/architecture/security/) (`electron/main/security/kafka-broker-guard.ts`) before the connection opens. Like MQTT — and **unlike** the HTTP guard — private and loopback addresses are **allowed**, because Kafka brokers and registries routinely live on LAN / VPC networks. The guard rejects only cloud-metadata endpoints (`169.254.169.254` and friends, `metadata.google.internal`, …) and malformed addresses, so a malicious or misconfigured `bootstrap.servers` can't aim traffic at your machine's metadata endpoint. It's **pre-flight only** — it doesn't mitigate a true DNS-rebind during connect (the residual gap in [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/)).
+Every broker address and Schema Registry URL runs through a pre-flight [SSRF check](/architecture/security/) (`electron/main/security/kafka-broker-guard.ts`) before the connection opens, using the **Settings → Security** localhost / private-network policy. Cloud-metadata endpoints (`169.254.169.254` and friends, `metadata.google.internal`, …) and malformed addresses are always rejected, so a malicious or misconfigured `bootstrap.servers` can't aim traffic at your machine's metadata endpoint. For brokers the check is **pre-flight only** on the address as written — the Kafka client resolves hostnames itself, so it doesn't mitigate a true DNS-rebind during connect (the residual gap in [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/)). Schema Registry connections additionally re-check every DNS answer per connection for cloud-metadata and (when localhost is disabled) loopback addresses (see above).
 
 ## Tips
 
 - Set the **client ID** (defaults to `restura`) to make your activity easy to spot in broker logs.
-- For schema-encoded payloads, set the connection's **Schema Registry URL**, then pick a **value** and/or **key schema ID** when producing — the field is parsed as JSON, Confluent-encoded, and decoded again automatically on consume. Schema encoding and raw Base64 are intentionally mutually exclusive for the same field.
+- For schema-encoded payloads, set the connection's **Schema Registry URL**, then pick a **value** and/or **key** subject (or schema ID) when producing — the field is parsed as JSON, Confluent-encoded, and decoded again automatically on consume. Schema encoding and raw Base64 are intentionally mutually exclusive for the same field.
+- Partition pause and live seek are emulated on top of the client library, which has no native per-partition pause or mid-stream seek: a paused partition is still fetched, but its records are discarded before decoding, and a seek or partition resume briefly swaps the consumer's fetch stream (it stays in its group — no rebalance). After a seek, partitions newly assigned by a later rebalance start from the group's committed offset (or the missing-commit fallback).
+- **Automatic commit** commits only records that were actually delivered to the message view — every second by default, or at the configured auto-commit interval, and on unsubscribe/disconnect. Records withheld from a paused partition, or still waiting to be decoded, are never committed.
+- Commits are last-write-wins at the broker: after seeking a partition **backwards**, the next automatic commit moves the group's committed offset back too, so other group members (and a later resubscribe) re-read from there.
 - Use **JSON** mode to validate a JSON document before publishing its UTF-8 text. Use **Base64 bytes** for arbitrary binary payloads; Restura accepts canonical Base64 only and displays consumed non-UTF-8 fields as Base64 so they can be copied without byte loss.
 
 ## Related

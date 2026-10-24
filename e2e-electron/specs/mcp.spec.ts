@@ -1,5 +1,5 @@
-import { test, expect } from '../fixtures/servers';
 import { switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/servers';
 
 async function showCatalog(page: Parameters<typeof switchMode>[0]): Promise<void> {
   const catalog = page.getByRole('button', { name: 'Tools', exact: true });
@@ -47,8 +47,45 @@ test.describe('Desktop MCP (official SDK client)', () => {
     await page.getByRole('button', { name: /Connect/i }).click();
 
     await showCatalog(page);
-    await expect(page.getByRole('tab', { name: /Tools\s+5/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('tab', { name: /Tools\s+7/ })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('confirm-deploy', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('header-echo', { exact: true }).first()).toBeVisible();
+  });
+
+  test('streams server notifications and resource subscriptions from the v2 mock (#858, #872)', async ({
+    app: page,
+    servers,
+  }) => {
+    await switchMode(page, 'mcp');
+
+    await page.getByPlaceholder('https://mcp.example.com/v1/server').fill(servers.mcpV2.url);
+    await page.getByRole('button', { name: /Connect/i }).click();
+    await showCatalog(page);
+    await expect(page.getByRole('tab', { name: /Tools\s+7/ })).toBeVisible({ timeout: 15_000 });
+
+    // Modern era: Subscribe opens a subscriptions/listen stream in main.
+    await page.getByRole('tab', { name: /Resources/ }).click();
+    await page.getByRole('button', { name: 'Subscribe to restura-v2://config.json' }).click();
+    await expect(
+      page.getByRole('button', { name: 'Unsubscribe from restura-v2://config.json' })
+    ).toBeVisible();
+
+    // Both the auto-opened list_changed stream and the resource stream are
+    // asynchronous; publish until the pushes land in the Events tab.
+    await page.getByRole('tab', { name: /Events/ }).click();
+    await expect(async () => {
+      servers.mcpV2.publishChanges();
+      await expect(page.getByText('restura-v2://config.json updated').first()).toBeVisible({
+        timeout: 1_000,
+      });
+      await expect(page.getByText('tools list changed').first()).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
+
+    // Unsubscribe closes the stream and flips the toggle back.
+    await page.getByRole('tab', { name: /Resources/ }).click();
+    await page.getByRole('button', { name: 'Unsubscribe from restura-v2://config.json' }).click();
+    await expect(
+      page.getByRole('button', { name: 'Subscribe to restura-v2://config.json' })
+    ).toBeVisible();
   });
 });

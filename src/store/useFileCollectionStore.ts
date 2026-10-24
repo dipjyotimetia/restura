@@ -10,7 +10,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { isElectron } from '@/lib/shared/platform';
-import type { Collection, CollectionItem, KeyValue, Request } from '@/types';
+import type { Collection, CollectionItem, CollectionRequest, KeyValue } from '@/types';
 import type { ElectronAPI } from '../../electron/types/electron-api';
 import { useCollectionStore } from './useCollectionStore';
 import { useWorkflowStore } from './useWorkflowStore';
@@ -355,7 +355,10 @@ export function reconcileCollectionIds(existing: Collection, incoming: Collectio
   return incoming;
 }
 
-function reconcileRequestIds(existing: Request, incoming: Request): Request {
+function reconcileRequestIds(
+  existing: CollectionRequest,
+  incoming: CollectionRequest
+): CollectionRequest {
   incoming.id = existing.id;
   const oldRecord = existing as unknown as Record<string, unknown>;
   const newRecord = incoming as unknown as Record<string, unknown>;

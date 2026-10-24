@@ -17,9 +17,23 @@ beforeAll(async () => {
     req.on('data', (c) => chunks.push(c as Buffer));
     req.on('end', () => {
       lastBody = Buffer.concat(chunks).toString('utf-8');
-      const parsed = JSON.parse(lastBody) as { id: unknown };
+      const parsed = JSON.parse(lastBody) as {
+        id: unknown;
+        method?: string;
+        params?: { name?: string };
+      };
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
+      if (parsed.method === 'tools/call' && parsed.params?.name === 'fail') {
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: parsed.id,
+            result: { isError: true, content: [{ type: 'text', text: 'disk full' }] },
+          })
+        );
+        return;
+      }
       res.end(JSON.stringify({ jsonrpc: '2.0', id: parsed.id, result: { pong: true } }));
     });
   });
@@ -115,6 +129,23 @@ describe('MCP executor', () => {
     expect(result.requests[0]?.errorMessage).toMatch(/tools\/call/);
     expect(completed[0]?.passed).toBe(false);
     expect(completed[0]?.errorMessage).toMatch(/no MCP method configured/i);
+  });
+
+  it('fails the item for a tool error (result.isError: true) with a distinct message (#868)', async () => {
+    const dir = mcpCollection(
+      `name: Fail\nurl: '{{BASE}}/mcp'\ntransport: streamable-http\ndefaultMethod: tools/call\ndefaultParams: '{"name":"fail","arguments":{}}'\n`
+    );
+    const result = await runCollection(
+      dir,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new NoopReporter()
+    );
+    const r = result.requests[0];
+    expect(r?.status).toBe(200);
+    expect(r?.passed).toBe(false);
+    expect(r?.errorMessage).toContain('MCP tool error');
+    expect(r?.errorMessage).toContain('disk full');
+    expect(r?.errorMessage).not.toContain('JSON-RPC error');
   });
 
   it('fails when defaultMethod resolves to a blank string', async () => {

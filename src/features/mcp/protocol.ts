@@ -13,10 +13,15 @@
  * Without the pool, a sequence of calls against the same
  * server pays N initialize round-trips. With the pool, one.
  */
+import { isMcpToolError } from '@shared/protocol/mcp-result';
 import { v4 as uuidv4 } from 'uuid';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import type { ProtocolModule } from '@/features/registry/types';
+import { isElectron } from '@/lib/shared/platform';
 import type { McpRequest, Request } from '@/types';
+import { buildMcpConnectAuth } from './lib/mcpAuth';
 import { McpClient } from './lib/mcpClient';
+import { buildMcpInitializeParams } from './lib/mcpWebSession';
 
 function createDefaultMcpRequest(): McpRequest {
   return {
@@ -33,6 +38,12 @@ function createDefaultMcpRequest(): McpRequest {
 interface JsonRpcCallResult {
   ok: boolean;
   result?: unknown;
+  /**
+   * True when the JSON-RPC call succeeded but the CallToolResult carries
+   * `isError: true` (a tool error, distinct from a protocol error where
+   * `ok` is false). `ok` stays true so existing consumers are unchanged.
+   */
+  toolError?: boolean;
   error?: string;
   jsonRpcError?: { code: number; message: string; data?: unknown };
 }
@@ -80,11 +91,10 @@ async function initializeClient(
 > {
   const conn = await client.connect();
   if (!conn.ok) return { ok: false, error: conn.error };
-  const init = await client.request('initialize', {
-    protocolVersion: '2024-11-05',
-    capabilities: {},
-    clientInfo: { name: 'restura-graph-executor', version: '0.1.0' },
-  });
+  const init = await client.request(
+    'initialize',
+    buildMcpInitializeParams('restura-graph-executor')
+  );
   if (!init.ok) {
     return {
       ok: false,
@@ -104,10 +114,22 @@ async function createAndInitClient(mcp: McpRequest, method: string): Promise<Mcp
   for (const h of mcp.headers ?? []) {
     if (h.enabled !== false && h.key) headerMap[h.key] = h.value;
   }
+  // #896: the same connect-time auth as the interactive builder — inline on
+  // web, resolved by Electron main on desktop; fails closed when configured
+  // credentials can't be applied.
+  const auth = buildMcpConnectAuth({
+    auth: mcp.auth,
+    inherited: resolveInheritedAuthFor({ id: mcp.id, auth: mcp.auth ?? { type: 'none' } }),
+    headers: headerMap,
+    resolve: (text) => text,
+    desktop: isElectron(),
+  });
+  if (!auth.ok) throw new McpInitError(auth.error);
   const client = new McpClient({
     url: mcp.url,
     transport: mcp.transport,
-    headers: headerMap,
+    headers: auth.headers,
+    ...(auth.mainSideAuth ? { auth: auth.mainSideAuth } : {}),
     connectionId: `flow-${uuidv4()}`,
   });
   // Skip the explicit initialize step when the caller asked for
@@ -189,7 +211,11 @@ async function mcpRunJsonRpc(
           }
         : { ok: false, error: callResult.error };
     }
-    return { ok: true, result: callResult.result };
+    return {
+      ok: true,
+      result: callResult.result,
+      ...(isMcpToolError(callResult.result) ? { toolError: true } : {}),
+    };
   } finally {
     ctx.signal.removeEventListener('abort', linkAbort);
     if (ownsClient) {

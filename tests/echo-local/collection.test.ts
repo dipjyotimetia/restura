@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { importOpenCollection } from '@/features/collections/lib/importers/opencollection';
 import type { CollectionItem, Request } from '@/types';
 import { buildCollection } from '../../echo-local/collection';
+import { requestOf } from '../helpers/requestOf';
 
 // The generated collection must import into the desktop client with ZERO
 // warnings and produce runnable requests for every protocol it claims to cover.
@@ -12,7 +13,7 @@ function flattenRequests(items: CollectionItem[]): Request[] {
   const out: Request[] = [];
   const walk = (list: CollectionItem[]): void => {
     for (const it of list) {
-      if (it.type === 'request' && it.request) out.push(it.request);
+      if (it.type === 'request' && it.request) out.push(requestOf(it));
       if (it.items) walk(it.items);
     }
   };

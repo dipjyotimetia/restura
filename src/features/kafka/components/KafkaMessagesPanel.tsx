@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { CodeEditorFrame, ConnectionBadge, Floater, Stat } from '@/components/ui/spatial';
 import { TabsContent } from '@/components/ui/tabs';
+import { isKafkaBrowse } from '@/features/kafka/lib/kafkaBrowse';
 import { kafkaToLogEntries } from '@/features/kafka/lib/kafkaLogExport';
 import type { KafkaMessage } from '@/features/kafka/store/useKafkaStore';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
@@ -21,7 +22,7 @@ import { getElectronAPI } from '@/lib/shared/platform';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
 import type { KafkaConnection } from '../store/useKafkaStore';
-import { KAFKA_PINK, partitionColor } from './shared';
+import { KAFKA_PINK, partitionColor, schemaLabel } from './shared';
 
 function PartitionPill({ partition, count }: { partition: number; count?: number }) {
   const color = partitionColor(partition);
@@ -141,7 +142,14 @@ export function KafkaMessagesPanel({
         className="flex flex-wrap items-center gap-x-8 gap-y-3 px-4 py-3 shrink-0"
       >
         <Stat label="Partitions" value={partitionCounts.length || '—'} />
-        <Stat label="Consumer ID" value={connection.consumer.groupId || '—'} />
+        <Stat
+          label="Consumer ID"
+          value={
+            isKafkaBrowse(connection.consumer)
+              ? 'None (browse)'
+              : connection.consumer.groupId || '—'
+          }
+        />
         <Stat
           label="Lag"
           value={<span>{connection.consumer.lag ? totalLag.toString() : '—'}</span>}
@@ -356,6 +364,7 @@ export function KafkaMessagesPanel({
                     <div className="space-y-1">
                       <div className="sp-label">
                         Key{selectedMessage.keyEncoding === 'base64' ? ' · Base64' : ''}
+                        {schemaLabel(selectedMessage.keySchema)}
                       </div>
                       <div className="font-mono text-sp-12 text-sp-text break-all">
                         {selectedMessage.key}
@@ -426,6 +435,7 @@ export function KafkaMessagesPanel({
                         : selectedMessage.valueEncoding === 'base64'
                           ? ' · Base64'
                           : ''}
+                      {schemaLabel(selectedMessage.valueSchema)}
                     </div>
                     {(() => {
                       const formatted = selectedMessage.tombstone

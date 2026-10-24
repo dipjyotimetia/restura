@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { capMessages, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
+import { clearComposerDrafts } from '@/lib/shared/streaming/composerDrafts';
 import {
   type MqttPublishTemplate,
   migrateConnectionTemplates,
@@ -240,6 +241,7 @@ export const useMqttStore = create<MqttState>()(
       cleanupConnectionForTab: (tabId) => {
         const connectionId = get().connectionByTabId[tabId];
         if (!connectionId) return;
+        clearComposerDrafts(connectionId);
         set((state) => {
           const { [connectionId]: _drop, ...restConns } = state.connections;
           const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;
@@ -254,6 +256,7 @@ export const useMqttStore = create<MqttState>()(
 
       removeConnection: (id) =>
         set((state) => {
+          clearComposerDrafts(id);
           const { [id]: _removed, ...rest } = state.connections;
           const nextMap = Object.fromEntries(
             Object.entries(state.connectionByTabId).filter(([, cid]) => cid !== id)

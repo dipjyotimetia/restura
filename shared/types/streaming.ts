@@ -88,13 +88,36 @@ export interface McpRequest {
 /** A single tool/resource/prompt descriptor returned by the server */
 export interface McpToolDescriptor {
   name: string;
+  /** Human-readable display name (`title`, falling back to `annotations.title`) */
+  title?: string;
   description?: string;
   /** JSON Schema for the tool's input arguments */
   inputSchema?: McpJsonSchema;
+  /** JSON Schema `structuredContent` is expected to satisfy (MCP 2025-06-18) */
+  outputSchema?: McpJsonSchema;
+  /** Behavioural hints — untrusted when the server is untrusted */
+  annotations?: McpToolAnnotations;
+}
+
+/** Tool behaviour hints (MCP 2025-06-18 `ToolAnnotations`). Hints only. */
+export interface McpToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
 }
 
 export interface McpResourceDescriptor {
   uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+}
+
+/** A parameterised resource advertised via `resources/templates/list` (RFC 6570 URI template). */
+export interface McpResourceTemplateDescriptor {
+  uriTemplate: string;
   name: string;
   description?: string;
   mimeType?: string;
@@ -122,6 +145,7 @@ export interface McpJsonSchema {
   format?: string;
   $ref?: string;
   oneOf?: McpJsonSchema[];
+  allOf?: McpJsonSchema[];
   anyOf?: McpJsonSchema[];
   additionalProperties?: boolean | McpJsonSchema;
 }
@@ -136,9 +160,12 @@ export interface McpServerCapabilities {
     resources?: { listChanged?: boolean; subscribe?: boolean };
     prompts?: { listChanged?: boolean };
     logging?: Record<string, unknown>;
+    completions?: Record<string, unknown>;
   };
   tools: McpToolDescriptor[];
   resources: McpResourceDescriptor[];
+  /** From `resources/templates/list`; absent when the server has no resources capability. */
+  resourceTemplates?: McpResourceTemplateDescriptor[];
   prompts: McpPromptDescriptor[];
 }
 

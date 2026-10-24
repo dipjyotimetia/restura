@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getKafkaProduceDraft, setKafkaProduceDraft } from '@/lib/shared/streaming/composerDrafts';
 import type { KafkaConnection } from '../../store/useKafkaStore';
 import KafkaClient from '../KafkaClient';
 
@@ -70,6 +71,8 @@ vi.mock('../KafkaProducerPanel', () => ({
     setProducePartition: (value: string) => void;
     setProduceSchemaId: (value: string) => void;
     setProduceKeySchemaId: (value: string) => void;
+    setProduceValueSubject: (value: { subject: string; version: number | 'latest' }) => void;
+    setProduceKeySubject: (value: { subject: string; version: number | 'latest' }) => void;
     setProduceTombstone: (value: boolean) => void;
     onPublish: () => void;
   }) => (
@@ -91,6 +94,20 @@ vi.mock('../KafkaProducerPanel', () => ({
       </button>
       <button type="button" onClick={() => props.setProduceTombstone(true)}>
         Configure tombstone
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          props.setProduceValue('{"event":"created"}');
+          props.setProduceValueSubject({ subject: 'orders-value', version: 'latest' });
+          props.setProduceKey('"k1"');
+          props.setProduceKeySubject({ subject: 'orders-key', version: 3 });
+        }}
+      >
+        Configure subjects
+      </button>
+      <button type="button" onClick={() => props.setProduceValueEncoding('base64' as 'json')}>
+        Configure base64 value
       </button>
       <button type="button" onClick={props.onPublish}>
         Publish from panel
@@ -238,6 +255,28 @@ describe('KafkaClient orchestration', () => {
     );
   });
 
+  it('produces with registry subjects resolved in main and rejects Base64 + subject', async () => {
+    const user = userEvent.setup();
+    render(<KafkaClient />);
+
+    await user.click(screen.getByRole('button', { name: 'Configure subjects' }));
+    await user.click(screen.getByRole('button', { name: 'Publish from panel' }));
+    expect(mocks.produce).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        value: '{"event":"created"}',
+        key: '"k1"',
+        valueSubject: { subject: 'orders-value', version: 'latest' },
+        keySubject: { subject: 'orders-key', version: 3 },
+      })
+    );
+    expect(mocks.produce.mock.lastCall?.[0]).not.toHaveProperty('valueSchemaId');
+
+    mocks.produce.mockClear();
+    await user.click(screen.getByRole('button', { name: 'Configure base64 value' }));
+    await user.click(screen.getByRole('button', { name: 'Publish from panel' }));
+    expect(mocks.produce).not.toHaveBeenCalled();
+  });
+
   it('maps consumer modes and delegates add, remove, subscribe, pause, resume, and unsubscribe', async () => {
     const user = userEvent.setup();
     render(<KafkaClient />);
@@ -279,6 +318,31 @@ describe('KafkaClient orchestration', () => {
     expect(mocks.pauseConsumer).toHaveBeenCalledWith({ connectionId: connection.id });
     expect(mocks.resumeConsumer).toHaveBeenCalledWith({ connectionId: connection.id });
     expect(mocks.unsubscribe).toHaveBeenCalledWith(connection.id);
+  });
+
+  it('opens with a collection preset draft and mirrors edits for Save to Collection (#984)', async () => {
+    setKafkaProduceDraft(connection.id, {
+      key: 'k-1',
+      keyEncoding: 'utf8',
+      value: 'seeded',
+      valueEncoding: 'utf8',
+      headers: [],
+      partition: '',
+    });
+    const user = userEvent.setup();
+    render(<KafkaClient />);
+    await user.click(screen.getByRole('button', { name: 'Publish from panel' }));
+    expect(mocks.produce).toHaveBeenLastCalledWith(
+      expect.objectContaining({ topic: 'orders', key: 'k-1', value: 'seeded' })
+    );
+    // A successful send keeps the payload, so a later save-back keeps the template.
+    expect(getKafkaProduceDraft(connection.id)?.value).toBe('seeded');
+    await user.click(screen.getByRole('button', { name: 'Configure structured record' }));
+    expect(getKafkaProduceDraft(connection.id)).toMatchObject({
+      value: '{"event":"created"}',
+      valueEncoding: 'json',
+      partition: '2',
+    });
   });
 
   it('renders the native desktop guidance when Kafka is unavailable in the browser', () => {

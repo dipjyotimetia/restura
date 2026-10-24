@@ -1,3 +1,4 @@
+import { isMcpOAuthFlow } from '@shared/protocol/mcp-auth';
 import { createLogger } from '@shared/runtime/logger';
 import { type IpcMainInvokeEvent, ipcMain, type WebContents } from 'electron';
 import { z } from 'zod';
@@ -10,6 +11,7 @@ import {
   createValidatedEventHandler,
   createValidatedHandler,
   isStdioConnectPayload,
+  McpCancelSchema,
   McpConnectSchema,
   McpDisconnectSchema,
   McpRequestSchema,
@@ -18,6 +20,13 @@ import {
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
+import {
+  materializeMcpConnectAuth,
+  needsMcpConnectAuth,
+  redactDeep,
+} from '../security/mcp-connect-auth';
+import { createMcpOAuthSession, registerMcpOAuthIPC } from '../security/mcp-oauth-connect';
+import { isMcpOAuthReauthRequired, type McpOAuthSession } from '../security/mcp-oauth-provider';
 import { revokeAllStdioConsents } from '../security/mcp-stdio-consent';
 import {
   assertPinnedFetchCanHonorPolicy,
@@ -26,6 +35,11 @@ import {
   resolvePolicyTransport,
 } from '../security/policy-transport';
 import { resolveSafeAddress } from '../security/safe-connect';
+import {
+  McpClientRequestBridge,
+  registerMcpClientRequestIPC,
+  stopMcpClientRequests,
+} from './mcp-client-requests';
 import { connectMcpSdkClient, type McpSdkClient } from './mcp-sdk-client';
 import { connectStdioSdkClient } from './mcp-stdio-connect';
 import { terminateAllStdioChildren } from './mcp-stdio-session';
@@ -47,6 +61,8 @@ const log = createLogger('mcp');
  */
 
 export const mcpRateLimiter = createKeyedRateLimiter(60, 60_000);
+/** Separate, generous budget so an exhausted request limiter can never block a cancel. */
+export const mcpCancelRateLimiter = createKeyedRateLimiter(600, 60_000);
 const MAX_CONCURRENT_MCP = 20;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -61,16 +77,30 @@ interface McpSession {
   webContentsId: number;
   createdAt: number;
   client?: McpSdkClient;
+  /** Server→client requests (elicitation / sampling / roots) for this session. */
+  clientRequests?: McpClientRequestBridge;
+  /** Scrubs main-resolved auth plaintext (#896) from text sent to the renderer. */
+  redact: (text: string) => string;
+  /** Deep variant of `redact` for server-controlled JSON (results, error data, notifications). */
+  scrub: <T>(value: T) => T;
+  /** MCP OAuth 2.1 session (#856) — tokens live here, in main only. */
+  oauth?: McpOAuthSession;
   /** Set before an intentional close so onclose/onerror don't emit events. */
   disposed: boolean;
   /** stdio only: kill the spawned server process (see mcp-stdio-session.ts). */
   onDispose?: () => void;
+  /** In-flight requests by renderer `requestId`, so `mcp:cancel` can abort them. */
+  inflight: Map<string, AbortController>;
 }
 
 function disposeSession(s: McpSession): void {
   if (s.disposed) return;
   s.disposed = true;
   s.onDispose?.();
+  s.clientRequests?.dispose();
+  s.oauth?.dispose();
+  for (const controller of s.inflight.values()) controller.abort();
+  s.inflight.clear();
   // Best-effort DELETE so well-behaved streamable-HTTP servers can free the session.
   void s.client?.terminateSession().catch(() => {});
   // close() also closes the selected client transport.
@@ -143,7 +173,40 @@ function cancelPendingMcpClaimForOwner(connectionId: string, webContentsId: numb
   return true;
 }
 
+/**
+ * Connect deadline that pauses while the user is signing in in the system
+ * browser (#856) — the loopback receiver enforces its own, longer timeout.
+ */
+function createConnectDeadline(timeoutMs: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let fail: ((err: Error) => void) | undefined;
+  const arm = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(
+      () => fail?.(new Error(`Connection timeout after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+  };
+  return {
+    promise: new Promise<never>((_resolve, reject) => {
+      fail = reject;
+      arm();
+    }),
+    pause: (waiting: boolean) => {
+      if (!waiting) return arm();
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    },
+    clear: () => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    },
+  };
+}
+
 export function registerMcpHandlerIPC(): void {
+  registerMcpClientRequestIPC();
+  registerMcpOAuthIPC();
   ipcMain.handle(IPC.mcp.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.mcp.connect, event);
     if (isStdioConnectPayload(rawConfig)) {
@@ -172,6 +235,11 @@ export function registerMcpHandlerIPC(): void {
     const claim = reserveMcpClaim(config.connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
     const key = ownerScopedKey(config.connectionId, webContentsId);
+    // Scrubs main-resolved credential plaintext from everything this
+    // connection sends back to the renderer (replies, error events) and logs.
+    let redact = (text: string) => text;
+    let headers = config.headers ?? {};
+    let hasResolvedSecrets = false;
 
     try {
       // SSRF guard: resolve once, validate every record, and pin the connection
@@ -179,10 +247,12 @@ export function registerMcpHandlerIPC(): void {
       // desktop-only; permit localhost (developers commonly run MCP servers
       // locally). SNI/Host stay on the original hostname.
       let pinnedFetch: typeof globalThis.fetch;
+      let pinnedIp: string;
       try {
         const pinned = await resolveSafeAddress(policyConfig.url, {
           ...getExecutionPolicy().security,
         });
+        pinnedIp = pinned.ip;
         pinnedFetch = createPolicyPinnedFetch(policyConfig, pinned);
       } catch (err) {
         return { success: false, error: errorMessage(err) };
@@ -194,19 +264,72 @@ export function registerMcpHandlerIPC(): void {
         return { success: false, error: 'Not connected' };
       }
 
+      // #896: resolve SecretRef-handle / external auth here (ADR-0007) — after
+      // the rate / capacity gates AND the SSRF guard, so a blocked URL never
+      // triggers a keychain or vault lookup. Header only: the URL pinned above
+      // is never changed.
+      const deadline = createConnectDeadline(policyConfig.timeout);
+      deadline.promise.catch(() => undefined);
+      let oauth: McpOAuthSession | undefined;
+      if (isMcpOAuthFlow(config.auth)) {
+        // #856: interactive OAuth 2.1 — tokens are acquired, stored and
+        // refreshed in main; nothing token-shaped is ever sent back.
+        try {
+          oauth = createMcpOAuthSession(
+            policyConfig.url,
+            config.auth ?? {},
+            { onAuthorizationWait: deadline.pause },
+            pinnedIp
+          );
+        } catch (err) {
+          deadline.clear();
+          return { success: false, error: `MCP auth setup failed: ${errorMessage(err)}` };
+        }
+        redact = oauth.redact;
+        hasResolvedSecrets = true;
+      } else if (needsMcpConnectAuth(config)) {
+        try {
+          const materialized = await materializeMcpConnectAuth({
+            url: policyConfig.url,
+            headers,
+            auth: config.auth,
+          });
+          headers = materialized.headers;
+          redact = materialized.redact;
+          hasResolvedSecrets = true;
+        } catch (err) {
+          deadline.clear();
+          // Materializer errors are plaintext-free by construction.
+          return { success: false, error: `MCP auth setup failed: ${errorMessage(err)}` };
+        }
+        if (pendingSessions.get(key)?.token !== claim.token) {
+          deadline.clear();
+          return { success: false, error: 'Not connected' };
+        }
+      }
+      // Server-controlled payloads (results, error data, notifications) may
+      // echo the resolved credential — scrub them before they reach the renderer.
+      const scrub = <T>(value: T): T => (hasResolvedSecrets ? redactDeep(value, redact) : value);
+
       // User headers ride as the transport's base `requestInit`; the SDK applies
       // them to every request (the GET SSE stream included) and sets its own
       // protocol headers (Accept, Content-Type) after the merge, so they win.
       const transportOptions = {
         fetch: pinnedFetch as (url: string | URL, init?: RequestInit) => Promise<Response>,
-        requestInit: { headers: config.headers ?? {} },
+        requestInit: { headers },
+        ...(oauth ? { authProvider: oauth.authProvider } : {}),
       };
       const session: McpSession = {
         connectionId: config.connectionId,
         url: policyConfig.url,
         webContentsId,
         createdAt: Date.now(),
+        redact,
+        scrub,
+        ...(oauth ? { oauth } : {}),
         disposed: false,
+        clientRequests: new McpClientRequestBridge(config.connectionId, webContentsId),
+        inflight: new Map(),
       };
 
       const events = {
@@ -215,12 +338,12 @@ export function registerMcpHandlerIPC(): void {
           emitTo(
             webContentsId,
             eventChannel(EVENT_PREFIX.mcp.notification, config.connectionId),
-            notification
+            scrub(notification)
           );
         },
         onError: (err: Error) => {
           if (session.disposed) return;
-          const message = errorMessage(err);
+          const message = redact(errorMessage(err));
           log.warn('client error', { connectionId: config.connectionId, error: message });
           emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.error, config.connectionId), {
             message,
@@ -229,6 +352,7 @@ export function registerMcpHandlerIPC(): void {
         onClose: () => {
           if (session.disposed) return;
           session.disposed = true;
+          session.clientRequests?.dispose();
           if (sessions.get(config.connectionId, webContentsId) === session) {
             sessions.remove(config.connectionId, webContentsId);
             emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.close, config.connectionId), {
@@ -239,6 +363,7 @@ export function registerMcpHandlerIPC(): void {
       };
 
       if (pendingSessions.get(key)?.token !== claim.token) {
+        deadline.clear();
         disposeSession(session);
         return { success: false, error: 'Not connected' };
       }
@@ -247,7 +372,6 @@ export function registerMcpHandlerIPC(): void {
       try {
         // v2 probes for modern protocol support and falls back internally to
         // the legacy initialize handshake when the peer is 2025-era.
-        let connectTimeoutId: ReturnType<typeof setTimeout> | undefined;
         try {
           await Promise.race([
             connectMcpSdkClient({
@@ -255,22 +379,23 @@ export function registerMcpHandlerIPC(): void {
               transport: config.transport,
               transportOptions,
               events,
+              ...(session.clientRequests ? { clientRequests: session.clientRequests } : {}),
               onClientCreated: (client) => {
                 session.client = client;
+                session.clientRequests?.attachClient(client);
               },
-            }).then((client) => {
+            }).then(async (client) => {
               session.client = client;
+              // Sign in now if `initialize` got through without a token.
+              await oauth?.ensureSignedIn();
             }),
-            new Promise<never>((_resolve, reject) => {
-              connectTimeoutId = setTimeout(
-                () => reject(new Error(`Connection timeout after ${policyConfig.timeout}ms`)),
-                policyConfig.timeout
-              );
-            }),
+            deadline.promise,
           ]);
         } finally {
-          if (connectTimeoutId !== undefined) clearTimeout(connectTimeoutId);
+          deadline.clear();
         }
+        // A lapsed OAuth session now prompts the renderer instead of popping a browser.
+        oauth?.endInteractive();
         // Guard the connect-time race: if onclose/onerror fired DURING the
         // handshake, `session.disposed` is already true but the session was not in
         // the registry yet, so onclose's `sessions.get(...) === session` guard
@@ -281,6 +406,7 @@ export function registerMcpHandlerIPC(): void {
           if (pendingSessions.get(key)?.token === claim.token) {
             void session.client?.close().catch(() => {});
           }
+          oauth?.dispose();
           log.warn('connect closed during initialization', {
             connectionId: config.connectionId,
           });
@@ -304,11 +430,19 @@ export function registerMcpHandlerIPC(): void {
       } catch (err) {
         if (!session.disposed) {
           session.disposed = true;
+          session.clientRequests?.dispose();
           void session.client?.close().catch(() => {});
         }
-        const message = errorMessage(err);
+        oauth?.dispose();
+        const message = redact(errorMessage(err));
         log.warn('connect failed', { connectionId: config.connectionId, error: message });
-        return { success: false, error: message };
+        return {
+          success: false,
+          error: message,
+          ...(oauth && (oauth.reauthRequired || isMcpOAuthReauthRequired(err))
+            ? { authRequired: true }
+            : {}),
+        };
       }
     } finally {
       releaseMcpClaim(config.connectionId, claim);
@@ -325,6 +459,7 @@ export function registerMcpHandlerIPC(): void {
           return { success: false, error: 'Not connected' };
         }
         const timeoutMs = config.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS;
+        const controller = new AbortController();
 
         try {
           // The SDK already ran initialize during connect; forwarding another
@@ -334,11 +469,11 @@ export function registerMcpHandlerIPC(): void {
             const protocolVersion = session.client.getProtocolVersion();
             return {
               success: true,
-              result: {
+              result: session.scrub({
                 protocolVersion,
                 capabilities: session.client.getServerCapabilities() ?? {},
                 serverInfo: session.client.getServerVersion(),
-              },
+              }),
             };
           }
 
@@ -349,9 +484,32 @@ export function registerMcpHandlerIPC(): void {
 
           // The v2 client owns request schemas and JSON-RPC ids; the renderer
           // only receives the normalized result.
-          const result = await session.client.request(config.method, config.params, timeoutMs);
-          return { success: true, result };
+          // A renderer-supplied requestId makes the call cancellable via `mcp:cancel`.
+          // Aborting the signal makes the SDK send `notifications/cancelled` and
+          // drop any late response.
+          const cancelKey = config.requestId === undefined ? undefined : String(config.requestId);
+          if (cancelKey !== undefined) {
+            if (session.inflight.has(cancelKey)) {
+              return { success: false, error: 'Duplicate in-flight requestId' };
+            }
+            session.inflight.set(cancelKey, controller);
+          }
+          try {
+            const result = await session.client.request(
+              config.method,
+              config.params,
+              timeoutMs,
+              controller.signal
+            );
+            if (controller.signal.aborted) return { success: false, cancelled: true };
+            return { success: true, result: session.scrub(result) };
+          } finally {
+            if (cancelKey !== undefined && session.inflight.get(cancelKey) === controller) {
+              session.inflight.delete(cancelKey);
+            }
+          }
         } catch (err) {
+          if (controller.signal.aborted) return { success: false, cancelled: true };
           if (
             err &&
             typeof err === 'object' &&
@@ -361,11 +519,40 @@ export function registerMcpHandlerIPC(): void {
             const typed = err as { code: number; message: string; data?: unknown };
             return {
               success: false,
-              jsonRpcError: { code: typed.code, message: typed.message, data: typed.data },
+              jsonRpcError: {
+                code: typed.code,
+                message: session.redact(typed.message),
+                data: session.scrub(typed.data),
+              },
             };
           }
-          return { success: false, error: errorMessage(err) };
+          // #856: a refresh failed mid-session — tell the renderer to prompt
+          // for a fresh sign-in (reconnect) rather than retrying blindly.
+          const authRequired =
+            session.oauth !== undefined &&
+            (session.oauth.reauthRequired || isMcpOAuthReauthRequired(err));
+          return {
+            success: false,
+            error: session.redact(errorMessage(err)),
+            ...(authRequired ? { authRequired: true } : {}),
+          };
         }
+      })
+    )
+  );
+
+  ipcMain.handle(
+    IPC.mcp.cancel,
+    rateLimited(
+      mcpCancelRateLimiter,
+      createValidatedEventHandler(IPC.mcp.cancel, McpCancelSchema, async (config, event) => {
+        // Missing, already-finished, and wrong-owner ids are indistinguishable.
+        const controller = sessions
+          .getForOwner(config.connectionId, event.sender.id)
+          ?.inflight.get(String(config.requestId));
+        if (!controller) return { success: false };
+        controller.abort();
+        return { success: true };
       })
     )
   );
@@ -422,7 +609,11 @@ async function connectStdio(
       url: `stdio:${config.command}`,
       webContentsId,
       createdAt: Date.now(),
+      // stdio has no main-resolved header auth to scrub from results.
+      redact: (text) => text,
+      scrub: (value) => value,
       disposed: false,
+      inflight: new Map(),
     };
     const result = await connectStdioSdkClient({
       config,
@@ -471,4 +662,5 @@ export function stopMcpCleanup(): Promise<void> {
   pendingSessions.clear();
   sessions.disposeAll();
   return terminateAllStdioChildren();
+  stopMcpClientRequests();
 }

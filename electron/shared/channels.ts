@@ -78,9 +78,16 @@ export const IPC = {
   mcp: {
     connect: 'mcp:connect',
     request: 'mcp:request',
+    cancel: 'mcp:cancel',
     disconnect: 'mcp:disconnect',
     /** Clear every persisted stdio launch approval (narrows privilege only). */
     revokeStdioApprovals: 'mcp:stdio:revoke-approvals',
+    /** Renderer → main answer to a server→client request (elicitation / sampling). */
+    clientResponse: 'mcp:client-response',
+    /** Replace a connection's roots; sends notifications/roots/list_changed. */
+    setRoots: 'mcp:set-roots',
+    oauthStatus: 'mcp:oauth:status',
+    oauthSignOut: 'mcp:oauth:signOut',
   },
   kafka: {
     connect: 'kafka:connect',
@@ -94,6 +101,9 @@ export const IPC = {
     subscribe: 'kafka:subscribe',
     pauseConsumer: 'kafka:consumer-pause',
     resumeConsumer: 'kafka:consumer-resume',
+    pausePartitions: 'kafka:consumer-pause-partitions',
+    resumePartitions: 'kafka:consumer-resume-partitions',
+    seekConsumer: 'kafka:consumer-seek',
     commitMessage: 'kafka:consumer-commit-message',
     unsubscribe: 'kafka:unsubscribe',
     disconnect: 'kafka:disconnect',
@@ -105,6 +115,7 @@ export const IPC = {
     inspectGroup: 'kafka:inspect-group',
     resetGroupOffsets: 'kafka:reset-group-offsets',
     deleteGroup: 'kafka:delete-group',
+    deleteGroupOffsets: 'kafka:delete-group-offsets',
     createPartitions: 'kafka:create-partitions',
     alterTopicConfigs: 'kafka:alter-topic-configs',
     deleteRecords: 'kafka:delete-records',
@@ -114,6 +125,9 @@ export const IPC = {
     deleteAcls: 'kafka:delete-acls',
     describeQuotas: 'kafka:describe-quotas',
     alterQuotas: 'kafka:alter-quotas',
+    registryListSubjects: 'kafka:registry-list-subjects',
+    registryListVersions: 'kafka:registry-list-versions',
+    registryGetSchema: 'kafka:registry-get-schema',
   },
   mqtt: {
     connect: 'mqtt:connect',
@@ -288,6 +302,10 @@ export const EVENT_PREFIX = {
     close: 'mcp:close:',
     /** Bounded stderr text from a stdio server process (desktop only). */
     stderr: 'mcp:stderr:',
+    /** Main → renderer: a server→client request awaiting the user (elicitation / sampling). */
+    clientRequest: 'mcp:client-request:',
+    /** Main → renderer: a pending client request was cancelled, timed out, or its connection closed. */
+    clientRequestCancelled: 'mcp:client-request-cancelled:',
   },
   kafka: {
     connected: 'kafka:connected:',

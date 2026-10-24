@@ -24,6 +24,11 @@ describe('isSecretFieldName', () => {
       'password',
       'awsSignature',
       'Cookie',
+      // Gateway-style credential headers (#896).
+      'X-Auth',
+      'X-MCP-Auth',
+      'X-Gateway-Authz',
+      'auth',
     ]) {
       expect(isSecretFieldName(name), name).toBe(true);
     }
@@ -42,6 +47,7 @@ describe('isSecretFieldName', () => {
       'partitionKey',
       'idempotencyKey',
       'X-Author',
+      'authorName',
       'X-Request-Id',
       'traceparent',
       'monkey',

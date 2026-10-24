@@ -1,0 +1,41 @@
+# ADR 0031: MCP OAuth 2.1 Runs in Electron Main with a Loopback Redirect
+
+**Status:** Accepted, 2026-10-18
+
+## Context
+
+Remote MCP servers increasingly require the spec's authorization flow (MCP 2025-06-18 / 2025-11-25 *Basic → Authorization*): OAuth 2.1 with PKCE, RFC 9728 Protected Resource Metadata discovery from a `401` + `WWW-Authenticate`, RFC 8414 authorization-server metadata, RFC 7591 Dynamic Client Registration, and RFC 8707 resource indicators ([#856](https://github.com/dipjyotimetia/restura/issues/856)). Restura only supported static header credentials ([#896](https://github.com/dipjyotimetia/restura/issues/896)).
+
+This adds a new trust flow. The client follows URLs the MCP server and the authorization server (AS) choose, opens a browser, receives an authorization code, and holds long-lived refresh tokens. Each step is an SSRF, phishing, or secret-leak risk. The existing HTTP OAuth 2.0 helper runs in the renderer (popup + `window.open`), so tokens end up in renderer state. [ADR 0007](./0007-secret-ref-pattern.md) says the renderer must never see secret plaintext.
+
+## Decision
+
+Run the whole MCP OAuth flow in the **Electron main process**, built on the MCP SDK's `OAuthClientProvider` and `auth()` orchestrator.
+
+- **Restura drives `auth()`.** The transports get only a minimal `AuthProvider` (`token()`, `onUnauthorized()`), not the OAuth provider itself. Every OAuth request then uses a dedicated guarded fetch, and the MCP transport keeps its DNS-pinned fetch, which refuses any other hostname. The SDK does PRM discovery and the resource match check, AS metadata with the RFC 8414 issuer-echo check (never skipped), DCR, PKCE S256, the `resource` parameter, RFC 9207 `iss` validation, the refresh grant, and its https-only token endpoint rule.
+- **Guarded OAuth fetch** (`electron/main/security/mcp-oauth-fetch.ts`): `https:` only, or `http:` to a loopback host when the desktop localhost setting allows it. Every URL also passes the shared `validateURL` policy and is resolved and pinned with `resolveSafeAddress` under the acknowledged TLS policy. Redirects are never followed automatically: a GET hop is re-validated (at most 3), and a POST redirect (token or registration) fails closed. Responses are capped at 256 KiB and 15 s.
+- **Remote → local pivot guard.** OAuth endpoints get their own policy, narrower than the global one. The localhost exception applies only when the MCP server itself is loopback, and private IPs are allowed only when the MCP server resolved to a private address. A remote server can't point PRM, registration, token, or authorization URLs at `127.0.0.1` or the LAN. MCP servers that are neither https nor loopback can't use OAuth at all.
+- **Static clients are bound to one authorization server.** A static client secret needs an explicit **issuer**. The client information is stamped with it, so if discovery lands on another AS the SDK throws `AuthorizationServerMismatchError` before any authorize or token request, and the secret is never sent. A public static client is pinned on first use (TOFU): `staticClientIssuer` is saved on the first successful sign-in. Sign-out clears the pin.
+- **System browser + RFC 8252 loopback redirect** (`mcp-oauth-loopback.ts`). A one-shot listener on `127.0.0.1` (never `0.0.0.0`) uses an ephemeral port, or the port of an existing DCR registration or a user-pinned redirect URI. It checks the `Host` header, compares `state` exactly in constant time and ignores mismatches so a local process can't abort the flow, accepts one callback, and times out after 5 min or on disconnect. The authorization URL is validated before `shell.openExternal`. Only a sanitised AS `error` code is shown. A pinned redirect URI must use `127.0.0.1`: `localhost` and `[::1]` are rejected because the listener is IPv4-only. The `restura://` deep-link handler was **not** reused: it forwards payloads to the renderer and any app can invoke it, while the loopback keeps the code in main.
+- **Storage:** tokens and DCR registrations live only in the encrypted secret handle store, as one record per (resource, static client id | DCR) under the scope `internal:mcp-oauth` with a deterministic UUID-shaped id. `resolveSecretHandle`, which every renderer-supplied `{kind:'handle'}` goes through, **refuses** `internal:` records, and `secret:store` cannot overwrite them. The renderer can list their metadata and delete them ("Sign out"). A static client secret stays in the user's own SecretRef handle. The PKCE verifier, state, and discovery state stay in memory for one flow.
+- **Sign-out ends live sessions.** Each token read re-checks the stored record. If the record was deleted (sign-out, or Settings → Secrets), a live session stops using its in-memory copy and asks the user to sign in again.
+- **Errors** from the OAuth, registration, and discovery steps reach the renderer and logs only as `MCP OAuth failed (<code>): <message>`, cut to 300 characters with control characters removed.
+- **Refresh:** the token is refreshed proactively 60 s before expiry, and reactively when the server returns `401`. The browser opens only during a user-initiated connect. After connect, a session that can't refresh raises `McpOAuthReauthRequiredError`, and `mcp:request`/`mcp:connect` reply with `authRequired: true`. The renderer then asks the user to reconnect, which re-runs the browser flow. A refresh is tried before any loopback receiver opens, so a busy redirect port never blocks it. If the handshake succeeded without a token (the server allows an anonymous `initialize` but gates later calls), connect signs in before it returns, so the reconnect can't loop back into the same prompt.
+- **Redaction:** each session redacts every access token, refresh token, client secret, and authorization code it has handled from replies, events, and logs, using the #896 `redact` / `redactDeep` path.
+- **IPC:** `mcp:connect` carries only the flow configuration (client id, client-secret SecretRef, scope, redirect URI). `mcp:oauth:status` returns plaintext-free status and `mcp:oauth:signOut` deletes the record. Both are validated, rate-limited, and accept only trusted senders.
+- **Web and CLI:** not supported. A Worker-assisted flow would need per-user server-side token storage (the Worker is stateless) or would give the browser the tokens, and a loopback redirect is impossible there. The web editor hides the option and the connect fails closed. The CLI rejects the interactive flow. CI can pass an access token or Bearer auth instead.
+
+## Consequences
+
+- Spec-compliant MCP OAuth works on desktop with no plaintext token ever in renderer state, Dexie, the renderer's electron-store slice, exports, console, or history.
+- Hardening `resolveSecretHandle` for `internal:` scopes is a general building block: other main-owned secrets can use it.
+- Parity gap: web, self-host, and CLI don't support the browser sign-in (recorded in `capabilities.ts` as `mcp.oauth`).
+- Refresh-token rotation across two concurrent sessions for the same server can race. One session may get `invalid_grant` and fall back to a sign-in prompt. This is acceptable for a desktop client.
+- Residual risks:
+  - The browser opens without first showing the authorization server's origin (the renderer gets no event mid-connect).
+  - The global mTLS / `verifySsl` policy also applies to AS endpoints the attacker picks.
+  - On Windows, a port reused for a DCR registration may be taken over between flows; `state` and PKCE still protect the exchange.
+  - Legacy servers without PRM get no `resource`-bound token beyond what the SDK derives from the server URL.
+- Not done: step-up authorization on `403 insufficient_scope` (it surfaces as an error; reconnect with a wider scope), DPoP, and client-ID metadata documents.
+
+Pinned by `electron/main/__tests__/mcp-oauth.integration.test.ts` (mock AS + real MCP server), `mcp-oauth-fetch.test.ts`, `mcp-oauth-loopback.test.ts`, `mcp-oauth-provider.test.ts`, and `secret-handle-store.test.ts`.

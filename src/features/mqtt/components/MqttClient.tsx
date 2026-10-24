@@ -25,6 +25,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { mqttManager, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
+import { resolveMqttText } from '@/features/mqtt/lib/mqttVariables';
 import { type PublishInput, publishWithVariables } from '@/features/mqtt/lib/publishWithVariables';
 import type { MqttMessage, MqttQoS } from '@/features/mqtt/store/useMqttStore';
 import { MQTT_SECRET_SENTINEL, useMqttStore } from '@/features/mqtt/store/useMqttStore';
@@ -37,6 +38,7 @@ import {
 } from '@/lib/shared/streaming/messageTemplates';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { useActiveTabId } from '@/store/selectors';
+import { useMqttComposer } from '../hooks/useMqttComposer';
 import { MqttConnectionForm } from './MqttConnectionForm';
 import { MqttMessagesPanel } from './MqttMessagesPanel';
 import { MqttSubscriptionsPanel } from './MqttSubscriptionsPanel';
@@ -110,24 +112,30 @@ function MqttClient() {
     if (activeTabId && isDesktop) ensureConnectionForTab(activeTabId);
   }, [activeTabId, ensureConnectionForTab, isDesktop]);
 
-  const [passwordDraft, setPasswordDraft] = useState('');
-  const [passphraseDraft, setPassphraseDraft] = useState('');
-  const [pubTopic, setPubTopic] = useState('');
-  const [pubPayload, setPubPayload] = useState('');
-  const [pubQos, setPubQos] = useState<MqttQoS>(0);
-  const [pubRetain, setPubRetain] = useState(false);
-  const [subTopic, setSubTopic] = useState('');
-  const [subQos, setSubQos] = useState<MqttQoS>(0);
+  // Composer + credential drafts, seeded from / mirrored to collection presets (#984).
+  const {
+    passwordDraft,
+    setPasswordDraft,
+    passphraseDraft,
+    setPassphraseDraft,
+    pubTopic,
+    setPubTopic,
+    pubPayload,
+    setPubPayload,
+    pubQos,
+    setPubQos,
+    pubRetain,
+    setPubRetain,
+    subTopic,
+    setSubTopic,
+    subQos,
+    setSubQos,
+  } = useMqttComposer(activeConnectionId);
   const [activeTab, setActiveTab] = useState('messages');
   const [paused, setPaused] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
 
   useEffect(() => {
-    setPasswordDraft('');
-    setPassphraseDraft('');
-    setPubTopic('');
-    setPubPayload('');
-    setSubTopic('');
     setSelectedMessageId(null);
     setPaused(false);
   }, [activeConnectionId]);
@@ -177,7 +185,8 @@ function MqttClient() {
       next = { ...next, tls };
       setPassphraseDraft('');
     }
-    await mqttManager.connect(next);
+    // The broker URL may hold {{var}} tokens (e.g. from a collection preset, #984).
+    await mqttManager.connect({ ...next, brokerUrl: resolveMqttText(next.id, next.brokerUrl) });
   };
 
   const handleDisconnect = async (): Promise<void> => {
@@ -190,7 +199,6 @@ function MqttClient() {
   const handlePublish = async (): Promise<void> => {
     if (!connection || !pubTopic) return;
     await publishInput({ topic: pubTopic, payload: pubPayload, qos: pubQos, retain: pubRetain });
-    setPubPayload('');
   };
   const templates = connection?.templates ?? [];
   const createTemplate = (): MqttPublishTemplate | null =>
@@ -208,10 +216,9 @@ function MqttClient() {
     if (!connection || !subTopic.trim()) return;
     await mqttManager.subscribe({
       connectionId: connection.id,
-      topicFilter: subTopic.trim(),
+      topicFilter: resolveMqttText(connection.id, subTopic.trim()),
       qos: subQos,
     });
-    setSubTopic('');
   };
   const handleUnsubscribe = async (topicFilter: string): Promise<void> => {
     if (connection) await mqttManager.unsubscribe(connection.id, topicFilter);

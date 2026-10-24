@@ -44,10 +44,17 @@ export const protocolApi: ProtocolApi = {
   mcp: {
     connect: invoke<ElectronAPI['mcp']['connect']>(IPC.mcp.connect),
     request: invoke<ElectronAPI['mcp']['request']>(IPC.mcp.request),
+    cancel: invoke<ElectronAPI['mcp']['cancel']>(IPC.mcp.cancel),
     disconnect: invoke<ElectronAPI['mcp']['disconnect']>(IPC.mcp.disconnect),
     revokeStdioApprovals: invoke<ElectronAPI['mcp']['revokeStdioApprovals']>(
       IPC.mcp.revokeStdioApprovals
     ),
+    respondClientRequest: invoke<ElectronAPI['mcp']['respondClientRequest']>(
+      IPC.mcp.clientResponse
+    ),
+    setRoots: invoke<ElectronAPI['mcp']['setRoots']>(IPC.mcp.setRoots),
+    oauthStatus: invoke<ElectronAPI['mcp']['oauthStatus']>(IPC.mcp.oauthStatus),
+    oauthSignOut: invoke<ElectronAPI['mcp']['oauthSignOut']>(IPC.mcp.oauthSignOut),
     ...channelEventBridge(CHANNEL_PREFIXES.mcp),
   },
   kafka: {
@@ -68,6 +75,9 @@ export const protocolApi: ProtocolApi = {
     subscribe: invoke<ElectronAPI['kafka']['subscribe']>(IPC.kafka.subscribe),
     pauseConsumer: invoke<ElectronAPI['kafka']['pauseConsumer']>(IPC.kafka.pauseConsumer),
     resumeConsumer: invoke<ElectronAPI['kafka']['resumeConsumer']>(IPC.kafka.resumeConsumer),
+    pausePartitions: invoke<ElectronAPI['kafka']['pausePartitions']>(IPC.kafka.pausePartitions),
+    resumePartitions: invoke<ElectronAPI['kafka']['resumePartitions']>(IPC.kafka.resumePartitions),
+    seekConsumer: invoke<ElectronAPI['kafka']['seekConsumer']>(IPC.kafka.seekConsumer),
     commitMessage: invoke<ElectronAPI['kafka']['commitMessage']>(IPC.kafka.commitMessage),
     unsubscribe: invoke<ElectronAPI['kafka']['unsubscribe']>(IPC.kafka.unsubscribe),
     disconnect: invoke<ElectronAPI['kafka']['disconnect']>(IPC.kafka.disconnect),
@@ -81,6 +91,9 @@ export const protocolApi: ProtocolApi = {
       IPC.kafka.resetGroupOffsets
     ),
     deleteGroup: invoke<ElectronAPI['kafka']['deleteGroup']>(IPC.kafka.deleteGroup),
+    deleteGroupOffsets: invoke<ElectronAPI['kafka']['deleteGroupOffsets']>(
+      IPC.kafka.deleteGroupOffsets
+    ),
     createPartitions: invoke<ElectronAPI['kafka']['createPartitions']>(IPC.kafka.createPartitions),
     alterTopicConfigs: invoke<ElectronAPI['kafka']['alterTopicConfigs']>(
       IPC.kafka.alterTopicConfigs
@@ -92,6 +105,15 @@ export const protocolApi: ProtocolApi = {
     deleteAcls: invoke<ElectronAPI['kafka']['deleteAcls']>(IPC.kafka.deleteAcls),
     describeQuotas: invoke<ElectronAPI['kafka']['describeQuotas']>(IPC.kafka.describeQuotas),
     alterQuotas: invoke<ElectronAPI['kafka']['alterQuotas']>(IPC.kafka.alterQuotas),
+    registryListSubjects: invoke<ElectronAPI['kafka']['registryListSubjects']>(
+      IPC.kafka.registryListSubjects
+    ),
+    registryListVersions: invoke<ElectronAPI['kafka']['registryListVersions']>(
+      IPC.kafka.registryListVersions
+    ),
+    registryGetSchema: invoke<ElectronAPI['kafka']['registryGetSchema']>(
+      IPC.kafka.registryGetSchema
+    ),
     ...channelEventBridge(CHANNEL_PREFIXES.kafka),
   },
   mqtt: {

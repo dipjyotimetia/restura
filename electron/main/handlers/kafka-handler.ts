@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type * as SchemaRegistryLib from '@kafkajs/confluent-schema-registry';
 import type * as KafkaLib from '@platformatic/kafka';
 import { createLogger } from '@shared/runtime/logger';
 import type { WebContents } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import { IPC } from '../../shared/channels';
-import { KAFKA_CHANNEL, kafkaChannel } from '../../shared/kafka-channels';
+import { KAFKA_CHANNEL, type KafkaChannelPrefix, kafkaChannel } from '../../shared/kafka-channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
@@ -14,9 +13,7 @@ import {
   createValidatedEventHandler,
   type KafkaCommitMessageConfig,
   KafkaCommitMessageSchema,
-  type KafkaConnectConfig,
   KafkaConnectSchema,
-  KafkaConsumerControlSchema,
   KafkaDisconnectSchema,
   KafkaSubscribeSchema,
   KafkaUnsubscribeSchema,
@@ -24,23 +21,33 @@ import {
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
-import {
-  type BrokerTlsOptions,
-  resolveKafkaExecutionPolicy,
-} from '../security/broker-execution-policy';
 import { getExecutionPolicy } from '../security/execution-policy';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
+import {
+  browseConsumerOptions,
+  onBrowseStreamFinished,
+  openBrowseStream,
+} from './kafka/browse-consumer';
+import { buildClientOptions, type KafkaClientOptions } from './kafka/client-options';
+import { registerKafkaConsumerControlHandlers } from './kafka/consumer-control-handlers';
+import {
+  type ConsumerStreamHooks,
+  fallbackModeValue,
+  type KafkaConsumerSession,
+  subscriptionSession,
+} from './kafka/consumer-session';
 import {
   type AppProducer,
   closeKafkaProducerSessions,
   type KafkaProducerEntry,
   registerKafkaProducerHandlers,
 } from './kafka/producer-handlers';
-import { decodeDisplayField } from './kafka-serde';
+import { createKafkaRegistryClient, type KafkaRegistryClient } from './kafka/registry';
+import { registerKafkaRegistryHandlers } from './kafka/registry-handlers';
+import { decodeDisplayField, headersFromMap } from './kafka-serde';
 
 const log = createLogger('kafka');
-type SchemaRegistry = SchemaRegistryLib.SchemaRegistry;
 type Consumer<K, V, HK, HV> = KafkaLib.Consumer<K, V, HK, HV>;
 type ConsumerOptions<K, V, HK, HV> = KafkaLib.ConsumerOptions<K, V, HK, HV>;
 type Message<K, V, HK, HV> = KafkaLib.Message<K, V, HK, HV>;
@@ -55,9 +62,6 @@ const getKafka = (): typeof KafkaLib => (_kafka ??= require('@platformatic/kafka
 export function __setKafkaForTests(lib: typeof KafkaLib | undefined): void {
   _kafka = lib;
 }
-let _schemaRegistryLib: typeof SchemaRegistryLib | undefined;
-const getSchemaRegistryLib = (): typeof SchemaRegistryLib =>
-  (_schemaRegistryLib ??= require('@kafkajs/confluent-schema-registry'));
 
 const rawSerializer = (data: Buffer | undefined): Buffer | undefined => data;
 const rawDeserializer = (data: Buffer): Buffer | undefined =>
@@ -77,28 +81,16 @@ interface ActiveKafka extends KafkaProducerEntry {
   /** Producer-only option; the shared client options also feed Consumer/Admin. */
   idempotent: boolean;
   transactionalId?: string;
-  registry?: SchemaRegistry;
   /** Serializes async decode/emission in arrival order. */
   emitChain: Promise<void>;
+  /** Flow control, partition pauses and repositioning for the active consumer stream. */
+  session?: KafkaConsumerSession;
   pendingCommits: Map<string, AppMessage>;
   manualCommit: boolean;
   wc?: WebContents;
   createdAt: number;
 }
 
-interface KafkaClientOptions {
-  clientId: string;
-  bootstrapBrokers: string[];
-  sasl?: {
-    mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512' | 'OAUTHBEARER';
-    username?: string;
-    password?: string;
-    token?: string;
-    oauthBearerExtensions?: Record<string, string>;
-  };
-  tls?: BrokerTlsOptions;
-  connectTimeout?: number;
-}
 // Awaited teardown stays in this handler; registry disposal covers renderer death.
 const activeConnections = new StreamRegistry<ActiveKafka>({
   dispose: (e) => {
@@ -163,52 +155,8 @@ function emitToEntry(entry: ActiveKafka, channel: string, ...args: unknown[]): v
   emitTo(entry.webContentsId, channel, ...args);
 }
 
-function buildClientOptions(cfg: KafkaConnectConfig): KafkaClientOptions {
-  const opts: KafkaClientOptions = {
-    clientId: cfg.clientId,
-    bootstrapBrokers: cfg.bootstrapBrokers,
-  };
-
-  const useTls = cfg.auth.securityProtocol === 'SSL' || cfg.auth.securityProtocol === 'SASL_SSL';
-
-  if (cfg.auth.securityProtocol !== 'PLAINTEXT' && 'sasl' in cfg.auth && cfg.auth.sasl) {
-    opts.sasl =
-      cfg.auth.sasl.mechanism === 'OAUTHBEARER'
-        ? {
-            mechanism: 'OAUTHBEARER',
-            token: cfg.auth.sasl.token,
-            ...(cfg.auth.sasl.extensions
-              ? { oauthBearerExtensions: cfg.auth.sasl.extensions }
-              : {}),
-          }
-        : {
-            mechanism: cfg.auth.sasl.mechanism,
-            username: cfg.auth.sasl.username,
-            password: cfg.auth.sasl.password,
-          };
-  }
-
-  const explicitTls = useTls && 'tls' in cfg.auth ? cfg.auth.tls : undefined;
-  const policyConfig = resolveKafkaExecutionPolicy({
-    bootstrapBrokers: cfg.bootstrapBrokers,
-    usesTls: useTls,
-    ...(explicitTls ? { tls: explicitTls } : {}),
-  });
-  opts.connectTimeout = policyConfig.connectTimeout;
-  if (policyConfig.tls) opts.tls = policyConfig.tls;
-
-  return opts;
-}
-
-function headersFromMap(map: Map<Buffer, Buffer> | undefined): Record<string, string> {
-  if (!map) return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of map) {
-    out[k.toString('utf8')] = v.toString('utf8');
-  }
-  return out;
-}
 async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
+  await entry.session?.close(); // final commit of delivered positions
   if (entry.stream) {
     try {
       await Promise.resolve(entry.stream.close());
@@ -216,6 +164,7 @@ async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
       /* ignore */
     }
     entry.stream = undefined;
+    entry.session = undefined;
   }
   if (entry.consumer) {
     try {
@@ -245,15 +194,21 @@ async function closeConnection(entry: ActiveKafka): Promise<void> {
   } catch {
     /* ignore */
   }
+  entry.registry?.close();
 }
 
-async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise<void> {
+async function emitConsumedMessage(
+  entry: ActiveKafka,
+  msg: AppMessage,
+  signal?: AbortSignal
+): Promise<void> {
   const key = msg.key == null ? undefined : await decodeDisplayField(entry.registry, msg.key);
   const value =
     msg.value == null
       ? { value: '', encoding: 'utf8' as const }
       : await decodeDisplayField(entry.registry, msg.value);
-  if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
+  if (signal?.aborted || activeConnections.get(entry.connectionId, entry.webContentsId) !== entry)
+    return;
   let commitToken: string | undefined;
   if (entry.manualCommit) {
     commitToken = randomUUID();
@@ -269,8 +224,10 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
     partition: msg.partition,
     offset: msg.offset.toString(),
     ...(key ? { key: key.value, keyEncoding: key.encoding } : {}),
+    ...(key?.schema ? { keySchema: key.schema } : {}),
     value: value.value,
     valueEncoding: value.encoding,
+    ...(value.schema ? { valueSchema: value.schema } : {}),
     ...(msg.value == null ? { tombstone: true } : {}),
     headers: headersFromMap(msg.headers),
     binaryHeaders: Array.from(msg.headers ?? [], ([headerKey, headerValue]) => ({
@@ -281,24 +238,32 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
     ...(commitToken ? { commitToken } : {}),
   });
 }
-function bindStreamListeners(entry: ActiveKafka, stream: AppStream): void {
+function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
+  const isCurrent = () => activeConnections.get(entry.connectionId, entry.webContentsId) === entry;
+  const emit = (prefix: KafkaChannelPrefix, payload: unknown): void => {
+    if (isCurrent()) emitToEntry(entry, kafkaChannel(prefix, entry.connectionId), payload);
+  };
+  return {
+    deliver: (msg, signal) => emitConsumedMessage(entry, msg, signal),
+    onError: (err) => emit(KAFKA_CHANNEL.ERROR, { scope: 'consumer', message: err.message }),
+    onClose: () => emit(KAFKA_CHANNEL.CONSUMER_CLOSED, {}),
+  };
+}
+
+/**
+ * Browse mode is group-less: no commits, rebalances or partition assignment, so
+ * it has no consumer session (flow control / partition pause / seek). It only
+ * needs ordered emission and the stream lifecycle events.
+ */
+function bindBrowseListeners(entry: ActiveKafka, stream: AppStream): void {
+  const hooks = consumerStreamHooks(entry);
+  const signal = new AbortController().signal;
   stream.on('data', (msg: AppMessage) => {
     // One bad decode must not wedge the ordered emission chain.
-    entry.emitChain = entry.emitChain.then(() => emitConsumedMessage(entry, msg)).catch(() => {});
+    entry.emitChain = entry.emitChain.then(() => hooks.deliver(msg, signal)).catch(() => {});
   });
-
-  stream.on('error', (err: Error) => {
-    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
-    emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.ERROR, entry.connectionId), {
-      scope: 'consumer',
-      message: err.message,
-    });
-  });
-
-  stream.on('close', () => {
-    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
-    emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, entry.connectionId), {});
-  });
+  stream.on('error', (err: Error) => hooks.onError(err));
+  stream.on('close', () => hooks.onClose());
 }
 
 export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
@@ -340,6 +305,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     const claim = reserveKafkaClaim(connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
     const key = ownerScopedKey(connectionId, webContentsId);
+    let registry: KafkaRegistryClient | undefined; // closed in finally unless an entry owns it
     try {
       if (claim.ownerEntry) {
         const existing = claim.ownerEntry;
@@ -378,17 +344,9 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         const clientOptions = buildClientOptions(cfg);
         const kafka = getKafka();
 
-        // Registry encodes/decodes both fields; IPC accepts HTTP Basic only.
-        let registry: SchemaRegistry | undefined;
-        if (cfg.registry) {
-          const auth = cfg.registry.auth;
-          registry = new (getSchemaRegistryLib().SchemaRegistry)({
-            host: cfg.registry.url,
-            ...(auth?.username
-              ? { auth: { username: auth.username, password: auth.password ?? '' } }
-              : {}),
-          });
-        }
+        // Registry encodes/decodes both fields over a TLS-policy, SSRF-guarded agent.
+        const security = getExecutionPolicy().security;
+        registry = cfg.registry && (await createKafkaRegistryClient(cfg.registry, security));
 
         // Registry payloads are encoded here; plain strings are UTF-8 encoded.
         const producerOptions = {
@@ -439,6 +397,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           return { success: false, error: 'Not connected' };
         }
         claim.pendingProducer = undefined;
+        registry = undefined;
 
         emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId), {
           timestamp: Date.now(),
@@ -462,6 +421,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         return { success: false, error: msg };
       }
     } finally {
+      registry?.close();
       releaseKafkaClaim(connectionId, claim);
     }
   });
@@ -480,6 +440,28 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       let consumer: AppConsumer | undefined;
       try {
         const kafka = getKafka();
+        if (cfg.membership === 'browse') {
+          // Group-less assign + fetch loop: no group join/creation, no commits.
+          consumer = new kafka.Consumer(browseConsumerOptions(entry.clientOptions, cfg));
+          const stream = await openBrowseStream(consumer, cfg);
+          if (
+            activeConnections.get(cfg.connectionId, event.sender.id) !== entry ||
+            entry.consumer
+          ) {
+            stream.destroy();
+            await closeConsumerQuietly(consumer);
+            return { success: false, error: 'Not connected' };
+          }
+          bindBrowseListeners(entry, stream as unknown as AppStream);
+          Object.assign(entry, { consumer, stream, manualCommit: false });
+          // Stop-after-N or a failure frees the slot once queued records are forwarded.
+          onBrowseStreamFinished(stream, () => {
+            void entry.emitChain.then(() =>
+              entry.stream === (stream as unknown) ? closeConsumerAndStream(entry) : undefined
+            );
+          });
+          return { success: true };
+        }
         // Keep key/value raw for symmetric registry decoding.
         const consumerOptions = {
           ...entry.clientOptions,
@@ -497,7 +479,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           ...(cfg.groupProtocol !== 'consumer' && cfg.heartbeatIntervalMs
             ? { heartbeatInterval: cfg.heartbeatIntervalMs }
             : {}),
-          autocommit: cfg.commitPolicy === 'manual' ? false : (cfg.autoCommitIntervalMs ?? true),
+          // The session commits *delivered* positions itself (never withheld records).
+          autocommit: false,
           isolationLevel: cfg.isolation === 'read-committed' ? 1 : 0,
           ...(cfg.minBytes !== undefined ? { minBytes: cfg.minBytes } : {}),
           ...(cfg.maxBytes !== undefined ? { maxBytes: cfg.maxBytes } : {}),
@@ -560,19 +543,11 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           mode = M.LATEST;
         } else mode = M.COMMITTED;
 
+        const fallbackMode = fallbackModeValue(kafka, cfg.fallbackMode);
         const stream = await (consumer.consume({
           topics: cfg.topics,
           mode,
-          ...(cfg.fallbackMode
-            ? {
-                fallbackMode:
-                  cfg.fallbackMode === 'earliest'
-                    ? kafka.MessagesStreamFallbackModes.EARLIEST
-                    : cfg.fallbackMode === 'fail'
-                      ? kafka.MessagesStreamFallbackModes.FAIL
-                      : kafka.MessagesStreamFallbackModes.LATEST,
-              }
-            : {}),
+          ...(fallbackMode ? { fallbackMode } : {}),
           ...(offsets ? { offsets } : {}),
         }) as Promise<AppStream>);
 
@@ -580,9 +555,9 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           await closeConsumerQuietly(consumer);
           return { success: false, error: 'Not connected' };
         }
-        bindStreamListeners(entry, stream);
         entry.consumer = consumer;
-        entry.stream = stream;
+        entry.session = subscriptionSession(cfg, kafka, consumerStreamHooks(entry));
+        entry.session.bind(entry, stream);
         entry.manualCommit = cfg.commitPolicy === 'manual';
         consumer.on('consumer:group:join', (payload) => {
           emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
@@ -621,39 +596,13 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     })
   );
 
-  ipcMain.handle(
-    IPC.kafka.pauseConsumer,
-    createValidatedEventHandler(
-      IPC.kafka.pauseConsumer,
-      KafkaConsumerControlSchema,
-      async (cfg, event) => {
-        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
-        if (!entry?.stream) return { success: false, error: 'No consumer is active.' };
-        entry.stream.pause();
-        emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
-          state: 'paused',
-        });
-        return { success: true };
-      }
-    )
-  );
-
-  ipcMain.handle(
-    IPC.kafka.resumeConsumer,
-    createValidatedEventHandler(
-      IPC.kafka.resumeConsumer,
-      KafkaConsumerControlSchema,
-      async (cfg, event) => {
-        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
-        if (!entry?.stream) return { success: false, error: 'No consumer is active.' };
-        entry.stream.resume();
-        emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
-          state: 'resumed',
-        });
-        return { success: true };
-      }
-    )
-  );
+  registerKafkaConsumerControlHandlers({
+    getEntry: (connectionId, ownerId) => activeConnections.getForOwner(connectionId, ownerId),
+    getKafka,
+    rateLimiter: kafkaRateLimiter,
+    emitStatus: (entry, payload) =>
+      emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), payload),
+  });
 
   ipcMain.handle(
     IPC.kafka.commitMessage,
@@ -705,11 +654,10 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     })
   );
 
-  registerKafkaAdminHandlers({
-    getEntry: (connectionId, ownerId) => activeConnections.getForOwner(connectionId, ownerId),
-    getKafka,
-    rateLimiter: kafkaRateLimiter,
-  });
+  const getEntry = (connectionId: string, ownerId: number) =>
+    activeConnections.getForOwner(connectionId, ownerId);
+  registerKafkaAdminHandlers({ getEntry, getKafka, rateLimiter: kafkaRateLimiter });
+  registerKafkaRegistryHandlers({ getEntry, rateLimiter: kafkaRateLimiter });
 }
 
 export async function stopKafkaCleanup(): Promise<void> {

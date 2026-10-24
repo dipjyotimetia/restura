@@ -1,5 +1,6 @@
 import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
 import type { AuthConfig, CollectionItem, Request, ScopedVariable } from '@/types';
+import { isBrokerRequest } from '@/types';
 
 /**
  * A single executable leaf extracted from a collection tree, preserving the
@@ -71,6 +72,8 @@ function flatten(
   const out: RunnableRequest[] = [];
   for (const item of items) {
     if (item.type === 'request' && item.request) {
+      // Kafka / MQTT presets (#984) are connection presets, not runnable requests.
+      if (isBrokerRequest(item.request)) continue;
       out.push({
         itemId: item.id,
         name: item.name,
@@ -162,4 +165,22 @@ export function flattenRunnables(
     path.map((folder) => folder.name),
     path.flatMap((folder) => (folder.variables ? [folder.variables] : []))
   );
+}
+
+/**
+ * Names of the Kafka / MQTT connection presets (#984) in a run scope. They are
+ * not runnable requests, so the runner leaves them out; the dialog reports
+ * them as skipped (the CLI prints the same notice).
+ */
+export function skippedBrokerPresets(items: CollectionItem[], folderId?: string): string[] {
+  const scope = folderId ? (findFolderPath(items, folderId)?.at(-1)?.items ?? []) : items;
+  const out: string[] = [];
+  const walk = (level: CollectionItem[]) => {
+    for (const item of level) {
+      if (item.request && isBrokerRequest(item.request)) out.push(item.name);
+      if (item.items) walk(item.items);
+    }
+  };
+  walk(scope);
+  return out;
 }

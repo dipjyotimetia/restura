@@ -40,6 +40,7 @@ timeline
   2026-07-16 : 0028 — TypeScript architecture boundaries
   2026-10-13 : 0029 — Digest auth via challenge-retry
   2026-10-18 : 0030 — MCP stdio transport
+  2026-10-18 : 0031 — MCP OAuth 2.1 in Electron main
 ```
 
 <CardGrid>
@@ -192,6 +193,11 @@ timeline
     title="0030 — MCP stdio transport"
     description="Local MCP servers spawned by the desktop main process without a shell, after a main-owned consent check on every launch (a native prompt unless a matching approval is remembered); allowlisted env; main kills the process on disconnect and quit."
     href="/architecture/adrs/0030-mcp-stdio-transport/"
+  />
+  <LinkCard
+    title="0031 — MCP OAuth 2.1 in Electron main"
+    description="MCP authorization (PRM discovery, DCR, PKCE, resource indicators) driven from the main process: system browser + loopback redirect, guarded OAuth fetches, tokens only in internal-scope keychain handles."
+    href="/architecture/adrs/0031-mcp-oauth-in-electron-main/"
   />
 </CardGrid>
 

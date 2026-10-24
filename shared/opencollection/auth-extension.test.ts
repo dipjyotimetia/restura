@@ -2,11 +2,14 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import Ajv from 'ajv';
 import { describe, expect, it } from 'vitest';
+import { requestOf } from '../../tests/helpers/requestOf';
 import type { AuthConfig, Collection, CollectionItem, Request } from '../types';
 import { AUTH_EXTENSION_KEY } from './auth-extension';
 import { internalToOC } from './from-internal';
 import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
 import { ocToInternal } from './to-internal';
+
+const authOf = (item: CollectionItem | undefined) => requestOf(item).auth;
 
 /**
  * The VS Code extension validates root `opencollection.yml` against the
@@ -137,10 +140,10 @@ describe('x-restura-auth sidecar', () => {
     expect(back.auth).toEqual(NTLM);
     const folder = back.items.find((i) => i.name === 'Secure');
     expect(folder?.auth).toEqual(WSSE);
-    expect(back.items.find((i) => i.name === 'Root oauth1')?.request?.auth).toEqual(OAUTH1);
+    expect(authOf(back.items.find((i) => i.name === 'Root oauth1'))).toEqual(OAUTH1);
     const nested = folder?.items ?? [];
-    expect(nested.find((i) => i.name === 'Nested ntlm')?.request?.auth).toEqual(NTLM);
-    expect(nested.find((i) => i.name === 'Nested grpc')?.request?.auth).toEqual(WSSE);
+    expect(authOf(nested.find((i) => i.name === 'Nested ntlm'))).toEqual(NTLM);
+    expect(authOf(nested.find((i) => i.name === 'Nested grpc'))).toEqual(WSSE);
   });
 
   it('an unchanged import re-exports byte-identically', () => {
