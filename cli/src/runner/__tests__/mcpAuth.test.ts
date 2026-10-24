@@ -32,11 +32,26 @@ beforeAll(async () => {
         ...(req.url ? { url: req.url } : {}),
       });
       const parsed = JSON.parse(Buffer.concat(chunks).toString('utf-8')) as {
-        id: unknown;
+        id?: unknown;
+        method?: string;
       };
+      // Runs open a real MCP session: notifications get 202, initialize a handshake.
+      if (parsed.id === undefined) {
+        res.statusCode = 202;
+        res.end();
+        return;
+      }
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ jsonrpc: '2.0', id: parsed.id, result: { ok: true } }));
+      const result =
+        parsed.method === 'initialize'
+          ? {
+              protocolVersion: '2025-06-18',
+              capabilities: {},
+              serverInfo: { name: 'auth-test', version: '1' },
+            }
+          : { ok: true };
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: parsed.id, result }));
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
