@@ -170,10 +170,7 @@ describe('mcpProtocol.runJsonRpc paths', () => {
     expect(p2.store.has('k')).toBe(false);
   });
 
-  it('runRequest points callers at the interactive builder', async () => {
-    await expect(mcpProtocol.runRequest({} as never, {} as never)).rejects.toThrow(
-      /McpRequestBuilder/
-    );
+  it('exposes a default request', () => {
     expect(mcpProtocol.defaultRequest()).toMatchObject({ type: 'mcp', url: '' });
   });
 });

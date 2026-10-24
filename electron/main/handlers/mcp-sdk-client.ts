@@ -155,7 +155,11 @@ class ResturaMcpSdkClient implements McpSdkClient {
 
   constructor(options: McpSdkConnectOptions) {
     let versionMode: 'auto' | 'legacy' | { pin: string } =
-      options.era === 'legacy' ? 'legacy' : options.era === 'modern' ? { pin: MCP_MODERN_PIN } : 'auto';
+      options.era === 'legacy'
+        ? 'legacy'
+        : options.era === 'modern'
+          ? { pin: MCP_MODERN_PIN }
+          : 'auto';
     if (options.transport === 'stdio') {
       this.transport = createStdioTransport(options.stdio);
       // stdio uses the plain `initialize` handshake. `auto` negotiation would
