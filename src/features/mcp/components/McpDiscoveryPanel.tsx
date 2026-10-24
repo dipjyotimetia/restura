@@ -374,6 +374,7 @@ function LogList({ log, onClear }: { log: McpInvocationLog[]; onClear: () => voi
             {log.map((entry) => {
               const kind = classifyMcpOutcome(entry);
               const ok = kind === 'ok';
+              const cancelled = entry.cancelled === true;
               return (
                 <div
                   key={entry.id}
@@ -385,9 +386,21 @@ function LogList({ log, onClear }: { log: McpInvocationLog[]; onClear: () => voi
                     </code>
                     <span
                       className="font-mono text-sp-10 font-bold tracking-wider shrink-0"
-                      style={{ color: ok ? 'var(--color-success)' : 'var(--color-danger)' }}
+                      style={{
+                        color: cancelled
+                          ? 'var(--color-warning)'
+                          : ok
+                            ? 'var(--color-success)'
+                            : 'var(--color-danger)',
+                      }}
                     >
-                      {kind === 'ok' ? 'OK' : kind === 'tool-error' ? 'TOOL ERR' : 'ERR'}
+                      {cancelled
+                        ? 'CANCELLED'
+                        : kind === 'ok'
+                          ? 'OK'
+                          : kind === 'tool-error'
+                            ? 'TOOL ERR'
+                            : 'ERR'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-0.5">

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { flattenMcpArgumentFields, McpInvokeForm } from '@/features/mcp/components/McpInvokeForm';
 import type { McpToolDescriptor } from '@/types';
@@ -153,7 +153,9 @@ describe('McpInvokeForm', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Invoke' }));
       const dialog = await screen.findByRole('alertdialog');
       fireEvent.click(within(dialog).getByRole('button', { name: 'Invoke' }));
-      await waitFor(() => expect(onCall).toHaveBeenCalledWith(destructive, {}));
+      await waitFor(() =>
+        expect(onCall).toHaveBeenCalledWith(destructive, {}, expect.any(AbortSignal))
+      );
     });
 
     it('does not prompt for read-only or unannotated tools', async () => {
@@ -172,5 +174,40 @@ describe('McpInvokeForm', () => {
       expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
       expect(screen.getByText('READ-ONLY')).toBeInTheDocument();
     });
+  });
+
+  it('shows Cancel only while a call is in flight and aborts the signal it passed', async () => {
+    let signal: AbortSignal | undefined;
+    let finish: () => void = () => undefined;
+    const onCall = vi.fn(
+      (_tool: unknown, _args: unknown, sig: AbortSignal) =>
+        new Promise<void>((resolve) => {
+          signal = sig;
+          finish = resolve;
+        })
+    );
+    render(
+      <McpInvokeForm
+        tab="tools"
+        tool={tool}
+        prompt={null}
+        onCall={onCall}
+        onGet={vi.fn()}
+        toolArguments={{ attempts: 1 }}
+      />
+    );
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Invoke' }));
+    const cancel = await screen.findByRole('button', { name: 'Cancel' });
+    expect(signal?.aborted).toBe(false);
+
+    fireEvent.click(cancel);
+    expect(signal?.aborted).toBe(true);
+
+    await act(async () => {
+      finish();
+    });
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
   });
 });

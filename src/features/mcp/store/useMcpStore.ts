@@ -17,6 +17,8 @@ export interface McpInvocationLog {
   result?: unknown;
   error?: string;
   jsonRpcError?: { code: number; message: string; data?: unknown };
+  /** User cancelled the call (shown as "cancelled", not as an error). */
+  cancelled?: boolean;
   durationMs: number;
   timestamp: number;
 }
@@ -177,6 +179,7 @@ export const useMcpStore = create<McpState>()(
             ...(entry.result !== undefined ? { result: entry.result } : {}),
             ...(entry.error !== undefined ? { error: entry.error } : {}),
             ...(entry.jsonRpcError !== undefined ? { jsonRpcError: entry.jsonRpcError } : {}),
+            ...(entry.cancelled ? { cancelled: true } : {}),
             durationMs: entry.durationMs,
           };
           let log = [next, ...c.log];

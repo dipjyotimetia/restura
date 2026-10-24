@@ -269,7 +269,14 @@ export interface ElectronMcpAPI {
     jsonRpcError?: { code: number; message: string; data?: unknown };
     /** #856: the OAuth sign-in lapsed and can't refresh — prompt to sign in again. */
     authRequired?: boolean;
+    /** True when the request was aborted via `cancel` (distinct from an error). */
+    cancelled?: boolean;
   }>;
+  /** Abort one in-flight request; the SDK sends `notifications/cancelled`. */
+  cancel: (config: {
+    connectionId: string;
+    requestId: string | number;
+  }) => Promise<{ success: boolean }>;
   disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
   /** Answer a server→client request delivered on `mcp:client-request:<connectionId>` (#860). */
   respondClientRequest: (

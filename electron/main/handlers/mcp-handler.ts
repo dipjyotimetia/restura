@@ -8,6 +8,7 @@ import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
   assertTrustedSender,
   createValidatedEventHandler,
+  McpCancelSchema,
   McpConnectSchema,
   McpDisconnectSchema,
   McpRequestSchema,
@@ -53,6 +54,8 @@ const log = createLogger('mcp');
  */
 
 export const mcpRateLimiter = createKeyedRateLimiter(60, 60_000);
+/** Separate, generous budget so an exhausted request limiter can never block a cancel. */
+export const mcpCancelRateLimiter = createKeyedRateLimiter(600, 60_000);
 const MAX_CONCURRENT_MCP = 20;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -77,6 +80,8 @@ interface McpSession {
   oauth?: McpOAuthSession;
   /** Set before an intentional close so onclose/onerror don't emit events. */
   disposed: boolean;
+  /** In-flight requests by renderer `requestId`, so `mcp:cancel` can abort them. */
+  inflight: Map<string, AbortController>;
 }
 
 function disposeSession(s: McpSession): void {
@@ -84,6 +89,8 @@ function disposeSession(s: McpSession): void {
   s.disposed = true;
   s.clientRequests?.dispose();
   s.oauth?.dispose();
+  for (const controller of s.inflight.values()) controller.abort();
+  s.inflight.clear();
   // Best-effort DELETE so well-behaved streamable-HTTP servers can free the session.
   void s.client?.terminateSession().catch(() => {});
   // close() also closes the selected client transport.
@@ -309,6 +316,7 @@ export function registerMcpHandlerIPC(): void {
         ...(oauth ? { oauth } : {}),
         disposed: false,
         clientRequests: new McpClientRequestBridge(config.connectionId, webContentsId),
+        inflight: new Map(),
       };
 
       const events = {
@@ -438,6 +446,7 @@ export function registerMcpHandlerIPC(): void {
           return { success: false, error: 'Not connected' };
         }
         const timeoutMs = config.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS;
+        const controller = new AbortController();
 
         try {
           // The SDK already ran initialize during connect; forwarding another
@@ -462,9 +471,32 @@ export function registerMcpHandlerIPC(): void {
 
           // The v2 client owns request schemas and JSON-RPC ids; the renderer
           // only receives the normalized result.
-          const result = await session.client.request(config.method, config.params, timeoutMs);
-          return { success: true, result: session.scrub(result) };
+          // A renderer-supplied requestId makes the call cancellable via `mcp:cancel`.
+          // Aborting the signal makes the SDK send `notifications/cancelled` and
+          // drop any late response.
+          const cancelKey = config.requestId === undefined ? undefined : String(config.requestId);
+          if (cancelKey !== undefined) {
+            if (session.inflight.has(cancelKey)) {
+              return { success: false, error: 'Duplicate in-flight requestId' };
+            }
+            session.inflight.set(cancelKey, controller);
+          }
+          try {
+            const result = await session.client.request(
+              config.method,
+              config.params,
+              timeoutMs,
+              controller.signal
+            );
+            if (controller.signal.aborted) return { success: false, cancelled: true };
+            return { success: true, result: session.scrub(result) };
+          } finally {
+            if (cancelKey !== undefined && session.inflight.get(cancelKey) === controller) {
+              session.inflight.delete(cancelKey);
+            }
+          }
         } catch (err) {
+          if (controller.signal.aborted) return { success: false, cancelled: true };
           if (
             err &&
             typeof err === 'object' &&
@@ -492,6 +524,22 @@ export function registerMcpHandlerIPC(): void {
             ...(authRequired ? { authRequired: true } : {}),
           };
         }
+      })
+    )
+  );
+
+  ipcMain.handle(
+    IPC.mcp.cancel,
+    rateLimited(
+      mcpCancelRateLimiter,
+      createValidatedEventHandler(IPC.mcp.cancel, McpCancelSchema, async (config, event) => {
+        // Missing, already-finished, and wrong-owner ids are indistinguishable.
+        const controller = sessions
+          .getForOwner(config.connectionId, event.sender.id)
+          ?.inflight.get(String(config.requestId));
+        if (!controller) return { success: false };
+        controller.abort();
+        return { success: true };
       })
     )
   );

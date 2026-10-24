@@ -249,7 +249,11 @@ describe('McpRequestBuilder ↔ collections', () => {
     });
 
     await user.click(screen.getByRole('button', { name: 'Invoke' }));
-    expect(client.callTool).toHaveBeenCalledWith('search', { query: 'saved', limit: 7 });
+    expect(client.callTool).toHaveBeenCalledWith(
+      'search',
+      { query: 'saved', limit: 7 },
+      expect.any(AbortSignal)
+    );
     // Restoring the saved operation is not an edit.
     expect(useRequestStore.getState().tabs[0]?.isDirty).toBe(false);
   });

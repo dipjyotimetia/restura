@@ -30,7 +30,16 @@ export interface McpSdkClient {
   connect(): Promise<void>;
   close(): Promise<void>;
   terminateSession(): Promise<void>;
-  request(method: string, params: unknown, timeoutMs: number): Promise<unknown>;
+  /**
+   * `signal` aborts the in-flight request; the SDK then sends
+   * `notifications/cancelled` for its JSON-RPC id and ignores any late reply.
+   */
+  request(
+    method: string,
+    params: unknown,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<unknown>;
   notification(method: string, params: unknown): Promise<void>;
   getProtocolVersion(): string;
   getServerCapabilities(): unknown;
@@ -120,8 +129,13 @@ class ResturaMcpSdkClient implements McpSdkClient {
     }
   }
 
-  request(method: string, params: unknown, timeoutMs: number): Promise<unknown> {
-    const options = { timeout: timeoutMs };
+  request(
+    method: string,
+    params: unknown,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<unknown> {
+    const options = { timeout: timeoutMs, ...(signal ? { signal } : {}) };
     switch (method) {
       case 'ping':
         return this.client.ping(options);
@@ -167,9 +181,11 @@ class ResturaMcpSdkClient implements McpSdkClient {
       case 'prompts/get':
         return this.client.getPrompt(params as Parameters<Client['getPrompt']>[0], options);
       default:
-        return this.client.request({ method, params } as ClientRequest, EXTENSION_RESULT_SCHEMA, {
-          timeout: timeoutMs,
-        });
+        return this.client.request(
+          { method, params } as ClientRequest,
+          EXTENSION_RESULT_SCHEMA,
+          options
+        );
     }
   }
 

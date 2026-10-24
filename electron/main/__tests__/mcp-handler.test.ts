@@ -130,7 +130,7 @@ vi.mock('@modelcontextprotocol/client', () => ({
   },
 }));
 
-import { registerMcpHandlerIPC, stopMcpCleanup } from '../handlers/mcp-handler';
+import { mcpRateLimiter, registerMcpHandlerIPC, stopMcpCleanup } from '../handlers/mcp-handler';
 import { setExecutionPolicy } from '../security/execution-policy';
 
 type IpcHandler = (event: unknown, payload: unknown) => Promise<Record<string, unknown>>;
@@ -216,10 +216,10 @@ describe('mcp-handler (SDK-backed)', () => {
     for (const renderer of createdRenderers.splice(0)) renderer.destroy();
   });
 
-  it('registers mcp:connect, mcp:request, mcp:disconnect', () => {
+  it('registers mcp:connect, mcp:request, mcp:cancel, mcp:disconnect', () => {
     const channels = mockHandle.mock.calls.map((c) => c[0]);
     expect(channels).toEqual(
-      expect.arrayContaining(['mcp:connect', 'mcp:request', 'mcp:disconnect'])
+      expect.arrayContaining(['mcp:connect', 'mcp:request', 'mcp:cancel', 'mcp:disconnect'])
     );
   });
 
@@ -338,8 +338,153 @@ describe('mcp-handler (SDK-backed)', () => {
 
     expect(res.success).toBe(true);
     expect(res.result).toEqual({ tools: [{ name: 'echo' }] });
-    expect(client.listTools).toHaveBeenCalledWith({ cursor: 'abc' }, { timeout: 5000 });
+    expect(client.listTools).toHaveBeenCalledWith(
+      { cursor: 'abc' },
+      { timeout: 5000, signal: expect.any(AbortSignal) }
+    );
     expect(client.request).not.toHaveBeenCalled();
+  });
+
+  describe('mcp:cancel', () => {
+    /** callTool that stays pending until aborted, like the SDK's signal handling. */
+    function hangUntilAborted(client: MockClientShape) {
+      const seen: { signal?: AbortSignal } = {};
+      client.callTool.mockImplementationOnce(
+        (_params: unknown, options: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            seen.signal = options.signal;
+            options.signal.addEventListener('abort', () => reject(new Error('aborted')));
+          })
+      );
+      return seen;
+    }
+
+    async function connectOwner(senderId: number) {
+      const owner = makeTrustedEvent(senderId);
+      await handlerFor('mcp:connect')(owner.event, {
+        connectionId: 'c',
+        url: 'https://mcp.example.com/mcp',
+        transport: 'streamable-http',
+      });
+      return owner;
+    }
+
+    it('aborts the SDK request signal and reports cancelled, not an error', async () => {
+      const owner = await connectOwner(41);
+      const seen = hangUntilAborted(sdkState.clients[0]!);
+
+      const pending = handlerFor('mcp:request')(owner.event, {
+        connectionId: 'c',
+        method: 'tools/call',
+        params: { name: 'slow' },
+        requestId: 5,
+      });
+      await vi.waitFor(() => expect(seen.signal).toBeDefined());
+      expect(seen.signal!.aborted).toBe(false);
+
+      await expect(
+        handlerFor('mcp:cancel')(owner.event, { connectionId: 'c', requestId: 5 })
+      ).resolves.toEqual({ success: true });
+      expect(seen.signal!.aborted).toBe(true);
+      await expect(pending).resolves.toEqual({ success: false, cancelled: true });
+    });
+
+    it('ignores a late result that arrives after cancel', async () => {
+      const owner = await connectOwner(42);
+      const late = deferred<unknown>();
+      let signal: AbortSignal | undefined;
+      sdkState.clients[0]!.callTool.mockImplementationOnce(
+        (_p: unknown, o: { signal: AbortSignal }) => {
+          signal = o.signal;
+          return late.promise;
+        }
+      );
+      const pending = handlerFor('mcp:request')(owner.event, {
+        connectionId: 'c',
+        method: 'tools/call',
+        params: { name: 'slow' },
+        requestId: 'r1',
+      });
+      await vi.waitFor(() => expect(signal).toBeDefined());
+      await handlerFor('mcp:cancel')(owner.event, { connectionId: 'c', requestId: 'r1' });
+      late.resolve({ content: [{ type: 'text', text: 'too late' }] });
+      await expect(pending).resolves.toEqual({ success: false, cancelled: true });
+    });
+
+    it('rejects cancel from a different renderer and leaves the call running', async () => {
+      const owner = await connectOwner(43);
+      const other = makeTrustedEvent(44);
+      const seen = hangUntilAborted(sdkState.clients[0]!);
+      const pending = handlerFor('mcp:request')(owner.event, {
+        connectionId: 'c',
+        method: 'tools/call',
+        params: { name: 'slow' },
+        requestId: 9,
+      });
+      await vi.waitFor(() => expect(seen.signal).toBeDefined());
+
+      await expect(
+        handlerFor('mcp:cancel')(other.event, { connectionId: 'c', requestId: 9 })
+      ).resolves.toEqual({ success: false });
+      expect(seen.signal!.aborted).toBe(false);
+
+      await handlerFor('mcp:cancel')(owner.event, { connectionId: 'c', requestId: 9 });
+      await expect(pending).resolves.toEqual({ success: false, cancelled: true });
+    });
+
+    it('still cancels after the request rate limit is exhausted', async () => {
+      const owner = await connectOwner(9047);
+      const seen = hangUntilAborted(sdkState.clients[0]!);
+      const pending = handlerFor('mcp:request')(owner.event, {
+        connectionId: 'c',
+        method: 'tools/call',
+        params: { name: 'slow' },
+        requestId: 3,
+      });
+      await vi.waitFor(() => expect(seen.signal).toBeDefined());
+      for (let i = 0; i < 70; i++) mcpRateLimiter.check(9047);
+      await expect(
+        handlerFor('mcp:request')(owner.event, { connectionId: 'c', method: 'ping' })
+      ).rejects.toThrow();
+      await expect(
+        handlerFor('mcp:cancel')(owner.event, { connectionId: 'c', requestId: 3 })
+      ).resolves.toEqual({ success: true });
+      await expect(pending).resolves.toEqual({ success: false, cancelled: true });
+    });
+
+    it('returns success:false for an unknown or already-finished request', async () => {
+      const owner = await connectOwner(45);
+      await handlerFor('mcp:request')(owner.event, {
+        connectionId: 'c',
+        method: 'tools/call',
+        params: { name: 'fast' },
+        requestId: 1,
+      });
+      await expect(
+        handlerFor('mcp:cancel')(owner.event, { connectionId: 'c', requestId: 1 })
+      ).resolves.toEqual({ success: false });
+    });
+
+    it('aborts in-flight requests when the renderer is destroyed', async () => {
+      const owner = await connectOwner(46);
+      const seen = hangUntilAborted(sdkState.clients[0]!);
+      const pending = handlerFor('mcp:request')(owner.event, {
+        connectionId: 'c',
+        method: 'tools/call',
+        params: { name: 'slow' },
+        requestId: 2,
+      });
+      await vi.waitFor(() => expect(seen.signal).toBeDefined());
+      owner.destroy();
+      expect(seen.signal!.aborted).toBe(true);
+      await expect(pending).resolves.toEqual({ success: false, cancelled: true });
+    });
+
+    it('rejects a malformed cancel payload', async () => {
+      await expect(
+        handlerFor('mcp:cancel')(trustedEvent(), { connectionId: 'c' })
+      ).rejects.toThrow();
+    });
   });
 
   it('lets two renderers independently use the same id and cleans up only the destroyed owner', async () => {
