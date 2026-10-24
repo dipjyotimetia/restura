@@ -7,6 +7,10 @@ import {
   SET_COOKIE_SIDE_CHANNEL_HEADER,
   type SetCookieSource,
 } from '@shared/protocol/set-cookie';
+import {
+  basicAuthReferencesSecretVariable,
+  replaceSecretVariableTokenMatches,
+} from '@shared/variables/secret-variable-token';
 import { Cookie } from 'tough-cookie';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -211,22 +215,6 @@ export function buildDesktopTransportConfig(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-/** True when a Basic credential still carries an opaque desktop secret-variable token. */
-function basicReferencesSecretVariable(
-  auth: HttpRequest['auth'],
-  secretVariables: Record<string, SecretValue> | undefined
-): boolean {
-  if (auth.type !== 'basic' || !auth.basic || !secretVariables) return false;
-  const names = Object.keys(secretVariables);
-  if (names.length === 0) return false;
-  const password = auth.basic.password;
-  const texts = [
-    auth.basic.username,
-    typeof password === 'string' ? password : password.kind === 'inline' ? password.value : '',
-  ];
-  return names.some((name) => texts.some((text) => text.includes(`{{${name}}}`)));
-}
-
 // Sign-at-wire auth (SigV4 / OAuth1 / WSSE) is intentionally NOT applied
 // here — the descriptor flows through `spec.auth` so the proxy signs
 // against the exact bytes it sends. Bearer / Basic / API-key / OAuth2 go
@@ -244,14 +232,18 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     // Keep SecretRef tokens opaque in the renderer. The store-level resolver
     // otherwise sees the variable's placeholder value and would consume the
     // token before Electron main can materialize its handle at the wire edge.
+    // Same token grammar as main's materializer, so `{{ name }}` is opaque too.
     const protectedSecrets = new Map<string, string>();
-    for (const key of Object.keys(secretVariables ?? {})) {
-      const token = `{{${key}}}`;
-      const marker = `__restura_secret_${protectedSecrets.size}__`;
-      if (result.includes(token)) {
-        result = result.replaceAll(token, marker);
-        protectedSecrets.set(marker, token);
-      }
+    if (secretVariables) {
+      result = replaceSecretVariableTokenMatches(
+        result,
+        (name) => Object.hasOwn(secretVariables, name),
+        (_name, token) => {
+          const marker = `__restura_secret_${protectedSecrets.size}__`;
+          protectedSecrets.set(marker, token);
+          return marker;
+        }
+      );
     }
     result = resolveVariables(result);
     for (const [marker, token] of protectedSecrets) result = result.replaceAll(marker, token);
@@ -314,7 +306,13 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   // token into the header where main can no longer substitute it. Defer it
   // like a handle: main materializes the token in `spec.auth` and builds the
   // Authorization header (auth-applier). Web can't materialize → fails fast.
-  const headersWithAuth = basicReferencesSecretVariable(effectiveAuth, secretVariables)
+  const deferBasic =
+    effectiveAuth.type === 'basic' &&
+    secretVariables !== undefined &&
+    basicAuthReferencesSecretVariable(effectiveAuth.basic, (name) =>
+      Object.hasOwn(secretVariables, name)
+    );
+  const headersWithAuth = deferBasic
     ? { headers, requiresMainSideApply: true }
     : await applyAuthHeaders(
         effectiveAuth,

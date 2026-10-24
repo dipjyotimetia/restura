@@ -5,6 +5,7 @@ import type {
   ProtocolAuthConfig,
   ProtocolSecretValue as SecretValue,
 } from '@shared/protocol/types';
+import { replaceSecretVariableTokenMatches } from '@shared/variables/secret-variable-token';
 import { desktopExternalSecretResolver } from './external-secret-providers';
 import { unwrapSecretValueMain } from './secret-handle-store';
 
@@ -40,8 +41,10 @@ export async function resolveSecretVariableValues(
 export function replaceSecretVariableTokens(text: string, values: Record<string, string>): string {
   // Own-property lookup only: `{{constructor}}` / `{{toString}}` must not
   // resolve to inherited Object.prototype members.
-  return text.replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, (match, name: string) =>
-    Object.hasOwn(values, name) ? (values[name] ?? match) : match
+  return replaceSecretVariableTokenMatches(
+    text,
+    (name) => Object.hasOwn(values, name),
+    (name, token) => values[name] ?? token
   );
 }
 
