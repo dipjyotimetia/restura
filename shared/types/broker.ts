@@ -45,8 +45,8 @@ export interface KafkaPresetConnection {
     extensions?: Record<string, string>;
   };
   tls?: BrokerPresetTls;
-  /** Schema Registry URL + username only — the password is a local secret. */
-  registry?: { url: string; username?: string };
+  /** Schema Registry URL, auth scheme and username only — the password/token is a local secret. */
+  registry?: { url: string; authType?: 'basic' | 'bearer'; username?: string };
   acks: 0 | 1 | -1;
   compression: KafkaPresetCompression;
   idempotent: boolean;
