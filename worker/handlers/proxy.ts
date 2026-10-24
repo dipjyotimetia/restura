@@ -17,7 +17,8 @@ import {
   type UpstreamProxyConfig,
 } from '@shared/protocol/proxy-schema';
 import {
-  encodeSetCookieSideChannel,
+  buildSetCookieSideChannel,
+  SET_COOKIE_OMITTED_HEADER,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
 } from '@shared/protocol/set-cookie';
 import type { Fetcher } from '@shared/protocol/types';
@@ -275,7 +276,9 @@ export function createProxyHandler(
       }
       const streamCookies = upstream.setCookies;
       if (streamCookies && streamCookies.length > 0) {
-        c.header(SET_COOKIE_SIDE_CHANNEL_HEADER, encodeSetCookieSideChannel(streamCookies));
+        const { value, omitted } = buildSetCookieSideChannel(streamCookies);
+        c.header(SET_COOKIE_SIDE_CHANNEL_HEADER, value);
+        if (omitted > 0) c.header(SET_COOKIE_OMITTED_HEADER, String(omitted));
       }
       // The real status always rides the side channel; statuses the browser
       // would handle itself (3xx follow, 401/407 prompt) go out as 200.
