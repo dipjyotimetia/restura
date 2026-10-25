@@ -50,7 +50,7 @@ Root `tsconfig.json` `exclude` = `node_modules, dist, out, worker, electron/main
 ## Fast triage when a gate fails
 
 - `type-check:all` fails but `type-check` passes → the error is in worker / electron-main / cli / echo / http — look there, not the renderer.
-- `capabilities:check` fails → you changed behavior without updating `src/lib/shared/capabilities.ts`, or you edited the matrix by hand. Run `npm run capabilities:matrix`.
+- `capabilities:check` fails → you changed behavior without updating the area module under `src/lib/shared/capabilities/`, or you edited the matrix by hand. Run `npm run capabilities:matrix`.
 - `verify:opencollection-types` fails → run `npm run gen:opencollection-types` and commit the result.
 - Coverage threshold fails → add tests; check `vitest.config.ts` exclusions before assuming the file is untestable.
 - `commit-msg` fails → scope not in the enum, or subject/body format. See the enum in the SKILL.

@@ -10,7 +10,7 @@ One React renderer ships to web, desktop, and self-hosted. Many capabilities exi
 
 Make `src/lib/shared/capabilities.ts` the **single source of truth** for platform parity. Each capability is a keyed entry with `web` / `desktop` booleans and optional `notes`. The renderer reads it to render "Desktop only" badges on the relevant UI fields, and `scripts/generate-capability-matrix.mjs` codegens `docs/CAPABILITY_MATRIX.md` from it. `npm run capabilities:check` is a CI gate (part of `npm run validate`) that fails if the published doc drifts from the code.
 
-When a new feature differs across platforms, you update `capabilities.ts` — never the generated doc by hand.
+When a new feature differs across platforms, you update `capabilities.ts` — never the generated doc by hand. The rows live in per-area modules under `src/lib/shared/capabilities/` (`http.ts`, `mcp.ts`, `ai-lab.ts`, …) that `capabilities.ts` spreads into `CAPABILITIES`; add a row to the matching area module (`CapabilityName` is derived from the keys). Spread order, then row order within a module, is the row order of the generated matrix.
 
 ## Consequences
 
@@ -26,6 +26,6 @@ When a new feature differs across platforms, you update `capabilities.ts` — ne
 
 ## References
 
-- Code: `src/lib/shared/capabilities.ts`, `scripts/generate-capability-matrix.mjs`
+- Code: `src/lib/shared/capabilities.ts`, `src/lib/shared/capabilities/*.ts`, `scripts/generate-capability-matrix.mjs`
 - Generated: `docs/CAPABILITY_MATRIX.md`; CI gate `npm run capabilities:check`
 - Docs: docs-site `/reference/capability-matrix/`

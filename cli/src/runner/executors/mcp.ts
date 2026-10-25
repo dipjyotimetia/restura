@@ -1,3 +1,4 @@
+import { resolveAuthVariables } from '@shared/auth/resolve-variables';
 import {
   isMcpOAuthFlow,
   isMcpTransportHeader,
@@ -10,78 +11,13 @@ import {
   mcpSessionKey,
   parseMcpRunParams,
 } from '@shared/protocol/mcp-run';
-import type { AuthConfig, McpRequest } from '@shared/types';
+import type { McpRequest } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
 import { type CliMcpSession, openCliMcpSession } from '../mcpSession';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
-
-/**
- * Resolve `{{vars}}` in the header-shaped credential fields BEFORE headers are
- * built (Basic is base64-encoded and `apiKey.key` is a header name), matching
- * the app's `resolveAuthVariables`. Non-string / non-inline values pass through.
- */
-function resolveMcpAuthVars(auth: AuthConfig | undefined, vars: Record<string, string>) {
-  if (!auth) return auth;
-  const r = (v: string) => resolveVarsDeep(v, vars);
-  const secret = <T>(v: T): T => {
-    if (typeof v === 'string') return r(v) as T;
-    if (v && typeof v === 'object' && (v as { kind?: string }).kind === 'inline') {
-      return {
-        ...(v as object),
-        value: r((v as unknown as { value: string }).value),
-      } as T;
-    }
-    return v;
-  };
-  switch (auth.type) {
-    case 'bearer':
-      return auth.bearer
-        ? {
-            ...auth,
-            bearer: { ...auth.bearer, token: secret(auth.bearer.token) },
-          }
-        : auth;
-    case 'basic':
-      return auth.basic
-        ? {
-            ...auth,
-            basic: {
-              username: r(auth.basic.username),
-              password: secret(auth.basic.password),
-            },
-          }
-        : auth;
-    case 'api-key':
-      return auth.apiKey
-        ? {
-            ...auth,
-            apiKey: {
-              ...auth.apiKey,
-              key: r(auth.apiKey.key),
-              value: secret(auth.apiKey.value),
-            },
-          }
-        : auth;
-    case 'oauth2':
-      return auth.oauth2
-        ? {
-            ...auth,
-            oauth2: {
-              ...auth.oauth2,
-              accessToken: secret(auth.oauth2.accessToken),
-              ...(auth.oauth2.tokenType !== undefined
-                ? { tokenType: r(auth.oauth2.tokenType) }
-                : {}),
-            },
-          }
-        : auth;
-    default:
-      return auth;
-  }
-}
 
 /**
  * MCP (Model Context Protocol) executor (#901). Runs the saved operation
@@ -153,8 +89,13 @@ export async function executeMcp(
         'MCP OAuth sign-in is interactive (desktop app only) — in CI set oauth2.accessToken from a variable or use Bearer auth'
       );
     }
+    // `{{vars}}` resolve once, before external secrets are materialized, so
+    // vault plaintext is never template-expanded (shared field map).
+    const varResolvedAuth = req.auth
+      ? resolveAuthVariables(req.auth, (text) => resolveVarsDeep(text, opts.vars))
+      : req.auth;
     const externalMaterializedAuth = await materializeExternalSecretsInAuth(
-      req.auth,
+      varResolvedAuth,
       opts.externalSecretResolver
     );
     const resolvedAuth = await resolveOAuth2Token(externalMaterializedAuth, opts.vars, {
@@ -162,7 +103,7 @@ export async function executeMcp(
       ...(opts.oauthFetch ? { fetch: opts.oauthFetch } : {}),
     });
     const authHeaders: Record<string, string> = {};
-    applyAuthHeaders(resolveMcpAuthVars(resolvedAuth, opts.vars), authHeaders, {});
+    applyAuthHeaders(resolvedAuth, authHeaders, {});
     for (const [key, value] of Object.entries(authHeaders)) {
       if (isMcpTransportHeader(key)) {
         throw new Error(`Auth header "${key}" is reserved by the MCP transport`);
