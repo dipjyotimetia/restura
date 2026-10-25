@@ -541,6 +541,7 @@ export function diffFlips(previous, current) {
 
 const cell = (value) =>
   String(value ?? '')
+    .replace(/\\/g, '\\\\')
     .replace(/\|/g, '\\|')
     .replace(/\n/g, ' ');
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
