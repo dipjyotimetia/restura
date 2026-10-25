@@ -10,8 +10,8 @@
  * PRs don't collide in one record. To add a capability, append a row to the
  * matching area module — `CapabilityName` is derived from the composed keys.
  * The spread order below (then row order inside each module) is the row order
- * of the generated matrix; the generator parses this list, so keep it a plain
- * list of `...AREA_CAPABILITIES` spreads imported from `./capabilities/*`.
+ * of the generated matrix (the generator bundles this file with esbuild and
+ * reads the composed object, so it must stay import-free of browser/DOM code).
  *
  * Keep keys stable — they're referenced by `<CapabilityBadge feature="...">`.
  */
