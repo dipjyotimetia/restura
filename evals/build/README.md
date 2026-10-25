@@ -43,9 +43,9 @@ hook. `--dry-run` makes no model calls and is free.
 |---|---|---|---|
 | kafka-registry-bearer-preset | **test** | #1153 | collection format, Kafka panel |
 | graphql-messages-tab-fallback | **test** | #1156 | renderer (sanity task) |
-| cli-graphql-get | **test** | #1161 (GraphQL half) | CLI vs app |
+| cli-graphql-get | train (seen) | #1161 (GraphQL half) | CLI vs app |
 | mcp-runner-auth-vars | train | #1151 | runner on web + desktop |
-| grpc-no-deadline | train | #1152 | web streams, runner, shared core, CLI |
+| grpc-no-deadline | **test** | #1152 | web streams, runner, shared core, CLI |
 | cli-grpc-wire-parity | train | #1161 (gRPC half) | CLI vs app |
 | http-auth-vars-everywhere | train | #1163 | web, desktop main, CLI |
 

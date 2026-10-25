@@ -1,6 +1,8 @@
 id: cli-graphql-get
 title: restura run sends GraphQL GET requests without the query
-split: test
+split: train
+# The parity-checker checklist names this bug (GraphQL wire shaping, GET vs POST), so it is seen; held-out tasks must stay unseen.
+leakTerms: ['GraphQL wire shaping']
 base: 29b2294d16caa69aae82677063ad328fc984916c
 referenceCommit: bfeab51611ddc8cfe930be2b6087159c3f6bbba0
 issue: |

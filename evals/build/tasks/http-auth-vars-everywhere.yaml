@@ -1,6 +1,8 @@
 id: http-auth-vars-everywhere
 title: '{{vars}} are not resolved in most auth types on web, desktop and CLI'
 split: train
+# The parity-checker checklist names {{vars}} resolution for every auth type; seen.
+leakTerms: ['applied once, in the same order as the app, for every auth type']
 base: 2a1b3c1b0759add0bae361279859ecbfb6e4760c
 referenceCommit: f8af90772d6c8b5150fe3652a3fbc042cc805182
 issue: |

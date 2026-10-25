@@ -1,6 +1,6 @@
 id: grpc-no-deadline
 title: gRPC "No deadline" aborts web streams instantly and becomes 30s in the runner
-split: train
+split: test
 base: a9d517edffad40bc99c8ddf1aadee33a9bd7ca17
 referenceCommit: f86d9671fd40df67857317631570f44e0b59905b
 issue: |
