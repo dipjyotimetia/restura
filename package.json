@@ -286,5 +286,15 @@
   },
   "build": {
     "extends": "./electron-builder.json"
+  },
+  "allowScripts": {
+    "@sentry/cli": true,
+    "@vscode/vsce-sign": true,
+    "electron-winstaller": true,
+    "esbuild": true,
+    "fsevents": true,
+    "keytar": true,
+    "protobufjs": true,
+    "workerd": true
   }
 }
