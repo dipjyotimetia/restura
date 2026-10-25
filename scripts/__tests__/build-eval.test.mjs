@@ -14,12 +14,14 @@ import {
   gitChecks,
   gradeCommands,
   loadTasks,
+  overlayLeakReport,
   PROMPT_SUFFIX,
   parseBuildArgs,
   runCommand,
   runTask,
   summariseBuild,
   TASKS_DIR,
+  taskLeakTerms,
   transcriptMetrics,
   validateTask,
 } from '../build-eval.mjs';
@@ -665,6 +667,59 @@ test('runTask --dry-run: never calls claude; hidden tests must fail on base and 
 });
 
 // ---------------------------------------------------------------- summary
+
+test('taskLeakTerms: PR numbers from title/notes, reference short SHA, leakTerms', () => {
+  const task = validateTask(
+    rawTask({ title: 'Fix (#1151)', notes: 'From #1151 (fix for #1131).', leakTerms: ['fooBar'] }),
+    okChecks
+  ).value;
+  const terms = taskLeakTerms(task).map((t) => t.term);
+  assert.deepEqual(terms.sort(), ['#1131', '#1151', SHA_B.slice(0, 8), 'fooBar'].sort());
+});
+
+test('overlayLeakReport tags seen tasks and warns when a test-split task is seen', () => {
+  const tasks = [
+    validateTask(rawTask({ id: 'seen-test', split: 'test', notes: 'From #1151.' }), okChecks).value,
+    validateTask(rawTask({ id: 'unseen', notes: 'From #1999.', referenceCommit: SHA_B }), okChecks)
+      .value,
+  ];
+  const files = [{ path: 'CLAUDE.md', text: 'intro\nLesson from #1151: resolve vars once\n' }];
+  const report = overlayLeakReport(tasks, files);
+  assert.equal(report['seen-test'].seen, true);
+  assert.deepEqual(report['seen-test'].hits, [{ path: 'CLAUDE.md', line: 2, term: '#1151' }]);
+  assert.match(report['seen-test'].warning, /held-out/);
+  assert.equal(report.unseen.seen, false);
+  assert.equal(report.unseen.warning, null);
+});
+
+test('summariseBuild reports all vs unseen pass rates', () => {
+  const run = (taskId, outcome, seenInHarness) => ({
+    taskId,
+    split: 'train',
+    status: 'ok',
+    outcome,
+    partial: outcome === 'pass' ? 1 : 0,
+    seenInHarness,
+  });
+  const s = summariseBuild([
+    run('a', 'pass', true),
+    run('a', 'pass', true),
+    run('b', 'fail', false),
+  ]);
+  assert.equal(s.byTask.a.seenInHarness, true);
+  assert.equal(s.byTask.b.seenInHarness, false);
+  assert.equal(s.totals.scored, 3);
+  assert.equal(s.unseen.scored, 1);
+  assert.equal(s.unseen.pass1, 0);
+  const md = formatBuildMarkdown({
+    config: 'x',
+    harnessSha: SHA_B,
+    dryRun: false,
+    runs: [],
+    summary: s,
+  });
+  assert.match(md, /unseen/);
+});
 
 test('summariseBuild: pass@1, pass^n, partial, cost, minutes; errors excluded; Wilson CI', () => {
   const r = (taskId, outcome, partial, extra = {}) => ({

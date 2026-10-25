@@ -79,8 +79,8 @@ passToPass: [shell commands]    # must pass on the reference (e.g. npm run type-
 timeoutMinutes: 60              # agent wall clock
 commandTimeoutMinutes: 20       # optional, per grader command (default 20)
 notes: what was left out, known grader caveats
-leakTerms: [strings]            # optional: fix-specific symbols/module names that must not
-                                # appear in the harness overlay (CLAUDE.md, skills, docs/agents)
+leakTerms: [strings]            # optional: fix-specific symbols/module names (case-insensitive
+                                # regex sources) that mark the task seen if the overlay has them
 ```
 
 Commands run with `bash -c` from the isolated repo root (`cd cli && npx vitest run …` for the
@@ -140,8 +140,16 @@ Residual risks: the node_modules symlinks (and absolute paths in general) still 
 checkout, so an agent that deliberately leaves its repo could read the history. Every
 transcript is scanned with `detectContamination` (forbidden roots = the main checkout and this
 checkout, plus their realpaths; git commands aimed outside the isolated repo); a contaminated
-trial is an **error** and excluded from scoring. The overlay docs come from the harness ref,
-which postdates the fixes: keep fix-specific lessons out of `CLAUDE.md` / skills, or they leak.
+trial is an **error** and excluded from scoring.
+
+The overlay docs come from the harness ref, which postdates the fixes, so a lesson written into
+`CLAUDE.md` / skills / `docs/agents` can leak a task's answer. Each invocation reads the overlay
+files at the harness ref (`readOverlayFiles`) and searches them (`findOverlayLeaks`) for the
+task's terms: the PR numbers (`#NNNN`) in its title and notes, the reference commit's 8-char
+short SHA, and its optional `leakTerms`. A task with a hit is tagged `seenInHarness` on every
+run, its hits are listed under `overlayLeaks` in the result JSON, and the summary reports pass
+rates for **all** tasks and for **unseen** tasks only. A seen **test**-split task prints a
+warning: it is no longer held out, so move it to train or add a fresh task.
 
 ## Grading
 

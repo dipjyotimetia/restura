@@ -27,15 +27,19 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { load as loadYaml } from 'js-yaml';
 import {
+  caseLeakTerms,
   createIsolatedRepo,
   detectContamination,
+  findOverlayLeaks,
   killLiveChildren,
   linkNodeModules,
   nodeExec,
   parseClaudeStream,
   passAtK,
   passHatK,
+  readOverlayFiles,
   redactSecrets,
+  SEEN_TEST_WARNING,
   syncExec,
   wilsonInterval,
 } from './harness-eval.mjs';
@@ -629,12 +633,48 @@ function aggregate(runs) {
   };
 }
 
-/** Per-task pass@1 / pass^n (n = scored trials) and totals with a Wilson 95% CI. Errors are excluded. */
+// ---------------------------------------------------------------- overlay leaks
+
+/**
+ * Terms whose presence in the harness overlay means the harness has "seen" the
+ * task: PR numbers (`#NNNN`) in its title and notes, the reference commit's
+ * 8-char short SHA, and the task's optional `leakTerms`.
+ */
+export function taskLeakTerms(task) {
+  return caseLeakTerms({
+    sourcePRs: [task.title ?? '', task.notes ?? ''],
+    sourceCommit: task.referenceCommit,
+    leakTerms: task.leakTerms ?? [],
+  });
+}
+
+/** Per task: overlay lines mentioning its leak terms, `seen`, and a warning for a seen test-split task. */
+export function overlayLeakReport(tasks, files) {
+  const report = {};
+  for (const task of tasks) {
+    const hits = findOverlayLeaks({ files, terms: taskLeakTerms(task) });
+    const seen = hits.length > 0;
+    report[task.id] = {
+      seen,
+      hits,
+      warning: seen && task.split === 'test' ? `${task.id}: ${SEEN_TEST_WARNING}` : null,
+    };
+  }
+  return report;
+}
+
+// ---------------------------------------------------------------- summary (cont.)
+
+/**
+ * Per-task pass@1 / pass^n (n = scored trials) and totals with a Wilson 95% CI,
+ * overall, per split and for tasks the harness has not seen. Errors are excluded.
+ */
 export function summariseBuild(runs) {
   const byTask = {};
   for (const id of [...new Set(runs.map((r) => r.taskId))])
     byTask[id] = {
       split: runs.find((r) => r.taskId === id)?.split ?? null,
+      seenInHarness: runs.some((r) => r.taskId === id && r.seenInHarness === true),
       ...aggregate(runs.filter((r) => r.taskId === id)),
     };
   const totalsFor = (subset) => {
@@ -651,7 +691,12 @@ export function summariseBuild(runs) {
     const subset = runs.filter((r) => r.split === split);
     if (subset.length > 0) bySplit[split] = totalsFor(subset);
   }
-  return { byTask, bySplit, totals: totalsFor(runs) };
+  return {
+    byTask,
+    bySplit,
+    totals: totalsFor(runs),
+    unseen: totalsFor(runs.filter((r) => r.seenInHarness !== true)),
+  };
 }
 
 const pct = (v) => (typeof v === 'number' ? `${(v * 100).toFixed(0)}%` : '–');
@@ -686,7 +731,15 @@ export function formatBuildMarkdown(result) {
   const total = (label, t) =>
     `- **${label}**: pass@1 ${pct(t.pass1)} (${t.passes}/${t.scored}${t.ci ? `, 95% CI ${pct(t.ci.low)}–${pct(t.ci.high)}` : ''}), mean partial ${pct(t.meanPartial)}, ${t.errors} error(s) excluded, cost ${usd(t.totalCostUsd)}`;
   lines.push(total('all', s.totals));
+  if (s.unseen) lines.push(total('unseen by the harness', s.unseen));
   for (const [split, t] of Object.entries(s.bySplit)) lines.push(total(split, t));
+  const seen = Object.entries(s.byTask).filter(([, t]) => t.seenInHarness);
+  if (seen.length > 0)
+    lines.push(
+      '',
+      `Seen in the harness overlay (excluded from "unseen"): ${seen.map(([id]) => id).join(', ')}`
+    );
+  for (const warning of result.leakWarnings ?? []) lines.push(`- WARNING: ${warning}`);
   const errors = result.runs.filter((r) => r.status === 'error');
   if (errors.length > 0) {
     lines.push('', '## Errors (excluded)', '');
@@ -748,6 +801,25 @@ export async function runBuildEval(options, { exec = nodeExec, log = console.log
     runsPerTask: runs,
     runs: [],
   };
+  // Does the harness under test already mention a task's fix (PR number, SHA, leakTerms)?
+  const leaks = overlayLeakReport(tasks, await readOverlayFiles(exec, repo, harnessSha));
+  result.overlayLeaks = Object.fromEntries(
+    Object.entries(leaks)
+      .filter(([, r]) => r.seen)
+      .map(([id, r]) => [id, r.hits.slice(0, 20)])
+  );
+  result.leakWarnings = Object.values(leaks)
+    .map((r) => r.warning)
+    .filter(Boolean);
+  for (const [id, r] of Object.entries(leaks))
+    if (r.seen)
+      log(
+        `seen in harness: ${id} (${r.hits
+          .slice(0, 3)
+          .map((h) => `${h.path}:${h.line} ${h.term}`)
+          .join('; ')})`
+      );
+  for (const warning of result.leakWarnings) log(`WARNING: ${warning}`);
 
   let tempDir = null;
   const onSignal = (signal) => {
@@ -786,7 +858,7 @@ export async function runBuildEval(options, { exec = nodeExec, log = console.log
           fs.rmSync(tempDir, { recursive: true, force: true });
           tempDir = null;
         }
-        result.runs.push({ run, ...outcome });
+        result.runs.push({ run, seenInHarness: leaks[task.id]?.seen === true, ...outcome });
         log(
           outcome.status === 'error'
             ? `  ${options.dryRun ? 'INVALID' : 'error'}: ${outcome.reason}`
