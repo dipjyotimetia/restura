@@ -56,8 +56,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Case bases are old main commits; the harness eval checks them out as worktrees.
+          # Case bases are old main commits; the harness eval archives them into history-free repos.
           fetch-depth: 0
+          # The eval hands a model Bash; never leave a git credential on disk.
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
@@ -68,7 +70,7 @@ jobs:
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install Claude Code CLI
-        run: npm install --global @anthropic-ai/claude-code
+        run: npm install --global @anthropic-ai/claude-code@2.1.310 # pinned; bump deliberately (eval results depend on it)
 
       - name: Run eval
         env:
