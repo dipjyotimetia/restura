@@ -8,7 +8,6 @@ import {
   applyReferenceDiff,
   buildAgentArgs,
   buildAgentPrompt,
-  buildExec,
   classifyAgentRun,
   dryRunVerdict,
   formatBuildMarkdown,
@@ -17,7 +16,6 @@ import {
   loadTasks,
   PROMPT_SUFFIX,
   parseBuildArgs,
-  redact,
   runCommand,
   runTask,
   summariseBuild,
@@ -501,16 +499,33 @@ test('runTask: a transcript touching the main checkout is contaminated → error
   }
 });
 
-test('buildExec: a timeout kills the child and reports it', async () => {
-  const started = Date.now();
-  const r = await buildExec.run('sleep', ['30'], { timeout: 100 });
-  assert.ok(Date.now() - started < 5000);
-  assert.equal(r.signal, 'SIGTERM');
-  assert.match(r.stderr, /timed out after 100 ms/);
-});
+test('grader tails and transcripts are redacted with redactSecrets', async () => {
+  const secret = 'sk-build-eval-test-secret-0123456789';
+  const previous = process.env.BUILD_EVAL_TEST_API_TOKEN;
+  process.env.BUILD_EVAL_TEST_API_TOKEN = secret;
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
+  try {
+    const r = await runCommand(
+      fakeExec(() => ({ status: 1, stdout: `token=${secret}`, stderr: '' })),
+      'env',
+      { cwd: '/r', timeoutMs: 1 }
+    );
+    assert.ok(!r.tail.includes(secret));
+    assert.match(r.tail, /REDACTED/);
 
-test('redact returns the text (harness-eval redactSecrets when it is exported)', () => {
-  assert.ok(redact('plain text', {}).includes('plain'));
+    const task = validateTask(rawTask(), okChecks).value;
+    const transcriptFile = path.join(tempDir, 'out', 't.jsonl');
+    const leaky = stream([
+      bash(`echo ${secret}`),
+      { type: 'result', subtype: 'success', num_turns: 2 },
+    ]);
+    await runTask(task, ctxFor(runTaskExec({ agentStdout: leaky }), tempDir, { transcriptFile }));
+    assert.ok(!fs.readFileSync(transcriptFile, 'utf8').includes(secret));
+  } finally {
+    if (previous === undefined) delete process.env.BUILD_EVAL_TEST_API_TOKEN;
+    else process.env.BUILD_EVAL_TEST_API_TOKEN = previous;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('classifyAgentRun fails closed; only success and max-turns are graded', () => {

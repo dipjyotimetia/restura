@@ -21,21 +21,21 @@
 //     [--config <label>] [--harness-ref <ref>] [--model <model>]
 //     [--max-budget-usd <n>] [--out <dir>] [--dry-run]
 
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { load as loadYaml } from 'js-yaml';
-import * as harnessEval from './harness-eval.mjs';
 import {
   createIsolatedRepo,
   detectContamination,
+  killLiveChildren,
   linkNodeModules,
   nodeExec,
   parseClaudeStream,
   passAtK,
   passHatK,
+  redactSecrets,
   syncExec,
   wilsonInterval,
 } from './harness-eval.mjs';
@@ -59,78 +59,8 @@ const TYPECHECK_ALL_RE = /\btype-check:all\b/;
 const COMMIT_RE = /\bgit\b[^|;&\n]*\bcommit\b/;
 /** The reference diff never carries node_modules (a stray committed symlink would collide with the links). */
 const DIFF_EXCLUDES = [':(exclude,glob)**/node_modules'];
-const KILL_GRACE_MS = 10_000;
 /** Paths stripped from every isolated repo: the answer keys (task files) must never be in reach. */
 export const ANSWER_KEY_PATHS = ['evals'];
-
-/**
- * Redact secrets from text before it is stored (transcripts, grader tails,
- * result files) with harness-eval's `redactSecrets(text, env)` when it is
- * exported; identity until then.
- */
-export function redact(text, env = process.env) {
-  const fn = harnessEval.redactSecrets;
-  return typeof fn === 'function' ? fn(String(text ?? ''), env) : String(text ?? '');
-}
-
-const liveChildren = new Set();
-
-/** Kill every live child (SIGTERM, then SIGKILL after the grace period). */
-export function killAllChildren() {
-  for (const child of liveChildren) {
-    child.kill('SIGTERM');
-    setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-    }, KILL_GRACE_MS).unref();
-  }
-}
-
-/**
- * Process runner for the eval: like harness-eval's nodeExec.run, but it tracks
- * every live child (so a signal can kill them all) and escalates a timeout's
- * SIGTERM to SIGKILL after 10 s. `pipe` (git archive | tar, git diff | git apply)
- * is harness-eval's.
- */
-export const buildExec = {
-  run(command, args, opts = {}) {
-    return new Promise((resolve) => {
-      const child = spawn(command, args, {
-        cwd: opts.cwd,
-        env: opts.env ?? process.env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      liveChildren.add(child);
-      let stdout = '';
-      let stderr = '';
-      let timer;
-      let killer;
-      if (opts.timeout)
-        timer = setTimeout(() => {
-          stderr += `\ntimed out after ${opts.timeout} ms`;
-          child.kill('SIGTERM');
-          killer = setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS);
-        }, opts.timeout);
-      child.stdout.setEncoding('utf8').on('data', (d) => {
-        stdout += d;
-      });
-      child.stderr.setEncoding('utf8').on('data', (d) => {
-        stderr += d;
-      });
-      child.on('error', (error) => {
-        stderr += String(error);
-      });
-      child.on('close', (status, signal) => {
-        clearTimeout(timer);
-        clearTimeout(killer);
-        liveChildren.delete(child);
-        resolve({ status: status ?? (signal ? null : 1), signal, stdout, stderr });
-      });
-      child.stdin.on('error', () => {});
-      child.stdin.end(opts.input ?? '');
-    });
-  },
-  pipe: (...args) => nodeExec.pipe(...args),
-};
 
 const IDENTITY = ['-c', 'user.name=restura-build-eval', '-c', 'user.email=build-eval@localhost'];
 
@@ -461,7 +391,7 @@ export async function runCommand(exec, command, { cwd, timeoutMs }) {
     status: result.status === 0 && !result.signal ? 'pass' : timedOut ? 'timeout' : 'fail',
     exitCode: result.status ?? null,
     ms: Date.now() - started,
-    tail: tail(redact(output.trim())),
+    tail: tail(redactSecrets(output.trim())),
   };
 }
 
@@ -614,7 +544,7 @@ export async function runTask(task, ctx) {
     });
     if (ctx.transcriptFile) {
       fs.mkdirSync(path.dirname(ctx.transcriptFile), { recursive: true });
-      fs.writeFileSync(ctx.transcriptFile, redact(raw.stdout ?? ''));
+      fs.writeFileSync(ctx.transcriptFile, redactSecrets(raw.stdout ?? ''));
       outcome.transcript = ctx.transcriptLink ?? ctx.transcriptFile;
     }
     outcome.agent = transcriptMetrics(raw.stdout);
@@ -758,7 +688,7 @@ export function formatBuildMarkdown(result) {
 
 // ---------------------------------------------------------------- main
 
-export async function runBuildEval(options, { exec = buildExec, log = console.log } = {}) {
+export async function runBuildEval(options, { exec = nodeExec, log = console.log } = {}) {
   const repo = (
     await exec.run('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT })
   ).stdout.trim();
@@ -812,7 +742,7 @@ export async function runBuildEval(options, { exec = buildExec, log = console.lo
 
   let tempDir = null;
   const onSignal = (signal) => {
-    killAllChildren();
+    killLiveChildren();
     if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
     console.error(`\nbuild-eval: ${signal}; removed this run's isolated repo.`);
     process.exit(signal === 'SIGINT' ? 130 : 143);
@@ -863,8 +793,8 @@ export async function runBuildEval(options, { exec = buildExec, log = console.lo
   }
   result.summary = summariseBuild(result.runs);
   fs.mkdirSync(outDir, { recursive: true });
-  fs.writeFileSync(`${base}.json`, redact(`${JSON.stringify(result, null, 2)}\n`));
-  const markdown = redact(formatBuildMarkdown(result));
+  fs.writeFileSync(`${base}.json`, redactSecrets(`${JSON.stringify(result, null, 2)}\n`));
+  const markdown = redactSecrets(formatBuildMarkdown(result));
   fs.writeFileSync(`${base}.md`, markdown);
   log(`\n${markdown}`);
   log(`Wrote ${base}.json and ${base}.md`);

@@ -129,9 +129,10 @@ Disallow patterns are **not a sandbox**: `Bash` can still reach the network or t
 by other means, and a local run has your developer privileges (keychain, SSH keys, tokens in the
 environment). Prefer running real trials in CI or a container. Transcripts are saved as JSONL
 next to the results. Transcripts, grader output tails and result files go through
-`redactSecrets(text, env)` from `scripts/harness-eval.mjs` once that export exists (until then
-they are written unredacted: check before sharing them). Ctrl-C / SIGTERM kills every live child
-and removes the trial's temp dir; a timed-out command gets SIGTERM, then SIGKILL 10 s later.
+`redactSecrets(text, env)` from `scripts/harness-eval.mjs` (secret-looking environment values)
+before they are written; it is best-effort, so still skim before sharing. Ctrl-C / SIGTERM kills
+every live child (`killLiveChildren`) and removes the trial's temp dir; a timed-out command gets
+SIGTERM, then SIGKILL 10 s later.
 
 Residual risks: the node_modules symlinks (and absolute paths in general) still lead to the main
 checkout, so an agent that deliberately leaves its repo could read the history. Every
