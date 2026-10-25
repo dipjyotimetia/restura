@@ -33,7 +33,11 @@ import {
 import { buildStdioChildEnv, cmdShimArgError } from '../security/mcp-stdio-policy';
 import { resolveStdioCommand } from '../security/mcp-stdio-resolve';
 import { describeSecretHandle, resolveSecretHandle } from '../security/secret-handle-store';
-import { connectMcpSdkClient, type McpSdkClient } from './mcp-sdk-client';
+import {
+  connectMcpSdkClient,
+  type McpSdkClient,
+  type McpSdkClientRequestHandlers,
+} from './mcp-sdk-client';
 import {
   createStderrForwarder,
   liveStdioChildCount,
@@ -45,10 +49,18 @@ import {
 /** npx/uvx may download a package on first launch; allow for it. */
 export const STDIO_CONNECT_TIMEOUT_MS = 120_000;
 
+/** Server→client request bridge (see mcp-client-requests.ts) bound to the session's owner. */
+export interface StdioClientRequestBridge extends McpSdkClientRequestHandlers {
+  attachClient(client: McpSdkClient): void;
+  dispose(): void;
+}
+
 export interface StdioSessionLike {
   disposed: boolean;
   client?: McpSdkClient;
   onDispose?: () => void;
+  /** When set, the client advertises roots/elicitation/sampling and routes them here. */
+  clientRequests?: StdioClientRequestBridge;
 }
 
 export interface SecretHandleLookup {
@@ -205,6 +217,7 @@ async function connectWithSlot(
   const teardown = () => {
     if (!session.disposed) {
       session.disposed = true;
+      session.clientRequests?.dispose();
       void session.client?.close().catch(() => {});
     }
     killChild();
@@ -230,6 +243,7 @@ async function connectWithSlot(
     onClose: () => {
       if (session.disposed) return;
       session.disposed = true;
+      session.clientRequests?.dispose();
       killChild();
       if (options.isLive()) {
         options.removeLive();
@@ -264,8 +278,10 @@ async function connectWithSlot(
           },
         },
         events,
+        ...(session.clientRequests ? { clientRequests: session.clientRequests } : {}),
         onClientCreated: (client) => {
           session.client = client;
+          session.clientRequests?.attachClient(client);
         },
       }).then((client) => {
         session.client = client;

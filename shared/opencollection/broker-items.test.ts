@@ -12,6 +12,7 @@ import type { Collection, CollectionItem, KafkaRequest, MqttRequest } from '../t
 import {
   KAFKA_EXTENSION_KEY,
   kafkaEntryToInternal,
+  kafkaToOC,
   MQTT_EXTENSION_KEY,
   mqttEntryToInternal,
 } from './broker-items';
@@ -282,5 +283,23 @@ describe('broker preset schemas', () => {
       connection: { ...MQTT.connection, password: 'pw' },
     });
     expect(JSON.stringify(mqtt)).not.toContain('password');
+  });
+
+  it('round-trips the Schema Registry authType without any token', () => {
+    const req: KafkaRequest = {
+      ...KAFKA,
+      connection: { ...KAFKA.connection, registry: { url: 'https://r', authType: 'bearer' } },
+    };
+    expect(kafkaRequestSchema.safeParse(req).success).toBe(true);
+    const entry = kafkaToOC('K', req) as Record<string, unknown>;
+    expect(JSON.stringify(entry)).toContain('"authType":"bearer"');
+    expect(JSON.stringify(entry)).not.toMatch(/token/i);
+    const back = kafkaEntryToInternal(entry as never);
+    expect(back.connection.registry).toEqual({ url: 'https://r', authType: 'bearer' });
+    const legacy = kafkaEntryToInternal({
+      info: { name: 'L' },
+      kafka: { connection: { registry: { url: 'https://r', username: 'u' } } },
+    } as never);
+    expect(legacy.connection.registry).toEqual({ url: 'https://r', username: 'u' });
   });
 });

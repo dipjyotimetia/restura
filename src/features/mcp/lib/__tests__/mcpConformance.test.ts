@@ -47,6 +47,18 @@ describe('runMcpConformanceReport', () => {
     );
   });
 
+  it('desktop: forwards the main-side auth descriptor untouched', async () => {
+    const conformance = vi.fn().mockResolvedValue({ success: true, report: {} });
+    platform.electron = true;
+    platform.api = { mcp: { conformance } };
+    const auth = {
+      type: 'bearer' as const,
+      bearer: { token: { kind: 'handle' as const, id: 'h' } },
+    };
+    await runMcpConformanceReport({ ...input, auth });
+    expect(conformance).toHaveBeenCalledWith(expect.objectContaining({ auth }));
+  });
+
   it('desktop: surfaces bridge errors and a missing bridge', async () => {
     platform.electron = true;
     platform.api = {

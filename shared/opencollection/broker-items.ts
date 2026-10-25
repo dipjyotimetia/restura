@@ -117,7 +117,11 @@ export function kafkaToOC(name: string, r: KafkaRequest): unknown {
       : undefined,
     tls: tlsFromInternal(c.tls),
     registry: c.registry
-      ? defined({ url: c.registry.url, username: c.registry.username })
+      ? defined({
+          url: c.registry.url,
+          authType: c.registry.authType,
+          username: c.registry.username,
+        })
       : undefined,
     acks: c.acks,
     compression: c.compression,
@@ -168,7 +172,13 @@ export function kafkaEntryToInternal(entry: Obj): KafkaRequest {
   if (tls) connection.tls = tls;
   if (c.registry && typeof c.registry === 'object') {
     const reg = obj(c.registry);
-    connection.registry = { url: str(reg.url), ...defined({ username: optStr(reg.username) }) };
+    connection.registry = {
+      url: str(reg.url),
+      ...defined({
+        authType: reg.authType === 'basic' || reg.authType === 'bearer' ? reg.authType : undefined,
+        username: optStr(reg.username),
+      }),
+    };
   }
   if (typeof c.transactionalId === 'string') connection.transactionalId = c.transactionalId;
 
