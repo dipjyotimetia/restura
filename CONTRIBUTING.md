@@ -148,6 +148,77 @@ restura/
 
 Example: `feature/add-graphql-support`
 
+### Git hooks
+
+Husky installs two hooks on `npm install`:
+
+- **pre-commit** runs `scripts/guard-staged.mjs` and then lint-staged (Biome).
+  The guard rejects staged entries that only make sense on your machine: new
+  symlinks (only relative links under `.claude/skills/` are allowed), any
+  `node_modules` path, `.dev.vars`, `*.snap` files (the repo gitignores
+  `*.snap`, so a snapshot that passes locally is missing in CI; use
+  `toMatchInlineSnapshot()`), and added lines containing an absolute path to
+  your checkout.
+- **pre-push** runs `npm run type-check`, `npm run architecture:check`, and
+  `vitest related` for the files your branch changed since its merge-base with
+  `origin/main` (the full suite if the Vitest config/setup changed). The full
+  `test:coverage` budget is enforced by CI on every PR and re-run on top of
+  current `main` by the merge lane (see [docs/CI_CD.md](docs/CI_CD.md)). To run
+  it locally before pushing, use `RESTURA_PREPUSH_FULL=1 git push`.
+
+`git commit --no-verify` / `git push --no-verify` bypass the hooks; keep that
+for deliberate exceptions.
+
+### Working in git worktrees
+
+Parallel work (including agent sessions) should use one git worktree per
+branch. After `git worktree add <path> -b <branch> origin/main`, run from the
+new worktree:
+
+```bash
+npm run worktree:setup            # or: npm run worktree:setup -- <worktreePath>
+npm run worktree:setup -- --hooks # also give this worktree its own git hooks
+```
+
+It symlinks every `node_modules` the main checkout has installed (root,
+`cli/`, `extension/*`, `docs-site/`), copies `.dev.vars`, checks every link is
+gitignored, and is safe to re-run. It refuses to run in the main checkout.
+Husky records `core.hooksPath` in the shared repo config, so by default a
+worktree runs the **main checkout's** `.husky/*` scripts; the setup output
+flags that, and `--hooks` switches the worktree to its own hooks via a
+per-worktree `core.hooksPath` (this enables the local-only
+`extensions.worktreeConfig` repo setting).
+
+### Testing several branches together
+
+PRs that are green alone can still break `main` together. Before merging
+related PRs, check the combination:
+
+```bash
+npm run integration-check -- origin/feat/a origin/feat/b
+npm run integration-check -- feat/a feat/b --base origin/main --e2e --keep
+```
+
+It fetches, merges the branches in order onto the base in a throwaway
+worktree (`git merge --no-ff`), prints the files that more than one branch
+touched (shared registries such as `architecture.config.mts` or
+`capabilities.ts` are flagged, generated files are listed separately), then
+runs `type-check:all`, `lint`, `architecture:check`, `capabilities:check`,
+`verify:opencollection-types` and `test:coverage` on the result (`--e2e` adds
+the Electron and web Playwright suites). It prints a PASS/FAIL table with log
+paths and exits non-zero on any conflict or failure. It never pushes or
+changes your branches. Other options: `--continue-on-conflict`, `--no-fetch`,
+`--gates=lint,type-check`.
+
+### Architecture caps
+
+`npm run architecture:check` fails only when a file exceeds its line cap or a
+ratcheted source pattern exceeds its `max`. A cap that is looser than the code
+is a warning, so you don't need to edit `scripts/architecture.config.mts` when
+you shrink a file. `npm run architecture:tighten` lowers every cap to the code
+(it never raises one). Run it now and then in its own PR so parallel PRs don't
+conflict on the caps.
+
 ### Commit Message Format
 
 We follow [Conventional Commits](https://www.conventionalcommits.org/):
@@ -339,6 +410,9 @@ npm run test -- RequestBuilder.test.tsx
    git rebase origin/main
    ```
 
+   If your PR depends on, or overlaps with, other open PRs, run
+   `npm run integration-check -- <their branches> <your branch>`.
+
 2. **Run all validations**:
 
    ```bash
@@ -413,7 +487,10 @@ Add screenshots
 2. Automated CI checks must pass
 3. At least one maintainer approval required
 4. All conversations must be resolved
-5. Squash and merge with meaningful commit message
+5. Merge with `gh pr merge <n> --auto --squash`. The merge lane brings one
+   auto-merge PR at a time up to date with `main` so its checks run on top of
+   everything merged before it (see [docs/CI_CD.md](docs/CI_CD.md#merging-the-merge-lane)).
+   Don't use `--admin`: it skips the required checks and is for emergencies only.
 
 ## Issue Reporting
 
