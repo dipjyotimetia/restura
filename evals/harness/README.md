@@ -178,13 +178,26 @@ their `gh` config, SSH keys and home directory. Prefer CI or a container for unt
   same review N times. All verdicts are kept (`judge.verdicts`); the judge's `caught` is the
   strict majority and its score the mean. A run where the verdicts differ counts as a **judge disagreement**,
   per case and in total: that is grader noise, separate from reviewer flips.
+- **Incomplete reviews are graded failures.** A review that runs out of budget
+  (`error_max_budget_usd`, or a budget message on stderr), hits `error_max_turns`, or is killed by
+  the review timeout counts as **not caught** for a defect and **not clean** for a control
+  (against precision), with `incomplete: true` and the reason; the judge is not called. Excluding
+  them would be survivorship bias: a configuration too slow or expensive to finish would look as
+  good as one that finishes. The summary shows the incomplete count per case and in total.
 - **Harness errors are not misses.** A run gets `status: "error"` with a reason, and is left out
-  of recall and precision, when `claude` exits non-zero or is killed, its output cannot be parsed
-  (or the review stream has no `result` event), the review's answer is empty, the review was
-  contaminated (see Isolation), the result reports `permission_denials`, an
-  `error_*` subtype (budget, max turns) or `is_error`, stderr reports a tool that is not allowed,
-  a permission denial or budget exhaustion, the overlay or a patch fails to apply, or the judge
-  fails. Errors are listed in the summary.
+  of recall and precision, when `claude` fails to start, exits non-zero or is killed by a signal
+  other than the timeout, its output cannot be parsed (or the review stream has no `result`
+  event), a finished review's answer is empty, the result reports `permission_denials`, another
+  `error_*` subtype or `is_error`, stderr reports a tool that is not allowed or a permission
+  denial, the overlay or a patch fails to apply, or the judge fails (including running out of
+  budget). Errors are listed in the summary with the **error rate**; a high rate means the numbers
+  describe the runs that happened to work, so fix the harness before reading them.
+- **Validity failures are excluded too, and reported**: a contaminated review (see Isolation),
+  and a reviewer that modified the shared `node_modules`. `nodeModulesFingerprint` hashes
+  `node_modules/.package-lock.json`, `cli/node_modules/.package-lock.json` and the package.json
+  and bin files of vitest and typescript before and after each review; a change fails the run
+  ("reviewer modified shared node_modules — run npm ci in the main checkout") and prints a loud
+  warning, because the links point into the main checkout and every later run would be affected.
 
 ## Metrics
 
