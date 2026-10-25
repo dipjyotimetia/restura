@@ -31,9 +31,9 @@ You review Restura changes for cross-harness wiring parity. The renderer is ONE 
 
 - A handler exists in `electron/main/<p>-handler.ts`.
 - IPC channel name declared in its area module under `electron/shared/channels/` (composed by `electron/shared/channels.ts`).
-- Args validated by a Zod schema in `electron/main/ipc-validators.ts` (via `createValidatedHandler`), rate-limited (`ipc-rate-limiter.ts`), sender-checked (`assertTrustedSender`).
+- Args validated by a Zod schema in an area module under `electron/main/ipc/validators/` (via `createValidatedHandler`), rate-limited (`electron/main/ipc/ipc-rate-limiter.ts`), sender-checked (`assertTrustedSender`).
 - Preload bridge in `electron/main/preload.ts` exposes the channel; the surface type-checks against `electron/types/electron-api.ts` (`satisfies ElectronAPI`).
-- Long-lived/streaming handlers use `connection-cleanup.ts` (`bindRendererCleanup` / `disposeByOwner`).
+- Long-lived/streaming handlers use `electron/main/ipc/connection-cleanup.ts` (`bindRendererCleanup` / `disposeByOwner`).
 
 **CLI (`cli/src/runner/executors/*`) — third harness**
 

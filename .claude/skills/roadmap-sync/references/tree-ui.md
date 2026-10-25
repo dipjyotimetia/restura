@@ -22,7 +22,7 @@ Restura's cobalt tokens. Don't copy Up's art, logo treatment, or coral palette.
 - `fitScale`: fit width, allow vertical overflow up to 1.6× viewport height;
   phones (<640px) frame the first branch at ≤1×.
 
-## Interaction (`scripts/product-tree.ts`)
+## Interaction (`docs-site/src/scripts/product-tree.ts`)
 
 - Details open as a **popover anchored beside the node** (`placePanel`, flips left
   near the right edge; bottom sheet when viewport < 640px). Opening never moves

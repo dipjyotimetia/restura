@@ -58,17 +58,17 @@ CORS is applied globally (`app.use('/api/*', cors())`) — don't add per-handler
 
 ## SSRF protection
 
-Mandatory for any handler that fetches a URL the user controls. `validateURL` is in `worker/shared/url-validation.ts`:
+Mandatory for any handler that fetches a URL the user controls. `validateURL` is in `shared/protocol/url-validation.ts` (shared by the Worker, self-host and Electron — the single SSRF source of truth):
 
 - Blocks private IPs (RFC 1918, link-local, loopback)
 - `allowLocalhost` is gated by `ENVIRONMENT === 'development'` — set `.dev.vars` to `ENVIRONMENT=development` for local localhost proxying
 - Checks for protocol allowlist (http/https only)
 
-There's a renderer-side copy at `src/features/http/lib/urlValidator.ts` for client-side fast-fail. Keep them in sync — the renderer copy gives instant feedback in the UI; the Worker copy is the security boundary.
+There's a renderer-side copy at `src/features/http/lib/urlValidator.ts` for client-side fast-fail. Keep them in sync — the renderer copy gives instant feedback in the UI; the shared copy is the security boundary.
 
 ## Response size limit
 
-Imported from `worker/shared/constants.ts` — default `MAX_RESPONSE_SIZE = 10 MB`. Apply consistently. The Electron IPC handler enforces the same limit so behavior is uniform across harnesses.
+Imported from `shared/protocol/proxy-limits.ts` — default `MAX_RESPONSE_SIZE = 10 MB`. Apply consistently. The Electron IPC handler enforces the same limit so behavior is uniform across harnesses.
 
 If you stream a response, check size as bytes accumulate and return `413` early when exceeded. Don't buffer the whole thing first.
 

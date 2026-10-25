@@ -61,7 +61,7 @@ For streaming protocols, the executor returns subscription handles, not promises
 
 ## Step 3 — Add the Worker handler (if web is supported)
 
-`worker/handlers/sse.ts`:
+`worker/handlers/<name>.ts`:
 
 ```ts
 import type { Context } from 'hono';
@@ -83,13 +83,13 @@ Mount in `worker/index.ts`: `app.post('/api/sse', sse);`
 
 For non-streaming protocols, return the standard `c.json({ status, statusText, headers, data, size })` shape.
 
-Add tests in `worker/handlers/__tests__/sse.test.ts` — at minimum the SSRF branches.
+Add tests in `worker/handlers/__tests__/<name>.test.ts` — at minimum the SSRF branches.
 
 ## Step 4 — Add the Electron IPC handler
 
 This is the four-file step. Do all four together:
 
-### 4a. Schema in `electron/main/ipc-validators.ts`
+### 4a. Schema in `electron/main/ipc/validators/<area>.ts`
 
 ```ts
 export const SseConfigSchema = z.object({
@@ -100,7 +100,7 @@ export const SseConfigSchema = z.object({
 export type SseConfig = z.infer<typeof SseConfigSchema>;
 ```
 
-### 4b. Handler in `electron/main/sse-handler.ts`
+### 4b. Handler in `electron/main/handlers/sse-handler.ts`
 
 ```ts
 const sseRateLimiter = createRateLimiter(20, 60_000);
@@ -148,7 +148,7 @@ sse: {
 
 The `on` returns its own teardown function. Renderer code calls the returned function in a `useEffect` cleanup.
 
-### 4d. Type declaration in `electron/types/electron.d.ts`
+### 4d. Type declaration in `electron/types/electron-api.ts` (plus a module under `electron/types/api/`)
 
 ```ts
 export interface ElectronSseAPI {
@@ -197,7 +197,7 @@ The function shape is the same in both branches; the implementation differs. Com
 
 ## Step 6 — Add UI
 
-Build the request builder in `src/features/sse/components/SseRequestBuilder.tsx`. Compose Radix primitives from `@/components/ui/`. Use shared editors (`KeyValueEditor`, `CodeEditor`) from `@/components/shared/`.
+Build the request builder in `src/features/<name>/components/<Name>RequestBuilder.tsx`. Compose Radix primitives from `@/components/ui/`. Use shared editors (`KeyValueEditor`, `CodeEditor`) from `@/components/shared/`.
 
 Wire it into the route that picks request types (likely `src/routes/index.tsx` or wherever the type switcher lives).
 
@@ -205,8 +205,8 @@ Add a `'sse'` icon and label to whatever protocol picker exists.
 
 ## Step 7 — Tests
 
-- `src/features/sse/lib/__tests__/sseExecutor.test.ts` — mock `window.electron.sse` and `EventSource`; assert dispatch branches correctly.
-- `worker/handlers/__tests__/sse.test.ts` — at minimum the SSRF branches.
+- `src/features/<name>/lib/__tests__/<name>Executor.test.ts` — mock `window.electron.sse` and `EventSource`; assert dispatch branches correctly.
+- `worker/handlers/__tests__/<name>.test.ts` — at minimum the SSRF branches.
 - `electron/main/__tests__/` — schema validation tests for `SseConfigSchema`.
 
 ## Step 8 — Verify both harnesses
@@ -224,7 +224,7 @@ For streaming protocols, the smoke test is: connect, see events flow, navigate a
 
 ## Common mistakes
 
-- **Forgetting the type declaration in `electron.d.ts`.** The renderer compiles fine because `window.electron?.sse` is checked, but the call returns `undefined` at runtime.
+- **Forgetting the type declaration in `electron/types/electron-api.ts`.** The renderer compiles fine because `window.electron?.sse` is checked, but the call returns `undefined` at runtime.
 - **Skipping the close channel for streaming protocols.** Sockets leak across navigations.
 - **Returning `{ status: 0 }` from the IPC handler instead of throwing.** Loses the error normalization in the executor.
 - **Adding the protocol to `worker/handlers/` but not to `worker/index.ts`.** Route 404s in web mode.

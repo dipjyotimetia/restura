@@ -167,3 +167,34 @@ describe('.claude/skills wiring lint', () => {
     expect(missing).toEqual([]);
   });
 });
+
+// Backticked repo paths (`electron/main/ipc/ipc-validators.ts`) in skills and
+// agents must exist: a moved file leaves every agent that loads the skill
+// working from a wrong map. Paths with placeholders (`<name>`, `*`, `{a,b}`)
+// are illustrative and skipped; a path may also be relative to its skill dir
+// (e.g. a vendored skill's own `scripts/`).
+const PATH_ROOTS =
+  'src|shared|worker|electron|cli|scripts|tests|docs|docs-site|e2e|e2e-electron|echo|echo-local|\\.github';
+const REPO_PATH_RE = new RegExp(`\`((?:${PATH_ROOTS})/[A-Za-z0-9_./<>*{}$-]+\\.[a-z]{2,5})\``, 'g');
+
+const docFiles = [
+  ...skillNames.flatMap((n) =>
+    mdFiles(join(SKILLS_DIR, n)).map((f) => ({ file: f, base: join(SKILLS_DIR, n) }))
+  ),
+  ...[...agentNames].map((n) => ({ file: join(AGENTS_DIR, `${n}.md`), base: AGENTS_DIR })),
+];
+
+describe('.claude skills/agents path references', () => {
+  it('every backticked repo path exists', () => {
+    const missing: string[] = [];
+    for (const { file, base } of docFiles) {
+      for (const m of readFileSync(file, 'utf8').matchAll(REPO_PATH_RE)) {
+        const p = m[1] ?? '';
+        if (/[<>*{}$]|\.\.\./.test(p)) continue;
+        if (existsSync(join(ROOT, p)) || existsSync(join(base, p))) continue;
+        missing.push(`${file.slice(ROOT.length + 1)}: ${p}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+});
