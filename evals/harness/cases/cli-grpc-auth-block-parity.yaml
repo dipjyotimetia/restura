@@ -1,0 +1,27 @@
+id: cli-grpc-auth-block-parity
+title: App blocks auth gRPC can't apply, but the CLI gRPC executor silently sends unauthenticated
+origin: real
+sourcePRs: ['#1088']
+fixPRs: ['#1161']
+base: d547cbe098579a09f5f505b46aa4e9a4127bc404
+seam: cross-harness
+branches:
+  - name: fix/grpc-auth-block
+    patches: [01-grpc-auth-block.patch]
+expected:
+  defect: >-
+    The branch makes the app refuse gRPC requests whose auth type cannot be applied as metadata
+    (SigV4 / OAuth1 / WSSE / Digest / NTLM fail with FAILED_PRECONDITION and no network call)
+    and caps metadata size, in the renderer only (grpcClient / grpcStreamingClient /
+    GrpcRequestBuilder). The CLI gRPC executor (cli/src/runner/executors/grpc.ts) is not
+    updated: it applies header-shaped auth via applyAuthHeaders and silently drops sign-at-wire
+    types, so `restura run` sends those requests unauthenticated instead of failing, and it has
+    no metadata cap. The policy belongs in shared/protocol so both consumers use it.
+  files:
+    - cli/src/runner/executors/grpc.ts
+  symbols: [applyAuthHeaders]
+mustMention:
+  - '(cli/src/runner/executors/grpc\.ts|CLI[^\n]{0,60}gRPC|gRPC[^\n]{0,60}CLI|restura run)'
+  - '(SigV4|OAuth1|WSSE|Digest|NTLM|unsupported auth|auth (block|policy))'
+mustNotMiss: high
+notes: Minimised to the renderer and shared files of #1088 (docs and tests dropped).

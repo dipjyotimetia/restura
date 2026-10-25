@@ -1,0 +1,34 @@
+id: kafka-preset-registry-bearer
+title: Schema Registry Bearer auth lands after connection presets, which drop authType
+origin: real
+sourcePRs: ['#1127', '#1130']
+fixPRs: ['#1153']
+# Main right after #1130 (connection presets) merged; #1127 was developed in parallel.
+base: a986dcfd2b1120ab527809f322a7ed72940f25bd
+seam: cross-branch
+branches:
+  - name: feat/kafka-registry-bearer
+    patches:
+      - 01-registry-bearer-types.patch
+      - 02-registry-bearer-wiring.patch
+expected:
+  defect: >-
+    The branch adds Schema Registry Bearer auth (KafkaRegistry.authType + bearerToken) and
+    stores the `registry-token` secret for presets, but the connection-preset code merged just
+    before it (#1130) never carries `authType`: presetConnection / applyKafkaPreset in
+    src/features/kafka/lib/kafkaPreset.ts and the KafkaPresetConnection.registry type in
+    shared/types/broker.ts keep only url + username. Opening a saved preset restores the
+    registry without authType, so resolveRegistry falls back to Basic and sends no Authorization
+    header: 401s or schema-less decode with no warning. Handle-backed tokens are not stored at
+    all.
+  files:
+    - src/features/kafka/lib/kafkaPreset.ts
+    - shared/types/broker.ts
+  symbols: [presetConnection, applyKafkaPreset, KafkaPresetConnection, resolveRegistry]
+mustMention:
+  - '(kafkaPreset|presetConnection|applyKafkaPreset|KafkaPresetConnection|preset)'
+  - authType
+mustNotMiss: medium
+notes: >-
+  Minimised to the renderer store/hook/manager/preset files and the IPC types of #1127 (UI
+  components, Electron registry handlers, docs and tests dropped).

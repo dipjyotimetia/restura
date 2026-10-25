@@ -1,0 +1,26 @@
+id: sse-post-body-web-unwired
+title: SSE request body (POST streams) wired to Electron only; web silently sends GET
+origin: synthetic
+sourcePRs: []
+base: 68ff7139d0738df63730f81be1cfe6aeb21794e0
+seam: cross-harness
+branches:
+  - name: feat/sse-post-body
+    patches: [01-sse-post-body.patch]
+expected:
+  defect: >-
+    The new SSE "Request body (JSON, sends POST)" field is forwarded only on desktop:
+    sseManager.connect passes jsonBody to connectViaElectron (the IPC handler already POSTs it),
+    but the web path connectViaProxy -> buildSseStreamSpec still hardcodes `method: 'GET'` with
+    no body, so in the browser the body is silently dropped and a GET is sent. The store-free
+    runner path (sseStartStream in src/features/sse/protocol.ts) and the CLI SSE executor
+    (cli/src/runner/executors/sse.ts) ignore jsonBody too, and there is no capability row,
+    OpenCollection mapping or test.
+  files:
+    - src/features/sse/lib/sseManager.ts
+  symbols: [connectViaProxy, buildSseStreamSpec]
+mustMention:
+  - '(connectViaProxy|buildSseStreamSpec)'
+  - '(\bGET\b|web)'
+mustNotMiss: high
+notes: Synthetic, modelled on the recurring "wired one harness, forgot the other" class.

@@ -1,0 +1,33 @@
+id: mcp-runner-auth-override
+title: Collection-runner MCP auth is resolved once, then overwritten by a second unresolved auth path
+origin: real
+sourcePRs: ['#1131']
+fixPRs: ['#1151']
+base: b6ec7fc94bf1879d67eafa760851b4141602b98c
+seam: cross-consumer
+branches:
+  - name: feat/mcp-collection-runner
+    patches:
+      - 01-shared-mcp-run.patch
+      - 02-mcp-run-request.patch
+      - 03-runner-wiring.patch
+expected:
+  defect: >-
+    runMcpRequest (src/features/mcp/lib/mcpRunRequest.ts) folds the request's auth into headers
+    with {{var}} resolution (withAuthHeaders), but the client is then created by
+    createAndInitClient in src/features/mcp/protocol.ts, which rebuilds auth from the raw
+    `mcp.auth` via buildMcpConnectAuth with an identity resolver (`resolve: (text) => text`).
+    That second auth path's header wins the merge, so a templated Bearer / Basic / API-key
+    credential is sent as the literal `{{token}}` and the collection runner gets 401 (the CLI
+    `restura run` path is correct). Auth must be resolved once (resolveAuthVariables) and sent
+    through the single buildMcpConnectAuth path.
+  files:
+    - src/features/mcp/lib/mcpRunRequest.ts
+    - src/features/mcp/protocol.ts
+  symbols: [withAuthHeaders, createAndInitClient, buildMcpConnectAuth]
+mustMention:
+  - '(withAuthHeaders|createAndInitClient|buildMcpConnectAuth|mergeHeaders)'
+  - '(\{\{|unresolved|literal|templat|variable)'
+  - '(overrid|overwr|clobber|second auth|two auth|wins|replac|identity resolver)'
+mustNotMiss: high
+notes: Minimised to the renderer and shared files of #1131 (CLI, docs, tests and echo-local dropped).

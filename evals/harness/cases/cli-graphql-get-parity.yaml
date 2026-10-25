@@ -1,0 +1,32 @@
+id: cli-graphql-get-parity
+title: GraphQL GET in the app and OpenCollection, but the CLI still sends a JSON body that GET drops
+origin: real
+sourcePRs: ['#1109']
+fixPRs: ['#1161']
+base: 79fa502c7340d364fb999b8965f8675bbefed907
+seam: cross-harness
+branches:
+  - name: feat/graphql-get
+    patches:
+      - 01-opencollection-graphql-method.patch
+      - 02-graphql-get-wire.patch
+expected:
+  defect: >-
+    OpenCollection import now yields `method: 'GET'` for GraphQL items (graphqlMethodFromOC) and
+    the app shapes GET requests with buildGraphQLWireRequest (query / variables / operationName
+    as URL params, GraphQL Accept header). The CLI HTTP executor
+    (cli/src/runner/executors/http.ts) still builds a JSON envelope body for every GraphQL item;
+    for GET, executeHttpProxy drops the body and nothing moves the query into the URL, so
+    `restura run` sends GraphQL GET items with no query at all. The wire shaping should live in
+    shared/ and be used by both.
+  files:
+    - cli/src/runner/executors/http.ts
+  symbols: [buildGraphQLWireRequest, graphqlMethodFromOC]
+mustMention:
+  - '(cli/src/runner/executors/http\.ts|CLI|restura run)'
+  - '\bGET\b'
+  - '(query param|URL|search ?param|no query|missing query|body[^\n]{0,40}(drop|ignor|discard|lost))'
+mustNotMiss: medium
+notes: >-
+  Minimised. graphqlHttp.ts keeps only the wire builder (incremental delivery, progress and
+  multipart parts of #1109 elided) and protocol.ts only the toExecutable change.

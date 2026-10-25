@@ -1,0 +1,33 @@
+id: sigv4-interactive-send-dropped
+title: SigV4 moves to sign-at-wire, but the interactive Send path builds its own request and never forwards auth
+origin: real
+sourcePRs: ['c6c751c2 (pushed without a PR)']
+fixPRs: ['115b64f1', '0ef20dc7']
+base: 2b6b3b58f8c87554b2c663f535b4b33720ab4821
+seam: cross-consumer
+branches:
+  - name: feat/sigv4-sign-at-wire
+    patches:
+      - 01-shared-auth-signer.patch
+      - 02-shared-http-proxy.patch
+      - 03-wire-and-renderer.patch
+expected:
+  defect: >-
+    The branch removes AWS SigV4 from the renderer's applyAuthHeaders and signs at the wire
+    instead (RequestSpec.auth -> shared/protocol/auth-signer.ts in the Worker and Electron
+    handlers). Only requestExecutor forwards `auth`. The request tab's Send button goes through
+    src/features/http/hooks/useHttpRequestPage.ts, which builds its own request with
+    applyAuthHeaders and never passes `auth`, so AWS Signature requests sent interactively go out
+    unsigned (the collection runner still signs). A second, independent request builder was left
+    on the old contract.
+  files:
+    - src/features/http/hooks/useHttpRequestPage.ts
+  symbols: [useHttpRequestPage, applyAuthHeaders]
+mustMention:
+  - useHttpRequestPage
+  - '(SigV4|AWS|aws-signature|sign)'
+mustNotMiss: high
+notes: >-
+  The feature commit was pushed directly (no PR). The fixture drops tests and keeps
+  src/features/http/lib/awsSigV4.ts in place (the commit deleted it) to stay under the patch
+  size budget; nothing imports it after the change.

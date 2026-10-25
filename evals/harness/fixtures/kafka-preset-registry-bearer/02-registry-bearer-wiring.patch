@@ -1,0 +1,245 @@
+diff --git a/src/features/kafka/hooks/useKafkaConnection.ts b/src/features/kafka/hooks/useKafkaConnection.ts
+index 28c97e78..2b768349 100644
+--- a/src/features/kafka/hooks/useKafkaConnection.ts
++++ b/src/features/kafka/hooks/useKafkaConnection.ts
+@@ -44,12 +44,14 @@ export function useKafkaConnection() {
+   const [saslPasswordDraft, setSaslPasswordDraft] = useState('');
+   const [tlsPassphraseDraft, setTlsPassphraseDraft] = useState('');
+   const [registryPasswordDraft, setRegistryPasswordDraft] = useState('');
++  const [registryTokenDraft, setRegistryTokenDraft] = useState('');
+   const [brokerDraft, setBrokerDraft] = useState('');
+ 
+   useEffect(() => {
+     setSaslPasswordDraft('');
+     setTlsPassphraseDraft('');
+     setRegistryPasswordDraft('');
++    setRegistryTokenDraft('');
+     setBrokerDraft('');
+   }, [activeConnectionId]);
+ 
+@@ -126,6 +128,13 @@ export function useKafkaConnection() {
+       setRegistryPasswordDraft('');
+       updateConnection(connection.id, { registry: nextRegistry });
+     }
++    if (nextRegistry && registryTokenDraft) {
++      // Inline bearer tokens follow the same secureStorage + sentinel path.
++      secureStorage.set(kafkaSecretKey(connection.id, 'registry-token'), registryTokenDraft);
++      nextRegistry = { ...nextRegistry, bearerToken: KAFKA_SECRET_SENTINEL };
++      setRegistryTokenDraft('');
++      updateConnection(connection.id, { registry: nextRegistry });
++    }
+ 
+     // Brokers may hold {{var}} tokens (e.g. from a collection preset, #984);
+     // resolve them at connect time — the stored list stays unresolved.
+@@ -212,6 +221,8 @@ export function useKafkaConnection() {
+     setTlsPassphraseDraft,
+     registryPasswordDraft,
+     setRegistryPasswordDraft,
++    registryTokenDraft,
++    setRegistryTokenDraft,
+     patchRegistry,
+     addBroker,
+     removeBroker,
+@@ -233,6 +244,8 @@ export type KafkaConnectionFormController = Pick<
+   | 'setTlsPassphraseDraft'
+   | 'registryPasswordDraft'
+   | 'setRegistryPasswordDraft'
++  | 'registryTokenDraft'
++  | 'setRegistryTokenDraft'
+   | 'patchRegistry'
+   | 'addBroker'
+   | 'removeBroker'
+diff --git a/src/features/kafka/lib/kafkaManager.ts b/src/features/kafka/lib/kafkaManager.ts
+index 948e6cea..16edb31b 100644
+--- a/src/features/kafka/lib/kafkaManager.ts
++++ b/src/features/kafka/lib/kafkaManager.ts
+@@ -18,7 +18,9 @@ import type {
+   KafkaOffsetResetSkip,
+   KafkaPartitionLag,
+   KafkaPartitionWatermark,
++  KafkaRecordFieldIpc,
+   KafkaRegistryIpc,
++  KafkaSchemaRefIpc,
+   KafkaTopicConfigEntry,
+ } from '../../../../electron/types/electron-api';
+ import { isKafkaBrowse, type KafkaSubscribePayload, toBrowseSubscribe } from './kafkaBrowse';
+@@ -30,7 +32,8 @@ export type KafkaSecretField =
+   | 'sasl-password'
+   | 'oauth-token'
+   | 'tls-passphrase'
+-  | 'registry-password';
++  | 'registry-password'
++  | 'registry-token';
+ 
+ export function kafkaSecretKey(connectionId: string, field: KafkaSecretField): string {
+   // Every field name matches a secureStorage sensitive-key pattern
+@@ -53,6 +56,17 @@ async function resolveRegistry(
+ ): Promise<KafkaRegistryIpc | undefined> {
+   if (!registry) return undefined;
+   const out: KafkaRegistryIpc = { url: registry.url };
++  if (registry.authType === 'bearer') {
++    // Handles / external refs cross IPC as references and resolve only in main.
++    const stored = registry.bearerToken;
++    const token =
++      stored === KAFKA_SECRET_SENTINEL ? await readSecret(connectionId, 'registry-token') : stored;
++    if (!token || (typeof token === 'object' && token.kind === 'inline' && !token.value)) {
++      throw new Error('Missing Schema Registry bearer token — re-enter it.');
++    }
++    out.auth = { type: 'bearer', token };
++    return out;
++  }
+   if (registry.auth) {
+     // A sentinel means the real value lives in secureStorage; otherwise it's
+     // the inline value (or undefined).
+@@ -60,7 +74,8 @@ async function resolveRegistry(
+       value === KAFKA_SECRET_SENTINEL
+         ? readSecret(connectionId, field)
+         : Promise.resolve(value ?? null);
+-    const auth: NonNullable<KafkaRegistryIpc['auth']> = {};
++    // Basic stays in the untyped wire shape (main normalises it to type 'basic').
++    const auth: { username?: string; password?: string } = {};
+     if (registry.auth.username) auth.username = registry.auth.username;
+     const password = await resolve(registry.auth.password, 'registry-password');
+     if (password) auth.password = password;
+@@ -160,6 +175,23 @@ async function resolveAuth(connectionId: string, auth: KafkaAuth): Promise<Kafka
+   return { securityProtocol: 'SASL_SSL', sasl, ...(tlsIpc ? { tls: tlsIpc } : {}) };
+ }
+ 
++export interface KafkaSubjectSelection {
++  subject: string;
++  version: number | 'latest';
++}
++
++/** Schema-encoded IPC field: by subject + version when chosen, else by numeric id. */
++function schemaField(
++  data: string,
++  schemaId: number | undefined,
++  subject: KafkaSubjectSelection | undefined
++): KafkaRecordFieldIpc | undefined {
++  if (subject)
++    return { encoding: 'schema', subject: subject.subject, version: subject.version, data };
++  if (schemaId !== undefined) return { encoding: 'schema', schemaId, data };
++  return undefined;
++}
++
+ class KafkaManager {
+   private subscribed: Set<string> = new Set();
+ 
+@@ -174,8 +206,10 @@ class KafkaManager {
+     store.updateStatus(connection.id, 'connecting');
+ 
+     let ipcAuth: KafkaAuthIpc | null;
++    let registry: KafkaRegistryIpc | undefined;
+     try {
+       ipcAuth = await resolveAuth(connection.id, connection.auth);
++      registry = await resolveRegistry(connection.id, connection.registry);
+     } catch (err) {
+       const msg = err instanceof Error ? err.message : 'Failed to resolve Kafka credentials';
+       store.updateStatus(connection.id, 'disconnected');
+@@ -195,7 +229,6 @@ class KafkaManager {
+     this.unbindLifecycleListeners(connection.id);
+     this.bindLifecycleListeners(connection.id);
+ 
+-    const registry = await resolveRegistry(connection.id, connection.registry);
+     let result: Awaited<ReturnType<typeof api.kafka.connect>>;
+     try {
+       result = await api.kafka.connect({
+@@ -247,6 +280,9 @@ class KafkaManager {
+     keySchemaId?: number;
+     /** Transcript copy with secret `{{var}}` values masked (kafkaVariables.ts). */
+     display?: { key?: string; value?: string; headers?: Record<string, string> };
++    /** Subject + version alternative to a numeric schema id (resolved in main). */
++    valueSubject?: KafkaSubjectSelection;
++    keySubject?: KafkaSubjectSelection;
+   }): Promise<
+     | { ok: true; ack: { topic: string; partition: number; offset: string; timestamp: number } }
+     | { ok: false; error: string }
+@@ -263,27 +299,17 @@ class KafkaManager {
+         ...(params.key !== undefined
+           ? {
+               key:
+-                params.keySchemaId !== undefined
+-                  ? { encoding: 'schema' as const, schemaId: params.keySchemaId, data: params.key }
+-                  : {
+-                      encoding: params.keyEncoding ?? ('utf8' as const),
+-                      data: params.key,
+-                    },
++                schemaField(params.key, params.keySchemaId, params.keySubject) ??
++                ({ encoding: params.keyEncoding ?? 'utf8', data: params.key } as const),
+             }
+           : {}),
+         value:
+           params.value === null
+             ? { encoding: 'null' }
+-            : params.valueSchemaId !== undefined
+-              ? {
+-                  encoding: 'schema',
+-                  schemaId: params.valueSchemaId,
+-                  data: params.value,
+-                }
+-              : {
+-                  encoding: params.valueEncoding ?? 'utf8',
+-                  data: params.value,
+-                },
++            : (schemaField(params.value, params.valueSchemaId, params.valueSubject) ?? {
++                encoding: params.valueEncoding ?? 'utf8',
++                data: params.value,
++              }),
+         ...(params.headers
+           ? {
+               headers: Object.entries(params.headers).map(([key, value]) => ({
+@@ -632,8 +658,10 @@ class KafkaManager {
+         offset: string;
+         key?: string;
+         keyEncoding?: 'utf8' | 'base64';
++        keySchema?: KafkaSchemaRefIpc;
+         value: string;
+         valueEncoding?: 'utf8' | 'base64';
++        valueSchema?: KafkaSchemaRefIpc;
+         tombstone?: boolean;
+         headers?: Record<string, string>;
+         binaryHeaders?: { key: string; value: string }[];
+@@ -647,6 +675,8 @@ class KafkaManager {
+         offset: msg.offset,
+         ...(msg.key !== undefined ? { key: msg.key } : {}),
+         ...(msg.keyEncoding !== undefined ? { keyEncoding: msg.keyEncoding } : {}),
++        ...(msg.keySchema ? { keySchema: msg.keySchema } : {}),
++        ...(msg.valueSchema ? { valueSchema: msg.valueSchema } : {}),
+         value: msg.tombstone ? '<tombstone>' : msg.value,
+         ...(msg.tombstone ? { tombstone: true } : {}),
+         ...(msg.valueEncoding !== undefined ? { valueEncoding: msg.valueEncoding } : {}),
+diff --git a/src/features/kafka/lib/kafkaPreset.ts b/src/features/kafka/lib/kafkaPreset.ts
+index 3f35400e..a0bc3e81 100644
+--- a/src/features/kafka/lib/kafkaPreset.ts
++++ b/src/features/kafka/lib/kafkaPreset.ts
+@@ -31,6 +31,7 @@ const SECRET_FIELDS: readonly KafkaSecretField[] = [
+   'oauth-token',
+   'tls-passphrase',
+   'registry-password',
++  'registry-token',
+ ];
+ 
+ /** Secure-storage scope that holds a saved preset's credentials. */
+@@ -209,6 +210,9 @@ export async function storeKafkaPresetSecrets(
+     'oauth-token': sasl?.mechanism === 'OAUTHBEARER' ? sasl.token : undefined,
+     'tls-passphrase': conn.auth.tls?.passphrase,
+     'registry-password': conn.registry?.auth?.password,
++    // Handles / external refs are references, not plaintext — only strings are stored.
++    'registry-token':
++      typeof conn.registry?.bearerToken === 'string' ? conn.registry.bearerToken : undefined,
+   };
+   for (const field of SECRET_FIELDS) {
+     const value = await heldSecret(conn.id, field, fieldValue[field]);
+@@ -251,7 +255,11 @@ export function applyKafkaPresetSecrets(connectionId: string, secrets: KafkaPres
+     auth.tls = { ...auth.tls, passphrase: KAFKA_SECRET_SENTINEL };
+   }
+   store.updateAuth(connectionId, auth);
+-  if (conn.registry && secrets['registry-password']) {
++  if (conn.registry && secrets['registry-token']) {
++    store.updateConnection(connectionId, {
++      registry: { ...conn.registry, bearerToken: KAFKA_SECRET_SENTINEL },
++    });
++  } else if (conn.registry && secrets['registry-password']) {
+     store.updateConnection(connectionId, {
+       registry: {
+         ...conn.registry,

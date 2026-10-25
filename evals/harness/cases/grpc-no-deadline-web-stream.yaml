@@ -1,0 +1,30 @@
+id: grpc-no-deadline-web-stream
+title: '"No deadline" (timeout 0) is honoured on desktop but aborts web streams immediately'
+origin: real
+sourcePRs: ['#1089']
+fixPRs: ['#1152']
+base: 987721e3c25eda0e547b0ac1708cd71e40dc839b
+seam: cross-harness
+branches:
+  - name: feat/grpc-long-lived-streams
+    patches:
+      - 01-deadline-field.patch
+      - 02-desktop-long-lived-streams.patch
+expected:
+  defect: >-
+    The branch adds a "No deadline" option persisted as `timeout: 0` (NO_GRPC_DEADLINE,
+    grpcDeadlineMs) and teaches the Electron gRPC handler to treat 0 as no deadline. The web
+    streaming path is untouched: src/features/grpc/lib/grpcStreamingClient.ts passes timeoutMs
+    with `??` (0 is not nullish) into connect-es, whose 0 ms deadline fires at once, so every web
+    server stream with "No deadline" fails immediately with DEADLINE_EXCEEDED. The CLI gRPC
+    executor likewise aborts at once for a saved timeout of 0, and the collection runner turns it
+    into a 30 s deadline.
+  files:
+    - src/features/grpc/lib/grpcStreamingClient.ts
+  symbols: [grpcDeadlineMs, NO_GRPC_DEADLINE]
+mustMention:
+  - '(grpcStreamingClient|web[^\n]{0,40}stream|connect-?es|Connect transport)'
+  - '(timeout ?(of )?0|timeoutMs|zero|No deadline|NO_GRPC_DEADLINE)'
+  - '(immediate|at once|instantly|DEADLINE_EXCEEDED|abort)'
+mustNotMiss: medium
+notes: Minimised to the shared, renderer and Electron source files of #1089 (docs and tests dropped).

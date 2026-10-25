@@ -1,0 +1,32 @@
+id: cli-auth-double-expansion
+title: CLI adds a {{var}} pass for auth while resolveOAuth2Token still resolves, expanding OAuth2 fields twice
+origin: real
+sourcePRs: ['#1163']
+fixPRs: ['#1163']
+base: 2a1b3c1b0759add0bae361279859ecbfb6e4760c
+seam: cross-consumer
+branches:
+  - name: fix/cli-auth-vars
+    patches:
+      - 01-shared-resolver-cli-http.patch
+      - 02-cli-sse.patch
+expected:
+  defect: >-
+    The branch resolves {{vars}} in every auth field with the shared resolveAuthVariables before
+    materializeExternalSecretsInAuth / resolveOAuth2Token in the CLI HTTP and SSE executors, but
+    resolveOAuth2Token (cli/src/runner/executors/auth.ts) still runs resolveVarsDeep on
+    tokenUrl / clientId / clientSecret / scope. OAuth2 client-credentials fields are therefore
+    resolved twice: a variable value that itself contains `{{y}}` is expanded again, and on the
+    HTTP path external-secret plaintext materialized between the two passes is template-expanded.
+    Resolution must happen exactly once (drop the resolveVarsDeep calls in resolveOAuth2Token).
+  files:
+    - cli/src/runner/executors/auth.ts
+  symbols: [resolveOAuth2Token, resolveVarsDeep, resolveAuthVariables]
+mustMention:
+  - resolveOAuth2Token
+  - '(twice|double|second (pass|time)|re-?resolv|re-?expan|again|once)'
+mustNotMiss: high
+notes: >-
+  Reconstructed from the first two commits of #1163 (shared resolver + CLI http, then CLI sse);
+  its third commit ("single-pass variable resolution") is the fix. This is the "two places both
+  adding {{var}} resolution" lesson in CLAUDE.md.
