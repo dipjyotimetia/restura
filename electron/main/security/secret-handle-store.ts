@@ -35,11 +35,9 @@ import { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { assertTrustedSender } from '../ipc/ipc-validators';
+import { createResilientStore } from '../storage/resilient-store';
 import { getOrCreateEncryptedKey } from './encrypted-key';
 import { hasControlChars } from './mcp-stdio-policy';
-
-// electron-store v9+ is ESM-only; require() returns the module namespace under Node 22+
-const Store = require('electron-store').default;
 
 interface HandleRecord {
   value: string;
@@ -71,14 +69,13 @@ export function __setSecretStoreForTests(store: SecretStoreShape | null): void {
 
 function getStore(): SecretStoreShape {
   if (storeInstance) return storeInstance;
-  storeInstance = new Store({
+  storeInstance = createResilientStore<SecretStoreShape>({
     name: 'restura-secret-handles',
     encryptionKey: getOrCreateEncryptedKey({
       fileName: '.secret-handles-key',
       storeLabel: 'secret-handle store',
     }),
-    clearInvalidConfig: true,
-  }) as SecretStoreShape;
+  });
   return storeInstance;
 }
 

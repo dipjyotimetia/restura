@@ -7,6 +7,8 @@
 //   echo     — returns its text
 //   pid      — returns this process's pid (tests assert it is gone after disconnect)
 //   env-keys — returns the sorted NAMES of the env vars it received (never values)
+//   client-caps — returns the capabilities the client advertised (JSON)
+//   roots    — asks the client for roots/list and returns the root URIs
 //
 // If MCP_STDIO_FIXTURE_MARKER is set, the pid is appended to that file on start
 // so a test can prove that a denied launch never spawned anything.
@@ -34,6 +36,14 @@ server.registerTool(
   { description: 'Lists received environment variable names' },
   async () => ({ content: [{ type: 'text', text: Object.keys(process.env).sort().join(',') }] })
 );
+
+server.registerTool('client-caps', { description: 'Reports client capabilities' }, async () => ({
+  content: [{ type: 'text', text: JSON.stringify(server.server.getClientCapabilities() ?? {}) }],
+}));
+server.registerTool('roots', { description: 'Lists the client roots' }, async () => {
+  const { roots } = await server.server.listRoots();
+  return { content: [{ type: 'text', text: roots.map((root) => root.uri).join(',') }] };
+});
 
 process.stderr.write('restura stdio fixture ready\n');
 await server.connect(new StdioServerTransport());

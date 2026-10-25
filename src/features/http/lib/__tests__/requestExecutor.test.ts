@@ -507,6 +507,28 @@ describe('executeStreamingRequest — Set-Cookie side channel (#855)', () => {
     ]);
   });
 
+  it('keeps the omitted-cookies notice visible in the response headers', async () => {
+    executeProxiedStreamingRequestMock.mockResolvedValueOnce(
+      new Response('data: a\n\n', {
+        status: 200,
+        headers: {
+          'content-type': 'text/event-stream',
+          [SET_COOKIE_SIDE_CHANNEL_HEADER]: encodeSetCookieSideChannel(cookies),
+          'x-restura-set-cookies-omitted': '7',
+        },
+      })
+    );
+    const { responseMeta } = await executeStreamingRequest({
+      request: makeRequest({
+        headers: [{ id: 'h1', key: 'Accept', value: 'text/event-stream', enabled: true }],
+      }),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+    });
+    expect(responseMeta.headers['x-restura-set-cookies-omitted']).toBe('7');
+  });
+
   it('honours a disabled cookie jar', async () => {
     executeProxiedStreamingRequestMock.mockResolvedValueOnce(streamResponse());
 

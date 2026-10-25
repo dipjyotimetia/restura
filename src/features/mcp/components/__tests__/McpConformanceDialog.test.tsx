@@ -105,6 +105,45 @@ describe('McpConformanceDialog (#911)', () => {
     expect(JSON.parse((await blobs[1]?.text()) ?? '{}').schemaVersion).toBe(1);
   });
 
+  it('fails closed (never probes anonymously) when the endpoint auth cannot be applied', async () => {
+    const run = vi.fn();
+    render(
+      <McpConformanceDialog
+        open
+        onOpenChange={vi.fn()}
+        getEndpoint={() => ({ error: 'Bearer auth is selected but its credential is empty.' })}
+        tools={[]}
+        run={run}
+      />
+    );
+    await userEvent.click(screen.getByRole('button', { name: /run conformance check/i }));
+    expect(
+      await screen.findByText('Bearer auth is selected but its credential is empty.')
+    ).toBeInTheDocument();
+    expect(run).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /run conformance check/i })).toBeEnabled();
+  });
+
+  it('forwards main-side auth (handles stay handles) to the run', async () => {
+    const run = vi.fn().mockResolvedValue({ ok: true, report });
+    const auth = {
+      type: 'bearer' as const,
+      bearer: { token: { kind: 'handle' as const, id: 'h-1' } },
+    };
+    render(
+      <McpConformanceDialog
+        open
+        onOpenChange={vi.fn()}
+        getEndpoint={() => ({ ...endpoint(), headers: {}, auth })}
+        tools={[]}
+        run={run}
+      />
+    );
+    await userEvent.click(screen.getByRole('button', { name: /run conformance check/i }));
+    await waitFor(() => expect(run).toHaveBeenCalled());
+    expect(run.mock.calls[0]?.[0]).toMatchObject({ headers: {}, auth });
+  });
+
   it('shows the error when the run fails', async () => {
     const run = vi.fn().mockResolvedValue({ ok: false, error: 'boom' });
     render(

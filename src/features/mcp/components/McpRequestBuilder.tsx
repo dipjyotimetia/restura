@@ -6,7 +6,10 @@ import {
   displayHost,
   McpClientRequestDialog,
 } from '@/features/mcp/components/McpClientRequestDialog';
-import { McpConformanceDialog } from '@/features/mcp/components/McpConformanceDialog';
+import {
+  McpConformanceDialog,
+  type McpConformanceEndpoint,
+} from '@/features/mcp/components/McpConformanceDialog';
 import { McpConnectionPanel } from '@/features/mcp/components/McpConnectionPanel';
 import {
   McpDiscoveryPanel,
@@ -138,9 +141,13 @@ export default function McpRequestBuilder() {
       });
     },
     onUpstreamClosed: (connectionId, reason, error) => {
-      if (clientRef.current?.connectionId === connectionId) {
+      const closed = clientRef.current;
+      if (closed?.connectionId === connectionId) {
         clientGenerationRef.current += 1;
         clientRef.current = null;
+        // Main already dropped the session; release the dead client's own
+        // listeners (stderr) so a reconnect doesn't stack a second one.
+        closed.client.release();
       }
       setStatus(
         connectionId,
@@ -246,25 +253,28 @@ export default function McpRequestBuilder() {
   const supportsCompletion = advertised?.completions !== undefined;
   const supportsLogging = advertised?.logging !== undefined;
 
-  const resolveEndpoint = () => {
+  const resolveEndpoint = (): McpConformanceEndpoint => {
     const rawHeaders = keyValuePairsToRecord(request.headers);
     const headers = Object.fromEntries(
       Object.entries(rawHeaders).map(([key, value]) => [key, resolveVariables(value)])
     );
-    // Conformance sends the same header-shaped auth as a connection (inline
-    // values only: the IPC has no main-side secret resolution).
+    // Same auth as a connection: inline headers on web, main-resolved on
+    // desktop. Unappliable auth fails the run closed — an anonymous probe
+    // would report misleading 401s as conformance failures.
     const endpointAuth = buildMcpConnectAuth({
       auth: request.auth,
       inherited: resolveInheritedAuthFor(request),
       headers,
       resolve: resolveVariables,
-      desktop: false,
+      desktop: isElectron(),
     });
+    if (!endpointAuth.ok) return { error: endpointAuth.error };
     return {
       url: resolveVariables(request.url),
       // stdio has no URL, so the Conformance action is disabled for it.
       transport: request.transport === 'stdio' ? ('streamable-http' as const) : request.transport,
-      headers: endpointAuth.ok ? endpointAuth.headers : headers,
+      headers: endpointAuth.headers,
+      ...(endpointAuth.mainSideAuth ? { auth: endpointAuth.mainSideAuth } : {}),
     };
   };
 
@@ -560,6 +570,11 @@ export default function McpRequestBuilder() {
         connectionId={active.id}
         connectionName={request.name || 'MCP connection'}
         serverHost={displayHost(resolveVariables(request.url))}
+        localCommand={
+          request.transport === 'stdio'
+            ? resolveVariables(request.stdio?.command ?? '').trim()
+            : undefined
+        }
       />
 
       {active.status === 'connected' && (

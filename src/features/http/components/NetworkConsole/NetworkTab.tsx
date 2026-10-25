@@ -2,13 +2,12 @@
 
 import { Network } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
+import { v4 as uuidv4 } from 'uuid';
 import { useShallow } from 'zustand/react/shallow';
+import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { type CodeGeneratorType, codeGenerators } from '@/lib/shared/codeGenerators';
 import { useActiveTab } from '@/store/selectors';
-import { useMcpStore } from '@/features/mcp/store/useMcpStore';
-import type { McpRequest } from '@/types';
 import {
   entryToCurl,
   entryToGraphqlRequest,
@@ -18,6 +17,7 @@ import {
   useConsoleStore,
 } from '@/store/useConsoleStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import type { McpRequest } from '@/types';
 import EntryCompareDialog from './EntryCompareDialog';
 import EntryExpandDialog from './EntryExpandDialog';
 import NetworkEntryDetail from './NetworkEntryDetail';
