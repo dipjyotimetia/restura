@@ -1,0 +1,79 @@
+diff --git a/src/features/sse/lib/__tests__/sseProbe.test.ts b/src/features/sse/lib/__tests__/sseProbe.test.ts
+new file mode 100644
+index 00000000..e1f9e635
+--- /dev/null
++++ b/src/features/sse/lib/__tests__/sseProbe.test.ts
+@@ -0,0 +1,29 @@
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++const executeProxiedStreamingRequest = vi.fn();
++vi.mock('@/lib/shared/transport', () => ({ executeProxiedStreamingRequest }));
++
++const { probeSseEndpoint } = await import('../sseProbe');
++
++describe('probeSseEndpoint', () => {
++  beforeEach(() => executeProxiedStreamingRequest.mockReset());
++
++  it('accepts a text/event-stream response', async () => {
++    executeProxiedStreamingRequest.mockResolvedValue(
++      new Response('', { status: 200, headers: { 'content-type': 'text/event-stream' } })
++    );
++    await expect(probeSseEndpoint('https://example.com/s', {})).resolves.toEqual({
++      ok: true,
++      status: 200,
++      contentType: 'text/event-stream',
++    });
++  });
++
++  it('rejects an HTML error page', async () => {
++    executeProxiedStreamingRequest.mockResolvedValue(
++      new Response('<html>', { status: 200, headers: { 'content-type': 'text/html' } })
++    );
++    const result = await probeSseEndpoint('https://example.com/s', {});
++    expect(result.ok).toBe(false);
++  });
++});
+diff --git a/src/features/sse/lib/sseProbe.ts b/src/features/sse/lib/sseProbe.ts
+new file mode 100644
+index 00000000..c317fb79
+--- /dev/null
++++ b/src/features/sse/lib/sseProbe.ts
+@@ -0,0 +1,38 @@
++import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
++import { buildSseStreamSpec } from './sseManager';
++
++export interface SseProbeResult {
++  ok: boolean;
++  status: number;
++  contentType: string;
++}
++
++/**
++ * Open the stream, read the response head, and close it again: used by the
++ * collection runner's "check endpoint" step to tell a misconfigured URL (HTML
++ * error page, 401) from a real `text/event-stream` before a long run starts.
++ */
++export async function probeSseEndpoint(
++  url: string,
++  headers: Record<string, string>,
++  signal?: AbortSignal
++): Promise<SseProbeResult> {
++  const controller = new AbortController();
++  const abort = () => controller.abort();
++  signal?.addEventListener('abort', abort, { once: true });
++  try {
++    const response = await executeProxiedStreamingRequest(
++      buildSseStreamSpec(url, { Accept: 'text/event-stream', ...headers }),
++      { signal: controller.signal }
++    );
++    const contentType = response.headers.get('content-type') ?? '';
++    return {
++      ok: response.ok && contentType.toLowerCase().startsWith('text/event-stream'),
++      status: response.status,
++      contentType,
++    };
++  } finally {
++    controller.abort();
++    signal?.removeEventListener('abort', abort);
++  }
++}

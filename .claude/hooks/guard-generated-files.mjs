@@ -17,14 +17,25 @@ import { projectDir, projectRelative, readPayload } from './_shared.mjs';
 // relPath -> how to regenerate it.
 const GENERATED_FILES = new Map([
   [
-    'src/lib/opencollection/spec-types.ts',
-    'Edit vendor/opencollection/.../schema.json, then run `npm run gen:opencollection-types`.',
+    // Output of scripts/gen-opencollection-types.mjs. (src/lib/opencollection/
+    // spec-types.ts is a hand-written deprecated re-export shim — not guarded.)
+    'shared/opencollection/spec-types.ts',
+    'Edit vendor/opencollection/v1.0.0/schema.json, then run `npm run gen:opencollection-types`.',
   ],
   [
     'docs/CAPABILITY_MATRIX.md',
     'Edit the area module under src/lib/shared/capabilities/ (the source of truth), then run `npm run capabilities:matrix`.',
   ],
 ]);
+
+// Directory prefixes whose contents are entirely generator output.
+const GENERATED_PREFIXES = [
+  {
+    // buf.gen.yaml: protoc-gen-es output for e2e/mocks/proto/*.proto
+    prefix: 'e2e/mocks/proto/gen/',
+    how: 'Edit the .proto source under e2e/mocks/proto/, then run `npm run proto:gen`.',
+  },
+];
 
 // Suffix patterns for generated files whose name encodes their status.
 const GENERATED_SUFFIXES = [
@@ -36,10 +47,24 @@ const GENERATED_SUFFIXES = [
 
 try {
   const cwd = projectDir();
-  const rel = projectRelative(readPayload()?.tool_input?.file_path, cwd);
+  const filePath = readPayload()?.tool_input?.file_path;
+
+  // Vitest file snapshots: `*.snap` is gitignored, so a test that writes one
+  // passes locally (snapshot created on first run) and fails in CI (missing).
+  if (typeof filePath === 'string' && filePath.endsWith('.snap')) {
+    process.stderr.write(
+      `Blocked: ${filePath} is a snapshot file — use inline snapshots only ` +
+        `(\`toMatchInlineSnapshot()\`) or explicit assertions. \`*.snap\` is gitignored, so it ` +
+        `passes locally and fails in CI.`
+    );
+    process.exit(2);
+  }
+
+  const rel = projectRelative(filePath, cwd);
   if (!rel) process.exit(0); // no file / outside the project
 
   let how = GENERATED_FILES.get(rel);
+  if (!how) how = GENERATED_PREFIXES.find((g) => rel.startsWith(g.prefix))?.how;
   if (!how) how = GENERATED_SUFFIXES.find((g) => rel.endsWith(g.suffix))?.how;
 
   if (how) {

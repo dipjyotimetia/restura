@@ -1,0 +1,244 @@
+diff --git a/shared/opencollection/grpc-schema-extension.ts b/shared/opencollection/grpc-schema-extension.ts
+index 98fbe560..f4597fd6 100644
+--- a/shared/opencollection/grpc-schema-extension.ts
++++ b/shared/opencollection/grpc-schema-extension.ts
+@@ -113,7 +113,8 @@ export function applyGrpcExtension(items: CollectionItem[] | undefined, raw: unk
+       if (
+         typeof entry.timeout === 'number' &&
+         Number.isFinite(entry.timeout) &&
+-        entry.timeout > 0
++        // 0 = "No deadline" on a streaming request (unary falls back to the default).
++        entry.timeout >= 0
+       ) {
+         req.timeout = entry.timeout;
+       }
+diff --git a/shared/schemas/app.ts b/shared/schemas/app.ts
+index 2561513d..c038c057 100644
+--- a/shared/schemas/app.ts
++++ b/shared/schemas/app.ts
+@@ -248,7 +248,8 @@ export const grpcRequestSchema = z.object({
+       z.object({ kind: z.literal('proto'), fileName: z.string(), text: z.string() }),
+     ])
+     .optional(),
+-  timeout: z.number().int().positive().optional(),
++  // 0 = "no deadline" (streaming methods only; unary falls back to the default).
++  timeout: z.number().int().nonnegative().optional(),
+ });
+ 
+ // SSE Request Schema
+diff --git a/shared/types/grpc.ts b/shared/types/grpc.ts
+index 32b5c22e..cf973cf3 100644
+--- a/shared/types/grpc.ts
++++ b/shared/types/grpc.ts
+@@ -45,7 +45,11 @@ export interface GrpcRequest {
+   testScript?: string;
+   /** Schema snapshot from reflection or an uploaded `.proto` (see GrpcSchemaSnapshot). */
+   schema?: GrpcSchemaSnapshot;
+-  /** Per-request deadline in ms (builder default: 30000). */
++  /**
++   * Per-request deadline in ms (builder default: 30000). `0` on a streaming
++   * method = no deadline (see src/features/grpc/lib/grpcDeadline.ts); unary
++   * calls always get one.
++   */
+   timeout?: number;
+ }
+ 
+diff --git a/src/features/grpc/components/GrpcDeadlineField.tsx b/src/features/grpc/components/GrpcDeadlineField.tsx
+new file mode 100644
+index 00000000..9b3dbbf2
+--- /dev/null
++++ b/src/features/grpc/components/GrpcDeadlineField.tsx
+@@ -0,0 +1,73 @@
++import { useState } from 'react';
++import { Checkbox } from '@/components/ui/checkbox';
++import { TextField } from '@/components/ui/spatial';
++import {
++  DEFAULT_GRPC_DEADLINE_MS,
++  grpcDeadlineMs,
++  hasNoDeadline,
++  NO_GRPC_DEADLINE,
++} from '@/features/grpc/lib/grpcDeadline';
++import type { GrpcRequest } from '@/types';
++
++/** Smallest deadline the field commits; shorter values are clamped up on commit. */
++const MIN_GRPC_DEADLINE_MS = 1000;
++
++interface GrpcDeadlineFieldProps {
++  request: Pick<GrpcRequest, 'methodType' | 'timeout'>;
++  onChange: (timeout: number) => void;
++}
++
++/**
++ * Per-call deadline control. Streaming methods get a "No deadline" opt-out
++ * (stored as `timeout: 0`) so watch/subscribe streams can stay open; unary
++ * calls always keep a deadline.
++ */
++export function GrpcDeadlineField({ request, onChange }: GrpcDeadlineFieldProps) {
++  const streaming = request.methodType !== 'unary';
++  const noDeadline = hasNoDeadline(request);
++  // Local draft while typing so partial input ("", "5") isn't clamped per
++  // keystroke; the value is committed (and clamped) on blur / Enter.
++  const [draft, setDraft] = useState<string | null>(null);
++  const commit = () => {
++    if (draft === null) return;
++    setDraft(null);
++    onChange(Math.max(MIN_GRPC_DEADLINE_MS, parseInt(draft, 10) || DEFAULT_GRPC_DEADLINE_MS));
++  };
++  return (
++    <div className="flex items-center gap-2 py-1.5">
++      <span className="sp-label">Timeout (ms)</span>
++      <TextField
++        mono
++        size="sm"
++        type="number"
++        value={noDeadline ? '' : (draft ?? grpcDeadlineMs(request))}
++        placeholder={noDeadline ? 'None' : undefined}
++        disabled={noDeadline}
++        onChange={(e) => setDraft(e.target.value)}
++        onBlur={commit}
++        onKeyDown={(e) => {
++          if (e.key === 'Enter') commit();
++        }}
++        min={MIN_GRPC_DEADLINE_MS}
++        step={1000}
++        aria-label="gRPC request timeout in milliseconds"
++        className="w-24"
++      />
++      {streaming && (
++        <label
++          htmlFor="grpc-no-deadline"
++          className="flex items-center gap-1.5 text-sp-12 text-sp-text whitespace-nowrap"
++        >
++          <Checkbox
++            id="grpc-no-deadline"
++            checked={noDeadline}
++            onCheckedChange={(value) =>
++              onChange(value === true ? NO_GRPC_DEADLINE : DEFAULT_GRPC_DEADLINE_MS)
++            }
++          />
++          No deadline
++        </label>
++      )}
++    </div>
++  );
++}
+diff --git a/src/features/grpc/components/GrpcRequestBuilder.tsx b/src/features/grpc/components/GrpcRequestBuilder.tsx
+index d8a7b5a4..19bfe573 100644
+--- a/src/features/grpc/components/GrpcRequestBuilder.tsx
++++ b/src/features/grpc/components/GrpcRequestBuilder.tsx
+@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
+ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+ import { KeyValueTable } from '@/components/shared/KeyValueTable';
+ import { Button } from '@/components/ui/button';
+-import { Floater, SubTabBar, SubTabPanel, TextField } from '@/components/ui/spatial';
++import { Floater, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
+ import AuthConfiguration from '@/features/auth/components/AuthConfig';
+ import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
+ import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
+@@ -15,6 +15,7 @@ import {
+   GrpcClientError,
+   getMethodTypeDescription,
+ } from '@/features/grpc/lib/grpcClient';
++import { grpcDeadlineMs } from '@/features/grpc/lib/grpcDeadline';
+ import {
+   generateProtoFromReflection,
+   generateRequestTemplate,
+@@ -49,6 +50,7 @@ import type {
+   ReflectionServiceInfo,
+ } from '@/types';
+ import { GrpcStatusCodeName } from '@/types';
++import { GrpcDeadlineField } from './GrpcDeadlineField';
+ import { GrpcInvocationBar } from './GrpcInvocationBar';
+ import { GrpcMessageEditor } from './GrpcMessageEditor';
+ import { GrpcMethodContext } from './GrpcMethodContext';
+@@ -252,7 +254,8 @@ function GrpcRequestBuilder() {
+   }
+ 
+   const grpcRequest: GrpcRequest = currentRequest;
+-  const timeoutMs = grpcRequest.timeout ?? 30000;
++  // 0 = no deadline (streaming opt-out); unary always gets one.
++  const timeoutMs = grpcDeadlineMs(grpcRequest);
+   const protoSnapshot = grpcRequest.schema?.kind === 'proto' ? grpcRequest.schema : null;
+   const reflectionResult = reflection.result;
+   const reflectionServices: ReflectionServiceInfo[] = reflectionResult?.success
+@@ -608,24 +611,11 @@ function GrpcRequestBuilder() {
+             value={activeTab}
+             onChange={setActiveTab}
+             right={
+-              <div className="flex items-center gap-2 py-1.5">
+-                <span className="sp-label">Timeout (ms)</span>
+-                <TextField
+-                  mono
+-                  size="sm"
+-                  type="number"
+-                  value={timeoutMs}
+-                  onChange={(e) =>
+-                    updateRequest({
+-                      timeout: Math.max(1000, parseInt(e.target.value, 10) || 30000),
+-                    })
+-                  }
+-                  min={1000}
+-                  step={1000}
+-                  aria-label="gRPC request timeout in milliseconds"
+-                  className="w-24"
+-                />
+-              </div>
++              <GrpcDeadlineField
++                key={activeTabId ?? 'no-active-tab'}
++                request={grpcRequest}
++                onChange={(timeout) => updateRequest({ timeout })}
++              />
+             }
+           />
+ 
+diff --git a/src/features/grpc/components/GrpcStreamingPanel.tsx b/src/features/grpc/components/GrpcStreamingPanel.tsx
+index b9b39382..419731bd 100644
+--- a/src/features/grpc/components/GrpcStreamingPanel.tsx
++++ b/src/features/grpc/components/GrpcStreamingPanel.tsx
+@@ -16,6 +16,7 @@ import { useConsoleStore } from '@/store/useConsoleStore';
+ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+ import type { GrpcRequest, GrpcStatusCode } from '@/types';
+ import { GrpcStatusCodeName } from '@/types';
++import { grpcDeadlineMs } from '../lib/grpcDeadline';
+ import { type GrpcStreamingHandle, startGrpcStream } from '../lib/grpcStreamingClient';
+ 
+ export interface GrpcStreamingPanelProps {
+@@ -117,6 +118,9 @@ export function GrpcStreamingPanel({
+         protoContent,
+         protoFileName,
+         ...(descriptors?.length ? { descriptors } : {}),
++        // The request's deadline (0 = "No deadline" for streams) — not the
++        // transport default, which cut every web stream off at 30s.
++        timeoutMs: grpcDeadlineMs(request),
+       });
+       handleRef.current = handle;
+       streamFrame('system', `stream opened — ${request.methodType}`);
+diff --git a/src/features/grpc/lib/grpcDeadline.ts b/src/features/grpc/lib/grpcDeadline.ts
+new file mode 100644
+index 00000000..6fe9233b
+--- /dev/null
++++ b/src/features/grpc/lib/grpcDeadline.ts
+@@ -0,0 +1,23 @@
++import type { GrpcRequest } from '@/types';
++
++/** Default per-call deadline when a request doesn't set one. */
++export const DEFAULT_GRPC_DEADLINE_MS = 30_000;
++
++/** `timeout` value meaning "no deadline" — honoured for streaming methods only. */
++export const NO_GRPC_DEADLINE = 0;
++
++/** True when the request opted out of a deadline (streaming methods only). */
++export function hasNoDeadline(request: Pick<GrpcRequest, 'methodType' | 'timeout'>): boolean {
++  return request.methodType !== 'unary' && request.timeout === NO_GRPC_DEADLINE;
++}
++
++/**
++ * The deadline (ms) to run a request with. Returns {@link NO_GRPC_DEADLINE} (0)
++ * for a streaming request that opted out — watch/subscribe streams may run for
++ * hours (gRPC deadlines are optional). Unary calls always get a deadline: a
++ * missing or non-positive `timeout` falls back to the 30s default.
++ */
++export function grpcDeadlineMs(request: Pick<GrpcRequest, 'methodType' | 'timeout'>): number {
++  if (hasNoDeadline(request)) return NO_GRPC_DEADLINE;
++  return request.timeout && request.timeout > 0 ? request.timeout : DEFAULT_GRPC_DEADLINE_MS;
++}

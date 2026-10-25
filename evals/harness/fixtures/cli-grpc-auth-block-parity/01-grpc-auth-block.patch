@@ -1,0 +1,330 @@
+diff --git a/shared/protocol/header-policy.ts b/shared/protocol/header-policy.ts
+index b0769293..a6f133fb 100644
+--- a/shared/protocol/header-policy.ts
++++ b/shared/protocol/header-policy.ts
+@@ -21,6 +21,16 @@ export const RESPONSE_DENY = new Set<string>([
+   'upgrade',
+ ]);
+ 
++/**
++ * Aggregate cap on outbound gRPC metadata (sum of UTF-8 key + value bytes).
++ *
++ * There is deliberately no per-entry cap: HTTP/2 imposes none, and ordinary
++ * bearer JWTs (Azure AD, Auth0 with claims, GCP ID tokens) run 1.2–2 KB. 16 KiB
++ * matches common server defaults (grpc-go / nginx / Envoy accept at least this
++ * much) while still catching runaway metadata before it hits the wire (#895).
++ */
++export const MAX_GRPC_METADATA_BYTES = 16 * 1024;
++
+ export type RequestPolicy = 'default' | 'mcp';
+ 
+ export function sanitizeRequestHeaders(
+diff --git a/src/features/grpc/components/GrpcRequestBuilder.tsx b/src/features/grpc/components/GrpcRequestBuilder.tsx
+index b6d9360d..d8a7b5a4 100644
+--- a/src/features/grpc/components/GrpcRequestBuilder.tsx
++++ b/src/features/grpc/components/GrpcRequestBuilder.tsx
+@@ -10,8 +10,8 @@ import AuthConfiguration from '@/features/auth/components/AuthConfig';
+ import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
+ import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
+ import {
+-  buildAuthMetadata,
+   createErrorResponse,
++  describeGrpcAuthMetadata,
+   GrpcClientError,
+   getMethodTypeDescription,
+ } from '@/features/grpc/lib/grpcClient';
+@@ -57,6 +57,7 @@ import GrpcProtoUploader from './GrpcProtoUploader';
+ import { GrpcSettingsPanel } from './GrpcSettingsPanel';
+ import { GrpcStreamingMessages } from './GrpcStreamingControls';
+ import { GrpcStreamingPanel } from './GrpcStreamingPanel';
++import { GrpcUnsupportedAuthNotice } from './GrpcUnsupportedAuthNotice';
+ 
+ type GrpcSubTab =
+   | 'message'
+@@ -561,20 +562,6 @@ function GrpcRequestBuilder() {
+     );
+   };
+ 
+-  const getAuthPreview = () => {
+-    const authMetadata = buildAuthMetadata(grpcRequest.auth);
+-    if (Object.keys(authMetadata).length === 0) return 'No authentication configured';
+-    return Object.entries(authMetadata)
+-      .map(([key, value]) => {
+-        const maskedValue =
+-          key.includes('authorization') || key.includes('password')
+-            ? value.substring(0, 10) + '...'
+-            : value;
+-        return `${key}: ${maskedValue}`;
+-      })
+-      .join('\n');
+-  };
+-
+   sendShortcut.current = !isLoading && isFormValid() ? () => void handleSendRequest() : null;
+ 
+   return (
+@@ -732,7 +719,7 @@ function GrpcRequestBuilder() {
+                   <div className="p-3 rounded-sp-btn border border-sp-line bg-sp-surface-lo">
+                     <div className="sp-label mb-1">Auth Metadata (auto-injected)</div>
+                     <pre className="text-sp-11 text-sp-muted whitespace-pre-wrap font-mono">
+-                      {getAuthPreview()}
++                      {describeGrpcAuthMetadata(grpcRequest.auth)}
+                     </pre>
+                   </div>
+                 )}
+@@ -745,6 +732,7 @@ function GrpcRequestBuilder() {
+                   Authentication will be automatically converted to gRPC metadata.
+                 </p>
+                 <InheritedAuthHint request={grpcRequest} />
++                <GrpcUnsupportedAuthNotice request={grpcRequest} />
+                 <AuthConfiguration auth={grpcRequest.auth} onChange={handleAuthChange} />
+               </div>
+             )}
+diff --git a/src/features/grpc/components/GrpcUnsupportedAuthNotice.tsx b/src/features/grpc/components/GrpcUnsupportedAuthNotice.tsx
+new file mode 100644
+index 00000000..1c4c084a
+--- /dev/null
++++ b/src/features/grpc/components/GrpcUnsupportedAuthNotice.tsx
+@@ -0,0 +1,30 @@
++import { AlertTriangle } from 'lucide-react';
++import { useInheritedAuth } from '@/features/auth/components/InheritedAuthHint';
++import { grpcUnsupportedAuthMessage } from '@/features/grpc/lib/grpcClient';
++import type { AuthConfig } from '@/types';
++
++/**
++ * Inline warning on the gRPC auth tab when the effective auth (the request's
++ * own, or the folder/collection auth it inherits) has no gRPC binding (#900).
++ * Send is blocked for these types in `prepareGrpcRequest`; this explains why
++ * before the user tries.
++ */
++export function GrpcUnsupportedAuthNotice({
++  request,
++}: {
++  request: { id: string; auth: AuthConfig };
++}) {
++  const inherited = useInheritedAuth(request);
++  const message = grpcUnsupportedAuthMessage(inherited?.auth ?? request.auth);
++  if (!message) return null;
++  return (
++    <p
++      role="alert"
++      className="p-3 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500 flex items-center gap-2"
++      data-testid="grpc-auth-unsupported-warning"
++    >
++      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
++      {inherited ? `Inherited from ${inherited.sourceName}: ${message}` : message}
++    </p>
++  );
++}
+diff --git a/src/features/grpc/lib/grpcClient.ts b/src/features/grpc/lib/grpcClient.ts
+index efee1bd9..e26b7c9c 100644
+--- a/src/features/grpc/lib/grpcClient.ts
++++ b/src/features/grpc/lib/grpcClient.ts
+@@ -1,3 +1,4 @@
++import { MAX_GRPC_METADATA_BYTES } from '@shared/protocol/header-policy';
+ import { v4 as uuidv4 } from 'uuid';
+ import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
+ import {
+@@ -18,6 +19,8 @@ import type {
+ import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
+ import { resolveGrpcTls } from './grpcTls';
+ 
++export { MAX_GRPC_METADATA_BYTES };
++
+ // gRPC Client Error
+ export class GrpcClientError extends Error {
+   public statusCode: GrpcStatusCode;
+@@ -38,6 +41,36 @@ export class GrpcClientError extends Error {
+   }
+ }
+ 
++/**
++ * Auth types with no gRPC binding yet (#900). Each needs either the exact wire
++ * bytes (SigV4, OAuth 1.0 sign the encoded body/URL), a challenge/response
++ * round-trip (Digest, NTLM), or a per-call computed header the gRPC handlers
++ * don't build (WSSE). Rather than silently sending without credentials, the
++ * send is blocked with this explanation and the auth tab shows it inline.
++ */
++const GRPC_UNSUPPORTED_AUTH: Partial<Record<AuthConfig['type'], string>> = {
++  digest: 'Digest',
++  'aws-signature': 'AWS Signature (SigV4)',
++  oauth1: 'OAuth 1.0',
++  ntlm: 'NTLM',
++  wsse: 'WSSE',
++};
++
++/**
++ * User-facing reason a gRPC call can't apply this auth, or `null` when the
++ * auth type is supported (none / basic / bearer / api-key / oauth2).
++ */
++export function grpcUnsupportedAuthMessage(auth: AuthConfig): string | null {
++  const label = GRPC_UNSUPPORTED_AUTH[auth.type];
++  if (!label) return null;
++  return (
++    `${label} authentication is not supported for gRPC, and Restura won't send the call ` +
++    'without credentials. Use Bearer, Basic, API Key or OAuth 2.0, or set Auth to No Auth ' +
++    '(including any folder or collection it inherits from) and add a pre-computed ' +
++    'credential as a metadata entry.'
++  );
++}
++
+ // Auth to Metadata Converter
+ //
+ // Common credential shaping (Basic / Bearer / API-Key / OAuth2) is delegated
+@@ -46,39 +79,43 @@ export class GrpcClientError extends Error {
+ // flavour uses lowercase keys (canonical for HTTP/2 metadata) and requires
+ // BOTH username AND password for Basic auth — both behaviours preserved.
+ //
+-// The protocol-specific bits live here: warnings for unsupported types
+-// (digest, aws-signature). API-key in `query` mode is dropped on the floor
+-// for gRPC (no URL query string in the metadata frame) — matched by
+-// returning only `headers`.
++// Sign-at-wire / challenge types (see `GRPC_UNSUPPORTED_AUTH`) produce no
++// metadata; `prepareGrpcRequest` blocks the send for them instead. API-key in
++// `query` mode is dropped on the floor for gRPC (no URL query string in the
++// metadata frame) — matched by returning only `headers`.
+ export function buildAuthMetadata(auth: AuthConfig): Record<string, string> {
+-  switch (auth.type) {
+-    case 'digest':
+-      // Digest auth requires challenge-response, not directly applicable to gRPC metadata
+-      // This auth type is not supported for gRPC - use Basic or Bearer auth instead
+-      console.warn(
+-        'Digest authentication is not supported for gRPC. Please use Basic or Bearer authentication.'
+-      );
+-      return {};
++  if (grpcUnsupportedAuthMessage(auth)) return {};
++  const credential = buildAuthCredential(auth, {
++    headerCase: 'lower',
++    basicRequiresPassword: true,
++  });
++  // SecretRef-handle credentials resolve to empty headers here (the renderer
++  // can't read handle plaintext). On Electron they're resolved main-side by
++  // the gRPC IPC handler — see `grpcAuthNeedsMainSideApply` / the `auth`
++  // field threaded into the startStream/request payloads. The web path
++  // rejects them up front (handles are desktop-only).
++  return { ...credential.headers };
++}
+ 
+-    case 'aws-signature':
+-      console.warn(
+-        'AWS Signature authentication is not yet implemented for gRPC. Please use Bearer authentication with an AWS token.'
+-      );
+-      return {};
+-
+-    default: {
+-      const credential = buildAuthCredential(auth, {
+-        headerCase: 'lower',
+-        basicRequiresPassword: true,
+-      });
+-      // SecretRef-handle credentials resolve to empty headers here (the renderer
+-      // can't read handle plaintext). On Electron they're resolved main-side by
+-      // the gRPC IPC handler — see `grpcAuthNeedsMainSideApply` / the `auth`
+-      // field threaded into the startStream/request payloads. The web path
+-      // rejects them up front (handles are desktop-only).
+-      return { ...credential.headers };
+-    }
+-  }
++/**
++ * Human-readable preview of the auth metadata a gRPC call will carry, with
++ * credential values truncated. Unsupported auth types (#900) explain why
++ * nothing is sent instead of claiming no auth is configured.
++ */
++export function describeGrpcAuthMetadata(auth: AuthConfig): string {
++  const unsupported = grpcUnsupportedAuthMessage(auth);
++  if (unsupported) return unsupported;
++  const authMetadata = buildAuthMetadata(auth);
++  if (Object.keys(authMetadata).length === 0) return 'No authentication configured';
++  return Object.entries(authMetadata)
++    .map(([key, value]) => {
++      const maskedValue =
++        key.includes('authorization') || key.includes('password')
++          ? value.substring(0, 10) + '...'
++          : value;
++      return `${key}: ${maskedValue}`;
++    })
++    .join('\n');
+ }
+ 
+ /**
+@@ -342,6 +379,18 @@ export function prepareGrpcRequest(
+   request: GrpcRequest,
+   resolveVariables: (text: string) => string
+ ): PreparedGrpcRequest {
++  // Block auth types gRPC can't apply rather than sending unauthenticated
++  // (#900). Every harness (Electron IPC, web proxy, web streaming) prepares
++  // through here, so this is the single choke point.
++  const unsupportedAuth = grpcUnsupportedAuthMessage(request.auth);
++  if (unsupportedAuth) {
++    throw new GrpcClientError(
++      unsupportedAuth,
++      GrpcStatusCode.FAILED_PRECONDITION,
++      'Choose a gRPC-compatible auth type'
++    );
++  }
++
+   // Resolve environment variables in URL
+   const resolvedUrl = resolveVariables(request.url);
+ 
+@@ -363,26 +412,17 @@ export function prepareGrpcRequest(
+   const authMetadata = buildAuthMetadata(request.auth);
+   Object.assign(metadata, authMetadata);
+ 
+-  // Validate metadata size limits
+-  const MAX_METADATA_SIZE = 8 * 1024; // 8KB total
+-  const MAX_HEADER_SIZE = 1024; // 1KB per header
++  // Validate the aggregate metadata size (#895). No per-entry cap — a 2 KB
++  // bearer JWT is ordinary — only a total-bytes ceiling, measured in UTF-8.
++  const encoder = new TextEncoder();
+   let totalSize = 0;
+-
+   for (const [key, value] of Object.entries(metadata)) {
+-    const headerSize = key.length + value.length;
+-    if (headerSize > MAX_HEADER_SIZE) {
+-      throw new GrpcClientError(
+-        `Metadata header '${key}' exceeds maximum size of ${MAX_HEADER_SIZE} bytes`,
+-        GrpcStatusCode.INVALID_ARGUMENT,
+-        'Reduce the size of metadata headers'
+-      );
+-    }
+-    totalSize += headerSize;
++    totalSize += encoder.encode(key).length + encoder.encode(value).length;
+   }
+ 
+-  if (totalSize > MAX_METADATA_SIZE) {
++  if (totalSize > MAX_GRPC_METADATA_BYTES) {
+     throw new GrpcClientError(
+-      `Total metadata size (${totalSize} bytes) exceeds maximum of ${MAX_METADATA_SIZE} bytes`,
++      `Total metadata size (${totalSize} bytes) exceeds maximum of ${MAX_GRPC_METADATA_BYTES} bytes`,
+       GrpcStatusCode.INVALID_ARGUMENT,
+       'Reduce the number or size of metadata headers'
+     );
+diff --git a/src/features/grpc/lib/grpcStreamingClient.ts b/src/features/grpc/lib/grpcStreamingClient.ts
+index 0dca00db..3b87cf7a 100644
+--- a/src/features/grpc/lib/grpcStreamingClient.ts
++++ b/src/features/grpc/lib/grpcStreamingClient.ts
+@@ -24,6 +24,8 @@ import {
+   resolveMethod,
+ } from '@shared/protocol/grpc-registry';
+ import { flattenHeaders } from '@shared/protocol/header-utils';
++import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
++import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+ import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+ import type { GrpcRequest } from '@/types';
+ import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
+@@ -85,8 +87,16 @@ const DEFAULT_TIMEOUT = 30_000;
+  * fetch can't duplex), so client/bidi throw a desktop-only error there.
+  */
+ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
+-  args: StartGrpcStreamArgs
++  rawArgs: StartGrpcStreamArgs
+ ): Promise<GrpcStreamingHandle<TIn, TOut>> {
++  // Folder/collection auth inheritance, matching unary sends (the registry
++  // runner applies `withEffectiveAuth` before `prepareGrpcRequest`). Without
++  // this an inherited unsupported type (e.g. SigV4) slipped past the #900
++  // block and inherited Bearer/Basic was silently dropped from streams.
++  const inherited = resolveInheritedAuthFor(rawArgs.request);
++  const args: StartGrpcStreamArgs = inherited
++    ? { ...rawArgs, request: withEffectiveAuth(rawArgs.request, inherited.auth) }
++    : rawArgs;
+   // Basic validation — leverage existing helpers
+   const urlCheck = validateGrpcUrl(args.request.url);
+   if (!urlCheck.valid) {

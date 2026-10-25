@@ -1,0 +1,132 @@
+diff --git a/shared/protocol/http-proxy.ts b/shared/protocol/http-proxy.ts
+index 8cb625ca..5e6a1936 100644
+--- a/shared/protocol/http-proxy.ts
++++ b/shared/protocol/http-proxy.ts
+@@ -1,6 +1,7 @@
+ import { validateURL } from './url-validation';
+ import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
+ import { buildRequestBody } from './body-builder';
++import { applyAuth } from './auth-signer';
+ import type { Fetcher, RequestSpec, ExecuteResult } from './types';
+ 
+ export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
+@@ -56,6 +57,29 @@ export async function executeHttpProxy(
+ 
+   try {
+     const finalBody = !['GET', 'HEAD'].includes(method) ? body : undefined;
++
++    // Apply sign-at-wire auth (currently AWS SigV4) AFTER body construction
++    // and BEFORE the fetcher — the signature must cover the exact bytes the
++    // upstream receives, including the canonical URL with query params.
++    if (spec.auth && spec.auth.type !== 'none') {
++      try {
++        const applied = await applyAuth(spec.auth, {
++          method,
++          url: targetUrl.toString(),
++          headers,
++          body: finalBody,
++        });
++        Object.assign(headers, applied.headers);
++      } catch (err) {
++        const message = err instanceof Error ? err.message : 'unknown';
++        return {
++          ok: false,
++          status: 500,
++          payload: { error: `Auth signing failed: ${message}` },
++        };
++      }
++    }
++
+     const response = await fetcher({
+       url: targetUrl.toString(),
+       method,
+@@ -191,6 +215,28 @@ export async function executeHttpProxyStreaming(
+ 
+   try {
+     const finalBody = !['GET', 'HEAD'].includes(method) ? requestBody : undefined;
++
++    // Apply sign-at-wire auth (currently AWS SigV4) AFTER body construction
++    // and BEFORE the fetcher. See executeHttpProxy above for rationale.
++    if (spec.auth && spec.auth.type !== 'none') {
++      try {
++        const applied = await applyAuth(spec.auth, {
++          method,
++          url: targetUrl.toString(),
++          headers,
++          body: finalBody,
++        });
++        Object.assign(headers, applied.headers);
++      } catch (err) {
++        const message = err instanceof Error ? err.message : 'unknown';
++        return {
++          ok: false,
++          status: 500,
++          payload: { error: `Auth signing failed: ${message}` },
++        };
++      }
++    }
++
+     const response = await fetcher({
+       url: targetUrl.toString(),
+       method,
+diff --git a/shared/protocol/types.ts b/shared/protocol/types.ts
+index 5ab72eff..79664738 100644
+--- a/shared/protocol/types.ts
++++ b/shared/protocol/types.ts
+@@ -1,5 +1,40 @@
+ import type { BodyType, FormField } from './body-builder';
+ 
++/**
++ * Auth configuration consumed by the shared protocol core.
++ *
++ * This is a structural subset of `AuthConfig` from `src/types/index.ts`. It
++ * lives here (rather than being imported from `@/types`) so the shared core
++ * has no compile-time dependency on the renderer source tree — keeping the
++ * Worker bundle and Electron build self-contained.
++ *
++ * Sign-at-wire auth (currently AWS SigV4) is applied by `applyAuth` against
++ * the exact body bytes the upstream receives. Other auth types (Bearer,
++ * Basic, API-key, OAuth2) are still applied by the renderer before the
++ * request reaches the proxy — they don't depend on wire-byte fidelity.
++ */
++export type ProtocolAuthType =
++  | 'none'
++  | 'basic'
++  | 'bearer'
++  | 'api-key'
++  | 'oauth2'
++  | 'digest'
++  | 'aws-signature';
++
++export interface ProtocolAuthConfig {
++  type: ProtocolAuthType;
++  awsSignature?: {
++    accessKey: string;
++    secretKey: string;
++    region: string;
++    service: string;
++  };
++  // Other auth shapes (basic/bearer/apiKey/oauth2/digest) intentionally omitted —
++  // the shared core only needs to act on `aws-signature`. Passing through
++  // unknown auth types is a no-op.
++}
++
+ export interface RequestSpec {
+   method: string;
+   url: string;
+@@ -9,6 +44,15 @@ export interface RequestSpec {
+   data?: string;
+   formData?: FormField[];
+   timeout?: number;
++  /**
++   * Auth that requires sign-at-wire fidelity (AWS SigV4 hashes the body bytes,
++   * so the signature must be computed against the exact bytes the fetcher sends
++   * — not a renderer-side reconstruction the worker may transform).
++   *
++   * Bearer / Basic / API-key / OAuth2 are still applied by the renderer before
++   * the request reaches the proxy; they don't depend on wire-byte fidelity.
++   */
++  auth?: ProtocolAuthConfig;
+ }
+ 
+ export interface NormalizedResponse {

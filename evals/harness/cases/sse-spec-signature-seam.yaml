@@ -1,0 +1,29 @@
+id: sse-spec-signature-seam
+title: One branch changes buildSseStreamSpec's signature, another adds a caller of the old one
+origin: synthetic
+sourcePRs: []
+base: 68ff7139d0738df63730f81be1cfe6aeb21794e0
+seam: cross-branch
+branches:
+  - name: refactor/sse-stream-spec-options
+    patches: [a-sse-spec-options.patch]
+  - name: feat/sse-endpoint-probe
+    patches: [b-sse-probe.patch]
+expected:
+  defect: >-
+    Branch refactor/sse-stream-spec-options changes buildSseStreamSpec(url, headers) to
+    buildSseStreamSpec({ url, headers, jsonBody }) and updates every existing caller. Branch
+    feat/sse-endpoint-probe adds a new caller, probeSseEndpoint in
+    src/features/sse/lib/sseProbe.ts, using the old positional signature. Each branch
+    type-checks and passes its tests alone; merged, tsc fails in sseProbe.ts. Only a check of the
+    combined result (integration-check / type-check:all on the merge) catches it.
+  files:
+    - src/features/sse/lib/sseProbe.ts
+  symbols: [buildSseStreamSpec, probeSseEndpoint]
+mustMention:
+  - '(sseProbe|probeSseEndpoint)'
+  - buildSseStreamSpec
+mustNotMiss: high
+notes: >-
+  Synthetic. The simplest green-alone/red-together seam, and a control for whether the review
+  actually runs integration-check.

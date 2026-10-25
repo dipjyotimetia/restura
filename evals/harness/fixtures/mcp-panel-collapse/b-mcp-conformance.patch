@@ -1,0 +1,122 @@
+diff --git a/src/features/mcp/components/McpConformanceDialog.tsx b/src/features/mcp/components/McpConformanceDialog.tsx
+new file mode 100644
+index 00000000..fe47e4a5
+--- /dev/null
++++ b/src/features/mcp/components/McpConformanceDialog.tsx
+@@ -0,0 +1,28 @@
++import { FlaskConical } from 'lucide-react';
++import {
++  Dialog,
++  DialogContent,
++  DialogDescription,
++  DialogHeader,
++  DialogTitle,
++} from '@/components/ui/dialog';
++
++interface McpConformanceDialogProps {
++  open: boolean;
++  onOpenChange: (open: boolean) => void;
++  url: string;
++}
++
++/** Era/conformance report: probes the server in the legacy and modern protocol eras (#911). */
++export function McpConformanceDialog({ open, onOpenChange, url }: McpConformanceDialogProps) {
++  return (
++    <Dialog open={open} onOpenChange={onOpenChange}>
++      <DialogContent className="max-w-3xl">
++        <DialogHeader icon={FlaskConical}>
++          <DialogTitle>Conformance report</DialogTitle>
++          <DialogDescription className="font-mono">{url}</DialogDescription>
++        </DialogHeader>
++      </DialogContent>
++    </Dialog>
++  );
++}
+diff --git a/src/features/mcp/components/McpConnectionPanel.tsx b/src/features/mcp/components/McpConnectionPanel.tsx
+index 53bc13d2..c054be47 100644
+--- a/src/features/mcp/components/McpConnectionPanel.tsx
++++ b/src/features/mcp/components/McpConnectionPanel.tsx
+@@ -1,4 +1,12 @@
+-import { ChevronDown, ChevronRight, PanelLeft, Play, RefreshCw, Square } from 'lucide-react';
++import {
++  ChevronDown,
++  ChevronRight,
++  FlaskConical,
++  PanelLeft,
++  Play,
++  RefreshCw,
++  Square,
++} from 'lucide-react';
+ import { useState } from 'react';
+ import { KeyValueTable } from '@/components/shared/KeyValueTable';
+ import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
+@@ -35,6 +43,8 @@ interface McpConnectionPanelProps {
+   onConnect: () => Promise<void>;
+   onDisconnect: () => Promise<void>;
+   onRefresh: () => Promise<void>;
++  /** Open the era/conformance report (#911). */
++  onConformance?: () => void;
+ }
+ 
+ const remoteTransportOptions: Array<{ value: McpTransportType; label: string }> = [
+@@ -67,6 +77,7 @@ export function McpConnectionPanel({
+   onConnect,
+   onDisconnect,
+   onRefresh,
++  onConformance,
+ }: McpConnectionPanelProps) {
+   const [headersOpen, setHeadersOpen] = useState(false);
+   const [authOpen, setAuthOpen] = useState(false);
+@@ -198,6 +209,19 @@ export function McpConnectionPanel({
+             className={cn((isConnected || isBusy) && 'opacity-60 pointer-events-none')}
+           />
+         </div>
++        {onConformance && (
++          <Button
++            variant="ghost"
++            size="sm"
++            onClick={onConformance}
++            disabled={!connection.url.trim() || isBusy}
++            title="Check the server in the legacy and modern protocol eras"
++            className="h-9 px-3 text-sp-12 rounded-sp-panel shrink-0 bg-sp-surface border border-sp-line"
++          >
++            <FlaskConical className="h-3.5 w-3.5" />
++            Conformance
++          </Button>
++        )}
+         <Button
+           variant={showCatalog ? 'secondary' : 'ghost'}
+           size="sm"
+diff --git a/src/features/mcp/components/McpRequestBuilder.tsx b/src/features/mcp/components/McpRequestBuilder.tsx
+index c5b528ba..786b22c7 100644
+--- a/src/features/mcp/components/McpRequestBuilder.tsx
++++ b/src/features/mcp/components/McpRequestBuilder.tsx
+@@ -6,6 +6,7 @@ import {
+   displayHost,
+   McpClientRequestDialog,
+ } from '@/features/mcp/components/McpClientRequestDialog';
++import { McpConformanceDialog } from '@/features/mcp/components/McpConformanceDialog';
+ import { McpConnectionPanel } from '@/features/mcp/components/McpConnectionPanel';
+ import {
+   McpDiscoveryPanel,
+@@ -104,6 +105,7 @@ export default function McpRequestBuilder() {
+   const clientRef = useRef<McpClientSession | null>(null);
+   const clientGenerationRef = useRef(0);
+   const [showCatalog, setShowCatalog] = useState(false);
++  const [conformanceOpen, setConformanceOpen] = useState(false);
+   const [selectedTemplateUri, setSelectedTemplateUri] = useState<string | null>(null);
+   const operation = request ? parseMcpOperation(request) : null;
+   const [discoveryTab, setDiscoveryTab] = useState<McpDiscoveryTab>(() =>
+@@ -514,6 +516,12 @@ export default function McpRequestBuilder() {
+         onConnect={handleConnect}
+         onDisconnect={handleDisconnect}
+         onRefresh={handleRefresh}
++        onConformance={() => setConformanceOpen(true)}
++      />
++      <McpConformanceDialog
++        open={conformanceOpen}
++        onOpenChange={setConformanceOpen}
++        url={resolveVariables(request.url)}
+       />
+       {isElectron() && (
+         <McpRootsPanel

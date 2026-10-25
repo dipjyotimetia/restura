@@ -8,7 +8,7 @@
 
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import * as path from 'node:path';
 
 export const projectDir = () => process.env.CLAUDE_PROJECT_DIR || process.cwd();
@@ -103,4 +103,23 @@ export function firstTimeFor(markerName, signature, cwd = projectDir()) {
     // best-effort; still fire
   }
   return true;
+}
+
+// Metrics: append one TSV line to .claude/metrics/<name> (gitignored runtime
+// data). Each field is coerced to a single-line, tab-free token; empty/absent
+// values become '-'. Best-effort — never throws. Callers pass METADATA ONLY
+// (ids, names, counts) — never prompt, transcript, or message content.
+export function tsvField(value) {
+  if (value === undefined || value === null || value === '') return '-';
+  return String(value).replace(/[\t\r\n]+/g, ' ').slice(0, 200);
+}
+
+export function appendMetric(name, fields, cwd = projectDir()) {
+  try {
+    const logPath = path.join(cwd, '.claude', 'metrics', name);
+    mkdirSync(path.dirname(logPath), { recursive: true });
+    appendFileSync(logPath, `${[new Date().toISOString(), ...fields.map(tsvField)].join('\t')}\n`);
+  } catch {
+    // best-effort; metrics must never break a hook
+  }
 }
