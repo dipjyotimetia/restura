@@ -12,7 +12,14 @@
 // is a single blocking Stop decision with a reason (or nothing).
 
 import { execFileSync } from 'node:child_process';
-import { binPath, changedFiles, firstTimeFor, projectDir, readPayload } from './_shared.mjs';
+import {
+  appendMetric,
+  binPath,
+  changedFiles,
+  firstTimeFor,
+  projectDir,
+  readPayload,
+} from './_shared.mjs';
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -131,23 +138,40 @@ function lintMessage(working) {
   );
 }
 
+// Outcome metrics: one TSV line per Stop in .claude/metrics/stop-outcomes.log —
+// timestamp, session_id, fired check names (comma-joined, '-' if none),
+// blocked|allowed. Names only: never the reminder text or any payload content.
+let sessionId;
+let fired = [];
+
 try {
-  readPayload(); // drain stdin
+  sessionId = readPayload()?.session_id; // also drains stdin
   const { all, working } = changedFiles(cwd);
-  if (all.size === 0) process.exit(0);
+  if (all.size > 0) {
+    const checks = [
+      { name: 'docs-site', run: () => docsSiteMessage(all) },
+      { name: 'agents-md', run: () => agentsMdMessage(all) },
+      { name: 'type-check', run: () => typeCheckMessage(all) },
+      { name: 'lint', run: () => lintMessage(working) },
+    ];
+    const results = checks
+      .map((c) => ({ name: c.name, msg: c.run() }))
+      .filter((r) => Boolean(r.msg));
+    fired = results.map((r) => r.name);
+    const messages = results.map((r) => r.msg);
 
-  const messages = [
-    docsSiteMessage(all),
-    agentsMdMessage(all),
-    typeCheckMessage(all),
-    lintMessage(working),
-  ].filter(Boolean);
-
-  if (messages.length) {
-    process.stdout.write(JSON.stringify({ decision: 'block', reason: messages.join('\n\n') }));
+    if (messages.length) {
+      process.stdout.write(JSON.stringify({ decision: 'block', reason: messages.join('\n\n') }));
+    }
   }
 } catch {
   // intentionally empty — a checks hook must never break the session
 }
+
+appendMetric(
+  'stop-outcomes.log',
+  [sessionId, fired.join(','), fired.length ? 'blocked' : 'allowed'],
+  cwd
+);
 
 process.exit(0);
