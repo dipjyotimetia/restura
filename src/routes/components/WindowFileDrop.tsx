@@ -5,11 +5,28 @@ const hasFiles = (event: DragEvent) =>
   Array.from(event.dataTransfer?.types ?? []).includes('Files');
 
 /**
+ * A non-file drag whose default drop action is navigating the window (a link,
+ * a URL, selected text). Editable targets keep the browser's own text drop.
+ */
+const isNavigatingDrop = (event: DragEvent) => {
+  if (hasFiles(event)) return false;
+  const target = event.target;
+  if (
+    target instanceof HTMLElement &&
+    target.closest('input, textarea, [contenteditable=""], [contenteditable="true"]')
+  ) {
+    return false;
+  }
+  return true;
+};
+
+/**
  * Drop a collection / environment / spec file anywhere on the window to
  * import it. Only file drags count, and any drop an inner target already
  * handled (form-data files, the import dialog's own zone) is left alone — the
  * listeners run in the bubble phase after React's handlers. Also stops the
- * browser / Electron window from navigating to a dropped file.
+ * browser / Electron window from navigating to a dropped file or link (drops
+ * into editable fields keep their normal text-insert behaviour).
  */
 export function WindowFileDrop({ onFile }: { onFile: (file: File) => void }) {
   const [active, setActive] = useState(false);
@@ -35,9 +52,16 @@ export function WindowFileDrop({ onFile }: { onFile: (file: File) => void }) {
     const onOver = (event: DragEvent) => {
       // Allow the drop (and keep the window from navigating to the file).
       if (hasFiles(event)) event.preventDefault();
+      // Links / URLs: accept the drop here so it can be cancelled below
+      // instead of navigating the window (which would also be a reload-like
+      // page replacement in the browser build).
+      else if (isNavigatingDrop(event)) event.preventDefault();
     };
     const onDrop = (event: DragEvent) => {
-      if (!hasFiles(event)) return;
+      if (!hasFiles(event)) {
+        if (isNavigatingDrop(event)) event.preventDefault();
+        return;
+      }
       const handled = event.defaultPrevented;
       event.preventDefault();
       reset();

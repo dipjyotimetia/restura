@@ -32,9 +32,44 @@ import {
 } from '@/features/mqtt/lib/mqttPreset';
 import { useMqttStore } from '@/features/mqtt/store/useMqttStore';
 import { isElectron } from '@/lib/shared/platform';
+import { secureStorage } from '@/lib/shared/secure-storage';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { BrokerRequest, CollectionItem, KafkaRequest, MqttRequest, RequestTab } from '@/types';
 import { isBrokerRequest } from '@/types';
+
+/**
+ * Stored credentials are bound to the broker address they were saved for: a
+ * collection item whose brokers were repointed (import, hand edit, sync) must
+ * not silently receive the original broker's password. The binding is a
+ * fingerprint kept next to the secrets. The key contains "credential" so
+ * `secureStorage` routes it to the encrypted store, never plaintext storage.
+ */
+const bindingKey = (type: BrokerRequest['type'], presetId: string) =>
+  `preset-credential-binding:${type}:${presetId}`;
+
+const normalizeAddress = (value: string) => value.trim().toLowerCase().replace(/\/+$/, '');
+
+/** Normalised, order-independent identity of the endpoints a preset's credentials unlock. */
+export function brokerPresetFingerprint(preset: BrokerRequest): string {
+  if (preset.type === 'kafka') {
+    const c = (preset as KafkaRequest).connection;
+    return JSON.stringify({
+      brokers: c.bootstrapBrokers.map(normalizeAddress).sort(),
+      registry: c.registry ? normalizeAddress(c.registry.url) : null,
+    });
+  }
+  return JSON.stringify({ broker: normalizeAddress((preset as MqttRequest).connection.brokerUrl) });
+}
+
+/** Record which endpoints `preset`'s stored credentials belong to. */
+export function bindBrokerPresetCredentials(preset: BrokerRequest): void {
+  secureStorage.set(bindingKey(preset.type, preset.id), brokerPresetFingerprint(preset));
+}
+
+async function credentialsMatchPreset(preset: BrokerRequest): Promise<boolean> {
+  const bound = await secureStorage.getAsync(bindingKey(preset.type, preset.id));
+  return bound === brokerPresetFingerprint(preset);
+}
 
 /**
  * Open a saved preset in a new Kafka / MQTT tab linked to `itemId`, seeded with
@@ -51,6 +86,14 @@ export async function openBrokerPreset(itemId: string, preset: BrokerRequest): P
         preset.type === 'kafka'
           ? await readKafkaPresetSecrets(preset.id)
           : await readMqttPresetSecrets(preset.id);
+      // Credentials saved before bindings existed have no fingerprint and are
+      // treated like a mismatch: re-entering once re-saves them with a binding.
+      if (Object.keys(secrets).length > 0 && !(await credentialsMatchPreset(preset))) {
+        secrets = {};
+        toast.warning(
+          'Saved credentials were not applied because the broker address changed — re-enter them before connecting'
+        );
+      }
     } catch {
       // Keychain unavailable: still open the preset, without credentials.
       toast.error('Could not read the saved credentials — re-enter them before connecting');
@@ -135,7 +178,10 @@ export function snapshotBrokerTab(
     return {
       request,
       strippedUserinfo: stripped,
-      persistSecrets: () => storeKafkaPresetSecrets(conn, request.id),
+      persistSecrets: async () => {
+        await storeKafkaPresetSecrets(conn, request.id);
+        bindBrokerPresetCredentials(request);
+      },
     };
   }
   if (tab.modeOverride === 'mqtt') {
@@ -146,7 +192,10 @@ export function snapshotBrokerTab(
     return {
       request,
       strippedUserinfo: stripped,
-      persistSecrets: () => storeMqttPresetSecrets(conn, request.id),
+      persistSecrets: async () => {
+        await storeMqttPresetSecrets(conn, request.id);
+        bindBrokerPresetCredentials(request);
+      },
     };
   }
   return null;
@@ -164,9 +213,11 @@ function walkPresets(items: CollectionItem[], visit: (preset: BrokerRequest) => 
 
 /** Delete the stored credentials of every preset in `items` (deleted items/folders/collections). */
 export function reapBrokerPresetSecrets(items: CollectionItem[]): void {
-  walkPresets(items, (preset) =>
-    preset.type === 'kafka' ? reapKafkaPresetSecrets(preset.id) : reapMqttPresetSecrets(preset.id)
-  );
+  walkPresets(items, (preset) => {
+    secureStorage.remove(bindingKey(preset.type, preset.id));
+    if (preset.type === 'kafka') reapKafkaPresetSecrets(preset.id);
+    else reapMqttPresetSecrets(preset.id);
+  });
 }
 
 /**
@@ -188,6 +239,9 @@ export async function copyBrokerPresetSecrets(
     try {
       if (original.type === 'kafka') await copyKafkaPresetSecrets(original.id, copy.id);
       else await copyMqttPresetSecrets(original.id, copy.id);
+      // The clone keeps the original's endpoints, so it inherits the binding.
+      const bound = await secureStorage.getAsync(bindingKey(original.type, original.id));
+      if (bound) secureStorage.set(bindingKey(copy.type, copy.id), bound);
     } catch {
       // Keep copying the remaining presets; report once at the end.
       failed++;
