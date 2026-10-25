@@ -17,7 +17,7 @@ One React renderer ships to web, desktop, and self-hosted. Many capabilities exi
 
 Make `src/lib/shared/capabilities.ts` the **single source of truth** for platform parity. Each capability is a keyed entry with `web` / `desktop` booleans and optional `notes`. The renderer reads it to render "Desktop only" badges on the relevant UI fields, and `scripts/generate-capability-matrix.mjs` codegens `docs/CAPABILITY_MATRIX.md` from it. `npm run capabilities:check` is a CI gate (part of `npm run validate`) that fails if the published doc drifts.
 
-When a new feature differs across platforms, you update `capabilities.ts` — never the generated doc by hand.
+When a new feature differs across platforms, you update `capabilities.ts` — never the generated doc by hand. The rows live in per-area modules under `src/lib/shared/capabilities/` that `capabilities.ts` composes; add a row to the matching area module.
 
 ## Consequences
 

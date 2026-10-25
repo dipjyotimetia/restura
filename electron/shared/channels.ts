@@ -11,265 +11,50 @@
 // - CHANNEL_PREFIXES: the namespace allowlist enforced by preload's event
 //   bridge (`channel.startsWith(prefix)`). This is a security boundary —
 //   keep it here so the guard is defined once, not copy-pasted per protocol.
+//
+// The IPC / EVENT / EVENT_PREFIX groups live in per-area modules under
+// `./channels/` so concurrent feature PRs don't collide in one file. Add a
+// channel to the matching area module; this file only composes them (a new
+// area module also needs its spread added below). CHANNEL_PREFIXES and
+// VALID_EVENT_CHANNELS stay here because they are the security allowlists.
+
+import { AI_EVENT_PREFIX, AI_IPC } from './channels/ai';
+import { APP_EVENT, APP_IPC } from './channels/app';
+import { GIT_IPC } from './channels/git';
+import { GRPC_EVENT_PREFIX, GRPC_IPC } from './channels/grpc';
+import { HTTP_IPC } from './channels/http';
+import { KAFKA_EVENT_PREFIX, KAFKA_IPC } from './channels/kafka';
+import { LOCAL_SERVICES_EVENT, LOCAL_SERVICES_IPC } from './channels/local-services';
+import { MCP_EVENT_PREFIX, MCP_IPC } from './channels/mcp';
+import { MQTT_EVENT_PREFIX, MQTT_IPC } from './channels/mqtt';
+import { SECURITY_IPC } from './channels/security';
+import { SOCKETIO_IPC } from './channels/socketio';
+import { SSE_EVENT_PREFIX, SSE_IPC } from './channels/sse';
+import { STORAGE_EVENT, STORAGE_IPC } from './channels/storage';
+import { WEBSOCKET_EVENT_PREFIX, WEBSOCKET_IPC } from './channels/websocket';
 
 export const IPC = {
-  deepLink: {
-    ready: 'deep-link:ready',
-    acknowledge: 'deep-link:acknowledge',
-    fetchImport: 'deep-link:fetch-import',
-  },
-  app: {
-    checkForUpdates: 'app:checkForUpdates',
-    getPath: 'app:getPath',
-    getVersion: 'app:getVersion',
-  },
-  updater: {
-    check: 'updater:check',
-    status: 'updater:getStatus',
-    download: 'updater:download',
-    cancel: 'updater:cancel',
-    restart: 'updater:restart',
-    setConfig: 'updater:setConfig',
-  },
-  dialog: {
-    openFile: 'dialog:openFile',
-    saveFile: 'dialog:saveFile',
-  },
-  fs: {
-    readFile: 'fs:readFile',
-    writeFile: 'fs:writeFile',
-  },
-  shell: {
-    openExternal: 'shell:openExternal',
-  },
-  window: {
-    minimize: 'window:minimize',
-    maximize: 'window:maximize',
-    close: 'window:close',
-    new: 'window:new',
-  },
-  http: {
-    request: 'http:request',
-    cancel: 'http:cancel',
-  },
-  grpc: {
-    request: 'grpc:request',
-    reflect: 'grpc:reflect',
-    startStream: 'grpc:start-stream',
-    sendMessage: 'grpc:send-message',
-    endStream: 'grpc:end-stream',
-    cancelStream: 'grpc:cancel-stream',
-  },
-  ws: {
-    connect: 'ws:connect',
-    send: 'ws:send',
-    disconnect: 'ws:disconnect',
-    ping: 'ws:ping',
-  },
-  socketio: {
-    connect: 'socketio:connect',
-    emit: 'socketio:emit',
-    disconnect: 'socketio:disconnect',
-  },
-  sse: {
-    connect: 'sse:connect',
-    disconnect: 'sse:disconnect',
-  },
-  mcp: {
-    connect: 'mcp:connect',
-    request: 'mcp:request',
-    cancel: 'mcp:cancel',
-    disconnect: 'mcp:disconnect',
-    /** Clear every persisted stdio launch approval (narrows privilege only). */
-    revokeStdioApprovals: 'mcp:stdio:revoke-approvals',
-    /** Renderer → main answer to a server→client request (elicitation / sampling). */
-    clientResponse: 'mcp:client-response',
-    /** Replace a connection's roots; sends notifications/roots/list_changed. */
-    setRoots: 'mcp:set-roots',
-    oauthStatus: 'mcp:oauth:status',
-    oauthSignOut: 'mcp:oauth:signOut',
-    /** Read well-known MCP client configs or a user-picked file in main (#906). */
-    importScan: 'mcp:import:scan',
-    /** Turn a scan selection into drafts; secret env values become handles in main (#906). */
-    importCommit: 'mcp:import:commit',
-    conformance: 'mcp:conformance',
-  },
-  kafka: {
-    connect: 'kafka:connect',
-    produce: 'kafka:produce',
-    produceBatch: 'kafka:produce-batch',
-    openProducerStream: 'kafka:producer-stream-open',
-    writeProducerStream: 'kafka:producer-stream-write',
-    closeProducerStream: 'kafka:producer-stream-close',
-    beginTransaction: 'kafka:transaction-begin',
-    endTransaction: 'kafka:transaction-end',
-    subscribe: 'kafka:subscribe',
-    pauseConsumer: 'kafka:consumer-pause',
-    resumeConsumer: 'kafka:consumer-resume',
-    pausePartitions: 'kafka:consumer-pause-partitions',
-    resumePartitions: 'kafka:consumer-resume-partitions',
-    seekConsumer: 'kafka:consumer-seek',
-    commitMessage: 'kafka:consumer-commit-message',
-    unsubscribe: 'kafka:unsubscribe',
-    disconnect: 'kafka:disconnect',
-    listTopics: 'kafka:list-topics',
-    createTopic: 'kafka:create-topic',
-    deleteTopic: 'kafka:delete-topic',
-    listGroups: 'kafka:list-groups',
-    inspectTopic: 'kafka:inspect-topic',
-    inspectGroup: 'kafka:inspect-group',
-    resetGroupOffsets: 'kafka:reset-group-offsets',
-    deleteGroup: 'kafka:delete-group',
-    deleteGroupOffsets: 'kafka:delete-group-offsets',
-    createPartitions: 'kafka:create-partitions',
-    alterTopicConfigs: 'kafka:alter-topic-configs',
-    deleteRecords: 'kafka:delete-records',
-    describeCluster: 'kafka:describe-cluster',
-    describeAcls: 'kafka:describe-acls',
-    createAcl: 'kafka:create-acl',
-    deleteAcls: 'kafka:delete-acls',
-    describeQuotas: 'kafka:describe-quotas',
-    alterQuotas: 'kafka:alter-quotas',
-    registryListSubjects: 'kafka:registry-list-subjects',
-    registryListVersions: 'kafka:registry-list-versions',
-    registryGetSchema: 'kafka:registry-get-schema',
-  },
-  mqtt: {
-    connect: 'mqtt:connect',
-    publish: 'mqtt:publish',
-    subscribe: 'mqtt:subscribe',
-    unsubscribe: 'mqtt:unsubscribe',
-    disconnect: 'mqtt:disconnect',
-  },
-  notification: {
-    isSupported: 'notification:isSupported',
-    show: 'notification:show',
-    requestComplete: 'notification:requestComplete',
-    updateAvailable: 'notification:updateAvailable',
-    error: 'notification:error',
-  },
-  store: {
-    get: 'store:get',
-    set: 'store:set',
-    delete: 'store:delete',
-    clear: 'store:clear',
-    has: 'store:has',
-  },
-  secret: {
-    store: 'secret:store',
-    delete: 'secret:delete',
-    describe: 'secret:describe',
-    list: 'secret:list',
-    clear: 'secret:clear',
-  },
-  externalSecrets: {
-    list: 'external-secrets:list',
-    create: 'external-secrets:create',
-    update: 'external-secrets:update',
-    delete: 'external-secrets:delete',
-    clear: 'external-secrets:clear',
-  },
-  // pm.vault — user-named async key-value secret store, separate from
-  // the UUID-keyed handle store above so the two namespaces can't collide.
-  // Keys are user-controlled strings (validated by ipc-validators); values
-  // are encrypted with safeStorage in the main process.
-  vault: {
-    get: 'vault:get',
-    set: 'vault:set',
-    unset: 'vault:unset',
-    clear: 'vault:clear',
-  },
-  git: {
-    init: 'git:init',
-    status: 'git:status',
-    log: 'git:log',
-    diff: 'git:diff',
-    branchList: 'git:branch:list',
-    add: 'git:add',
-    unstage: 'git:unstage',
-    discard: 'git:discard',
-    commit: 'git:commit',
-    createBranch: 'git:branch:create',
-    checkoutBranch: 'git:branch:checkout',
-    fetch: 'git:fetch',
-    pull: 'git:pull',
-    push: 'git:push',
-    clone: 'git:clone',
-    mergeState: 'git:merge:state',
-    mergeStart: 'git:merge:start',
-    mergeConflict: 'git:merge:conflict',
-    mergeResolve: 'git:merge:resolve',
-    mergeAbort: 'git:merge:abort',
-    mergeComplete: 'git:merge:complete',
-  },
-  log: {
-    getHistory: 'log:getHistory',
-    clear: 'log:clear',
-  },
-  bugReport: {
-    captureScreenshot: 'bug-report:captureScreenshot',
-    getDiagnostics: 'bug-report:getDiagnostics',
-    copyScreenshot: 'bug-report:copyScreenshot',
-  },
-  keychain: {
-    status: 'keychain:status',
-    rotate: 'keychain:rotate',
-  },
-  collection: {
-    loadDirectory: 'collection:load-directory',
-    saveDirectory: 'collection:save-directory',
-    watch: 'collection:watch',
-    unwatch: 'collection:unwatch',
-    selectDirectory: 'collection:select-directory',
-    openInExplorer: 'collection:open-in-explorer',
-    getFileInfo: 'collection:get-file-info',
-    saveBrunoDirectory: 'collection:save-bruno-directory',
-  },
-  owsWorkspace: {
-    list: 'ows-workspace:list',
-    load: 'ows-workspace:load',
-    save: 'ows-workspace:save',
-    delete: 'ows-workspace:delete',
-  },
-  ai: {
-    chat: 'ai:chat',
-    chatCancel: 'ai:chat:cancel',
-  },
-  aiLab: {
-    complete: 'ai-lab:complete',
-    completeCancel: 'ai-lab:complete:cancel',
-    stream: 'ai-lab:stream',
-    streamCancel: 'ai-lab:stream:cancel',
-    listModels: 'ai-lab:list-models',
-    testConnection: 'ai-lab:test-connection',
-    exportTelemetry: 'ai-lab:telemetry:export',
-  },
-  mock: {
-    start: 'mock:start',
-    stop: 'mock:stop',
-    status: 'mock:status',
-  },
-  captureBridge: {
-    start: 'capture-bridge:start',
-    stop: 'capture-bridge:stop',
-    status: 'capture-bridge:status',
-  },
-  telemetry: {
-    setConsent: 'telemetry:setConsent',
-  },
-  security: {
-    setExecutionPolicy: 'security:setExecutionPolicy',
-  },
+  ...APP_IPC,
+  ...HTTP_IPC,
+  ...GRPC_IPC,
+  ...WEBSOCKET_IPC,
+  ...SOCKETIO_IPC,
+  ...SSE_IPC,
+  ...MCP_IPC,
+  ...KAFKA_IPC,
+  ...MQTT_IPC,
+  ...STORAGE_IPC,
+  ...SECURITY_IPC,
+  ...GIT_IPC,
+  ...AI_IPC,
+  ...LOCAL_SERVICES_IPC,
 } as const;
 
 /** Static main→renderer push channels (not per-connection). */
 export const EVENT = {
-  collectionFileChanged: 'collection:file-changed',
-  updaterStatus: 'updater:status',
-  // A captured browser session arrived over the loopback bridge and was
-  // converted to an OpenCollection document for the renderer to import.
-  captureReceived: 'capture-bridge:received',
-  deepLink: 'deep-link:received',
+  ...APP_EVENT,
+  ...STORAGE_EVENT,
+  ...LOCAL_SERVICES_EVENT,
 } as const;
 
 /**
@@ -277,66 +62,13 @@ export const EVENT = {
  * a connection/request/stream id via {@link eventChannel}.
  */
 export const EVENT_PREFIX = {
-  grpc: {
-    data: 'grpc:data:',
-    error: 'grpc:error:',
-    status: 'grpc:status:',
-  },
-  ws: {
-    open: 'ws:open:',
-    message: 'ws:message:',
-    error: 'ws:error:',
-    close: 'ws:close:',
-    pingReceived: 'ws:ping-received:',
-    pong: 'ws:pong:',
-  },
-  // Socket.IO event channels are NOT defined here. They have a pre-existing
-  // single source of truth in `shared/socketio-constants.ts` (`socketioChannels`),
-  // shared by the renderer's socketioManager and the Electron handler. Don't
-  // duplicate them — the actual names use snake_case (`reconnect_attempt`).
-  sse: {
-    open: 'sse:open:',
-    event: 'sse:event:',
-    error: 'sse:error:',
-    close: 'sse:close:',
-  },
-  mcp: {
-    open: 'mcp:open:',
-    notification: 'mcp:notification:',
-    error: 'mcp:error:',
-    close: 'mcp:close:',
-    /** Bounded stderr text from a stdio server process (desktop only). */
-    stderr: 'mcp:stderr:',
-    /** Main → renderer: a server→client request awaiting the user (elicitation / sampling). */
-    clientRequest: 'mcp:client-request:',
-    /** Main → renderer: a pending client request was cancelled, timed out, or its connection closed. */
-    clientRequestCancelled: 'mcp:client-request-cancelled:',
-  },
-  kafka: {
-    connected: 'kafka:connected:',
-    message: 'kafka:message:',
-    error: 'kafka:error:',
-    consumerClosed: 'kafka:consumer-closed:',
-    consumerStatus: 'kafka:consumer-status:',
-    consumerLag: 'kafka:consumer-lag:',
-    close: 'kafka:close:',
-  },
-  mqtt: {
-    connected: 'mqtt:connected:',
-    message: 'mqtt:message:',
-    error: 'mqtt:error:',
-    subscribed: 'mqtt:subscribed:',
-    unsubscribed: 'mqtt:unsubscribed:',
-    close: 'mqtt:close:',
-  },
-  ai: {
-    chunk: 'ai:chat:chunk:',
-    end: 'ai:chat:end:',
-  },
-  aiLab: {
-    chunk: 'ai-lab:chunk:',
-    end: 'ai-lab:end:',
-  },
+  ...GRPC_EVENT_PREFIX,
+  ...WEBSOCKET_EVENT_PREFIX,
+  ...SSE_EVENT_PREFIX,
+  ...MCP_EVENT_PREFIX,
+  ...KAFKA_EVENT_PREFIX,
+  ...MQTT_EVENT_PREFIX,
+  ...AI_EVENT_PREFIX,
 } as const;
 
 /** Build a templated event channel: `eventChannel('grpc:data:', id)`. */
