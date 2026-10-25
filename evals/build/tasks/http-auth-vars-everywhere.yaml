@@ -1,0 +1,84 @@
+id: http-auth-vars-everywhere
+title: '{{vars}} are not resolved in most auth types on web, desktop and CLI'
+split: train
+# The parity-checker checklist names {{vars}} resolution for every auth type; seen.
+leakTerms: ['applied once, in the same order as the app, for every auth type']
+base: 2a1b3c1b0759add0bae361279859ecbfb6e4760c
+referenceCommit: f8af90772d6c8b5150fe3652a3fbc042cc805182
+issue: |
+  ## Auth fields with `{{variables}}` are sent or signed literally
+
+  Variables work in URLs, headers and bodies, but not reliably in **auth**.
+
+  **Web and desktop (HTTP and GraphQL sends)**
+  - `Bearer {{token}}` goes out literally as `Authorization: Bearer {{token}}`.
+    Basic username/password and API-key name/value (header or query) have the same
+    problem.
+  - The wire-signed schemes (Digest, AWS SigV4, OAuth 1.0, WSSE, NTLM) hash or sign
+    the template text instead of the variable's value, so the server rejects them.
+  - OAuth 2.0 token refresh uses the unresolved token URL / client id / secret /
+    scope. After a refresh, the resolved values must never be persisted back over the
+    request's templates; only the new tokens (access token, a rotated refresh token,
+    the server's token type) are stored, and nothing is reported for persistence when
+    only variables were resolved.
+  - Enum-like fields (signature method, grant type, flags) and numbers are left
+    alone, and the request object is never mutated.
+  - Handle-backed secrets (keychain/external `SecretRef`s) and desktop *secret
+    variables* must stay opaque in the renderer: they are resolved only in Electron
+    main. Today main substitutes secret variables in url/headers/params/body only, so
+    a `{{secretVar}}` in a Digest / SigV4 / OAuth1 / WSSE / NTLM field reaches the
+    signer literally, and a Basic credential that references a secret variable gets
+    base64-encoded in the renderer with the placeholder inside.
+  - Requirement (the renderer never sees secret plaintext, ADR-0007): when a Basic
+    username or password references a desktop secret variable, the renderer must NOT
+    build the `Authorization` header. It sends the Basic credentials unencoded in the
+    request's auth descriptor (`spec.auth`, secret-variable tokens left as `{{name}}`,
+    other variables resolved), exactly like handle-backed credentials, and Electron
+    main substitutes the secret and builds the Basic header itself. Main must never
+    touch header/param *names* (the API-key name), and the secret's plaintext must not
+    appear in transport errors or the request log. Web, which has no secret variables,
+    fails fast instead.
+  - The wire-signed schemes likewise travel to the wire as resolved descriptors in
+    `spec.auth` (Digest credentials included, for the challenge retry), with
+    secret-variable tokens and handles left opaque for main.
+
+  **CLI (`restura run`)**
+  - HTTP and SSE requests have the same literal-`{{var}}` problem for bearer, basic,
+    API key (incl. query) and WSSE.
+  - Variable resolution must be single-pass: an external secret whose plaintext
+    contains `{{x}}`, or a variable whose value itself contains `{{y}}`, must be sent
+    literally and not expanded again (OAuth2 client credentials on HTTP, gRPC and MCP
+    are double-expanded on some paths today). gRPC and MCP must still resolve OAuth2
+    fields before fetching the token.
+
+  **Expected**: every auth type resolves `{{vars}}` once, the same way on web,
+  desktop and the CLI.
+hiddenTests:
+  - cli/src/runner/executors/__tests__/http-auth-vars.test.ts
+  - cli/src/runner/executors/__tests__/sse-auth-vars.test.ts
+  - cli/src/runner/executors/__tests__/oauth2-var-resolution.test.ts
+  - electron/main/__tests__/http-handler-secret-variables.test.ts
+  - src/features/auth/lib/__tests__/resolveAuthVariables.test.ts
+  - src/features/http/lib/__tests__/requestExecutor.test.ts
+  - tests/security/http-auth-secret-variable-leak.test.ts
+failToPass:
+  - cd cli && npx vitest run src/runner/executors/__tests__/http-auth-vars.test.ts --reporter=verbose
+  - cd cli && npx vitest run src/runner/executors/__tests__/sse-auth-vars.test.ts --reporter=verbose
+  - cd cli && npx vitest run src/runner/executors/__tests__/oauth2-var-resolution.test.ts --reporter=verbose
+  - npx vitest run electron/main/__tests__/http-handler-secret-variables.test.ts --reporter=verbose
+  - npx vitest run src/features/auth/lib/__tests__/resolveAuthVariables.test.ts --reporter=verbose
+  - npx vitest run src/features/http/lib/__tests__/requestExecutor.test.ts --reporter=verbose
+  - npx vitest run tests/security/http-auth-secret-variable-leak.test.ts --reporter=verbose
+passToPass:
+  - npx vitest run src/features/auth src/features/http electron/main shared tests/security
+  - cd cli && npx vitest run src/runner/executors
+  - npm run type-check:all
+timeoutMinutes: 90
+notes: |
+  From #1163 (three commits squashed). The hardest task: three harnesses plus the
+  secret-variable boundary. The reference added shared resolve-variables and
+  secret-variable-token modules; the latter's unit test is not hidden (it pins the
+  module). Every requirement the requestExecutor test checks is stated in the issue:
+  Basic with a secret variable deferred to main via spec.auth (ADR-0007), sign-at-wire
+  descriptors in spec.auth, and nothing reported for persistence unless a real OAuth2
+  refresh happened.

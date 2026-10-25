@@ -1,0 +1,52 @@
+id: cli-grpc-wire-parity
+title: restura run ignores gRPC wire protocol, auth restrictions and the metadata cap
+split: train
+# The parity-checker checklist names wire protocol selection; seen.
+leakTerms: ['Wire protocol selection']
+base: 29b2294d16caa69aae82677063ad328fc984916c
+referenceCommit: bfeab51611ddc8cfe930be2b6087159c3f6bbba0
+issue: |
+  ## CLI: gRPC requests don't behave like the app
+
+  `restura run` handles saved gRPC requests differently from the app:
+
+  1. **Wire protocol is ignored.** Every request is sent as Connect JSON, whatever
+     its `wireProtocol`:
+     - `grpc-web` should go out as gRPC-Web binary (`content-type:
+       application/grpc-web+proto`), with the message encoded from the request's
+       saved schema and the reply decoded back to JSON;
+     - `grpc-web-text` should go out as base64 gRPC-Web text
+       (`application/grpc-web-text`);
+     - `grpc-web` / `grpc-web-text` without a saved schema cannot be encoded: fail
+       with status `FAILED_PRECONDITION` (9) and an error mentioning the schema,
+       sending nothing;
+     - native `grpc` is not supported by the CLI: fail clearly with `UNIMPLEMENTED`
+       (12) and a message that mentions native gRPC, instead of silently using
+       Connect;
+     - `connect` / auto keep the current Connect JSON path.
+  2. **Unsupported auth is sent anyway.** The app blocks AWS SigV4, OAuth 1.0, WSSE,
+     Digest and NTLM for gRPC (they cannot be applied to gRPC metadata). The CLI must
+     fail those with `FAILED_PRECONDITION` and an error containing
+     "not supported for gRPC", with no network call.
+  3. **No metadata cap.** The app rejects request metadata over 16 KiB (16384 bytes,
+     keys + values, UTF-8). The CLI sends it. It must fail with `INVALID_ARGUMENT` (3)
+     and an error containing "exceeds maximum of 16384 bytes", without sending;
+     metadata under the cap is sent normally.
+
+  Prefer one implementation of these rules shared by the app and the CLI.
+
+  **Surfaces**: CLI (`restura run`). Web and desktop are the reference behaviour.
+hiddenTests:
+  - cli/src/runner/__tests__/grpcWire.test.ts
+failToPass:
+  - cd cli && npx vitest run src/runner/__tests__/grpcWire.test.ts --reporter=verbose
+passToPass:
+  - cd cli && npx vitest run src/runner/executors
+  - npx vitest run src/features/grpc shared/protocol
+  - npm run type-check:all
+timeoutMinutes: 75
+notes: |
+  From #1161 (gRPC half; see cli-graphql-get). The reference added a shared gRPC
+  request-policy module with its own unit tests; those are not hidden because they
+  pin the module name. The hidden test drives executeGrpc against a local HTTP
+  server, so any correct implementation passes.

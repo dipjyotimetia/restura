@@ -1,0 +1,44 @@
+id: kafka-registry-bearer-preset
+title: Kafka presets drop the Schema Registry bearer auth scheme
+split: test
+base: bfeab51611ddc8cfe930be2b6087159c3f6bbba0
+referenceCommit: 9899b54a6415475e8e7550c580f744e2e7ec658f
+issue: |
+  ## Kafka: Schema Registry bearer auth is lost when a connection is saved as a preset
+
+  **Repro**: configure a Kafka connection with a Schema Registry using **Bearer**
+  auth, save it to a collection as a connection preset (or export the collection as
+  OpenCollection), then open the preset again (or re-import the collection).
+
+  **Actual**: the registry comes back with no auth scheme, so it falls back to
+  Basic/none: Connect gets a 401 from the registry, or messages are decoded without a
+  schema, with no warning. The preset's validation schema also rejects an auth-scheme
+  field on the registry.
+
+  **Expected**
+  - The registry auth scheme (`basic` | `bearer`) is part of the preset and of the
+    OpenCollection `x-restura-kafka` entry, and survives export → import and
+    save → open. It is optional: old presets/entries without it still load and behave
+    as before (basic with a username, or none).
+  - The token itself is a local secret: it is never written into the preset or the
+    exported collection (only inline tokens are copied to the local secret store; a
+    keychain-handle token is not copied, and the user gets the existing "re-enter the
+    token" error on Connect instead of a silent 401).
+  - A token typed in the panel but not yet connected is captured when the preset is
+    saved, like the other Kafka secrets.
+
+  **Surfaces**: the shared collection format (web, desktop, CLI import/export) and the
+  Kafka panel (desktop; Kafka is desktop-only).
+hiddenTests:
+  - shared/opencollection/broker-items.test.ts
+failToPass:
+  - npx vitest run shared/opencollection/broker-items.test.ts --reporter=verbose
+passToPass:
+  - npx vitest run src/features/kafka shared/opencollection shared/schemas
+  - npm run type-check:all
+timeoutMinutes: 60
+notes: |
+  From #1153. Only the OpenCollection/schema round-trip is hidden. The reference's new
+  Kafka preset tests import a function that is private at base (the registry
+  resolver), so they are not self-contained and are not hidden; the preset-side
+  expectations in the issue are graded only by passToPass.
