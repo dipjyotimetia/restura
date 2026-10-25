@@ -21,7 +21,10 @@
   ],
   "scripts": {
     "toolchain:check": "node scripts/verify-toolchain.mjs",
-    "test:tooling": "node --test scripts/__tests__/verify-toolchain.test.mjs",
+    "test:tooling": "node --test scripts/__tests__/*.test.mjs",
+    "worktree:setup": "node scripts/worktree-setup.mjs",
+    "integration-check": "node scripts/integration-check.mjs",
+    "guard:staged": "node scripts/guard-staged.mjs",
     "dev": "vite",
     "build": "vite build",
     "build:web:docker": "cross-env VITE_IS_DOCKER_BUILD=true vite build",
@@ -59,6 +62,7 @@
     "capabilities:matrix": "node scripts/generate-capability-matrix.mjs",
     "capabilities:check": "node scripts/generate-capability-matrix.mjs --check",
     "architecture:check": "node scripts/check-architecture.mts",
+    "architecture:tighten": "node scripts/tighten-architecture.mts",
     "skills:report": "node scripts/skill-usage-report.mjs",
     "build:sandbox-libs": "node scripts/build-sandbox-libs.mjs",
     "grpc:server": "node scripts/grpc-dev-server.mjs",
@@ -278,10 +282,10 @@
   "packageManager": "npm@12.1.0",
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs}": [
-      "biome check --write"
+      "biome check --write --no-errors-on-unmatched"
     ],
     "*.{json,css}": [
-      "biome format --write"
+      "biome format --write --no-errors-on-unmatched"
     ]
   },
   "build": {
