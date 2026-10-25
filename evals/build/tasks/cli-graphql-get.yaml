@@ -1,0 +1,48 @@
+id: cli-graphql-get
+title: restura run sends GraphQL GET requests without the query
+split: test
+base: 29b2294d16caa69aae82677063ad328fc984916c
+referenceCommit: bfeab51611ddc8cfe930be2b6087159c3f6bbba0
+issue: |
+  ## CLI: GraphQL over GET is broken in `restura run`
+
+  A GraphQL request saved with method **GET** works from the app (web and desktop):
+  the app moves `query`, `variables` (JSON) and `operationName` into the URL query
+  string, sends no body, and sends the GraphQL-over-HTTP Accept header
+  `application/graphql-response+json, application/json;q=0.9`.
+
+  Running the same collection with `restura run`:
+
+  - the request goes out with **no query at all** (the JSON envelope body is dropped
+    for GET and nothing is added to the URL), so the server answers with an error;
+  - a GET with a `mutation` is sent anyway; the app refuses it without sending, with
+    a message containing "GET can only send query operations";
+  - POST requests do not send the GraphQL Accept header either (the app does); an
+    Accept header set by the user must still win.
+
+  POST must keep sending the JSON envelope (`query`, resolved `variables`,
+  `operationName`), and a body that is already a stored JSON envelope must be sent
+  unchanged apart from `{{var}}` resolution. `{{vars}}` in GraphQL variables are
+  resolved on both methods.
+
+  **Expected**: the CLI shapes GraphQL requests on the wire exactly like the app.
+  The app's own wire output must not change.
+
+  **Surfaces**: CLI (`restura run`). Web and desktop are the reference behaviour.
+hiddenTests:
+  - cli/src/runner/__tests__/graphqlWire.test.ts
+  - src/features/graphql/lib/__tests__/graphqlHttp.wireSnapshot.test.ts
+failToPass:
+  - cd cli && npx vitest run src/runner/__tests__/graphqlWire.test.ts
+passToPass:
+  - npx vitest run src/features/graphql/lib/__tests__/graphqlHttp.wireSnapshot.test.ts
+  - npx vitest run src/features/graphql
+  - cd cli && npx vitest run src/runner/executors
+  - npm run type-check:all
+timeoutMinutes: 60
+notes: |
+  From #1161 (GraphQL half; the gRPC half is cli-grpc-wire-parity, same reference
+  commit). The renderer snapshot test is a hidden pass-to-pass guard: it was
+  recorded against the renderer before the fix, so a fix that shares the wire
+  shaping must keep the app's bytes identical. The reference moved the shaping to a
+  shared module; that design is not graded.

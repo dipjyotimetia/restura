@@ -1,0 +1,73 @@
+id: http-auth-vars-everywhere
+title: '{{vars}} are not resolved in most auth types on web, desktop and CLI'
+split: train
+base: 2a1b3c1b0759add0bae361279859ecbfb6e4760c
+referenceCommit: f8af90772d6c8b5150fe3652a3fbc042cc805182
+issue: |
+  ## Auth fields with `{{variables}}` are sent or signed literally
+
+  Variables work in URLs, headers and bodies, but not reliably in **auth**.
+
+  **Web and desktop (HTTP and GraphQL sends)**
+  - `Bearer {{token}}` goes out literally as `Authorization: Bearer {{token}}`.
+    Basic username/password and API-key name/value (header or query) have the same
+    problem.
+  - The wire-signed schemes (Digest, AWS SigV4, OAuth 1.0, WSSE, NTLM) hash or sign
+    the template text instead of the variable's value, so the server rejects them.
+  - OAuth 2.0 token refresh uses the unresolved token URL / client id / secret /
+    scope. After a refresh, the resolved values must never be persisted back over the
+    request's templates; only the new tokens (access token, a rotated refresh token,
+    the server's token type) are stored, and nothing is reported for persistence when
+    only variables were resolved.
+  - Enum-like fields (signature method, grant type, flags) and numbers are left
+    alone, and the request object is never mutated.
+  - Handle-backed secrets (keychain/external `SecretRef`s) and desktop *secret
+    variables* must stay opaque in the renderer: they are resolved only in Electron
+    main. Today main substitutes secret variables in url/headers/params/body only, so
+    a `{{secretVar}}` in a Digest / SigV4 / OAuth1 / WSSE / NTLM field reaches the
+    signer literally, and a Basic credential that references a secret variable gets
+    base64-encoded in the renderer with the placeholder inside. Main must build Basic
+    itself after substitution, must never touch header/param *names* (the API-key
+    name), and the secret's plaintext must not appear in transport errors or the
+    request log. Web, which has no secret variables, fails fast instead.
+
+  **CLI (`restura run`)**
+  - HTTP and SSE requests have the same literal-`{{var}}` problem for bearer, basic,
+    API key (incl. query) and WSSE.
+  - Variable resolution must be single-pass: an external secret whose plaintext
+    contains `{{x}}`, or a variable whose value itself contains `{{y}}`, must be sent
+    literally and not expanded again (OAuth2 client credentials on HTTP, gRPC and MCP
+    are double-expanded on some paths today). gRPC and MCP must still resolve OAuth2
+    fields before fetching the token.
+
+  **Expected**: every auth type resolves `{{vars}}` once, the same way on web,
+  desktop and the CLI.
+hiddenTests:
+  - cli/src/runner/executors/__tests__/http-auth-vars.test.ts
+  - cli/src/runner/executors/__tests__/sse-auth-vars.test.ts
+  - cli/src/runner/executors/__tests__/oauth2-var-resolution.test.ts
+  - electron/main/__tests__/http-handler-secret-variables.test.ts
+  - src/features/auth/lib/__tests__/resolveAuthVariables.test.ts
+  - src/features/http/lib/__tests__/requestExecutor.test.ts
+  - tests/security/http-auth-secret-variable-leak.test.ts
+failToPass:
+  - cd cli && npx vitest run src/runner/executors/__tests__/http-auth-vars.test.ts
+  - cd cli && npx vitest run src/runner/executors/__tests__/sse-auth-vars.test.ts
+  - cd cli && npx vitest run src/runner/executors/__tests__/oauth2-var-resolution.test.ts
+  - npx vitest run electron/main/__tests__/http-handler-secret-variables.test.ts
+  - npx vitest run src/features/auth/lib/__tests__/resolveAuthVariables.test.ts
+  - npx vitest run src/features/http/lib/__tests__/requestExecutor.test.ts
+  - npx vitest run tests/security/http-auth-secret-variable-leak.test.ts
+passToPass:
+  - npx vitest run src/features/auth src/features/http electron/main shared tests/security
+  - cd cli && npx vitest run src/runner/executors
+  - npm run type-check:all
+timeoutMinutes: 90
+notes: |
+  From #1163 (three commits squashed). The hardest task: three harnesses plus the
+  secret-variable boundary. The reference added shared resolve-variables and
+  secret-variable-token modules; the latter's unit test is not hidden (it pins the
+  module). The requestExecutor test asserts some implementation choices (Basic with a
+  secret variable deferred to main in spec.auth; refreshedAuth only on a real
+  refresh); they follow from the issue's expected behaviour but are the likeliest
+  source of false failures, so read failing tails before blaming the agent.

@@ -1,0 +1,52 @@
+id: grpc-no-deadline
+title: gRPC "No deadline" aborts web streams instantly and becomes 30s in the runner
+split: train
+base: a9d517edffad40bc99c8ddf1aadee33a9bd7ca17
+referenceCommit: f86d9671fd40df67857317631570f44e0b59905b
+issue: |
+  ## gRPC: "No deadline" (timeout 0) is not honoured
+
+  The gRPC request settings have a **No deadline** option, saved as `timeout: 0`.
+
+  **Symptoms**
+
+  1. **Web, server-streaming**: with No deadline the stream fails immediately with
+     `DEADLINE_EXCEEDED` before any message arrives. Desktop and gRPC-Web are fine.
+     A missing timeout should still get the default 30s deadline, and a positive
+     timeout should be passed through unchanged.
+  2. **Collection runner**: a saved *streaming* request with No deadline runs with a
+     30s deadline instead of none. For *unary* requests a deadline must always apply:
+     `0` (or any non-positive value) means "use the default", while positive values
+     are honoured.
+  3. **Shared gRPC proxy core** (used by the web Worker, self-host and the CLI): a
+     unary call with `timeout: 0` (also negative or `NaN`) is aborted instantly.
+     It should fall back to the default deadline instead.
+  4. **CLI** (`restura run`): a request saved with `timeout: 0` overrides the global
+     `--timeout` with 0; it should fall back to `--timeout` like any unset value.
+
+  **Expected**: streams treat 0 as "no deadline" end to end; unary calls always get
+  a positive deadline (the request's, else the default). Same on web, desktop,
+  runner and CLI.
+hiddenTests:
+  - shared/protocol/grpc-proxy.test.ts
+  - src/features/grpc/__tests__/protocol.streaming.test.ts
+  - src/features/grpc/lib/__tests__/grpcSchemaSnapshot.test.ts
+  - src/features/grpc/lib/__tests__/grpcStreamingClient.test.ts
+failToPass:
+  - npx vitest run shared/protocol/grpc-proxy.test.ts
+  - npx vitest run src/features/grpc/lib/__tests__/grpcSchemaSnapshot.test.ts
+  - npx vitest run src/features/grpc/lib/__tests__/grpcStreamingClient.test.ts
+passToPass:
+  - npx vitest run src/features/grpc/__tests__/protocol.streaming.test.ts
+  - npx vitest run src/features/grpc shared/protocol
+  - cd cli && npx vitest run src/runner/executors
+  - npm run type-check:all
+timeoutMinutes: 60
+notes: |
+  From #1152. Cross-harness: renderer streaming client, runner options, shared
+  proxy core and the CLI executor. The CLI one-liner has no hidden test (the
+  reference shipped none); passToPass only checks the CLI executor suite still
+  passes. The reference's new protocol.streaming case already passes on base (the
+  dry run showed it), so that file is a hidden pass-to-pass guard, not fail-to-pass. CLI passToPass is
+  limited to src/runner/executors: the runner-level script/Set-Cookie tests were
+  flaky under load in the dry run (2026-10-25).

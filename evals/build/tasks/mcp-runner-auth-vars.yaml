@@ -1,0 +1,57 @@
+id: mcp-runner-auth-vars
+title: Collection runner sends literal {{var}} MCP auth, evicts rate-limited sessions, mishandles stdio
+split: test
+base: 3694822db3ade26fc124acafd908acfe5c8da35f
+referenceCommit: a9d517edffad40bc99c8ddf1aadee33a9bd7ca17
+issue: |
+  ## MCP requests in the collection runner get 401 with templated auth
+
+  **Symptoms**
+
+  1. An MCP request (streamable-http) whose auth is `Bearer {{token}}` (or Basic
+     `{{user}}` / `{{pass}}`, or an API key whose name and/or value are `{{vars}}`)
+     works from the MCP request tab and from `restura run`, but fails with 401 when
+     the same request runs inside the **collection runner**. Captured traffic shows
+     the server received the literal `Bearer {{token}}`. The same happens when the
+     auth is inherited from the folder/collection (the request's own auth is `none`),
+     and variables set by the request's pre-request script are ignored too.
+  2. On desktop, a keychain/handle-backed MCP credential does not work in the runner
+     at all, while it works from the request tab. Electron main is the side that
+     resolves handles, so it has to receive the credential as the auth descriptor,
+     with `{{vars}}` already resolved, not as a header baked by the renderer.
+     On web, a handle-backed credential must keep failing closed before anything is
+     sent, with the existing "only available in the desktop app" style message.
+  3. Desktop: when Electron main rejects an MCP call with `Rate limit exceeded`
+     (as an IPC rejection or as an unsuccessful result), the runner throws away the
+     pooled MCP session and reconnects for the next item, which burns even more of
+     the budget and cascades on large runs. A rate limit should be treated as
+     transient: keep the pooled session, retry the call up to two more times with
+     a short backoff (about 1s, then 2s), and if it is still rate limited fail
+     just that item with an error that mentions the rate limit.
+  4. A stdio MCP request in the runner fails with a misleading "A command is
+     required" error. The runner never launches local processes; it should refuse
+     stdio requests up front, before connecting or sending anything, with:
+     `stdio MCP servers aren't supported in the collection runner yet — run it from the request tab.`
+
+  **Expected**: the runner sends exactly the same resolved credential as the
+  request tab and `restura run`, on web and desktop; pooled sessions stay keyed by
+  the resolved credential (different token values must not share a session).
+
+  **Surfaces**: collection runner on web and desktop. `restura run` (CLI) is the
+  reference behaviour and is already correct.
+hiddenTests:
+  - src/features/mcp/__tests__/protocol.runRequest.auth.test.ts
+failToPass:
+  - npx vitest run src/features/mcp/__tests__/protocol.runRequest.auth.test.ts
+passToPass:
+  - npx vitest run src/features/mcp src/features/collections
+  - npm run type-check:all
+timeoutMinutes: 60
+notes: |
+  From #1151 (fix for #1131). The reference also rewrote an assertion in the
+  existing mcpRunRequest test (it pinned the old folded-header shape); that file is
+  deliberately NOT hidden, because it asserts an internal shape a correct
+  alternative fix need not have. The agent is expected to update tests it breaks.
+  The hidden file's rate-limit tests pass a retry-delay option the issue cannot
+  name; an implementation with the issue's ~1s/2s delays still passes inside the
+  default 5s vitest timeout.
