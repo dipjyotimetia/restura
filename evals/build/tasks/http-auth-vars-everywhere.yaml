@@ -62,13 +62,13 @@ hiddenTests:
   - src/features/http/lib/__tests__/requestExecutor.test.ts
   - tests/security/http-auth-secret-variable-leak.test.ts
 failToPass:
-  - cd cli && npx vitest run src/runner/executors/__tests__/http-auth-vars.test.ts
-  - cd cli && npx vitest run src/runner/executors/__tests__/sse-auth-vars.test.ts
-  - cd cli && npx vitest run src/runner/executors/__tests__/oauth2-var-resolution.test.ts
-  - npx vitest run electron/main/__tests__/http-handler-secret-variables.test.ts
-  - npx vitest run src/features/auth/lib/__tests__/resolveAuthVariables.test.ts
-  - npx vitest run src/features/http/lib/__tests__/requestExecutor.test.ts
-  - npx vitest run tests/security/http-auth-secret-variable-leak.test.ts
+  - cd cli && npx vitest run src/runner/executors/__tests__/http-auth-vars.test.ts --reporter=verbose
+  - cd cli && npx vitest run src/runner/executors/__tests__/sse-auth-vars.test.ts --reporter=verbose
+  - cd cli && npx vitest run src/runner/executors/__tests__/oauth2-var-resolution.test.ts --reporter=verbose
+  - npx vitest run electron/main/__tests__/http-handler-secret-variables.test.ts --reporter=verbose
+  - npx vitest run src/features/auth/lib/__tests__/resolveAuthVariables.test.ts --reporter=verbose
+  - npx vitest run src/features/http/lib/__tests__/requestExecutor.test.ts --reporter=verbose
+  - npx vitest run tests/security/http-auth-secret-variable-leak.test.ts --reporter=verbose
 passToPass:
   - npx vitest run src/features/auth src/features/http electron/main shared tests/security
   - cd cli && npx vitest run src/runner/executors

@@ -35,6 +35,7 @@ import {
   killLiveChildren,
   linkNodeModules,
   nodeExec,
+  nodeModulesFingerprint,
   parseClaudeStream,
   passAtK,
   passHatK,
@@ -67,6 +68,8 @@ const DIFF_EXCLUDES = [':(exclude,glob)**/node_modules'];
 /** Paths stripped from every isolated repo: the answer keys (task files) must never be in reach. */
 export const ANSWER_KEY_PATHS = ['evals'];
 const KILL_GRACE_MS = 10_000;
+export const SHARED_NODE_MODULES_REASON =
+  'agent modified shared node_modules — run npm ci in the main checkout';
 /**
  * Files the graders depend on. The agent's changes to them are reverted to the
  * effective base before grading (and listed as `graderFilesTouched`), so a run
@@ -187,6 +190,11 @@ export function validateTask(raw, check) {
     errors.push('hiddenTests must list at least one repo path');
   if (!(isStringList(raw.failToPass) && raw.failToPass.length > 0))
     errors.push('failToPass must list at least one command');
+  // The grader checks the hidden test file actually ran; vitest's CI reporter
+  // only lists files with --reporter=verbose.
+  for (const command of isStringList(raw.failToPass) ? raw.failToPass : [])
+    if (/\bvitest\b/.test(command) && !/--reporter[= ]verbose\b/.test(command))
+      errors.push(`failToPass vitest command needs --reporter=verbose: ${command}`);
   if (!isStringList(raw.passToPass)) errors.push('passToPass must be a list of commands');
   if (!(Number.isFinite(raw.timeoutMinutes) && raw.timeoutMinutes > 0))
     errors.push('timeoutMinutes must be a positive number');
@@ -385,38 +393,43 @@ export function transcriptMetrics(stdout) {
 }
 
 /**
- * What an agent run counts as. `ok`: graded on the outcome state. `fail`: the
- * agent stopped without finishing (timeout, budget, max turns, an error end):
- * a graded FAIL with score 0, never excluded (excluding them would bias pass
- * rates upward). `error`: a true harness failure (claude did not start, the
- * stream is unparseable, zero turns, a non-zero exit after a clean result):
- * excluded from scoring and reported as the error rate.
+ * What an agent run counts as, with harness-eval's classifyClaudeRun names.
+ * `ok`: graded on the outcome state. `incomplete`: the agent ran out of time
+ * (our timeout), budget or turns: a graded FAIL with score 0, never excluded
+ * (excluding them would bias pass rates upward). `error`: a true harness
+ * failure (claude did not start, killed by another signal, unparseable stream,
+ * zero turns, a non-zero exit, an error end): excluded and reported as the
+ * error rate.
  */
 export function classifyAgentRun(raw) {
   const stderr = String(raw.stderr ?? '').trim();
+  const firstLine = stderr.split('\n').find(Boolean)?.slice(0, 200) ?? '';
   let parsed = null;
   try {
     parsed = parseClaudeStream(raw.stdout);
   } catch {}
-  if (raw.signal || /timed out after \d+ ms/.test(stderr))
-    return { kind: 'fail', stopped: `timeout (${raw.signal ?? 'killed'})`, parsed };
+  if (/timed out after \d+ ms/.test(stderr))
+    return { status: 'incomplete', reason: 'timed out', parsed };
+  if (raw.signal) return { status: 'error', reason: `claude killed by signal ${raw.signal}` };
   if (!parsed)
     return {
-      kind: 'error',
+      status: 'error',
       reason:
         raw.status !== 0
-          ? `claude exited ${raw.status}: ${stderr.split('\n')[0] ?? ''}`
+          ? `claude exited ${raw.status}: ${firstLine}`
           : 'unparseable claude stream',
     };
   if (/budget/i.test(parsed.subtype ?? ''))
-    return { kind: 'fail', stopped: `budget exhausted (${parsed.subtype})`, parsed };
+    return { status: 'incomplete', reason: `budget exhausted (${parsed.subtype})`, parsed };
   if (parsed.subtype === 'error_max_turns')
-    return { kind: 'fail', stopped: 'max turns reached', parsed };
-  if (!(parsed.numTurns > 0)) return { kind: 'error', reason: 'zero turns (agent never ran)' };
-  if (parsed.isError || parsed.subtype?.startsWith('error'))
-    return { kind: 'fail', stopped: `agent ended with ${parsed.subtype ?? 'is_error'}`, parsed };
-  if (raw.status !== 0) return { kind: 'error', reason: `claude exited ${raw.status}` };
-  return { kind: 'ok', parsed };
+    return { status: 'incomplete', reason: `max turns reached (${parsed.subtype})`, parsed };
+  if (raw.status !== 0)
+    return { status: 'error', reason: `claude exited ${raw.status}: ${firstLine}` };
+  if (!(parsed.numTurns > 0)) return { status: 'error', reason: 'zero turns (agent never ran)' };
+  if (parsed.subtype?.startsWith('error'))
+    return { status: 'error', reason: `claude ended with ${parsed.subtype}`, parsed };
+  if (parsed.isError) return { status: 'error', reason: 'claude reported is_error', parsed };
+  return { status: 'ok', parsed };
 }
 
 // ---------------------------------------------------------------- grading
@@ -714,6 +727,10 @@ export async function runTask(task, ctx) {
       return outcome;
     }
 
+    // The node_modules are symlinks into the main checkout: an agent that edits
+    // them corrupts every later run (and the developer's checkout).
+    const fingerprint = () => (ctx.fingerprint ?? nodeModulesFingerprint)(dir);
+    const fingerprintBefore = fingerprint();
     const raw = await exec.run('claude', buildAgentArgs(ctx), {
       cwd: dir,
       input: buildAgentPrompt(task),
@@ -725,9 +742,16 @@ export async function runTask(task, ctx) {
       outcome.transcript = ctx.transcriptLink ?? ctx.transcriptFile;
     }
     outcome.agent = transcriptMetrics(raw.stdout);
+    if (fingerprint() !== fingerprintBefore) {
+      outcome.sharedNodeModulesModified = true;
+      throw new Error(SHARED_NODE_MODULES_REASON);
+    }
     const classified = classifyAgentRun(raw);
-    if (classified.kind === 'error') throw new Error(`agent: ${classified.reason}`);
-    if (classified.stopped) outcome.agentStopped = classified.stopped;
+    if (classified.status === 'error') throw new Error(`agent: ${classified.reason}`);
+    if (classified.status === 'incomplete') {
+      outcome.incomplete = true;
+      outcome.incompleteReason = classified.reason;
+    }
     if (classified.parsed?.permissionDenials?.length > 0)
       outcome.permissionDenials = classified.parsed.permissionDenials.length;
     const zero = () =>
@@ -749,8 +773,8 @@ export async function runTask(task, ctx) {
       }
     }
     outcome.contaminated = false;
-    // Stopped before finishing (timeout, budget, max turns): a graded fail, score 0.
-    if (classified.kind === 'fail') return zero();
+    // Out of time, budget or turns: a graded fail, score 0.
+    if (classified.status === 'incomplete') return zero();
     const count = await exec.run('git', [
       '-C',
       dir,
@@ -801,7 +825,7 @@ function aggregate(runs) {
       (r) => r.passToPassBroken
     ),
     contaminated: scored.filter((r) => r.contaminated === true).length,
-    stopped: scored.filter((r) => r.agentStopped).length,
+    incomplete: scored.filter((r) => r.incomplete === true).length,
     graderTamperRate: rate(
       scored.filter((r) => Array.isArray(r.graderFilesTouched)),
       (r) => r.graderFilesTouched.length > 0
@@ -894,7 +918,7 @@ export function formatBuildMarkdown(result) {
   ];
   if (!result.dryRun && s?.totals)
     lines.push(
-      `**Harness errors (excluded): ${s.totals.errors}/${s.totals.runs} runs (${pct(s.totals.errorRate)}).** Stops (timeout, budget, max turns) and contamination are graded fails, not errors.`,
+      `**Harness errors (excluded): ${s.totals.errors}/${s.totals.runs} runs (${pct(s.totals.errorRate)}).** Incomplete runs (timeout, budget, max turns) and contamination are graded fails, not errors.`,
       ''
     );
   if (result.dryRun) {
@@ -906,12 +930,12 @@ export function formatBuildMarkdown(result) {
     return `${lines.join('\n')}\n`;
   }
   lines.push(
-    '| task | split | seen | scored | errors | pass@1 | pass^n | failToPass | passToPass broken | stopped | contaminated | grader files touched | type-check:all | tests | committed | cost | min |',
+    '| task | split | seen | scored | errors | pass@1 | pass^n | failToPass | passToPass broken | incomplete | contaminated | grader files touched | type-check:all | tests | committed | cost | min |',
     '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|'
   );
   for (const [id, t] of Object.entries(s.byTask))
     lines.push(
-      `| ${id} | ${t.split} | ${t.seenInHarness ? 'yes' : 'no'} | ${t.scored} | ${t.errors} | ${pct(t.pass1)} | ${pct(t.passHatN)} | ${pct(t.meanFailToPassFraction)} | ${pct(t.passToPassBrokenRate)} | ${t.stopped} | ${t.contaminated} | ${pct(t.graderTamperRate)} | ${pct(t.typeCheckAllRate)} | ${pct(t.testsRate)} | ${pct(t.commitRate)} | ${usd(t.meanCostUsd)} | ${mins(t.meanMinutes)} |`
+      `| ${id} | ${t.split} | ${t.seenInHarness ? 'yes' : 'no'} | ${t.scored} | ${t.errors} | ${pct(t.pass1)} | ${pct(t.passHatN)} | ${pct(t.meanFailToPassFraction)} | ${pct(t.passToPassBrokenRate)} | ${t.incomplete} | ${t.contaminated} | ${pct(t.graderTamperRate)} | ${pct(t.typeCheckAllRate)} | ${pct(t.testsRate)} | ${pct(t.commitRate)} | ${usd(t.meanCostUsd)} | ${mins(t.meanMinutes)} |`
     );
   lines.push('');
   const total = (label, t) =>
@@ -1127,12 +1151,16 @@ export async function runBuildEval(options, { exec = evalExec, log = console.log
           tempDir = null;
         }
         result.runs.push({ run, seenInHarness: leaks[task.id]?.seen === true, ...outcome });
+        if (outcome.sharedNodeModulesModified)
+          console.error(
+            `\n${'!'.repeat(72)}\nbuild-eval WARNING: ${task.id} run ${run}: ${SHARED_NODE_MODULES_REASON}.\nLater runs and your main checkout use the same node_modules.\n${'!'.repeat(72)}\n`
+          );
         log(
           outcome.status === 'error'
             ? `  ${options.dryRun ? 'INVALID' : 'error'}: ${outcome.reason}`
             : options.dryRun
               ? '  valid: hidden tests fail on base, pass with the reference fix'
-              : `  ${outcome.outcome} (partial ${pct(outcome.partial)})${outcome.agentStopped ? `; agent stopped: ${outcome.agentStopped}` : ''}`
+              : `  ${outcome.outcome} (failToPass ${pct(outcome.failToPassFraction)}${outcome.passToPassBroken ? ', passToPass BROKEN' : ''})${outcome.incomplete ? `; incomplete: ${outcome.incompleteReason}` : ''}${outcome.contaminated ? '; CONTAMINATED' : ''}${outcome.graderFilesTouched?.length ? `; grader files reverted: ${outcome.graderFilesTouched.join(', ')}` : ''}`
         );
       }
     }

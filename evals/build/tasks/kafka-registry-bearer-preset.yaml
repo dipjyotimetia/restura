@@ -32,7 +32,7 @@ issue: |
 hiddenTests:
   - shared/opencollection/broker-items.test.ts
 failToPass:
-  - npx vitest run shared/opencollection/broker-items.test.ts
+  - npx vitest run shared/opencollection/broker-items.test.ts --reporter=verbose
 passToPass:
   - npx vitest run src/features/kafka shared/opencollection shared/schemas
   - npm run type-check:all

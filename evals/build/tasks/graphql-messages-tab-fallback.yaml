@@ -25,7 +25,7 @@ issue: |
 hiddenTests:
   - src/features/graphql/components/__tests__/GraphQLRequestBuilder.operations.test.tsx
 failToPass:
-  - npx vitest run src/features/graphql/components/__tests__/GraphQLRequestBuilder.operations.test.tsx
+  - npx vitest run src/features/graphql/components/__tests__/GraphQLRequestBuilder.operations.test.tsx --reporter=verbose
 passToPass:
   - npx vitest run src/features/graphql
   - npm run type-check:all

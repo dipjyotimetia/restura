@@ -39,7 +39,7 @@ issue: |
 hiddenTests:
   - cli/src/runner/__tests__/grpcWire.test.ts
 failToPass:
-  - cd cli && npx vitest run src/runner/__tests__/grpcWire.test.ts
+  - cd cli && npx vitest run src/runner/__tests__/grpcWire.test.ts --reporter=verbose
 passToPass:
   - cd cli && npx vitest run src/runner/executors
   - npx vitest run src/features/grpc shared/protocol

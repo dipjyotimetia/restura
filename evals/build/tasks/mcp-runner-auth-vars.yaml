@@ -42,7 +42,7 @@ issue: |
 hiddenTests:
   - src/features/mcp/__tests__/protocol.runRequest.auth.test.ts
 failToPass:
-  - npx vitest run src/features/mcp/__tests__/protocol.runRequest.auth.test.ts --testTimeout 15000
+  - npx vitest run src/features/mcp/__tests__/protocol.runRequest.auth.test.ts --testTimeout 15000 --reporter=verbose
 passToPass:
   - npx vitest run src/features/mcp src/features/collections --testTimeout 15000
   - npm run type-check:all

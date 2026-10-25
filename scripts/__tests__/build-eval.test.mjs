@@ -43,7 +43,7 @@ function rawTask(extra = {}) {
     referenceCommit: SHA_B,
     issue: 'Sending a request with Bearer {{token}} sends the literal template.',
     hiddenTests: ['src/a.test.ts'],
-    failToPass: ['npx vitest run src/a.test.ts'],
+    failToPass: ['npx vitest run src/a.test.ts --reporter=verbose'],
     passToPass: ['npm run type-check:all'],
     timeoutMinutes: 30,
     notes: 'n',
@@ -181,6 +181,12 @@ test('validateTask: optional leakTerms must be a list of non-empty strings (defa
     assert.equal(r.ok, false, JSON.stringify(bad));
     assert.ok(r.errors.some((e) => /leakTerms/.test(e)));
   }
+});
+
+test('validateTask: vitest failToPass commands need --reporter=verbose (lists the files that ran)', () => {
+  const r = validateTask(rawTask({ failToPass: ['npx vitest run src/a.test.ts'] }), okChecks);
+  assert.equal(r.ok, false);
+  assert.ok(r.errors.some((e) => /--reporter=verbose/.test(e)));
 });
 
 test('validateTask rejects hidden test paths that escape the repo', () => {
@@ -678,31 +684,39 @@ test('grader tails and transcripts are redacted with redactSecrets', async () =>
   }
 });
 
-test('classifyAgentRun: stops are graded fails, only harness failures are errors', () => {
+test('classifyAgentRun: timeout/budget/max-turns are incomplete (graded fail); the rest is aligned with harness-eval', () => {
   const ok = (events, extra = {}) => ({ status: 0, stdout: stream(events), stderr: '', ...extra });
   const result = (extra) => ({ type: 'result', subtype: 'success', num_turns: 4, ...extra });
-  assert.equal(classifyAgentRun(ok([result()])).kind, 'ok');
+  assert.equal(classifyAgentRun(ok([result()])).status, 'ok');
+  const timedOut = { status: null, signal: 'SIGTERM', stderr: 'timed out after 60000 ms' };
   for (const [label, raw, re] of [
     ['budget', ok([result({ subtype: 'error_max_budget_usd', is_error: true })]), /budget/],
+    [
+      'budget, non-zero exit',
+      ok([result({ subtype: 'error_max_budget_usd' })], { status: 1 }),
+      /budget/,
+    ],
     ['max turns', ok([result({ subtype: 'error_max_turns', is_error: true })]), /max turns/],
-    ['timeout', ok([result()], { status: null, signal: 'SIGTERM' }), /timeout/],
-    ['timeout, no stream', { status: null, signal: 'SIGTERM', stdout: '', stderr: '' }, /timeout/],
-    ['is_error', ok([result({ is_error: true })]), /ended with/],
+    ['timeout', ok([result()], timedOut), /timed out/],
+    ['timeout, no stream', { stdout: '', ...timedOut }, /timed out/],
   ]) {
     const c = classifyAgentRun(raw);
-    assert.equal(c.kind, 'fail', label);
-    assert.match(c.stopped, re, label);
+    assert.equal(c.status, 'incomplete', label);
+    assert.match(c.reason, re, label);
   }
   for (const [label, raw] of [
     ['spawn failure', { status: 1, stdout: '', stderr: 'spawn claude ENOENT' }],
+    ['killed by a signal (not our timeout)', ok([result()], { status: null, signal: 'SIGKILL' })],
     ['unparseable', { status: 0, stdout: 'not json', stderr: '' }],
     ['zero turns', ok([result({ num_turns: 0 })])],
     ['non-zero exit after success', ok([result()], { status: 1 })],
+    ['error subtype', ok([result({ subtype: 'error_during_execution' })])],
+    ['is_error', ok([result({ is_error: true })])],
   ])
-    assert.equal(classifyAgentRun(raw).kind, 'error', label);
+    assert.equal(classifyAgentRun(raw).status, 'error', label);
 });
 
-test('runTask: budget, max-turns and timeout stops score 0 (graded fail); a crash is excluded', async () => {
+test('runTask: budget, max-turns and timeout are incomplete → graded fail, score 0; a crash is excluded', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
   try {
     const task = validateTask(rawTask(), okChecks).value;
@@ -717,9 +731,51 @@ test('runTask: budget, max-turns and timeout stops score 0 (graded fail); a cras
       assert.equal(out.status, 'ok', subtype);
       assert.equal(out.outcome, 'fail', subtype);
       assert.equal(out.failToPassFraction, 0, subtype);
-      assert.ok(out.agentStopped, subtype);
+      assert.equal(out.incomplete, true, subtype);
+      assert.ok(out.incompleteReason, subtype);
       assert.ok(!exec.calls.some((c) => c.command === 'bash'), `${subtype}: not graded`);
     }
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('runTask: a changed shared node_modules fingerprint is a harness error with a loud reason', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
+  try {
+    const task = validateTask(rawTask(), okChecks).value;
+    let calls = 0;
+    const exec = runTaskExec({ agentStdout: goodStream });
+    const out = await runTask(
+      task,
+      ctxFor(exec, tempDir, {
+        fingerprint: () => {
+          calls += 1;
+          return calls === 1 ? 'before' : 'after';
+        },
+      })
+    );
+    assert.equal(out.status, 'error');
+    assert.equal(out.sharedNodeModulesModified, true);
+    assert.match(
+      out.reason,
+      /agent modified shared node_modules — run npm ci in the main checkout/
+    );
+    assert.ok(!exec.calls.some((c) => c.command === 'bash'), 'not graded');
+    const claudeAt = exec.calls.findIndex((c) => c.command === 'claude');
+    assert.ok(claudeAt >= 0);
+    let same = 0;
+    const clean = await runTask(
+      task,
+      ctxFor(runTaskExec({ agentStdout: goodStream }), tempDir, {
+        fingerprint: () => {
+          same += 1;
+          return 'stable';
+        },
+      })
+    );
+    assert.equal(clean.status, 'ok', clean.reason);
+    assert.equal(same, 2, 'fingerprinted before and after the agent');
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

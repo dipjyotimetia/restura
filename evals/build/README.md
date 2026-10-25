@@ -138,14 +138,22 @@ environment). Prefer running real trials in CI or a container. Transcripts are s
 next to the results. Transcripts, grader output tails and result files go through
 `redactSecrets(text, env)` from `scripts/harness-eval.mjs` (secret-looking environment values)
 before they are written; it is best-effort, so still skim before sharing. Ctrl-C / SIGTERM kills
-every live child (`killLiveChildren`) and removes the trial's temp dir; a timed-out command gets
-SIGTERM, then SIGKILL 10 s later.
+every live child (`killLiveChildren`) and every grader process group, and removes the trial's
+temp dir. Grader commands run detached in their own process group; a timeout sends SIGTERM to
+the whole group (vitest / tsc workers included), then SIGKILL 10 s later. The answer-key strip
+amends the overlay commit, then `git reflog expire --expire=now --all` and `git gc --prune=now`
+so the pre-amend commit holding `evals/` is gone from the object store.
 
-Residual risks: the node_modules symlinks (and absolute paths in general) still lead to the main
-checkout, so an agent that deliberately leaves its repo could read the history. Every
-transcript is scanned with `detectContamination` (forbidden roots = the main checkout and this
-checkout, plus their realpaths; git commands aimed outside the isolated repo); a contaminated
-trial is an **error** and excluded from scoring.
+Residual risks: the node_modules are **symlinks into the main checkout**, so they expose its
+path (and history) to an agent that deliberately leaves its repo, and an agent that writes into
+them corrupts the main checkout and every later run. Two guards: every transcript is scanned with
+`detectContamination` (forbidden roots = the main checkout and this checkout, plus their
+realpaths; git commands aimed outside the isolated repo), and `nodeModulesFingerprint` (lockfiles
+plus the vitest / typescript manifests and bins) is taken before and after the agent. A
+contaminated trial is a graded **fail** (score 0, `contaminated: true`). A fingerprint mismatch
+is a harness **error** with "agent modified shared node_modules — run npm ci in the main
+checkout" and a loud warning: run `npm ci` before trusting anything else. These are detectors,
+not a sandbox: prefer CI or a container for real trials.
 
 The overlay docs come from the harness ref, which postdates the fixes, so a lesson written into
 `CLAUDE.md` / skills / `docs/agents` can leak a task's answer. Each invocation reads the overlay
@@ -158,29 +166,56 @@ warning: it is no longer held out, so move it to train or add a fresh task.
 
 ## Grading
 
-Grading fails closed. A trial is graded only when claude exited 0 with a parseable stream, at
-least one turn and no error, or when it stopped on **max turns** (graded on the outcome state).
-A non-zero exit, a timeout kill, zero turns, unparseable output, or `is_error` / any other error
-subtype (including running out of budget) is a harness **error**, excluded from scoring. For a
-graded trial the runner:
+Every trial that produced an agent session is scored; only true harness failures are excluded.
+
+- **ok**: claude finished normally. Graded on the outcome state (below).
+- **incomplete** (same name as `classifyClaudeRun` in harness-eval): the agent hit our timeout
+  (`timeoutMinutes`), its budget (`error_max_budget_usd`) or its turn limit (`error_max_turns`).
+  A graded **fail**, score 0, `incomplete: true` with `incompleteReason`. Excluding these would
+  make a config that is too slow or too expensive to finish look better.
+- **contaminated**: the transcript reached outside the isolated repo. Graded **fail**, score 0,
+  `contaminated: true`, hits listed.
+- **error** (excluded, listed separately, and shown as the error rate at the top of the
+  summary): claude did not start, was killed by another signal, exited non-zero after a clean
+  result, produced an unparseable stream or zero turns, or ended with another error subtype; the
+  isolated repo could not be built; a grader could not run; or the shared node_modules
+  fingerprint changed.
+
+For an **ok** trial the runner:
 
 1. records whether it committed (`git rev-list <effective base>..HEAD`) and left uncommitted
    changes; the grade uses the working tree either way;
-2. copies every `hiddenTests` file from `referenceCommit`, **overwriting** the agent's version
-   of that path;
-3. runs each `failToPass` then `passToPass` command (timeout `commandTimeoutMinutes`), keeping
-   status, exit code, duration and the last 2000 characters of output.
+2. **reverts grader-critical files** to the effective base: root and `cli/` `package.json` /
+   `package-lock.json`, every `vitest.config*` / `vitest.*.config*` / `vitest.workspace*` /
+   `vitest.setup*` (root and `cli/`), the setup / globalSetup files those configs name,
+   `tsconfig*.json` at the root, `cli/`, `electron/` and `worker/`, and `.claude/`. Files the agent
+   changed, added or deleted there are listed as `graderFilesTouched` (a transcript metric: an
+   agent that edits the graders is visible even though the edit cannot help it);
+3. copies every `hiddenTests` file from `referenceCommit`, **overwriting** the agent's version;
+4. runs each `failToPass` then `passToPass` command (timeout `commandTimeoutMinutes`), keeping
+   status, exit code, duration, the vitest test count and the last 2000 characters of output.
+   A `failToPass` only passes if vitest reported a **nonzero test count** and its output names
+   the hidden test file (the validator requires `--reporter=verbose` on vitest failToPass
+   commands, because the CI reporter does not list files). "No test files found" or a filter
+   that matched nothing is a fail, whatever the exit code.
 
-Outcome = `pass` only if **every** command passes. Partial credit = fraction of commands
-passing. Transcript metrics per trial: turns, cost, minutes, tool / skill / subagent calls, and
-whether the agent ran `type-check:all`, any test command and `git commit`.
+Outcome = `pass` only if **every** command passes. Credit = `failToPassFraction` (the fraction
+of failToPass commands passing; 0 for incomplete and contaminated trials). A failing passToPass
+is reported separately as the regression flag `passToPassBroken`. Transcript metrics per trial:
+turns, cost, minutes, tool / skill / subagent calls, whether the agent ran `type-check:all`, any
+test command and `git commit`, and `graderFilesTouched`.
 
-Errors (excluded from pass rates and listed separately): contamination, the agent failures
-above, or a setup failure. Budget stops are errors, so set `--max-budget-usd` high enough that
-they are rare, and report the error count next to pass rates. The summary reports per task: scored trials, errors,
-pass@1, pass^n (all n scored trials pass), mean partial credit, habit rates, mean cost and
-minutes; and totals overall and per split with a Wilson 95% CI. Results:
-`<out>/<timestamp>--<config>.json` + `.md`, transcripts under `<timestamp>--<config>/`.
+The summary reports, per task: seen-in-harness, scored trials, errors, pass@1, pass^n (all n
+scored trials pass), mean failToPass fraction, passToPass-broken rate, incomplete and
+contaminated counts, grader-tamper rate, habit rates, mean cost and minutes; totals overall, for
+unseen tasks and per split, with a Wilson 95% CI. Results: `<out>/<timestamp>--<config>.json` +
+`.md`, transcripts under `<timestamp>--<config>/`.
+
+The dry-run validator is stricter than grading on both sides: on base, every failToPass must
+**fail** (a timeout or a command that cannot start is a problem) with output naming the hidden
+test file, and every passToPass must pass (a passToPass that names a hidden test runs with the
+hidden tests in place; the rest run without them); with the reference diff applied, every
+command must pass.
 
 ## Train / test and no overfitting
 

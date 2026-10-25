@@ -33,9 +33,9 @@ hiddenTests:
   - src/features/grpc/lib/__tests__/grpcSchemaSnapshot.test.ts
   - src/features/grpc/lib/__tests__/grpcStreamingClient.test.ts
 failToPass:
-  - npx vitest run shared/protocol/grpc-proxy.test.ts
-  - npx vitest run src/features/grpc/lib/__tests__/grpcSchemaSnapshot.test.ts
-  - npx vitest run src/features/grpc/lib/__tests__/grpcStreamingClient.test.ts
+  - npx vitest run shared/protocol/grpc-proxy.test.ts --reporter=verbose
+  - npx vitest run src/features/grpc/lib/__tests__/grpcSchemaSnapshot.test.ts --reporter=verbose
+  - npx vitest run src/features/grpc/lib/__tests__/grpcStreamingClient.test.ts --reporter=verbose
 passToPass:
   - npx vitest run src/features/grpc/__tests__/protocol.streaming.test.ts
   - npx vitest run src/features/grpc shared/protocol
