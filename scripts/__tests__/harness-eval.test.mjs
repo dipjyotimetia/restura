@@ -1,27 +1,58 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
+  baselinePath,
+  buildBaseline,
   buildJudgePrompt,
   buildReviewPrompt,
+  caseLeakTerms,
   classifyClaudeRun,
   cleanupTracked,
   cleanupTrackedAsync,
+  createIsolatedRepo,
   decideCaught,
+  detectContamination,
   diffFlips,
+  findOverlayLeaks,
   formatSummaryMarkdown,
   gradeMustMention,
+  HARNESS_OVERLAY_PATHS,
+  judgeModelWarning,
+  killLiveChildren,
+  latestResult,
+  linkNodeModules,
+  liveChildren,
   loadCases,
+  majorityVerdict,
+  mergePackageScripts,
+  nodeExec,
+  nodeModulesFingerprint,
+  overlayHarness,
   parseClaudeJson,
+  parseClaudeStream,
   parseEvalArgs,
   parseJudgeVerdict,
   parseWorktreePorcelain,
+  passAtK,
+  passHatK,
+  readOverlayFiles,
+  redactSecrets,
   runCase,
+  runEval,
   selectLeftovers,
   summarise,
+  syncExec,
   validateCase,
+  wilsonInterval,
+  writeBaseline,
 } from '../harness-eval.mjs';
 
 const BASE = '90b514e380786e4935058871113315c73e5b2539';
+const HARNESS = 'abcdef0123456789abcdef0123456789abcdef01';
+const EFFECTIVE = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
 function validRaw(overrides = {}) {
   return {
@@ -43,6 +74,7 @@ function validRaw(overrides = {}) {
     },
     mustMention: ['McpConnectionPanel', '(shrink-0|min-w-0|flex-1)'],
     mustNotMiss: 'high',
+    split: 'train',
     ...overrides,
   };
 }
@@ -61,6 +93,7 @@ function cleanRaw(overrides = {}) {
       summary: 'Skips sanitising queued events that the byte cap evicts anyway.',
       files: ['src/store/useStreamTimelineStore.ts'],
     },
+    split: 'test',
     ...overrides,
   };
 }
@@ -234,13 +267,10 @@ test('classifyClaudeRun separates harness errors from real answers', () => {
       { status: 0, stdout: ok({ permission_denials: [{ tool_name: 'Bash', tool_input: {} }] }) },
       /permission denied: Bash/,
     ],
-    [{ status: 0, stdout: ok({ subtype: 'error_max_budget_usd', is_error: true }) }, /budget/],
-    [{ status: 0, stdout: ok({ subtype: 'error_max_turns', is_error: true }) }, /error_max_turns/],
     [{ status: 0, stdout: ok({ is_error: true }) }, /is_error/],
     [{ status: 2, stdout: ok(), stderr: 'crash' }, /exited 2/],
     [{ status: 0, stdout: '{oops', stderr: '' }, /unparseable/],
     [{ status: 0, stdout: ok(), stderr: 'Tool Bash is not allowed' }, /not allowed/],
-    [{ status: 0, stdout: ok(), stderr: 'Exceeded USD budget (20)' }, /budget/],
     [{ status: null, signal: 'SIGINT', stdout: '' }, /signal SIGINT/],
   ];
   for (const [run, reason] of cases) {
@@ -275,18 +305,23 @@ test('parseJudgeVerdict accepts fenced or prose-wrapped JSON and clamps the scor
 
 // ---------------------------------------------------------------- prompts
 
-test('buildReviewPrompt uses ship-check --quick, names branches and base, never leaks the defect', () => {
-  const prompt = buildReviewPrompt(defectCase(), [
-    'harness-eval/r1/feat/mcp-import',
-    'harness-eval/r1/feat/mcp-conformance',
-  ]);
+test('buildReviewPrompt uses ship-check --quick, names branches and the EFFECTIVE base, never leaks the defect', () => {
+  const prompt = buildReviewPrompt(
+    defectCase(),
+    ['harness-eval/r1/feat/mcp-import', 'harness-eval/r1/feat/mcp-conformance'],
+    EFFECTIVE
+  );
   assert.match(
     prompt,
     /^\/ship-check --quick harness-eval\/r1\/feat\/mcp-import harness-eval\/r1\/feat\/mcp-conformance\n/
   );
-  assert.match(prompt, new RegExp(BASE));
+  assert.match(prompt, new RegExp(EFFECTIVE));
+  assert.match(prompt, new RegExp(`--base ${EFFECTIVE}`));
+  // The case's raw base predates the overlay commit; diffing against it would show the overlay.
+  assert.doesNotMatch(prompt, new RegExp(BASE));
   assert.doesNotMatch(prompt, /shrink-0|squeezed|McpConnectionPanel/);
-  assert.doesNotMatch(buildReviewPrompt(cleanCase(), ['b']), /clean|control|byte cap/i);
+  assert.doesNotMatch(buildReviewPrompt(cleanCase(), ['b'], EFFECTIVE), /clean|control|byte cap/i);
+  assert.throws(() => buildReviewPrompt(defectCase(), ['b']), /effective base/);
 });
 
 test('buildJudgePrompt embeds the rubric and the defect, or the control instructions', () => {
@@ -305,8 +340,24 @@ test('buildJudgePrompt embeds the rubric and the defect, or the control instruct
 
 test('summarise excludes harness errors and splits defect recall from control precision', () => {
   const summary = summarise([
-    { caseId: 'a', status: 'ok', expectClean: false, caught: true, judge: { score: 3 } },
-    { caseId: 'a', status: 'ok', expectClean: false, caught: false, judge: { score: 1 } },
+    {
+      caseId: 'a',
+      status: 'ok',
+      expectClean: false,
+      caught: true,
+      judge: { score: 3 },
+      review: { costUsd: 2, durationMs: 120000 },
+      judgeCostUsd: 0.5,
+    },
+    {
+      caseId: 'a',
+      status: 'ok',
+      expectClean: false,
+      caught: false,
+      judge: { score: 1 },
+      review: { costUsd: 1, durationMs: 60000 },
+      judgeCostUsd: 0.5,
+    },
     { caseId: 'a', status: 'error', expectClean: false, caught: null, reason: 'denied' },
     { caseId: 'c', status: 'ok', expectClean: true, caught: true, judge: { score: 3 } },
     { caseId: 'c', status: 'ok', expectClean: true, caught: false, judge: { score: 0 } },
@@ -316,20 +367,49 @@ test('summarise excludes harness errors and splits defect recall from control pr
     runs: 2,
     caught: 1,
     errors: 1,
+    incomplete: 0,
+    contaminated: 0,
     flipped: true,
     meanScore: 2,
+    passAt1: 0.5,
+    passAtK: 1,
+    passHatK: 0,
+    judgeDisagreements: 0,
+    meanCostUsd: 2,
+    meanMinutes: 1.5,
+    seenInHarness: false,
   });
   assert.deepEqual(summary.cases.c, {
     expectClean: true,
     runs: 2,
     caught: 1,
     errors: 0,
+    incomplete: 0,
+    contaminated: 0,
     flipped: true,
     meanScore: 1.5,
+    passAt1: 0.5,
+    passAtK: 1,
+    passHatK: 0,
+    judgeDisagreements: 0,
+    meanCostUsd: null,
+    meanMinutes: null,
+    seenInHarness: false,
   });
-  assert.deepEqual(summary.recall, { caught: 1, runs: 2 });
-  assert.deepEqual(summary.controls, { clean: 1, falsePositives: 1, runs: 2 });
+  assert.equal(summary.recall.caught, 1);
+  assert.equal(summary.recall.runs, 2);
+  assert.equal(summary.recall.rate, 0.5);
+  assert.ok(summary.recall.ci.low < 0.5 && summary.recall.ci.high > 0.5);
+  assert.equal(summary.controls.clean, 1);
+  assert.equal(summary.controls.falsePositives, 1);
+  assert.equal(summary.controls.runs, 2);
+  assert.ok(summary.controls.ci.halfWidth > 0);
   assert.equal(summary.errors, 1);
+  assert.deepEqual(summary.totals, { costUsd: 4, minutes: 3, runs: 5 });
+  assert.equal(summary.noise.flippedCases, 2);
+  // Totals: mean per-case pass@1, separately for defects and controls.
+  assert.deepEqual(summary.passAt1, { defects: 0.5, controls: 0.5 });
+  assert.equal(summary.noise.recallHalfWidth, summary.recall.ci.halfWidth);
 });
 
 test('diffFlips ignores errored runs and labels defect vs control flips', () => {
@@ -422,6 +502,12 @@ test('formatSummaryMarkdown reports recall, control precision, errors and flips'
 
 test('parseEvalArgs applies defaults, flags and validation', () => {
   const defaults = parseEvalArgs([]);
+  assert.equal(defaults.harnessRef, 'HEAD');
+  assert.equal(defaults.judgeModel, 'sonnet');
+  assert.equal(defaults.model, undefined);
+  assert.equal(defaults.judgeRepeat, 1);
+  assert.equal(defaults.split, 'all');
+  assert.equal(defaults.saveBaseline, false);
   assert.equal(defaults.runs, 2);
   assert.equal(defaults.config, 'current');
   assert.equal(defaults.dryRun, false);
@@ -452,6 +538,34 @@ test('parseEvalArgs applies defaults, flags and validation', () => {
   assert.throws(() => parseEvalArgs(['--runs', '0']), /--runs/);
   assert.throws(() => parseEvalArgs(['--config', 'has space']), /--config/);
   assert.throws(() => parseEvalArgs(['--bogus']), /Unknown option/);
+  const extra = parseEvalArgs([
+    '--harness-ref',
+    'feat/x',
+    '--model',
+    'opus',
+    '--judge-model=haiku',
+    '--judge-repeat',
+    '3',
+    '--split',
+    'train',
+    '--save-baseline',
+  ]);
+  assert.equal(extra.harnessRef, 'feat/x');
+  assert.equal(extra.model, 'opus');
+  assert.equal(extra.judgeModel, 'haiku');
+  assert.equal(extra.judgeRepeat, 3);
+  assert.equal(extra.split, 'train');
+  assert.equal(extra.saveBaseline, true);
+  assert.throws(() => parseEvalArgs(['--judge-repeat', '4']), /--judge-repeat/);
+  assert.throws(() => parseEvalArgs(['--judge-repeat', '0']), /--judge-repeat/);
+  assert.throws(() => parseEvalArgs(['--split', 'dev']), /--split/);
+  assert.throws(() => parseEvalArgs(['--harness-ref', '-x']), /--harness-ref/);
+});
+
+test('judgeModelWarning fires only when the judge is the model under test', () => {
+  assert.match(judgeModelWarning({ model: 'sonnet', judgeModel: 'sonnet' }), /judge/i);
+  assert.equal(judgeModelWarning({ model: 'opus', judgeModel: 'sonnet' }), null);
+  assert.equal(judgeModelWarning({ model: undefined, judgeModel: 'sonnet' }), null);
 });
 
 // ---------------------------------------------------------------- leftovers
@@ -503,16 +617,55 @@ test('selectLeftovers matches only the harness-eval/ prefix and this tool’s te
 
 // ---------------------------------------------------------------- runCase
 
+const BASE_PKG = `${JSON.stringify(
+  { name: 'restura', scripts: { dev: 'vite', 'worktree:setup': 'node old.mjs' } },
+  null,
+  2
+)}\n`;
+const HARNESS_PKG = `${JSON.stringify(
+  {
+    name: 'restura',
+    scripts: {
+      dev: 'vite --changed',
+      'worktree:setup': 'node scripts/worktree-setup.mjs',
+      'integration-check': 'node scripts/integration-check.mjs',
+      'verify:agent-report': 'node scripts/verify-agent-report.mjs',
+      'worktree:prune': 'node scripts/worktree-prune.mjs',
+      'eval:harness': 'node scripts/harness-eval.mjs',
+    },
+  },
+  null,
+  2
+)}\n`;
+
+/** Default git answers so the harness overlay can run against a fake repo. */
+function defaultGit(args) {
+  if (args.includes('rev-parse') && args.at(-1) === 'HEAD')
+    return { status: 0, stdout: `${EFFECTIVE}\n`, stderr: '' };
+  if (args.includes('show') && args.at(-1) === `${HARNESS}:package.json`)
+    return { status: 0, stdout: HARNESS_PKG, stderr: '' };
+  if (args.includes('show') && args.at(-1) === 'HEAD:package.json')
+    return { status: 0, stdout: BASE_PKG, stderr: '' };
+  if (args.includes('hash-object')) return { status: 0, stdout: 'f'.repeat(40), stderr: '' };
+  return undefined;
+}
+
 /** Records every command; `respond` may override a result. */
 function fakeExec(respond = () => undefined) {
   const calls = [];
   return {
     calls,
     run(command, args, opts = {}) {
-      calls.push({ command, args, input: opts.input, line: [command, ...args].join(' ') });
+      calls.push({ command, args, opts, input: opts.input, line: [command, ...args].join(' ') });
       const custom = respond(command, args, calls);
       if (custom) return custom;
-      return { status: 0, stdout: command === 'git' ? '' : '{}', stderr: '' };
+      if (command === 'git') return defaultGit(args) ?? { status: 0, stdout: '', stderr: '' };
+      return { status: 0, stdout: '{}', stderr: '' };
+    },
+    pipe(from, to, opts = {}) {
+      const line = `${[from[0], ...from[1]].join(' ')} | ${[to[0], ...to[1]].join(' ')}`;
+      calls.push({ command: 'pipe', from, to, opts, line });
+      return respond('pipe', [from, to], calls) ?? { status: 0, stdout: '', stderr: '' };
     },
   };
 }
@@ -527,20 +680,46 @@ test('runCase dry-run applies patches, checks the combined merge and always clea
     tempDir: '/tmp/he',
     runId: 'r1',
     dryRun: true,
+    harnessSha: HARNESS,
     tracker,
   });
   assert.equal(result.applied, true);
   assert.equal(result.combinedMerge, 'clean');
+  assert.equal(result.harnessSha, HARNESS);
+  assert.equal(result.effectiveBase, EFFECTIVE);
   const joined = lines(exec);
-  assert.match(joined, /worktree add --detach \/tmp\/he\/worktree 90b514e3/);
-  assert.match(joined, /apply --index \/fx\/mcp-panel-collapse\/a\.patch/);
-  assert.match(joined, /branch -D harness-eval\/r1\/feat\/mcp-import/);
-  assert.match(joined, /worktree remove --force \/tmp\/he\/worktree/);
+  // A history-free repo in the run's temp dir: never a worktree of this repo.
+  assert.doesNotMatch(joined, /worktree add/);
+  assert.match(joined, /git init -q --initial-branch=main \/tmp\/he\/repo/);
+  assert.ok(joined.includes(`git -C /repo archive ${BASE} | tar -x -f - -C /tmp/he/repo`));
+  // Dry-run applies the overlay too, so it proves the patches still apply on top of it.
+  assert.match(joined, /commit -q --no-verify --allow-empty -m harness overlay @ abcdef012345/);
+  // Branches and the combined merge start from the overlay commit, never the raw base.
+  assert.match(joined, new RegExp(`checkout -q --detach ${EFFECTIVE}`));
+  assert.doesNotMatch(joined, new RegExp(`checkout -q --detach ${BASE}`));
+  const overlayAt = exec.calls.findIndex((c) => c.line.includes('harness overlay @'));
+  const firstBranch = exec.calls.findIndex((c) => c.line.includes('checkout -q -b'));
+  assert.ok(overlayAt !== -1 && overlayAt < firstBranch, 'overlay is committed before branches');
+  assert.match(joined, /-C \/tmp\/he\/repo apply --index \/fx\/mcp-panel-collapse\/a\.patch/);
+  // Branches live only in the isolated repo, under their plain names.
+  assert.match(joined, /-C \/tmp\/he\/repo checkout -q -b feat\/mcp-import/);
+  assert.deepEqual(result.branches, ['feat/mcp-import', 'feat/mcp-conformance']);
+  assert.doesNotMatch(joined, /harness-eval\//);
   assert.doesNotMatch(joined, /^claude/m);
   assert.deepEqual(tracker, { worktree: null, branches: [] });
+  assertMainRepoReadOnly(exec);
 });
 
-test('runCase cleans up the worktree and branches when a patch fails to apply', async () => {
+/** The main repo is only read (archive / cat-file / show / rev-parse), never mutated. */
+function assertMainRepoReadOnly(exec) {
+  for (const call of exec.calls) {
+    const args = call.command === 'pipe' ? call.from[1] : call.args;
+    if (!args || args[0] !== '-C' || args[1] !== '/repo') continue;
+    assert.ok(['archive', 'cat-file', 'show', 'rev-parse', 'ls-tree'].includes(args[2]), call.line);
+  }
+}
+
+test('runCase reports a patch that fails to apply without touching the main repo', async () => {
   const exec = fakeExec((command, args) =>
     command === 'git' && args.includes('apply') && args.at(-1).endsWith('b.patch')
       ? { status: 1, stdout: '', stderr: 'boom' }
@@ -552,24 +731,34 @@ test('runCase cleans up the worktree and branches when a patch fails to apply', 
     tempDir: '/tmp/he',
     runId: 'r1',
     dryRun: true,
+    harnessSha: HARNESS,
   });
   assert.equal(result.applied, false);
   assert.equal(result.status, 'error');
   assert.match(result.reason, /b\.patch/);
-  const joined = lines(exec);
-  assert.match(joined, /worktree remove --force \/tmp\/he\/worktree/);
-  assert.match(joined, /branch -D harness-eval\/r1\/feat\/mcp-import/);
+  assertMainRepoReadOnly(exec);
 });
 
+/** A `--output-format stream-json --verbose` review: init, one Skill call, then the result. */
 const reviewJson = (text, extra = {}) => ({
   status: 0,
-  stdout: JSON.stringify({
-    subtype: 'success',
-    result: text,
-    total_cost_usd: 2,
-    duration_ms: 1000,
-    ...extra,
-  }),
+  stdout: [
+    JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1', tools: ['Bash'] }),
+    JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [{ type: 'tool_use', id: 't1', name: 'Skill', input: { skill: 'ship-check' } }],
+      },
+    }),
+    JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      result: text,
+      total_cost_usd: 2,
+      duration_ms: 1000,
+      ...extra,
+    }),
+  ].join('\n'),
   stderr: '',
 });
 const judgeJson = (verdict) => ({
@@ -593,6 +782,7 @@ const reviewCtx = (exec, extra = {}) => ({
   dryRun: false,
   judge: true,
   rubric: 'RUBRIC',
+  harnessSha: HARNESS,
   setup: () => {},
   ...extra,
 });
@@ -606,14 +796,23 @@ test('runCase review mode: caught needs judge AND an anchor pattern, and records
   const claudeCalls = exec.calls.filter((c) => c.command === 'claude');
   assert.equal(claudeCalls.length, 2);
   assert.match(claudeCalls[0].input, /^\/ship-check --quick /);
+  assert.match(claudeCalls[0].input, new RegExp(EFFECTIVE));
+  assert.doesNotMatch(claudeCalls[0].input, new RegExp(BASE));
   assert.ok(claudeCalls[0].args.includes('--max-budget-usd'));
+  assert.match(claudeCalls[0].args.join(' '), /--output-format stream-json --verbose/);
+  assert.match(claudeCalls[1].args.join(' '), /--output-format json/);
+  assert.match(claudeCalls[1].args.join(' '), /--model sonnet/);
+  assert.doesNotMatch(claudeCalls[0].args.join(' '), /--model/);
   assert.match(claudeCalls[1].input, /RUBRIC/);
   assert.equal(result.status, 'ok');
   assert.equal(result.review.costUsd, 2);
+  assert.deepEqual(result.review.toolStats, { toolCalls: 1, skills: ['ship-check'], agents: [] });
+  assert.equal(result.harnessSha, HARNESS);
+  assert.equal(result.effectiveBase, EFFECTIVE);
   assert.equal(result.judgeCaught, true);
   assert.equal(result.patternCaught, true);
   assert.equal(result.caught, true);
-  assert.match(lines(exec), /worktree remove --force/);
+  assertMainRepoReadOnly(exec);
 
   const vague = await runCase(
     defectCase(),
@@ -766,27 +965,21 @@ test('cleanup keeps refs (and a worktree) that failed to delete in the tracker a
   assert.match(sync.failed[0], /worktree \/tmp\/he\/worktree: busy/);
 });
 
-test('runCase reports cleanup failures without hiding the run result', async () => {
-  const exec = fakeExec((command, args) =>
-    command === 'git' && args.includes('-D')
-      ? { status: 1, stdout: '', stderr: 'locked' }
-      : undefined
+test('runCase fails closed when the isolated repo cannot be built', async () => {
+  const exec = fakeExec((command) =>
+    command === 'pipe' ? { status: 2, stdout: '', stderr: 'tar: broken' } : undefined
   );
-  const tracker = { worktree: null, branches: [] };
   const result = await runCase(defectCase(), {
     exec,
     repo: '/repo',
     tempDir: '/tmp/he',
     runId: 'r1',
     dryRun: true,
-    tracker,
+    harnessSha: HARNESS,
   });
-  assert.equal(result.applied, true);
-  assert.equal(result.cleanupFailed.length, 2);
-  assert.deepEqual(tracker.branches, [
-    'harness-eval/r1/feat/mcp-import',
-    'harness-eval/r1/feat/mcp-conformance',
-  ]);
+  assert.equal(result.applied, false);
+  assert.equal(result.status, 'error');
+  assert.match(result.reason, /tar: broken/);
 });
 
 test('validateCase accepts an optional full sourceCommit SHA and rejects anything else', () => {
@@ -811,4 +1004,1291 @@ test('no real case pattern fires on bare-word distractors (nonce, double-check, 
       assert.doesNotMatch(distractor, new RegExp(pattern, 'i'), `${evalCase.id}: ${pattern}`);
     }
   }
+});
+
+// ---------------------------------------------------------------- harness overlay
+
+test('overlayHarness replaces the base harness with the one at harnessSha and commits it', async () => {
+  const exec = fakeExec((command, args) =>
+    command === 'git' && args.includes('cat-file') && args.at(-1) === `${HARNESS}:skills-lock.json`
+      ? { status: 128, stdout: '', stderr: 'missing' }
+      : undefined
+  );
+  const result = await overlayHarness(exec, '/tmp/he/worktree', HARNESS);
+  assert.deepEqual(result, { harnessSha: HARNESS, effectiveBase: EFFECTIVE });
+  const git = exec.calls.filter((c) => c.command === 'git');
+  for (const call of git) assert.deepEqual(call.args.slice(0, 2), ['-C', '/tmp/he/worktree']);
+
+  const rm = git.find((c) => c.args.includes('rm'));
+  assert.ok(rm, 'removes the base harness');
+  for (const p of [
+    '.claude/skills',
+    '.claude/agents',
+    '.claude/commands',
+    '.claude/hooks',
+    '.claude/settings.json',
+    '.agents/skills',
+  ])
+    assert.ok(rm.args.includes(p), `rm ${p}`);
+  assert.ok(rm.args.includes('--ignore-unmatch'));
+
+  const checkout = git.find((c) => c.args.includes('checkout') && c.args.includes(HARNESS));
+  assert.ok(checkout, 'checks out the harness paths');
+  const paths = checkout.args.slice(checkout.args.indexOf('--') + 1);
+  assert.ok(paths.includes('.claude/skills'));
+  assert.ok(paths.includes('CLAUDE.md'));
+  assert.ok(paths.includes('scripts/integration-check.mjs'));
+  assert.ok(!paths.includes('skills-lock.json'), 'paths missing at harnessSha are skipped');
+  for (const banned of ['.claude/worktrees', '.claude/metrics', '.claude/settings.local.json'])
+    assert.ok(!HARNESS_OVERLAY_PATHS.includes(banned) && !paths.includes(banned), banned);
+
+  // package.json: only the four harness script keys are merged in.
+  const hash = git.find((c) => c.args.includes('hash-object'));
+  const merged = JSON.parse(hash.input);
+  assert.equal(merged.scripts.dev, 'vite');
+  assert.equal(merged.scripts['worktree:setup'], 'node scripts/worktree-setup.mjs');
+  assert.equal(merged.scripts['integration-check'], 'node scripts/integration-check.mjs');
+  assert.equal(merged.scripts['eval:harness'], undefined);
+  assert.ok(
+    git.some((c) =>
+      c.line.includes(`update-index --cacheinfo 100644,${'f'.repeat(40)},package.json`)
+    )
+  );
+
+  const commit = git.find((c) => c.args.includes('commit'));
+  assert.ok(commit.args.includes('--no-verify'));
+  assert.ok(commit.args.includes('user.name=restura-harness-eval'));
+  assert.equal(commit.args.at(-1), 'harness overlay @ abcdef012345');
+});
+
+test('overlayHarness fails loudly when the overlay commit cannot be made', async () => {
+  const exec = fakeExec((command, args) =>
+    command === 'git' && args.includes('commit')
+      ? { status: 1, stdout: '', stderr: 'nope' }
+      : undefined
+  );
+  await assert.rejects(overlayHarness(exec, '/w', HARNESS), /harness overlay.*nope/);
+});
+
+test('mergePackageScripts merges only the harness script keys and keeps formatting', () => {
+  const merged = mergePackageScripts(BASE_PKG, HARNESS_PKG);
+  assert.ok(merged.endsWith('}\n'));
+  assert.match(merged, /\n {4}"dev": "vite",\n/);
+  const parsed = JSON.parse(merged);
+  assert.deepEqual(Object.keys(parsed.scripts), [
+    'dev',
+    'worktree:setup',
+    'integration-check',
+    'verify:agent-report',
+    'worktree:prune',
+  ]);
+  assert.equal(parsed.name, 'restura');
+  // Nothing to merge: returned byte-for-byte.
+  const odd = '{ "name": "x",   "scripts": {"dev": "vite"} }';
+  assert.equal(mergePackageScripts(odd, '{"scripts": {"dev": "other"}}'), odd);
+  assert.equal(mergePackageScripts(odd, ''), odd);
+});
+
+// ---------------------------------------------------------------- transcripts
+
+const STREAM = [
+  { type: 'system', subtype: 'init', session_id: 'sess' },
+  {
+    type: 'assistant',
+    message: {
+      content: [
+        { type: 'text', text: 'Starting' },
+        {
+          type: 'tool_use',
+          id: '1',
+          name: 'Skill',
+          input: { skill: 'ship-check', args: '--quick' },
+        },
+      ],
+    },
+  },
+  { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: '1' }] } },
+  {
+    type: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          id: '2',
+          name: 'Task',
+          input: { subagent_type: 'restura-parity-checker' },
+        },
+        {
+          type: 'tool_use',
+          id: '3',
+          name: 'Agent',
+          input: { subagent_type: 'restura-security-auditor' },
+        },
+        { type: 'tool_use', id: '4', name: 'Bash', input: { command: 'ls' } },
+        { type: 'tool_use', id: '5', name: 'Skill', input: { skill: 'code-review' } },
+      ],
+    },
+  },
+  {
+    type: 'result',
+    subtype: 'success',
+    result: 'NOT READY: finding',
+    total_cost_usd: 3.5,
+    duration_ms: 90000,
+    num_turns: 12,
+    is_error: false,
+    session_id: 'sess',
+    permission_denials: [],
+  },
+]
+  .map((e) => JSON.stringify(e))
+  .join('\n');
+
+test('parseClaudeStream returns the parseClaudeJson shape plus tool routing stats', () => {
+  const parsed = parseClaudeStream(`${STREAM}\n`);
+  assert.deepEqual(parsed, {
+    text: 'NOT READY: finding',
+    subtype: 'success',
+    costUsd: 3.5,
+    durationMs: 90000,
+    numTurns: 12,
+    isError: false,
+    sessionId: 'sess',
+    permissionDenials: [],
+    toolStats: {
+      toolCalls: 5,
+      skills: ['ship-check', 'code-review'],
+      agents: ['restura-parity-checker', 'restura-security-auditor'],
+    },
+  });
+  assert.throws(() => parseClaudeStream(STREAM.split('\n').slice(0, 2).join('\n')), /result event/);
+  // A truncated trailing line is tolerated as long as the result event is there.
+  assert.equal(parseClaudeStream(`${STREAM}\n{"type":"assi`).text, 'NOT READY: finding');
+});
+
+test('classifyClaudeRun with the stream parser keeps error semantics', () => {
+  const denied = STREAM.replace(
+    '"permission_denials":[]',
+    '"permission_denials":[{"tool_name":"Bash"}]'
+  );
+  const run = classifyClaudeRun({ status: 0, stdout: denied, stderr: '' }, parseClaudeStream);
+  assert.equal(run.status, 'error');
+  assert.match(run.reason, /permission denied: Bash/);
+  const okRun = classifyClaudeRun({ status: 0, stdout: STREAM, stderr: '' }, parseClaudeStream);
+  assert.equal(okRun.status, 'ok');
+  assert.equal(okRun.parsed.toolStats.toolCalls, 5);
+  const noResult = classifyClaudeRun(
+    { status: 0, stdout: '{"type":"system"}', stderr: '' },
+    parseClaudeStream
+  );
+  assert.equal(noResult.status, 'error');
+  assert.match(noResult.reason, /unparseable/);
+});
+
+test('runCase writes the raw review stream to the transcript file and records it', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'he-transcript-test-'));
+  try {
+    const transcriptFile = path.join(dir, 'transcripts', 'mcp-panel-collapse-run1.jsonl');
+    const review = reviewJson('McpConnectionPanel shrink-0');
+    const result = await runCase(
+      defectCase(),
+      reviewCtx(reviewExec(review, judgeJson('{"caught": true, "score": 3}')), {
+        transcriptFile,
+        transcriptLink: 'stamp--current/transcripts/mcp-panel-collapse-run1.jsonl',
+      })
+    );
+    assert.equal(fs.readFileSync(transcriptFile, 'utf8'), review.stdout);
+    assert.equal(result.transcript, 'stamp--current/transcripts/mcp-panel-collapse-run1.jsonl');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runCase passes --model to the reviewer and the judge model to the judge', async () => {
+  const exec = reviewExec(
+    reviewJson('McpConnectionPanel'),
+    judgeJson('{"caught": true, "score": 3}')
+  );
+  await runCase(defectCase(), reviewCtx(exec, { model: 'opus', judgeModel: 'haiku' }));
+  const [review, judge] = exec.calls.filter((c) => c.command === 'claude');
+  assert.match(review.args.join(' '), /--model opus/);
+  assert.match(judge.args.join(' '), /--model haiku/);
+});
+
+// ---------------------------------------------------------------- judge consistency
+
+test('majorityVerdict: caught on a strict majority, ties are not caught', () => {
+  const v = (caught, score) => ({ caught, score, reason: '' });
+  assert.equal(majorityVerdict([v(true, 3)]).caught, true);
+  assert.equal(majorityVerdict([v(true, 3), v(false, 1)]).caught, false);
+  const three = majorityVerdict([v(true, 3), v(false, 1), v(true, 2)]);
+  assert.equal(three.caught, true);
+  assert.equal(three.score, 2);
+  assert.equal(three.disagreement, true);
+  assert.equal(three.verdicts.length, 3);
+  assert.equal(majorityVerdict([v(false, 0), v(false, 1)]).disagreement, false);
+});
+
+test('runCase --judge-repeat grades the same review N times and records disagreements', async () => {
+  const verdicts = [
+    '{"caught": true, "score": 3, "reason": "a"}',
+    '{"caught": false, "score": 1, "reason": "b"}',
+    '{"caught": true, "score": 2, "reason": "c"}',
+  ];
+  let judgeCall = 0;
+  const exec = fakeExec((command, _args, calls) => {
+    if (command !== 'claude') return undefined;
+    if (calls.filter((c) => c.command === 'claude').length === 1)
+      return reviewJson('McpConnectionPanel shrink-0');
+    const result = verdicts[judgeCall];
+    judgeCall += 1;
+    return { status: 0, stdout: JSON.stringify({ result, total_cost_usd: 0.1 }), stderr: '' };
+  });
+  const result = await runCase(defectCase(), reviewCtx(exec, { judgeRepeat: 3 }));
+  assert.equal(exec.calls.filter((c) => c.command === 'claude').length, 4);
+  assert.equal(result.judge.verdicts.length, 3);
+  assert.equal(result.judgeCaught, true);
+  assert.equal(result.judgeDisagreement, true);
+  assert.equal(result.caught, true);
+  assert.ok(Math.abs(result.judgeCostUsd - 0.3) < 1e-9);
+  const summary = summarise([{ ...result, status: 'ok' }]);
+  assert.equal(summary.cases['mcp-panel-collapse'].judgeDisagreements, 1);
+  assert.equal(summary.judgeDisagreements, 1);
+});
+
+// ---------------------------------------------------------------- metrics
+
+test('passAtK / passHatK are the unbiased estimators', () => {
+  assert.equal(passAtK(3, 0, 3), 0);
+  assert.equal(passAtK(3, 1, 3), 1);
+  assert.equal(passHatK(3, 2, 3), 0);
+  assert.equal(passHatK(3, 3, 3), 1);
+  // n=4, c=2, k=2: pass@2 = 1 - C(2,2)/C(4,2) = 5/6; pass^2 = C(2,2)/C(4,2) = 1/6.
+  assert.ok(Math.abs(passAtK(4, 2, 2) - 5 / 6) < 1e-9);
+  assert.ok(Math.abs(passHatK(4, 2, 2) - 1 / 6) < 1e-9);
+  assert.equal(passAtK(0, 0, 0), null);
+  assert.equal(passHatK(0, 0, 0), null);
+});
+
+test('wilsonInterval matches the textbook 95% interval', () => {
+  const ci = wilsonInterval(8, 10);
+  assert.ok(Math.abs(ci.low - 0.4902) < 1e-3, String(ci.low));
+  assert.ok(Math.abs(ci.high - 0.9433) < 1e-3, String(ci.high));
+  assert.ok(Math.abs(ci.halfWidth - (ci.high - ci.low) / 2) < 1e-9);
+  assert.equal(wilsonInterval(0, 0), null);
+  assert.equal(wilsonInterval(0, 5).low, 0);
+});
+
+test('summarise aggregates skill and agent routing across runs', () => {
+  const stats = (skills, agents) => ({ review: { toolStats: { toolCalls: 3, skills, agents } } });
+  const summary = summarise([
+    {
+      caseId: 'a',
+      status: 'ok',
+      caught: true,
+      ...stats(['ship-check', 'code-review'], ['restura-parity-checker']),
+    },
+    {
+      caseId: 'a',
+      status: 'ok',
+      caught: true,
+      ...stats(['ship-check'], ['restura-parity-checker', 'restura-parity-checker']),
+    },
+    { caseId: 'b', status: 'error', caught: null },
+  ]);
+  assert.deepEqual(summary.toolStats, {
+    runs: 2,
+    toolCalls: 6,
+    skills: { 'ship-check': { runs: 2, calls: 2 }, 'code-review': { runs: 1, calls: 1 } },
+    agents: { 'restura-parity-checker': { runs: 2, calls: 3 } },
+  });
+});
+
+test('formatSummaryMarkdown shows pass@k, CIs, noise, cost, transcripts and routing', () => {
+  const run = (k, caught) => ({
+    caseId: 'a',
+    run: k,
+    status: 'ok',
+    expectClean: false,
+    caught,
+    judgeCaught: caught,
+    patternCaught: caught,
+    judge: { caught, score: 3, reason: '' },
+    review: {
+      costUsd: 1,
+      durationMs: 60000,
+      toolStats: { toolCalls: 2, skills: ['ship-check'], agents: [] },
+    },
+    judgeCostUsd: 0.25,
+    transcript: `s--current/transcripts/a-run${k}.jsonl`,
+  });
+  const md = formatSummaryMarkdown(
+    {
+      config: 'current',
+      startedAt: '2026-10-25T00:00:00.000Z',
+      dryRun: false,
+      harnessSha: HARNESS,
+      runs: [run(1, true), run(2, false)],
+    },
+    undefined
+  );
+  // pass@1 (per-trial rate) compares across run counts; pass@n / pass^n carry the actual n.
+  assert.match(md, /\| pass@1 \| pass@2 \| pass\^2 \|/);
+  assert.match(md, /\| a \| defect \| 1\/2 \| 0 \| YES \| 0\.50 \| 1\.00 \| 0\.00 \|/);
+  assert.match(md, /pass@1 \(per-trial rate\): defects 50%/);
+  assert.doesNotMatch(md, /pass@k|pass\^k/);
+  const mixed = formatSummaryMarkdown(
+    {
+      config: 'current',
+      startedAt: '2026-10-25T00:00:00.000Z',
+      dryRun: false,
+      runs: [run(1, true), run(2, true), { ...run(1, true), caseId: 'b' }],
+    },
+    undefined
+  );
+  assert.match(mixed, /\| pass@1 \| pass@n \| pass\^n \|/);
+  assert.match(mixed, /\| 1\.00 \(n=2\) \|/);
+  assert.match(md, /95% CI/);
+  assert.match(md, /Noise: 1 case flipped/);
+  assert.match(md, /half-width/);
+  assert.match(md, /\[1\]\(s--current\/transcripts\/a-run1\.jsonl\)/);
+  assert.match(md, /ship-check/);
+  assert.match(md, /\| 1\.25 \|/);
+  assert.match(md, /abcdef012345/);
+});
+
+// ---------------------------------------------------------------- split
+
+test('validateCase requires split: train | test', () => {
+  const missing = validateCase(validRaw({ split: undefined }), env);
+  assert.equal(missing.ok, false);
+  assert.match(missing.errors.join('\n'), /split/);
+  assert.equal(validateCase(validRaw({ split: 'dev' }), env).ok, false);
+  assert.equal(validateCase(validRaw({ split: 'test' }), env).value.split, 'test');
+});
+
+test('the real case set keeps a usable held-out split (properties, not a case list)', () => {
+  const cases = loadCases();
+  assert.ok(cases.every((c) => c.split === 'train' || c.split === 'test'));
+  const heldOut = cases.filter((c) => c.split === 'test');
+  assert.ok(
+    heldOut.some((c) => c.expectClean),
+    'test split needs at least one control'
+  );
+  assert.ok(
+    heldOut.some((c) => !c.expectClean),
+    'test split needs at least one defect'
+  );
+  const fraction = heldOut.length / cases.length;
+  assert.ok(fraction >= 0.2 && fraction <= 0.4, `test fraction ${fraction.toFixed(2)}`);
+});
+
+test('loadCases filters by split (fixture cases)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'he-split-test-'));
+  try {
+    const casesDir = path.join(root, 'cases');
+    const fixturesDir = path.join(root, 'fixtures');
+    fs.mkdirSync(casesDir);
+    const make = (id, split, clean) => {
+      fs.mkdirSync(path.join(fixturesDir, id), { recursive: true });
+      fs.writeFileSync(path.join(fixturesDir, id, '01.patch'), '');
+      const raw = clean
+        ? cleanRaw({ id, split, branches: [{ name: 'b', patches: ['01.patch'] }] })
+        : validRaw({ id, split, branches: [{ name: 'b', patches: ['01.patch'] }] });
+      fs.writeFileSync(path.join(casesDir, `${id}.yaml`), JSON.stringify(raw));
+    };
+    make('case-a', 'train', false);
+    make('case-b', 'test', false);
+    make('case-c', 'test', true);
+    const ids = (split) => loadCases({ casesDir, fixturesDir, split }).map((c) => c.id);
+    assert.deepEqual(ids('test'), ['case-b', 'case-c']);
+    assert.deepEqual(ids('train'), ['case-a']);
+    assert.deepEqual(ids('all'), ['case-a', 'case-b', 'case-c']);
+    assert.deepEqual(
+      loadCases({ casesDir, fixturesDir, split: 'test', ids: ['case-c'] }).map((c) => c.id),
+      ['case-c']
+    );
+    assert.throws(
+      () => loadCases({ casesDir, fixturesDir, split: 'test', ids: ['case-a'] }),
+      /not in split test/
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------- baselines
+
+test('buildBaseline is summary-only and diffFlips accepts it on either side', () => {
+  const fullRun = (k) => ({
+    caseId: 'a',
+    run: k,
+    status: 'ok',
+    expectClean: false,
+    caught: true,
+    review: { text: 'SECRET REVIEW TEXT', costUsd: 1 },
+    transcript: `x/transcripts/a-run${k}.jsonl`,
+    judge: { score: 3, reason: 'JUDGE REASON' },
+  });
+  const result = {
+    config: 'A',
+    startedAt: '2026-10-25T00:00:00.000Z',
+    harnessSha: HARNESS,
+    runsPerCase: 2,
+    model: 'opus',
+    judgeModel: 'sonnet',
+    split: 'all',
+    runs: [fullRun(1), fullRun(2)],
+  };
+  const baseline = buildBaseline(result);
+  const text = JSON.stringify(baseline);
+  assert.doesNotMatch(text, /SECRET REVIEW TEXT|JUDGE REASON|transcripts/);
+  assert.equal(baseline.config, 'A');
+  assert.equal(baseline.harnessSha, HARNESS);
+  assert.equal(baseline.runsPerCase, 2);
+  assert.equal(baseline.cases.a.caught, 2);
+  assert.equal(baseline.cases.a.passAtK, 1);
+  assert.equal(baseline.cases.a.passAt1, 1);
+  assert.deepEqual(baseline.passAt1, { defects: 1, controls: null });
+  assert.ok(baseline.recall.ci);
+  assert.equal(baseline.runs, undefined);
+  const current = { runs: [{ caseId: 'a', status: 'ok', expectClean: false, caught: false }] };
+  assert.deepEqual(diffFlips(baseline, current), [
+    { caseId: 'a', type: 'defect', before: '2/2', after: '0/1', kind: 'regressed' },
+  ]);
+  assert.deepEqual(diffFlips(current, baseline), [
+    { caseId: 'a', type: 'defect', before: '0/1', after: '2/2', kind: 'improved' },
+  ]);
+});
+
+test('baselinePath uses a UTC minute stamp and writeBaseline never overwrites', () => {
+  const result = {
+    config: 'A',
+    startedAt: '2026-10-25T06:31:46.761Z',
+    runsPerCase: 1,
+    runs: [{ caseId: 'a', status: 'ok', expectClean: false, caught: true }],
+  };
+  assert.equal(baselinePath(result, '/b'), '/b/2026-10-25T0631--A.json');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'he-baseline-test-'));
+  try {
+    const file = writeBaseline(result, dir);
+    assert.equal(file, path.join(dir, '2026-10-25T0631--A.json'));
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).config, 'A');
+    assert.throws(() => writeBaseline(result, dir), /already exists/);
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).cases.a.caught, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------- isolated repo
+
+test('createIsolatedRepo builds base + overlay from archives and never mutates the main repo', async () => {
+  const exec = fakeExec((command, args) =>
+    command === 'git' && args.includes('cat-file') && args.at(-1) === `${HARNESS}:skills-lock.json`
+      ? { status: 128, stdout: '', stderr: 'missing' }
+      : undefined
+  );
+  const result = await createIsolatedRepo(exec, {
+    dir: '/tmp/iso',
+    baseSha: BASE,
+    harnessSha: HARNESS,
+    repo: '/repo',
+  });
+  assert.deepEqual(result, { harnessSha: HARNESS, effectiveBase: EFFECTIVE });
+  const joined = lines(exec);
+  assert.match(joined, /^git init -q --initial-branch=main \/tmp\/iso$/m);
+  assert.ok(joined.includes(`git -C /repo archive ${BASE} | tar -x -f - -C /tmp/iso`));
+  assert.match(joined, /-C \/tmp\/iso .*commit -q --no-verify -m base$/m);
+  const overlay = exec.calls.find(
+    (c) => c.command === 'pipe' && c.from[1].includes(HARNESS) && c.from[1].includes('archive')
+  );
+  assert.ok(overlay, 'overlay paths come from an archive of harnessSha');
+  const paths = overlay.from[1].slice(overlay.from[1].indexOf('--') + 1);
+  assert.ok(paths.includes('.claude/skills') && paths.includes('CLAUDE.md'));
+  assert.ok(!paths.includes('skills-lock.json'));
+  assert.match(
+    joined,
+    /-C \/tmp\/iso .*commit -q --no-verify --allow-empty -m harness overlay @ abcdef012345/
+  );
+  assert.match(joined, new RegExp(`-C /tmp/iso update-ref refs/remotes/origin/main ${EFFECTIVE}`));
+  assert.doesNotMatch(joined, /remote add|worktree add|fetch/);
+  assertMainRepoReadOnly(exec);
+  // No shell: every process is spawned with an argv array.
+  assert.ok(exec.calls.every((c) => c.command === 'git' || c.command === 'pipe'));
+});
+
+function gitSync(cwd, ...args) {
+  const result = syncExec.run(
+    'git',
+    ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args],
+    { cwd }
+  );
+  assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`);
+  return result.stdout.trim();
+}
+
+test('createIsolatedRepo (real git): two commits only, overlay present, origin/main resolves', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'he-iso-test-'));
+  try {
+    const repo = path.join(root, 'src');
+    fs.mkdirSync(repo);
+    gitSync(repo, 'init', '-q', '--initial-branch=main');
+    const write = (rel, text) => {
+      fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
+      fs.writeFileSync(path.join(repo, rel), text);
+    };
+    write('package.json', BASE_PKG);
+    write('src/app.ts', 'export const x = 1;\n');
+    write('.claude/commands/ship-check.md', 'old command\n');
+    gitSync(repo, 'add', '-A');
+    gitSync(repo, 'commit', '-q', '-m', 'old base');
+    const baseSha = gitSync(repo, 'rev-parse', 'HEAD');
+    write('src/app.ts', 'export const x = 2;\n');
+    gitSync(repo, 'commit', '-q', '-am', 'fix(app): the answer the reviewer must not see');
+    fs.rmSync(path.join(repo, '.claude/commands'), { recursive: true });
+    write('.claude/skills/ship-check/SKILL.md', 'new skill\n');
+    write('CLAUDE.md', 'harness doc\n');
+    write('package.json', HARNESS_PKG);
+    gitSync(repo, 'add', '-A');
+    gitSync(repo, 'commit', '-q', '-m', 'harness');
+    const harnessSha = gitSync(repo, 'rev-parse', 'HEAD');
+
+    const dir = path.join(root, 'iso');
+    const { effectiveBase } = await createIsolatedRepo(nodeExec, {
+      dir,
+      baseSha,
+      harnessSha,
+      repo,
+    });
+    const subjects = gitSync(dir, 'log', '--all', '--format=%s').split('\n');
+    assert.deepEqual(subjects, [`harness overlay @ ${harnessSha.slice(0, 12)}`, 'base']);
+    assert.equal(gitSync(dir, 'rev-parse', 'origin/main'), effectiveBase);
+    assert.equal(gitSync(dir, 'rev-parse', 'main'), effectiveBase);
+    assert.equal(gitSync(dir, 'remote'), '');
+    assert.equal(
+      fs.readFileSync(path.join(dir, '.claude/skills/ship-check/SKILL.md'), 'utf8'),
+      'new skill\n'
+    );
+    assert.equal(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), 'harness doc\n');
+    assert.ok(!fs.existsSync(path.join(dir, '.claude/commands')), 'base harness removed');
+    // Product code stays at the base; the later fix is unreachable.
+    assert.equal(fs.readFileSync(path.join(dir, 'src/app.ts'), 'utf8'), 'export const x = 1;\n');
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    assert.equal(pkg.scripts.dev, 'vite');
+    assert.equal(pkg.scripts['integration-check'], 'node scripts/integration-check.mjs');
+    assert.equal(gitSync(dir, 'status', '--porcelain'), '');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('linkNodeModules links the main checkout node_modules into a non-worktree dir', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'he-link-test-'));
+  try {
+    const main = path.join(root, 'main');
+    const dir = path.join(root, 'iso');
+    for (const p of ['node_modules', 'cli/node_modules'])
+      fs.mkdirSync(path.join(main, p), { recursive: true });
+    fs.writeFileSync(path.join(main, 'package.json'), '{"workspaces":["cli"]}');
+    fs.writeFileSync(path.join(main, 'cli/package.json'), '{}');
+    fs.mkdirSync(path.join(dir, 'cli'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'cli/package.json'), '{}');
+    const linked = linkNodeModules(dir, main);
+    assert.deepEqual(linked, ['.', 'cli']);
+    assert.equal(
+      fs.realpathSync(path.join(dir, 'node_modules')),
+      fs.realpathSync(path.join(main, 'node_modules'))
+    );
+    assert.ok(fs.lstatSync(path.join(dir, 'cli/node_modules')).isSymbolicLink());
+    assert.deepEqual(linkNodeModules(dir, main), ['.', 'cli'], 'idempotent');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------- contamination
+
+const MAIN = path.join(path.sep, 'srv', 'checkout', 'restura');
+const ISO = '/tmp/he/repo';
+const toolStream = (...uses) =>
+  [
+    { type: 'system', subtype: 'init' },
+    {
+      type: 'assistant',
+      message: {
+        content: uses.map(([name, input], i) => ({ type: 'tool_use', id: `t${i}`, name, input })),
+      },
+    },
+    { type: 'result', subtype: 'success', result: 'done', is_error: false },
+  ]
+    .map((e) => JSON.stringify(e))
+    .join('\n');
+const roots = { forbiddenRoots: [MAIN, `/private${MAIN}`], isolatedRoot: ISO };
+
+test('detectContamination ignores in-repo work and paths that merely share a prefix', () => {
+  const clean = toolStream(
+    ['Bash', { command: 'git diff main...feat/x && git -C /tmp/he/repo/sub status' }],
+    ['Read', { file_path: `${ISO}/src/a.ts` }],
+    ['Read', { file_path: `${MAIN}-other/notes.md` }],
+    ['Grep', { pattern: 'restura', path: `${MAIN}X` }],
+    ['Bash', { command: 'git log --oneline -5' }]
+  );
+  assert.deepEqual(detectContamination(clean, roots), { contaminated: false, hits: [] });
+  // A tool RESULT that reveals the main checkout (e.g. `pwd -P` output) counts too.
+  const withResult = `${clean}\n${JSON.stringify({
+    type: 'user',
+    message: {
+      content: [
+        { type: 'tool_result', tool_use_id: 't0', content: [{ type: 'text', text: `${MAIN}\n` }] },
+      ],
+    },
+  })}`;
+  const revealed = detectContamination(withResult, roots);
+  assert.equal(revealed.contaminated, true);
+  assert.equal(revealed.hits[0].tool, 'tool_result');
+  // ...but not a result that only shares the prefix.
+  const prefixOnly = `${clean}\n${JSON.stringify({
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: 't0', content: `${MAIN}-other` }] },
+  })}`;
+  assert.equal(detectContamination(prefixOnly, roots).contaminated, false);
+});
+
+test('detectContamination flags explicit main-checkout paths and git escapes', () => {
+  const stream = toolStream(
+    ['Bash', { command: `cd ${MAIN} && git log --all` }],
+    ['Read', { file_path: `${MAIN}/src/app.ts` }],
+    ['Grep', { pattern: 'fix', path: `/private${MAIN}` }],
+    ['Bash', { command: 'git -C /tmp/elsewhere log --all' }],
+    ['Bash', { command: "git --git-dir='/x/.git' show HEAD" }],
+    ['Bash', { command: 'git -C ../.. log' }],
+    ['Bash', { command: 'GIT_DIR=/y/.git git log' }],
+    ['Glob', { pattern: '**/*.ts', path: MAIN }]
+  );
+  const result = detectContamination(stream, roots);
+  assert.equal(result.contaminated, true);
+  assert.deepEqual(
+    result.hits.map((h) => h.tool),
+    ['Bash', 'Read', 'Grep', 'Bash', 'Bash', 'Bash', 'Bash', 'Glob']
+  );
+  assert.ok(result.hits.every((h) => typeof h.snippet === 'string' && h.snippet.length > 0));
+  assert.ok(result.hits[0].snippet.includes(MAIN));
+  // Without an isolated root, only forbidden roots count.
+  const rootsOnly = detectContamination(
+    toolStream(['Bash', { command: 'git -C /tmp/elsewhere log' }]),
+    { forbiddenRoots: [MAIN] }
+  );
+  assert.equal(rootsOnly.contaminated, false);
+});
+
+test('runCase grades a contaminated review as a failure, flags it and skips the judge', async () => {
+  const contaminated = {
+    status: 0,
+    stdout: toolStream(['Bash', { command: `git -C ${MAIN} log --all` }]),
+    stderr: '',
+  };
+  const exec = reviewExec(contaminated, judgeJson('{"caught": true, "score": 3}'));
+  const result = await runCase(defectCase(), reviewCtx(exec, { forbiddenRoots: [MAIN] }));
+  // Scored, not excluded: excluding would hide the cheating rate.
+  assert.equal(result.status, 'ok');
+  assert.equal(result.contaminated, true);
+  assert.match(result.contaminationReason, /^contaminated: /);
+  assert.equal(result.caught, false);
+  assert.equal(result.contamination.length, 1);
+  assert.equal(exec.calls.filter((c) => c.command === 'claude').length, 1, 'no judge call');
+  // A control that peeks is not clean either.
+  const control = await runCase(
+    cleanCase(),
+    reviewCtx(reviewExec(contaminated, judgeJson('{"caught": true, "score": 3}')), {
+      forbiddenRoots: [MAIN],
+    })
+  );
+  assert.equal(control.status, 'ok');
+  assert.equal(control.caught, false);
+  assert.equal(control.contaminated, true);
+  const summary = summarise([result, control]);
+  assert.equal(summary.contaminated, 2);
+  assert.equal(summary.cases['mcp-panel-collapse'].contaminated, 1);
+  assert.equal(summary.recall.runs, 1);
+  assert.equal(summary.controls.falsePositives, 1);
+  assert.equal(summary.errors, 0);
+  const md = formatSummaryMarkdown(
+    {
+      config: 'c',
+      startedAt: '2026-10-25T00:00:00.000Z',
+      dryRun: false,
+      runs: [{ ...result, run: 1 }],
+    },
+    undefined
+  );
+  assert.match(md, /Contaminated \(graded as failures\): 1/);
+  assert.match(md, /## Contaminated reviews/);
+  assert.ok(md.includes(`git -C ${MAIN} log --all`));
+});
+
+// ---------------------------------------------------------------- review round: security + correctness
+
+test('redactSecrets replaces known and secret-looking env values, longest first', () => {
+  const env = {
+    ANTHROPIC_API_KEY: 'sk-ant-abcdefghijklmnop',
+    CLAUDE_CODE_OAUTH_TOKEN: 'oauth-0123456789abcdef',
+    GITHUB_TOKEN: 'ghp_aaaaaaaaaaaaaaaaaaaa',
+    GH_TOKEN: 'gho_bbbbbbbbbbbbbbbb',
+    DB_PASSWORD: 'hunter2hunter2hunter2',
+    MY_PRIVATE_KEY: '-----BEGIN KEY-----abc',
+    SHORT_SECRET: 'abc123',
+    PATH: '/usr/bin:/bin',
+    HOME: '/home/dev',
+  };
+  const text = Object.entries(env)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n');
+  const out = redactSecrets(text, env);
+  for (const name of [
+    'ANTHROPIC_API_KEY',
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'GITHUB_TOKEN',
+    'GH_TOKEN',
+    'DB_PASSWORD',
+    'MY_PRIVATE_KEY',
+  ]) {
+    assert.ok(!out.includes(env[name]), name);
+    assert.ok(out.includes(`[REDACTED:${name}]`), name);
+  }
+  // Short pattern-matched values and non-secret names are left alone.
+  assert.ok(out.includes('SHORT_SECRET=abc123'));
+  assert.ok(out.includes('PATH=/usr/bin:/bin'));
+  // JSON-escaped occurrences are covered too.
+  assert.ok(!redactSecrets(JSON.stringify({ v: env.DB_PASSWORD }), env).includes(env.DB_PASSWORD));
+  assert.equal(redactSecrets('nothing here', {}), 'nothing here');
+});
+
+test('runCase redacts secrets from the transcript and the parsed review', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'he-redact-test-'));
+  try {
+    const secret = 'sk-ant-zzzzzzzzzzzzzzzzzz';
+    const transcriptFile = path.join(dir, 'transcripts', 'x.jsonl');
+    const review = reviewJson(`McpConnectionPanel shrink-0; env shows ANTHROPIC_API_KEY=${secret}`);
+    const result = await runCase(
+      defectCase(),
+      reviewCtx(reviewExec(review, judgeJson('{"caught": true, "score": 3}')), {
+        transcriptFile,
+        env: { ANTHROPIC_API_KEY: secret },
+      })
+    );
+    assert.ok(!fs.readFileSync(transcriptFile, 'utf8').includes(secret));
+    assert.ok(!JSON.stringify(result).includes(secret));
+    assert.match(result.review.text, /\[REDACTED:ANTHROPIC_API_KEY\]/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('writeBaseline redacts secrets before writing', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'he-baseline-redact-'));
+  try {
+    const secret = 'ghp_cccccccccccccccccccc';
+    const result = {
+      config: 'A',
+      startedAt: '2026-10-25T06:31:46.761Z',
+      model: secret,
+      runsPerCase: 1,
+      runs: [{ caseId: 'a', status: 'ok', expectClean: false, caught: true }],
+    };
+    const file = writeBaseline(result, dir, { GITHUB_TOKEN: secret });
+    assert.ok(!fs.readFileSync(file, 'utf8').includes(secret));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runCase treats an empty review answer as a harness error, not a miss', async () => {
+  const exec = reviewExec(reviewJson('   \n'), judgeJson('{"caught": false, "score": 0}'));
+  const result = await runCase(cleanCase(), reviewCtx(exec));
+  assert.equal(result.status, 'error');
+  assert.match(result.reason, /review: empty answer/);
+  assert.equal(result.caught, null);
+  assert.equal(exec.calls.filter((c) => c.command === 'claude').length, 1, 'no judge call');
+});
+
+test('detectContamination flags symlink-resolution tricks (fail closed)', () => {
+  for (const command of [
+    'cd -P node_modules/.. && git log --all',
+    'git -C "$(dirname "$(readlink node_modules)")" log',
+    'realpath node_modules',
+    'pwd -P',
+    'ls node_modules/../..',
+  ]) {
+    const result = detectContamination(toolStream(['Bash', { command }]), roots);
+    assert.equal(result.contaminated, true, command);
+  }
+  // Boundary-aware: these are ordinary.
+  for (const command of [
+    'ls node_modules/.bin',
+    'cat node_modules/..foo/x',
+    'npm run lint',
+    'grep -r readlinkSync src',
+  ]) {
+    const result = detectContamination(toolStream(['Bash', { command }]), roots);
+    assert.equal(result.contaminated, false, command);
+  }
+});
+
+test('the review denies network fetch tools', async () => {
+  const exec = reviewExec(
+    reviewJson('McpConnectionPanel'),
+    judgeJson('{"caught": true, "score": 3}')
+  );
+  await runCase(defectCase(), reviewCtx(exec));
+  const review = exec.calls.find((c) => c.command === 'claude');
+  const denied = review.args.slice(review.args.indexOf('--disallowedTools') + 1);
+  for (const tool of ['WebFetch', 'WebSearch', 'Bash(curl:*)', 'Bash(wget:*)', 'Bash(gh:*)'])
+    assert.ok(denied.includes(tool), tool);
+});
+
+test('latestResult matches the config exactly; --config rejects "--"', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'he-latest-test-'));
+  try {
+    for (const name of [
+      '2026-01-01T00-00-00-000Z--a.json',
+      '2026-01-02T00-00-00-000Z--b--a.json',
+      '2026-01-03T00-00-00-000Z--dry-run--a.json',
+      '2026-01-04T00-00-00-000Z--xa.json',
+      '2026-01-05T00-00-00-000Z--a.md',
+    ])
+      fs.writeFileSync(path.join(dir, name), '{}');
+    fs.mkdirSync(path.join(dir, '2026-01-06T00-00-00-000Z--a.json.d'));
+    assert.equal(latestResult(dir, 'a'), path.join(dir, '2026-01-01T00-00-00-000Z--a.json'));
+    assert.equal(latestResult(dir, 'xa'), path.join(dir, '2026-01-04T00-00-00-000Z--xa.json'));
+    assert.equal(latestResult(dir, 'zzz'), undefined);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  assert.throws(() => parseEvalArgs(['--config', 'b--a']), /--config/);
+  assert.equal(parseEvalArgs(['--config', 'b-a']).config, 'b-a');
+});
+
+test('--judge-repeat accepts only 1 or 3 (odd, so majority never ties)', () => {
+  assert.equal(parseEvalArgs(['--judge-repeat', '1']).judgeRepeat, 1);
+  assert.equal(parseEvalArgs(['--judge-repeat', '3']).judgeRepeat, 3);
+  assert.throws(() => parseEvalArgs(['--judge-repeat', '2']), /--judge-repeat must be 1 or 3/);
+});
+
+test('nodeExec tracks live children and escalates a timeout to SIGKILL', async () => {
+  const stubborn = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);";
+  const pending = nodeExec.run(process.execPath, ['-e', stubborn], {
+    timeout: 200,
+    killGraceMs: 300,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(liveChildren().size, 1);
+  const result = await pending;
+  assert.equal(result.signal, 'SIGKILL');
+  assert.match(result.stderr, /timed out/);
+  assert.equal(liveChildren().size, 0);
+
+  const piped = nodeExec.pipe(
+    [process.execPath, ['-e', 'setTimeout(() => {}, 5000)']],
+    [process.execPath, ['-e', 'process.stdin.resume()']]
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(liveChildren().size, 2, 'both ends of a pipe are tracked');
+  killLiveChildren('SIGKILL');
+  await piped;
+  assert.equal(liveChildren().size, 0);
+});
+
+test('runEval removes an iteration tempDir even when something outside runCase throws', async () => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'he-runeval-out-'));
+  const prefix = 'restura-harness-eval-mcp-panel-collapse-';
+  const before = new Set(fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith(prefix)));
+  const exec = fakeExec((command, args) =>
+    command === 'git' && args.includes('rev-parse')
+      ? {
+          status: 0,
+          stdout: `${args.includes('--git-common-dir') ? '/repo/.git' : HARNESS}\n`,
+          stderr: '',
+        }
+      : undefined
+  );
+  try {
+    await assert.rejects(
+      runEval(parseEvalArgs(['--dry-run', '--case', 'mcp-panel-collapse', '--out', out]), {
+        exec,
+        log: (line) => {
+          if (String(line).includes('run 1/1')) throw new Error('log exploded');
+        },
+      }),
+      /log exploded/
+    );
+    const after = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith(prefix) && !before.has(n));
+    assert.deepEqual(after, []);
+  } finally {
+    fs.rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test('detectContamination ignores main-checkout paths in tool results that run through node_modules', () => {
+  const result = (text) =>
+    `${toolStream(['Bash', { command: 'npm run lint' }])}\n${JSON.stringify({
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: 't0', content: text }] },
+    })}`;
+  // Stack traces through the symlinked node_modules resolve to the main checkout: implicit.
+  for (const text of [
+    `Error\n    at ${MAIN}/node_modules/vitest/dist/index.js:3:1`,
+    `at /private${MAIN}/cli/node_modules/x/y.js`,
+  ])
+    assert.equal(detectContamination(result(text), roots).contaminated, false, text);
+  // Anything else under the main checkout in a result counts.
+  for (const text of [`${MAIN}/src/app.ts`, `${MAIN}/.git/HEAD`, `cwd: ${MAIN}`])
+    assert.equal(detectContamination(result(text), roots).contaminated, true, text);
+  // An explicit INPUT naming main-checkout node_modules still counts.
+  assert.equal(
+    detectContamination(toolStream(['Read', { file_path: `${MAIN}/node_modules/x` }]), roots)
+      .contaminated,
+    true
+  );
+});
+
+// ---------------------------------------------------------------- seen vs unseen (overlay leaks)
+
+test('validateCase accepts optional leakTerms (strings, valid regexes) and rejects anything else', () => {
+  assert.deepEqual(
+    validateCase(validRaw({ leakTerms: ['collapsed a panel'] }), env).value.leakTerms,
+    ['collapsed a panel']
+  );
+  assert.deepEqual(validateCase(validRaw(), env).value.leakTerms, []);
+  for (const bad of ['x', [1], ['(unclosed']]) {
+    const result = validateCase(validRaw({ leakTerms: bad }), env);
+    assert.equal(result.ok, false, JSON.stringify(bad));
+    assert.match(result.errors.join('\n'), /leakTerms/);
+  }
+});
+
+test('caseLeakTerms: PR numbers on a boundary, short SHAs, and leakTerms', () => {
+  const evalCase = validateCase(
+    validRaw({
+      sourcePRs: ['#1131', 'c6c751c2 (pushed without a PR)'],
+      fixPRs: ['#1151', '115b64f1'],
+      sourceCommit: 'f2adfdec17cee70b30f7336584984d773aa0f706',
+      leakTerms: ['second auth path'],
+    }),
+    env
+  ).value;
+  const terms = caseLeakTerms(evalCase);
+  assert.deepEqual(
+    terms.map((t) => t.term),
+    ['#1131', 'c6c751c2', '#1151', '115b64f1', 'f2adfdec', 'second auth path']
+  );
+  const hit = (text) =>
+    findOverlayLeaks({ files: [{ path: 'a.md', text }], terms }).map((h) => h.term);
+  assert.deepEqual(hit('(see #1131).'), ['#1131']);
+  assert.deepEqual(hit('#11310 and &#1131; and PR1131'), []);
+  assert.deepEqual(hit('commit f2adfdec17 landed'), ['f2adfdec']);
+  assert.deepEqual(hit('xf2adfdec'), []);
+  assert.deepEqual(hit('A Second Auth Path overwrote'), ['second auth path']);
+});
+
+test('findOverlayLeaks reports path, 1-based line and term', () => {
+  const hits = findOverlayLeaks({
+    files: [
+      {
+        path: 'docs/agents/delivery.md',
+        text: 'intro\ntwo MCP PRs that together collapsed a panel\n',
+      },
+      { path: 'CLAUDE.md', text: 'nothing\n' },
+    ],
+    terms: ['collapsed a panel', /\bnothing\b/],
+  });
+  assert.deepEqual(hits, [
+    { path: 'docs/agents/delivery.md', line: 2, term: 'collapsed a panel' },
+    { path: 'CLAUDE.md', line: 1, term: '\\bnothing\\b' },
+  ]);
+});
+
+test('readOverlayFiles lists the overlay paths at harnessSha and reads each file', async () => {
+  const exec = fakeExec((command, args) => {
+    if (command !== 'git') return undefined;
+    if (args.includes('ls-tree'))
+      return { status: 0, stdout: 'CLAUDE.md\ndocs/agents/delivery.md\n', stderr: '' };
+    if (args.includes('show')) return { status: 0, stdout: `text of ${args.at(-1)}`, stderr: '' };
+    return undefined;
+  });
+  const files = await readOverlayFiles(exec, '/repo', HARNESS);
+  assert.deepEqual(files, [
+    { path: 'CLAUDE.md', text: `text of ${HARNESS}:CLAUDE.md` },
+    { path: 'docs/agents/delivery.md', text: `text of ${HARNESS}:docs/agents/delivery.md` },
+  ]);
+  const ls = exec.calls.find((c) => c.args.includes('ls-tree'));
+  for (const p of HARNESS_OVERLAY_PATHS) assert.ok(ls.args.includes(p), p);
+  assertMainRepoReadOnly(exec);
+});
+
+test('the known memorized lessons are labelled: their leakTerms hit the current harness', () => {
+  const read = (p) => ({ path: p, text: fs.readFileSync(path.join(process.cwd(), p), 'utf8') });
+  const files = [read('docs/agents/delivery.md'), read('.claude/agents/restura-parity-checker.md')];
+  const byId = Object.fromEntries(loadCases().map((c) => [c.id, c]));
+  for (const id of [
+    'mcp-panel-collapse',
+    'mcp-runner-auth-override',
+    'cli-auth-double-expansion',
+  ]) {
+    assert.ok(byId[id].leakTerms.length > 0, id);
+    assert.ok(findOverlayLeaks({ files, terms: caseLeakTerms(byId[id]) }).length > 0, id);
+  }
+});
+
+test('summarise reports unseen-only recall and precision; markdown lists seen cases and warns on test', () => {
+  const runs = [
+    {
+      caseId: 'seen-d',
+      status: 'ok',
+      expectClean: false,
+      caught: true,
+      seenInHarness: true,
+      split: 'train',
+    },
+    {
+      caseId: 'fresh-d',
+      status: 'ok',
+      expectClean: false,
+      caught: false,
+      seenInHarness: false,
+      split: 'train',
+    },
+    {
+      caseId: 'seen-c',
+      status: 'ok',
+      expectClean: true,
+      caught: true,
+      seenInHarness: true,
+      split: 'test',
+    },
+    {
+      caseId: 'fresh-c',
+      status: 'ok',
+      expectClean: true,
+      caught: false,
+      seenInHarness: false,
+      split: 'test',
+    },
+  ];
+  const summary = summarise(runs);
+  assert.equal(summary.recall.caught, 1);
+  assert.equal(summary.recall.runs, 2);
+  assert.equal(summary.unseen.recall.caught, 0);
+  assert.equal(summary.unseen.recall.runs, 1);
+  assert.equal(summary.unseen.controls.clean, 0);
+  assert.equal(summary.unseen.controls.runs, 1);
+  assert.equal(summary.cases['seen-d'].seenInHarness, true);
+  const seenCases = {
+    'seen-d': [{ path: 'docs/agents/delivery.md', line: 22, term: 'collapsed a panel' }],
+    'seen-c': [{ path: 'CLAUDE.md', line: 3, term: '#1158' }],
+  };
+  const md = formatSummaryMarkdown(
+    { config: 'c', startedAt: '2026-10-25T00:00:00.000Z', dryRun: false, runs, seenCases },
+    undefined
+  );
+  assert.match(md, /Unseen cases only: recall 0\/1/);
+  assert.match(md, /## Seen in harness/);
+  assert.match(md, /docs\/agents\/delivery\.md:22/);
+  assert.match(
+    md,
+    /seen-c.*held-out case is no longer unseen — move it to train or add a fresh case/
+  );
+  assert.doesNotMatch(md, /seen-d[^\n]*held-out/);
+  const dry = formatSummaryMarkdown(
+    {
+      config: 'c',
+      startedAt: '2026-10-25T00:00:00.000Z',
+      dryRun: true,
+      runs: [{ caseId: 'seen-c', applied: true, combinedMerge: 'clean', split: 'test' }],
+      seenCases,
+    },
+    undefined
+  );
+  assert.match(dry, /## Seen in harness/);
+  assert.match(dry, /held-out case is no longer unseen/);
+});
+
+// ---------------------------------------------------------------- incomplete runs + node_modules
+
+test('classifyClaudeRun: budget, max turns and timeouts are incomplete, not harness errors', () => {
+  const done = (extra) =>
+    JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'x', ...extra });
+  const incomplete = [
+    [{ status: 0, stdout: done({ subtype: 'error_max_budget_usd', is_error: true }) }, /budget/],
+    [{ status: 0, stdout: done({ subtype: 'error_max_turns', is_error: true }) }, /max turns/],
+    [{ status: 1, stdout: '', stderr: 'Exceeded USD budget (20)' }, /budget/],
+    [{ status: 0, stdout: done(), stderr: 'Exceeded USD budget (20)' }, /budget/],
+    [
+      {
+        status: null,
+        signal: 'SIGTERM',
+        stdout: '{"type":"system"}',
+        stderr: '\ntimed out after 5400000 ms',
+      },
+      /timed out/,
+    ],
+    [{ status: null, signal: 'SIGKILL', stdout: '', stderr: 'timed out after 10 ms' }, /timed out/],
+  ];
+  for (const [run, reason] of incomplete) {
+    const classified = classifyClaudeRun({ stderr: '', ...run });
+    assert.equal(classified.status, 'incomplete', JSON.stringify(run));
+    assert.match(classified.reason, reason);
+  }
+  // Still true harness errors.
+  for (const run of [
+    { status: null, signal: 'SIGINT', stdout: '' },
+    { status: 0, stdout: done({ subtype: 'error_during_execution', is_error: true }) },
+    { status: 0, stdout: '{oops' },
+    { status: 2, stdout: '', stderr: 'spawn claude ENOENT' },
+  ])
+    assert.equal(classifyClaudeRun({ stderr: '', ...run }).status, 'error', JSON.stringify(run));
+});
+
+const budgetReview = () => ({
+  status: 0,
+  stdout: [
+    JSON.stringify({ type: 'system', subtype: 'init' }),
+    JSON.stringify({
+      type: 'result',
+      subtype: 'error_max_budget_usd',
+      is_error: true,
+      result: '',
+      total_cost_usd: 20,
+    }),
+  ].join('\n'),
+  stderr: '',
+});
+
+test('runCase grades an incomplete review as a failure: defect not caught, control not clean', async () => {
+  for (const [evalCase, label] of [
+    [defectCase(), 'defect'],
+    [cleanCase(), 'control'],
+  ]) {
+    const exec = reviewExec(budgetReview(), judgeJson('{"caught": true, "score": 3}'));
+    const result = await runCase(evalCase, reviewCtx(exec));
+    assert.equal(result.status, 'ok', label);
+    assert.equal(result.incomplete, true, label);
+    assert.match(result.incompleteReason, /budget/, label);
+    assert.equal(result.caught, false, label);
+    assert.equal(result.review.costUsd, 20, label);
+    assert.equal(exec.calls.filter((c) => c.command === 'claude').length, 1, `${label}: no judge`);
+  }
+});
+
+test('runCase grades a contaminated incomplete review as contaminated', async () => {
+  const stream = budgetReview();
+  stream.stdout = `${toolStream(['Bash', { command: `git -C ${MAIN} log --all` }])
+    .split('\n')
+    .slice(0, 2)
+    .join('\n')}\n${stream.stdout.split('\n')[1]}`;
+  const result = await runCase(
+    defectCase(),
+    reviewCtx(reviewExec(stream, judgeJson('{}')), { forbiddenRoots: [MAIN] })
+  );
+  assert.equal(result.status, 'ok');
+  assert.equal(result.contaminated, true);
+  assert.equal(result.caught, false);
+});
+
+test('summarise counts incomplete runs as scored failures and reports the error rate', () => {
+  const summary = summarise([
+    { caseId: 'd', status: 'ok', expectClean: false, caught: true },
+    { caseId: 'd', status: 'ok', expectClean: false, caught: false, incomplete: true },
+    { caseId: 'c', status: 'ok', expectClean: true, caught: false, incomplete: true },
+    { caseId: 'c', status: 'error', expectClean: true, caught: null },
+  ]);
+  assert.equal(summary.cases.d.incomplete, 1);
+  assert.equal(summary.cases.d.runs, 2);
+  assert.equal(summary.recall.runs, 2);
+  assert.equal(summary.controls.falsePositives, 1);
+  assert.equal(summary.incomplete, 2);
+  assert.equal(summary.errorRate, 0.25);
+  const md = formatSummaryMarkdown(
+    {
+      config: 'c',
+      startedAt: '2026-10-25T00:00:00.000Z',
+      dryRun: false,
+      runs: [
+        { caseId: 'd', run: 1, status: 'ok', expectClean: false, caught: true },
+        {
+          caseId: 'd',
+          run: 2,
+          status: 'ok',
+          expectClean: false,
+          caught: false,
+          incomplete: true,
+          incompleteReason: 'budget exhausted (error_max_budget_usd)',
+        },
+      ],
+    },
+    undefined
+  );
+  assert.match(md, /Incomplete \(budget, max turns or timeout; graded as failures\): 1/);
+  assert.match(md, /error rate 0%/);
+  assert.match(md, /\| incomplete \|/);
+  assert.match(md, /d run 2: budget exhausted/);
+});
+
+test('nodeModulesFingerprint is stable and changes when lockfiles or tool bins change', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'he-fp-test-'));
+  try {
+    const write = (rel, text) => {
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), text);
+    };
+    write('node_modules/.package-lock.json', '{"lockfileVersion":3}');
+    write('node_modules/vitest/package.json', '{"name":"vitest","bin":{"vitest":"vitest.mjs"}}');
+    write('node_modules/vitest/vitest.mjs', 'run()');
+    write(
+      'node_modules/typescript/package.json',
+      '{"name":"typescript","bin":{"tsc":"./bin/tsc"}}'
+    );
+    write('node_modules/typescript/bin/tsc', 'tsc');
+    const first = nodeModulesFingerprint(root);
+    assert.match(first, /^[0-9a-f]{64}$/);
+    assert.equal(nodeModulesFingerprint(root), first);
+    write('node_modules/vitest/vitest.mjs', 'patched()');
+    const second = nodeModulesFingerprint(root);
+    assert.notEqual(second, first);
+    write('cli/node_modules/.package-lock.json', '{}');
+    assert.notEqual(nodeModulesFingerprint(root), second);
+    write('node_modules/typescript/bin/tsc', 'evil');
+    assert.notEqual(nodeModulesFingerprint(root), second);
+    // Unrelated packages do not matter.
+    const before = nodeModulesFingerprint(root);
+    write('node_modules/left-pad/index.js', 'x');
+    assert.equal(nodeModulesFingerprint(root), before);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('runCase fails the run when the reviewer modified shared node_modules', async () => {
+  let n = 0;
+  const exec = reviewExec(
+    reviewJson('McpConnectionPanel'),
+    judgeJson('{"caught": true, "score": 3}')
+  );
+  const result = await runCase(
+    defectCase(),
+    reviewCtx(exec, {
+      nodeModulesFingerprint: () => {
+        n += 1;
+        return n === 1 ? 'before' : 'after';
+      },
+    })
+  );
+  assert.equal(n, 2);
+  assert.equal(result.status, 'error');
+  assert.equal(
+    result.reason,
+    'reviewer modified shared node_modules — run npm ci in the main checkout'
+  );
+  assert.equal(result.nodeModulesModified, true);
+  assert.equal(exec.calls.filter((c) => c.command === 'claude').length, 1, 'no judge call');
 });

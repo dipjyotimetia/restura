@@ -1,6 +1,7 @@
 id: clean-cli-esm-require
 title: 'Control: give the CLI ESM bundle a require so restura starts again'
 origin: real
+split: train
 expectClean: true
 sourcePRs: ['#1155']
 # Main just before #1155. Later commits touched cli/package.json only for dependency bumps;

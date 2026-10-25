@@ -5,7 +5,11 @@
 // synthetic) incident where PRs were green alone but broken together, or
 // where one harness (web Worker / Electron / CLI) was left unwired. Control
 // cases (`expectClean: true`) are real merged PRs that were genuinely fine.
-// A run rebuilds the branch(es) from patch fixtures in a throwaway worktree,
+// A run rebuilds the branch(es) from patch fixtures in a history-free repo
+// (git init + git archive of the base: later fix commits are unreachable)
+// whose harness (.claude/skills, agents, hooks, CLAUDE.md, review scripts) is
+// first replaced by the one at --harness-ref (the "overlay" commit), so the
+// review exercises the harness under test rather than the case base's. It
 // asks the review entry point (`/ship-check --quick <branches>`) to review
 // them via `claude -p`, and grades the final answer with an LLM rubric judge
 // (evals/harness/rubric.md) plus, for defect cases, `mustMention` regexes. A
@@ -16,26 +20,67 @@
 // against the previous invocation of the same --config.
 //
 // Usage:
-//   npm run eval:harness -- [--case <id>]... [--runs N] [--config <label>]
-//     [--dry-run] [--out <dir>] [--no-judge] [--max-budget-usd <n>]
-//     [--judge-model <model>] [--compare <result.json>]
+//   npm run eval:harness -- [--case <id>]... [--split train|test|all] [--runs N]
+//     [--config <label>] [--harness-ref <ref>] [--model <model>]
+//     [--judge-model <model>] [--judge-repeat N] [--dry-run] [--out <dir>]
+//     [--no-judge] [--max-budget-usd <n>] [--compare <result-or-baseline.json>]
+//     [--save-baseline]
 //   npm run eval:harness -- --cleanup   # remove leftovers of crashed runs
 //
-// --dry-run validates every case and applies its patches (plus the combined
-// merge) in throwaway worktrees without calling any model.
+// --dry-run validates every case, applies the harness overlay and its patches
+// (plus the combined merge) in throwaway isolated repos without calling any model.
 
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { load as loadYaml } from 'js-yaml';
-import { setupWorktree } from './worktree-setup.mjs';
+import { linkAction, planLinks } from './worktree-setup.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CASES_DIR = path.join(ROOT, 'evals/harness/cases');
 export const FIXTURES_DIR = path.join(ROOT, 'evals/harness/fixtures');
 export const RUBRIC_PATH = path.join(ROOT, 'evals/harness/rubric.md');
+export const BASELINES_DIR = path.join(ROOT, 'evals/harness/baselines');
+
+/** Base-commit harness paths removed before the overlay (whatever exists). */
+export const HARNESS_REMOVE_PATHS = [
+  '.claude/skills',
+  '.claude/agents',
+  '.claude/commands',
+  '.claude/hooks',
+  '.claude/settings.json',
+  '.agents/skills',
+];
+/**
+ * Paths checked out from the harness commit, each only if it exists there.
+ * Never `.claude/worktrees`, `.claude/metrics` or `settings.local.json`.
+ */
+export const HARNESS_OVERLAY_PATHS = [
+  '.claude/skills',
+  '.claude/agents',
+  '.claude/hooks',
+  '.claude/settings.json',
+  '.agents',
+  'CLAUDE.md',
+  'AGENTS.md',
+  'docs/agents',
+  'skills-lock.json',
+  'scripts/integration-check.mjs',
+  'scripts/verify-agent-report.mjs',
+  'scripts/worktree-setup.mjs',
+  'scripts/worktree-prune.mjs',
+];
+/** The only package.json scripts the overlay merges into the base's package.json. */
+export const HARNESS_SCRIPT_KEYS = [
+  'integration-check',
+  'verify:agent-report',
+  'worktree:setup',
+  'worktree:prune',
+];
+export const DEFAULT_JUDGE_MODEL = 'sonnet';
 
 /** Branch namespace every run creates; `--cleanup` touches nothing else. */
 export const BRANCH_PREFIX = 'harness-eval/';
@@ -45,6 +90,7 @@ const TEMP_WORKTREE_RE = /(?:^|\/)restura-harness-eval-[^/]+\/worktree$/;
 const ORIGINS = ['real', 'synthetic'];
 const SEAMS = ['cross-branch', 'cross-harness', 'cross-consumer'];
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
+const SPLITS = ['train', 'test'];
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 const SHA_RE = /^[0-9a-f]{40}$/;
 const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
@@ -71,7 +117,12 @@ export function parseEvalArgs(argv) {
     cleanup: false,
     out: '.claude/metrics/evals',
     judge: true,
-    judgeModel: undefined,
+    model: undefined,
+    judgeModel: DEFAULT_JUDGE_MODEL,
+    judgeRepeat: 1,
+    harnessRef: 'HEAD',
+    split: 'all',
+    saveBaseline: false,
     maxBudgetUsd: 20,
     compare: undefined,
   };
@@ -80,7 +131,11 @@ export function parseEvalArgs(argv) {
     '--runs',
     '--config',
     '--out',
+    '--model',
     '--judge-model',
+    '--judge-repeat',
+    '--harness-ref',
+    '--split',
     '--max-budget-usd',
     '--compare',
   ];
@@ -90,6 +145,7 @@ export function parseEvalArgs(argv) {
     if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--cleanup') options.cleanup = true;
     else if (arg === '--no-judge') options.judge = false;
+    else if (arg === '--save-baseline') options.saveBaseline = true;
     else if (valued.includes(name)) {
       let value;
       if (arg.startsWith(`${name}=`)) value = arg.slice(name.length + 1);
@@ -105,11 +161,26 @@ export function parseEvalArgs(argv) {
           throw new Error('--runs must be an integer from 1 to 20');
         options.runs = runs;
       } else if (name === '--config') {
-        if (!CONFIG_RE.test(value)) throw new Error('--config must match [A-Za-z0-9._-]+');
+        if (!CONFIG_RE.test(value) || value.includes('--'))
+          throw new Error('--config must match [A-Za-z0-9._-]+ and must not contain "--"');
         options.config = value;
       } else if (name === '--out') options.out = value;
+      else if (name === '--model') options.model = value;
       else if (name === '--judge-model') options.judgeModel = value;
-      else if (name === '--compare') options.compare = value;
+      else if (name === '--judge-repeat') {
+        const repeat = Number(value);
+        // Odd only, so the majority vote never ties.
+        if (repeat !== 1 && repeat !== 3) throw new Error('--judge-repeat must be 1 or 3');
+        options.judgeRepeat = repeat;
+      } else if (name === '--harness-ref') {
+        if (value.startsWith('-') || /\s/.test(value))
+          throw new Error('--harness-ref must be a git ref or commit');
+        options.harnessRef = value;
+      } else if (name === '--split') {
+        if (![...SPLITS, 'all'].includes(value))
+          throw new Error('--split must be train, test or all');
+        options.split = value;
+      } else if (name === '--compare') options.compare = value;
       else {
         const budget = Number(value);
         if (!(budget > 0)) throw new Error('--max-budget-usd must be a positive number');
@@ -117,7 +188,15 @@ export function parseEvalArgs(argv) {
       }
     } else throw new Error(`Unknown option: ${arg}`);
   }
+  if (options.saveBaseline && options.dryRun)
+    throw new Error('--save-baseline needs a real run (a dry run has nothing to record)');
   return options;
+}
+
+/** A judge grading its own model's review inflates agreement; warn when they match. */
+export function judgeModelWarning({ model, judgeModel }) {
+  if (!model || !judgeModel || model !== judgeModel) return null;
+  return `warning: the judge model (${judgeModel}) is the model under test; grades may be biased. Pass a different --judge-model.`;
 }
 
 // ---------------------------------------------------------------- case schema
@@ -184,12 +263,25 @@ export function validateCase(raw, { fileExists, fixturesDir = FIXTURES_DIR }) {
   if (typeof id !== 'string' || !ID_RE.test(id)) errors.push('id must be kebab-case');
   if (typeof raw.title !== 'string' || raw.title.trim() === '') errors.push('title is required');
   if (!ORIGINS.includes(raw.origin)) errors.push(`origin must be one of ${ORIGINS.join('|')}`);
+  if (!SPLITS.includes(raw.split)) errors.push(`split must be one of ${SPLITS.join('|')}`);
   if (raw.sourcePRs !== undefined && !isStringArray(raw.sourcePRs))
     errors.push('sourcePRs must be a list of strings');
   if (raw.origin === 'real' && !(isStringArray(raw.sourcePRs) && raw.sourcePRs.length > 0))
     errors.push('real cases must cite sourcePRs');
   if (raw.fixPRs !== undefined && !isStringArray(raw.fixPRs))
     errors.push('fixPRs must be a list of strings');
+  if (raw.leakTerms !== undefined) {
+    if (!isStringArray(raw.leakTerms))
+      errors.push('leakTerms must be a list of strings (case-insensitive regexes)');
+    else
+      for (const [index, term] of raw.leakTerms.entries()) {
+        try {
+          new RegExp(term, 'i');
+        } catch (error) {
+          errors.push(`leakTerms[${index}] is not a valid regex: ${error.message}`);
+        }
+      }
+  }
   if (typeof raw.base !== 'string' || !SHA_RE.test(raw.base))
     errors.push('base must be a full 40-character commit SHA');
   if (
@@ -260,9 +352,11 @@ export function validateCase(raw, { fileExists, fixturesDir = FIXTURES_DIR }) {
       id,
       title: raw.title,
       origin: raw.origin,
+      split: raw.split,
       expectClean,
       sourcePRs: raw.sourcePRs ?? [],
       fixPRs: raw.fixPRs ?? [],
+      leakTerms: raw.leakTerms ?? [],
       sourceCommit: raw.sourceCommit ?? null,
       base: raw.base,
       seam: raw.seam,
@@ -281,8 +375,27 @@ export function validateCase(raw, { fileExists, fixturesDir = FIXTURES_DIR }) {
   };
 }
 
-/** Load and validate every case (or the named ones). Throws on any invalid case. */
-export function loadCases({ casesDir = CASES_DIR, fixturesDir = FIXTURES_DIR, ids = [] } = {}) {
+/**
+ * Load and validate every case (or the named ones, within `split`). Throws on
+ * any invalid case, whatever the filter.
+ */
+export function loadCases({
+  casesDir = CASES_DIR,
+  fixturesDir = FIXTURES_DIR,
+  ids = [],
+  split = 'all',
+} = {}) {
+  const all = loadAllCases(casesDir, fixturesDir);
+  const inSplit = split === 'all' ? all : all.filter((c) => c.split === split);
+  if (ids.length === 0) return inSplit;
+  const unknown = ids.filter((id) => !all.some((c) => c.id === id));
+  if (unknown.length > 0) throw new Error(`Unknown case(s): ${unknown.join(', ')}`);
+  const outside = ids.filter((id) => !inSplit.some((c) => c.id === id));
+  if (outside.length > 0) throw new Error(`Case(s) not in split ${split}: ${outside.join(', ')}`);
+  return inSplit.filter((c) => ids.includes(c.id));
+}
+
+function loadAllCases(casesDir, fixturesDir) {
   const files = fs
     .readdirSync(casesDir)
     .filter((name) => name.endsWith('.yaml'))
@@ -301,26 +414,110 @@ export function loadCases({ casesDir = CASES_DIR, fixturesDir = FIXTURES_DIR, id
     else cases.push(result.value);
   }
   if (problems.length > 0) throw new Error(`Invalid eval cases:\n${problems.join('\n')}`);
-  if (ids.length === 0) return cases;
-  const unknown = ids.filter((id) => !cases.some((c) => c.id === id));
-  if (unknown.length > 0) throw new Error(`Unknown case(s): ${unknown.join(', ')}`);
-  return cases.filter((c) => ids.includes(c.id));
+  return cases;
 }
+
+// ---------------------------------------------------------------- seen vs unseen
+
+/**
+ * Terms that would show the overlaid harness already "knows" a case: its PR
+ * numbers (`#NNNN` on a boundary), short commit SHAs (first 8 chars of any
+ * 8+ hex token in sourcePRs/fixPRs, and of sourceCommit), and the case's own
+ * `leakTerms` (case-insensitive regexes for the lesson's wording).
+ * @returns {Array<{ term: string; re: RegExp }>}
+ */
+export function caseLeakTerms(evalCase) {
+  const terms = [];
+  const seen = new Set();
+  const add = (term, re) => {
+    if (seen.has(term)) return;
+    seen.add(term);
+    terms.push({ term, re });
+  };
+  const fromRefs = (refs) => {
+    for (const ref of refs ?? []) {
+      for (const [num] of ref.matchAll(/#\d+/g)) add(num, new RegExp(`(?<![\\w&])${num}(?!\\d)`));
+      for (const [sha] of ref.matchAll(/\b[0-9a-f]{8,40}\b/g)) {
+        const short = sha.slice(0, 8);
+        add(short, new RegExp(`(?<![0-9a-zA-Z])${short}[0-9a-f]*(?![0-9a-zA-Z])`, 'i'));
+      }
+    }
+  };
+  fromRefs(evalCase.sourcePRs);
+  fromRefs(evalCase.fixPRs);
+  if (evalCase.sourceCommit) fromRefs([evalCase.sourceCommit]);
+  for (const term of evalCase.leakTerms ?? []) add(term, new RegExp(term, 'i'));
+  return terms;
+}
+
+/**
+ * Lines of the harness files that mention a term. `terms` items are a
+ * string (case-insensitive regex source), a RegExp, or `{ term, re }`.
+ * @param {{ files: Array<{ path: string; text: string }>; terms: Array<string | RegExp | { term: string; re: RegExp }> }} input
+ * @returns {Array<{ path: string; line: number; term: string }>}
+ */
+export function findOverlayLeaks({ files, terms }) {
+  const compiled = terms.map((t) =>
+    typeof t === 'string'
+      ? { term: t, re: new RegExp(t, 'i') }
+      : t instanceof RegExp
+        ? { term: t.source, re: t }
+        : t
+  );
+  const hits = [];
+  for (const file of files) {
+    const lines = String(file.text ?? '').split('\n');
+    for (const [index, text] of lines.entries())
+      for (const { term, re } of compiled)
+        if (new RegExp(re.source, re.flags.replace('g', '')).test(text))
+          hits.push({ path: file.path, line: index + 1, term });
+  }
+  return hits;
+}
+
+/** The overlay file set at `harnessSha` (HARNESS_OVERLAY_PATHS), read from `repo` without a checkout. */
+export async function readOverlayFiles(exec, repo, harnessSha) {
+  const listed = await exec.run('git', [
+    '-C',
+    repo,
+    'ls-tree',
+    '-r',
+    '--name-only',
+    harnessSha,
+    '--',
+    ...HARNESS_OVERLAY_PATHS,
+  ]);
+  if (listed.status !== 0)
+    throw new Error(`list harness files failed: ${(listed.stderr || '').trim()}`);
+  const files = [];
+  for (const file of listed.stdout.split('\n').filter(Boolean)) {
+    const shown = await exec.run('git', ['-C', repo, 'show', `${harnessSha}:${file}`]);
+    if (shown.status === 0) files.push({ path: file, text: shown.stdout });
+  }
+  return files;
+}
+
+export const SEEN_TEST_WARNING =
+  'held-out case is no longer unseen — move it to train or add a fresh case';
 
 // ---------------------------------------------------------------- prompts
 
 /**
  * The review prompt: the harness's real entry point, plus plumbing that
- * points it at the case base instead of `main`. It is identical for defect
- * and control cases and never hints at the expected outcome.
+ * points it at the effective base (the harness overlay commit on top of the
+ * case base) instead of `main`. Pointing it at the raw case base would put
+ * the overlay itself in every diff. It is identical for defect and control
+ * cases and never hints at the expected outcome.
  */
-export function buildReviewPrompt(evalCase, branchRefs) {
+export function buildReviewPrompt(_evalCase, branchRefs, effectiveBase) {
+  if (typeof effectiveBase !== 'string' || !SHA_RE.test(effectiveBase))
+    throw new Error('buildReviewPrompt needs the effective base (the harness overlay commit)');
   return [
     `/ship-check --quick ${branchRefs.join(' ')}`,
     '',
-    `Eval harness note: these branches were cut from commit ${evalCase.base}. Treat that commit as`,
+    `Eval harness note: these branches were cut from commit ${effectiveBase}. Treat that commit as`,
     '`main`/`origin/main` for every diff and gate (e.g. `git diff <base>...<branch>`, and',
-    `\`npm run integration-check -- --base ${evalCase.base} --no-fetch <branches>\`).`,
+    `\`npm run integration-check -- --base ${effectiveBase} --no-fetch <branches>\`).`,
     'Do not push, open PRs, or run gh mutations. End with your consolidated findings, ranked by',
     'severity, each with file:line.',
   ].join('\n');
@@ -380,6 +577,11 @@ export function parseClaudeJson(stdout) {
   }
   if (!parsed || typeof parsed !== 'object')
     throw new Error('could not parse claude JSON output: not an object');
+  return shapeResult(parsed);
+}
+
+/** The fields both output formats report, from a `result` envelope/event. */
+function shapeResult(parsed) {
   return {
     text: typeof parsed.result === 'string' ? parsed.result : '',
     subtype: typeof parsed.subtype === 'string' ? parsed.subtype : null,
@@ -392,30 +594,247 @@ export function parseClaudeJson(stdout) {
   };
 }
 
+/**
+ * Parse `claude -p --output-format stream-json --verbose` (one JSON event per
+ * line). Returns the parseClaudeJson shape, taken from the final `result`
+ * event, plus `toolStats`: every tool_use the session made, the Skill names
+ * and the Task/Agent subagent types, in order. That is the routing signal:
+ * did the review actually run the skills and agents the harness promises?
+ * Unparseable lines (a truncated tail) are skipped; a missing result throws.
+ */
+export function parseClaudeStream(stdout) {
+  let result = null;
+  const toolStats = { toolCalls: 0, skills: [], agents: [] };
+  for (const line of String(stdout ?? '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let event;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (!event || typeof event !== 'object') continue;
+    if (event.type === 'result') result = event;
+    const content = event.type === 'assistant' ? event.message?.content : null;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (block?.type !== 'tool_use') continue;
+      toolStats.toolCalls += 1;
+      const input = block.input ?? {};
+      if (block.name === 'Skill' && typeof input.skill === 'string')
+        toolStats.skills.push(input.skill);
+      if (
+        (block.name === 'Task' || block.name === 'Agent') &&
+        typeof input.subagent_type === 'string'
+      )
+        toolStats.agents.push(input.subagent_type);
+    }
+  }
+  if (!result) throw new Error('no result event in claude stream-json output');
+  return { ...shapeResult(result), toolStats };
+}
+
+const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const stripQuotes = (token) => token.replace(/^['"]|['"]$/g, '');
+const within = (p, root) => p === root || p.startsWith(`${root.replace(/\/+$/, '')}/`);
+
+function stringsIn(value, out = []) {
+  if (typeof value === 'string') out.push(value);
+  else if (Array.isArray(value)) for (const item of value) stringsIn(item, out);
+  else if (value && typeof value === 'object')
+    for (const v of Object.values(value)) stringsIn(v, out);
+  return out;
+}
+
+/** Git dir/worktree targets named in a shell command: -C, --git-dir, --work-tree, GIT_DIR=. */
+function gitTargets(command) {
+  const targets = [];
+  for (const segment of command.split(/&&|\|\||[;|\n]/)) {
+    const tokens = segment.trim().split(/\s+/).filter(Boolean).map(stripQuotes);
+    for (const token of tokens) {
+      const env = /^GIT_(?:DIR|WORK_TREE)=(.+)$/.exec(token);
+      if (env) targets.push(stripQuotes(env[1]));
+    }
+    const at = tokens.indexOf('git');
+    if (at === -1) continue;
+    for (let i = at + 1; i < tokens.length; i += 1) {
+      const token = tokens[i];
+      const inline = /^--(?:git-dir|work-tree)=(.+)$/.exec(token);
+      if (inline) targets.push(stripQuotes(inline[1]));
+      else if (['-C', '--git-dir', '--work-tree'].includes(token) && tokens[i + 1])
+        targets.push(tokens[i + 1]);
+    }
+  }
+  return targets;
+}
+
+/** Commands that resolve symlinks or climb out of node_modules: fail closed on any of them. */
+/** @type {Array<[RegExp, string]>} */
+const SYMLINK_ESCAPES = [
+  [/\breadlink\b/, 'readlink'],
+  [/\brealpath\b/, 'realpath'],
+  [/\bpwd\s+-P\b/, 'pwd -P'],
+  [/\bcd\s+-P\b/, 'cd -P'],
+  [/node_modules\/\.\.(?![A-Za-z0-9._-])/, 'node_modules/..'],
+];
+
+/** Text of a tool_result block (string, or a list of text parts). */
+function toolResultText(block) {
+  return stringsIn(block?.content ?? '').join('\n');
+}
+
+/**
+ * First reference to a forbidden root in `text`, on a path boundary. With
+ * `implicitOk`, a reference that continues into a node_modules dir (a stack
+ * trace through the symlinked node_modules, say) is not counted.
+ */
+function findRoot(text, rootRes, implicitOk) {
+  for (const re of rootRes) {
+    for (const match of text.matchAll(re)) {
+      const rest = text.slice(match.index + match[0].length);
+      if (implicitOk && /^(?:\/[^/\s'"`]+){0,2}\/node_modules(?![A-Za-z0-9._-])/.test(rest))
+        continue;
+      const start = Math.max(0, match.index - 40);
+      return text.slice(start, match.index + match[0].length + 80);
+    }
+  }
+  return null;
+}
+
+/**
+ * Did the review reach outside its isolated repo? Scans the stream-json
+ * transcript, failing closed:
+ * (a) any tool_use INPUT (Bash command, Read/Grep/Glob paths, ...) naming a
+ *     forbidden root (the main checkout, its realpath) on a path boundary, so
+ *     `/x/restura-other` does not match `/x/restura`;
+ * (b) git `-C` / `--git-dir` / `--work-tree` / `GIT_DIR=` targets outside
+ *     `isolatedRoot` (string or list; absolute elsewhere, or relative with `..`);
+ * (c) symlink-resolution tricks in inputs: `readlink`, `realpath`, `pwd -P`,
+ *     `cd -P`, `node_modules/..` (path-boundary aware);
+ * (d) any tool_result revealing a forbidden root (e.g. `pwd -P` output),
+ *     except paths that continue into a node_modules dir, which the
+ *     symlinked node_modules produce implicitly (stack traces, lint output).
+ * Without `isolatedRoot`, (b) is skipped.
+ * @param {string} streamText
+ * @param {{ forbiddenRoots?: string[]; isolatedRoot?: string | string[] }} [options]
+ */
+export function detectContamination(streamText, { forbiddenRoots = [], isolatedRoot } = {}) {
+  const roots = [...new Set(forbiddenRoots.filter(Boolean).map((r) => r.replace(/\/+$/, '')))];
+  const rootRes = roots.map((root) => new RegExp(`${escapeRe(root)}(?![A-Za-z0-9._-])`, 'g'));
+  const allowed = [isolatedRoot ?? []].flat().filter(Boolean);
+  const hits = [];
+  for (const line of String(streamText ?? '').split('\n')) {
+    let event;
+    try {
+      event = JSON.parse(line.trim());
+    } catch {
+      continue;
+    }
+    const content = event?.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (event.type === 'user' && block?.type === 'tool_result') {
+        const snippet = findRoot(toolResultText(block), rootRes, true);
+        if (snippet !== null) hits.push({ tool: 'tool_result', snippet });
+        continue;
+      }
+      if (event.type !== 'assistant' || block?.type !== 'tool_use') continue;
+      const tool = String(block.name ?? '?');
+      let hit = null;
+      for (const text of stringsIn(block.input ?? {})) {
+        hit = findRoot(text, rootRes, false);
+        if (hit !== null) break;
+        if (SYMLINK_ESCAPES.some(([re]) => re.test(text))) {
+          hit = text.slice(0, 160);
+          break;
+        }
+        if (allowed.length === 0) continue;
+        const escape = gitTargets(text).find((target) =>
+          path.isAbsolute(target)
+            ? !allowed.some((root) => within(path.resolve(target), root))
+            : target.split('/').includes('..')
+        );
+        if (escape) {
+          hit = text.slice(0, 160);
+          break;
+        }
+      }
+      if (hit !== null) hits.push({ tool, snippet: hit });
+    }
+  }
+  return { contaminated: hits.length > 0, hits };
+}
+
+const ALWAYS_REDACT = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'GH_TOKEN'];
+const SECRET_NAME_RE = /(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)/i;
+
+/**
+ * Replace secret env values in `text` with `[REDACTED:<NAME>]`: the known
+ * credential variables, plus any variable whose NAME looks secret
+ * (TOKEN/SECRET/PASSWORD/API_KEY/PRIVATE_KEY) with a value of 12+ chars.
+ * JSON-escaped forms are replaced too; longer values go first.
+ */
+export function redactSecrets(text, env = process.env) {
+  if (typeof text !== 'string' || text === '') return text;
+  const pairs = [];
+  for (const [name, value] of Object.entries(env ?? {})) {
+    if (typeof value !== 'string') continue;
+    const listed = ALWAYS_REDACT.includes(name);
+    if (!(listed ? value.length >= 4 : SECRET_NAME_RE.test(name) && value.length >= 12)) continue;
+    pairs.push([name, value]);
+    const escaped = JSON.stringify(value).slice(1, -1);
+    if (escaped !== value) pairs.push([name, escaped]);
+  }
+  pairs.sort((a, b) => b[1].length - a[1].length);
+  let out = text;
+  for (const [name, value] of pairs) out = out.split(value).join(`[REDACTED:${name}]`);
+  return out;
+}
+
 /** @type {Array<[RegExp, string]>} */
 const STDERR_ERRORS = [
   [/not allowed|tool.{0,40}(disallowed|unavailable)/i, 'tool not allowed'],
   [/permission (was )?denied|requires? (approval|permission)/i, 'permission denied'],
-  [/budget/i, 'budget exhausted'],
 ];
+const BUDGET_RE = /budget/i;
+const TIMEOUT_RE = /timed out after \d+ ms/;
 
 /**
- * Was this `claude -p` invocation a real answer, or a harness failure that
- * must not count as a miss? Only stderr and the JSON envelope are inspected,
- * never the answer text (a review may legitimately discuss permissions).
+ * Was this `claude -p` invocation a real answer, an INCOMPLETE one (it ran out
+ * of budget or turns, or was killed by the timeout: a graded failure, so a
+ * config too slow or expensive to finish does not look as good as one that
+ * finishes), or a harness failure that must not count at all? Only stderr and
+ * the JSON envelope are inspected, never the answer text (a review may
+ * legitimately discuss permissions).
  * @param {{ status: number | null; signal?: string | null; stdout: string; stderr?: string }} run
+ * @param {(stdout: string) => any} [parse] parseClaudeJson (default) or parseClaudeStream
  */
-export function classifyClaudeRun(run) {
+export function classifyClaudeRun(run, parse = parseClaudeJson) {
   const stderr = (run.stderr ?? '').trim();
   const firstLine = (text) => text.split('\n').find(Boolean)?.slice(0, 200) ?? '';
+  const tryParse = () => {
+    try {
+      return parse(run.stdout);
+    } catch {
+      return undefined;
+    }
+  };
+  const incomplete = (reason) => {
+    const parsed = tryParse();
+    return parsed ? { status: 'incomplete', reason, parsed } : { status: 'incomplete', reason };
+  };
+  if (TIMEOUT_RE.test(stderr))
+    return incomplete(`timed out (${firstLine(TIMEOUT_RE.exec(stderr)[0])})`);
   if (run.signal) return { status: 'error', reason: `claude killed by signal ${run.signal}` };
+  if (BUDGET_RE.test(stderr)) return incomplete(`budget exhausted: ${firstLine(stderr)}`);
   if (run.status !== 0)
     return { status: 'error', reason: `claude exited ${run.status}: ${firstLine(stderr)}` };
   for (const [re, label] of STDERR_ERRORS)
     if (re.test(stderr)) return { status: 'error', reason: `${label}: ${firstLine(stderr)}` };
   let parsed;
   try {
-    parsed = parseClaudeJson(run.stdout);
+    parsed = parse(run.stdout);
   } catch (error) {
     return { status: 'error', reason: `unparseable claude JSON (${error.message.slice(0, 120)})` };
   }
@@ -423,8 +842,10 @@ export function classifyClaudeRun(run) {
     const tools = [...new Set(parsed.permissionDenials.map((d) => d?.tool_name ?? '?'))];
     return { status: 'error', reason: `permission denied: ${tools.join(', ')}`, parsed };
   }
-  if (parsed.subtype && /budget/i.test(parsed.subtype))
-    return { status: 'error', reason: `budget exhausted (${parsed.subtype})`, parsed };
+  if (parsed.subtype && BUDGET_RE.test(parsed.subtype))
+    return { status: 'incomplete', reason: `budget exhausted (${parsed.subtype})`, parsed };
+  if (parsed.subtype === 'error_max_turns')
+    return { status: 'incomplete', reason: `max turns reached (${parsed.subtype})`, parsed };
   if (parsed.subtype?.startsWith('error'))
     return { status: 'error', reason: `claude ended with ${parsed.subtype}`, parsed };
   if (parsed.isError) return { status: 'error', reason: 'claude reported is_error', parsed };
@@ -472,11 +893,97 @@ export function decideCaught(evalCase, judge, deterministic) {
   return judge.caught && Boolean(deterministic?.anchorMatched);
 }
 
+/**
+ * Combine repeated judge verdicts on ONE review: caught on a strict majority
+ * (a tie is not caught), mean score, and whether the judge disagreed with
+ * itself (grader inconsistency, reported separately from reviewer flips).
+ */
+export function majorityVerdict(verdicts) {
+  const yes = verdicts.filter((v) => v.caught).length;
+  const caught = yes * 2 > verdicts.length;
+  const score =
+    Math.round((verdicts.reduce((sum, v) => sum + v.score, 0) / verdicts.length) * 100) / 100;
+  const reason = (verdicts.find((v) => v.caught === caught) ?? verdicts[0])?.reason ?? '';
+  return {
+    caught,
+    score,
+    reason,
+    verdicts,
+    disagreement: yes > 0 && yes < verdicts.length,
+  };
+}
+
 // ---------------------------------------------------------------- reporting
 
 const scored = (run) => run.status !== 'error';
+const round = (value, places = 2) =>
+  value === null || value === undefined ? null : Math.round(value * 10 ** places) / 10 ** places;
 
-/** Per-case results across repeated runs, with defect recall and control precision. */
+function choose(n, k) {
+  if (k < 0 || k > n) return 0;
+  let out = 1;
+  for (let i = 1; i <= k; i += 1) out = (out * (n - k + i)) / i;
+  return out;
+}
+
+/** Unbiased pass@k from n scored runs with c successes: 1 - C(n-c,k)/C(n,k). */
+export function passAtK(n, c, k) {
+  if (!(n > 0) || !(k > 0) || k > n) return null;
+  return 1 - choose(n - c, k) / choose(n, k);
+}
+
+/** Unbiased pass^k (all k succeed) from n scored runs with c successes: C(c,k)/C(n,k). */
+export function passHatK(n, c, k) {
+  if (!(n > 0) || !(k > 0) || k > n) return null;
+  return choose(c, k) / choose(n, k);
+}
+
+/** Wilson score interval (95% by default) for a proportion; null when n is 0. */
+export function wilsonInterval(successes, n, z = 1.96) {
+  if (!(n > 0)) return null;
+  const p = successes / n;
+  const z2 = z * z;
+  const centre = (p + z2 / (2 * n)) / (1 + z2 / n);
+  const margin = (z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / (1 + z2 / n);
+  const low = Math.max(0, centre - margin);
+  const high = Math.min(1, centre + margin);
+  return { low, high, halfWidth: (high - low) / 2 };
+}
+
+const runCost = (run) => {
+  const parts = [run.review?.costUsd, run.judgeCostUsd].filter((v) => typeof v === 'number');
+  return parts.length === 0 ? null : parts.reduce((a, b) => a + b, 0);
+};
+const runMinutes = (run) =>
+  typeof run.review?.durationMs === 'number' ? run.review.durationMs / 60000 : null;
+const mean = (values) =>
+  values.length === 0 ? null : values.reduce((a, b) => a + b, 0) / values.length;
+
+/** How often each skill / subagent ran: runs it appeared in, and total calls. */
+function aggregateToolStats(runs) {
+  const out = { runs: 0, toolCalls: 0, skills: {}, agents: {} };
+  for (const run of runs) {
+    const stats = run.review?.toolStats;
+    if (!stats) continue;
+    out.runs += 1;
+    out.toolCalls += stats.toolCalls ?? 0;
+    for (const [key, names] of [
+      ['skills', stats.skills ?? []],
+      ['agents', stats.agents ?? []],
+    ]) {
+      for (const name of new Set(names)) (out[key][name] ??= { runs: 0, calls: 0 }).runs += 1;
+      for (const name of names) out[key][name].calls += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Per-case results across repeated runs (pass@k / pass^k with k = scored
+ * runs, judge self-disagreements, mean cost and minutes), defect recall and
+ * control precision with Wilson 95% CIs, totals, a noise line and the
+ * skill/agent routing aggregate.
+ */
 export function summarise(runs) {
   const byCase = {};
   for (const run of runs) {
@@ -486,32 +993,70 @@ export function summarise(runs) {
       caught: 0,
       errors: 0,
       scores: [],
+      judgeDisagreements: 0,
+      costs: [],
+      minutes: [],
+      seen: false,
+      incomplete: 0,
+      contaminated: 0,
     });
+    if (run.seenInHarness === true) entry.seen = true;
+    const cost = runCost(run);
+    if (cost !== null) entry.costs.push(cost);
+    const minutes = runMinutes(run);
+    if (minutes !== null) entry.minutes.push(minutes);
     if (!scored(run)) {
       entry.errors += 1;
       continue;
     }
     entry.runs += 1;
+    if (run.incomplete === true) entry.incomplete += 1;
+    if (run.contaminated === true) entry.contaminated += 1;
     if (run.caught) entry.caught += 1;
+    if (run.judgeDisagreement === true) entry.judgeDisagreements += 1;
     if (typeof run.judge?.score === 'number') entry.scores.push(run.judge.score);
   }
   const cases = {};
   const recall = { caught: 0, runs: 0 };
   const controls = { clean: 0, falsePositives: 0, runs: 0 };
+  // Cases the overlaid harness does not already mention (see findOverlayLeaks).
+  const unseen = {
+    recall: { caught: 0, runs: 0 },
+    controls: { clean: 0, falsePositives: 0, runs: 0 },
+  };
   let errors = 0;
+  let judgeDisagreements = 0;
   for (const [caseId, entry] of Object.entries(byCase)) {
     errors += entry.errors;
+    judgeDisagreements += entry.judgeDisagreements;
     cases[caseId] = {
       expectClean: entry.expectClean,
       runs: entry.runs,
       caught: entry.caught,
       errors: entry.errors,
+      incomplete: entry.incomplete,
+      contaminated: entry.contaminated,
       flipped: entry.caught > 0 && entry.caught < entry.runs,
-      meanScore:
-        entry.scores.length === 0
-          ? null
-          : Math.round((entry.scores.reduce((a, b) => a + b, 0) / entry.scores.length) * 100) / 100,
+      meanScore: round(mean(entry.scores)),
+      // pass@1 = c/n, the per-trial rate: comparable across invocations with different run counts.
+      passAt1: round(passAtK(entry.runs, entry.caught, 1), 4),
+      passAtK: round(passAtK(entry.runs, entry.caught, entry.runs), 4),
+      passHatK: round(passHatK(entry.runs, entry.caught, entry.runs), 4),
+      judgeDisagreements: entry.judgeDisagreements,
+      meanCostUsd: round(mean(entry.costs)),
+      meanMinutes: round(mean(entry.minutes)),
+      seenInHarness: entry.seen,
     };
+    if (!entry.seen) {
+      if (entry.expectClean) {
+        unseen.controls.runs += entry.runs;
+        unseen.controls.clean += entry.caught;
+        unseen.controls.falsePositives += entry.runs - entry.caught;
+      } else {
+        unseen.recall.runs += entry.runs;
+        unseen.recall.caught += entry.caught;
+      }
+    }
     if (entry.expectClean) {
       controls.runs += entry.runs;
       controls.clean += entry.caught;
@@ -521,13 +1066,64 @@ export function summarise(runs) {
       recall.caught += entry.caught;
     }
   }
-  return { cases, recall, controls, errors };
+  recall.rate = recall.runs > 0 ? recall.caught / recall.runs : null;
+  recall.ci = wilsonInterval(recall.caught, recall.runs);
+  controls.rate = controls.runs > 0 ? controls.clean / controls.runs : null;
+  controls.ci = wilsonInterval(controls.clean, controls.runs);
+  unseen.recall.rate = unseen.recall.runs > 0 ? unseen.recall.caught / unseen.recall.runs : null;
+  unseen.recall.ci = wilsonInterval(unseen.recall.caught, unseen.recall.runs);
+  unseen.controls.rate =
+    unseen.controls.runs > 0 ? unseen.controls.clean / unseen.controls.runs : null;
+  unseen.controls.ci = wilsonInterval(unseen.controls.clean, unseen.controls.runs);
+  const totals = {
+    costUsd: round(runs.reduce((sum, r) => sum + (runCost(r) ?? 0), 0)),
+    minutes: round(runs.reduce((sum, r) => sum + (runMinutes(r) ?? 0), 0)),
+    runs: runs.length,
+  };
+  const noise = {
+    flippedCases: Object.values(cases).filter((c) => c.flipped).length,
+    recallHalfWidth: recall.ci?.halfWidth ?? null,
+  };
+  // Mean per-case pass@1 (each case weighs the same, whatever its run count).
+  const meanPassAt1 = (clean) =>
+    round(
+      mean(
+        Object.values(cases)
+          .filter((c) => c.expectClean === clean && c.passAt1 !== null)
+          .map((c) => c.passAt1)
+      ),
+      4
+    );
+  return {
+    cases,
+    recall,
+    controls,
+    unseen,
+    incomplete: Object.values(cases).reduce((sum, c) => sum + c.incomplete, 0),
+    contaminated: Object.values(cases).reduce((sum, c) => sum + c.contaminated, 0),
+    errorRate: runs.length > 0 ? errors / runs.length : null,
+    passAt1: { defects: meanPassAt1(false), controls: meanPassAt1(true) },
+    errors,
+    judgeDisagreements,
+    totals,
+    noise,
+    toolStats: aggregateToolStats(runs),
+  };
 }
 
-/** Cases whose caught rate (over scored runs) changed between two invocations. */
+/** Per-case summaries from a full result (`runs`) or a committed baseline (`cases`). */
+function caseSummaries(resultOrBaseline) {
+  if (Array.isArray(resultOrBaseline?.runs)) return summarise(resultOrBaseline.runs).cases;
+  return resultOrBaseline?.cases ?? {};
+}
+
+/**
+ * Cases whose caught rate (over scored runs) changed between two invocations.
+ * Either side may be a full result or a summary-only baseline.
+ */
 export function diffFlips(previous, current) {
-  const before = summarise(previous.runs).cases;
-  const after = summarise(current.runs).cases;
+  const before = caseSummaries(previous);
+  const after = caseSummaries(current);
   const flips = [];
   for (const caseId of Object.keys(after).sort()) {
     const b = before[caseId];
@@ -547,39 +1143,164 @@ export function diffFlips(previous, current) {
   return flips;
 }
 
+/**
+ * The committed, summary-only form of a result: configuration, per-case
+ * summary and the headline rates with CIs. No review text, judge reasons or
+ * transcripts, so it is safe to check in.
+ */
+export function buildBaseline(result) {
+  const summary = summarise(result.runs);
+  return {
+    kind: 'harness-eval-baseline',
+    config: result.config,
+    harnessSha: result.harnessSha ?? null,
+    startedAt: result.startedAt,
+    runsPerCase: result.runsPerCase,
+    model: result.model ?? null,
+    judgeModel: result.judgeModel ?? null,
+    judgeRepeat: result.judgeRepeat ?? 1,
+    split: result.split ?? 'all',
+    cases: summary.cases,
+    recall: summary.recall,
+    controls: summary.controls,
+    unseen: summary.unseen,
+    incomplete: summary.incomplete,
+    contaminated: summary.contaminated,
+    errorRate: summary.errorRate,
+    passAt1: summary.passAt1,
+    errors: summary.errors,
+    judgeDisagreements: summary.judgeDisagreements,
+    totals: summary.totals,
+    noise: summary.noise,
+    toolStats: summary.toolStats,
+  };
+}
+
+/**
+ * Where `--save-baseline` writes: `<dir>/<YYYY-MM-DD>T<HHMM>--<config>.json`
+ * (UTC, from startedAt), so same-day runs of one config never collide.
+ */
+export function baselinePath(result, dir = BASELINES_DIR) {
+  const iso = new Date(result.startedAt).toISOString();
+  const stamp = `${iso.slice(0, 10)}T${iso.slice(11, 13)}${iso.slice(14, 16)}`;
+  return path.join(dir, `${stamp}--${result.config}.json`);
+}
+
+/** Write the baseline; refuses to overwrite an existing file. Returns its path. */
+export function writeBaseline(result, dir = BASELINES_DIR, env = process.env) {
+  const file = baselinePath(result, dir);
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    fs.writeFileSync(
+      file,
+      redactSecrets(`${JSON.stringify(buildBaseline(result), null, 2)}\n`, env),
+      {
+        flag: 'wx',
+      }
+    );
+  } catch (error) {
+    if (error?.code === 'EEXIST')
+      throw new Error(`baseline ${file} already exists; not overwriting`);
+    throw error;
+  }
+  return file;
+}
+
 const cell = (value) =>
   String(value ?? '')
     .replace(/\\/g, '\\\\')
     .replace(/\|/g, '\\|')
     .replace(/\n/g, ' ');
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
+const pct = (value) =>
+  value === null || value === undefined ? 'n/a' : `${Math.round(value * 100)}%`;
+const ciText = (ci) => (ci ? `95% CI ${pct(ci.low)}-${pct(ci.high)}` : '95% CI n/a');
+const fixed = (value, places) =>
+  value === null || value === undefined ? 'n/a' : value.toFixed(places);
+
+function harnessLine(result) {
+  const parts = [];
+  if (result.harnessSha)
+    parts.push(
+      `Harness ${result.harnessSha.slice(0, 12)}${result.harnessRef ? ` (${result.harnessRef})` : ''}, overlaid on every case base`
+    );
+  if (!result.dryRun) {
+    parts.push(`reviewer model ${result.model ?? 'CLI default'}`);
+    parts.push(
+      `judge ${result.judgeModel ?? 'CLI default'}${(result.judgeRepeat ?? 1) > 1 ? ` x${result.judgeRepeat}` : ''}`
+    );
+  }
+  if (result.split && result.split !== 'all') parts.push(`split ${result.split}`);
+  return parts.length > 0 ? `${parts.join('; ')}.` : null;
+}
+
+/** "Seen in harness" section: cases whose PRs/SHAs/lesson wording the overlay mentions. */
+function seenSection(result) {
+  const seen = Object.entries(result.seenCases ?? {}).filter(([, hits]) => hits.length > 0);
+  if (seen.length === 0) return [];
+  const splitOf = (caseId) => result.runs.find((r) => r.caseId === caseId)?.split;
+  const lines = [
+    '',
+    '## Seen in harness',
+    '',
+    'The overlaid harness already mentions these cases, so they measure a memorized lesson, not generalization. Read the unseen-only numbers.',
+    '',
+  ];
+  for (const [caseId, hits] of seen) {
+    const warn = splitOf(caseId) === 'test' ? ` **WARNING: ${SEEN_TEST_WARNING}.**` : '';
+    lines.push(
+      `- ${caseId}${warn}: ${hits
+        .slice(0, 10)
+        .map((h) => `${h.path}:${h.line} (${cell(h.term)})`)
+        .join(', ')}${hits.length > 10 ? ` and ${hits.length - 10} more` : ''}`
+    );
+  }
+  return lines;
+}
 
 export function formatSummaryMarkdown(result, flips, comparedTo) {
   const lines = [
     `# Harness eval: ${result.config}`,
     '',
     `Started ${result.startedAt}${result.dryRun ? ' (dry run: no model calls)' : ''}.`,
-    '',
   ];
+  const harness = harnessLine(result);
+  if (harness) lines.push(harness);
+  lines.push('');
   if (result.dryRun) {
     lines.push('| case | patches apply | combined merge | error |', '|---|---|---|---|');
     for (const run of result.runs)
       lines.push(
         `| ${run.caseId} | ${run.applied ? 'yes' : 'NO'} | ${run.combinedMerge ?? ''} | ${cell(run.reason)} |`
       );
+    lines.push(...seenSection(result));
     return `${lines.join('\n')}\n`;
   }
   const summary = summarise(result.runs);
+  const { recall, controls, noise, totals } = summary;
   lines.push(
-    `Recall on defect cases: ${summary.recall.caught}/${summary.recall.runs} scored runs caught the seam defect.`,
-    `Controls: ${summary.controls.clean}/${summary.controls.runs} clean, ${plural(summary.controls.falsePositives, 'false positive')}.`,
-    `Harness errors (excluded from both): ${summary.errors}.`,
+    `Recall on defect cases: ${recall.caught}/${recall.runs} scored runs caught the seam defect (${pct(recall.rate)}, ${ciText(recall.ci)}).`,
+    `Controls: ${controls.clean}/${controls.runs} clean, ${plural(controls.falsePositives, 'false positive')} (precision ${pct(controls.rate)}, ${ciText(controls.ci)}).`,
+    `Unseen cases only: recall ${summary.unseen.recall.caught}/${summary.unseen.recall.runs} (${pct(summary.unseen.recall.rate)}, ${ciText(summary.unseen.recall.ci)}); controls ${summary.unseen.controls.clean}/${summary.unseen.controls.runs} clean (${ciText(summary.unseen.controls.ci)}).`,
+    `Incomplete (budget, max turns or timeout; graded as failures): ${summary.incomplete}.`,
+    `Contaminated (graded as failures): ${summary.contaminated}.`,
+    `Harness errors (excluded from both): ${summary.errors}, error rate ${pct(summary.errorRate)}. Judge self-disagreements: ${summary.judgeDisagreements}.`,
+    `Noise: ${plural(noise.flippedCases, 'case')} flipped within this invocation; recall CI half-width ±${noise.recallHalfWidth === null ? 'n/a' : `${Math.round(noise.recallHalfWidth * 100)} pts`}. Do not act on a config difference smaller than the half-width; add runs or cases.`,
+    `pass@1 (per-trial rate): defects ${pct(summary.passAt1.defects)}, controls ${pct(summary.passAt1.controls)} (mean over cases; compare this across invocations with different run counts).`,
+    `Totals: $${fixed(totals.costUsd, 2)} and ${fixed(totals.minutes, 1)} min over ${plural(totals.runs, 'run')} (review + judge).`,
     '',
     '"caught" for a control means the review reported no high/medium defect in its files. ' +
+      "pass@1 is the per-trial rate c/n; pass@n / pass^n use n = the case's scored runs " +
+      '(pass@n: at least one run caught it; pass^n: every run did). ' +
       'judge-only / pattern-only count scored runs where just one grader said caught.',
-    '',
-    '| case | type | caught | errors | flipped | mean judge score | judge-only | pattern-only | cost USD | minutes |',
-    '|---|---|---|---|---|---|---|---|---|---|'
+    ''
+  );
+  const ns = [...new Set(Object.values(summary.cases).map((c) => c.runs))];
+  const nLabel = ns.length === 1 ? String(ns[0]) : 'n';
+  const withN = (value, n) => (ns.length === 1 ? fixed(value, 2) : `${fixed(value, 2)} (n=${n})`);
+  lines.push(
+    `| case | type | caught | errors | flipped | pass@1 | pass@${nLabel} | pass^${nLabel} | mean judge score | judge-only | pattern-only | judge disagreements | incomplete | mean cost USD | mean minutes | transcripts |`,
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|'
   );
   for (const [caseId, entry] of Object.entries(summary.cases)) {
     const runs = result.runs.filter((r) => r.caseId === caseId);
@@ -590,16 +1311,57 @@ export function formatSummaryMarkdown(result, flips, comparedTo) {
     const patternOnly = entry.expectClean
       ? 'n/a'
       : ok.filter((r) => !r.judgeCaught && r.patternCaught).length;
-    const cost = runs.reduce((sum, r) => sum + (r.review?.costUsd ?? 0), 0);
-    const minutes = runs.reduce((sum, r) => sum + (r.review?.durationMs ?? 0), 0) / 60000;
+    const transcripts =
+      runs
+        .filter((r) => r.transcript)
+        .map((r) => `[${r.run}](${r.transcript})`)
+        .join(' ') || 'none';
     lines.push(
-      `| ${caseId} | ${entry.expectClean ? 'control' : 'defect'} | ${entry.caught}/${entry.runs} | ${entry.errors} | ${entry.flipped ? 'YES' : 'no'} | ${entry.meanScore ?? 'n/a'} | ${judgeOnly} | ${patternOnly} | ${cost.toFixed(2)} | ${minutes.toFixed(1)} |`
+      `| ${caseId} | ${entry.expectClean ? 'control' : 'defect'} | ${entry.caught}/${entry.runs} | ${entry.errors} | ${entry.flipped ? 'YES' : 'no'} | ${fixed(entry.passAt1, 2)} | ${withN(entry.passAtK, entry.runs)} | ${withN(entry.passHatK, entry.runs)} | ${entry.meanScore ?? 'n/a'} | ${judgeOnly} | ${patternOnly} | ${entry.judgeDisagreements} | ${entry.incomplete} | ${fixed(entry.meanCostUsd, 2)} | ${fixed(entry.meanMinutes, 1)} | ${transcripts} |`
     );
+  }
+  const { toolStats } = summary;
+  if (toolStats.runs > 0) {
+    lines.push(
+      '',
+      `## Routing (skills and subagents across ${plural(toolStats.runs, 'review run')}, ${toolStats.toolCalls} tool calls)`,
+      ''
+    );
+    const routed = [
+      ...Object.entries(toolStats.skills).map(([name, s]) => ['skill', name, s]),
+      ...Object.entries(toolStats.agents).map(([name, s]) => ['agent', name, s]),
+    ];
+    if (routed.length === 0) lines.push('No Skill or Task/Agent calls were made.');
+    else {
+      lines.push('| kind | name | runs | calls |', '|---|---|---|---|');
+      for (const [kind, name, s] of routed)
+        lines.push(`| ${kind} | ${cell(name)} | ${s.runs}/${toolStats.runs} | ${s.calls} |`);
+    }
+  }
+  lines.push(...seenSection(result));
+  const peeked = result.runs.filter((r) => scored(r) && r.contaminated);
+  if (peeked.length > 0) {
+    lines.push('', '## Contaminated reviews (graded as failures)', '');
+    for (const run of peeked) {
+      lines.push(`- ${run.caseId} run ${run.run}: ${cell(run.contaminationReason)}`);
+      for (const hit of run.contamination ?? [])
+        lines.push(`  - ${hit.tool}: \`${cell(hit.snippet).replace(/`/g, "'")}\``);
+    }
+  }
+  const unfinished = result.runs.filter((r) => scored(r) && r.incomplete);
+  if (unfinished.length > 0) {
+    lines.push('', '## Incomplete reviews (graded as failures)', '');
+    for (const run of unfinished)
+      lines.push(`- ${run.caseId} run ${run.run}: ${cell(run.incompleteReason)}`);
   }
   const errored = result.runs.filter((r) => !scored(r));
   if (errored.length > 0) {
     lines.push('', '## Harness errors (not counted as misses)', '');
-    for (const run of errored) lines.push(`- ${run.caseId} run ${run.run}: ${cell(run.reason)}`);
+    for (const run of errored) {
+      lines.push(`- ${run.caseId} run ${run.run}: ${cell(run.reason)}`);
+      for (const hit of run.contamination ?? [])
+        lines.push(`  - ${hit.tool}: \`${cell(hit.snippet).replace(/`/g, "'")}\``);
+    }
   }
   if (flips) {
     lines.push('', `## Flips${comparedTo ? ` vs ${comparedTo}` : ''}`);
@@ -645,7 +1407,21 @@ export function selectLeftovers({ branches, worktrees }) {
 
 // ---------------------------------------------------------------- execution
 
-let activeChild = null;
+/** Every child process still running (both ends of a pipe included), for signal cleanup. */
+const live = new Set();
+export const liveChildren = () => live;
+/** Kill every live child (SIGINT/SIGTERM handler, tests). */
+export function killLiveChildren(signal = 'SIGTERM') {
+  for (const child of live) child.kill(signal);
+}
+const track = (child) => {
+  live.add(child);
+  child.on('close', () => live.delete(child));
+  child.on('error', () => {
+    if (child.exitCode !== null || child.pid === undefined) live.delete(child);
+  });
+  return child;
+};
 
 /** Default process runner (async so signal handlers can fire mid-run). */
 export const nodeExec = {
@@ -656,14 +1432,17 @@ export const nodeExec = {
         env: opts.env ?? process.env,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-      activeChild = child;
+      track(child);
       let stdout = '';
       let stderr = '';
       let timer;
+      let killTimer;
       if (opts.timeout)
         timer = setTimeout(() => {
           stderr += `\ntimed out after ${opts.timeout} ms`;
           child.kill('SIGTERM');
+          // A child that ignores SIGTERM gets SIGKILL after a grace period.
+          killTimer = setTimeout(() => child.kill('SIGKILL'), opts.killGraceMs ?? 10_000);
         }, opts.timeout);
       child.stdout.setEncoding('utf8').on('data', (d) => {
         stdout += d;
@@ -676,11 +1455,54 @@ export const nodeExec = {
       });
       child.on('close', (status, signal) => {
         clearTimeout(timer);
-        if (activeChild === child) activeChild = null;
+        clearTimeout(killTimer);
         resolve({ status: status ?? (signal ? null : 1), signal, stdout, stderr });
       });
       child.stdin.on('error', () => {});
       child.stdin.end(opts.input ?? '');
+    });
+  },
+  /**
+   * `from | to` without a shell: both are argv arrays ([command, args]). The
+   * status is the first non-zero exit (producer first), stderr is both.
+   */
+  pipe(from, to, opts = {}) {
+    return new Promise((resolve) => {
+      const producer = track(
+        spawn(from[0], from[1], { cwd: opts.cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+      );
+      const consumer = track(
+        spawn(to[0], to[1], { cwd: opts.cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+      );
+      let stdout = '';
+      let stderr = '';
+      const codes = {};
+      producer.stdout.pipe(consumer.stdin);
+      consumer.stdin.on('error', () => {});
+      for (const child of [producer, consumer]) {
+        child.stderr.setEncoding('utf8').on('data', (d) => {
+          stderr += d;
+        });
+        child.on('error', (error) => {
+          stderr += String(error);
+        });
+      }
+      consumer.stdout.setEncoding('utf8').on('data', (d) => {
+        stdout += d;
+      });
+      const done = () => {
+        if (!('producer' in codes && 'consumer' in codes)) return;
+        const status = codes.producer !== 0 ? (codes.producer ?? 1) : (codes.consumer ?? 1);
+        resolve({ status, stdout, stderr });
+      };
+      producer.on('close', (code) => {
+        codes.producer = code;
+        done();
+      });
+      consumer.on('close', (code) => {
+        codes.consumer = code;
+        done();
+      });
     });
   },
 };
@@ -700,11 +1522,244 @@ const IDENTITY = [
   'user.email=harness-eval@localhost',
 ];
 
-async function must(exec, args, what) {
-  const result = await exec.run('git', args);
+async function mustPipe(exec, from, to, what) {
+  const result = await exec.pipe(from, to);
   if (result.status !== 0)
     throw new Error(`${what} failed: ${(result.stderr || result.stdout || '').trim()}`);
   return result;
+}
+
+async function must(exec, args, what, opts) {
+  const result = await (opts ? exec.run('git', args, opts) : exec.run('git', args));
+  if (result.status !== 0)
+    throw new Error(`${what} failed: ${(result.stderr || result.stdout || '').trim()}`);
+  return result;
+}
+
+/**
+ * Merge ONLY the harness script keys (HARNESS_SCRIPT_KEYS) from the harness
+ * package.json into the base's. Everything else of the base is kept; when
+ * nothing changes the base text is returned byte-for-byte, otherwise it is
+ * re-serialised as 2-space JSON with a trailing newline (the repo's format).
+ */
+export function mergePackageScripts(baseText, harnessText) {
+  let base;
+  let harness;
+  try {
+    base = JSON.parse(baseText);
+    harness = JSON.parse(harnessText);
+  } catch {
+    return baseText;
+  }
+  if (!base || typeof base !== 'object' || !harness || typeof harness !== 'object') return baseText;
+  let changed = false;
+  for (const key of HARNESS_SCRIPT_KEYS) {
+    const value = harness.scripts?.[key];
+    if (typeof value !== 'string' || base.scripts?.[key] === value) continue;
+    base.scripts = base.scripts ?? {};
+    base.scripts[key] = value;
+    changed = true;
+  }
+  return changed ? `${JSON.stringify(base, null, 2)}\n` : baseText;
+}
+
+/**
+ * Replace the case base's harness with the one at `harnessSha` and commit it,
+ * so the review runs the skills, agents, hooks, CLAUDE.md and review scripts
+ * under test rather than whatever the (often months-old) case base shipped.
+ * The worktree must be checked out at the case base. Returns the overlay
+ * commit (`effectiveBase`): branches are cut from it and the review treats it
+ * as `main`.
+ * @param {any} exec
+ * @param {string} worktree
+ * @param {string} harnessSha
+ * @param {{ sourceRepo?: string }} [options] read harness objects from this repo (isolated mode)
+ */
+export async function overlayHarness(exec, worktree, harnessSha, { sourceRepo } = {}) {
+  const git = (args, what, opts) =>
+    must(exec, ['-C', worktree, ...args], `harness overlay: ${what}`, opts);
+  // Where the harness commit's objects live: the worktree itself (a linked
+  // worktree shares them) or, for an isolated repo, the source repo (read only).
+  const source = sourceRepo ?? worktree;
+  await git(
+    ['rm', '-r', '-q', '--ignore-unmatch', '--', ...HARNESS_REMOVE_PATHS],
+    'remove base harness'
+  );
+  const present = [];
+  for (const p of HARNESS_OVERLAY_PATHS) {
+    const probe = await exec.run('git', ['-C', source, 'cat-file', '-e', `${harnessSha}:${p}`]);
+    if (probe.status === 0) present.push(p);
+  }
+  if (present.length > 0 && sourceRepo) {
+    await mustPipe(
+      exec,
+      ['git', ['-C', sourceRepo, 'archive', harnessSha, '--', ...present]],
+      ['tar', ['-x', '-f', '-', '-C', worktree]],
+      'harness overlay: extract'
+    );
+    await git(['add', '-A', '-f', '--', ...present], 'stage');
+  } else if (present.length > 0) await git(['checkout', harnessSha, '--', ...present], 'checkout');
+  const harnessPkg = await exec.run('git', ['-C', source, 'show', `${harnessSha}:package.json`]);
+  const basePkg = await exec.run('git', ['-C', worktree, 'show', 'HEAD:package.json']);
+  if (harnessPkg.status === 0 && basePkg.status === 0) {
+    const merged = mergePackageScripts(basePkg.stdout, harnessPkg.stdout);
+    if (merged !== basePkg.stdout) {
+      const blob = (
+        await git(['hash-object', '-w', '--stdin'], 'hash package.json', { input: merged })
+      ).stdout.trim();
+      await git(
+        ['update-index', '--cacheinfo', `100644,${blob},package.json`],
+        'stage package.json'
+      );
+      await git(['checkout', '--', 'package.json'], 'write package.json');
+    }
+  }
+  await git(
+    [
+      ...IDENTITY,
+      'commit',
+      '-q',
+      '--no-verify',
+      '--allow-empty',
+      '-m',
+      `harness overlay @ ${harnessSha.slice(0, 12)}`,
+    ],
+    'commit'
+  );
+  const effectiveBase = (await git(['rev-parse', 'HEAD'], 'resolve commit')).stdout.trim();
+  if (!SHA_RE.test(effectiveBase))
+    throw new Error(`harness overlay: unexpected commit id ${effectiveBase}`);
+  return { harnessSha, effectiveBase };
+}
+
+/**
+ * Build a history-free repo for one run: `git init`, the base TREE (via
+ * `git archive`, so no commits, refs or objects from this repo come along),
+ * committed as `base`, then the harness overlay committed on top. The review
+ * runs here, so `git log --all` / `git show` cannot reach the later fix
+ * commits: the answer stays structurally out of the reviewer's reach. `main`
+ * and `refs/remotes/origin/main` point at the overlay commit; no remote is
+ * configured, so fetch and push fail closed. The source repo is only read.
+ * @param {{ run: Function; pipe: Function }} exec
+ * @param {{ dir: string; baseSha: string; harnessSha: string; repo: string }} options
+ */
+export async function createIsolatedRepo(exec, { dir, baseSha, harnessSha, repo }) {
+  for (const [name, sha] of [
+    ['baseSha', baseSha],
+    ['harnessSha', harnessSha],
+  ])
+    if (typeof sha !== 'string' || !SHA_RE.test(sha))
+      throw new Error(`createIsolatedRepo needs a full ${name}`);
+  await must(exec, ['-C', repo, 'rev-parse', '--verify', `${baseSha}^{commit}`], 'resolve base');
+  await must(exec, ['init', '-q', '--initial-branch=main', dir], 'isolated repo: init');
+  await mustPipe(
+    exec,
+    ['git', ['-C', repo, 'archive', baseSha]],
+    ['tar', ['-x', '-f', '-', '-C', dir]],
+    'isolated repo: extract base'
+  );
+  await must(exec, ['-C', dir, 'add', '-A', '-f'], 'isolated repo: stage base');
+  await must(
+    exec,
+    ['-C', dir, ...IDENTITY, 'commit', '-q', '--no-verify', '-m', 'base'],
+    'isolated repo: commit base'
+  );
+  const overlay = await overlayHarness(exec, dir, harnessSha, { sourceRepo: repo });
+  await must(
+    exec,
+    ['-C', dir, 'update-ref', 'refs/remotes/origin/main', overlay.effectiveBase],
+    'isolated repo: origin/main'
+  );
+  return overlay;
+}
+
+/**
+ * Stable hash of what a reviewer could corrupt in the shared node_modules:
+ * `node_modules/.package-lock.json`, `cli/node_modules/.package-lock.json`
+ * (if present), and the package.json plus bin entries of vitest and
+ * typescript. Missing files are part of the hash, so creating one changes it.
+ * @param {string} dir checkout whose node_modules (often symlinks) to fingerprint
+ */
+export function nodeModulesFingerprint(dir) {
+  const hash = createHash('sha256');
+  const add = (rel) => {
+    let content;
+    try {
+      content = fs.readFileSync(path.join(dir, rel));
+    } catch {
+      content = null;
+    }
+    hash.update(`${rel}\0`);
+    hash.update(content === null ? 'missing' : 'present');
+    if (content !== null) hash.update(content);
+    hash.update('\0');
+    return content;
+  };
+  add('node_modules/.package-lock.json');
+  add('cli/node_modules/.package-lock.json');
+  for (const pkg of ['vitest', 'typescript']) {
+    const base = `node_modules/${pkg}`;
+    const manifest = add(`${base}/package.json`);
+    let bin = {};
+    try {
+      const parsed = JSON.parse(String(manifest ?? '{}'));
+      bin = typeof parsed.bin === 'string' ? { [pkg]: parsed.bin } : (parsed.bin ?? {});
+    } catch {}
+    for (const name of Object.keys(bin).sort())
+      add(path.posix.join(base, path.posix.normalize(String(bin[name]))));
+  }
+  return hash.digest('hex');
+}
+
+/** Depth-1 and depth-2 directories of `root` that hold a package.json. */
+function packageDirs(root) {
+  const found = [];
+  const skip = new Set(['node_modules', 'dist', 'coverage']);
+  const walk = (relative, depth) => {
+    if (depth > 2) return;
+    for (const dirent of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {
+      if (!dirent.isDirectory() || skip.has(dirent.name) || dirent.name.startsWith('.')) continue;
+      const child = relative === '.' ? dirent.name : `${relative}/${dirent.name}`;
+      if (fs.existsSync(path.join(root, child, 'package.json'))) found.push(child);
+      walk(child, depth + 1);
+    }
+  };
+  walk('.', 1);
+  return found;
+}
+
+/**
+ * Symlink the main checkout's node_modules (root + workspaces) into `dir`,
+ * like `npm run worktree:setup`, which only accepts linked worktrees. The
+ * links are gitignored. Returns the linked (or already linked) dirs.
+ */
+export function linkNodeModules(dir, mainCheckout) {
+  let pkg = {};
+  try {
+    pkg = JSON.parse(fs.readFileSync(path.join(mainCheckout, 'package.json'), 'utf8'));
+  } catch {}
+  const dirs = planLinks({
+    workspaces: Array.isArray(pkg.workspaces) ? pkg.workspaces : [],
+    candidates: packageDirs(mainCheckout),
+    mainHasNodeModules: (d) => fs.existsSync(path.join(mainCheckout, d, 'node_modules')),
+    worktreeHasPackage: (d) => fs.existsSync(path.join(dir, d, 'package.json')),
+  });
+  const linked = [];
+  for (const d of dirs) {
+    const link = path.join(dir, d, 'node_modules');
+    const target = path.join(mainCheckout, d, 'node_modules');
+    const stat = fs.lstatSync(link, { throwIfNoEntry: false });
+    const action = linkAction({
+      kind: !stat ? 'missing' : stat.isSymbolicLink() ? 'symlink' : 'other',
+      currentTarget: stat?.isSymbolicLink()
+        ? path.resolve(path.dirname(link), fs.readlinkSync(link))
+        : undefined,
+      target,
+    });
+    if (action === 'create') fs.symlinkSync(target, link, 'dir');
+    if (action === 'create' || action === 'ok') linked.push(d);
+  }
+  return linked;
 }
 
 const why = (result) => (result.stderr || result.stdout || `exit ${result.status}`).trim();
@@ -752,19 +1807,22 @@ export async function cleanupTrackedAsync(exec, repo, tracker) {
 }
 
 /**
- * Build the case's branches in a throwaway worktree, optionally review and
- * grade them, then ALWAYS remove the worktree and branches. `ctx.tracker`
- * mirrors what exists so a signal handler can clean up mid-run.
+ * Build the case's branches in a history-free isolated repo under
+ * `ctx.tempDir` (see createIsolatedRepo), optionally review and grade them.
+ * Nothing is created in the main repo, so cleanup is removing `tempDir`,
+ * which the caller (runEval, or its signal handler) owns.
  * @param {any} evalCase validated case
- * @param {{ exec: { run: Function }; repo: string; tempDir: string; runId: string; dryRun: boolean;
- *   judge?: boolean; rubric?: string; judgeModel?: string; maxBudgetUsd?: number;
- *   setup?: (worktree: string) => void; tracker?: { worktree: string | null; branches: string[] } }} ctx
+ * @param {{ exec: { run: Function; pipe: Function }; repo: string; tempDir: string; dryRun: boolean;
+ *   harnessSha: string; mainCheckout?: string; forbiddenRoots?: string[]; env?: NodeJS.ProcessEnv;
+ *   nodeModulesFingerprint?: (dir: string) => string; judge?: boolean; rubric?: string; model?: string;
+ *   judgeModel?: string; judgeRepeat?: number; maxBudgetUsd?: number; transcriptFile?: string;
+ *   transcriptLink?: string; setup?: (dir: string) => void; runId?: string; tracker?: unknown }} ctx
  */
 export async function runCase(evalCase, ctx) {
-  const { exec, repo, tempDir, runId } = ctx;
-  const tracker = ctx.tracker ?? { worktree: null, branches: [] };
-  const worktree = path.join(tempDir, 'worktree');
-  const refs = evalCase.branches.map((b) => `${BRANCH_PREFIX}${runId}/${b.name}`);
+  const { exec, repo, tempDir } = ctx;
+  const worktree = path.join(tempDir, 'repo');
+  // Plain branch names: they exist only in the isolated repo.
+  const refs = evalCase.branches.map((b) => b.name);
   const outcome = {
     caseId: evalCase.id,
     expectClean: evalCase.expectClean,
@@ -773,28 +1831,27 @@ export async function runCase(evalCase, ctx) {
     status: 'ok',
   };
   try {
-    await must(
-      exec,
-      ['-C', repo, 'rev-parse', '--verify', `${evalCase.base}^{commit}`],
-      'resolve base'
-    );
-    await must(
-      exec,
-      ['-C', repo, 'worktree', 'add', '--detach', worktree, evalCase.base],
-      'worktree add'
-    );
-    tracker.worktree = worktree;
+    if (typeof ctx.harnessSha !== 'string' || !SHA_RE.test(ctx.harnessSha))
+      throw new Error('runCase needs ctx.harnessSha (the resolved --harness-ref)');
+    const { effectiveBase } = await createIsolatedRepo(exec, {
+      dir: worktree,
+      baseSha: evalCase.base,
+      harnessSha: ctx.harnessSha,
+      repo,
+    });
+    outcome.harnessSha = ctx.harnessSha;
+    outcome.effectiveBase = effectiveBase;
     for (const [index, branch] of evalCase.branches.entries()) {
       await must(
         exec,
-        ['-C', worktree, 'checkout', '-q', '--detach', evalCase.base],
+        ['-C', worktree, 'checkout', '-q', '--detach', effectiveBase],
         'checkout base'
       );
       await must(exec, ['-C', worktree, 'checkout', '-q', '-b', refs[index]], 'create branch');
-      tracker.branches.push(refs[index]);
       for (const [p, patchPath] of branch.patchPaths.entries()) {
         await must(
           exec,
+
           ['-C', worktree, 'apply', '--index', patchPath],
           `apply ${branch.patches[p]} on ${branch.name}`
         );
@@ -819,7 +1876,7 @@ export async function runCase(evalCase, ctx) {
     // The seam must be semantic: the branches have to merge cleanly.
     await must(
       exec,
-      ['-C', worktree, 'checkout', '-q', '--detach', evalCase.base],
+      ['-C', worktree, 'checkout', '-q', '--detach', effectiveBase],
       'checkout base'
     );
     outcome.combinedMerge = 'clean';
@@ -852,16 +1909,20 @@ export async function runCase(evalCase, ctx) {
       throw new Error('control cases need the rubric judge (drop --no-judge)');
 
     await must(exec, ['-C', worktree, 'checkout', '-q', refs[0]], 'checkout first branch');
-    (ctx.setup ?? ((dir) => setupWorktree(dir, () => {})))(worktree);
+    (ctx.setup ?? ((dir) => linkNodeModules(dir, ctx.mainCheckout ?? repo)))(worktree);
     const reviewArgs = [
       '-p',
       '--output-format',
-      'json',
+      'stream-json',
+      '--verbose',
       '--no-session-persistence',
       '--max-budget-usd',
       String(ctx.maxBudgetUsd ?? 20),
       '--permission-mode',
       'dontAsk',
+    ];
+    if (ctx.model) reviewArgs.push('--model', ctx.model);
+    reviewArgs.push(
       '--allowedTools',
       'Bash',
       'Read',
@@ -872,16 +1933,77 @@ export async function runCase(evalCase, ctx) {
       '--disallowedTools',
       'Bash(git push:*)',
       'Bash(gh:*)',
-    ];
-    const reviewRun = classifyClaudeRun(
-      await exec.run('claude', reviewArgs, {
-        cwd: worktree,
-        input: buildReviewPrompt(evalCase, refs),
-        timeout: REVIEW_TIMEOUT_MS,
-      })
+      'Bash(curl:*)',
+      'Bash(wget:*)',
+      'WebFetch',
+      'WebSearch'
     );
+    // node_modules are symlinks into the main checkout: a reviewer that runs npm install there
+    // would change every later run. Fingerprint before and after.
+    const fingerprint = ctx.nodeModulesFingerprint ?? nodeModulesFingerprint;
+    const nodeModulesBefore = fingerprint(worktree);
+    const rawReview = await exec.run('claude', reviewArgs, {
+      cwd: worktree,
+      input: buildReviewPrompt(evalCase, refs, effectiveBase),
+      timeout: REVIEW_TIMEOUT_MS,
+    });
+    const nodeModulesChanged = fingerprint(worktree) !== nodeModulesBefore;
+    // Before anything is written or graded: the reviewer's Bash inherits process.env, and the
+    // stream carries tool results, so `env` output would otherwise land in artifacts.
+    const env = ctx.env ?? process.env;
+    rawReview.stdout = redactSecrets(rawReview.stdout ?? '', env);
+    rawReview.stderr = redactSecrets(rawReview.stderr ?? '', env);
+    if (ctx.transcriptFile) {
+      // Written before classification so errored runs keep their transcript too.
+      fs.mkdirSync(path.dirname(ctx.transcriptFile), { recursive: true });
+      fs.writeFileSync(ctx.transcriptFile, rawReview.stdout ?? '');
+      outcome.transcript = ctx.transcriptLink ?? ctx.transcriptFile;
+    }
+    if (nodeModulesChanged) {
+      outcome.nodeModulesModified = true;
+      throw new Error('reviewer modified shared node_modules — run npm ci in the main checkout');
+    }
+    const reviewRun = classifyClaudeRun(rawReview, parseClaudeStream);
     if (reviewRun.parsed) outcome.review = reviewRun.parsed;
     if (reviewRun.status === 'error') throw new Error(`review: ${reviewRun.reason}`);
+    if (ctx.forbiddenRoots?.length) {
+      let real = worktree;
+      try {
+        real = fs.realpathSync(worktree);
+      } catch {}
+      const contamination = detectContamination(rawReview.stdout, {
+        forbiddenRoots: ctx.forbiddenRoots,
+        isolatedRoot: [worktree, real],
+      });
+      if (contamination.contaminated) {
+        // A graded failure, not an exclusion: excluding would hide the cheating rate and let a
+        // configuration that peeks at this repo's history look no worse than one that does not.
+        outcome.contaminated = true;
+        outcome.contamination = contamination.hits;
+        outcome.contaminationReason = `contaminated: ${plural(contamination.hits.length, 'tool call')} reached outside the isolated repo (${contamination.hits.map((h) => h.tool).join(', ')})`;
+        if (reviewRun.status === 'incomplete') {
+          outcome.incomplete = true;
+          outcome.incompleteReason = reviewRun.reason;
+        }
+        outcome.judge = null;
+        outcome.judgeCaught = null;
+        outcome.patternCaught = null;
+        outcome.caught = false;
+        return outcome;
+      }
+    }
+    if (reviewRun.status === 'incomplete') {
+      // A graded failure: a defect is not caught, a control is not clean. No judge call.
+      outcome.incomplete = true;
+      outcome.incompleteReason = reviewRun.reason;
+      outcome.judge = null;
+      outcome.judgeCaught = null;
+      outcome.patternCaught = null;
+      outcome.caught = false;
+      return outcome;
+    }
+    // No answer from a run that finished is a harness failure, not a miss.
+    if (reviewRun.parsed.text.trim() === '') throw new Error('review: empty answer');
     const reviewText = reviewRun.parsed.text;
     outcome.deterministic = evalCase.expectClean
       ? null
@@ -895,23 +2017,36 @@ export async function runCase(evalCase, ctx) {
         '--no-session-persistence',
         '--tools',
         '',
+        '--model',
+        ctx.judgeModel ?? DEFAULT_JUDGE_MODEL,
       ];
-      if (ctx.judgeModel) judgeArgs.push('--model', ctx.judgeModel);
-      const judgeRun = classifyClaudeRun(
-        await exec.run('claude', judgeArgs, {
-          cwd: tempDir,
-          input: buildJudgePrompt({ rubric: ctx.rubric ?? '', evalCase, reviewText }),
-          timeout: JUDGE_TIMEOUT_MS,
-        })
-      );
-      if (judgeRun.status === 'error') throw new Error(`judge: ${judgeRun.reason}`);
-      outcome.judgeCostUsd = judgeRun.parsed.costUsd;
-      try {
-        outcome.judge = parseJudgeVerdict(judgeRun.parsed.text);
-      } catch (error) {
-        throw new Error(`judge: ${error.message}`);
+      const repeat = ctx.judgeRepeat ?? 1;
+      const verdicts = [];
+      let judgeCost = null;
+      for (let attempt = 1; attempt <= repeat; attempt += 1) {
+        const judgeRun = classifyClaudeRun(
+          await exec.run('claude', judgeArgs, {
+            cwd: tempDir,
+            input: buildJudgePrompt({ rubric: ctx.rubric ?? '', evalCase, reviewText }),
+            timeout: JUDGE_TIMEOUT_MS,
+          })
+        );
+        // A judge that runs out of budget or time is a harness failure, not a verdict.
+        if (judgeRun.status !== 'ok') throw new Error(`judge: ${judgeRun.reason}`);
+        if (typeof judgeRun.parsed.costUsd === 'number')
+          judgeCost = (judgeCost ?? 0) + judgeRun.parsed.costUsd;
+        try {
+          verdicts.push(parseJudgeVerdict(judgeRun.parsed.text));
+        } catch (error) {
+          throw new Error(`judge: ${error.message}`);
+        }
       }
+      outcome.judgeCostUsd = judgeCost;
+      const { disagreement, ...majority } = majorityVerdict(verdicts);
+      outcome.judge = majority;
+      outcome.judgeDisagreement = disagreement;
     }
+
     outcome.judgeCaught = outcome.judge ? outcome.judge.caught : null;
     outcome.patternCaught = outcome.deterministic ? outcome.deterministic.anchorMatched : null;
     outcome.caught = decideCaught(evalCase, outcome.judge, outcome.deterministic);
@@ -921,10 +2056,6 @@ export async function runCase(evalCase, ctx) {
     outcome.reason = error instanceof Error ? error.message : String(error);
     outcome.caught = null;
     return outcome;
-  } finally {
-    // `outcome` was already returned by reference, so this still reaches the caller.
-    const { failed } = await cleanupTrackedAsync(exec, repo, tracker);
-    if (failed.length > 0) outcome.cleanupFailed = failed;
   }
 }
 
@@ -933,7 +2064,13 @@ export function latestResult(outDir, config, exclude) {
   if (!fs.existsSync(outDir)) return undefined;
   const files = fs
     .readdirSync(outDir)
-    .filter((name) => name.endsWith(`--${config}.json`) && !name.includes('--dry-run--'))
+    .filter((name) => {
+      // `<stamp>--<config>.json` exactly: dry runs (`<stamp>--dry-run--<config>`) and
+      // configs that merely end in `config` do not match.
+      if (!name.endsWith('.json')) return false;
+      const parts = name.slice(0, -'.json'.length).split('--');
+      return parts.length === 2 && parts[1] === config;
+    })
     .map((name) => path.join(outDir, name))
     .filter((file) => file !== exclude)
     .sort();
@@ -973,67 +2110,141 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   const repo = (
     await exec.run('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT })
   ).stdout.trim();
-  const cases = loadCases({ ids: options.caseIds });
+  // node_modules are linked from the main checkout (this script may run in a linked worktree).
+  const commonDir = (
+    await exec.run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      cwd: ROOT,
+    })
+  ).stdout.trim();
+  const mainCheckout = commonDir ? path.dirname(commonDir) : repo;
+  // Explicit references to these in a review's tool inputs mark the run contaminated.
+  const forbiddenRoots = [
+    ...new Set(
+      [mainCheckout, repo].flatMap((p) => {
+        try {
+          return [p, fs.realpathSync(p)];
+        } catch {
+          return [p];
+        }
+      })
+    ),
+  ];
+  const cases = loadCases({ ids: options.caseIds, split: options.split ?? 'all' });
   const rubric = options.dryRun ? '' : fs.readFileSync(RUBRIC_PATH, 'utf8');
   const startedAt = new Date().toISOString();
   const stamp = startedAt.replace(/[:.]/g, '-');
   const runs = options.dryRun ? 1 : options.runs;
+  // Resolve the harness under test ONCE so every case and run overlays the same commit.
+  const harnessRef = options.harnessRef ?? 'HEAD';
+  const resolved = await exec.run('git', ['rev-parse', '--verify', `${harnessRef}^{commit}`], {
+    cwd: ROOT,
+  });
+  const harnessSha = resolved.stdout.trim();
+  if (resolved.status !== 0 || !SHA_RE.test(harnessSha))
+    throw new Error(`--harness-ref ${harnessRef} does not resolve to a commit`);
+  // Seen vs unseen: which cases the overlaid harness already mentions (once per invocation).
+  const overlayFiles = await readOverlayFiles(exec, repo, harnessSha);
+  const seenCases = {};
+  for (const evalCase of cases) {
+    const hits = findOverlayLeaks({ files: overlayFiles, terms: caseLeakTerms(evalCase) });
+    seenCases[evalCase.id] = hits;
+    if (hits.length > 0 && evalCase.split === 'test')
+      log(
+        `warning: ${evalCase.id}: ${SEEN_TEST_WARNING} (${hits.length} mention(s) in the harness).`
+      );
+  }
+  const judgeModel = options.judgeModel ?? DEFAULT_JUDGE_MODEL;
+  const judgeRepeat = options.judgeRepeat ?? 1;
+  const warning = options.dryRun ? null : judgeModelWarning({ model: options.model, judgeModel });
+  if (warning) log(warning);
   const result = {
     config: options.config,
     startedAt,
     dryRun: options.dryRun,
-    harnessSha: (await exec.run('git', ['rev-parse', 'HEAD'], { cwd: ROOT })).stdout.trim(),
+    harnessRef,
+    harnessSha,
+    model: options.model ?? null,
+    judgeModel: options.judge === false ? null : judgeModel,
+    judgeRepeat,
+    split: options.split ?? 'all',
     runsPerCase: runs,
+    seenCases,
     runs: [],
   };
+  const outDir = path.resolve(ROOT, options.out);
+  const base = path.join(outDir, `${stamp}${options.dryRun ? '--dry-run' : ''}--${options.config}`);
+  const transcriptsDir = path.join(base, 'transcripts');
+  // Fail before spending money if the baseline this run would write already exists.
+  if (options.saveBaseline && !options.dryRun && fs.existsSync(baselinePath(result)))
+    throw new Error(`baseline ${baselinePath(result)} already exists; not overwriting`);
 
-  // Ctrl-C / kill mid-run: stop the child, remove this run's worktree and
-  // branches (the same cleanup `finally` does), exit non-zero.
-  const tracker = { worktree: null, branches: [] };
+  // Ctrl-C / kill mid-run: stop the child, remove this run's temp dir (the
+  // isolated repo lives inside it; the main repo is never mutated), exit non-zero.
   let tempDir = null;
   const onSignal = (signal) => {
-    activeChild?.kill('SIGTERM');
-    const { failed } = cleanupTracked(syncExec, repo, tracker);
+    killLiveChildren('SIGTERM');
     if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
-    console.error(
-      failed.length === 0
-        ? `\nharness-eval: ${signal}; cleaned up this run's worktree and branches.`
-        : `\nharness-eval: ${signal}; cleanup left ${failed.join('; ')}. Run with --cleanup.`
-    );
+    console.error(`\nharness-eval: ${signal}; removed this run's isolated repo.`);
     process.exit(signal === 'SIGINT' ? 130 : 143);
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
 
   try {
-    if (!options.dryRun)
-      log(`Running ${cases.length} case(s) x ${runs} run(s) with config "${options.config}".`);
+    log(
+      `${options.dryRun ? 'Dry run of' : 'Running'} ${cases.length} case(s) x ${runs} run(s) with config "${options.config}", harness ${harnessSha.slice(0, 12)} (${harnessRef}).`
+    );
     for (const evalCase of cases) {
       for (let run = 1; run <= runs; run += 1) {
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `${TEMP_PREFIX}${evalCase.id}-`));
-        log(`${evalCase.id} run ${run}/${runs}…`);
-        const outcome = await runCase(evalCase, {
-          exec,
-          repo,
-          tempDir,
-          runId: `${stamp}-${run}`.toLowerCase(),
-          dryRun: options.dryRun,
-          judge: options.judge,
-          rubric,
-          judgeModel: options.judgeModel,
-          maxBudgetUsd: options.maxBudgetUsd,
-          tracker,
+        let outcome;
+        try {
+          log(`${evalCase.id} run ${run}/${runs}…`);
+          const transcriptName = `${evalCase.id}-run${run}.jsonl`;
+          outcome = await runCase(evalCase, {
+            exec,
+            repo,
+            tempDir,
+            dryRun: options.dryRun,
+            harnessSha,
+            mainCheckout,
+            forbiddenRoots,
+            judge: options.judge,
+            rubric,
+            model: options.model,
+            judgeModel,
+            judgeRepeat,
+            maxBudgetUsd: options.maxBudgetUsd,
+            transcriptFile: options.dryRun ? undefined : path.join(transcriptsDir, transcriptName),
+            transcriptLink: `${path.basename(base)}/transcripts/${transcriptName}`,
+          });
+        } finally {
+          // Even if something outside runCase throws, this iteration's isolated repo goes.
+          fs.rmSync(tempDir, { recursive: true, force: true });
+          tempDir = null;
+        }
+        result.runs.push({
+          run,
+          origin: evalCase.origin,
+          split: evalCase.split,
+          seenInHarness: seenCases[evalCase.id].length > 0,
+          ...outcome,
         });
-        fs.rmSync(tempDir, { recursive: true, force: true });
-        tempDir = null;
-        result.runs.push({ run, origin: evalCase.origin, ...outcome });
         log(
           options.dryRun
-            ? `  patches ${outcome.applied ? 'apply' : 'FAIL'}; combined merge ${outcome.combinedMerge ?? 'n/a'}${outcome.reason ? `; ${outcome.reason}` : ''}`
+            ? `  overlay ${outcome.effectiveBase ? outcome.effectiveBase.slice(0, 12) : 'FAIL'}; patches ${outcome.applied ? 'apply' : 'FAIL'}; combined merge ${outcome.combinedMerge ?? 'n/a'}${outcome.reason ? `; ${outcome.reason}` : ''}`
             : outcome.status === 'error'
               ? `  harness error: ${outcome.reason}`
-              : `  caught=${outcome.caught} (judge=${outcome.judgeCaught}, pattern=${outcome.patternCaught})`
+              : outcome.contaminated
+                ? `  CONTAMINATED (graded as a failure): ${outcome.contaminationReason}`
+                : outcome.incomplete
+                  ? `  incomplete (graded as a failure): ${outcome.incompleteReason}`
+                  : `  caught=${outcome.caught} (judge=${outcome.judgeCaught}, pattern=${outcome.patternCaught})`
         );
+        if (outcome.nodeModulesModified)
+          log(
+            '\n!!! WARNING: the reviewer modified the shared node_modules (symlinked from the main checkout). Every later run is suspect: run npm ci in the main checkout. !!!\n'
+          );
         if (outcome.cleanupFailed)
           log(
             `  cleanup left: ${outcome.cleanupFailed.join('; ')} (retried next run; or --cleanup)`
@@ -1045,23 +2256,26 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
     process.removeListener('SIGTERM', onSignal);
   }
 
-  const outDir = path.resolve(ROOT, options.out);
   fs.mkdirSync(outDir, { recursive: true });
-  const base = path.join(outDir, `${stamp}${options.dryRun ? '--dry-run' : ''}--${options.config}`);
   let flips;
   let comparedTo;
   if (!options.dryRun) {
+    // Either a full result or a committed baseline (diffFlips accepts both).
     const previousFile = options.compare ?? latestResult(outDir, options.config, `${base}.json`);
     if (previousFile && fs.existsSync(previousFile)) {
       flips = diffFlips(JSON.parse(fs.readFileSync(previousFile, 'utf8')), result);
       comparedTo = path.basename(previousFile);
     }
   }
-  fs.writeFileSync(`${base}.json`, `${JSON.stringify(result, null, 2)}\n`);
-  const markdown = formatSummaryMarkdown(result, flips, comparedTo);
+  fs.writeFileSync(`${base}.json`, redactSecrets(`${JSON.stringify(result, null, 2)}\n`));
+  const markdown = redactSecrets(formatSummaryMarkdown(result, flips, comparedTo));
   fs.writeFileSync(`${base}.md`, markdown);
   log(`\n${markdown}`);
   log(`Wrote ${base}.json and ${base}.md`);
+  if (options.saveBaseline && !options.dryRun) {
+    const file = writeBaseline(result);
+    log(`Wrote baseline ${path.relative(ROOT, file)} (summary only; commit it)`);
+  }
   const failed =
     result.runs.some((r) => r.cleanupFailed) ||
     (options.dryRun

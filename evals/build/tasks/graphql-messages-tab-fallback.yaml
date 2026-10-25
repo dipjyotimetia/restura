@@ -1,0 +1,37 @@
+id: graphql-messages-tab-fallback
+title: GraphQL builder shows an empty panel when a subscription is switched to a query
+split: test
+base: 96c768a6177695d7d929402b7c91fd1527b62138
+referenceCommit: 8b837c4016219813b79a95dd0773aca3670d0a6d
+issue: |
+  ## GraphQL request builder: empty panel after switching operation away from a subscription
+
+  **Repro**
+
+  1. Open a GraphQL request whose document has both a `subscription Ticks { … }`
+     and a `query GetUser { … }` operation.
+  2. Pick the subscription in the operation picker and press **Subscribe**: the
+     **Messages** tab appears and becomes active.
+  3. Now select the `GetUser` query instead (via the operation picker, or anything
+     that changes the request's selected operation name in the store).
+
+  **Actual**: the Messages tab disappears (correct, it only exists for
+  subscriptions) but no tab is selected any more and the builder panel is empty.
+
+  **Expected**: when the active tab stops existing, the builder falls back to the
+  **Query** tab (selected, editor visible, operation picker still usable).
+
+  **Surfaces**: the shared renderer, so web and desktop alike. No CLI impact.
+hiddenTests:
+  - src/features/graphql/components/__tests__/GraphQLRequestBuilder.operations.test.tsx
+failToPass:
+  - npx vitest run src/features/graphql/components/__tests__/GraphQLRequestBuilder.operations.test.tsx --reporter=verbose
+passToPass:
+  - npx vitest run src/features/graphql
+  - npm run type-check:all
+timeoutMinutes: 40
+notes: |
+  From #1156. Small and renderer-only: a sanity task for the loop (a capable agent
+  should nearly always pass it). The reference commit also accidentally added an
+  extension/vscode/node_modules symlink; the dry run excludes node_modules from the
+  reference diff.
