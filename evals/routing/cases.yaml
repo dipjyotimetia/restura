@@ -1,0 +1,132 @@
+# Routing eval: for a realistic prompt, does the agent load the right skill / subagent?
+#
+# Each case: id, prompt, split (train | test), and at least one of
+#   expectSkills / expectAgents  any-of: the run passes only if at least one listed skill
+#                                (Skill tool) or subagent (Task/Agent subagent_type) ran
+#   forbidSkills / forbidAgents  the run fails if any listed one ran
+# Names must exist under .claude/skills/<name>/SKILL.md or .claude/agents/<name>.md.
+# Positive cases name what should load; negative cases name what must NOT load (over-triggering).
+# Prompts never name the skill. Runner: scripts/routing-eval.mjs (`npm run eval:routing`).
+cases:
+  # ---------------------------------------------------------------- positive
+  - id: feature-new-auth-method
+    split: train
+    prompt: Add a new auth method to HTTP requests, Hawk authentication, so it works on web and desktop.
+    expectSkills: [restura-feature-dev]
+    forbidSkills: [batch-ship]
+
+  - id: feature-collection-importer
+    split: test
+    prompt: I want to be able to import Hoppscotch collection exports. Can you add that?
+    expectSkills: [restura-feature-dev]
+    forbidSkills: [batch-ship, new-protocol]
+
+  - id: verify-response-panel-edit
+    split: train
+    prompt: I edited the response panel so the headers tab shows a count badge. Does it work?
+    expectSkills: [verify-ui-change]
+
+  - id: ship-check-two-branches
+    split: test
+    prompt: Review my branches feat/a and feat/b before I merge them.
+    expectSkills: [ship-check]
+    forbidSkills: [batch-ship]
+
+  - id: batch-ship-three-issues
+    split: train
+    prompt: Fix issues #2001, #2002 and #2003 in parallel and ship each one as its own PR.
+    expectSkills: [batch-ship]
+
+  - id: fix-until-green-validate
+    split: train
+    prompt: npm run validate is red on this branch. Make it pass.
+    expectSkills: [fix-until-green]
+    forbidSkills: [batch-ship]
+
+  - id: docs-sync-after-change
+    split: train
+    prompt: I just changed how the Worker checks the proxy token. Update the docs for this change.
+    expectSkills: [docs-sync]
+    expectAgents: [restura-docs-steward]
+    forbidSkills: [batch-ship]
+
+  - id: new-protocol-signalr
+    split: test
+    prompt: Add SignalR support.
+    expectSkills: [new-protocol, restura-feature-dev]
+    forbidSkills: [batch-ship]
+
+  - id: security-review-ssrf-change
+    split: train
+    prompt: >-
+      I loosened the private-address check in shared/protocol/url-validation.ts to allow
+      link-local hosts. Review that change for security problems before I merge it.
+    expectAgents: [restura-security-auditor]
+    forbidSkills: [batch-ship]
+
+  - id: production-ready-gates
+    split: train
+    prompt: Is this branch production-ready? Which gates did I miss?
+    expectSkills: [restura-production-checks, ship-check]
+    forbidSkills: [batch-ship]
+
+  - id: diagnose-grpc-freeze
+    split: train
+    prompt: >-
+      The gRPC streaming panel freezes after a few hundred messages on desktop. Figure out why.
+    expectSkills: [diagnosing-bugs]
+    forbidSkills: [batch-ship, new-protocol]
+
+  - id: roadmap-mark-shipped
+    split: train
+    prompt: GraphQL subscriptions over SSE shipped last week. Mark it as shipped on the public roadmap.
+    expectSkills: [roadmap-sync]
+    forbidSkills: [batch-ship]
+
+  # ---------------------------------------------------------------- negative
+  - id: typo-fix-not-batch
+    split: train
+    prompt: >-
+      Fix the typo "Conection failed" in the error message in
+      src/features/websocket/lib/websocketManager.ts.
+    forbidSkills: [batch-ship, ship-check, new-protocol, restura-feature-dev]
+    forbidAgents: [restura-security-auditor]
+
+  - id: docs-typo-not-security
+    split: test
+    prompt: There is a typo in docs/API.md, "recieve" should be "receive". Fix it.
+    forbidSkills: [batch-ship, new-protocol, fix-until-green]
+    forbidAgents: [restura-security-auditor, restura-parity-checker]
+
+  - id: question-ssrf-location-not-ship
+    split: train
+    prompt: Where in the codebase is the SSRF guard implemented?
+    forbidSkills: [ship-check, batch-ship, fix-until-green, restura-production-checks]
+    forbidAgents: [restura-security-auditor]
+
+  - id: question-cli-protocols
+    split: train
+    prompt: Which protocols does the restura CLI support today?
+    forbidSkills: [restura-feature-dev, new-protocol, ship-check, batch-ship]
+
+  - id: single-bug-not-batch
+    split: test
+    prompt: Fix issue #2010, the MQTT topic input loses focus on every keystroke.
+    forbidSkills: [batch-ship, new-protocol, ship-check]
+
+  - id: existing-protocol-not-new-protocol
+    split: train
+    prompt: Add a "Copy as cURL" button to the GraphQL request toolbar.
+    forbidSkills: [new-protocol, batch-ship]
+
+  - id: explain-adr-no-gates
+    split: train
+    prompt: Explain what ADR-0007 decided about secrets, in two sentences.
+    forbidSkills: [ship-check, restura-feature-dev, fix-until-green, docs-sync, batch-ship]
+    forbidAgents: [restura-security-auditor]
+
+  - id: file-question-no-review
+    split: test
+    prompt: In one paragraph, what is src/lib/shared/capabilities.ts for?
+    forbidSkills: [ship-check, code-review, fix-until-green, batch-ship, docs-sync]
+    forbidAgents: [restura-docs-steward, restura-parity-checker]

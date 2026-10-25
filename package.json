@@ -26,6 +26,7 @@
     "integration-check": "node scripts/integration-check.mjs",
     "eval:harness": "node scripts/harness-eval.mjs",
     "eval:new-case": "node scripts/eval-new-case.mjs",
+    "eval:routing": "node scripts/routing-eval.mjs",
     "guard:staged": "node scripts/guard-staged.mjs",
     "verify:agent-report": "node scripts/verify-agent-report.mjs",
     "worktree:prune": "node scripts/worktree-prune.mjs",
