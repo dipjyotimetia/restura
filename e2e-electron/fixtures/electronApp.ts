@@ -104,6 +104,9 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
         .toHaveCount(0, { timeout: 2_000 })
         .catch(() => {});
     }
+    // Don't swallow a dialog that survived every attempt: fail the test that
+    // left it open instead of poisoning the next one.
+    await expect(dialogs).toHaveCount(0, { timeout: 2_000 });
   },
   electronProfileDirectory: async ({ _electronApp }, use) => {
     await use(_electronApp.userDataDir);
