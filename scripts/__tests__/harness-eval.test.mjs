@@ -1355,18 +1355,54 @@ test('validateCase requires split: train | test', () => {
   assert.equal(validateCase(validRaw({ split: 'test' }), env).value.split, 'test');
 });
 
-test('the held-out test split is 1 control + 3 defects and loadCases filters by split', () => {
-  const heldOut = loadCases({ split: 'test' }).map((c) => c.id);
-  assert.deepEqual(heldOut, [
-    'clean-set-cookie-cap',
-    'cli-graphql-get-parity',
-    'kafka-preset-registry-bearer',
-    'sse-spec-signature-seam',
-  ]);
-  const train = loadCases({ split: 'train' });
-  assert.equal(train.length, 8);
-  assert.ok(train.every((c) => c.split === 'train'));
-  assert.equal(loadCases({ split: 'all' }).length, 12);
+test('the real case set keeps a usable held-out split (properties, not a case list)', () => {
+  const cases = loadCases();
+  assert.ok(cases.every((c) => c.split === 'train' || c.split === 'test'));
+  const heldOut = cases.filter((c) => c.split === 'test');
+  assert.ok(
+    heldOut.some((c) => c.expectClean),
+    'test split needs at least one control'
+  );
+  assert.ok(
+    heldOut.some((c) => !c.expectClean),
+    'test split needs at least one defect'
+  );
+  const fraction = heldOut.length / cases.length;
+  assert.ok(fraction >= 0.2 && fraction <= 0.4, `test fraction ${fraction.toFixed(2)}`);
+});
+
+test('loadCases filters by split (fixture cases)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'he-split-test-'));
+  try {
+    const casesDir = path.join(root, 'cases');
+    const fixturesDir = path.join(root, 'fixtures');
+    fs.mkdirSync(casesDir);
+    const make = (id, split, clean) => {
+      fs.mkdirSync(path.join(fixturesDir, id), { recursive: true });
+      fs.writeFileSync(path.join(fixturesDir, id, '01.patch'), '');
+      const raw = clean
+        ? cleanRaw({ id, split, branches: [{ name: 'b', patches: ['01.patch'] }] })
+        : validRaw({ id, split, branches: [{ name: 'b', patches: ['01.patch'] }] });
+      fs.writeFileSync(path.join(casesDir, `${id}.yaml`), JSON.stringify(raw));
+    };
+    make('case-a', 'train', false);
+    make('case-b', 'test', false);
+    make('case-c', 'test', true);
+    const ids = (split) => loadCases({ casesDir, fixturesDir, split }).map((c) => c.id);
+    assert.deepEqual(ids('test'), ['case-b', 'case-c']);
+    assert.deepEqual(ids('train'), ['case-a']);
+    assert.deepEqual(ids('all'), ['case-a', 'case-b', 'case-c']);
+    assert.deepEqual(
+      loadCases({ casesDir, fixturesDir, split: 'test', ids: ['case-c'] }).map((c) => c.id),
+      ['case-c']
+    );
+    assert.throws(
+      () => loadCases({ casesDir, fixturesDir, split: 'test', ids: ['case-a'] }),
+      /not in split test/
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------- baselines
