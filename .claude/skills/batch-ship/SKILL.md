@@ -2,7 +2,7 @@
 name: batch-ship
 description: "Orchestrate delivering SEVERAL fixes/issues as parallel PRs with worktree agents: file-ownership plan, red-first verification, combined-diff review, integration-check, merge lane. Use when given 2+ issues/tasks to ship together, 'fix these issues in parallel', or 'ship this epic'. Single-PR work does not need it."
 argument-hint: '[issue numbers or short task list]'
-allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, Task, SendMessage
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, Task, SendMessage, Skill
 ---
 
 You are the orchestrator for a batch delivery. Scope: `$ARGUMENTS`. Read the
@@ -55,7 +55,7 @@ your judgement — checks the report against git.
    - Per branch: `restura-security-auditor` only where the branch touches a
      security boundary.
    - On the combined diff (`git diff <base>..HEAD` in the kept worktree,
-     plus the ownership matrix): one fresh-context `/code-review` and the
+     plus the ownership matrix): one fresh-context `/code-review` (Correctness, Standards, Spec) and the
      parity check (`restura-parity-checker`, CLI included), and
      `restura-docs-steward`. Dispatch them in one message.
    - Fix findings on the owning branch (via its worker), re-verify (step 3),

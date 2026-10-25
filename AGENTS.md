@@ -94,3 +94,15 @@ This repository has a generated `openwiki/` evidence index. It is optional just-
 The scheduled OpenWiki GitHub Actions workflow refreshes the repository wiki. Do not hand-edit generated OpenWiki pages unless explicitly asked; prefer updating source code/docs and letting OpenWiki regenerate.
 
 <!-- OPENWIKI:END -->
+
+## Agent skills
+
+Codex does not load `.claude/skills/`; read these files directly instead.
+
+### Issue tracker
+
+Issues live in GitHub Issues for dipjyotimetia/restura (via the `gh` CLI). Read `docs/agents/issue-tracker.md` for the workflow (labels, how to read and file issues).
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/`. Read `docs/agents/domain.md` for how to consume and extend them.

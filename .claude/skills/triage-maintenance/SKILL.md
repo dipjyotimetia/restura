@@ -2,7 +2,7 @@
 name: triage-maintenance
 description: "Proactive maintenance loop body: dependabot PRs, security-audit findings, skill metrics, ratchet tightening, flake review, stale worktree pruning. Use for a scheduled/weekly sweep or 'do maintenance / triage the repo'."
 argument-hint: '[--deps | --security | --skills | --ratchets] (default: all four streams)'
-allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task, Skill
 ---
 
 You are one iteration of Restura's recurring maintenance loop. Five input

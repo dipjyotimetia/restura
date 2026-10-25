@@ -66,6 +66,50 @@ describe('log-subagent hook (SubagentStop)', () => {
     expect(line).toContain('5678');
   });
 
+  it('falls back to background_tasks when agent_type is empty (real CLI payload shape)', () => {
+    // Claude Code 2.1.x builds SubagentStop as
+    //   { ...base, hook_event_name, stop_hook_active, agent_id, agent_transcript_path,
+    //     agent_type: ctx.agentType ?? base.agent_type ?? '', last_assistant_message,
+    //     background_tasks: [{ id, type: 'local_agent', agent_type, ... }], session_crons }
+    // so agent_type can arrive as '' while the task registry still knows the type.
+    const { temp, hooksDir } = sandbox(['log-subagent.mjs']);
+    runHook(hooksDir, 'log-subagent.mjs', temp, {
+      session_id: 'sess-2',
+      transcript_path: `/x/${SECRET}.jsonl`,
+      cwd: temp,
+      hook_event_name: 'SubagentStop',
+      stop_hook_active: false,
+      agent_id: 'a1b2c3',
+      agent_transcript_path: '',
+      agent_type: '',
+      last_assistant_message: SECRET,
+      background_tasks: [
+        { id: 'other', type: 'local_bash', status: 'running', command: SECRET },
+        { id: 'a1b2c3', type: 'local_agent', status: 'completed', agent_type: 'Explore' },
+      ],
+      session_crons: [],
+    });
+    const log = readFileSync(join(temp, '.claude', 'metrics', 'subagent.log'), 'utf8');
+    const cols = log.trimEnd().split('\t');
+    expect(cols.slice(1, 4)).toEqual(['sess-2', 'Explore', 'a1b2c3']);
+    expect(log).not.toContain(SECRET);
+  });
+
+  it('reads alternative agent type keys (subagent_type, agentType, nested agent.type)', () => {
+    for (const extra of [
+      { subagent_type: 'restura-parity-checker' },
+      { agentType: 'restura-parity-checker' },
+      { agent: { type: 'restura-parity-checker' } },
+    ]) {
+      const { temp, hooksDir } = sandbox(['log-subagent.mjs']);
+      runHook(hooksDir, 'log-subagent.mjs', temp, { session_id: 's', agent_id: 'a', ...extra });
+      const cols = readFileSync(join(temp, '.claude', 'metrics', 'subagent.log'), 'utf8')
+        .trimEnd()
+        .split('\t');
+      expect(cols[2]).toBe('restura-parity-checker');
+    }
+  });
+
   it('never fails on bad input', () => {
     const { temp, hooksDir } = sandbox(['log-subagent.mjs']);
     const res = runHook(hooksDir, 'log-subagent.mjs', temp, 'not json');

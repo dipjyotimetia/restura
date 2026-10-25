@@ -103,7 +103,7 @@ function lintMessage(working) {
   const biome = binPath('biome', cwd);
   if (!biome) return null;
 
-  // Skip the (~1s) ESLint boot entirely when no candidate file changed since the
+  // Skip the (~1s) Biome run entirely when no candidate file changed since the
   // last lint. The signature is the file set + their mtimes; if it's unchanged
   // we've already linted this exact state, so there's nothing new to report.
   const sig = files
@@ -145,8 +145,12 @@ let sessionId;
 let fired = [];
 
 try {
-  sessionId = readPayload()?.session_id; // also drains stdin
-  const { all, working } = changedFiles(cwd);
+  const payload = readPayload(); // also drains stdin
+  sessionId = payload?.session_id;
+  // stop_hook_active: Claude is already continuing because a Stop hook blocked
+  // this turn. Blocking again risks a nag loop, so let it stop (still logged).
+  const { all, working } =
+    payload?.stop_hook_active === true ? { all: new Set(), working: new Set() } : changedFiles(cwd);
   if (all.size > 0) {
     const checks = [
       { name: 'docs-site', run: () => docsSiteMessage(all) },
