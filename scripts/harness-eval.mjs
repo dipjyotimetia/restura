@@ -537,6 +537,95 @@ export function parseClaudeStream(stdout) {
   return { ...shapeResult(result), toolStats };
 }
 
+const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const stripQuotes = (token) => token.replace(/^['"]|['"]$/g, '');
+const within = (p, root) => p === root || p.startsWith(`${root.replace(/\/+$/, '')}/`);
+
+function stringsIn(value, out = []) {
+  if (typeof value === 'string') out.push(value);
+  else if (Array.isArray(value)) for (const item of value) stringsIn(item, out);
+  else if (value && typeof value === 'object')
+    for (const v of Object.values(value)) stringsIn(v, out);
+  return out;
+}
+
+/** Git dir/worktree targets named in a shell command: -C, --git-dir, --work-tree, GIT_DIR=. */
+function gitTargets(command) {
+  const targets = [];
+  for (const segment of command.split(/&&|\|\||[;|\n]/)) {
+    const tokens = segment.trim().split(/\s+/).filter(Boolean).map(stripQuotes);
+    for (const token of tokens) {
+      const env = /^GIT_(?:DIR|WORK_TREE)=(.+)$/.exec(token);
+      if (env) targets.push(stripQuotes(env[1]));
+    }
+    const at = tokens.indexOf('git');
+    if (at === -1) continue;
+    for (let i = at + 1; i < tokens.length; i += 1) {
+      const token = tokens[i];
+      const inline = /^--(?:git-dir|work-tree)=(.+)$/.exec(token);
+      if (inline) targets.push(stripQuotes(inline[1]));
+      else if (['-C', '--git-dir', '--work-tree'].includes(token) && tokens[i + 1])
+        targets.push(tokens[i + 1]);
+    }
+  }
+  return targets;
+}
+
+/**
+ * Did the review reach outside its isolated repo? Scans every tool_use INPUT
+ * in a stream-json transcript (tool results are ignored, and node_modules
+ * symlinks only count when a path is named explicitly) for (a) an explicit
+ * reference to a forbidden root (the main checkout, its realpath) on a path
+ * boundary, so `/x/restura-other` does not match `/x/restura`; and (b) git
+ * `-C` / `--git-dir` / `--work-tree` / `GIT_DIR=` targets outside
+ * `isolatedRoot` (string or list; absolute targets elsewhere, or relative
+ * ones climbing with `..`). Without `isolatedRoot` only (a) applies.
+ * @param {string} streamText
+ * @param {{ forbiddenRoots?: string[]; isolatedRoot?: string | string[] }} [options]
+ */
+export function detectContamination(streamText, { forbiddenRoots = [], isolatedRoot } = {}) {
+  const roots = [...new Set(forbiddenRoots.filter(Boolean).map((r) => r.replace(/\/+$/, '')))];
+  const rootRes = roots.map((root) => new RegExp(`${escapeRe(root)}(?![A-Za-z0-9._-])`));
+  const allowed = [isolatedRoot ?? []].flat().filter(Boolean);
+  const hits = [];
+  for (const line of String(streamText ?? '').split('\n')) {
+    let event;
+    try {
+      event = JSON.parse(line.trim());
+    } catch {
+      continue;
+    }
+    const content = event?.type === 'assistant' ? event.message?.content : null;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (block?.type !== 'tool_use') continue;
+      const tool = String(block.name ?? '?');
+      const texts = stringsIn(block.input ?? {});
+      let hit = null;
+      for (const text of texts) {
+        const match = rootRes.map((re) => re.exec(text)).find(Boolean);
+        if (match) {
+          const start = Math.max(0, match.index - 40);
+          hit = text.slice(start, match.index + match[0].length + 80);
+          break;
+        }
+        if (allowed.length === 0) continue;
+        const escape = gitTargets(text).find((target) =>
+          path.isAbsolute(target)
+            ? !allowed.some((root) => within(path.resolve(target), root))
+            : target.split('/').includes('..')
+        );
+        if (escape) {
+          hit = text.slice(0, 160);
+          break;
+        }
+      }
+      if (hit !== null) hits.push({ tool, snippet: hit });
+    }
+  }
+  return { contaminated: hits.length > 0, hits };
+}
+
 /** @type {Array<[RegExp, string]>} */
 const STDERR_ERRORS = [
   [/not allowed|tool.{0,40}(disallowed|unavailable)/i, 'tool not allowed'],
@@ -995,7 +1084,11 @@ export function formatSummaryMarkdown(result, flips, comparedTo) {
   const errored = result.runs.filter((r) => !scored(r));
   if (errored.length > 0) {
     lines.push('', '## Harness errors (not counted as misses)', '');
-    for (const run of errored) lines.push(`- ${run.caseId} run ${run.run}: ${cell(run.reason)}`);
+    for (const run of errored) {
+      lines.push(`- ${run.caseId} run ${run.run}: ${cell(run.reason)}`);
+      for (const hit of run.contamination ?? [])
+        lines.push(`  - ${hit.tool}: \`${cell(hit.snippet).replace(/`/g, "'")}\``);
+    }
   }
   if (flips) {
     lines.push('', `## Flips${comparedTo ? ` vs ${comparedTo}` : ''}`);
@@ -1391,7 +1484,7 @@ export async function cleanupTrackedAsync(exec, repo, tracker) {
  * which the caller (runEval, or its signal handler) owns.
  * @param {any} evalCase validated case
  * @param {{ exec: { run: Function; pipe: Function }; repo: string; tempDir: string; dryRun: boolean;
- *   harnessSha: string; mainCheckout?: string; judge?: boolean; rubric?: string; model?: string;
+ *   harnessSha: string; mainCheckout?: string; forbiddenRoots?: string[]; judge?: boolean; rubric?: string; model?: string;
  *   judgeModel?: string; judgeRepeat?: number; maxBudgetUsd?: number; transcriptFile?: string;
  *   transcriptLink?: string; setup?: (dir: string) => void; runId?: string; tracker?: unknown }} ctx
  */
@@ -1525,6 +1618,23 @@ export async function runCase(evalCase, ctx) {
     const reviewRun = classifyClaudeRun(rawReview, parseClaudeStream);
     if (reviewRun.parsed) outcome.review = reviewRun.parsed;
     if (reviewRun.status === 'error') throw new Error(`review: ${reviewRun.reason}`);
+    if (ctx.forbiddenRoots?.length) {
+      let real = worktree;
+      try {
+        real = fs.realpathSync(worktree);
+      } catch {}
+      const contamination = detectContamination(rawReview.stdout, {
+        forbiddenRoots: ctx.forbiddenRoots,
+        isolatedRoot: [worktree, real],
+      });
+      if (contamination.contaminated) {
+        // Excluded from scoring: the review may have read the answer from this repo's history.
+        outcome.contamination = contamination.hits;
+        throw new Error(
+          `contaminated: ${plural(contamination.hits.length, 'tool call')} reached outside the isolated repo (${contamination.hits.map((h) => h.tool).join(', ')})`
+        );
+      }
+    }
     const reviewText = reviewRun.parsed.text;
     outcome.deterministic = evalCase.expectClean
       ? null
@@ -1631,6 +1741,18 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
     })
   ).stdout.trim();
   const mainCheckout = commonDir ? path.dirname(commonDir) : repo;
+  // Explicit references to these in a review's tool inputs mark the run contaminated.
+  const forbiddenRoots = [
+    ...new Set(
+      [mainCheckout, repo].flatMap((p) => {
+        try {
+          return [p, fs.realpathSync(p)];
+        } catch {
+          return [p];
+        }
+      })
+    ),
+  ];
   const cases = loadCases({ ids: options.caseIds, split: options.split ?? 'all' });
   const rubric = options.dryRun ? '' : fs.readFileSync(RUBRIC_PATH, 'utf8');
   const startedAt = new Date().toISOString();
@@ -1696,6 +1818,7 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
           dryRun: options.dryRun,
           harnessSha,
           mainCheckout,
+          forbiddenRoots,
           judge: options.judge,
           rubric,
           model: options.model,
