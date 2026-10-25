@@ -1,4 +1,5 @@
 import { fromBinary, toBinary } from '@bufbuild/protobuf';
+import { resolveAuthVariables } from '@shared/auth/resolve-variables';
 import { executeGrpcProxy } from '@shared/protocol/grpc-proxy';
 import {
   callKindOf,
@@ -105,7 +106,10 @@ export async function executeGrpc(
   try {
     // Header-based auth (Bearer / Basic / API-key / OAuth2) → gRPC metadata.
     // gRPC has no query channel, so api-key `in: query` is unsupported here.
-    const resolvedAuth = await resolveOAuth2Token(req.auth, opts.vars, {
+    const varResolvedAuth = req.auth
+      ? resolveAuthVariables(req.auth, (text) => resolveVarsDeep(text, opts.vars))
+      : req.auth;
+    const resolvedAuth = await resolveOAuth2Token(varResolvedAuth, opts.vars, {
       allowLocalhost: opts.allowLocalhost,
     });
     applyAuthHeaders(resolvedAuth, metadata, {});
