@@ -146,3 +146,15 @@ message Req { int32 qty = 2; string id = 1; }
     expect(reflectionSnapshotDecision({ descriptors: ['AA=='] }, corrupt, 1).action).toBe('write');
   });
 });
+
+describe('grpcRunOptionsFromRequest — deadlines', () => {
+  it('keeps "No deadline" (0) for a streaming request', () => {
+    expect(
+      grpcRunOptionsFromRequest({ ...grpc(), methodType: 'server-streaming', timeout: 0 }).timeoutMs
+    ).toBe(0);
+  });
+  it('omits timeoutMs for unary timeout 0 (default applies) and passes positive values', () => {
+    expect(grpcRunOptionsFromRequest({ ...grpc(), timeout: 0 }).timeoutMs).toBeUndefined();
+    expect(grpcRunOptionsFromRequest({ ...grpc(), timeout: 5000 }).timeoutMs).toBe(5000);
+  });
+});
