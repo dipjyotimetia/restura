@@ -8,6 +8,8 @@ You are running the Restura ship-readiness gate. First invoke the `restura-produ
 
 Scope: `$ARGUMENTS`. If `--quick`, skip builds, e2e, and bundle size. If `--full`, include them. Default: run the core gate + builds, skip e2e unless the diff touches protocol/transport code.
 
+**Multiple branches/PRs**: if `$ARGUMENTS` names more than one branch or PR, run `npm run integration-check -- <branches>` FIRST (add `--e2e` if protocol/transport/UI is touched). Report merge conflicts and the file-overlap matrix up front; any overlap on a non-registry file is a planning defect (those PRs should be one PR), and duplicate implementations of the same transform across branches go to the parity checker. Then run the per-branch gates below. The final gate is the GitHub merge queue (`gh pr merge <n> --auto --squash`), which re-runs the full suite on the combined result.
+
 Determine the diff under review: `git diff --stat main...HEAD` and `git status --porcelain`.
 
 ## Gates (run all; capture pass/fail + output)
@@ -18,7 +20,7 @@ Determine the diff under review: `git diff --stat main...HEAD` and `git status -
 4. **Unit/integration + coverage** — `npm run test:run`.
 5. **Agent review fan-out** — dispatch every applicable reviewer **in parallel** (one message, multiple Task calls — they are independent; serializing them wastes the wall-clock of every faster agent):
    - `restura-security-auditor` — if the diff touches `shared/protocol/`, `electron/main/*-guard.ts`, `dns-guard.ts`, `ipc-validators.ts`, secret stores, or sandboxes. Also confirm the relevant `tests/security/*` passed in step 4.
-   - `restura-parity-checker` — if the diff adds/changes a protocol or networked feature.
+   - `restura-parity-checker` — if the diff adds/changes a protocol, auth, or networked feature (it also reviews `cli/` executors).
    - `restura-docs-steward` — always (CI has no content-parity gate). Run `npm run docs:check` alongside it.
    - **Fresh-context code review** — for any non-trivial diff, also run the built-in `/code-review` skill. A reviewer that did not write the code is not influenced by the authoring session's reasoning; the agents above check domain properties, this one checks correctness.
 6. **Builds** (unless `--quick`) — `npm run build` and `npm run electron:compile`. Start these as **background Bash** in the same message as the agent dispatch so they overlap the fan-out — running them afterwards serializes the two slowest gates.

@@ -16,7 +16,10 @@ interval polling — events push, polls burn tokens.
 
 1. **Merged/closed?** Note it and drop it from future iterations.
 2. **Merge conflicts?** Rebase onto the base branch, resolve, force-push with
-   lease.
+   lease. Prefer not to loop on this: enrol green PRs in the merge queue
+   (`gh pr merge <n> --auto --squash`) so GitHub tests and merges them in
+   order, and only rebase a PR the queue ejects for a real conflict.
+   `--admin` is for emergencies only.
 3. **CI red?** Read the failing job log, reproduce locally with the matching
    gate (`npm run type-check:all`, `lint`, `test:run`, …), fix, push. CI here
    runs the test suite in the background of the validate job — check the
@@ -29,6 +32,14 @@ interval polling — events push, polls burn tokens.
 5. **Dependabot PRs**: leave them to `dependabot-auto-merge` unless CI is red;
    if red on a dep bump, diagnose whether the bump or the repo is at fault and
    say which.
+
+## After each merge round
+
+When one or more watched PRs merged, run
+`npm run integration-check -- <remaining branches>` once instead of rebasing
+and force-pushing each PR serially. Fix only the PRs it reports as conflicting
+or red on the combined result. Any file overlap it reports between PRs is a
+planning bug: tell the user and propose merging those PRs.
 
 ## Loop discipline
 

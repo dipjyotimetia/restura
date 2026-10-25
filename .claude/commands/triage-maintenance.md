@@ -1,12 +1,12 @@
 ---
 description: 'Proactive maintenance loop body: triage dependabot PRs, security-audit findings, and skill-usage metrics in one pass. Designed for a scheduled routine (e.g. /schedule weekly) or an on-demand run.'
-argument-hint: '[--deps | --security | --skills] (default: all three streams)'
+argument-hint: '[--deps | --security | --skills | --ratchets] (default: all four streams)'
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task
 ---
 
-You are one iteration of Restura's recurring maintenance loop. Three input
+You are one iteration of Restura's recurring maintenance loop. Four input
 streams, each with a deterministic "done for this run" state. Scope:
-`$ARGUMENTS` (default: all three). Report one consolidated summary; skip
+`$ARGUMENTS` (default: all four). Report one consolidated summary; skip
 streams with nothing actionable.
 
 ## Stream 1 — Dependency PRs (`--deps`)
@@ -52,6 +52,18 @@ metrics accumulate.
 3. This closes the instrumentation loop — logging usage without ever reading
    it is dead weight.
 
+## Stream 4 — Ratchets and flakes (`--ratchets`)
+
+1. Run `npm run architecture:tighten`. If it changes
+   `scripts/architecture.config.mts`, open a small `chore:` PR with only that
+   file (explicit `git add`), and enqueue with `gh pr merge <n> --auto --squash`.
+   Do it as its own PR, never inside a feature PR (the config is a hot file).
+2. Flake review: scan recent CI runs (`gh run list --status failure`) and the
+   merge queue for tests that failed then passed on retry. Known offenders
+   include grpc-web 413 and mcp-client-requests. For each, fix, quarantine
+   with a tracked issue, or add to the issue; never leave a flake undocumented.
+   Flakes must be fixed or quarantined before the next parallel batch.
+
 ## Discipline
 
 - Route mechanical work cheaply; reserve deep reasoning for stream-2 judgment
@@ -59,7 +71,7 @@ metrics accumulate.
 - Every code change goes through a branch + `/ship-check --quick` before
   push; this loop never commits straight to main.
 - End with: streams checked, actions taken, items queued for a human. If all
-  three streams were empty, say exactly that in one line.
+  four streams were empty, say exactly that in one line.
 
 ## Scheduling
 
