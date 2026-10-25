@@ -42,8 +42,8 @@ edits after presenting the report.
      this repo. Distinguish the two before acting: a plugin skill firing is
      healthy and needs no edit; a stale local name suggests a rename the log
      predates. Never recommend a description edit for a plugin skill.
-4. Keep recommendations specific to THIS repo's two skills and any plugin skills
-   that surfaced. Do not invent skills.
+4. Cover every local skill the analysis reports (both the `skills` counts and
+   `neverFired`), plus any plugin skills that surfaced. Do not invent skills.
 
 ## Output
 

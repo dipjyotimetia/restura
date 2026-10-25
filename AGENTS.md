@@ -37,7 +37,7 @@ Full catalogue (e2e, desktop e2e, echo stacks, Docker, deploy): `docs/agents/arc
 - **Protocol logic lives once in `shared/protocol/`** (SSRF guard `url-validation.ts`, header policy, body builder, auth signing at the wire, gRPC/MCP/SSE/AI orchestrators). Backends supply a thin `Fetcher`. New protocol = `shared/protocol/<name>-proxy.ts` + small Worker and Electron adapters. Electron-only capabilities (PAC, SOCKS, mTLS, custom CA, DNS guard, manual redirects) stay inside the Electron fetcher closure — keep `shared/` backend-agnostic.
 - **Parity is the #1 bug class**: web Worker, self-host Node, Electron IPC **and the CLI** (`cli/src/runner/executors/*`) must behave the same, or fail explicitly. `src/lib/shared/capabilities.ts` is the source of truth for platform differences (codegen'd matrix — never hand-edit).
 - **Secrets**: `SecretValue = string | SecretRef`; with a handle the renderer never sees plaintext (ADR-0007). No new persistence through `window.localStorage`; stores persist via Dexie (web) / encrypted electron-store (desktop), validated by Zod.
-- **Electron main**: files computing `__dirname`-relative paths stay at the `electron/main/` root. IPC handlers validate with Zod (`ipc/validators/`); register/dispose pair in `main.ts` `IPC_MODULES`.
+- **Electron main**: files computing `__dirname`-relative paths stay at the `electron/main/` root. A new IPC method needs all three parts: Zod schema + `createValidatedHandler` (`ipc/validators/`), a preload domain module, and a type under `electron/types/api/` composed into `ElectronAPI` — skip one and `window.electron.x` is undefined at runtime with no type error. Register/dispose pair in `main.ts` `IPC_MODULES`.
 - **Worker**: production needs `WORKER_PROXY_TOKEN` or `REQUIRE_CF_ACCESS=true`. **Never** put `DEV_BYPASS_AUTH` in `wrangler.jsonc`. `nodeEntry` must `Object.assign` onto `c.env`, never reassign.
 - **AI**: assistant is Electron-first — there is no `/api/ai` Worker route. AI Lab is Electron-only; its `http-exec` target runs through the real `requestExecutor` (no parallel HTTP path); provider keys are `SecretRef` handles; localhost carve-out only for local runtimes.
 - **Boundaries**: `shared/` is the runtime-neutral floor; Worker, Electron main and CLI never import renderer `src/`. Ratchets may only go down.
@@ -62,14 +62,14 @@ Vitest (jsdom) with colocated `*.test.ts(x)`; tests importing `worker/` live und
 
 ## Agent loop playbook (short)
 
-Full version: `docs/agents/delivery.md` (the Claude Code entry points are
-skills under `.claude/skills/`; the principles apply to any runtime).
+Full version: `docs/agents/delivery.md`. Identical in `CLAUDE.md` and `AGENTS.md` — change both together.
 
-- **Verify before done** — for renderer/UI changes, boot `npm run dev`, drive the change in a real browser, check the console. Iterate against a deterministic gate (`npm run validate`) with an attempt cap.
-- **Plan by file ownership** — two PRs touching the same non-registry file are one PR; independent PRs off `main`; one topic per branch/worktree.
-- **Review the combined result** — `npm run integration-check -- <branches>`; security/parity/docs passes plus a fresh-context code review.
-- **Merge via the merge lane** (`gh pr merge <n> --auto --squash`); `--admin` is emergencies only.
-- **Encode fixes upward** — when an iteration misses the bar, fix the system (skill, hook, doc), not just the instance.
+- **Verify before done** — for renderer/UI changes, run the app (`npm run dev`), drive the change in a real browser and check the console (`verify-ui-change` skill); iterate against a deterministic gate (`npm run validate`, `/fix-until-green`) with an attempt cap, not "looks done".
+- **Plan by file ownership** — two PRs touching the same non-registry file are one PR; ≤5 PRs per batch; independent PRs off `main`, stack only real dependencies (≤3 layers); one topic per branch/worktree.
+- **Review the combined result** — `npm run integration-check -- <branches>` plus `/ship-check <branches>` (security per branch; correctness, parity and docs on the combined diff, plus a fresh-context code review); seam bugs are invisible per branch.
+- **Merge via the merge lane** (`gh pr merge <n> --auto --squash`); `--admin` is emergencies only and is hook-gated.
+- **Subagents that edit code** — `npm run worktree:setup`; explicit `git add <paths>`; red-first tests; no push/PR/`gh` mutations (hook-enforced from `.claude/worktrees/`); report branch, worktree, SHA. Brief them fully — they only know the prompt.
+- **Encode fixes upward** — when a loop misses the bar, fix the skill/hook/doc, not just the instance.
 
 ## When summarizing this conversation
 

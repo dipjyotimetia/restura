@@ -18,13 +18,14 @@ Before writing code: confirm the protocol category with the user (new protocol =
 2. **Worker adapter** — `worker/handlers/<name>.ts` (Fetcher over `globalThis.fetch`/Sockets), routed in `worker/app.ts`. If it needs Node specifics for self-host, add the adapter in `worker/shared/*-node.ts` / wire in `worker/node-entry.ts`.
 3. **Electron adapter** — `electron/main/<name>-handler.ts` (Fetcher over Node `http`/`net`/`tls` via `safe-connect.ts`). Add: IPC channels in a new `electron/shared/channels/<name>.ts` area module (spread into `IPC` / `EVENT_PREFIX` in `electron/shared/channels.ts`, plus a `CHANNEL_PREFIXES` entry for event channels); Zod schema + `createValidatedHandler` in `electron/main/ipc-validators.ts`; rate-limit (`ipc-rate-limiter.ts`); `assertTrustedSender`; pre-flight `dns-guard.ts`; `connection-cleanup.ts` for streaming. Expose in `preload.ts`; type it in a new `electron/types/api/protocols/<name>.ts` (re-exported by the `protocols.ts` barrel) and wire it into `electron/types/electron-api.ts`.
 4. **Renderer feature** — `src/features/<name>/` with `protocol.ts`, an executor branching on `isElectron()`, components, and a store (+ Zod validator in `src/lib/shared/store-validators.ts` if persisted).
-5. **Capability** — add a `src/lib/shared/capabilities/<name>.ts` area module and spread it into `CAPABILITIES` in `src/lib/shared/capabilities.ts` (mark desktop-only if it needs raw TCP — no browser sockets). Run `npm run capabilities:matrix`.
-6. **Tests** — unit for the shared proxy; security test if it's a new outbound transport (`tests/security/`); an e2e `real-<name>.spec.ts` against the echo server if feasible.
-7. **Docs** — dispatch `restura-docs-steward` (new `docs-site/.../protocols/<name>.mdx`, capability matrix, ARCHITECTURE.md, ADR if the transport model is novel). Or run `/docs-sync`.
+5. **CLI executor** — `cli/src/runner/executors/<name>.ts` reusing the shared proxy (same wire protocol, auth, `{{var}}` resolution and timeouts as the app), registered in `cli/src/runner/executors/dispatch.ts`, with executor + dispatch tests under `cli/src/runner/executors/__tests__/`. If the CLI can't support it, make dispatch fail explicitly — never silently skip.
+6. **Capability** — add a `src/lib/shared/capabilities/<name>.ts` area module and spread it into `CAPABILITIES` in `src/lib/shared/capabilities.ts` (mark desktop-only if it needs raw TCP — no browser sockets). Run `npm run capabilities:matrix`.
+7. **Tests** — unit for the shared proxy; security test if it's a new outbound transport (`tests/security/`); an e2e `real-<name>.spec.ts` against the echo server if feasible.
+8. **Docs** — dispatch `restura-docs-steward` (new `docs-site/.../protocols/<name>.mdx`, capability matrix, ARCHITECTURE.md, ADR if the transport model is novel). Or run `/docs-sync`.
 
 ## Verify
 
 - `npm run type-check:all` (the Electron/Worker handlers are NOT covered by plain `type-check`).
-- `npm run capabilities:check`, `npm run lint`, `npm run test:run`.
-- Dispatch `restura-security-auditor` (new transport = high scrutiny) and `restura-parity-checker` (all layers wired).
+- `npm run capabilities:check`, `npm run lint`, `npm run test:run`, and the CLI workspace tests (`npm test --workspace cli`).
+- Dispatch `restura-security-auditor` (new transport = high scrutiny) and `restura-parity-checker` (all layers wired, CLI included).
 - Finish with `/ship-check`.
