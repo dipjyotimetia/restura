@@ -1,3 +1,5 @@
+import type { ForbiddenConfigKey } from './architecture-config-keys.mts';
+import type { IpcTriplePolicy } from './architecture-ipc.mts';
 import type { ArchitecturePolicy } from './architecture-policy.mts';
 
 export const architecturePolicy: ArchitecturePolicy = {
@@ -26,6 +28,9 @@ export const architecturePolicy: ArchitecturePolicy = {
     { from: 'shared', to: 'tooling' },
     { from: 'worker', to: 'renderer' },
     { from: 'worker', to: 'electron-main' },
+    // The Worker is never bundled into Electron or the CLI (CLAUDE.md invariant).
+    { from: 'electron-main', to: 'worker' },
+    { from: 'cli', to: 'worker' },
     { from: 'renderer', to: 'worker' },
     { from: 'renderer', to: 'electron-main' },
     { from: 'electron-main', to: 'renderer' },
@@ -74,5 +79,51 @@ export const architecturePolicy: ArchitecturePolicy = {
       pattern: String.raw`\btext-sp-(?:9|10)(?:-5)?\b`,
       max: 93,
     },
+    // CLAUDE.md "Secrets": no new persistence through window.localStorage —
+    // stores persist via Dexie (web) / encrypted electron-store (desktop).
+    // Counts direct member/index access and `window.`/`globalThis.` value
+    // references (comments included, so the cap is stable); may only go down.
+    {
+      name: 'direct localStorage access (renderer/shared)',
+      pathPrefix: ['src/', 'shared/'],
+      extension: ['.ts', '.tsx'],
+      pattern: String.raw`\b(?:window|globalThis|self)\.localStorage\b|\blocalStorage\s*(?:\??\.(?=[A-Za-z_$])|\[)`,
+      max: 11,
+      hint: 'persist through a Dexie-backed store (web) / secureStorage → encrypted electron-store (desktop), validated by Zod',
+    },
+    // CLAUDE.md "Electron main": IPC input is validated by a Zod schema via
+    // createValidatedHandler / createValidatedListener. Counts handlers
+    // registered as an inline function (no validating wrapper); may only go down.
+    {
+      name: 'inline ipcMain handlers without a createValidated* wrapper',
+      pathPrefix: 'electron/main/',
+      extension: '.ts',
+      pattern: String.raw`\bipcMain\.(?:handle|on)\(\s*[\w.]+,\s*(?:async\s+)?(?:function\b|\([^()]*\)\s*(?::[^=]*)?=>|\w+\s*=>)`,
+      max: 22,
+      hint: 'wrap the handler in createValidatedHandler/createValidatedListener with a Zod schema from electron/main/ipc/validators/',
+    },
   ],
 };
+
+/**
+ * IPC triple (CLAUDE.md "Electron main"): every channel in the IPC registry
+ * must be handled in Electron main and exposed by the preload bridge, and the
+ * preload bridge must stay typed against ElectronAPI. Exceptions need a reason.
+ */
+export const ipcTriplePolicy: IpcTriplePolicy = {
+  registryDir: 'electron/shared/channels/',
+  mainRoot: 'electron/main/',
+  preloadEntry: 'electron/main/preload.ts',
+  preloadDir: 'electron/main/preload/',
+  mainOnlyChannels: {},
+  preloadOnlyChannels: {},
+};
+
+export const forbiddenConfigKeys: ForbiddenConfigKey[] = [
+  {
+    key: 'DEV_BYPASS_AUTH',
+    filePattern: String.raw`(?:^|/)wrangler[^/]*\.json[c5]?$`,
+    reason:
+      'it disables Worker auth for every deployed request. Remove it — set DEV_BYPASS_AUTH=true only in the gitignored .dev.vars for local dev; production needs WORKER_PROXY_TOKEN or REQUIRE_CF_ACCESS=true',
+  },
+];
