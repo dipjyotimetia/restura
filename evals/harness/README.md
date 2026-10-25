@@ -357,7 +357,13 @@ deliberately.
 ## Adding a case
 
 1. Find the incident: the fix PR, the PR(s) that introduced it, and the main commit before
-   them. For a control, pick a small merged PR with no later fix to its files.
+   them. For a defect, `npm run eval:new-case -- --from <fixPR#> [--id <id>]` does the
+   lookup (read-only `gh pr view` + git): it guesses the introducing PRs from the fix's `#nnn`
+   references, proposes `base` as the first one's merge parent, writes a `cases/<id>.yaml`
+   skeleton full of TODOs (it never overwrites a case) and prints the `git diff` commands for
+   step 2. Check its guesses; it only reads references. For a control, pick a small merged PR
+   and confirm `git log <merge>..origin/main -- <its files>` is empty (or that every later
+   commit there is unrelated: read them), so nothing later fixed it.
 2. In a scratch worktree at that commit, apply the introducing diff restricted to source files
    (`git diff <base> <merge> -- <files> | git apply`), trim it to the relevant hunks, and save
    `git diff --cached` as `fixtures/<id>/NN-name.patch`. Keep each patch under about 300 lines;

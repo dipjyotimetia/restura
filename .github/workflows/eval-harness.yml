@@ -1,0 +1,113 @@
+# Harness / routing evals (evals/harness, evals/routing).
+#
+# COST: every run calls Claude for real. The harness suite runs `/ship-check --quick` per case
+# per run (plus an LLM judge): the held-out test split is 6 cases, so 2 runs is 12 reviews at up
+# to --max-budget-usd each (default here $10, so a hard ceiling of about $120 plus judge calls;
+# typical runs cost far less). The routing suite is cheap per run (--max-turns 3, default $1 cap),
+# but 20 cases x 2 runs is still 40 sessions.
+#
+# WHY LABEL-GATED: because of that cost (and because the result is a measurement, not a gate),
+# this never runs on push or on every PR update. It runs only when someone dispatches it by
+# hand, or adds the `eval-harness` label to a same-repo PR (fork PRs never get the secret).
+# Remove and re-add the label to re-run. Results are uploaded as an artifact; nothing is
+# committed or commented.
+name: Eval harness
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Which eval to run
+        type: choice
+        options: [harness, routing]
+        default: harness
+      split:
+        description: Case split (train | test | all). Hillclimb on train; report on test.
+        type: choice
+        options: [test, train, all]
+        default: test
+      runs:
+        description: Runs per case (1-5)
+        type: string
+        default: '2'
+      max-budget:
+        description: Max USD per model run; blank = 10 (harness review) or 1 (routing session)
+        type: string
+        default: ''
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-harness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    name: Eval (${{ inputs.suite || 'harness' }})
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.label.name == 'eval-harness' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Case bases are old main commits; the harness eval checks them out as worktrees.
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-node-npm
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Install Claude Code CLI
+        run: npm install --global @anthropic-ai/claude-code
+
+      - name: Run eval
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          SUITE: ${{ inputs.suite || 'harness' }}
+          SPLIT: ${{ inputs.split || 'test' }}
+          RUNS: ${{ inputs.runs || '2' }}
+          BUDGET: ${{ inputs.max-budget || '' }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$RUNS" =~ ^[1-5]$ ]] || { echo "runs must be 1-5"; exit 1; }
+          if [[ -z "$BUDGET" ]]; then
+            if [[ "$SUITE" == routing ]]; then BUDGET=1; else BUDGET=10; fi
+          fi
+          [[ "$BUDGET" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "max-budget must be a number"; exit 1; }
+          git config --global user.name "eval-harness"
+          git config --global user.email "eval-harness@users.noreply.github.com"
+          case "$SUITE" in
+            harness)
+              npm run eval:harness -- --split "$SPLIT" --runs "$RUNS" --max-budget-usd "$BUDGET" \
+                --harness-ref HEAD --config "ci-${SHA::12}"
+              ;;
+            routing)
+              npm run eval:routing -- --split "$SPLIT" --runs "$RUNS" --max-budget-usd "$BUDGET" \
+                --ref HEAD --config "ci-${SHA::12}"
+              ;;
+            *) echo "unknown suite $SUITE"; exit 1 ;;
+          esac
+
+      - name: Clean up harness worktrees
+        if: always() && (inputs.suite || 'harness') == 'harness'
+        run: npm run eval:harness -- --cleanup
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eval-${{ inputs.suite || 'harness' }}-${{ github.run_id }}
+          path: .claude/metrics/evals/
+          if-no-files-found: warn
+          retention-days: 30
