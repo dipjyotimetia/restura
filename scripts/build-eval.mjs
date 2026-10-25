@@ -227,7 +227,11 @@ export function gitChecks(repo, exec = syncExec) {
   };
 }
 
-export function loadTasks({ dir = TASKS_DIR, ids = [], split = 'all', check } = {}) {
+/**
+ * @param {{ dir?: string; ids?: string[]; split?: string;
+ *   check?: ReturnType<typeof gitChecks> }} [options]
+ */
+export function loadTasks({ dir = TASKS_DIR, ids = [], split = 'all', check = undefined } = {}) {
   const checks = check ?? gitChecks(ROOT);
   const files = fs
     .readdirSync(dir)
@@ -258,7 +262,8 @@ export function buildAgentPrompt(task) {
   return `${task.issue.trim()}\n\n${PROMPT_SUFFIX}`;
 }
 
-export function buildAgentArgs({ model, maxBudgetUsd }) {
+/** @param {{ model?: string; maxBudgetUsd?: number }} options */
+export function buildAgentArgs({ model, maxBudgetUsd = 15 }) {
   const args = [
     '-p',
     '--output-format',
