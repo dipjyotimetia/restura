@@ -70,7 +70,14 @@ function quotedAt(line, idx) {
 }
 
 const HEREDOC = /(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([A-Za-z_][\w.-]*)\2/g;
-const SHELL_BEFORE_HEREDOC = /(?:^|[;&|(`]|\$\()\s*(?:\S*\/)?(?:ba|z)?sh(?:\s+[^;&|<>]*)?\s*$/;
+// Is the command that owns a heredoc (line text before `<<`) a shell, possibly
+// behind env assignments, reserved words or wrappers (`sudo bash <<EOF`)?
+function shellBeforeHeredoc(prefix) {
+  const seg = prefix.split(/&&|\|\||[;&|(`]|\$\(/).pop() ?? '';
+  const words = seg.trim().split(/\s+/).filter(Boolean);
+  const cmd = words[peelPrefix(words)];
+  return typeof cmd === 'string' && SHELLS.has(path.basename(cmd));
+}
 
 // Removes heredoc bodies (and terminator lines). Bodies whose command is a
 // shell are returned separately so they can be checked as scripts.
@@ -97,7 +104,7 @@ export function stripHeredocs(cmd) {
         dash: m[1] === '-',
         tag: m[3],
         body: [],
-        toShell: SHELL_BEFORE_HEREDOC.test(line.slice(0, m.index)),
+        toShell: shellBeforeHeredoc(line.slice(0, m.index)),
       });
     }
   }
@@ -250,14 +257,39 @@ function isAddAllArg(a) {
 const ADD_SAFE_LONG = new Set(['--update', '--dry-run', '--patch']);
 const isAddSafeArg = (a) => ADD_SAFE_LONG.has(a) || (isShortFlags(a) && /[unp]/.test(a));
 
-// Returns a deny reason, or null. `state.dir` carries `cd` across segments.
-function checkSegment(seg, state, env, depth) {
-  const inlineEnv = {};
+// Shell reserved words / grouping tokens that can precede a command in a
+// segment (`do git add -A`, `then git push`, `{ git add -A; }`, `! git add -A`).
+// Closers are listed so a segment that is just `fi`/`done`/`}` is a no-op.
+const RESERVED = new Set([
+  'if',
+  'then',
+  'else',
+  'elif',
+  'fi',
+  'while',
+  'until',
+  'do',
+  'done',
+  'esac',
+  '!',
+  '{',
+  '}',
+  '(',
+  ')',
+]);
+
+// Skips leading env assignments, reserved words and wrapper commands (with
+// their flags/values). Returns the index of the real command word.
+function peelPrefix(seg, inlineEnv = {}) {
   let i = 0;
   while (i < seg.length) {
     const m = ENV_ASSIGN.exec(seg[i]);
     if (m) {
       inlineEnv[m[1]] = m[2];
+      i++;
+      continue;
+    }
+    if (RESERVED.has(seg[i])) {
       i++;
       continue;
     }
@@ -274,8 +306,13 @@ function checkSegment(seg, state, env, depth) {
     }
     if (wrapper === 'timeout') i++; // duration
   }
+  return i;
+}
 
-  const [cmd, ...rest] = seg.slice(i);
+// Returns a deny reason, or null. `state.dir` carries `cd` across segments.
+function checkSegment(seg, state, env, depth) {
+  const inlineEnv = {};
+  const [cmd, ...rest] = seg.slice(peelPrefix(seg, inlineEnv));
   if (!cmd) return null;
   const base = path.basename(cmd);
 
@@ -295,9 +332,13 @@ function checkSegment(seg, state, env, depth) {
   }
 
   if (cmd === 'cd') {
-    const target = rest.find((w) => !w.startsWith('-') || w === '-');
-    if (target && target !== '-') state.dir = resolveDir(state.dir, target);
-    else if (!target) state.dir = homedir();
+    // Only follow targets we can resolve statically. Bare `cd`, `cd -`, empty
+    // targets (e.g. `cd "$(pwd)"` after substitution), `$VAR`, backticks and
+    // `~user` leave the directory UNCHANGED — conservative, never "home".
+    const target = rest.find((w) => !w.startsWith('-'));
+    if (target && !/[$`]/.test(target) && !/^~[^/]/.test(target)) {
+      state.dir = resolveDir(state.dir, target);
+    }
     return null;
   }
 

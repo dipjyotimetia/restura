@@ -254,3 +254,62 @@ describe('guard-bash hook: review-round bypasses', () => {
     expect(run(cmd).denied).toBe(true);
   });
 });
+
+describe('guard-bash hook: bot-review round (PR #1185)', () => {
+  it.each([
+    'for f in a b; do git add -A; done',
+    'while true; do git add -A; done',
+    'until false; do git add .; done',
+    'if true; then git add -A; fi',
+    'if false; then :; else git add -A; fi',
+    'if false; then :; elif true; then git add -A; fi',
+    '{ git add -A; }',
+    '! git add -A',
+    '( git add -A )',
+    'time git add -A',
+    'case x in x) git add -A ;; esac',
+  ])('denies git add behind a shell reserved word: %j', (cmd) => {
+    expect(run(cmd).denied).toBe(true);
+  });
+
+  it.each(['if true; then git push; fi', 'for r in a; do git push; done', '{ git push; }'])(
+    'denies %j from a worktree cwd',
+    (cmd) => {
+      expect(run(cmd, { cwd: WORKTREE_CWD }).denied).toBe(true);
+    }
+  );
+
+  it.each(['if true; then git status; fi', 'for f in a; do echo "git add -A"; done'])(
+    'allows harmless compound command %j',
+    (cmd) => {
+      expect(run(cmd).denied).toBe(false);
+    }
+  );
+
+  it.each([
+    'cd "$(pwd)" && git push',
+    'cd "" && git push',
+    'cd $HOME/x && git push',
+    'cd `pwd` && git push',
+    'cd ~someone && git push',
+  ])('unresolvable cd target keeps the worktree dir: %j', (cmd) => {
+    expect(run(cmd, { cwd: WORKTREE_CWD }).denied).toBe(true);
+  });
+
+  it.each([
+    "sudo bash <<'EOF'\ngit add -A\nEOF",
+    "env bash <<'EOF'\ngit add -A\nEOF",
+    "FOO=1 bash <<'EOF'\ngit add -A\nEOF",
+    "exec bash <<'EOF'\ngit add -A\nEOF",
+    "timeout 5 sh <<'EOF'\ngit add -A\nEOF",
+  ])('denies a heredoc fed to a wrapped shell: %j', (cmd) => {
+    expect(run(cmd).denied).toBe(true);
+  });
+
+  it.each([
+    'git commit -m "$(cat <<\'EOF\'\nfix (unbalanced paren and `backtick\nEOF\n)"',
+    'git commit -m "$(cat <<\'EOF\'\nfix: never git add -A\nEOF\n)"',
+  ])('allows a heredoc inside "$(…)": %j', (cmd) => {
+    expect(run(cmd).denied).toBe(false);
+  });
+});
