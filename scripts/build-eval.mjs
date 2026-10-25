@@ -21,13 +21,14 @@
 //     [--config <label>] [--harness-ref <ref>] [--model <model>]
 //     [--max-budget-usd <n>] [--out <dir>] [--dry-run]
 
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { load as loadYaml } from 'js-yaml';
+import * as harnessEval from './harness-eval.mjs';
 import {
-  classifyClaudeRun,
   createIsolatedRepo,
   detectContamination,
   linkNodeModules,
@@ -58,6 +59,79 @@ const TYPECHECK_ALL_RE = /\btype-check:all\b/;
 const COMMIT_RE = /\bgit\b[^|;&\n]*\bcommit\b/;
 /** The reference diff never carries node_modules (a stray committed symlink would collide with the links). */
 const DIFF_EXCLUDES = [':(exclude,glob)**/node_modules'];
+const KILL_GRACE_MS = 10_000;
+/** Paths stripped from every isolated repo: the answer keys (task files) must never be in reach. */
+export const ANSWER_KEY_PATHS = ['evals'];
+
+/**
+ * Redact secrets from text before it is stored (transcripts, grader tails,
+ * result files) with harness-eval's `redactSecrets(text, env)` when it is
+ * exported; identity until then.
+ */
+export function redact(text, env = process.env) {
+  const fn = harnessEval.redactSecrets;
+  return typeof fn === 'function' ? fn(String(text ?? ''), env) : String(text ?? '');
+}
+
+const liveChildren = new Set();
+
+/** Kill every live child (SIGTERM, then SIGKILL after the grace period). */
+export function killAllChildren() {
+  for (const child of liveChildren) {
+    child.kill('SIGTERM');
+    setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }, KILL_GRACE_MS).unref();
+  }
+}
+
+/**
+ * Process runner for the eval: like harness-eval's nodeExec.run, but it tracks
+ * every live child (so a signal can kill them all) and escalates a timeout's
+ * SIGTERM to SIGKILL after 10 s. `pipe` (git archive | tar, git diff | git apply)
+ * is harness-eval's.
+ */
+export const buildExec = {
+  run(command, args, opts = {}) {
+    return new Promise((resolve) => {
+      const child = spawn(command, args, {
+        cwd: opts.cwd,
+        env: opts.env ?? process.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      liveChildren.add(child);
+      let stdout = '';
+      let stderr = '';
+      let timer;
+      let killer;
+      if (opts.timeout)
+        timer = setTimeout(() => {
+          stderr += `\ntimed out after ${opts.timeout} ms`;
+          child.kill('SIGTERM');
+          killer = setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS);
+        }, opts.timeout);
+      child.stdout.setEncoding('utf8').on('data', (d) => {
+        stdout += d;
+      });
+      child.stderr.setEncoding('utf8').on('data', (d) => {
+        stderr += d;
+      });
+      child.on('error', (error) => {
+        stderr += String(error);
+      });
+      child.on('close', (status, signal) => {
+        clearTimeout(timer);
+        clearTimeout(killer);
+        liveChildren.delete(child);
+        resolve({ status: status ?? (signal ? null : 1), signal, stdout, stderr });
+      });
+      child.stdin.on('error', () => {});
+      child.stdin.end(opts.input ?? '');
+    });
+  },
+  pipe: (...args) => nodeExec.pipe(...args),
+};
+
 const IDENTITY = ['-c', 'user.name=restura-build-eval', '-c', 'user.email=build-eval@localhost'];
 
 // ---------------------------------------------------------------- arguments
@@ -279,7 +353,11 @@ export function buildAgentArgs({ model, maxBudgetUsd }) {
     'Task',
     '--disallowedTools',
     'Bash(git push:*)',
-    'Bash(gh:*)'
+    'Bash(gh:*)',
+    'Bash(curl:*)',
+    'Bash(wget:*)',
+    'WebFetch',
+    'WebSearch'
   );
   return args;
 }
@@ -337,6 +415,33 @@ export function transcriptMetrics(stdout) {
   return metrics;
 }
 
+/**
+ * Fail closed: a run is graded only when claude exited 0 with a parseable
+ * stream, at least one turn and no error, or when it stopped on max turns
+ * (graded on the outcome state). Anything else (non-zero exit, a timeout kill,
+ * zero turns, unparseable output, is_error or any other error subtype such as
+ * a budget stop) is a harness ERROR, excluded from scoring.
+ */
+export function classifyAgentRun(raw) {
+  const stderr = String(raw.stderr ?? '').trim();
+  if (raw.signal || /timed out after \d+ ms/.test(stderr))
+    return { graded: false, reason: `agent killed (${raw.signal ?? 'timeout'})` };
+  if (raw.status !== 0)
+    return { graded: false, reason: `claude exited ${raw.status}: ${stderr.split('\n')[0] ?? ''}` };
+  let parsed;
+  try {
+    parsed = parseClaudeStream(raw.stdout);
+  } catch (error) {
+    return { graded: false, reason: `unparseable stream (${error.message.slice(0, 120)})` };
+  }
+  if (parsed.subtype === 'error_max_turns')
+    return { graded: true, parsed, stopped: 'max turns reached' };
+  if (!(parsed.numTurns > 0)) return { graded: false, reason: 'zero turns', parsed };
+  if (parsed.isError || parsed.subtype?.startsWith('error'))
+    return { graded: false, reason: `claude ended with ${parsed.subtype ?? 'is_error'}`, parsed };
+  return { graded: true, parsed };
+}
+
 // ---------------------------------------------------------------- grading
 
 const tail = (text) => (text.length > TAIL_CHARS ? text.slice(-TAIL_CHARS) : text);
@@ -356,7 +461,7 @@ export async function runCommand(exec, command, { cwd, timeoutMs }) {
     status: result.status === 0 && !result.signal ? 'pass' : timedOut ? 'timeout' : 'fail',
     exitCode: result.status ?? null,
     ms: Date.now() - started,
-    tail: tail(output.trim()),
+    tail: tail(redact(output.trim())),
   };
 }
 
@@ -429,6 +534,32 @@ async function runGraders(exec, task, dir) {
 }
 
 /**
+ * Remove the answer keys (ANSWER_KEY_PATHS: evals/ holds the task files) from
+ * the isolated repo, amending the overlay commit so no reachable tree has them,
+ * and repoint main / origin/main. Returns the new effective base.
+ */
+async function stripAnswerKeys(exec, dir, effectiveBase) {
+  const present = ANSWER_KEY_PATHS.filter((p) => fs.existsSync(path.join(dir, p)));
+  if (present.length === 0) return effectiveBase;
+  const git = async (args, what) => {
+    const r = await exec.run('git', ['-C', dir, ...args]);
+    if (r.status !== 0)
+      throw new Error(`strip answer keys: ${what}: ${(r.stderr || r.stdout || '').trim()}`);
+    return r;
+  };
+  await git(['rm', '-r', '-q', '--ignore-unmatch', '--', ...present], 'rm');
+  for (const p of present) fs.rmSync(path.join(dir, p), { recursive: true, force: true });
+  await git(
+    [...IDENTITY, 'commit', '-q', '--no-verify', '--amend', '--no-edit', '--allow-empty'],
+    'amend'
+  );
+  const head = (await git(['rev-parse', 'HEAD'], 'rev-parse')).stdout.trim();
+  await git(['update-ref', 'refs/heads/main', head], 'main');
+  await git(['update-ref', 'refs/remotes/origin/main', head], 'origin/main');
+  return head;
+}
+
+/**
  * One trial of one task in a fresh isolated repo under `ctx.tempDir` (the
  * caller removes it). Real runs: agent → contamination check → hidden tests
  * copied in → graders. Dry runs: hidden tests on base must fail; with the
@@ -451,7 +582,9 @@ export async function runTask(task, ctx) {
       repo,
     });
     outcome.harnessSha = ctx.harnessSha;
-    outcome.effectiveBase = effectiveBase;
+    outcome.effectiveBase = await stripAnswerKeys(exec, dir, effectiveBase);
+    // A hidden test that exists at base keeps base's version until grading overwrites it.
+    outcome.hiddenTestsAtBase = task.hiddenTests.filter((p) => fs.existsSync(path.join(dir, p)));
     (ctx.setup ?? ((d) => linkNodeModules(d, ctx.mainCheckout ?? repo)))(dir);
     const hidden = { repo, dir, ref: task.referenceCommit, paths: task.hiddenTests };
 
@@ -481,21 +614,15 @@ export async function runTask(task, ctx) {
     });
     if (ctx.transcriptFile) {
       fs.mkdirSync(path.dirname(ctx.transcriptFile), { recursive: true });
-      fs.writeFileSync(ctx.transcriptFile, raw.stdout ?? '');
+      fs.writeFileSync(ctx.transcriptFile, redact(raw.stdout ?? ''));
       outcome.transcript = ctx.transcriptLink ?? ctx.transcriptFile;
     }
     outcome.agent = transcriptMetrics(raw.stdout);
-    const timedOut = Boolean(raw.signal) || /timed out after \d+ ms/.test(raw.stderr ?? '');
-    const classified = classifyClaudeRun(raw, parseClaudeStream);
-    if (classified.status === 'error') {
-      // The repo state is still graded when the agent merely stopped (budget,
-      // max turns, timeout, a denied tool): that is the agent's outcome. Only a
-      // run with no session at all (crash, unparseable output) is a harness error.
-      if (!classified.parsed && !timedOut) throw new Error(`agent: ${classified.reason}`);
-      outcome.agentStopped = timedOut
-        ? `timeout after ${task.timeoutMinutes} min`
-        : classified.reason;
-    }
+    const classified = classifyAgentRun(raw);
+    if (!classified.graded) throw new Error(`agent: ${classified.reason}`);
+    if (classified.stopped) outcome.agentStopped = classified.stopped;
+    if (classified.parsed.permissionDenials.length > 0)
+      outcome.permissionDenials = classified.parsed.permissionDenials.length;
     if (ctx.forbiddenRoots?.length) {
       let real = dir;
       try {
@@ -517,7 +644,7 @@ export async function runTask(task, ctx) {
       dir,
       'rev-list',
       '--count',
-      `${effectiveBase}..HEAD`,
+      `${outcome.effectiveBase}..HEAD`,
     ]);
     outcome.commits = count.status === 0 ? Number(count.stdout.trim()) || 0 : null;
     outcome.committed = (outcome.commits ?? 0) > 0;
@@ -631,7 +758,7 @@ export function formatBuildMarkdown(result) {
 
 // ---------------------------------------------------------------- main
 
-export async function runBuildEval(options, { exec = nodeExec, log = console.log } = {}) {
+export async function runBuildEval(options, { exec = buildExec, log = console.log } = {}) {
   const repo = (
     await exec.run('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT })
   ).stdout.trim();
@@ -685,6 +812,7 @@ export async function runBuildEval(options, { exec = nodeExec, log = console.log
 
   let tempDir = null;
   const onSignal = (signal) => {
+    killAllChildren();
     if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
     console.error(`\nbuild-eval: ${signal}; removed this run's isolated repo.`);
     process.exit(signal === 'SIGINT' ? 130 : 143);
@@ -700,21 +828,25 @@ export async function runBuildEval(options, { exec = nodeExec, log = console.log
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `${TEMP_PREFIX}${task.id}-`));
         log(`${task.id} run ${run}/${runs}…`);
         const name = `${task.id}-run${run}.jsonl`;
-        const outcome = await runTask(task, {
-          exec,
-          repo,
-          tempDir,
-          harnessSha,
-          dryRun: options.dryRun,
-          mainCheckout,
-          forbiddenRoots,
-          model: options.model,
-          maxBudgetUsd: options.maxBudgetUsd,
-          transcriptFile: options.dryRun ? undefined : path.join(base, 'transcripts', name),
-          transcriptLink: `${path.basename(base)}/transcripts/${name}`,
-        });
-        fs.rmSync(tempDir, { recursive: true, force: true });
-        tempDir = null;
+        let outcome;
+        try {
+          outcome = await runTask(task, {
+            exec,
+            repo,
+            tempDir,
+            harnessSha,
+            dryRun: options.dryRun,
+            mainCheckout,
+            forbiddenRoots,
+            model: options.model,
+            maxBudgetUsd: options.maxBudgetUsd,
+            transcriptFile: options.dryRun ? undefined : path.join(base, 'transcripts', name),
+            transcriptLink: `${path.basename(base)}/transcripts/${name}`,
+          });
+        } finally {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+          tempDir = null;
+        }
         result.runs.push({ run, ...outcome });
         log(
           outcome.status === 'error'
@@ -731,8 +863,8 @@ export async function runBuildEval(options, { exec = nodeExec, log = console.log
   }
   result.summary = summariseBuild(result.runs);
   fs.mkdirSync(outDir, { recursive: true });
-  fs.writeFileSync(`${base}.json`, `${JSON.stringify(result, null, 2)}\n`);
-  const markdown = formatBuildMarkdown(result);
+  fs.writeFileSync(`${base}.json`, redact(`${JSON.stringify(result, null, 2)}\n`));
+  const markdown = redact(formatBuildMarkdown(result));
   fs.writeFileSync(`${base}.md`, markdown);
   log(`\n${markdown}`);
   log(`Wrote ${base}.json and ${base}.md`);

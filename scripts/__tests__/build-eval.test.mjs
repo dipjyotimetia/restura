@@ -8,6 +8,8 @@ import {
   applyReferenceDiff,
   buildAgentArgs,
   buildAgentPrompt,
+  buildExec,
+  classifyAgentRun,
   dryRunVerdict,
   formatBuildMarkdown,
   gitChecks,
@@ -15,6 +17,7 @@ import {
   loadTasks,
   PROMPT_SUFFIX,
   parseBuildArgs,
+  redact,
   runCommand,
   runTask,
   summariseBuild,
@@ -228,6 +231,9 @@ test('buildAgentArgs: stream-json, dontAsk, budget, model, tools, no push/gh', (
     assert.ok(args.includes(tool));
   assert.ok(args.includes('Bash(git push:*)'));
   assert.ok(args.includes('Bash(gh:*)'));
+  const denied = args.slice(args.indexOf('--disallowedTools') + 1);
+  for (const tool of ['Bash(curl:*)', 'Bash(wget:*)', 'WebFetch', 'WebSearch'])
+    assert.ok(denied.includes(tool), `${tool} must be disallowed`);
   assert.ok(!buildAgentArgs({ maxBudgetUsd: 1 }).includes('--model'));
 });
 
@@ -495,7 +501,38 @@ test('runTask: a transcript touching the main checkout is contaminated → error
   }
 });
 
-test('runTask: a crashed agent (no result event) is an error; a budget stop is still graded', async () => {
+test('buildExec: a timeout kills the child and reports it', async () => {
+  const started = Date.now();
+  const r = await buildExec.run('sleep', ['30'], { timeout: 100 });
+  assert.ok(Date.now() - started < 5000);
+  assert.equal(r.signal, 'SIGTERM');
+  assert.match(r.stderr, /timed out after 100 ms/);
+});
+
+test('redact returns the text (harness-eval redactSecrets when it is exported)', () => {
+  assert.ok(redact('plain text', {}).includes('plain'));
+});
+
+test('classifyAgentRun fails closed; only success and max-turns are graded', () => {
+  const ok = (events, extra = {}) => ({ status: 0, stdout: stream(events), stderr: '', ...extra });
+  const result = (extra) => ({ type: 'result', subtype: 'success', num_turns: 4, ...extra });
+  assert.equal(classifyAgentRun(ok([result()])).graded, true);
+  const maxTurns = classifyAgentRun(ok([result({ subtype: 'error_max_turns', is_error: true })]));
+  assert.equal(maxTurns.graded, true);
+  assert.match(maxTurns.stopped, /max turns/);
+  for (const [label, raw] of [
+    ['budget', ok([result({ subtype: 'error_max_budget_usd', is_error: true })])],
+    ['is_error', ok([result({ is_error: true })])],
+    ['error subtype', ok([result({ subtype: 'error_during_execution' })])],
+    ['zero turns', ok([result({ num_turns: 0 })])],
+    ['non-zero exit', ok([result()], { status: 1 })],
+    ['timeout', ok([result()], { status: null, signal: 'SIGTERM' })],
+    ['unparseable', { status: 0, stdout: 'not json', stderr: '' }],
+  ])
+    assert.equal(classifyAgentRun(raw).graded, false, label);
+});
+
+test('runTask: crashed or budget-stopped agents are errors (excluded); max turns is graded', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
   try {
     const task = validateTask(rawTask(), okChecks).value;
@@ -505,14 +542,63 @@ test('runTask: a crashed agent (no result event) is an error; a budget stop is s
       task,
       ctxFor(
         runTaskExec({
-          agentStdout: stream([{ type: 'result', subtype: 'error_max_budget_usd', num_turns: 50 }]),
+          agentStdout: stream([
+            { type: 'result', subtype: 'error_max_budget_usd', is_error: true, num_turns: 50 },
+          ]),
         }),
         tempDir
       )
     );
-    assert.equal(budget.status, 'ok');
-    assert.match(budget.agentStopped, /budget/);
-    assert.equal(budget.outcome, 'pass');
+    assert.equal(budget.status, 'error');
+    assert.equal(budget.outcome, null);
+    const turns = await runTask(
+      task,
+      ctxFor(
+        runTaskExec({
+          agentStdout: stream([
+            { type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 50 },
+          ]),
+        }),
+        tempDir
+      )
+    );
+    assert.equal(turns.status, 'ok');
+    assert.match(turns.agentStopped, /max turns/);
+    assert.equal(turns.outcome, 'pass');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('runTask strips the answer keys (evals/) from the isolated repo and records hidden tests at base', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
+  try {
+    const task = validateTask(rawTask(), okChecks).value;
+    const dir = path.join(tempDir, 'repo');
+    const exec = runTaskExec({ agentStdout: goodStream });
+    const out = await runTask(
+      task,
+      ctxFor(exec, tempDir, {
+        createRepo: async () => {
+          fs.mkdirSync(path.join(dir, 'evals/build/tasks'), { recursive: true });
+          fs.writeFileSync(path.join(dir, 'evals/build/tasks/demo-task.yaml'), 'answer');
+          fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+          fs.writeFileSync(path.join(dir, 'src/a.test.ts'), 'base version');
+          return { harnessSha: SHA_B, effectiveBase: 'd'.repeat(40) };
+        },
+      })
+    );
+    assert.equal(out.status, 'ok', out.reason);
+    assert.ok(!fs.existsSync(path.join(dir, 'evals')));
+    const gitArgs = exec.calls.filter((c) => c.command === 'git').map((c) => c.args.join(' '));
+    assert.ok(gitArgs.some((a) => a.includes('rm -r -q --ignore-unmatch -- evals')));
+    assert.ok(gitArgs.some((a) => a.includes('commit -q --no-verify --amend')));
+    assert.ok(gitArgs.some((a) => a.includes('update-ref refs/remotes/origin/main')));
+    assert.equal(out.effectiveBase, 'e'.repeat(40), 'effective base is the amended commit');
+    assert.deepEqual(out.hiddenTestsAtBase, ['src/a.test.ts']);
+    const claudeAt = exec.calls.findIndex((c) => c.command === 'claude');
+    const amendAt = exec.calls.findIndex((c) => c.command === 'git' && c.args.includes('--amend'));
+    assert.ok(amendAt < claudeAt, 'answer keys are gone before the agent starts');
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

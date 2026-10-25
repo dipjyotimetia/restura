@@ -115,10 +115,23 @@ remote, so fetch and push fail closed. `node_modules` are symlinked from the mai
 `--harness-ref` is resolved once per invocation, so every task and trial tests the same harness;
 only committed state is used.
 
+The answer keys are stripped before the agent starts: `evals/` (which holds these task files)
+is removed and the overlay commit amended, so no reachable tree contains it. Hidden test files
+are only copied in after the agent finishes; when a hidden test path already exists at base
+(an existing test file the fix extended) the run records it in `hiddenTestsAtBase` and the
+agent sees base's version until grading overwrites it.
+
 The agent runs `claude -p --output-format stream-json --verbose --permission-mode dontAsk`
-with `Bash Read Edit Write Grep Glob Skill Task` allowed and `git push` / `gh` denied, cwd the
-isolated repo, prompt = issue + "Fix this in the repository following its CLAUDE.md workflow.
-Commit your work. Do not push or open PRs." Transcripts are saved as JSONL next to the results.
+with `Bash Read Edit Write Grep Glob Skill Task` allowed and `git push`, `gh`, `curl`, `wget`,
+`WebFetch` and `WebSearch` disallowed, cwd the isolated repo, prompt = issue + "Fix this in the
+repository following its CLAUDE.md workflow. Commit your work. Do not push or open PRs."
+Disallow patterns are **not a sandbox**: `Bash` can still reach the network or the filesystem
+by other means, and a local run has your developer privileges (keychain, SSH keys, tokens in the
+environment). Prefer running real trials in CI or a container. Transcripts are saved as JSONL
+next to the results. Transcripts, grader output tails and result files go through
+`redactSecrets(text, env)` from `scripts/harness-eval.mjs` once that export exists (until then
+they are written unredacted: check before sharing them). Ctrl-C / SIGTERM kills every live child
+and removes the trial's temp dir; a timed-out command gets SIGTERM, then SIGKILL 10 s later.
 
 Residual risks: the node_modules symlinks (and absolute paths in general) still lead to the main
 checkout, so an agent that deliberately leaves its repo could read the history. Every
@@ -129,8 +142,11 @@ which postdates the fixes: keep fix-specific lessons out of `CLAUDE.md` / skills
 
 ## Grading
 
-After the agent stops (finished, out of budget, out of turns or timed out: all are the
-agent's outcome and are graded), the runner:
+Grading fails closed. A trial is graded only when claude exited 0 with a parseable stream, at
+least one turn and no error, or when it stopped on **max turns** (graded on the outcome state).
+A non-zero exit, a timeout kill, zero turns, unparseable output, or `is_error` / any other error
+subtype (including running out of budget) is a harness **error**, excluded from scoring. For a
+graded trial the runner:
 
 1. records whether it committed (`git rev-list <effective base>..HEAD`) and left uncommitted
    changes; the grade uses the working tree either way;
@@ -143,8 +159,9 @@ Outcome = `pass` only if **every** command passes. Partial credit = fraction of 
 passing. Transcript metrics per trial: turns, cost, minutes, tool / skill / subagent calls, and
 whether the agent ran `type-check:all`, any test command and `git commit`.
 
-Errors (excluded from pass rates and listed separately): contamination, a crashed agent with
-no session output, or a setup failure. The summary reports per task: scored trials, errors,
+Errors (excluded from pass rates and listed separately): contamination, the agent failures
+above, or a setup failure. Budget stops are errors, so set `--max-budget-usd` high enough that
+they are rare, and report the error count next to pass rates. The summary reports per task: scored trials, errors,
 pass@1, pass^n (all n scored trials pass), mean partial credit, habit rates, mean cost and
 minutes; and totals overall and per split with a Wilson 95% CI. Results:
 `<out>/<timestamp>--<config>.json` + `.md`, transcripts under `<timestamp>--<config>/`.
