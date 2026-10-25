@@ -79,6 +79,8 @@ test('stop-outcomes.log: fire rate per check and blocked vs allowed', () => {
     `${T}\ts1\t-\tallowed`,
     `${T}\ts2\ttype-check\tblocked`,
     `${T}\ts2\t-\tallowed`,
+    `${T}\ts2\t-\treentrant`,
+    `${T}\ts3\t-\treentrant`,
   ].join('\n');
   const out = JSON.parse(run(fixture({ stopLog })));
   const st = out.stopOutcomes;
@@ -87,6 +89,7 @@ test('stop-outcomes.log: fire rate per check and blocked vs allowed', () => {
   assert.equal(st.blocked, 2);
   assert.equal(st.allowed, 2);
   assert.equal(st.blockRate, 0.5);
+  assert.equal(st.reentrant, 2, 're-entrant stops are counted separately, not in rates');
   assert.deepEqual(
     st.checks.map((c) => [c.name, c.fired, c.fireRate]),
     [

@@ -167,7 +167,14 @@ function stopSection() {
   const fired = new Map();
   let blocked = 0;
   let allowed = 0;
+  // stop_hook_active stops: the hook deliberately ran no checks, so counting
+  // them would dilute every fire/block rate. Reported separately.
+  let reentrant = 0;
   for (const [, , checks = '-', outcome = ''] of log.rows) {
+    if (outcome === 'reentrant') {
+      reentrant++;
+      continue;
+    }
     if (outcome === 'blocked') blocked++;
     else allowed++;
     if (checks && checks !== '-') {
@@ -176,12 +183,13 @@ function stopSection() {
       }
     }
   }
-  const total = log.rows.length;
+  const total = blocked + allowed;
   return {
-    status: total ? 'ok' : 'no-data',
+    status: total || reentrant ? 'ok' : 'no-data',
     total,
     blocked,
     allowed,
+    reentrant,
     blockRate: total ? round2(blocked / total) : 0,
     malformedLines: log.malformed,
     checks: [...fired.entries()]
@@ -263,7 +271,7 @@ if (stopOutcomes.status === 'no-data') {
   );
 } else {
   console.log(
-    `Stop-hook outcomes — ${stopOutcomes.total} stops: ${stopOutcomes.blocked} blocked, ${stopOutcomes.allowed} allowed (block rate ${stopOutcomes.blockRate})`
+    `Stop-hook outcomes — ${stopOutcomes.total} stops: ${stopOutcomes.blocked} blocked, ${stopOutcomes.allowed} allowed (block rate ${stopOutcomes.blockRate}); ${stopOutcomes.reentrant} re-entrant stops excluded`
   );
   console.log(pad('Check', 20) + pad('Fired', 7) + 'Fire rate');
   console.log('-'.repeat(36));

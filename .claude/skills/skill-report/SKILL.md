@@ -64,7 +64,9 @@ edits after presenting the report.
      dispatch may be silently skipped. Note very high per-session counts as a
      fan-out cost, not automatically a bug.
    - **`stopOutcomes`** — `total`, `blocked`, `allowed`, `blockRate`, and
-     `checks[]` (`name`, `fired`, `fireRate`). A check with a high `fireRate`
+     `checks[]` (`name`, `fired`, `fireRate`); `reentrant` counts
+     `stop_hook_active` stops, which ran no checks and are excluded from
+     `total` and every rate. A check with a high `fireRate`
      is either catching real drift or nagging; say which is likelier and
      whether its trigger in `.claude/hooks/stop-checks.mjs` should narrow.
      Recommend only — never edit hooks from this skill.
