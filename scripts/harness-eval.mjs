@@ -160,15 +160,16 @@ export function parseEvalArgs(argv) {
           throw new Error('--runs must be an integer from 1 to 20');
         options.runs = runs;
       } else if (name === '--config') {
-        if (!CONFIG_RE.test(value)) throw new Error('--config must match [A-Za-z0-9._-]+');
+        if (!CONFIG_RE.test(value) || value.includes('--'))
+          throw new Error('--config must match [A-Za-z0-9._-]+ and must not contain "--"');
         options.config = value;
       } else if (name === '--out') options.out = value;
       else if (name === '--model') options.model = value;
       else if (name === '--judge-model') options.judgeModel = value;
       else if (name === '--judge-repeat') {
         const repeat = Number(value);
-        if (!Number.isInteger(repeat) || repeat < 1 || repeat > 3)
-          throw new Error('--judge-repeat must be an integer from 1 to 3');
+        // Odd only, so the majority vote never ties.
+        if (repeat !== 1 && repeat !== 3) throw new Error('--judge-repeat must be 1 or 3');
         options.judgeRepeat = repeat;
       } else if (name === '--harness-ref') {
         if (value.startsWith('-') || /\s/.test(value))
@@ -571,21 +572,59 @@ function gitTargets(command) {
   return targets;
 }
 
+/** Commands that resolve symlinks or climb out of node_modules: fail closed on any of them. */
+/** @type {Array<[RegExp, string]>} */
+const SYMLINK_ESCAPES = [
+  [/\breadlink\b/, 'readlink'],
+  [/\brealpath\b/, 'realpath'],
+  [/\bpwd\s+-P\b/, 'pwd -P'],
+  [/\bcd\s+-P\b/, 'cd -P'],
+  [/node_modules\/\.\.(?![A-Za-z0-9._-])/, 'node_modules/..'],
+];
+
+/** Text of a tool_result block (string, or a list of text parts). */
+function toolResultText(block) {
+  return stringsIn(block?.content ?? '').join('\n');
+}
+
 /**
- * Did the review reach outside its isolated repo? Scans every tool_use INPUT
- * in a stream-json transcript (tool results are ignored, and node_modules
- * symlinks only count when a path is named explicitly) for (a) an explicit
- * reference to a forbidden root (the main checkout, its realpath) on a path
- * boundary, so `/x/restura-other` does not match `/x/restura`; and (b) git
- * `-C` / `--git-dir` / `--work-tree` / `GIT_DIR=` targets outside
- * `isolatedRoot` (string or list; absolute targets elsewhere, or relative
- * ones climbing with `..`). Without `isolatedRoot` only (a) applies.
+ * First reference to a forbidden root in `text`, on a path boundary. With
+ * `implicitOk`, a reference that continues into a node_modules dir (a stack
+ * trace through the symlinked node_modules, say) is not counted.
+ */
+function findRoot(text, rootRes, implicitOk) {
+  for (const re of rootRes) {
+    for (const match of text.matchAll(re)) {
+      const rest = text.slice(match.index + match[0].length);
+      if (implicitOk && /^(?:\/[^/\s'"`]+){0,2}\/node_modules(?![A-Za-z0-9._-])/.test(rest))
+        continue;
+      const start = Math.max(0, match.index - 40);
+      return text.slice(start, match.index + match[0].length + 80);
+    }
+  }
+  return null;
+}
+
+/**
+ * Did the review reach outside its isolated repo? Scans the stream-json
+ * transcript, failing closed:
+ * (a) any tool_use INPUT (Bash command, Read/Grep/Glob paths, ...) naming a
+ *     forbidden root (the main checkout, its realpath) on a path boundary, so
+ *     `/x/restura-other` does not match `/x/restura`;
+ * (b) git `-C` / `--git-dir` / `--work-tree` / `GIT_DIR=` targets outside
+ *     `isolatedRoot` (string or list; absolute elsewhere, or relative with `..`);
+ * (c) symlink-resolution tricks in inputs: `readlink`, `realpath`, `pwd -P`,
+ *     `cd -P`, `node_modules/..` (path-boundary aware);
+ * (d) any tool_result revealing a forbidden root (e.g. `pwd -P` output),
+ *     except paths that continue into a node_modules dir, which the
+ *     symlinked node_modules produce implicitly (stack traces, lint output).
+ * Without `isolatedRoot`, (b) is skipped.
  * @param {string} streamText
  * @param {{ forbiddenRoots?: string[]; isolatedRoot?: string | string[] }} [options]
  */
 export function detectContamination(streamText, { forbiddenRoots = [], isolatedRoot } = {}) {
   const roots = [...new Set(forbiddenRoots.filter(Boolean).map((r) => r.replace(/\/+$/, '')))];
-  const rootRes = roots.map((root) => new RegExp(`${escapeRe(root)}(?![A-Za-z0-9._-])`));
+  const rootRes = roots.map((root) => new RegExp(`${escapeRe(root)}(?![A-Za-z0-9._-])`, 'g'));
   const allowed = [isolatedRoot ?? []].flat().filter(Boolean);
   const hits = [];
   for (const line of String(streamText ?? '').split('\n')) {
@@ -595,18 +634,22 @@ export function detectContamination(streamText, { forbiddenRoots = [], isolatedR
     } catch {
       continue;
     }
-    const content = event?.type === 'assistant' ? event.message?.content : null;
+    const content = event?.message?.content;
     if (!Array.isArray(content)) continue;
     for (const block of content) {
-      if (block?.type !== 'tool_use') continue;
+      if (event.type === 'user' && block?.type === 'tool_result') {
+        const snippet = findRoot(toolResultText(block), rootRes, true);
+        if (snippet !== null) hits.push({ tool: 'tool_result', snippet });
+        continue;
+      }
+      if (event.type !== 'assistant' || block?.type !== 'tool_use') continue;
       const tool = String(block.name ?? '?');
-      const texts = stringsIn(block.input ?? {});
       let hit = null;
-      for (const text of texts) {
-        const match = rootRes.map((re) => re.exec(text)).find(Boolean);
-        if (match) {
-          const start = Math.max(0, match.index - 40);
-          hit = text.slice(start, match.index + match[0].length + 80);
+      for (const text of stringsIn(block.input ?? {})) {
+        hit = findRoot(text, rootRes, false);
+        if (hit !== null) break;
+        if (SYMLINK_ESCAPES.some(([re]) => re.test(text))) {
+          hit = text.slice(0, 160);
           break;
         }
         if (allowed.length === 0) continue;
@@ -624,6 +667,32 @@ export function detectContamination(streamText, { forbiddenRoots = [], isolatedR
     }
   }
   return { contaminated: hits.length > 0, hits };
+}
+
+const ALWAYS_REDACT = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'GH_TOKEN'];
+const SECRET_NAME_RE = /(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)/i;
+
+/**
+ * Replace secret env values in `text` with `[REDACTED:<NAME>]`: the known
+ * credential variables, plus any variable whose NAME looks secret
+ * (TOKEN/SECRET/PASSWORD/API_KEY/PRIVATE_KEY) with a value of 12+ chars.
+ * JSON-escaped forms are replaced too; longer values go first.
+ */
+export function redactSecrets(text, env = process.env) {
+  if (typeof text !== 'string' || text === '') return text;
+  const pairs = [];
+  for (const [name, value] of Object.entries(env ?? {})) {
+    if (typeof value !== 'string') continue;
+    const listed = ALWAYS_REDACT.includes(name);
+    if (!(listed ? value.length >= 4 : SECRET_NAME_RE.test(name) && value.length >= 12)) continue;
+    pairs.push([name, value]);
+    const escaped = JSON.stringify(value).slice(1, -1);
+    if (escaped !== value) pairs.push([name, escaped]);
+  }
+  pairs.sort((a, b) => b[1].length - a[1].length);
+  let out = text;
+  for (const [name, value] of pairs) out = out.split(value).join(`[REDACTED:${name}]`);
+  return out;
 }
 
 /** @type {Array<[RegExp, string]>} */
@@ -964,11 +1033,17 @@ export function baselinePath(result, dir = BASELINES_DIR) {
 }
 
 /** Write the baseline; refuses to overwrite an existing file. Returns its path. */
-export function writeBaseline(result, dir = BASELINES_DIR) {
+export function writeBaseline(result, dir = BASELINES_DIR, env = process.env) {
   const file = baselinePath(result, dir);
   fs.mkdirSync(dir, { recursive: true });
   try {
-    fs.writeFileSync(file, `${JSON.stringify(buildBaseline(result), null, 2)}\n`, { flag: 'wx' });
+    fs.writeFileSync(
+      file,
+      redactSecrets(`${JSON.stringify(buildBaseline(result), null, 2)}\n`, env),
+      {
+        flag: 'wx',
+      }
+    );
   } catch (error) {
     if (error?.code === 'EEXIST')
       throw new Error(`baseline ${file} already exists; not overwriting`);
@@ -1134,7 +1209,21 @@ export function selectLeftovers({ branches, worktrees }) {
 
 // ---------------------------------------------------------------- execution
 
-let activeChild = null;
+/** Every child process still running (both ends of a pipe included), for signal cleanup. */
+const live = new Set();
+export const liveChildren = () => live;
+/** Kill every live child (SIGINT/SIGTERM handler, tests). */
+export function killLiveChildren(signal = 'SIGTERM') {
+  for (const child of live) child.kill(signal);
+}
+const track = (child) => {
+  live.add(child);
+  child.on('close', () => live.delete(child));
+  child.on('error', () => {
+    if (child.exitCode !== null || child.pid === undefined) live.delete(child);
+  });
+  return child;
+};
 
 /** Default process runner (async so signal handlers can fire mid-run). */
 export const nodeExec = {
@@ -1145,14 +1234,17 @@ export const nodeExec = {
         env: opts.env ?? process.env,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-      activeChild = child;
+      track(child);
       let stdout = '';
       let stderr = '';
       let timer;
+      let killTimer;
       if (opts.timeout)
         timer = setTimeout(() => {
           stderr += `\ntimed out after ${opts.timeout} ms`;
           child.kill('SIGTERM');
+          // A child that ignores SIGTERM gets SIGKILL after a grace period.
+          killTimer = setTimeout(() => child.kill('SIGKILL'), opts.killGraceMs ?? 10_000);
         }, opts.timeout);
       child.stdout.setEncoding('utf8').on('data', (d) => {
         stdout += d;
@@ -1165,7 +1257,7 @@ export const nodeExec = {
       });
       child.on('close', (status, signal) => {
         clearTimeout(timer);
-        if (activeChild === child) activeChild = null;
+        clearTimeout(killTimer);
         resolve({ status: status ?? (signal ? null : 1), signal, stdout, stderr });
       });
       child.stdin.on('error', () => {});
@@ -1178,11 +1270,12 @@ export const nodeExec = {
    */
   pipe(from, to, opts = {}) {
     return new Promise((resolve) => {
-      const producer = spawn(from[0], from[1], {
-        cwd: opts.cwd,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      const consumer = spawn(to[0], to[1], { cwd: opts.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+      const producer = track(
+        spawn(from[0], from[1], { cwd: opts.cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+      );
+      const consumer = track(
+        spawn(to[0], to[1], { cwd: opts.cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+      );
       let stdout = '';
       let stderr = '';
       const codes = {};
@@ -1484,7 +1577,7 @@ export async function cleanupTrackedAsync(exec, repo, tracker) {
  * which the caller (runEval, or its signal handler) owns.
  * @param {any} evalCase validated case
  * @param {{ exec: { run: Function; pipe: Function }; repo: string; tempDir: string; dryRun: boolean;
- *   harnessSha: string; mainCheckout?: string; forbiddenRoots?: string[]; judge?: boolean; rubric?: string; model?: string;
+ *   harnessSha: string; mainCheckout?: string; forbiddenRoots?: string[]; env?: NodeJS.ProcessEnv; judge?: boolean; rubric?: string; model?: string;
  *   judgeModel?: string; judgeRepeat?: number; maxBudgetUsd?: number; transcriptFile?: string;
  *   transcriptLink?: string; setup?: (dir: string) => void; runId?: string; tracker?: unknown }} ctx
  */
@@ -1602,13 +1695,22 @@ export async function runCase(evalCase, ctx) {
       'Skill',
       '--disallowedTools',
       'Bash(git push:*)',
-      'Bash(gh:*)'
+      'Bash(gh:*)',
+      'Bash(curl:*)',
+      'Bash(wget:*)',
+      'WebFetch',
+      'WebSearch'
     );
     const rawReview = await exec.run('claude', reviewArgs, {
       cwd: worktree,
       input: buildReviewPrompt(evalCase, refs, effectiveBase),
       timeout: REVIEW_TIMEOUT_MS,
     });
+    // Before anything is written or graded: the reviewer's Bash inherits process.env, and the
+    // stream carries tool results, so `env` output would otherwise land in artifacts.
+    const env = ctx.env ?? process.env;
+    rawReview.stdout = redactSecrets(rawReview.stdout ?? '', env);
+    rawReview.stderr = redactSecrets(rawReview.stderr ?? '', env);
     if (ctx.transcriptFile) {
       // Written before classification so errored runs keep their transcript too.
       fs.mkdirSync(path.dirname(ctx.transcriptFile), { recursive: true });
@@ -1618,6 +1720,8 @@ export async function runCase(evalCase, ctx) {
     const reviewRun = classifyClaudeRun(rawReview, parseClaudeStream);
     if (reviewRun.parsed) outcome.review = reviewRun.parsed;
     if (reviewRun.status === 'error') throw new Error(`review: ${reviewRun.reason}`);
+    // No answer is a harness failure, not a miss (and not a control false positive).
+    if (reviewRun.parsed.text.trim() === '') throw new Error('review: empty answer');
     if (ctx.forbiddenRoots?.length) {
       let real = worktree;
       try {
@@ -1694,7 +1798,13 @@ export function latestResult(outDir, config, exclude) {
   if (!fs.existsSync(outDir)) return undefined;
   const files = fs
     .readdirSync(outDir)
-    .filter((name) => name.endsWith(`--${config}.json`) && !name.includes('--dry-run--'))
+    .filter((name) => {
+      // `<stamp>--<config>.json` exactly: dry runs (`<stamp>--dry-run--<config>`) and
+      // configs that merely end in `config` do not match.
+      if (!name.endsWith('.json')) return false;
+      const parts = name.slice(0, -'.json'.length).split('--');
+      return parts.length === 2 && parts[1] === config;
+    })
     .map((name) => path.join(outDir, name))
     .filter((file) => file !== exclude)
     .sort();
@@ -1794,7 +1904,7 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   // isolated repo lives inside it; the main repo is never mutated), exit non-zero.
   let tempDir = null;
   const onSignal = (signal) => {
-    activeChild?.kill('SIGTERM');
+    killLiveChildren('SIGTERM');
     if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
     console.error(`\nharness-eval: ${signal}; removed this run's isolated repo.`);
     process.exit(signal === 'SIGINT' ? 130 : 143);
@@ -1809,27 +1919,32 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
     for (const evalCase of cases) {
       for (let run = 1; run <= runs; run += 1) {
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `${TEMP_PREFIX}${evalCase.id}-`));
-        log(`${evalCase.id} run ${run}/${runs}…`);
-        const transcriptName = `${evalCase.id}-run${run}.jsonl`;
-        const outcome = await runCase(evalCase, {
-          exec,
-          repo,
-          tempDir,
-          dryRun: options.dryRun,
-          harnessSha,
-          mainCheckout,
-          forbiddenRoots,
-          judge: options.judge,
-          rubric,
-          model: options.model,
-          judgeModel,
-          judgeRepeat,
-          maxBudgetUsd: options.maxBudgetUsd,
-          transcriptFile: options.dryRun ? undefined : path.join(transcriptsDir, transcriptName),
-          transcriptLink: `${path.basename(base)}/transcripts/${transcriptName}`,
-        });
-        fs.rmSync(tempDir, { recursive: true, force: true });
-        tempDir = null;
+        let outcome;
+        try {
+          log(`${evalCase.id} run ${run}/${runs}…`);
+          const transcriptName = `${evalCase.id}-run${run}.jsonl`;
+          outcome = await runCase(evalCase, {
+            exec,
+            repo,
+            tempDir,
+            dryRun: options.dryRun,
+            harnessSha,
+            mainCheckout,
+            forbiddenRoots,
+            judge: options.judge,
+            rubric,
+            model: options.model,
+            judgeModel,
+            judgeRepeat,
+            maxBudgetUsd: options.maxBudgetUsd,
+            transcriptFile: options.dryRun ? undefined : path.join(transcriptsDir, transcriptName),
+            transcriptLink: `${path.basename(base)}/transcripts/${transcriptName}`,
+          });
+        } finally {
+          // Even if something outside runCase throws, this iteration's isolated repo goes.
+          fs.rmSync(tempDir, { recursive: true, force: true });
+          tempDir = null;
+        }
         result.runs.push({ run, origin: evalCase.origin, split: evalCase.split, ...outcome });
         log(
           options.dryRun
@@ -1860,8 +1975,8 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
       comparedTo = path.basename(previousFile);
     }
   }
-  fs.writeFileSync(`${base}.json`, `${JSON.stringify(result, null, 2)}\n`);
-  const markdown = formatSummaryMarkdown(result, flips, comparedTo);
+  fs.writeFileSync(`${base}.json`, redactSecrets(`${JSON.stringify(result, null, 2)}\n`));
+  const markdown = redactSecrets(formatSummaryMarkdown(result, flips, comparedTo));
   fs.writeFileSync(`${base}.md`, markdown);
   log(`\n${markdown}`);
   log(`Wrote ${base}.json and ${base}.md`);

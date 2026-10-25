@@ -140,10 +140,26 @@ reach, not to ask it not to look. So each run builds a **history-free repo** in 
 read (`archive`, `cat-file`, `show`, `rev-parse`): no branches, worktrees or refs are created
 in it, and cleanup is deleting the temp dir. `node_modules` are symlinked from the main checkout
 (like `npm run worktree:setup`, which only accepts linked worktrees). Those symlinks and absolute
-paths still lead to the main checkout, so `detectContamination` scans every tool input in the
-review transcript for an explicit main-checkout path (or its realpath) and for git `-C` /
-`--git-dir` / `--work-tree` / `GIT_DIR=` targets outside the isolated repo; a hit makes the run
-a harness error (`contaminated: …`, hits listed in the summary), excluded from scoring.
+paths still lead to the main checkout, so `detectContamination` scans the review transcript and
+fails closed on: a tool input naming the main checkout (or its realpath); git `-C` /
+`--git-dir` / `--work-tree` / `GIT_DIR=` targets outside the isolated repo; symlink-resolution
+tricks in inputs (`readlink`, `realpath`, `pwd -P`, `cd -P`, `node_modules/..`); and a tool
+result revealing the main checkout (except paths running through `node_modules`, which stack
+traces through the symlinks produce on their own). A hit makes the run a harness error
+(`contaminated: …`, hits listed in the summary), excluded from scoring.
+
+### Secrets and the limits of this sandbox
+
+The reviewer's Bash inherits the environment, and the stream records tool results, so `env` or
+`/proc/self/environ` output would end up in artifacts. `redactSecrets` replaces the values of
+`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `GH_TOKEN` and any variable
+whose name contains TOKEN, SECRET, PASSWORD, API_KEY or PRIVATE_KEY (values of 12+ characters)
+with `[REDACTED:<NAME>]` before any transcript, result `.json` / `.md` or baseline is written.
+
+The review denies `git push`, `gh`, `curl`, `wget`, WebFetch and WebSearch (so it cannot fetch
+the fix from GitHub), but **`--disallowedTools` patterns are not a sandbox**: Bash can reach the
+network or the filesystem in other ways. A local run gives the reviewer the developer's Bash, with
+their `gh` config, SSH keys and home directory. Prefer CI or a container for untrusted cases.
 
 ## Grading
 
@@ -157,13 +173,14 @@ a harness error (`contaminated: …`, hits listed in the summary), excluded from
   judge.
 - **The judge is not the model under test.** It defaults to `--judge-model sonnet`; set the
   reviewer with `--model`. When both are the same model the runner prints a warning.
-- **Judge consistency.** `--judge-repeat N` (1-3) grades the same review N times. All verdicts
-  are kept (`judge.verdicts`); the judge's `caught` is the strict majority (a tie is not caught)
-  and its score the mean. A run where the verdicts differ counts as a **judge disagreement**,
+- **Judge consistency.** `--judge-repeat N` (1 or 3: odd, so the vote never ties) grades the
+  same review N times. All verdicts are kept (`judge.verdicts`); the judge's `caught` is the
+  strict majority and its score the mean. A run where the verdicts differ counts as a **judge disagreement**,
   per case and in total: that is grader noise, separate from reviewer flips.
 - **Harness errors are not misses.** A run gets `status: "error"` with a reason, and is left out
   of recall and precision, when `claude` exits non-zero or is killed, its output cannot be parsed
-  (or the review stream has no `result` event), the result reports `permission_denials`, an
+  (or the review stream has no `result` event), the review's answer is empty, the review was
+  contaminated (see Isolation), the result reports `permission_denials`, an
   `error_*` subtype (budget, max turns) or `is_error`, stderr reports a tool that is not allowed,
   a permission denial or budget exhaustion, the overlay or a patch fails to apply, or the judge
   fails. Errors are listed in the summary.
@@ -251,12 +268,12 @@ Options:
 
 - `--case <id>` (repeatable); `--split train|test|all` (default `all`).
 - `--runs N` (1-20, default 2).
-- `--config <label>` (default `current`): recorded, names the output files and selects the
-  previous result for the flip report.
+- `--config <label>` (default `current`; `[A-Za-z0-9._-]+` without `--`): recorded, names the
+  output files and selects the previous result with exactly that config for the flip report.
 - `--harness-ref <ref>` (default `HEAD` of the checkout running the script): the harness commit
   overlaid on every case base, resolved once per invocation.
 - `--model <model>` (reviewer; default: the `claude` CLI default), `--judge-model <model>`
-  (default `sonnet`), `--judge-repeat N` (1-3, default 1), `--no-judge`.
+  (default `sonnet`), `--judge-repeat 1|3` (default 1), `--no-judge`.
 - `--max-budget-usd <n>` (per review run, default 20).
 - `--out <dir>` (default `.claude/metrics/evals/`, gitignored).
 - `--compare <result-or-baseline.json>` (flip report against a specific earlier result or a
@@ -273,11 +290,13 @@ For each run the runner:
    `claude -p --output-format stream-json --verbose` with `/ship-check --quick <branches>` plus a
    note to treat the effective base as `main`, saving the stream as the run's transcript. The
    prompt is the same for defect cases and controls and never hints at the outcome. Tools are
-   limited to Bash, Read, Grep, Glob, Task and Skill, with `git push` and `gh` denied, and
-   `--max-budget-usd` caps each review;
+   limited to Bash, Read, Grep, Glob, Task and Skill, with `git push`, `gh`, `curl`, `wget`,
+   WebFetch and WebSearch denied, and `--max-budget-usd` caps each review (a timed-out child gets
+   SIGTERM, then SIGKILL after 10 s); secrets are redacted from the stream before it is saved;
 3. grades the final text (see Grading), calling the judge `--judge-repeat` times;
 4. always removes the run's temp dir (the isolated repo lives inside it). SIGINT/SIGTERM stop the
-   child, remove it and exit non-zero (130 / 143). `--cleanup` removes leftovers of older
+   children (every live process, both ends of a pipe included), remove it and exit non-zero
+   (130 / 143). `--cleanup` removes leftovers of older
    versions of this runner, which used worktrees of this repo: only branches under
    `harness-eval/` and worktrees under this tool's `restura-harness-eval-*` temp dirs.
 
