@@ -1,6 +1,7 @@
 id: mcp-runner-auth-override
 title: Collection-runner MCP auth is resolved once, then overwritten by a second unresolved auth path
 origin: real
+split: train
 sourcePRs: ['#1131']
 fixPRs: ['#1151']
 base: b6ec7fc94bf1879d67eafa760851b4141602b98c

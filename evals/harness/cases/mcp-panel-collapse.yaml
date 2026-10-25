@@ -1,6 +1,7 @@
 id: mcp-panel-collapse
 title: Two MCP toolbar buttons from separate PRs collapse the Headers / Launch settings toggle
 origin: real
+split: train
 sourcePRs: ['#1133', '#1134']
 fixPRs: ['#1150']
 # Main just before #1133 (after #1126, which added the stdio Launch settings toggle).

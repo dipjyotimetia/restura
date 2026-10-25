@@ -1,6 +1,7 @@
 id: clean-set-cookie-cap
 title: 'Control: cap the streaming Set-Cookie side channel and report omitted cookies'
 origin: real
+split: test
 expectClean: true
 sourcePRs: ['#1158']
 # Main just before #1158. No later commit touches the files below.

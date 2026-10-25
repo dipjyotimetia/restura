@@ -1,6 +1,7 @@
 id: cli-graphql-get-parity
 title: GraphQL GET in the app and OpenCollection, but the CLI still sends a JSON body that GET drops
 origin: real
+split: test
 sourcePRs: ['#1109']
 fixPRs: ['#1161']
 base: 79fa502c7340d364fb999b8965f8675bbefed907
