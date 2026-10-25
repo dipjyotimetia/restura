@@ -79,6 +79,8 @@ passToPass: [shell commands]    # must pass on the reference (e.g. npm run type-
 timeoutMinutes: 60              # agent wall clock
 commandTimeoutMinutes: 20       # optional, per grader command (default 20)
 notes: what was left out, known grader caveats
+leakTerms: [strings]            # optional: fix-specific symbols/module names that must not
+                                # appear in the harness overlay (CLAUDE.md, skills, docs/agents)
 ```
 
 Commands run with `bash -c` from the isolated repo root (`cd cli && npx vitest run …` for the

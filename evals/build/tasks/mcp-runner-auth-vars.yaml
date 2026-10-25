@@ -42,9 +42,9 @@ issue: |
 hiddenTests:
   - src/features/mcp/__tests__/protocol.runRequest.auth.test.ts
 failToPass:
-  - npx vitest run src/features/mcp/__tests__/protocol.runRequest.auth.test.ts
+  - npx vitest run src/features/mcp/__tests__/protocol.runRequest.auth.test.ts --testTimeout 15000
 passToPass:
-  - npx vitest run src/features/mcp src/features/collections
+  - npx vitest run src/features/mcp src/features/collections --testTimeout 15000
   - npm run type-check:all
 timeoutMinutes: 60
 notes: |
@@ -53,5 +53,8 @@ notes: |
   deliberately NOT hidden, because it asserts an internal shape a correct
   alternative fix need not have. The agent is expected to update tests it breaks.
   The hidden file's rate-limit tests pass a retry-delay option the issue cannot
-  name; an implementation with the issue's ~1s/2s delays still passes inside the
-  default 5s vitest timeout.
+  name, so an implementation uses the issue's ~1s/2s delays. Checked 2026-10-25:
+  with the reference fix the file passed 3/3 (~1-3s); with the option renamed (real
+  1s/2s delays) it passed 3/3 in ~4.9s, i.e. ~3s for the slowest test against
+  vitest's default 5s. The graders pass --testTimeout 15000 for headroom; no -t trim
+  was needed.

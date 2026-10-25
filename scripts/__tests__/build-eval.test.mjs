@@ -165,6 +165,18 @@ test('validateTask rejects an issue that leaks a hidden test path or name', () =
   assert.equal(stem.ok, false);
 });
 
+test('validateTask: optional leakTerms must be a list of non-empty strings (default [])', () => {
+  assert.deepEqual(validateTask(rawTask(), okChecks).value.leakTerms, []);
+  const ok = validateTask(rawTask({ leakTerms: ['resolveMcpRunConnectAuth'] }), okChecks);
+  assert.equal(ok.ok, true, ok.errors.join('\n'));
+  assert.deepEqual(ok.value.leakTerms, ['resolveMcpRunConnectAuth']);
+  for (const bad of ['x', [''], [1], ['  ']]) {
+    const r = validateTask(rawTask({ leakTerms: bad }), okChecks);
+    assert.equal(r.ok, false, JSON.stringify(bad));
+    assert.ok(r.errors.some((e) => /leakTerms/.test(e)));
+  }
+});
+
 test('validateTask rejects hidden test paths that escape the repo', () => {
   const r = validateTask(rawTask({ hiddenTests: ['../x.test.ts', '/etc/x.test.ts'] }), okChecks);
   assert.equal(r.ok, false);

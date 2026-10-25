@@ -167,6 +167,9 @@ export function validateTask(raw, check) {
     errors.push('commandTimeoutMinutes must be a positive number');
   if (raw.notes !== undefined && typeof raw.notes !== 'string')
     errors.push('notes must be a string');
+  // Extra terms (fix symbols, module names) that must not appear in the harness overlay.
+  if (raw.leakTerms !== undefined && !isStringList(raw.leakTerms))
+    errors.push('leakTerms must be a list of non-empty strings');
 
   const hidden = isStringList(raw.hiddenTests) ? raw.hiddenTests : [];
   for (const p of hidden)
@@ -209,6 +212,7 @@ export function validateTask(raw, check) {
       issue: raw.issue.trim(),
       passToPass: raw.passToPass,
       commandTimeoutMinutes: raw.commandTimeoutMinutes ?? DEFAULT_COMMAND_TIMEOUT_MINUTES,
+      leakTerms: raw.leakTerms ?? [],
       notes: raw.notes ?? '',
     },
   };

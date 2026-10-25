@@ -26,10 +26,19 @@ issue: |
     main. Today main substitutes secret variables in url/headers/params/body only, so
     a `{{secretVar}}` in a Digest / SigV4 / OAuth1 / WSSE / NTLM field reaches the
     signer literally, and a Basic credential that references a secret variable gets
-    base64-encoded in the renderer with the placeholder inside. Main must build Basic
-    itself after substitution, must never touch header/param *names* (the API-key
-    name), and the secret's plaintext must not appear in transport errors or the
-    request log. Web, which has no secret variables, fails fast instead.
+    base64-encoded in the renderer with the placeholder inside.
+  - Requirement (the renderer never sees secret plaintext, ADR-0007): when a Basic
+    username or password references a desktop secret variable, the renderer must NOT
+    build the `Authorization` header. It sends the Basic credentials unencoded in the
+    request's auth descriptor (`spec.auth`, secret-variable tokens left as `{{name}}`,
+    other variables resolved), exactly like handle-backed credentials, and Electron
+    main substitutes the secret and builds the Basic header itself. Main must never
+    touch header/param *names* (the API-key name), and the secret's plaintext must not
+    appear in transport errors or the request log. Web, which has no secret variables,
+    fails fast instead.
+  - The wire-signed schemes likewise travel to the wire as resolved descriptors in
+    `spec.auth` (Digest credentials included, for the challenge retry), with
+    secret-variable tokens and handles left opaque for main.
 
   **CLI (`restura run`)**
   - HTTP and SSE requests have the same literal-`{{var}}` problem for bearer, basic,
@@ -67,7 +76,7 @@ notes: |
   From #1163 (three commits squashed). The hardest task: three harnesses plus the
   secret-variable boundary. The reference added shared resolve-variables and
   secret-variable-token modules; the latter's unit test is not hidden (it pins the
-  module). The requestExecutor test asserts some implementation choices (Basic with a
-  secret variable deferred to main in spec.auth; refreshedAuth only on a real
-  refresh); they follow from the issue's expected behaviour but are the likeliest
-  source of false failures, so read failing tails before blaming the agent.
+  module). Every requirement the requestExecutor test checks is stated in the issue:
+  Basic with a secret variable deferred to main via spec.auth (ADR-0007), sign-at-wire
+  descriptors in spec.auth, and nothing reported for persistence unless a real OAuth2
+  refresh happened.
