@@ -30,7 +30,7 @@ The vendored `code-review` skill also reviewed on two axes (Standards, Spec) and
 
 - Harness changes become slower and cost money: each reviewer, routing or vendored-skill change carries an eval run. The `eval-harness` label on a same-repo PR (or a manual dispatch) runs it in CI with a per-run budget cap; it is never a required check.
 - The skill set can shrink with evidence. Pruned skills can come back if a routing case needs them.
-- CI review and local review stay equivalent. `claude-code-review.yml` runs the same three-axis `code-review` skill, and skips its automatic run when a `/ship-check` READY marker is bound to the head sha.
+- CI and local review are not identical, and the READY marker accounts for that. The automatic `claude-review` job in `claude-code-review.yml` runs the `code-review@claude-code-plugins` plugin; the label-triggered `claude-skill-review` job runs the repo's three-axis `code-review` skill, which is what `/ship-check` runs locally. The automatic job is skipped only when a `/ship-check` READY marker is bound to the head sha, i.e. when the repo skill (Correctness included) already reviewed that exact commit; the `claude-review` label always forces both.
 - Cases must be maintained: escaped defects add cases, and saturated cases are retired in `/triage-maintenance`.
 
 ## References
