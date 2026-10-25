@@ -21,9 +21,9 @@ expected:
     shared/ and be used by both.
   files:
     - cli/src/runner/executors/http.ts
-  symbols: [buildGraphQLWireRequest, graphqlMethodFromOC]
+  symbols: [executeHttp, buildGraphQLWireRequest, graphqlMethodFromOC]
 mustMention:
-  - '(cli/src/runner/executors/http\.ts|CLI|restura run)'
+  - '(executors/http(\.ts)?|executeHttp)'
   - '\bGET\b'
   - '(query param|URL|search ?param|no query|missing query|body[^\n]{0,40}(drop|ignor|discard|lost))'
 mustNotMiss: medium

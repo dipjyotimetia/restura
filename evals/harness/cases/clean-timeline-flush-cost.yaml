@@ -1,0 +1,22 @@
+id: clean-timeline-flush-cost
+title: 'Control: timeline flush skips sanitising queued events the byte cap would evict'
+origin: real
+expectClean: true
+sourcePRs: ['#1157']
+# Main just before #1157. No later commit touches useStreamTimelineStore.ts.
+base: 8b837c4016219813b79a95dd0773aca3670d0a6d
+seam: none
+branches:
+  - name: perf/timeline-flush-cost
+    patches: [01-timeline-flush-cost.patch]
+expected:
+  summary: >-
+    Performance fix from the 2026-10-25 post-merge review: the unified stream timeline sanitised
+    up to 5000 queued events per flush even when the byte cap would evict most of them. The
+    flush now walks the queue newest-first, keeps only what fits under the cap, and sanitises
+    just those events (941 ms to 13.5 ms in the review's measurement). Single store file plus a
+    regression test; renderer only, no harness or wire change.
+  files:
+    - src/store/useStreamTimelineStore.ts
+    - src/store/__tests__/useStreamTimelineStore.test.ts
+notes: The whole merged PR, unmodified. No follow-up fix exists on main.

@@ -21,6 +21,6 @@ expected:
   symbols: [connectViaProxy, buildSseStreamSpec]
 mustMention:
   - '(connectViaProxy|buildSseStreamSpec)'
-  - '(\bGET\b|web)'
+  - '(hard-?coded?[^\n]{0,40}\bGET\b|\bGET\b[^\n]{0,80}(body|jsonBody)|(body|jsonBody)[^\n]{0,80}\bGET\b)'
 mustNotMiss: high
 notes: Synthetic, modelled on the recurring "wired one harness, forgot the other" class.

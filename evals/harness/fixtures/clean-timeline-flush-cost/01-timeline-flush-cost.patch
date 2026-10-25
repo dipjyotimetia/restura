@@ -1,0 +1,94 @@
+diff --git a/src/store/__tests__/useStreamTimelineStore.test.ts b/src/store/__tests__/useStreamTimelineStore.test.ts
+index ec7de896..c88e31fa 100644
+--- a/src/store/__tests__/useStreamTimelineStore.test.ts
++++ b/src/store/__tests__/useStreamTimelineStore.test.ts
+@@ -100,4 +100,22 @@ describe('useStreamTimelineStore', () => {
+     unsubscribe();
+     expect(updates).toBe(0);
+   });
++
++  it('skips redaction work for queued events the byte cap would evict anyway', () => {
++    const payload = JSON.stringify({ token: 'abc', data: 'x'.repeat(64 * 1024 - 40) });
++    for (let i = 0; i < 5000; i++) {
++      emitStreamEvent({ protocol: 'websocket', connectionId: 'c', direction: 'in', payload });
++    }
++    const t = performance.now();
++    useStreamTimelineStore.getState().flush();
++    const elapsed = performance.now() - t;
++    const s = useStreamTimelineStore.getState();
++    expect(s.totalBytes).toBeLessThanOrEqual(TIMELINE_MAX_BYTES);
++    expect(s.events.length).toBeLessThan(200);
++    expect(s.events.length + s.evicted).toBe(5000);
++    // Was ~900ms when all 5000 frames were sanitised; generous bound for CI.
++    expect(elapsed).toBeLessThan(400);
++    const seqs = s.events.map((e) => e.seq);
++    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
++  });
+ });
+diff --git a/src/store/useStreamTimelineStore.ts b/src/store/useStreamTimelineStore.ts
+index 52da939f..73786f8a 100644
+--- a/src/store/useStreamTimelineStore.ts
++++ b/src/store/useStreamTimelineStore.ts
+@@ -1,6 +1,7 @@
+ import { create } from 'zustand';
+ import {
+   appendToTimeline,
++  EVENT_PAYLOAD_LIMIT,
+   normalizeStreamEvent,
+   type StreamEvent,
+   type StreamEventInput,
+@@ -35,6 +36,22 @@ let pending: StreamEventInput[] = [];
+ let timer: ReturnType<typeof setTimeout> | null = null;
+ let seq = 0;
+ 
++/** Upper-bound the retained footprint of a raw input (payload is capped at EVENT_PAYLOAD_LIMIT). */
++function inputBytes(input: StreamEventInput): number {
++  return 96 + Math.min(input.payload.length, EVENT_PAYLOAD_LIMIT) * 2;
++}
++
++function tailWithinByteCap(batch: StreamEventInput[], maxBytes: number): StreamEventInput[] {
++  let total = 0;
++  let start = batch.length;
++  while (start > 0) {
++    total += inputBytes(batch[start - 1]!);
++    if (total > maxBytes) break;
++    start -= 1;
++  }
++  return start === 0 ? batch : batch.slice(start);
++}
++
+ function cancelTimer(): void {
+   if (timer !== null) {
+     clearTimeout(timer);
+@@ -51,18 +68,23 @@ export const useStreamTimelineStore = create<StreamTimelineState>()((set, get) =
+   flush: () => {
+     cancelTimer();
+     if (pending.length === 0) return;
+-    const batch = pending;
++    const queued = pending;
+     pending = [];
++    // The byte cap means only a tail of a large batch can survive eviction, so
++    // don't pay for redaction on events that would be dropped immediately
++    // (5000 x 64KB frames otherwise stall the main thread for ~1s per flush).
++    const survivors = tailWithinByteCap(queued, TIMELINE_MAX_BYTES);
++    const skipped = queued.length - survivors.length;
++    seq += skipped;
+     // Normalisation (redaction + truncation) runs here, off the emit hot path.
+-    const normalized = batch.map((input) => normalizeStreamEvent(input, ++seq));
++    const normalized = survivors.map((input) => normalizeStreamEvent(input, ++seq));
+     const s = get();
+-    set(
+-      appendToTimeline(
+-        { events: s.events, totalBytes: s.totalBytes, evicted: s.evicted },
+-        normalized,
+-        { maxEvents: TIMELINE_MAX_EVENTS, maxBytes: TIMELINE_MAX_BYTES }
+-      )
++    const next = appendToTimeline(
++      { events: s.events, totalBytes: s.totalBytes, evicted: s.evicted },
++      normalized,
++      { maxEvents: TIMELINE_MAX_EVENTS, maxBytes: TIMELINE_MAX_BYTES }
+     );
++    set(skipped > 0 ? { ...next, evicted: next.evicted + skipped } : next);
+   },
+ 
+   clear: () => {

@@ -26,7 +26,7 @@ expected:
     - shared/types/broker.ts
   symbols: [presetConnection, applyKafkaPreset, KafkaPresetConnection, resolveRegistry]
 mustMention:
-  - '(kafkaPreset|presetConnection|applyKafkaPreset|KafkaPresetConnection|preset)'
+  - '(kafkaPreset|presetConnection|applyKafkaPreset|KafkaPresetConnection)'
   - authType
 mustNotMiss: medium
 notes: >-

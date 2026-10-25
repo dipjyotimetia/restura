@@ -19,9 +19,9 @@ expected:
     no metadata cap. The policy belongs in shared/protocol so both consumers use it.
   files:
     - cli/src/runner/executors/grpc.ts
-  symbols: [applyAuthHeaders]
+  symbols: [executeGrpc, applyAuthHeaders]
 mustMention:
-  - '(cli/src/runner/executors/grpc\.ts|CLI[^\n]{0,60}gRPC|gRPC[^\n]{0,60}CLI|restura run)'
+  - '(executors/grpc(\.ts)?|executeGrpc)'
   - '(SigV4|OAuth1|WSSE|Digest|NTLM|unsupported auth|auth (block|policy))'
 mustNotMiss: high
 notes: Minimised to the renderer and shared files of #1088 (docs and tests dropped).

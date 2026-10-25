@@ -21,9 +21,9 @@ expected:
     into a 30 s deadline.
   files:
     - src/features/grpc/lib/grpcStreamingClient.ts
-  symbols: [grpcDeadlineMs, NO_GRPC_DEADLINE]
+  symbols: [startConnectServerStream, grpcDeadlineMs, NO_GRPC_DEADLINE]
 mustMention:
-  - '(grpcStreamingClient|web[^\n]{0,40}stream|connect-?es|Connect transport)'
+  - '(grpcStreamingClient|startConnectServerStream)'
   - '(timeout ?(of )?0|timeoutMs|zero|No deadline|NO_GRPC_DEADLINE)'
   - '(immediate|at once|instantly|DEADLINE_EXCEEDED|abort)'
 mustNotMiss: medium
