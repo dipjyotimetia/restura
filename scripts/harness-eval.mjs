@@ -269,6 +269,18 @@ export function validateCase(raw, { fileExists, fixturesDir = FIXTURES_DIR }) {
     errors.push('real cases must cite sourcePRs');
   if (raw.fixPRs !== undefined && !isStringArray(raw.fixPRs))
     errors.push('fixPRs must be a list of strings');
+  if (raw.leakTerms !== undefined) {
+    if (!isStringArray(raw.leakTerms))
+      errors.push('leakTerms must be a list of strings (case-insensitive regexes)');
+    else
+      for (const [index, term] of raw.leakTerms.entries()) {
+        try {
+          new RegExp(term, 'i');
+        } catch (error) {
+          errors.push(`leakTerms[${index}] is not a valid regex: ${error.message}`);
+        }
+      }
+  }
   if (typeof raw.base !== 'string' || !SHA_RE.test(raw.base))
     errors.push('base must be a full 40-character commit SHA');
   if (
@@ -343,6 +355,7 @@ export function validateCase(raw, { fileExists, fixturesDir = FIXTURES_DIR }) {
       expectClean,
       sourcePRs: raw.sourcePRs ?? [],
       fixPRs: raw.fixPRs ?? [],
+      leakTerms: raw.leakTerms ?? [],
       sourceCommit: raw.sourceCommit ?? null,
       base: raw.base,
       seam: raw.seam,
@@ -402,6 +415,89 @@ function loadAllCases(casesDir, fixturesDir) {
   if (problems.length > 0) throw new Error(`Invalid eval cases:\n${problems.join('\n')}`);
   return cases;
 }
+
+// ---------------------------------------------------------------- seen vs unseen
+
+/**
+ * Terms that would show the overlaid harness already "knows" a case: its PR
+ * numbers (`#NNNN` on a boundary), short commit SHAs (first 8 chars of any
+ * 8+ hex token in sourcePRs/fixPRs, and of sourceCommit), and the case's own
+ * `leakTerms` (case-insensitive regexes for the lesson's wording).
+ * @returns {Array<{ term: string; re: RegExp }>}
+ */
+export function caseLeakTerms(evalCase) {
+  const terms = [];
+  const seen = new Set();
+  const add = (term, re) => {
+    if (seen.has(term)) return;
+    seen.add(term);
+    terms.push({ term, re });
+  };
+  const fromRefs = (refs) => {
+    for (const ref of refs ?? []) {
+      for (const [num] of ref.matchAll(/#\d+/g)) add(num, new RegExp(`(?<![\\w&])${num}(?!\\d)`));
+      for (const [sha] of ref.matchAll(/\b[0-9a-f]{8,40}\b/g)) {
+        const short = sha.slice(0, 8);
+        add(short, new RegExp(`(?<![0-9a-zA-Z])${short}[0-9a-f]*(?![0-9a-zA-Z])`, 'i'));
+      }
+    }
+  };
+  fromRefs(evalCase.sourcePRs);
+  fromRefs(evalCase.fixPRs);
+  if (evalCase.sourceCommit) fromRefs([evalCase.sourceCommit]);
+  for (const term of evalCase.leakTerms ?? []) add(term, new RegExp(term, 'i'));
+  return terms;
+}
+
+/**
+ * Lines of the harness files that mention a term. `terms` items are a
+ * string (case-insensitive regex source), a RegExp, or `{ term, re }`.
+ * @param {{ files: Array<{ path: string; text: string }>; terms: Array<string | RegExp | { term: string; re: RegExp }> }} input
+ * @returns {Array<{ path: string; line: number; term: string }>}
+ */
+export function findOverlayLeaks({ files, terms }) {
+  const compiled = terms.map((t) =>
+    typeof t === 'string'
+      ? { term: t, re: new RegExp(t, 'i') }
+      : t instanceof RegExp
+        ? { term: t.source, re: t }
+        : t
+  );
+  const hits = [];
+  for (const file of files) {
+    const lines = String(file.text ?? '').split('\n');
+    for (const [index, text] of lines.entries())
+      for (const { term, re } of compiled)
+        if (new RegExp(re.source, re.flags.replace('g', '')).test(text))
+          hits.push({ path: file.path, line: index + 1, term });
+  }
+  return hits;
+}
+
+/** The overlay file set at `harnessSha` (HARNESS_OVERLAY_PATHS), read from `repo` without a checkout. */
+export async function readOverlayFiles(exec, repo, harnessSha) {
+  const listed = await exec.run('git', [
+    '-C',
+    repo,
+    'ls-tree',
+    '-r',
+    '--name-only',
+    harnessSha,
+    '--',
+    ...HARNESS_OVERLAY_PATHS,
+  ]);
+  if (listed.status !== 0)
+    throw new Error(`list harness files failed: ${(listed.stderr || '').trim()}`);
+  const files = [];
+  for (const file of listed.stdout.split('\n').filter(Boolean)) {
+    const shown = await exec.run('git', ['-C', repo, 'show', `${harnessSha}:${file}`]);
+    if (shown.status === 0) files.push({ path: file, text: shown.stdout });
+  }
+  return files;
+}
+
+export const SEEN_TEST_WARNING =
+  'held-out case is no longer unseen — move it to train or add a fresh case';
 
 // ---------------------------------------------------------------- prompts
 
@@ -879,7 +975,9 @@ export function summarise(runs) {
       judgeDisagreements: 0,
       costs: [],
       minutes: [],
+      seen: false,
     });
+    if (run.seenInHarness === true) entry.seen = true;
     const cost = runCost(run);
     if (cost !== null) entry.costs.push(cost);
     const minutes = runMinutes(run);
@@ -896,6 +994,11 @@ export function summarise(runs) {
   const cases = {};
   const recall = { caught: 0, runs: 0 };
   const controls = { clean: 0, falsePositives: 0, runs: 0 };
+  // Cases the overlaid harness does not already mention (see findOverlayLeaks).
+  const unseen = {
+    recall: { caught: 0, runs: 0 },
+    controls: { clean: 0, falsePositives: 0, runs: 0 },
+  };
   let errors = 0;
   let judgeDisagreements = 0;
   for (const [caseId, entry] of Object.entries(byCase)) {
@@ -915,7 +1018,18 @@ export function summarise(runs) {
       judgeDisagreements: entry.judgeDisagreements,
       meanCostUsd: round(mean(entry.costs)),
       meanMinutes: round(mean(entry.minutes)),
+      seenInHarness: entry.seen,
     };
+    if (!entry.seen) {
+      if (entry.expectClean) {
+        unseen.controls.runs += entry.runs;
+        unseen.controls.clean += entry.caught;
+        unseen.controls.falsePositives += entry.runs - entry.caught;
+      } else {
+        unseen.recall.runs += entry.runs;
+        unseen.recall.caught += entry.caught;
+      }
+    }
     if (entry.expectClean) {
       controls.runs += entry.runs;
       controls.clean += entry.caught;
@@ -929,6 +1043,11 @@ export function summarise(runs) {
   recall.ci = wilsonInterval(recall.caught, recall.runs);
   controls.rate = controls.runs > 0 ? controls.clean / controls.runs : null;
   controls.ci = wilsonInterval(controls.clean, controls.runs);
+  unseen.recall.rate = unseen.recall.runs > 0 ? unseen.recall.caught / unseen.recall.runs : null;
+  unseen.recall.ci = wilsonInterval(unseen.recall.caught, unseen.recall.runs);
+  unseen.controls.rate =
+    unseen.controls.runs > 0 ? unseen.controls.clean / unseen.controls.runs : null;
+  unseen.controls.ci = wilsonInterval(unseen.controls.clean, unseen.controls.runs);
   const totals = {
     costUsd: round(runs.reduce((sum, r) => sum + (runCost(r) ?? 0), 0)),
     minutes: round(runs.reduce((sum, r) => sum + (runMinutes(r) ?? 0), 0)),
@@ -952,6 +1071,7 @@ export function summarise(runs) {
     cases,
     recall,
     controls,
+    unseen,
     passAt1: { defects: meanPassAt1(false), controls: meanPassAt1(true) },
     errors,
     judgeDisagreements,
@@ -1013,6 +1133,7 @@ export function buildBaseline(result) {
     cases: summary.cases,
     recall: summary.recall,
     controls: summary.controls,
+    unseen: summary.unseen,
     passAt1: summary.passAt1,
     errors: summary.errors,
     judgeDisagreements: summary.judgeDisagreements,
@@ -1080,6 +1201,30 @@ function harnessLine(result) {
   return parts.length > 0 ? `${parts.join('; ')}.` : null;
 }
 
+/** "Seen in harness" section: cases whose PRs/SHAs/lesson wording the overlay mentions. */
+function seenSection(result) {
+  const seen = Object.entries(result.seenCases ?? {}).filter(([, hits]) => hits.length > 0);
+  if (seen.length === 0) return [];
+  const splitOf = (caseId) => result.runs.find((r) => r.caseId === caseId)?.split;
+  const lines = [
+    '',
+    '## Seen in harness',
+    '',
+    'The overlaid harness already mentions these cases, so they measure a memorized lesson, not generalization. Read the unseen-only numbers.',
+    '',
+  ];
+  for (const [caseId, hits] of seen) {
+    const warn = splitOf(caseId) === 'test' ? ` **WARNING: ${SEEN_TEST_WARNING}.**` : '';
+    lines.push(
+      `- ${caseId}${warn}: ${hits
+        .slice(0, 10)
+        .map((h) => `${h.path}:${h.line} (${cell(h.term)})`)
+        .join(', ')}${hits.length > 10 ? ` and ${hits.length - 10} more` : ''}`
+    );
+  }
+  return lines;
+}
+
 export function formatSummaryMarkdown(result, flips, comparedTo) {
   const lines = [
     `# Harness eval: ${result.config}`,
@@ -1095,6 +1240,7 @@ export function formatSummaryMarkdown(result, flips, comparedTo) {
       lines.push(
         `| ${run.caseId} | ${run.applied ? 'yes' : 'NO'} | ${run.combinedMerge ?? ''} | ${cell(run.reason)} |`
       );
+    lines.push(...seenSection(result));
     return `${lines.join('\n')}\n`;
   }
   const summary = summarise(result.runs);
@@ -1102,6 +1248,7 @@ export function formatSummaryMarkdown(result, flips, comparedTo) {
   lines.push(
     `Recall on defect cases: ${recall.caught}/${recall.runs} scored runs caught the seam defect (${pct(recall.rate)}, ${ciText(recall.ci)}).`,
     `Controls: ${controls.clean}/${controls.runs} clean, ${plural(controls.falsePositives, 'false positive')} (precision ${pct(controls.rate)}, ${ciText(controls.ci)}).`,
+    `Unseen cases only: recall ${summary.unseen.recall.caught}/${summary.unseen.recall.runs} (${pct(summary.unseen.recall.rate)}, ${ciText(summary.unseen.recall.ci)}); controls ${summary.unseen.controls.clean}/${summary.unseen.controls.runs} clean (${ciText(summary.unseen.controls.ci)}).`,
     `Harness errors (excluded from both): ${summary.errors}. Judge self-disagreements: ${summary.judgeDisagreements}.`,
     `Noise: ${plural(noise.flippedCases, 'case')} flipped within this invocation; recall CI half-width ±${noise.recallHalfWidth === null ? 'n/a' : `${Math.round(noise.recallHalfWidth * 100)} pts`}. Do not act on a config difference smaller than the half-width; add runs or cases.`,
     `pass@1 (per-trial rate): defects ${pct(summary.passAt1.defects)}, controls ${pct(summary.passAt1.controls)} (mean over cases; compare this across invocations with different run counts).`,
@@ -1156,6 +1303,7 @@ export function formatSummaryMarkdown(result, flips, comparedTo) {
         lines.push(`| ${kind} | ${cell(name)} | ${s.runs}/${toolStats.runs} | ${s.calls} |`);
     }
   }
+  lines.push(...seenSection(result));
   const errored = result.runs.filter((r) => !scored(r));
   if (errored.length > 0) {
     lines.push('', '## Harness errors (not counted as misses)', '');
@@ -1876,6 +2024,17 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   const harnessSha = resolved.stdout.trim();
   if (resolved.status !== 0 || !SHA_RE.test(harnessSha))
     throw new Error(`--harness-ref ${harnessRef} does not resolve to a commit`);
+  // Seen vs unseen: which cases the overlaid harness already mentions (once per invocation).
+  const overlayFiles = await readOverlayFiles(exec, repo, harnessSha);
+  const seenCases = {};
+  for (const evalCase of cases) {
+    const hits = findOverlayLeaks({ files: overlayFiles, terms: caseLeakTerms(evalCase) });
+    seenCases[evalCase.id] = hits;
+    if (hits.length > 0 && evalCase.split === 'test')
+      log(
+        `warning: ${evalCase.id}: ${SEEN_TEST_WARNING} (${hits.length} mention(s) in the harness).`
+      );
+  }
   const judgeModel = options.judgeModel ?? DEFAULT_JUDGE_MODEL;
   const judgeRepeat = options.judgeRepeat ?? 1;
   const warning = options.dryRun ? null : judgeModelWarning({ model: options.model, judgeModel });
@@ -1891,6 +2050,7 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
     judgeRepeat,
     split: options.split ?? 'all',
     runsPerCase: runs,
+    seenCases,
     runs: [],
   };
   const outDir = path.resolve(ROOT, options.out);
@@ -1945,7 +2105,13 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
           fs.rmSync(tempDir, { recursive: true, force: true });
           tempDir = null;
         }
-        result.runs.push({ run, origin: evalCase.origin, split: evalCase.split, ...outcome });
+        result.runs.push({
+          run,
+          origin: evalCase.origin,
+          split: evalCase.split,
+          seenInHarness: seenCases[evalCase.id].length > 0,
+          ...outcome,
+        });
         log(
           options.dryRun
             ? `  overlay ${outcome.effectiveBase ? outcome.effectiveBase.slice(0, 12) : 'FAIL'}; patches ${outcome.applied ? 'apply' : 'FAIL'}; combined merge ${outcome.combinedMerge ?? 'n/a'}${outcome.reason ? `; ${outcome.reason}` : ''}`
