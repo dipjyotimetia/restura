@@ -319,10 +319,7 @@ export interface ElectronMcpAPI {
     connectionId: string;
     roots: McpRootIpc[];
   }) => Promise<{ success: true; notified: number } | { success: false; error: string }>;
-  /**
-   * MCP OAuth 2.1 (#856): plaintext-free sign-in status for a server (+ static
-   * client id). Tokens never cross IPC.
-   */
+  /** MCP OAuth 2.1 (#856): plaintext-free sign-in status (+ static client id); no tokens. */
   oauthStatus: (target: { url: string; clientId?: string }) => Promise<McpOAuthStatusIpc>;
   /** Forget the stored MCP OAuth tokens / registration for a server. */
   oauthSignOut: (target: { url: string; clientId?: string }) => Promise<{ success: boolean }>;
@@ -335,6 +332,8 @@ export interface ElectronMcpAPI {
     url: string;
     transport: 'streamable-http' | 'http-sse';
     headers?: Record<string, string>;
+    /** Header-shaped auth, resolved in main exactly as for `connect`. */
+    auth?: import('../../../shared/types/auth').AuthConfig;
     sampleCalls?: 'off' | 'read-only' | 'selected';
     approvedTools?: string[];
     eras?: Array<'legacy' | 'modern'>;
