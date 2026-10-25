@@ -290,3 +290,28 @@ describe('executeGrpcProxy bounded body read (#933)', () => {
     }
   });
 });
+
+describe('executeGrpcProxy timeout handling', () => {
+  it.each([0, -5, Number.NaN])('does not abort immediately for timeout %s', async (timeout) => {
+    let aborted: boolean | undefined;
+    const fetcher: Fetcher = vi.fn(async (req) => {
+      // Let a 0ms abort timer fire before sampling the signal.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      aborted = req.signal?.aborted;
+      return {
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        text: async () => '{}',
+        contentLengthHeader: '2',
+      };
+    });
+    const r = await executeGrpcProxy(
+      { url: 'https://example.com', service: 'svc.Foo', method: 'Bar', timeout },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(true);
+    expect(aborted).toBe(false);
+  });
+});

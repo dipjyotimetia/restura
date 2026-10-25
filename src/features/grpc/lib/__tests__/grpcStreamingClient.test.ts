@@ -290,6 +290,31 @@ describe('startGrpcStream — web server-streaming deadlines (GRPC-3)', () => {
     expect((await handle.done).status).toBe(GrpcStatusCode.OK);
   });
 
+  it.each([
+    [0, undefined],
+    [undefined, 30_000],
+    [5_000, 5_000],
+  ])('passes call timeoutMs %s to connect-es as %s', async (input, expected) => {
+    const inner = slowTransport();
+    let seen: number | undefined | 'unset' = 'unset';
+    const transport = {
+      unary: inner.unary.bind(inner),
+      stream: (...a: Parameters<typeof inner.stream>) => {
+        seen = a[2];
+        return inner.stream(...a);
+      },
+    } as typeof inner;
+    const handle = await startGrpcStream({
+      request: baseRequest,
+      resolveVariables: (s) => s,
+      protoContent: ECHO_PROTO,
+      transport,
+      ...(input !== undefined ? { timeoutMs: input } : {}),
+    });
+    for await (const m of handle.messages) void m;
+    expect(seen).toBe(expected);
+  });
+
   it('still enforces a finite deadline', async () => {
     const handle = await startGrpcStream({
       request: baseRequest,
