@@ -17,14 +17,25 @@ import { projectDir, projectRelative, readPayload } from './_shared.mjs';
 // relPath -> how to regenerate it.
 const GENERATED_FILES = new Map([
   [
-    'src/lib/opencollection/spec-types.ts',
-    'Edit vendor/opencollection/.../schema.json, then run `npm run gen:opencollection-types`.',
+    // Output of scripts/gen-opencollection-types.mjs. (src/lib/opencollection/
+    // spec-types.ts is a hand-written deprecated re-export shim — not guarded.)
+    'shared/opencollection/spec-types.ts',
+    'Edit vendor/opencollection/v1.0.0/schema.json, then run `npm run gen:opencollection-types`.',
   ],
   [
     'docs/CAPABILITY_MATRIX.md',
     'Edit the area module under src/lib/shared/capabilities/ (the source of truth), then run `npm run capabilities:matrix`.',
   ],
 ]);
+
+// Directory prefixes whose contents are entirely generator output.
+const GENERATED_PREFIXES = [
+  {
+    // buf.gen.yaml: protoc-gen-es output for e2e/mocks/proto/*.proto
+    prefix: 'e2e/mocks/proto/gen/',
+    how: 'Edit the .proto source under e2e/mocks/proto/, then run `npm run proto:gen`.',
+  },
+];
 
 // Suffix patterns for generated files whose name encodes their status.
 const GENERATED_SUFFIXES = [
@@ -53,6 +64,7 @@ try {
   if (!rel) process.exit(0); // no file / outside the project
 
   let how = GENERATED_FILES.get(rel);
+  if (!how) how = GENERATED_PREFIXES.find((g) => rel.startsWith(g.prefix))?.how;
   if (!how) how = GENERATED_SUFFIXES.find((g) => rel.endsWith(g.suffix))?.how;
 
   if (how) {

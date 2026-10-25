@@ -136,4 +136,26 @@ describe('guard-generated-files hook: *.snap', () => {
   it('allows ordinary files', () => {
     expect(run('src/snapshot.ts').status).toBe(0);
   });
+
+  it('denies the real generated OpenCollection types (gen-opencollection-types output)', () => {
+    const res = run('shared/opencollection/spec-types.ts');
+    expect(res.status).toBe(2);
+    expect(res.stderr).toContain('npm run gen:opencollection-types');
+  });
+
+  it('allows the hand-written deprecated re-export shim', () => {
+    expect(run('src/lib/opencollection/spec-types.ts').status).toBe(0);
+  });
+
+  it('denies the generated capability matrix', () => {
+    const res = run('docs/CAPABILITY_MATRIX.md');
+    expect(res.status).toBe(2);
+    expect(res.stderr).toContain('npm run capabilities:matrix');
+  });
+
+  it('denies buf-generated protobuf TS (proto:gen output)', () => {
+    const res = run('e2e/mocks/proto/gen/echo_pb.ts');
+    expect(res.status).toBe(2);
+    expect(res.stderr).toContain('npm run proto:gen');
+  });
 });
