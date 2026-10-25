@@ -21,6 +21,7 @@
 //     [--config <label>] [--harness-ref <ref>] [--model <model>]
 //     [--max-budget-usd <n>] [--out <dir>] [--dry-run]
 
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -65,6 +66,31 @@ const COMMIT_RE = /\bgit\b[^|;&\n]*\bcommit\b/;
 const DIFF_EXCLUDES = [':(exclude,glob)**/node_modules'];
 /** Paths stripped from every isolated repo: the answer keys (task files) must never be in reach. */
 export const ANSWER_KEY_PATHS = ['evals'];
+const KILL_GRACE_MS = 10_000;
+/**
+ * Files the graders depend on. The agent's changes to them are reverted to the
+ * effective base before grading (and listed as `graderFilesTouched`), so a run
+ * cannot pass by editing the test runner, its setup or the type-check config.
+ * Vitest setup/globalSetup files named by the configs are added at run time.
+ */
+export const GRADER_PATHSPECS = [
+  'package.json',
+  'package-lock.json',
+  'cli/package.json',
+  'cli/package-lock.json',
+  ':(glob)vitest.config*',
+  ':(glob)vitest.*.config*',
+  ':(glob)vitest.workspace*',
+  ':(glob)vitest.setup*',
+  ':(glob)cli/vitest.config*',
+  ':(glob)cli/vitest.workspace*',
+  ':(glob)cli/vitest.setup*',
+  ':(glob)tsconfig*.json',
+  ':(glob)cli/tsconfig*.json',
+  ':(glob)electron/tsconfig*.json',
+  ':(glob)worker/tsconfig*.json',
+  '.claude',
+];
 
 const IDENTITY = ['-c', 'user.name=restura-build-eval', '-c', 'user.email=build-eval@localhost'];
 
@@ -359,42 +385,70 @@ export function transcriptMetrics(stdout) {
 }
 
 /**
- * Fail closed: a run is graded only when claude exited 0 with a parseable
- * stream, at least one turn and no error, or when it stopped on max turns
- * (graded on the outcome state). Anything else (non-zero exit, a timeout kill,
- * zero turns, unparseable output, is_error or any other error subtype such as
- * a budget stop) is a harness ERROR, excluded from scoring.
+ * What an agent run counts as. `ok`: graded on the outcome state. `fail`: the
+ * agent stopped without finishing (timeout, budget, max turns, an error end):
+ * a graded FAIL with score 0, never excluded (excluding them would bias pass
+ * rates upward). `error`: a true harness failure (claude did not start, the
+ * stream is unparseable, zero turns, a non-zero exit after a clean result):
+ * excluded from scoring and reported as the error rate.
  */
 export function classifyAgentRun(raw) {
   const stderr = String(raw.stderr ?? '').trim();
-  if (raw.signal || /timed out after \d+ ms/.test(stderr))
-    return { graded: false, reason: `agent killed (${raw.signal ?? 'timeout'})` };
-  if (raw.status !== 0)
-    return { graded: false, reason: `claude exited ${raw.status}: ${stderr.split('\n')[0] ?? ''}` };
-  let parsed;
+  let parsed = null;
   try {
     parsed = parseClaudeStream(raw.stdout);
-  } catch (error) {
-    return { graded: false, reason: `unparseable stream (${error.message.slice(0, 120)})` };
-  }
+  } catch {}
+  if (raw.signal || /timed out after \d+ ms/.test(stderr))
+    return { kind: 'fail', stopped: `timeout (${raw.signal ?? 'killed'})`, parsed };
+  if (!parsed)
+    return {
+      kind: 'error',
+      reason:
+        raw.status !== 0
+          ? `claude exited ${raw.status}: ${stderr.split('\n')[0] ?? ''}`
+          : 'unparseable claude stream',
+    };
+  if (/budget/i.test(parsed.subtype ?? ''))
+    return { kind: 'fail', stopped: `budget exhausted (${parsed.subtype})`, parsed };
   if (parsed.subtype === 'error_max_turns')
-    return { graded: true, parsed, stopped: 'max turns reached' };
-  if (!(parsed.numTurns > 0)) return { graded: false, reason: 'zero turns', parsed };
+    return { kind: 'fail', stopped: 'max turns reached', parsed };
+  if (!(parsed.numTurns > 0)) return { kind: 'error', reason: 'zero turns (agent never ran)' };
   if (parsed.isError || parsed.subtype?.startsWith('error'))
-    return { graded: false, reason: `claude ended with ${parsed.subtype ?? 'is_error'}`, parsed };
-  return { graded: true, parsed };
+    return { kind: 'fail', stopped: `agent ended with ${parsed.subtype ?? 'is_error'}`, parsed };
+  if (raw.status !== 0) return { kind: 'error', reason: `claude exited ${raw.status}` };
+  return { kind: 'ok', parsed };
 }
 
 // ---------------------------------------------------------------- grading
 
 const tail = (text) => (text.length > TAIL_CHARS ? text.slice(-TAIL_CHARS) : text);
 
-/** Run one grader command (a shell string from a committed task file) in the repo. */
-export async function runCommand(exec, command, { cwd, timeoutMs }) {
+/** Total tests vitest reports (`Tests  1 failed | 12 passed (13)` → 13), or null. */
+export function parseTestCount(output) {
+  const matches = [...String(output).matchAll(/^\s*Tests\s+.*\((\d+)\)\s*$/gm)];
+  if (matches.length === 0) return null;
+  return matches.reduce((sum, m) => sum + Number(m[1]), 0);
+}
+
+/** Hidden test basenames a command names (by path or basename); all of them when it names none. */
+export function hiddenFilesFor(command, hiddenTests) {
+  const names = hiddenTests.map((p) => path.posix.basename(p));
+  const named = names.filter((name) => command.includes(name));
+  return named.length > 0 ? named : names;
+}
+
+/**
+ * Run one grader command (a shell string from a committed task file) in the
+ * repo, detached in its own process group (a timeout kills the whole group).
+ * Records the vitest test count and whether the output names one of
+ * `expectFiles` (needs `--reporter=verbose`, which lists every test's file).
+ */
+export async function runCommand(exec, command, { cwd, timeoutMs, expectFiles = [] }) {
   const started = Date.now();
   const result = await exec.run('bash', ['-c', command], {
     cwd,
     timeout: timeoutMs,
+    detached: true,
     env: { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1' },
   });
   const output = `${result.stdout ?? ''}${result.stderr ? `\n${result.stderr}` : ''}`;
@@ -404,16 +458,34 @@ export async function runCommand(exec, command, { cwd, timeoutMs }) {
     status: result.status === 0 && !result.signal ? 'pass' : timedOut ? 'timeout' : 'fail',
     exitCode: result.status ?? null,
     ms: Date.now() - started,
+    testsRun: parseTestCount(output),
+    namesHiddenFile: expectFiles.length === 0 ? null : expectFiles.some((f) => output.includes(f)),
     tail: tail(redactSecrets(output.trim())),
   };
 }
 
-/** `pass` only when every failToPass and passToPass command passes; partial = fraction passing. */
+/** A failToPass "pass" only counts when tests actually ran and the hidden test file was among them. */
+export function requireTestsRan(result) {
+  if (result.status !== 'pass') return result;
+  if (!(result.testsRun > 0)) return { ...result, status: 'fail', note: 'no tests executed' };
+  if (result.namesHiddenFile === false)
+    return { ...result, status: 'fail', note: 'the hidden test file did not run' };
+  return result;
+}
+
+/**
+ * `pass` only when every failToPass and passToPass command passes. Credit is
+ * `failToPassFraction` (failToPass only); a failing passToPass is reported as
+ * the regression flag `passToPassBroken`.
+ */
 export function gradeCommands({ failToPass, passToPass }) {
-  const all = [...failToPass, ...passToPass];
-  if (all.length === 0) return { outcome: 'fail', partial: 0 };
-  const passed = all.filter((r) => r.status === 'pass').length;
-  return { outcome: passed === all.length ? 'pass' : 'fail', partial: passed / all.length };
+  const passed = (list) => list.filter((r) => r.status === 'pass').length;
+  const all = failToPass.length + passToPass.length;
+  return {
+    outcome: all > 0 && passed(failToPass) + passed(passToPass) === all ? 'pass' : 'fail',
+    failToPassFraction: failToPass.length > 0 ? passed(failToPass) / failToPass.length : 0,
+    passToPassBroken: passed(passToPass) !== passToPass.length,
+  };
 }
 
 /** Copy each hidden test from `ref` (read from `repo`) into `dir`, overwriting the agent's version. */
@@ -450,12 +522,22 @@ export async function applyReferenceDiff(exec, { repo, dir, base, ref }) {
     throw new Error(`reference diff: ${(result.stderr || result.stdout || '').trim()}`);
 }
 
-/** The validator's decision for one task. */
-export function dryRunVerdict({ atBase, atReference }) {
+/**
+ * The validator's decision for one task: on base every failToPass must FAIL
+ * (not time out or fail to start) with output naming the hidden test file, and
+ * every passToPass must pass; with the reference fix everything must pass.
+ */
+export function dryRunVerdict({ atBase, passToPassAtBase = [], atReference }) {
   const problems = [];
-  for (const r of atBase)
+  for (const r of atBase) {
     if (r.status === 'pass')
       problems.push(`failToPass passes on base (does not detect the bug): ${r.command}`);
+    else if (r.status !== 'fail') problems.push(`failToPass ${r.status} on base: ${r.command}`);
+    else if (r.namesHiddenFile === false)
+      problems.push(`failToPass on base does not name the hidden test file: ${r.command}`);
+  }
+  for (const r of passToPassAtBase)
+    if (r.status !== 'pass') problems.push(`passToPass ${r.status} on base: ${r.command}`);
   for (const r of atReference.failToPass)
     if (r.status !== 'pass')
       problems.push(`failToPass ${r.status} with the reference fix: ${r.command}`);
@@ -465,15 +547,77 @@ export function dryRunVerdict({ atBase, atReference }) {
   return { ok: problems.length === 0, problems };
 }
 
+const commandTimeoutMs = (task) => task.commandTimeoutMinutes * 60 * 1000;
+
+async function runFailToPass(exec, task, dir, command) {
+  return runCommand(exec, command, {
+    cwd: dir,
+    timeoutMs: commandTimeoutMs(task),
+    expectFiles: hiddenFilesFor(command, task.hiddenTests),
+  });
+}
+
 async function runGraders(exec, task, dir) {
-  const timeoutMs = task.commandTimeoutMinutes * 60 * 1000;
-  const run = async (commands) => {
-    const out = [];
-    for (const command of commands)
-      out.push(await runCommand(exec, command, { cwd: dir, timeoutMs }));
-    return out;
+  const failToPass = [];
+  for (const command of task.failToPass)
+    failToPass.push(requireTestsRan(await runFailToPass(exec, task, dir, command)));
+  const passToPass = [];
+  for (const command of task.passToPass)
+    passToPass.push(
+      await runCommand(exec, command, { cwd: dir, timeoutMs: commandTimeoutMs(task) })
+    );
+  return { failToPass, passToPass };
+}
+
+/** Vitest setupFiles / globalSetup paths named by the vitest configs in `dir` (repo-relative). */
+function vitestSetupFiles(dir) {
+  const out = new Set();
+  for (const sub of ['.', 'cli']) {
+    const base = path.join(dir, sub);
+    let names = [];
+    try {
+      names = fs.readdirSync(base).filter((n) => /^vitest\..*\.(ts|mts|js|mjs|cts|cjs)$/.test(n));
+    } catch {}
+    for (const name of names) {
+      const text = fs.readFileSync(path.join(base, name), 'utf8');
+      for (const m of text.matchAll(
+        /(?:setupFiles|globalSetup)\s*:\s*(\[[^\]]*\]|'[^']*'|"[^"]*")/g
+      ))
+        for (const q of m[1].matchAll(/['"]([^'"]+)['"]/g)) {
+          const rel = path.posix.normalize(path.posix.join(sub, q[1]));
+          if (!rel.startsWith('..') && !path.posix.isAbsolute(rel)) out.add(rel);
+        }
+    }
+  }
+  return [...out];
+}
+
+/**
+ * Revert every grader-critical file (GRADER_PATHSPECS plus the vitest setup
+ * files) the agent changed, added or deleted relative to `effectiveBase`, and
+ * return their paths (sorted).
+ */
+export async function restoreGraderFiles(exec, dir, effectiveBase) {
+  const specs = [...GRADER_PATHSPECS, ...vitestSetupFiles(dir)];
+  const git = async (args, what) => {
+    const r = await exec.run('git', ['-C', dir, ...args]);
+    if (r.status !== 0)
+      throw new Error(`restore grader files: ${what}: ${(r.stderr || r.stdout || '').trim()}`);
+    return r;
   };
-  return { failToPass: await run(task.failToPass), passToPass: await run(task.passToPass) };
+  const lines = (r) =>
+    String(r.stdout ?? '')
+      .split('\n')
+      .filter(Boolean);
+  const changed = lines(await git(['diff', '--name-only', effectiveBase, '--', ...specs], 'diff'));
+  const added = lines(await git(['ls-files', '--others', '--', ...specs], 'ls-files'));
+  const touched = [...new Set([...changed, ...added])].sort();
+  for (const file of touched) {
+    const atBase = await exec.run('git', ['-C', dir, 'cat-file', '-e', `${effectiveBase}:${file}`]);
+    if (atBase.status === 0) await git(['checkout', effectiveBase, '--', file], `checkout ${file}`);
+    else fs.rmSync(path.join(dir, file), { recursive: true, force: true });
+  }
+  return touched;
 }
 
 /**
@@ -499,6 +643,9 @@ async function stripAnswerKeys(exec, dir, effectiveBase) {
   const head = (await git(['rev-parse', 'HEAD'], 'rev-parse')).stdout.trim();
   await git(['update-ref', 'refs/heads/main', head], 'main');
   await git(['update-ref', 'refs/remotes/origin/main', head], 'origin/main');
+  // The pre-amend commit still holds evals/: drop the reflog and prune it.
+  await git(['reflog', 'expire', '--expire=now', '--all'], 'reflog expire');
+  await git(['gc', '--prune=now', '-q'], 'gc');
   return head;
 }
 
@@ -532,17 +679,34 @@ export async function runTask(task, ctx) {
     const hidden = { repo, dir, ref: task.referenceCommit, paths: task.hiddenTests };
 
     if (ctx.dryRun) {
+      // Base: hidden tests in place → each failToPass must fail on the hidden file.
       await applyHiddenTests(exec, hidden);
-      const timeoutMs = task.commandTimeoutMinutes * 60 * 1000;
       const atBase = [];
       for (const command of task.failToPass)
-        atBase.push(await runCommand(exec, command, { cwd: dir, timeoutMs }));
+        atBase.push(await runFailToPass(exec, task, dir, command));
+      // passToPass must be green on base too: a command naming a hidden test
+      // (a pass-to-pass guard) runs with it, the rest without the hidden tests.
+      const passToPassAtBase = new Array(task.passToPass.length);
+      const namesHidden = (command) =>
+        task.hiddenTests.some((p) => command.includes(path.posix.basename(p)));
+      const runP2p = async (index) => {
+        const command = task.passToPass[index];
+        const r = await runCommand(exec, command, {
+          cwd: dir,
+          timeoutMs: commandTimeoutMs(task),
+        });
+        passToPassAtBase[index] = { ...r, withHiddenTests: namesHidden(command) };
+      };
+      for (const [index, command] of task.passToPass.entries())
+        if (namesHidden(command)) await runP2p(index);
       await restoreHiddenTests(exec, { dir, paths: task.hiddenTests });
+      for (const [index, command] of task.passToPass.entries())
+        if (!namesHidden(command)) await runP2p(index);
       await applyReferenceDiff(exec, { repo, dir, base: task.base, ref: task.referenceCommit });
       await applyHiddenTests(exec, hidden);
       const atReference = await runGraders(exec, task, dir);
-      const verdict = dryRunVerdict({ atBase, atReference });
-      outcome.dryRun = { ...verdict, atBase, atReference };
+      const verdict = dryRunVerdict({ atBase, passToPassAtBase, atReference });
+      outcome.dryRun = { ...verdict, atBase, passToPassAtBase, atReference };
       if (!verdict.ok) {
         outcome.status = 'error';
         outcome.reason = verdict.problems.join('; ');
@@ -562,10 +726,12 @@ export async function runTask(task, ctx) {
     }
     outcome.agent = transcriptMetrics(raw.stdout);
     const classified = classifyAgentRun(raw);
-    if (!classified.graded) throw new Error(`agent: ${classified.reason}`);
+    if (classified.kind === 'error') throw new Error(`agent: ${classified.reason}`);
     if (classified.stopped) outcome.agentStopped = classified.stopped;
-    if (classified.parsed.permissionDenials.length > 0)
+    if (classified.parsed?.permissionDenials?.length > 0)
       outcome.permissionDenials = classified.parsed.permissionDenials.length;
+    const zero = () =>
+      Object.assign(outcome, { outcome: 'fail', failToPassFraction: 0, passToPassBroken: null });
     if (ctx.forbiddenRoots?.length) {
       let real = dir;
       try {
@@ -576,12 +742,15 @@ export async function runTask(task, ctx) {
         isolatedRoot: [dir, real],
       });
       if (contamination.contaminated) {
+        // A graded FAIL (score 0), flagged: it may have read the answer.
+        outcome.contaminated = true;
         outcome.contamination = contamination.hits;
-        throw new Error(
-          `contaminated: ${contamination.hits.length} tool call(s) reached outside the isolated repo (${contamination.hits.map((h) => h.tool).join(', ')})`
-        );
+        return zero();
       }
     }
+    outcome.contaminated = false;
+    // Stopped before finishing (timeout, budget, max turns): a graded fail, score 0.
+    if (classified.kind === 'fail') return zero();
     const count = await exec.run('git', [
       '-C',
       dir,
@@ -594,6 +763,7 @@ export async function runTask(task, ctx) {
     const status = await exec.run('git', ['-C', dir, 'status', '--porcelain']);
     outcome.uncommittedChanges = status.status === 0 ? status.stdout.trim() !== '' : null;
 
+    outcome.graderFilesTouched = await restoreGraderFiles(exec, dir, outcome.effectiveBase);
     await applyHiddenTests(exec, hidden);
     outcome.commands = await runGraders(exec, task, dir);
     Object.assign(outcome, gradeCommands(outcome.commands));
@@ -621,10 +791,21 @@ function aggregate(runs) {
     runs: runs.length,
     scored: n,
     errors: runs.length - n,
+    errorRate: runs.length > 0 ? (runs.length - n) / runs.length : null,
     passes,
     pass1: passAtK(n, passes, 1),
     passHatN: passHatK(n, passes, n),
-    meanPartial: mean(numbers(scored.map((r) => r.partial))),
+    meanFailToPassFraction: mean(numbers(scored.map((r) => r.failToPassFraction))),
+    passToPassBrokenRate: rate(
+      scored.filter((r) => typeof r.passToPassBroken === 'boolean'),
+      (r) => r.passToPassBroken
+    ),
+    contaminated: scored.filter((r) => r.contaminated === true).length,
+    stopped: scored.filter((r) => r.agentStopped).length,
+    graderTamperRate: rate(
+      scored.filter((r) => Array.isArray(r.graderFilesTouched)),
+      (r) => r.graderFilesTouched.length > 0
+    ),
     meanCostUsd: mean(numbers(runs.map((r) => r.agent?.costUsd))),
     meanMinutes: mean(numbers(runs.map((r) => r.agent?.minutes))),
     typeCheckAllRate: rate(scored, (r) => r.agent?.ranTypeCheckAll),
@@ -711,6 +892,11 @@ export function formatBuildMarkdown(result) {
     `Harness ${String(result.harnessSha ?? '').slice(0, 12)}; model ${result.model ?? 'default'}; ${result.runsPerTask ?? '?'} run(s) per task.`,
     '',
   ];
+  if (!result.dryRun && s?.totals)
+    lines.push(
+      `**Harness errors (excluded): ${s.totals.errors}/${s.totals.runs} runs (${pct(s.totals.errorRate)}).** Stops (timeout, budget, max turns) and contamination are graded fails, not errors.`,
+      ''
+    );
   if (result.dryRun) {
     lines.push('| task | split | validator | problems |', '|---|---|---|---|');
     for (const r of result.runs)
@@ -720,16 +906,16 @@ export function formatBuildMarkdown(result) {
     return `${lines.join('\n')}\n`;
   }
   lines.push(
-    '| task | split | scored | errors | pass@1 | pass^n | partial | type-check:all | tests | committed | cost | min |',
-    '|---|---|---|---|---|---|---|---|---|---|---|---|'
+    '| task | split | seen | scored | errors | pass@1 | pass^n | failToPass | passToPass broken | stopped | contaminated | grader files touched | type-check:all | tests | committed | cost | min |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|'
   );
   for (const [id, t] of Object.entries(s.byTask))
     lines.push(
-      `| ${id} | ${t.split} | ${t.scored} | ${t.errors} | ${pct(t.pass1)} | ${pct(t.passHatN)} | ${pct(t.meanPartial)} | ${pct(t.typeCheckAllRate)} | ${pct(t.testsRate)} | ${pct(t.commitRate)} | ${usd(t.meanCostUsd)} | ${mins(t.meanMinutes)} |`
+      `| ${id} | ${t.split} | ${t.seenInHarness ? 'yes' : 'no'} | ${t.scored} | ${t.errors} | ${pct(t.pass1)} | ${pct(t.passHatN)} | ${pct(t.meanFailToPassFraction)} | ${pct(t.passToPassBrokenRate)} | ${t.stopped} | ${t.contaminated} | ${pct(t.graderTamperRate)} | ${pct(t.typeCheckAllRate)} | ${pct(t.testsRate)} | ${pct(t.commitRate)} | ${usd(t.meanCostUsd)} | ${mins(t.meanMinutes)} |`
     );
   lines.push('');
   const total = (label, t) =>
-    `- **${label}**: pass@1 ${pct(t.pass1)} (${t.passes}/${t.scored}${t.ci ? `, 95% CI ${pct(t.ci.low)}–${pct(t.ci.high)}` : ''}), mean partial ${pct(t.meanPartial)}, ${t.errors} error(s) excluded, cost ${usd(t.totalCostUsd)}`;
+    `- **${label}**: pass@1 ${pct(t.pass1)} (${t.passes}/${t.scored}${t.ci ? `, 95% CI ${pct(t.ci.low)}–${pct(t.ci.high)}` : ''}), mean failToPass ${pct(t.meanFailToPassFraction)}, passToPass broken ${pct(t.passToPassBrokenRate)}, ${t.errors} error(s) excluded (${pct(t.errorRate)}), cost ${usd(t.totalCostUsd)}`;
   lines.push(total('all', s.totals));
   if (s.unseen) lines.push(total('unseen by the harness', s.unseen));
   for (const [split, t] of Object.entries(s.bySplit)) lines.push(total(split, t));
@@ -750,7 +936,88 @@ export function formatBuildMarkdown(result) {
 
 // ---------------------------------------------------------------- main
 
-export async function runBuildEval(options, { exec = nodeExec, log = console.log } = {}) {
+const groups = new Set();
+
+/** Kill every live detached grader's whole process group (signal handlers). */
+export function killProcessGroups(signal = 'SIGTERM') {
+  for (const pid of groups) {
+    try {
+      process.kill(-pid, signal);
+    } catch {}
+  }
+}
+
+/**
+ * Run a command detached in its own process group. A timeout sends SIGTERM to
+ * the whole group, then SIGKILL after 10 s, so vitest/tsc workers cannot
+ * outlive it or hold its pipes open.
+ */
+function runDetached(command, args, opts = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: opts.cwd,
+      env: opts.env ?? process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+    });
+    const pid = child.pid;
+    if (pid) groups.add(pid);
+    const killGroup = (signal) => {
+      try {
+        if (pid) process.kill(-pid, signal);
+      } catch {}
+    };
+    let stdout = '';
+    let stderr = '';
+    let timer;
+    let killer;
+    if (opts.timeout)
+      timer = setTimeout(() => {
+        stderr += `\ntimed out after ${opts.timeout} ms`;
+        killGroup('SIGTERM');
+        killer = setTimeout(() => killGroup('SIGKILL'), KILL_GRACE_MS);
+        killer.unref();
+      }, opts.timeout);
+    child.stdout.setEncoding('utf8').on('data', (d) => {
+      stdout += d;
+    });
+    child.stderr.setEncoding('utf8').on('data', (d) => {
+      stderr += d;
+    });
+    child.on('error', (error) => {
+      stderr += String(error);
+    });
+    // On exit, kill leftover group members (workers) so they cannot outlive the
+    // command or hold its pipes open; resolve once the pipes have drained.
+    let exited = null;
+    child.on('exit', (status, signal) => {
+      exited = { status, signal };
+      clearTimeout(timer);
+      killGroup('SIGKILL');
+    });
+    child.on('close', (status, signal) => {
+      clearTimeout(timer);
+      clearTimeout(killer);
+      if (pid) groups.delete(pid);
+      const end = exited ?? { status, signal };
+      resolve({
+        status: end.status ?? (end.signal ? null : 1),
+        signal: end.signal,
+        stdout,
+        stderr,
+      });
+    });
+  });
+}
+
+/** nodeExec, except detached commands (the graders) get their own killable process group. */
+export const evalExec = {
+  run: (command, args, opts = {}) =>
+    opts.detached ? runDetached(command, args, opts) : nodeExec.run(command, args, opts),
+  pipe: (...args) => nodeExec.pipe(...args),
+};
+
+export async function runBuildEval(options, { exec = evalExec, log = console.log } = {}) {
   const repo = (
     await exec.run('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT })
   ).stdout.trim();
@@ -824,6 +1091,7 @@ export async function runBuildEval(options, { exec = nodeExec, log = console.log
   let tempDir = null;
   const onSignal = (signal) => {
     killLiveChildren();
+    killProcessGroups('SIGKILL');
     if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
     console.error(`\nbuild-eval: ${signal}; removed this run's isolated repo.`);
     process.exit(signal === 'SIGINT' ? 130 : 143);

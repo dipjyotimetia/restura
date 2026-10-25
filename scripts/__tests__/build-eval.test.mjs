@@ -10,13 +10,17 @@ import {
   buildAgentPrompt,
   classifyAgentRun,
   dryRunVerdict,
+  evalExec,
   formatBuildMarkdown,
   gitChecks,
   gradeCommands,
+  hiddenFilesFor,
   loadTasks,
   overlayLeakReport,
   PROMPT_SUFFIX,
   parseBuildArgs,
+  requireTestsRan,
+  restoreGraderFiles,
   runCommand,
   runTask,
   summariseBuild,
@@ -308,46 +312,99 @@ function fakeExec(handler) {
   };
 }
 
-test('runCommand runs through bash -c in the repo and keeps a tail of the output', async () => {
-  const exec = fakeExec(() => ({ status: 1, stdout: `${'x'.repeat(5000)}END`, stderr: 'boom' }));
-  const r = await runCommand(exec, 'npm test', { cwd: '/r', timeoutMs: 1000 });
+const vitestOut = (file, { passed = 3, failed = 0 } = {}) =>
+  [
+    ` ${failed ? '×' : '✓'} ${file} > suite > case 3ms`,
+    ` Test Files  ${failed ? '1 failed' : '1 passed'} (1)`,
+    `      Tests  ${failed ? `${failed} failed | ` : ''}${passed} passed (${passed + failed})`,
+  ].join('\n');
+
+test('runCommand: bash -c in its own process group, tail, test count, hidden file named', async () => {
+  const exec = fakeExec(() => ({
+    status: 1,
+    stdout: `${'x'.repeat(5000)}\n${vitestOut('src/a.test.ts', { failed: 1 })}`,
+    stderr: 'boom',
+  }));
+  const r = await runCommand(exec, 'npm test', {
+    cwd: '/r',
+    timeoutMs: 1000,
+    expectFiles: ['a.test.ts'],
+  });
   assert.equal(exec.calls[0].command, 'bash');
   assert.deepEqual(exec.calls[0].args, ['-c', 'npm test']);
   assert.equal(exec.calls[0].opts.cwd, '/r');
   assert.equal(exec.calls[0].opts.timeout, 1000);
+  assert.equal(
+    exec.calls[0].opts.detached,
+    true,
+    'graders run detached so the group can be killed'
+  );
   assert.equal(r.status, 'fail');
   assert.equal(r.exitCode, 1);
+  assert.equal(r.testsRun, 4);
+  assert.equal(r.namesHiddenFile, true);
   assert.ok(r.tail.length <= 2000);
   assert.ok(r.tail.includes('boom'));
   const timedOut = await runCommand(
-    fakeExec(() => ({ status: null, signal: 'SIGTERM', stdout: '', stderr: 'timed out after' })),
+    fakeExec(() => ({
+      status: null,
+      signal: 'SIGTERM',
+      stdout: '',
+      stderr: 'timed out after 1 ms',
+    })),
     'x',
     { cwd: '/r', timeoutMs: 1 }
   );
   assert.equal(timedOut.status, 'timeout');
-  const ok = await runCommand(
-    fakeExec(() => undefined),
+  const none = await runCommand(
+    fakeExec(() => ({ status: 1, stdout: 'No test files found, exiting with code 1' })),
     'x',
-    { cwd: '/r', timeoutMs: 1 }
+    { cwd: '/r', timeoutMs: 1, expectFiles: ['a.test.ts'] }
   );
-  assert.equal(ok.status, 'pass');
+  assert.equal(none.testsRun, null);
+  assert.equal(none.namesHiddenFile, false);
 });
 
-test('gradeCommands: pass only when every command passes; partial is the fraction', () => {
+test('requireTestsRan: a passing failToPass that ran no tests, or not the hidden file, fails', () => {
+  const pass = { command: 'c', status: 'pass', testsRun: 3, namesHiddenFile: true };
+  assert.equal(requireTestsRan(pass).status, 'pass');
+  for (const bad of [
+    { ...pass, testsRun: 0 },
+    { ...pass, testsRun: null },
+    { ...pass, namesHiddenFile: false },
+  ]) {
+    const r = requireTestsRan(bad);
+    assert.equal(r.status, 'fail');
+    assert.match(r.note, /no tests|hidden test/);
+  }
+  assert.equal(requireTestsRan({ ...pass, status: 'fail' }).status, 'fail');
+});
+
+test('hiddenFilesFor: hidden basenames named by the command, else all of them', () => {
+  const hidden = ['src/a.test.ts', 'cli/src/b.test.ts'];
+  assert.deepEqual(hiddenFilesFor('cd cli && npx vitest run src/b.test.ts', hidden), ['b.test.ts']);
+  assert.deepEqual(hiddenFilesFor('npx vitest run src', hidden), ['a.test.ts', 'b.test.ts']);
+});
+
+test('gradeCommands: pass needs every command; fraction is over failToPass; passToPass is a flag', () => {
   const pass = { status: 'pass' };
   const fail = { status: 'fail' };
   assert.deepEqual(gradeCommands({ failToPass: [pass], passToPass: [pass, pass] }), {
     outcome: 'pass',
-    partial: 1,
+    failToPassFraction: 1,
+    passToPassBroken: false,
   });
-  assert.deepEqual(gradeCommands({ failToPass: [fail], passToPass: [pass, pass, pass] }), {
+  assert.deepEqual(gradeCommands({ failToPass: [fail, pass], passToPass: [pass] }), {
     outcome: 'fail',
-    partial: 0.75,
+    failToPassFraction: 0.5,
+    passToPassBroken: false,
   });
-  assert.deepEqual(gradeCommands({ failToPass: [], passToPass: [] }), {
+  assert.deepEqual(gradeCommands({ failToPass: [pass], passToPass: [fail] }), {
     outcome: 'fail',
-    partial: 0,
+    failToPassFraction: 1,
+    passToPassBroken: true,
   });
+  assert.equal(gradeCommands({ failToPass: [], passToPass: [] }).outcome, 'fail');
 });
 
 test('applyHiddenTests writes each hidden test from the reference commit, overwriting', async () => {
@@ -397,30 +454,75 @@ test('applyReferenceDiff pipes base..ref (minus node_modules) into git apply in 
   );
 });
 
-test('dryRunVerdict: every failToPass must fail on base, everything must pass on the reference', () => {
-  const p = { status: 'pass', command: 'p' };
-  const f = { status: 'fail', command: 'f' };
+test('dryRunVerdict: base failToPass must FAIL naming the hidden file; base passToPass green; reference all green', () => {
+  const p = { status: 'pass', command: 'p', namesHiddenFile: true };
+  const f = { status: 'fail', command: 'f', namesHiddenFile: true };
   assert.deepEqual(
-    dryRunVerdict({ atBase: [f, f], atReference: { failToPass: [p, p], passToPass: [p] } }),
+    dryRunVerdict({
+      atBase: [f, f],
+      passToPassAtBase: [p],
+      atReference: { failToPass: [p, p], passToPass: [p] },
+    }),
     { ok: true, problems: [] }
   );
   const bad = dryRunVerdict({
-    atBase: [p, f],
+    atBase: [p, { ...f, status: 'timeout' }, { ...f, namesHiddenFile: false }],
+    passToPassAtBase: [f],
     atReference: { failToPass: [p, f], passToPass: [f] },
   });
   assert.equal(bad.ok, false);
-  assert.equal(bad.problems.length, 3);
+  assert.equal(bad.problems.length, 6);
   assert.ok(bad.problems.some((x) => /passes on base/.test(x)));
+  assert.ok(bad.problems.some((x) => /timeout on base/.test(x)));
+  assert.ok(bad.problems.some((x) => /does not name the hidden test/.test(x)));
+  assert.ok(bad.problems.some((x) => /passToPass fail on base/.test(x)));
+});
+
+test('restoreGraderFiles: reverts grader-critical files the agent touched and lists them', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
+  const eb = 'e'.repeat(40);
+  try {
+    fs.writeFileSync(path.join(dir, 'vitest.config.ts'), "setupFiles: ['./tests/setup.ts'],");
+    fs.mkdirSync(path.join(dir, '.claude'));
+    fs.writeFileSync(path.join(dir, '.claude/settings.json'), '{}');
+    const exec = fakeExec((cmd, args) => {
+      if (args.includes('diff')) return { status: 0, stdout: 'vitest.config.ts\ntests/setup.ts\n' };
+      if (args.includes('ls-files')) return { status: 0, stdout: '.claude/settings.json\n' };
+      if (args.includes('cat-file'))
+        return { status: args.at(-1).endsWith('.claude/settings.json') ? 1 : 0 };
+      return undefined;
+    });
+    const touched = await restoreGraderFiles(exec, dir, eb);
+    assert.deepEqual(touched, ['.claude/settings.json', 'tests/setup.ts', 'vitest.config.ts']);
+    const diffCall = exec.calls.find((c) => c.args.includes('diff'));
+    for (const spec of ['package.json', 'cli/package.json', '.claude', 'tests/setup.ts'])
+      assert.ok(diffCall.args.includes(spec), `pathspec ${spec}`);
+    assert.ok(diffCall.args.some((a) => a.includes('tsconfig')));
+    assert.ok(diffCall.args.some((a) => a.includes('vitest.config')));
+    const checkouts = exec.calls
+      .filter((c) => c.args.includes('checkout'))
+      .map((c) => c.args.at(-1));
+    assert.deepEqual(checkouts.sort(), ['tests/setup.ts', 'vitest.config.ts']);
+    assert.ok(!fs.existsSync(path.join(dir, '.claude/settings.json')), 'agent-added file removed');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------- runTask
 
-function runTaskExec({ agentStdout, commandStatus = () => 0, commits = '1' }) {
-  return fakeExec((cmd, args) => {
+function runTaskExec({ agentStdout, commandStatus = () => 0, commits = '1', handler }) {
+  return fakeExec((cmd, args, opts) => {
+    const custom = handler?.(cmd, args, opts);
+    if (custom) return custom;
     if (cmd === 'claude') return { status: 0, stdout: agentStdout, stderr: '' };
     if (cmd === 'bash') {
       const status = commandStatus(args[1]);
-      return { status, stdout: `ran ${args[1]}`, stderr: '' };
+      return {
+        status,
+        stdout: `ran ${args[1]}\n${vitestOut('src/a.test.ts', status ? { failed: 1 } : {})}`,
+        stderr: '',
+      };
     }
     if (cmd === 'git' && args.includes('rev-list')) return { status: 0, stdout: `${commits}\n` };
     if (cmd === 'git' && args.includes('status')) return { status: 0, stdout: '' };
@@ -449,22 +551,32 @@ const goodStream = stream([
   { type: 'result', subtype: 'success', num_turns: 3, total_cost_usd: 2, duration_ms: 60000 },
 ]);
 
-test('runTask grades the outcome state: hidden tests added after the agent, all commands pass', async () => {
+test('runTask grades the outcome state: grader files restored, hidden tests added after the agent', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
   try {
     const task = validateTask(rawTask(), okChecks).value;
-    const exec = runTaskExec({ agentStdout: goodStream });
+    const exec = runTaskExec({
+      agentStdout: goodStream,
+      handler: (cmd, args) =>
+        cmd === 'git' && args.includes('diff') && args.includes('--name-only')
+          ? { status: 0, stdout: 'package.json\n' }
+          : undefined,
+    });
     const out = await runTask(task, ctxFor(exec, tempDir));
     assert.equal(out.status, 'ok', out.reason);
     assert.equal(out.outcome, 'pass');
-    assert.equal(out.partial, 1);
+    assert.equal(out.failToPassFraction, 1);
+    assert.equal(out.passToPassBroken, false);
+    assert.deepEqual(out.graderFilesTouched, ['package.json']);
     assert.equal(out.agent.costUsd, 2);
     assert.equal(out.committed, true);
-    const order = exec.calls.map((c) => c.command ?? 'pipe');
-    const claudeAt = order.indexOf('claude');
-    const showAt = exec.calls.findIndex((c) => c.command === 'git' && c.args.includes('show'));
-    const firstBash = order.indexOf('bash');
-    assert.ok(claudeAt >= 0 && claudeAt < showAt, 'hidden tests are applied after the agent');
+    const idx = (pred) => exec.calls.findIndex(pred);
+    const claudeAt = idx((c) => c.command === 'claude');
+    const restoreAt = idx((c) => c.command === 'git' && c.args.includes('--name-only'));
+    const showAt = idx((c) => c.command === 'git' && c.args.includes('show'));
+    const firstBash = idx((c) => c.command === 'bash');
+    assert.ok(claudeAt >= 0 && claudeAt < restoreAt, 'grader files restored after the agent');
+    assert.ok(restoreAt < showAt, 'then hidden tests applied');
     assert.ok(showAt < firstBash, 'graders run after the hidden tests are in place');
     const claudeCall = exec.calls[claudeAt];
     assert.ok(claudeCall.opts.input.endsWith(PROMPT_SUFFIX));
@@ -474,7 +586,7 @@ test('runTask grades the outcome state: hidden tests added after the agent, all 
   }
 });
 
-test('runTask: failing failToPass → fail with partial credit and per-command tails', async () => {
+test('runTask: failing failToPass → fail, fraction over failToPass, per-command tails', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
   try {
     const task = validateTask(rawTask(), okChecks).value;
@@ -485,7 +597,8 @@ test('runTask: failing failToPass → fail with partial credit and per-command t
     });
     const out = await runTask(task, ctxFor(exec, tempDir));
     assert.equal(out.outcome, 'fail');
-    assert.equal(out.partial, 0.5);
+    assert.equal(out.failToPassFraction, 0);
+    assert.equal(out.passToPassBroken, false);
     assert.equal(out.commands.failToPass[0].status, 'fail');
     assert.match(out.commands.failToPass[0].tail, /ran npx vitest/);
     assert.equal(out.committed, false);
@@ -494,7 +607,27 @@ test('runTask: failing failToPass → fail with partial credit and per-command t
   }
 });
 
-test('runTask: a transcript touching the main checkout is contaminated → error, not graded', async () => {
+test('runTask: a failToPass that exits 0 without running the hidden tests is a fail', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
+  try {
+    const task = validateTask(rawTask(), okChecks).value;
+    const exec = runTaskExec({
+      agentStdout: goodStream,
+      handler: (cmd, args) =>
+        cmd === 'bash' && args[1].includes('vitest')
+          ? { status: 0, stdout: 'No test files found, exiting with code 0' }
+          : undefined,
+    });
+    const out = await runTask(task, ctxFor(exec, tempDir));
+    assert.equal(out.outcome, 'fail');
+    assert.equal(out.commands.failToPass[0].status, 'fail');
+    assert.match(out.commands.failToPass[0].note, /no tests/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('runTask: a contaminated transcript is a graded FAIL (score 0), flagged, not graded further', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
   try {
     const task = validateTask(rawTask(), okChecks).value;
@@ -505,8 +638,11 @@ test('runTask: a transcript touching the main checkout is contaminated → error
       ]),
     });
     const out = await runTask(task, ctxFor(exec, tempDir));
-    assert.equal(out.status, 'error');
-    assert.match(out.reason, /contaminated/);
+    assert.equal(out.status, 'ok');
+    assert.equal(out.outcome, 'fail');
+    assert.equal(out.failToPassFraction, 0);
+    assert.equal(out.contaminated, true);
+    assert.ok(out.contamination.length > 0);
     assert.ok(!exec.calls.some((c) => c.command === 'bash'), 'no grading for a contaminated run');
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -542,64 +678,54 @@ test('grader tails and transcripts are redacted with redactSecrets', async () =>
   }
 });
 
-test('classifyAgentRun fails closed; only success and max-turns are graded', () => {
+test('classifyAgentRun: stops are graded fails, only harness failures are errors', () => {
   const ok = (events, extra = {}) => ({ status: 0, stdout: stream(events), stderr: '', ...extra });
   const result = (extra) => ({ type: 'result', subtype: 'success', num_turns: 4, ...extra });
-  assert.equal(classifyAgentRun(ok([result()])).graded, true);
-  const maxTurns = classifyAgentRun(ok([result({ subtype: 'error_max_turns', is_error: true })]));
-  assert.equal(maxTurns.graded, true);
-  assert.match(maxTurns.stopped, /max turns/);
+  assert.equal(classifyAgentRun(ok([result()])).kind, 'ok');
+  for (const [label, raw, re] of [
+    ['budget', ok([result({ subtype: 'error_max_budget_usd', is_error: true })]), /budget/],
+    ['max turns', ok([result({ subtype: 'error_max_turns', is_error: true })]), /max turns/],
+    ['timeout', ok([result()], { status: null, signal: 'SIGTERM' }), /timeout/],
+    ['timeout, no stream', { status: null, signal: 'SIGTERM', stdout: '', stderr: '' }, /timeout/],
+    ['is_error', ok([result({ is_error: true })]), /ended with/],
+  ]) {
+    const c = classifyAgentRun(raw);
+    assert.equal(c.kind, 'fail', label);
+    assert.match(c.stopped, re, label);
+  }
   for (const [label, raw] of [
-    ['budget', ok([result({ subtype: 'error_max_budget_usd', is_error: true })])],
-    ['is_error', ok([result({ is_error: true })])],
-    ['error subtype', ok([result({ subtype: 'error_during_execution' })])],
-    ['zero turns', ok([result({ num_turns: 0 })])],
-    ['non-zero exit', ok([result()], { status: 1 })],
-    ['timeout', ok([result()], { status: null, signal: 'SIGTERM' })],
+    ['spawn failure', { status: 1, stdout: '', stderr: 'spawn claude ENOENT' }],
     ['unparseable', { status: 0, stdout: 'not json', stderr: '' }],
+    ['zero turns', ok([result({ num_turns: 0 })])],
+    ['non-zero exit after success', ok([result()], { status: 1 })],
   ])
-    assert.equal(classifyAgentRun(raw).graded, false, label);
+    assert.equal(classifyAgentRun(raw).kind, 'error', label);
 });
 
-test('runTask: crashed or budget-stopped agents are errors (excluded); max turns is graded', async () => {
+test('runTask: budget, max-turns and timeout stops score 0 (graded fail); a crash is excluded', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
   try {
     const task = validateTask(rawTask(), okChecks).value;
     const crash = await runTask(task, ctxFor(runTaskExec({ agentStdout: '' }), tempDir));
     assert.equal(crash.status, 'error');
-    const budget = await runTask(
-      task,
-      ctxFor(
-        runTaskExec({
-          agentStdout: stream([
-            { type: 'result', subtype: 'error_max_budget_usd', is_error: true, num_turns: 50 },
-          ]),
-        }),
-        tempDir
-      )
-    );
-    assert.equal(budget.status, 'error');
-    assert.equal(budget.outcome, null);
-    const turns = await runTask(
-      task,
-      ctxFor(
-        runTaskExec({
-          agentStdout: stream([
-            { type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 50 },
-          ]),
-        }),
-        tempDir
-      )
-    );
-    assert.equal(turns.status, 'ok');
-    assert.match(turns.agentStopped, /max turns/);
-    assert.equal(turns.outcome, 'pass');
+    assert.equal(crash.outcome, null);
+    for (const subtype of ['error_max_budget_usd', 'error_max_turns']) {
+      const exec = runTaskExec({
+        agentStdout: stream([{ type: 'result', subtype, is_error: true, num_turns: 50 }]),
+      });
+      const out = await runTask(task, ctxFor(exec, tempDir));
+      assert.equal(out.status, 'ok', subtype);
+      assert.equal(out.outcome, 'fail', subtype);
+      assert.equal(out.failToPassFraction, 0, subtype);
+      assert.ok(out.agentStopped, subtype);
+      assert.ok(!exec.calls.some((c) => c.command === 'bash'), `${subtype}: not graded`);
+    }
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
-test('runTask strips the answer keys (evals/) from the isolated repo and records hidden tests at base', async () => {
+test('runTask strips the answer keys (evals/), prunes them from the object store, records hidden tests at base', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
   try {
     const task = validateTask(rawTask(), okChecks).value;
@@ -623,27 +749,39 @@ test('runTask strips the answer keys (evals/) from the isolated repo and records
     assert.ok(gitArgs.some((a) => a.includes('rm -r -q --ignore-unmatch -- evals')));
     assert.ok(gitArgs.some((a) => a.includes('commit -q --no-verify --amend')));
     assert.ok(gitArgs.some((a) => a.includes('update-ref refs/remotes/origin/main')));
+    assert.ok(gitArgs.some((a) => a.includes('reflog expire --expire=now --all')));
+    assert.ok(gitArgs.some((a) => a.includes('gc --prune=now -q')));
     assert.equal(out.effectiveBase, 'e'.repeat(40), 'effective base is the amended commit');
     assert.deepEqual(out.hiddenTestsAtBase, ['src/a.test.ts']);
     const claudeAt = exec.calls.findIndex((c) => c.command === 'claude');
-    const amendAt = exec.calls.findIndex((c) => c.command === 'git' && c.args.includes('--amend'));
-    assert.ok(amendAt < claudeAt, 'answer keys are gone before the agent starts');
+    const gcAt = exec.calls.findIndex((c) => c.command === 'git' && c.args.includes('gc'));
+    assert.ok(gcAt < claudeAt, 'answer keys are gone before the agent starts');
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
-test('runTask --dry-run: never calls claude; hidden tests must fail on base and pass on the reference', async () => {
+test('runTask --dry-run: base failToPass fails naming the file, base passToPass green, reference green', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-eval-test-'));
   try {
-    const task = validateTask(rawTask(), okChecks).value;
+    const task = validateTask(
+      rawTask({ passToPass: ['npx vitest run src/a.test.ts --x', 'npm run type-check:all'] }),
+      okChecks
+    ).value;
     let phase = 'base';
     const exec = fakeExec((cmd, args) => {
       if (cmd === 'pipe') {
         phase = 'reference';
         return undefined;
       }
-      if (cmd === 'bash') return { status: phase === 'base' ? 1 : 0, stdout: '', stderr: '' };
+      if (cmd === 'bash') {
+        const failToPass = task.failToPass.includes(args[1]);
+        const fails = phase === 'base' && failToPass;
+        return {
+          status: fails ? 1 : 0,
+          stdout: vitestOut('src/a.test.ts', fails ? { failed: 1 } : {}),
+        };
+      }
       if (cmd === 'git' && args.includes('show')) return { status: 0, stdout: 'hidden' };
       if (cmd === 'git' && args.includes('cat-file')) return { status: 1, stdout: '' };
       return undefined;
@@ -653,17 +791,32 @@ test('runTask --dry-run: never calls claude; hidden tests must fail on base and 
     assert.equal(out.status, 'ok', out.reason);
     assert.equal(out.dryRun.ok, true);
     assert.equal(out.dryRun.atBase[0].status, 'fail');
-    // passToPass is not run on base (hidden tests may not even compile there).
-    assert.equal(out.dryRun.atBase.length, 1);
+    assert.equal(out.dryRun.passToPassAtBase.length, 2);
+    assert.deepEqual(
+      out.dryRun.passToPassAtBase.map((r) => r.withHiddenTests),
+      [true, false],
+      'a passToPass naming a hidden test runs with it at base; the rest without'
+    );
 
-    phase = 'base';
-    const solvedAlready = fakeExec((cmd) => (cmd === 'bash' ? { status: 0 } : undefined));
+    const solvedAlready = fakeExec((cmd) =>
+      cmd === 'bash' ? { status: 0, stdout: vitestOut('src/a.test.ts') } : undefined
+    );
     const bad = await runTask(task, ctxFor(solvedAlready, tempDir, { dryRun: true }));
     assert.equal(bad.status, 'error');
     assert.match(bad.reason, /passes on base/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test('evalExec: a detached grader that times out has its whole process group killed', async () => {
+  const started = Date.now();
+  const r = await evalExec.run('bash', ['-c', 'sleep 30 & sleep 30; wait'], {
+    detached: true,
+    timeout: 200,
+  });
+  assert.ok(Date.now() - started < 8000, 'background child in the group did not hold the pipes');
+  assert.match(r.stderr, /timed out after 200 ms/);
 });
 
 // ---------------------------------------------------------------- summary
@@ -698,7 +851,7 @@ test('summariseBuild reports all vs unseen pass rates', () => {
     split: 'train',
     status: 'ok',
     outcome,
-    partial: outcome === 'pass' ? 1 : 0,
+    failToPassFraction: outcome === 'pass' ? 1 : 0,
     seenInHarness,
   });
   const s = summariseBuild([
@@ -721,13 +874,14 @@ test('summariseBuild reports all vs unseen pass rates', () => {
   assert.match(md, /unseen/);
 });
 
-test('summariseBuild: pass@1, pass^n, partial, cost, minutes; errors excluded; Wilson CI', () => {
-  const r = (taskId, outcome, partial, extra = {}) => ({
+test('summariseBuild: pass@1, pass^n, failToPass fraction, regressions, error rate, Wilson CI', () => {
+  const r = (taskId, outcome, failToPassFraction, extra = {}) => ({
     taskId,
     split: 'train',
     status: 'ok',
     outcome,
-    partial,
+    failToPassFraction,
+    passToPassBroken: false,
     agent: { costUsd: 2, minutes: 10 },
     ...extra,
   });
@@ -735,22 +889,25 @@ test('summariseBuild: pass@1, pass^n, partial, cost, minutes; errors excluded; W
     r('a', 'pass', 1),
     r('a', 'pass', 1),
     r('b', 'pass', 1),
-    r('b', 'fail', 0.5),
-    r('c', 'fail', 0),
-    { taskId: 'c', split: 'test', status: 'error', reason: 'contaminated' },
+    r('b', 'fail', 0.5, { passToPassBroken: true }),
+    r('c', 'fail', 0, { contaminated: true }),
+    { taskId: 'c', split: 'test', status: 'error', reason: 'unparseable stream' },
   ]);
   assert.equal(s.byTask.a.pass1, 1);
   assert.equal(s.byTask.a.passHatN, 1);
   assert.equal(s.byTask.b.pass1, 0.5);
   assert.equal(s.byTask.b.passHatN, 0);
-  assert.equal(s.byTask.b.meanPartial, 0.75);
+  assert.equal(s.byTask.b.meanFailToPassFraction, 0.75);
+  assert.equal(s.byTask.b.passToPassBrokenRate, 0.5);
   assert.equal(s.byTask.c.errors, 1);
   assert.equal(s.byTask.c.scored, 1);
+  assert.equal(s.byTask.c.contaminated, 1);
   assert.equal(s.byTask.a.meanCostUsd, 2);
   assert.equal(s.byTask.a.meanMinutes, 10);
   assert.equal(s.totals.scored, 5);
   assert.equal(s.totals.passes, 3);
   assert.equal(s.totals.errors, 1);
+  assert.equal(s.totals.errorRate, 1 / 6);
   assert.equal(s.totals.pass1, 0.6);
   assert.ok(s.totals.ci.low < 0.6 && s.totals.ci.high > 0.6);
   assert.equal(s.totals.totalCostUsd, 10);
@@ -763,4 +920,9 @@ test('summariseBuild: pass@1, pass^n, partial, cost, minutes; errors excluded; W
   });
   assert.match(md, /pass@1/);
   assert.match(md, /\| a \|/);
+  assert.match(
+    md.split('\n').slice(0, 6).join('\n'),
+    /harness errors.*1\/6/i,
+    'error rate is up top'
+  );
 });
