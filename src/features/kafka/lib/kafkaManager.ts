@@ -61,7 +61,7 @@ function readSecret(connectionId: string, field: KafkaSecretField): Promise<stri
  * Resolve the persisted registry config (secret sentinels) into the plaintext
  * IPC shape. Returns undefined when no registry is configured.
  */
-async function resolveRegistry(
+export async function resolveRegistry(
   connectionId: string,
   registry: KafkaRegistry | undefined
 ): Promise<KafkaRegistryIpc | undefined> {

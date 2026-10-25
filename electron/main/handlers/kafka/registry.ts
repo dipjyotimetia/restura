@@ -32,9 +32,9 @@ import { desktopExternalSecretResolver } from '../../security/external-secret-pr
 import { assertRegistryUrlSafe } from '../../security/kafka-broker-guard';
 import type { BrokerSecurityPolicy } from '../../security/mqtt-broker-guard';
 import { describeSecretHandle, unwrapSecretValueMain } from '../../security/secret-handle-store';
+import { KAFKA_SECRET_SCOPE } from './sasl';
 
-/** Secret-handle scope that Kafka credentials must carry (shared with SASL). */
-export const KAFKA_SECRET_SCOPE = 'kafka';
+export { KAFKA_SECRET_SCOPE };
 
 /** Resolves every address for a hostname (injectable for tests). */
 export type AddressResolver = (hostname: string) => Promise<LookupAddress[]>;

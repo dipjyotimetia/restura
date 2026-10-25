@@ -16,11 +16,14 @@ import {
   type ConsumerSessionEntry,
   type KafkaConsumerSession,
 } from './consumer-session';
+import type { OrderedDelivery, QueuedRecord } from './ordered-delivery';
 import { MAX_PAUSED_PARTITIONS, partitionKey } from './partition-pause';
 
 /** The slice of a live Kafka connection the consumer controls need. */
 export interface KafkaConsumerControlEntry extends ConsumerSessionEntry {
   connectionId: string;
+  /** Browse mode's ordered emit queue (no session, so no partition controls). */
+  browse?: Pick<OrderedDelivery<QueuedRecord>, 'flow'>;
 }
 
 interface ConsumerControlDependencies<E extends KafkaConsumerControlEntry> {
@@ -67,15 +70,10 @@ export function registerKafkaConsumerControlHandlers<E extends KafkaConsumerCont
       channel,
       createValidatedEventHandler(channel, KafkaConsumerControlSchema, async (cfg, event) => {
         const entry = deps.getEntry(cfg.connectionId, event.sender.id);
-        if (entry && !entry.session && entry.stream) {
-          // Browse mode has no session: pause the raw stream.
-          if (paused) entry.stream.pause();
-          else entry.stream.resume();
-        } else if (entry?.session) {
-          entry.session.flow.setUserPaused(paused);
-        } else {
-          return NO_CONSUMER;
-        }
+        // Browse mode has no session but shares the same flow control.
+        const flow = entry?.session?.flow ?? (entry?.stream ? entry.browse?.flow : undefined);
+        if (!entry || !flow) return NO_CONSUMER;
+        flow.setUserPaused(paused);
         deps.emitStatus(entry, { state: paused ? 'paused' : 'resumed' });
         return { success: true };
       })
