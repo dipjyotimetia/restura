@@ -12,6 +12,7 @@ This document outlines the development standards and best practices for the Rest
 - [Testing Standards](#testing-standards)
 - [Security Standards](#security-standards)
 - [Performance Guidelines](#performance-guidelines)
+- [Agent Harness](#agent-harness)
 - [Documentation Standards](#documentation-standards)
 
 ## Code Quality
@@ -632,6 +633,21 @@ const Feature = lazyComponent(() => import('./Feature'));
 // 3. Tree-shake utilities
 import { cn } from '@/lib/utils'; // Good - individual export
 ```
+
+## Agent Harness
+
+Coding agents (Claude Code, Codex) work under the rules in `CLAUDE.md` /
+`AGENTS.md`, with the full delivery playbook in `docs/agents/delivery.md`
+([ADR 0032](./adr/0032-agent-harness-evals-hooks-progressive-disclosure.md)).
+Tooling:
+
+- `npm run verify:agent-report -- <report.json> --owned <paths> --red-first` checks a worker agent's report against git.
+- `npm run worktree:prune` lists or prunes merged, clean worktrees.
+- `npm run eval:harness` runs the seam-bug harness eval on demand. It costs model usage; see `evals/harness/README.md`.
+
+Hooks in `.claude/hooks/` enforce staging, merge and push rules for agent
+sessions. Edit them with `npm run type-check:all` (they are type-checked via
+`tsconfig.tooling-js.json`).
 
 ## Documentation Standards
 

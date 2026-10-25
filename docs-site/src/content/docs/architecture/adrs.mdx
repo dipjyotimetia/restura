@@ -41,6 +41,7 @@ timeline
   2026-10-13 : 0029 — Digest auth via challenge-retry
   2026-10-18 : 0030 — MCP stdio transport
   2026-10-18 : 0031 — MCP OAuth 2.1 in Electron main
+  2026-10-25 : 0032 — Agent harness: evals first, hook-enforced rules
 ```
 
 <CardGrid>
@@ -198,6 +199,11 @@ timeline
     title="0031 — MCP OAuth 2.1 in Electron main"
     description="MCP authorization (PRM discovery, DCR, PKCE, resource indicators) driven from the main process: system browser + loopback redirect, guarded OAuth fetches, tokens only in internal-scope keychain handles."
     href="/architecture/adrs/0031-mcp-oauth-in-electron-main/"
+  />
+  <LinkCard
+    title="0032 — Agent harness: evals first, hook-enforced rules"
+    description="Seam-bug evals before restructuring reviewer agents; delivery rules enforced by hooks and a report verifier instead of prose; slim CLAUDE.md/AGENTS.md with detail loaded on demand; review of the combined diff."
+    href="/architecture/adrs/0032-agent-harness-evals-hooks-progressive-disclosure/"
   />
 </CardGrid>
 
