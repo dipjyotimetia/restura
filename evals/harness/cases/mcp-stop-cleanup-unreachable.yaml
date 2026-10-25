@@ -1,0 +1,39 @@
+id: mcp-stop-cleanup-unreachable
+title: Stack merge leaves the MCP client-request teardown unreachable after a new early return
+origin: real
+split: train
+sourcePRs: ['#1126', '#1122']
+fixPRs: ['#1160']
+# Main just before #1126, which already contains #1122 (its stopMcpClientRequests() call in
+# stopMcpCleanup). The branch is #1126 as it merged on top of #1122.
+base: a724c4afacf21c560f5ab68fe381c6fc80e7fd4c
+seam: cross-branch
+branches:
+  - name: feat/mcp-stdio-transport
+    patches:
+      - 01-mcp-handler-stdio.patch
+      - 02-stdio-session.patch
+expected:
+  defect: >-
+    #1122 (already on main) made stopMcpCleanup in electron/main/handlers/mcp-handler.ts end
+    with stopMcpClientRequests(), which forgets stored roots and rejects elicitation / sampling
+    prompts parked on a client-request bridge at module stop. This branch, written against the
+    pre-#1122 function, changes stopMcpCleanup to return a Promise and adds
+    `return terminateAllStdioChildren();` after sessions.disposeAll(), above the merged-in
+    stopMcpClientRequests() call. That call is now unreachable dead code, so the client-request
+    teardown never runs on shutdown. It compiles because the electron tsconfig does not set
+    allowUnreachableCode: false. A review that says stopMcpClientRequests (or the code after the
+    return in stopMcpCleanup) is unreachable / never runs has caught it.
+  files:
+    - electron/main/handlers/mcp-handler.ts
+  symbols: [stopMcpCleanup, stopMcpClientRequests, terminateAllStdioChildren]
+mustMention:
+  - '(stopMcpCleanup|stopMcpClientRequests)'
+  - '(\bunreachable\b|\bdead code\b|\bnever (runs|run|called|executes|reached)\b|\bafter (the|an|its) (early )?return\b)'
+mustNotMiss: low
+notes: >-
+  Minimised to #1126's mcp-handler.ts and mcp-stdio-session.ts hunks (the stdio connect path,
+  consent, policy, IPC validators, renderer, docs and tests are elided, so the branch does not
+  type-check on its own; that is not the defect). The conflict with #1122 cannot be replayed as
+  two branches without a textual conflict, so the case is the post-resolution branch on a base
+  that already has #1122. Audit finding 15 in docs/audits/post-merge-review-2026-10-25.md.

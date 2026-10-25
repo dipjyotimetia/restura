@@ -1,0 +1,197 @@
+diff --git a/electron/main/handlers/kafka/browse-consumer.ts b/electron/main/handlers/kafka/browse-consumer.ts
+index a1b1faf0..c88a1db7 100644
+--- a/electron/main/handlers/kafka/browse-consumer.ts
++++ b/electron/main/handlers/kafka/browse-consumer.ts
+@@ -22,6 +22,8 @@ import { Readable } from 'node:stream';
+ import type * as KafkaLib from '@platformatic/kafka';
+ import type { KafkaSubscribeConfig } from '../../ipc/ipc-validators';
+ import type { KafkaClientOptions } from './client-options';
++import { type DeliverRecord, OrderedDelivery, type QueuedRecord } from './ordered-delivery';
++import { partitionKey } from './partition-pause';
+ 
+ type Consumer = KafkaLib.Consumer<Buffer, Buffer, Buffer, Buffer>;
+ type ConsumerOptions = KafkaLib.ConsumerOptions<Buffer, Buffer, Buffer, Buffer>;
+@@ -174,8 +176,6 @@ export interface BrowseStreamOptions {
+ const neverCommits = (): Promise<void> =>
+   Promise.reject(new Error('Browse mode never commits offsets.'));
+ 
+-const partitionKey = (topic: string, partition: number): string => `${topic}:${partition}`;
+-
+ /** Walks the library's nested error tree (`errors[]` / `cause`) for a broker error code. */
+ function hasApiError(error: unknown, apiId: string, seen = new Set<unknown>()): boolean {
+   if (!error || typeof error !== 'object' || seen.has(error)) return false;
+@@ -489,3 +489,25 @@ export function onBrowseStreamFinished(stream: BrowseMessagesStream, release: ()
+   stream.once('end', once);
+   stream.once('close', once);
+ }
++
++/** The stream surface browse delivery binds to (BrowseMessagesStream or a test double). */
++type BrowseEventStream = Pick<Readable, 'on' | 'pause' | 'resume'>;
++
++/**
++ * Binds browse-mode delivery to `stream`: records flow through the same ordered
++ * decode/emit queue as group sessions — paused past the high-water mark, hung
++ * decodes skipped after the decode timeout, and aborted by `close()` so nothing
++ * queued is decoded or sent after unsubscribe/disconnect.
++ */
++export function bindBrowseDelivery<M extends QueuedRecord>(
++  stream: BrowseEventStream,
++  hooks: { deliver: DeliverRecord<M>; onError: (err: Error) => void; onClose: () => void }
++): OrderedDelivery<M> {
++  const delivery = new OrderedDelivery<M>(hooks.deliver, hooks.onError);
++  stream.on('data', (msg: M) => delivery.enqueue(msg));
++  stream.on('error', (err: Error) => hooks.onError(err));
++  stream.on('close', () => hooks.onClose());
++  // After the data listener: resuming without one would drop records.
++  delivery.flow.attach(stream);
++  return delivery;
++}
+diff --git a/electron/main/handlers/kafka/ordered-delivery.ts b/electron/main/handlers/kafka/ordered-delivery.ts
+new file mode 100644
+index 00000000..f7ce62a5
+--- /dev/null
++++ b/electron/main/handlers/kafka/ordered-delivery.ts
+@@ -0,0 +1,127 @@
++import { ConsumerFlowControl } from './consumer-flow';
++
++/** Upper bound on decoding + sending one record before it is skipped. */
++export const DEFAULT_DECODE_TIMEOUT_MS = 30_000;
++/** How long a graceful unsubscribe lets queued records finish before aborting the rest. */
++export const UNSUBSCRIBE_DRAIN_MS = 5_000;
++
++export interface QueuedRecord {
++  topic: string;
++  partition: number;
++  offset: bigint;
++}
++
++/**
++ * Decode and send one record. Must not send once `signal` is aborted; resolving
++ * `false` means the record was not sent (so it must not count as delivered).
++ */
++export type DeliverRecord<M> = (msg: M, signal: AbortSignal) => Promise<boolean | void>;
++
++/**
++ * The ordered decode/emit queue of one consumer stream, shared by group
++ * sessions and browse mode:
++ *  - records are decoded and sent strictly in arrival order;
++ *  - the queue depth drives backpressure (`flow`, high-water 500, see consumer-flow.ts);
++ *  - a decode that hangs past the timeout is aborted and skipped, never wedging the queue;
++ *  - `close()` stops accepting records, optionally lets queued ones finish within
++ *    a bound, then aborts the rest so nothing more is decoded or sent.
++ */
++export class OrderedDelivery<M extends QueuedRecord> {
++  readonly flow = new ConsumerFlowControl();
++  readonly #abort = new AbortController();
++  #chain: Promise<void> = Promise.resolve();
++  #closing: Promise<void> | undefined;
++
++  constructor(
++    private readonly deliver: DeliverRecord<M>,
++    private readonly onError: (err: Error) => void,
++    private readonly decodeTimeoutMs = DEFAULT_DECODE_TIMEOUT_MS
++  ) {}
++
++  /** Settles once every record queued so far has been forwarded, skipped or aborted. */
++  get idle(): Promise<void> {
++    return this.#chain;
++  }
++
++  get closed(): boolean {
++    return this.#closing !== undefined;
++  }
++
++  /** Queue one record; `onDelivered` runs only if it was actually sent. Dropped once closing. */
++  enqueue(msg: M, onDelivered?: () => void): void {
++    if (this.#closing) return;
++    this.flow.emitQueued();
++    this.#chain = this.#chain
++      .then(() => this.#run(msg, onDelivered))
++      .catch(() => {})
++      .finally(() => this.flow.emitSettled());
++  }
++
++  /**
++   * Stop accepting records and resolve once the queue is settled. Queued records
++   * get up to `drainMs` to finish (0 = abort at once); the rest are aborted.
++   * A second call with `drainMs` 0 escalates a pending drain to an abort.
++   */
++  close(drainMs = 0): Promise<void> {
++    if (drainMs <= 0) this.#abort.abort();
++    if (this.#closing) return this.#closing;
++    this.flow.detach();
++    const tail = this.#chain;
++    this.#closing = (async () => {
++      if (!this.#abort.signal.aborted) await settleWithin(tail, drainMs, this.#abort.signal);
++      this.#abort.abort();
++      await tail;
++    })();
++    return this.#closing;
++  }
++
++  async #run(msg: M, onDelivered: (() => void) | undefined): Promise<void> {
++    const outer = this.#abort.signal;
++    if (outer.aborted) return;
++    const record = new AbortController();
++    let timer: ReturnType<typeof setTimeout> | undefined;
++    let onAbort: (() => void) | undefined;
++    const stopped = new Promise<'timeout' | 'aborted'>((resolve) => {
++      timer = setTimeout(() => {
++        resolve('timeout');
++        record.abort();
++      }, this.decodeTimeoutMs);
++      onAbort = () => {
++        resolve('aborted');
++        record.abort();
++      };
++      outer.addEventListener('abort', onAbort, { once: true });
++    });
++    try {
++      const outcome = await Promise.race([
++        this.deliver(msg, record.signal).then((sent) => (sent === false ? 'dropped' : 'sent')),
++        stopped,
++      ]);
++      if (outcome === 'sent') onDelivered?.();
++      else if (outcome === 'timeout') {
++        this.onError(
++          new Error(
++            `Decoding ${msg.topic}[${msg.partition}]@${msg.offset} timed out; the record was skipped.`
++          )
++        );
++      }
++    } finally {
++      clearTimeout(timer);
++      if (onAbort) outer.removeEventListener('abort', onAbort);
++    }
++  }
++}
++
++/** Wait for `promise` for at most `ms`, or until `signal` aborts. Never rejects. */
++function settleWithin(promise: Promise<void>, ms: number, signal: AbortSignal): Promise<void> {
++  return new Promise<void>((resolve) => {
++    const done = (): void => {
++      clearTimeout(timer);
++      signal.removeEventListener('abort', done);
++      resolve();
++    };
++    const timer = setTimeout(done, ms);
++    signal.addEventListener('abort', done, { once: true });
++    promise.then(done, done);
++  });
++}
+diff --git a/electron/main/handlers/kafka/registry.ts b/electron/main/handlers/kafka/registry.ts
+index f9c5bbbd..be8d0b7b 100644
+--- a/electron/main/handlers/kafka/registry.ts
++++ b/electron/main/handlers/kafka/registry.ts
+@@ -32,9 +32,9 @@ import { desktopExternalSecretResolver } from '../../security/external-secret-pr
+ import { assertRegistryUrlSafe } from '../../security/kafka-broker-guard';
+ import type { BrokerSecurityPolicy } from '../../security/mqtt-broker-guard';
+ import { describeSecretHandle, unwrapSecretValueMain } from '../../security/secret-handle-store';
++import { KAFKA_SECRET_SCOPE } from './sasl';
+ 
+-/** Secret-handle scope that Kafka credentials must carry (shared with SASL). */
+-export const KAFKA_SECRET_SCOPE = 'kafka';
++export { KAFKA_SECRET_SCOPE };
+ 
+ /** Resolves every address for a hostname (injectable for tests). */
+ export type AddressResolver = (hostname: string) => Promise<LookupAddress[]>;

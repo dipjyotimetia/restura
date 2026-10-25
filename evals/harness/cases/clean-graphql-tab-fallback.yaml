@@ -1,0 +1,26 @@
+id: clean-graphql-tab-fallback
+title: 'Control: fall back to the Query tab when the GraphQL Messages tab disappears'
+origin: real
+split: train
+expectClean: true
+sourcePRs: ['#1156']
+# Main just before #1156. No later commit touches the files below (#1179 only untracked an
+# accidentally committed extension/vscode/node_modules symlink from this PR, which is excluded).
+base: 96c768a6177695d7d929402b7c91fd1527b62138
+seam: none
+branches:
+  - name: fix/graphql-tab-fallback
+    patches: [01-graphql-tab-fallback.patch]
+expected:
+  summary: >-
+    Switching the selected GraphQL operation from a subscription to a query removed the Messages
+    tab while it was the active tab, leaving no active tab and an empty panel. The change keeps
+    the user's selection in state (selectedTab) and derives the rendered tab: when the selection
+    is the subscription tab but the operation is no longer a subscription, it shows the Query
+    editor. Renderer-only UI state; no transport, harness or protocol behaviour changes. A
+    component test covers the fallback.
+  files:
+    - src/features/graphql/components/GraphQLRequestBuilder.tsx
+notes: >-
+  The merged PR's src/ hunks, unmodified (component and test). The accidental
+  extension/vscode/node_modules symlink the PR also added is left out.

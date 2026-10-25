@@ -1,0 +1,37 @@
+id: clean-kafka-browse-bounds
+title: 'Control: bound Kafka browse-mode emission and drain before the final commit'
+origin: real
+split: train
+expectClean: true
+sourcePRs: ['#1154']
+# Main just before #1154. Later, #1182 touched scripts/architecture.config.mts (another
+# entry's ratchet only); the Kafka handler files below are unchanged on main.
+base: 9899b54a6415475e8e7550c580f744e2e7ec658f
+seam: none
+branches:
+  - name: fix/kafka-browse-bounds
+    patches:
+      - 01-ordered-delivery.patch
+      - 02-consumer-session.patch
+      - 03-kafka-handler.patch
+expected:
+  summary: >-
+    Kafka browse mode chained every record onto an unbounded promise chain with a never-aborted
+    signal (no backpressure, no decode timeout, decoding continued after Unsubscribe), and group
+    sessions committed on close before in-flight emits finished, so records were re-delivered on
+    resubscribe. The change adds electron/main/handlers/kafka/ordered-delivery.ts, an ordered
+    decode/emit queue with flow control (pause at a 500-record high-water mark), a 30 s decode
+    skip and a bounded close(drainMs); browse and group sessions both use it, Unsubscribe drains
+    up to 5 s before the final commit, disconnect and shutdown abort at once, and only records
+    actually delivered are committed. It also de-duplicates KAFKA_SECRET_SCOPE and partitionKey
+    and lowers the kafka-handler.ts size cap. Electron main only (Kafka is desktop-only).
+  files:
+    - electron/main/handlers/kafka/ordered-delivery.ts
+    - electron/main/handlers/kafka/browse-consumer.ts
+    - electron/main/handlers/kafka/consumer-session.ts
+    - electron/main/handlers/kafka/consumer-control-handlers.ts
+    - electron/main/handlers/kafka/registry.ts
+    - electron/main/handlers/kafka-handler.ts
+notes: >-
+  The merged PR's source hunks and its architecture-ratchet line, unmodified, split into three
+  patches; the two test files are left out to keep each patch under 300 lines.

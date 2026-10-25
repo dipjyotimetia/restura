@@ -1,0 +1,213 @@
+diff --git a/electron/main/handlers/kafka/consumer-control-handlers.ts b/electron/main/handlers/kafka/consumer-control-handlers.ts
+index 4992a46a..b61a4d69 100644
+--- a/electron/main/handlers/kafka/consumer-control-handlers.ts
++++ b/electron/main/handlers/kafka/consumer-control-handlers.ts
+@@ -16,11 +16,14 @@ import {
+   type ConsumerSessionEntry,
+   type KafkaConsumerSession,
+ } from './consumer-session';
++import type { OrderedDelivery, QueuedRecord } from './ordered-delivery';
+ import { MAX_PAUSED_PARTITIONS, partitionKey } from './partition-pause';
+ 
+ /** The slice of a live Kafka connection the consumer controls need. */
+ export interface KafkaConsumerControlEntry extends ConsumerSessionEntry {
+   connectionId: string;
++  /** Browse mode's ordered emit queue (no session, so no partition controls). */
++  browse?: Pick<OrderedDelivery<QueuedRecord>, 'flow'>;
+ }
+ 
+ interface ConsumerControlDependencies<E extends KafkaConsumerControlEntry> {
+@@ -67,15 +70,10 @@ export function registerKafkaConsumerControlHandlers<E extends KafkaConsumerCont
+       channel,
+       createValidatedEventHandler(channel, KafkaConsumerControlSchema, async (cfg, event) => {
+         const entry = deps.getEntry(cfg.connectionId, event.sender.id);
+-        if (entry && !entry.session && entry.stream) {
+-          // Browse mode has no session: pause the raw stream.
+-          if (paused) entry.stream.pause();
+-          else entry.stream.resume();
+-        } else if (entry?.session) {
+-          entry.session.flow.setUserPaused(paused);
+-        } else {
+-          return NO_CONSUMER;
+-        }
++        // Browse mode has no session but shares the same flow control.
++        const flow = entry?.session?.flow ?? (entry?.stream ? entry.browse?.flow : undefined);
++        if (!entry || !flow) return NO_CONSUMER;
++        flow.setUserPaused(paused);
+         deps.emitStatus(entry, { state: paused ? 'paused' : 'resumed' });
+         return { success: true };
+       })
+diff --git a/electron/main/handlers/kafka/consumer-session.ts b/electron/main/handlers/kafka/consumer-session.ts
+index 57fcf0fb..633b6288 100644
+--- a/electron/main/handlers/kafka/consumer-session.ts
++++ b/electron/main/handlers/kafka/consumer-session.ts
+@@ -1,9 +1,10 @@
+ import type * as KafkaLib from '@platformatic/kafka';
+-import { ConsumerFlowControl } from './consumer-flow';
++import type { ConsumerFlowControl } from './consumer-flow';
+ import {
+   DEFAULT_AUTO_COMMIT_INTERVAL_MS,
+   DeliveredOffsetCommitter,
+ } from './delivered-offset-committer';
++import { OrderedDelivery } from './ordered-delivery';
+ import { PartitionPauseSet, parsePartitionKey, partitionKey } from './partition-pause';
+ 
+ type SessionConsumer = KafkaLib.Consumer<Buffer, Buffer, Buffer, Buffer>;
+@@ -16,13 +17,14 @@ export interface ConsumerSessionEntry {
+   consumer?: SessionConsumer;
+   stream?: SessionStream;
+   session?: KafkaConsumerSession;
+-  /** Serializes async decode/emission in arrival order. */
+-  emitChain: Promise<void>;
+ }
+ 
+ export interface ConsumerStreamHooks {
+-  /** Decode and send one record; must not emit once `signal` is aborted. */
+-  deliver: (msg: SessionMessage, signal: AbortSignal) => Promise<void>;
++  /**
++   * Decode and send one record; must not emit once `signal` is aborted.
++   * Resolving `false` means it was not sent, so its offset is never committed.
++   */
++  deliver: (msg: SessionMessage, signal: AbortSignal) => Promise<boolean | void>;
+   onError: (err: Error) => void;
+   onClose: () => void;
+ }
+@@ -41,7 +43,6 @@ export interface ConsumerSessionOptions {
+ }
+ 
+ const DEFAULT_SWAP_TIMEOUT_MS = 30_000;
+-const DEFAULT_DECODE_TIMEOUT_MS = 30_000;
+ 
+ /** Library fallback-mode value for the subscribe-time fallback string. */
+ export function fallbackModeValue(
+@@ -87,7 +88,7 @@ export function assignedKeys(consumer: SessionConsumer): Set<string> | undefined
+  * partitions this member still owns.
+  */
+ export class KafkaConsumerSession {
+-  readonly flow = new ConsumerFlowControl();
++  readonly #delivery: OrderedDelivery<SessionMessage>;
+   readonly partitions = new PartitionPauseSet();
+   #exclusive: Promise<unknown> = Promise.resolve();
+   #entry: ConsumerSessionEntry | undefined;
+@@ -95,6 +96,7 @@ export class KafkaConsumerSession {
+   /** Partitions positioned by the last swap; undefined while the stream runs in its subscribe mode. */
+   #positioned: Set<string> | undefined;
+   #closed = false;
++  #closing: Promise<void> | undefined;
+   /** Bumped on every group join; a delivery queued under an older assignment never commits. */
+   #assignmentGeneration = 0;
+   /** Bumped by every successful stream swap. */
+@@ -108,7 +110,14 @@ export class KafkaConsumerSession {
+   constructor(
+     private readonly options: ConsumerSessionOptions,
+     private readonly hooks: ConsumerStreamHooks
+-  ) {}
++  ) {
++    this.#delivery = new OrderedDelivery(hooks.deliver, hooks.onError, options.decodeTimeoutMs);
++  }
++
++  /** Whole-stream pause reasons + backpressure of the ordered decode/emit queue. */
++  get flow(): ConsumerFlowControl {
++    return this.#delivery.flow;
++  }
+ 
+   get topics(): readonly string[] {
+     return this.options.topics;
+@@ -122,14 +131,9 @@ export class KafkaConsumerSession {
+       if (entry.stream !== stream) return;
+       // Paused partitions are withheld before decode, never queue an emit and never commit.
+       if (!this.partitions.admit(msg.topic, msg.partition, msg.offset)) return;
+-      this.flow.emitQueued();
+       const generation = this.#assignmentGeneration;
+       const streamGeneration = this.#streamGeneration;
+-      // One bad decode must not wedge the ordered emission chain.
+-      entry.emitChain = entry.emitChain
+-        .then(() => this.#deliver(msg, generation, streamGeneration))
+-        .catch(() => {})
+-        .finally(() => this.flow.emitSettled());
++      this.#delivery.enqueue(msg, () => this.#delivered(msg, generation, streamGeneration));
+     });
+     stream.on('error', (err: Error) => {
+       if (entry.stream === stream) this.hooks.onError(err);
+@@ -140,13 +144,19 @@ export class KafkaConsumerSession {
+     this.flow.attach(stream);
+   }
+ 
+-  /** Stop background work and commit what was delivered. Call before closing the stream. */
+-  async close(): Promise<void> {
+-    if (this.#closed) return;
++  /**
++   * Stop background work and commit what was delivered. Call before closing the
++   * stream. Queued records get up to `drainMs` to reach the renderer (0 = abort
++   * them at once); only records actually sent are in the final commit. A second
++   * call with `drainMs` 0 cuts a pending drain short.
++   */
++  close(drainMs = 0): Promise<void> {
++    const draining = this.#delivery.close(drainMs);
++    if (this.#closing) return this.#closing;
+     this.#closed = true;
+     this.#entry?.consumer?.removeListener('consumer:group:join', this.#onGroupJoin);
+-    this.flow.detach();
+-    await this.#committer?.close();
++    this.#closing = draining.then(() => this.#committer?.close());
++    return this.#closing;
+   }
+ 
+   /** Serialize repositioning so two seeks/resumes never swap streams concurrently. */
+@@ -215,7 +225,7 @@ export class KafkaConsumerSession {
+     } catch (err) {
+       // A replacement that shows up after the timeout must not leak.
+       opening.then(closeQuietly, () => {});
+-      if (entry.stream === old && entry.session === this) this.flow.attach(old);
++      if (entry.stream === old && entry.session === this && !this.#closed) this.flow.attach(old);
+       throw err;
+     }
+     if (
+@@ -249,38 +259,15 @@ export class KafkaConsumerSession {
+     }
+   }
+ 
+-  async #deliver(msg: SessionMessage, generation: number, streamGeneration: number): Promise<void> {
+-    const abort = new AbortController();
+-    let timer: ReturnType<typeof setTimeout> | undefined;
+-    const timeout = new Promise<'timeout'>((resolve) => {
+-      timer = setTimeout(() => {
+-        abort.abort();
+-        resolve('timeout');
+-      }, this.options.decodeTimeoutMs ?? DEFAULT_DECODE_TIMEOUT_MS);
+-    });
+-    try {
+-      const outcome = await Promise.race([
+-        this.hooks.deliver(msg, abort.signal).then(() => 'delivered' as const),
+-        timeout,
+-      ]);
+-      if (outcome === 'delivered') {
+-        // A rebalance since this record was queued may have revoked its partition.
+-        if (generation !== this.#assignmentGeneration) return;
+-        // A record from before a seek of its partition: the seek, not this record,
+-        // defines the position (the seek target itself is never committed undelivered).
+-        const sought = this.#soughtAt.get(partitionKey(msg.topic, msg.partition));
+-        if (sought !== undefined && streamGeneration < sought) return;
+-        this.#committer?.delivered(msg.topic, msg.partition, msg.offset, msg.leaderEpoch ?? -1);
+-      } else {
+-        this.hooks.onError(
+-          new Error(
+-            `Decoding ${msg.topic}[${msg.partition}]@${msg.offset} timed out; the record was skipped.`
+-          )
+-        );
+-      }
+-    } finally {
+-      clearTimeout(timer);
+-    }
++  /** A record reached the renderer: record its position unless it was fenced meanwhile. */
++  #delivered(msg: SessionMessage, generation: number, streamGeneration: number): void {
++    // A rebalance since this record was queued may have revoked its partition.
++    if (generation !== this.#assignmentGeneration) return;
++    // A record from before a seek of its partition: the seek, not this record,
++    // defines the position (the seek target itself is never committed undelivered).
++    const sought = this.#soughtAt.get(partitionKey(msg.topic, msg.partition));
++    if (sought !== undefined && streamGeneration < sought) return;
++    this.#committer?.delivered(msg.topic, msg.partition, msg.offset, msg.leaderEpoch ?? -1);
+   }
+ 
+   #onGroupJoin = (): void => {

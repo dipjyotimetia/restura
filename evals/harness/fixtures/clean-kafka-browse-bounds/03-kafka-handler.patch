@@ -1,0 +1,152 @@
+diff --git a/electron/main/handlers/kafka-handler.ts b/electron/main/handlers/kafka-handler.ts
+index cffa2324..5e881aa0 100644
+--- a/electron/main/handlers/kafka-handler.ts
++++ b/electron/main/handlers/kafka-handler.ts
+@@ -25,6 +25,7 @@ import { getExecutionPolicy } from '../security/execution-policy';
+ import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
+ import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
+ import {
++  bindBrowseDelivery,
+   browseConsumerOptions,
+   onBrowseStreamFinished,
+   openBrowseStream,
+@@ -37,6 +38,7 @@ import {
+   type KafkaConsumerSession,
+   subscriptionSession,
+ } from './kafka/consumer-session';
++import { type OrderedDelivery, UNSUBSCRIBE_DRAIN_MS } from './kafka/ordered-delivery';
+ import {
+   type AppProducer,
+   closeKafkaProducerSessions,
+@@ -81,10 +83,10 @@ interface ActiveKafka extends KafkaProducerEntry {
+   /** Producer-only option; the shared client options also feed Consumer/Admin. */
+   idempotent: boolean;
+   transactionalId?: string;
+-  /** Serializes async decode/emission in arrival order. */
+-  emitChain: Promise<void>;
+   /** Flow control, partition pauses and repositioning for the active consumer stream. */
+   session?: KafkaConsumerSession;
++  /** Browse mode's ordered decode/emit queue (browse has no session). */
++  browse?: OrderedDelivery<AppMessage>;
+   pendingCommits: Map<string, AppMessage>;
+   manualCommit: boolean;
+   wc?: WebContents;
+@@ -155,8 +157,13 @@ function emitToEntry(entry: ActiveKafka, channel: string, ...args: unknown[]): v
+   emitTo(entry.webContentsId, channel, ...args);
+ }
+ 
+-async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
+-  await entry.session?.close(); // final commit of delivered positions
++/**
++ * Queued records get `drainMs` to reach the renderer before the rest are
++ * aborted, then the session commits what was actually sent. Browse has nothing
++ * to commit, so its queue is always aborted at once.
++ */
++async function closeConsumerAndStream(entry: ActiveKafka, drainMs = 0): Promise<void> {
++  await (entry.session?.close(drainMs) ?? entry.browse?.close());
+   if (entry.stream) {
+     try {
+       await Promise.resolve(entry.stream.close());
+@@ -165,6 +172,7 @@ async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
+     }
+     entry.stream = undefined;
+     entry.session = undefined;
++    entry.browse = undefined;
+   }
+   if (entry.consumer) {
+     try {
+@@ -201,14 +209,14 @@ async function emitConsumedMessage(
+   entry: ActiveKafka,
+   msg: AppMessage,
+   signal?: AbortSignal
+-): Promise<void> {
++): Promise<boolean> {
+   const key = msg.key == null ? undefined : await decodeDisplayField(entry.registry, msg.key);
+   const value =
+     msg.value == null
+       ? { value: '', encoding: 'utf8' as const }
+       : await decodeDisplayField(entry.registry, msg.value);
+   if (signal?.aborted || activeConnections.get(entry.connectionId, entry.webContentsId) !== entry)
+-    return;
++    return false;
+   let commitToken: string | undefined;
+   if (entry.manualCommit) {
+     commitToken = randomUUID();
+@@ -237,6 +245,7 @@ async function emitConsumedMessage(
+     timestamp: typeof msg.timestamp === 'bigint' ? Number(msg.timestamp) : Date.now(),
+     ...(commitToken ? { commitToken } : {}),
+   });
++  return true;
+ }
+ function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
+   const isCurrent = () => activeConnections.get(entry.connectionId, entry.webContentsId) === entry;
+@@ -250,22 +259,6 @@ function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
+   };
+ }
+ 
+-/**
+- * Browse mode is group-less: no commits, rebalances or partition assignment, so
+- * it has no consumer session (flow control / partition pause / seek). It only
+- * needs ordered emission and the stream lifecycle events.
+- */
+-function bindBrowseListeners(entry: ActiveKafka, stream: AppStream): void {
+-  const hooks = consumerStreamHooks(entry);
+-  const signal = new AbortController().signal;
+-  stream.on('data', (msg: AppMessage) => {
+-    // One bad decode must not wedge the ordered emission chain.
+-    entry.emitChain = entry.emitChain.then(() => hooks.deliver(msg, signal)).catch(() => {});
+-  });
+-  stream.on('error', (err: Error) => hooks.onError(err));
+-  stream.on('close', () => hooks.onClose());
+-}
+-
+ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
+   registerKafkaProducerHandlers((connectionId, ownerId) =>
+     activeConnections.getForOwner(connectionId, ownerId)
+@@ -383,7 +376,6 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
+           webContentsId,
+           idempotent: cfg.idempotent ?? false,
+           ...(cfg.transactionalId ? { transactionalId: cfg.transactionalId } : {}),
+-          emitChain: Promise.resolve(),
+           pendingCommits: new Map(),
+           manualCommit: false,
+           ...(registry ? { registry } : {}),
+@@ -452,11 +444,12 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
+             await closeConsumerQuietly(consumer);
+             return { success: false, error: 'Not connected' };
+           }
+-          bindBrowseListeners(entry, stream as unknown as AppStream);
+-          Object.assign(entry, { consumer, stream, manualCommit: false });
++          // Group-less: no commits or rebalances, just the bounded ordered emit queue.
++          const browse = bindBrowseDelivery<AppMessage>(stream, consumerStreamHooks(entry));
++          Object.assign(entry, { consumer, stream, browse, manualCommit: false });
+           // Stop-after-N or a failure frees the slot once queued records are forwarded.
+           onBrowseStreamFinished(stream, () => {
+-            void entry.emitChain.then(() =>
++            void browse.idle.then(() =>
+               entry.stream === (stream as unknown) ? closeConsumerAndStream(entry) : undefined
+             );
+           });
+@@ -633,7 +626,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
+       async (cfg, event) => {
+         const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
+         if (!entry) return { success: false, error: 'Not connected' };
+-        await closeConsumerAndStream(entry);
++        // Let queued records reach the renderer so the final commit covers them.
++        await closeConsumerAndStream(entry, UNSUBSCRIBE_DRAIN_MS);
+         return { success: true };
+       }
+     )
+diff --git a/scripts/architecture.config.mts b/scripts/architecture.config.mts
+index afc3101d..577e6096 100644
+--- a/scripts/architecture.config.mts
++++ b/scripts/architecture.config.mts
+@@ -53,7 +53,7 @@ export const architecturePolicy: ArchitecturePolicy = {
+   grandfatheredFileLines: {
+     'shared/scripts/script-executor.ts': 1_194,
+     'electron/main/handlers/http-handler.ts': 861,
+-    'electron/main/handlers/kafka-handler.ts': 676,
++    'electron/main/handlers/kafka-handler.ts': 670,
+     'electron/main/ipc/validators/kafka.ts': 1007,
+     'electron/types/api/protocols.ts': 959,
+     'electron/main/handlers/grpc-connect.ts': 816,
