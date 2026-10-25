@@ -4,6 +4,8 @@ origin: real
 split: train
 sourcePRs: ['#1133', '#1134']
 fixPRs: ['#1150']
+# The harness already teaches this lesson (docs/agents/delivery.md); see "Seen vs unseen".
+leakTerms: ['collapsed a panel']
 # Main just before #1133 (after #1126, which added the stdio Launch settings toggle).
 base: 90b514e380786e4935058871113315c73e5b2539
 seam: cross-branch

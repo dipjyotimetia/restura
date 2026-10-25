@@ -57,6 +57,7 @@ split: train | test       # required; see "Train / test split"
 expectClean: false        # true for a control
 sourcePRs: ['#1133']      # required for real cases
 fixPRs: ['#1150']         # optional
+leakTerms: ['collapsed a panel']  # optional regexes: how the harness would word this case's lesson
 base: <40-char SHA>       # the branches are cut from here
 sourceCommit: <40-char SHA>  # optional: the patch is exactly the diff base..sourceCommit
 seam: cross-branch | cross-harness | cross-consumer   # `none` for a control
@@ -215,6 +216,25 @@ written to `<out>/<timestamp>--<config>/transcripts/<case>-run<k>.jsonl` and lin
 per-case table (the judge stays `--output-format json`). Read them. A miss is only actionable once
 you know whether the review never looked at the right file, looked and misjudged it, or hit a
 harness problem; the aggregate cannot tell you which.
+
+## Seen vs unseen
+
+The overlaid harness encodes lessons learned from real incidents, and some of those incidents are
+cases here (`docs/agents/delivery.md` mentions two MCP PRs that "together collapsed a panel";
+`restura-parity-checker` cites #1131). A review that catches such a case may be recalling a
+lesson written for it, not generalizing, so those cases are labelled rather than removed. Once per
+invocation (dry runs included), `findOverlayLeaks` reads the overlay file set at the harness
+commit (`git ls-tree` + `git show` over the overlay paths) and searches it for each case's terms:
+its `sourcePRs` / `fixPRs` as `#NNNN` on a boundary, short commit SHAs (first 8 characters of
+any SHA in those fields and of `sourceCommit`), and its own `leakTerms`. A case with any hit is
+`seenInHarness: true` on every run, with the hits listed in the summary's "Seen in harness"
+section, and the summary reports recall and precision for **all** cases and for **unseen** cases
+only. Judge a harness change on the unseen numbers. A seen case in the **test** split prints
+"held-out case is no longer unseen — move it to train or add a fresh case", because the test
+split must stay unseen.
+
+This is also the guard for the hillclimbing rule below: a round that writes a case-specific lesson
+into skills, agents or CLAUDE.md turns that case "seen", and the summary shows it.
 
 ## Train / test split
 

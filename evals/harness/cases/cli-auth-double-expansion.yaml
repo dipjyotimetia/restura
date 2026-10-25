@@ -4,6 +4,8 @@ origin: real
 split: train
 sourcePRs: ['#1163']
 fixPRs: ['#1163']
+# The harness already teaches this lesson (docs/agents/delivery.md); see "Seen vs unseen".
+leakTerms: ['double-expan']
 base: 2a1b3c1b0759add0bae361279859ecbfb6e4760c
 seam: cross-consumer
 branches:

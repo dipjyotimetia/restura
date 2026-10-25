@@ -4,6 +4,8 @@ origin: real
 split: train
 sourcePRs: ['#1131']
 fixPRs: ['#1151']
+# The harness already teaches this lesson (delivery.md, restura-parity-checker); see "Seen vs unseen".
+leakTerms: ['second auth path']
 base: b6ec7fc94bf1879d67eafa760851b4141602b98c
 seam: cross-consumer
 branches:

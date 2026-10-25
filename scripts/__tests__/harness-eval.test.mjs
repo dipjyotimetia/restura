@@ -8,6 +8,7 @@ import {
   buildBaseline,
   buildJudgePrompt,
   buildReviewPrompt,
+  caseLeakTerms,
   classifyClaudeRun,
   cleanupTracked,
   cleanupTrackedAsync,
@@ -15,6 +16,7 @@ import {
   decideCaught,
   detectContamination,
   diffFlips,
+  findOverlayLeaks,
   formatSummaryMarkdown,
   gradeMustMention,
   HARNESS_OVERLAY_PATHS,
@@ -35,6 +37,7 @@ import {
   parseWorktreePorcelain,
   passAtK,
   passHatK,
+  readOverlayFiles,
   redactSecrets,
   runCase,
   runEval,
@@ -374,6 +377,7 @@ test('summarise excludes harness errors and splits defect recall from control pr
     judgeDisagreements: 0,
     meanCostUsd: 2,
     meanMinutes: 1.5,
+    seenInHarness: false,
   });
   assert.deepEqual(summary.cases.c, {
     expectClean: true,
@@ -388,6 +392,7 @@ test('summarise excludes harness errors and splits defect recall from control pr
     judgeDisagreements: 0,
     meanCostUsd: null,
     meanMinutes: null,
+    seenInHarness: false,
   });
   assert.equal(summary.recall.caught, 1);
   assert.equal(summary.recall.runs, 2);
@@ -708,7 +713,7 @@ function assertMainRepoReadOnly(exec) {
   for (const call of exec.calls) {
     const args = call.command === 'pipe' ? call.from[1] : call.args;
     if (!args || args[0] !== '-C' || args[1] !== '/repo') continue;
-    assert.ok(['archive', 'cat-file', 'show', 'rev-parse'].includes(args[2]), call.line);
+    assert.ok(['archive', 'cat-file', 'show', 'rev-parse', 'ls-tree'].includes(args[2]), call.line);
   }
 }
 
@@ -1924,4 +1929,165 @@ test('detectContamination ignores main-checkout paths in tool results that run t
       .contaminated,
     true
   );
+});
+
+// ---------------------------------------------------------------- seen vs unseen (overlay leaks)
+
+test('validateCase accepts optional leakTerms (strings, valid regexes) and rejects anything else', () => {
+  assert.deepEqual(
+    validateCase(validRaw({ leakTerms: ['collapsed a panel'] }), env).value.leakTerms,
+    ['collapsed a panel']
+  );
+  assert.deepEqual(validateCase(validRaw(), env).value.leakTerms, []);
+  for (const bad of ['x', [1], ['(unclosed']]) {
+    const result = validateCase(validRaw({ leakTerms: bad }), env);
+    assert.equal(result.ok, false, JSON.stringify(bad));
+    assert.match(result.errors.join('\n'), /leakTerms/);
+  }
+});
+
+test('caseLeakTerms: PR numbers on a boundary, short SHAs, and leakTerms', () => {
+  const evalCase = validateCase(
+    validRaw({
+      sourcePRs: ['#1131', 'c6c751c2 (pushed without a PR)'],
+      fixPRs: ['#1151', '115b64f1'],
+      sourceCommit: 'f2adfdec17cee70b30f7336584984d773aa0f706',
+      leakTerms: ['second auth path'],
+    }),
+    env
+  ).value;
+  const terms = caseLeakTerms(evalCase);
+  assert.deepEqual(
+    terms.map((t) => t.term),
+    ['#1131', 'c6c751c2', '#1151', '115b64f1', 'f2adfdec', 'second auth path']
+  );
+  const hit = (text) =>
+    findOverlayLeaks({ files: [{ path: 'a.md', text }], terms }).map((h) => h.term);
+  assert.deepEqual(hit('(see #1131).'), ['#1131']);
+  assert.deepEqual(hit('#11310 and &#1131; and PR1131'), []);
+  assert.deepEqual(hit('commit f2adfdec17 landed'), ['f2adfdec']);
+  assert.deepEqual(hit('xf2adfdec'), []);
+  assert.deepEqual(hit('A Second Auth Path overwrote'), ['second auth path']);
+});
+
+test('findOverlayLeaks reports path, 1-based line and term', () => {
+  const hits = findOverlayLeaks({
+    files: [
+      {
+        path: 'docs/agents/delivery.md',
+        text: 'intro\ntwo MCP PRs that together collapsed a panel\n',
+      },
+      { path: 'CLAUDE.md', text: 'nothing\n' },
+    ],
+    terms: ['collapsed a panel', /\bnothing\b/],
+  });
+  assert.deepEqual(hits, [
+    { path: 'docs/agents/delivery.md', line: 2, term: 'collapsed a panel' },
+    { path: 'CLAUDE.md', line: 1, term: '\\bnothing\\b' },
+  ]);
+});
+
+test('readOverlayFiles lists the overlay paths at harnessSha and reads each file', async () => {
+  const exec = fakeExec((command, args) => {
+    if (command !== 'git') return undefined;
+    if (args.includes('ls-tree'))
+      return { status: 0, stdout: 'CLAUDE.md\ndocs/agents/delivery.md\n', stderr: '' };
+    if (args.includes('show')) return { status: 0, stdout: `text of ${args.at(-1)}`, stderr: '' };
+    return undefined;
+  });
+  const files = await readOverlayFiles(exec, '/repo', HARNESS);
+  assert.deepEqual(files, [
+    { path: 'CLAUDE.md', text: `text of ${HARNESS}:CLAUDE.md` },
+    { path: 'docs/agents/delivery.md', text: `text of ${HARNESS}:docs/agents/delivery.md` },
+  ]);
+  const ls = exec.calls.find((c) => c.args.includes('ls-tree'));
+  for (const p of HARNESS_OVERLAY_PATHS) assert.ok(ls.args.includes(p), p);
+  assertMainRepoReadOnly(exec);
+});
+
+test('the known memorized lessons are labelled: their leakTerms hit the current harness', () => {
+  const read = (p) => ({ path: p, text: fs.readFileSync(path.join(process.cwd(), p), 'utf8') });
+  const files = [read('docs/agents/delivery.md'), read('.claude/agents/restura-parity-checker.md')];
+  const byId = Object.fromEntries(loadCases().map((c) => [c.id, c]));
+  for (const id of [
+    'mcp-panel-collapse',
+    'mcp-runner-auth-override',
+    'cli-auth-double-expansion',
+  ]) {
+    assert.ok(byId[id].leakTerms.length > 0, id);
+    assert.ok(findOverlayLeaks({ files, terms: caseLeakTerms(byId[id]) }).length > 0, id);
+  }
+});
+
+test('summarise reports unseen-only recall and precision; markdown lists seen cases and warns on test', () => {
+  const runs = [
+    {
+      caseId: 'seen-d',
+      status: 'ok',
+      expectClean: false,
+      caught: true,
+      seenInHarness: true,
+      split: 'train',
+    },
+    {
+      caseId: 'fresh-d',
+      status: 'ok',
+      expectClean: false,
+      caught: false,
+      seenInHarness: false,
+      split: 'train',
+    },
+    {
+      caseId: 'seen-c',
+      status: 'ok',
+      expectClean: true,
+      caught: true,
+      seenInHarness: true,
+      split: 'test',
+    },
+    {
+      caseId: 'fresh-c',
+      status: 'ok',
+      expectClean: true,
+      caught: false,
+      seenInHarness: false,
+      split: 'test',
+    },
+  ];
+  const summary = summarise(runs);
+  assert.equal(summary.recall.caught, 1);
+  assert.equal(summary.recall.runs, 2);
+  assert.equal(summary.unseen.recall.caught, 0);
+  assert.equal(summary.unseen.recall.runs, 1);
+  assert.equal(summary.unseen.controls.clean, 0);
+  assert.equal(summary.unseen.controls.runs, 1);
+  assert.equal(summary.cases['seen-d'].seenInHarness, true);
+  const seenCases = {
+    'seen-d': [{ path: 'docs/agents/delivery.md', line: 22, term: 'collapsed a panel' }],
+    'seen-c': [{ path: 'CLAUDE.md', line: 3, term: '#1158' }],
+  };
+  const md = formatSummaryMarkdown(
+    { config: 'c', startedAt: '2026-10-25T00:00:00.000Z', dryRun: false, runs, seenCases },
+    undefined
+  );
+  assert.match(md, /Unseen cases only: recall 0\/1/);
+  assert.match(md, /## Seen in harness/);
+  assert.match(md, /docs\/agents\/delivery\.md:22/);
+  assert.match(
+    md,
+    /seen-c.*held-out case is no longer unseen — move it to train or add a fresh case/
+  );
+  assert.doesNotMatch(md, /seen-d[^\n]*held-out/);
+  const dry = formatSummaryMarkdown(
+    {
+      config: 'c',
+      startedAt: '2026-10-25T00:00:00.000Z',
+      dryRun: true,
+      runs: [{ caseId: 'seen-c', applied: true, combinedMerge: 'clean', split: 'test' }],
+      seenCases,
+    },
+    undefined
+  );
+  assert.match(dry, /## Seen in harness/);
+  assert.match(dry, /held-out case is no longer unseen/);
 });
