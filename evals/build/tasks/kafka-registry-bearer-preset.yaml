@@ -1,6 +1,6 @@
 id: kafka-registry-bearer-preset
 title: Kafka presets drop the Schema Registry bearer auth scheme
-split: train
+split: test
 base: bfeab51611ddc8cfe930be2b6087159c3f6bbba0
 referenceCommit: 9899b54a6415475e8e7550c580f744e2e7ec658f
 issue: |

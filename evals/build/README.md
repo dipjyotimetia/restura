@@ -41,13 +41,18 @@ hook. `--dry-run` makes no model calls and is free.
 
 | id | split | from | surfaces |
 |---|---|---|---|
-| mcp-runner-auth-vars | **test** | #1151 | runner on web + desktop |
+| kafka-registry-bearer-preset | **test** | #1153 | collection format, Kafka panel |
 | graphql-messages-tab-fallback | **test** | #1156 | renderer (sanity task) |
 | cli-graphql-get | **test** | #1161 (GraphQL half) | CLI vs app |
+| mcp-runner-auth-vars | train | #1151 | runner on web + desktop |
 | grpc-no-deadline | train | #1152 | web streams, runner, shared core, CLI |
 | cli-grpc-wire-parity | train | #1161 (gRPC half) | CLI vs app |
 | http-auth-vars-everywhere | train | #1163 | web, desktop main, CLI |
-| kafka-registry-bearer-preset | train | #1153 | collection format, Kafka panel |
+
+`mcp-runner-auth-vars` was first in test. The overlay leak check found that the harness has
+seen it: `.claude/agents/restura-parity-checker.md` says "a second auth path must not overwrite
+the first (see #1131)", which is this bug. It moved to train, and `kafka-registry-bearer-preset`
+took its place in test.
 
 Seed PRs that were **dropped** (their hidden tests are not a fair grader):
 

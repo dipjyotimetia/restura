@@ -1,6 +1,6 @@
 id: mcp-runner-auth-vars
 title: Collection runner sends literal {{var}} MCP auth, evicts rate-limited sessions, mishandles stdio
-split: test
+split: train
 base: 3694822db3ade26fc124acafd908acfe5c8da35f
 referenceCommit: a9d517edffad40bc99c8ddf1aadee33a9bd7ca17
 issue: |
