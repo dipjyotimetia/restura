@@ -1,5 +1,6 @@
 ---
-description: 'Time-based loop body: check my open PRs, fix failing CI, address review comments. Designed to be re-run on an interval (/loop 15m /babysit-prs) or per-event via PR-activity subscriptions.'
+name: babysit-prs
+description: "Time-based PR-care loop body: check my open PRs, fix failing CI, address bot/human review comments, keep the merge lane moving. Use when asked to 'watch/babysit/look after my PRs', 'why is CI red on my PR', or driven by /loop 15m or PR-activity subscriptions."
 argument-hint: '[PR number(s), default: all my open PRs on this repo]'
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task
 ---

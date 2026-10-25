@@ -189,6 +189,10 @@ flags that, and `--hooks` switches the worktree to its own hooks via a
 per-worktree `core.hooksPath` (this enables the local-only
 `extensions.worktreeConfig` repo setting).
 
+When the branch has merged, `npm run worktree:prune` lists every linked
+worktree with a keep/prune verdict, and `-- --apply --branches` removes those
+that are clean and merged (it never touches dirty or unmerged ones).
+
 ### Testing several branches together
 
 PRs that are green alone can still break `main` together. Before merging

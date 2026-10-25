@@ -1,12 +1,13 @@
 ---
-description: 'Proactive maintenance loop body: triage dependabot PRs, security-audit findings, and skill-usage metrics in one pass. Designed for a scheduled routine (e.g. /schedule weekly) or an on-demand run.'
+name: triage-maintenance
+description: "Proactive maintenance loop body: dependabot PRs, security-audit findings, skill metrics, ratchet tightening, flake review, stale worktree pruning. Use for a scheduled/weekly sweep or 'do maintenance / triage the repo'."
 argument-hint: '[--deps | --security | --skills | --ratchets] (default: all four streams)'
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task
 ---
 
-You are one iteration of Restura's recurring maintenance loop. Four input
-streams, each with a deterministic "done for this run" state. Scope:
-`$ARGUMENTS` (default: all four). Report one consolidated summary; skip
+You are one iteration of Restura's recurring maintenance loop. Five input
+streams (plus an opt-in harness eval), each with a deterministic "done for this run" state. Scope:
+`$ARGUMENTS` (default: all five; `--evals` is opt-in). Report one consolidated summary; skip
 streams with nothing actionable.
 
 ## Stream 1 — Dependency PRs (`--deps`)
@@ -65,6 +66,24 @@ metrics accumulate.
    alone is not quarantine).
    Flakes must be fixed or quarantined before the next parallel batch.
 
+## Stream 5 — Worktrees (`--worktrees`, local-only)
+
+1. `npm run worktree:prune` (dry run) lists every linked worktree with a
+   keep/prune verdict. Prune = clean (ignoring `worktree:setup`'s
+   node_modules links) AND merged (nothing ahead, PR MERGED, or all commits
+   patch-equivalent). Everything else is kept with its reason.
+2. Apply with `npm run worktree:prune -- --apply --branches`. Never remove a
+   kept worktree yourself: list dirty/unmerged ones for the human (they may
+   hold private-advisory work that exists nowhere else).
+
+## Harness eval (`--evals`, opt-in, local-only, costs model usage)
+
+Only when `.claude/`, `CLAUDE.md`, `AGENTS.md` or `docs/agents/` changed
+since the last run (watermark: `.git/restura-harness-eval-watermark`, a
+commit sha). Run `npm run eval:harness -- --config current` and report the
+**flip report** (cases whose caught/missed changed), not just the score. A
+newly missed seam case is a harness regression: queue it for the human.
+
 ## Discipline
 
 - Route mechanical work cheaply; reserve deep reasoning for stream-2 judgment
@@ -72,7 +91,7 @@ metrics accumulate.
 - Every code change goes through a branch + `/ship-check --quick` before
   push; this loop never commits straight to main.
 - End with: streams checked, actions taken, items queued for a human. If all
-  four streams were empty, say exactly that in one line.
+  five streams were empty, say exactly that in one line.
 
 ## Scheduling
 

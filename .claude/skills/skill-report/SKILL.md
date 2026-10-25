@@ -1,5 +1,6 @@
 ---
-description: Analyze .claude/metrics/skill-usage.log and recommend SKILL.md description tweaks for over/under-triggering skills — the analysis half of the skill self-improvement loop.
+name: skill-report
+description: "Analyze .claude/metrics (skill usage, subagent and stop outcomes) and recommend SKILL.md description tweaks or pruning for over/under-triggering skills. Use when asked which skills are unused, mis-triggering, or should be deleted."
 argument-hint: '[--apply] (default: report only, no edits)'
 allowed-tools: Bash, Read, Glob
 ---
@@ -41,8 +42,8 @@ edits after presenting the report.
      this repo. Distinguish the two before acting: a plugin skill firing is
      healthy and needs no edit; a stale local name suggests a rename the log
      predates. Never recommend a description edit for a plugin skill.
-4. Keep recommendations specific to THIS repo's two skills and any plugin skills
-   that surfaced. Do not invent skills.
+4. Cover every local skill the analysis reports (both the `skills` counts and
+   `neverFired`), plus any plugin skills that surfaced. Do not invent skills.
 
 ## Output
 

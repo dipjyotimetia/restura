@@ -1,14 +1,15 @@
 ---
-description: Run Restura's full production-grade gate (everything `npm run validate` covers plus what it misses) and triage failures to file:line.
+name: ship-check
+description: "Run Restura's full ship-readiness gate (what `npm run validate` covers plus what it misses: reviewers, docs parity, combined-diff integration for multiple branches) and triage failures to file:line. Use before opening/merging a PR, 'is this ready to ship', or 'review my branch(es)'."
 argument-hint: '[--quick | --full] (default: scope to the current diff)'
-allowed-tools: Bash, Read, Grep, Glob, Task
+allowed-tools: Bash, Read, Grep, Glob, Agent, Task
 ---
 
 You are running the Restura ship-readiness gate. First invoke the `restura-production-checks` skill so its gotchas are loaded. Then execute the gates below, collect results, and produce ONE consolidated checklist. Do not stop at the first failure — run everything, then report.
 
 Scope: `$ARGUMENTS`. If `--quick`, skip builds, e2e, and bundle size. If `--full`, include them. Default: run the core gate + builds, skip e2e unless the diff touches protocol/transport code.
 
-**Multiple branches/PRs**: if `$ARGUMENTS` names more than one branch or PR, run `npm run integration-check -- <branches>` FIRST (add `--e2e` if protocol/transport/UI is touched). Report merge conflicts and the file-overlap matrix up front; any overlap on a non-registry file is a planning defect (those PRs should be one PR), and duplicate implementations of the same transform across branches go to the parity checker. Then run the per-branch gates below. The final gate is the merge lane (`gh pr merge <n> --auto --squash`): it updates each PR onto current `main` one at a time and CI re-runs on the combined result before auto-merge squashes.
+**Multiple branches/PRs**: if `$ARGUMENTS` names more than one branch or PR, run `npm run integration-check -- <branches> --keep` FIRST (add `--e2e` if protocol/transport/UI is touched). Report merge conflicts and the file-overlap matrix up front; any overlap on a non-registry file is a planning defect (those PRs should be one PR). Then review the **combined** result, because seam bugs are invisible per branch: the security auditor runs per branch (only where a branch touches a boundary), while `/code-review`, the parity checker and the docs steward run ONCE on the combined diff (`git diff <base>..HEAD` in the kept worktree) with the overlap matrix as context. Remove the kept worktree afterwards. `/ship-check` only reviews; it never merges or opens PRs, so it works before any PR exists. Merging is a separate, later step through the merge lane (`gh pr merge <n> --auto --squash`), which updates each PR onto current `main` one at a time and re-runs CI on the combined result.
 
 Determine the diff under review: `git diff --stat main...HEAD` and `git status --porcelain`.
 
@@ -46,3 +47,13 @@ Produce a checklist. For each gate: ✅/❌ and a one-line result. For every fai
 | build | … |
 Verdict: READY / NOT READY — <blockers>
 ```
+
+## PR marker
+
+When the verdict is **READY**, print this line for the PR body (one per branch, using the branch's current HEAD sha):
+
+```
+<!-- restura:ship-check verdict=READY sha=<full HEAD sha> -->
+```
+
+`claude-code-review.yml` skips its automatic review when the PR body carries a READY marker for the PR's exact head sha — the local fan-out already covered it. The CI review only triggers on open/ready/reopen, so the sha must be the HEAD you push before opening the PR; if you push more commits first, re-run `/ship-check` and update the marker. The `claude-review` label always forces a run. Never write the marker for a NOT READY verdict or a sha you did not check.
