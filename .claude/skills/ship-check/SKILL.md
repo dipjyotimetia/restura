@@ -1,5 +1,6 @@
 ---
-description: Run Restura's full production-grade gate (everything `npm run validate` covers plus what it misses) and triage failures to file:line.
+name: ship-check
+description: "Run Restura's full ship-readiness gate (what `npm run validate` covers plus what it misses: reviewers, docs parity, combined-diff integration for multiple branches) and triage failures to file:line. Use before opening/merging a PR, 'is this ready to ship', or 'review my branch(es)'."
 argument-hint: '[--quick | --full] (default: scope to the current diff)'
 allowed-tools: Bash, Read, Grep, Glob, Task
 ---

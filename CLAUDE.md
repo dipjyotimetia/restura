@@ -1,277 +1,68 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. It holds only invariants and routing; detail loads on demand from `docs/agents/` and `.claude/skills/` (progressive disclosure — keep it that way: new subsystem prose goes in a reference doc, not here).
 
 ## Project Overview
 
-Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, and MCP** (Model Context Protocol), plus an **AI assistant** that can read request context. It ships from a single React renderer to three targets: a web app (Cloudflare Pages + Workers), a self-hostable Node/Docker server, and an Electron desktop app. Restura can also act _as_ an MCP server (`src/features/mcp-server`, `electron/main/handlers/mcp-server-handler.ts`). Node.js 24+ required.
+Restura is a multi-protocol API client — **HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, MCP** — plus an **AI assistant** and an Electron-only **AI Lab** eval workbench. One React renderer ships to three targets: web (Cloudflare Pages + Worker), self-hosted Node/Docker, and Electron desktop. Restura can also act _as_ an MCP server. Node.js 24+.
 
-## Development Commands
+## Commands you need most
 
 ```bash
-# Web development (Vite + Cloudflare Worker via Miniflare)
-npm run dev                    # Start Vite dev server (port 5173) — boots the Worker locally too
-npm run build                  # Production build (SPA + Worker bundle)
-npm run preview                # Preview production build
-npm run type-check             # TypeScript strict mode — renderer only (excludes worker, electron/main, cli)
-npm run type-check:all         # Full type-check across all tsconfigs — what CI runs
-npm run architecture:check     # Enforce runtime boundaries, acyclic imports, file-size + source-pattern ratchets
-npm run lint                   # Biome lint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ extension/ tests/ scripts/
-npm run lint:fix               # Biome lint --write
-npm run format                 # Biome format (write)
-npm run format:check           # Biome format check
-
-# Worker / Node API (shared Hono app — Cloudflare + self-host)
-npx tsc --noEmit -p worker/tsconfig.json    # Type-check Worker independently
-
-# Testing
-npm run test                   # Vitest interactive
-npm run test:run               # Vitest single run
-npm run test:watch             # Vitest watch
-npm run test:ui                # Vitest browser UI dashboard
-npm run test:coverage          # Coverage report
-npm run test:e2e               # Playwright (boots dev server via webServer; needs .dev.vars)
-npm run test:e2e:ui            # Playwright UI mode
-npm run test:e2e:headed        # Playwright headed
-npm run test:e2e:electron:build && npm run test:e2e:electron   # Desktop e2e: _electron launch of the unpacked prod build (e2e-electron/), per-protocol smoke vs local mocks + native gRPC dev server. Kafka/MQTT specs auto-bring-up the Dockerised Redpanda+EMQX brokers (echo-local/docker-compose.yml) via the `brokers` fixture and skip if Docker is absent
-npm run test:contract          # Contract tests (vitest run tests/contract)
-npm run grpc:server            # Native gRPC dev server on :50051 — desktop gRPC e2e needs real h2; the echo Worker's Connect endpoint is web-only
-npm run echo:local             # Full-protocol local upstream for desktop testing (HTTP, gRPC, WebSocket, SSE, mTLS, local CA); Kafka/MQTT need Docker
-
-vitest run path/to/file.test.ts                  # Run a single Vitest file
-vitest run -t "test name pattern"                # Filter by test name
-npx playwright test e2e/real-http.spec.ts        # Run a single e2e spec
-
-# Core product validation
-npm run validate               # Static policy + root/workspace tests + web, Docker, Electron, extension builds + size
-# Docs, E2E, packaging smoke, and deploy checks are separate CI jobs; see docs/CI_CD.md.
-
-# Generated code
-npm run proto:gen                       # buf generate (regenerates protobuf TS)
-npm run gen:opencollection-types        # Regenerate OpenCollection JSON Schema → TS
-npm run verify:opencollection-types     # Generate + fail if diff (CI gate)
-npm run capabilities:matrix             # Regenerate docs/CAPABILITY_MATRIX.md from src/lib/shared/capabilities.ts
-npm run capabilities:check              # Fail if the matrix is stale (CI gate)
-
-# Self-hosted Node / Docker server (single process: SPA + /api/* on one port)
-npm run build:docker           # build:web:docker (plain SPA → dist/web) + build:server (esbuild Worker → dist/server/index.mjs)
-npm run start                  # node dist/server/index.mjs (PORT/HOST/RESTURA_STATIC_ROOT env-tunable)
-# Dockerfile + docker-compose.yml at repo root; see docs/SELF_HOSTING.md
-
-# Electron desktop app
-npm run electron:dev           # Dev mode (Vite + Electron with wait-on)
-npm run electron:compile       # Compile main process TS → dist/electron/
-npm run electron:build:web     # Build renderer for Electron (VITE_IS_ELECTRON_BUILD=true)
-npm run electron:dist:{mac,win,linux}    # Package distributables
-npm run electron:pack          # Unpacked dir build (for local smoke testing)
-
-# Deploy
-npm run deploy                 # Production: Worker (api.restura.dev) + Pages
-npm run deploy:preview         # Preview version + Pages preview
-npm run deploy:echo            # Deploy the echo test server (echo/wrangler.jsonc)
+npm run dev                 # Vite (5173) + Worker via Miniflare
+npm run type-check:all      # ALL tsconfigs — what CI runs (`type-check` = renderer only)
+npm run lint                # Biome
+npm run test:run            # Vitest; single file: vitest run path/to/file.test.ts
+npm run architecture:check  # runtime boundaries, cycles, size + pattern ratchets
+npm run validate            # full product gate (policy + tests + all builds + size)
+npm run capabilities:matrix # regen docs/CAPABILITY_MATRIX.md from capabilities.ts
+npm run gen:opencollection-types
+npm run electron:dev        # desktop dev
+npm run worktree:setup      # first command in any linked worktree
+npm run integration-check -- <branches>   # merge a batch in a throwaway worktree + run gates
 ```
 
-## Architecture
+Full catalogue (e2e, desktop e2e, echo stacks, Docker, deploy): `docs/agents/architecture.md`.
 
-### Multi-Platform: One Renderer, Three Backends
+## Architecture invariants
 
-The same Vite-built React SPA serves all targets. The transport layer is the only thing that differs — chosen at runtime by `isElectron()` in `src/lib/shared/platform.ts`. The two HTTP backends (Cloudflare Worker and Node/Docker server) share a single Hono app via the `createApp(deps)` factory in `worker/app.ts`; each entry supplies its own adapters for the platform-specific bits (CONNECT proxy, native WebSocket).
+- **One renderer, three backends.** Only transport differs, chosen by `isElectron()` (`src/lib/shared/platform.ts`). Web and self-host share one Hono app (`createApp` in `worker/app.ts`); desktop goes over IPC (`window.electron` → `electron/main/handlers/*`). The Worker is never bundled into Electron. Hash routing (works on `https://` and `file://`).
+- **Protocol logic lives once in `shared/protocol/`** (SSRF guard `url-validation.ts`, header policy, body builder, auth signing at the wire, gRPC/MCP/SSE/AI orchestrators). Backends supply a thin `Fetcher`. New protocol = `shared/protocol/<name>-proxy.ts` + small Worker and Electron adapters. Electron-only capabilities (PAC, SOCKS, mTLS, custom CA, DNS guard, manual redirects) stay inside the Electron fetcher closure — keep `shared/` backend-agnostic.
+- **Parity is the #1 bug class**: web Worker, self-host Node, Electron IPC **and the CLI** (`cli/src/runner/executors/*`) must behave the same, or fail explicitly. `src/lib/shared/capabilities.ts` is the source of truth for platform differences (codegen'd matrix — never hand-edit).
+- **Secrets**: `SecretValue = string | SecretRef`; with a handle the renderer never sees plaintext (ADR-0007). No new persistence through `window.localStorage`; stores persist via Dexie (web) / encrypted electron-store (desktop), validated by Zod.
+- **Electron main**: files computing `__dirname`-relative paths stay at the `electron/main/` root. IPC handlers validate with Zod (`ipc/validators/`); register/dispose pair in `main.ts` `IPC_MODULES`.
+- **Worker**: production needs `WORKER_PROXY_TOKEN` or `REQUIRE_CF_ACCESS=true`. **Never** put `DEV_BYPASS_AUTH` in `wrangler.jsonc`. `nodeEntry` must `Object.assign` onto `c.env`, never reassign.
+- **AI**: assistant is Electron-first — there is no `/api/ai` Worker route. AI Lab is Electron-only; its `http-exec` target runs through the real `requestExecutor` (no parallel HTTP path); provider keys are `SecretRef` handles; localhost carve-out only for local runtimes.
+- **Boundaries**: `shared/` is the runtime-neutral floor; Worker, Electron main and CLI never import renderer `src/`. Ratchets may only go down.
+- **TS**: strict (`noUncheckedIndexedAccess` etc.); `exactOptionalPropertyTypes` off except `src/features/http/tsconfig.json`. Path alias `@/` → `src/`.
 
-- **Web** — SPA on Cloudflare Pages → fetch `/api/*` → Cloudflare Worker (Hono) at `worker/index.ts` → upstream. Same-origin, no CORS friction.
-- **Self-hosted** — `worker/node-entry.ts` runs `createApp` in one Node process that serves both the SPA (`dist/web`) and `/api/*` on one port. Node-native adapters live in `worker/shared/tcp-proxy-node.ts`, `worker/shared/dns-guard-node.ts`, `worker/handlers/websocket-node.ts`. `nodeEntry` MUST `Object.assign` onto `c.env` (not reassign) — `@hono/node-ws` stamps state onto that exact reference. See `docs/SELF_HOSTING.md`.
-- **Desktop** — SPA loaded via `file://` → IPC over `window.electron` (preload bridge; `contextBridge.exposeInMainWorld('electron', …)`) → Electron main process handlers in `electron/main/*-handler.ts` → upstream. The Worker is **never** bundled into the desktop app (`electron-builder.json` files glob excludes `_worker.js`).
-- **Routing** — `createHashRouter` so the renderer works under both `https://` (Pages) and `file://` (Electron). There is no server-side routing.
+## Where to read before working on…
 
-### Shared protocol core (`shared/protocol/`) — read this first
-
-This is the most important architectural piece in the repo. Each protocol (HTTP, gRPC, MCP, SSE, WebSocket, AI) is implemented **once** as a backend-agnostic orchestrator. Each backend (Cloudflare Worker, Node/Docker server, Electron main process) supplies only a thin `Fetcher` adapter; everything else — SSRF validation, header sanitisation, body construction, response shape, gRPC status mapping, SSE/NDJSON parsing — lives in `shared/protocol/` and runs identically across all of them.
-
-```
-                    shared/protocol/{http,grpc,mcp,websocket}-proxy.ts
-                    (validation, body, headers, response shape)
-                                       │
-                                Fetcher interface
-                          ┌────────────┴────────────┐
-                          ▼                         ▼
-              worker/handlers/*.ts        electron/main/*-handler.ts
-              (globalThis.fetch)          (Node http/https/net)
-```
-
-Key modules:
-
-- `shared/protocol/url-validation.ts` — SSRF guard: RFC 1918, RFC 6598 (CGNAT), link-local 169.254/16, loopback, cloud-metadata endpoints, IPv6 unique-local, IPv4-mapped IPv6. Single source of truth (before this refactor, the guard had drifted between backends).
-- `shared/protocol/header-policy.ts` — Hop-by-hop deny lists, header sanitisers.
-- `shared/protocol/body-builder.ts` — JSON / text / form-urlencoded / form-data / binary.
-- `shared/protocol/types.ts` — `RequestSpec`, `Fetcher`, `ExecuteResult` discriminated union.
-- `shared/protocol/http-proxy.ts`, `grpc-proxy.ts`, `mcp-proxy.ts`, `websocket-proxy.ts`, `sse-parser.ts`, `ndjson-parser.ts`.
-- `shared/protocol/ai/` — AI chat orchestrator (`ai-proxy.ts`) + per-provider wire shapes (`provider-routes.ts`) and decoders (`providers/{openai,anthropic,openrouter}.ts`, each paired with a fixture). The orchestrator is provider-agnostic and emits raw SSE bytes downstream; `redaction.ts` scrubs secrets from prompts/context. See AI assistant note below.
-- `shared/protocol/auth-signer.ts`, `oauth1-signer.ts`, `wsse-header.ts` — auth signing **at the wire** (Worker/Electron, not the renderer) so signatures match exact upstream bytes.
-- `shared/protocol/secret-value-schema.ts`, `crypto-utils.ts` — `SecretRef` handle-based secrets (ADR-0007); see State + Persistence below.
-- gRPC (ADR 0022) is split across `grpc-proxy.ts` (Connect unary/stream), `grpc-web-proxy.ts` + `grpc-web-framing.ts` + `grpc-web-schema.ts` (gRPC-Web, `/api/grpc-web`), `grpc-reflection-proxy.ts`, `grpc-proto-compiler.ts` + `grpc-registry.ts` (proto/descriptor uploads), `grpc-status.ts` + `grpc-status-details.ts` (`google.rpc.Status`), `grpc-unknown-fields.ts`, and `grpc-schema-drift.ts`. Reuse these rather than adding gRPC logic per backend.
-- `digest-auth.ts` (Digest challenge retry, ADR 0029) and `redirect-follower.ts` (manual redirects with per-hop SSRF checks).
-
-**When adding a new protocol**: add `shared/protocol/<name>-proxy.ts` exposing `execute<Name>Proxy(spec, fetcher, options)`, then ~30 lines of Fetcher adapter each in `worker/handlers/` and `electron/main/`. SSRF, headers, body, timeouts come for free. The Electron HTTP adapter (`electron/main/handlers/http-handler.ts`) is the exception and is far larger: PAC, SOCKS, mTLS, ALPN capture and manual redirects live inside its fetcher closure (ADR-0006).
-
-### AI assistant (`src/features/ai/`)
-
-A chat assistant that can read the current request/response context. **Electron-first**: the renderer streams via the IPC bridge (`window.electron.ai` → `ai:chat` / `ai:chat:cancel`, with `ai:chat:chunk:<id>` / `ai:chat:end:<id>` event channels) → `electron/main/handlers/ai-handler.ts` → `shared/protocol/ai/ai-proxy.ts`. There is **no `/api/ai` Worker route**, so the web path is not wired through the proxy — confirm platform support before assuming parity. Renderer pieces: `lib/promptBuilder.ts`, `lib/contextSnapshot.ts` (captures request context; URLs/secrets redacted), `lib/streamConsumer.ts` (subscribe to chunk channel **before** invoking `chat`). Providers (OpenAI, Anthropic, OpenRouter) decode in `shared/protocol/ai/providers/*` against fixtures. See `docs/adr/0010-ai-assistant-architecture.md`.
-
-### AI Lab (`src/features/ai-lab/`) — Electron-only LLM/eval workbench
-
-A separate workbench for testing prompts and models: per-provider config, a multi-model Playground, datasets, an eval runner with LLM-as-judge + scorers, OpenAPI-driven test generation, and an **Arena** (round-robin pairwise model-vs-model judging → Elo leaderboard + win-rate matrix, `Arena.tsx`/`lib/elo.ts`/`lib/arenaRunner.ts`/`store/useArenaStore.ts`). Renderer state persists to Dexie tables `aiLab`/`evalRuns`/`arenaRuns` (added in `database.ts` version 13; the schema is now at version 14); provider API keys are stored only as `SecretRef` handles (`apiKeyHandleId`, resolved in main). Backed by `electron/main/handlers/ai-lab-handler.ts` — a sibling to `ai-handler.ts` kept separate so the chat path is untouched. It adds a non-streaming `complete` (used heavily by the eval runner/judge, bounded by a queueing semaphore), model discovery + connection test, and a **localhost SSRF carve-out**: the same shared URL guard runs, but `allowLocalhost` is derived from provider kind — true only for local runtimes (Ollama, OpenAI-compatible), never for cloud providers.
-
-Scorers include deterministic checks, `script` (QuickJS), `judge` (multi-criteria weighted LLM-as-judge with self-consistency + anchors + gates in `shared/protocol/ai/judge.ts`), `tool-call` (function-call correctness), and `pairwise` (preference judging via `runPairwiseJudge`, with position-bias swap). Datasets can be hand-written, OpenAPI-generated, adversarial/red-team-generated, imported from request **history/collections** (`lib/datasetFromHistory.ts` + `ImportFromHistoryDialog`, secrets redacted via `shared/protocol/ai/redaction.ts`), or CSV/JSONL imported/exported; cases support multi-turn conversations. An **`http-exec` eval target** (ADR 0023) parses an HTTP/GraphQL request out of the model output (`lib/requestExtractor.ts`), executes it through the **real request executor** (`src/features/http/lib/requestExecutor.ts` via `lib/execCell.ts` — SSRF guard/redirects/cookies inherited, no parallel path), and scores the upstream response instead of the model prose. Reports add CSV/JSON/Markdown export, per-case drill-down, and cross-model diff.
-
-The **Agents** tab uses the backend-agnostic `shared/agent-lab/` core: versioned suites, conservative per-model capabilities with explicit user-asserted overrides, bounded tool loops and run-wide token budgets, task-aware graders/judge quorum, typed traces, repeated-trial statistics, MCP/sandbox extension contracts, and opt-in OTLP/OpenInference export. Eval and agent surfaces each own a module-scoped cancellable lifecycle across tab changes; they reject same-surface concurrent starts but may run alongside each other, and cancellation reaches model/judge/tool work and wins over late success. Desktop adapters live in `lib/agentRuntime.ts`/`agentTools.ts`; saved HTTP request tools reuse `executeRequest`, and non-read calls require approval. Desktop persistence/export must use sanitized bounded agent report envelopes; opaque sensitive output may still require access controls. `restura agent eval` consumes the same suite/runner for headless CI: stateless OpenAI Responses (`store: false`, no server continuation) and Anthropic Messages with environment credentials; saved-HTTP (GET/HEAD/OPTIONS) and read-only MCP tools only when listed in a `--runtime` manifest; Agent Bundles with fixture tools and baseline gates. It refuses judges, sandbox sources, secret handles, and base-URL overrides. Keep the capability matrix honest: an adapter contract is not shipped support until its desktop/CLI resolver is wired end to end.
-
-### Feature-based renderer layout (`src/features/`)
-
-Each feature module owns its components, hooks, lib (executors/clients), and store. Protocol features (`http/`, `grpc/`, `graphql/`, `websocket/`, `socketio/`, `sse/`, `mcp/`, `kafka/`, `mqtt/`) follow the same shape and export a `protocol.ts` describing their schema. The renderer's executor in each feature branches on `isElectron()` to pick IPC vs. HTTP transport — no behavioural difference.
-
-```
-src/features/{http,grpc,graphql,websocket,socketio,sse,mcp,kafka,mqtt}   # protocol features
-src/features/ai                                      # AI assistant (chat + request-context tooling)
-src/features/ai-lab                                  # Electron-only LLM/prompt testing & eval workbench
-src/features/mcp-server                              # Restura-as-MCP-server (agent-drivable surface)
-src/features/load-testing                            # collection load/perf runner (not a protocol)
-src/features/{collections,environments,workflows,scripts,auth,registry,contracts}
-src/components/{ui,shared,providers}
-src/routes/                                          # React Router route components
-src/lib/shared/                                      # platform, encryption, storage, validators, capabilities, etc.
-shared/opencollection/                               # OpenCollection spec import/export (generated types)
-```
-
-> **Capability parity is data-driven.** `src/lib/shared/capabilities.ts` is the single source of truth for which features work on web vs. desktop (e.g. Kafka and SOCKS/PAC/mTLS are desktop-only — no browser TCP). It is codegen'd into `docs/CAPABILITY_MATRIX.md` and gated by `npm run capabilities:check`. Update `capabilities.ts` (not the doc) when you add a feature that differs across platforms.
-
-### State + Persistence (Zustand)
-
-All global state lives in Zustand stores with the `persist` middleware. Stores are validated with Zod schemas in `src/lib/shared/store-validators.ts`.
-
-- **Web** — `src/lib/shared/dexie-storage.ts` (IndexedDB via Dexie).
-- **Desktop** — `src/lib/shared/secure-storage.ts` (encrypted electron-store via IPC; key wrapped by Electron `safeStorage` → OS keychain).
-- **The legacy localStorage adapter has been removed.** Don't add new persistence through `window.localStorage`.
-
-Global stores live in `src/store/` (see its `README.md`) — notably `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollectionStore`, `useEnvironmentStore`, `useHistoryStore`, `useSettingsStore`, `useWorkflowStore`, `useCollectionRunStore` (persisted run history, Dexie `collectionRuns`), `useProtoRegistryStore`. Feature-owned stores live with their feature (e.g. `useKafkaStore` in `src/features/kafka`, the AI store in `src/features/ai/store.ts`, AI Lab stores in `src/features/ai-lab/store`).
-
-**Secret handling — `SecretRef` (ADR-0007).** Secret-bearing auth fields are migrating from plaintext `string` to `SecretValue = string | SecretRef`, where `SecretRef` is `{ kind: 'inline'; value }` or `{ kind: 'handle'; id; label? }`. With a `handle`, the renderer **never sees the plaintext** — `electron/main/security/secret-handle-store.ts` (electron-store + `safeStorage`) holds the encrypted value and resolves it only at wire-signing time in the main process. This keeps secrets out of the Zustand store, Dexie/electron-store persistence, exported collections, crash logs, and the MCP-server's agent-readable surface. Migration is incremental (per-descriptor); see `docs/adr/0007-secret-ref-pattern.md` and `electron/main/security/collection-export-redactor.ts`.
-
-### Electron main process (`electron/main/`)
-
-The main process is organised into purpose-based subfolders. Files that compute `__dirname`-relative paths at runtime (preload location, bundled resources, `dist/web/index.html`) **must stay at the `electron/main/` root** — moving them into a subfolder adds a path segment that nothing in `tsc` or the unit tests catches (only a packaged/e2e run would). See the NOTE block in `window-manager.ts`.
-
-- **Root (`electron/main/`)** — the `__dirname`-sensitive entry points:
-  - `main.ts` — entry / orchestrator. Owns the `IPC_MODULES` registry that couples each handler's `register` to its `dispose`, so teardown can't drift out of sync with registration.
-  - `window-manager.ts` — loads `http://localhost:5173` in dev, `dist/web/index.html` in prod; resolves resource/icon paths.
-  - `preload.ts` — context-isolated IPC entry that composes domain APIs from `preload/`; bundled by esbuild (`electron:bundle-preload`) so the sandboxed preload is self-contained. Channel names come from `electron/shared/channels.ts`; the exposed surface is type-checked against the modules under `electron/types/api/` via `satisfies ElectronAPI`.
-  - `notifications.ts` — native notifications + its rate limiter.
-
-- **`handlers/`** — one handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`, `kafka-handler.ts`, `mqtt-handler.ts`, `ai-handler.ts`, `ai-lab-handler.ts`, `mcp-server-handler.ts` (+ `mcp-context-loader.ts`), `mock-server-handler.ts`, `git-handler.ts`, plus shared helpers `interceptor-registry.ts`, `channel-event-bridge.ts`, `fetch-fetcher.ts`, `grpc-connect.ts`, `grpc-credentials.ts`, `grpc-wire-protocol.ts` (per-request gRPC/Connect/gRPC-Web transport), `kafka-serde.ts`, `sse-parser.ts`. The HTTP adapter's PAC/SOCKS/ALPN/TLS pieces are split into `http-*.ts` helpers (`http-socks-dispatcher.ts`, `http-proxy-alpn.ts`, `http-secure-connection.ts`, `http-version.ts`, …). Also: `capture-bridge-*.ts` (browser-extension loopback bridge), `ows-workspace-handler.ts`, `git-merge-handler.ts`, and the `kafka/` subfolder.
-
-- **`ipc/`** — the IPC boundary: domain-owned Zod modules live under `ipc/validators/`; `ipc-validators.ts` is the stable compatibility barrel. Rate limiting, stream ownership, and cleanup remain in `ipc-rate-limiter.ts`, `stream-registry.ts`, and `connection-cleanup.ts`. The shared registry owns connection maps, replace/reject behavior, renderer-destroyed cleanup, templated events, and `disposeAll`; per-protocol policy stays in each handler.
-
-- **`security/`** — outbound-safety and secret handling:
-  - `dns-guard.ts` — pre-flight SSRF guard. `assertHostnameSafe` / `assertUrlHostnameSafe` resolve the hostname and call `assertResolvedAddressAllowed` from `shared/protocol/url-validation` against every record. Pre-flight only — does NOT mitigate true DNS-rebind (TTL=0 swap during connect).
-  - `safe-connect.ts` — SSRF-guarded `net`/`tls` connect helper shared by streaming handlers; `auth-applier.ts` — applies resolved auth/secrets to outbound requests; `aws-sigv4-smithy.ts`, `env-proxy.ts`, `collection-export-redactor.ts`.
-  - `kafka-broker-guard.ts`, `mqtt-broker-guard.ts` — broker-address SSRF guards for the Kafka/MQTT handlers.
-  - `secret-handle-store.ts`, `encrypted-key.ts`, `keychain-status-handler.ts` — `SecretRef` handle store + key management (see ADR-0007).
-  - `*-materializer.ts` (`http-auth-materializer.ts`, `secret-variable-materializer.ts`, `external-secret-materializer.ts`) resolve secrets at wire time; `external-secret-providers.ts` / `external-secret-profile-store.ts` back external secret managers.
-  - `execution-policy.ts`, `broker-execution-policy.ts`, `policy-transport.ts` — execution-policy gating for outbound and broker connections; `proxy-bypass.ts`, `tls-material.ts`.
-
-- **`storage/`** — persistence bridge: `store-handler.ts`, `collection-manager.ts` (encryption key fetched from OS keychain via `safeStorage`; warns at startup if unavailable), `vault-handler.ts`, `file-operations.ts` (async fs helpers).
-
-- **`lifecycle/`** — app lifecycle and ops: `request-logger.ts`, `logging.ts`, `deep-link-handler.ts`, `auto-updater.ts`, `menu.ts`, `system-tray.ts`, `window-controls.ts`, `sentry.ts` + `telemetry-consent.ts` (opt-out error reporting — on by default, disabled in Settings).
-
-- **`util/`** — small shared helpers (e.g. `debounce.ts`).
-
-Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, pre-flight DNS guard via `security/dns-guard.ts`, manual redirect handling) live inside the Electron fetcher closure — **not** in `shared/protocol/`. Keep `shared/` backend-agnostic. See `docs/adr/0006-electron-connection-and-dns-hardening.md` for the cleanup/DNS-guard design.
-
-### Worker (`worker/`)
-
-Hono app (`createApp` in `worker/app.ts`, composed with Cloudflare adapters in `worker/index.ts`) deployed as Cloudflare Pages Functions. Routes: `/health`, `/ready`, `/api/proxy`, `/api/import/fetch`, `/api/grpc`, `/api/grpc/reflection`, `/api/grpc-web`, `/api/mcp`, `/api/mcp/terminate`, `/api/telemetry/error`, `/api/feature-flags`, `/api/ws-ticket`, `/api/ws`. The same `createApp` is reused by the Node/Docker entry (`worker/node-entry.ts`). Notable bits:
-
-- The web build (`@cloudflare/vite-plugin`, active only when **not** an Electron/Docker build) emits the SPA to `dist/web/client/` and the Worker bundle + `wrangler.json` to `dist/web/restura/` — the two `npm run deploy` targets.
-- `nodejs_compat` flag enabled (for `Buffer` etc.) — see `wrangler.jsonc`.
-- Worker-only feature: upstream-proxy via the Cloudflare Sockets API in `worker/shared/tcp-proxy.ts`.
-- Rate limiting in `worker/middleware/rateLimiter.ts`.
-- **Auth gate**: production requires `WORKER_PROXY_TOKEN` or `REQUIRE_CF_ACCESS=true` (secrets). Local dev bypasses auth only when (a) Miniflare is running (auto-detected via `globalThis.MINIFLARE`), or (b) `DEV_BYPASS_AUTH=true` in `.dev.vars`. **Never** put `DEV_BYPASS_AUTH` in `wrangler.jsonc` (the deployed config).
-- `ENVIRONMENT` var gates `allowLocalhost` in URL validation. Set to `development` in `.dev.vars` to proxy localhost during local iteration. e2e tests rely on `.dev.vars` existing **before** the dev server boots — `playwright.config.ts` bootstraps this synchronously at config-load time.
-
-### Echo test server (`echo/`)
-
-A separate Cloudflare Worker (`echo/wrangler.jsonc`, `echo.restura.dev`) that serves as a controlled public upstream — the app's default placeholder URLs point at it (`src/lib/shared/echo-defaults.ts`, overridable via build-time `VITE_ECHO_*_URL`). The Playwright suites do **not** use it; they run against local mocks in `e2e/mocks/`. Handlers for HTTP, GraphQL, SSE, WebSocket, Connect/gRPC, and OpenAI/Anthropic-shaped AI chat. Deploy with `npm run deploy:echo`. Not part of the production app.
-
-### Local echo stack (`echo-local/`)
-
-A developer-facing, full-protocol local upstream for manually testing the **desktop** client — what `echo/` (web-only) can't host: native gRPC, real Kafka/MQTT brokers, mTLS, and a local CA. `npm run echo:local` boots the in-process protocols on stable ports (see `echo-local/ports.ts`), reusing the `e2e/mocks/*` factories + `scripts/grpc-dev-server.mjs` in place; it generates a manifest, a local CA + client cert (for `customCa`/mTLS), and an importable OpenCollection. Kafka (Redpanda) and MQTT (EMQX — the client defaults to MQTT 5, which the pure-JS Aedes can't serve) run via `docker compose -f echo-local/docker-compose.yml up`. Not part of the production app. See `echo-local/README.md`.
-
-### CLI subproject (`cli/`)
-
-npm package `restura-cli` (binary `restura`; an npm workspace with its own `package.json`, built with `tsup`). Runs collections (`restura run`), OWS workflows (`restura workflow run`), and agent suites (`restura agent eval`) in CI with tui/live/JSON/JUnit/HTML/stats reporters. Has its own deps and tests; `cli/README.md` is the canonical reference.
-
-### Extensions (`extension/chrome`, `extension/vscode`)
-
-Two more npm workspaces alongside `cli/`: the Chrome browser-capture extension (`@restura/extension`, ADR 0024; pushes captures to the desktop app via `electron/main/handlers/capture-bridge-*.ts`) and the VS Code extension (`restura-vscode`, ADR 0025). Both are built by `npm run validate` (`build:workspaces`) and linted with the rest of the repo; the Chrome extension has its own Playwright suite (`npm run test:e2e:extension`).
-
-### Docs site (`docs-site/`)
-
-Standalone documentation site (`@restura/docs-site`, deployed to docs.restura.dev) with its own `package.json`. Scripts from repo root: `npm run docs:dev`, `docs:build`, `docs:check`, `deploy:docs`. Not part of the production app build.
-
-## Key Technical Patterns
-
-- **Path alias** `@/` → `./src/` (configured in `tsconfig.json` and `vitest.config.ts`).
-- **Architecture boundaries** — `shared/` is the runtime-neutral dependency floor; Worker, Electron main, and CLI must not import renderer-owned `src/`. `scripts/architecture.config.mts` checks direction, runtime cycles, exact file-size ratchets, and exact source-pattern ratchets — e.g. off-scale font sizes (`text-[Npx]`, sub-11px `text-sp-*`) in `src/**/*.tsx` may only go down; lower the cap when you remove some (ADR 0028).
-- **Build tool**: Vite 8 + `@vitejs/plugin-react` + `@cloudflare/vite-plugin`. The Cloudflare plugin boots Miniflare during `vite dev` so one command runs both SPA and Worker. Config is `vite.config.mts` (must be ESM — the Cloudflare plugin is ESM-only).
-- **Tailwind v4** via `@tailwindcss/vite` (no separate PostCSS config).
-- **Lazy components**: `src/lib/shared/lazyComponent.tsx` wraps `React.lazy` + `Suspense` (mirrors `next/dynamic` ergonomics — `next/dynamic` was removed).
-- **Strict TS**: `noUnusedLocals`, `noUnusedParameters`, `noImplicitReturns`, `noUncheckedIndexedAccess`. `exactOptionalPropertyTypes` is **off** intentionally.
-- **UI** — Radix UI primitives + Tailwind, shadcn/ui patterns in `src/components/ui/`.
-- **Script sandbox** — pre-request and test scripts run in QuickJS WASM (`shared/scripts/script-executor.ts`; the renderer path is a compatibility re-export). No DOM, no filesystem, no network escape; memory + execution-time capped.
-- **Collection import/export** — Postman v2.1, Insomnia, and OpenCollection (`shared/opencollection/`, with codegen — `spec-types.ts` is generated, validated by `verify:opencollection-types`).
-- **Multiple tsconfigs** — `tsconfig.json` (renderer), `tsconfig.tooling.json` / `tsconfig.tooling-js.json` (tooling ratchets), `electron/tsconfig.json` (main), `worker/tsconfig.json` (Worker), `echo/tsconfig.json` (echo), `cli/tsconfig.json` (CLI), plus `src/features/http/tsconfig.json`. `tsconfig.base.json` holds shared compiler options. **`npm run type-check` only covers the renderer** — use **`npm run type-check:all`** for every checked project. `npm run validate` also runs architecture, tests, builds, Electron runtime-import verification, and size limits.
+| Area | Load |
+|---|---|
+| Any feature / new protocol / auth / importer | `restura-feature-dev` skill (+ its `references/`) |
+| Architecture tour, subsystem notes, full commands | `docs/agents/architecture.md` |
+| Verifying / shipping / release gates | `restura-production-checks` skill, `/ship-check` |
+| UI change | `verify-ui-change` skill — compiling is not verified |
+| Multi-PR / parallel agent delivery | `docs/agents/delivery.md`, `/batch-ship` |
+| Security boundary (SSRF, IPC, secrets, sandboxes) | `restura-security-auditor` agent, `tests/security/` |
+| Domain terms, ADRs | `CONTEXT.md`, `docs/adr/`, `docs/agents/domain.md` |
+| CLI | `cli/README.md` (canonical) |
 
 ## Testing
 
-- **Unit/integration**: Vitest in jsdom, colocated `*.test.ts(x)` files. Setup in `tests/setup.ts`. React Testing Library for components.
-- **e2e**: Playwright in `e2e/`. Tests prefixed `real-*` hit live upstreams (or the local echo server); `playwright.config.ts` boots the dev server via its `webServer` config. `workers: 1` and `fullyParallel: false` are deliberate — multiple suites share dev server state. `e2e/global-setup.ts` and `bootstrapPrereqs()` ensure `.dev.vars` exists before Miniflare reads it (load-bearing).
-- **Security tests**: `tests/security/` for SSRF, header policy, redirect handling regressions.
+Vitest (jsdom) with colocated `*.test.ts(x)`; tests importing `worker/` live under `worker/`. Playwright e2e in `e2e/` (`workers: 1` deliberate; `.dev.vars` must exist before the dev server boots). Desktop e2e in `e2e-electron/`. Security regressions in `tests/security/`. Inline snapshots only (`*.snap` is gitignored).
 
-## Electron Build
+## Agent loop playbook (short)
 
-`electron-builder.json` defines the build. Process:
+Full version: `docs/agents/delivery.md`.
 
-1. `electron:build:web` — `vite build` with `VITE_IS_ELECTRON_BUILD=true` → `dist/web/`
-2. `electron:compile` — Compiles `electron/main/` TypeScript → `dist/electron/`
-3. `electron-builder` — Packages from `dist/` per target (`electron:dist:{mac,win,linux}`)
-
-The renderer entry is `dist/web/index.html` loaded via `file://` with hash routing. `_worker.js` is excluded from the Electron bundle.
-
-## Agent loop playbook
-
-How to run agentic work in this repo (loop primitives → repo tooling):
-
-- **Verify before declaring done** — for any renderer/UI change, use the `verify-ui-change` skill (dev server + real browser + console check). An edit that compiles is not a verified change.
-- **Goal loops** — `/fix-until-green [attempts]` iterates until `npm run validate` passes with a hard cap (or `/goal make npm run validate pass, stop after 5 tries`). Deterministic exit criteria beat "looks done".
-- **Time loops** — `/babysit-prs` is one idempotent iteration of PR care (CI fixes, review comments); prefers `--auto` (merge lane) over rebase loops; drive it with `/loop 15m /babysit-prs` locally, or `subscribe_pr_activity` in remote sessions (events beat polling).
-- **Proactive loops** — `/triage-maintenance` sweeps dependabot PRs, security-audit findings, skill metrics, ratchet tightening, and flake review in one pass; pilot manually, then `/schedule` it.
-- **Pre-PR gate** — `/ship-check` fans out the review agents (`restura-security-auditor`, `restura-parity-checker`, `restura-docs-steward`) **in parallel** plus a fresh-context `/code-review`. Given several branches it runs `npm run integration-check` first.
-- **Batch delivery** — `/batch-ship` is the end-to-end recipe: file-ownership plan, ≤5 worktree agents, red-first verification, review, integration-check, auto-merge.
-- **Parallel sessions** — independent fixes get independent sessions in separate git worktrees (one topic per branch/PR); don't stack unrelated fixes serially on one branch (see *Shipping multi-PR work* below).
-- **When a loop's output misses the bar**: don't just fix the instance — encode the fix (skill, hook, command, CLAUDE.md note) so every future iteration inherits it.
-
-### Shipping multi-PR work
-
-Learned from 72 PRs in two weeks: individually-green PRs broke in the seams (two MCP PRs that together collapsed a panel; a second auth path overwriting the first; two branches both adding `{{var}}` resolution, which would have double-expanded). Plan and verify for the **combined** result.
-
-- **Plan by file ownership, not by issue** — before implementing, list each PR's files. If two PRs touch the same non-registry file, they are one PR. Batch at most 5 PRs; prefer vertical slices that wire web + desktop + CLI together. Independent PRs off `main` by default; stack only a true code dependency (≤3 layers), never a separate "integration" layer. Hot registries (protocols, capabilities, channels, `architecture.config.mts`, preload, `validators/core.ts`) are being split per area: add entries to the area module, not the shared file.
-- **Integration check** — run `npm run integration-check -- <all batch branches>` (add `--e2e` when transport/UI is touched) before opening a batch and after each merge round. It merges into a throwaway worktree and runs the full gates on the combined result. Any file overlap in its matrix is a planning bug: merge those PRs or re-split them.
-- **Review before opening** — `/ship-check` (or `/code-review` + security/parity agents) per PR; for a batch, `/ship-check <branches>` runs the integration check first. Grep every consumer of a changed wire format (`e2e/mocks/`, `echo/`, `echo-local/`, `cli/`).
-- **Merge via the merge lane** (personal-account repo, so no GitHub merge queue) — `gh pr merge <n> --auto --squash`. `.github/workflows/merge-lane.yml` (`scripts/merge-lane.mjs`) updates the oldest auto-merge PR that is behind `main`, one at a time; CI re-runs on the combined result and auto-merge squashes when green. A conflicting PR gets `merge-lane:conflict` and needs a manual rebase; `merge-lane:hold` excludes a PR. `--admin` bypasses the required checks and the up-to-date rule (how green-alone/broken-together PRs landed): emergencies only. Pre-push is fast (type-check + architecture + related tests; `RESTURA_PREPUSH_FULL=1` for full coverage), so it does not guard the global coverage budget or pattern ratchets.
-- **Flakes** — fix or quarantine known flakes before parallel delivery; never retry until green silently. Log the flake (issue or PR note).
-- **Push hygiene** — `git fetch` and rebase onto `origin/main` right before pushing; push one branch at a time; never run two git or vitest processes in one worktree.
-- **Bot review rounds** — wait for CodeRabbit and Sentry to finish on every PR (including "Outside diff range" sections), fix everything in one batch, push once, reply and resolve.
-- **Ratchets** — `npm run architecture:tighten` lowers size/pattern caps to actuals; run it in maintenance (`/triage-maintenance`), not per PR. Shrinking no longer fails `architecture:check`; only exceeding does.
-- **Agent brief checklist** (any subagent that edits code): `npm run worktree:setup` first; explicit `git add <paths>` (never `-A`); `git show --stat` after each commit and before any cherry-pick (a stray `node_modules` symlink once reached main); prove tests fail first by running them against the unfixed code, and the orchestrator re-runs at least one per branch; inline snapshots only (`*.snap` is gitignored and passes locally, fails CI); tests importing `worker/` live under `worker/` (not `tests/`, which the renderer tsc covers); no push, PR, or `gh` mutations; report branch, worktree path, and SHA.
-- **Parity includes the CLI** — `cli/src/runner/executors/*` must match the app for wire protocol, auth, variable resolution, timeouts, and GraphQL shaping. A feature isn't done until app and CLI behave the same or the CLI fails explicitly (gRPC wire-protocol and auth-block features once shipped without it).
+- **Verify before done**; iterate against deterministic gates (`/fix-until-green`), not "looks done".
+- **Plan by file ownership**: two PRs touching the same non-registry file are one PR; ≤5 PRs per batch; independent PRs off `main`, stack only real dependencies (≤3).
+- **Review the combined result**: `npm run integration-check` + `/ship-check <branches>`; seam bugs are invisible per branch.
+- **Merge via the merge lane** (`gh pr merge <n> --auto --squash`); `--admin` is emergencies only and is hook-gated.
+- **Subagents that edit code**: `npm run worktree:setup`; explicit `git add <paths>`; red-first tests; no push/PR/`gh` mutations; report branch, worktree, SHA. Brief them fully — they only know the prompt.
+- **Encode fixes upward**: when a loop misses the bar, fix the skill/hook/doc, not just the instance.
 
 ## Summary instructions (for context compaction)
 

@@ -1,5 +1,6 @@
 ---
-description: 'Proactive maintenance loop body: triage dependabot PRs, security-audit findings, and skill-usage metrics in one pass. Designed for a scheduled routine (e.g. /schedule weekly) or an on-demand run.'
+name: triage-maintenance
+description: "Proactive maintenance loop body: dependabot PRs, security-audit findings, skill metrics, ratchet tightening, flake review, stale worktree pruning. Use for a scheduled/weekly sweep or 'do maintenance / triage the repo'."
 argument-hint: '[--deps | --security | --skills | --ratchets] (default: all four streams)'
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task
 ---

@@ -1,5 +1,6 @@
 ---
-description: Scaffold a new protocol across all three Restura harnesses (shared core, Worker, Electron, renderer) following the established pattern.
+name: new-protocol
+description: "Scaffold a new protocol across all Restura harnesses (shared core, Worker, Electron, renderer, CLI) following the established pattern. Use when asked to add support for a new wire protocol (e.g. SignalR, AMQP, NATS)."
 argument-hint: '<protocol-name> (e.g. amqp, signalr, redis-pubsub)'
 allowed-tools: Read, Grep, Glob, Edit, Write, Bash, Task
 effort: high

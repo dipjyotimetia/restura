@@ -1,0 +1,34 @@
+# Agentic delivery playbook
+
+How to run agentic work in this repo — loops, parallel PRs, review and merge.
+`CLAUDE.md` keeps the short version; this is the full reference. The Claude
+Code entry points are skills under `.claude/skills/` (`/batch-ship`,
+`/ship-check`, `/fix-until-green`, `/babysit-prs`, `/triage-maintenance`); the
+principles apply to any runtime.
+
+How to run agentic work in this repo (loop primitives → repo tooling):
+
+- **Verify before declaring done** — for any renderer/UI change, use the `verify-ui-change` skill (dev server + real browser + console check). An edit that compiles is not a verified change.
+- **Goal loops** — `/fix-until-green [attempts]` iterates until `npm run validate` passes with a hard cap (or `/goal make npm run validate pass, stop after 5 tries`). Deterministic exit criteria beat "looks done".
+- **Time loops** — `/babysit-prs` is one idempotent iteration of PR care (CI fixes, review comments); prefers `--auto` (merge lane) over rebase loops; drive it with `/loop 15m /babysit-prs` locally, or `subscribe_pr_activity` in remote sessions (events beat polling).
+- **Proactive loops** — `/triage-maintenance` sweeps dependabot PRs, security-audit findings, skill metrics, ratchet tightening, and flake review in one pass; pilot manually, then `/schedule` it.
+- **Pre-PR gate** — `/ship-check` fans out the review agents (`restura-security-auditor`, `restura-parity-checker`, `restura-docs-steward`) **in parallel** plus a fresh-context `/code-review`. Given several branches it runs `npm run integration-check` first.
+- **Batch delivery** — `/batch-ship` is the end-to-end recipe: file-ownership plan, ≤5 worktree agents, red-first verification, review, integration-check, auto-merge.
+- **Parallel sessions** — independent fixes get independent sessions in separate git worktrees (one topic per branch/PR); don't stack unrelated fixes serially on one branch (see *Shipping multi-PR work* below).
+- **When a loop's output misses the bar**: don't just fix the instance — encode the fix (skill, hook, command, CLAUDE.md note) so every future iteration inherits it.
+
+## Shipping multi-PR work
+
+Learned from 72 PRs in two weeks: individually-green PRs broke in the seams (two MCP PRs that together collapsed a panel; a second auth path overwriting the first; two branches both adding `{{var}}` resolution, which would have double-expanded). Plan and verify for the **combined** result.
+
+- **Plan by file ownership, not by issue** — before implementing, list each PR's files. If two PRs touch the same non-registry file, they are one PR. Batch at most 5 PRs; prefer vertical slices that wire web + desktop + CLI together. Independent PRs off `main` by default; stack only a true code dependency (≤3 layers), never a separate "integration" layer. Hot registries (protocols, capabilities, channels, `architecture.config.mts`, preload, `validators/core.ts`) are being split per area: add entries to the area module, not the shared file.
+- **Integration check** — run `npm run integration-check -- <all batch branches>` (add `--e2e` when transport/UI is touched) before opening a batch and after each merge round. It merges into a throwaway worktree and runs the full gates on the combined result. Any file overlap in its matrix is a planning bug: merge those PRs or re-split them.
+- **Review before opening** — `/ship-check` (or `/code-review` + security/parity agents) per PR; for a batch, `/ship-check <branches>` runs the integration check first. Grep every consumer of a changed wire format (`e2e/mocks/`, `echo/`, `echo-local/`, `cli/`).
+- **Merge via the merge lane** (personal-account repo, so no GitHub merge queue) — `gh pr merge <n> --auto --squash`. `.github/workflows/merge-lane.yml` (`scripts/merge-lane.mjs`) updates the oldest auto-merge PR that is behind `main`, one at a time; CI re-runs on the combined result and auto-merge squashes when green. A conflicting PR gets `merge-lane:conflict` and needs a manual rebase; `merge-lane:hold` excludes a PR. `--admin` bypasses the required checks and the up-to-date rule (how green-alone/broken-together PRs landed): emergencies only. Pre-push is fast (type-check + architecture + related tests; `RESTURA_PREPUSH_FULL=1` for full coverage), so it does not guard the global coverage budget or pattern ratchets.
+- **Flakes** — fix or quarantine known flakes before parallel delivery; never retry until green silently. Log the flake (issue or PR note).
+- **Push hygiene** — `git fetch` and rebase onto `origin/main` right before pushing; push one branch at a time; never run two git or vitest processes in one worktree.
+- **Bot review rounds** — wait for CodeRabbit and Sentry to finish on every PR (including "Outside diff range" sections), fix everything in one batch, push once, reply and resolve.
+- **Ratchets** — `npm run architecture:tighten` lowers size/pattern caps to actuals; run it in maintenance (`/triage-maintenance`), not per PR. Shrinking no longer fails `architecture:check`; only exceeding does.
+- **Agent brief checklist** (any subagent that edits code): `npm run worktree:setup` first; explicit `git add <paths>` (never `-A`); `git show --stat` after each commit and before any cherry-pick (a stray `node_modules` symlink once reached main); prove tests fail first by running them against the unfixed code, and the orchestrator re-runs at least one per branch; inline snapshots only (`*.snap` is gitignored and passes locally, fails CI); tests importing `worker/` live under `worker/` (not `tests/`, which the renderer tsc covers); no push, PR, or `gh` mutations; report branch, worktree path, and SHA.
+- **Parity includes the CLI** — `cli/src/runner/executors/*` must match the app for wire protocol, auth, variable resolution, timeouts, and GraphQL shaping. A feature isn't done until app and CLI behave the same or the CLI fails explicitly (gRPC wire-protocol and auth-block features once shipped without it).
+

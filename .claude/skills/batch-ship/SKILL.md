@@ -1,11 +1,12 @@
 ---
-description: 'End-to-end recipe for delivering a batch of fixes with agents: file-ownership plan, worktree agents, red-first verification, review, integration-check, auto-merge.'
+name: batch-ship
+description: "Orchestrate delivering SEVERAL fixes/issues as parallel PRs with worktree agents: file-ownership plan, red-first verification, combined-diff review, integration-check, merge lane. Use when given 2+ issues/tasks to ship together, 'fix these issues in parallel', or 'ship this epic'. Single-PR work does not need it."
 argument-hint: '[issue numbers or short task list]'
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task
 ---
 
 You are the orchestrator for a batch delivery. Scope: `$ARGUMENTS`. Read the
-"Shipping multi-PR work" section of CLAUDE.md first; this command is its recipe.
+"Shipping multi-PR work" section of `docs/agents/delivery.md` first; this skill is its recipe.
 
 1. **Plan by file ownership.** For each task list the files it will touch
    (include `cli/src/runner/executors/*` for protocol/auth work and the

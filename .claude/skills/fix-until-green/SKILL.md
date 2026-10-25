@@ -1,5 +1,6 @@
 ---
-description: 'Goal-based loop: iterate on the current branch until the full validate gate passes, with a hard turn cap. Deterministic exit criteria — no "looks good to me" early stops.'
+name: fix-until-green
+description: "Goal loop: iterate on the current branch until `npm run validate` (or a named gate) passes, with a hard attempt cap and deterministic exit. Use when asked to 'make CI/validate/tests pass', 'fix until green', or after a red gate."
 argument-hint: '[max attempts, default 5] [optional gate override, e.g. "test:run only"]'
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task
 ---

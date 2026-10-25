@@ -1,5 +1,6 @@
 ---
-description: Analyze .claude/metrics/skill-usage.log and recommend SKILL.md description tweaks for over/under-triggering skills — the analysis half of the skill self-improvement loop.
+name: skill-report
+description: "Analyze .claude/metrics (skill usage, subagent and stop outcomes) and recommend SKILL.md description tweaks or pruning for over/under-triggering skills. Use when asked which skills are unused, mis-triggering, or should be deleted."
 argument-hint: '[--apply] (default: report only, no edits)'
 allowed-tools: Bash, Read, Glob
 ---
