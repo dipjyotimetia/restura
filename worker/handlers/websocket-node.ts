@@ -20,9 +20,10 @@
  *     a hostile upstream can buffer multi-GB frames before our onMessage
  *     check fires and OOM the process.
  */
+
+import { Buffer } from 'node:buffer';
 import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
 import { validateWsUrl } from '@shared/protocol/websocket-proxy';
-import { Buffer } from 'node:buffer';
 import type { Context, MiddlewareHandler } from 'hono';
 import type { WSContext, WSEvents } from 'hono/ws';
 import WebSocket from 'ws';

@@ -13,7 +13,10 @@ import {
   PROXY_UPSTREAM_STATUS_HEADER,
   PROXY_UPSTREAM_STATUS_TEXT_HEADER,
 } from '@shared/protocol/proxy-limits';
-import { SET_COOKIE_SIDE_CHANNEL_HEADER } from '@shared/protocol/set-cookie';
+import {
+  SET_COOKIE_OMITTED_HEADER,
+  SET_COOKIE_SIDE_CHANNEL_HEADER,
+} from '@shared/protocol/set-cookie';
 import type { Context, Next } from 'hono';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -171,6 +174,7 @@ export function createApp(
       // SPA (VITE_WORKER_URL builds) can only read them when exposed.
       exposeHeaders: [
         SET_COOKIE_SIDE_CHANNEL_HEADER,
+        SET_COOKIE_OMITTED_HEADER,
         PROXY_CAPABILITY_HEADER,
         PROXY_STREAM_MARKER_HEADER,
         PROXY_UPSTREAM_STATUS_HEADER,
