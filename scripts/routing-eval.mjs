@@ -28,7 +28,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { load as loadYaml } from 'js-yaml';
-import { parseClaudeStream, passAtK, passHatK, wilsonInterval } from './harness-eval.mjs';
+import {
+  parseClaudeStream,
+  passAtK,
+  passHatK,
+  redactSecrets,
+  wilsonInterval,
+} from './harness-eval.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const ROUTING_CASES_PATH = path.join(ROOT, 'evals/routing/cases.yaml');
@@ -560,7 +566,16 @@ function printPlan(cases, options) {
   }
 }
 
-export async function runRoutingEval(options, exec = createTrackedExec()) {
+/**
+ * @param {ReturnType<typeof parseRoutingArgs>} options
+ * @param {{ run: Function; kill?: Function }} [exec]
+ * @param {{ env?: Record<string, string | undefined> }} [deps] env whose secrets are redacted
+ */
+export async function runRoutingEval(
+  options,
+  exec = createTrackedExec(),
+  { env = process.env } = {}
+) {
   const cases = loadRoutingCases({ split: options.split, caseIds: options.caseIds });
   if (cases.length === 0) throw new Error('no routing cases selected');
   printPlan(cases, options);
@@ -590,13 +605,20 @@ export async function runRoutingEval(options, exec = createTrackedExec()) {
     for (const c of cases) {
       for (let k = 1; k <= options.runs; k += 1) {
         process.stdout.write(`${c.id} run ${k}/${options.runs}...\n`);
-        const raw = await exec.run('claude', buildRoutingClaudeArgs(options), {
+        const unsafe = await exec.run('claude', buildRoutingClaudeArgs(options), {
           cwd: snapshot.dir,
           input: c.prompt,
           timeout: RUN_TIMEOUT_MS,
         });
+        // Redact before anything is parsed or written: the model has Read and may echo
+        // secrets (env values such as CLAUDE_CODE_OAUTH_TOKEN) into the stream.
+        const raw = {
+          ...unsafe,
+          stdout: redactSecrets(unsafe.stdout ?? '', env),
+          stderr: redactSecrets(unsafe.stderr ?? '', env),
+        };
         const transcript = path.join(transcripts, `${c.id}-run${k}.jsonl`);
-        fs.writeFileSync(transcript, raw.stdout ?? '');
+        fs.writeFileSync(transcript, raw.stdout);
         const verdict = classifyRoutingRun(raw);
         const toolStats = verdict.parsed?.toolStats ?? null;
         runs.push({
@@ -631,8 +653,9 @@ export async function runRoutingEval(options, exec = createTrackedExec()) {
     summary,
     runs,
   };
-  fs.writeFileSync(`${base}.json`, `${JSON.stringify(result, null, 2)}\n`);
-  const markdown = formatRoutingMarkdown(result);
+  // Second pass over the outputs (error reasons, invoked names come from the stream).
+  fs.writeFileSync(`${base}.json`, redactSecrets(`${JSON.stringify(result, null, 2)}\n`, env));
+  const markdown = redactSecrets(formatRoutingMarkdown(result), env);
   fs.writeFileSync(`${base}.md`, markdown);
   process.stdout.write(`\n${markdown}\nWrote ${base}.json and ${base}.md\n`);
   return { failed: runs.some((r) => r.status !== 'ok') };

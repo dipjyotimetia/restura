@@ -13,6 +13,7 @@ import {
   loadRoutingCases,
   makeSignalHandler,
   parseRoutingArgs,
+  runRoutingEval,
   SNAPSHOT_EXCLUDES,
   summariseRouting,
   validateRoutingCases,
@@ -383,4 +384,91 @@ test('createTrackedExec tracks and kills the running child', async () => {
   const res = await pending;
   assert.equal(res.signal, 'SIGTERM');
   assert.equal(exec.kill('SIGTERM'), false);
+});
+
+test('runRoutingEval redacts secrets from the injected env before anything reaches disk', async () => {
+  const token = 'sk-ant-oat01-FAKE-routing-eval-token-0123456789';
+  const env = { CLAUDE_CODE_OAUTH_TOKEN: token, PATH: '/usr/bin' };
+  const exec = {
+    run(command, args) {
+      if (command === 'git' && args.includes('rev-parse'))
+        return { status: 0, stdout: `${'e'.repeat(40)}\n`, stderr: '' };
+      if (command === 'claude') {
+        const leaky = [
+          { type: 'system', subtype: 'init', env: `CLAUDE_CODE_OAUTH_TOKEN=${token}` },
+          {
+            type: 'assistant',
+            message: {
+              content: [
+                { type: 'text', text: `the token is ${token}` },
+                { type: 'tool_use', name: 'Read', input: { file_path: `/tmp/${token}` } },
+              ],
+            },
+          },
+          {
+            type: 'result',
+            subtype: 'success',
+            result: `done ${token}`,
+            num_turns: 1,
+            total_cost_usd: 0.01,
+          },
+        ];
+        return {
+          status: 0,
+          stdout: leaky.map((l) => JSON.stringify(l)).join('\n'),
+          stderr: `warning ${token}`,
+        };
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    },
+    kill: () => false,
+  };
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-redact-test-'));
+  const origWrite = process.stdout.write;
+  let printed = '';
+  process.stdout.write = (chunk) => {
+    printed += String(chunk);
+    return true;
+  };
+  try {
+    const options = parseRoutingArgs([
+      '--case',
+      'typo-fix-not-batch',
+      '--runs',
+      '1',
+      '--out',
+      out,
+      '--config',
+      'redact',
+    ]);
+    const { failed } = await runRoutingEval(options, exec, { env });
+    assert.equal(failed, false);
+    const files = [];
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(p);
+        else files.push(p);
+      }
+    };
+    walk(out);
+    assert.ok(
+      files.some((f) => f.endsWith('.jsonl')),
+      'a transcript was written'
+    );
+    assert.ok(files.some((f) => f.endsWith('.json')) && files.some((f) => f.endsWith('.md')));
+    for (const file of files) {
+      const text = fs.readFileSync(file, 'utf8');
+      assert.ok(!text.includes(token), `token leaked into ${file}`);
+    }
+    const transcript = fs.readFileSync(
+      files.find((f) => f.endsWith('.jsonl')),
+      'utf8'
+    );
+    assert.match(transcript, /\[REDACTED:CLAUDE_CODE_OAUTH_TOKEN\]/);
+    assert.ok(!printed.includes(token), 'token leaked to stdout');
+  } finally {
+    process.stdout.write = origWrite;
+    fs.rmSync(out, { recursive: true, force: true });
+  }
 });
