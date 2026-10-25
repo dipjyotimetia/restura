@@ -583,7 +583,7 @@ CI type-checks several independent TypeScript projects — the root `tsconfig.js
 
 Run them all at once with `npm run type-check:all` (which `npm run validate` calls). Plain `npm run type-check` covers only the renderer.
 
-`npm run architecture:check` complements TypeScript with repository-level policy: runtime-neutral `shared/` cannot depend on an application, backend programs cannot depend on renderer-owned `src/`, runtime imports must be acyclic, new production files are capped at 800 lines, and legacy oversized files have exact non-growing caps. See ADR 0028.
+`npm run architecture:check` complements TypeScript with repository-level policy: runtime-neutral `shared/` cannot depend on an application, backend programs cannot depend on renderer-owned `src/`, runtime imports must be acyclic, new production files are capped at 800 lines, and legacy oversized files have exact non-growing caps. It also fails on a `*_IPC` channel that is not both handled in Electron main and exposed by preload (`ipcTriplePolicy` holds reasoned exceptions), on `electron/main` or `cli` importing `worker/`, and on `DEV_BYPASS_AUTH` in `wrangler*.json*`. See ADR 0028.
 
 ---
 

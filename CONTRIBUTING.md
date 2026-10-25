@@ -216,8 +216,10 @@ changes your branches. Other options: `--continue-on-conflict`, `--no-fetch`,
 
 ### Architecture caps
 
-`npm run architecture:check` fails only when a file exceeds its line cap or a
-ratcheted source pattern exceeds its `max`. A cap that is looser than the code
+`npm run architecture:check` fails when a file exceeds its line cap, a
+ratcheted source pattern exceeds its `max`, an `*_IPC` channel is missing its
+main handler or preload exposure (the IPC triple), or a forbidden config key
+(`DEV_BYPASS_AUTH` in `wrangler*.json*`) appears. A cap that is looser than the code
 is a warning, so you don't need to edit `scripts/architecture.config.mts` when
 you shrink a file. `npm run architecture:tighten` lowers every cap to the code
 (it never raises one). Run it now and then in its own PR so parallel PRs don't

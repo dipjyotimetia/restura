@@ -14,7 +14,7 @@ npm run build                  # Production build (SPA + Worker bundle)
 npm run preview                # Preview production build
 npm run type-check             # TypeScript strict mode — renderer only (excludes worker, electron/main, cli)
 npm run type-check:all         # Full type-check across all tsconfigs — what CI runs
-npm run architecture:check     # Enforce runtime boundaries, acyclic imports, file-size + source-pattern ratchets
+npm run architecture:check     # Enforce runtime boundaries, acyclic imports, file-size + source-pattern ratchets, IPC triple, forbidden config keys
 npm run lint                   # Biome lint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ extension/ tests/ scripts/
 npm run lint:fix               # Biome lint --write
 npm run format                 # Biome format (write)
@@ -68,6 +68,15 @@ npm run electron:pack          # Unpacked dir build (for local smoke testing)
 npm run deploy                 # Production: Worker (api.restura.dev) + Pages
 npm run deploy:preview         # Preview version + Pages preview
 npm run deploy:echo            # Deploy the echo test server (echo/wrangler.jsonc)
+
+# Agent harness (evals cost model usage; on demand only — see evals/harness/README.md, ADR 0032/0033)
+npm run eval:harness           # seam-bug review eval (--split train|test|all, --runs, --harness-ref, --save-baseline, --compare)
+npm run eval:routing           # does a realistic prompt load the right skill/agent? (evals/routing)
+npm run eval:new-case -- --from <fixPR#>   # scaffold a harness eval case from the PR that fixed a seam bug
+node scripts/build-eval.mjs    # build-loop eval: real fix-PR tasks, hidden tests; --dry-run validates tasks (evals/build/README.md)
+npm run skills:report          # skill usage, subagent and stop outcomes from .claude/metrics
+npm run verify:agent-report -- <report.json> --owned <paths> --red-first
+npm run worktree:prune         # dry run by default; removes clean, merged worktrees
 ```
 
 ## Architecture
@@ -218,7 +227,7 @@ Standalone documentation site (`@restura/docs-site`, deployed to docs.restura.de
 ## Key Technical Patterns
 
 - **Path alias** `@/` → `./src/` (configured in `tsconfig.json` and `vitest.config.ts`).
-- **Architecture boundaries** — `shared/` is the runtime-neutral dependency floor; Worker, Electron main, and CLI must not import renderer-owned `src/`. `scripts/architecture.config.mts` checks direction, runtime cycles, exact file-size ratchets, and exact source-pattern ratchets — e.g. off-scale font sizes (`text-[Npx]`, sub-11px `text-sp-*`) in `src/**/*.tsx` may only go down; lower the cap when you remove some (ADR 0028).
+- **Architecture boundaries** — `shared/` is the runtime-neutral dependency floor; Worker, Electron main, and CLI must not import renderer-owned `src/`. `scripts/architecture.config.mts` checks direction (including `electron/main` -> `worker` and `cli` -> `worker` bans), runtime cycles, exact file-size ratchets, and exact source-pattern ratchets — e.g. off-scale font sizes (`text-[Npx]`, sub-11px `text-sp-*`) in `src/**/*.tsx`, direct `localStorage` in renderer/`shared`, and inline `ipcMain` handlers without `createValidated*` may only go down; lower the cap when you remove some (ADR 0028). It also hard-fails on the **IPC triple** (every `*_IPC` channel in `electron/shared/channels/` must be handled in main and exposed by preload; preload exports typed against `ElectronAPI`; exceptions go in `ipcTriplePolicy` with a reason) and on the forbidden key `DEV_BYPASS_AUTH` in `wrangler*.json*`.
 - **Build tool**: Vite 8 + `@vitejs/plugin-react` + `@cloudflare/vite-plugin`. The Cloudflare plugin boots Miniflare during `vite dev` so one command runs both SPA and Worker. Config is `vite.config.mts` (must be ESM — the Cloudflare plugin is ESM-only).
 - **Tailwind v4** via `@tailwindcss/vite` (no separate PostCSS config).
 - **Lazy components**: `src/lib/shared/lazyComponent.tsx` wraps `React.lazy` + `Suspense` (mirrors `next/dynamic` ergonomics — `next/dynamic` was removed).
