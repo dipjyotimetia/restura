@@ -1,6 +1,7 @@
 id: kafka-preset-registry-bearer
 title: Schema Registry Bearer auth lands after connection presets, which drop authType
 origin: real
+split: test
 sourcePRs: ['#1127', '#1130']
 fixPRs: ['#1153']
 # Main right after #1130 (connection presets) merged; #1127 was developed in parallel.

@@ -1,6 +1,7 @@
 id: sse-spec-signature-seam
 title: One branch changes buildSseStreamSpec's signature, another adds a caller of the old one
 origin: synthetic
+split: test
 sourcePRs: []
 base: 68ff7139d0738df63730f81be1cfe6aeb21794e0
 seam: cross-branch

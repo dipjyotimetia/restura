@@ -5,7 +5,10 @@
 // synthetic) incident where PRs were green alone but broken together, or
 // where one harness (web Worker / Electron / CLI) was left unwired. Control
 // cases (`expectClean: true`) are real merged PRs that were genuinely fine.
-// A run rebuilds the branch(es) from patch fixtures in a throwaway worktree,
+// A run rebuilds the branch(es) from patch fixtures in a throwaway worktree
+// whose harness (.claude/skills, agents, hooks, CLAUDE.md, review scripts) is
+// first replaced by the one at --harness-ref (the "overlay" commit), so the
+// review exercises the harness under test rather than the case base's. It
 // asks the review entry point (`/ship-check --quick <branches>`) to review
 // them via `claude -p`, and grades the final answer with an LLM rubric judge
 // (evals/harness/rubric.md) plus, for defect cases, `mustMention` regexes. A
@@ -16,13 +19,15 @@
 // against the previous invocation of the same --config.
 //
 // Usage:
-//   npm run eval:harness -- [--case <id>]... [--runs N] [--config <label>]
-//     [--dry-run] [--out <dir>] [--no-judge] [--max-budget-usd <n>]
-//     [--judge-model <model>] [--compare <result.json>]
+//   npm run eval:harness -- [--case <id>]... [--split train|test|all] [--runs N]
+//     [--config <label>] [--harness-ref <ref>] [--model <model>]
+//     [--judge-model <model>] [--judge-repeat N] [--dry-run] [--out <dir>]
+//     [--no-judge] [--max-budget-usd <n>] [--compare <result-or-baseline.json>]
+//     [--save-baseline]
 //   npm run eval:harness -- --cleanup   # remove leftovers of crashed runs
 //
-// --dry-run validates every case and applies its patches (plus the combined
-// merge) in throwaway worktrees without calling any model.
+// --dry-run validates every case, applies the harness overlay and its patches
+// (plus the combined merge) in throwaway worktrees without calling any model.
 
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -36,6 +41,44 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CASES_DIR = path.join(ROOT, 'evals/harness/cases');
 export const FIXTURES_DIR = path.join(ROOT, 'evals/harness/fixtures');
 export const RUBRIC_PATH = path.join(ROOT, 'evals/harness/rubric.md');
+export const BASELINES_DIR = path.join(ROOT, 'evals/harness/baselines');
+
+/** Base-commit harness paths removed before the overlay (whatever exists). */
+export const HARNESS_REMOVE_PATHS = [
+  '.claude/skills',
+  '.claude/agents',
+  '.claude/commands',
+  '.claude/hooks',
+  '.claude/settings.json',
+  '.agents/skills',
+];
+/**
+ * Paths checked out from the harness commit, each only if it exists there.
+ * Never `.claude/worktrees`, `.claude/metrics` or `settings.local.json`.
+ */
+export const HARNESS_OVERLAY_PATHS = [
+  '.claude/skills',
+  '.claude/agents',
+  '.claude/hooks',
+  '.claude/settings.json',
+  '.agents',
+  'CLAUDE.md',
+  'AGENTS.md',
+  'docs/agents',
+  'skills-lock.json',
+  'scripts/integration-check.mjs',
+  'scripts/verify-agent-report.mjs',
+  'scripts/worktree-setup.mjs',
+  'scripts/worktree-prune.mjs',
+];
+/** The only package.json scripts the overlay merges into the base's package.json. */
+export const HARNESS_SCRIPT_KEYS = [
+  'integration-check',
+  'verify:agent-report',
+  'worktree:setup',
+  'worktree:prune',
+];
+export const DEFAULT_JUDGE_MODEL = 'sonnet';
 
 /** Branch namespace every run creates; `--cleanup` touches nothing else. */
 export const BRANCH_PREFIX = 'harness-eval/';
@@ -45,6 +88,7 @@ const TEMP_WORKTREE_RE = /(?:^|\/)restura-harness-eval-[^/]+\/worktree$/;
 const ORIGINS = ['real', 'synthetic'];
 const SEAMS = ['cross-branch', 'cross-harness', 'cross-consumer'];
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
+const SPLITS = ['train', 'test'];
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 const SHA_RE = /^[0-9a-f]{40}$/;
 const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
@@ -71,7 +115,12 @@ export function parseEvalArgs(argv) {
     cleanup: false,
     out: '.claude/metrics/evals',
     judge: true,
-    judgeModel: undefined,
+    model: undefined,
+    judgeModel: DEFAULT_JUDGE_MODEL,
+    judgeRepeat: 1,
+    harnessRef: 'HEAD',
+    split: 'all',
+    saveBaseline: false,
     maxBudgetUsd: 20,
     compare: undefined,
   };
@@ -80,7 +129,11 @@ export function parseEvalArgs(argv) {
     '--runs',
     '--config',
     '--out',
+    '--model',
     '--judge-model',
+    '--judge-repeat',
+    '--harness-ref',
+    '--split',
     '--max-budget-usd',
     '--compare',
   ];
@@ -90,6 +143,7 @@ export function parseEvalArgs(argv) {
     if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--cleanup') options.cleanup = true;
     else if (arg === '--no-judge') options.judge = false;
+    else if (arg === '--save-baseline') options.saveBaseline = true;
     else if (valued.includes(name)) {
       let value;
       if (arg.startsWith(`${name}=`)) value = arg.slice(name.length + 1);
@@ -108,8 +162,22 @@ export function parseEvalArgs(argv) {
         if (!CONFIG_RE.test(value)) throw new Error('--config must match [A-Za-z0-9._-]+');
         options.config = value;
       } else if (name === '--out') options.out = value;
+      else if (name === '--model') options.model = value;
       else if (name === '--judge-model') options.judgeModel = value;
-      else if (name === '--compare') options.compare = value;
+      else if (name === '--judge-repeat') {
+        const repeat = Number(value);
+        if (!Number.isInteger(repeat) || repeat < 1 || repeat > 3)
+          throw new Error('--judge-repeat must be an integer from 1 to 3');
+        options.judgeRepeat = repeat;
+      } else if (name === '--harness-ref') {
+        if (value.startsWith('-') || /\s/.test(value))
+          throw new Error('--harness-ref must be a git ref or commit');
+        options.harnessRef = value;
+      } else if (name === '--split') {
+        if (![...SPLITS, 'all'].includes(value))
+          throw new Error('--split must be train, test or all');
+        options.split = value;
+      } else if (name === '--compare') options.compare = value;
       else {
         const budget = Number(value);
         if (!(budget > 0)) throw new Error('--max-budget-usd must be a positive number');
@@ -117,7 +185,15 @@ export function parseEvalArgs(argv) {
       }
     } else throw new Error(`Unknown option: ${arg}`);
   }
+  if (options.saveBaseline && options.dryRun)
+    throw new Error('--save-baseline needs a real run (a dry run has nothing to record)');
   return options;
+}
+
+/** A judge grading its own model's review inflates agreement; warn when they match. */
+export function judgeModelWarning({ model, judgeModel }) {
+  if (!model || !judgeModel || model !== judgeModel) return null;
+  return `warning: the judge model (${judgeModel}) is the model under test; grades may be biased. Pass a different --judge-model.`;
 }
 
 // ---------------------------------------------------------------- case schema
@@ -184,6 +260,7 @@ export function validateCase(raw, { fileExists, fixturesDir = FIXTURES_DIR }) {
   if (typeof id !== 'string' || !ID_RE.test(id)) errors.push('id must be kebab-case');
   if (typeof raw.title !== 'string' || raw.title.trim() === '') errors.push('title is required');
   if (!ORIGINS.includes(raw.origin)) errors.push(`origin must be one of ${ORIGINS.join('|')}`);
+  if (!SPLITS.includes(raw.split)) errors.push(`split must be one of ${SPLITS.join('|')}`);
   if (raw.sourcePRs !== undefined && !isStringArray(raw.sourcePRs))
     errors.push('sourcePRs must be a list of strings');
   if (raw.origin === 'real' && !(isStringArray(raw.sourcePRs) && raw.sourcePRs.length > 0))
@@ -260,6 +337,7 @@ export function validateCase(raw, { fileExists, fixturesDir = FIXTURES_DIR }) {
       id,
       title: raw.title,
       origin: raw.origin,
+      split: raw.split,
       expectClean,
       sourcePRs: raw.sourcePRs ?? [],
       fixPRs: raw.fixPRs ?? [],
@@ -281,8 +359,27 @@ export function validateCase(raw, { fileExists, fixturesDir = FIXTURES_DIR }) {
   };
 }
 
-/** Load and validate every case (or the named ones). Throws on any invalid case. */
-export function loadCases({ casesDir = CASES_DIR, fixturesDir = FIXTURES_DIR, ids = [] } = {}) {
+/**
+ * Load and validate every case (or the named ones, within `split`). Throws on
+ * any invalid case, whatever the filter.
+ */
+export function loadCases({
+  casesDir = CASES_DIR,
+  fixturesDir = FIXTURES_DIR,
+  ids = [],
+  split = 'all',
+} = {}) {
+  const all = loadAllCases(casesDir, fixturesDir);
+  const inSplit = split === 'all' ? all : all.filter((c) => c.split === split);
+  if (ids.length === 0) return inSplit;
+  const unknown = ids.filter((id) => !all.some((c) => c.id === id));
+  if (unknown.length > 0) throw new Error(`Unknown case(s): ${unknown.join(', ')}`);
+  const outside = ids.filter((id) => !inSplit.some((c) => c.id === id));
+  if (outside.length > 0) throw new Error(`Case(s) not in split ${split}: ${outside.join(', ')}`);
+  return inSplit.filter((c) => ids.includes(c.id));
+}
+
+function loadAllCases(casesDir, fixturesDir) {
   const files = fs
     .readdirSync(casesDir)
     .filter((name) => name.endsWith('.yaml'))
@@ -301,26 +398,27 @@ export function loadCases({ casesDir = CASES_DIR, fixturesDir = FIXTURES_DIR, id
     else cases.push(result.value);
   }
   if (problems.length > 0) throw new Error(`Invalid eval cases:\n${problems.join('\n')}`);
-  if (ids.length === 0) return cases;
-  const unknown = ids.filter((id) => !cases.some((c) => c.id === id));
-  if (unknown.length > 0) throw new Error(`Unknown case(s): ${unknown.join(', ')}`);
-  return cases.filter((c) => ids.includes(c.id));
+  return cases;
 }
 
 // ---------------------------------------------------------------- prompts
 
 /**
  * The review prompt: the harness's real entry point, plus plumbing that
- * points it at the case base instead of `main`. It is identical for defect
- * and control cases and never hints at the expected outcome.
+ * points it at the effective base (the harness overlay commit on top of the
+ * case base) instead of `main`. Pointing it at the raw case base would put
+ * the overlay itself in every diff. It is identical for defect and control
+ * cases and never hints at the expected outcome.
  */
-export function buildReviewPrompt(evalCase, branchRefs) {
+export function buildReviewPrompt(_evalCase, branchRefs, effectiveBase) {
+  if (typeof effectiveBase !== 'string' || !SHA_RE.test(effectiveBase))
+    throw new Error('buildReviewPrompt needs the effective base (the harness overlay commit)');
   return [
     `/ship-check --quick ${branchRefs.join(' ')}`,
     '',
-    `Eval harness note: these branches were cut from commit ${evalCase.base}. Treat that commit as`,
+    `Eval harness note: these branches were cut from commit ${effectiveBase}. Treat that commit as`,
     '`main`/`origin/main` for every diff and gate (e.g. `git diff <base>...<branch>`, and',
-    `\`npm run integration-check -- --base ${evalCase.base} --no-fetch <branches>\`).`,
+    `\`npm run integration-check -- --base ${effectiveBase} --no-fetch <branches>\`).`,
     'Do not push, open PRs, or run gh mutations. End with your consolidated findings, ranked by',
     'severity, each with file:line.',
   ].join('\n');
@@ -380,6 +478,11 @@ export function parseClaudeJson(stdout) {
   }
   if (!parsed || typeof parsed !== 'object')
     throw new Error('could not parse claude JSON output: not an object');
+  return shapeResult(parsed);
+}
+
+/** The fields both output formats report, from a `result` envelope/event. */
+function shapeResult(parsed) {
   return {
     text: typeof parsed.result === 'string' ? parsed.result : '',
     subtype: typeof parsed.subtype === 'string' ? parsed.subtype : null,
@@ -390,6 +493,47 @@ export function parseClaudeJson(stdout) {
     sessionId: typeof parsed.session_id === 'string' ? parsed.session_id : null,
     permissionDenials: Array.isArray(parsed.permission_denials) ? parsed.permission_denials : [],
   };
+}
+
+/**
+ * Parse `claude -p --output-format stream-json --verbose` (one JSON event per
+ * line). Returns the parseClaudeJson shape, taken from the final `result`
+ * event, plus `toolStats`: every tool_use the session made, the Skill names
+ * and the Task/Agent subagent types, in order. That is the routing signal:
+ * did the review actually run the skills and agents the harness promises?
+ * Unparseable lines (a truncated tail) are skipped; a missing result throws.
+ */
+export function parseClaudeStream(stdout) {
+  let result = null;
+  const toolStats = { toolCalls: 0, skills: [], agents: [] };
+  for (const line of String(stdout ?? '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let event;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (!event || typeof event !== 'object') continue;
+    if (event.type === 'result') result = event;
+    const content = event.type === 'assistant' ? event.message?.content : null;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (block?.type !== 'tool_use') continue;
+      toolStats.toolCalls += 1;
+      const input = block.input ?? {};
+      if (block.name === 'Skill' && typeof input.skill === 'string')
+        toolStats.skills.push(input.skill);
+      if (
+        (block.name === 'Task' || block.name === 'Agent') &&
+        typeof input.subagent_type === 'string'
+      )
+        toolStats.agents.push(input.subagent_type);
+    }
+  }
+  if (!result) throw new Error('no result event in claude stream-json output');
+  return { ...shapeResult(result), toolStats };
 }
 
 /** @type {Array<[RegExp, string]>} */
@@ -404,8 +548,9 @@ const STDERR_ERRORS = [
  * must not count as a miss? Only stderr and the JSON envelope are inspected,
  * never the answer text (a review may legitimately discuss permissions).
  * @param {{ status: number | null; signal?: string | null; stdout: string; stderr?: string }} run
+ * @param {(stdout: string) => any} [parse] parseClaudeJson (default) or parseClaudeStream
  */
-export function classifyClaudeRun(run) {
+export function classifyClaudeRun(run, parse = parseClaudeJson) {
   const stderr = (run.stderr ?? '').trim();
   const firstLine = (text) => text.split('\n').find(Boolean)?.slice(0, 200) ?? '';
   if (run.signal) return { status: 'error', reason: `claude killed by signal ${run.signal}` };
@@ -415,7 +560,7 @@ export function classifyClaudeRun(run) {
     if (re.test(stderr)) return { status: 'error', reason: `${label}: ${firstLine(stderr)}` };
   let parsed;
   try {
-    parsed = parseClaudeJson(run.stdout);
+    parsed = parse(run.stdout);
   } catch (error) {
     return { status: 'error', reason: `unparseable claude JSON (${error.message.slice(0, 120)})` };
   }
@@ -472,11 +617,97 @@ export function decideCaught(evalCase, judge, deterministic) {
   return judge.caught && Boolean(deterministic?.anchorMatched);
 }
 
+/**
+ * Combine repeated judge verdicts on ONE review: caught on a strict majority
+ * (a tie is not caught), mean score, and whether the judge disagreed with
+ * itself (grader inconsistency, reported separately from reviewer flips).
+ */
+export function majorityVerdict(verdicts) {
+  const yes = verdicts.filter((v) => v.caught).length;
+  const caught = yes * 2 > verdicts.length;
+  const score =
+    Math.round((verdicts.reduce((sum, v) => sum + v.score, 0) / verdicts.length) * 100) / 100;
+  const reason = (verdicts.find((v) => v.caught === caught) ?? verdicts[0])?.reason ?? '';
+  return {
+    caught,
+    score,
+    reason,
+    verdicts,
+    disagreement: yes > 0 && yes < verdicts.length,
+  };
+}
+
 // ---------------------------------------------------------------- reporting
 
 const scored = (run) => run.status !== 'error';
+const round = (value, places = 2) =>
+  value === null || value === undefined ? null : Math.round(value * 10 ** places) / 10 ** places;
 
-/** Per-case results across repeated runs, with defect recall and control precision. */
+function choose(n, k) {
+  if (k < 0 || k > n) return 0;
+  let out = 1;
+  for (let i = 1; i <= k; i += 1) out = (out * (n - k + i)) / i;
+  return out;
+}
+
+/** Unbiased pass@k from n scored runs with c successes: 1 - C(n-c,k)/C(n,k). */
+export function passAtK(n, c, k) {
+  if (!(n > 0) || !(k > 0) || k > n) return null;
+  return 1 - choose(n - c, k) / choose(n, k);
+}
+
+/** Unbiased pass^k (all k succeed) from n scored runs with c successes: C(c,k)/C(n,k). */
+export function passHatK(n, c, k) {
+  if (!(n > 0) || !(k > 0) || k > n) return null;
+  return choose(c, k) / choose(n, k);
+}
+
+/** Wilson score interval (95% by default) for a proportion; null when n is 0. */
+export function wilsonInterval(successes, n, z = 1.96) {
+  if (!(n > 0)) return null;
+  const p = successes / n;
+  const z2 = z * z;
+  const centre = (p + z2 / (2 * n)) / (1 + z2 / n);
+  const margin = (z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / (1 + z2 / n);
+  const low = Math.max(0, centre - margin);
+  const high = Math.min(1, centre + margin);
+  return { low, high, halfWidth: (high - low) / 2 };
+}
+
+const runCost = (run) => {
+  const parts = [run.review?.costUsd, run.judgeCostUsd].filter((v) => typeof v === 'number');
+  return parts.length === 0 ? null : parts.reduce((a, b) => a + b, 0);
+};
+const runMinutes = (run) =>
+  typeof run.review?.durationMs === 'number' ? run.review.durationMs / 60000 : null;
+const mean = (values) =>
+  values.length === 0 ? null : values.reduce((a, b) => a + b, 0) / values.length;
+
+/** How often each skill / subagent ran: runs it appeared in, and total calls. */
+function aggregateToolStats(runs) {
+  const out = { runs: 0, toolCalls: 0, skills: {}, agents: {} };
+  for (const run of runs) {
+    const stats = run.review?.toolStats;
+    if (!stats) continue;
+    out.runs += 1;
+    out.toolCalls += stats.toolCalls ?? 0;
+    for (const [key, names] of [
+      ['skills', stats.skills ?? []],
+      ['agents', stats.agents ?? []],
+    ]) {
+      for (const name of new Set(names)) (out[key][name] ??= { runs: 0, calls: 0 }).runs += 1;
+      for (const name of names) out[key][name].calls += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Per-case results across repeated runs (pass@k / pass^k with k = scored
+ * runs, judge self-disagreements, mean cost and minutes), defect recall and
+ * control precision with Wilson 95% CIs, totals, a noise line and the
+ * skill/agent routing aggregate.
+ */
 export function summarise(runs) {
   const byCase = {};
   for (const run of runs) {
@@ -486,31 +717,43 @@ export function summarise(runs) {
       caught: 0,
       errors: 0,
       scores: [],
+      judgeDisagreements: 0,
+      costs: [],
+      minutes: [],
     });
+    const cost = runCost(run);
+    if (cost !== null) entry.costs.push(cost);
+    const minutes = runMinutes(run);
+    if (minutes !== null) entry.minutes.push(minutes);
     if (!scored(run)) {
       entry.errors += 1;
       continue;
     }
     entry.runs += 1;
     if (run.caught) entry.caught += 1;
+    if (run.judgeDisagreement === true) entry.judgeDisagreements += 1;
     if (typeof run.judge?.score === 'number') entry.scores.push(run.judge.score);
   }
   const cases = {};
   const recall = { caught: 0, runs: 0 };
   const controls = { clean: 0, falsePositives: 0, runs: 0 };
   let errors = 0;
+  let judgeDisagreements = 0;
   for (const [caseId, entry] of Object.entries(byCase)) {
     errors += entry.errors;
+    judgeDisagreements += entry.judgeDisagreements;
     cases[caseId] = {
       expectClean: entry.expectClean,
       runs: entry.runs,
       caught: entry.caught,
       errors: entry.errors,
       flipped: entry.caught > 0 && entry.caught < entry.runs,
-      meanScore:
-        entry.scores.length === 0
-          ? null
-          : Math.round((entry.scores.reduce((a, b) => a + b, 0) / entry.scores.length) * 100) / 100,
+      meanScore: round(mean(entry.scores)),
+      passAtK: round(passAtK(entry.runs, entry.caught, entry.runs), 4),
+      passHatK: round(passHatK(entry.runs, entry.caught, entry.runs), 4),
+      judgeDisagreements: entry.judgeDisagreements,
+      meanCostUsd: round(mean(entry.costs)),
+      meanMinutes: round(mean(entry.minutes)),
     };
     if (entry.expectClean) {
       controls.runs += entry.runs;
@@ -521,13 +764,44 @@ export function summarise(runs) {
       recall.caught += entry.caught;
     }
   }
-  return { cases, recall, controls, errors };
+  recall.rate = recall.runs > 0 ? recall.caught / recall.runs : null;
+  recall.ci = wilsonInterval(recall.caught, recall.runs);
+  controls.rate = controls.runs > 0 ? controls.clean / controls.runs : null;
+  controls.ci = wilsonInterval(controls.clean, controls.runs);
+  const totals = {
+    costUsd: round(runs.reduce((sum, r) => sum + (runCost(r) ?? 0), 0)),
+    minutes: round(runs.reduce((sum, r) => sum + (runMinutes(r) ?? 0), 0)),
+    runs: runs.length,
+  };
+  const noise = {
+    flippedCases: Object.values(cases).filter((c) => c.flipped).length,
+    recallHalfWidth: recall.ci?.halfWidth ?? null,
+  };
+  return {
+    cases,
+    recall,
+    controls,
+    errors,
+    judgeDisagreements,
+    totals,
+    noise,
+    toolStats: aggregateToolStats(runs),
+  };
 }
 
-/** Cases whose caught rate (over scored runs) changed between two invocations. */
+/** Per-case summaries from a full result (`runs`) or a committed baseline (`cases`). */
+function caseSummaries(resultOrBaseline) {
+  if (Array.isArray(resultOrBaseline?.runs)) return summarise(resultOrBaseline.runs).cases;
+  return resultOrBaseline?.cases ?? {};
+}
+
+/**
+ * Cases whose caught rate (over scored runs) changed between two invocations.
+ * Either side may be a full result or a summary-only baseline.
+ */
 export function diffFlips(previous, current) {
-  const before = summarise(previous.runs).cases;
-  const after = summarise(current.runs).cases;
+  const before = caseSummaries(previous);
+  const after = caseSummaries(current);
   const flips = [];
   for (const caseId of Object.keys(after).sort()) {
     const b = before[caseId];
@@ -547,20 +821,76 @@ export function diffFlips(previous, current) {
   return flips;
 }
 
+/**
+ * The committed, summary-only form of a result: configuration, per-case
+ * summary and the headline rates with CIs. No review text, judge reasons or
+ * transcripts, so it is safe to check in.
+ */
+export function buildBaseline(result) {
+  const summary = summarise(result.runs);
+  return {
+    kind: 'harness-eval-baseline',
+    config: result.config,
+    harnessSha: result.harnessSha ?? null,
+    startedAt: result.startedAt,
+    runsPerCase: result.runsPerCase,
+    model: result.model ?? null,
+    judgeModel: result.judgeModel ?? null,
+    judgeRepeat: result.judgeRepeat ?? 1,
+    split: result.split ?? 'all',
+    cases: summary.cases,
+    recall: summary.recall,
+    controls: summary.controls,
+    errors: summary.errors,
+    judgeDisagreements: summary.judgeDisagreements,
+    totals: summary.totals,
+    noise: summary.noise,
+    toolStats: summary.toolStats,
+  };
+}
+
+/** Where `--save-baseline` writes: `<dir>/<YYYY-MM-DD>--<config>.json`. */
+export function baselinePath(result, dir = BASELINES_DIR) {
+  return path.join(dir, `${result.startedAt.slice(0, 10)}--${result.config}.json`);
+}
+
 const cell = (value) =>
   String(value ?? '')
     .replace(/\\/g, '\\\\')
     .replace(/\|/g, '\\|')
     .replace(/\n/g, ' ');
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
+const pct = (value) =>
+  value === null || value === undefined ? 'n/a' : `${Math.round(value * 100)}%`;
+const ciText = (ci) => (ci ? `95% CI ${pct(ci.low)}-${pct(ci.high)}` : '95% CI n/a');
+const fixed = (value, places) =>
+  value === null || value === undefined ? 'n/a' : value.toFixed(places);
+
+function harnessLine(result) {
+  const parts = [];
+  if (result.harnessSha)
+    parts.push(
+      `Harness ${result.harnessSha.slice(0, 12)}${result.harnessRef ? ` (${result.harnessRef})` : ''}, overlaid on every case base`
+    );
+  if (!result.dryRun) {
+    parts.push(`reviewer model ${result.model ?? 'CLI default'}`);
+    parts.push(
+      `judge ${result.judgeModel ?? 'CLI default'}${(result.judgeRepeat ?? 1) > 1 ? ` x${result.judgeRepeat}` : ''}`
+    );
+  }
+  if (result.split && result.split !== 'all') parts.push(`split ${result.split}`);
+  return parts.length > 0 ? `${parts.join('; ')}.` : null;
+}
 
 export function formatSummaryMarkdown(result, flips, comparedTo) {
   const lines = [
     `# Harness eval: ${result.config}`,
     '',
     `Started ${result.startedAt}${result.dryRun ? ' (dry run: no model calls)' : ''}.`,
-    '',
   ];
+  const harness = harnessLine(result);
+  if (harness) lines.push(harness);
+  lines.push('');
   if (result.dryRun) {
     lines.push('| case | patches apply | combined merge | error |', '|---|---|---|---|');
     for (const run of result.runs)
@@ -570,16 +900,20 @@ export function formatSummaryMarkdown(result, flips, comparedTo) {
     return `${lines.join('\n')}\n`;
   }
   const summary = summarise(result.runs);
+  const { recall, controls, noise, totals } = summary;
   lines.push(
-    `Recall on defect cases: ${summary.recall.caught}/${summary.recall.runs} scored runs caught the seam defect.`,
-    `Controls: ${summary.controls.clean}/${summary.controls.runs} clean, ${plural(summary.controls.falsePositives, 'false positive')}.`,
-    `Harness errors (excluded from both): ${summary.errors}.`,
+    `Recall on defect cases: ${recall.caught}/${recall.runs} scored runs caught the seam defect (${pct(recall.rate)}, ${ciText(recall.ci)}).`,
+    `Controls: ${controls.clean}/${controls.runs} clean, ${plural(controls.falsePositives, 'false positive')} (precision ${pct(controls.rate)}, ${ciText(controls.ci)}).`,
+    `Harness errors (excluded from both): ${summary.errors}. Judge self-disagreements: ${summary.judgeDisagreements}.`,
+    `Noise: ${plural(noise.flippedCases, 'case')} flipped within this invocation; recall CI half-width ±${noise.recallHalfWidth === null ? 'n/a' : `${Math.round(noise.recallHalfWidth * 100)} pts`}. Do not act on a config difference smaller than the half-width; add runs or cases.`,
+    `Totals: $${fixed(totals.costUsd, 2)} and ${fixed(totals.minutes, 1)} min over ${plural(totals.runs, 'run')} (review + judge).`,
     '',
     '"caught" for a control means the review reported no high/medium defect in its files. ' +
+      'pass@k / pass^k use k = scored runs (pass@k: at least one run caught it; pass^k: every run did). ' +
       'judge-only / pattern-only count scored runs where just one grader said caught.',
     '',
-    '| case | type | caught | errors | flipped | mean judge score | judge-only | pattern-only | cost USD | minutes |',
-    '|---|---|---|---|---|---|---|---|---|---|'
+    '| case | type | caught | errors | flipped | pass@k | pass^k | mean judge score | judge-only | pattern-only | judge disagreements | mean cost USD | mean minutes | transcripts |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|'
   );
   for (const [caseId, entry] of Object.entries(summary.cases)) {
     const runs = result.runs.filter((r) => r.caseId === caseId);
@@ -590,11 +924,32 @@ export function formatSummaryMarkdown(result, flips, comparedTo) {
     const patternOnly = entry.expectClean
       ? 'n/a'
       : ok.filter((r) => !r.judgeCaught && r.patternCaught).length;
-    const cost = runs.reduce((sum, r) => sum + (r.review?.costUsd ?? 0), 0);
-    const minutes = runs.reduce((sum, r) => sum + (r.review?.durationMs ?? 0), 0) / 60000;
+    const transcripts =
+      runs
+        .filter((r) => r.transcript)
+        .map((r) => `[${r.run}](${r.transcript})`)
+        .join(' ') || 'none';
     lines.push(
-      `| ${caseId} | ${entry.expectClean ? 'control' : 'defect'} | ${entry.caught}/${entry.runs} | ${entry.errors} | ${entry.flipped ? 'YES' : 'no'} | ${entry.meanScore ?? 'n/a'} | ${judgeOnly} | ${patternOnly} | ${cost.toFixed(2)} | ${minutes.toFixed(1)} |`
+      `| ${caseId} | ${entry.expectClean ? 'control' : 'defect'} | ${entry.caught}/${entry.runs} | ${entry.errors} | ${entry.flipped ? 'YES' : 'no'} | ${fixed(entry.passAtK, 2)} | ${fixed(entry.passHatK, 2)} | ${entry.meanScore ?? 'n/a'} | ${judgeOnly} | ${patternOnly} | ${entry.judgeDisagreements} | ${fixed(entry.meanCostUsd, 2)} | ${fixed(entry.meanMinutes, 1)} | ${transcripts} |`
     );
+  }
+  const { toolStats } = summary;
+  if (toolStats.runs > 0) {
+    lines.push(
+      '',
+      `## Routing (skills and subagents across ${plural(toolStats.runs, 'review run')}, ${toolStats.toolCalls} tool calls)`,
+      ''
+    );
+    const routed = [
+      ...Object.entries(toolStats.skills).map(([name, s]) => ['skill', name, s]),
+      ...Object.entries(toolStats.agents).map(([name, s]) => ['agent', name, s]),
+    ];
+    if (routed.length === 0) lines.push('No Skill or Task/Agent calls were made.');
+    else {
+      lines.push('| kind | name | runs | calls |', '|---|---|---|---|');
+      for (const [kind, name, s] of routed)
+        lines.push(`| ${kind} | ${cell(name)} | ${s.runs}/${toolStats.runs} | ${s.calls} |`);
+    }
   }
   const errored = result.runs.filter((r) => !scored(r));
   if (errored.length > 0) {
@@ -700,11 +1055,92 @@ const IDENTITY = [
   'user.email=harness-eval@localhost',
 ];
 
-async function must(exec, args, what) {
-  const result = await exec.run('git', args);
+async function must(exec, args, what, opts) {
+  const result = await (opts ? exec.run('git', args, opts) : exec.run('git', args));
   if (result.status !== 0)
     throw new Error(`${what} failed: ${(result.stderr || result.stdout || '').trim()}`);
   return result;
+}
+
+/**
+ * Merge ONLY the harness script keys (HARNESS_SCRIPT_KEYS) from the harness
+ * package.json into the base's. Everything else of the base is kept; when
+ * nothing changes the base text is returned byte-for-byte, otherwise it is
+ * re-serialised as 2-space JSON with a trailing newline (the repo's format).
+ */
+export function mergePackageScripts(baseText, harnessText) {
+  let base;
+  let harness;
+  try {
+    base = JSON.parse(baseText);
+    harness = JSON.parse(harnessText);
+  } catch {
+    return baseText;
+  }
+  if (!base || typeof base !== 'object' || !harness || typeof harness !== 'object') return baseText;
+  let changed = false;
+  for (const key of HARNESS_SCRIPT_KEYS) {
+    const value = harness.scripts?.[key];
+    if (typeof value !== 'string' || base.scripts?.[key] === value) continue;
+    base.scripts = base.scripts ?? {};
+    base.scripts[key] = value;
+    changed = true;
+  }
+  return changed ? `${JSON.stringify(base, null, 2)}\n` : baseText;
+}
+
+/**
+ * Replace the case base's harness with the one at `harnessSha` and commit it,
+ * so the review runs the skills, agents, hooks, CLAUDE.md and review scripts
+ * under test rather than whatever the (often months-old) case base shipped.
+ * The worktree must be checked out at the case base. Returns the overlay
+ * commit (`effectiveBase`): branches are cut from it and the review treats it
+ * as `main`.
+ */
+export async function overlayHarness(exec, worktree, harnessSha) {
+  const git = (args, what, opts) =>
+    must(exec, ['-C', worktree, ...args], `harness overlay: ${what}`, opts);
+  await git(
+    ['rm', '-r', '-q', '--ignore-unmatch', '--', ...HARNESS_REMOVE_PATHS],
+    'remove base harness'
+  );
+  const present = [];
+  for (const p of HARNESS_OVERLAY_PATHS) {
+    const probe = await exec.run('git', ['-C', worktree, 'cat-file', '-e', `${harnessSha}:${p}`]);
+    if (probe.status === 0) present.push(p);
+  }
+  if (present.length > 0) await git(['checkout', harnessSha, '--', ...present], 'checkout');
+  const harnessPkg = await exec.run('git', ['-C', worktree, 'show', `${harnessSha}:package.json`]);
+  const basePkg = await exec.run('git', ['-C', worktree, 'show', 'HEAD:package.json']);
+  if (harnessPkg.status === 0 && basePkg.status === 0) {
+    const merged = mergePackageScripts(basePkg.stdout, harnessPkg.stdout);
+    if (merged !== basePkg.stdout) {
+      const blob = (
+        await git(['hash-object', '-w', '--stdin'], 'hash package.json', { input: merged })
+      ).stdout.trim();
+      await git(
+        ['update-index', '--cacheinfo', `100644,${blob},package.json`],
+        'stage package.json'
+      );
+      await git(['checkout', '--', 'package.json'], 'write package.json');
+    }
+  }
+  await git(
+    [
+      ...IDENTITY,
+      'commit',
+      '-q',
+      '--no-verify',
+      '--allow-empty',
+      '-m',
+      `harness overlay @ ${harnessSha.slice(0, 12)}`,
+    ],
+    'commit'
+  );
+  const effectiveBase = (await git(['rev-parse', 'HEAD'], 'resolve commit')).stdout.trim();
+  if (!SHA_RE.test(effectiveBase))
+    throw new Error(`harness overlay: unexpected commit id ${effectiveBase}`);
+  return { harnessSha, effectiveBase };
 }
 
 const why = (result) => (result.stderr || result.stdout || `exit ${result.status}`).trim();
@@ -757,7 +1193,8 @@ export async function cleanupTrackedAsync(exec, repo, tracker) {
  * mirrors what exists so a signal handler can clean up mid-run.
  * @param {any} evalCase validated case
  * @param {{ exec: { run: Function }; repo: string; tempDir: string; runId: string; dryRun: boolean;
- *   judge?: boolean; rubric?: string; judgeModel?: string; maxBudgetUsd?: number;
+ *   harnessSha: string; judge?: boolean; rubric?: string; model?: string; judgeModel?: string;
+ *   judgeRepeat?: number; maxBudgetUsd?: number; transcriptFile?: string; transcriptLink?: string;
  *   setup?: (worktree: string) => void; tracker?: { worktree: string | null; branches: string[] } }} ctx
  */
 export async function runCase(evalCase, ctx) {
@@ -784,10 +1221,15 @@ export async function runCase(evalCase, ctx) {
       'worktree add'
     );
     tracker.worktree = worktree;
+    if (typeof ctx.harnessSha !== 'string' || !SHA_RE.test(ctx.harnessSha))
+      throw new Error('runCase needs ctx.harnessSha (the resolved --harness-ref)');
+    const { effectiveBase } = await overlayHarness(exec, worktree, ctx.harnessSha);
+    outcome.harnessSha = ctx.harnessSha;
+    outcome.effectiveBase = effectiveBase;
     for (const [index, branch] of evalCase.branches.entries()) {
       await must(
         exec,
-        ['-C', worktree, 'checkout', '-q', '--detach', evalCase.base],
+        ['-C', worktree, 'checkout', '-q', '--detach', effectiveBase],
         'checkout base'
       );
       await must(exec, ['-C', worktree, 'checkout', '-q', '-b', refs[index]], 'create branch');
@@ -819,7 +1261,7 @@ export async function runCase(evalCase, ctx) {
     // The seam must be semantic: the branches have to merge cleanly.
     await must(
       exec,
-      ['-C', worktree, 'checkout', '-q', '--detach', evalCase.base],
+      ['-C', worktree, 'checkout', '-q', '--detach', effectiveBase],
       'checkout base'
     );
     outcome.combinedMerge = 'clean';
@@ -856,12 +1298,16 @@ export async function runCase(evalCase, ctx) {
     const reviewArgs = [
       '-p',
       '--output-format',
-      'json',
+      'stream-json',
+      '--verbose',
       '--no-session-persistence',
       '--max-budget-usd',
       String(ctx.maxBudgetUsd ?? 20),
       '--permission-mode',
       'dontAsk',
+    ];
+    if (ctx.model) reviewArgs.push('--model', ctx.model);
+    reviewArgs.push(
       '--allowedTools',
       'Bash',
       'Read',
@@ -871,15 +1317,20 @@ export async function runCase(evalCase, ctx) {
       'Skill',
       '--disallowedTools',
       'Bash(git push:*)',
-      'Bash(gh:*)',
-    ];
-    const reviewRun = classifyClaudeRun(
-      await exec.run('claude', reviewArgs, {
-        cwd: worktree,
-        input: buildReviewPrompt(evalCase, refs),
-        timeout: REVIEW_TIMEOUT_MS,
-      })
+      'Bash(gh:*)'
     );
+    const rawReview = await exec.run('claude', reviewArgs, {
+      cwd: worktree,
+      input: buildReviewPrompt(evalCase, refs, effectiveBase),
+      timeout: REVIEW_TIMEOUT_MS,
+    });
+    if (ctx.transcriptFile) {
+      // Written before classification so errored runs keep their transcript too.
+      fs.mkdirSync(path.dirname(ctx.transcriptFile), { recursive: true });
+      fs.writeFileSync(ctx.transcriptFile, rawReview.stdout ?? '');
+      outcome.transcript = ctx.transcriptLink ?? ctx.transcriptFile;
+    }
+    const reviewRun = classifyClaudeRun(rawReview, parseClaudeStream);
     if (reviewRun.parsed) outcome.review = reviewRun.parsed;
     if (reviewRun.status === 'error') throw new Error(`review: ${reviewRun.reason}`);
     const reviewText = reviewRun.parsed.text;
@@ -895,23 +1346,35 @@ export async function runCase(evalCase, ctx) {
         '--no-session-persistence',
         '--tools',
         '',
+        '--model',
+        ctx.judgeModel ?? DEFAULT_JUDGE_MODEL,
       ];
-      if (ctx.judgeModel) judgeArgs.push('--model', ctx.judgeModel);
-      const judgeRun = classifyClaudeRun(
-        await exec.run('claude', judgeArgs, {
-          cwd: tempDir,
-          input: buildJudgePrompt({ rubric: ctx.rubric ?? '', evalCase, reviewText }),
-          timeout: JUDGE_TIMEOUT_MS,
-        })
-      );
-      if (judgeRun.status === 'error') throw new Error(`judge: ${judgeRun.reason}`);
-      outcome.judgeCostUsd = judgeRun.parsed.costUsd;
-      try {
-        outcome.judge = parseJudgeVerdict(judgeRun.parsed.text);
-      } catch (error) {
-        throw new Error(`judge: ${error.message}`);
+      const repeat = ctx.judgeRepeat ?? 1;
+      const verdicts = [];
+      let judgeCost = null;
+      for (let attempt = 1; attempt <= repeat; attempt += 1) {
+        const judgeRun = classifyClaudeRun(
+          await exec.run('claude', judgeArgs, {
+            cwd: tempDir,
+            input: buildJudgePrompt({ rubric: ctx.rubric ?? '', evalCase, reviewText }),
+            timeout: JUDGE_TIMEOUT_MS,
+          })
+        );
+        if (judgeRun.status === 'error') throw new Error(`judge: ${judgeRun.reason}`);
+        if (typeof judgeRun.parsed.costUsd === 'number')
+          judgeCost = (judgeCost ?? 0) + judgeRun.parsed.costUsd;
+        try {
+          verdicts.push(parseJudgeVerdict(judgeRun.parsed.text));
+        } catch (error) {
+          throw new Error(`judge: ${error.message}`);
+        }
       }
+      outcome.judgeCostUsd = judgeCost;
+      const { disagreement, ...majority } = majorityVerdict(verdicts);
+      outcome.judge = majority;
+      outcome.judgeDisagreement = disagreement;
     }
+
     outcome.judgeCaught = outcome.judge ? outcome.judge.caught : null;
     outcome.patternCaught = outcome.deterministic ? outcome.deterministic.anchorMatched : null;
     outcome.caught = decideCaught(evalCase, outcome.judge, outcome.deterministic);
@@ -973,19 +1436,39 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   const repo = (
     await exec.run('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT })
   ).stdout.trim();
-  const cases = loadCases({ ids: options.caseIds });
+  const cases = loadCases({ ids: options.caseIds, split: options.split ?? 'all' });
   const rubric = options.dryRun ? '' : fs.readFileSync(RUBRIC_PATH, 'utf8');
   const startedAt = new Date().toISOString();
   const stamp = startedAt.replace(/[:.]/g, '-');
   const runs = options.dryRun ? 1 : options.runs;
+  // Resolve the harness under test ONCE so every case and run overlays the same commit.
+  const harnessRef = options.harnessRef ?? 'HEAD';
+  const resolved = await exec.run('git', ['rev-parse', '--verify', `${harnessRef}^{commit}`], {
+    cwd: ROOT,
+  });
+  const harnessSha = resolved.stdout.trim();
+  if (resolved.status !== 0 || !SHA_RE.test(harnessSha))
+    throw new Error(`--harness-ref ${harnessRef} does not resolve to a commit`);
+  const judgeModel = options.judgeModel ?? DEFAULT_JUDGE_MODEL;
+  const judgeRepeat = options.judgeRepeat ?? 1;
+  const warning = options.dryRun ? null : judgeModelWarning({ model: options.model, judgeModel });
+  if (warning) log(warning);
   const result = {
     config: options.config,
     startedAt,
     dryRun: options.dryRun,
-    harnessSha: (await exec.run('git', ['rev-parse', 'HEAD'], { cwd: ROOT })).stdout.trim(),
+    harnessRef,
+    harnessSha,
+    model: options.model ?? null,
+    judgeModel: options.judge === false ? null : judgeModel,
+    judgeRepeat,
+    split: options.split ?? 'all',
     runsPerCase: runs,
     runs: [],
   };
+  const outDir = path.resolve(ROOT, options.out);
+  const base = path.join(outDir, `${stamp}${options.dryRun ? '--dry-run' : ''}--${options.config}`);
+  const transcriptsDir = path.join(base, 'transcripts');
 
   // Ctrl-C / kill mid-run: stop the child, remove this run's worktree and
   // branches (the same cleanup `finally` does), exit non-zero.
@@ -1006,30 +1489,37 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   process.on('SIGTERM', onSignal);
 
   try {
-    if (!options.dryRun)
-      log(`Running ${cases.length} case(s) x ${runs} run(s) with config "${options.config}".`);
+    log(
+      `${options.dryRun ? 'Dry run of' : 'Running'} ${cases.length} case(s) x ${runs} run(s) with config "${options.config}", harness ${harnessSha.slice(0, 12)} (${harnessRef}).`
+    );
     for (const evalCase of cases) {
       for (let run = 1; run <= runs; run += 1) {
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `${TEMP_PREFIX}${evalCase.id}-`));
         log(`${evalCase.id} run ${run}/${runs}…`);
+        const transcriptName = `${evalCase.id}-run${run}.jsonl`;
         const outcome = await runCase(evalCase, {
           exec,
           repo,
           tempDir,
           runId: `${stamp}-${run}`.toLowerCase(),
           dryRun: options.dryRun,
+          harnessSha,
           judge: options.judge,
           rubric,
-          judgeModel: options.judgeModel,
+          model: options.model,
+          judgeModel,
+          judgeRepeat,
           maxBudgetUsd: options.maxBudgetUsd,
+          transcriptFile: options.dryRun ? undefined : path.join(transcriptsDir, transcriptName),
+          transcriptLink: `${path.basename(base)}/transcripts/${transcriptName}`,
           tracker,
         });
         fs.rmSync(tempDir, { recursive: true, force: true });
         tempDir = null;
-        result.runs.push({ run, origin: evalCase.origin, ...outcome });
+        result.runs.push({ run, origin: evalCase.origin, split: evalCase.split, ...outcome });
         log(
           options.dryRun
-            ? `  patches ${outcome.applied ? 'apply' : 'FAIL'}; combined merge ${outcome.combinedMerge ?? 'n/a'}${outcome.reason ? `; ${outcome.reason}` : ''}`
+            ? `  overlay ${outcome.effectiveBase ? outcome.effectiveBase.slice(0, 12) : 'FAIL'}; patches ${outcome.applied ? 'apply' : 'FAIL'}; combined merge ${outcome.combinedMerge ?? 'n/a'}${outcome.reason ? `; ${outcome.reason}` : ''}`
             : outcome.status === 'error'
               ? `  harness error: ${outcome.reason}`
               : `  caught=${outcome.caught} (judge=${outcome.judgeCaught}, pattern=${outcome.patternCaught})`
@@ -1045,12 +1535,11 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
     process.removeListener('SIGTERM', onSignal);
   }
 
-  const outDir = path.resolve(ROOT, options.out);
   fs.mkdirSync(outDir, { recursive: true });
-  const base = path.join(outDir, `${stamp}${options.dryRun ? '--dry-run' : ''}--${options.config}`);
   let flips;
   let comparedTo;
   if (!options.dryRun) {
+    // Either a full result or a committed baseline (diffFlips accepts both).
     const previousFile = options.compare ?? latestResult(outDir, options.config, `${base}.json`);
     if (previousFile && fs.existsSync(previousFile)) {
       flips = diffFlips(JSON.parse(fs.readFileSync(previousFile, 'utf8')), result);
@@ -1062,6 +1551,12 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   fs.writeFileSync(`${base}.md`, markdown);
   log(`\n${markdown}`);
   log(`Wrote ${base}.json and ${base}.md`);
+  if (options.saveBaseline && !options.dryRun) {
+    const file = baselinePath(result);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${JSON.stringify(buildBaseline(result), null, 2)}\n`);
+    log(`Wrote baseline ${path.relative(ROOT, file)} (summary only; commit it)`);
+  }
   const failed =
     result.runs.some((r) => r.cleanupFailed) ||
     (options.dryRun

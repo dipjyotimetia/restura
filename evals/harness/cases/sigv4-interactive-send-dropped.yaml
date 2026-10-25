@@ -1,6 +1,7 @@
 id: sigv4-interactive-send-dropped
 title: SigV4 moves to sign-at-wire, but the interactive Send path builds its own request and never forwards auth
 origin: real
+split: train
 sourcePRs: ['c6c751c2 (pushed without a PR)']
 fixPRs: ['115b64f1', '0ef20dc7']
 base: 2b6b3b58f8c87554b2c663f535b4b33720ab4821

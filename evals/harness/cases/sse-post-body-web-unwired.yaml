@@ -1,6 +1,7 @@
 id: sse-post-body-web-unwired
 title: SSE request body (POST streams) wired to Electron only; web silently sends GET
 origin: synthetic
+split: train
 sourcePRs: []
 base: 68ff7139d0738df63730f81be1cfe6aeb21794e0
 seam: cross-harness
