@@ -231,6 +231,7 @@ interface ConnectServerStreamArgs {
   /** The request message, already parsed into a schema message via inputFromJson. */
   input: unknown;
   headers: Record<string, string>;
+  /** 0 = no deadline. */
   timeoutMs: number;
 }
 
@@ -272,7 +273,9 @@ function startConnectServerStream<TIn, TOut>(
       const stream = invoke(args.input, {
         headers: args.headers,
         signal: controller.signal,
-        timeoutMs: args.timeoutMs,
+        // connect-es treats timeoutMs <= 0 as an already-expired deadline;
+        // "no deadline" (0) means omit it.
+        timeoutMs: args.timeoutMs > 0 ? args.timeoutMs : undefined,
         onHeader: (h: Headers) => {
           header = h;
         },
