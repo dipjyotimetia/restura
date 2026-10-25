@@ -136,6 +136,11 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@shared': path.resolve(__dirname, './shared'),
+      // Same as vite.config.mts: monaco's `exports` map cannot resolve the
+      // `esm/vs/*` deep imports in src/lib/shared/monaco-setup.ts. Without it
+      // `vitest related` (which pre-resolves the whole graph) fails the gRPC
+      // request-builder suites that lazy-load the editor.
+      'monaco-editor/esm/vs': path.resolve(__dirname, './node_modules/monaco-editor/esm/vs'),
       // cloudflare:sockets is a runtime-only Cloudflare Workers API; stub it in tests
       'cloudflare:sockets': path.resolve(__dirname, './tests/__mocks__/cloudflare-sockets.ts'),
     },
