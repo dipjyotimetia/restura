@@ -14,5 +14,10 @@ test.describe('Desktop HAR import', () => {
     await expect(dialog.getByText('Checkout', { exact: true })).toBeVisible();
     await dialog.getByRole('button', { name: 'Import selected requests' }).click();
     await expect(page.getByText('POST /orders', { exact: true }).first()).toBeVisible();
+
+    // The import dialog stays open on its success state; the window is shared,
+    // and an open modal makes the rest of the app inert for the next spec.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
   });
 });

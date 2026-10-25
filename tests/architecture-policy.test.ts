@@ -8,6 +8,7 @@ import {
   type ArchitecturePolicy,
   countSourcePatterns,
   evaluateArchitecture,
+  evaluateArchitectureReport,
 } from '../scripts/architecture-policy.mts';
 import {
   inspectSource,
@@ -171,10 +172,14 @@ describe('evaluateArchitecture', () => {
     ]);
   });
 
-  it('requires a grandfathered cap to decrease when its file shrinks', () => {
-    const violations = evaluateArchitecture([file('src/legacy.ts', [], 999)], policy);
+  it('only warns (never fails) when a grandfathered file shrinks below its cap', () => {
+    const { violations, warnings } = evaluateArchitectureReport(
+      [file('src/legacy.ts', [], 999)],
+      policy
+    );
 
-    expect(violations).toEqual([
+    expect(violations).toEqual([]);
+    expect(warnings).toEqual([
       expect.objectContaining({
         rule: 'stale-file-size-ratchet',
         file: 'src/legacy.ts',
@@ -184,7 +189,7 @@ describe('evaluateArchitecture', () => {
     ]);
   });
 
-  it('ratchets source pattern counts summed across files, in both directions', () => {
+  it('fails source pattern counts above the cap and only warns below it', () => {
     const ratchetPolicy: ArchitecturePolicy = {
       ...policy,
       sourcePatternRatchets: [
@@ -201,7 +206,8 @@ describe('evaluateArchitecture', () => {
     expect(evaluateArchitecture(withCounts([2, 2]), ratchetPolicy)).toEqual([
       expect.objectContaining({ rule: 'pattern-ratchet', actual: 4, limit: 3 }),
     ]);
-    expect(evaluateArchitecture(withCounts([1]), ratchetPolicy)).toEqual([
+    expect(evaluateArchitecture(withCounts([1]), ratchetPolicy)).toEqual([]);
+    expect(evaluateArchitectureReport(withCounts([1]), ratchetPolicy).warnings).toEqual([
       expect.objectContaining({ rule: 'stale-pattern-ratchet', actual: 1, limit: 3 }),
     ]);
   });

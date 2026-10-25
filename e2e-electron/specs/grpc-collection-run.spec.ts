@@ -85,5 +85,10 @@ test.describe('Desktop gRPC collection run (#871)', () => {
     await expect(dialog.getByText('2 passed')).toBeVisible({ timeout: 20_000 });
     await expect(dialog.getByText('Echo via proto snapshot')).toBeVisible();
     await expect(dialog.getByText('Echo via reflection fallback')).toBeVisible();
+
+    // The window is shared across specs: a left-open modal dialog makes the rest
+    // of the app inert (aria-hidden), breaking whichever spec runs next.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
   });
 });

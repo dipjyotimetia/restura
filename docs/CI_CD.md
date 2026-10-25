@@ -17,6 +17,7 @@ secret scanning, required reviewers, secrets).
 | **CI**                    | `.github/workflows/ci.yml`                       | PR + push to `main`                      | Type-check, lint, format, codegen gates, unit/integration tests, build, bundle size, e2e (web + Electron), docs build, PR preview deploy.                               |
 | **CodeQL**                | _GitHub default setup_ (no workflow file)        | PR + push to `main`, weekly              | SAST over `javascript-typescript`. Managed in **Settings → Code security → Code scanning**, not a committed workflow.                                                   |
 | **Scorecard**             | `.github/workflows/scorecard.yml`                | push to `main`, weekly, branch-prot edit | OpenSSF supply-chain posture score + badge.                                                                                                                             |
+| **Merge lane**            | `.github/workflows/merge-lane.yml`               | push to `main`, CI completion, auto-merge enabled, every 30 min, manual | Keeps one auto-merge PR at a time up to date with `main` so its required checks run on the real tip (see [Merging](#merging-the-merge-lane)). |
 | **Dependency Review**     | `.github/workflows/dependency-review.yml`        | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                                                |
 | **Security Audit**        | `.github/workflows/security-audit.yml`           | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                                                           |
 | **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml`    | PR (Dependabot only)                     | Approves (as restura-bot) and auto-merges patch/minor dependency updates once required checks pass (see §4).                                                            |
@@ -89,14 +90,28 @@ rules_) for `main`:
   production builds run in `validate-static-build`, and Dependabot auto-merge
   waits only on required checks.
 
+  **Skipped jobs count as passing.** A job skipped by its job-level `if:` (for
+  example the e2e jobs when the `Detect app changes` job reports `app=false`, or
+  the Electron jobs on Dependabot PRs) reports a successful required check. So
+  the e2e checks below can be required without blocking docs-only PRs.
+
   Recommended-but-heavier (enable once you're comfortable with their runtime /
   flakiness budget):
 
-  | Optional check                                          | From                  |
-  | ------------------------------------------------------- | --------------------- |
-  | `Playwright E2E (shard 1/2)` + `2/2`                    | CI / `e2e`            |
-  | `Electron desktop E2E`                                  | CI / `e2e-electron`   |
-  | `Electron pack smoke (ubuntu-latest)` (+ macos/windows) | CI / `electron-smoke` |
+  | Optional check (exact check name)      | From                           |
+  | -------------------------------------- | ------------------------------ |
+  | `Playwright E2E (shard 1/2)`           | CI / `e2e`                     |
+  | `Playwright E2E (shard 2/2)`           | CI / `e2e`                     |
+  | `Electron desktop E2E`                 | CI / `e2e-electron`            |
+  | `Electron critical-path coverage`      | CI / `electron-critical-coverage` |
+  | `Electron pack smoke (ubuntu-latest)`  | CI / `electron-smoke`          |
+  | `Electron pack smoke (macos-latest)`   | CI / `electron-smoke`          |
+  | `Electron pack smoke (windows-latest)` | CI / `electron-smoke`          |
+  | `Extension build + E2E`                | CI / `e2e-extension`           |
+
+  `Vitest (shard 1/2)` / `(2/2)` need not be required: `validate` fails when
+  either shard fails. Leave `VS Code extension integration` optional (it
+  downloads VS Code and can flake).
 
   > Do **not** require `Deploy preview` — it is skipped on forked PRs by design,
   > and a required check that never runs blocks the merge.
@@ -253,6 +268,82 @@ requests` error.
   dispatch (or `openwiki --init` run locally and committed) to seed the
   `openwiki/` directory — the scheduled job only handles incremental `--update`
   diffs.
+
+---
+
+## Merging: the merge lane
+
+GitHub's merge queue is only available to organization-owned repositories, so
+Restura uses a **serialized merge lane** instead. The goal is the same: no PR
+merges unless its required checks ran on top of everything merged before it.
+PRs that were green alone used to break `main` together because each PR's CI
+had run against an older `main`.
+
+How it works:
+
+1. The `main` ruleset requires checks to pass **and the branch to be up to
+   date** with `main` (strict required checks).
+2. You merge with **`gh pr merge <n> --auto --squash`** (or the "Enable
+   auto-merge" button). Nothing merges until the required checks are green on
+   an up-to-date branch.
+3. `merge-lane.yml` runs `scripts/merge-lane.mjs` on every push to `main`, when
+   CI completes, when auto-merge is enabled, every 30 minutes, and on manual
+   dispatch. It picks **one** PR at a time:
+   - If an auto-merge PR is already up to date and its checks are still running
+     (or it is mergeable and about to land), it waits.
+   - Otherwise it updates the oldest auto-merge PR (by when auto-merge was
+     enabled) that is behind `main` (`PUT /pulls/{n}/update-branch`), so its CI
+     re-runs on the current tip. PRs whose review is still required, drafts,
+     fork PRs, and PRs labelled `merge-lane:hold` are skipped.
+   - A PR that conflicts with `main` is labelled `merge-lane:conflict` and
+     gets one comment asking for a manual rebase. The label is removed when it
+     no longer conflicts.
+4. Auto-merge squash-merges the PR once green. The push to `main` triggers the
+   lane again and the next PR is updated.
+
+A PR whose checks fail on the updated branch stays open (with auto-merge
+still enabled) and the lane moves on; push a fix and it rejoins.
+
+Requirements and safety:
+
+- Uses the **restura-bot** GitHub App token (`RELEASE_PR_APP_ID` /
+  `RELEASE_PR_APP_PRIVATE_KEY`), scoped to `contents: write` +
+  `pull-requests: write`. A push made with `GITHUB_TOKEN` would not trigger CI
+  on the updated PR. Without the secrets the lane logs a warning and does
+  nothing.
+- It never checks out or runs PR code: the only checkout is
+  `scripts/merge-lane.mjs` from the default branch, without persisted
+  credentials. `pull_request_target` is used only as a wake-up signal.
+- Preview the plan without acting: **Actions → Merge lane → Run workflow** with
+  `dry_run`, or locally `node scripts/merge-lane.mjs --repo dipjyotimetia/restura --dry-run`
+  (needs `gh auth`).
+
+**`gh pr merge --admin` bypasses the required checks and the up-to-date
+requirement.** Use it only in an emergency (for example, a broken `main` that
+blocks every PR), and expect to run `npm run integration-check` or wait for the
+next `main` CI run to confirm the result.
+
+### Before you queue related PRs
+
+Run the combined gates locally on the branches you plan to merge:
+
+```bash
+npm run integration-check -- origin/feat/a origin/feat/b [--base origin/main] [--e2e] [--keep]
+```
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md#testing-several-branches-together) for
+the output and options.
+
+## Local hooks and guardrails
+
+| Guardrail | Where | What it does |
+| --- | --- | --- |
+| Staged-file guard | `.husky/pre-commit` → `scripts/guard-staged.mjs` | Rejects new symlinks (relative `.claude/skills/*` links allowed), `node_modules` paths, `.dev.vars`, `*.snap` (gitignored, so absent in CI), and added lines containing a machine-local absolute repo path. |
+| lint-staged | `.husky/pre-commit` | Biome check/format on staged files; `--no-errors-on-unmatched` so commits that only stage Biome-ignored files pass. |
+| Fast pre-push | `.husky/pre-push` | `type-check`, `architecture:check`, and `vitest related` for files changed since the merge-base with `origin/main`. `RESTURA_PREPUSH_FULL=1 git push` runs the full `test:coverage` instead. Full coverage is enforced by CI on every PR and re-run on the up-to-date branch by the merge lane. |
+| Worktree setup | `npm run worktree:setup [-- <path>] [--hooks]` | Links every installed `node_modules` from the main checkout, copies `.dev.vars`, checks the links are gitignored, and reports (or with `--hooks`, fixes) worktrees that run the main checkout's hooks. |
+| Integration check | `npm run integration-check -- <branch...>` | Merges branches onto a fresh base in a throwaway worktree, prints the file-overlap matrix, runs the gates on the result. Never pushes. |
+| Architecture caps | `npm run architecture:check` / `architecture:tighten` | Caps fail only when exceeded; looser-than-code caps are warnings. `architecture:tighten` lowers them to the code (never raises). |
 
 ---
 
