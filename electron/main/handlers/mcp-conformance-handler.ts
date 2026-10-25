@@ -1,3 +1,4 @@
+import { isMcpOAuthFlow } from '@shared/protocol/mcp-auth';
 import type { McpConformanceDeps, McpEra } from '@shared/protocol/mcp-conformance';
 import { runMcpConformance } from '@shared/protocol/mcp-conformance';
 import { createLogger } from '@shared/runtime/logger';
@@ -9,6 +10,11 @@ import { errorMessage } from '../ipc/ipc-utils';
 import { createValidatedEventHandler, McpConformanceSchema } from '../ipc/ipc-validators';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
+  materializeMcpConnectAuth,
+  needsMcpConnectAuth,
+  redactDeep,
+} from '../security/mcp-connect-auth';
+import {
   assertPinnedFetchCanHonorPolicy,
   createPolicyPinnedFetch,
 } from '../security/policy-transport';
@@ -19,6 +25,9 @@ import { connectMcpSdkClient, type McpSdkClient } from './mcp-sdk-client';
 const log = createLogger('mcp-conformance');
 
 const REQUEST_TIMEOUT_MS = 30_000;
+/** Conformance probes are non-interactive: no browser sign-in. */
+export const CONFORMANCE_OAUTH_UNSUPPORTED =
+  'Conformance runs can’t use the interactive MCP OAuth sign-in. Use a bearer/API-key credential (or an OAuth access token) to check an authenticated server.';
 /** Whole run (both eras, every request) is bounded regardless of server behaviour. */
 export const CONFORMANCE_TOTAL_DEADLINE_MS = 120_000;
 
@@ -94,16 +103,36 @@ export function registerMcpConformanceIPC(): void {
             runs.delete(deadId);
           });
           const deadline = setTimeout(() => run.controller.abort(), CONFORMANCE_TOTAL_DEADLINE_MS);
+          let redact = (text: string) => text;
           try {
+            // Fail closed: never downgrade a configured-auth endpoint to an anonymous probe.
+            if (isMcpOAuthFlow(config.auth)) throw new Error(CONFORMANCE_OAUTH_UNSUPPORTED);
             const policyConfig = resolveMcpExecutionPolicy(config);
             assertPinnedFetchCanHonorPolicy(policyConfig);
             const pinned = await resolveSafeAddress(policyConfig.url, {
               ...getExecutionPolicy().security,
             });
             const pinnedFetch = createPolicyPinnedFetch(policyConfig, pinned);
+            // Same main-side materialiser as mcp:connect (#896), after the SSRF
+            // guard so a blocked URL never triggers a keychain/vault lookup.
+            // Header only: the pinned URL is never changed.
+            let headers = config.headers ?? {};
+            if (needsMcpConnectAuth(config)) {
+              try {
+                const materialized = await materializeMcpConnectAuth(
+                  { url: policyConfig.url, headers, auth: config.auth },
+                  run.controller.signal
+                );
+                headers = materialized.headers;
+                redact = materialized.redact;
+              } catch (err) {
+                // Materializer errors are plaintext-free by construction.
+                throw new Error(`MCP auth setup failed: ${errorMessage(err)}`);
+              }
+            }
             const transportOptions = {
               fetch: pinnedFetch as (url: string | URL, init?: RequestInit) => Promise<Response>,
-              requestInit: { headers: config.headers ?? {} },
+              requestInit: { headers },
             };
 
             const deps: McpConformanceDeps = {
@@ -155,12 +184,13 @@ export function registerMcpConformanceIPC(): void {
               sampleCalls: config.sampleCalls,
               approvedTools: config.approvedTools,
               target: policyConfig.url,
-              secrets: Object.values(config.headers ?? {}),
+              // Resolved header values stay in main; the engine scrubs them from the report.
+              secrets: Object.values(headers),
               signal: run.controller.signal,
             });
-            return { success: true as const, report };
+            return { success: true as const, report: redactDeep(report, redact) };
           } catch (err) {
-            const message = errorMessage(err);
+            const message = redact(errorMessage(err));
             log.warn('conformance run failed', { error: message });
             return { success: false as const, error: message };
           } finally {

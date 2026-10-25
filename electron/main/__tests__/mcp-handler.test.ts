@@ -130,7 +130,13 @@ vi.mock('@modelcontextprotocol/client', () => ({
   },
 }));
 
-import { mcpRateLimiter, registerMcpHandlerIPC, stopMcpCleanup } from '../handlers/mcp-handler';
+import { McpClientRequestBridge } from '../handlers/mcp-client-requests';
+import {
+  mcpRateLimiter,
+  mcpRequestRateLimiter,
+  registerMcpHandlerIPC,
+  stopMcpCleanup,
+} from '../handlers/mcp-handler';
 import { setExecutionPolicy } from '../security/execution-policy';
 
 type IpcHandler = (event: unknown, payload: unknown) => Promise<Record<string, unknown>>;
@@ -442,7 +448,7 @@ describe('mcp-handler (SDK-backed)', () => {
         requestId: 3,
       });
       await vi.waitFor(() => expect(seen.signal).toBeDefined());
-      for (let i = 0; i < 70; i++) mcpRateLimiter.check(9047);
+      for (let i = 0; i < 700; i++) mcpRequestRateLimiter.check(9047);
       await expect(
         handlerFor('mcp:request')(owner.event, { connectionId: 'c', method: 'ping' })
       ).rejects.toThrow();
@@ -948,6 +954,67 @@ describe('mcp-handler (SDK-backed)', () => {
     }
     const overflow = await connect({ connectionId: 'conn-overflow' });
     expect(overflow).toEqual({ success: false, error: 'Too many open MCP connections.' });
+  });
+
+  describe('rate budgets', () => {
+    it('keeps mcp:request on its own budget, so an exhausted connect budget never blocks requests', async () => {
+      const owner = makeTrustedEvent(9101);
+      await handlerFor('mcp:connect')(owner.event, {
+        connectionId: 'c',
+        url: 'https://mcp.example.com/mcp',
+        transport: 'streamable-http',
+      });
+      for (let i = 0; i < 70; i++) mcpRateLimiter.check(9101);
+      // More requests than the 60/min connect budget, as a collection run would send.
+      for (let i = 0; i < 100; i++) {
+        const res = await handlerFor('mcp:request')(owner.event, {
+          connectionId: 'c',
+          method: 'tools/list',
+        });
+        expect(res.success).toBe(true);
+      }
+      const connect = await handlerFor('mcp:connect')(owner.event, {
+        connectionId: 'c2',
+        url: 'https://mcp.example.com/mcp',
+        transport: 'streamable-http',
+      });
+      expect(connect).toEqual({ success: false, error: 'Rate limit exceeded.' });
+    });
+
+    it('never lets request traffic starve connect', async () => {
+      const owner = makeTrustedEvent(9102);
+      for (let i = 0; i < 700; i++) mcpRequestRateLimiter.check(9102);
+      await expect(
+        handlerFor('mcp:request')(owner.event, { connectionId: 'c', method: 'ping' })
+      ).rejects.toThrow();
+      const connect = await handlerFor('mcp:connect')(owner.event, {
+        connectionId: 'c',
+        url: 'https://mcp.example.com/mcp',
+        transport: 'streamable-http',
+      });
+      expect(connect).toEqual({ success: true });
+    });
+  });
+
+  it('stopMcpCleanup forgets stored roots and rejects prompts parked on any bridge', async () => {
+    const owner = makeTrustedEvent(9201);
+    await handlerFor('mcp:set-roots')(owner.event, {
+      connectionId: 'conn-r',
+      roots: [{ uri: 'file:///tmp/project' }],
+    });
+    const before = new McpClientRequestBridge('conn-r', 9201);
+    expect(before.listRoots().roots).toEqual([{ uri: 'file:///tmp/project' }]);
+    const parked = before.elicit(
+      { message: 'ok?', requestedSchema: { type: 'object', properties: {} } },
+      new AbortController().signal
+    );
+
+    await stopMcpCleanup();
+
+    await expect(parked).rejects.toMatchObject({ message: 'MCP connection closed' });
+    const after = new McpClientRequestBridge('conn-r', 9201);
+    expect(after.listRoots().roots).toEqual([]);
+    after.dispose();
   });
 
   it('stopMcpCleanup closes every session', async () => {

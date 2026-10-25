@@ -125,7 +125,10 @@ export async function executeGrpcProxy(
     ...sanitizeRequestHeaders(spec.metadata),
   };
 
-  const timeout = spec.timeout ?? DEFAULT_TIMEOUT_MS;
+  const timeout =
+    typeof spec.timeout === 'number' && Number.isFinite(spec.timeout) && spec.timeout > 0
+      ? spec.timeout
+      : DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
 

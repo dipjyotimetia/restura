@@ -62,6 +62,9 @@ function presetConnection(conn: KafkaConnection): KafkaPresetConnection {
   };
   // Only password and static-token SASL fit a preset. OAuth client-credentials,
   // AWS MSK IAM and GSSAPI are SecretRef/profile-backed and are re-entered on open.
+  // Likewise a Schema Registry bearer token held as a keychain handle / external
+  // ref is not copied (only inline strings are); the registry authType is kept so
+  // Connect reports "Missing Schema Registry bearer token" rather than a 401.
   if (isKafkaStaticOAuthSasl(auth.sasl)) {
     out.sasl = {
       mechanism: 'OAUTHBEARER',
@@ -82,6 +85,7 @@ function presetConnection(conn: KafkaConnection): KafkaPresetConnection {
   if (conn.registry) {
     out.registry = {
       url: conn.registry.url,
+      ...(conn.registry.authType ? { authType: conn.registry.authType } : {}),
       ...(conn.registry.auth?.username !== undefined
         ? { username: conn.registry.auth.username }
         : {}),
@@ -156,6 +160,7 @@ export function applyKafkaPreset(connectionId: string, preset: KafkaRequest): vo
     registry: c.registry
       ? {
           url: c.registry.url,
+          ...(c.registry.authType ? { authType: c.registry.authType } : {}),
           ...(c.registry.username !== undefined ? { auth: { username: c.registry.username } } : {}),
         }
       : undefined,
