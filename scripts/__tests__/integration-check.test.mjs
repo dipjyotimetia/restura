@@ -78,3 +78,10 @@ test('formats an aligned table', () => {
     ].join('\n')
   );
 });
+
+test('--gates accepts a space-separated list', () => {
+  assert.deepEqual(parseIntegrationArgs(['a', '--gates', 'lint,type-check']).gates, [
+    'lint',
+    'type-check',
+  ]);
+});

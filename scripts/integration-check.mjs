@@ -76,7 +76,11 @@ export function parseIntegrationArgs(argv) {
     else if (arg === '--keep') options.keep = true;
     else if (arg === '--continue-on-conflict') options.continueOnConflict = true;
     else if (arg === '--no-fetch') options.fetch = false;
-    else if (arg.startsWith('--gates='))
+    else if (arg === '--gates') {
+      const value = argv[++index];
+      if (!value || value.startsWith('--')) throw new Error('--gates needs a comma list');
+      options.gates = value.split(',').filter(Boolean);
+    } else if (arg.startsWith('--gates='))
       options.gates = arg.slice('--gates='.length).split(',').filter(Boolean);
     else if (arg.startsWith('--')) throw new Error(`Unknown option: ${arg}`);
     else options.branches.push(arg);
@@ -158,7 +162,13 @@ function runGate(script, cwd, logFile) {
     shell: process.platform === 'win32',
   });
   fs.closeSync(fd);
-  return { ok: result.status === 0, seconds: Math.round((Date.now() - started) / 1000) };
+  return {
+    ok: result.status === 0,
+    // spawnSync blocks the event loop, so a process-level SIGINT listener never
+    // runs; the terminal delivers Ctrl-C to the child and we see it here.
+    interrupted: result.signal === 'SIGINT' || result.status === 130,
+    seconds: Math.round((Date.now() - started) / 1000),
+  };
 }
 
 export function integrate(options, log = console.log) {
@@ -274,9 +284,11 @@ export function integrate(options, log = console.log) {
         const logFile = path.join(logDir, `${steps.at(-1).replace(/[^\w.-]+/g, '_')}.log`);
         log(`Running ${name}…`);
         let outcome = { ok: true, seconds: 0 };
+        let interrupted = false;
         for (const step of steps) {
           const stepOutcome = runGate(step, worktree, logFile);
           outcome = { ok: stepOutcome.ok, seconds: outcome.seconds + stepOutcome.seconds };
+          interrupted = stepOutcome.interrupted;
           if (!stepOutcome.ok) break;
         }
         if (!outcome.ok) failed = true;
@@ -285,6 +297,10 @@ export function integrate(options, log = console.log) {
           outcome.ok ? `PASS (${outcome.seconds}s)` : `FAIL (${outcome.seconds}s)`,
           logFile,
         ]);
+        if (interrupted) {
+          log('Interrupted; skipping remaining gates.');
+          break;
+        }
       }
     }
   } finally {

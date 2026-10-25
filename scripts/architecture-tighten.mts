@@ -45,6 +45,13 @@ function literalSpan(source: string, key: string): { start: number; end: number 
   let quote: string | undefined;
   for (let index = start; index < source.length; index += 1) {
     const char = source[index];
+    // Line comments may hold apostrophes or brackets; skip to end of line.
+    if (!quote && char === '/' && source[index + 1] === '/') {
+      const newline = source.indexOf('\n', index);
+      if (newline < 0) return undefined;
+      index = newline;
+      continue;
+    }
     // Brackets inside string literals (regex sources, names) do not nest.
     if (quote) {
       if (char === '\\') index += 1;

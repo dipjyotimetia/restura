@@ -125,7 +125,10 @@ export function parseAddedLines(patch) {
     const isHeader = line.startsWith('+++ ') && previous.startsWith('--- ');
     previous = line;
     if (isHeader) {
-      current = line === '+++ /dev/null' ? undefined : line.slice(4).replace(/^b\//, '');
+      current =
+        line === '+++ /dev/null'
+          ? undefined
+          : line.slice(4).replace(/\t.*$/, '').replace(/^b\//, '');
       if (current && !added.has(current)) added.set(current, []);
     } else if (current && line.startsWith('+')) {
       added.get(current)?.push(line.slice(1));
@@ -171,6 +174,9 @@ function collectEntries(cwd) {
       ? parseAddedLines(
           git(
             [
+              // Unquoted paths so the +++ header keys match raw-diff paths.
+              '-c',
+              'core.quotePath=false',
               'diff',
               '--cached',
               '-U0',
@@ -178,7 +184,7 @@ function collectEntries(cwd) {
               '--no-ext-diff',
               '--no-renames',
               '--',
-              ...scanned.map((e) => e.path),
+              ...scanned.map((e) => `:(literal)${e.path}`),
             ],
             cwd
           )

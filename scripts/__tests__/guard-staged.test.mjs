@@ -114,3 +114,8 @@ test('collects only added lines per file from a zero-context patch', () => {
     'b.md': ['hello'],
   });
 });
+
+test('parseAddedLines strips the trailing tab git adds for paths with spaces', () => {
+  const patch = ['--- a/My Notes.md\t', '+++ b/My Notes.md\t', '@@ -0,0 +1 @@', '+hi'].join('\n');
+  assert.deepEqual(Object.fromEntries(parseAddedLines(patch)), { 'My Notes.md': ['hi'] });
+});

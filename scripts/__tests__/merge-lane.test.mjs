@@ -118,3 +118,14 @@ test('parses lane arguments', () => {
   assert.throws(() => parseLaneArgs(['--repo', 'nope']), /owner\/name/);
   assert.throws(() => parseLaneArgs(['--bogus']), /Unknown argument/);
 });
+
+test('an UNSTABLE PR with failed checks does not occupy the lane', () => {
+  const plan = planLane([pr(1, { mergeStateStatus: 'UNSTABLE', checksState: 'FAILURE' }), pr(2)]);
+  assert.equal(plan.action, 'update');
+  assert.equal(plan.pr?.number, 2);
+});
+
+test('UNKNOWN mergeability keeps the conflict label', () => {
+  const plan = planLane([pr(1, { mergeStateStatus: 'UNKNOWN', labels: [CONFLICT_LABEL] })]);
+  assert.deepEqual(plan.resolvedConflicts, []);
+});

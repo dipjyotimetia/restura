@@ -28,6 +28,8 @@ const UP_TO_DATE = new Set(['CLEAN', 'BLOCKED', 'UNSTABLE', 'HAS_HOOKS']);
 /** Up to date and GitHub is about to (or may) merge it via auto-merge. */
 const MERGEABLE_NOW = new Set(['CLEAN', 'UNSTABLE', 'HAS_HOOKS']);
 const CHECKS_RUNNING = new Set(['PENDING', 'EXPECTED']);
+/** Rollup states where auto-merge cannot finish without a new push. */
+const CHECKS_FAILED = new Set(['FAILURE', 'ERROR']);
 
 /**
  * @typedef {object} LanePr
@@ -84,7 +86,12 @@ export function planLane(prs) {
     (pr) => pr.mergeStateStatus === 'DIRTY' && !pr.labels.includes(CONFLICT_LABEL)
   );
   const resolvedConflicts = eligible.filter(
-    (pr) => pr.mergeStateStatus !== 'DIRTY' && pr.labels.includes(CONFLICT_LABEL)
+    // UNKNOWN is GitHub still computing mergeability, not "resolved": dropping
+    // the label then would re-label and re-comment on the next run.
+    (pr) =>
+      pr.mergeStateStatus !== 'DIRTY' &&
+      pr.mergeStateStatus !== 'UNKNOWN' &&
+      pr.labels.includes(CONFLICT_LABEL)
   );
   const base = { newConflicts, resolvedConflicts };
 
@@ -93,7 +100,9 @@ export function planLane(prs) {
   const occupant = eligible.find(
     (pr) =>
       UP_TO_DATE.has(pr.mergeStateStatus) &&
-      (CHECKS_RUNNING.has(pr.checksState ?? '') || MERGEABLE_NOW.has(pr.mergeStateStatus))
+      (CHECKS_RUNNING.has(pr.checksState ?? '') ||
+        // A failed up-to-date PR (UNSTABLE) cannot land; do not let it block the lane.
+        (MERGEABLE_NOW.has(pr.mergeStateStatus) && !CHECKS_FAILED.has(pr.checksState ?? '')))
   );
   if (occupant) {
     return {
@@ -174,7 +183,7 @@ function gh(args, input) {
   return execFileSync('gh', args, {
     encoding: 'utf8',
     input,
-    stdio: ['pipe', 'pipe', 'inherit'],
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
 }
 
@@ -251,11 +260,12 @@ function run({ repo, dryRun }) {
           `expected_head_sha=${pr.headRefOid}`,
         ]);
       } catch (error) {
-        // 422: head moved or GitHub could not merge. The next lane run sees
-        // the new state; failing the job would only add noise.
-        console.warn(
-          `update-branch for #${pr.number} failed: ${error instanceof Error ? error.message : error}`
-        );
+        const message = error instanceof Error ? error.message : String(error);
+        // 422: head moved or GitHub could not merge; the next lane run sees the
+        // new state. Anything else (403 permissions, 5xx) must fail the job so
+        // a stuck lane is visible instead of silently green.
+        if (!/HTTP 422|\b422\b/.test(message)) throw error;
+        console.warn(`update-branch for #${pr.number} failed: ${message}`);
       }
     });
   }

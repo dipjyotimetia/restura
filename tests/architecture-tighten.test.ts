@@ -36,6 +36,19 @@ const config = `export const architecturePolicy = {
 `;
 
 describe('tightenConfigSource', () => {
+  it("ignores apostrophes and brackets in // comments (don't misparse the block)", () => {
+    const commented = config.replace(
+      '  grandfatheredFileLines: {',
+      "  grandfatheredFileLines: { // it's [tracked] here"
+    );
+    const { source } = tightenConfigSource(commented, {
+      fileLines: { 'shared/big.ts': 1000 },
+      patternCounts: {},
+      maxNewProductionFileLines: 800,
+    });
+    expect(source).toContain("'shared/big.ts': 1_000");
+  });
+
   it('lowers caps to actual values, removes fitting/missing entries, keeps comments', () => {
     const { source, changes } = tightenConfigSource(config, {
       maxNewProductionFileLines: 800,
