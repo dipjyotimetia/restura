@@ -1,0 +1,34 @@
+id: cli-graphql-get-parity
+title: GraphQL GET in the app and OpenCollection, but the CLI still sends a JSON body that GET drops
+origin: real
+sourcePRs: ['#1109']
+fixPRs: ['#1161']
+base: 79fa502c7340d364fb999b8965f8675bbefed907
+seam: cross-harness
+branches:
+  - name: feat/graphql-get
+    patches:
+      - 01-opencollection-graphql-method.patch
+      - 02-graphql-get-wire.patch
+expected:
+  defect: >-
+    Seeded CLI defect (present in the CLI at the base commit, exposed by this branch). The branch
+    makes OpenCollection import yield `method: 'GET'` for GraphQL items (graphqlMethodFromOC) and
+    teaches the app to send GET with query / variables / operationName as URL params
+    (buildGraphQLWireRequest). The CLI HTTP executor, executeHttp in
+    cli/src/runner/executors/http.ts, is unchanged: it still builds a JSON envelope body for every
+    GraphQL item regardless of method, and for GET the shared executeHttpProxy drops the body
+    without moving its fields into the URL. So `restura run` sends imported GraphQL GET items with
+    no query at all. A review that says the CLI sends GraphQL GET without the query (or that the
+    CLI ignores the GET method for GraphQL) has caught it; how to fix it is out of scope.
+  files:
+    - cli/src/runner/executors/http.ts
+  symbols: [executeHttp, executeHttpProxy, graphqlMethodFromOC, buildGraphQLWireRequest]
+mustMention:
+  - '(executors/http(\.ts)?|executeHttp)'
+  - '(?-i:\bGET\b)'
+  - '(\bquery ?(string|params?)\b|\bURL\b|\bsearch ?params?\b|\bno query\b|\bmissing query\b|\bbody\b[^\n]{0,40}\b(dropped|drops|ignored|discarded|lost)\b)'
+mustNotMiss: medium
+notes: >-
+  Minimised. graphqlHttp.ts keeps only the wire builder (incremental delivery, progress and
+  multipart parts of #1109 elided) and protocol.ts only the toExecutable change.

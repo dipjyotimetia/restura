@@ -1,0 +1,32 @@
+id: clean-cli-esm-require
+title: 'Control: give the CLI ESM bundle a require so restura starts again'
+origin: real
+expectClean: true
+sourcePRs: ['#1155']
+# Main just before #1155. Later commits touched cli/package.json only for dependency bumps;
+# cli/tsup.config.ts and the smoke scripts are unchanged on main.
+base: f86d9671fd40df67857317631570f44e0b59905b
+# The patch is exactly `git diff base..sourceCommit` (the #1155 merge commit).
+sourceCommit: 921c38fe4143cbe570cd2cbd7d356cfcab293f2d
+seam: none
+branches:
+  - name: fix/cli-esm-require-banner
+    patches: [01-cli-esm-require.patch]
+expected:
+  summary: >-
+    Published restura-cli 1.10.0-1.13.0 crashed on startup: the bundled
+    @opentelemetry/sdk-trace-node calls require('async_hooks') at load time and the tsup ESM
+    bundle has no require. The change moves the tsup flags into cli/tsup.config.ts with a
+    createRequire banner (same entry, format, target, clean and tsconfig as the old CLI flags),
+    and adds a `smoke` script that runs the built binary with --version and --help, wired into
+    build:workspaces so CI catches a CLI that does not start. Build tooling only; no runtime,
+    protocol or harness behaviour changes.
+  files:
+    - cli/tsup.config.ts
+    - cli/package.json
+    - package.json
+notes: >-
+  The whole merged PR, unmodified. Replaces the earlier clean-timeline-flush-cost control
+  (#1157), whose tailWithinByteCap estimates raw input size rather than the stored (redacted)
+  size and so can skip events that would fit; that is arguable as a defect, so it is not an
+  unambiguous control.

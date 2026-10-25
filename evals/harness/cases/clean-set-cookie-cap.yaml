@@ -1,0 +1,28 @@
+id: clean-set-cookie-cap
+title: 'Control: cap the streaming Set-Cookie side channel and report omitted cookies'
+origin: real
+expectClean: true
+sourcePRs: ['#1158']
+# Main just before #1158. No later commit touches the files below.
+base: f26b7ae6bbf0421da87ac5702e7e577aabb26270
+# The patch is exactly `git diff base..sourceCommit` (the #1158 merge commit).
+sourceCommit: f2adfdec17cee70b30f7336584984d773aa0f706
+seam: none
+branches:
+  - name: fix/set-cookie-side-channel-cap
+    patches: [01-set-cookie-cap.patch]
+expected:
+  summary: >-
+    Web streaming responses carry upstream Set-Cookie values to the renderer in a side-channel
+    header. That header had no size cap and could exceed header limits with many cookies. The
+    change caps it in shared/protocol/set-cookie.ts, reports how many cookies were omitted, wires
+    the cap into the Worker proxy (worker/handlers/proxy.ts, worker/app.ts) and the Node
+    WebSocket entry, and shows the omission in the Network tab. The side channel exists only on
+    the web/self-host path, so there is no Electron counterpart to update.
+  files:
+    - shared/protocol/set-cookie.ts
+    - worker/handlers/proxy.ts
+    - worker/app.ts
+    - worker/handlers/websocket-node.ts
+    - src/features/http/components/NetworkConsole/NetworkTab.tsx
+notes: The whole merged PR, unmodified (tests included). No follow-up fix exists on main.

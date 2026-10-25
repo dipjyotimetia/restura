@@ -1,0 +1,371 @@
+diff --git a/electron/main/handlers/grpc-connect.ts b/electron/main/handlers/grpc-connect.ts
+index 5b8ac7b1..33f385a7 100644
+--- a/electron/main/handlers/grpc-connect.ts
++++ b/electron/main/handlers/grpc-connect.ts
+@@ -95,14 +95,13 @@ function transportBaseUrl(url: string, dial: PinnedDial): string {
+   return `${useTls ? 'https' : 'http'}://${new URL(url).hostname}:${dial.port}`;
+ }
+ 
+-// Shared baseUrl + Node http2/tls options for both transport flavours. The
+-// request's trust material (custom CA / mTLS / verify toggle) maps onto Node's
+-// options, with SNI + cert hostname check kept on the real hostname.
+-function buildNodeTransportBase(
+-  url: string,
+-  dial: PinnedDial,
+-  tls?: GrpcTlsConfig
+-): { baseUrl: string; nodeOptions: Record<string, unknown> } {
++// Shared baseUrl + Node http2/tls options + size caps for both transport
++// flavours. The request's trust material (custom CA / mTLS / verify toggle) maps
++// onto Node's options, with SNI + cert hostname check kept on the real hostname.
++// readMaxBytes (SEC-G1, #929) replaces connect's ~4 GiB default: it is checked
++// per message on the envelope length prefix BEFORE buffering, and handed to
++// gzip/brotli as maxOutputLength (decompression bombs) → RESOURCE_EXHAUSTED.
++function buildNodeTransportBase(url: string, dial: PinnedDial, tls?: GrpcTlsConfig) {
+   const host = new URL(url).hostname;
+   const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
+   const baseUrl = transportBaseUrl(url, dial);
+@@ -115,7 +114,12 @@ function buildNodeTransportBase(
+     // custom CA. Shared with the HTTP handler so cert/CA handling can't drift.
+     if (tls) Object.assign(nodeOptions, buildTlsClientMaterial(tls));
+   }
+-  return { baseUrl, nodeOptions };
++  return {
++    baseUrl,
++    nodeOptions,
++    readMaxBytes: MAX_RESPONSE_SIZE,
++    writeMaxBytes: MAX_RESPONSE_SIZE,
++  };
+ }
+ 
+ // Build a connect-node native-gRPC transport that dials the pinned IP.
+@@ -126,10 +130,8 @@ export function buildConnectTransport(
+   tls?: GrpcTlsConfig,
+   useCompression?: boolean
+ ): Transport {
+-  const { baseUrl, nodeOptions } = buildNodeTransportBase(url, dial, tls);
+   return createGrpcTransport({
+-    baseUrl,
+-    nodeOptions,
++    ...buildNodeTransportBase(url, dial, tls),
+     // Parity with the old grpc.default_compression_algorithm=gzip channel arg.
+     ...(useCompression ? { sendCompression: compressionGzip } : {}),
+   });
+@@ -146,11 +148,9 @@ export function buildConnectFallbackTransport(
+   tls?: GrpcTlsConfig,
+   useCompression?: boolean
+ ): Transport {
+-  const { baseUrl, nodeOptions } = buildNodeTransportBase(url, dial, tls);
+   return createConnectTransport({
+-    baseUrl,
++    ...buildNodeTransportBase(url, dial, tls),
+     httpVersion: '2',
+-    nodeOptions,
+     ...(useCompression ? { sendCompression: compressionGzip } : {}),
+   });
+ }
+diff --git a/electron/main/handlers/grpc-handler.ts b/electron/main/handlers/grpc-handler.ts
+index 2f12cbb2..ee5fa04d 100644
+--- a/electron/main/handlers/grpc-handler.ts
++++ b/electron/main/handlers/grpc-handler.ts
+@@ -47,19 +47,29 @@ interface ActiveCall {
+   cancel: () => void;
+   write: (msg: unknown) => void;
+   end: () => void;
++  /**
++   * Abort the call AND emit its terminal event (CANCELLED + reason) to the
++   * renderer, so every termination path settles the UI. Idempotent.
++   */
++  terminate: (code: number, details: string) => void;
+   generation: symbol;
+-  createdAt: number; // Timestamp for stale connection detection
++  createdAt: number;
++  /** Last inbound/outbound traffic — the idle sweep keys off this, not age. */
++  lastActivityAt: number;
+   requestId: string; // Request ID for tracking
+   /** webContents.id of the renderer that started the stream — used for renderer-destroyed teardown. */
+   webContentsId: number;
+ }
+ 
+ // Store active calls for streaming. The registry owns the map + renderer-destroyed
+-// cleanup (dispose = cancel the call). gRPC keeps its own bespoke bits — the
+-// stale-stream sweeper (createdAt), the duplicate-id rejection (tryAdd, not the
+-// replacing add), and the pendingStreamMessages race buffer — as custom logic
+-// over get()/values()/tryAdd().
+-const activeCalls = new StreamRegistry<ActiveCall>({ dispose: (c) => c.cancel() });
++// cleanup (dispose = terminate the call with a final CANCELLED event; a destroyed
++// renderer simply doesn't receive it). gRPC keeps its own bespoke bits — the
++// idle-stream sweeper (lastActivityAt), the duplicate-id rejection (tryAdd, not
++// the replacing add), and the pendingStreamMessages race buffer — as custom
++// logic over get()/values()/tryAdd().
++const activeCalls = new StreamRegistry<ActiveCall>({
++  dispose: (c) => c.terminate(GRPC_CANCELLED, 'Stream cancelled'),
++});
+ 
+ // `grpc:start-stream` is async (it awaits a DNS SSRF pre-flight before it can
+ // register the ActiveCall). A `grpc:send-message` / `grpc:end-stream` that races
+@@ -122,8 +132,23 @@ const releasePendingStream = (id: string, claim: PendingStreamClaim): void => {
+   }
+ };
+ 
+-// Timeout for stale streams (5 minutes)
+-const STREAM_TIMEOUT_MS = 5 * 60 * 1000;
++const GRPC_CANCELLED = 1;
++
++/**
++ * A live stream with no traffic in either direction for this long is treated as
++ * orphaned and reaped (with a final CANCELLED event). Activity — not age — is
++ * what counts, so a busy watch/subscribe stream runs for as long as the user
++ * keeps it open (GRPC-3, #879). A renderer that goes away is handled separately
++ * by the registry's renderer-destroyed cleanup.
++ */
++export const STREAM_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
++
++/**
++ * Deadline applied to the buffered `grpc:request` path (unary + collected
++ * server-streaming) when the caller sends none — that path must always end.
++ * "No deadline" (timeoutMs 0 / omitted) is honoured only for live streams.
++ */
++export const DEFAULT_SYNC_DEADLINE_MS = 30_000;
+ 
+ // Helper to estimate object size in bytes
+ function estimateSize(obj: unknown): number {
+@@ -155,29 +180,35 @@ function sanitizeErrorMessage(message: string | undefined): string {
+   return sanitized || 'Unknown error';
+ }
+ 
+-// Clean up stale streams periodically
+-const cleanupStaleStreams = () => {
+-  const now = Date.now();
+-  // Collect first, then cancel — cancel() disposes + removes, so mutating the
+-  // map mid-iteration is avoided.
+-  const staleCalls: Array<{ requestId: string; webContentsId: number }> = [];
++/**
++ * Reap idle streams (no traffic for {@link STREAM_IDLE_TIMEOUT_MS}) and stale
++ * pending buffers. Each reaped stream gets a terminal CANCELLED event so the
++ * renderer leaves its "streaming" state. Exported (with an injectable clock)
++ * for tests; the interval in {@link startStreamCleanup} drives it in the app.
++ */
++export function sweepIdleStreams(now: number = Date.now()): void {
++  // Collect first, then terminate — terminate() removes the entry, so mutating
++  // the map mid-iteration is avoided.
++  const idleCalls: ActiveCall[] = [];
+   for (const call of activeCalls.values()) {
+-    if (now - call.createdAt > STREAM_TIMEOUT_MS) {
+-      staleCalls.push({ requestId: call.requestId, webContentsId: call.webContentsId });
+-    }
++    if (now - call.lastActivityAt > STREAM_IDLE_TIMEOUT_MS) idleCalls.push(call);
+   }
+-  staleCalls.forEach(({ requestId, webContentsId }) => {
++  for (const call of idleCalls) {
+     try {
+-      // cancel() runs dispose (c.cancel()) and removes the entry.
+-      activeCalls.cancel(requestId, webContentsId);
++      call.terminate(
++        GRPC_CANCELLED,
++        `Stream cancelled: idle for ${STREAM_IDLE_TIMEOUT_MS / 60_000} minutes with no messages`
++      );
++      // Belt-and-braces: drop the entry even if terminate bailed early.
++      activeCalls.remove(call.requestId, call.webContentsId);
+     } catch (error) {
+-      log.error('error canceling stale stream', {
+-        streamId: requestId,
++      log.error('error canceling idle stream', {
++        streamId: call.requestId,
+         error: error instanceof Error ? error.message : String(error),
+       });
+     }
+-    log.info('cleaned up stale stream', { streamId: requestId });
+-  });
++    log.info('cleaned up idle stream', { streamId: call.requestId });
++  }
+   // Evict pending buffers whose stream never registered — without this they
+   // survive renderer death and park up to MAX_PENDING_STREAMS × MAX_PENDING_WRITES
+   // payloads until quit.
+@@ -187,14 +218,14 @@ const cleanupStaleStreams = () => {
+       log.info('evicted stale pending stream buffer', { streamId: pending.requestId });
+     }
+   }
+-};
++}
+ 
+ // Run cleanup every minute
+ let cleanupInterval: NodeJS.Timeout | null = null;
+ 
+ export function startStreamCleanup(): void {
+   if (cleanupInterval) return; // Already running
+-  cleanupInterval = setInterval(cleanupStaleStreams, 60 * 1000);
++  cleanupInterval = setInterval(() => sweepIdleStreams(), 60 * 1000);
+ }
+ 
+ export function stopStreamCleanup(): void {
+@@ -213,11 +244,12 @@ export function stopStreamCleanup(): void {
+ const addActiveCall = (
+   id: string,
+   sender: Electron.WebContents,
+-  call: Omit<ActiveCall, 'createdAt' | 'requestId'>,
++  call: Omit<ActiveCall, 'createdAt' | 'lastActivityAt' | 'requestId'>,
+   claim: PendingStreamClaim
+ ): boolean => {
+   if (pendingForOwner(id, sender.id)?.token !== claim.token) return false;
+-  const entry: ActiveCall = { ...call, createdAt: Date.now(), requestId: id };
++  const now = Date.now();
++  const entry: ActiveCall = { ...call, createdAt: now, lastActivityAt: now, requestId: id };
+   // tryAdd rejects a duplicate id (a renderer bug) rather than replacing.
+   if (!activeCalls.tryAdd(id, sender, entry)) {
+     log.warn('duplicate stream rejected', { streamId: id });
+@@ -274,7 +306,7 @@ export function mergeMainSideAuth(
+ 
+ // Build the connect-node call args (shared by the unary / streaming executors)
+ // from a request config + its SSRF-validated dial.
+-function toConnectArgs(config: GrpcRequestConfig, dial: PinnedDial) {
++function toConnectArgs(config: GrpcRequestConfig, dial: PinnedDial, timeoutMs = config.timeoutMs) {
+   return {
+     url: config.url,
+     dial,
+@@ -285,7 +317,8 @@ function toConnectArgs(config: GrpcRequestConfig, dial: PinnedDial) {
+     protoContent: config.protoContent,
+     message: config.message,
+     metadata: mergeMainSideAuth(config.metadata, config.auth),
+-    timeoutMs: config.timeoutMs,
++    // 0 / undefined = no deadline (grpc-connect only sets a truthy timeoutMs).
++    timeoutMs,
+     useCompression: config.useCompression,
+   };
+ }
+@@ -338,7 +371,14 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
+       error: `gRPC setup failed: ${detail}`,
+     };
+   }
+-  const shared = toConnectArgs(policyConfig, grpcDial);
++  // The buffered path always has a deadline — "no deadline" is a live-stream
++  // option only (the IPC schema rejects 0 for unary; collected server streams
++  // fall back to the default here).
++  const shared = toConnectArgs(
++    policyConfig,
++    grpcDial,
++    policyConfig.timeoutMs || DEFAULT_SYNC_DEADLINE_MS
++  );
+ 
+   try {
+     if (config.methodType === 'unary') {
+@@ -529,7 +569,6 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void):
+         const generation = Symbol(requestId);
+ 
+         try {
+-          let accumulatedSize = 0;
+           const capturedHeaders: Record<string, string> = {};
+           const capturedTrailers: Record<string, string> = {};
+           let finalized = false;
+@@ -539,6 +578,10 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void):
+           };
+           const isCurrentCall = () =>
+             activeCalls.get(requestId, event.sender.id)?.generation === generation;
++          const touch = () => {
++            const current = activeCalls.get(requestId, event.sender.id);
++            if (current?.generation === generation) current.lastActivityAt = Date.now();
++          };
+ 
+           // Emit the single terminal event for the stream, carrying the captured
+           // response headers + trailers and the real gRPC status. OK → `status`
+@@ -580,8 +623,12 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void):
+ 
+           const handleData = (data: unknown) => {
+             if (finalized || !isCurrentCall()) return;
+-            accumulatedSize += estimateSize(data);
+-            if (accumulatedSize > MAX_RESPONSE_SIZE) {
++            touch();
++            // Per-message cap. Live messages are forwarded, not retained in main,
++            // so a stream-total cap would only cut long-lived streams short
++            // (#879). The transport's readMaxBytes already bounds each message
++            // before decode (#929); this bounds the decoded JSON we forward.
++            if (estimateSize(data) > MAX_RESPONSE_SIZE) {
+               // Cancel the still-registered call first; finalize() then sets the
+               // guard so the CANCELLED status the cancel triggers is ignored.
+               const current = activeCalls.get(requestId, event.sender.id);
+@@ -589,7 +636,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void):
+               current.cancel();
+               finalize(
+                 8, // RESOURCE_EXHAUSTED
+-                `Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`
++                `Message size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`
+               );
+               return;
+             }
+@@ -602,26 +649,38 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void):
+           const controls = runConnectStream(toConnectArgs(policyConfig, grpcDial), {
+             onMessage: handleData,
+             onHeaders: (h) => {
+-              if (isCurrentCall()) Object.assign(capturedHeaders, h);
++              if (!isCurrentCall()) return;
++              touch();
++              Object.assign(capturedHeaders, h);
+             },
+             onTrailers: (t) => {
+               if (isCurrentCall()) Object.assign(capturedTrailers, t);
+             },
+             onClose: finalize,
+-            onCancelled: () => {
+-              if (!finalized && isCurrentCall()) {
+-                finalized = true;
+-                cleanup();
+-              }
+-            },
++            // An abort we didn't initiate through terminate() (which finalizes
++            // first) still settles the renderer with a terminal CANCELLED.
++            onCancelled: () => finalize(GRPC_CANCELLED, 'Stream cancelled'),
+           });
++          // Emit the terminal event FIRST (it sets the finalized guard, so the
++          // async onCancelled the abort triggers is ignored), then abort.
++          const terminate = (code: number, details: string) => {
++            finalize(code, details);
++            controls.cancel();
++          };
+           const added = addActiveCall(
+             requestId,
+             event.sender,
+             {
+               cancel: controls.cancel,
+-              write: controls.write,
+-              end: controls.end,
++              write: (msg: unknown) => {
++                touch();
++                controls.write(msg);
++              },
++              end: () => {
++                touch();
++                controls.end();
++              },
++              terminate,
+               generation,
+               webContentsId: event.sender.id,
+             },
+diff --git a/electron/main/ipc/validators/core.ts b/electron/main/ipc/validators/core.ts
+index ce46fb91..90d47549 100644
+--- a/electron/main/ipc/validators/core.ts
++++ b/electron/main/ipc/validators/core.ts
+@@ -351,9 +351,11 @@ export const GrpcRequestConfigSchema = z
+       .max(1024, 'Too many descriptors')
+       .optional(),
+     useCompression: z.boolean().optional(),
+-    // Per-call deadline in ms. Applied as the ConnectRPC `timeoutMs` call option
+-    // on unary and streaming invocations; omitted → no deadline. Capped at 10min.
+-    timeoutMs: z.number().int().positive().max(600_000).optional(),
++    // Per-call deadline in ms, applied as the ConnectRPC `timeoutMs` call option.
++    // A finite deadline is capped at 10min. `0` = "no deadline" — streaming
++    // methods only (refine below), so watch/subscribe streams can stay open.
++    // The buffered `grpc:request` path applies a default when 0/omitted.
++    timeoutMs: z.number().int().min(0).max(600_000).optional(),
+     // Present only when a credential carries a SecretRef handle the renderer
+     // cannot resolve (ADR-0007). The handler resolves it main-side via the OS
+     // keychain and merges it into the metadata. Inline/plain creds are already
+@@ -365,6 +367,10 @@ export const GrpcRequestConfigSchema = z
+   .refine((c) => Boolean(c.protoContent) || Boolean(c.descriptors?.length), {
+     message: 'Either protoContent or descriptors is required',
+     path: ['protoContent'],
++  })
++  .refine((c) => !(c.methodType === 'unary' && c.timeoutMs === 0), {
++    message: 'A unary call needs a deadline; "no deadline" (0) is for streaming methods only',
++    path: ['timeoutMs'],
+   });
+ 
+ export type GrpcRequestConfig = z.infer<typeof GrpcRequestConfigSchema>;

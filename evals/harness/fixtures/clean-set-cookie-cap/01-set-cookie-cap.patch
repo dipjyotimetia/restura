@@ -1,0 +1,269 @@
+diff --git a/shared/protocol/set-cookie.test.ts b/shared/protocol/set-cookie.test.ts
+index 797168ea..5971ba15 100644
+--- a/shared/protocol/set-cookie.test.ts
++++ b/shared/protocol/set-cookie.test.ts
+@@ -1,5 +1,6 @@
+ import { describe, expect, it } from 'vitest';
+ import {
++  buildSetCookieSideChannel,
+   combineSetCookieHeader,
+   decodeSetCookieSideChannel,
+   encodeSetCookieSideChannel,
+@@ -7,6 +8,8 @@ import {
+   parseSetCookie,
+   responseHeaderEntries,
+   responseSetCookies,
++  SET_COOKIE_OMITTED_HEADER,
++  SET_COOKIE_SIDE_CHANNEL_MAX_BYTES,
+   splitFoldedSetCookie,
+ } from './set-cookie';
+ 
+@@ -155,3 +158,38 @@ describe('set-cookie side channel', () => {
+     expect(decodeSetCookieSideChannel('["a=1", 2, null]')).toEqual(['a=1']);
+   });
+ });
++
++describe('set-cookie side channel size cap', () => {
++  it('encodeSetCookieSideChannel alone is unbounded (60 x 4KB > 16KB)', () => {
++    const cookies = Array.from({ length: 60 }, (_, i) => `c${i}=${'v'.repeat(4096)}; Path=/`);
++    expect(encodeSetCookieSideChannel(cookies).length).toBeGreaterThan(16 * 1024);
++  });
++
++  it('buildSetCookieSideChannel caps the header and reports omitted cookies', () => {
++    const cookies = Array.from({ length: 60 }, (_, i) => `c${i}=${'v'.repeat(4096)}; Path=/`);
++    const { value, omitted } = buildSetCookieSideChannel(cookies);
++    expect(value.length).toBeLessThanOrEqual(SET_COOKIE_SIDE_CHANNEL_MAX_BYTES);
++    const kept = decodeSetCookieSideChannel(value);
++    expect(kept).toEqual(cookies.slice(0, kept.length));
++    expect(kept.length).toBeGreaterThan(0);
++    expect(omitted).toBe(60 - kept.length);
++    expect(SET_COOKIE_OMITTED_HEADER).toBe('x-restura-set-cookies-omitted');
++  });
++
++  it('keeps everything and reports 0 omitted when under the cap', () => {
++    const cookies = ['a=1', 'b=2'];
++    const { value, omitted } = buildSetCookieSideChannel(cookies);
++    expect(omitted).toBe(0);
++    expect(decodeSetCookieSideChannel(value)).toEqual(cookies);
++  });
++
++  it('skips an individually oversized cookie but keeps later ones that fit', () => {
++    const { value, omitted } = buildSetCookieSideChannel([
++      'a=1',
++      `big=${'x'.repeat(20000)}`,
++      'b=2',
++    ]);
++    expect(omitted).toBe(1);
++    expect(decodeSetCookieSideChannel(value)).toEqual(['a=1', 'b=2']);
++  });
++});
+diff --git a/shared/protocol/set-cookie.ts b/shared/protocol/set-cookie.ts
+index 9b38baaa..c706a3c9 100644
+--- a/shared/protocol/set-cookie.ts
++++ b/shared/protocol/set-cookie.ts
+@@ -159,6 +159,39 @@ export function encodeSetCookieSideChannel(cookies: string[]): string {
+   );
+ }
+ 
++/**
++ * Cap on the encoded side-channel header. Node's default max header size is
++ * 16KB for the whole header block, so one header must stay well under it.
++ */
++export const SET_COOKIE_SIDE_CHANNEL_MAX_BYTES = 8 * 1024;
++
++/** Carries the count of cookies dropped to honour the cap (absent when none). */
++export const SET_COOKIE_OMITTED_HEADER = 'x-restura-set-cookies-omitted';
++
++/**
++ * Encode as many cookies as fit under `maxBytes` (in order; a cookie that
++ * doesn't fit is skipped, later smaller ones may still ride) and report how
++ * many were omitted so the renderer can tell the user.
++ */
++export function buildSetCookieSideChannel(
++  cookies: string[],
++  maxBytes: number = SET_COOKIE_SIDE_CHANNEL_MAX_BYTES
++): { value: string; omitted: number } {
++  const full = encodeSetCookieSideChannel(cookies);
++  if (full.length <= maxBytes) return { value: full, omitted: 0 };
++  const kept: string[] = [];
++  let size = 2; // []
++  for (const cookie of cookies) {
++    const encoded = encodeSetCookieSideChannel([cookie]);
++    const cost = encoded.length - 2 + (kept.length > 0 ? 1 : 0);
++    if (size + cost <= maxBytes) {
++      kept.push(cookie);
++      size += cost;
++    }
++  }
++  return { value: encodeSetCookieSideChannel(kept), omitted: cookies.length - kept.length };
++}
++
+ /** Decode {@link SET_COOKIE_SIDE_CHANNEL_HEADER}; anything malformed → `[]`. */
+ export function decodeSetCookieSideChannel(value: string | null | undefined): string[] {
+   if (!value) return [];
+diff --git a/src/features/http/components/NetworkConsole/NetworkTab.tsx b/src/features/http/components/NetworkConsole/NetworkTab.tsx
+index 57831de0..56874d8b 100644
+--- a/src/features/http/components/NetworkConsole/NetworkTab.tsx
++++ b/src/features/http/components/NetworkConsole/NetworkTab.tsx
+@@ -2,13 +2,12 @@
+ 
+ import { Network } from 'lucide-react';
+ import { useMemo, useState } from 'react';
+-import { v4 as uuidv4 } from 'uuid';
+ import { toast } from 'sonner';
++import { v4 as uuidv4 } from 'uuid';
+ import { useShallow } from 'zustand/react/shallow';
++import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+ import { type CodeGeneratorType, codeGenerators } from '@/lib/shared/codeGenerators';
+ import { useActiveTab } from '@/store/selectors';
+-import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+-import type { McpRequest } from '@/types';
+ import {
+   entryToCurl,
+   entryToGraphqlRequest,
+@@ -18,6 +17,7 @@ import {
+   useConsoleStore,
+ } from '@/store/useConsoleStore';
+ import { useRequestStore } from '@/store/useRequestStore';
++import type { McpRequest } from '@/types';
+ import EntryCompareDialog from './EntryCompareDialog';
+ import EntryExpandDialog from './EntryExpandDialog';
+ import NetworkEntryDetail from './NetworkEntryDetail';
+diff --git a/src/features/http/lib/__tests__/requestExecutor.test.ts b/src/features/http/lib/__tests__/requestExecutor.test.ts
+index a9aff8ca..ef616c5c 100644
+--- a/src/features/http/lib/__tests__/requestExecutor.test.ts
++++ b/src/features/http/lib/__tests__/requestExecutor.test.ts
+@@ -507,6 +507,28 @@ describe('executeStreamingRequest — Set-Cookie side channel (#855)', () => {
+     ]);
+   });
+ 
++  it('keeps the omitted-cookies notice visible in the response headers', async () => {
++    executeProxiedStreamingRequestMock.mockResolvedValueOnce(
++      new Response('data: a\n\n', {
++        status: 200,
++        headers: {
++          'content-type': 'text/event-stream',
++          [SET_COOKIE_SIDE_CHANNEL_HEADER]: encodeSetCookieSideChannel(cookies),
++          'x-restura-set-cookies-omitted': '7',
++        },
++      })
++    );
++    const { responseMeta } = await executeStreamingRequest({
++      request: makeRequest({
++        headers: [{ id: 'h1', key: 'Accept', value: 'text/event-stream', enabled: true }],
++      }),
++      envVars: {},
++      globalSettings: originalSettings,
++      resolveVariables: (text) => text,
++    });
++    expect(responseMeta.headers['x-restura-set-cookies-omitted']).toBe('7');
++  });
++
+   it('honours a disabled cookie jar', async () => {
+     executeProxiedStreamingRequestMock.mockResolvedValueOnce(streamResponse());
+ 
+diff --git a/worker/app.ts b/worker/app.ts
+index 4fe543cd..f508802e 100644
+--- a/worker/app.ts
++++ b/worker/app.ts
+@@ -13,7 +13,10 @@ import {
+   PROXY_UPSTREAM_STATUS_HEADER,
+   PROXY_UPSTREAM_STATUS_TEXT_HEADER,
+ } from '@shared/protocol/proxy-limits';
+-import { SET_COOKIE_SIDE_CHANNEL_HEADER } from '@shared/protocol/set-cookie';
++import {
++  SET_COOKIE_OMITTED_HEADER,
++  SET_COOKIE_SIDE_CHANNEL_HEADER,
++} from '@shared/protocol/set-cookie';
+ import type { Context, Next } from 'hono';
+ import { Hono } from 'hono';
+ import { cors } from 'hono/cors';
+@@ -171,6 +174,7 @@ export function createApp(
+       // SPA (VITE_WORKER_URL builds) can only read them when exposed.
+       exposeHeaders: [
+         SET_COOKIE_SIDE_CHANNEL_HEADER,
++        SET_COOKIE_OMITTED_HEADER,
+         PROXY_CAPABILITY_HEADER,
+         PROXY_STREAM_MARKER_HEADER,
+         PROXY_UPSTREAM_STATUS_HEADER,
+diff --git a/worker/handlers/__tests__/proxy.test.ts b/worker/handlers/__tests__/proxy.test.ts
+index d5a83101..bf20ce7d 100644
+--- a/worker/handlers/__tests__/proxy.test.ts
++++ b/worker/handlers/__tests__/proxy.test.ts
+@@ -2,7 +2,9 @@
+ 
+ import {
+   decodeSetCookieSideChannel,
++  SET_COOKIE_OMITTED_HEADER,
+   SET_COOKIE_SIDE_CHANNEL_HEADER,
++  SET_COOKIE_SIDE_CHANNEL_MAX_BYTES,
+ } from '@shared/protocol/set-cookie';
+ import { Hono } from 'hono';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+@@ -344,6 +346,25 @@ describe('proxy handler', () => {
+       expect(await res.text()).toContain('data: a');
+     });
+ 
++    it('caps the cookie side channel and reports how many cookies were omitted', async () => {
++      const headers = new Headers({ 'content-type': 'text/event-stream' });
++      for (let i = 0; i < 60; i++)
++        headers.append('Set-Cookie', `c${i}=${'v'.repeat(4096)}; Path=/`);
++      streamingUpstream(headers);
++
++      const res = await makeRequest({
++        method: 'GET',
++        url: 'https://example.com/sse',
++        headers: { Accept: 'text/event-stream' },
++      });
++
++      const value = res.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER) ?? '';
++      expect(value.length).toBeLessThanOrEqual(SET_COOKIE_SIDE_CHANNEL_MAX_BYTES);
++      const kept = decodeSetCookieSideChannel(value).length;
++      expect(kept).toBeGreaterThan(0);
++      expect(res.headers.get(SET_COOKIE_OMITTED_HEADER)).toBe(String(60 - kept));
++    });
++
+     it('drops an upstream-supplied side-channel header so upstreams cannot spoof cookies', async () => {
+       streamingUpstream(
+         new Headers({
+diff --git a/worker/handlers/proxy.ts b/worker/handlers/proxy.ts
+index 05342b9c..db53a8d0 100644
+--- a/worker/handlers/proxy.ts
++++ b/worker/handlers/proxy.ts
+@@ -17,7 +17,8 @@ import {
+   type UpstreamProxyConfig,
+ } from '@shared/protocol/proxy-schema';
+ import {
+-  encodeSetCookieSideChannel,
++  buildSetCookieSideChannel,
++  SET_COOKIE_OMITTED_HEADER,
+   SET_COOKIE_SIDE_CHANNEL_HEADER,
+ } from '@shared/protocol/set-cookie';
+ import type { Fetcher } from '@shared/protocol/types';
+@@ -275,7 +276,9 @@ export function createProxyHandler(
+       }
+       const streamCookies = upstream.setCookies;
+       if (streamCookies && streamCookies.length > 0) {
+-        c.header(SET_COOKIE_SIDE_CHANNEL_HEADER, encodeSetCookieSideChannel(streamCookies));
++        const { value, omitted } = buildSetCookieSideChannel(streamCookies);
++        c.header(SET_COOKIE_SIDE_CHANNEL_HEADER, value);
++        if (omitted > 0) c.header(SET_COOKIE_OMITTED_HEADER, String(omitted));
+       }
+       // The real status always rides the side channel; statuses the browser
+       // would handle itself (3xx follow, 401/407 prompt) go out as 200.
+diff --git a/worker/handlers/websocket-node.ts b/worker/handlers/websocket-node.ts
+index 9c225d64..5362a08e 100644
+--- a/worker/handlers/websocket-node.ts
++++ b/worker/handlers/websocket-node.ts
+@@ -20,9 +20,10 @@
+  *     a hostile upstream can buffer multi-GB frames before our onMessage
+  *     check fires and OOM the process.
+  */
++
++import { Buffer } from 'node:buffer';
+ import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
+ import { validateWsUrl } from '@shared/protocol/websocket-proxy';
+-import { Buffer } from 'node:buffer';
+ import type { Context, MiddlewareHandler } from 'hono';
+ import type { WSContext, WSEvents } from 'hono/ws';
+ import WebSocket from 'ws';
