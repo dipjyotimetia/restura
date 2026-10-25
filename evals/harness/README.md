@@ -43,8 +43,9 @@ scripts/harness-eval.mjs   runner
 Real defect cases are reconstructed from `docs/audits/post-merge-review-2026-10-25.md` and git
 history. Each `base` is the main commit the original branch was cut from (or merged onto), and
 the patches are that branch's source hunks with tests, docs and unrelated files removed. Each
-case's `notes` field says what was elided. Controls are whole merged PRs, unmodified; `git log`
-shows no later commit touching their files.
+case's `notes` field says what was elided. Controls are whole merged PRs, or their source hunks
+with tests dropped to stay under about 300 lines (the case's `notes` say so); `git log` shows no
+later commit touching their files.
 
 ### Case schema
 
@@ -85,15 +86,16 @@ Patterns are case-insensitive; use `(?-i:\bGET\b)` where case matters.
 Each case's `base` is the old main commit its branch was cut from. Checking that commit out also
 checks out *its* `.claude/skills`, `.claude/agents`, hooks, `CLAUDE.md` and review scripts, so
 without help a run would review with whatever harness existed months ago, and a `--config` A/B
-would change nothing. `git cat-file -e <base>:<path>` on the 12 cases (2026-10-25) shows:
+would change nothing. When the overlay was introduced (2026-10-25), `git cat-file -e <base>:<path>`
+on every case then in the suite showed:
 
-- no base has `.claude/skills/ship-check/` (the `/ship-check` skill); 11 of 12 only have the
+- no base had `.claude/skills/ship-check/` (the `/ship-check` skill); all but one only had the
   older `.claude/commands/ship-check.md`, and `sigv4-interactive-send-dropped` (2b6b3b58) has no
   ship-check at all, nor `.claude/agents`, `.claude/hooks`, `.claude/settings.json` or
   `docs/agents`;
-- no base has `scripts/verify-agent-report.mjs`; only the two synthetic SSE cases (68ff7139) have
-  `scripts/integration-check.mjs` and `scripts/worktree-setup.mjs`, so on the other 10 the
-  prompt's `npm run integration-check` did not exist.
+- no base had `scripts/verify-agent-report.mjs`; only the two synthetic SSE cases (68ff7139) had
+  `scripts/integration-check.mjs` and `scripts/worktree-setup.mjs`, so on the rest the prompt's
+  `npm run integration-check` did not exist.
 
 So, after the run's repo is created at `base` and before any branch is cut, the runner applies
 an **overlay** (`overlayHarness`):
@@ -184,7 +186,7 @@ The markdown summary reports:
 - **Totals**: cost and minutes for the whole invocation.
 - **Noise**: how many cases flipped within this invocation, and the recall CI half-width.
   **Don't act on a config difference smaller than the CI half-width; add runs or cases.** With
-  10 defect cases x 2 runs, the half-width is around 20 points.
+  about 20 scored defect runs, the half-width is around 20 points.
 - **Routing**: across review runs, how often each skill (Skill tool) and subagent (Task/Agent
   `subagent_type`) ran, by runs and calls. This is the signal for folding or pruning a reviewer:
   if `/ship-check` never routes to an agent, the agent is not what is catching the bugs.
@@ -199,9 +201,10 @@ harness problem; the aggregate cannot tell you which.
 
 ## Train / test split
 
-Every case has a required `split`. The held-out **test** split is one control
-(`clean-set-cookie-cap`) and three defects (`kafka-preset-registry-bearer`,
-`cli-graphql-get-parity`, `sse-spec-signature-seam`); the other eight are **train**.
+Every case has a required `split` (the Cases table shows it). The rule: about 30% of cases are
+held out as **test** (a unit test keeps it between 20% and 40%), the test split always has at
+least one control and at least one defect, and a case's split is assigned once, when it is
+added, and never moved after results have been seen. Everything else is **train**.
 `--split train|test|all` (default `all`) filters the run.
 
 Hillclimbing rules, when you change skills, agents or CLAUDE.md to raise these numbers:
@@ -283,8 +286,8 @@ to them. When an earlier result for the same config exists (or `--compare` is gi
 includes a **flip report**: cases, defect or control, whose caught rate over scored runs changed.
 The per-case table also flags cases whose runs disagreed within one invocation.
 
-A full run is 12 cases x 2 runs of `/ship-check --quick`, plus 24 x `--judge-repeat` judge calls.
-That is slow and costs real money (the summary's totals line tells you how much), so run it
+A full run is (number of cases) x `--runs` reviews with `/ship-check --quick`, plus as many judge
+calls times `--judge-repeat`. That is slow and costs real money (the summary's totals line tells you how much), so run it
 deliberately.
 
 ## Adding a case
@@ -297,5 +300,6 @@ deliberately.
    split a branch into several patches if needed.
 3. Write `cases/<id>.yaml`, then run `npm run eval:harness -- --dry-run --case <id>`.
 4. Mark anything invented as `origin: synthetic`.
-5. Give it a `split`. New cases go to `train` unless you are deliberately growing the held-out
-   set; never move a case between splits to make a number look better.
+5. Give it a `split` before running it, keeping the test share near 30% with at least one control
+   and one defect held out (see "Train / test split"). Never move a case between splits after
+   its results have been seen.
