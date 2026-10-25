@@ -671,7 +671,7 @@ async function stripAnswerKeys(exec, dir, effectiveBase) {
  * @param {{ exec: { run: Function; pipe: Function }; repo: string; tempDir: string; harnessSha: string;
  *   dryRun?: boolean; mainCheckout?: string; forbiddenRoots?: string[]; model?: string; maxBudgetUsd?: number;
  *   transcriptFile?: string; transcriptLink?: string; setup?: (dir: string) => void;
- *   createRepo?: typeof createIsolatedRepo }} ctx
+ *   createRepo?: typeof createIsolatedRepo; fingerprint?: (dir: string) => string }} ctx
  */
 export async function runTask(task, ctx) {
   const { exec, repo, tempDir } = ctx;
