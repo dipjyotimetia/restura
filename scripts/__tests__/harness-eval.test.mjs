@@ -19,7 +19,10 @@ import {
   gradeMustMention,
   HARNESS_OVERLAY_PATHS,
   judgeModelWarning,
+  killLiveChildren,
+  latestResult,
   linkNodeModules,
+  liveChildren,
   loadCases,
   majorityVerdict,
   mergePackageScripts,
@@ -32,7 +35,9 @@ import {
   parseWorktreePorcelain,
   passAtK,
   passHatK,
+  redactSecrets,
   runCase,
+  runEval,
   selectLeftovers,
   summarise,
   syncExec,
@@ -1622,12 +1627,25 @@ test('detectContamination ignores in-repo work and paths that merely share a pre
     ['Grep', { pattern: 'restura', path: `${MAIN}X` }],
     ['Bash', { command: 'git log --oneline -5' }]
   );
-  // A forbidden path in a tool RESULT (not an input) does not count.
+  assert.deepEqual(detectContamination(clean, roots), { contaminated: false, hits: [] });
+  // A tool RESULT that reveals the main checkout (e.g. `pwd -P` output) counts too.
   const withResult = `${clean}\n${JSON.stringify({
     type: 'user',
-    message: { content: [{ type: 'tool_result', tool_use_id: 't0', content: `${MAIN}/x` }] },
+    message: {
+      content: [
+        { type: 'tool_result', tool_use_id: 't0', content: [{ type: 'text', text: `${MAIN}\n` }] },
+      ],
+    },
   })}`;
-  assert.deepEqual(detectContamination(withResult, roots), { contaminated: false, hits: [] });
+  const revealed = detectContamination(withResult, roots);
+  assert.equal(revealed.contaminated, true);
+  assert.equal(revealed.hits[0].tool, 'tool_result');
+  // ...but not a result that only shares the prefix.
+  const prefixOnly = `${clean}\n${JSON.stringify({
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: 't0', content: `${MAIN}-other` }] },
+  })}`;
+  assert.equal(detectContamination(prefixOnly, roots).contaminated, false);
 });
 
 test('detectContamination flags explicit main-checkout paths and git escapes', () => {
@@ -1681,4 +1699,229 @@ test('runCase marks a contaminated review as a harness error and skips the judge
   );
   assert.match(md, /contaminated: /);
   assert.ok(md.includes(`git -C ${MAIN} log --all`));
+});
+
+// ---------------------------------------------------------------- review round: security + correctness
+
+test('redactSecrets replaces known and secret-looking env values, longest first', () => {
+  const env = {
+    ANTHROPIC_API_KEY: 'sk-ant-abcdefghijklmnop',
+    CLAUDE_CODE_OAUTH_TOKEN: 'oauth-0123456789abcdef',
+    GITHUB_TOKEN: 'ghp_aaaaaaaaaaaaaaaaaaaa',
+    GH_TOKEN: 'gho_bbbbbbbbbbbbbbbb',
+    DB_PASSWORD: 'hunter2hunter2hunter2',
+    MY_PRIVATE_KEY: '-----BEGIN KEY-----abc',
+    SHORT_SECRET: 'abc123',
+    PATH: '/usr/bin:/bin',
+    HOME: '/home/dev',
+  };
+  const text = Object.entries(env)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n');
+  const out = redactSecrets(text, env);
+  for (const name of [
+    'ANTHROPIC_API_KEY',
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'GITHUB_TOKEN',
+    'GH_TOKEN',
+    'DB_PASSWORD',
+    'MY_PRIVATE_KEY',
+  ]) {
+    assert.ok(!out.includes(env[name]), name);
+    assert.ok(out.includes(`[REDACTED:${name}]`), name);
+  }
+  // Short pattern-matched values and non-secret names are left alone.
+  assert.ok(out.includes('SHORT_SECRET=abc123'));
+  assert.ok(out.includes('PATH=/usr/bin:/bin'));
+  // JSON-escaped occurrences are covered too.
+  assert.ok(!redactSecrets(JSON.stringify({ v: env.DB_PASSWORD }), env).includes(env.DB_PASSWORD));
+  assert.equal(redactSecrets('nothing here', {}), 'nothing here');
+});
+
+test('runCase redacts secrets from the transcript and the parsed review', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'he-redact-test-'));
+  try {
+    const secret = 'sk-ant-zzzzzzzzzzzzzzzzzz';
+    const transcriptFile = path.join(dir, 'transcripts', 'x.jsonl');
+    const review = reviewJson(`McpConnectionPanel shrink-0; env shows ANTHROPIC_API_KEY=${secret}`);
+    const result = await runCase(
+      defectCase(),
+      reviewCtx(reviewExec(review, judgeJson('{"caught": true, "score": 3}')), {
+        transcriptFile,
+        env: { ANTHROPIC_API_KEY: secret },
+      })
+    );
+    assert.ok(!fs.readFileSync(transcriptFile, 'utf8').includes(secret));
+    assert.ok(!JSON.stringify(result).includes(secret));
+    assert.match(result.review.text, /\[REDACTED:ANTHROPIC_API_KEY\]/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('writeBaseline redacts secrets before writing', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'he-baseline-redact-'));
+  try {
+    const secret = 'ghp_cccccccccccccccccccc';
+    const result = {
+      config: 'A',
+      startedAt: '2026-10-25T06:31:46.761Z',
+      model: secret,
+      runsPerCase: 1,
+      runs: [{ caseId: 'a', status: 'ok', expectClean: false, caught: true }],
+    };
+    const file = writeBaseline(result, dir, { GITHUB_TOKEN: secret });
+    assert.ok(!fs.readFileSync(file, 'utf8').includes(secret));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runCase treats an empty review answer as a harness error, not a miss', async () => {
+  const exec = reviewExec(reviewJson('   \n'), judgeJson('{"caught": false, "score": 0}'));
+  const result = await runCase(cleanCase(), reviewCtx(exec));
+  assert.equal(result.status, 'error');
+  assert.match(result.reason, /review: empty answer/);
+  assert.equal(result.caught, null);
+  assert.equal(exec.calls.filter((c) => c.command === 'claude').length, 1, 'no judge call');
+});
+
+test('detectContamination flags symlink-resolution tricks (fail closed)', () => {
+  for (const command of [
+    'cd -P node_modules/.. && git log --all',
+    'git -C "$(dirname "$(readlink node_modules)")" log',
+    'realpath node_modules',
+    'pwd -P',
+    'ls node_modules/../..',
+  ]) {
+    const result = detectContamination(toolStream(['Bash', { command }]), roots);
+    assert.equal(result.contaminated, true, command);
+  }
+  // Boundary-aware: these are ordinary.
+  for (const command of [
+    'ls node_modules/.bin',
+    'cat node_modules/..foo/x',
+    'npm run lint',
+    'grep -r readlinkSync src',
+  ]) {
+    const result = detectContamination(toolStream(['Bash', { command }]), roots);
+    assert.equal(result.contaminated, false, command);
+  }
+});
+
+test('the review denies network fetch tools', async () => {
+  const exec = reviewExec(
+    reviewJson('McpConnectionPanel'),
+    judgeJson('{"caught": true, "score": 3}')
+  );
+  await runCase(defectCase(), reviewCtx(exec));
+  const review = exec.calls.find((c) => c.command === 'claude');
+  const denied = review.args.slice(review.args.indexOf('--disallowedTools') + 1);
+  for (const tool of ['WebFetch', 'WebSearch', 'Bash(curl:*)', 'Bash(wget:*)', 'Bash(gh:*)'])
+    assert.ok(denied.includes(tool), tool);
+});
+
+test('latestResult matches the config exactly; --config rejects "--"', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'he-latest-test-'));
+  try {
+    for (const name of [
+      '2026-01-01T00-00-00-000Z--a.json',
+      '2026-01-02T00-00-00-000Z--b--a.json',
+      '2026-01-03T00-00-00-000Z--dry-run--a.json',
+      '2026-01-04T00-00-00-000Z--xa.json',
+      '2026-01-05T00-00-00-000Z--a.md',
+    ])
+      fs.writeFileSync(path.join(dir, name), '{}');
+    fs.mkdirSync(path.join(dir, '2026-01-06T00-00-00-000Z--a.json.d'));
+    assert.equal(latestResult(dir, 'a'), path.join(dir, '2026-01-01T00-00-00-000Z--a.json'));
+    assert.equal(latestResult(dir, 'xa'), path.join(dir, '2026-01-04T00-00-00-000Z--xa.json'));
+    assert.equal(latestResult(dir, 'zzz'), undefined);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  assert.throws(() => parseEvalArgs(['--config', 'b--a']), /--config/);
+  assert.equal(parseEvalArgs(['--config', 'b-a']).config, 'b-a');
+});
+
+test('--judge-repeat accepts only 1 or 3 (odd, so majority never ties)', () => {
+  assert.equal(parseEvalArgs(['--judge-repeat', '1']).judgeRepeat, 1);
+  assert.equal(parseEvalArgs(['--judge-repeat', '3']).judgeRepeat, 3);
+  assert.throws(() => parseEvalArgs(['--judge-repeat', '2']), /--judge-repeat must be 1 or 3/);
+});
+
+test('nodeExec tracks live children and escalates a timeout to SIGKILL', async () => {
+  const stubborn = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);";
+  const pending = nodeExec.run(process.execPath, ['-e', stubborn], {
+    timeout: 200,
+    killGraceMs: 300,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(liveChildren().size, 1);
+  const result = await pending;
+  assert.equal(result.signal, 'SIGKILL');
+  assert.match(result.stderr, /timed out/);
+  assert.equal(liveChildren().size, 0);
+
+  const piped = nodeExec.pipe(
+    [process.execPath, ['-e', 'setTimeout(() => {}, 5000)']],
+    [process.execPath, ['-e', 'process.stdin.resume()']]
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(liveChildren().size, 2, 'both ends of a pipe are tracked');
+  killLiveChildren('SIGKILL');
+  await piped;
+  assert.equal(liveChildren().size, 0);
+});
+
+test('runEval removes an iteration tempDir even when something outside runCase throws', async () => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'he-runeval-out-'));
+  const prefix = 'restura-harness-eval-mcp-panel-collapse-';
+  const before = new Set(fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith(prefix)));
+  const exec = fakeExec((command, args) =>
+    command === 'git' && args.includes('rev-parse')
+      ? {
+          status: 0,
+          stdout: `${args.includes('--git-common-dir') ? '/repo/.git' : HARNESS}\n`,
+          stderr: '',
+        }
+      : undefined
+  );
+  try {
+    await assert.rejects(
+      runEval(parseEvalArgs(['--dry-run', '--case', 'mcp-panel-collapse', '--out', out]), {
+        exec,
+        log: (line) => {
+          if (String(line).includes('run 1/1')) throw new Error('log exploded');
+        },
+      }),
+      /log exploded/
+    );
+    const after = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith(prefix) && !before.has(n));
+    assert.deepEqual(after, []);
+  } finally {
+    fs.rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test('detectContamination ignores main-checkout paths in tool results that run through node_modules', () => {
+  const result = (text) =>
+    `${toolStream(['Bash', { command: 'npm run lint' }])}\n${JSON.stringify({
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: 't0', content: text }] },
+    })}`;
+  // Stack traces through the symlinked node_modules resolve to the main checkout: implicit.
+  for (const text of [
+    `Error\n    at ${MAIN}/node_modules/vitest/dist/index.js:3:1`,
+    `at /private${MAIN}/cli/node_modules/x/y.js`,
+  ])
+    assert.equal(detectContamination(result(text), roots).contaminated, false, text);
+  // Anything else under the main checkout in a result counts.
+  for (const text of [`${MAIN}/src/app.ts`, `${MAIN}/.git/HEAD`, `cwd: ${MAIN}`])
+    assert.equal(detectContamination(result(text), roots).contaminated, true, text);
+  // An explicit INPUT naming main-checkout node_modules still counts.
+  assert.equal(
+    detectContamination(toolStream(['Read', { file_path: `${MAIN}/node_modules/x` }]), roots)
+      .contaminated,
+    true
+  );
 });
