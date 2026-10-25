@@ -117,12 +117,16 @@ export const ipcTriplePolicy: IpcTriplePolicy = {
   preloadDir: 'electron/main/preload/',
   mainOnlyChannels: {},
   preloadOnlyChannels: {},
+  // Same-file helpers that forward a parameter to ipcMain.handle/on or a
+  // createValidated* wrapper are derived automatically; list only helpers
+  // imported from another module here (name -> reason).
+  registrationHelpers: {},
 };
 
 export const forbiddenConfigKeys: ForbiddenConfigKey[] = [
   {
     key: 'DEV_BYPASS_AUTH',
-    filePattern: String.raw`(?:^|/)wrangler[^/]*\.json[c5]?$`,
+    filePattern: String.raw`(?:^|/)wrangler[^/]*\.(?:jsonc?|json5|toml)$`,
     reason:
       'it disables Worker auth for every deployed request. Remove it — set DEV_BYPASS_AUTH=true only in the gitignored .dev.vars for local dev; production needs WORKER_PROXY_TOKEN or REQUIRE_CF_ACCESS=true',
   },

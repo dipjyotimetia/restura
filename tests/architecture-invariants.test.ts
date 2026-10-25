@@ -13,11 +13,12 @@ import {
 import {
   evaluateForbiddenConfigKeys,
   scanConfigFiles,
-  stripJsonComments,
+  tokenizeConfig,
 } from '../scripts/architecture-config-keys.mts';
 import {
   evaluateIpcTriple,
   extractIpcReferences,
+  extractIpcRegistrations,
   extractIpcRegistry,
   type IpcTriplePolicy,
   scanIpcSurface,
@@ -125,6 +126,73 @@ describe('IPC triple', () => {
     expect([...refs.groups]).toEqual(['bulk']);
   });
 
+  it('counts only registrations: direct args, derived helpers and iterated groups', () => {
+    const refs = extractIpcRegistrations(
+      'main.ts',
+      `function handle(channel, schema, run) {
+         ipcMain.handle(channel, rateLimited(l, createValidatedEventHandler(channel, schema, run)));
+       }
+       const wrap = (ch) => handle(ch, s, r);
+       handle(IPC.a.viaHelper, s, r);
+       wrap(IPC.a.viaNestedHelper);
+       ipcMain.on(IPC.a.direct, createValidatedListener(IPC.a.direct, s, h));
+       for (const c of Object.values(IPC.loopRegistered)) ipcMain.handle(c, h);
+       [IPC.b.forEachRegistered].forEach((c) => ipcMain.handle(c, h));
+       for (const c of Object.values(IPC.loopTeardown)) ipcMain.removeHandler(c);
+       Object.keys(IPC.keysTeardown).forEach((c) => ipcMain.removeHandler(c));
+       ipcMain.removeHandler(IPC.a.teardownOnly);
+       rateLimits[IPC.a.mentionedOnly] = 5;
+       notHelper(IPC.a.unrelatedCall);`
+    );
+    expect([...refs.keys].sort()).toEqual([
+      'a.direct',
+      'a.viaHelper',
+      'a.viaNestedHelper',
+      'b.forEachRegistered',
+    ]);
+    expect([...refs.groups]).toEqual(['loopRegistered']);
+  });
+
+  it('accepts cross-module registration helpers only via the policy list', () => {
+    const source = 'registerChannel(IPC.a.b, schema, run);';
+    expect([...extractIpcRegistrations('m.ts', source).keys]).toEqual([]);
+    expect([...extractIpcRegistrations('m.ts', source, ['registerChannel']).keys]).toEqual(['a.b']);
+  });
+
+  it('treats a teardown-only group iteration as unhandled', () => {
+    const root = ipcRepo({
+      'electron/main/handlers/demo-handler.ts': `import { ipcMain } from 'electron';
+export function disposeDemo() {
+  for (const channel of Object.values(IPC.demo)) ipcMain.removeHandler(channel);
+}
+`,
+    });
+    expect(ipcMessages(root).violations.map((v) => v.message.slice(0, 28))).toEqual([
+      'IPC.demo.echo (electron/shar',
+      'IPC.demo.ping (electron/shar',
+    ]);
+  });
+
+  it('fails closed when a scanned side is empty', () => {
+    const empty = tempRepo({ 'README.md': '' });
+    const messages = ipcMessages(empty).violations.map((v) => v.message);
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('found no registry modules under electron/shared/channels/'),
+        expect.stringContaining('found no Electron main source files under electron/main/'),
+        expect.stringContaining('found no preload files'),
+      ])
+    );
+    expect(messages.every((m) => m.includes('ipcTriplePolicy'))).toBe(true);
+
+    const noLiterals = ipcRepo({
+      'electron/shared/channels/demo.ts': "export const DEMO = { demo: { ping: 'demo:ping' } };",
+    });
+    expect(ipcMessages(noLiterals).violations.map((v) => v.message)).toEqual([
+      expect.stringContaining('no `export const *_IPC'),
+    ]);
+  });
+
   it('passes a fully wired channel set', () => {
     expect(ipcMessages(ipcRepo())).toEqual({ violations: [], warnings: [] });
   });
@@ -177,8 +245,8 @@ describe('IPC triple', () => {
     const { violations, warnings } = ipcMessages(root, policy);
     expect(violations).toEqual([]);
     expect(warnings.map((w) => w.message)).toEqual([
-      "ipcTriple.mainOnlyChannels entry 'demo.ping' is no longer needed; remove it",
-      "ipcTriple.preloadOnlyChannels entry 'demo.gone' is no longer needed; remove it",
+      "ipcTriplePolicy.mainOnlyChannels entry 'demo.ping' is no longer needed; remove it",
+      "ipcTriplePolicy.preloadOnlyChannels entry 'demo.gone' is no longer needed; remove it",
     ]);
   });
 
@@ -207,10 +275,58 @@ describe('IPC triple', () => {
 });
 
 describe('forbidden config keys', () => {
-  it('ignores comments but keeps string contents', () => {
-    expect(stripJsonComments('{"a": "http://x", // DEV_BYPASS_AUTH\n /* b */ "c": 1}')).toBe(
-      '{"a": "http://x", \n         "c": 1}'
+  it('tokenizes away comments but keeps string contents', () => {
+    expect(
+      tokenizeConfig('{"a": "http://x", // DEV_BYPASS_AUTH\n /* b */ "c": 1}', false).map(
+        (t) => t.value
+      )
+    ).toEqual(['{', 'a', ':', 'http://x', ',', 'c', ':', '1', '}']);
+    expect(tokenizeConfig('# DEV_BYPASS_AUTH = 1\nx = "y" # z', true).map((t) => t.value)).toEqual([
+      'x',
+      '=',
+      'y',
+    ]);
+  });
+
+  it('catches JSON5 unquoted/single-quoted keys and TOML assignments', () => {
+    const files = [
+      { path: 'wrangler.json5', text: "{ vars: { DEV_BYPASS_AUTH: 'true' } }" },
+      { path: 'a/wrangler.json5', text: "{ vars: { 'DEV_BYPASS_AUTH': 'true' } }" },
+      { path: 'wrangler.toml', text: '[vars]\nDEV_BYPASS_AUTH = "true"\n' },
+      { path: 'b/wrangler.toml', text: 'name = "x"\nvars.DEV_BYPASS_AUTH = "true"\n' },
+    ];
+    expect(evaluateForbiddenConfigKeys(files, forbiddenConfigKeys).map((v) => v.file)).toEqual([
+      'a/wrangler.json5:1',
+      'b/wrangler.toml:2',
+      'wrangler.json5:1',
+      'wrangler.toml:2',
+    ]);
+  });
+
+  it('does not flag comment-only or value-only mentions', () => {
+    const files = [
+      { path: 'wrangler.toml', text: '# never set DEV_BYPASS_AUTH = true here\nname = "x"\n' },
+      {
+        path: 'wrangler.jsonc',
+        text: '{ /* DEV_BYPASS_AUTH: true */ "note": "DEV_BYPASS_AUTH=1", // DEV_BYPASS_AUTH: 1\n}',
+      },
+      { path: 'wrangler.json5', text: "{ note: 'DEV_BYPASS_AUTH: true' }" },
+    ];
+    expect(evaluateForbiddenConfigKeys(files, forbiddenConfigKeys)).toEqual([]);
+  });
+
+  it('fails closed when no wrangler config matches the policy pattern', () => {
+    const violations = evaluateForbiddenConfigKeys(
+      [{ path: 'package.json', text: '{}' }],
+      forbiddenConfigKeys
     );
+    expect(violations).toEqual([
+      expect.objectContaining({
+        rule: 'forbidden-config-key',
+        file: 'scripts/architecture.config.mts',
+      }),
+    ]);
+    expect(violations[0]!.message).toContain('update forbiddenConfigKeys.filePattern');
   });
 
   it('fails DEV_BYPASS_AUTH set anywhere in a wrangler config, with the fix', () => {
@@ -242,7 +358,7 @@ describe('forbidden config keys', () => {
       scanConfigFiles(root, forbiddenConfigKeys)
         .map((f) => f.path)
         .sort()
-    ).toEqual(['echo/wrangler.jsonc', 'wrangler.jsonc']);
+    ).toEqual(['echo/wrangler.jsonc', 'echo/wrangler.toml', 'wrangler.jsonc']);
 
     const real = scanConfigFiles(process.cwd(), forbiddenConfigKeys);
     expect(real.map((f) => f.path)).toContain('wrangler.jsonc');
