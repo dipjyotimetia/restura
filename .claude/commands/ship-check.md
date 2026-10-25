@@ -8,7 +8,7 @@ You are running the Restura ship-readiness gate. First invoke the `restura-produ
 
 Scope: `$ARGUMENTS`. If `--quick`, skip builds, e2e, and bundle size. If `--full`, include them. Default: run the core gate + builds, skip e2e unless the diff touches protocol/transport code.
 
-**Multiple branches/PRs**: if `$ARGUMENTS` names more than one branch or PR, run `npm run integration-check -- <branches>` FIRST (add `--e2e` if protocol/transport/UI is touched). Report merge conflicts and the file-overlap matrix up front; any overlap on a non-registry file is a planning defect (those PRs should be one PR), and duplicate implementations of the same transform across branches go to the parity checker. Then run the per-branch gates below. The final gate is the GitHub merge queue (`gh pr merge <n> --auto --squash`), which re-runs the full suite on the combined result.
+**Multiple branches/PRs**: if `$ARGUMENTS` names more than one branch or PR, run `npm run integration-check -- <branches>` FIRST (add `--e2e` if protocol/transport/UI is touched). Report merge conflicts and the file-overlap matrix up front; any overlap on a non-registry file is a planning defect (those PRs should be one PR), and duplicate implementations of the same transform across branches go to the parity checker. Then run the per-branch gates below. The final gate is the merge lane (`gh pr merge <n> --auto --squash`): it updates each PR onto current `main` one at a time and CI re-runs on the combined result before auto-merge squashes.
 
 Determine the diff under review: `git diff --stat main...HEAD` and `git status --porcelain`.
 

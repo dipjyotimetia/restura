@@ -56,10 +56,10 @@ metrics accumulate.
 
 1. Run `npm run architecture:tighten`. If it changes
    `scripts/architecture.config.mts`, open a small `chore:` PR with only that
-   file (explicit `git add`), and enqueue with `gh pr merge <n> --auto --squash`.
+   file (explicit `git add`), and enable auto-merge with `gh pr merge <n> --auto --squash`.
    Do it as its own PR, never inside a feature PR (the config is a hot file).
 2. Flake review: scan recent CI runs (`gh run list --status failure`) and the
-   merge queue for tests that failed then passed on retry. Known offenders
+   merge-lane runs for tests that failed then passed on retry. Known offenders
    include grpc-web 413 and mcp-client-requests. For each, fix, quarantine
    with a tracked issue, or add to the issue; never leave a flake undocumented.
    Flakes must be fixed or quarantined before the next parallel batch.
