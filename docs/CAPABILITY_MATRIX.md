@@ -22,6 +22,7 @@ rather than discover it experimentally.
 | DNS / connect timing breakdown | ❌ | ✅ | Both show time to headers, download and the remaining overhead; DNS and connect (incl. TLS) are measured only on desktop direct connections, not through proxies |
 | DNS-pinning SSRF guard | ❌ | ✅ | Browser fetch resolves DNS opaquely |
 | TLS cipher suite + server-order control | ❌ | ✅ | No per-request TLS handshake control in Cloudflare Workers / browsers |
+| TLS minimum protocol version | ❌ | ✅ | Web client uses the runtime's default TLS floor |
 | HTTP version control (force HTTP/1.1, HTTP/2, h2c prior knowledge) | ❌ | ✅ | Web always negotiates via the runtime (Auto). h2c prior knowledge works direct and through SOCKS, not through an HTTP proxy |
 | Incremental HTTP response streaming | ✅ | ❌ | Web streams via the Worker proxy; Electron IPC buffers the full response (renderer falls back to the buffered path) |
 | Load / performance testing | ✅ | ✅ | Fidelity differs: web is capped by ~6 browser connections per origin and the Worker proxy rate limit (100 req/min); desktop by the IPC rate budget. Results above those budgets include self-inflicted throttling |
@@ -46,6 +47,7 @@ rather than discover it experimentally.
 | gRPC-Web wire protocol (per-request selector) | ✅ | ✅ | Unary + server-streaming to gRPC-Web endpoints (e.g. Envoy grpc_web); needs reflection or a .proto. Web/self-host relay via /api/grpc-web (binary or grpc-web-text, messages streamed as they arrive); desktop pins connect-node gRPC-Web (binary only). The same selector pins native gRPC (desktop only) or Connect. |
 | Kafka produce / consume | ❌ | ✅ | Native broker protocol; no browser TCP |
 | Kafka Confluent Schema Registry (subject produce, browse, decode) | ❌ | ✅ | Desktop main-process client: Basic or Bearer (SecretRef) auth, Settings TLS policy (custom CA, mTLS, verify) for HTTPS, broker-aligned SSRF policy (per-socket DNS checks refuse metadata and disabled loopback), no credentials over public plain HTTP; Avro/JSON Schema example generation, Protobuf view-only |
+| Kafka SASL/OAUTHBEARER client-credentials (auto-refresh) | ❌ | ✅ | Token fetched in main through the SSRF-guarded, DNS-pinned fetch; https is required except for loopback hosts and private IP literals (private addresses still need the "allow private IPs" setting); refreshed once < max(30s, 25% of lifetime) remains; client secret is a kafka-scoped SecretRef handle |
 | Kafka AWS MSK IAM | ❌ | ✅ | SigV4-presigned OAUTHBEARER token; access keys (SecretRef handles) or a named AWS profile; SASL_SSL only; brokers must be MSK hosts in the region unless explicitly opted out |
 | Kafka SASL/GSSAPI (Kerberos) | ❌ | ❌ | Authenticator is implemented, but the native kerberos module is not bundled; the option is disabled in the form |
 | MQTT publish / subscribe | ❌ | ✅ | Native broker protocol over raw TCP/TLS; no browser TCP |
@@ -76,7 +78,11 @@ rather than discover it experimentally.
 | Native shell.openExternal | ❌ | ✅ |  |
 | Native OS notifications | ❌ | ✅ |  |
 | System tray icon | ❌ | ✅ |  |
+| Pre-request / test scripts (rs.* sandbox) | ✅ | ✅ |  |
 | rs.sendRequest sub-requests inside scripts | ✅ | ✅ | Routes through the same SSRF-guarded proxy as a top-level send |
+| rs.cookies read/write against the cookie jar | ✅ | ✅ |  |
+| rs.execution.setNextRequest / skipRequest runner flow control | ✅ | ✅ |  |
+| rs.visualizer.set rendered in a sandboxed iframe tab | ✅ | ✅ |  |
 | rs.vault encrypted key-value secret store | ❌ | ✅ | Backed by OS keychain via electron safeStorage; no equivalent in browser |
 | rs.judge LLM-as-judge semantic assertions | ❌ | ✅ | Routes through the AI Lab complete IPC; no Worker /api/ai route yet |
 
