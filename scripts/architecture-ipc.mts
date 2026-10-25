@@ -68,6 +68,12 @@ function parseTs(filePath: string, sourceText: string): AstRecord {
   }).program as unknown as AstRecord;
 }
 
+/** A child-node list of a Babel node (always an array in Babel's AST; `[]` if absent). */
+function list(node: AstRecord, key: string): unknown[] {
+  const value = node[key];
+  return Array.isArray(value) ? value : [];
+}
+
 function unwrapExpression(node: unknown): unknown {
   let current = node;
   while (
@@ -114,15 +120,13 @@ export function extractIpcRegistry(filePath: string, sourceText: string): string
     const id = node.id;
     if (!isRecord(id) || typeof id.name !== 'string' || !id.name.endsWith('_IPC')) return;
     const init = unwrapExpression(node.init);
-    if (!isRecord(init) || init.type !== 'ObjectExpression' || !Array.isArray(init.properties)) {
-      return false;
-    }
-    for (const group of init.properties) {
+    if (!isRecord(init) || init.type !== 'ObjectExpression') return false;
+    for (const group of list(init, 'properties')) {
       if (!isRecord(group) || group.type !== 'ObjectProperty') continue;
       const groupName = propertyName(group);
       const value = unwrapExpression(group.value);
       if (!groupName || !isRecord(value) || value.type !== 'ObjectExpression') continue;
-      for (const entry of Array.isArray(value.properties) ? value.properties : []) {
+      for (const entry of list(value, 'properties')) {
         if (!isRecord(entry) || entry.type !== 'ObjectProperty') continue;
         const name = propertyName(entry);
         if (name) keys.push(`${groupName}.${name}`);
@@ -187,8 +191,7 @@ const REGISTRATION_CALLEE = /(?:^|\.)ipcMain\.(?:handle|handleOnce|on|once)$/;
 const VALIDATED_WRAPPER = /^createValidated\w*$/;
 
 function functionParamNames(fn: AstRecord): string[] {
-  const params = Array.isArray(fn.params) ? fn.params : [];
-  return params.flatMap((param) => {
+  return list(fn, 'params').flatMap((param) => {
     const target = isRecord(param) && param.type === 'AssignmentPattern' ? param.left : param;
     return isRecord(target) && target.type === 'Identifier' && typeof target.name === 'string'
       ? [target.name]
@@ -219,13 +222,11 @@ function namedFunctions(ast: AstRecord): Array<{ name: string; fn: AstRecord }> 
 /** Bindings introduced by a loop/forEach target: plain identifiers and array-pattern elements. */
 function bindingNames(node: unknown): string[] {
   if (!isRecord(node)) return [];
-  if (node.type === 'VariableDeclaration' && Array.isArray(node.declarations)) {
-    return node.declarations.flatMap((d) => (isRecord(d) ? bindingNames(d.id) : []));
+  if (node.type === 'VariableDeclaration') {
+    return list(node, 'declarations').flatMap((d) => bindingNames((d as AstRecord).id));
   }
   if (node.type === 'Identifier' && typeof node.name === 'string') return [node.name];
-  if (node.type === 'ArrayPattern' && Array.isArray(node.elements)) {
-    return node.elements.flatMap(bindingNames);
-  }
+  if (node.type === 'ArrayPattern') return list(node, 'elements').flatMap(bindingNames);
   return [];
 }
 
@@ -234,8 +235,8 @@ function iterableRefs(node: unknown): { keys: string[]; groups: string[] } {
   const target = unwrapExpression(node);
   const result = { keys: [] as string[], groups: [] as string[] };
   if (!isRecord(target)) return result;
-  if (target.type === 'ArrayExpression' && Array.isArray(target.elements)) {
-    for (const element of target.elements) {
+  if (target.type === 'ArrayExpression') {
+    for (const element of list(target, 'elements')) {
       const chain = memberChain(element);
       if (chain?.[0] === 'IPC' && chain.length >= 3) result.keys.push(`${chain[1]}.${chain[2]}`);
     }
@@ -245,7 +246,7 @@ function iterableRefs(node: unknown): { keys: string[]; groups: string[] } {
   if (target.type === 'CallExpression') {
     const callee = memberChain(target.callee)?.join('.');
     if (!callee || !/^Object\.(?:values|keys|entries)$/.test(callee)) return result;
-    source = Array.isArray(target.arguments) ? target.arguments[0] : undefined;
+    source = list(target, 'arguments')[0];
   }
   const chain = memberChain(source);
   if (chain?.[0] === 'IPC' && chain.length === 2) result.groups.push(chain[1]!);
@@ -277,8 +278,7 @@ export function extractIpcRegistrations(
     if (VALIDATED_WRAPPER.test(last)) return true;
     return chain.length === 1 && helpers.has(last);
   };
-  const callArgs = (call: AstRecord): unknown[] =>
-    Array.isArray(call.arguments) ? call.arguments : [];
+  const callArgs = (call: AstRecord): unknown[] => list(call, 'arguments');
   const forwardsIdentifier = (body: unknown, names: readonly string[]): boolean => {
     let forwards = false;
     walk(body, (node) => {
@@ -327,7 +327,7 @@ export function extractIpcRegistrations(
       ) {
         const fn = callArgs(node)[0];
         if (isRecord(fn)) {
-          const params = Array.isArray(fn.params) ? fn.params.flatMap(bindingNames) : [];
+          const params = list(fn, 'params').flatMap(bindingNames);
           addIterated(callee.object, params, fn.body);
         }
       }
@@ -355,8 +355,7 @@ export function inspectPreloadBinding(
     let satisfiesElectronApi = false;
     walk(ast, (node) => {
       if (node.type !== 'TSSatisfiesExpression') return;
-      const annotation = node.typeAnnotation;
-      const typeName = isRecord(annotation) ? annotation.typeName : undefined;
+      const typeName = (node.typeAnnotation as AstRecord).typeName;
       if (isRecord(typeName) && typeName.name === 'ElectronAPI') satisfiesElectronApi = true;
     });
     if (!satisfiesElectronApi) {
@@ -370,14 +369,11 @@ export function inspectPreloadBinding(
     if (node.type !== 'ExportNamedDeclaration') return;
     const declaration = node.declaration;
     if (!isRecord(declaration) || declaration.type !== 'VariableDeclaration') return false;
-    for (const declarator of Array.isArray(declaration.declarations)
-      ? declaration.declarations
-      : []) {
-      if (!isRecord(declarator)) continue;
+    for (const declarator of list(declaration, 'declarations') as AstRecord[]) {
       const init = unwrapExpression(declarator.init);
       if (!isRecord(init) || init.type !== 'ObjectExpression') continue;
-      const id = declarator.id;
-      if (isRecord(id) && !id.typeAnnotation) {
+      const id = declarator.id as AstRecord;
+      if (!id.typeAnnotation) {
         problems.push(
           `${filePath}: exported preload object \`${String(id.name)}\` needs a type annotation derived from ElectronAPI (e.g. \`Pick<ElectronAPI, '…'>\`) so its keys are checked against electron/types/api/*`
         );

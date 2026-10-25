@@ -274,6 +274,98 @@ export function disposeDemo() {
   });
 });
 
+describe('IPC triple edge cases', () => {
+  it('reads quoted keys and skips computed, spread and non-literal registry shapes', () => {
+    expect(
+      extractIpcRegistry(
+        'channels/odd.tsx',
+        `const base = { x: 'x' };
+         export const ODD_IPC = {
+           ...base,
+           'quoted-group': { 'quoted-key': 'q:k', plain: 'q:p', ...base, [dyn]: 'q:d', 1: 'q:1' },
+           [dynGroup]: { k: 'd:k' },
+           notObject: 'nope',
+           method() {},
+         } as const;
+         export const CALL_IPC = build();
+         export const OTHER = { g: { k: 'o:k' } };`
+      )
+    ).toEqual(['quoted-group.quoted-key', 'quoted-group.plain']);
+  });
+
+  it('ignores non-registration iteration shapes and computed IPC access', () => {
+    const refs = extractIpcRegistrations(
+      'main.ts',
+      `for (const [, channel] of Object.entries(IPC.entries)) ipcMain.handle(channel, h);
+       for (const { channel } of list) ipcMain.handle(channel, h);
+       for (const c of transform(IPC.notObject)) ipcMain.handle(c, h);
+       for (const c of Object.values()) ipcMain.handle(c, h);
+       for (const c of [IPC.arr.k, other, IPC.short]) ipcMain.handle(c, h);
+       for (c of IPC.bare) ipcMain.handle(c, h);
+       for (const k in IPC.forIn) ipcMain.on(k, h);
+       items.forEach(({ c }) => ipcMain.handle(c, h));
+       items.forEach();
+       items.forEach(handler);
+       IPC[name].forEach((c) => ipcMain.handle(c, h));
+       ipcMain.handle(IPC[name].k, h);
+       ipcMain.handle(IPC.g, h);
+       (getMain()).handle(IPC.x.y, h);
+       const notFn = 1;
+       function noParams() { ipcMain.handle(IPC.np.k, h); }
+       function withDefault(ch = 'x') { ipcMain.handle(ch, h); }
+       withDefault(IPC.d.k);
+       function destructured({ ch }) { ipcMain.handle(ch, h); }
+       destructured(IPC.never.k);`
+    );
+    expect([...refs.keys].sort()).toEqual(['arr.k', 'd.k', 'np.k']);
+    expect([...refs.groups].sort()).toEqual(['bare', 'entries', 'forIn']);
+  });
+
+  it('collects whole-group preload references and parses TSX sources', () => {
+    const refs = extractIpcReferences(
+      'preload/x.tsx',
+      'const el = <div />; Object.values(IPC.all); IPC[dyn]; other.IPC.a.b;'
+    );
+    expect([...refs.groups]).toEqual(['all']);
+    expect([...refs.keys]).toEqual([]);
+  });
+
+  it('handles preload groups, preloadDir without a slash, and non-object exports', () => {
+    const root = ipcRepo({
+      'electron/main/preload/demo-api.ts': `${PRELOAD_DOMAIN.replace(
+        /demo: \{[\s\S]*?\n {2}\},\n/,
+        'demo: Object.fromEntries(Object.values(IPC.demo).map((c) => [c, invoke(c)])),\n'
+      )}export const version = 1;
+export const typed: { a: number } = { a: 1 };
+`,
+      'electron/main/preload.ts': PRELOAD_ENTRY.replace(
+        '{ ...demoApi } satisfies ElectronAPI',
+        '({ ...demoApi } satisfies Partial<{ a: 1 }>) satisfies ElectronAPI'
+      ),
+    });
+    const policy: IpcTriplePolicy = {
+      ...ipcPolicy,
+      preloadDir: 'electron/main/preload',
+      preloadOnlyChannels: { 'demo.ping': 'handled after all' },
+    };
+    const { violations, warnings } = ipcMessages(root, policy);
+    expect(violations).toEqual([]);
+    expect(warnings.map((w) => w.message)).toEqual([
+      "ipcTriplePolicy.preloadOnlyChannels entry 'demo.ping' is no longer needed; remove it",
+    ]);
+  });
+
+  it('flags a preload entry that only satisfies some other type', () => {
+    const root = ipcRepo({
+      'electron/main/preload.ts': PRELOAD_ENTRY.replace(
+        'satisfies ElectronAPI',
+        'satisfies Record<string, unknown>'
+      ),
+    });
+    expect(ipcMessages(root).violations.map((v) => v.file)).toEqual(['electron/main/preload.ts']);
+  });
+});
+
 describe('forbidden config keys', () => {
   it('tokenizes away comments but keeps string contents', () => {
     expect(
@@ -311,6 +403,36 @@ describe('forbidden config keys', () => {
         text: '{ /* DEV_BYPASS_AUTH: true */ "note": "DEV_BYPASS_AUTH=1", // DEV_BYPASS_AUTH: 1\n}',
       },
       { path: 'wrangler.json5', text: "{ note: 'DEV_BYPASS_AUTH: true' }" },
+    ];
+    expect(evaluateForbiddenConfigKeys(files, forbiddenConfigKeys)).toEqual([]);
+  });
+
+  it('tokenizes escapes, TOML literal/multi-line strings and unterminated input', () => {
+    const values = (text: string, toml: boolean) => tokenizeConfig(text, toml).map((t) => t.value);
+    expect(values(String.raw`{"a\"b": 'c\'d'}`, false)).toEqual(['{', 'a"b', ':', "c'd", '}']);
+    expect(values(String.raw`k = 'C:\path'`, true)).toEqual(['k', '=', String.raw`C:\path`]);
+    expect(values('k = """x\n"y"""\nj = \'\'\'z\'\'\'', true)).toEqual([
+      'k',
+      '=',
+      'x\n"y',
+      'j',
+      '=',
+      'z',
+    ]);
+    expect(values('k = """open', true)).toEqual(['k', '=', 'open']);
+    expect(values('{"open', false)).toEqual(['{', 'open']);
+    expect(values('{} /* open', false)).toEqual(['{', '}']);
+    expect(values('{} // tail', false)).toEqual(['{', '}']);
+    expect(values('x # tail', true)).toEqual(['x']);
+    expect(tokenizeConfig('a\n"DEV_BYPASS_AUTH"\n:\n1', false).map((t) => t.line)).toEqual([
+      1, 2, 3, 4,
+    ]);
+  });
+
+  it('only flags the key when followed by a separator', () => {
+    const files = [
+      { path: 'wrangler.jsonc', text: '{"vars": ["DEV_BYPASS_AUTH", "x"], "DEV_BYPASS_AUTH"}' },
+      { path: 'wrangler.toml', text: 'DEV_BYPASS_AUTH\nnot.DEV_BYPASS_AUTHX = 1\nDEV_BYPASS_AUTH' },
     ];
     expect(evaluateForbiddenConfigKeys(files, forbiddenConfigKeys)).toEqual([]);
   });

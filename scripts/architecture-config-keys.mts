@@ -52,9 +52,9 @@ export function tokenizeConfig(text: string, toml: boolean): ConfigToken[] {
       advanceTo(end === -1 ? text.length : end + 2);
     } else if (toml && (rest === '"""' || rest === "'''")) {
       const end = text.indexOf(rest, index + 3);
-      const stop = end === -1 ? text.length : end + 3;
-      tokens.push({ kind: 'string', value: text.slice(index + 3, stop - 3), line });
-      advanceTo(stop);
+      const close = end === -1 ? text.length : end;
+      tokens.push({ kind: 'string', value: text.slice(index + 3, close), line });
+      advanceTo(Math.min(close + 3, text.length));
     } else if (char === '"' || char === "'") {
       let end = index + 1;
       let value = '';
