@@ -52,3 +52,39 @@ export async function refreshOAuth2Auth(
     },
   };
 }
+
+/**
+ * Fold a refresh result back onto the user's *template* auth for persistence.
+ *
+ * The executor refreshes against a `{{var}}`-resolved copy of the auth, so the
+ * refreshed object carries resolved plaintext in every templated field
+ * (clientId, tokenUrl, a `{{refresh}}` token, …). Persisting that would bake
+ * variable values — often environment secrets — into the saved request. Only
+ * what the token endpoint issued is taken from `refreshed`: the access token,
+ * expiry, and a refresh token / token type only when the server rotated them
+ * (they differ from the resolved inputs). Everything else keeps the template.
+ */
+export function persistableRefreshedAuth(
+  template: AuthConfig,
+  resolved: AuthConfig,
+  refreshed: AuthConfig
+): AuthConfig {
+  const t = template.oauth2;
+  const r = resolved.oauth2;
+  const n = refreshed.oauth2;
+  if (template.type !== 'oauth2' || !t || !r || !n) return template;
+  const resolvedRefresh = r.refreshToken !== undefined ? unwrapSecret(r.refreshToken) : undefined;
+  const rotatedRefresh =
+    n.refreshToken !== undefined && unwrapSecret(n.refreshToken) !== resolvedRefresh;
+  const serverTokenType = n.tokenType !== undefined && n.tokenType !== r.tokenType;
+  return {
+    ...template,
+    oauth2: {
+      ...t,
+      accessToken: n.accessToken,
+      ...(n.expiresAt !== undefined && { expiresAt: n.expiresAt }),
+      ...(rotatedRefresh && n.refreshToken !== undefined && { refreshToken: n.refreshToken }),
+      ...(serverTokenType && n.tokenType !== undefined && { tokenType: n.tokenType }),
+    },
+  };
+}
