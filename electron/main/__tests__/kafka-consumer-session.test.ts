@@ -238,3 +238,80 @@ describe('KafkaConsumerSession timeouts', () => {
     );
   });
 });
+
+describe('KafkaConsumerSession close drains or aborts queued emits', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a graceful close waits for queued emits and commits them in the final flush', async () => {
+    const { stream, consumer, hooks, session } = setup({ autoCommitIntervalMs: 60_000 });
+    hooks.deliver.mockImplementation(() => new Promise<void>((r) => setTimeout(r, 100)));
+    stream.emit('data', record(1));
+    stream.emit('data', record(2));
+    stream.emit('data', record(3));
+    const closing = session.close(5_000);
+    await vi.advanceTimersByTimeAsync(300);
+    await closing;
+    expect(hooks.deliver).toHaveBeenCalledTimes(3);
+    expect(consumer.commit).toHaveBeenCalledTimes(1);
+    expect(consumer.commit).toHaveBeenCalledWith({
+      offsets: [{ topic: 'orders', partition: 0, offset: 4n, leaderEpoch: 0 }],
+    });
+  });
+
+  it('a drain that outlasts its bound aborts the rest; undelivered records are not committed', async () => {
+    const { stream, consumer, hooks, session } = setup({ autoCommitIntervalMs: 60_000 });
+    const signals: AbortSignal[] = [];
+    hooks.deliver.mockImplementationOnce(async () => {});
+    hooks.deliver.mockImplementation(async (_msg, signal) => {
+      signals.push(signal);
+      await new Promise(() => {}); // a decode that never answers
+    });
+    stream.emit('data', record(1));
+    stream.emit('data', record(2));
+    stream.emit('data', record(3));
+    const closing = session.close(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await closing;
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.aborted).toBe(true);
+    expect(hooks.deliver).toHaveBeenCalledTimes(2); // record 3 is never decoded
+    expect(consumer.commit).toHaveBeenCalledTimes(1);
+    expect(consumer.commit).toHaveBeenCalledWith({
+      offsets: [{ topic: 'orders', partition: 0, offset: 2n, leaderEpoch: 0 }],
+    });
+    // Nothing is recorded into the closed committer afterwards.
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(consumer.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('a forced close aborts at once and never commits a record it did not deliver', async () => {
+    const { stream, consumer, hooks, session } = setup({ autoCommitIntervalMs: 60_000 });
+    let signal: AbortSignal | undefined;
+    hooks.deliver.mockImplementation(async (_msg, s) => {
+      signal = s;
+      await new Promise((r) => setTimeout(r, 100));
+    });
+    stream.emit('data', record(1));
+    stream.emit('data', record(2));
+    await vi.advanceTimersByTimeAsync(0);
+    await session.close();
+    expect(signal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(hooks.deliver).toHaveBeenCalledTimes(1);
+    expect(consumer.commit).not.toHaveBeenCalled();
+  });
+
+  it('records arriving after close starts are dropped, not queued', async () => {
+    const { stream, hooks, session } = setup({ autoCommitIntervalMs: 60_000 });
+    const closing = session.close(5_000);
+    stream.emit('data', record(1));
+    await vi.advanceTimersByTimeAsync(0);
+    await closing;
+    expect(hooks.deliver).not.toHaveBeenCalled();
+  });
+});

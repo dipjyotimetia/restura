@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "strict": true,
+    "allowUnreachableCode": false,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,

@@ -254,6 +254,16 @@ export class McpClient {
     this.stderrUnsubscribe = undefined;
   }
 
+  /**
+   * Drop this client's local listeners (stdio stderr) without telling main —
+   * for a session the server already closed. Without it a dead client's
+   * stderr listener survives, and the next connect on the same connection id
+   * adds a second one (every stderr line shown twice).
+   */
+  release(): void {
+    this.unsubscribeStderr();
+  }
+
   async disconnect(): Promise<void> {
     this.unsubscribeStderr();
     if (isElectron()) {

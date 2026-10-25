@@ -245,6 +245,69 @@ describe('MCP stdio transport (real process)', () => {
     expect(await waitUntilGone(pid)).toBe(true);
   });
 
+  it('kills the child when the renderer reloads, but not on hash-router navigation', async () => {
+    const event = makeEvent();
+    expect(await handlerFor('mcp:connect')(event, stdioPayload('s-reload'))).toEqual({
+      success: true,
+    });
+    const pid = Number(await callText(event, 's-reload', 'pid'));
+    // createHashRouter: same-document navigations keep the page (and its sessions).
+    event.sender.emit('did-navigate-in-page', {}, 'file:///app/index.html#/mcp', true);
+    // A navigation the will-navigate guard blocks starts but never commits.
+    event.sender.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    expect(await callText(event, 's-reload', 'pid')).toBe(String(pid));
+    expect(liveStdioChildCount()).toBe(1);
+
+    // View → Reload keeps the webContents but replaces the document.
+    event.sender.emit('did-navigate', {}, 'file:///app/dist/web/index.html', 200, 'OK');
+    expect(await waitUntilGone(pid)).toBe(true);
+    await vi.waitFor(() => expect(liveStdioChildCount()).toBe(0));
+    const after = await handlerFor('mcp:request')(event, {
+      connectionId: 's-reload',
+      method: 'tools/list',
+    });
+    expect(after).toEqual({ success: false, error: 'Not connected' });
+
+    // The reloaded page can connect again, and a second reload cleans up again.
+    expect(await handlerFor('mcp:connect')(event, stdioPayload('s-reload'))).toEqual({
+      success: true,
+    });
+    const pid2 = Number(await callText(event, 's-reload', 'pid'));
+    event.sender.emit('render-process-gone', {}, { reason: 'crashed' });
+    expect(await waitUntilGone(pid2)).toBe(true);
+  });
+
+  it('wires the server→client bridge: roots/elicitation/sampling advertised, roots served, disposed on disconnect', async () => {
+    const event = makeEvent();
+    const roots = [{ uri: 'file:///tmp/project', name: 'project' }];
+    expect(
+      await handlerFor('mcp:set-roots')(event, { connectionId: 's-roots', roots })
+    ).toMatchObject({ success: true, notified: 0 });
+    expect(await handlerFor('mcp:connect')(event, stdioPayload('s-roots'))).toEqual({
+      success: true,
+    });
+    const caps = JSON.parse(await callText(event, 's-roots', 'client-caps')) as Record<
+      string,
+      unknown
+    >;
+    expect(caps).toMatchObject({
+      elicitation: { form: {} },
+      sampling: {},
+      roots: { listChanged: true },
+    });
+    expect(await callText(event, 's-roots', 'roots')).toBe('file:///tmp/project');
+    // A live session gets roots list_changed.
+    expect(
+      await handlerFor('mcp:set-roots')(event, { connectionId: 's-roots', roots: [] })
+    ).toMatchObject({ success: true, notified: 1 });
+
+    await handlerFor('mcp:disconnect')(event, { connectionId: 's-roots' });
+    // Disposed bridge: nothing left to notify.
+    expect(
+      await handlerFor('mcp:set-roots')(event, { connectionId: 's-roots', roots })
+    ).toMatchObject({ success: true, notified: 0 });
+  });
+
   it('kills every child on module dispose (app quit)', async () => {
     const a = makeEvent();
     const b = makeEvent();
