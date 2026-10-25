@@ -63,7 +63,7 @@ test.describe('Desktop MCP stdio transport', () => {
     await page.getByRole('button', { name: /Connect/i }).click();
     const catalog = page.getByRole('button', { name: 'Tools', exact: true });
     if ((await catalog.getAttribute('aria-pressed')) !== 'true') await catalog.click();
-    await expect(page.getByRole('tab', { name: /Tools\s+3/ })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('tab', { name: /Tools\s+5/ })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText('env-keys', { exact: true }).first()).toBeVisible();
     const first = await prompts();
     expect(first).toHaveLength(1);
@@ -80,7 +80,7 @@ test.describe('Desktop MCP stdio transport', () => {
     // Reconnect the identical command line. With "Always allow" it must not
     // prompt again; without a keychain every launch prompts (fail closed).
     await page.getByRole('button', { name: /Connect/i }).click();
-    await expect(page.getByRole('tab', { name: /Tools\s+3/ })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('tab', { name: /Tools\s+5/ })).toBeVisible({ timeout: 20_000 });
     expect(await prompts()).toHaveLength(remembered ? 1 : 2);
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
     if (running) await expect.poll(() => fixturePids(), { timeout: 10_000 }).toEqual([]);

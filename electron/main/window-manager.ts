@@ -8,7 +8,11 @@ import { gitRateLimiter } from './handlers/git-handler';
 import { grpcRateLimiter } from './handlers/grpc-handler';
 import { httpRateLimiter } from './handlers/http-handler';
 import { kafkaRateLimiter } from './handlers/kafka-handler';
-import { mcpCancelRateLimiter, mcpRateLimiter } from './handlers/mcp-handler';
+import {
+  mcpCancelRateLimiter,
+  mcpRateLimiter,
+  mcpRequestRateLimiter,
+} from './handlers/mcp-handler';
 import { mqttRateLimiter } from './handlers/mqtt-handler';
 import { socketIoRateLimiter } from './handlers/socketio-handler';
 import { sseRateLimiter } from './handlers/sse-handler';
@@ -225,6 +229,7 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
       socketIoRateLimiter,
       sseRateLimiter,
       mcpRateLimiter,
+      mcpRequestRateLimiter,
       mcpCancelRateLimiter,
       kafkaRateLimiter,
       mqttRateLimiter,

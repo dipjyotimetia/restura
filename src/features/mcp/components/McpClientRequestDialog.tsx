@@ -19,6 +19,12 @@ interface McpClientRequestDialogProps {
   connectionName: string;
   /** Host of the (resolved) server URL. */
   serverHost: string;
+  /**
+   * stdio: the (resolved) command of the local server process. When set, the
+   * prompt names the process instead of a URL host — a stdio connection has no
+   * URL, and the request's leftover HTTP URL would name the wrong server.
+   */
+  localCommand?: string | undefined;
 }
 
 /** Host of a server URL for display; falls back to the raw string. */
@@ -39,6 +45,7 @@ export function McpClientRequestDialog({
   connectionId,
   connectionName,
   serverHost,
+  localCommand,
 }: McpClientRequestDialogProps) {
   const queue = useMcpClientRequestStore(
     useShallow((state) => state.requests.filter((request) => request.connectionId === connectionId))
@@ -48,6 +55,8 @@ export function McpClientRequestDialog({
   if (!request) return null;
 
   const isElicitation = request.kind === 'elicitation';
+  const recipient =
+    localCommand !== undefined ? `the local process ${localCommand || '(no command)'}` : serverHost;
   const dismiss = () => {
     if (isElicitation) void respondToElicitation(request, { action: 'cancel' });
     else void respondToSampling(request, { action: 'reject' });
@@ -82,7 +91,8 @@ export function McpClientRequestDialog({
           </DialogDescription>
         </DialogHeader>
         <p className="font-mono text-sp-12 text-sp-muted break-all">
-          Connection: <span className="text-sp-text">{connectionName}</span> ({serverHost})
+          Connection: <span className="text-sp-text">{connectionName}</span> (
+          {localCommand !== undefined ? `local process ${localCommand}` : serverHost})
         </p>
         {/* Fixed client-authored warning — never server-controlled text. */}
         <div
@@ -95,9 +105,7 @@ export function McpClientRequestDialog({
           }}
         >
           <ShieldAlert className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
-          <span>
-            Anything you enter is sent to {serverHost}. Never enter passwords or API keys.
-          </span>
+          <span>Anything you enter is sent to {recipient}. Never enter passwords or API keys.</span>
         </div>
         {isElicitation ? (
           <McpElicitationPrompt

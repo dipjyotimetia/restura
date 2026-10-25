@@ -5,6 +5,10 @@ import {
   registryFromDescriptors,
   registryFromProtoText,
 } from '@shared/protocol/grpc-registry';
+import {
+  grpcMetadataSizeError,
+  grpcUnsupportedAuthMessage as sharedGrpcUnsupportedAuthMessage,
+} from '@shared/protocol/grpc-request-policy';
 import { GRPC_PROXY_MAX_TIMEOUT_MS } from '@shared/protocol/grpc-schema';
 import {
   type GrpcStatusDetail,
@@ -70,33 +74,12 @@ export function assertProxyDeadline(timeoutMs: number): void {
 }
 
 /**
- * Auth types with no gRPC binding yet (#900). Each needs either the exact wire
- * bytes (SigV4, OAuth 1.0 sign the encoded body/URL), a challenge/response
- * round-trip (Digest, NTLM), or a per-call computed header the gRPC handlers
- * don't build (WSSE). Rather than silently sending without credentials, the
- * send is blocked with this explanation and the auth tab shows it inline.
- */
-const GRPC_UNSUPPORTED_AUTH: Partial<Record<AuthConfig['type'], string>> = {
-  digest: 'Digest',
-  'aws-signature': 'AWS Signature (SigV4)',
-  oauth1: 'OAuth 1.0',
-  ntlm: 'NTLM',
-  wsse: 'WSSE',
-};
-
-/**
- * User-facing reason a gRPC call can't apply this auth, or `null` when the
- * auth type is supported (none / basic / bearer / api-key / oauth2).
+ * User-facing reason a gRPC call can't apply this auth (#900), or `null` when
+ * the auth type is supported. The policy lives in
+ * `shared/protocol/grpc-request-policy.ts` so the CLI enforces the same block.
  */
 export function grpcUnsupportedAuthMessage(auth: AuthConfig): string | null {
-  const label = GRPC_UNSUPPORTED_AUTH[auth.type];
-  if (!label) return null;
-  return (
-    `${label} authentication is not supported for gRPC, and Restura won't send the call ` +
-    'without credentials. Use Bearer, Basic, API Key or OAuth 2.0, or set Auth to No Auth ' +
-    '(including any folder or collection it inherits from) and add a pre-computed ' +
-    'credential as a metadata entry.'
-  );
+  return sharedGrpcUnsupportedAuthMessage(auth);
 }
 
 // Auth to Metadata Converter
@@ -107,7 +90,7 @@ export function grpcUnsupportedAuthMessage(auth: AuthConfig): string | null {
 // flavour uses lowercase keys (canonical for HTTP/2 metadata) and requires
 // BOTH username AND password for Basic auth — both behaviours preserved.
 //
-// Sign-at-wire / challenge types (see `GRPC_UNSUPPORTED_AUTH`) produce no
+// Sign-at-wire / challenge types (`GRPC_UNSUPPORTED_AUTH`, shared policy) produce no
 // metadata; `prepareGrpcRequest` blocks the send for them instead. API-key in
 // `query` mode is dropped on the floor for gRPC (no URL query string in the
 // metadata frame) — matched by returning only `headers`.
@@ -360,17 +343,11 @@ export function prepareGrpcRequest(
   const authMetadata = buildAuthMetadata(request.auth);
   Object.assign(metadata, authMetadata);
 
-  // Validate the aggregate metadata size (#895). No per-entry cap — a 2 KB
-  // bearer JWT is ordinary — only a total-bytes ceiling, measured in UTF-8.
-  const encoder = new TextEncoder();
-  let totalSize = 0;
-  for (const [key, value] of Object.entries(metadata)) {
-    totalSize += encoder.encode(key).length + encoder.encode(value).length;
-  }
-
-  if (totalSize > MAX_GRPC_METADATA_BYTES) {
+  // Validate the aggregate metadata size (#895) — shared policy with the CLI.
+  const metadataSizeError = grpcMetadataSizeError(metadata);
+  if (metadataSizeError) {
     throw new GrpcClientError(
-      `Total metadata size (${totalSize} bytes) exceeds maximum of ${MAX_GRPC_METADATA_BYTES} bytes`,
+      metadataSizeError,
       GrpcStatusCode.INVALID_ARGUMENT,
       'Reduce the number or size of metadata headers'
     );

@@ -119,7 +119,7 @@ export default defineConfig({
             // had drifted below their 2026 snapshot and CI silently disabled them.
             lines: -4378,
             functions: -1344,
-            branches: -5300, // TEMPORARY: raised from -5226 to land open MCP/Kafka PR stack; ratchet down after
+            branches: -5226,
             statements: -5321,
             // The backend-agnostic protocol core is the security/parity boundary;
             // keep substantially stronger percentage guarantees here.
