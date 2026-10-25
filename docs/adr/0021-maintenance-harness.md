@@ -38,7 +38,7 @@ Add a **maintenance harness** under `.claude/`, paired with a source-level fix f
 **Negative**
 
 - `type-check:all` makes `validate` slower locally (six `tsc` runs); the renderer-only `type-check` remains for fast inner-loop checks.
-- The harness is prompt/skill content, not executable gates — it guides the assistant but does not block a human running raw `git`/`npm`. The hard gates remain CI.
+- The harness is prompt/skill content, not executable gates — it guides the assistant but does not block a human running raw `git`/`npm`. The hard gates remain CI. _Partly superseded by [ADR 0032](./0032-agent-harness-evals-hooks-progressive-disclosure.md): delivery rules are now hook-enforced for agent sessions._
 - More artifacts to keep current; this ADR and the doc-ownership map are themselves maintenance surface.
 
 ## References

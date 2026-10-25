@@ -26,7 +26,7 @@ Add a **maintenance harness** under `.claude/`, paired with a source-level fix f
 - **Source fix (closes the root cause)** — add `npm run type-check:all`, which runs all six `tsc` projects CI uses, and chain it into `npm run validate`. Local `validate` now matches CI. Correct the stale type-check claims in `CLAUDE.md` and `docs/ARCHITECTURE.md`.
 - **Verify/maintain skill** — the counterpart to the build-side feature skill. It carries the top gotchas (type-check gap, pre-commit skips tsc, codegen drift gates, capability parity, coverage thresholds, commit scope-enum) with progressive-disclosure references (verification gates, security checklist, release readiness, docs parity).
 - **Subagents** — a security auditor (SSRF single-source, DNS-rebind residual window, broker-discovery bypass, IPC guard triad, SecretRef isolation, [wire-level signing](/architecture/adrs/0016-wire-level-auth-signing/)), a parity checker (web/desktop wiring + capability matrix), and a docs steward (doc-ownership map + a "does this need an ADR?" rubric). Each encodes knowledge the built-in reviewers lack.
-- **Commands** — `/ship-check` (run the full gate `validate` skips, triage failures to `file:line`), `/new-protocol` (drive the feature runbook), and `/docs-sync` (walk the doc-ownership map and update every stale surface).
+- **Commands** (now skills under `.claude/skills/*/SKILL.md`, formerly `.claude/commands/*`) — `/ship-check` (run the full gate `validate` skips, triage failures to `file:line`), `/new-protocol` (drive the feature runbook), and `/docs-sync` (walk the doc-ownership map and update every stale surface).
 - **Measurement hook** — a `PreToolUse` hook logs skill invocations so under/over-triggering is observable, shipped via the committed `.claude/settings.json`.
 
 ## Consequences
@@ -41,7 +41,7 @@ Add a **maintenance harness** under `.claude/`, paired with a source-level fix f
 **Negative**
 
 - `type-check:all` makes `validate` slower locally (six `tsc` runs); the renderer-only `type-check` remains for fast inner-loop checks.
-- The harness is prompt/skill content, not executable gates — it guides the assistant but does not block a human running raw `git`/`npm`. The hard gates remain CI.
+- The harness is prompt/skill content, not executable gates — it guides the assistant but does not block a human running raw `git`/`npm`. The hard gates remain CI. _Partly superseded by [ADR 0032](/architecture/adrs/0032-agent-harness-evals-hooks-progressive-disclosure/): delivery rules are now hook-enforced for agent sessions._
 - More artifacts to keep current; this ADR and the doc-ownership map are themselves maintenance surface.
 
 ## Related
