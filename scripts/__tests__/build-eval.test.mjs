@@ -992,3 +992,14 @@ test('summariseBuild: pass@1, pass^n, failToPass fraction, regressions, error ra
     'error rate is up top'
   );
 });
+
+test('formatBuildMarkdown escapes backslashes, pipes and newlines in dry-run reasons', () => {
+  const md = formatBuildMarkdown({
+    config: 'x',
+    harnessSha: SHA_B,
+    dryRun: true,
+    runs: [{ taskId: 't', split: 'train', status: 'error', reason: 'a\\|b|c\nd' }],
+  });
+  const row = md.split('\n').find((l) => l.startsWith('| t |'));
+  assert.equal(row, '| t | train | FAIL | a\\\\\\|b\\|c d |');
+});

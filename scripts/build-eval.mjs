@@ -907,6 +907,11 @@ export function summariseBuild(runs) {
 const pct = (v) => (typeof v === 'number' ? `${(v * 100).toFixed(0)}%` : '–');
 const usd = (v) => (typeof v === 'number' ? `$${v.toFixed(2)}` : '–');
 const mins = (v) => (typeof v === 'number' ? v.toFixed(1) : '–');
+const cell = (v) =>
+  String(v ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\|/g, '\\|')
+    .replace(/\n/g, ' ');
 
 export function formatBuildMarkdown(result) {
   const s = result.summary;
@@ -925,7 +930,7 @@ export function formatBuildMarkdown(result) {
     lines.push('| task | split | validator | problems |', '|---|---|---|---|');
     for (const r of result.runs)
       lines.push(
-        `| ${r.taskId} | ${r.split} | ${r.status === 'ok' ? 'ok' : 'FAIL'} | ${(r.reason ?? '').replace(/\|/g, '\\|').slice(0, 300)} |`
+        `| ${r.taskId} | ${r.split} | ${r.status === 'ok' ? 'ok' : 'FAIL'} | ${cell(r.reason).slice(0, 300)} |`
       );
     return `${lines.join('\n')}\n`;
   }
