@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -220,7 +221,16 @@ test('loadTasks: id must match file name; split and id filters', () => {
   }
 });
 
-test('committed tasks validate against this repo and keep a train/test split', () => {
+// CI's static job checks out shallow, so task base/reference commits are absent there;
+// the full-history check runs locally and in the eval workflow (fetch-depth: 0).
+const shallow =
+  spawnSync('git', ['-C', ROOT, 'rev-parse', '--is-shallow-repository'], {
+    encoding: 'utf8',
+  }).stdout.trim() === 'true';
+
+test('committed tasks validate against this repo and keep a train/test split', {
+  skip: shallow && 'shallow clone: task commits are not fetched',
+}, () => {
   const tasks = loadTasks({ dir: TASKS_DIR, check: gitChecks(ROOT) });
   assert.ok(tasks.length >= 5, 'expected at least 5 seeded tasks');
   assert.ok(tasks.some((t) => t.split === 'test'));
