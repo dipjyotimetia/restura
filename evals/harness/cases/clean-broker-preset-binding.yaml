@@ -1,0 +1,26 @@
+id: clean-broker-preset-binding
+title: 'Control: bind stored broker preset credentials to the broker address'
+origin: real
+split: test
+expectClean: true
+sourcePRs: ['#1159']
+# Main just before #1159. No later commit touches the files below.
+base: f2adfdec17cee70b30f7336584984d773aa0f706
+# The patch is exactly `git diff base..sourceCommit` (the #1159 merge commit).
+sourceCommit: 743ee70e4b7d79f83e6f581eff4c3b05154ae749
+seam: none
+branches:
+  - name: fix/broker-preset-credential-binding
+    patches: [01-broker-preset-binding.patch]
+expected:
+  summary: >-
+    Kafka/MQTT connection presets stored their credentials keyed by preset id only, so editing a
+    preset's (or an imported collection's) broker address kept attaching the old broker's
+    credentials for the new address. The change in src/features/collections/lib/brokerPresets.ts
+    records which brokers the credentials were saved for (bindBrokerPresetCredentials; broker
+    lists compared ignoring order, case and whitespace), withholds them with a warning toast when
+    the preset now points elsewhere, and no longer attaches legacy secrets that have no recorded
+    binding. Unit tests included. Renderer collection logic; no transport changes.
+  files:
+    - src/features/collections/lib/brokerPresets.ts
+notes: The whole merged PR, unmodified (tests included). No follow-up fix exists on main.

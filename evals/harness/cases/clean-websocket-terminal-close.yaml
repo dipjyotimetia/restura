@@ -1,0 +1,30 @@
+id: clean-websocket-terminal-close
+title: 'Control: stop WebSocket reconnect loops and drop credentials on terminal close'
+origin: real
+split: train
+expectClean: true
+sourcePRs: ['#1162']
+# Main just before #1162. No later commit touches the files below.
+base: 743ee70e4b7d79f83e6f581eff4c3b05154ae749
+seam: none
+branches:
+  - name: fix/websocket-terminal-close
+    patches:
+      - 01-electron-websocket-handler.patch
+      - 02-renderer-websocket-manager.patch
+expected:
+  summary: >-
+    Desktop WebSocket auto-reconnect never gave up when a server accepted and then closed (auth
+    or policy close codes) because opening reset the attempt counter every cycle, and the
+    resolved URL and auth headers (connectArgs) were kept after a server-initiated terminal
+    close. The change in src/features/websocket/lib/websocketManager.ts counts attempts until a
+    connection stays up, treats terminal close codes as final and clears the retained connect
+    arguments; the Electron handler (electron/main/handlers/websocket-handler.ts,
+    window-manager.ts) drops the ws:ping rate-limit buckets with the renderer that owned them.
+  files:
+    - src/features/websocket/lib/websocketManager.ts
+    - electron/main/handlers/websocket-handler.ts
+    - electron/main/window-manager.ts
+notes: >-
+  The merged PR's source hunks, unmodified, split into an Electron and a renderer patch; the
+  three test files are left out to keep each patch under 300 lines.

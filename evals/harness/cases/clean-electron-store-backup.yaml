@@ -1,0 +1,35 @@
+id: clean-electron-store-backup
+title: 'Control: back up unreadable stores before electron-store 12 clears them'
+origin: real
+split: test
+expectClean: true
+sourcePRs: ['#1164']
+# Main just before #1164. No later commit touches the files below.
+base: d8d6a54e33de5e94aac28327aedead9cb6bd58aa
+seam: none
+branches:
+  - name: fix/electron-store-backup
+    patches:
+      - 01-resilient-store.patch
+      - 02-store-callers.patch
+expected:
+  summary: >-
+    With electron-store 12 (conf 16) and clearInvalidConfig, reading a corrupt or undecryptable
+    store rewrote the file on read, so it could not be recovered, and vault keys such as `a[x`
+    threw from dot-prop. The change adds createResilientStore
+    (electron/main/storage/resilient-store.ts), which copies an unreadable store to an owner-only
+    `<name>.corrupt-<ts>.json` backup (keeping 3) before conf clears it, uses it for every
+    encrypted store (store-handler, vault, secret-handle-store, external-secret-profile-store,
+    mcp-stdio-consent), and makes the vault return `{ ok: false }` for keys conf cannot parse
+    instead of throwing. Electron main only.
+  files:
+    - electron/main/storage/resilient-store.ts
+    - electron/main/storage/store-handler.ts
+    - electron/main/storage/vault-handler.ts
+    - electron/main/security/secret-handle-store.ts
+    - electron/main/security/external-secret-profile-store.ts
+    - electron/main/security/mcp-stdio-consent.ts
+    - electron/types/api/integrations.ts
+notes: >-
+  The merged PR's source hunks, unmodified, split into the new store module and its callers;
+  the two test files are left out to keep each patch under 300 lines.

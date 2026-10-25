@@ -37,8 +37,16 @@ scripts/harness-eval.mjs   runner
 | grpc-no-deadline-web-stream | defect | train | real | cross-harness | #1089 → #1152 |
 | sse-post-body-web-unwired | defect | train | synthetic | cross-harness | none |
 | sse-spec-signature-seam | defect | **test** | synthetic | cross-branch | none |
+| mcp-conformance-anonymous-auth | defect | train | real | cross-consumer | #1134 → #1160 |
+| mcp-stop-cleanup-unreachable | defect | train | real | cross-branch | #1126 over #1122 → #1160 |
 | clean-cli-esm-require | control | train | real | none | #1155, no follow-up fix |
 | clean-set-cookie-cap | control | **test** | real | none | #1158, no follow-up fix |
+| clean-graphql-tab-fallback | control | train | real | none | #1156, no follow-up fix |
+| clean-broker-preset-binding | control | **test** | real | none | #1159, no follow-up fix |
+| clean-websocket-terminal-close | control | train | real | none | #1162 (source only), no follow-up fix |
+| clean-mcp-import-header-handles | control | train | real | none | #1165 (source only), no follow-up fix |
+| clean-electron-store-backup | control | **test** | real | none | #1164 (source only), no follow-up fix |
+| clean-kafka-browse-bounds | control | train | real | none | #1154 (source only), no follow-up fix |
 
 Real defect cases are reconstructed from `docs/audits/post-merge-review-2026-10-25.md` and git
 history. Each `base` is the main commit the original branch was cut from (or merged onto), and

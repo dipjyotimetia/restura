@@ -1,0 +1,55 @@
+diff --git a/src/features/graphql/components/GraphQLRequestBuilder.tsx b/src/features/graphql/components/GraphQLRequestBuilder.tsx
+index 4773e6a5..2a015690 100644
+--- a/src/features/graphql/components/GraphQLRequestBuilder.tsx
++++ b/src/features/graphql/components/GraphQLRequestBuilder.tsx
+@@ -111,7 +111,7 @@ function GraphQLRequestBuilder() {
+   );
+   const schemaLoading = useGraphQLSchemaStore((s) => (url ? (s.loading[url] ?? false) : false));
+   const { run: runViaRegistry, abort: abortRun } = useRequestRunner();
+-  const [activeTab, setActiveTab] = useState<TabValue>('query');
++  const [selectedTab, setActiveTab] = useState<TabValue>('query');
+   // Schema explorer is hidden by default so the query editor gets the full
+   // builder width (side-by-side leaves the pane narrow); the URL-bar toggle
+   // reveals it on demand, matching the gRPC/MCP catalog pattern.
+@@ -139,6 +139,10 @@ function GraphQLRequestBuilder() {
+   // Operation + transport come from the AST of the selected operation (#903).
+   const operationState = resolveGraphQLOperationState(query, httpRequest.body.graphqlOperationName);
+   const { operationType, isSubscription } = operationState;
++  // The Messages tab only exists for subscriptions; fall back to the editor if
++  // the selected operation stops being one while it is active.
++  const activeTab: TabValue =
++    selectedTab === 'subscription' && !isSubscription ? 'query' : selectedTab;
+ 
+   const activeHeaderCount = httpRequest.headers.filter((h) => h.enabled && h.key).length;
+   const detectedVarCount = (() => {
+diff --git a/src/features/graphql/components/__tests__/GraphQLRequestBuilder.operations.test.tsx b/src/features/graphql/components/__tests__/GraphQLRequestBuilder.operations.test.tsx
+index 5b36fd7b..c4f6636a 100644
+--- a/src/features/graphql/components/__tests__/GraphQLRequestBuilder.operations.test.tsx
++++ b/src/features/graphql/components/__tests__/GraphQLRequestBuilder.operations.test.tsx
+@@ -167,6 +167,26 @@ describe('GraphQLRequestBuilder — operation picker + transport (#903)', () =>
+     expect(screen.getByRole('button', { name: 'Send GraphQL query' })).toBeTruthy();
+   });
+ 
++  it('falls back to the Query tab when the Messages tab disappears (subscription -> query)', () => {
++    seed({ graphqlOperationName: 'Ticks' });
++    render(<GraphQLRequestBuilder />);
++    fireEvent.click(screen.getByRole('button', { name: /Subscribe/ }));
++    expect(screen.getByRole('tab', { name: /^Messages/ })).toBeTruthy();
++    // The selected operation switches to a query while Messages is active.
++    act(() => {
++      const tab = useRequestStore.getState().tabs[0]!;
++      const req = tab.request as HttpRequest;
++      useRequestStore.setState({
++        tabs: [
++          { ...tab, request: { ...req, body: { ...req.body, graphqlOperationName: 'GetUser' } } },
++        ],
++      });
++    });
++    expect(screen.queryByRole('tab', { name: /^Messages/ })).toBeNull();
++    expect(screen.getByRole('tab', { name: /^Query/ }).getAttribute('aria-selected')).toBe('true');
++    expect(screen.getByRole('button', { name: 'pick GetUser' })).toBeTruthy();
++  });
++
+   it('Cmd+Enter runs the operation under the cursor on its own transport', async () => {
+     seed();
+     render(<GraphQLRequestBuilder />);

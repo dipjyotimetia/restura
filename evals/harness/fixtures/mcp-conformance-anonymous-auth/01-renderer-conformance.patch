@@ -1,0 +1,234 @@
+diff --git a/src/features/mcp/components/McpConnectionPanel.tsx b/src/features/mcp/components/McpConnectionPanel.tsx
+index 2bf8ee32..088e6681 100644
+--- a/src/features/mcp/components/McpConnectionPanel.tsx
++++ b/src/features/mcp/components/McpConnectionPanel.tsx
+@@ -1,4 +1,12 @@
+-import { ChevronDown, ChevronRight, PanelLeft, Play, RefreshCw, Square } from 'lucide-react';
++import {
++  ChevronDown,
++  ChevronRight,
++  FlaskConical,
++  PanelLeft,
++  Play,
++  RefreshCw,
++  Square,
++} from 'lucide-react';
+ import { useState } from 'react';
+ import { KeyValueTable } from '@/components/shared/KeyValueTable';
+ import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
+@@ -36,6 +44,8 @@ interface McpConnectionPanelProps {
+   onConnect: () => Promise<void>;
+   onDisconnect: () => Promise<void>;
+   onRefresh: () => Promise<void>;
++  /** Open the era/conformance report (#911). */
++  onConformance?: () => void;
+ }
+ 
+ const remoteTransportOptions: Array<{ value: McpTransportType; label: string }> = [
+@@ -68,6 +78,7 @@ export function McpConnectionPanel({
+   onConnect,
+   onDisconnect,
+   onRefresh,
++  onConformance,
+ }: McpConnectionPanelProps) {
+   const [headersOpen, setHeadersOpen] = useState(false);
+   const [authOpen, setAuthOpen] = useState(false);
+@@ -211,6 +222,19 @@ export function McpConnectionPanel({
+           Tools
+         </Button>
+         <McpImportDialog />
++        {onConformance && (
++          <Button
++            variant="ghost"
++            size="sm"
++            onClick={onConformance}
++            disabled={!connection.url.trim() || isBusy}
++            title="Check the server in the legacy and modern protocol eras"
++            className="h-9 px-3 text-sp-12 rounded-sp-panel shrink-0 bg-sp-surface border border-sp-line"
++          >
++            <FlaskConical className="h-3.5 w-3.5" />
++            Conformance
++          </Button>
++        )}
+         <Floater
+           radius="panel"
+           elevation="float"
+diff --git a/src/features/mcp/components/McpRequestBuilder.tsx b/src/features/mcp/components/McpRequestBuilder.tsx
+index c5b528ba..4dab78dd 100644
+--- a/src/features/mcp/components/McpRequestBuilder.tsx
++++ b/src/features/mcp/components/McpRequestBuilder.tsx
+@@ -6,6 +6,7 @@ import {
+   displayHost,
+   McpClientRequestDialog,
+ } from '@/features/mcp/components/McpClientRequestDialog';
++import { McpConformanceDialog } from '@/features/mcp/components/McpConformanceDialog';
+ import { McpConnectionPanel } from '@/features/mcp/components/McpConnectionPanel';
+ import {
+   McpDiscoveryPanel,
+@@ -105,6 +106,7 @@ export default function McpRequestBuilder() {
+   const clientGenerationRef = useRef(0);
+   const [showCatalog, setShowCatalog] = useState(false);
+   const [selectedTemplateUri, setSelectedTemplateUri] = useState<string | null>(null);
++  const [conformanceOpen, setConformanceOpen] = useState(false);
+   const operation = request ? parseMcpOperation(request) : null;
+   const [discoveryTab, setDiscoveryTab] = useState<McpDiscoveryTab>(() =>
+     discoveryTabFor(operation)
+@@ -244,6 +246,28 @@ export default function McpRequestBuilder() {
+   const supportsCompletion = advertised?.completions !== undefined;
+   const supportsLogging = advertised?.logging !== undefined;
+ 
++  const resolveEndpoint = () => {
++    const rawHeaders = keyValuePairsToRecord(request.headers);
++    const headers = Object.fromEntries(
++      Object.entries(rawHeaders).map(([key, value]) => [key, resolveVariables(value)])
++    );
++    // Conformance sends the same header-shaped auth as a connection (inline
++    // values only: the IPC has no main-side secret resolution).
++    const endpointAuth = buildMcpConnectAuth({
++      auth: request.auth,
++      inherited: resolveInheritedAuthFor(request),
++      headers,
++      resolve: resolveVariables,
++      desktop: false,
++    });
++    return {
++      url: resolveVariables(request.url),
++      // stdio has no URL, so the Conformance action is disabled for it.
++      transport: request.transport === 'stdio' ? ('streamable-http' as const) : request.transport,
++      headers: endpointAuth.ok ? endpointAuth.headers : headers,
++    };
++  };
++
+   const buildClient = (): McpClient | { error: string } => {
+     const rawHeaders = keyValuePairsToRecord(request.headers);
+     const headers = Object.fromEntries(
+@@ -514,6 +538,13 @@ export default function McpRequestBuilder() {
+         onConnect={handleConnect}
+         onDisconnect={handleDisconnect}
+         onRefresh={handleRefresh}
++        onConformance={() => setConformanceOpen(true)}
++      />
++      <McpConformanceDialog
++        open={conformanceOpen}
++        onOpenChange={setConformanceOpen}
++        getEndpoint={resolveEndpoint}
++        tools={tools}
+       />
+       {isElectron() && (
+         <McpRootsPanel
+diff --git a/src/features/mcp/lib/mcpConformance.ts b/src/features/mcp/lib/mcpConformance.ts
+new file mode 100644
+index 00000000..297420b5
+--- /dev/null
++++ b/src/features/mcp/lib/mcpConformance.ts
+@@ -0,0 +1,110 @@
++import {
++  type McpConformanceReport,
++  type McpSampleCallMode,
++  runMcpConformance,
++} from '@shared/protocol/mcp-conformance';
++import { McpClient } from '@/features/mcp/lib/mcpClient';
++import { getElectronAPI, isElectron } from '@/lib/shared/platform';
++import type { McpTransportType } from '@/types';
++
++export interface McpConformanceRunInput {
++  url: string;
++  transport: Exclude<McpTransportType, 'stdio'>;
++  /** Variable-resolved headers. */
++  headers: Record<string, string>;
++  sampleCalls: McpSampleCallMode;
++  approvedTools: string[];
++}
++
++export type McpConformanceRunResult =
++  | { ok: true; report: McpConformanceReport }
++  | { ok: false; error: string };
++
++class McpRpcError extends Error {
++  constructor(
++    message: string,
++    readonly code?: number
++  ) {
++    super(message);
++  }
++}
++
++/**
++ * Web path: only the legacy era is reachable. `/api/mcp` is a stateless
++ * request/response proxy over plain JSON-RPC POSTs with no era negotiation (no
++ * `server/discover`, no pinned protocol version), so the modern era can only be
++ * exercised from the desktop app or the CLI.
++ */
++async function runViaWorker(input: McpConformanceRunInput): Promise<McpConformanceRunResult> {
++  if (input.transport === 'http-sse') {
++    return {
++      ok: false,
++      error:
++        'http-sse transport is not supported in web mode (use streamable-http or the desktop app)',
++    };
++  }
++  const report = await runMcpConformance(
++    {
++      async open() {
++        const client = new McpClient({
++          url: input.url,
++          transport: input.transport,
++          headers: input.headers,
++          connectionId: `conformance-${Date.now()}`,
++        });
++        const init = await client.request<{
++          protocolVersion?: string;
++          capabilities?: unknown;
++          serverInfo?: unknown;
++        }>('initialize', {
++          protocolVersion: '2025-06-18',
++          capabilities: {},
++          clientInfo: { name: 'restura', version: '1.0.0' },
++        });
++        if (!init.ok) throw new McpRpcError(init.error, init.jsonRpcError?.code);
++        return {
++          protocolVersion: init.result?.protocolVersion ?? '',
++          serverCapabilities: init.result?.capabilities,
++          serverInfo: init.result?.serverInfo,
++          async request(method: string, params?: unknown) {
++            const res = await client.request(method, params);
++            if (!res.ok) throw new McpRpcError(res.error, res.jsonRpcError?.code);
++            return res.result;
++          },
++          close: async () => {},
++        };
++      },
++    },
++    {
++      eras: ['legacy'],
++      sampleCalls: input.sampleCalls,
++      approvedTools: input.approvedTools,
++      target: input.url,
++      secrets: Object.values(input.headers),
++    }
++  );
++  return { ok: true, report };
++}
++
++/** Run the era/conformance report on whichever harness this renderer is on. */
++export async function runMcpConformanceReport(
++  input: McpConformanceRunInput
++): Promise<McpConformanceRunResult> {
++  try {
++    if (!isElectron()) return await runViaWorker(input);
++    const api = getElectronAPI();
++    if (!api?.mcp?.conformance) {
++      return { ok: false, error: 'Electron MCP conformance API not available' };
++    }
++    const res = await api.mcp.conformance({
++      url: input.url,
++      transport: input.transport,
++      headers: input.headers,
++      sampleCalls: input.sampleCalls,
++      approvedTools: input.approvedTools,
++    });
++    return res.success ? { ok: true, report: res.report } : { ok: false, error: res.error };
++  } catch (err) {
++    return { ok: false, error: err instanceof Error ? err.message : 'Conformance run failed' };
++  }
++}

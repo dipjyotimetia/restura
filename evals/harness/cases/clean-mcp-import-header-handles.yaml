@@ -1,0 +1,27 @@
+id: clean-mcp-import-header-handles
+title: 'Control: store imported MCP header secrets as keychain handles'
+origin: real
+split: train
+expectClean: true
+sourcePRs: ['#1165']
+# Main just before #1165. No later commit touches the files below.
+base: 59d9cddf4d140c50020c0d8461fa12e9a7ad76d6
+seam: none
+branches:
+  - name: fix/mcp-import-header-handles
+    patches: [01-mcp-import-header-handles.patch]
+expected:
+  summary: >-
+    MCP config import (Claude Desktop, Cursor, VS Code) turned stdio env secrets into keychain
+    handles but returned HTTP header secrets to the renderer in plaintext. The change makes the
+    Electron import handler (electron/main/handlers/mcp-import-handler.ts) store secret-looking
+    header values as SecretRef handles in main, picks an importable header as the imported
+    credential, and extends the shared import model and the renderer import mapping to carry the
+    handles. Desktop only: config import is an Electron feature.
+  files:
+    - electron/main/handlers/mcp-import-handler.ts
+    - shared/mcp-import/mcp-import-model.ts
+    - src/features/mcp/lib/mcpImport.ts
+notes: >-
+  The merged PR's source hunks, unmodified; the handler unit test and the
+  tests/security/mcp-import-secret-handles.test.ts suite are left out.

@@ -1,0 +1,139 @@
+diff --git a/src/features/websocket/lib/websocketManager.ts b/src/features/websocket/lib/websocketManager.ts
+index dadcb016..b43a4a7f 100644
+--- a/src/features/websocket/lib/websocketManager.ts
++++ b/src/features/websocket/lib/websocketManager.ts
+@@ -53,7 +53,27 @@ class WebSocketManager {
+   private connectArgs: Map<string, ConnectArgs> = new Map();
+   /** Token of the live desktop attempt; stale IPC events/results are ignored (#908). */
+   private electronAttempts: Map<string, symbol> = new Map();
++  /** Pending "connection stayed open long enough" timers that reset the retry counter. */
++  private stabilityTimers: Map<string, NodeJS.Timeout> = new Map();
+   private static DEFAULT_CONNECTION_TIMEOUT = 30000; // 30 seconds
++  /** An open connection must survive this long before the reconnect counter resets. */
++  private static STABLE_OPEN_MS = 10_000;
++
++  /**
++   * Close codes that retrying cannot fix: 1008 (policy violation) and 4400-4499
++   * (app-level client errors, e.g. 4401 unauthorized / 4403 forbidden).
++   */
++  private static isTerminalCloseCode(code: number): boolean {
++    return code === 1008 || (code >= 4400 && code <= 4499);
++  }
++
++  private clearStabilityTimer(connectionId: string): void {
++    const t = this.stabilityTimers.get(connectionId);
++    if (t) {
++      clearTimeout(t);
++      this.stabilityTimers.delete(connectionId);
++    }
++  }
+ 
+   private validateUrl(url: string): { valid: boolean; error?: string } {
+     if (!url || !url.trim()) {
+@@ -138,6 +158,7 @@ class WebSocketManager {
+           store.updateConnectionStatus(connectionId, 'disconnected');
+           this.connections.delete(connectionId);
+           this.connectionTimeouts.delete(connectionId);
++          this.connectArgs.delete(connectionId);
+         }
+       }, WebSocketManager.DEFAULT_CONNECTION_TIMEOUT);
+ 
+@@ -196,6 +217,7 @@ class WebSocketManager {
+   /** `close` (#915): optional RFC 6455 close code/reason; default 1000 "Client disconnected". */
+   disconnect(connectionId: string, clearReconnect = true, close?: WsCloseOptions): void {
+     clearPingRtt(connectionId);
++    this.clearStabilityTimer(connectionId);
+     // Clear any pending reconnect
+     if (clearReconnect) {
+       // Drop the resolved url/headers (may hold credentials) — nothing will replay them.
+@@ -391,7 +413,10 @@ class WebSocketManager {
+       // A rejected first connect is final (policy/SSRF); a rejected reconnect
+       // (e.g. transient DNS failure) continues the backoff loop like a 1006.
+       if (isReconnect) this.handleClose(connectionId, 1006, '', false);
+-      else s.updateConnectionStatus(connectionId, 'disconnected');
++      else {
++        this.connectArgs.delete(connectionId);
++        s.updateConnectionStatus(connectionId, 'disconnected');
++      }
+     };
+ 
+     api.websocket
+@@ -429,7 +454,16 @@ class WebSocketManager {
+   ): void {
+     const state = useWebSocketStore.getState();
+     state.updateConnectionStatus(connectionId, 'connected');
+-    state.setReconnectAttempts(connectionId, 0);
++    // Reset the retry budget only once the connection proves stable; a server
++    // that accepts then immediately closes must still exhaust maxReconnectAttempts.
++    this.clearStabilityTimer(connectionId);
++    this.stabilityTimers.set(
++      connectionId,
++      setTimeout(() => {
++        this.stabilityTimers.delete(connectionId);
++        useWebSocketStore.getState().setReconnectAttempts(connectionId, 0);
++      }, WebSocketManager.STABLE_OPEN_MS)
++    );
+     state.setLastConnectedAt(connectionId, Date.now());
+     const negotiated = recordNegotiation(connectionId, protocol, extensions);
+     state.addMessage(connectionId, 'system', `Connected to ${url}${negotiated}`);
+@@ -447,6 +481,7 @@ class WebSocketManager {
+    */
+   private handleClose(connectionId: string, code: number, reason: string, log = true): void {
+     this.stopHeartbeat(connectionId);
++    this.clearStabilityTimer(connectionId);
+     clearPingRtt(connectionId);
+     const state = useWebSocketStore.getState();
+     const connection = state.connections[connectionId];
+@@ -457,14 +492,25 @@ class WebSocketManager {
+         `Connection closed (code: ${code}, reason: ${reason || 'No reason provided'})`
+       );
+     }
++    const terminal = WebSocketManager.isTerminalCloseCode(code);
++    if (terminal && connection?.autoReconnect) {
++      state.addMessage(
++        connectionId,
++        'system',
++        `Not reconnecting: close code ${code} is a policy/client error that retrying cannot fix`
++      );
++    }
+     if (
+       connection?.autoReconnect &&
++      !terminal &&
+       code !== 1000 && // Normal closure
+       code !== 1001 && // Going away
+       connection.reconnectAttempts < connection.maxReconnectAttempts
+     ) {
+       this.scheduleReconnect(connectionId);
+     } else {
++      // Terminal: nothing will replay the resolved url/headers (may hold credentials).
++      this.connectArgs.delete(connectionId);
+       state.updateConnectionStatus(connectionId, 'disconnected');
+     }
+   }
+@@ -543,15 +589,21 @@ class WebSocketManager {
+   }
+ 
+   /**
+-   * Parse a space-separated hex string (the binary compose format) into an
+-   * ArrayBuffer for sending. Throws on any token that is not whole hex bytes
+-   * (e.g. `zz`, `123`) so nothing malformed is ever sent (#912).
++   * Parse a whitespace-separated hex string (the binary compose format) into an
++   * ArrayBuffer for sending. Each token may carry an optional `0x`/`0X` prefix.
++   * Throws on any token that is not whole hex bytes (e.g. `zz`, `123`) so
++   * nothing malformed is ever sent (#912).
+    */
+   hexToArrayBuffer(hex: string): ArrayBuffer {
+     const bytes: number[] = [];
+     for (const token of hex.split(/\s+/).filter((s) => s.length > 0)) {
+-      if (!/^(?:[0-9a-f]{2})+$/i.test(token)) throw new Error(`Invalid hex token "${token}"`);
+-      for (let i = 0; i < token.length; i += 2) bytes.push(parseInt(token.slice(i, i + 2), 16));
++      const digits = token.replace(/^0x/i, '');
++      if (!/^(?:[0-9a-f]{2})+$/i.test(digits)) {
++        throw new Error(
++          `Invalid hex token "${token}" (expected whole bytes, optional 0x prefix, e.g. "48" or "0x48")`
++        );
++      }
++      for (let i = 0; i < digits.length; i += 2) bytes.push(parseInt(digits.slice(i, i + 2), 16));
+     }
+     return new Uint8Array(bytes).buffer;
+   }

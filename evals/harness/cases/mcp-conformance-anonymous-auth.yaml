@@ -1,0 +1,44 @@
+id: mcp-conformance-anonymous-auth
+title: MCP Conformance probes anonymously when the connection's auth cannot be applied inline
+origin: real
+split: train
+sourcePRs: ['#1134']
+fixPRs: ['#1160']
+# Main just before #1134 (after #1133).
+base: ccf1d06bf4fc233a80dc587f1e58e08ce5290907
+seam: cross-consumer
+branches:
+  - name: feat/mcp-conformance-report
+    patches:
+      - 01-renderer-conformance.patch
+      - 02-conformance-dialog.patch
+      - 03-desktop-conformance-handler.patch
+expected:
+  defect: >-
+    The branch adds a Conformance action next to Connect. Connect builds the client with
+    buildMcpConnectAuth on the desktop path (keychain SecretRef handles and the interactive
+    OAuth flow are materialised in main). The new conformance consumer, resolveEndpoint in
+    src/features/mcp/components/McpRequestBuilder.tsx, calls buildMcpConnectAuth with
+    `desktop: false` and, when that returns `ok: false` (a keychain-handle credential, the
+    OAuth flow, any auth it cannot inline), silently falls back to the plain request headers.
+    The Electron conformance handler (electron/main/handlers/mcp-conformance-handler.ts) only
+    forwards the headers it is given and has no auth materialisation. So for any connection
+    whose auth is a handle or OAuth, Conformance probes the server anonymously and reports
+    401-driven failures as conformance problems, with no error saying the auth was dropped. A
+    review that says the conformance probe drops / ignores the connection's auth (or falls back
+    to unauthenticated headers) has caught it.
+  files:
+    - src/features/mcp/components/McpRequestBuilder.tsx
+    - electron/main/handlers/mcp-conformance-handler.ts
+  symbols: [resolveEndpoint, buildMcpConnectAuth, runMcpConformanceReport]
+mustMention:
+  - '(McpRequestBuilder|resolveEndpoint|mcp-conformance-handler|buildMcpConnectAuth)'
+  - '(\banonymous|\bunauthenticated\b|\bwithout (the )?(auth|credentials?)\b|\bdrops? (the )?(auth|credentials?)\b|\b(auth|credentials?)\b[^\n]{0,40}\b(dropped|ignored|lost|missing|skipped)\b|\bfalls? back\b|\bdesktop: ?false\b)'
+mustNotMiss: low
+notes: >-
+  Minimised to the renderer wiring (McpRequestBuilder, McpConnectionPanel, mcpConformance.ts),
+  the dialog and the Electron handler + validator of #1134. The shared conformance engine
+  (shared/protocol/mcp-conformance*.ts), the CLI `restura mcp conformance` command, IPC
+  channel/preload/type wiring, docs and tests are elided, so the branch does not type-check on
+  its own; that is not the defect. Audit finding 14 in
+  docs/audits/post-merge-review-2026-10-25.md.

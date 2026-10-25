@@ -1,0 +1,194 @@
+diff --git a/electron/main/handlers/mcp-import-handler.ts b/electron/main/handlers/mcp-import-handler.ts
+index 746d5c4d..afe11452 100644
+--- a/electron/main/handlers/mcp-import-handler.ts
++++ b/electron/main/handlers/mcp-import-handler.ts
+@@ -6,14 +6,15 @@ import {
+   MCP_IMPORT_LIMITS,
+   McpConfigParseError,
+   type ParsedMcpEntry,
++  type ParsedMcpHttpEntry,
+   type ParsedMcpStdioEntry,
+   parseMcpConfigText,
+   sanitizeImportLabel,
+ } from '@shared/mcp-import/mcp-config-parser';
+ import {
+-  buildHttpDraft,
+   isPlaceholderOnly,
+   type McpImportDraft,
++  type McpImportDraftAuth,
+   type McpImportDraftRow,
+   type McpImportPreviewSource,
+   toPreviewEntry,
+@@ -31,6 +32,7 @@ import {
+   McpStdioConnectSchema,
+   StdioCwdSchema,
+ } from '../ipc/validators';
++import { MCP_REQUEST_TRANSPORT } from '../security/mcp-connect-auth';
+ import {
+   hasControlChars,
+   isExecutionSensitiveEnvName,
+@@ -44,8 +46,9 @@ import { displayPath, knownMcpConfigSources } from './mcp-import-paths';
+ //
+ // Main reads the files, so file paths and secret env values never need to
+ // exist in the renderer: a scan returns a preview with secret values omitted,
+-// and a commit stores credential-named stdio env values as secret handles
+-// (ADR-0007) and returns only the handle. Nothing here can approve a stdio
++// and a commit stores credential-named stdio env values and HTTP credential
++// headers (hoisted into bearer / api-key auth) as secret handles (ADR-0007)
++// and returns only the handle. Nothing here can approve a stdio
+ // launch: the consent gate in mcp-stdio-consent.ts prompts on first connect
+ // exactly as for a hand-entered server.
+ // ===========================
+@@ -268,6 +271,89 @@ export function buildStdioDraft(entry: ParsedMcpStdioEntry): StdioBuild {
+   }
+ }
+ 
++/** An HTTP header row main can move into keychain-backed auth. */
++export function headerIsHandleBacked(row: { name: string; value: string }): boolean {
++  return (
++    row.value !== '' &&
++    row.value.length <= MCP_STDIO_LIMITS.envValueMaxLength &&
++    !isPlaceholderOnly(row.value) &&
++    !row.value.includes('{{') &&
++    isSecretFieldName(row.name)
++  );
++}
++
++const BEARER_VALUE = /^Bearer\s+(\S.*)$/is;
++
++/**
++ * Credential headers never reach the renderer as plaintext. MCP headers are a
++ * plain string map with no per-row SecretRef, so the first credential header
++ * becomes the request's handle-backed auth (an `Authorization: Bearer` header
++ * becomes bearer auth, anything else an api-key header), resolved in main at
++ * connect time. Further credential headers are dropped with a warning: the
++ * user re-adds them in the auth editor rather than having them stored in
++ * plaintext. Handles are tracked so a failed batch can roll them back.
++ */
++export function buildHttpDraftWithHandles(entry: ParsedMcpHttpEntry): {
++  draft: McpImportDraft;
++  handleIds: string[];
++} {
++  const warnings = [...entry.warnings];
++  const stored: string[] = [];
++  const secretRows = entry.headers.filter(headerIsHandleBacked);
++  const bearerRow = secretRows.find(
++    (r) => r.name.toLowerCase() === 'authorization' && BEARER_VALUE.test(r.value)
++  );
++  // A header the MCP transport refuses at connect (e.g. Cookie) can't carry the
++  // credential; prefer the first one it will actually send.
++  const chosen =
++    bearerRow ?? secretRows.find((r) => !MCP_REQUEST_TRANSPORT.isForbiddenHeader(r.name));
++  let auth: McpImportDraftAuth | undefined;
++  try {
++    if (chosen) {
++      const label = importHandleLabel(entry.name, chosen.name);
++      const { id } = storeSecretHandle({
++        value: bearerRow ? (BEARER_VALUE.exec(chosen.value)?.[1] ?? chosen.value) : chosen.value,
++        label,
++        scope: 'mcp-import',
++      });
++      stored.push(id);
++      const ref = { kind: 'handle' as const, id, label };
++      auth = bearerRow
++        ? { type: 'bearer', bearer: { token: ref } }
++        : { type: 'api-key', apiKey: { key: chosen.name, value: ref, in: 'header' } };
++    }
++    const headers: McpImportDraftRow[] = [];
++    for (const row of entry.headers) {
++      if (row === chosen) continue;
++      if (secretRows.includes(row)) {
++        warnings.push(
++          `Header "${sanitizeImportLabel(row.name, 80)}" holds a credential and was not imported. Add it in the auth settings.`
++        );
++        continue;
++      }
++      headers.push({
++        key: row.name,
++        value: row.value,
++        ...(isSecretFieldName(row.name) ? { secret: true } : {}),
++      });
++    }
++    return {
++      handleIds: stored,
++      draft: {
++        name: entry.name,
++        transport: entry.transport,
++        url: entry.url,
++        headers,
++        ...(auth ? { auth } : {}),
++        warnings,
++      },
++    };
++  } catch (err) {
++    for (const id of stored) deleteSecretHandle(id);
++    throw err;
++  }
++}
++
+ export function commitEntries(
+   entries: Map<string, ParsedMcpEntry>,
+   keys: string[]
+@@ -283,7 +369,9 @@ export function commitEntries(
+       } else if (entry.kind === 'invalid') {
+         skipped.push({ key, name: entry.name, reason: entry.reason });
+       } else if (entry.kind === 'http') {
+-        drafts.push(buildHttpDraft(entry));
++        const built = buildHttpDraftWithHandles(entry);
++        drafts.push(built.draft);
++        written.push(...built.handleIds);
+       } else {
+         const built = buildStdioDraft(entry);
+         if ('draft' in built) {
+diff --git a/shared/mcp-import/mcp-import-model.ts b/shared/mcp-import/mcp-import-model.ts
+index b92dffd8..4ef03883 100644
+--- a/shared/mcp-import/mcp-import-model.ts
++++ b/shared/mcp-import/mcp-import-model.ts
+@@ -65,11 +65,20 @@ export interface McpImportDraftRow {
+   secretRef?: { kind: 'handle'; id: string; label?: string };
+ }
+ 
++export type McpImportHandleRef = { kind: 'handle'; id: string; label?: string };
++
++/** Desktop only: a credential header hoisted into the request's auth, value held as a handle. */
++export type McpImportDraftAuth =
++  | { type: 'bearer'; bearer: { token: McpImportHandleRef } }
++  | { type: 'api-key'; apiKey: { key: string; value: McpImportHandleRef; in: 'header' } };
++
+ export interface McpImportDraft {
+   name: string;
+   transport: McpImportTransport | 'stdio';
+   url: string;
+   headers: McpImportDraftRow[];
++  /** Present when main moved a credential header into handle-backed auth. */
++  auth?: McpImportDraftAuth;
+   stdio?: { command: string; args: string[]; cwd?: string; env: McpImportDraftRow[] };
+   warnings: string[];
+ }
+@@ -207,9 +216,10 @@ export function toPreviewEntry(
+ }
+ 
+ /**
+- * HTTP entries need no secret store: headers persist as typed, exactly like
+- * headers entered by hand, with the `secret` flag set for credential names so
+- * export redaction and masking treat them consistently.
++ * Plain HTTP draft (web / paste path, where no secret store exists): headers
++ * persist as typed, with the `secret` flag set for credential names. The
++ * desktop commit does NOT use this for credential headers: main hoists them
++ * into handle-backed auth first (mcp-import-handler.ts).
+  */
+ export function buildHttpDraft(entry: ParsedMcpHttpEntry): McpImportDraft {
+   return {
+diff --git a/src/features/mcp/lib/mcpImport.ts b/src/features/mcp/lib/mcpImport.ts
+index 8539f067..c062a48c 100644
+--- a/src/features/mcp/lib/mcpImport.ts
++++ b/src/features/mcp/lib/mcpImport.ts
+@@ -77,7 +77,7 @@ export function draftToMcpRequest(draft: McpImportDraft): McpRequest {
+     url: draft.url,
+     transport: draft.transport,
+     headers,
+-    auth: { type: 'none' },
++    auth: draft.auth ?? { type: 'none' },
+   };
+   if (draft.stdio) {
+     const env: McpStdioEnvVar[] = draft.stdio.env.map((row) => ({
