@@ -1,14 +1,14 @@
 # Harness eval baselines
 
 Committed, summary-only results of `npm run eval:harness`, written by `--save-baseline` as
-`<YYYY-MM-DD>--<config>.json`. They let an A/B comparison outlive the gitignored
-`.claude/metrics/evals/` directory: `--compare evals/harness/baselines/<file>.json` diffs a new
-run against one.
+`<YYYY-MM-DD>T<HHMM>--<config>.json` (UTC start time; an existing file is never overwritten).
+They let an A/B comparison outlive the gitignored `.claude/metrics/evals/` directory:
+`--compare evals/harness/baselines/<file>.json` diffs a new run against one.
 
 ## What goes here
 
 One JSON per deliberate baseline run: config label, `harnessSha`, start time, runs per case,
-reviewer and judge models, split, and per case caught / runs / pass@k / pass^k / mean judge
+reviewer and judge models, split, and per case caught / runs / pass@1 / pass@n / pass^n / mean judge
 score / mean cost and minutes, plus recall and control precision with Wilson 95% CIs, totals and
 the skill/agent routing counts.
 

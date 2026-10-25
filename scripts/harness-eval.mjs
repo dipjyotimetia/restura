@@ -749,6 +749,8 @@ export function summarise(runs) {
       errors: entry.errors,
       flipped: entry.caught > 0 && entry.caught < entry.runs,
       meanScore: round(mean(entry.scores)),
+      // pass@1 = c/n, the per-trial rate: comparable across invocations with different run counts.
+      passAt1: round(passAtK(entry.runs, entry.caught, 1), 4),
       passAtK: round(passAtK(entry.runs, entry.caught, entry.runs), 4),
       passHatK: round(passHatK(entry.runs, entry.caught, entry.runs), 4),
       judgeDisagreements: entry.judgeDisagreements,
@@ -777,10 +779,21 @@ export function summarise(runs) {
     flippedCases: Object.values(cases).filter((c) => c.flipped).length,
     recallHalfWidth: recall.ci?.halfWidth ?? null,
   };
+  // Mean per-case pass@1 (each case weighs the same, whatever its run count).
+  const meanPassAt1 = (clean) =>
+    round(
+      mean(
+        Object.values(cases)
+          .filter((c) => c.expectClean === clean && c.passAt1 !== null)
+          .map((c) => c.passAt1)
+      ),
+      4
+    );
   return {
     cases,
     recall,
     controls,
+    passAt1: { defects: meanPassAt1(false), controls: meanPassAt1(true) },
     errors,
     judgeDisagreements,
     totals,
@@ -841,6 +854,7 @@ export function buildBaseline(result) {
     cases: summary.cases,
     recall: summary.recall,
     controls: summary.controls,
+    passAt1: summary.passAt1,
     errors: summary.errors,
     judgeDisagreements: summary.judgeDisagreements,
     totals: summary.totals,
@@ -849,9 +863,28 @@ export function buildBaseline(result) {
   };
 }
 
-/** Where `--save-baseline` writes: `<dir>/<YYYY-MM-DD>--<config>.json`. */
+/**
+ * Where `--save-baseline` writes: `<dir>/<YYYY-MM-DD>T<HHMM>--<config>.json`
+ * (UTC, from startedAt), so same-day runs of one config never collide.
+ */
 export function baselinePath(result, dir = BASELINES_DIR) {
-  return path.join(dir, `${result.startedAt.slice(0, 10)}--${result.config}.json`);
+  const iso = new Date(result.startedAt).toISOString();
+  const stamp = `${iso.slice(0, 10)}T${iso.slice(11, 13)}${iso.slice(14, 16)}`;
+  return path.join(dir, `${stamp}--${result.config}.json`);
+}
+
+/** Write the baseline; refuses to overwrite an existing file. Returns its path. */
+export function writeBaseline(result, dir = BASELINES_DIR) {
+  const file = baselinePath(result, dir);
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    fs.writeFileSync(file, `${JSON.stringify(buildBaseline(result), null, 2)}\n`, { flag: 'wx' });
+  } catch (error) {
+    if (error?.code === 'EEXIST')
+      throw new Error(`baseline ${file} already exists; not overwriting`);
+    throw error;
+  }
+  return file;
 }
 
 const cell = (value) =>
@@ -906,14 +939,21 @@ export function formatSummaryMarkdown(result, flips, comparedTo) {
     `Controls: ${controls.clean}/${controls.runs} clean, ${plural(controls.falsePositives, 'false positive')} (precision ${pct(controls.rate)}, ${ciText(controls.ci)}).`,
     `Harness errors (excluded from both): ${summary.errors}. Judge self-disagreements: ${summary.judgeDisagreements}.`,
     `Noise: ${plural(noise.flippedCases, 'case')} flipped within this invocation; recall CI half-width ±${noise.recallHalfWidth === null ? 'n/a' : `${Math.round(noise.recallHalfWidth * 100)} pts`}. Do not act on a config difference smaller than the half-width; add runs or cases.`,
+    `pass@1 (per-trial rate): defects ${pct(summary.passAt1.defects)}, controls ${pct(summary.passAt1.controls)} (mean over cases; compare this across invocations with different run counts).`,
     `Totals: $${fixed(totals.costUsd, 2)} and ${fixed(totals.minutes, 1)} min over ${plural(totals.runs, 'run')} (review + judge).`,
     '',
     '"caught" for a control means the review reported no high/medium defect in its files. ' +
-      'pass@k / pass^k use k = scored runs (pass@k: at least one run caught it; pass^k: every run did). ' +
+      "pass@1 is the per-trial rate c/n; pass@n / pass^n use n = the case's scored runs " +
+      '(pass@n: at least one run caught it; pass^n: every run did). ' +
       'judge-only / pattern-only count scored runs where just one grader said caught.',
-    '',
-    '| case | type | caught | errors | flipped | pass@k | pass^k | mean judge score | judge-only | pattern-only | judge disagreements | mean cost USD | mean minutes | transcripts |',
-    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|'
+    ''
+  );
+  const ns = [...new Set(Object.values(summary.cases).map((c) => c.runs))];
+  const nLabel = ns.length === 1 ? String(ns[0]) : 'n';
+  const withN = (value, n) => (ns.length === 1 ? fixed(value, 2) : `${fixed(value, 2)} (n=${n})`);
+  lines.push(
+    `| case | type | caught | errors | flipped | pass@1 | pass@${nLabel} | pass^${nLabel} | mean judge score | judge-only | pattern-only | judge disagreements | mean cost USD | mean minutes | transcripts |`,
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|'
   );
   for (const [caseId, entry] of Object.entries(summary.cases)) {
     const runs = result.runs.filter((r) => r.caseId === caseId);
@@ -930,7 +970,7 @@ export function formatSummaryMarkdown(result, flips, comparedTo) {
         .map((r) => `[${r.run}](${r.transcript})`)
         .join(' ') || 'none';
     lines.push(
-      `| ${caseId} | ${entry.expectClean ? 'control' : 'defect'} | ${entry.caught}/${entry.runs} | ${entry.errors} | ${entry.flipped ? 'YES' : 'no'} | ${fixed(entry.passAtK, 2)} | ${fixed(entry.passHatK, 2)} | ${entry.meanScore ?? 'n/a'} | ${judgeOnly} | ${patternOnly} | ${entry.judgeDisagreements} | ${fixed(entry.meanCostUsd, 2)} | ${fixed(entry.meanMinutes, 1)} | ${transcripts} |`
+      `| ${caseId} | ${entry.expectClean ? 'control' : 'defect'} | ${entry.caught}/${entry.runs} | ${entry.errors} | ${entry.flipped ? 'YES' : 'no'} | ${fixed(entry.passAt1, 2)} | ${withN(entry.passAtK, entry.runs)} | ${withN(entry.passHatK, entry.runs)} | ${entry.meanScore ?? 'n/a'} | ${judgeOnly} | ${patternOnly} | ${entry.judgeDisagreements} | ${fixed(entry.meanCostUsd, 2)} | ${fixed(entry.meanMinutes, 1)} | ${transcripts} |`
     );
   }
   const { toolStats } = summary;
@@ -1469,6 +1509,9 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   const outDir = path.resolve(ROOT, options.out);
   const base = path.join(outDir, `${stamp}${options.dryRun ? '--dry-run' : ''}--${options.config}`);
   const transcriptsDir = path.join(base, 'transcripts');
+  // Fail before spending money if the baseline this run would write already exists.
+  if (options.saveBaseline && !options.dryRun && fs.existsSync(baselinePath(result)))
+    throw new Error(`baseline ${baselinePath(result)} already exists; not overwriting`);
 
   // Ctrl-C / kill mid-run: stop the child, remove this run's worktree and
   // branches (the same cleanup `finally` does), exit non-zero.
@@ -1552,9 +1595,7 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   log(`\n${markdown}`);
   log(`Wrote ${base}.json and ${base}.md`);
   if (options.saveBaseline && !options.dryRun) {
-    const file = baselinePath(result);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, `${JSON.stringify(buildBaseline(result), null, 2)}\n`);
+    const file = writeBaseline(result);
     log(`Wrote baseline ${path.relative(ROOT, file)} (summary only; commit it)`);
   }
   const failed =

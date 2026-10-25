@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  baselinePath,
   buildBaseline,
   buildJudgePrompt,
   buildReviewPrompt,
@@ -32,6 +33,7 @@ import {
   summarise,
   validateCase,
   wilsonInterval,
+  writeBaseline,
 } from '../harness-eval.mjs';
 
 const BASE = '90b514e380786e4935058871113315c73e5b2539';
@@ -356,6 +358,7 @@ test('summarise excludes harness errors and splits defect recall from control pr
     errors: 1,
     flipped: true,
     meanScore: 2,
+    passAt1: 0.5,
     passAtK: 1,
     passHatK: 0,
     judgeDisagreements: 0,
@@ -369,6 +372,7 @@ test('summarise excludes harness errors and splits defect recall from control pr
     errors: 0,
     flipped: true,
     meanScore: 1.5,
+    passAt1: 0.5,
     passAtK: 1,
     passHatK: 0,
     judgeDisagreements: 0,
@@ -386,6 +390,8 @@ test('summarise excludes harness errors and splits defect recall from control pr
   assert.equal(summary.errors, 1);
   assert.deepEqual(summary.totals, { costUsd: 4, minutes: 3, runs: 5 });
   assert.equal(summary.noise.flippedCases, 2);
+  // Totals: mean per-case pass@1, separately for defects and controls.
+  assert.deepEqual(summary.passAt1, { defects: 0.5, controls: 0.5 });
   assert.equal(summary.noise.recallHalfWidth, summary.recall.ci.halfWidth);
 });
 
@@ -1298,8 +1304,22 @@ test('formatSummaryMarkdown shows pass@k, CIs, noise, cost, transcripts and rout
     },
     undefined
   );
-  assert.match(md, /pass@k/);
-  assert.match(md, /pass\^k/);
+  // pass@1 (per-trial rate) compares across run counts; pass@n / pass^n carry the actual n.
+  assert.match(md, /\| pass@1 \| pass@2 \| pass\^2 \|/);
+  assert.match(md, /\| a \| defect \| 1\/2 \| 0 \| YES \| 0\.50 \| 1\.00 \| 0\.00 \|/);
+  assert.match(md, /pass@1 \(per-trial rate\): defects 50%/);
+  assert.doesNotMatch(md, /pass@k|pass\^k/);
+  const mixed = formatSummaryMarkdown(
+    {
+      config: 'current',
+      startedAt: '2026-10-25T00:00:00.000Z',
+      dryRun: false,
+      runs: [run(1, true), run(2, true), { ...run(1, true), caseId: 'b' }],
+    },
+    undefined
+  );
+  assert.match(mixed, /\| pass@1 \| pass@n \| pass\^n \|/);
+  assert.match(mixed, /\| 1\.00 \(n=2\) \|/);
   assert.match(md, /95% CI/);
   assert.match(md, /Noise: 1 case flipped/);
   assert.match(md, /half-width/);
@@ -1364,6 +1384,8 @@ test('buildBaseline is summary-only and diffFlips accepts it on either side', ()
   assert.equal(baseline.runsPerCase, 2);
   assert.equal(baseline.cases.a.caught, 2);
   assert.equal(baseline.cases.a.passAtK, 1);
+  assert.equal(baseline.cases.a.passAt1, 1);
+  assert.deepEqual(baseline.passAt1, { defects: 1, controls: null });
   assert.ok(baseline.recall.ci);
   assert.equal(baseline.runs, undefined);
   const current = { runs: [{ caseId: 'a', status: 'ok', expectClean: false, caught: false }] };
@@ -1373,4 +1395,24 @@ test('buildBaseline is summary-only and diffFlips accepts it on either side', ()
   assert.deepEqual(diffFlips(current, baseline), [
     { caseId: 'a', type: 'defect', before: '0/1', after: '2/2', kind: 'improved' },
   ]);
+});
+
+test('baselinePath uses a UTC minute stamp and writeBaseline never overwrites', () => {
+  const result = {
+    config: 'A',
+    startedAt: '2026-10-25T06:31:46.761Z',
+    runsPerCase: 1,
+    runs: [{ caseId: 'a', status: 'ok', expectClean: false, caught: true }],
+  };
+  assert.equal(baselinePath(result, '/b'), '/b/2026-10-25T0631--A.json');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'he-baseline-test-'));
+  try {
+    const file = writeBaseline(result, dir);
+    assert.equal(file, path.join(dir, '2026-10-25T0631--A.json'));
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).config, 'A');
+    assert.throws(() => writeBaseline(result, dir), /already exists/);
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).cases.a.caught, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

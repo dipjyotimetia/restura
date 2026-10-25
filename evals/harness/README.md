@@ -9,7 +9,7 @@ setup, for example before folding the parity or docs subagents into main-loop sk
 
 The design follows Anthropic's guidance on agent evals: a small set of golden cases, graded on
 the final outcome with a rubric judge that is not the model under test, several trials per case
-reported as pass@k / pass^k with confidence intervals, a held-out split, transcripts you can read,
+reported as pass@1 / pass@n / pass^n with confidence intervals, a held-out split, transcripts you can read,
 and cost per run. Per-case flips are reported, not only the aggregate.
 
 ## Layout
@@ -146,11 +146,15 @@ The markdown summary reports:
 
 - **Recall on defect cases** and **control precision** (clean / false positives), each with a
   Wilson 95% confidence interval, plus the error and judge-disagreement counts.
-- Per case: caught / scored runs, **pass@k** (at least one of k runs caught it) and **pass^k**
-  (all k did) with k = the case's scored runs, using the unbiased estimators
-  pass@k = 1 − C(n−c,k)/C(n,k) and pass^k = C(c,k)/C(n,k); mean judge score; judge-only and
-  pattern-only counts; judge disagreements; mean cost (review + judge, USD) and mean minutes per
-  run; links to each run's transcript.
+- Per case: caught / scored runs; **pass@1** (= c/n, the per-trial rate); **pass@n** (at least
+  one of the n scored runs caught it) and **pass^n** (all n did), using the unbiased estimators
+  pass@k = 1 − C(n−c,k)/C(n,k) and pass^k = C(c,k)/C(n,k) with k = n. The column headers carry the
+  actual n (`pass@2`, `pass^2`); when cases have different scored-run counts the header says `n`
+  and each cell shows `(n=…)`. Also: mean judge score; judge-only and pattern-only counts; judge
+  disagreements; mean cost (review + judge, USD) and mean minutes per run; links to each run's
+  transcript.
+- **pass@1 totals**: the mean per-case pass@1 for defects and for controls. pass@n and pass^n
+  depend on n, so compare **pass@1** across invocations with different `--runs`.
 - **Totals**: cost and minutes for the whole invocation.
 - **Noise**: how many cases flipped within this invocation, and the recall CI half-width.
   **Don't act on a config difference smaller than the CI half-width; add runs or cases.** With
@@ -188,9 +192,11 @@ Hillclimbing rules, when you change skills, agents or CLAUDE.md to raise these n
 ## Baselines
 
 `--save-baseline` additionally writes a **summary-only** JSON to
-`evals/harness/baselines/<YYYY-MM-DD>--<config>.json`: config, `harnessSha`, start time, runs per
-case, models, split, and per case caught / runs / pass@k / pass^k / mean score / mean cost, plus
-recall and precision with CIs and the routing counts. It contains no review text, judge reasons
+`evals/harness/baselines/<YYYY-MM-DD>T<HHMM>--<config>.json` (UTC start time, so same-day runs
+never collide; the runner refuses to overwrite an existing file and checks before the run
+starts): config, `harnessSha`, start time, runs per case, models, split, and per case caught /
+runs / pass@1 / pass@n / pass^n / mean score / mean cost, plus recall and precision with CIs, the
+pass@1 totals and the routing counts. It contains no review text, judge reasons
 or transcripts, so it is safe to commit, and it is how an A/B result outlives the gitignored
 `.claude/metrics/`. `--compare` and the automatic flip report accept a full result or a baseline
 file. See `baselines/README.md`.
@@ -209,7 +215,7 @@ A/B comparison of two harness versions (same cases, same models, different harne
 ```bash
 npm run eval:harness -- --harness-ref main --config A --runs 3 --save-baseline
 npm run eval:harness -- --harness-ref <branch> --config C --runs 3 \
-  --compare evals/harness/baselines/<date>--A.json
+  --compare evals/harness/baselines/<YYYY-MM-DD>T<HHMM>--A.json
 ```
 
 Options:
