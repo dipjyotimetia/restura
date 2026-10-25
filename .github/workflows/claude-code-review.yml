@@ -7,6 +7,9 @@ name: Claude Code Review
 #     runs the repo's Standards/Spec skill review (label-only).
 #   - Skips drafts, bots (Dependabot included), forks (no secrets there), and
 #     markdown/lockfile-only changes.
+#   - Skips PRs whose body carries a `/ship-check` READY marker for the exact
+#     head sha (the local review fan-out already ran). Only skips a review,
+#     never grants anything, and forks are excluded above.
 #   - Cancels a superseded run for the same PR, caps turns and wall-clock time,
 #     and uses Sonnet rather than Opus.
 #   - Project hooks (.claude/settings.json) are disabled: they're for local
@@ -32,7 +35,11 @@ jobs:
       github.event.pull_request.user.login != 'dependabot[bot]' &&
       github.event.pull_request.user.type != 'Bot' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (github.event.action != 'labeled' || github.event.label.name == 'claude-review')
+      (github.event.action != 'labeled' || github.event.label.name == 'claude-review') &&
+      (github.event.action == 'labeled' || !contains(github.event.pull_request.body, format('restura:ship-check verdict=READY sha={0}', github.event.pull_request.head.sha)))
+    # A local /ship-check already ran the full review fan-out for this exact
+    # head sha (marker in the PR body), so skip the duplicate automatic run.
+    # The claude-review label always forces one.
     # Job-level so an unrelated `labeled` event (skipped by the `if`) can't
     # cancel an in-flight review.
     concurrency:
