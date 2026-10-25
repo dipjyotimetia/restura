@@ -2,7 +2,6 @@ import { fetchClientCredentialsToken, tokenExpiresAt } from '@shared/auth/oauth2
 import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/types';
 import { validateURL } from '@shared/protocol/url-validation';
 import type { AuthConfig } from '@shared/types';
-import { resolveVarsDeep } from '../varResolver';
 
 /**
  * Auth helpers shared by every CLI executor.
@@ -105,7 +104,8 @@ const oauth2TokenCache = new Map<string, CachedToken>();
  */
 export async function resolveOAuth2Token(
   auth: AuthConfig | undefined,
-  vars: Record<string, string>,
+  /** @deprecated Unused — pass auth already resolved with `resolveAuthVariables`. */
+  _vars: Record<string, string>,
   opts: { allowLocalhost?: boolean; fetch?: typeof globalThis.fetch; signal?: AbortSignal } = {}
 ): Promise<AuthConfig | undefined> {
   if (!auth || auth.type !== 'oauth2' || !auth.oauth2) return auth;
@@ -113,13 +113,15 @@ export async function resolveOAuth2Token(
   if (secretString(o.accessToken)) return auth; // already authenticated
   if (o.grantType && o.grantType !== 'client_credentials') return auth;
 
-  const tokenUrl = o.tokenUrl ? resolveVarsDeep(o.tokenUrl, vars) : '';
-  const clientId = o.clientId ? resolveVarsDeep(o.clientId, vars) : '';
+  // Callers resolve `{{vars}}` once with the shared `resolveAuthVariables`
+  // BEFORE external secrets are materialized. Re-resolving here would expand
+  // external-secret plaintext and variable values that contain `{{…}}`.
+  const tokenUrl = o.tokenUrl ?? '';
+  const clientId = o.clientId ?? '';
   if (!tokenUrl || !clientId) return auth;
 
-  const clientSecretRaw = secretString(o.clientSecret);
-  const clientSecret = clientSecretRaw ? resolveVarsDeep(clientSecretRaw, vars) : undefined;
-  const scope = o.scope ? resolveVarsDeep(o.scope, vars) : undefined;
+  const clientSecret = secretString(o.clientSecret) || undefined;
+  const scope = o.scope || undefined;
 
   const cacheKey = `${tokenUrl}|${clientId}|${scope ?? ''}`;
   const now = Date.now();
