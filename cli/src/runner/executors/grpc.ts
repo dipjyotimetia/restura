@@ -126,7 +126,7 @@ export async function executeGrpc(
         message: parsedMessage,
         // Per-request timeout (saved with the request, #921) overrides the
         // global --timeout — same precedence as the HTTP executor.
-        timeout: req.timeout ?? opts.timeoutMs,
+        timeout: req.timeout && req.timeout > 0 ? req.timeout : opts.timeoutMs,
       },
       fetcher,
       { allowLocalhost: opts.allowLocalhost }
