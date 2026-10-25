@@ -1,7 +1,8 @@
+import { resolveAuthVariables } from '@shared/auth/resolve-variables';
 import { SseParser } from '@shared/protocol/sse-parser';
 import { validateURL } from '@shared/protocol/url-validation';
-import { request as undiciRequest } from 'undici';
 import type { SseRequest } from '@shared/types';
+import { request as undiciRequest } from 'undici';
 import type { LoadedRequest } from '../collectionLoader';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, resolveOAuth2Token } from './auth';
@@ -74,7 +75,12 @@ export async function executeSse(
   try {
     // Header-based auth (Bearer / Basic / API-key / OAuth2). Applied here so an
     // unresolvable secret-handle ref surfaces as an errored outcome below.
-    const resolvedAuth = await resolveOAuth2Token(req.auth, opts.vars, {
+    // `{{vars}}` in every auth field resolve first (shared field map, same as
+    // the HTTP executor and the app).
+    const varResolvedAuth = req.auth
+      ? resolveAuthVariables(req.auth, (text) => resolveVarsDeep(text, opts.vars))
+      : req.auth;
+    const resolvedAuth = await resolveOAuth2Token(varResolvedAuth, opts.vars, {
       allowLocalhost: opts.allowLocalhost,
     });
     applyAuthHeaders(resolvedAuth, headers, params);

@@ -1,6 +1,11 @@
+import { resolveAuthFieldVariables } from '@shared/auth/resolve-variables';
 import type { FormField } from '@shared/protocol/body-builder';
 import { isProtocolExternalSecret } from '@shared/protocol/secret-value-schema';
-import type { ProtocolSecretValue as SecretValue } from '@shared/protocol/types';
+import type {
+  ProtocolAuthConfig,
+  ProtocolSecretValue as SecretValue,
+} from '@shared/protocol/types';
+import { replaceSecretVariableTokenMatches } from '@shared/variables/secret-variable-token';
 import { desktopExternalSecretResolver } from './external-secret-providers';
 import { unwrapSecretValueMain } from './secret-handle-store';
 
@@ -10,6 +15,7 @@ export interface SecretVariableHttpConfig {
   params?: Record<string, string>;
   data?: string;
   formData?: FormField[];
+  auth?: ProtocolAuthConfig;
   secretVariables?: Record<string, SecretValue>;
 }
 
@@ -35,8 +41,10 @@ export async function resolveSecretVariableValues(
 export function replaceSecretVariableTokens(text: string, values: Record<string, string>): string {
   // Own-property lookup only: `{{constructor}}` / `{{toString}}` must not
   // resolve to inherited Object.prototype members.
-  return text.replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, (match, name: string) =>
-    Object.hasOwn(values, name) ? (values[name] ?? match) : match
+  return replaceSecretVariableTokenMatches(
+    text,
+    (name) => Object.hasOwn(values, name),
+    (name, token) => values[name] ?? token
   );
 }
 
@@ -68,6 +76,13 @@ export async function materializeSecretVariables<T extends SecretVariableHttpCon
     ...(config.data !== undefined ? { data: replace(config.data) } : {}),
     ...(config.formData
       ? { formData: config.formData.map((field) => ({ ...field, value: replace(field.value) })) }
+      : {}),
+    // Auth descriptor value fields (sign-at-wire credentials, and Basic,
+    // which the renderer defers here when it references a secret variable).
+    // Same field map as the renderer/CLI resolver; header/param NAMES are
+    // skipped so secret-derived names can't surface in header errors.
+    ...(config.auth
+      ? { auth: resolveAuthFieldVariables(config.auth, replace, { includeNames: false }) }
       : {}),
     secretVariables: undefined,
   };
