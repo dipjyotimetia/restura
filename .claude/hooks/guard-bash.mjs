@@ -4,23 +4,30 @@
 //
 //   1. `git add -A | --all | .`      → stage explicit paths (a stray
 //                                       node_modules symlink once reached main).
+//                                       Allowed when -u/--update, -n/--dry-run or
+//                                       -p/--patch is present (tracked-only or
+//                                       non-staging). Globs (`*`, `:/`) allowed.
 //   2. `gh pr merge … --admin`        → use the merge lane; --admin bypasses the
 //                                       required checks. Override: an inline
 //                                       `RESTURA_ALLOW_ADMIN=1` prefix on that
-//                                       command, or the variable in the env.
+//                                       command segment, or the variable in the env.
 //   3. `git push` / `gh pr create`    → denied inside .claude/worktrees/: worktree
 //      from a .claude/worktrees/ dir    subagents report branch/SHA to the
 //                                       orchestrator, which owns pushes and PRs.
 //
-// The command is tokenised shell-style (quotes, escapes, comments) and split on
-// `&&`, `||`, `;`, `|`, `&`, newlines and subshell parens, so quoted text such as
-// `echo "git add -A"` is not a false positive. `cd X` and `git -C X` move the
-// effective directory for rule 3; `sh|bash|zsh -c "<cmd>"` is checked
-// recursively.
+// Parsing: heredoc bodies are stripped first (a body fed to sh/bash/zsh is
+// checked as a script). The rest is tokenised shell-style (quotes, escapes,
+// comments) and split on `&&`, `||`, `;`, `|`, `&`, newlines, parens and
+// backticks, so quoted text such as `echo "git add -A"` is not a false positive.
+// `$(…)` / backticks (also inside double quotes), `eval`, `sh -c`, here-strings
+// and wrappers (env, timeout, xargs, nice, nohup, command, sudo, exec, time) are
+// checked recursively. `cd X` and `git -C X` move the effective directory for
+// rule 3. If the tokenizer fails (e.g. an unbalanced quote) a conservative scan
+// with quoted strings removed runs instead of failing open.
 //
 // Output (per code.claude.com/docs/en/hooks): on deny, a PreToolUse JSON
-// decision on stdout with exit 0. Contract: never throws; on any parse error or
-// unexpected input it allows (exit 0, no output).
+// decision on stdout with exit 0. Contract: never throws; on unexpected input it
+// allows (exit 0, no output).
 
 import { homedir } from 'node:os';
 import * as path from 'node:path';
@@ -41,11 +48,69 @@ const REASONS = {
     'path and HEAD SHA to the orchestrator, which owns pushes and PRs.',
 };
 
-// --- tokenizer --------------------------------------------------------------
-// Returns an array of segments, each an array of words. Throws on unterminated
-// quotes (the caller fails open).
+const MAX_DEPTH = 4;
+
+// --- heredocs -------------------------------------------------------------------
+// True when position `idx` of a single line sits inside a quoted string.
+function quotedAt(line, idx) {
+  let q = '';
+  for (let i = 0; i < idx; i++) {
+    const c = line[i];
+    if (q === "'") {
+      if (c === "'") q = '';
+    } else if (c === '\\') {
+      i++;
+    } else if (q === '"') {
+      if (c === '"') q = '';
+    } else if (c === "'" || c === '"') {
+      q = c;
+    }
+  }
+  return q !== '';
+}
+
+const HEREDOC = /(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([A-Za-z_][\w.-]*)\2/g;
+const SHELL_BEFORE_HEREDOC = /(?:^|[;&|(`]|\$\()\s*(?:\S*\/)?(?:ba|z)?sh(?:\s+[^;&|<>]*)?\s*$/;
+
+// Removes heredoc bodies (and terminator lines). Bodies whose command is a
+// shell are returned separately so they can be checked as scripts.
+export function stripHeredocs(cmd) {
+  const out = [];
+  const shellBodies = [];
+  const pending = [];
+  for (const line of cmd.split('\n')) {
+    const cur = pending[0];
+    if (cur) {
+      const cmp = cur.dash ? line.replace(/^\t+/, '') : line;
+      if (cmp.trim() === cur.tag) {
+        pending.shift();
+        if (cur.toShell) shellBodies.push(cur.body.join('\n'));
+      } else {
+        cur.body.push(line);
+      }
+      continue;
+    }
+    out.push(line);
+    for (const m of line.matchAll(HEREDOC)) {
+      if (quotedAt(line, m.index)) continue;
+      pending.push({
+        dash: m[1] === '-',
+        tag: m[3],
+        body: [],
+        toShell: SHELL_BEFORE_HEREDOC.test(line.slice(0, m.index)),
+      });
+    }
+  }
+  for (const p of pending) if (p.toShell) shellBodies.push(p.body.join('\n'));
+  return { text: out.join('\n'), shellBodies };
+}
+
+// --- tokenizer -------------------------------------------------------------------
+// Returns { segments: string[][], nested: string[] } where `nested` holds command
+// substitutions found inside double quotes. Throws on unbalanced quotes.
 export function splitCommand(cmd) {
   const segments = [];
+  const nested = [];
   let words = [];
   let word = '';
   let inWord = false;
@@ -71,11 +136,26 @@ export function splitCommand(cmd) {
     } else if (c === '"') {
       let j = i + 1;
       for (; j < cmd.length && cmd[j] !== '"'; j++) {
-        if (cmd[j] === '\\' && j + 1 < cmd.length) {
-          j++;
-          word += cmd[j];
+        const d = cmd[j];
+        if (d === '\\' && j + 1 < cmd.length) {
+          word += cmd[++j];
+        } else if (d === '`') {
+          const end = cmd.indexOf('`', j + 1);
+          if (end === -1) throw new Error('unterminated backtick');
+          nested.push(cmd.slice(j + 1, end));
+          j = end;
+        } else if (d === '$' && cmd[j + 1] === '(') {
+          let depth = 0;
+          let k = j + 1;
+          for (; k < cmd.length; k++) {
+            if (cmd[k] === '(') depth++;
+            else if (cmd[k] === ')' && --depth === 0) break;
+          }
+          if (k >= cmd.length) throw new Error('unterminated $(');
+          nested.push(cmd.slice(j + 2, k));
+          j = k;
         } else {
-          word += cmd[j];
+          word += d;
         }
       }
       if (j >= cmd.length) throw new Error('unterminated double quote');
@@ -96,7 +176,7 @@ export function splitCommand(cmd) {
     } else if (c === '&' && (cmd[i - 1] === '>' || cmd[i + 1] === '>')) {
       word += c; // redirection like 2>&1 or &>file, not a separator
       inWord = true;
-    } else if (c === '\n' || c === ';' || c === '&' || c === '|' || c === '(' || c === ')') {
+    } else if ('\n;&|()`'.includes(c)) {
       if (c === '(' && word.endsWith('$')) word = word.slice(0, -1); // $( … )
       endSegment();
     } else {
@@ -105,41 +185,113 @@ export function splitCommand(cmd) {
     }
   }
   endSegment();
-  return segments;
+  return { segments, nested };
 }
 
-// --- decision ---------------------------------------------------------------
+// Conservative fallback when the tokenizer fails: drop quoted strings (and any
+// stray quote characters), then split on separators.
+function fallbackSegments(text) {
+  const s = text
+    .replace(/'[^'\n]*'/g, ' ')
+    .replace(/"(?:\\.|[^"\\\n])*"/g, ' ')
+    .replace(/['"]/g, ' ');
+  return s
+    .split(/&&|\|\||[;&|\n()`]/)
+    .map((x) => x.trim().split(/\s+/).filter(Boolean))
+    .filter((a) => a.length > 0);
+}
+
+// --- decision -------------------------------------------------------------------
 const ENV_ASSIGN = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
-const WRAPPERS = new Set(['sudo', 'command', 'exec', 'time', 'nohup', 'env']);
 const SHELLS = new Set(['sh', 'bash', 'zsh']);
+// Wrapper commands that execute their trailing argv, with the flags that take a
+// separate value argument.
+const WRAPPERS = {
+  env: new Set(['-u', '--unset', '-C', '--chdir', '-S', '--split-string']),
+  timeout: new Set(['-s', '--signal', '-k', '--kill-after']),
+  xargs: new Set([
+    '-n',
+    '-I',
+    '-P',
+    '-L',
+    '-d',
+    '-s',
+    '-E',
+    '-a',
+    '--max-args',
+    '--max-procs',
+    '--max-lines',
+    '--delimiter',
+    '--arg-file',
+    '--replace',
+    '--max-chars',
+    '--eof',
+  ]),
+  nice: new Set(['-n', '--adjustment']),
+  nohup: new Set(),
+  command: new Set(),
+  sudo: new Set(['-u', '-g', '-C', '-h', '-p', '-U']),
+  exec: new Set(['-a']),
+  time: new Set(['-o', '-f']),
+};
+const GH_VALUE_FLAGS = new Set(['-R', '--repo', '--hostname']);
 
 const expandHome = (p) => (p === '~' || p.startsWith('~/') ? homedir() + p.slice(1) : p);
 const resolveDir = (base, target) => path.resolve(base || '/', expandHome(target));
-const inWorktree = (dir) => /(^|\/)\.claude\/worktrees\/[^/]+/.test(String(dir).replace(/\\/g, '/'));
+const inWorktree = (dir) =>
+  /(^|\/)\.claude\/worktrees\/[^/]+/.test(String(dir).replace(/\\/g, '/'));
 
+const isShortFlags = (a) => /^-[a-zA-Z]+$/.test(a);
 function isAddAllArg(a) {
   if (a === '-A' || a === '--all' || a === '.' || a === './') return true;
-  return /^-[a-zA-Z]+$/.test(a) && a.includes('A');
+  return isShortFlags(a) && a.includes('A');
 }
+// -u/--update and -p/--patch only touch tracked files; -n/--dry-run stages nothing.
+const ADD_SAFE_LONG = new Set(['--update', '--dry-run', '--patch']);
+const isAddSafeArg = (a) => ADD_SAFE_LONG.has(a) || (isShortFlags(a) && /[unp]/.test(a));
 
 // Returns a deny reason, or null. `state.dir` carries `cd` across segments.
 function checkSegment(seg, state, env, depth) {
-  let i = 0;
   const inlineEnv = {};
-  for (; i < seg.length; i++) {
+  let i = 0;
+  while (i < seg.length) {
     const m = ENV_ASSIGN.exec(seg[i]);
-    if (m) inlineEnv[m[1]] = m[2];
-    else if (!WRAPPERS.has(seg[i])) break;
+    if (m) {
+      inlineEnv[m[1]] = m[2];
+      i++;
+      continue;
+    }
+    const wrapper = path.basename(seg[i]);
+    const valueFlags = Object.hasOwn(WRAPPERS, wrapper) ? WRAPPERS[wrapper] : null;
+    if (!valueFlags) break;
+    i++;
+    while (i < seg.length && seg[i].startsWith('-') && seg[i] !== '-') {
+      if (seg[i] === '--') {
+        i++;
+        break;
+      }
+      i += valueFlags.has(seg[i]) ? 2 : 1;
+    }
+    if (wrapper === 'timeout') i++; // duration
   }
-  const words = seg.slice(i);
-  const [cmd, ...rest] = words;
+
+  const [cmd, ...rest] = seg.slice(i);
   if (!cmd) return null;
   const base = path.basename(cmd);
 
-  if (SHELLS.has(base) && depth < 3) {
+  if (cmd === 'eval') {
+    return rest.length ? checkCommand(rest.join(' '), state.dir, env, depth + 1) : null;
+  }
+
+  if (SHELLS.has(base)) {
     const cIdx = rest.findIndex((w) => /^-[a-z]*c[a-z]*$/.test(w));
-    const script = cIdx === -1 ? undefined : rest[cIdx + 1];
-    return typeof script === 'string' ? checkCommand(script, state.dir, env, depth + 1) : null;
+    if (cIdx !== -1 && typeof rest[cIdx + 1] === 'string') {
+      return checkCommand(rest[cIdx + 1], state.dir, env, depth + 1);
+    }
+    const hsIdx = rest.indexOf('<<<');
+    const hereString =
+      hsIdx !== -1 ? rest[hsIdx + 1] : rest.find((w) => w.startsWith('<<<'))?.slice(3);
+    return hereString ? checkCommand(hereString, state.dir, env, depth + 1) : null;
   }
 
   if (cmd === 'cd') {
@@ -160,26 +312,50 @@ function checkSegment(seg, state, env, depth) {
     }
     const sub = rest[j];
     const args = rest.slice(j + 1);
-    if (sub === 'add' && args.some(isAddAllArg)) return REASONS.gitAddAll;
+    if (sub === 'add' && !args.some(isAddSafeArg) && args.some(isAddAllArg)) {
+      return REASONS.gitAddAll;
+    }
     if (sub === 'push' && inWorktree(gitDir)) return REASONS.worktreePush;
     return null;
   }
 
-  if (base === 'gh' && rest[0] === 'pr') {
-    if (rest[1] === 'merge' && rest.includes('--admin')) {
+  if (base === 'gh') {
+    let k = 0;
+    while (k < rest.length && rest[k].startsWith('-')) k += GH_VALUE_FLAGS.has(rest[k]) ? 2 : 1;
+    if (rest[k] !== 'pr') return null;
+    const sub = rest[k + 1];
+    const args = rest.slice(k + 2);
+    if (sub === 'merge') {
+      const admin = args.some(
+        (a) => a === '--admin' || (a.startsWith('--admin=') && a !== '--admin=false')
+      );
+      if (!admin) return null;
       const allowed = inlineEnv.RESTURA_ALLOW_ADMIN === '1' || env.RESTURA_ALLOW_ADMIN === '1';
       return allowed ? null : REASONS.adminMerge;
     }
-    if (rest[1] === 'create' && inWorktree(state.dir)) return REASONS.worktreePush;
+    if (sub === 'create' && inWorktree(state.dir)) return REASONS.worktreePush;
   }
   return null;
 }
 
 export function checkCommand(command, cwd, env = process.env, depth = 0) {
-  if (typeof command !== 'string' || !command.trim()) return null;
+  if (typeof command !== 'string' || !command.trim() || depth > MAX_DEPTH) return null;
   const state = { dir: typeof cwd === 'string' && cwd ? cwd : process.cwd() };
-  for (const seg of splitCommand(command)) {
+  const { text, shellBodies } = stripHeredocs(command);
+
+  let parsed;
+  try {
+    parsed = splitCommand(text);
+  } catch {
+    parsed = { segments: fallbackSegments(text), nested: [] };
+  }
+
+  for (const seg of parsed.segments) {
     const reason = checkSegment(seg, state, env, depth);
+    if (reason) return reason;
+  }
+  for (const sub of [...parsed.nested, ...shellBodies]) {
+    const reason = checkCommand(sub, state.dir, env, depth + 1);
     if (reason) return reason;
   }
   return null;
@@ -200,7 +376,7 @@ try {
     );
   }
 } catch {
-  // fail open — a parse error must never block the session
+  // fail open — an internal hook error must never block the session
 }
 
 process.exit(0);

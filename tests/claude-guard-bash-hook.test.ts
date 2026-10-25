@@ -161,3 +161,96 @@ describe('guard-bash hook: fail open', () => {
     expect(run(undefined, { raw }).denied).toBe(false);
   });
 });
+
+describe('guard-bash hook: review-round bypasses', () => {
+  it.each([
+    'gh -R a/b pr merge 5 --admin',
+    'gh --repo a/b pr merge 5 --admin',
+    'gh --repo=a/b pr merge 5 --admin',
+    'gh --hostname github.com pr merge 5 --admin',
+    'gh pr merge 5 --admin=true',
+  ])('denies gh admin merge with global flags: %j', (cmd) => {
+    expect(run(cmd).denied).toBe(true);
+  });
+
+  it('allows --admin=false', () => {
+    expect(run('gh pr merge 5 --auto --admin=false').denied).toBe(false);
+  });
+
+  it.each(['gh -R a/b pr create', 'gh --repo=a/b pr create --fill'])(
+    'denies %j from a worktree cwd',
+    (cmd) => {
+      expect(run(cmd, { cwd: WORKTREE_CWD }).denied).toBe(true);
+    }
+  );
+
+  it('denies git add -A after a heredoc whose body has an apostrophe', () => {
+    const cmd = "git commit -F - <<'EOF'\nfix: don't drop\nEOF\ngit add -A";
+    expect(run(cmd).denied).toBe(true);
+  });
+
+  it.each([
+    "cat <<'EOF' > f\ngit add -A is bad\nEOF",
+    'cat <<EOF > f\ngit add .\nEOF',
+    'cat <<-"END"\n\tgit push\n\tEND',
+  ])('allows heredoc bodies that merely mention commands: %j', (cmd) => {
+    expect(run(cmd, { cwd: WORKTREE_CWD }).denied).toBe(false);
+  });
+
+  it('a quoted "<<X" does not swallow the following lines', () => {
+    expect(run('echo "<<X"\ngit add -A').denied).toBe(true);
+  });
+
+  it('allows the $(cat <<EOF) commit-message idiom mentioning git add -A', () => {
+    const cmd = "git commit -m \"$(cat <<'EOF'\nmsg: don't git add -A\nEOF\n)\"";
+    expect(run(cmd).denied).toBe(false);
+  });
+
+  it('denies a heredoc fed to a shell', () => {
+    expect(run("bash <<'EOF'\ngit add -A\nEOF").denied).toBe(true);
+  });
+
+  it('falls back to a conservative scan on tokenizer errors', () => {
+    expect(run("echo 'unterminated && git add -A\ngit add --all").denied).toBe(true);
+  });
+
+  it.each([
+    'echo `git add -A`',
+    'echo "$(git add -A)"',
+    'echo "`git add -A`"',
+    'eval "git add -A"',
+    'eval git add -A',
+    'xargs git add -A',
+    'xargs -n 1 -I {} git add -A',
+    'timeout 5 git add -A',
+    'timeout -s KILL 5 git add -A',
+    'nice git add -A',
+    'nice -n 10 git add -A',
+    'nohup git add -A',
+    'command git add -A',
+    'env -i FOO=1 git add -A',
+    'bash <<< "git add -A"',
+    'bash -c "timeout 5 gh -R a/b pr merge 1 --admin"',
+  ])('denies execution form %j', (cmd) => {
+    expect(run(cmd).denied).toBe(true);
+  });
+
+  it.each([
+    'git add *',
+    'git add :/',
+    'git add -u',
+    'git add -u .',
+    'git add --update .',
+    'git add -n .',
+    'git add --dry-run -A',
+    'git add -p .',
+    'git add --patch .',
+    "echo 'eval git add -A'",
+  ])('allows %j', (cmd) => {
+    expect(run(cmd).denied).toBe(false);
+  });
+
+  it.each(['git add -f .', 'git add --force -A'])('still denies %j', (cmd) => {
+    expect(run(cmd).denied).toBe(true);
+  });
+});
