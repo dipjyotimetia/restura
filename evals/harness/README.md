@@ -137,9 +137,11 @@ reach, not to ask it not to look. So each run builds a **history-free repo** in 
 `git log --all` there shows exactly those two commits plus the case branches. This repo is only
 read (`archive`, `cat-file`, `show`, `rev-parse`): no branches, worktrees or refs are created
 in it, and cleanup is deleting the temp dir. `node_modules` are symlinked from the main checkout
-(like `npm run worktree:setup`, which only accepts linked worktrees). Residual risk: those
-symlinks, and absolute paths in general, still point at the main checkout, so a reviewer that
-deliberately `cd`s out of its repo could find the history. Read the transcripts for that.
+(like `npm run worktree:setup`, which only accepts linked worktrees). Those symlinks and absolute
+paths still lead to the main checkout, so `detectContamination` scans every tool input in the
+review transcript for an explicit main-checkout path (or its realpath) and for git `-C` /
+`--git-dir` / `--work-tree` / `GIT_DIR=` targets outside the isolated repo; a hit makes the run
+a harness error (`contaminated: …`, hits listed in the summary), excluded from scoring.
 
 ## Grading
 

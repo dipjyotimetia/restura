@@ -13,6 +13,7 @@ import {
   cleanupTrackedAsync,
   createIsolatedRepo,
   decideCaught,
+  detectContamination,
   diffFlips,
   formatSummaryMarkdown,
   gradeMustMention,
@@ -1556,4 +1557,92 @@ test('linkNodeModules links the main checkout node_modules into a non-worktree d
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------- contamination
+
+const MAIN = path.join(path.sep, 'srv', 'checkout', 'restura');
+const ISO = '/tmp/he/repo';
+const toolStream = (...uses) =>
+  [
+    { type: 'system', subtype: 'init' },
+    {
+      type: 'assistant',
+      message: {
+        content: uses.map(([name, input], i) => ({ type: 'tool_use', id: `t${i}`, name, input })),
+      },
+    },
+    { type: 'result', subtype: 'success', result: 'done', is_error: false },
+  ]
+    .map((e) => JSON.stringify(e))
+    .join('\n');
+const roots = { forbiddenRoots: [MAIN, `/private${MAIN}`], isolatedRoot: ISO };
+
+test('detectContamination ignores in-repo work and paths that merely share a prefix', () => {
+  const clean = toolStream(
+    ['Bash', { command: 'git diff main...feat/x && git -C /tmp/he/repo/sub status' }],
+    ['Read', { file_path: `${ISO}/src/a.ts` }],
+    ['Read', { file_path: `${MAIN}-other/notes.md` }],
+    ['Grep', { pattern: 'restura', path: `${MAIN}X` }],
+    ['Bash', { command: 'git log --oneline -5' }]
+  );
+  // A forbidden path in a tool RESULT (not an input) does not count.
+  const withResult = `${clean}\n${JSON.stringify({
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: 't0', content: `${MAIN}/x` }] },
+  })}`;
+  assert.deepEqual(detectContamination(withResult, roots), { contaminated: false, hits: [] });
+});
+
+test('detectContamination flags explicit main-checkout paths and git escapes', () => {
+  const stream = toolStream(
+    ['Bash', { command: `cd ${MAIN} && git log --all` }],
+    ['Read', { file_path: `${MAIN}/src/app.ts` }],
+    ['Grep', { pattern: 'fix', path: `/private${MAIN}` }],
+    ['Bash', { command: 'git -C /tmp/elsewhere log --all' }],
+    ['Bash', { command: "git --git-dir='/x/.git' show HEAD" }],
+    ['Bash', { command: 'git -C ../.. log' }],
+    ['Bash', { command: 'GIT_DIR=/y/.git git log' }],
+    ['Glob', { pattern: '**/*.ts', path: MAIN }]
+  );
+  const result = detectContamination(stream, roots);
+  assert.equal(result.contaminated, true);
+  assert.deepEqual(
+    result.hits.map((h) => h.tool),
+    ['Bash', 'Read', 'Grep', 'Bash', 'Bash', 'Bash', 'Bash', 'Glob']
+  );
+  assert.ok(result.hits.every((h) => typeof h.snippet === 'string' && h.snippet.length > 0));
+  assert.ok(result.hits[0].snippet.includes(MAIN));
+  // Without an isolated root, only forbidden roots count.
+  const rootsOnly = detectContamination(
+    toolStream(['Bash', { command: 'git -C /tmp/elsewhere log' }]),
+    { forbiddenRoots: [MAIN] }
+  );
+  assert.equal(rootsOnly.contaminated, false);
+});
+
+test('runCase marks a contaminated review as a harness error and skips the judge', async () => {
+  const contaminated = {
+    status: 0,
+    stdout: toolStream(['Bash', { command: `git -C ${MAIN} log --all` }]),
+    stderr: '',
+  };
+  const exec = reviewExec(contaminated, judgeJson('{"caught": true, "score": 3}'));
+  const result = await runCase(defectCase(), reviewCtx(exec, { forbiddenRoots: [MAIN] }));
+  assert.equal(result.status, 'error');
+  assert.match(result.reason, /^contaminated: /);
+  assert.equal(result.caught, null);
+  assert.equal(result.contamination.length, 1);
+  assert.equal(exec.calls.filter((c) => c.command === 'claude').length, 1, 'no judge call');
+  const md = formatSummaryMarkdown(
+    {
+      config: 'c',
+      startedAt: '2026-10-25T00:00:00.000Z',
+      dryRun: false,
+      runs: [{ ...result, run: 1 }],
+    },
+    undefined
+  );
+  assert.match(md, /contaminated: /);
+  assert.ok(md.includes(`git -C ${MAIN} log --all`));
 });
