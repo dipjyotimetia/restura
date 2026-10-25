@@ -15,6 +15,7 @@ import {
   registryFromSnapshot,
 } from '@shared/protocol/grpc-schema-drift';
 import type { GrpcRequest, GrpcSchemaSnapshot, ReflectionServiceInfo, Request } from '@/types';
+import { grpcDeadlineMs, NO_GRPC_DEADLINE } from './grpcDeadline';
 import { GrpcReflectionClient, type ReflectionCredentials } from './grpcReflection';
 
 export interface GrpcSchemaRunOptions {
@@ -34,7 +35,11 @@ export function grpcRunOptionsFromRequest(request: GrpcRequest): GrpcSchemaRunOp
     out.protoContent = schema.text;
     out.protoFileName = schema.fileName || 'schema.proto';
   }
-  if (typeof request.timeout === 'number' && request.timeout > 0) out.timeoutMs = request.timeout;
+  // Streaming "No deadline" yields 0 (runner honours it); unary always gets a deadline.
+  if (typeof request.timeout === 'number') {
+    const ms = grpcDeadlineMs(request);
+    if (request.timeout > 0 || ms === NO_GRPC_DEADLINE) out.timeoutMs = ms;
+  }
   return out;
 }
 

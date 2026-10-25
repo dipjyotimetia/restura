@@ -55,7 +55,7 @@ export const architecturePolicy: ArchitecturePolicy = {
     'electron/main/handlers/http-handler.ts': 861,
     'electron/main/handlers/kafka-handler.ts': 670,
     'electron/main/ipc/validators/kafka.ts': 1007,
-    'electron/types/api/protocols.ts': 960,
+    'electron/types/api/protocols.ts': 959,
     'electron/main/handlers/grpc-connect.ts': 816,
   },
   // Type scale (UI/UX Phase 6): sizes come from the text-sp-* tokens, 11px

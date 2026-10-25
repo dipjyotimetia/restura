@@ -23,7 +23,7 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 ### Prerequisites
 
 - **Node.js** >= 24.x
-- **npm** >= 10.x
+- **npm** 12.1.0 (enforced by `npm run toolchain:check`)
 - **Git**
 
 ### Quick Start
@@ -39,6 +39,14 @@ npm ci
 # Start development server
 npm run dev
 ```
+
+#### npm 12 and dependency install scripts
+
+`scripts/verify-toolchain.mjs` pins npm to `12.1.0`. npm 12 blocks dependency install scripts by default, so native and binary packages only get their binaries if they are listed in the `allowScripts` field of the root `package.json` (esbuild, workerd, keytar, protobufjs, fsevents, `@sentry/cli`, `electron-winstaller`, `@vscode/vsce-sign`). That allowlist is committed, so `npm ci` works out of the box.
+
+- If `npm ci` ends with an `install-scripts ... blocked` warning after a dependency bump, review with `npm install-scripts ls` and approve with `npm install-scripts approve <pkg> --no-allow-scripts-pin` (alias `npm approve-scripts`). Commit the `package.json` change.
+- The Electron binary is not downloaded by `npm ci`. Run `node node_modules/electron/install.js` once (needed for `npm run electron:dev` and the desktop e2e).
+- If you installed with `--ignore-scripts` or an older allowlist, repair with `npm rebuild esbuild workerd keytar protobufjs fsevents`.
 
 ## Development Setup
 
