@@ -1,6 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import { CAPABILITIES } from './capabilities';
 
+// Every `*_CAPABILITIES` record exported from an area module under
+// ./capabilities/. Globbed so a new area module is checked without editing
+// this test.
+const areaModules = import.meta.glob<Record<string, unknown>>('./capabilities/*.ts', {
+  eager: true,
+});
+const areas = Object.entries(areaModules).flatMap(([file, mod]) =>
+  Object.entries(mod)
+    .filter(([name]) => name.endsWith('_CAPABILITIES'))
+    .map(([name, record]) => ({ file, name, keys: Object.keys(record as object) }))
+);
+
+describe('capability area modules', () => {
+  it('never declares the same capability key in two area modules', () => {
+    const owners = new Map<string, string[]>();
+    for (const area of areas) {
+      for (const key of area.keys) owners.set(key, [...(owners.get(key) ?? []), area.name]);
+    }
+    const duplicates = [...owners].filter(([, names]) => names.length > 1);
+    expect(duplicates).toEqual([]);
+  });
+
+  it('composes every area row into CAPABILITIES and nothing else', () => {
+    expect(areas.length).toBeGreaterThan(0);
+    const areaKeys = areas.flatMap((area) => area.keys).sort();
+    expect(Object.keys(CAPABILITIES).sort()).toEqual(areaKeys);
+  });
+});
+
 // Regression guard for the per-area split of the capability registry. The
 // inline snapshot was recorded against the single-file registry before the
 // split; iteration order drives docs/CAPABILITY_MATRIX.md, so it is asserted

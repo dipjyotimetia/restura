@@ -4,7 +4,8 @@
  * Run with `--check` to fail when the doc is stale (CI gate).
  *
  * Pure-Node ESM (no tsx dependency required at CI-time) — extracts the
- * CAPABILITIES literal by parsing the TS source as text. Brittle to
+ * capability rows by parsing the TS sources (capabilities.ts and the
+ * per-area modules it spreads from ./capabilities/) as text. Brittle to
  * formatting churn; the inverse-quality is that there are no build
  * dependencies to maintain.
  */
@@ -19,26 +20,42 @@ const docPath = path.join(repoRoot, 'docs/CAPABILITY_MATRIX.md');
 
 const source = fs.readFileSync(sourcePath, 'utf8');
 
-// Extract the CAPABILITIES object body. Each row is one TS object literal on
-// a single line; we tolerate trailing commas and quoted/unquoted notes.
-const start = source.indexOf('export const CAPABILITIES');
-if (start === -1) throw new Error('CAPABILITIES export not found in source');
-const bodyStart = source.indexOf('{', start);
-let depth = 0;
-let bodyEnd = -1;
-for (let i = bodyStart; i < source.length; i++) {
-  const ch = source[i];
-  if (ch === '{') depth++;
-  else if (ch === '}') {
-    depth--;
-    if (depth === 0) {
-      bodyEnd = i;
-      break;
+// Return the text between the braces of the first `{` after `marker`.
+function extractLiteralBody(text, marker, file) {
+  const start = text.indexOf(marker);
+  if (start === -1) throw new Error(`${marker} not found in ${file}`);
+  const bodyStart = text.indexOf('{', start);
+  let depth = 0;
+  for (let i = bodyStart; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(bodyStart + 1, i);
     }
   }
+  throw new Error(`Unable to find end of ${marker} literal in ${file}`);
 }
-if (bodyEnd === -1) throw new Error('Unable to find end of CAPABILITIES literal');
-const body = source.slice(bodyStart + 1, bodyEnd);
+
+// The rows live in per-area modules under src/lib/shared/capabilities/, and
+// capabilities.ts composes them as `const ALL_CAPABILITIES = { ...A, ...B }`.
+// Resolve each spread to its `import { A } from './capabilities/<area>'`
+// module and concatenate the area literals in spread order, which is the row
+// order of the matrix.
+const composed = extractLiteralBody(source, 'const ALL_CAPABILITIES', sourcePath);
+const spreads = [...composed.matchAll(/\.\.\.(\w+)/g)].map((m) => m[1]);
+if (spreads.length === 0) throw new Error('No capability area spreads found in source');
+const body = spreads
+  .map((name) => {
+    const importMatch = source.match(
+      new RegExp(`import\\s*\\{\\s*${name}\\s*\\}\\s*from\\s*['"](\\./capabilities/[\\w-]+)['"]`)
+    );
+    if (!importMatch) throw new Error(`No ./capabilities/* import found for ${name}`);
+    const areaPath = path.join(path.dirname(sourcePath), `${importMatch[1]}.ts`);
+    const areaSource = fs.readFileSync(areaPath, 'utf8');
+    return extractLiteralBody(areaSource, `export const ${name}`, areaPath);
+  })
+  .join('\n');
 
 // Multi-line tolerant — Prettier wraps rows that carry a `notes` field onto
 // 4–5 lines. The previous single-line regex silently dropped those rows.
