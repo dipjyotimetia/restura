@@ -30,7 +30,9 @@ You are the orchestrator for a batch delivery. Scope: `$ARGUMENTS`. Read the
 6. **Push one branch at a time** after `git fetch` and rebase on
    `origin/main`; open PRs (one topic each), noting the intended merge path.
 7. **Auto-merge**: `gh pr merge <n> --auto --squash` for each; the merge lane
-   (`merge-lane.yml`) serializes them, updating one behind-`main` PR at a time.
+   (`merge-lane.yml`, from the delivery-guardrails PR; it must be on `main`
+   first, since plain auto-merge neither orders PRs nor updates behind
+   branches) serializes them, updating one behind-`main` PR at a time.
    Never `--admin` except emergencies. After each merge
    round re-run integration-check on the remainder (see `/babysit-prs`).
    Log any flake you hit instead of silently retrying.

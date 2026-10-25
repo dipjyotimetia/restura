@@ -60,8 +60,9 @@ metrics accumulate.
    Do it as its own PR, never inside a feature PR (the config is a hot file).
 2. Flake review: scan recent CI runs (`gh run list --status failure`) and the
    merge-lane runs for tests that failed then passed on retry. Known offenders
-   include grpc-web 413 and mcp-client-requests. For each, fix, quarantine
-   with a tracked issue, or add to the issue; never leave a flake undocumented.
+   include grpc-web 413 and mcp-client-requests. For each, fix it or
+   quarantine it with a tracked issue (if one exists, update it; documentation
+   alone is not quarantine).
    Flakes must be fixed or quarantined before the next parallel batch.
 
 ## Discipline

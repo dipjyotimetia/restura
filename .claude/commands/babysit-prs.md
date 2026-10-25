@@ -41,7 +41,7 @@ interval polling — events push, polls burn tokens.
 ## After each merge round
 
 When one or more watched PRs merged, run
-`npm run integration-check -- <remaining branches>` once instead of rebasing
+`npm run integration-check -- <remaining branches>` (add `--e2e` if transport/UI is touched) once instead of rebasing
 and force-pushing each PR serially. Fix only the PRs it reports as conflicting
 or red on the combined result. Any file overlap it reports between PRs is a
 planning bug: tell the user and propose merging those PRs.
