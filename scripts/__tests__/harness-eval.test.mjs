@@ -29,6 +29,7 @@ import {
   majorityVerdict,
   mergePackageScripts,
   nodeExec,
+  nodeModulesFingerprint,
   overlayHarness,
   parseClaudeJson,
   parseClaudeStream,
@@ -266,13 +267,10 @@ test('classifyClaudeRun separates harness errors from real answers', () => {
       { status: 0, stdout: ok({ permission_denials: [{ tool_name: 'Bash', tool_input: {} }] }) },
       /permission denied: Bash/,
     ],
-    [{ status: 0, stdout: ok({ subtype: 'error_max_budget_usd', is_error: true }) }, /budget/],
-    [{ status: 0, stdout: ok({ subtype: 'error_max_turns', is_error: true }) }, /error_max_turns/],
     [{ status: 0, stdout: ok({ is_error: true }) }, /is_error/],
     [{ status: 2, stdout: ok(), stderr: 'crash' }, /exited 2/],
     [{ status: 0, stdout: '{oops', stderr: '' }, /unparseable/],
     [{ status: 0, stdout: ok(), stderr: 'Tool Bash is not allowed' }, /not allowed/],
-    [{ status: 0, stdout: ok(), stderr: 'Exceeded USD budget (20)' }, /budget/],
     [{ status: null, signal: 'SIGINT', stdout: '' }, /signal SIGINT/],
   ];
   for (const [run, reason] of cases) {
@@ -369,6 +367,7 @@ test('summarise excludes harness errors and splits defect recall from control pr
     runs: 2,
     caught: 1,
     errors: 1,
+    incomplete: 0,
     flipped: true,
     meanScore: 2,
     passAt1: 0.5,
@@ -384,6 +383,7 @@ test('summarise excludes harness errors and splits defect recall from control pr
     runs: 2,
     caught: 1,
     errors: 0,
+    incomplete: 0,
     flipped: true,
     meanScore: 1.5,
     passAt1: 0.5,
@@ -2090,4 +2090,183 @@ test('summarise reports unseen-only recall and precision; markdown lists seen ca
   );
   assert.match(dry, /## Seen in harness/);
   assert.match(dry, /held-out case is no longer unseen/);
+});
+
+// ---------------------------------------------------------------- incomplete runs + node_modules
+
+test('classifyClaudeRun: budget, max turns and timeouts are incomplete, not harness errors', () => {
+  const done = (extra) =>
+    JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'x', ...extra });
+  const incomplete = [
+    [{ status: 0, stdout: done({ subtype: 'error_max_budget_usd', is_error: true }) }, /budget/],
+    [{ status: 0, stdout: done({ subtype: 'error_max_turns', is_error: true }) }, /max turns/],
+    [{ status: 1, stdout: '', stderr: 'Exceeded USD budget (20)' }, /budget/],
+    [{ status: 0, stdout: done(), stderr: 'Exceeded USD budget (20)' }, /budget/],
+    [
+      {
+        status: null,
+        signal: 'SIGTERM',
+        stdout: '{"type":"system"}',
+        stderr: '\ntimed out after 5400000 ms',
+      },
+      /timed out/,
+    ],
+    [{ status: null, signal: 'SIGKILL', stdout: '', stderr: 'timed out after 10 ms' }, /timed out/],
+  ];
+  for (const [run, reason] of incomplete) {
+    const classified = classifyClaudeRun({ stderr: '', ...run });
+    assert.equal(classified.status, 'incomplete', JSON.stringify(run));
+    assert.match(classified.reason, reason);
+  }
+  // Still true harness errors.
+  for (const run of [
+    { status: null, signal: 'SIGINT', stdout: '' },
+    { status: 0, stdout: done({ subtype: 'error_during_execution', is_error: true }) },
+    { status: 0, stdout: '{oops' },
+    { status: 2, stdout: '', stderr: 'spawn claude ENOENT' },
+  ])
+    assert.equal(classifyClaudeRun({ stderr: '', ...run }).status, 'error', JSON.stringify(run));
+});
+
+const budgetReview = () => ({
+  status: 0,
+  stdout: [
+    JSON.stringify({ type: 'system', subtype: 'init' }),
+    JSON.stringify({
+      type: 'result',
+      subtype: 'error_max_budget_usd',
+      is_error: true,
+      result: '',
+      total_cost_usd: 20,
+    }),
+  ].join('\n'),
+  stderr: '',
+});
+
+test('runCase grades an incomplete review as a failure: defect not caught, control not clean', async () => {
+  for (const [evalCase, label] of [
+    [defectCase(), 'defect'],
+    [cleanCase(), 'control'],
+  ]) {
+    const exec = reviewExec(budgetReview(), judgeJson('{"caught": true, "score": 3}'));
+    const result = await runCase(evalCase, reviewCtx(exec));
+    assert.equal(result.status, 'ok', label);
+    assert.equal(result.incomplete, true, label);
+    assert.match(result.incompleteReason, /budget/, label);
+    assert.equal(result.caught, false, label);
+    assert.equal(result.review.costUsd, 20, label);
+    assert.equal(exec.calls.filter((c) => c.command === 'claude').length, 1, `${label}: no judge`);
+  }
+});
+
+test('runCase still excludes a contaminated incomplete review', async () => {
+  const stream = budgetReview();
+  stream.stdout = `${toolStream(['Bash', { command: `git -C ${MAIN} log --all` }])
+    .split('\n')
+    .slice(0, 2)
+    .join('\n')}\n${stream.stdout.split('\n')[1]}`;
+  const result = await runCase(
+    defectCase(),
+    reviewCtx(reviewExec(stream, judgeJson('{}')), { forbiddenRoots: [MAIN] })
+  );
+  assert.equal(result.status, 'error');
+  assert.match(result.reason, /^contaminated/);
+});
+
+test('summarise counts incomplete runs as scored failures and reports the error rate', () => {
+  const summary = summarise([
+    { caseId: 'd', status: 'ok', expectClean: false, caught: true },
+    { caseId: 'd', status: 'ok', expectClean: false, caught: false, incomplete: true },
+    { caseId: 'c', status: 'ok', expectClean: true, caught: false, incomplete: true },
+    { caseId: 'c', status: 'error', expectClean: true, caught: null },
+  ]);
+  assert.equal(summary.cases.d.incomplete, 1);
+  assert.equal(summary.cases.d.runs, 2);
+  assert.equal(summary.recall.runs, 2);
+  assert.equal(summary.controls.falsePositives, 1);
+  assert.equal(summary.incomplete, 2);
+  assert.equal(summary.errorRate, 0.25);
+  const md = formatSummaryMarkdown(
+    {
+      config: 'c',
+      startedAt: '2026-10-25T00:00:00.000Z',
+      dryRun: false,
+      runs: [
+        { caseId: 'd', run: 1, status: 'ok', expectClean: false, caught: true },
+        {
+          caseId: 'd',
+          run: 2,
+          status: 'ok',
+          expectClean: false,
+          caught: false,
+          incomplete: true,
+          incompleteReason: 'budget exhausted (error_max_budget_usd)',
+        },
+      ],
+    },
+    undefined
+  );
+  assert.match(md, /Incomplete \(budget, max turns or timeout; graded as failures\): 1/);
+  assert.match(md, /error rate 0%/);
+  assert.match(md, /\| incomplete \|/);
+  assert.match(md, /d run 2: budget exhausted/);
+});
+
+test('nodeModulesFingerprint is stable and changes when lockfiles or tool bins change', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'he-fp-test-'));
+  try {
+    const write = (rel, text) => {
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), text);
+    };
+    write('node_modules/.package-lock.json', '{"lockfileVersion":3}');
+    write('node_modules/vitest/package.json', '{"name":"vitest","bin":{"vitest":"vitest.mjs"}}');
+    write('node_modules/vitest/vitest.mjs', 'run()');
+    write(
+      'node_modules/typescript/package.json',
+      '{"name":"typescript","bin":{"tsc":"./bin/tsc"}}'
+    );
+    write('node_modules/typescript/bin/tsc', 'tsc');
+    const first = nodeModulesFingerprint(root);
+    assert.match(first, /^[0-9a-f]{64}$/);
+    assert.equal(nodeModulesFingerprint(root), first);
+    write('node_modules/vitest/vitest.mjs', 'patched()');
+    const second = nodeModulesFingerprint(root);
+    assert.notEqual(second, first);
+    write('cli/node_modules/.package-lock.json', '{}');
+    assert.notEqual(nodeModulesFingerprint(root), second);
+    write('node_modules/typescript/bin/tsc', 'evil');
+    assert.notEqual(nodeModulesFingerprint(root), second);
+    // Unrelated packages do not matter.
+    const before = nodeModulesFingerprint(root);
+    write('node_modules/left-pad/index.js', 'x');
+    assert.equal(nodeModulesFingerprint(root), before);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('runCase fails the run when the reviewer modified shared node_modules', async () => {
+  let n = 0;
+  const exec = reviewExec(
+    reviewJson('McpConnectionPanel'),
+    judgeJson('{"caught": true, "score": 3}')
+  );
+  const result = await runCase(
+    defectCase(),
+    reviewCtx(exec, {
+      nodeModulesFingerprint: () => {
+        n += 1;
+        return n === 1 ? 'before' : 'after';
+      },
+    })
+  );
+  assert.equal(n, 2);
+  assert.equal(result.status, 'error');
+  assert.equal(
+    result.reason,
+    'reviewer modified shared node_modules — run npm ci in the main checkout'
+  );
+  assert.equal(result.nodeModulesModified, true);
+  assert.equal(exec.calls.filter((c) => c.command === 'claude').length, 1, 'no judge call');
 });
