@@ -1,6 +1,12 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { architecturePolicy } from './architecture.config.mts';
+import {
+  architecturePolicy,
+  forbiddenConfigKeys,
+  ipcTriplePolicy,
+} from './architecture.config.mts';
+import { evaluateForbiddenConfigKeys, scanConfigFiles } from './architecture-config-keys.mts';
+import { evaluateIpcTriple, scanIpcSurface } from './architecture-ipc.mts';
 import { evaluateArchitectureReport } from './architecture-policy.mts';
 import { scanArchitectureFiles } from './architecture-scanner.mts';
 
@@ -9,6 +15,12 @@ const { violations, warnings } = evaluateArchitectureReport(
   scanArchitectureFiles(root, architecturePolicy),
   architecturePolicy
 );
+const ipc = evaluateIpcTriple(scanIpcSurface(root, ipcTriplePolicy), ipcTriplePolicy);
+violations.push(
+  ...ipc.violations,
+  ...evaluateForbiddenConfigKeys(scanConfigFiles(root, forbiddenConfigKeys), forbiddenConfigKeys)
+);
+warnings.push(...ipc.warnings);
 
 if (warnings.length > 0) {
   console.warn(`Architecture caps looser than the code (${warnings.length}, not failing):`);

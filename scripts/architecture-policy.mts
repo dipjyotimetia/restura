@@ -20,13 +20,15 @@ export interface ArchitectureFile {
  */
 export interface SourcePatternRatchet {
   name: string;
-  /** Path prefix the count covers, e.g. 'src/'. */
-  pathPrefix: string;
-  /** File extension the count covers, e.g. '.tsx'. */
-  extension: string;
+  /** Path prefix(es) the count covers, e.g. 'src/' or ['src/', 'shared/']. */
+  pathPrefix: string | readonly string[];
+  /** File extension(s) the count covers, e.g. '.tsx' or ['.ts', '.tsx']. */
+  extension: string | readonly string[];
   /** Regular-expression source, matched globally. */
   pattern: string;
   max: number;
+  /** How to fix a new occurrence; appended to the violation message. */
+  hint?: string;
 }
 
 export interface ArchitectureZone {
@@ -57,6 +59,18 @@ export type ArchitectureViolation =
       message: string;
     }
   | {
+      /** IPC registry channel missing a handler or preload exposure (see architecture-ipc.mts). */
+      rule: 'ipc-triple';
+      file: string;
+      message: string;
+    }
+  | {
+      /** A config file sets a key that must never be deployed (see architecture-config-keys.mts). */
+      rule: 'forbidden-config-key';
+      file: string;
+      message: string;
+    }
+  | {
       rule: 'forbidden-dependency';
       file: string;
       dependency: string;
@@ -82,7 +96,7 @@ export type ArchitectureViolation =
  * `npm run architecture:tighten` (any time, in its own PR) to ratchet them down.
  */
 export interface ArchitectureWarning {
-  rule: 'stale-file-size-ratchet' | 'stale-pattern-ratchet';
+  rule: 'stale-file-size-ratchet' | 'stale-pattern-ratchet' | 'stale-ipc-allowlist';
   file: string;
   actual: number;
   limit: number;
@@ -98,6 +112,10 @@ function zoneFor(path: string, policy: ArchitecturePolicy): string | undefined {
   return policy.zones.find((zone) => path.startsWith(zone.root))?.name;
 }
 
+function asList(value: string | readonly string[]): readonly string[] {
+  return typeof value === 'string' ? [value] : value;
+}
+
 /** Count each applicable ratchet pattern in one source file. */
 export function countSourcePatterns(
   path: string,
@@ -105,7 +123,10 @@ export function countSourcePatterns(
   policy: ArchitecturePolicy
 ): Record<string, number> | undefined {
   const ratchets = (policy.sourcePatternRatchets ?? []).filter(
-    (r) => path.startsWith(r.pathPrefix) && path.endsWith(r.extension) && isProductionSource(path)
+    (r) =>
+      asList(r.pathPrefix).some((prefix) => path.startsWith(prefix)) &&
+      asList(r.extension).some((extension) => path.endsWith(extension)) &&
+      isProductionSource(path)
   );
   if (ratchets.length === 0) return undefined;
   return Object.fromEntries(
@@ -246,19 +267,20 @@ export function evaluateArchitectureReport(
   }
 
   for (const ratchet of policy.sourcePatternRatchets ?? []) {
+    const scope = asList(ratchet.pathPrefix).join(', ');
     const actual = files.reduce((sum, file) => sum + (file.patternCounts?.[ratchet.name] ?? 0), 0);
     if (actual > ratchet.max) {
       violations.push({
         rule: 'pattern-ratchet',
-        file: ratchet.pathPrefix,
+        file: scope,
         actual,
         limit: ratchet.max,
-        message: `${ratchet.name}: ${actual} occurrences under ${ratchet.pathPrefix}; the cap is ${ratchet.max}`,
+        message: `${ratchet.name}: ${actual} occurrences under ${scope}; the cap is ${ratchet.max}${ratchet.hint ? ` — ${ratchet.hint}` : ''}`,
       });
     } else if (actual < ratchet.max) {
       warnings.push({
         rule: 'stale-pattern-ratchet',
-        file: ratchet.pathPrefix,
+        file: scope,
         actual,
         limit: ratchet.max,
         message: `${ratchet.name} dropped to ${actual}; lower its cap from ${ratchet.max}`,
