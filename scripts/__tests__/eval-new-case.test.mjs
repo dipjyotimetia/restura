@@ -11,6 +11,7 @@ import {
   isSourceFile,
   parseNewCaseArgs,
   planNewCase,
+  shellQuote,
   writeCaseSkeleton,
 } from '../eval-new-case.mjs';
 
@@ -175,4 +176,39 @@ test('writeCaseSkeleton refuses to overwrite an existing case', () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+const HOSTILE = ['src/a: b.ts', 'src/#hash.ts', 'src/$(touch pwned).ts', "src/it's.ts"];
+
+test('shellQuote single-quotes with the close-escape-reopen idiom', () => {
+  assert.equal(shellQuote('src/a.ts'), "'src/a.ts'");
+  assert.equal(shellQuote("it's"), "'it'\\''s'");
+  assert.equal(shellQuote('$(x)'), "'$(x)'");
+});
+
+test('hostile PR file paths are quoted in the YAML and shell-quoted in the printed steps', () => {
+  const table = standardTable();
+  table[`gh pr view 1131 --json ${PR_FIELDS}`] = prJson({
+    title: 'feat: x (#1131)',
+    mergeCommit: { oid: SRC_SHA },
+    body: '',
+    files: HOSTILE.map((p) => ({ path: p })),
+  });
+  const plan = planNewCase(fakeExec(table), { from: 1151, id: 'hostile' });
+  const parsed = loadYaml(plan.yaml);
+  assert.deepEqual(parsed.expected.files, HOSTILE);
+  const diff = plan.steps.find((s) => s.startsWith('git diff'));
+  for (const p of HOSTILE) assert.ok(diff.includes(shellQuote(p)), `${p} in ${diff}`);
+  assert.doesNotMatch(diff, / src\/\$\(touch/);
+});
+
+test('planNewCase rejects a PR file path containing a newline', () => {
+  const table = standardTable();
+  table[`gh pr view 1131 --json ${PR_FIELDS}`] = prJson({
+    title: 'feat: x (#1131)',
+    mergeCommit: { oid: SRC_SHA },
+    body: '',
+    files: [{ path: 'src/ok.ts' }, { path: 'src/evil\nrm -rf ~.ts' }],
+  });
+  assert.throws(() => planNewCase(fakeExec(table), { from: 1151, id: 'nl' }), /newline/);
 });

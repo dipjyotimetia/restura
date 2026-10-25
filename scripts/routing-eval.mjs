@@ -4,7 +4,8 @@
 //
 // Cases live in evals/routing/cases.yaml. Each run takes a history-free
 // snapshot of the harness ref (`git archive <ref>` into a temp dir, then a
-// fresh one-commit repo, so the model cannot read git history for hints),
+// fresh one-commit repo, so the model cannot read git history for hints; evals/
+// (the answer key) and .claude/metrics/ are left out of it),
 // runs `claude -p --output-format stream-json --verbose --max-turns 3` there
 // with read-only tools (Read Grep Glob Skill Task; Edit Write Bash
 // disallowed), parses the stream with parseClaudeStream and grades
@@ -19,14 +20,15 @@
 // --dry-run validates the cases and prints the plan; it makes no model calls.
 // A real run costs money (runs x cases x up to --max-budget-usd), so run it
 // deliberately. Results: <out>/routing/<timestamp>--<config>.json + .md, plus
-// one transcript per run.
+// one transcript per run under <out>/routing/<timestamp>--<config>/transcripts/.
 
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { load as loadYaml } from 'js-yaml';
-import { nodeExec, parseClaudeStream, passAtK, passHatK, wilsonInterval } from './harness-eval.mjs';
+import { parseClaudeStream, passAtK, passHatK, wilsonInterval } from './harness-eval.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const ROUTING_CASES_PATH = path.join(ROOT, 'evals/routing/cases.yaml');
@@ -213,6 +215,19 @@ export function gradeRoutingRun(routingCase, toolStats) {
  * Write, Bash). A crash, an unparseable stream, budget exhaustion or a denial
  * of a routing tool is a harness error, excluded from the scores.
  */
+function hasAssistantEvent(stdout) {
+  for (const line of String(stdout ?? '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      if (JSON.parse(trimmed)?.type === 'assistant') return true;
+    } catch {
+      // a truncated line; parseClaudeStream skips these too
+    }
+  }
+  return false;
+}
+
 export function classifyRoutingRun(run) {
   if (run.signal) return { status: 'error', reason: `claude killed by signal ${run.signal}` };
   let parsed;
@@ -241,8 +256,16 @@ export function classifyRoutingRun(run) {
       reason: `permission denied: ${[...new Set(deniedRouting)].join(', ')}`,
       parsed,
     };
-  if (run.status !== 0 && parsed.subtype !== 'error_max_turns' && parsed.subtype !== 'success')
+  // Fail closed: an auth/API failure looks like {subtype:'success', is_error:true}, exit 1, with
+  // empty toolStats, which would otherwise pass every forbid-only case. Only hitting the turn
+  // cap is excused (routing happens in the first turns).
+  const maxTurns = parsed.subtype === 'error_max_turns';
+  if (parsed.isError && !maxTurns)
+    return { status: 'error', reason: `claude reported is_error (${parsed.subtype})`, parsed };
+  if (run.status !== 0 && !maxTurns)
     return { status: 'error', reason: `claude exited ${run.status} (${parsed.subtype})`, parsed };
+  if (parsed.numTurns === 0 || !hasAssistantEvent(run.stdout))
+    return { status: 'error', reason: 'claude never took a turn (no assistant events)', parsed };
   return { status: 'ok', parsed };
 }
 
@@ -404,6 +427,73 @@ async function must(exec, command, args, what, opts) {
   return res.stdout.trim();
 }
 
+/**
+ * Paths kept out of the snapshot: evals/ holds the answer key (expectSkills /
+ * forbidSkills) and .claude/metrics/ earlier results. Excluded in the archive
+ * pathspec and removed again after extraction, belt and braces.
+ */
+export const SNAPSHOT_EXCLUDES = Object.freeze(['evals', '.claude/metrics']);
+
+/**
+ * Process runner that remembers its live child so a signal handler can kill
+ * it (harness-eval's nodeExec keeps that private).
+ */
+export function createTrackedExec() {
+  let active = null;
+  return {
+    run(command, args, opts = {}) {
+      return new Promise((resolve) => {
+        const child = spawn(command, args, {
+          cwd: opts.cwd,
+          env: opts.env ?? process.env,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        active = child;
+        let stdout = '';
+        let stderr = '';
+        let timer;
+        if (opts.timeout)
+          timer = setTimeout(() => {
+            stderr += `\ntimed out after ${opts.timeout} ms`;
+            child.kill('SIGTERM');
+          }, opts.timeout);
+        child.stdout.setEncoding('utf8').on('data', (d) => {
+          stdout += d;
+        });
+        child.stderr.setEncoding('utf8').on('data', (d) => {
+          stderr += d;
+        });
+        child.on('error', (error) => {
+          stderr += String(error);
+        });
+        child.on('close', (status, signal) => {
+          clearTimeout(timer);
+          if (active === child) active = null;
+          resolve({ status: status ?? (signal ? null : 1), signal, stdout, stderr });
+        });
+        child.stdin.on('error', () => {});
+        child.stdin.end(opts.input ?? '');
+      });
+    },
+    /** Kill the live child, if any. Returns whether there was one. */
+    kill(signal = 'SIGTERM') {
+      if (!active) return false;
+      active.kill(signal);
+      active = null;
+      return true;
+    },
+  };
+}
+
+/** SIGINT/SIGTERM: stop the live claude child, remove the temp dir, exit 130 / 143. */
+export function makeSignalHandler({ exec, cleanup, exit = (code) => process.exit(code) }) {
+  return (signal) => {
+    exec.kill?.('SIGTERM');
+    cleanup();
+    exit(signal === 'SIGINT' ? 130 : 143);
+  };
+}
+
 /** History-free snapshot of `ref`: git archive -> temp dir -> fresh one-commit repo. */
 export async function createSnapshot(exec, ref, tmpRoot = os.tmpdir()) {
   const sha = await must(
@@ -416,9 +506,26 @@ export async function createSnapshot(exec, ref, tmpRoot = os.tmpdir()) {
   const dir = path.join(parent, 'repo');
   fs.mkdirSync(dir);
   const tar = path.join(parent, 'snapshot.tar');
-  await must(exec, 'git', ['-C', ROOT, 'archive', '--format=tar', '-o', tar, sha], 'git archive');
+  await must(
+    exec,
+    'git',
+    [
+      '-C',
+      ROOT,
+      'archive',
+      '--format=tar',
+      '-o',
+      tar,
+      sha,
+      '--',
+      '.',
+      ...SNAPSHOT_EXCLUDES.map((p) => `:(exclude)${p}`),
+    ],
+    'git archive'
+  );
   await must(exec, 'tar', ['-xf', tar, '-C', dir], 'extract snapshot');
   fs.rmSync(tar, { force: true });
+  for (const p of SNAPSHOT_EXCLUDES) fs.rmSync(path.join(dir, p), { recursive: true, force: true });
   const id = ['-c', 'user.name=routing-eval', '-c', 'user.email=routing-eval@invalid'];
   await must(exec, 'git', ['-C', dir, 'init', '-q'], 'git init');
   await must(exec, 'git', ['-C', dir, 'add', '-A'], 'git add');
@@ -453,7 +560,7 @@ function printPlan(cases, options) {
   }
 }
 
-export async function runRoutingEval(options, exec = nodeExec) {
+export async function runRoutingEval(options, exec = createTrackedExec()) {
   const cases = loadRoutingCases({ split: options.split, caseIds: options.caseIds });
   if (cases.length === 0) throw new Error('no routing cases selected');
   printPlan(cases, options);
@@ -466,17 +573,15 @@ export async function runRoutingEval(options, exec = nodeExec) {
   const stamp = startedAt.toISOString().replace(/[:.]/g, '-');
   const outDir = path.join(options.out, 'routing');
   const base = path.join(outDir, `${stamp}--${options.config}`);
-  const transcripts = `${base}-transcripts`;
+  // <stamp>--<config>/transcripts/, like the harness eval (CI uploads exclude transcripts/).
+  const transcripts = path.join(base, 'transcripts');
   fs.mkdirSync(transcripts, { recursive: true });
 
   let snapshot;
   const cleanup = () => {
     if (snapshot) fs.rmSync(snapshot.parent, { recursive: true, force: true });
   };
-  const onSignal = (signal) => {
-    cleanup();
-    process.exit(signal === 'SIGINT' ? 130 : 143);
-  };
+  const onSignal = makeSignalHandler({ exec, cleanup });
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
   const runs = [];

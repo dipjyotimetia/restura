@@ -1,12 +1,19 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
   buildRoutingClaudeArgs,
   classifyRoutingRun,
+  createSnapshot,
+  createTrackedExec,
   formatRoutingMarkdown,
   gradeRoutingRun,
   loadRoutingCases,
+  makeSignalHandler,
   parseRoutingArgs,
+  SNAPSHOT_EXCLUDES,
   summariseRouting,
   validateRoutingCases,
 } from '../routing-eval.mjs';
@@ -279,4 +286,101 @@ test('summariseRouting: per-case pass@1 / pass^n and per-skill precision/recall'
   assert.match(md, /\| ship \|/);
   assert.match(md, /pass\^2/);
   assert.match(md, /skill:ship-check/);
+});
+
+// ---------------------------------------------------------------- review round 1
+
+test('classifyRoutingRun fails closed on is_error, a non-zero exit, or a run that never acted', () => {
+  // Auth/API failure: subtype success, is_error true, exit 1.
+  const authFail = classifyRoutingRun({
+    status: 1,
+    stdout: stream({ result: { subtype: 'success', is_error: true, num_turns: 1 } }),
+  });
+  assert.equal(authFail.status, 'error');
+  // is_error with exit 0 is still an error.
+  assert.equal(
+    classifyRoutingRun({ status: 0, stdout: stream({ result: { is_error: true } }) }).status,
+    'error'
+  );
+  // A non-zero exit is not excused by subtype success.
+  assert.equal(classifyRoutingRun({ status: 1, stdout: stream({}) }).status, 'error');
+  // Max turns may report is_error and exit non-zero: routing already happened.
+  assert.equal(
+    classifyRoutingRun({
+      status: 1,
+      stdout: stream({ result: { subtype: 'error_max_turns', is_error: true } }),
+    }).status,
+    'ok'
+  );
+  // Zero turns, or no assistant event at all.
+  assert.equal(
+    classifyRoutingRun({ status: 0, stdout: stream({ result: { num_turns: 0 } }) }).status,
+    'error'
+  );
+  const noAssistant = [
+    { type: 'system', subtype: 'init' },
+    { type: 'result', subtype: 'success', result: '', num_turns: 1 },
+  ]
+    .map((l) => JSON.stringify(l))
+    .join('\n');
+  assert.equal(classifyRoutingRun({ status: 0, stdout: noAssistant }).status, 'error');
+});
+
+test('createSnapshot excludes the answer key (evals/) and metrics from the snapshot', async () => {
+  const calls = [];
+  const exec = {
+    run(command, args) {
+      calls.push([command, ...args]);
+      if (command === 'git' && args.includes('rev-parse'))
+        return { status: 0, stdout: `${'d'.repeat(40)}\n`, stderr: '' };
+      if (command === 'tar') {
+        // Simulate an archive that still carried the excluded paths.
+        const dir = args[args.indexOf('-C') + 1];
+        for (const rel of ['evals/routing/cases.yaml', '.claude/metrics/x.json', 'CLAUDE.md']) {
+          fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+          fs.writeFileSync(path.join(dir, rel), 'x');
+        }
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  };
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'routing-snap-test-'));
+  try {
+    const snap = await createSnapshot(exec, 'HEAD', tmp);
+    const archive = calls.find((c) => c[0] === 'git' && c.includes('archive'));
+    assert.ok(archive.includes(':(exclude)evals'), archive.join(' '));
+    assert.ok(archive.includes(':(exclude).claude/metrics'), archive.join(' '));
+    assert.equal(fs.existsSync(path.join(snap.dir, 'evals')), false);
+    assert.equal(fs.existsSync(path.join(snap.dir, '.claude/metrics')), false);
+    assert.equal(fs.existsSync(path.join(snap.dir, 'CLAUDE.md')), true);
+    assert.deepEqual([...SNAPSHOT_EXCLUDES].sort(), ['.claude/metrics', 'evals']);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('the signal handler kills the live claude child, cleans up and exits 130 / 143', () => {
+  for (const [signal, code] of [
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ]) {
+    const events = [];
+    const handler = makeSignalHandler({
+      exec: { kill: (s) => events.push(`kill:${s}`) },
+      cleanup: () => events.push('cleanup'),
+      exit: (c) => events.push(`exit:${c}`),
+    });
+    handler(signal);
+    assert.deepEqual(events, ['kill:SIGTERM', 'cleanup', `exit:${code}`]);
+  }
+});
+
+test('createTrackedExec tracks and kills the running child', async () => {
+  const exec = createTrackedExec();
+  const pending = exec.run(process.execPath, ['-e', 'setTimeout(() => {}, 30000)']);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(exec.kill('SIGTERM'), true);
+  const res = await pending;
+  assert.equal(res.signal, 'SIGTERM');
+  assert.equal(exec.kill('SIGTERM'), false);
 });

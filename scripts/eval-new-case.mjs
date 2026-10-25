@@ -93,13 +93,24 @@ function gitOut(exec, args) {
   return res.status === 0 ? res.stdout.trim() : null;
 }
 
-const yamlString = (s) => `'${String(s).replace(/'/g, "''")}'`;
+/** YAML single-quoted scalar (line breaks folded to spaces). */
+const yamlString = (s) =>
+  `'${String(s)
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/'/g, "''")}'`;
+
+/** POSIX shell single-quoting: 'it'\''s'. For paths printed in copy-paste commands. */
+export function shellQuote(s) {
+  return `'${String(s).replace(/'/g, "'\\''")}'`;
+}
 
 export function buildCaseSkeleton({ id, title, fixNumber, sources, base }) {
   const files = [...new Set(sources.flatMap((s) => s.sourceFiles))];
   const fileLines =
     files.length > 0
-      ? files.map((f) => `    - ${f}   # TODO keep only the file(s) the defect lives in`)
+      ? files.map(
+          (f) => `    - ${yamlString(f)}   # TODO keep only the file(s) the defect lives in`
+        )
       : ['    - TODO/path/to/defective-file.ts'];
   const sourceList = sources.map((s) => yamlString(`#${s.number}`)).join(', ');
   return [
@@ -152,7 +163,12 @@ export function planNewCase(exec, { from, id }) {
       unresolvedRefs.push(number);
       continue;
     }
-    const files = Array.isArray(pr.files) ? pr.files.map((f) => f?.path).filter(Boolean) : [];
+    const files = Array.isArray(pr.files)
+      ? pr.files.map((f) => f?.path).filter((p) => typeof p === 'string' && p !== '')
+      : [];
+    const multiline = files.find((p) => /[\r\n]/.test(p));
+    if (multiline !== undefined)
+      throw new Error(`PR #${number} lists a file path containing a newline; refusing to scaffold`);
     sources.push({
       number,
       title: pr.title ?? '',
@@ -186,7 +202,7 @@ export function planNewCase(exec, { from, id }) {
     `mkdir -p ${fixturesDir}`,
   ];
   for (const [index, source] of sources.entries()) {
-    const files = source.sourceFiles.join(' ');
+    const files = source.sourceFiles.map(shellQuote).join(' ');
     // The first source is diffed from the proposed base; later ones from their own merge parent.
     const diffFrom = index === 0 ? (base ?? '<base>') : `${source.mergeSha}^1`;
     const patchName = `${String(index + 1).padStart(2, '0')}-<name>.patch`;

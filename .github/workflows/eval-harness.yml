@@ -40,17 +40,22 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: eval-harness-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
   eval:
     name: Eval (${{ inputs.suite || 'harness' }})
+    # Bot-authored PRs (Dependabot etc.) are excluded: labeling one would run its install
+    # scripts in the job that holds the Claude token.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.label.name == 'eval-harness' &&
-       github.event.pull_request.head.repo.full_name == github.repository)
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.user.type != 'Bot')
+    # Job-level (not workflow-level) so skipped events, such as adding any other label, never
+    # cancel a running eval; a second eval of the same PR and suite queues instead of
+    # cancelling paid work in progress.
+    concurrency:
+      group: eval-${{ github.event.pull_request.number || github.ref }}-${{ inputs.suite || 'harness' }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -105,11 +110,16 @@ jobs:
         if: always() && (inputs.suite || 'harness') == 'harness'
         run: npm run eval:harness -- --cleanup
 
+      # Summaries only. Transcripts are left out on purpose: a model with Read/Bash may have
+      # dumped environment or file contents into them, and artifacts are readable by anyone
+      # with repo read access. Re-run locally to read transcripts.
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: eval-${{ inputs.suite || 'harness' }}-${{ github.run_id }}
-          path: .claude/metrics/evals/
+          path: |
+            .claude/metrics/evals/
+            !.claude/metrics/evals/**/transcripts/**
           if-no-files-found: warn
           retention-days: 30
