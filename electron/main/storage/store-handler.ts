@@ -3,8 +3,8 @@
  * Uses electron-store with built-in encryption for sensitive data
  */
 
-import { ipcMain } from 'electron';
 import { createLogger } from '@shared/runtime/logger';
+import { ipcMain } from 'electron';
 import { IPC } from '../../shared/channels';
 import {
   createValidatedHandler,
@@ -13,11 +13,9 @@ import {
   StoreSetSchema,
 } from '../ipc/ipc-validators';
 import { getOrCreateEncryptedKey } from '../security/encrypted-key';
+import { createResilientStore } from './resilient-store';
 
 const log = createLogger('store');
-
-// electron-store v9+ is ESM-only; require() returns the module namespace in Node 22+
-const Store = require('electron-store').default;
 
 // Store type definition
 interface ElectronStoreInstance {
@@ -45,14 +43,15 @@ let store: ElectronStoreInstance | null = null;
 
 function getStoreInstance(): ElectronStoreInstance {
   if (!store) {
-    store = new Store({
+    // Unreadable data is backed up to *.corrupt-<ts>.json, then reset (conf 16
+    // overwrites on read, so plain clearInvalidConfig would lose it).
+    store = createResilientStore<ElectronStoreInstance>({
       name: 'restura-encrypted-store',
       encryptionKey: getOrCreateEncryptedKey({
         fileName: '.encryption-key',
         storeLabel: 'credential store',
       }),
-      clearInvalidConfig: true, // Clear corrupted data automatically
-    }) as ElectronStoreInstance;
+    });
   }
   return store;
 }

@@ -5,13 +5,18 @@ import {
 } from '@shared/protocol/mcp-conformance';
 import { McpClient } from '@/features/mcp/lib/mcpClient';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import type { McpTransportType } from '@/types';
+import type { AuthConfig, McpTransportType } from '@/types';
 
 export interface McpConformanceRunInput {
   url: string;
   transport: Exclude<McpTransportType, 'stdio'>;
-  /** Variable-resolved headers. */
+  /** Variable-resolved headers (web: credential already applied). */
   headers: Record<string, string>;
+  /**
+   * Desktop only: header-shaped auth Electron main materialises, exactly as for
+   * `mcp:connect` — SecretRef handles stay handles in the renderer.
+   */
+  auth?: AuthConfig;
   sampleCalls: McpSampleCallMode;
   approvedTools: string[];
 }
@@ -100,6 +105,7 @@ export async function runMcpConformanceReport(
       url: input.url,
       transport: input.transport,
       headers: input.headers,
+      ...(input.auth ? { auth: input.auth } : {}),
       sampleCalls: input.sampleCalls,
       approvedTools: input.approvedTools,
     });

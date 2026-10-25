@@ -30,10 +30,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { isSecretFieldName } from '@shared/secrets/key-value-redaction';
 import { app, BrowserWindow, dialog, safeStorage, type WebContents } from 'electron';
+import { createResilientStore } from '../storage/resilient-store';
 import { escapeSpoofingChars, isExecutionSensitiveEnvName } from './mcp-stdio-policy';
-
-// electron-store v9+ is ESM-only; require() returns the module namespace under Node 22+
-const Store = require('electron-store').default;
 
 /** One env entry as main sees it at consent time (handles already looked up). */
 export type StdioConsentEnvValue =
@@ -92,10 +90,9 @@ export function __setStdioConsentStoreForTests(store: ConsentStoreShape | null):
 
 function getStore(): ConsentStoreShape {
   if (storeInstance) return storeInstance;
-  storeInstance = new Store({
+  storeInstance = createResilientStore<ConsentStoreShape>({
     name: 'restura-mcp-stdio-consent',
-    clearInvalidConfig: true,
-  }) as ConsentStoreShape;
+  });
   return storeInstance;
 }
 

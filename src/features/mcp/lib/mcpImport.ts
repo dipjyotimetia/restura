@@ -77,7 +77,7 @@ export function draftToMcpRequest(draft: McpImportDraft): McpRequest {
     url: draft.url,
     transport: draft.transport,
     headers,
-    auth: { type: 'none' },
+    auth: draft.auth ?? { type: 'none' },
   };
   if (draft.stdio) {
     const env: McpStdioEnvVar[] = draft.stdio.env.map((row) => ({

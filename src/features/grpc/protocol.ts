@@ -282,7 +282,13 @@ export const grpcProtocol: ProtocolModule = {
 
     const variables = ctx.variables ?? {};
     const opts = readProtocolOptions(ctx.protocolOptions);
-    const timeoutMs = opts.timeoutMs ?? 30000;
+    // Streams: 0 = no deadline (kept). Unary: always a positive deadline.
+    const timeoutMs =
+      request.methodType !== 'unary' && opts.timeoutMs === 0
+        ? 0
+        : opts.timeoutMs && opts.timeoutMs > 0
+          ? opts.timeoutMs
+          : 30000;
 
     // Pre-request script — populated env vars merge into the script-side
     // sandbox only (we don't mutate the parent caller's `variables` map).

@@ -2,7 +2,9 @@
 
 import {
   decodeSetCookieSideChannel,
+  SET_COOKIE_OMITTED_HEADER,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
+  SET_COOKIE_SIDE_CHANNEL_MAX_BYTES,
 } from '@shared/protocol/set-cookie';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -342,6 +344,25 @@ describe('proxy handler', () => {
         cookies
       );
       expect(await res.text()).toContain('data: a');
+    });
+
+    it('caps the cookie side channel and reports how many cookies were omitted', async () => {
+      const headers = new Headers({ 'content-type': 'text/event-stream' });
+      for (let i = 0; i < 60; i++)
+        headers.append('Set-Cookie', `c${i}=${'v'.repeat(4096)}; Path=/`);
+      streamingUpstream(headers);
+
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/sse',
+        headers: { Accept: 'text/event-stream' },
+      });
+
+      const value = res.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER) ?? '';
+      expect(value.length).toBeLessThanOrEqual(SET_COOKIE_SIDE_CHANNEL_MAX_BYTES);
+      const kept = decodeSetCookieSideChannel(value).length;
+      expect(kept).toBeGreaterThan(0);
+      expect(res.headers.get(SET_COOKIE_OMITTED_HEADER)).toBe(String(60 - kept));
     });
 
     it('drops an upstream-supplied side-channel header so upstreams cannot spoof cookies', async () => {

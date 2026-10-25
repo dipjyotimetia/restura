@@ -167,6 +167,26 @@ describe('GraphQLRequestBuilder — operation picker + transport (#903)', () => 
     expect(screen.getByRole('button', { name: 'Send GraphQL query' })).toBeTruthy();
   });
 
+  it('falls back to the Query tab when the Messages tab disappears (subscription -> query)', () => {
+    seed({ graphqlOperationName: 'Ticks' });
+    render(<GraphQLRequestBuilder />);
+    fireEvent.click(screen.getByRole('button', { name: /Subscribe/ }));
+    expect(screen.getByRole('tab', { name: /^Messages/ })).toBeTruthy();
+    // The selected operation switches to a query while Messages is active.
+    act(() => {
+      const tab = useRequestStore.getState().tabs[0]!;
+      const req = tab.request as HttpRequest;
+      useRequestStore.setState({
+        tabs: [
+          { ...tab, request: { ...req, body: { ...req.body, graphqlOperationName: 'GetUser' } } },
+        ],
+      });
+    });
+    expect(screen.queryByRole('tab', { name: /^Messages/ })).toBeNull();
+    expect(screen.getByRole('tab', { name: /^Query/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('button', { name: 'pick GetUser' })).toBeTruthy();
+  });
+
   it('Cmd+Enter runs the operation under the cursor on its own transport', async () => {
     seed();
     render(<GraphQLRequestBuilder />);

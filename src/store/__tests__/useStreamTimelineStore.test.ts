@@ -100,4 +100,22 @@ describe('useStreamTimelineStore', () => {
     unsubscribe();
     expect(updates).toBe(0);
   });
+
+  it('skips redaction work for queued events the byte cap would evict anyway', () => {
+    const payload = JSON.stringify({ token: 'abc', data: 'x'.repeat(64 * 1024 - 40) });
+    for (let i = 0; i < 5000; i++) {
+      emitStreamEvent({ protocol: 'websocket', connectionId: 'c', direction: 'in', payload });
+    }
+    const t = performance.now();
+    useStreamTimelineStore.getState().flush();
+    const elapsed = performance.now() - t;
+    const s = useStreamTimelineStore.getState();
+    expect(s.totalBytes).toBeLessThanOrEqual(TIMELINE_MAX_BYTES);
+    expect(s.events.length).toBeLessThan(200);
+    expect(s.events.length + s.evicted).toBe(5000);
+    // Was ~900ms when all 5000 frames were sanitised; generous bound for CI.
+    expect(elapsed).toBeLessThan(400);
+    const seqs = s.events.map((e) => e.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+  });
 });

@@ -8,11 +8,15 @@ import { gitRateLimiter } from './handlers/git-handler';
 import { grpcRateLimiter } from './handlers/grpc-handler';
 import { httpRateLimiter } from './handlers/http-handler';
 import { kafkaRateLimiter } from './handlers/kafka-handler';
-import { mcpCancelRateLimiter, mcpRateLimiter } from './handlers/mcp-handler';
+import {
+  mcpCancelRateLimiter,
+  mcpRateLimiter,
+  mcpRequestRateLimiter,
+} from './handlers/mcp-handler';
 import { mqttRateLimiter } from './handlers/mqtt-handler';
 import { socketIoRateLimiter } from './handlers/socketio-handler';
 import { sseRateLimiter } from './handlers/sse-handler';
-import { wsRateLimiter } from './handlers/websocket-handler';
+import { wsPingRateLimiter, wsRateLimiter } from './handlers/websocket-handler';
 import { createValidatedHandler, NoInputSchema, SAFE_OPEN_PROTOCOLS } from './ipc/ipc-validators';
 import { bindLimiterToWebContents } from './ipc/rate-limiter-cleanup';
 import { createApplicationMenu } from './lifecycle/menu';
@@ -222,9 +226,11 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
       httpRateLimiter,
       grpcRateLimiter,
       wsRateLimiter,
+      wsPingRateLimiter,
       socketIoRateLimiter,
       sseRateLimiter,
       mcpRateLimiter,
+      mcpRequestRateLimiter,
       mcpCancelRateLimiter,
       kafkaRateLimiter,
       mqttRateLimiter,

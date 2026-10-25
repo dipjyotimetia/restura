@@ -4,7 +4,7 @@ import { ipcMain, type WebContents } from 'electron';
 import WebSocket from 'ws';
 import { EVENT_PREFIX, IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
-import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
+import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import {
   assertTrustedSender,
   createValidatedEventHandler,
@@ -31,6 +31,8 @@ import {
 const log = createLogger('websocket');
 
 export const wsRateLimiter = createKeyedRateLimiter(20, 60_000);
+/** Pings are cheap and legitimately frequent; generous per-sender budget. */
+export const wsPingRateLimiter = createKeyedRateLimiter(120, 60_000);
 
 const MAX_CONCURRENT_WS_CONNECTIONS = 50;
 
@@ -451,32 +453,35 @@ export function registerWebSocketHandlerIPC(): void {
 
   ipcMain.handle(
     IPC.ws.ping,
-    createValidatedEventHandler(IPC.ws.ping, WsPingSchema, async (config, event) => {
-      const entry = connections.getForOwner(config.connectionId, event.sender.id);
-      if (!entry || entry.ws.readyState !== WebSocket.OPEN) {
-        return { success: false, error: 'Not connected' };
-      }
-      const payload = config.payload ?? '';
-      const wire = pingWirePayload(payload);
-      // Tracked before the write so even an instant pong is matched; dropped
-      // again if the write fails (sync throw while not OPEN, or the async
-      // error `ws` reports through the ping callback).
-      const pending: PendingPing = { wire, payload, sentAt: performance.now() };
-      entry.pendingPings.push(pending);
-      if (entry.pendingPings.length > MAX_PENDING_PINGS) entry.pendingPings.shift();
-      try {
-        await new Promise<void>((resolve, reject) => {
-          entry.ws.ping(Buffer.from(wire, 'utf8'), undefined, (err?: Error) =>
-            err ? reject(err) : resolve()
-          );
-        });
-      } catch (err) {
-        const idx = entry.pendingPings.indexOf(pending);
-        if (idx !== -1) entry.pendingPings.splice(idx, 1);
-        return { success: false, error: err instanceof Error ? err.message : 'Ping failed' };
-      }
-      return { success: true };
-    })
+    rateLimited(
+      wsPingRateLimiter,
+      createValidatedEventHandler(IPC.ws.ping, WsPingSchema, async (config, event) => {
+        const entry = connections.getForOwner(config.connectionId, event.sender.id);
+        if (!entry || entry.ws.readyState !== WebSocket.OPEN) {
+          return { success: false, error: 'Not connected' };
+        }
+        const payload = config.payload ?? '';
+        const wire = pingWirePayload(payload);
+        // Tracked before the write so even an instant pong is matched; dropped
+        // again if the write fails (sync throw while not OPEN, or the async
+        // error `ws` reports through the ping callback).
+        const pending: PendingPing = { wire, payload, sentAt: performance.now() };
+        entry.pendingPings.push(pending);
+        if (entry.pendingPings.length > MAX_PENDING_PINGS) entry.pendingPings.shift();
+        try {
+          await new Promise<void>((resolve, reject) => {
+            entry.ws.ping(Buffer.from(wire, 'utf8'), undefined, (err?: Error) =>
+              err ? reject(err) : resolve()
+            );
+          });
+        } catch (err) {
+          const idx = entry.pendingPings.indexOf(pending);
+          if (idx !== -1) entry.pendingPings.splice(idx, 1);
+          return { success: false, error: err instanceof Error ? err.message : 'Ping failed' };
+        }
+        return { success: true };
+      })
+    )
   );
 
   ipcMain.handle(
