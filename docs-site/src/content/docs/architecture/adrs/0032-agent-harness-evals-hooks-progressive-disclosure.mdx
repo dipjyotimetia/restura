@@ -43,7 +43,16 @@ Anthropic's guidance on agent design ("when to fold subagents into your main age
 - More tooling to maintain (hooks, three scripts, fixtures). Fixtures are pinned to historical base SHAs, so they don't drift with `main`.
 - `--admin` merges now need an explicit, visible override.
 
+### Amendment 2026-10-25
+
+The eval tooling shipped as follows; the Decision above is unchanged.
+
+- **On demand only.** Runs start from a manual dispatch or the `eval-harness` label on a same-repo PR (`.github/workflows/eval-harness.yml`), never on push or on every PR. The workflow is not a required check; it uploads `.claude/metrics/evals/`.
+- **History-free, overlaid harness.** The harness under test (`--harness-ref`) is overlaid onto each case in a fresh one-commit repo, so the model cannot read git history for the fix.
+- **Method.** Cases carry a train/test split. Results report pass@1, pass@k and pass^k with confidence intervals and can be compared against committed baselines (`--save-baseline`, `--compare`). The case count is no longer fixed at about 10. A routing suite (`evals/routing/`, `npm run eval:routing`) checks that realistic prompts load the right skill, `npm run eval:new-case` scaffolds a case from a fix PR, and a build-loop suite (`evals/build/`, `node scripts/build-eval.mjs`) covers implementation rather than review.
+- **Governance** of changes to the harness is decided in [ADR 0033](/architecture/adrs/0033-evals-gate-harness-changes/).
+
 ## References
 
-- Code: `.claude/hooks/guard-bash.mjs`, `.claude/hooks/log-subagent.mjs`, `.claude/settings.json`, `scripts/verify-agent-report.mjs`, `scripts/worktree-prune.mjs`, `scripts/harness-eval.mjs`, `evals/harness/`, `docs/agents/`, `.claude/skills/{batch-ship,ship-check,triage-maintenance}/SKILL.md`, `.github/workflows/claude-code-review.yml`
-- Related: [ADR 0021 (maintenance harness)](/architecture/adrs/0021-maintenance-harness/), [ADR 0028 (architecture boundaries and ratchets)](/architecture/adrs/0028-typescript-architecture-boundaries/)
+- Code: `.claude/hooks/guard-bash.mjs`, `.claude/hooks/log-subagent.mjs`, `.claude/settings.json`, `scripts/verify-agent-report.mjs`, `scripts/worktree-prune.mjs`, `scripts/harness-eval.mjs`, `scripts/routing-eval.mjs`, `scripts/eval-new-case.mjs`, `scripts/build-eval.mjs`, `evals/harness/`, `evals/routing/`, `evals/build/`, `docs/agents/`, `.claude/skills/{batch-ship,ship-check,triage-maintenance,code-review}/SKILL.md`, `.github/workflows/claude-code-review.yml`, `.github/workflows/eval-harness.yml`
+- Related: [ADR 0021 (maintenance harness)](/architecture/adrs/0021-maintenance-harness/), [ADR 0028 (architecture boundaries and ratchets)](/architecture/adrs/0028-typescript-architecture-boundaries/), [ADR 0033 (evals gate harness changes)](/architecture/adrs/0033-evals-gate-harness-changes/)

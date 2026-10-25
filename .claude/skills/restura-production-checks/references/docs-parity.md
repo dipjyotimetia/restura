@@ -6,7 +6,7 @@ Nothing in `validate` or the pre-commit hook checks that documentation still mat
 
 ## Documentation surfaces
 
-- `docs/` — long-form reference: `ARCHITECTURE.md`, `security.md`, `DEVELOPMENT_STANDARDS.md`, `BUILD_QUIRKS.md`, `SELF_HOSTING.md`, `DISTRIBUTION.md`, `notary.md`, `opencollection.md`, `postman-compat.md`, `workflows.md`, `API.md`, `ROADMAP.md`, `CHANGELOG.md`, generated `CAPABILITY_MATRIX.md`, `cli/`.
+- `docs/` — long-form reference: `ARCHITECTURE.md`, `security.md`, `DEVELOPMENT_STANDARDS.md`, `BUILD_QUIRKS.md`, `SELF_HOSTING.md`, `CI_CD.md`, `DISTRIBUTION.md`, `notary.md`, `opencollection.md`, `postman-compat.md`, `workflows.md`, `API.md`, `ROADMAP.md`, `CHANGELOG.md`, generated `CAPABILITY_MATRIX.md`, `cli/`.
 - `docs/adr/` — 20+ ADRs (`NNNN-title.md`).
 - `docs-site/src/content/docs/` — Astro Starlight site: `overview/`, `protocols/` (one `.mdx` per protocol), `guides/`, `architecture/` (overview, shared-protocol, security, **adrs**), `reference/` (cli, postman-compat, opencollection, capability-matrix, api), `self-hosting/`.
 - Root: `README.md`, `AGENTS.md`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`.
@@ -27,6 +27,8 @@ Nothing in `validate` or the pre-commit hook checks that documentation still mat
 | **Collection import/export**                                                                                   | `docs/{opencollection,postman-compat}.md`; `docs-site/.../reference/{opencollection,postman-compat}.mdx`                                                                                                                    |
 | **npm scripts / commands / dev workflow**                                                                      | `docs/agents/architecture.md` (full command catalogue; `CLAUDE.md`/`AGENTS.md` only if it is a top-10 command), `docs/ARCHITECTURE.md`, `README.md`, `docs/DEVELOPMENT_STANDARDS.md`                                                                                                                    |
 | **Architecture invariant** (the "type-check covers all" class of claim)                                        | `CLAUDE.md`, `AGENTS.md` (invariant bullets), `docs/agents/architecture.md`, `docs/ARCHITECTURE.md` — keep all consistent                                                                                                                                                |
+| **Agent harness** (`.claude/hooks`, `.claude/skills`, `evals/`, `.github/workflows/eval-harness.yml`) | `docs/agents/delivery.md`, `docs/DEVELOPMENT_STANDARDS.md` "Agent Harness", `docs/CI_CD.md` (workflow table), ADR 0032/0033, `CLAUDE.md`/`AGENTS.md` routing |
+| **Architecture rules** (`scripts/architecture*.mts`) | `docs/agents/architecture.md`, `docs/ARCHITECTURE.md`, `CONTRIBUTING.md`, ADR 0028 |
 | **A user-facing feature/guide**                                                                                | the matching `docs-site/.../guides/*.mdx`                                                                                                                                                                                   |
 
 ## "Does this change warrant an ADR?"

@@ -41,3 +41,12 @@ Tooling is checked separately through `tsconfig.tooling.json` and the legacy-Jav
 - `npm run architecture:check`
 - `npm run type-check:all`
 - `npm run validate`
+
+### Amendment 2026-10-25
+
+`npm run architecture:check` gained these rules; the Decision above is unchanged.
+
+- **Zone bans:** `electron/main` -> `worker` and `cli` -> `worker` imports fail (the Worker is never bundled into Electron or the CLI).
+- **IPC triple:** every `*_IPC` channel declared in `electron/shared/channels/` must be handled in Electron main and exposed by preload, and preload exports must be typed against `ElectronAPI`. Intentional exceptions live in `ipcTriplePolicy` allowlists, each with a reason.
+- **Forbidden config key:** `DEV_BYPASS_AUTH` in any `wrangler*.json*` fails.
+- **New ratchets:** direct `localStorage` use in renderer and `shared` code, and inline `ipcMain` handlers that do not go through `createValidated*`. Both may only decrease.

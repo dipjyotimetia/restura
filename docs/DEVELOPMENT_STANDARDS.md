@@ -643,7 +643,12 @@ Tooling:
 
 - `npm run verify:agent-report -- <report.json> --owned <paths> --red-first` checks a worker agent's report against git.
 - `npm run worktree:prune` lists or prunes merged, clean worktrees.
-- `npm run eval:harness` runs the seam-bug harness eval on demand. It costs model usage; see `evals/harness/README.md`.
+- `npm run eval:harness` runs the seam-bug harness eval on demand. It costs model usage; see `evals/harness/README.md`. Options: `--split train|test|all`, `--runs N`, `--harness-ref <ref>` (overlay the harness under test), `--save-baseline`, `--compare`.
+- `npm run eval:routing` checks that realistic prompts load the right skill or subagent (`evals/routing/`).
+- `npm run eval:new-case -- --from <fixPR#>` scaffolds a harness eval case from the PR that fixed a seam bug.
+- `node scripts/build-eval.mjs` runs the build-loop eval (real fix-PR tasks, hidden tests; `--dry-run` validates the tasks); see `evals/build/README.md`.
+- `npm run skills:report` summarizes skill usage plus subagent and stop outcomes from `.claude/metrics`.
+- The `eval-harness` PR label (or a manual dispatch) runs the evals in CI; never on push. Changes to reviewer topology, skill routing or the vendored-skill set need a before/after eval ([ADR 0033](./adr/0033-evals-gate-harness-changes.md)).
 
 Hooks in `.claude/hooks/` enforce staging, merge and push rules for agent
 sessions. Edit them with `npm run type-check:all` (they are type-checked via

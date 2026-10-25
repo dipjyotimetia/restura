@@ -42,6 +42,7 @@ timeline
   2026-10-18 : 0030 — MCP stdio transport
   2026-10-18 : 0031 — MCP OAuth 2.1 in Electron main
   2026-10-25 : 0032 — Agent harness: evals first, hook-enforced rules
+  2026-10-25 : 0033 — Evals gate harness changes
 ```
 
 <CardGrid>
@@ -204,6 +205,11 @@ timeline
     title="0032 — Agent harness: evals first, hook-enforced rules"
     description="Seam-bug evals before restructuring reviewer agents; delivery rules enforced by hooks and a report verifier instead of prose; slim CLAUDE.md/AGENTS.md with detail loaded on demand; review of the combined diff."
     href="/architecture/adrs/0032-agent-harness-evals-hooks-progressive-disclosure/"
+  />
+  <LinkCard
+    title="0033 — Evals gate harness changes"
+    description="Reviewer topology, skill routing and the vendored-skill set change only with a before/after eval on the same harness: train/test split, per-case flips, history-free runs, escaped defects become cases."
+    href="/architecture/adrs/0033-evals-gate-harness-changes/"
   />
 </CardGrid>
 
