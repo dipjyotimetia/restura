@@ -23,9 +23,9 @@ Run `npm run validate` — it chains: `type-check:all` → `lint` → `verify:op
 
 3. **Generated files must be regenerated, never hand-edited.** Two CI gates diff generated artifacts:
    - `verify:opencollection-types` regenerates `src/lib/opencollection/spec-types.ts` from `vendor/opencollection/.../schema.json` and fails on any diff. Edit the schema, then `npm run gen:opencollection-types`.
-   - `capabilities:check` regenerates `docs/CAPABILITY_MATRIX.md` from `src/lib/shared/capabilities.ts` and fails on any diff. **Edit `capabilities.ts` (the source of truth), then `npm run capabilities:matrix`** — never the markdown.
+   - `capabilities:check` regenerates `docs/CAPABILITY_MATRIX.md` from `src/lib/shared/capabilities.ts` and its per-area modules and fails on any diff. **Edit the area module under `src/lib/shared/capabilities/` (the source of truth), then `npm run capabilities:matrix`** — never the markdown.
 
-4. **Capability parity is data-driven.** Any feature that behaves differently on web vs. desktop (e.g. Kafka, SOCKS/PAC/mTLS are desktop-only — no browser TCP) MUST add/update an entry in `src/lib/shared/capabilities.ts`. Forgetting this passes locally and fails `capabilities:check`.
+4. **Capability parity is data-driven.** Any feature that behaves differently on web vs. desktop (e.g. Kafka, SOCKS/PAC/mTLS are desktop-only — no browser TCP) MUST add/update an entry in its area module under `src/lib/shared/capabilities/`. Forgetting this passes locally and fails `capabilities:check`.
 
 5. **Coverage thresholds gate the test job.** `vitest.config.ts` enforces lines 80 / functions 78 / branches 61 / statements 78. New code without tests can drop you under the line even when every test passes. Add tests with the code.
 
