@@ -998,6 +998,7 @@ export function summarise(runs) {
       minutes: [],
       seen: false,
       incomplete: 0,
+      contaminated: 0,
     });
     if (run.seenInHarness === true) entry.seen = true;
     const cost = runCost(run);
@@ -1010,6 +1011,7 @@ export function summarise(runs) {
     }
     entry.runs += 1;
     if (run.incomplete === true) entry.incomplete += 1;
+    if (run.contaminated === true) entry.contaminated += 1;
     if (run.caught) entry.caught += 1;
     if (run.judgeDisagreement === true) entry.judgeDisagreements += 1;
     if (typeof run.judge?.score === 'number') entry.scores.push(run.judge.score);
@@ -1033,6 +1035,7 @@ export function summarise(runs) {
       caught: entry.caught,
       errors: entry.errors,
       incomplete: entry.incomplete,
+      contaminated: entry.contaminated,
       flipped: entry.caught > 0 && entry.caught < entry.runs,
       meanScore: round(mean(entry.scores)),
       // pass@1 = c/n, the per-trial rate: comparable across invocations with different run counts.
@@ -1097,6 +1100,7 @@ export function summarise(runs) {
     controls,
     unseen,
     incomplete: Object.values(cases).reduce((sum, c) => sum + c.incomplete, 0),
+    contaminated: Object.values(cases).reduce((sum, c) => sum + c.contaminated, 0),
     errorRate: runs.length > 0 ? errors / runs.length : null,
     passAt1: { defects: meanPassAt1(false), controls: meanPassAt1(true) },
     errors,
@@ -1161,6 +1165,7 @@ export function buildBaseline(result) {
     controls: summary.controls,
     unseen: summary.unseen,
     incomplete: summary.incomplete,
+    contaminated: summary.contaminated,
     errorRate: summary.errorRate,
     passAt1: summary.passAt1,
     errors: summary.errors,
@@ -1278,6 +1283,7 @@ export function formatSummaryMarkdown(result, flips, comparedTo) {
     `Controls: ${controls.clean}/${controls.runs} clean, ${plural(controls.falsePositives, 'false positive')} (precision ${pct(controls.rate)}, ${ciText(controls.ci)}).`,
     `Unseen cases only: recall ${summary.unseen.recall.caught}/${summary.unseen.recall.runs} (${pct(summary.unseen.recall.rate)}, ${ciText(summary.unseen.recall.ci)}); controls ${summary.unseen.controls.clean}/${summary.unseen.controls.runs} clean (${ciText(summary.unseen.controls.ci)}).`,
     `Incomplete (budget, max turns or timeout; graded as failures): ${summary.incomplete}.`,
+    `Contaminated (graded as failures): ${summary.contaminated}.`,
     `Harness errors (excluded from both): ${summary.errors}, error rate ${pct(summary.errorRate)}. Judge self-disagreements: ${summary.judgeDisagreements}.`,
     `Noise: ${plural(noise.flippedCases, 'case')} flipped within this invocation; recall CI half-width ±${noise.recallHalfWidth === null ? 'n/a' : `${Math.round(noise.recallHalfWidth * 100)} pts`}. Do not act on a config difference smaller than the half-width; add runs or cases.`,
     `pass@1 (per-trial rate): defects ${pct(summary.passAt1.defects)}, controls ${pct(summary.passAt1.controls)} (mean over cases; compare this across invocations with different run counts).`,
@@ -1333,6 +1339,15 @@ export function formatSummaryMarkdown(result, flips, comparedTo) {
     }
   }
   lines.push(...seenSection(result));
+  const peeked = result.runs.filter((r) => scored(r) && r.contaminated);
+  if (peeked.length > 0) {
+    lines.push('', '## Contaminated reviews (graded as failures)', '');
+    for (const run of peeked) {
+      lines.push(`- ${run.caseId} run ${run.run}: ${cell(run.contaminationReason)}`);
+      for (const hit of run.contamination ?? [])
+        lines.push(`  - ${hit.tool}: \`${cell(hit.snippet).replace(/`/g, "'")}\``);
+    }
+  }
   const unfinished = result.runs.filter((r) => scored(r) && r.incomplete);
   if (unfinished.length > 0) {
     lines.push('', '## Incomplete reviews (graded as failures)', '');
@@ -1961,11 +1976,20 @@ export async function runCase(evalCase, ctx) {
         isolatedRoot: [worktree, real],
       });
       if (contamination.contaminated) {
-        // Excluded from scoring: the review may have read the answer from this repo's history.
+        // A graded failure, not an exclusion: excluding would hide the cheating rate and let a
+        // configuration that peeks at this repo's history look no worse than one that does not.
+        outcome.contaminated = true;
         outcome.contamination = contamination.hits;
-        throw new Error(
-          `contaminated: ${plural(contamination.hits.length, 'tool call')} reached outside the isolated repo (${contamination.hits.map((h) => h.tool).join(', ')})`
-        );
+        outcome.contaminationReason = `contaminated: ${plural(contamination.hits.length, 'tool call')} reached outside the isolated repo (${contamination.hits.map((h) => h.tool).join(', ')})`;
+        if (reviewRun.status === 'incomplete') {
+          outcome.incomplete = true;
+          outcome.incompleteReason = reviewRun.reason;
+        }
+        outcome.judge = null;
+        outcome.judgeCaught = null;
+        outcome.patternCaught = null;
+        outcome.caught = false;
+        return outcome;
       }
     }
     if (reviewRun.status === 'incomplete') {
@@ -2211,9 +2235,11 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
             ? `  overlay ${outcome.effectiveBase ? outcome.effectiveBase.slice(0, 12) : 'FAIL'}; patches ${outcome.applied ? 'apply' : 'FAIL'}; combined merge ${outcome.combinedMerge ?? 'n/a'}${outcome.reason ? `; ${outcome.reason}` : ''}`
             : outcome.status === 'error'
               ? `  harness error: ${outcome.reason}`
-              : outcome.incomplete
-                ? `  incomplete (graded as a failure): ${outcome.incompleteReason}`
-                : `  caught=${outcome.caught} (judge=${outcome.judgeCaught}, pattern=${outcome.patternCaught})`
+              : outcome.contaminated
+                ? `  CONTAMINATED (graded as a failure): ${outcome.contaminationReason}`
+                : outcome.incomplete
+                  ? `  incomplete (graded as a failure): ${outcome.incompleteReason}`
+                  : `  caught=${outcome.caught} (judge=${outcome.judgeCaught}, pattern=${outcome.patternCaught})`
         );
         if (outcome.nodeModulesModified)
           log(

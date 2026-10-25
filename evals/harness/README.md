@@ -146,8 +146,8 @@ fails closed on: a tool input naming the main checkout (or its realpath); git `-
 `--git-dir` / `--work-tree` / `GIT_DIR=` targets outside the isolated repo; symlink-resolution
 tricks in inputs (`readlink`, `realpath`, `pwd -P`, `cd -P`, `node_modules/..`); and a tool
 result revealing the main checkout (except paths running through `node_modules`, which stack
-traces through the symlinks produce on their own). A hit makes the run a harness error
-(`contaminated: …`, hits listed in the summary), excluded from scoring.
+traces through the symlinks produce on their own). A hit makes the run a graded failure
+(`contaminated: true`, hits listed in the summary; see Grading).
 
 ### Secrets and the limits of this sandbox
 
@@ -192,8 +192,12 @@ their `gh` config, SSH keys and home directory. Prefer CI or a container for unt
   denial, the overlay or a patch fails to apply, or the judge fails (including running out of
   budget). Errors are listed in the summary with the **error rate**; a high rate means the numbers
   describe the runs that happened to work, so fix the harness before reading them.
-- **Validity failures are excluded too, and reported**: a contaminated review (see Isolation),
-  and a reviewer that modified the shared `node_modules`. `nodeModulesFingerprint` hashes
+- **Contaminated reviews are graded failures too** (see Isolation): not caught for a defect, not
+  clean for a control, `contaminated: true` with the hits, judge skipped, and counted in the
+  summary ("Contaminated (graded as failures): N", plus a list). Excluding them would hide the
+  cheating rate and let a configuration that peeks look no worse than one that does not. This
+  matches the build eval.
+- **A modified shared `node_modules` is an excluded error, and reported.** `nodeModulesFingerprint` hashes
   `node_modules/.package-lock.json`, `cli/node_modules/.package-lock.json` and the package.json
   and bin files of vitest and typescript before and after each review; a change fails the run
   ("reviewer modified shared node_modules — run npm ci in the main checkout") and prints a loud

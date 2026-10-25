@@ -368,6 +368,7 @@ test('summarise excludes harness errors and splits defect recall from control pr
     caught: 1,
     errors: 1,
     incomplete: 0,
+    contaminated: 0,
     flipped: true,
     meanScore: 2,
     passAt1: 0.5,
@@ -384,6 +385,7 @@ test('summarise excludes harness errors and splits defect recall from control pr
     caught: 1,
     errors: 0,
     incomplete: 0,
+    contaminated: 0,
     flipped: true,
     meanScore: 1.5,
     passAt1: 0.5,
@@ -1680,7 +1682,7 @@ test('detectContamination flags explicit main-checkout paths and git escapes', (
   assert.equal(rootsOnly.contaminated, false);
 });
 
-test('runCase marks a contaminated review as a harness error and skips the judge', async () => {
+test('runCase grades a contaminated review as a failure, flags it and skips the judge', async () => {
   const contaminated = {
     status: 0,
     stdout: toolStream(['Bash', { command: `git -C ${MAIN} log --all` }]),
@@ -1688,11 +1690,29 @@ test('runCase marks a contaminated review as a harness error and skips the judge
   };
   const exec = reviewExec(contaminated, judgeJson('{"caught": true, "score": 3}'));
   const result = await runCase(defectCase(), reviewCtx(exec, { forbiddenRoots: [MAIN] }));
-  assert.equal(result.status, 'error');
-  assert.match(result.reason, /^contaminated: /);
-  assert.equal(result.caught, null);
+  // Scored, not excluded: excluding would hide the cheating rate.
+  assert.equal(result.status, 'ok');
+  assert.equal(result.contaminated, true);
+  assert.match(result.contaminationReason, /^contaminated: /);
+  assert.equal(result.caught, false);
   assert.equal(result.contamination.length, 1);
   assert.equal(exec.calls.filter((c) => c.command === 'claude').length, 1, 'no judge call');
+  // A control that peeks is not clean either.
+  const control = await runCase(
+    cleanCase(),
+    reviewCtx(reviewExec(contaminated, judgeJson('{"caught": true, "score": 3}')), {
+      forbiddenRoots: [MAIN],
+    })
+  );
+  assert.equal(control.status, 'ok');
+  assert.equal(control.caught, false);
+  assert.equal(control.contaminated, true);
+  const summary = summarise([result, control]);
+  assert.equal(summary.contaminated, 2);
+  assert.equal(summary.cases['mcp-panel-collapse'].contaminated, 1);
+  assert.equal(summary.recall.runs, 1);
+  assert.equal(summary.controls.falsePositives, 1);
+  assert.equal(summary.errors, 0);
   const md = formatSummaryMarkdown(
     {
       config: 'c',
@@ -1702,7 +1722,8 @@ test('runCase marks a contaminated review as a harness error and skips the judge
     },
     undefined
   );
-  assert.match(md, /contaminated: /);
+  assert.match(md, /Contaminated \(graded as failures\): 1/);
+  assert.match(md, /## Contaminated reviews/);
   assert.ok(md.includes(`git -C ${MAIN} log --all`));
 });
 
@@ -2159,7 +2180,7 @@ test('runCase grades an incomplete review as a failure: defect not caught, contr
   }
 });
 
-test('runCase still excludes a contaminated incomplete review', async () => {
+test('runCase grades a contaminated incomplete review as contaminated', async () => {
   const stream = budgetReview();
   stream.stdout = `${toolStream(['Bash', { command: `git -C ${MAIN} log --all` }])
     .split('\n')
@@ -2169,8 +2190,9 @@ test('runCase still excludes a contaminated incomplete review', async () => {
     defectCase(),
     reviewCtx(reviewExec(stream, judgeJson('{}')), { forbiddenRoots: [MAIN] })
   );
-  assert.equal(result.status, 'error');
-  assert.match(result.reason, /^contaminated/);
+  assert.equal(result.status, 'ok');
+  assert.equal(result.contaminated, true);
+  assert.equal(result.caught, false);
 });
 
 test('summarise counts incomplete runs as scored failures and reports the error rate', () => {
