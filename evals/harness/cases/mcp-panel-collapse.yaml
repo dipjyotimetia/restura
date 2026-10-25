@@ -1,0 +1,34 @@
+id: mcp-panel-collapse
+title: Two MCP toolbar buttons from separate PRs collapse the Headers / Launch settings toggle
+origin: real
+sourcePRs: ['#1133', '#1134']
+fixPRs: ['#1150']
+# Main just before #1133 (after #1126, which added the stdio Launch settings toggle).
+base: 90b514e380786e4935058871113315c73e5b2539
+seam: cross-branch
+branches:
+  - name: feat/mcp-config-import
+    patches: [a-mcp-import.patch]
+  - name: feat/mcp-conformance
+    patches: [b-mcp-conformance.patch]
+expected:
+  defect: >-
+    Each branch adds one `shrink-0` button (Import, Conformance) to the single McpConnectionPanel
+    toolbar row that also holds the transport Segmented control, the Tools button and the
+    Headers / Launch settings Floater (`flex-1 min-w-0 overflow-hidden`). Either button alone
+    fits; with both, at the default 1400x900 window the Floater is squeezed to about 2px, so the
+    stdio Launch settings (args/env) and HTTP Headers editors cannot be opened and the row
+    overflows. Fix: let the row wrap (`flex-wrap`) or move the Floater to its own row.
+  files:
+    - src/features/mcp/components/McpConnectionPanel.tsx
+  symbols: [McpConnectionPanel]
+mustMention:
+  - McpConnectionPanel
+  - '(shrink-0|min-w-0|flex-1|flex-wrap|\boverflow|\bsqueez|\bcollaps|\bcramp|\bno room\b|\b(zero|2 ?px|no) width\b)'
+  - '(\bHeaders\b|\bLaunch settings\b|\btoggle\b|\bFloater\b)'
+mustNotMiss: high
+notes: >-
+  Minimised. McpImportDialog and McpConformanceDialog keep the shipped trigger button markup but
+  their bodies are elided. The Conformance button sits before the Tools button (it was after
+  Import upstream) so the two branches merge without a textual conflict; the layout outcome is
+  the same.

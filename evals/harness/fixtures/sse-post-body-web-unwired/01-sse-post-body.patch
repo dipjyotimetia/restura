@@ -1,0 +1,101 @@
+diff --git a/shared/types/streaming.ts b/shared/types/streaming.ts
+index 3d57254a..6e457f7e 100644
+--- a/shared/types/streaming.ts
++++ b/shared/types/streaming.ts
+@@ -16,6 +16,11 @@ export interface SseRequest {
+   eventFilter?: string[];
+   /** Whether to reconnect using Last-Event-ID on disconnect */
+   reconnectOnResume?: boolean;
++  /**
++   * Optional JSON body. When set the stream is opened with POST (LLM-style
++   * streaming endpoints, e.g. OpenAI / Anthropic `stream: true`).
++   */
++  jsonBody?: string;
+   preRequestScript?: string;
+   testScript?: string;
+ }
+diff --git a/src/features/sse/components/SseClient.tsx b/src/features/sse/components/SseClient.tsx
+index f26bfc49..df3a6b15 100644
+--- a/src/features/sse/components/SseClient.tsx
++++ b/src/features/sse/components/SseClient.tsx
+@@ -4,6 +4,7 @@ import { KeyValueTable } from '@/components/shared/KeyValueTable';
+ import { StreamSplit } from '@/components/shared/StreamSplit';
+ import { Label } from '@/components/ui/label';
+ import { Switch } from '@/components/ui/switch';
++import { Textarea } from '@/components/ui/textarea';
+ import AuthConfiguration from '@/features/auth/components/AuthConfig';
+ import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
+ import { sseExportName } from '@/features/sse/lib/sseLogExport';
+@@ -130,8 +131,10 @@ export default function SseClient() {
+       }
+     }
+ 
++    const jsonBody = request.jsonBody?.trim() ? resolveVariables(request.jsonBody) : undefined;
+     sseManager.connect(active.id, url, resolvedHeaders, {
+       reconnectOnResume: request.reconnectOnResume ?? true,
++      ...(jsonBody !== undefined ? { jsonBody } : {}),
+     });
+   };
+ 
+@@ -192,6 +195,18 @@ export default function SseClient() {
+           Reconnect on resume (Last-Event-ID)
+         </Label>
+       </div>
++      <div className="pt-3 mt-3 border-t border-sp-line">
++        <Label htmlFor="sse-body" className="text-sp-11 text-sp-muted mb-2 block">
++          Request body (JSON, sends POST)
++        </Label>
++        <Textarea
++          id="sse-body"
++          value={request.jsonBody ?? ''}
++          onChange={(event) => update({ jsonBody: event.target.value || undefined })}
++          placeholder='{"model": "...", "stream": true}'
++          className="font-mono text-sp-12 min-h-24"
++        />
++      </div>
+     </div>
+   );
+ 
+diff --git a/src/features/sse/lib/sseManager.ts b/src/features/sse/lib/sseManager.ts
+index 0398ece5..f8667819 100644
+--- a/src/features/sse/lib/sseManager.ts
++++ b/src/features/sse/lib/sseManager.ts
+@@ -67,7 +67,7 @@ class SseManager {
+     connectionId: string,
+     url: string,
+     headers?: Record<string, string>,
+-    options: { reconnectOnResume?: boolean } = {}
++    options: { reconnectOnResume?: boolean; jsonBody?: string } = {}
+   ): void {
+     this.disconnect(connectionId);
+ 
+@@ -90,7 +90,7 @@ class SseManager {
+     }
+ 
+     if (isElectron()) {
+-      this.connectViaElectron(connectionId, url, headersWithResume);
++      this.connectViaElectron(connectionId, url, headersWithResume, options.jsonBody);
+       return;
+     }
+ 
+@@ -215,7 +215,8 @@ class SseManager {
+   private connectViaElectron(
+     connectionId: string,
+     url: string,
+-    headers: Record<string, string>
++    headers: Record<string, string>,
++    jsonBody?: string
+   ): void {
+     const store = useSseStore.getState();
+     const api = getElectronAPI();
+@@ -262,7 +263,9 @@ class SseManager {
+       cleanupSseElectronListeners(connectionId, api);
+     });
+ 
+-    api.sse.connect({ connectionId, url, headers }).catch((err: unknown) => {
++    api.sse
++      .connect({ connectionId, url, headers, ...(jsonBody !== undefined ? { jsonBody } : {}) })
++      .catch((err: unknown) => {
+       const msg = err instanceof Error ? err.message : 'Connection failed';
+       const s = useSseStore.getState();
+       s.appendSystem(connectionId, `Failed to connect: ${msg}`);

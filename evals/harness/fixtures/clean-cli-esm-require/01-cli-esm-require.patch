@@ -1,0 +1,52 @@
+diff --git a/cli/package.json b/cli/package.json
+index 7d00453f..cbc76db1 100644
+--- a/cli/package.json
++++ b/cli/package.json
+@@ -43,10 +43,11 @@
+   },
+   "scripts": {
+     "prebuild": "node ../scripts/ensure-rollup-native.mjs && node ../scripts/build-sandbox-libs.mjs",
+-    "build": "tsup src/index.ts --format esm --target node24 --clean --tsconfig tsconfig.json",
++    "build": "tsup",
+     "pretest": "node ../scripts/ensure-sandbox-libs.mjs",
+     "test": "vitest run",
+-    "type-check": "tsc --noEmit"
++    "type-check": "tsc --noEmit",
++    "smoke": "node dist/index.js --version && node dist/index.js --help > /dev/null"
+   },
+   "dependencies": {
+     "@aws-sdk/client-secrets-manager": "^3.1152.0",
+diff --git a/cli/tsup.config.ts b/cli/tsup.config.ts
+new file mode 100644
+index 00000000..42af7768
+--- /dev/null
++++ b/cli/tsup.config.ts
+@@ -0,0 +1,15 @@
++import { defineConfig } from 'tsup';
++
++export default defineConfig({
++  entry: ['src/index.ts'],
++  format: ['esm'],
++  target: 'node24',
++  clean: true,
++  tsconfig: 'tsconfig.json',
++  // Bundled CommonJS dependencies (e.g. @opentelemetry/sdk-trace-node) call
++  // `require('async_hooks')` at load time; an ESM bundle has no `require`, so
++  // the CLI crashed on startup. Give the bundle a real one.
++  banner: {
++    js: "import { createRequire as __resturaCreateRequire } from 'node:module';\nconst require = __resturaCreateRequire(import.meta.url);",
++  },
++});
+diff --git a/package.json b/package.json
+index 8699c8fa..23594a87 100644
+--- a/package.json
++++ b/package.json
+@@ -68,7 +68,7 @@
+     "echo:local:collection": "npm run echo:local:build && node dist/echo-local/cli.cjs collection",
+     "validate:static": "npm run toolchain:check && npm run test:tooling && npm run type-check:all && npm run lint && npm run format:check && npm run verify:opencollection-types && npm run capabilities:check && npm run architecture:check",
+     "test:workspaces": "npm run --workspace cli test && npm run --workspace restura-vscode test:unit",
+-    "build:workspaces": "npm run --workspace cli build && npm run --workspace @restura/extension build && npm run --workspace restura-vscode build",
++    "build:workspaces": "npm run --workspace cli build && npm run --workspace cli smoke && npm run --workspace @restura/extension build && npm run --workspace restura-vscode build",
+     "validate:test": "npm run test:ci && npm run test:electron:critical-coverage && npm run test:workspaces",
+     "validate:build": "npm run build && npm run size && npm run build:docker && npm run build:workspaces && npm run electron:build:web && npm run electron:compile",
+     "validate": "npm run validate:static && npm run validate:test && npm run validate:build",

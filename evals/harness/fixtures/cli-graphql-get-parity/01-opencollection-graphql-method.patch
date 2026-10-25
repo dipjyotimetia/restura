@@ -1,0 +1,121 @@
+diff --git a/shared/opencollection/from-internal.ts b/shared/opencollection/from-internal.ts
+index ef4d824d..7850fc61 100644
+--- a/shared/opencollection/from-internal.ts
++++ b/shared/opencollection/from-internal.ts
+@@ -13,6 +13,7 @@ import type {
+ } from '../types';
+ import { AUTH_EXTENSION_KEY, buildAuthExtension, stripAuthExtras } from './auth-extension';
+ import { authFromInternal, unwrapAuthForCompare } from './auth-from-internal';
++import { graphqlDocumentFromInternal, graphqlMethodToOC } from './graphql-item';
+ import { buildGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-extension';
+ import { buildGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
+ import { buildHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
+@@ -364,23 +365,8 @@ function requestFromInternal(name: string, r: Request): unknown {
+     case 'http': {
+       const hr = r as HttpRequest;
+       if (hr.body.type === 'graphql') {
+-        let query = hr.body.raw ?? '';
+-        let variables = hr.body.graphqlVariables;
+-        try {
+-          const envelope = JSON.parse(query) as { query?: unknown; variables?: unknown };
+-          if (typeof envelope.query === 'string') {
+-            query = envelope.query;
+-            if (variables === undefined && envelope.variables !== undefined) {
+-              variables =
+-                typeof envelope.variables === 'string'
+-                  ? envelope.variables
+-                  : JSON.stringify(envelope.variables);
+-            }
+-          }
+-        } catch {
+-          // Renderer-created GraphQL requests store query text directly.
+-        }
+-        const graphql: Record<string, unknown> = { url: hr.url };
++        const { query, variables } = graphqlDocumentFromInternal(hr.body);
++        const graphql: Record<string, unknown> = { ...graphqlMethodToOC(hr.method), url: hr.url };
+         if (query) graphql.query = query;
+         if (variables !== undefined) graphql.variables = variables;
+         if (hr.headers?.length) graphql.headers = hr.headers.map(kvFromInternal);
+diff --git a/shared/opencollection/graphql-item.ts b/shared/opencollection/graphql-item.ts
+new file mode 100644
+index 00000000..30c1cd7c
+--- /dev/null
++++ b/shared/opencollection/graphql-item.ts
+@@ -0,0 +1,43 @@
++import type { HttpMethod, HttpRequest } from '../types';
++
++/**
++ * The query document and variables JSON of a GraphQL request body. The body
++ * holds either the query text (renderer-created requests) or a JSON envelope
++ * `{ query, variables }`; stored `graphqlVariables` win over the envelope's.
++ */
++export function graphqlDocumentFromInternal(body: HttpRequest['body']): {
++  query: string;
++  variables: string | undefined;
++} {
++  let query = body.raw ?? '';
++  let variables = body.graphqlVariables;
++  try {
++    const envelope = JSON.parse(query) as { query?: unknown; variables?: unknown };
++    if (typeof envelope.query === 'string') {
++      query = envelope.query;
++      if (variables === undefined && envelope.variables !== undefined) {
++        variables =
++          typeof envelope.variables === 'string'
++            ? envelope.variables
++            : JSON.stringify(envelope.variables);
++      }
++    }
++  } catch {
++    // Renderer-created GraphQL requests store query text directly.
++  }
++  return { query, variables };
++}
++
++/**
++ * GraphQL-over-HTTP method mapping for OpenCollection GraphQL items (#885).
++ * The spec's `GraphQLRequestDetails.method` is optional; POST is the GraphQL
++ * default, so only GET (queries sent over the URL) is emitted.
++ */
++export function graphqlMethodToOC(method: HttpMethod): { method?: 'GET' } {
++  return method === 'GET' ? { method: 'GET' } : {};
++}
++
++/** Import side: GET survives, anything else (missing, unknown) becomes POST. */
++export function graphqlMethodFromOC(method: unknown): HttpMethod {
++  return typeof method === 'string' && method.toUpperCase() === 'GET' ? 'GET' : 'POST';
++}
+diff --git a/shared/opencollection/schemas.ts b/shared/opencollection/schemas.ts
+index 95fbefc9..35a5238c 100644
+--- a/shared/opencollection/schemas.ts
++++ b/shared/opencollection/schemas.ts
+@@ -179,6 +179,8 @@ const graphqlRequest = z.object({
+     name: z.string().min(1),
+   }),
+   graphql: z.object({
++    // Spec GraphQLRequestDetails.method; Restura emits it only for GET (#885).
++    method: z.string().optional(),
+     url: z.string(),
+     query: z.string().optional(),
+     variables: z.string().optional(),
+diff --git a/shared/opencollection/to-internal.ts b/shared/opencollection/to-internal.ts
+index 69b4dfe9..89d7321f 100644
+--- a/shared/opencollection/to-internal.ts
++++ b/shared/opencollection/to-internal.ts
+@@ -15,6 +15,7 @@ import type {
+   SseRequest,
+ } from '../types';
+ import { AUTH_EXTENSION_KEY, applyAuthExtension } from './auth-extension';
++import { graphqlMethodFromOC } from './graphql-item';
+ import { applyGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-extension';
+ import { applyGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
+ import { applyHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
+@@ -266,7 +267,7 @@ function graphqlToHttpRequest(item: Record<string, unknown>): HttpRequest {
+     id: uuid(),
+     name,
+     type: 'http',
+-    method: 'POST' as HttpMethod,
++    method: graphqlMethodFromOC(gql.method),
+     url: (gql.url as string) ?? '',
+     headers: ((gql.headers as unknown[]) ?? []).map(kvToInternal),
+     params: [],

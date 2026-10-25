@@ -1,0 +1,78 @@
+diff --git a/src/features/sse/lib/__tests__/sseStreamSpec.test.ts b/src/features/sse/lib/__tests__/sseStreamSpec.test.ts
+index 9bc8172d..44e6950c 100644
+--- a/src/features/sse/lib/__tests__/sseStreamSpec.test.ts
++++ b/src/features/sse/lib/__tests__/sseStreamSpec.test.ts
+@@ -3,7 +3,9 @@ import { buildSseStreamSpec } from '../sseManager';
+ 
+ describe('buildSseStreamSpec', () => {
+   it('builds a GET streaming spec with the orchestrator timeout disabled', () => {
+-    expect(buildSseStreamSpec('https://example.com/stream', { 'X-Trace': '1' })).toEqual({
++    expect(
++      buildSseStreamSpec({ url: 'https://example.com/stream', headers: { 'X-Trace': '1' } })
++    ).toEqual({
+       method: 'GET',
+       url: 'https://example.com/stream',
+       headers: { 'X-Trace': '1' },
+@@ -11,4 +13,10 @@ describe('buildSseStreamSpec', () => {
+       timeout: 0,
+     });
+   });
++
++  it('opens a POST stream when a JSON body is given', () => {
++    expect(
++      buildSseStreamSpec({ url: 'https://example.com/stream', headers: {}, jsonBody: '{"a":1}' })
++    ).toMatchObject({ method: 'POST', bodyType: 'json', data: '{"a":1}' });
++  });
+ });
+diff --git a/src/features/sse/lib/sseManager.ts b/src/features/sse/lib/sseManager.ts
+index 0398ece5..fb331aca 100644
+--- a/src/features/sse/lib/sseManager.ts
++++ b/src/features/sse/lib/sseManager.ts
+@@ -10,7 +10,24 @@ import { type ParsedSseEvent, SseParser } from './sseParser';
+  * so the streaming shape is defined once. The orchestrator-side timeout is
+  * disabled: the caller controls the stream's lifetime with its AbortController.
+  */
+-export function buildSseStreamSpec(url: string, headers: Record<string, string>): ProxyRequestBody {
++export function buildSseStreamSpec(options: {
++  url: string;
++  headers: Record<string, string>;
++  /** When set the stream is opened with POST and this JSON body. */
++  jsonBody?: string;
++}): ProxyRequestBody {
++  const { url, headers, jsonBody } = options;
++  if (jsonBody !== undefined) {
++    return {
++      method: 'POST',
++      url,
++      headers,
++      bodyType: 'json',
++      data: jsonBody,
++      streamingMode: true,
++      timeout: 0,
++    };
++  }
+   return { method: 'GET', url, headers, streamingMode: true, timeout: 0 };
+ }
+ 
+@@ -150,7 +167,7 @@ class SseManager {
+       // signal goes through to fetch so abort during the request/connect
+       // phase actually closes the socket — not just the body afterward.
+       const response = await executeProxiedStreamingRequest(
+-        buildSseStreamSpec(url, { Accept: 'text/event-stream', ...headers }),
++        buildSseStreamSpec({ url, headers: { Accept: 'text/event-stream', ...headers } }),
+         { signal: controller.signal }
+       );
+       clearTimeout(timeoutId);
+diff --git a/src/features/sse/protocol.ts b/src/features/sse/protocol.ts
+index 3b04cead..4f503ebd 100644
+--- a/src/features/sse/protocol.ts
++++ b/src/features/sse/protocol.ts
+@@ -140,7 +140,7 @@ async function sseStartStream(
+   if (ctx.signal.aborted) ourCtrl.abort();
+   else ctx.signal.addEventListener('abort', linkAbort, { once: true });
+ 
+-  const response = await executeProxiedStreamingRequest(buildSseStreamSpec(url, headers), {
++  const response = await executeProxiedStreamingRequest(buildSseStreamSpec({ url, headers }), {
+     signal: ourCtrl.signal,
+   });
+ 
