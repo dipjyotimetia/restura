@@ -11,15 +11,18 @@ import {
   classifyClaudeRun,
   cleanupTracked,
   cleanupTrackedAsync,
+  createIsolatedRepo,
   decideCaught,
   diffFlips,
   formatSummaryMarkdown,
   gradeMustMention,
   HARNESS_OVERLAY_PATHS,
   judgeModelWarning,
+  linkNodeModules,
   loadCases,
   majorityVerdict,
   mergePackageScripts,
+  nodeExec,
   overlayHarness,
   parseClaudeJson,
   parseClaudeStream,
@@ -31,6 +34,7 @@ import {
   runCase,
   selectLeftovers,
   summarise,
+  syncExec,
   validateCase,
   wilsonInterval,
   writeBaseline,
@@ -645,6 +649,11 @@ function fakeExec(respond = () => undefined) {
       if (command === 'git') return defaultGit(args) ?? { status: 0, stdout: '', stderr: '' };
       return { status: 0, stdout: '{}', stderr: '' };
     },
+    pipe(from, to, opts = {}) {
+      const line = `${[from[0], ...from[1]].join(' ')} | ${[to[0], ...to[1]].join(' ')}`;
+      calls.push({ command: 'pipe', from, to, opts, line });
+      return respond('pipe', [from, to], calls) ?? { status: 0, stdout: '', stderr: '' };
+    },
   };
 }
 const lines = (exec) => exec.calls.map((c) => c.line).join('\n');
@@ -666,7 +675,10 @@ test('runCase dry-run applies patches, checks the combined merge and always clea
   assert.equal(result.harnessSha, HARNESS);
   assert.equal(result.effectiveBase, EFFECTIVE);
   const joined = lines(exec);
-  assert.match(joined, /worktree add --detach \/tmp\/he\/worktree 90b514e3/);
+  // A history-free repo in the run's temp dir: never a worktree of this repo.
+  assert.doesNotMatch(joined, /worktree add/);
+  assert.match(joined, /git init -q --initial-branch=main \/tmp\/he\/repo/);
+  assert.ok(joined.includes(`git -C /repo archive ${BASE} | tar -x -f - -C /tmp/he/repo`));
   // Dry-run applies the overlay too, so it proves the patches still apply on top of it.
   assert.match(joined, /commit -q --no-verify --allow-empty -m harness overlay @ abcdef012345/);
   // Branches and the combined merge start from the overlay commit, never the raw base.
@@ -675,14 +687,26 @@ test('runCase dry-run applies patches, checks the combined merge and always clea
   const overlayAt = exec.calls.findIndex((c) => c.line.includes('harness overlay @'));
   const firstBranch = exec.calls.findIndex((c) => c.line.includes('checkout -q -b'));
   assert.ok(overlayAt !== -1 && overlayAt < firstBranch, 'overlay is committed before branches');
-  assert.match(joined, /apply --index \/fx\/mcp-panel-collapse\/a\.patch/);
-  assert.match(joined, /branch -D harness-eval\/r1\/feat\/mcp-import/);
-  assert.match(joined, /worktree remove --force \/tmp\/he\/worktree/);
+  assert.match(joined, /-C \/tmp\/he\/repo apply --index \/fx\/mcp-panel-collapse\/a\.patch/);
+  // Branches live only in the isolated repo, under their plain names.
+  assert.match(joined, /-C \/tmp\/he\/repo checkout -q -b feat\/mcp-import/);
+  assert.deepEqual(result.branches, ['feat/mcp-import', 'feat/mcp-conformance']);
+  assert.doesNotMatch(joined, /harness-eval\//);
   assert.doesNotMatch(joined, /^claude/m);
   assert.deepEqual(tracker, { worktree: null, branches: [] });
+  assertMainRepoReadOnly(exec);
 });
 
-test('runCase cleans up the worktree and branches when a patch fails to apply', async () => {
+/** The main repo is only read (archive / cat-file / show / rev-parse), never mutated. */
+function assertMainRepoReadOnly(exec) {
+  for (const call of exec.calls) {
+    const args = call.command === 'pipe' ? call.from[1] : call.args;
+    if (!args || args[0] !== '-C' || args[1] !== '/repo') continue;
+    assert.ok(['archive', 'cat-file', 'show', 'rev-parse'].includes(args[2]), call.line);
+  }
+}
+
+test('runCase reports a patch that fails to apply without touching the main repo', async () => {
   const exec = fakeExec((command, args) =>
     command === 'git' && args.includes('apply') && args.at(-1).endsWith('b.patch')
       ? { status: 1, stdout: '', stderr: 'boom' }
@@ -699,9 +723,7 @@ test('runCase cleans up the worktree and branches when a patch fails to apply', 
   assert.equal(result.applied, false);
   assert.equal(result.status, 'error');
   assert.match(result.reason, /b\.patch/);
-  const joined = lines(exec);
-  assert.match(joined, /worktree remove --force \/tmp\/he\/worktree/);
-  assert.match(joined, /branch -D harness-eval\/r1\/feat\/mcp-import/);
+  assertMainRepoReadOnly(exec);
 });
 
 /** A `--output-format stream-json --verbose` review: init, one Skill call, then the result. */
@@ -777,7 +799,7 @@ test('runCase review mode: caught needs judge AND an anchor pattern, and records
   assert.equal(result.judgeCaught, true);
   assert.equal(result.patternCaught, true);
   assert.equal(result.caught, true);
-  assert.match(lines(exec), /worktree remove --force/);
+  assertMainRepoReadOnly(exec);
 
   const vague = await runCase(
     defectCase(),
@@ -930,13 +952,10 @@ test('cleanup keeps refs (and a worktree) that failed to delete in the tracker a
   assert.match(sync.failed[0], /worktree \/tmp\/he\/worktree: busy/);
 });
 
-test('runCase reports cleanup failures without hiding the run result', async () => {
-  const exec = fakeExec((command, args) =>
-    command === 'git' && args.includes('-D')
-      ? { status: 1, stdout: '', stderr: 'locked' }
-      : undefined
+test('runCase fails closed when the isolated repo cannot be built', async () => {
+  const exec = fakeExec((command) =>
+    command === 'pipe' ? { status: 2, stdout: '', stderr: 'tar: broken' } : undefined
   );
-  const tracker = { worktree: null, branches: [] };
   const result = await runCase(defectCase(), {
     exec,
     repo: '/repo',
@@ -944,14 +963,10 @@ test('runCase reports cleanup failures without hiding the run result', async () 
     runId: 'r1',
     dryRun: true,
     harnessSha: HARNESS,
-    tracker,
   });
-  assert.equal(result.applied, true);
-  assert.equal(result.cleanupFailed.length, 2);
-  assert.deepEqual(tracker.branches, [
-    'harness-eval/r1/feat/mcp-import',
-    'harness-eval/r1/feat/mcp-conformance',
-  ]);
+  assert.equal(result.applied, false);
+  assert.equal(result.status, 'error');
+  assert.match(result.reason, /tar: broken/);
 });
 
 test('validateCase accepts an optional full sourceCommit SHA and rejects anything else', () => {
@@ -1414,5 +1429,131 @@ test('baselinePath uses a UTC minute stamp and writeBaseline never overwrites', 
     assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).cases.a.caught, 1);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------- isolated repo
+
+test('createIsolatedRepo builds base + overlay from archives and never mutates the main repo', async () => {
+  const exec = fakeExec((command, args) =>
+    command === 'git' && args.includes('cat-file') && args.at(-1) === `${HARNESS}:skills-lock.json`
+      ? { status: 128, stdout: '', stderr: 'missing' }
+      : undefined
+  );
+  const result = await createIsolatedRepo(exec, {
+    dir: '/tmp/iso',
+    baseSha: BASE,
+    harnessSha: HARNESS,
+    repo: '/repo',
+  });
+  assert.deepEqual(result, { harnessSha: HARNESS, effectiveBase: EFFECTIVE });
+  const joined = lines(exec);
+  assert.match(joined, /^git init -q --initial-branch=main \/tmp\/iso$/m);
+  assert.ok(joined.includes(`git -C /repo archive ${BASE} | tar -x -f - -C /tmp/iso`));
+  assert.match(joined, /-C \/tmp\/iso .*commit -q --no-verify -m base$/m);
+  const overlay = exec.calls.find(
+    (c) => c.command === 'pipe' && c.from[1].includes(HARNESS) && c.from[1].includes('archive')
+  );
+  assert.ok(overlay, 'overlay paths come from an archive of harnessSha');
+  const paths = overlay.from[1].slice(overlay.from[1].indexOf('--') + 1);
+  assert.ok(paths.includes('.claude/skills') && paths.includes('CLAUDE.md'));
+  assert.ok(!paths.includes('skills-lock.json'));
+  assert.match(
+    joined,
+    /-C \/tmp\/iso .*commit -q --no-verify --allow-empty -m harness overlay @ abcdef012345/
+  );
+  assert.match(joined, new RegExp(`-C /tmp/iso update-ref refs/remotes/origin/main ${EFFECTIVE}`));
+  assert.doesNotMatch(joined, /remote add|worktree add|fetch/);
+  assertMainRepoReadOnly(exec);
+  // No shell: every process is spawned with an argv array.
+  assert.ok(exec.calls.every((c) => c.command === 'git' || c.command === 'pipe'));
+});
+
+function gitSync(cwd, ...args) {
+  const result = syncExec.run(
+    'git',
+    ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args],
+    { cwd }
+  );
+  assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`);
+  return result.stdout.trim();
+}
+
+test('createIsolatedRepo (real git): two commits only, overlay present, origin/main resolves', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'he-iso-test-'));
+  try {
+    const repo = path.join(root, 'src');
+    fs.mkdirSync(repo);
+    gitSync(repo, 'init', '-q', '--initial-branch=main');
+    const write = (rel, text) => {
+      fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
+      fs.writeFileSync(path.join(repo, rel), text);
+    };
+    write('package.json', BASE_PKG);
+    write('src/app.ts', 'export const x = 1;\n');
+    write('.claude/commands/ship-check.md', 'old command\n');
+    gitSync(repo, 'add', '-A');
+    gitSync(repo, 'commit', '-q', '-m', 'old base');
+    const baseSha = gitSync(repo, 'rev-parse', 'HEAD');
+    write('src/app.ts', 'export const x = 2;\n');
+    gitSync(repo, 'commit', '-q', '-am', 'fix(app): the answer the reviewer must not see');
+    fs.rmSync(path.join(repo, '.claude/commands'), { recursive: true });
+    write('.claude/skills/ship-check/SKILL.md', 'new skill\n');
+    write('CLAUDE.md', 'harness doc\n');
+    write('package.json', HARNESS_PKG);
+    gitSync(repo, 'add', '-A');
+    gitSync(repo, 'commit', '-q', '-m', 'harness');
+    const harnessSha = gitSync(repo, 'rev-parse', 'HEAD');
+
+    const dir = path.join(root, 'iso');
+    const { effectiveBase } = await createIsolatedRepo(nodeExec, {
+      dir,
+      baseSha,
+      harnessSha,
+      repo,
+    });
+    const subjects = gitSync(dir, 'log', '--all', '--format=%s').split('\n');
+    assert.deepEqual(subjects, [`harness overlay @ ${harnessSha.slice(0, 12)}`, 'base']);
+    assert.equal(gitSync(dir, 'rev-parse', 'origin/main'), effectiveBase);
+    assert.equal(gitSync(dir, 'rev-parse', 'main'), effectiveBase);
+    assert.equal(gitSync(dir, 'remote'), '');
+    assert.equal(
+      fs.readFileSync(path.join(dir, '.claude/skills/ship-check/SKILL.md'), 'utf8'),
+      'new skill\n'
+    );
+    assert.equal(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), 'harness doc\n');
+    assert.ok(!fs.existsSync(path.join(dir, '.claude/commands')), 'base harness removed');
+    // Product code stays at the base; the later fix is unreachable.
+    assert.equal(fs.readFileSync(path.join(dir, 'src/app.ts'), 'utf8'), 'export const x = 1;\n');
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    assert.equal(pkg.scripts.dev, 'vite');
+    assert.equal(pkg.scripts['integration-check'], 'node scripts/integration-check.mjs');
+    assert.equal(gitSync(dir, 'status', '--porcelain'), '');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('linkNodeModules links the main checkout node_modules into a non-worktree dir', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'he-link-test-'));
+  try {
+    const main = path.join(root, 'main');
+    const dir = path.join(root, 'iso');
+    for (const p of ['node_modules', 'cli/node_modules'])
+      fs.mkdirSync(path.join(main, p), { recursive: true });
+    fs.writeFileSync(path.join(main, 'package.json'), '{"workspaces":["cli"]}');
+    fs.writeFileSync(path.join(main, 'cli/package.json'), '{}');
+    fs.mkdirSync(path.join(dir, 'cli'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'cli/package.json'), '{}');
+    const linked = linkNodeModules(dir, main);
+    assert.deepEqual(linked, ['.', 'cli']);
+    assert.equal(
+      fs.realpathSync(path.join(dir, 'node_modules')),
+      fs.realpathSync(path.join(main, 'node_modules'))
+    );
+    assert.ok(fs.lstatSync(path.join(dir, 'cli/node_modules')).isSymbolicLink());
+    assert.deepEqual(linkNodeModules(dir, main), ['.', 'cli'], 'idempotent');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

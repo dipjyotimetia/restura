@@ -5,7 +5,8 @@
 // synthetic) incident where PRs were green alone but broken together, or
 // where one harness (web Worker / Electron / CLI) was left unwired. Control
 // cases (`expectClean: true`) are real merged PRs that were genuinely fine.
-// A run rebuilds the branch(es) from patch fixtures in a throwaway worktree
+// A run rebuilds the branch(es) from patch fixtures in a history-free repo
+// (git init + git archive of the base: later fix commits are unreachable)
 // whose harness (.claude/skills, agents, hooks, CLAUDE.md, review scripts) is
 // first replaced by the one at --harness-ref (the "overlay" commit), so the
 // review exercises the harness under test rather than the case base's. It
@@ -27,7 +28,7 @@
 //   npm run eval:harness -- --cleanup   # remove leftovers of crashed runs
 //
 // --dry-run validates every case, applies the harness overlay and its patches
-// (plus the combined merge) in throwaway worktrees without calling any model.
+// (plus the combined merge) in throwaway isolated repos without calling any model.
 
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -35,7 +36,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { load as loadYaml } from 'js-yaml';
-import { setupWorktree } from './worktree-setup.mjs';
+import { linkAction, planLinks } from './worktree-setup.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CASES_DIR = path.join(ROOT, 'evals/harness/cases');
@@ -1078,6 +1079,48 @@ export const nodeExec = {
       child.stdin.end(opts.input ?? '');
     });
   },
+  /**
+   * `from | to` without a shell: both are argv arrays ([command, args]). The
+   * status is the first non-zero exit (producer first), stderr is both.
+   */
+  pipe(from, to, opts = {}) {
+    return new Promise((resolve) => {
+      const producer = spawn(from[0], from[1], {
+        cwd: opts.cwd,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const consumer = spawn(to[0], to[1], { cwd: opts.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      const codes = {};
+      producer.stdout.pipe(consumer.stdin);
+      consumer.stdin.on('error', () => {});
+      for (const child of [producer, consumer]) {
+        child.stderr.setEncoding('utf8').on('data', (d) => {
+          stderr += d;
+        });
+        child.on('error', (error) => {
+          stderr += String(error);
+        });
+      }
+      consumer.stdout.setEncoding('utf8').on('data', (d) => {
+        stdout += d;
+      });
+      const done = () => {
+        if (!('producer' in codes && 'consumer' in codes)) return;
+        const status = codes.producer !== 0 ? (codes.producer ?? 1) : (codes.consumer ?? 1);
+        resolve({ status, stdout, stderr });
+      };
+      producer.on('close', (code) => {
+        codes.producer = code;
+        done();
+      });
+      consumer.on('close', (code) => {
+        codes.consumer = code;
+        done();
+      });
+    });
+  },
 };
 
 /** Synchronous runner for cleanup paths (signal handlers, --cleanup). */
@@ -1094,6 +1137,13 @@ const IDENTITY = [
   '-c',
   'user.email=harness-eval@localhost',
 ];
+
+async function mustPipe(exec, from, to, what) {
+  const result = await exec.pipe(from, to);
+  if (result.status !== 0)
+    throw new Error(`${what} failed: ${(result.stderr || result.stdout || '').trim()}`);
+  return result;
+}
 
 async function must(exec, args, what, opts) {
   const result = await (opts ? exec.run('git', args, opts) : exec.run('git', args));
@@ -1136,21 +1186,36 @@ export function mergePackageScripts(baseText, harnessText) {
  * The worktree must be checked out at the case base. Returns the overlay
  * commit (`effectiveBase`): branches are cut from it and the review treats it
  * as `main`.
+ * @param {any} exec
+ * @param {string} worktree
+ * @param {string} harnessSha
+ * @param {{ sourceRepo?: string }} [options] read harness objects from this repo (isolated mode)
  */
-export async function overlayHarness(exec, worktree, harnessSha) {
+export async function overlayHarness(exec, worktree, harnessSha, { sourceRepo } = {}) {
   const git = (args, what, opts) =>
     must(exec, ['-C', worktree, ...args], `harness overlay: ${what}`, opts);
+  // Where the harness commit's objects live: the worktree itself (a linked
+  // worktree shares them) or, for an isolated repo, the source repo (read only).
+  const source = sourceRepo ?? worktree;
   await git(
     ['rm', '-r', '-q', '--ignore-unmatch', '--', ...HARNESS_REMOVE_PATHS],
     'remove base harness'
   );
   const present = [];
   for (const p of HARNESS_OVERLAY_PATHS) {
-    const probe = await exec.run('git', ['-C', worktree, 'cat-file', '-e', `${harnessSha}:${p}`]);
+    const probe = await exec.run('git', ['-C', source, 'cat-file', '-e', `${harnessSha}:${p}`]);
     if (probe.status === 0) present.push(p);
   }
-  if (present.length > 0) await git(['checkout', harnessSha, '--', ...present], 'checkout');
-  const harnessPkg = await exec.run('git', ['-C', worktree, 'show', `${harnessSha}:package.json`]);
+  if (present.length > 0 && sourceRepo) {
+    await mustPipe(
+      exec,
+      ['git', ['-C', sourceRepo, 'archive', harnessSha, '--', ...present]],
+      ['tar', ['-x', '-f', '-', '-C', worktree]],
+      'harness overlay: extract'
+    );
+    await git(['add', '-A', '-f', '--', ...present], 'stage');
+  } else if (present.length > 0) await git(['checkout', harnessSha, '--', ...present], 'checkout');
+  const harnessPkg = await exec.run('git', ['-C', source, 'show', `${harnessSha}:package.json`]);
   const basePkg = await exec.run('git', ['-C', worktree, 'show', 'HEAD:package.json']);
   if (harnessPkg.status === 0 && basePkg.status === 0) {
     const merged = mergePackageScripts(basePkg.stdout, harnessPkg.stdout);
@@ -1181,6 +1246,98 @@ export async function overlayHarness(exec, worktree, harnessSha) {
   if (!SHA_RE.test(effectiveBase))
     throw new Error(`harness overlay: unexpected commit id ${effectiveBase}`);
   return { harnessSha, effectiveBase };
+}
+
+/**
+ * Build a history-free repo for one run: `git init`, the base TREE (via
+ * `git archive`, so no commits, refs or objects from this repo come along),
+ * committed as `base`, then the harness overlay committed on top. The review
+ * runs here, so `git log --all` / `git show` cannot reach the later fix
+ * commits: the answer stays structurally out of the reviewer's reach. `main`
+ * and `refs/remotes/origin/main` point at the overlay commit; no remote is
+ * configured, so fetch and push fail closed. The source repo is only read.
+ * @param {{ run: Function; pipe: Function }} exec
+ * @param {{ dir: string; baseSha: string; harnessSha: string; repo: string }} options
+ */
+export async function createIsolatedRepo(exec, { dir, baseSha, harnessSha, repo }) {
+  for (const [name, sha] of [
+    ['baseSha', baseSha],
+    ['harnessSha', harnessSha],
+  ])
+    if (typeof sha !== 'string' || !SHA_RE.test(sha))
+      throw new Error(`createIsolatedRepo needs a full ${name}`);
+  await must(exec, ['-C', repo, 'rev-parse', '--verify', `${baseSha}^{commit}`], 'resolve base');
+  await must(exec, ['init', '-q', '--initial-branch=main', dir], 'isolated repo: init');
+  await mustPipe(
+    exec,
+    ['git', ['-C', repo, 'archive', baseSha]],
+    ['tar', ['-x', '-f', '-', '-C', dir]],
+    'isolated repo: extract base'
+  );
+  await must(exec, ['-C', dir, 'add', '-A', '-f'], 'isolated repo: stage base');
+  await must(
+    exec,
+    ['-C', dir, ...IDENTITY, 'commit', '-q', '--no-verify', '-m', 'base'],
+    'isolated repo: commit base'
+  );
+  const overlay = await overlayHarness(exec, dir, harnessSha, { sourceRepo: repo });
+  await must(
+    exec,
+    ['-C', dir, 'update-ref', 'refs/remotes/origin/main', overlay.effectiveBase],
+    'isolated repo: origin/main'
+  );
+  return overlay;
+}
+
+/** Depth-1 and depth-2 directories of `root` that hold a package.json. */
+function packageDirs(root) {
+  const found = [];
+  const skip = new Set(['node_modules', 'dist', 'coverage']);
+  const walk = (relative, depth) => {
+    if (depth > 2) return;
+    for (const dirent of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {
+      if (!dirent.isDirectory() || skip.has(dirent.name) || dirent.name.startsWith('.')) continue;
+      const child = relative === '.' ? dirent.name : `${relative}/${dirent.name}`;
+      if (fs.existsSync(path.join(root, child, 'package.json'))) found.push(child);
+      walk(child, depth + 1);
+    }
+  };
+  walk('.', 1);
+  return found;
+}
+
+/**
+ * Symlink the main checkout's node_modules (root + workspaces) into `dir`,
+ * like `npm run worktree:setup`, which only accepts linked worktrees. The
+ * links are gitignored. Returns the linked (or already linked) dirs.
+ */
+export function linkNodeModules(dir, mainCheckout) {
+  let pkg = {};
+  try {
+    pkg = JSON.parse(fs.readFileSync(path.join(mainCheckout, 'package.json'), 'utf8'));
+  } catch {}
+  const dirs = planLinks({
+    workspaces: Array.isArray(pkg.workspaces) ? pkg.workspaces : [],
+    candidates: packageDirs(mainCheckout),
+    mainHasNodeModules: (d) => fs.existsSync(path.join(mainCheckout, d, 'node_modules')),
+    worktreeHasPackage: (d) => fs.existsSync(path.join(dir, d, 'package.json')),
+  });
+  const linked = [];
+  for (const d of dirs) {
+    const link = path.join(dir, d, 'node_modules');
+    const target = path.join(mainCheckout, d, 'node_modules');
+    const stat = fs.lstatSync(link, { throwIfNoEntry: false });
+    const action = linkAction({
+      kind: !stat ? 'missing' : stat.isSymbolicLink() ? 'symlink' : 'other',
+      currentTarget: stat?.isSymbolicLink()
+        ? path.resolve(path.dirname(link), fs.readlinkSync(link))
+        : undefined,
+      target,
+    });
+    if (action === 'create') fs.symlinkSync(target, link, 'dir');
+    if (action === 'create' || action === 'ok') linked.push(d);
+  }
+  return linked;
 }
 
 const why = (result) => (result.stderr || result.stdout || `exit ${result.status}`).trim();
@@ -1228,20 +1385,21 @@ export async function cleanupTrackedAsync(exec, repo, tracker) {
 }
 
 /**
- * Build the case's branches in a throwaway worktree, optionally review and
- * grade them, then ALWAYS remove the worktree and branches. `ctx.tracker`
- * mirrors what exists so a signal handler can clean up mid-run.
+ * Build the case's branches in a history-free isolated repo under
+ * `ctx.tempDir` (see createIsolatedRepo), optionally review and grade them.
+ * Nothing is created in the main repo, so cleanup is removing `tempDir`,
+ * which the caller (runEval, or its signal handler) owns.
  * @param {any} evalCase validated case
- * @param {{ exec: { run: Function }; repo: string; tempDir: string; runId: string; dryRun: boolean;
- *   harnessSha: string; judge?: boolean; rubric?: string; model?: string; judgeModel?: string;
- *   judgeRepeat?: number; maxBudgetUsd?: number; transcriptFile?: string; transcriptLink?: string;
- *   setup?: (worktree: string) => void; tracker?: { worktree: string | null; branches: string[] } }} ctx
+ * @param {{ exec: { run: Function; pipe: Function }; repo: string; tempDir: string; dryRun: boolean;
+ *   harnessSha: string; mainCheckout?: string; judge?: boolean; rubric?: string; model?: string;
+ *   judgeModel?: string; judgeRepeat?: number; maxBudgetUsd?: number; transcriptFile?: string;
+ *   transcriptLink?: string; setup?: (dir: string) => void; runId?: string; tracker?: unknown }} ctx
  */
 export async function runCase(evalCase, ctx) {
-  const { exec, repo, tempDir, runId } = ctx;
-  const tracker = ctx.tracker ?? { worktree: null, branches: [] };
-  const worktree = path.join(tempDir, 'worktree');
-  const refs = evalCase.branches.map((b) => `${BRANCH_PREFIX}${runId}/${b.name}`);
+  const { exec, repo, tempDir } = ctx;
+  const worktree = path.join(tempDir, 'repo');
+  // Plain branch names: they exist only in the isolated repo.
+  const refs = evalCase.branches.map((b) => b.name);
   const outcome = {
     caseId: evalCase.id,
     expectClean: evalCase.expectClean,
@@ -1250,20 +1408,14 @@ export async function runCase(evalCase, ctx) {
     status: 'ok',
   };
   try {
-    await must(
-      exec,
-      ['-C', repo, 'rev-parse', '--verify', `${evalCase.base}^{commit}`],
-      'resolve base'
-    );
-    await must(
-      exec,
-      ['-C', repo, 'worktree', 'add', '--detach', worktree, evalCase.base],
-      'worktree add'
-    );
-    tracker.worktree = worktree;
     if (typeof ctx.harnessSha !== 'string' || !SHA_RE.test(ctx.harnessSha))
       throw new Error('runCase needs ctx.harnessSha (the resolved --harness-ref)');
-    const { effectiveBase } = await overlayHarness(exec, worktree, ctx.harnessSha);
+    const { effectiveBase } = await createIsolatedRepo(exec, {
+      dir: worktree,
+      baseSha: evalCase.base,
+      harnessSha: ctx.harnessSha,
+      repo,
+    });
     outcome.harnessSha = ctx.harnessSha;
     outcome.effectiveBase = effectiveBase;
     for (const [index, branch] of evalCase.branches.entries()) {
@@ -1273,10 +1425,10 @@ export async function runCase(evalCase, ctx) {
         'checkout base'
       );
       await must(exec, ['-C', worktree, 'checkout', '-q', '-b', refs[index]], 'create branch');
-      tracker.branches.push(refs[index]);
       for (const [p, patchPath] of branch.patchPaths.entries()) {
         await must(
           exec,
+
           ['-C', worktree, 'apply', '--index', patchPath],
           `apply ${branch.patches[p]} on ${branch.name}`
         );
@@ -1334,7 +1486,7 @@ export async function runCase(evalCase, ctx) {
       throw new Error('control cases need the rubric judge (drop --no-judge)');
 
     await must(exec, ['-C', worktree, 'checkout', '-q', refs[0]], 'checkout first branch');
-    (ctx.setup ?? ((dir) => setupWorktree(dir, () => {})))(worktree);
+    (ctx.setup ?? ((dir) => linkNodeModules(dir, ctx.mainCheckout ?? repo)))(worktree);
     const reviewArgs = [
       '-p',
       '--output-format',
@@ -1424,10 +1576,6 @@ export async function runCase(evalCase, ctx) {
     outcome.reason = error instanceof Error ? error.message : String(error);
     outcome.caught = null;
     return outcome;
-  } finally {
-    // `outcome` was already returned by reference, so this still reaches the caller.
-    const { failed } = await cleanupTrackedAsync(exec, repo, tracker);
-    if (failed.length > 0) outcome.cleanupFailed = failed;
   }
 }
 
@@ -1476,6 +1624,13 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   const repo = (
     await exec.run('git', ['rev-parse', '--show-toplevel'], { cwd: ROOT })
   ).stdout.trim();
+  // node_modules are linked from the main checkout (this script may run in a linked worktree).
+  const commonDir = (
+    await exec.run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      cwd: ROOT,
+    })
+  ).stdout.trim();
+  const mainCheckout = commonDir ? path.dirname(commonDir) : repo;
   const cases = loadCases({ ids: options.caseIds, split: options.split ?? 'all' });
   const rubric = options.dryRun ? '' : fs.readFileSync(RUBRIC_PATH, 'utf8');
   const startedAt = new Date().toISOString();
@@ -1513,19 +1668,13 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   if (options.saveBaseline && !options.dryRun && fs.existsSync(baselinePath(result)))
     throw new Error(`baseline ${baselinePath(result)} already exists; not overwriting`);
 
-  // Ctrl-C / kill mid-run: stop the child, remove this run's worktree and
-  // branches (the same cleanup `finally` does), exit non-zero.
-  const tracker = { worktree: null, branches: [] };
+  // Ctrl-C / kill mid-run: stop the child, remove this run's temp dir (the
+  // isolated repo lives inside it; the main repo is never mutated), exit non-zero.
   let tempDir = null;
   const onSignal = (signal) => {
     activeChild?.kill('SIGTERM');
-    const { failed } = cleanupTracked(syncExec, repo, tracker);
     if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
-    console.error(
-      failed.length === 0
-        ? `\nharness-eval: ${signal}; cleaned up this run's worktree and branches.`
-        : `\nharness-eval: ${signal}; cleanup left ${failed.join('; ')}. Run with --cleanup.`
-    );
+    console.error(`\nharness-eval: ${signal}; removed this run's isolated repo.`);
     process.exit(signal === 'SIGINT' ? 130 : 143);
   };
   process.on('SIGINT', onSignal);
@@ -1544,9 +1693,9 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
           exec,
           repo,
           tempDir,
-          runId: `${stamp}-${run}`.toLowerCase(),
           dryRun: options.dryRun,
           harnessSha,
+          mainCheckout,
           judge: options.judge,
           rubric,
           model: options.model,
@@ -1555,7 +1704,6 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
           maxBudgetUsd: options.maxBudgetUsd,
           transcriptFile: options.dryRun ? undefined : path.join(transcriptsDir, transcriptName),
           transcriptLink: `${path.basename(base)}/transcripts/${transcriptName}`,
-          tracker,
         });
         fs.rmSync(tempDir, { recursive: true, force: true });
         tempDir = null;
