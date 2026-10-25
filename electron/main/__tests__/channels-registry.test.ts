@@ -1,3 +1,5 @@
+import { readdirSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   ALL_IPC_CHANNELS,
@@ -266,5 +268,43 @@ describe('IPC channel registry shape', () => {
 
   it('keeps ALL_IPC_CHANNELS in sync with IPC', () => {
     expect(ALL_IPC_CHANNELS).toEqual(Object.values(flatten(IPC)));
+  });
+});
+
+// The per-area modules are composed with object spreads, which silently let a
+// later module overwrite a group of the same name. Read every module from disk
+// so a new area module is covered without editing this test.
+describe('IPC channel area modules', () => {
+  const areaDir = path.resolve(__dirname, '../../shared/channels');
+
+  async function loadAreaExports(): Promise<Array<{ name: string; value: object }>> {
+    const files = readdirSync(areaDir).filter((file) => file.endsWith('.ts'));
+    const loaded = await Promise.all(
+      files.map(async (file) => {
+        const mod = (await import(path.join(areaDir, file))) as Record<string, unknown>;
+        return Object.entries(mod).map(([name, value]) => ({ name, value: value as object }));
+      })
+    );
+    return loaded.flat();
+  }
+
+  it.each([
+    ['_IPC', IPC],
+    ['_EVENT', EVENT],
+    ['_EVENT_PREFIX', EVENT_PREFIX],
+  ] as const)('never declares the same %s group in two area modules', async (suffix, composed) => {
+    const exports = (await loadAreaExports()).filter((e) => e.name.endsWith(suffix));
+    expect(exports.length).toBeGreaterThan(0);
+    const groups = exports.flatMap((e) => Object.keys(e.value));
+    const duplicates = groups.filter((group, index) => groups.indexOf(group) !== index);
+    expect(duplicates).toEqual([]);
+    // Every area group is composed, and the composition adds nothing else.
+    expect(Object.keys(composed).sort()).toEqual([...groups].sort());
+  });
+
+  it('never reuses a channel string across IPC groups', () => {
+    const values = ALL_IPC_CHANNELS;
+    const duplicates = values.filter((value, index) => values.indexOf(value) !== index);
+    expect(duplicates).toEqual([]);
   });
 });
