@@ -60,7 +60,11 @@ vi.mock('../security/safe-connect', () => ({
 }));
 
 import { IPC } from '../../shared/channels';
-import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from '../handlers/websocket-handler';
+import {
+  registerWebSocketHandlerIPC,
+  stopWebSocketCleanup,
+  wsPingRateLimiter,
+} from '../handlers/websocket-handler';
 import { setExecutionPolicy } from '../security/execution-policy';
 
 type IpcHandler = (e: unknown, p: unknown) => Promise<{ success: boolean; error?: string }>;
@@ -147,6 +151,21 @@ describe('websocket-handler control frames', () => {
   });
 
   describe('#919 ping / pong', () => {
+    it('rate-limits ws:ping per sender', async () => {
+      const { event, senderId } = await openSocket();
+      try {
+        let guard = 0;
+        while (wsPingRateLimiter.check(senderId) && guard++ < 1000) {
+          /* drain the sender's ping bucket */
+        }
+        await expect(handlerFor(IPC.ws.ping)(event, { connectionId: 'c1' })).rejects.toThrow(
+          /Rate limit/
+        );
+      } finally {
+        wsPingRateLimiter.dispose(senderId);
+      }
+    });
+
     it('sends a ping with the UTF-8 payload and reports RTT on the matching pong', async () => {
       const now = vi.spyOn(performance, 'now');
       now.mockReturnValue(1_000);

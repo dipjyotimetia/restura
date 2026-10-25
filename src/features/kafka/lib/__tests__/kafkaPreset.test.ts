@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
+import { kafkaSecretKey, resolveRegistry } from '@/features/kafka/lib/kafkaManager';
 import {
   applyKafkaPreset,
   copyKafkaPresetSecrets,
@@ -304,5 +304,79 @@ describe('kafka preset credential lifecycle (#984 review)', () => {
     useKafkaStore.getState().removeConnection(id);
     expect(getKafkaProduceDraft(id)).toBeUndefined();
     expect(getPendingSecret(kafkaSecretKey(id, 'sasl-password'))).toBeUndefined();
+  });
+
+  describe('Schema Registry bearer auth', () => {
+    function bearerConnection(bearerToken: unknown): string {
+      const store = useKafkaStore.getState();
+      const id = store.createConnection({ bootstrapBrokers: ['b:9092'] });
+      store.updateConnection(id, {
+        registry: { url: 'https://reg', authType: 'bearer', bearerToken: bearerToken as never },
+      });
+      return id;
+    }
+
+    it('round-trips an inline bearer token into a bearer registry request', async () => {
+      const source = bearerConnection('tok');
+      const conn = useKafkaStore.getState().connections[source]!;
+      const preset = kafkaPresetFromConnection(conn, 'B', 'req-b');
+      expect(preset.connection.registry).toEqual({ url: 'https://reg', authType: 'bearer' });
+      expect(JSON.stringify(preset)).not.toContain('tok"');
+      expect(kafkaRequestSchema.safeParse(preset).success).toBe(true);
+
+      await storeKafkaPresetSecrets(conn, 'req-b');
+      expect(vault.get(kafkaSecretKey(kafkaPresetSecretScope('req-b'), 'registry-token'))).toBe(
+        'tok'
+      );
+
+      const target = useKafkaStore.getState().createConnection();
+      applyKafkaPreset(target, preset);
+      await restoreKafkaPresetSecrets('req-b', target);
+      const opened = useKafkaStore.getState().connections[target]!;
+      expect(opened.registry).toMatchObject({
+        authType: 'bearer',
+        bearerToken: KAFKA_SECRET_SENTINEL,
+      });
+      const resolved = await resolveRegistry(target, opened.registry);
+      expect(resolved?.auth).toEqual({ type: 'bearer', token: 'tok' });
+    });
+
+    it('keeps authType for a handle-backed token and surfaces the re-enter error', async () => {
+      const source = bearerConnection({ kind: 'handle', id: 'h-1' });
+      const conn = useKafkaStore.getState().connections[source]!;
+      const preset = kafkaPresetFromConnection(conn, 'H', 'req-h');
+      expect(preset.connection.registry?.authType).toBe('bearer');
+      await storeKafkaPresetSecrets(conn, 'req-h');
+      expect(vault.has(kafkaSecretKey(kafkaPresetSecretScope('req-h'), 'registry-token'))).toBe(
+        false
+      );
+      const target = useKafkaStore.getState().createConnection();
+      applyKafkaPreset(target, preset);
+      await restoreKafkaPresetSecrets('req-h', target);
+      const opened = useKafkaStore.getState().connections[target]!;
+      await expect(resolveRegistry(target, opened.registry)).rejects.toThrow(/re-enter/);
+    });
+
+    it('captures a token typed but not yet connected (pending draft)', async () => {
+      const source = bearerConnection(undefined);
+      setPendingSecret(kafkaSecretKey(source, 'registry-token'), 'typed');
+      await storeKafkaPresetSecrets(useKafkaStore.getState().connections[source]!, 'req-p');
+      expect(vault.get(kafkaSecretKey(kafkaPresetSecretScope('req-p'), 'registry-token'))).toBe(
+        'typed'
+      );
+    });
+
+    it('an old preset without authType still behaves as basic/none', async () => {
+      const source = makeConnection();
+      const preset = kafkaPresetFromConnection(useKafkaStore.getState().connections[source]!, 'P');
+      expect(preset.connection.registry).toEqual({ url: 'https://reg', username: 'ru' });
+      expect(kafkaRequestSchema.safeParse(preset).success).toBe(true);
+      const target = useKafkaStore.getState().createConnection();
+      applyKafkaPreset(target, preset);
+      const reg = useKafkaStore.getState().connections[target]!.registry!;
+      expect(reg.authType).toBeUndefined();
+      const resolved = await resolveRegistry(target, reg);
+      expect(resolved?.auth).toEqual({ username: 'ru' });
+    });
   });
 });

@@ -215,12 +215,19 @@ describe('/api/grpc-web body cap', () => {
 describe('/api/grpc-web streaming body cap (Node / self-host path)', () => {
   let nodeServer: ServerType;
   let port: number;
+  // Status the server itself wrote for the latest request (client-independent ground truth).
+  let serverStatus: number | undefined;
 
   beforeAll(async () => {
     await new Promise<void>((resolve) => {
       nodeServer = serve({ fetch: app.fetch, port: 0, hostname: '127.0.0.1' }, (info) => {
         port = info.port;
         resolve();
+      });
+    });
+    nodeServer.on('request', (_req, res) => {
+      res.once('finish', () => {
+        serverStatus = res.statusCode;
       });
     });
   });
@@ -232,7 +239,10 @@ describe('/api/grpc-web streaming body cap (Node / self-host path)', () => {
   // Streams `chunks` with Transfer-Encoding: chunked (no Content-Length),
   // honouring backpressure and stopping as soon as the server answers — a
   // 413 arrives mid-upload, after which the server may drop the socket.
-  function postChunked(chunks: string[]): Promise<{ status: number; body: string }> {
+  function postChunked(
+    chunks: string[]
+  ): Promise<{ status: number; body: string; reset?: boolean }> {
+    serverStatus = undefined;
     return new Promise((resolve, reject) => {
       let responded = false;
       const req = httpRequest(
@@ -254,19 +264,28 @@ describe('/api/grpc-web streaming body cap (Node / self-host path)', () => {
           res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
         }
       );
+      // The server answers 413 mid-upload and closes the socket, so a later write can fail
+      // with EPIPE/ECONNRESET, and the reset can discard the unread 413 on the client side.
+      // Tolerate the reset only if the response arrives shortly after, or the server itself
+      // reports having sent a response; a reset with no response at all still fails.
       req.on('error', (err) => {
-        if (!responded) reject(err);
+        if (responded) return;
+        const timer = setTimeout(() => {
+          if (serverStatus !== undefined) resolve({ status: serverStatus, body: '', reset: true });
+          else reject(err);
+        }, 500);
+        req.once('response', () => clearTimeout(timer));
       });
       void (async () => {
         for (const chunk of chunks) {
           if (responded || req.destroyed) return;
-          if (!req.write(chunk)) {
-            await new Promise<void>((r) => {
-              req.once('drain', r);
-              req.once('response', () => r());
-              req.once('close', r);
-            });
-          }
+          // Wait for each chunk to flush so little data is in flight when the server trips
+          // the cap; otherwise its close can reset the socket and discard the 413.
+          await new Promise<void>((r) => {
+            req.write(chunk, () => r());
+            req.once('response', () => r());
+            req.once('close', r);
+          });
         }
         if (!responded && !req.destroyed) req.end();
       })();
@@ -274,14 +293,15 @@ describe('/api/grpc-web streaming body cap (Node / self-host path)', () => {
   }
 
   it('rejects a chunked body (no Content-Length) that exceeds the cap with 413', async () => {
-    const filler = 'a'.repeat(1024 * 1024);
+    const filler = 'a'.repeat(64 * 1024);
     const chunks = ['{"pad":"'];
     const count = Math.ceil(MAX_GRPC_WEB_BODY_BYTES / filler.length) + 1;
     for (let i = 0; i < count; i++) chunks.push(filler);
     chunks.push('"}');
     const res = await postChunked(chunks);
     expect(res.status).toBe(413);
-    expect(JSON.parse(res.body)).toEqual({ error: 'Request body too large' });
+    // When the client socket was reset the unread body is gone; status comes from the server.
+    if (!res.reset) expect(JSON.parse(res.body)).toEqual({ error: 'Request body too large' });
   });
 
   it('passes a small chunked body through to schema validation', async () => {

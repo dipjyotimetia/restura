@@ -76,8 +76,8 @@ The legacy format prints a stderr deprecation warning the first time it's loaded
 ## Supported protocols
 
 - **HTTP / REST** — full support
-- **GraphQL** — runs as HTTP with body type `graphql`
-- **gRPC** — via Connect protocol (JSON-encoded, no proto compilation needed)
+- **GraphQL** — runs as HTTP with body type `graphql`, shaped exactly as the app does (shared `shared/graphql/wire.ts`): the GraphQL-over-HTTP `Accept` header unless the request sets one; POST sends the JSON envelope, GET sends `query` / `variables` / `operationName` / `extensions` as URL params and refuses mutations and subscriptions before sending
+- **gRPC** (unary) — honours the request's wire protocol: auto / Connect uses the Connect protocol (JSON-encoded, no proto compilation needed); gRPC-Web (`grpc-web` binary or `grpc-web-text`) encodes protobuf with the request's saved schema snapshot (reflection descriptors or uploaded `.proto`) and fails with `FAILED_PRECONDITION` when there is none; native gRPC (HTTP/2) is not available in the CLI and fails with `UNIMPLEMENTED` instead of silently using Connect. Auth types gRPC can't apply (AWS SigV4, OAuth 1.0, WSSE, Digest, NTLM) fail with `FAILED_PRECONDITION` before any I/O, as in the app, and metadata over 16 KiB fails with `INVALID_ARGUMENT`
 - **SSE** — captures events for `--sse-duration` ms, or until `--sse-events N`
 - **MCP** — runs the saved operation (`defaultMethod` + `defaultParams`, e.g. `tools/call` with `{"name":"…","arguments":{…}}`; `{{var}}`s resolved) over a real MCP session: the CLI connects and initializes **once per server per run** (same URL + transport + headers), reuses that session for every MCP item, and closes it when the run ends. Both `streamable-http` and legacy `http-sse` are supported. The response body handed to test scripts is the JSON-RPC reply without the id. On success it is `{ "jsonrpc": "2.0", "result": … }`, so `rs.response.json().result.isError` asserts a tool failure. On a JSON-RPC error it is `{ "jsonrpc": "2.0", "error": { code, message, data? } }`. Without assertions, a tool `isError: true` result or a JSON-RPC error fails the item with the reason. With assertions, the assertions decide, so negative tests can pass. Connection, HTTP and timeout failures always fail the item. Redirects are refused. An MCP item with no method fails with an actionable error, and there is no implicit `ping`. The `echo-local` generated collection includes runnable MCP examples with test scripts
 - **WebSocket** — not run in collection batches (matches the desktop collection runner, which skips streaming protocols). A standalone executor exists for future wiring (`executors/websocket.ts`) but no collection format routes to it yet.
@@ -236,7 +236,7 @@ The `live` reporter (also what CI logs get) prints one line per request:
 - **`No recognised collection layout`** — your target directory needs one of `opencollection.yml`, `opencollection.yaml`, or `_collection.yaml`. Re-export from the Restura app if unsure.
 - **`Invalid URL`** — the URL after `{{var}}` resolution isn't a valid absolute URL. Check that `--env` is loaded and your var names match.
 - **`Localhost URLs are not allowed`** — add `--allow-localhost` for local upstreams. Off by default to prevent SSRF in shared CI.
-- **gRPC requests return `UNKNOWN`** — the upstream likely doesn't speak Connect protocol. The CLI uses Connect-over-HTTP, not gRPC-over-HTTP/2 binary framing.
+- **gRPC requests return `UNKNOWN`** — the upstream likely doesn't speak Connect protocol. On auto / Connect the CLI uses Connect-over-HTTP, not gRPC-over-HTTP/2 binary framing; set the request's wire protocol to gRPC-Web for a gRPC-Web endpoint (e.g. Envoy `grpc_web`).
 - **`auth uses a desktop-only secret handle…`** — your auth references a secret handle that only the desktop app can decrypt. The request is errored (not sent unauthenticated); re-export the collection with inline secret values for CI use.
 
 ## Agent eval

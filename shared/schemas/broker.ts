@@ -35,7 +35,13 @@ export const kafkaRequestSchema = z.object({
       })
       .optional(),
     tls: tlsSchema.optional(),
-    registry: z.object({ url: z.string(), username: z.string().optional() }).optional(),
+    registry: z
+      .object({
+        url: z.string(),
+        authType: z.enum(['basic', 'bearer']).optional(),
+        username: z.string().optional(),
+      })
+      .optional(),
     acks: z.union([z.literal(0), z.literal(1), z.literal(-1)]),
     compression: z.enum(['none', 'gzip', 'snappy', 'lz4', 'zstd']),
     idempotent: z.boolean(),

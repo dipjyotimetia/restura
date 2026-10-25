@@ -22,6 +22,8 @@ import { Readable } from 'node:stream';
 import type * as KafkaLib from '@platformatic/kafka';
 import type { KafkaSubscribeConfig } from '../../ipc/ipc-validators';
 import type { KafkaClientOptions } from './client-options';
+import { type DeliverRecord, OrderedDelivery, type QueuedRecord } from './ordered-delivery';
+import { partitionKey } from './partition-pause';
 
 type Consumer = KafkaLib.Consumer<Buffer, Buffer, Buffer, Buffer>;
 type ConsumerOptions = KafkaLib.ConsumerOptions<Buffer, Buffer, Buffer, Buffer>;
@@ -173,8 +175,6 @@ export interface BrowseStreamOptions {
 
 const neverCommits = (): Promise<void> =>
   Promise.reject(new Error('Browse mode never commits offsets.'));
-
-const partitionKey = (topic: string, partition: number): string => `${topic}:${partition}`;
 
 /** Walks the library's nested error tree (`errors[]` / `cause`) for a broker error code. */
 function hasApiError(error: unknown, apiId: string, seen = new Set<unknown>()): boolean {
@@ -488,4 +488,26 @@ export function onBrowseStreamFinished(stream: BrowseMessagesStream, release: ()
   };
   stream.once('end', once);
   stream.once('close', once);
+}
+
+/** The stream surface browse delivery binds to (BrowseMessagesStream or a test double). */
+type BrowseEventStream = Pick<Readable, 'on' | 'pause' | 'resume'>;
+
+/**
+ * Binds browse-mode delivery to `stream`: records flow through the same ordered
+ * decode/emit queue as group sessions — paused past the high-water mark, hung
+ * decodes skipped after the decode timeout, and aborted by `close()` so nothing
+ * queued is decoded or sent after unsubscribe/disconnect.
+ */
+export function bindBrowseDelivery<M extends QueuedRecord>(
+  stream: BrowseEventStream,
+  hooks: { deliver: DeliverRecord<M>; onError: (err: Error) => void; onClose: () => void }
+): OrderedDelivery<M> {
+  const delivery = new OrderedDelivery<M>(hooks.deliver, hooks.onError);
+  stream.on('data', (msg: M) => delivery.enqueue(msg));
+  stream.on('error', (err: Error) => hooks.onError(err));
+  stream.on('close', () => hooks.onClose());
+  // After the data listener: resuming without one would drop records.
+  delivery.flow.attach(stream);
+  return delivery;
 }
