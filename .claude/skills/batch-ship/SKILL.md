@@ -41,6 +41,8 @@ your judgement — checks the report against git.
    It checks the sha is the branch tip, changed files ⊆ owned paths,
    `filesTouched` matches git, no gate failed, and that the red-first command
    FAILS on the base with only the branch's test files applied. On any
+   `redFirst.command` is agent-written text that `--red-first` executes (in a
+   throwaway worktree): read it first; it must be a plain test invocation. On any
    problem, send the script's output back to the SAME worker (`SendMessage`)
    to fix — don't redo its work yourself, and don't accept unrun claims.
    Answer its `openQuestions` in the same message (escalate real product

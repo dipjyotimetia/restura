@@ -16,6 +16,8 @@
 // Default is a dry run. --branches also deletes the local branch of a pruned worktree.
 
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export function parseWorktreeList(porcelain) {
@@ -40,13 +42,25 @@ export function isEffectivelyClean(statusPorcelain) {
     .every((l) => /^\?\? (?:.*\/)?node_modules\/?$/.test(l));
 }
 
+export const MIN_AGE_HOURS = 24;
+
 /** @returns {{action: 'keep'|'prune', reason: string}} */
 export function classifyWorktree(wt) {
   if (wt.isMain) return { action: 'keep', reason: 'main checkout' };
+  if (wt.isCurrent) return { action: 'keep', reason: 'current worktree' };
   if (wt.locked) return { action: 'keep', reason: 'locked (an agent may be running in it)' };
   if (!wt.clean) return { action: 'keep', reason: 'uncommitted changes' };
+  // A fresh agent worktree sits at base with no commits yet and may not be locked.
+  if (wt.ageHours != null && wt.ageHours < MIN_AGE_HOURS)
+    return { action: 'keep', reason: `only ${Math.floor(wt.ageHours)}h old (may be in use)` };
   if (wt.ahead === 0) return { action: 'prune', reason: 'nothing ahead of base' };
-  if (wt.prState === 'MERGED') return { action: 'prune', reason: 'PR merged' };
+  if (wt.prState === 'MERGED' && wt.prContainsHead !== false)
+    return { action: 'prune', reason: 'PR merged' };
+  if (wt.prState === 'MERGED')
+    return {
+      action: 'keep',
+      reason: `${wt.ahead} commit(s) not in the merged PR (branch name reused?)`,
+    };
   if (wt.patchMerged) return { action: 'prune', reason: 'all commits patch-equivalent on base' };
   if (wt.supersededBy) return { action: 'prune', reason: `superseded by ${wt.supersededBy}` };
   return {
@@ -82,7 +96,16 @@ export function main(argv = process.argv.slice(2)) {
   if (useGh) {
     const json = tryRun(
       'gh',
-      ['pr', 'list', '--state', 'all', '--limit', '1000', '--json', 'headRefName,state,number'],
+      [
+        'pr',
+        'list',
+        '--state',
+        'all',
+        '--limit',
+        '1000',
+        '--json',
+        'headRefName,state,number,headRefOid',
+      ],
       repo
     );
     for (const pr of json ? JSON.parse(json) : []) {
@@ -98,9 +121,23 @@ export function main(argv = process.argv.slice(2)) {
     const ahead = Number(tryRun('git', ['rev-list', '--count', `${base}..${wt.head}`], repo) ?? 1);
     const cherry = ahead > 0 ? (tryRun('git', ['cherry', base, wt.head], repo) ?? '+') : '';
     const pr = wt.branch ? prs.get(wt.branch) : undefined;
+    // Trust a MERGED PR only if everything local was in the PR's final head.
+    const prContainsHead =
+      pr?.state === 'MERGED' && pr.headRefOid
+        ? tryRun('git', ['merge-base', '--is-ancestor', wt.head, pr.headRefOid], repo) !== null
+        : undefined;
+    let ageHours;
+    try {
+      ageHours = (Date.now() - fs.statSync(wt.path).birthtimeMs) / 3_600_000;
+    } catch {
+      ageHours = undefined;
+    }
     const info = {
       ...wt,
       isMain,
+      isCurrent: !isMain && path.resolve(process.cwd()).startsWith(path.resolve(wt.path)),
+      ageHours,
+      prContainsHead,
       clean: status !== null && isEffectivelyClean(status),
       ahead,
       prState: pr?.state,

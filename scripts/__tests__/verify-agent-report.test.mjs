@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  classifyRedRun,
   compareClaimed,
   extractReport,
   filesOutsideOwnership,
@@ -78,4 +79,33 @@ test('test path detection covers the repo conventions', () => {
     assert.ok(isTestPath(p), p);
   }
   for (const p of ['src/a.ts', 'shared/protocol/test-utils-not.ts']) assert.ok(!isTestPath(p), p);
+});
+
+test('red-first: only a test-runner failure counts as red', () => {
+  assert.equal(
+    classifyRedRun({ status: 1, output: ' FAIL  src/a.test.ts\n  × adds\n Tests  1 failed' }),
+    null
+  );
+  assert.equal(classifyRedRun({ status: 1, output: 'not ok 1 - adds\n# fail 1' }), null);
+  assert.equal(
+    classifyRedRun({
+      status: 1,
+      output: "Error [ERR_MODULE_NOT_FOUND]: Cannot find module '../x.mjs'\n# fail 1",
+    }),
+    null
+  );
+  assert.match(classifyRedRun({ status: 0, output: 'Tests 3 passed' }), /PASSED/);
+  assert.match(classifyRedRun({ status: null, output: '' }), /timed out|killed/);
+  assert.match(
+    classifyRedRun({ status: 127, output: 'sh: vitset: command not found' }),
+    /not a test failure/
+  );
+  assert.match(
+    classifyRedRun({ status: 1, output: 'npm error Missing script: "tset"' }),
+    /not a test failure/
+  );
+  assert.match(
+    classifyRedRun({ status: 1, output: 'something odd happened' }),
+    /no test-runner failure/
+  );
 });

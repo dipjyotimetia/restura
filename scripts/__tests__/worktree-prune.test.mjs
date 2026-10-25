@@ -69,3 +69,34 @@ test('a closed-unmerged PR is not proof the work landed', () => {
     'keep'
   );
 });
+
+test('young worktrees are kept even when they look merged (an agent may have just created them)', () => {
+  const young = classifyWorktree({ ...base, clean: true, ahead: 0, ageHours: 2 });
+  assert.equal(young.action, 'keep');
+  assert.match(young.reason, /h old/);
+  assert.equal(classifyWorktree({ ...base, clean: true, ahead: 0, ageHours: 48 }).action, 'prune');
+});
+
+test('the worktree the script runs from is never pruned', () => {
+  assert.equal(
+    classifyWorktree({ ...base, isCurrent: true, clean: true, ahead: 0 }).action,
+    'keep'
+  );
+});
+
+test('a MERGED PR only counts when the local head is contained in the merged PR head', () => {
+  const reused = classifyWorktree({
+    ...base,
+    clean: true,
+    ahead: 3,
+    prState: 'MERGED',
+    prContainsHead: false,
+  });
+  assert.equal(reused.action, 'keep');
+  assert.match(reused.reason, /not in the merged PR/);
+  assert.equal(
+    classifyWorktree({ ...base, clean: true, ahead: 3, prState: 'MERGED', prContainsHead: true })
+      .action,
+    'prune'
+  );
+});

@@ -92,6 +92,23 @@ export function compareClaimed(claimed, actual) {
   return { unclaimed: actual.filter((f) => !c.has(f)), phantom: claimed.filter((f) => !a.has(f)) };
 }
 
+const RUNNER_FAILURE =
+  /(\bFAIL\b|\bfailed\b|^not ok\b|^# fail [1-9]|[×✖✗]|AssertionError|ERR_MODULE_NOT_FOUND|Cannot find module)/m;
+const NOT_A_TEST_RUN =
+  /(command not found|Missing script|ENOENT: no such file or directory, (?:open|scandir) '[^']*package\.json'|No test files found)/;
+
+/** Decide whether a red-first run failed *as a test* (null) or for another reason (problem text). */
+export function classifyRedRun({ status, output }) {
+  if (status === null) return 'red-first run timed out or was killed — not a test failure';
+  if (status === 0)
+    return 'red-first command PASSED on the base with only the tests applied — the test does not detect the bug';
+  if (NOT_A_TEST_RUN.test(output))
+    return `red-first command failed but not a test failure: ${output.trim().split('\n').slice(-2).join(' | ').slice(0, 200)}`;
+  if (!RUNNER_FAILURE.test(output))
+    return 'red-first command exited non-zero but printed no test-runner failure';
+  return null;
+}
+
 export function isTestPath(p) {
   return (
     /\.(test|spec)\.[cm]?[jt]sx?$/.test(p) ||
@@ -143,17 +160,19 @@ function runRedFirst(report, base, repo, testFiles) {
     } finally {
       console.log = log;
     }
+    // The command string comes from agent output: it only ever runs here, in a
+    // throwaway worktree, and the orchestrator should read it before --red-first.
     const run = spawnSync(report.redFirst.command, {
       cwd: dir,
       shell: true,
       encoding: 'utf8',
       timeout: 600_000,
     });
-    if (run.status === 0)
-      return [
-        `red-first: "${report.redFirst.command}" PASSED on the base with only the tests applied — the test does not detect the bug`,
-      ];
-    return [];
+    const problem = classifyRedRun({
+      status: run.status,
+      output: `${run.stdout ?? ''}\n${run.stderr ?? ''}`,
+    });
+    return problem ? [`red-first: ${problem}`] : [];
   } finally {
     tryGit(['worktree', 'remove', '--force', dir], repo);
   }
@@ -188,16 +207,21 @@ export function main(argv = process.argv.slice(2)) {
       problems.push(
         `branch ${report.branch} tip is ${tip ?? '(missing)'}, report says ${report.sha}`
       );
-    const actual = git(['diff', '--name-only', `${opts.base}...${report.sha}`], repo)
-      .split('\n')
-      .filter(Boolean);
+    // --no-renames: moving someone else's file must show its deletion too.
+    const diffNames = (...extra) =>
+      git(['diff', '--name-only', '--no-renames', ...extra, `${opts.base}...${report.sha}`], repo)
+        .split('\n')
+        .filter(Boolean);
+    const actual = diffNames();
     const outside = filesOutsideOwnership(actual, opts.owned);
     if (outside.length) problems.push(`changed files outside ownership: ${outside.join(', ')}`);
     const { unclaimed, phantom } = compareClaimed(report.filesTouched ?? [], actual);
     if (unclaimed.length) problems.push(`changed but not reported: ${unclaimed.join(', ')}`);
     if (phantom.length) problems.push(`reported but not changed: ${phantom.join(', ')}`);
     if (opts.redFirst && report.redFirst?.command)
-      problems.push(...runRedFirst(report, opts.base, repo, actual.filter(isTestPath)));
+      problems.push(
+        ...runRedFirst(report, opts.base, repo, diffNames('--diff-filter=AM').filter(isTestPath))
+      );
   }
   console.log(
     JSON.stringify(
