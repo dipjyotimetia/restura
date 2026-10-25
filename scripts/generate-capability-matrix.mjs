@@ -3,66 +3,63 @@
  * Generate docs/CAPABILITY_MATRIX.md from src/lib/shared/capabilities.ts.
  * Run with `--check` to fail when the doc is stale (CI gate).
  *
- * Pure-Node ESM (no tsx dependency required at CI-time) — extracts the
- * CAPABILITIES literal by parsing the TS source as text. Brittle to
- * formatting churn; the inverse-quality is that there are no build
- * dependencies to maintain.
+ * Loads the real composed `CAPABILITIES` object rather than regex-parsing the
+ * TS source: esbuild (already a devDependency, used for the preload bundle)
+ * bundles capabilities.ts and its per-area modules in memory, and the result
+ * is imported from a data: URL. The previous text parser silently dropped any
+ * row whose label or notes contained a quote character.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const sourcePath = path.join(repoRoot, 'src/lib/shared/capabilities.ts');
 const docPath = path.join(repoRoot, 'docs/CAPABILITY_MATRIX.md');
 
-const source = fs.readFileSync(sourcePath, 'utf8');
+const bundled = await build({
+  entryPoints: [sourcePath],
+  bundle: true,
+  write: false,
+  format: 'esm',
+  platform: 'neutral',
+  logLevel: 'silent',
+});
+const code = bundled.outputFiles[0].text;
+const { CAPABILITIES } = await import(
+  `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
+);
+if (!CAPABILITIES || typeof CAPABILITIES !== 'object') {
+  throw new Error('CAPABILITIES export not found in src/lib/shared/capabilities.ts');
+}
 
-// Extract the CAPABILITIES object body. Each row is one TS object literal on
-// a single line; we tolerate trailing commas and quoted/unquoted notes.
-const start = source.indexOf('export const CAPABILITIES');
-if (start === -1) throw new Error('CAPABILITIES export not found in source');
-const bodyStart = source.indexOf('{', start);
-let depth = 0;
-let bodyEnd = -1;
-for (let i = bodyStart; i < source.length; i++) {
-  const ch = source[i];
-  if (ch === '{') depth++;
-  else if (ch === '}') {
-    depth--;
-    if (depth === 0) {
-      bodyEnd = i;
-      break;
-    }
+// One table cell: a pipe would split the cell and a newline would split the
+// row, so escape the former and refuse the latter.
+function cell(value, name, field) {
+  const text = String(value ?? '');
+  if (/[\r\n]/.test(text)) throw new Error(`${name}.${field} contains a newline`);
+  return text.replaceAll('|', '\\|');
+}
+
+const rows = Object.entries(CAPABILITIES).map(([name, row]) => {
+  if (typeof row.web !== 'boolean' || typeof row.desktop !== 'boolean') {
+    throw new Error(`${name}: web/desktop must be booleans`);
   }
-}
-if (bodyEnd === -1) throw new Error('Unable to find end of CAPABILITIES literal');
-const body = source.slice(bodyStart + 1, bodyEnd);
-
-// Multi-line tolerant — Prettier wraps rows that carry a `notes` field onto
-// 4–5 lines. The previous single-line regex silently dropped those rows.
-// `\s` already matches newlines, but the trailing comma after `notes` is
-// what Prettier inserts on wrap, so we accept an optional comma there too.
-const rowRegex =
-  /['"]([\w.]+)['"]\s*:\s*\{\s*label:\s*['"]([^'"]+)['"]\s*,\s*web:\s*(true|false)\s*,\s*desktop:\s*(true|false)\s*(?:,\s*notes:\s*['"]([^'"]+)['"]\s*,?\s*)?\}/g;
-const rows = [];
-let match;
-while ((match = rowRegex.exec(body)) !== null) {
-  rows.push({
-    name: match[1],
-    label: match[2],
-    web: match[3] === 'true',
-    desktop: match[4] === 'true',
-    notes: match[5] ?? '',
-  });
-}
-
-if (rows.length === 0) {
-  throw new Error('Parsed zero capability rows; regex likely needs adjustment');
-}
+  return {
+    name,
+    label: cell(row.label, name, 'label'),
+    web: row.web,
+    desktop: row.desktop,
+    notes: cell(row.notes, name, 'notes'),
+  };
+});
 
 const yesNo = (b) => (b ? '✅' : '❌');
+const tableRows = rows.map(
+  (r) => `| ${r.label} | ${yesNo(r.web)} | ${yesNo(r.desktop)} | ${r.notes} |`
+);
 const doc = `# Restura Capability Matrix
 
 > **Generated** from \`src/lib/shared/capabilities.ts\`. Do not edit by hand.
@@ -76,7 +73,7 @@ rather than discover it experimentally.
 
 | Capability | Web | Desktop | Notes |
 | --- | :-: | :-: | --- |
-${rows.map((r) => `| ${r.label} | ${yesNo(r.web)} | ${yesNo(r.desktop)} | ${r.notes} |`).join('\n')}
+${tableRows.join('\n')}
 
 ---
 
@@ -97,6 +94,17 @@ if (isCapableHere('http.proxy.socks', isElectron())) {
 }
 \`\`\`
 `;
+
+// Guard: every capability must become exactly one table row. Count the rows
+// actually rendered into the doc, not the input list, so a formatting bug
+// that merges or splits rows fails loudly instead of shipping a short matrix.
+const expected = Object.keys(CAPABILITIES).length;
+const rendered = doc.split('\n').filter((line) => /^\| .* \| (✅|❌) \| (✅|❌) \| /.test(line));
+if (expected === 0 || rendered.length !== expected) {
+  throw new Error(
+    `Capability matrix has ${rendered.length} rows but CAPABILITIES has ${expected} entries`
+  );
+}
 
 const check = process.argv.includes('--check');
 if (check) {

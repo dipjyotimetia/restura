@@ -1,0 +1,57 @@
+// IPC channels: Kafka.
+// Composed into IPC / EVENT / EVENT_PREFIX by ../channels.ts.
+
+export const KAFKA_IPC = {
+  kafka: {
+    connect: 'kafka:connect',
+    produce: 'kafka:produce',
+    produceBatch: 'kafka:produce-batch',
+    openProducerStream: 'kafka:producer-stream-open',
+    writeProducerStream: 'kafka:producer-stream-write',
+    closeProducerStream: 'kafka:producer-stream-close',
+    beginTransaction: 'kafka:transaction-begin',
+    endTransaction: 'kafka:transaction-end',
+    subscribe: 'kafka:subscribe',
+    pauseConsumer: 'kafka:consumer-pause',
+    resumeConsumer: 'kafka:consumer-resume',
+    pausePartitions: 'kafka:consumer-pause-partitions',
+    resumePartitions: 'kafka:consumer-resume-partitions',
+    seekConsumer: 'kafka:consumer-seek',
+    commitMessage: 'kafka:consumer-commit-message',
+    unsubscribe: 'kafka:unsubscribe',
+    disconnect: 'kafka:disconnect',
+    listTopics: 'kafka:list-topics',
+    createTopic: 'kafka:create-topic',
+    deleteTopic: 'kafka:delete-topic',
+    listGroups: 'kafka:list-groups',
+    inspectTopic: 'kafka:inspect-topic',
+    inspectGroup: 'kafka:inspect-group',
+    resetGroupOffsets: 'kafka:reset-group-offsets',
+    deleteGroup: 'kafka:delete-group',
+    deleteGroupOffsets: 'kafka:delete-group-offsets',
+    createPartitions: 'kafka:create-partitions',
+    alterTopicConfigs: 'kafka:alter-topic-configs',
+    deleteRecords: 'kafka:delete-records',
+    describeCluster: 'kafka:describe-cluster',
+    describeAcls: 'kafka:describe-acls',
+    createAcl: 'kafka:create-acl',
+    deleteAcls: 'kafka:delete-acls',
+    describeQuotas: 'kafka:describe-quotas',
+    alterQuotas: 'kafka:alter-quotas',
+    registryListSubjects: 'kafka:registry-list-subjects',
+    registryListVersions: 'kafka:registry-list-versions',
+    registryGetSchema: 'kafka:registry-get-schema',
+  },
+} as const;
+
+export const KAFKA_EVENT_PREFIX = {
+  kafka: {
+    connected: 'kafka:connected:',
+    message: 'kafka:message:',
+    error: 'kafka:error:',
+    consumerClosed: 'kafka:consumer-closed:',
+    consumerStatus: 'kafka:consumer-status:',
+    consumerLag: 'kafka:consumer-lag:',
+    close: 'kafka:close:',
+  },
+} as const;

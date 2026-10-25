@@ -22,7 +22,7 @@ const GENERATED_FILES = new Map([
   ],
   [
     'docs/CAPABILITY_MATRIX.md',
-    'Edit src/lib/shared/capabilities.ts (the source of truth), then run `npm run capabilities:matrix`.',
+    'Edit the area module under src/lib/shared/capabilities/ (the source of truth), then run `npm run capabilities:matrix`.',
   ],
 ]);
 

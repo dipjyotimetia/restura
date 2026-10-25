@@ -30,7 +30,7 @@ You review Restura changes for cross-harness wiring parity. The renderer is ONE 
 **Electron (main)**
 
 - A handler exists in `electron/main/<p>-handler.ts`.
-- IPC channel name declared in `electron/shared/channels.ts`.
+- IPC channel name declared in its area module under `electron/shared/channels/` (composed by `electron/shared/channels.ts`).
 - Args validated by a Zod schema in `electron/main/ipc-validators.ts` (via `createValidatedHandler`), rate-limited (`ipc-rate-limiter.ts`), sender-checked (`assertTrustedSender`).
 - Preload bridge in `electron/main/preload.ts` exposes the channel; the surface type-checks against `electron/types/electron-api.ts` (`satisfies ElectronAPI`).
 - Long-lived/streaming handlers use `connection-cleanup.ts` (`bindRendererCleanup` / `disposeByOwner`).
@@ -50,7 +50,7 @@ The CLI re-implements execution for headless runs and drifts silently; the gRPC 
 
 **Capability parity (data-driven)**
 
-- If the feature behaves differently on web vs. desktop, `src/lib/shared/capabilities.ts` has a matching entry. Run `npm run capabilities:check` — stale matrix = missing/changed entry. Desktop-only examples: Kafka, MQTT, SOCKS/PAC/mTLS, custom CA, stdio MCP (no browser TCP).
+- If the feature behaves differently on web vs. desktop, the matching area module under `src/lib/shared/capabilities/` (composed by `src/lib/shared/capabilities.ts`) has an entry. Run `npm run capabilities:check` — stale matrix = missing/changed entry. Desktop-only examples: Kafka, MQTT, SOCKS/PAC/mTLS, custom CA, stdio MCP (no browser TCP).
 
 **Type-check reality (critical)**
 
