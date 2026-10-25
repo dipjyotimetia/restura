@@ -25,6 +25,7 @@ const MAJOR_PREFIXES = [
   'electron/main/',
   'worker/',
   'docs/adr/',
+  'src/lib/shared/capabilities/',
 ];
 const MAJOR_FILES = new Set(['src/lib/shared/capabilities.ts']);
 const isMajor = (p) => MAJOR_PREFIXES.some((x) => p.startsWith(x)) || MAJOR_FILES.has(p);
