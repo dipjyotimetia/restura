@@ -5,6 +5,8 @@ expectClean: true
 sourcePRs: ['#1158']
 # Main just before #1158. No later commit touches the files below.
 base: f26b7ae6bbf0421da87ac5702e7e577aabb26270
+# The patch is exactly `git diff base..sourceCommit` (the #1158 merge commit).
+sourceCommit: f2adfdec17cee70b30f7336584984d773aa0f706
 seam: none
 branches:
   - name: fix/set-cookie-side-channel-cap

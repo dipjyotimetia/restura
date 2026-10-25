@@ -5,10 +5,12 @@ import {
   buildReviewPrompt,
   classifyClaudeRun,
   cleanupTracked,
+  cleanupTrackedAsync,
   decideCaught,
   diffFlips,
   formatSummaryMarkdown,
   gradeMustMention,
+  loadCases,
   parseClaudeJson,
   parseEvalArgs,
   parseJudgeVerdict,
@@ -689,4 +691,124 @@ test('cleanupTracked removes exactly the tracked worktree and branches', () => {
       'git -C /repo worktree prune',
     ]
   );
+});
+
+// ---------------------------------------------------------------- review round 2
+
+test('formatSummaryMarkdown escapes backslashes before pipes so a `\\|` cannot break the table', () => {
+  const md = formatSummaryMarkdown(
+    {
+      config: 'current',
+      startedAt: '2026-10-25T00:00:00.000Z',
+      dryRun: true,
+      runs: [{ caseId: 'a', applied: false, combinedMerge: 'n/a', reason: 'bad \\| cell\nnext' }],
+    },
+    undefined
+  );
+  const row = md.split('\n').find((line) => line.startsWith('| a |'));
+  assert.ok(row);
+  assert.equal(row, '| a | NO | n/a | bad \\\\\\| cell next |');
+  // Every unescaped pipe is a column separator: still exactly 5 of them.
+  assert.equal(row.match(/(?<!\\)(?:\\\\)*\|/g).length, 5);
+});
+
+test('cleanupTrackedAsync runs remove, then each branch -D, then prune, strictly in order', async () => {
+  const order = [];
+  let inFlight = 0;
+  const exec = {
+    async run(command, args) {
+      inFlight += 1;
+      assert.equal(inFlight, 1, 'cleanup commands must not overlap');
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      order.push([command, ...args].join(' '));
+      inFlight -= 1;
+      return { status: 0, stdout: '', stderr: '' };
+    },
+  };
+  const tracker = {
+    worktree: '/tmp/he/worktree',
+    branches: ['harness-eval/r1/a', 'harness-eval/r1/b'],
+  };
+  const result = await cleanupTrackedAsync(exec, '/repo', tracker);
+  assert.deepEqual(order, [
+    'git -C /repo worktree remove --force /tmp/he/worktree',
+    'git -C /repo branch -D harness-eval/r1/a',
+    'git -C /repo branch -D harness-eval/r1/b',
+    'git -C /repo worktree prune',
+  ]);
+  assert.deepEqual(result.failed, []);
+  assert.deepEqual(tracker, { worktree: null, branches: [] });
+});
+
+test('cleanup keeps refs (and a worktree) that failed to delete in the tracker and reports them', async () => {
+  const exec = fakeExec((command, args) =>
+    command === 'git' && args.includes('-D') && args.at(-1) === 'harness-eval/r1/b'
+      ? { status: 1, stdout: '', stderr: 'error: cannot lock ref' }
+      : undefined
+  );
+  const tracker = {
+    worktree: '/tmp/he/worktree',
+    branches: ['harness-eval/r1/a', 'harness-eval/r1/b'],
+  };
+  const result = await cleanupTrackedAsync(exec, '/repo', tracker);
+  assert.deepEqual(tracker, { worktree: null, branches: ['harness-eval/r1/b'] });
+  assert.equal(result.failed.length, 1);
+  assert.match(result.failed[0], /harness-eval\/r1\/b: error: cannot lock ref/);
+
+  const stuck = fakeExec((command, args) =>
+    command === 'git' && args.includes('remove')
+      ? { status: 128, stdout: '', stderr: 'busy' }
+      : undefined
+  );
+  const tracker2 = { worktree: '/tmp/he/worktree', branches: [] };
+  const sync = cleanupTracked(stuck, '/repo', tracker2);
+  assert.equal(tracker2.worktree, '/tmp/he/worktree');
+  assert.match(sync.failed[0], /worktree \/tmp\/he\/worktree: busy/);
+});
+
+test('runCase reports cleanup failures without hiding the run result', async () => {
+  const exec = fakeExec((command, args) =>
+    command === 'git' && args.includes('-D')
+      ? { status: 1, stdout: '', stderr: 'locked' }
+      : undefined
+  );
+  const tracker = { worktree: null, branches: [] };
+  const result = await runCase(defectCase(), {
+    exec,
+    repo: '/repo',
+    tempDir: '/tmp/he',
+    runId: 'r1',
+    dryRun: true,
+    tracker,
+  });
+  assert.equal(result.applied, true);
+  assert.equal(result.cleanupFailed.length, 2);
+  assert.deepEqual(tracker.branches, [
+    'harness-eval/r1/feat/mcp-import',
+    'harness-eval/r1/feat/mcp-conformance',
+  ]);
+});
+
+test('validateCase accepts an optional full sourceCommit SHA and rejects anything else', () => {
+  const sha = 'f26b7ae6bbf0421da87ac5702e7e577aabb26270';
+  assert.equal(validateCase(cleanRaw({ sourceCommit: sha }), env).value.sourceCommit, sha);
+  const bad = validateCase(cleanRaw({ sourceCommit: 'f26b7ae6' }), env);
+  assert.equal(bad.ok, false);
+  assert.match(bad.errors.join('\n'), /sourceCommit/);
+});
+
+test('mustMention patterns honour inline case-sensitivity modifiers', () => {
+  assert.equal(gradeMustMention('we get the body', ['(?-i:\\bGET\\b)'], []).allPassed, false);
+  assert.equal(gradeMustMention('a GET request', ['(?-i:\\bGET\\b)'], []).allPassed, true);
+});
+
+test('no real case pattern fires on bare-word distractors (nonce, double-check, design, get)', () => {
+  const distractor =
+    'Please double-check the nonce once more, then get started on the design; the bandwidth, ' +
+    'signal handling and stackoverflow-free recursion look fine overall, again.';
+  for (const evalCase of loadCases()) {
+    for (const pattern of evalCase.mustMention) {
+      assert.doesNotMatch(distractor, new RegExp(pattern, 'i'), `${evalCase.id}: ${pattern}`);
+    }
+  }
 });

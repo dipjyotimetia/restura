@@ -27,7 +27,7 @@ expected:
   symbols: [withAuthHeaders, createAndInitClient, buildMcpConnectAuth]
 mustMention:
   - '(withAuthHeaders|createAndInitClient|buildMcpConnectAuth|mergeHeaders)'
-  - '(\{\{|unresolved|literal|templat|variable)'
-  - '(overrid|overwr|clobber|second auth|two auth|wins|replac|identity resolver)'
+  - '(\{\{|\bunresolved\b|\bliteral\b|\btemplat|\bvariables?\b)'
+  - '(\boverrid|\boverwr|\bclobber|\bsecond auth|\btwo auth|\bwins\b|\breplac|\bidentity resolver\b)'
 mustNotMiss: high
 notes: Minimised to the renderer and shared files of #1131 (CLI, docs, tests and echo-local dropped).

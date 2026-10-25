@@ -25,7 +25,7 @@ expected:
   symbols: [useHttpRequestPage, applyAuthHeaders]
 mustMention:
   - useHttpRequestPage
-  - '(SigV4|AWS|aws-signature|sign)'
+  - '(\bSigV4\b|\bAWS\b|\baws-signature\b|\bsign(s|ed|ing|ature)?\b)'
 mustNotMiss: high
 notes: >-
   The feature commit was pushed directly (no PR). The fixture drops tests and keeps

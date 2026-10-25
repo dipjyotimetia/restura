@@ -35,7 +35,7 @@ scripts/harness-eval.mjs   runner
 | grpc-no-deadline-web-stream | defect | real | cross-harness | #1089 → #1152 |
 | sse-post-body-web-unwired | defect | synthetic | cross-harness | none |
 | sse-spec-signature-seam | defect | synthetic | cross-branch | none |
-| clean-timeline-flush-cost | control | real | none | #1157, no follow-up fix |
+| clean-cli-esm-require | control | real | none | #1155, no follow-up fix |
 | clean-set-cookie-cap | control | real | none | #1158, no follow-up fix |
 
 Real defect cases are reconstructed from `docs/audits/post-merge-review-2026-10-25.md` and git
@@ -54,6 +54,7 @@ expectClean: false        # true for a control
 sourcePRs: ['#1133']      # required for real cases
 fixPRs: ['#1150']         # optional
 base: <40-char SHA>       # the branches are cut from here
+sourceCommit: <40-char SHA>  # optional: the patch is exactly the diff base..sourceCommit
 seam: cross-branch | cross-harness | cross-consumer   # `none` for a control
 branches:                 # 1-3; each patch is applied and committed in order
   - name: feat/x
@@ -71,7 +72,10 @@ notes: minimisation notes
 At least one `mustMention` pattern in a defect case must name a file (path, basename or stem)
 or symbol from `expected.files` / `expected.symbols`; that is the case's **anchor**. The
 validator rejects an anchor that also matches generic review prose (for example
-`(\bGET\b|web)`), because it would credit a review that never located the bug.
+`(\bGET\b|web)`), because it would credit a review that never located the bug. Keyword
+patterns use word boundaries (`\bdouble[- ]?expan`, not `double`, which matches
+`double-check`), and a unit test runs every case pattern against bare-word distractors.
+Patterns are case-insensitive; use `(?-i:\bGET\b)` where case matters.
 
 ## Grading
 
@@ -118,7 +122,9 @@ For each run the runner:
    the outcome. Tools are limited to Bash, Read, Grep, Glob, Task and Skill, with `git push`
    and `gh` denied, and `--max-budget-usd` caps each review;
 3. grades the final text (see Grading);
-4. always removes the worktree and the branches. SIGINT/SIGTERM stop the child, run the same
+4. always removes the worktree and the branches, one command at a time (worktree, then each
+   branch, then prune). Anything that fails to go stays tracked, is retried after the next run
+   and is reported (`cleanupFailed`, non-zero exit). SIGINT/SIGTERM stop the child, run the same
    cleanup and exit non-zero (130 / 143). `--cleanup` handles a hard crash: it removes only
    branches under `harness-eval/` and worktrees under this tool's `restura-harness-eval-*`
    temp dirs.

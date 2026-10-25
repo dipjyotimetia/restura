@@ -12,20 +12,22 @@ branches:
       - 02-graphql-get-wire.patch
 expected:
   defect: >-
-    OpenCollection import now yields `method: 'GET'` for GraphQL items (graphqlMethodFromOC) and
-    the app shapes GET requests with buildGraphQLWireRequest (query / variables / operationName
-    as URL params, GraphQL Accept header). The CLI HTTP executor
-    (cli/src/runner/executors/http.ts) still builds a JSON envelope body for every GraphQL item;
-    for GET, executeHttpProxy drops the body and nothing moves the query into the URL, so
-    `restura run` sends GraphQL GET items with no query at all. The wire shaping should live in
-    shared/ and be used by both.
+    Seeded CLI defect (present in the CLI at the base commit, exposed by this branch). The branch
+    makes OpenCollection import yield `method: 'GET'` for GraphQL items (graphqlMethodFromOC) and
+    teaches the app to send GET with query / variables / operationName as URL params
+    (buildGraphQLWireRequest). The CLI HTTP executor, executeHttp in
+    cli/src/runner/executors/http.ts, is unchanged: it still builds a JSON envelope body for every
+    GraphQL item regardless of method, and for GET the shared executeHttpProxy drops the body
+    without moving its fields into the URL. So `restura run` sends imported GraphQL GET items with
+    no query at all. A review that says the CLI sends GraphQL GET without the query (or that the
+    CLI ignores the GET method for GraphQL) has caught it; how to fix it is out of scope.
   files:
     - cli/src/runner/executors/http.ts
-  symbols: [executeHttp, buildGraphQLWireRequest, graphqlMethodFromOC]
+  symbols: [executeHttp, executeHttpProxy, graphqlMethodFromOC, buildGraphQLWireRequest]
 mustMention:
   - '(executors/http(\.ts)?|executeHttp)'
-  - '\bGET\b'
-  - '(query param|URL|search ?param|no query|missing query|body[^\n]{0,40}(drop|ignor|discard|lost))'
+  - '(?-i:\bGET\b)'
+  - '(\bquery ?(string|params?)\b|\bURL\b|\bsearch ?params?\b|\bno query\b|\bmissing query\b|\bbody\b[^\n]{0,40}\b(dropped|drops|ignored|discarded|lost)\b)'
 mustNotMiss: medium
 notes: >-
   Minimised. graphqlHttp.ts keeps only the wire builder (incremental delivery, progress and

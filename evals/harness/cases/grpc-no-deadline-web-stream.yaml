@@ -24,7 +24,7 @@ expected:
   symbols: [startConnectServerStream, grpcDeadlineMs, NO_GRPC_DEADLINE]
 mustMention:
   - '(grpcStreamingClient|startConnectServerStream)'
-  - '(timeout ?(of )?0|timeoutMs|zero|No deadline|NO_GRPC_DEADLINE)'
-  - '(immediate|at once|instantly|DEADLINE_EXCEEDED|abort)'
+  - '(\btimeout ?(of |= ?|: ?)?0\b|\btimeoutMs\b|\bzero\b|\bno deadline\b|\bNO_GRPC_DEADLINE\b)'
+  - '(\bimmediate|\bat once\b|\binstantly\b|\bDEADLINE_EXCEEDED\b|\babort)'
 mustNotMiss: medium
 notes: Minimised to the shared, renderer and Electron source files of #1089 (docs and tests dropped).

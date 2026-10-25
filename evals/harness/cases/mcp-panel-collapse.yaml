@@ -24,8 +24,8 @@ expected:
   symbols: [McpConnectionPanel]
 mustMention:
   - McpConnectionPanel
-  - '(shrink-0|min-w-0|flex-1|flex-wrap|overflow|squeez|collaps|cramp|no room|width)'
-  - '(Headers|Launch settings|toggle|Floater)'
+  - '(shrink-0|min-w-0|flex-1|flex-wrap|\boverflow|\bsqueez|\bcollaps|\bcramp|\bno room\b|\b(zero|2 ?px|no) width\b)'
+  - '(\bHeaders\b|\bLaunch settings\b|\btoggle\b|\bFloater\b)'
 mustNotMiss: high
 notes: >-
   Minimised. McpImportDialog and McpConformanceDialog keep the shipped trigger button markup but

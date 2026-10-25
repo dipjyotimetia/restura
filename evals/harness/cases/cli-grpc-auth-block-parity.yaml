@@ -22,6 +22,6 @@ expected:
   symbols: [executeGrpc, applyAuthHeaders]
 mustMention:
   - '(executors/grpc(\.ts)?|executeGrpc)'
-  - '(SigV4|OAuth1|WSSE|Digest|NTLM|unsupported auth|auth (block|policy))'
+  - '(\bSigV4\b|\bOAuth ?1\b|\bWSSE\b|\bDigest\b|\bNTLM\b|\bunsupported auth|\bauth (block|policy)\b)'
 mustNotMiss: high
 notes: Minimised to the renderer and shared files of #1088 (docs and tests dropped).

@@ -24,7 +24,7 @@ expected:
   symbols: [resolveOAuth2Token, resolveVarsDeep, resolveAuthVariables]
 mustMention:
   - resolveOAuth2Token
-  - '(twice|double|second (pass|time)|re-?resolv|re-?expan|again|once)'
+  - '(\bdouble[- ]?(expan|resol|substitut)|\b(resolved|resolves|expanded|expands|applied|substituted) twice\b|\bsecond (resolution )?pass\b|\bre-?resolv|\bre-?expan|\b(resolved|expanded) again\b|\b(resolve|expand)\w* (exactly )?once\b)'
 mustNotMiss: high
 notes: >-
   Reconstructed from the first two commits of #1163 (shared resolver + CLI http, then CLI sse);

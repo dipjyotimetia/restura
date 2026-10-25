@@ -192,6 +192,13 @@ export function validateCase(raw, { fileExists, fixturesDir = FIXTURES_DIR }) {
     errors.push('fixPRs must be a list of strings');
   if (typeof raw.base !== 'string' || !SHA_RE.test(raw.base))
     errors.push('base must be a full 40-character commit SHA');
+  if (
+    raw.sourceCommit !== undefined &&
+    (typeof raw.sourceCommit !== 'string' || !SHA_RE.test(raw.sourceCommit))
+  )
+    errors.push(
+      'sourceCommit must be a full 40-character commit SHA (the patch is base..sourceCommit)'
+    );
 
   const caseDir = path.join(fixturesDir, typeof id === 'string' ? id : '_');
   const branches = validateBranches(raw, caseDir, fileExists, errors);
@@ -256,6 +263,7 @@ export function validateCase(raw, { fileExists, fixturesDir = FIXTURES_DIR }) {
       expectClean,
       sourcePRs: raw.sourcePRs ?? [],
       fixPRs: raw.fixPRs ?? [],
+      sourceCommit: raw.sourceCommit ?? null,
       base: raw.base,
       seam: raw.seam,
       branches,
@@ -699,15 +707,48 @@ async function must(exec, args, what) {
   return result;
 }
 
-/** Remove a run's worktree and branches. Works with a sync or async exec. */
+const why = (result) => (result.stderr || result.stdout || `exit ${result.status}`).trim();
+
+/**
+ * Cleanup as a strictly ordered sequence of git commands: remove the worktree
+ * (a branch still checked out there cannot be deleted), then each branch one
+ * at a time (parallel `branch -D` collides on packed-refs.lock), then prune.
+ * Whatever fails to go stays in `tracker` and is reported in `failed`.
+ */
+function* cleanupSteps(repo, tracker, failed) {
+  if (tracker.worktree) {
+    const result = yield ['-C', repo, 'worktree', 'remove', '--force', tracker.worktree];
+    if (result.status === 0) tracker.worktree = null;
+    else failed.push(`worktree ${tracker.worktree}: ${why(result)}`);
+  }
+  const kept = [];
+  for (const ref of [...tracker.branches]) {
+    const result = yield ['-C', repo, 'branch', '-D', ref];
+    if (result.status !== 0) {
+      kept.push(ref);
+      failed.push(`${ref}: ${why(result)}`);
+    }
+  }
+  tracker.branches.splice(0, tracker.branches.length, ...kept);
+  yield ['-C', repo, 'worktree', 'prune'];
+}
+
+/** Synchronous cleanup (signal handlers, --cleanup); `exec.run` must return a result, not a promise. */
 export function cleanupTracked(exec, repo, tracker) {
-  const calls = [];
-  if (tracker.worktree)
-    calls.push(exec.run('git', ['-C', repo, 'worktree', 'remove', '--force', tracker.worktree]));
-  for (const ref of tracker.branches)
-    calls.push(exec.run('git', ['-C', repo, 'branch', '-D', ref]));
-  calls.push(exec.run('git', ['-C', repo, 'worktree', 'prune']));
-  return calls;
+  const failed = [];
+  const steps = cleanupSteps(repo, tracker, failed);
+  let step = steps.next();
+  while (!step.done) step = steps.next(exec.run('git', step.value));
+  return { failed };
+}
+
+/** Same ordered cleanup, awaiting each command before starting the next. */
+export async function cleanupTrackedAsync(exec, repo, tracker) {
+  const failed = [];
+  const steps = cleanupSteps(repo, tracker, failed);
+  let step = steps.next();
+  while (!step.done) step = steps.next(await exec.run('git', step.value));
+  return { failed };
 }
 
 /**
@@ -881,9 +922,9 @@ export async function runCase(evalCase, ctx) {
     outcome.caught = null;
     return outcome;
   } finally {
-    await Promise.all(cleanupTracked(exec, repo, tracker));
-    tracker.worktree = null;
-    tracker.branches.length = 0;
+    // `outcome` was already returned by reference, so this still reaches the caller.
+    const { failed } = await cleanupTrackedAsync(exec, repo, tracker);
+    if (failed.length > 0) outcome.cleanupFailed = failed;
   }
 }
 
@@ -952,9 +993,13 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   let tempDir = null;
   const onSignal = (signal) => {
     activeChild?.kill('SIGTERM');
-    cleanupTracked(syncExec, repo, tracker);
+    const { failed } = cleanupTracked(syncExec, repo, tracker);
     if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
-    console.error(`\nharness-eval: ${signal}; cleaned up this run's worktree and branches.`);
+    console.error(
+      failed.length === 0
+        ? `\nharness-eval: ${signal}; cleaned up this run's worktree and branches.`
+        : `\nharness-eval: ${signal}; cleanup left ${failed.join('; ')}. Run with --cleanup.`
+    );
     process.exit(signal === 'SIGINT' ? 130 : 143);
   };
   process.on('SIGINT', onSignal);
@@ -989,6 +1034,10 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
               ? `  harness error: ${outcome.reason}`
               : `  caught=${outcome.caught} (judge=${outcome.judgeCaught}, pattern=${outcome.patternCaught})`
         );
+        if (outcome.cleanupFailed)
+          log(
+            `  cleanup left: ${outcome.cleanupFailed.join('; ')} (retried next run; or --cleanup)`
+          );
       }
     }
   } finally {
@@ -1013,9 +1062,11 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   fs.writeFileSync(`${base}.md`, markdown);
   log(`\n${markdown}`);
   log(`Wrote ${base}.json and ${base}.md`);
-  const failed = options.dryRun
-    ? result.runs.some((r) => !r.applied || r.combinedMerge !== 'clean')
-    : result.runs.some((r) => r.status === 'error');
+  const failed =
+    result.runs.some((r) => r.cleanupFailed) ||
+    (options.dryRun
+      ? result.runs.some((r) => !r.applied || r.combinedMerge !== 'clean')
+      : result.runs.some((r) => r.status === 'error'));
   return { result, failed };
 }
 
