@@ -91,7 +91,7 @@ jobs:
       group: claude-skill-review-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: read
@@ -118,5 +118,5 @@ jobs:
             Post the aggregated report as ONE comment via `gh pr comment ${{ github.event.pull_request.number }} --body-file <file>`, starting with `# Correctness, Standards & Spec review` and keeping the skill's `## Correctness` / `## Standards` / `## Spec` sections. Post nothing else.
           claude_args: >-
             --model claude-sonnet-5-5
-            --max-turns 30
+            --max-turns 45
             --allowedTools "Skill,Agent,Read,Glob,Grep,Write,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh issue view:*)"
