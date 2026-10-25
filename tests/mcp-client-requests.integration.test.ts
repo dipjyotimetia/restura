@@ -247,12 +247,31 @@ async function startLegacyServer() {
 
   const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });
   await mcp.connect(transport);
+  // The SDK server only delivers requests that are not tied to a client request
+  // (sampling/elicitation/roots pushed from a tool handler) over the client's
+  // standalone GET SSE stream, and silently drops them while it is absent. The
+  // client opens that stream in the background right after `initialized`, so a
+  // tool call issued immediately can win the race. Expose when it is attached.
+  let markStandaloneStreamOpen!: () => void;
+  const standaloneStreamOpen = new Promise<void>((resolve) => {
+    markStandaloneStreamOpen = resolve;
+  });
   const server: Server = createServer((req, res) => {
+    if (req.method === 'GET') {
+      // The transport registers the stream before it writes the 200 headers.
+      const writeHead = res.writeHead.bind(res) as (...args: unknown[]) => typeof res;
+      res.writeHead = ((...args: unknown[]) => {
+        const out = writeHead(...args);
+        markStandaloneStreamOpen();
+        return out;
+      }) as typeof res.writeHead;
+    }
     void transport.handleRequest(req, res);
   });
   const port = await bindLocalhost(server);
   return {
     url: `http://127.0.0.1:${port}/mcp`,
+    standaloneStreamOpen,
     nextRootsChanged: () => new Promise<void>((resolve) => rootsChanged.push(resolve)),
     close: async () => {
       await mcp.close().catch(() => undefined);
@@ -274,6 +293,7 @@ describe('2025-era push-style server→client requests', () => {
       id: WEB_CONTENTS_ID,
     });
     const { client } = await connect(legacy.url);
+    await legacy.standaloneStreamOpen;
     expect(client.getProtocolVersion()).not.toBe('2026-07-28');
 
     const confirm = await client.request('tools/call', { name: 'confirm', arguments: {} }, 15_000);
@@ -300,6 +320,7 @@ describe('2025-era push-style server→client requests', () => {
     legacyServer = legacy;
     simulateRenderer(() => ({ action: 'reject' }));
     const { client } = await connect(legacy.url);
+    await legacy.standaloneStreamOpen;
     const sample = await client.request('tools/call', { name: 'sample', arguments: {} }, 15_000);
     expect(textOf(sample)).toBe('error:-1');
   });
@@ -309,6 +330,7 @@ describe('2025-era push-style server→client requests', () => {
     legacyServer = legacy;
     simulateRenderer(() => undefined); // the user never answers
     const { client, bridge } = await connect(legacy.url);
+    await legacy.standaloneStreamOpen;
     const call = client.request('tools/call', { name: 'confirm', arguments: {} }, 15_000);
     await vi.waitFor(() => expect(renderer.prompts).toHaveLength(1));
     bridge?.dispose();

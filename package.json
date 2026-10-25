@@ -68,7 +68,7 @@
     "echo:local:collection": "npm run echo:local:build && node dist/echo-local/cli.cjs collection",
     "validate:static": "npm run toolchain:check && npm run test:tooling && npm run type-check:all && npm run lint && npm run format:check && npm run verify:opencollection-types && npm run capabilities:check && npm run architecture:check",
     "test:workspaces": "npm run --workspace cli test && npm run --workspace restura-vscode test:unit",
-    "build:workspaces": "npm run --workspace cli build && npm run --workspace @restura/extension build && npm run --workspace restura-vscode build",
+    "build:workspaces": "npm run --workspace cli build && npm run --workspace cli smoke && npm run --workspace @restura/extension build && npm run --workspace restura-vscode build",
     "validate:test": "npm run test:ci && npm run test:electron:critical-coverage && npm run test:workspaces",
     "validate:build": "npm run build && npm run size && npm run build:docker && npm run build:workspaces && npm run electron:build:web && npm run electron:compile",
     "validate": "npm run validate:static && npm run validate:test && npm run validate:build",
@@ -286,5 +286,15 @@
   },
   "build": {
     "extends": "./electron-builder.json"
+  },
+  "allowScripts": {
+    "@sentry/cli": true,
+    "@vscode/vsce-sign": true,
+    "electron-winstaller": true,
+    "esbuild": true,
+    "fsevents": true,
+    "keytar": true,
+    "protobufjs": true,
+    "workerd": true
   }
 }

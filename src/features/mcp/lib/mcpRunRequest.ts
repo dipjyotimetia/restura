@@ -22,7 +22,8 @@ import {
   parseMcpRunParams,
 } from '@shared/protocol/mcp-run';
 import { v4 as uuidv4 } from 'uuid';
-import { applyAuthHeaders } from '@/features/auth/lib/applyAuthHeaders';
+import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import type { RunContext } from '@/features/registry/types';
 import type { PmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
 import { readPmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
@@ -30,8 +31,10 @@ import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
+import { isElectron } from '@/lib/shared/platform';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { Response as ApiResponse, McpRequest, Request } from '@/types';
+import { buildMcpConnectAuth, type McpConnectAuth } from './mcpAuth';
 import type { McpClient } from './mcpClient';
 
 /** Pool shape accepted by `runJsonRpc` (a `Map<string, Promise<McpClient>>` fits). */
@@ -54,6 +57,51 @@ export type McpRunJsonRpc = (
 
 /** `protocolOptions` key the collection runner uses to hand over its pool. */
 export const MCP_CLIENT_POOL_OPTION = 'mcpClientPool';
+
+/**
+ * `protocolOptions` key overriding the rate-limit retry backoff (ms before
+ * each retry; the array length is the retry count). Tests pass tiny delays.
+ */
+export const MCP_RATE_LIMIT_RETRY_DELAYS_OPTION = 'mcpRateLimitRetryDelaysMs';
+
+/** Default backoff before each retry of a rate-limited call (2 retries = 3 tries). */
+export const MCP_RATE_LIMIT_RETRY_DELAYS_MS: readonly number[] = [1000, 2000];
+
+/** Refusal for stdio requests — the runner never launches local processes. */
+export const MCP_RUNNER_STDIO_MESSAGE =
+  "stdio MCP servers aren't supported in the collection runner yet — run it from the request tab.";
+
+/**
+ * True for the desktop IPC rate limiter's rejection (`Rate limit exceeded`,
+ * thrown by `rateLimited` or returned by the handler). It is transient: the
+ * pooled session is still healthy, so it must not be evicted.
+ */
+export function isMcpRateLimitError(message: string | undefined): boolean {
+  return typeof message === 'string' && /rate limit exceeded/i.test(message);
+}
+
+function retryDelays(value: unknown): readonly number[] {
+  if (Array.isArray(value) && value.every((v) => typeof v === 'number' && v >= 0)) {
+    return (value as number[]).slice(0, 5);
+  }
+  return MCP_RATE_LIMIT_RETRY_DELAYS_MS;
+}
+
+/** Wait `ms`, rejecting with an AbortError as soon as `signal` aborts. */
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new DOMException('Request aborted', 'AbortError'));
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Request aborted', 'AbortError'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 function isPool(value: unknown): value is McpRunClientPool {
   return (
@@ -133,36 +181,17 @@ export function injectMcpVariables(request: Request, variables: Record<string, s
 }
 
 /**
- * Fold the request's (already inheritance-resolved) auth into its headers so
- * Bearer / Basic / API-key / OAuth2 reach the server and become part of the
- * pooled-session key. MCP has no query channel (api-key `in: query` is not
- * applied) and a SecretRef handle cannot be resolved by the renderer.
+ * Resolve `{{var}}` in the request's (already inheritance-resolved) auth.
+ * Handle / external SecretRefs stay opaque for Electron main (ADR-0007).
  */
-async function withAuthHeaders(
+export function resolveMcpRunAuth(
   request: McpRequest,
-  variables: Record<string, string>,
-  report: () => void
-): Promise<McpRequest> {
+  variables: Record<string, string>
+): McpRequest {
   if (!request.auth || request.auth.type === 'none') return request;
-  const applied = await applyAuthHeaders(request.auth, {}, request.url, 'POST');
-  if (applied.requiresMainSideApply) {
-    report();
-    throw new Error('MCP requests cannot use stored secret handles for auth; use inline values.');
-  }
-  const authHeaders = Object.entries(applied.headers);
-  if (authHeaders.length === 0) return request;
-  const overridden = new Set(authHeaders.map(([k]) => k.toLowerCase()));
   return {
     ...request,
-    headers: [
-      ...(request.headers ?? []).filter((h) => !overridden.has(h.key.toLowerCase())),
-      ...authHeaders.map(([key, value]) => ({
-        id: `auth-${key}`,
-        key,
-        value: injectString(value, variables),
-        enabled: true,
-      })),
-    ],
+    auth: resolveAuthVariables(request.auth, (text) => injectString(text, variables)),
   };
 }
 
@@ -172,6 +201,25 @@ function enabledHeaders(request: McpRequest): Record<string, string> {
     if (h.enabled !== false && h.key) out[h.key] = h.value;
   }
   return out;
+}
+
+/**
+ * Connect-time credentials for a single-call MCP run (collection runner,
+ * workflows) — the same `buildMcpConnectAuth` policy as the interactive
+ * builder, so there is ONE auth path. `mcp` must already have its `{{vars}}`
+ * resolved (headers via `injectMcpVariables`, auth via `resolveMcpRunAuth`),
+ * hence the identity resolver. Web gets the credential as a header (handles
+ * fail closed); desktop gets a `mainSideAuth` descriptor that Electron main
+ * resolves, handles included.
+ */
+export function buildMcpRunConnectAuth(mcp: McpRequest): McpConnectAuth {
+  return buildMcpConnectAuth({
+    auth: mcp.auth,
+    inherited: resolveInheritedAuthFor({ id: mcp.id, auth: mcp.auth ?? { type: 'none' } }),
+    headers: enabledHeaders(mcp),
+    resolve: (text) => text,
+    desktop: isElectron(),
+  });
 }
 
 type ScriptInfo = NonNullable<PmRunContextOptions['info']> & {
@@ -219,6 +267,8 @@ export async function runMcpRequest(
     throw new Error(`MCP protocol cannot run ${rawRequest.type} request`);
   }
   if (ctx.signal.aborted) throw new DOMException('Request aborted', 'AbortError');
+  // The runner never launches local processes (same rule as `restura run`).
+  if ((rawRequest as McpRequest).transport === 'stdio') throw new Error(MCP_RUNNER_STDIO_MESSAGE);
 
   const opts = readPmRunContextOptions(ctx.protocolOptions);
   const pool = ctx.protocolOptions?.[MCP_CLIENT_POOL_OPTION];
@@ -252,7 +302,7 @@ export async function runMcpRequest(
   // Resolve with the post-pre-request variables so a script can set the
   // tool name / arguments / token for this call.
   const injected = injectMcpVariables(rawRequest, scriptEnvVars) as McpRequest;
-  const request = await withAuthHeaders(injected, scriptEnvVars, report);
+  const request = resolveMcpRunAuth(injected, scriptEnvVars);
   const method = request.defaultMethod?.trim() ?? '';
   if (!method) {
     report();
@@ -264,42 +314,65 @@ export async function runMcpRequest(
     throw new Error(params.error);
   }
 
+  // Validate the credential up front (fails closed with the shared message,
+  // e.g. a keychain handle on web) and key the pooled session by it.
+  const connectAuth = buildMcpRunConnectAuth(request);
+  if (!connectAuth.ok) {
+    report();
+    throw new Error(connectAuth.error);
+  }
+
   const started = Date.now();
   // A pooled client is shared, so runJsonRpc does not tear it down on abort;
   // race the call so Stop still ends this item promptly.
   const clientPool = isPool(pool) ? pool : undefined;
-  // Session identity = resolved url + transport + headers (auth headers are
-  // folded into `request.headers` above, so differing credentials never share
-  // one session).
+  // Session identity = resolved url + transport + effective headers (the web
+  // credential included) + the desktop main-side auth descriptor, so differing
+  // credentials never share one session.
   const cacheKey = clientPool
-    ? mcpSessionKey(request.url, request.transport, enabledHeaders(request))
+    ? mcpSessionKey(request.url, request.transport, connectAuth.headers) +
+      (connectAuth.mainSideAuth ? `|${JSON.stringify(connectAuth.mainSideAuth)}` : '')
     : undefined;
-  const work = runJsonRpc(request, ctx, {
-    method,
-    ...(params.params !== undefined ? { params: params.params } : {}),
-    ...(clientPool && cacheKey ? { clientPool, cacheKey } : {}),
-  });
-  // Captured before awaiting so eviction never removes a replacement entry.
-  const pending = clientPool && cacheKey ? clientPool.get(cacheKey) : undefined;
-  const evict = () => {
-    if (!clientPool || !cacheKey || !pending || clientPool.get(cacheKey) !== pending) return;
-    clientPool.delete(cacheKey);
-    void pending.then((client) => client.disconnect()).catch(() => undefined);
-  };
-  let call: Awaited<typeof work>;
-  try {
-    call = await raceAbort(work, ctx.signal);
-  } catch (error) {
-    evict();
-    throw error;
-  }
-  const time = Date.now() - started;
-
-  if (!call.ok && !call.jsonRpcError) {
+  const delays = retryDelays(ctx.protocolOptions?.[MCP_RATE_LIMIT_RETRY_DELAYS_OPTION]);
+  let call: Awaited<ReturnType<McpRunJsonRpc>>;
+  for (let attempt = 0; ; attempt++) {
+    const work = runJsonRpc(request, ctx, {
+      method,
+      ...(params.params !== undefined ? { params: params.params } : {}),
+      ...(clientPool && cacheKey ? { clientPool, cacheKey } : {}),
+    });
+    // Captured before awaiting so eviction never removes a replacement entry.
+    const pending = clientPool && cacheKey ? clientPool.get(cacheKey) : undefined;
+    const evict = () => {
+      if (!clientPool || !cacheKey || !pending || clientPool.get(cacheKey) !== pending) return;
+      clientPool.delete(cacheKey);
+      void pending.then((client) => client.disconnect()).catch(() => undefined);
+    };
+    try {
+      call = await raceAbort(work, ctx.signal);
+    } catch (error) {
+      evict();
+      throw error;
+    }
+    if (call.ok || call.jsonRpcError) break;
+    if (isMcpRateLimitError(call.error)) {
+      // Transient: the session is healthy. Evicting would force a reconnect
+      // that burns more of the same budget — back off and retry instead.
+      const delay = delays[attempt];
+      if (delay === undefined) {
+        report();
+        throw new Error(
+          `MCP rate limit exceeded — gave up after ${attempt + 1} attempts. Slow the run down (add a delay between requests) and try again.`
+        );
+      }
+      await sleep(delay, ctx.signal);
+      continue;
+    }
     evict();
     report();
     throw new Error(call.error ?? 'MCP request failed');
   }
+  const time = Date.now() - started;
   const reply = buildMcpRunReply(
     call.ok
       ? { result: call.result }
