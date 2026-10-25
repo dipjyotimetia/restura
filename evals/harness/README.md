@@ -95,12 +95,13 @@ would change nothing. `git cat-file -e <base>:<path>` on the 12 cases (2026-10-2
   `scripts/integration-check.mjs` and `scripts/worktree-setup.mjs`, so on the other 10 the
   prompt's `npm run integration-check` did not exist.
 
-So, after the worktree is created at `base` and before any branch is cut, the runner applies an
-**overlay** (`overlayHarness`):
+So, after the run's repo is created at `base` and before any branch is cut, the runner applies
+an **overlay** (`overlayHarness`):
 
 1. removes the base's `.claude/skills`, `.claude/agents`, `.claude/commands`, `.claude/hooks`,
    `.claude/settings.json` and `.agents/skills` (whatever exists);
-2. checks out from the harness commit (`--harness-ref`, resolved once per invocation)
+2. extracts (`git archive`) from the harness commit (`--harness-ref`, resolved once per
+   invocation)
    `.claude/skills .claude/agents .claude/hooks .claude/settings.json .agents CLAUDE.md AGENTS.md
    docs/agents skills-lock.json scripts/integration-check.mjs scripts/verify-agent-report.mjs
    scripts/worktree-setup.mjs scripts/worktree-prune.mjs`, each only if it exists there (never
@@ -116,6 +117,29 @@ Each run records `harnessSha` and `effectiveBase`. The overlay uses the harness'
 state: uncommitted edits in your checkout are not tested, so commit (or point `--harness-ref` at a
 branch) first. `--dry-run` applies the overlay too, so a green dry run proves every case's
 patches still apply on top of the harness under test.
+
+## Isolation (why the review never runs in a worktree of this repo)
+
+A `git worktree` of this repo shares its whole object store and refs, so a reviewer could
+`git log --all` or `git show` its way to the later fix commit (for example the
+`fix(mcp): keep launch settings/headers toggle usable…` that resolves `mcp-panel-collapse`) and
+read the answer. Anthropic's eval guidance is to keep answers structurally out of the model's
+reach, not to ask it not to look. So each run builds a **history-free repo** in its own temp dir
+(`createIsolatedRepo`):
+
+1. `git init`, then the case base's *tree* via `git -C <repo> archive <base> | tar -x` (argv
+   arrays, no shell), committed as `base`;
+2. the harness overlay above, also from `git archive`, committed as `harness overlay @ <sha12>`
+   (the effective base);
+3. `main` and `refs/remotes/origin/main` point at the effective base, so `origin/main` and
+   `git diff main...<branch>` work; no remote is configured, so fetch and push fail closed.
+
+`git log --all` there shows exactly those two commits plus the case branches. This repo is only
+read (`archive`, `cat-file`, `show`, `rev-parse`): no branches, worktrees or refs are created
+in it, and cleanup is deleting the temp dir. `node_modules` are symlinked from the main checkout
+(like `npm run worktree:setup`, which only accepts linked worktrees). Residual risk: those
+symlinks, and absolute paths in general, still point at the main checkout, so a reviewer that
+deliberately `cd`s out of its repo could find the history. Read the transcripts for that.
 
 ## Grading
 
@@ -207,7 +231,7 @@ file. See `baselines/README.md`.
 npm run eval:harness -- --dry-run                 # validate cases, apply overlay + patches, check the combined merge; no model calls
 npm run eval:harness -- --case mcp-panel-collapse # one case, 2 runs, config "current", harness = HEAD
 npm run eval:harness -- --split train --runs 3    # hillclimb on train only
-npm run eval:harness -- --cleanup                 # remove harness-eval/* branches and worktrees left by a crashed run
+npm run eval:harness -- --cleanup                 # remove legacy harness-eval/* branches and worktrees
 ```
 
 A/B comparison of two harness versions (same cases, same models, different harness commit):
@@ -236,22 +260,21 @@ Options:
 
 For each run the runner:
 
-1. adds a throwaway worktree at `base`, applies the harness overlay and commits it (the effective
-   base), creates `harness-eval/<run-id>/<branch>` from the patches on top of it, then checks that
-   all branches merge together without a textual conflict (the defect must be semantic);
-2. links `node_modules` (`scripts/worktree-setup.mjs`) and runs
+1. builds the history-free repo at `base` in a temp dir, applies the harness overlay and commits
+   it (the effective base), creates each case branch (plain name, e.g. `feat/mcp-import`) from
+   the patches on top of it, then checks that all branches merge together without a textual
+   conflict (the defect must be semantic);
+2. links `node_modules` from the main checkout and runs
    `claude -p --output-format stream-json --verbose` with `/ship-check --quick <branches>` plus a
    note to treat the effective base as `main`, saving the stream as the run's transcript. The
    prompt is the same for defect cases and controls and never hints at the outcome. Tools are
    limited to Bash, Read, Grep, Glob, Task and Skill, with `git push` and `gh` denied, and
    `--max-budget-usd` caps each review;
 3. grades the final text (see Grading), calling the judge `--judge-repeat` times;
-4. always removes the worktree and the branches, one command at a time (worktree, then each
-   branch, then prune). Anything that fails to go stays tracked, is retried after the next run
-   and is reported (`cleanupFailed`, non-zero exit). SIGINT/SIGTERM stop the child, run the same
-   cleanup and exit non-zero (130 / 143). `--cleanup` handles a hard crash: it removes only
-   branches under `harness-eval/` and worktrees under this tool's `restura-harness-eval-*`
-   temp dirs.
+4. always removes the run's temp dir (the isolated repo lives inside it). SIGINT/SIGTERM stop the
+   child, remove it and exit non-zero (130 / 143). `--cleanup` removes leftovers of older
+   versions of this runner, which used worktrees of this repo: only branches under
+   `harness-eval/` and worktrees under this tool's `restura-harness-eval-*` temp dirs.
 
 Each invocation writes `<timestamp>--<config>.json` and `.md`, and the transcripts directory next
 to them. When an earlier result for the same config exists (or `--compare` is given), the summary
