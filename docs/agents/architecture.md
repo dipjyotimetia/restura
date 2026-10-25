@@ -109,7 +109,7 @@ Key modules:
 - gRPC (ADR 0022) is split across `grpc-proxy.ts` (Connect unary/stream), `grpc-web-proxy.ts` + `grpc-web-framing.ts` + `grpc-web-schema.ts` (gRPC-Web, `/api/grpc-web`), `grpc-reflection-proxy.ts`, `grpc-proto-compiler.ts` + `grpc-registry.ts` (proto/descriptor uploads), `grpc-status.ts` + `grpc-status-details.ts` (`google.rpc.Status`), `grpc-unknown-fields.ts`, and `grpc-schema-drift.ts`. Reuse these rather than adding gRPC logic per backend.
 - `digest-auth.ts` (Digest challenge retry, ADR 0029) and `redirect-follower.ts` (manual redirects with per-hop SSRF checks).
 
-**When adding a new protocol**: add `shared/protocol/<name>-proxy.ts` exposing `execute<Name>Proxy(spec, fetcher, options)`, then ~30 lines of Fetcher adapter each in `worker/handlers/` and `electron/main/`. SSRF, headers, body, timeouts come for free. The Electron HTTP adapter (`electron/main/handlers/http-handler.ts`) is the exception and is far larger: PAC, SOCKS, mTLS, ALPN capture and manual redirects live inside its fetcher closure (ADR-0006).
+**When adding a new protocol**: add `shared/protocol/<name>-proxy.ts` exposing `execute<Name>Proxy(spec, fetcher, options)`, then ~30 lines of Fetcher adapter each in `worker/handlers/` and `electron/main/`, plus a CLI executor in `cli/src/runner/executors/` registered in `dispatch.ts` (or an explicit CLI failure — parity includes the CLI). SSRF, headers, body, timeouts come for free. The Electron HTTP adapter (`electron/main/handlers/http-handler.ts`) is the exception and is far larger: PAC, SOCKS, mTLS, ALPN capture and manual redirects live inside its fetcher closure (ADR-0006).
 
 ### AI assistant (`src/features/ai/`)
 
