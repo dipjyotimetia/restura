@@ -1,13 +1,13 @@
 ---
 name: triage-maintenance
-description: "Proactive maintenance loop body: dependabot PRs, security-audit findings, skill metrics, ratchet tightening, flake review, stale worktree pruning. Use for a scheduled/weekly sweep or 'do maintenance / triage the repo'."
-argument-hint: '[--deps | --security | --skills | --ratchets] (default: all four streams)'
-allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task
+description: "Proactive maintenance loop body: dependabot PRs, security-audit findings, skill metrics, ratchet tightening, flake review, stale worktree pruning, eval upkeep (escaped defects to eval cases, saturation). Use for a scheduled/weekly sweep or 'do maintenance / triage the repo'."
+argument-hint: '[--deps | --security | --skills | --ratchets | --worktrees | --eval-upkeep | --evals] (default: all six streams; --evals is opt-in)'
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task, Skill
 ---
 
-You are one iteration of Restura's recurring maintenance loop. Five input
+You are one iteration of Restura's recurring maintenance loop. Six input
 streams (plus an opt-in harness eval), each with a deterministic "done for this run" state. Scope:
-`$ARGUMENTS` (default: all five; `--evals` is opt-in). Report one consolidated summary; skip
+`$ARGUMENTS` (default: all six; `--evals` is opt-in). Report one consolidated summary; skip
 streams with nothing actionable.
 
 ## Stream 1 — Dependency PRs (`--deps`)
@@ -76,6 +76,25 @@ metrics accumulate.
    kept worktree yourself: list dirty/unmerged ones for the human (they may
    hold private-advisory work that exists nowhere else).
 
+## Stream 6 — Eval upkeep (`--eval-upkeep`)
+
+1. **Escaped defects → eval cases, within the week.** Every merged fix PR
+   labelled `escaped-defect` (or any fix PR for a bug that passed review)
+   becomes an eval case: a harness review case scaffolded with
+   `npm run eval:new-case -- --from <fixPR>`, or a build-loop task under
+   `evals/build/`. List any escaped defect still without a case.
+2. **Weekly read-back (local-only).** Run `npm run skills:report`; skills with
+   0 uses over 4 weeks are **deletion candidates for the user** (never delete
+   unasked). Read 3 sampled eval transcripts from
+   `.claude/metrics/evals/*/transcripts/` — train split only — and note
+   recurring failure modes.
+3. **Saturation.** A case with pass^n = 1 across 3 committed baselines
+   (`evals/harness/baselines/`) is regression-only. When the recall CI lower
+   bound is ≥ 0.9, add harder cases instead of tuning the harness.
+4. **No overfitting.** Never edit skills, agents or `CLAUDE.md` to fit a
+   specific eval case. One root-cause change per hillclimb round; keep it only
+   if train AND test both improve.
+
 ## Harness eval (`--evals`, opt-in, local-only, costs model usage)
 
 Only when `.claude/`, `CLAUDE.md`, `AGENTS.md` or `docs/agents/` changed
@@ -91,7 +110,7 @@ newly missed seam case is a harness regression: queue it for the human.
 - Every code change goes through a branch + `/ship-check --quick` before
   push; this loop never commits straight to main.
 - End with: streams checked, actions taken, items queued for a human. If all
-  five streams were empty, say exactly that in one line.
+  six streams were empty, say exactly that in one line.
 
 ## Scheduling
 

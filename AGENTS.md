@@ -66,7 +66,7 @@ Full version: `docs/agents/delivery.md`. Identical in `CLAUDE.md` and `AGENTS.md
 
 - **Verify before done** — for renderer/UI changes, run the app (`npm run dev`), drive the change in a real browser and check the console (`verify-ui-change` skill); iterate against a deterministic gate (`npm run validate`, `/fix-until-green`) with an attempt cap, not "looks done".
 - **Plan by file ownership** — two PRs touching the same non-registry file are one PR; ≤5 PRs per batch; independent PRs off `main`, stack only real dependencies (≤3 layers); one topic per branch/worktree.
-- **Review the combined result** — `npm run integration-check -- <branches>` plus `/ship-check <branches>` (security per branch; correctness, parity and docs on the combined diff, plus a fresh-context code review); seam bugs are invisible per branch.
+- **Review the combined result** — `npm run integration-check -- <branches>` plus `/ship-check <branches>` (security per branch; correctness, parity and docs on the combined diff, plus a fresh-context code review per `.claude/skills/code-review/SKILL.md` — Correctness, Standards, Spec); seam bugs are invisible per branch.
 - **Merge via the merge lane** (`gh pr merge <n> --auto --squash`); `--admin` is emergencies only and is hook-gated.
 - **Subagents that edit code** — `npm run worktree:setup`; explicit `git add <paths>`; red-first tests; no push/PR/`gh` mutations (hook-enforced from `.claude/worktrees/`); report branch, worktree, SHA. Brief them fully — they only know the prompt.
 - **Encode fixes upward** — when a loop misses the bar, fix the skill/hook/doc, not just the instance.
@@ -94,3 +94,15 @@ This repository has a generated `openwiki/` evidence index. It is optional just-
 The scheduled OpenWiki GitHub Actions workflow refreshes the repository wiki. Do not hand-edit generated OpenWiki pages unless explicitly asked; prefer updating source code/docs and letting OpenWiki regenerate.
 
 <!-- OPENWIKI:END -->
+
+## Agent skills
+
+Codex does not load `.claude/skills/`; read these files directly instead.
+
+### Issue tracker
+
+Issues live in GitHub Issues for dipjyotimetia/restura (via the `gh` CLI). Read `docs/agents/issue-tracker.md` for the workflow (labels, how to read and file issues).
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/`. Read `docs/agents/domain.md` for how to consume and extend them.

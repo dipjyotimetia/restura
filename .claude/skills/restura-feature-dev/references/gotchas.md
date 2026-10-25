@@ -17,7 +17,7 @@ In Electron, `corsProxy.enabled` is irrelevant — `shouldUseCorsProxy()` return
 The app uses `createHashRouter`. URLs look like `https://app/#/route`. Implications:
 
 - Server-side route matching is impossible (and unnecessary).
-- Deep links in Electron parse the hash portion (see `electron/main/deep-link-handler.ts`).
+- Deep links in Electron parse the hash portion (see `electron/main/lifecycle/deep-link-handler.ts`).
 - Don't write code that assumes `window.location.pathname` reflects the current app route — it'll be `/` everywhere. Use the React Router hooks.
 
 ## Three duplicated type definitions per IPC config
@@ -25,8 +25,8 @@ The app uses `createHashRouter`. URLs look like `https://app/#/route`. Implicati
 For any IPC-bound type, three places hold a definition:
 
 1. `src/types/index.ts` — canonical renderer type
-2. `electron/main/ipc-validators.ts` — Zod schema + inferred type
-3. `electron/types/electron.d.ts` — preload bridge declaration
+2. `electron/main/ipc/validators/<area>.ts` — Zod schema + inferred type
+3. `electron/types/electron-api.ts` (plus a module under `electron/types/api/`) — preload bridge declaration
 
 Change one, change all three in the same PR. There's no compiler help to keep them aligned. This is intentional — separation lets each layer build independently.
 
@@ -104,7 +104,7 @@ The Network Console only sees protocols whose IPC handlers call `request-logger.
 
 ## `dns-guard.ts` is pre-flight only
 
-`electron/main/dns-guard.ts` resolves the hostname once _before_ the transport connects. It does **not** mitigate true DNS rebind — an attacker who controls the resolver can return a public IP on the pre-flight lookup and a private IP on the actual connect (TTL=0). Full protection requires a custom transport-level dispatcher with a `lookup` hook that re-applies `assertResolvedAddressAllowed` at connect time. The HTTP/gRPC paths already do this via undici's `Agent.connect.lookup`; everything else (WebSocket, Socket.IO, SSE, MCP) is pre-flight only. When you wire a new transport, prefer a connector-level `lookup` hook over (or in addition to) the pre-flight check. See ADR-0006.
+`electron/main/security/dns-guard.ts` resolves the hostname once _before_ the transport connects. It does **not** mitigate true DNS rebind — an attacker who controls the resolver can return a public IP on the pre-flight lookup and a private IP on the actual connect (TTL=0). Full protection requires a custom transport-level dispatcher with a `lookup` hook that re-applies `assertResolvedAddressAllowed` at connect time. The HTTP/gRPC paths already do this via undici's `Agent.connect.lookup`; everything else (WebSocket, Socket.IO, SSE, MCP) is pre-flight only. When you wire a new transport, prefer a connector-level `lookup` hook over (or in addition to) the pre-flight check. See ADR-0006.
 
 ## `bindRendererCleanup` is per-handler, not global
 

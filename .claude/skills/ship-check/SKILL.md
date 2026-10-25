@@ -2,7 +2,7 @@
 name: ship-check
 description: "Run Restura's full ship-readiness gate (what `npm run validate` covers plus what it misses: reviewers, docs parity, combined-diff integration for multiple branches) and triage failures to file:line. Use before opening/merging a PR, 'is this ready to ship', or 'review my branch(es)'."
 argument-hint: '[--quick | --full] (default: scope to the current diff)'
-allowed-tools: Bash, Read, Grep, Glob, Agent, Task
+allowed-tools: Bash, Read, Grep, Glob, Agent, Task, Skill
 ---
 
 You are running the Restura ship-readiness gate. First invoke the `restura-production-checks` skill so its gotchas are loaded. Then execute the gates below, collect results, and produce ONE consolidated checklist. Do not stop at the first failure — run everything, then report.
@@ -20,10 +20,10 @@ Determine the diff under review: `git diff --stat main...HEAD` and `git status -
 3. **Codegen freshness** — `npm run verify:opencollection-types` and `npm run capabilities:check`. On failure, the fix is to regenerate (`gen:opencollection-types` / `capabilities:matrix`), not hand-edit.
 4. **Unit/integration + coverage** — `npm run test:run`.
 5. **Agent review fan-out** — dispatch every applicable reviewer **in parallel** (one message, multiple Task calls — they are independent; serializing them wastes the wall-clock of every faster agent):
-   - `restura-security-auditor` — if the diff touches `shared/protocol/`, `electron/main/*-guard.ts`, `dns-guard.ts`, `ipc-validators.ts`, secret stores, or sandboxes. Also confirm the relevant `tests/security/*` passed in step 4.
+   - `restura-security-auditor` — if the diff touches `shared/protocol/`, `electron/main/security/` (DNS/broker guards, secret-handle store), `electron/main/storage/userdata-guard.ts`, `electron/main/ipc/` (validators, rate limiter), `worker/shared/dns-guard-node.ts`, secret stores, sandboxes, or adds a `*-handler.ts`. Also confirm the relevant `tests/security/*` passed in step 4.
    - `restura-parity-checker` — if the diff adds/changes a protocol, auth, or networked feature (it also reviews `cli/` executors). With several branches, pass it every branch's diff so duplicate transforms across branches are visible.
    - `restura-docs-steward` — always (CI has no content-parity gate). Run `npm run docs:check` alongside it.
-   - **Fresh-context code review** — for any non-trivial diff, also run the built-in `/code-review` skill. A reviewer that did not write the code is not influenced by the authoring session's reasoning; the agents above check domain properties, this one checks correctness.
+   - **Fresh-context code review** — for any non-trivial diff, also invoke the repo's `code-review` skill (`.claude/skills/code-review`, three parallel axes: Correctness, Standards, Spec) against the same base. A reviewer that did not write the code is not influenced by the authoring session's reasoning; the agents above check domain properties, its Correctness axis checks bugs, edge cases, error paths and cross-harness seams. Treat its **blocking** Correctness findings as ship blockers.
 6. **Builds** (unless `--quick`) — `npm run build` and `npm run electron:compile`. Start these as **background Bash** in the same message as the agent dispatch so they overlap the fan-out — running them afterwards serializes the two slowest gates.
 7. **Bundle size** (only `--full`) — `npm run size`.
 8. **e2e** (only `--full`, or if protocol/transport changed) — `npm run test:e2e`.

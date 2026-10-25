@@ -17,7 +17,7 @@ This dual-harness design is the central thing to understand. **Most feature bugs
 Before writing any code, identify which category the work falls into. Wiring requirements differ.
 
 **A. New protocol or new request type** — e.g. SSE, MQTT, SignalR, GraphQL subscriptions.
-The heaviest case. Touches: a new `src/features/<name>/` folder, an executor with `isElectron()` branching, a Worker handler in `worker/handlers/`, an Electron IPC handler in `electron/main/`, a Zod schema in `electron/main/ipc-validators.ts`, the preload bridge, and `electron/types/electron.d.ts`. Read **`references/adding-new-protocol.md`** for the end-to-end walkthrough.
+The heaviest case. Touches: a new `src/features/<name>/` folder, an executor with `isElectron()` branching, a Worker handler in `worker/handlers/`, an Electron IPC handler in `electron/main/`, a Zod schema in `electron/main/ipc/validators/<area>.ts`, the preload bridge, and `electron/types/electron-api.ts` (plus a module under `electron/types/api/`). Read **`references/adding-new-protocol.md`** for the end-to-end walkthrough.
 
 **B. Extension on an existing protocol** — e.g. new auth method, new gRPC streaming mode, new HTTP option.
 Touches the existing executor in `src/features/<protocol>/lib/`, possibly the Worker handler and the Electron IPC handler. UI updates land in the existing `RequestBuilder`. **Most likely failure mode: forgetting the IPC handler — desktop silently uses the old code path with no compile error.**
@@ -39,11 +39,11 @@ These apply to every category.
 ### Platform detection
 
 - Always use `isElectron()` from `@/lib/shared/platform`. Never check `process.env`, `navigator.userAgent`, or `import.meta.env.VITE_IS_ELECTRON_BUILD` for runtime branching — those are build-time only.
-- `window.electron` is typed in `electron/types/electron.d.ts`. New IPC methods must be declared there, in the preload bridge, and have a Zod schema in `ipc-validators.ts` — **all three** or the call breaks at runtime in desktop.
+- `window.electron` is typed by `ElectronAPI` in `electron/types/electron-api.ts`, composed from modules under `electron/types/api/`. New IPC methods must be declared there, in a preload domain module (`electron/main/preload/`), and have a Zod schema under `electron/main/ipc/validators/` — **all three** or the call breaks at runtime in desktop.
 
 ### Validation philosophy — different at each layer
 
-- **Electron IPC handlers**: Zod is mandatory. Always wrap with `createValidatedHandler(channel, schema, fn)` from `electron/main/ipc-validators.ts`.
+- **Electron IPC handlers**: Zod is mandatory. Always wrap with `createValidatedHandler(channel, schema, fn)` from `electron/main/ipc/validators/` (`boundary.ts`, re-exported by its `index.ts`).
 - **Worker handlers**: No Zod. Manual checks (method allow-list, `validateURL()` for SSRF, header strip-list). Keeps the Worker bundle small for cold starts. Don't introduce Zod there.
 - **Zustand updates**: Soft Zod via `src/lib/shared/store-validators.ts` — failures log a warning but don't block the update. Mirror this for new stores.
 - **Renderer code**: Zod where boundaries are crossed (parsing imports, untrusted inputs), not on internal data flow.
@@ -53,8 +53,8 @@ These apply to every category.
 Types are duplicated across layers intentionally. For an IPC-bound config there are **three** definitions to keep in sync:
 
 1. `src/types/index.ts` — canonical renderer type
-2. `electron/main/ipc-validators.ts` — Zod schema + inferred type
-3. `electron/types/electron.d.ts` — preload bridge declaration
+2. `electron/main/ipc/validators/<area>.ts` — Zod schema + inferred type
+3. `electron/types/electron-api.ts` (plus a module under `electron/types/api/`) — preload bridge declaration
 
 The Worker has its own local interface in each handler file too. Do not try to centralize this into a shared package — it's been considered and rejected as the cost of letting each layer build independently. When you change one definition, change all of them in the same PR.
 
@@ -107,7 +107,7 @@ The whole reason Worker and IPC handlers are separate is so each harness uses it
 
 - [ ] Category identified and stated
 - [ ] All applicable layers wired
-- [ ] If IPC was touched: type added to `src/types/`, Zod schema in `ipc-validators.ts`, preload bridge updated, `electron/types/electron.d.ts` updated
+- [ ] If IPC was touched: type added to `src/types/`, Zod schema under `electron/main/ipc/validators/`, preload bridge updated, `electron/types/electron-api.ts` (plus a module under `electron/types/api/`) updated
 - [ ] If Worker was touched: SSRF validation applied, response-size cap enforced, error shape `{ error: string }` with proper status
 - [ ] Tests added (unit minimum; schema tests for new IPC; SSRF test for new Worker handler)
 - [ ] `npm run validate` passes

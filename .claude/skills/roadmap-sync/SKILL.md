@@ -102,5 +102,5 @@ you dropped and why, and gate results. Don't commit unless asked.
 ## Changing the tree page itself
 
 Read `references/tree-ui.md` before editing `roadmap.astro`,
-`scripts/product-tree.ts`, or `styles/tree.css` — it explains the layout model,
+`docs-site/src/scripts/product-tree.ts`, or `styles/tree.css` — it explains the layout model,
 the animation contracts, and the regressions that are easy to reintroduce.

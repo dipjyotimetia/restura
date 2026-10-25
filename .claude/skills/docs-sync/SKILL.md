@@ -2,7 +2,7 @@
 name: docs-sync
 description: "Update every documentation surface a code change made stale — docs/, ADRs, docs-site, root markdown — via Restura's doc-ownership map. Use after a feature, protocol, security-boundary or build change, or when asked 'update the docs for this'."
 argument-hint: '[diff range | feature name] (default: current diff vs main)'
-allowed-tools: Read, Grep, Glob, Edit, Write, Bash, Task
+allowed-tools: Read, Grep, Glob, Edit, Write, Bash, Task, Skill
 ---
 
 Bring Restura's docs back into parity with the code. Scope: `$ARGUMENTS` (default: `git diff main...HEAD` plus working changes).

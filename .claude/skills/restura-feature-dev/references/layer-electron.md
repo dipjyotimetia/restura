@@ -5,9 +5,9 @@ When the app runs in Electron, the renderer's network calls bypass the Worker an
 Every IPC channel touches **four files**:
 
 1. The handler implementation — `electron/main/<feature>-handler.ts`
-2. The Zod validation schema — `electron/main/ipc-validators.ts`
+2. The Zod validation schema — `electron/main/ipc/validators/<area>.ts`
 3. The preload bridge — `electron/main/preload.ts`
-4. The type declaration — `electron/types/electron.d.ts`
+4. The type declaration — `electron/types/electron-api.ts` (plus a module under `electron/types/api/`)
 
 Forgetting any one of them produces silent breakage in desktop. The renderer compiles fine; the call throws at runtime. **Always edit all four together.**
 
@@ -17,7 +17,7 @@ Forgetting any one of them produces silent breakage in desktop. The renderer com
 
 ## Handler registration with validation
 
-Always wrap with `createValidatedHandler` from `ipc-validators.ts`:
+Always wrap with `createValidatedHandler` from `electron/main/ipc/validators/`:
 
 ```ts
 // electron/main/myfeature-handler.ts
@@ -45,7 +45,7 @@ The wrapper Zod-parses the input before calling the handler. If parsing fails it
 
 Then call `registerMyFeatureIPC()` from `electron/main/main.ts` during app init.
 
-## Zod schema in `ipc-validators.ts`
+## Zod schema under `electron/main/ipc/validators/`
 
 ```ts
 export const MyConfigSchema = z.object({
@@ -77,7 +77,7 @@ Everything lives under `window.electron.<namespace>.<method>()`. Never expose ra
 
 ## Type declaration
 
-`electron/types/electron.d.ts` is where `window.electron` is typed. Add your namespace interface and include it in the main `ElectronAPI`:
+`electron/types/electron-api.ts` (plus a module under `electron/types/api/`) is where `window.electron` is typed. Add your namespace interface and include it in the main `ElectronAPI`:
 
 ```ts
 export interface ElectronMyFeatureAPI {
@@ -94,7 +94,7 @@ This file has its own `ElectronMyConfig` type, structurally matching the Zod-inf
 
 ## Rate limiting
 
-`electron/main/ipc-rate-limiter.ts` exports `createRateLimiter(maxRequests, windowMs)`. Apply per-feature:
+`electron/main/ipc/ipc-rate-limiter.ts` exports `createRateLimiter(maxRequests, windowMs)`. Apply per-feature:
 
 ```ts
 const myFeatureRateLimiter = createRateLimiter(60, 60_000); // 60 per minute
@@ -128,11 +128,11 @@ For protocols that push events to the renderer (WebSocket, gRPC streaming, SSE):
 - The renderer subscribes via the preload bridge: expose an `on(event, callback)` and `off(event, callback)` pair that internally use `ipcRenderer.on`/`removeListener`.
 - Always provide a teardown channel (`<domain>:close`) so the main process can clean up open sockets when the renderer navigates away.
 
-See `electron/main/websocket-handler.ts` for the canonical streaming example.
+See `electron/main/handlers/websocket-handler.ts` for the canonical streaming example.
 
 ## Long-lived connections — required pattern
 
-Any handler that holds connections per renderer (gRPC streaming, MCP, SSE, WebSocket, Socket.IO) MUST use `electron/main/connection-cleanup.ts`. The pattern:
+Any handler that holds connections per renderer (gRPC streaming, MCP, SSE, WebSocket, Socket.IO) MUST use `electron/main/ipc/connection-cleanup.ts`. The pattern:
 
 ```ts
 import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
