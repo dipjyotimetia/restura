@@ -1,14 +1,48 @@
-# Type-check the renderer before pushing. lint-staged (pre-commit) lints and
-# formats staged files but does not type-check, so type errors otherwise only
-# surface in CI. Kept to the renderer-only `type-check` (not `type-check:all`,
-# which runs 6 tsc passes) to stay fast. Bypass with `git push --no-verify`.
+# Fast pre-push: renderer type-check, architecture policy, and only the Vitest
+# suites related to what this branch changed (vs its merge-base with
+# origin/main). The full `test:coverage` run (~3 min, merged-suite budget) is
+# NOT repeated on every push: CI enforces it on every PR, and the `main`
+# ruleset's "up to date" requirement plus the merge lane
+# (.github/workflows/merge-lane.yml) re-run it on top of current main before
+# anything merges. Run the old full gate with RESTURA_PREPUSH_FULL=1 git push,
+# or test several branches together with `npm run integration-check`.
+# Bypass with `git push --no-verify`.
+#
 # Vitest's Git fixtures create independent repositories and must not inherit
 # the repository context Git exports to hooks.
 unset GIT_DIR GIT_WORK_TREE
 
 npm run type-check
+npm run architecture:check
 
-# Keep the authoritative merged-suite branch budget green before publishing a
-# branch for review. CI remains the server-side enforcement point, but a normal
-# push should catch coverage regressions before a pull request is opened.
-npm run test:coverage
+if [ "${RESTURA_PREPUSH_FULL:-}" = "1" ]; then
+  npm run test:coverage
+  exit 0
+fi
+
+base=$(git merge-base HEAD origin/main 2>/dev/null || true)
+if [ -z "$base" ]; then
+  echo "pre-push: no merge-base with origin/main (run git fetch); running the full suite."
+  npm run test:run
+  exit 0
+fi
+
+# Deleted files are dropped (--diff-filter=d): Vitest cannot relate a file that
+# no longer exists, and broken importers fail the type-check above instead.
+changed=$(git diff --name-only --diff-filter=d "$base" HEAD -- \
+  '*.ts' '*.tsx' '*.mts' '*.cts' '*.js' '*.jsx' '*.mjs' '*.cjs')
+
+if [ -z "$changed" ]; then
+  echo "pre-push: no changed source files vs origin/main; skipping Vitest."
+  exit 0
+fi
+
+# Test-infrastructure changes can affect every suite: run them all.
+if printf '%s\n' "$changed" | grep -Eq '^(vitest\.config\.ts|tests/setup\.ts|tests/__mocks__/)'; then
+  echo "pre-push: Vitest config/setup changed; running the full suite."
+  npm run test:run
+  exit 0
+fi
+
+# shellcheck disable=SC2086 # word-splitting the file list is intended
+npx vitest related --run --passWithNoTests $changed
