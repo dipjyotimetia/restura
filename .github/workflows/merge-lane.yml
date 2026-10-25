@@ -1,0 +1,89 @@
+name: Merge lane
+
+# Serialized merge lane — a stand-in for GitHub's merge queue, which needs an
+# organization-owned repository. The `main` ruleset requires branches to be up
+# to date before merging, so a PR's required checks must have run on top of the
+# current main. This workflow keeps ONE auto-merge PR at a time current with
+# main (`PUT /pulls/{n}/update-branch`); auto-merge lands it when green, the
+# push to main re-triggers the lane, and the next PR is updated. Logic lives in
+# scripts/merge-lane.mjs (unit-tested in scripts/__tests__/merge-lane.test.mjs).
+# See docs/CI_CD.md "Merging: the merge lane".
+#
+# Safety rules for this file (it runs with the restura-bot App token):
+#   - NEVER check out or execute PR code. The only checkout is the default
+#     branch, sparse, for scripts/merge-lane.mjs, without persisted credentials.
+#   - `pull_request_target` is used only as a wake-up signal; it always runs
+#     this file and the script as they exist on main.
+#   - The App token (not GITHUB_TOKEN) is required because pushes made with
+#     GITHUB_TOKEN do not trigger CI on the updated PR. It is scoped to
+#     contents + pull-requests write.
+
+on:
+  push:
+    branches: [main]
+  pull_request_target:
+    types: [auto_merge_enabled, unlabeled, reopened]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the plan without updating, labelling or commenting
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # One lane run at a time; never cancel one mid-update.
+  group: merge-lane
+  cancel-in-progress: false
+
+jobs:
+  advance:
+    name: Advance merge lane
+    if: ${{ github.repository == 'dipjyotimetia/restura' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check App credentials
+        id: creds
+        env:
+          HAS_APP: ${{ secrets.RELEASE_PR_APP_ID != '' && secrets.RELEASE_PR_APP_PRIVATE_KEY != '' }}
+        run: |
+          if [ "$HAS_APP" != true ]; then
+            echo "::warning::RELEASE_PR_APP_ID / RELEASE_PR_APP_PRIVATE_KEY are not set; the merge lane is disabled."
+          fi
+          echo "ok=$HAS_APP" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.creds.outputs.ok == 'true' }}
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: scripts/merge-lane.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Mint restura-bot token
+        if: ${{ steps.creds.outputs.ok == 'true' }}
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.RELEASE_PR_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
+          # update-branch pushes a merge commit to the PR branch; labels and
+          # comments on PRs need pull-requests write. Nothing else.
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Advance the lane
+        if: ${{ steps.creds.outputs.ok == 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          MERGE_LANE_DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: node scripts/merge-lane.mjs --repo "$REPO"
