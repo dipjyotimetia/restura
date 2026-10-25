@@ -92,7 +92,21 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
   ],
 
   app: async ({ _electronApp }, use) => {
-    await use(_electronApp.page);
+    const { page } = _electronApp;
+    await use(page);
+    // The window is shared by every spec in the worker. A spec that leaves a
+    // modal open makes the whole app inert (aria-hidden) for the next one, so
+    // fail loudly-but-locally by dismissing any leftover dialog here.
+    const dialogs = page.getByRole('dialog');
+    for (let i = 0; i < 3 && (await dialogs.count()) > 0; i++) {
+      await page.keyboard.press('Escape');
+      await expect(dialogs)
+        .toHaveCount(0, { timeout: 2_000 })
+        .catch(() => {});
+    }
+    // Don't swallow a dialog that survived every attempt: fail the test that
+    // left it open instead of poisoning the next one.
+    await expect(dialogs).toHaveCount(0, { timeout: 2_000 });
   },
   electronProfileDirectory: async ({ _electronApp }, use) => {
     await use(_electronApp.userDataDir);
