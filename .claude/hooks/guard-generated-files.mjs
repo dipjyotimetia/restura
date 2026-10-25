@@ -36,7 +36,20 @@ const GENERATED_SUFFIXES = [
 
 try {
   const cwd = projectDir();
-  const rel = projectRelative(readPayload()?.tool_input?.file_path, cwd);
+  const filePath = readPayload()?.tool_input?.file_path;
+
+  // Vitest file snapshots: `*.snap` is gitignored, so a test that writes one
+  // passes locally (snapshot created on first run) and fails in CI (missing).
+  if (typeof filePath === 'string' && filePath.endsWith('.snap')) {
+    process.stderr.write(
+      `Blocked: ${filePath} is a snapshot file — use inline snapshots only ` +
+        `(\`toMatchInlineSnapshot()\`) or explicit assertions. \`*.snap\` is gitignored, so it ` +
+        `passes locally and fails in CI.`
+    );
+    process.exit(2);
+  }
+
+  const rel = projectRelative(filePath, cwd);
   if (!rel) process.exit(0); // no file / outside the project
 
   let how = GENERATED_FILES.get(rel);
