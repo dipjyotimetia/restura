@@ -312,4 +312,21 @@ describe('guard-bash hook: bot-review round (PR #1185)', () => {
   ])('allows a heredoc inside "$(…)": %j', (cmd) => {
     expect(run(cmd).denied).toBe(false);
   });
+
+  it.each([
+    'FOO="a b" bash <<\'EOF\'\ngit add -A\nEOF',
+    "FOO='a b' sudo -E bash <<'EOF'\ngit add -A\nEOF",
+    'A="x y" B=1 env bash <<\'EOF\'\ngit add -A\nEOF',
+    'echo ok && FOO="a b" bash <<\'EOF\'\ngit add -A\nEOF',
+  ])('denies a heredoc fed to a shell behind quoted env values: %j', (cmd) => {
+    expect(run(cmd).denied).toBe(true);
+  });
+
+  it('treats the body as a script when the heredoc prefix cannot be tokenized', () => {
+    expect(run('echo "unterminated <<EOF\ngit add -A\nEOF').denied).toBe(true);
+  });
+
+  it('still allows a quoted-env heredoc fed to a non-shell', () => {
+    expect(run('FOO="a b" cat <<\'EOF\'\ngit add -A\nEOF').denied).toBe(false);
+  });
 });

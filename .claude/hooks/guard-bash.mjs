@@ -72,9 +72,16 @@ function quotedAt(line, idx) {
 const HEREDOC = /(?<!<)<<(?!<)(-?)[ \t]*(['"]?)([A-Za-z_][\w.-]*)\2/g;
 // Is the command that owns a heredoc (line text before `<<`) a shell, possibly
 // behind env assignments, reserved words or wrappers (`sudo bash <<EOF`)?
+// Uses the quote-aware tokenizer so `FOO="a b" bash <<EOF` keeps `FOO=a b` as
+// one word; if the prefix can't be tokenized, conservatively treat the body as
+// a shell script.
 function shellBeforeHeredoc(prefix) {
-  const seg = prefix.split(/&&|\|\||[;&|(`]|\$\(/).pop() ?? '';
-  const words = seg.trim().split(/\s+/).filter(Boolean);
+  let words;
+  try {
+    words = splitCommand(prefix).segments.at(-1) ?? [];
+  } catch {
+    return true;
+  }
   const cmd = words[peelPrefix(words)];
   return typeof cmd === 'string' && SHELLS.has(path.basename(cmd));
 }
