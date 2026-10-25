@@ -14,8 +14,9 @@ export interface ArchitectureFile {
 
 /**
  * A repo-wide count of a source pattern that may only go down — e.g. ad-hoc
- * pixel font sizes outside the type scale. Exact, like the file-size caps: a
- * decrease must lower `max` in the same change.
+ * pixel font sizes outside the type scale. Exceeding `max` fails the check; a
+ * count below `max` is only a warning (`npm run architecture:tighten` lowers
+ * the cap), so parallel PRs that each remove occurrences do not conflict on it.
  */
 export interface SourcePatternRatchet {
   name: string;
@@ -49,7 +50,7 @@ export interface ArchitecturePolicy {
 
 export type ArchitectureViolation =
   | {
-      rule: 'pattern-ratchet' | 'stale-pattern-ratchet';
+      rule: 'pattern-ratchet';
       file: string;
       actual: number;
       limit: number;
@@ -73,14 +74,25 @@ export type ArchitectureViolation =
       actual: number;
       limit: number;
       message: string;
-    }
-  | {
-      rule: 'stale-file-size-ratchet';
-      file: string;
-      actual: number;
-      limit: number;
-      message: string;
     };
+
+/**
+ * Non-failing findings: a cap that is now looser than the code. Caps are
+ * upper bounds, not exact values, so shrinking a file never fails a PR; run
+ * `npm run architecture:tighten` (any time, in its own PR) to ratchet them down.
+ */
+export interface ArchitectureWarning {
+  rule: 'stale-file-size-ratchet' | 'stale-pattern-ratchet';
+  file: string;
+  actual: number;
+  limit: number;
+  message: string;
+}
+
+export interface ArchitectureReport {
+  violations: ArchitectureViolation[];
+  warnings: ArchitectureWarning[];
+}
 
 function zoneFor(path: string, policy: ArchitecturePolicy): string | undefined {
   return policy.zones.find((zone) => path.startsWith(zone.root))?.name;
@@ -174,11 +186,20 @@ function findRuntimeCycles(files: ArchitectureFile[]): string[][] {
   return cycles.sort((left, right) => left.join('\0').localeCompare(right.join('\0')));
 }
 
+/** Failing violations only; see `evaluateArchitectureReport` for warnings. */
 export function evaluateArchitecture(
   files: ArchitectureFile[],
   policy: ArchitecturePolicy
 ): ArchitectureViolation[] {
+  return evaluateArchitectureReport(files, policy).violations;
+}
+
+export function evaluateArchitectureReport(
+  files: ArchitectureFile[],
+  policy: ArchitecturePolicy
+): ArchitectureReport {
   const violations: ArchitectureViolation[] = [];
+  const warnings: ArchitectureWarning[] = [];
 
   for (const file of [...files].sort((left, right) => left.path.localeCompare(right.path))) {
     const sourceZone = zoneFor(file.path, policy);
@@ -213,7 +234,7 @@ export function evaluateArchitecture(
           message: `${file.path} has ${file.lineCount} lines; the architecture cap is ${limit}`,
         });
       } else if (grandfatheredLimit !== undefined && file.lineCount < grandfatheredLimit) {
-        violations.push({
+        warnings.push({
           rule: 'stale-file-size-ratchet',
           file: file.path,
           actual: file.lineCount,
@@ -235,7 +256,7 @@ export function evaluateArchitecture(
         message: `${ratchet.name}: ${actual} occurrences under ${ratchet.pathPrefix}; the cap is ${ratchet.max}`,
       });
     } else if (actual < ratchet.max) {
-      violations.push({
+      warnings.push({
         rule: 'stale-pattern-ratchet',
         file: ratchet.pathPrefix,
         actual,
@@ -254,5 +275,5 @@ export function evaluateArchitecture(
     });
   }
 
-  return violations;
+  return { violations, warnings };
 }

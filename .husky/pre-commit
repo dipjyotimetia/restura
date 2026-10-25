@@ -1,1 +1,5 @@
+# Reject machine-local leaks before anything else: new symlinks, node_modules,
+# .dev.vars, *.snap (gitignored, so missing in CI) and absolute local paths.
+# See scripts/guard-staged.mjs. Deliberate exception: git commit --no-verify.
+node scripts/guard-staged.mjs
 npx lint-staged
