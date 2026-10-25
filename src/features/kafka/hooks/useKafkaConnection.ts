@@ -91,7 +91,15 @@ export function useKafkaConnection() {
     setPendingSecret(kafkaSecretKey(connectionId, oauth ? 'sasl-password' : 'oauth-token'), '');
     setPendingSecret(kafkaSecretKey(connectionId, 'tls-passphrase'), tlsPassphraseDraft);
     setPendingSecret(kafkaSecretKey(connectionId, 'registry-password'), registryPasswordDraft);
-  }, [connectionId, oauth, saslPasswordDraft, tlsPassphraseDraft, registryPasswordDraft]);
+    setPendingSecret(kafkaSecretKey(connectionId, 'registry-token'), registryTokenDraft);
+  }, [
+    connectionId,
+    oauth,
+    saslPasswordDraft,
+    tlsPassphraseDraft,
+    registryPasswordDraft,
+    registryTokenDraft,
+  ]);
   // The drafts reset on a switch / unmount, so their pending copies go too.
   useEffect(() => {
     if (!connectionId) return;
