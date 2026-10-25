@@ -50,7 +50,8 @@ test('main checkout, locked, dirty and unmerged worktrees are kept', () => {
 test('clean worktrees whose work is merged are pruned', () => {
   assert.equal(classifyWorktree({ ...base, clean: true, ahead: 0 }).action, 'prune');
   assert.equal(
-    classifyWorktree({ ...base, clean: true, ahead: 4, prState: 'MERGED' }).action,
+    classifyWorktree({ ...base, clean: true, ahead: 4, prState: 'MERGED', prContainsHead: true })
+      .action,
     'prune'
   );
   assert.equal(
@@ -97,6 +98,29 @@ test('a MERGED PR only counts when the local head is contained in the merged PR 
   assert.equal(
     classifyWorktree({ ...base, clean: true, ahead: 3, prState: 'MERGED', prContainsHead: true })
       .action,
+    'prune'
+  );
+});
+
+test('a MERGED PR whose head is unknown locally is not trusted, but patch-equivalence still prunes', () => {
+  const unknown = classifyWorktree({
+    ...base,
+    clean: true,
+    ahead: 3,
+    prState: 'MERGED',
+    prContainsHead: undefined,
+  });
+  assert.equal(unknown.action, 'keep');
+  assert.match(unknown.reason, /not available locally/);
+  assert.equal(
+    classifyWorktree({
+      ...base,
+      clean: true,
+      ahead: 3,
+      prState: 'MERGED',
+      prContainsHead: undefined,
+      patchMerged: true,
+    }).action,
     'prune'
   );
 });

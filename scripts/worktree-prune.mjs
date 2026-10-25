@@ -54,15 +54,20 @@ export function classifyWorktree(wt) {
   if (wt.ageHours != null && wt.ageHours < MIN_AGE_HOURS)
     return { action: 'keep', reason: `only ${Math.floor(wt.ageHours)}h old (may be in use)` };
   if (wt.ahead === 0) return { action: 'prune', reason: 'nothing ahead of base' };
-  if (wt.prState === 'MERGED' && wt.prContainsHead !== false)
+  if (wt.prState === 'MERGED' && wt.prContainsHead === true)
     return { action: 'prune', reason: 'PR merged' };
-  if (wt.prState === 'MERGED')
+  if (wt.prState === 'MERGED' && wt.prContainsHead === false)
     return {
       action: 'keep',
       reason: `${wt.ahead} commit(s) not in the merged PR (branch name reused?)`,
     };
   if (wt.patchMerged) return { action: 'prune', reason: 'all commits patch-equivalent on base' };
   if (wt.supersededBy) return { action: 'prune', reason: `superseded by ${wt.supersededBy}` };
+  if (wt.prState === 'MERGED')
+    return {
+      action: 'keep',
+      reason: "PR merged but its head commit is not available locally — can't confirm",
+    };
   return {
     action: 'keep',
     reason: `${wt.ahead} commit(s) not on base${wt.prState ? `, PR ${wt.prState}` : ', no PR'}`,
@@ -122,10 +127,16 @@ export function main(argv = process.argv.slice(2)) {
     const cherry = ahead > 0 ? (tryRun('git', ['cherry', base, wt.head], repo) ?? '+') : '';
     const pr = wt.branch ? prs.get(wt.branch) : undefined;
     // Trust a MERGED PR only if everything local was in the PR's final head.
-    const prContainsHead =
-      pr?.state === 'MERGED' && pr.headRefOid
-        ? tryRun('git', ['merge-base', '--is-ancestor', wt.head, pr.headRefOid], repo) !== null
-        : undefined;
+    // Unknown (undefined) when the PR head can't be fetched: never trusted as merged.
+    let prContainsHead;
+    if (pr?.state === 'MERGED' && pr.headRefOid) {
+      const have = () =>
+        tryRun('git', ['cat-file', '-e', `${pr.headRefOid}^{commit}`], repo) !== null;
+      if (!have()) tryRun('git', ['fetch', '--quiet', 'origin', `pull/${pr.number}/head`], repo);
+      if (have())
+        prContainsHead =
+          tryRun('git', ['merge-base', '--is-ancestor', wt.head, pr.headRefOid], repo) !== null;
+    }
     let ageHours;
     try {
       ageHours = (Date.now() - fs.statSync(wt.path).birthtimeMs) / 3_600_000;

@@ -109,3 +109,24 @@ test('red-first: only a test-runner failure counts as red', () => {
     /no test-runner failure/
   );
 });
+
+test('a falsy or malformed redFirst is a problem, not a skipped check', () => {
+  for (const redFirst of [false, '', 0, 'yes', {}]) {
+    const problems = validateReport({ ...good, redFirst });
+    assert.ok(
+      problems.some((p) => /redFirst/.test(p)),
+      JSON.stringify(redFirst)
+    );
+  }
+});
+
+test('ownership: **/ keeps a directory boundary before the next literal', () => {
+  const owned = ['src/**/index.ts'];
+  assert.deepEqual(
+    filesOutsideOwnership(
+      ['src/index.ts', 'src/a/b/index.ts', 'src/myindex.ts', 'src/a/xindex.ts'],
+      owned
+    ),
+    ['src/myindex.ts', 'src/a/xindex.ts']
+  );
+});

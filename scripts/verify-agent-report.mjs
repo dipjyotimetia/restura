@@ -49,9 +49,12 @@ export function validateReport(report) {
     problems.push('sha must be a full 40-char commit sha');
   if (report.filesTouched != null && !Array.isArray(report.filesTouched))
     problems.push('filesTouched must be an array');
-  if (report.redFirst) {
-    if (!report.redFirst.command) problems.push('redFirst.command is empty');
-    if (!report.redFirst.failingExcerpt?.trim())
+  if (report.redFirst != null) {
+    // Any non-object (false, '', 0, 'yes') must fail loudly, never skip the check.
+    const rf = typeof report.redFirst === 'object' ? report.redFirst : {};
+    if (typeof rf.command !== 'string' || !rf.command.trim())
+      problems.push('redFirst.command is empty');
+    if (typeof rf.failingExcerpt !== 'string' || !rf.failingExcerpt.trim())
       problems.push('redFirst.failingExcerpt is empty — red-first was not shown');
   }
   for (const [gate, result] of Object.entries(report.gates ?? {})) {
@@ -65,9 +68,12 @@ function globToRegExp(glob) {
   for (let i = 0; i < glob.length; i++) {
     const ch = glob[i];
     if (ch === '*' && glob[i + 1] === '*') {
-      re += '.*';
       i++;
-      if (glob[i + 1] === '/') i++;
+      // `**/` = zero or more whole directories; a bare `**` = anything.
+      if (glob[i + 1] === '/') {
+        re += '(?:.*/)?';
+        i++;
+      } else re += '.*';
     } else if (ch === '*') re += '[^/]*';
     else re += ch.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
   }
@@ -218,7 +224,11 @@ export function main(argv = process.argv.slice(2)) {
     const { unclaimed, phantom } = compareClaimed(report.filesTouched ?? [], actual);
     if (unclaimed.length) problems.push(`changed but not reported: ${unclaimed.join(', ')}`);
     if (phantom.length) problems.push(`reported but not changed: ${phantom.join(', ')}`);
-    if (opts.redFirst && report.redFirst?.command)
+    if (
+      opts.redFirst &&
+      typeof report.redFirst?.command === 'string' &&
+      report.redFirst.command.trim()
+    )
       problems.push(
         ...runRedFirst(report, opts.base, repo, diffNames('--diff-filter=AM').filter(isTestPath))
       );
