@@ -43,6 +43,7 @@ timeline
   2026-10-18 : 0031 — MCP OAuth 2.1 in Electron main
   2026-10-25 : 0032 — Agent harness: evals first, hook-enforced rules
   2026-10-25 : 0033 — Evals gate harness changes
+  2026-10-26 : 0034 — Shared Postman parser and _postman sidecar
 ```
 
 <CardGrid>
@@ -210,6 +211,11 @@ timeline
     title="0033 — Evals gate harness changes"
     description="Reviewer topology, skill routing and the vendored-skill set change only with a before/after eval on the same harness: train/test split, per-case flips, history-free runs, escaped defects become cases."
     href="/architecture/adrs/0033-evals-gate-harness-changes/"
+  />
+  <LinkCard
+    title="0034 — Shared Postman parser and _postman sidecar"
+    description="One SDK-free Postman parser in shared/ for renderer and CLI; dropped or approximated constructs are reported and kept in a redacted, store-scoped _postman sidecar stripped on edit; OAuth1 and NTLM map 1:1."
+    href="/architecture/adrs/0034-postman-shared-parser-and-sidecar/"
   />
 </CardGrid>
 

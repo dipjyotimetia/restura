@@ -202,7 +202,7 @@ describe('importPostmanCollection (shared, SDK-free)', () => {
     expect(sidecar?.event).toEqual([{ listen: 'test', script: { exec: ['pm.test("a")'] } }]);
     expect(sidecar?.body).toEqual({ mode: 'file', file: { src: '/tmp/a.bin' } });
     // Last same-kind event still wins (pre-existing behaviour).
-    expect(req(item).testScript).toBe('pm.test("b")');
+    expect(req(item).testScript).toBe('rs.test("b")');
     expect(req(item).body).toEqual({ type: 'binary' });
     expect(constructs(report.warnings)).toEqual([
       'extra-events',
@@ -258,5 +258,68 @@ describe('importPostmanCollection (shared, SDK-free)', () => {
     expect(getPostmanSidecar(collection.items[0]!)).toBeUndefined();
     expect('_postman' in collection).toBe(false);
     expect('_postman' in collection.items[0]!).toBe(false);
+  });
+
+  it('defaults to the pm.* → rs.* script migration', () => {
+    const { collection } = importPostmanCollection(
+      one({}, { event: [{ listen: 'test', script: { exec: ['pm.expect(1)'] } }] })
+    );
+    expect(req(collection.items[0]).testScript).toBe('rs.expect(1)');
+  });
+});
+
+describe('URL path variables and fragments (SDK parity)', () => {
+  it('substitutes :name path segments from url.variable like the former SDK', () => {
+    const { collection, report } = importPostmanCollection(
+      one({
+        url: {
+          raw: '{{base}}/users/:id/posts/:postId?x=1',
+          variable: [
+            { key: 'id', value: '42' },
+            { key: 'postId', value: 7 },
+          ],
+          query: [{ key: 'x', value: '1' }],
+        },
+      })
+    );
+    expect(req(collection.items[0]).url).toBe('{{base}}/users/42/posts/7');
+    expect(report.warnings).toEqual([]);
+    expect(getPostmanSidecar(collection.items[0]!)).toBeUndefined();
+  });
+
+  it('never touches ports, {{vars}} or partial segments', () => {
+    const { collection } = importPostmanCollection(
+      one({
+        url: {
+          raw: 'http://localhost:8080/{{v}}/a:id/:id',
+          variable: [
+            { key: '8080', value: 'X' },
+            { key: 'id', value: '1' },
+          ],
+        },
+      })
+    );
+    expect(req(collection.items[0]).url).toBe('http://localhost:8080/{{v}}/a:id/1');
+  });
+
+  it('unresolvable or described path variables are reported and kept', () => {
+    const variable = [
+      { key: 'id', value: '' },
+      { key: 'org', value: 'acme', description: 'Organisation slug' },
+    ];
+    const { collection, report } = importPostmanCollection(
+      one({ url: { raw: 'https://x.example.com/:org/:id', variable } })
+    );
+    expect(req(collection.items[0]).url).toBe('https://x.example.com/acme/:id');
+    expect(getPostmanSidecar(collection.items[0]!)?.urlVariable).toEqual(variable);
+    expect(constructs(report.warnings)).toEqual(['path-variables']);
+  });
+
+  it('keeps the fragment whether or not there is a query', () => {
+    const url = (u: string) => req(importPostmanCollection(one({ url: u })).collection.items[0]);
+    expect(url('https://x.example.com/p#frag').url).toBe('https://x.example.com/p#frag');
+    const withQuery = url('https://x.example.com/p?a=1#frag');
+    expect(withQuery.url).toBe('https://x.example.com/p#frag');
+    expect(withQuery.params.map((p) => [p.key, p.value])).toEqual([['a', '1']]);
   });
 });

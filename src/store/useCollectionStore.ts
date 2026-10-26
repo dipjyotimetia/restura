@@ -1,4 +1,9 @@
-import { deletePassthroughBags, hasPassthroughBag } from '@shared/collections/passthrough-bags';
+import {
+  deletePassthroughBags,
+  hasPassthroughBag,
+  MAX_COLLECTION_TREE_DEPTH,
+} from '@shared/collections/passthrough-bags';
+import { clearPostmanSidecar } from '@shared/collections/postman/sidecar';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -120,12 +125,13 @@ function stripPassthroughBags(item: CollectionItem): CollectionItem {
   return deletePassthroughBags({ ...item });
 }
 
-/**
- * Recursion bound for the bag-stripping walk. Importers cap nesting (Postman:
- * 64); deeper subtrees from other sources are left untouched rather than
- * risking a stack overflow inside a store update.
- */
-const MAX_STRIP_DEPTH = 256;
+// Past MAX_COLLECTION_TREE_DEPTH the bag-stripping walk leaves deeper subtrees
+// untouched rather than risking a stack overflow inside a store update.
+
+/** Structural equality for plain JSON-shaped store values (auth, variables, scripts). */
+function sameValue(a: unknown, b: unknown): boolean {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
 
 /** Collection fields whose edit makes the root `_postman` sidecar stale. */
 const ROOT_SIDECAR_STALE_KEYS = ['auth', 'variables', 'preRequestScript', 'testScript'] as const;
@@ -152,7 +158,7 @@ function stripPassthroughByIds(
   ids: Set<string>,
   depth = 0
 ): CollectionItem[] {
-  if (depth > MAX_STRIP_DEPTH) return items;
+  if (depth > MAX_COLLECTION_TREE_DEPTH) return items;
   return items.map((i) => {
     const withChildren = i.items
       ? { ...i, items: stripPassthroughByIds(i.items, ids, depth + 1) }
@@ -231,8 +237,12 @@ export const useCollectionStore = create<CollectionState>()(
             // scripts are edited it is stale. Root `_oc` is deliberately kept:
             // `internalToOC` re-checks root auth / scripts freshness against
             // the live model before taking its whole-collection shortcut.
-            if (ROOT_SIDECAR_STALE_KEYS.some((k) => k in updates)) {
-              delete (merged as { _postman?: unknown })._postman;
+            // Strip only on a real change: file-collection reloads pass the
+            // whole collection back in with these keys present but unchanged.
+            if (
+              ROOT_SIDECAR_STALE_KEYS.some((k) => k in updates && !sameValue(updates[k], col[k]))
+            ) {
+              clearPostmanSidecar(merged);
             }
             const next = migrateCollectionAuth(merged);
             validateCollection(next);

@@ -49,6 +49,8 @@ npm run validate               # Static policy + root/workspace tests + web, Doc
 npm run proto:gen                       # buf generate (regenerates protobuf TS)
 npm run gen:opencollection-types        # Regenerate OpenCollection JSON Schema → TS
 npm run verify:opencollection-types     # Generate + fail if diff (CI gate)
+npm run gen:postman-v3-types            # Regenerate Postman v3 types from vendor/postman/v3.0.0/schema.json
+npm run verify:postman-v3-types         # Generate + fail if diff (part of validate:static)
 npm run capabilities:matrix             # Regenerate docs/CAPABILITY_MATRIX.md from src/lib/shared/capabilities.ts
 npm run capabilities:check              # Fail if the matrix is stale (CI gate)
 
@@ -234,7 +236,7 @@ Standalone documentation site (`@restura/docs-site`, deployed to docs.restura.de
 - **Strict TS**: `noUnusedLocals`, `noUnusedParameters`, `noImplicitReturns`, `noUncheckedIndexedAccess`. `exactOptionalPropertyTypes` is **off** intentionally.
 - **UI** — Radix UI primitives + Tailwind, shadcn/ui patterns in `src/components/ui/`.
 - **Script sandbox** — pre-request and test scripts run in QuickJS WASM (`shared/scripts/script-executor.ts`; the renderer path is a compatibility re-export). No DOM, no filesystem, no network escape; memory + execution-time capped.
-- **Collection import/export** — Postman v2.1, Insomnia, and OpenCollection (`shared/opencollection/`, with codegen — `spec-types.ts` is generated, validated by `verify:opencollection-types`).
+- **Collection import/export** — Postman v2.1, Insomnia, and OpenCollection (`shared/opencollection/`, with codegen — `spec-types.ts` is generated, validated by `verify:opencollection-types`). Postman import is the SDK-free shared parser in `shared/collections/postman/` (ADR 0034): it returns `{ collection, report }`, keeps unmodelled constructs in a redacted, store-scoped `_postman` sidecar, and is used by the renderer and (planned) the CLI. Its `v3-types.ts` is generated from `vendor/postman/v3.0.0/schema.json` (`gen:postman-v3-types`, checked by `verify:postman-v3-types`).
 - **Multiple tsconfigs** — `tsconfig.json` (renderer), `tsconfig.tooling.json` / `tsconfig.tooling-js.json` (tooling ratchets), `electron/tsconfig.json` (main), `worker/tsconfig.json` (Worker), `echo/tsconfig.json` (echo), `cli/tsconfig.json` (CLI), plus `src/features/http/tsconfig.json`. `tsconfig.base.json` holds shared compiler options. **`npm run type-check` only covers the renderer** — use **`npm run type-check:all`** for every checked project. `npm run validate` also runs architecture, tests, builds, Electron runtime-import verification, and size limits.
 
 ## Testing

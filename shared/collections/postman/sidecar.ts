@@ -28,6 +28,8 @@ export interface PostmanSidecar {
   variable?: unknown[];
   /** Same-kind events that lost to the last one (only the last one is imported). */
   event?: unknown[];
+  /** Request `url.variable[]` when some entries could not be applied losslessly. */
+  urlVariable?: unknown[];
   /** Raw `file` body (the source path is not resolvable at import). */
   body?: unknown;
 }
@@ -46,4 +48,10 @@ export function attachPostmanSidecar<T extends object>(
   const entries = Object.entries(sidecar).filter(([, v]) => v !== undefined);
   if (entries.length === 0) return node;
   return Object.assign(node, { [POSTMAN_SIDECAR_KEY]: Object.fromEntries(entries) });
+}
+
+/** Remove the sidecar from `node` in place (staleness paths); returns `node`. */
+export function clearPostmanSidecar<T extends object>(node: T): T {
+  delete (node as { _postman?: unknown })._postman;
+  return node;
 }

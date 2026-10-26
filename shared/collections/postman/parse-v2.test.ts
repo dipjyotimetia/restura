@@ -124,7 +124,7 @@ describe('parsePostmanV2 — request shapes', () => {
     const r = req(collection.items[0]);
     expect(collection.items[0]!.name).toBe('Unnamed Request');
     expect(r.method).toBe('GET');
-    expect(r.url).toBe('https://a.example.com/p');
+    expect(r.url).toBe('https://a.example.com/p#frag');
     expect(r.params.map((q) => [q.key, q.value])).toEqual([['x', '1']]);
   });
 

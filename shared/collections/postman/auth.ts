@@ -27,26 +27,77 @@ function stringify(value: unknown): string {
   return '';
 }
 
+/** One keyed parameter of a Postman auth block. */
+export interface PostmanAuthParam {
+  key: string;
+  value: unknown;
+}
+
+function isKeyedEntry(entry: unknown): entry is { key: string; value?: unknown } {
+  return (
+    !!entry && typeof entry === 'object' && typeof (entry as { key?: unknown }).key === 'string'
+  );
+}
+
+/**
+ * THE walk over a Postman auth parameter block, in either encoding: v2.1's
+ * `[{ key, value, type }]` array or v2.0's `{ key: value }` map. Every
+ * consumer (import mapping, sidecar trimming, redaction, counting, handle
+ * conversion) goes through this pair so the two encodings cannot drift.
+ * Array entries without a string `key` are not params (and are skipped).
+ */
+export function postmanAuthParamEntries(block: unknown): PostmanAuthParam[] {
+  if (Array.isArray(block)) {
+    return block.filter(isKeyedEntry).map((e) => ({ key: e.key, value: e.value }));
+  }
+  if (block && typeof block === 'object') {
+    return Object.entries(block as Record<string, unknown>).map(([key, value]) => ({
+      key,
+      value,
+    }));
+  }
+  return [];
+}
+
+/** Returned by a {@link mapPostmanAuthParams} callback to remove the param. */
+export const DROP_PARAM: unique symbol = Symbol('drop-postman-auth-param');
+
+/**
+ * Rebuild an auth parameter block in its own encoding. `fn` receives each
+ * param in {@link postmanAuthParamEntries} order (with that index) and returns
+ * the new value or {@link DROP_PARAM}. Non-param array entries pass through.
+ */
+export function mapPostmanAuthParams(
+  block: unknown,
+  fn: (param: PostmanAuthParam, index: number) => unknown
+): unknown {
+  let i = 0;
+  if (Array.isArray(block)) {
+    const out: unknown[] = [];
+    for (const entry of block) {
+      if (!isKeyedEntry(entry)) {
+        out.push(entry);
+        continue;
+      }
+      const value = fn({ key: entry.key, value: entry.value }, i++);
+      if (value !== DROP_PARAM) out.push({ ...entry, value });
+    }
+    return out;
+  }
+  if (block && typeof block === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, v] of Object.entries(block as Record<string, unknown>)) {
+      const value = fn({ key, value: v }, i++);
+      if (value !== DROP_PARAM) out[key] = value;
+    }
+    return out;
+  }
+  return block;
+}
+
 /** Normalise a v2.0 (object map) or v2.1 (`[{ key, value }]`) auth parameter block. */
 export function authParamsV2(block: unknown): PostmanAuthParams {
-  const out = new Map<string, string>();
-  if (Array.isArray(block)) {
-    for (const entry of block) {
-      if (
-        entry &&
-        typeof entry === 'object' &&
-        typeof (entry as { key?: unknown }).key === 'string'
-      ) {
-        const { key, value } = entry as { key: string; value?: unknown };
-        out.set(key, stringify(value));
-      }
-    }
-  } else if (block && typeof block === 'object') {
-    for (const [key, value] of Object.entries(block as Record<string, unknown>)) {
-      out.set(key, stringify(value));
-    }
-  }
-  return out;
+  return new Map(postmanAuthParamEntries(block).map((p) => [p.key, stringify(p.value)]));
 }
 
 /**
@@ -104,17 +155,7 @@ export function unmappedAuthRemainder(raw: Record<string, unknown>): Record<stri
   // (`bearer: [...]` next to `type: 'hawk'`), but they can still hold
   // credentials, so they are dropped rather than carried in the sidecar.
   if (!mapped) return { type, [type]: raw[type] };
-  const block = raw[type];
-  let rest: unknown = block;
-  if (Array.isArray(block)) {
-    rest = block.filter(
-      (e) => !(e && typeof e === 'object' && mapped.has(String((e as { key?: unknown }).key)))
-    );
-  } else if (block && typeof block === 'object') {
-    rest = Object.fromEntries(
-      Object.entries(block as Record<string, unknown>).filter(([k]) => !mapped.has(k))
-    );
-  }
+  const rest = mapPostmanAuthParams(raw[type], (p) => (mapped.has(p.key) ? DROP_PARAM : p.value));
   return { type, [type]: rest };
 }
 

@@ -162,7 +162,61 @@ function buildUrl(url: Raw): string {
   return out;
 }
 
-function convertUrl(url: unknown): { url: string; params: KeyValue[] } {
+/** A whole `:name` path segment (never a port like `host:8080` or a `{{var}}`). */
+const PATH_VARIABLE_SEGMENT = /^:([A-Za-z_][\w.-]*)$/;
+
+/**
+ * Substitute `:name` path segments from Postman's `url.variable` list, as the
+ * former SDK's `Url.toString()` did — Restura has no `:param` runtime, so a
+ * literal `:id` would go on the wire. Only whole segments are replaced, and
+ * only by a non-empty value. Entries that cannot be resolved (empty value, no
+ * matching segment) or that carry a description (lost in the typed model)
+ * are reported, and the whole list is kept in the sidecar.
+ */
+function substitutePathVariables(
+  base: string,
+  variables: unknown[],
+  requestName: string,
+  sidecar: PostmanSidecar,
+  ctx: ParseContext
+): string {
+  const values = new Map<string, string>();
+  let lossy = false;
+  for (const v of variables) {
+    if (!isObj(v) || typeof v.key !== 'string') {
+      lossy = true;
+      continue;
+    }
+    const value = str(v.value);
+    if (value !== '') values.set(v.key, value);
+    else lossy = true;
+    if (description(v.description) !== undefined) lossy = true;
+  }
+  const used = new Set<string>();
+  const out = base
+    .split('/')
+    .map((segment) => {
+      const name = PATH_VARIABLE_SEGMENT.exec(segment)?.[1];
+      const value = name === undefined ? undefined : values.get(name);
+      if (name === undefined || value === undefined) return segment;
+      used.add(name);
+      return value;
+    })
+    .join('/');
+  if ([...values.keys()].some((k) => !used.has(k))) lossy = true;
+  if (lossy) {
+    sidecar.urlVariable = variables;
+    ctx.report.unmodelled('path-variables', requestName);
+  }
+  return out;
+}
+
+function convertUrl(
+  url: unknown,
+  requestName: string,
+  sidecar: PostmanSidecar,
+  ctx: ParseContext
+): { url: string; params: KeyValue[] } {
   let full: string;
   let params: KeyValue[] | undefined;
   if (typeof url === 'string') {
@@ -175,16 +229,18 @@ function convertUrl(url: unknown): { url: string; params: KeyValue[] } {
   } else {
     full = '';
   }
-  // Restura keeps the query in the params table only — leaving it in the URL
-  // too would send every param twice.
-  const q = full.indexOf('?');
-  const base = q === -1 ? full : full.slice(0, q);
-  if (!params) {
-    const rest = q === -1 ? '' : full.slice(q + 1);
-    const hash = rest.indexOf('#');
-    params = parseQueryString(hash === -1 ? rest : rest.slice(0, hash));
+  // The fragment is kept on the URL in every case; the query moves to the
+  // params table only — leaving it in the URL too would send every param twice.
+  const hash = full.indexOf('#');
+  const fragment = hash === -1 ? '' : full.slice(hash);
+  const beforeFragment = hash === -1 ? full : full.slice(0, hash);
+  const q = beforeFragment.indexOf('?');
+  let base = q === -1 ? beforeFragment : beforeFragment.slice(0, q);
+  if (!params) params = parseQueryString(q === -1 ? '' : beforeFragment.slice(q + 1));
+  if (isObj(url) && Array.isArray(url.variable) && url.variable.length > 0) {
+    base = substitutePathVariables(base, url.variable, requestName, sidecar, ctx);
   }
-  return { url: base, params };
+  return { url: base + fragment, params };
 }
 
 // ── headers / body ──────────────────────────────────────────────────────────
@@ -369,7 +425,7 @@ function convertItem(
   const authOut = convertAuth(request.auth, name, ctx);
   if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
   const scripts = extractScripts(raw.event, ctx);
-  const { url, params } = convertUrl(request.url);
+  const { url, params } = convertUrl(request.url, name, sidecar, ctx);
   const method = coerceMethod(request.method, name, ctx);
   const body = convertBody(request.body, name, sidecar, ctx);
   collectItemExtras(raw, name, scripts, sidecar, ctx);

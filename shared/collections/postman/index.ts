@@ -1,3 +1,4 @@
+import { migrateScriptPmToRs } from '../../scripts/script-migrations';
 import type { Collection } from '../../types';
 import { parsePostmanV2 } from './parse-v2';
 import {
@@ -29,8 +30,8 @@ export { attachPostmanSidecar, getPostmanSidecar, POSTMAN_SIDECAR_KEY } from './
 
 export interface PostmanImportOptions {
   /**
-   * Applied to every imported pre-request / test script. The renderer passes
-   * the `pm.*` → `rs.*` namespace migration; defaults to identity.
+   * Applied to every imported pre-request / test script. Defaults to the
+   * `pm.*` → `rs.*` namespace migration (`shared/scripts/script-migrations.ts`).
    */
   transformScript?: (script: string) => string;
 }
@@ -63,7 +64,7 @@ export function importPostmanCollection(
   const sourceVersion = detectV2Version(info?.schema, report);
   const collection = parsePostmanV2(raw, {
     report,
-    transformScript: options.transformScript ?? ((s) => s),
+    transformScript: options.transformScript ?? migrateScriptPmToRs,
   });
   return { collection, report: { sourceVersion, warnings: report.warnings } };
 }

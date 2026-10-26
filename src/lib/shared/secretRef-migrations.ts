@@ -1,4 +1,6 @@
-import { isPostmanAuthSecretKey, redactPostmanBag } from '@shared/secrets/collection-redaction';
+import { mapPostmanAuthParams, postmanAuthParamEntries } from '@shared/collections/postman/auth';
+import { isPostmanAuthSecretKey, redactPostmanBag } from '@shared/collections/postman/redaction';
+import { getPostmanSidecar } from '@shared/collections/postman/sidecar';
 import type { AuthConfig, Collection, CollectionItem, Request } from '@/types';
 import { getElectronAPI, isElectron } from './platform';
 import { coerceToInlineSecret, isInlineSecretRef } from './secretRef';
@@ -299,24 +301,12 @@ async function postmanAuthToHandles(
   const type = typeof auth.type === 'string' ? auth.type : '';
   const block = auth[type];
   const label = (key: string) => `${labelPrefix}/_postman.${type}.${key}`;
-  let next: unknown = block;
-  if (Array.isArray(block)) {
-    next = await Promise.all(
-      block.map(async (entry: unknown) => {
-        if (!entry || typeof entry !== 'object') return entry;
-        const e = entry as { key?: unknown; value?: unknown };
-        if (typeof e.key !== 'string') return entry;
-        return { ...e, value: await postmanParamToHandle(store, e.key, e.value, label(e.key)) };
-      })
-    );
-  } else if (block && typeof block === 'object') {
-    const entries = await Promise.all(
-      Object.entries(block as Record<string, unknown>).map(
-        async ([k, v]) => [k, await postmanParamToHandle(store, k, v, label(k))] as const
-      )
-    );
-    next = Object.fromEntries(entries);
-  }
+  const values = await Promise.all(
+    postmanAuthParamEntries(block).map((p) =>
+      postmanParamToHandle(store, p.key, p.value, label(p.key))
+    )
+  );
+  const next = mapPostmanAuthParams(block, (_p, i) => values[i]);
   return { ...redacted, [type]: next };
 }
 
@@ -333,7 +323,7 @@ async function convertPostmanBagToHandles(
   labelPrefix: string,
   store: SecretsStore
 ): Promise<{ _postman?: unknown }> {
-  const bag = (node as { _postman?: unknown })._postman;
+  const bag = getPostmanSidecar(node);
   if (!bag || typeof bag !== 'object') return {};
   const original = bag as Record<string, unknown>;
   const next = redactPostmanBag(bag) as Record<string, unknown>;

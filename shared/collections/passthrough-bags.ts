@@ -20,3 +20,11 @@ export function deletePassthroughBags<T extends object>(node: T): T {
 export function hasPassthroughBag(node: object): boolean {
   return PASSTHROUGH_BAG_KEYS.some((key) => key in node);
 }
+
+/**
+ * Recursion bound shared by every recursive collection-tree walk that is not
+ * an importer (store bag stripping, secret redaction / counting). Importers
+ * cap nesting much lower (Postman: 64), so this only trips on hostile or
+ * corrupt data; each walk documents its own safe behaviour past the bound.
+ */
+export const MAX_COLLECTION_TREE_DEPTH = 256;

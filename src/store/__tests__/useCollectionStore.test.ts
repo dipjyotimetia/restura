@@ -415,6 +415,23 @@ extensions:
       updateCollection('pc', { name: 'Renamed' });
       expect(root()?._postman).toEqual({ auth: { type: 'hawk' } });
     });
+
+    it('a whole-collection update with unchanged auth/variables/scripts keeps the root sidecar', () => {
+      // useFileCollectionStore reloads pass the full collection back in.
+      const { addCollection, updateCollection } = useCollectionStore.getState();
+      addCollection({
+        ...withRootBag(),
+        auth: { type: 'bearer', bearer: { token: 't' } },
+        variables: [],
+        preRequestScript: 'rs.a()',
+      } as unknown as Collection);
+      const current = root()!;
+      updateCollection('pc', {
+        ...structuredClone(current),
+        name: 'Reloaded',
+      });
+      expect(root()?._postman).toEqual({ auth: { type: 'hawk' } });
+    });
   });
 
   describe('add/remove also defeat stale _oc bags (audit Fix 7, completeness)', () => {
