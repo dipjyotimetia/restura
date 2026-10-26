@@ -397,14 +397,17 @@ describe('Postman v3 → Restura (every non-HTTP $kind)', () => {
     });
   });
 
-  it('mcp-request over stdio: shape only, never approved, warned by command', () => {
-    const r = find(collection.items, 'Local MCP')?.request as McpRequest;
-    expect(r.transport).toBe('stdio');
-    expect(r.stdio).toMatchObject({
-      command: 'npx',
-      args: ['-y', '@modelcontextprotocol/server-everything'],
+  it('mcp-request over stdio: imported disabled (placeholder), warned by command', () => {
+    const item = find(collection.items, 'Local MCP (MCP stdio, disabled)')!;
+    expect(item.type).toBe('folder');
+    expect(item.request).toBeUndefined();
+    const kept = getPostmanSidecar(item)?.item as Record<string, unknown>;
+    expect(kept).toMatchObject({
+      transport: 'stdio',
+      argv: ['npx', '-y', ''],
+      env: [{ key: 'DEBUG' }],
     });
-    expect(r.stdio?.env?.map((e) => e.key)).toEqual(['DEBUG']);
+    const r = item;
     const warning = report.warnings.find(
       (w) => w.kind === 'unmodelled-construct' && w.construct === 'mcp-stdio'
     );

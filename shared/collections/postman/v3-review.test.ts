@@ -114,8 +114,11 @@ describe('S6 / S7 sidecar scrub and stdio warning', () => {
     });
     const w = r.report.warnings.find((x) => 'construct' in x && x.construct === 'mcp-stdio');
     const detail = w && 'detail' in w ? w.detail : '';
-    expect(detail).toContain('["node","a b.js"]');
+    // Argument values are not imported (fail closed): only the shape shows.
+    expect(detail).toContain('["node",""]');
+    expect(detail).not.toContain('a b.js');
     expect(detail).toContain('desktop-only');
+    expect(detail).toMatch(/not imported/i);
     expect(detail).toMatch(/NODE_OPTIONS.*DYLD_INSERT_LIBRARIES.*PLAIN/);
     expect(detail).toMatch(/loader|preload/i);
     expect(detail).not.toContain('--require x');

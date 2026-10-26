@@ -7,6 +7,15 @@ import {
   mappedAuthParamsFor,
   postmanAuthParamEntries,
 } from './auth';
+import {
+  countUrlStringSecrets,
+  isSecretHeaderLine,
+  redactTextCredentials,
+  redactUrlCredentialsForStorage,
+  SINGLE_VARIABLE_REFERENCE,
+  walkArgv,
+  walkCommandLine,
+} from './text-redaction';
 
 /**
  * Secret redaction / counting for the `_postman` sidecar (ADR 0034).
@@ -44,9 +53,6 @@ const POSTMAN_AUTH_SECRET_KEYS = new Set([
   'privateKey',
   'value',
 ]);
-
-/** A value that is exactly one `{{var}}` reference — a pointer, not a secret. */
-const SINGLE_VARIABLE_REFERENCE = /^\{\{\s*[^{}\s]+\s*\}\}$/;
 
 type Raw = Record<string, unknown>;
 
@@ -131,13 +137,6 @@ function countPostmanRows(rows: unknown): number {
   return Array.isArray(rows) ? rows.filter(isPostmanSecretRow).length : 0;
 }
 
-const HEADER_LINE = /^([^:]+):(.*)$/;
-
-function isSecretHeaderLine(line: string): boolean {
-  const m = HEADER_LINE.exec(line);
-  return !!m && isSecretFieldName((m[1] ?? '').trim()) && isPlaintextValue((m[2] ?? '').trim());
-}
-
 /** Headers as `[{ key, value }]`, a raw `"Key: Value\n…"` block, or a `{ Key: value }` map. */
 function redactPostmanHeaders(header: unknown): unknown {
   if (Array.isArray(header)) return redactPostmanRows(header);
@@ -169,61 +168,6 @@ function countPostmanHeaders(header: unknown): number {
 }
 
 // ── URLs: userinfo + credential-named query params (string, `raw`, `auth`, `query`)
-
-const URL_USERINFO = /^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i;
-
-function decodeComponent(text: string): string {
-  try {
-    return decodeURIComponent(text.replace(/\+/g, ' '));
-  } catch {
-    return text;
-  }
-}
-
-/**
- * Strip `user:pass@` userinfo and blank credential-named query values in a
- * URL string; templated URLs survive apart from the credential, and a value
- * that is one `{{var}}` reference is kept. Same policy as
- * `redactUrlCredentialsForStorage` (`shared/secrets/mcp-credential-redaction.ts`),
- * which cannot be imported here: that module depends on collection-redaction,
- * which depends on this one (runtime cycle).
- */
-function redactUrlCredentialsForStorage(url: string): string {
-  const out = url.replace(URL_USERINFO, '$1');
-  const queryStart = out.indexOf('?');
-  if (queryStart === -1) return out;
-  const hashStart = out.indexOf('#', queryStart);
-  const end = hashStart === -1 ? out.length : hashStart;
-  const query = out
-    .slice(queryStart + 1, end)
-    .split('&')
-    .map((pair) => {
-      const eq = pair.indexOf('=');
-      if (eq === -1) return pair;
-      const value = pair.slice(eq + 1);
-      if (!value || SINGLE_VARIABLE_REFERENCE.test(decodeComponent(value).trim())) return pair;
-      return isSecretFieldName(decodeComponent(pair.slice(0, eq))) ? `${pair.slice(0, eq)}=` : pair;
-    })
-    .join('&');
-  return `${out.slice(0, queryStart + 1)}${query}${out.slice(end)}`;
-}
-
-function queryPairs(url: string): string[] {
-  const q = url.indexOf('?');
-  if (q === -1) return [];
-  const hash = url.indexOf('#', q);
-  return url.slice(q + 1, hash === -1 ? url.length : hash).split('&');
-}
-
-/** Exactly the number of edits {@link redactUrlCredentialsForStorage} makes to `url`. */
-function countUrlStringSecrets(url: string): number {
-  const redacted = redactUrlCredentialsForStorage(url);
-  if (redacted === url) return 0;
-  const withoutUserinfo = url.replace(URL_USERINFO, '$1');
-  const before = queryPairs(withoutUserinfo);
-  const after = queryPairs(redacted);
-  return (withoutUserinfo === url ? 0 : 1) + before.filter((pair, i) => pair !== after[i]).length;
-}
 
 function redactUrlAuth(auth: Raw): Raw {
   return Object.fromEntries(
@@ -333,7 +277,9 @@ function countPostmanResponse(response: unknown): number {
 //    string, number, array, nested object), counted once;
 //  - a `{ key|name, value }` row whose name is a credential (or that is
 //    flagged secret) has its value blanked, counted once;
-//  - URL-like strings lose userinfo and credential-named query values;
+//  - URLs (a whole URL value, or URL substrings of free text such as a
+//    script) lose userinfo and credential-named query values;
+//  - launch `argv` / `command` lose secret-flag, KEY=VALUE and URL credentials;
 //  - prototype-polluting keys are dropped.
 // A lone `{{var}}` reference is a pointer, not a secret, and is kept.
 
@@ -348,8 +294,19 @@ const V3_RAW_FIELDS = [
   'leftovers',
 ] as const;
 
-/** Structural fields: their value is a name / kind, never a credential. */
-const V3_STRUCTURAL_FIELDS = new Set(['key', 'name', 'id', 'type', '$kind', 'description']);
+/**
+ * Structural fields: their value is a name / kind, never a credential
+ * (`credentialKeys`: the key NAMES of a multi-auth set, values never kept).
+ */
+const V3_STRUCTURAL_FIELDS = new Set([
+  'key',
+  'name',
+  'id',
+  'type',
+  '$kind',
+  'description',
+  'credentialKeys',
+]);
 
 /** Keys that must never be copied onto a fresh object (prototype pollution). */
 export const UNSAFE_OBJECT_KEYS: ReadonlySet<string> = new Set([
@@ -390,10 +347,7 @@ function walkV3Raw(
   inCredentials = false
 ): unknown {
   if (depth > MAX_COLLECTION_TREE_DEPTH) return null;
-  if (typeof value === 'string' && value.includes('://')) {
-    if (counter) counter.n += countUrlStringSecrets(value);
-    return redactUrlCredentialsForStorage(value);
-  }
+  if (typeof value === 'string') return redactTextCredentials(value, counter);
   if (Array.isArray(value)) {
     return value.map((v) => walkV3Raw(v, counter, depth + 1, inCredentials));
   }
@@ -408,6 +362,10 @@ function walkV3Raw(
     } else if (k !== 'value' && isV3SecretField(k, v)) {
       if (counter) counter.n += 1;
       next[k] = '';
+    } else if (k === 'argv' && Array.isArray(v)) {
+      next[k] = walkArgv(v, counter);
+    } else if (k === 'command' && typeof v === 'string') {
+      next[k] = walkCommandLine(v, counter);
     } else {
       next[k] = walkV3Raw(v, counter, depth + 1, k === 'credentials');
     }

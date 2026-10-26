@@ -278,13 +278,16 @@ describe('v3 non-HTTP edges', () => {
         env: [{ key: 'K', value: 'v', disabled: true }],
       })
     );
-    expect((stdio.request as McpRequest).stdio).toMatchObject({
-      command: 'node',
-      args: ['my server.js', '', '--flag'],
-      env: [{ key: 'K', enabled: false }],
+    // stdio imports disabled: a placeholder holding the launch shape only.
+    expect(stdio.type).toBe('folder');
+    expect(getPostmanSidecar(stdio)?.item).toMatchObject({
+      argv: ['node', '', '', '--flag'],
+      env: [{ key: 'K', disabled: true }],
     });
+    expect(JSON.stringify(stdio)).not.toContain('"v"');
     const blank = first(one({ $kind: 'mcp-request', name: 'B', transport: 'stdio' }));
-    expect((blank.request as McpRequest).transport).toBe('stdio');
+    expect(blank).toMatchObject({ type: 'folder', name: 'B (MCP stdio, disabled)' });
+    expect(getPostmanSidecar(blank)?.item).toMatchObject({ argv: [], env: [] });
   });
 
   it('unknown kinds become a placeholder; their auth goes to the bag', () => {
