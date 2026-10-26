@@ -191,6 +191,22 @@ describe('walkPostmanFolder', () => {
     expect(walk.skippedSymlinks.sort()).toEqual(['Col/Link.request.yaml', 'Col/LinkedDir']);
   });
 
+  it('names the root segment after the real folder for "."/".." relative paths', async () => {
+    const root = join(tmp(), 'Col');
+    mkdirSync(join(root, 'sub'), { recursive: true });
+    writeFileSync(
+      join(root, 'A.request.yaml'),
+      '$kind: http-request\nurl: https://a\nmethod: GET\n'
+    );
+    const rel = relative(process.cwd(), root);
+    for (const dir of [`${root}/.`, `${root}/sub/..`, `${rel}/sub/..`, `${rel}/.`]) {
+      const walk = await walkPostmanFolder(dir);
+      expect(walk.entries.map((e) => e.path)).toEqual(['Col/A.request.yaml']);
+    }
+    const loaded = await loadCollection(`${rel}/sub/..`);
+    expect(loaded.requests.map((r) => r.request.name)).toEqual(['A']);
+  });
+
   it('refuses an oversized file before reading it, and a file that grew past the cap', async () => {
     const root = join(tmp(), 'Big');
     mkdirSync(root);
@@ -314,6 +330,52 @@ describe('runCollection — Postman safety', () => {
     );
     expect(ok.summary.passed).toBe(1);
     expect(hits[0]?.url).toBe('/s?t=real');
+  });
+});
+
+describe('runCollection — folder variable precedence', () => {
+  it('a script-set value wins over the static folder default on the next request', async () => {
+    quietStderr();
+    const path = join(tmp(), 'fv.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        $kind: 'collection',
+        name: 'FV',
+        variables: [{ key: 'tok', value: 'collection' }],
+        items: [
+          {
+            $kind: 'collection',
+            name: 'Folder',
+            variables: [{ key: 'tok', value: 'folder' }],
+            items: [
+              {
+                $kind: 'http-request',
+                name: 'One',
+                method: 'GET',
+                url: `${baseUrl}/one?t={{tok}}`,
+                scripts: [
+                  { type: 'afterResponse', code: "pm.variables.set('tok', 'from-script');" },
+                ],
+              },
+              {
+                $kind: 'http-request',
+                name: 'Two',
+                method: 'GET',
+                url: `${baseUrl}/two?t={{tok}}`,
+              },
+            ],
+          },
+        ],
+      })
+    );
+    const result = await runCollection(
+      path,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      silentReporter
+    );
+    expect(result.summary.passed).toBe(2);
+    expect(hits.map((h) => h.url)).toEqual(['/one?t=folder', '/two?t=from-script']);
   });
 });
 

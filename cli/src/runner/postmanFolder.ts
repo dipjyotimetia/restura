@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { lstat, open, opendir } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { POSTMAN_V3_LIMITS, PostmanV3ContainerError } from '@shared/collections/postman';
 import type { PostmanV3Limits } from '@shared/collections/postman/v3-container';
 import type { PostmanFolderEntry } from '@shared/collections/postman/v3-folder';
@@ -84,7 +84,9 @@ export async function walkPostmanFolder(
     }
   };
 
-  await walk(dir, basename(dir), 0);
+  // Name the root after the real folder: `basename('..')` / `basename('.')`
+  // would make the shared reader reject every path as escaping the folder.
+  await walk(dir, basename(resolve(dir)), 0);
   return { entries, skippedSymlinks };
 }
 

@@ -180,6 +180,10 @@ async function runCollectionWithSessions(
     const row = iterations[iter] ?? {};
     // Layer base + row vars; mutated across requests by scripts.
     const allVars: Record<string, string> = { ...baseVars, ...row };
+    // Values a script changed this iteration. Layered on top of folder vars and
+    // the row, as the app's runner does (`environmentOverrides`), so a script
+    // write is not undone by a static folder default on the next request.
+    const scriptOverrides: Record<string, string> = {};
     let jumps = 0;
 
     for (let idx = 0; idx < filtered.length; ) {
@@ -213,18 +217,29 @@ async function runCollectionWithSessions(
 
       const preScript = item.request.preRequestScript;
       const testScript = item.request.testScript;
-      // Folder variables sit between env + collection vars and the iteration
-      // row, as in the app's runner (`buildValueMap({ folders })`).
+      // Precedence matches the app's runner: env + collection < folder vars
+      // (`buildValueMap({ folders })`) < iteration row < script-set values.
       const folderVars = item.folderVariables ?? {};
-      let perRequestVars = { ...allVars, ...folderVars, ...row };
+      let perRequestVars = { ...allVars, ...folderVars, ...row, ...scriptOverrides };
       // Write script variables back to the run-wide map, except folder
       // variables a script left untouched (they must not leak to requests
-      // outside the folder).
-      const writeBack = (before: Record<string, string>, after: Record<string, string>) => {
+      // outside the folder). A changed value also becomes a script override —
+      // unless it was a pm.collectionVariables write, which stays in its own
+      // (lower) scope, as in the app.
+      const writeBack = (
+        before: Record<string, string>,
+        after: Record<string, string>,
+        collectionMutations: Record<string, string | null> | undefined
+      ) => {
         for (const k of Object.keys(after)) {
-          if (k in folderVars && after[k] === before[k]) continue;
+          const changed = after[k] !== before[k];
+          if (k in folderVars && !changed) continue;
           allVars[k] = after[k]!;
+          if (changed && !(collectionMutations && k in collectionMutations)) {
+            scriptOverrides[k] = after[k]!;
+          }
         }
+        for (const k of Object.keys(collectionMutations ?? {})) delete scriptOverrides[k];
       };
       const allAssertions: Array<{ name: string; passed: boolean; error?: string }> = [];
       let scriptError: string | undefined;
@@ -247,7 +262,7 @@ async function runCollectionWithSessions(
           preResult = pre;
           sendItem = applyPreRequestMetadata(item, pre, preVars);
           perRequestVars = pre.variables;
-          writeBack(preVars, pre.variables);
+          writeBack(preVars, pre.variables, pre.collectionMutations);
           applyCollectionMutations(pre.collectionMutations);
           if (pre.errors.length > 0) scriptError = `pre-request: ${pre.errors.join('; ')}`;
           if (pre.assertions.length > 0) allAssertions.push(...pre.assertions);
@@ -281,7 +296,7 @@ async function runCollectionWithSessions(
         try {
           const test = await runTestScript(testScript, sendItem, outcome, perRequestVars, runCtx);
           testResult = test;
-          writeBack(perRequestVars, test.variables);
+          writeBack(perRequestVars, test.variables, test.collectionMutations);
           applyCollectionMutations(test.collectionMutations);
           if (test.assertions.length > 0) allAssertions.push(...test.assertions);
           if (test.errors.length > 0) {
