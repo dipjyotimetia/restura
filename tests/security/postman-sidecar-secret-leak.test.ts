@@ -506,6 +506,57 @@ describe('Postman v3 review (#1200): nested / numeric / array / userinfo secrets
     expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
   });
 
+  it('MCP stdio launch args: secret flag values never reach the bag or the warning', () => {
+    const command = [
+      'srv --token ARG_TOK1 -p ARG_PW2 --api-key="ARG KEY3" --client-secret=ARG_CS4',
+      'DB_PASSWORD=ARG_ENV5 https://u:ARG_URL6@h.example.com/x --header {{authRef}}',
+      '--secret {{vaultRef}} --port 8080 -y --verbose',
+    ].join(' ');
+    const r = importPostmanCollection({
+      $kind: 'collection',
+      name: 'C',
+      items: [{ $kind: 'mcp-request', name: 'S', transport: 'stdio', command }],
+    });
+    const leaked = ['ARG_TOK1', 'ARG_PW2', 'ARG KEY3', 'ARG_CS4', 'ARG_ENV5', 'ARG_URL6'];
+    const text = JSON.stringify(r.collection);
+    const warnings = JSON.stringify(r.report.warnings);
+    for (const s of leaked) {
+      expect(text).not.toContain(s);
+      expect(warnings).not.toContain(s);
+    }
+    const kept = (r.collection.items[0] as { _postman?: { item?: { argv?: string[] } } })._postman
+      ?.item?.argv;
+    expect(kept).toEqual([
+      'srv',
+      '--token',
+      '',
+      '-p',
+      '',
+      '--api-key=',
+      '--client-secret=',
+      'DB_PASSWORD=',
+      'https://h.example.com/x',
+      '--header',
+      '{{authRef}}',
+      '--secret',
+      '{{vaultRef}}',
+      '--port',
+      '8080',
+      '-y',
+      '--verbose',
+    ]);
+    // A hand-edited bag: count equals what redaction blanks (argv + command).
+    const bag = {
+      item: { argv: ['srv', '--token', 'T', 'PASSWORD=P', 3], command: 'srv --token T' },
+    };
+    expect(countPostmanBagInlineSecrets(bag)).toBe(3);
+    const redacted = redactPostmanBag(bag);
+    expect(redacted).toEqual({
+      item: { argv: ['srv', '--token', '', 'PASSWORD=', 3], command: 'srv --token ""' },
+    });
+    expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
+  });
+
   it('"store secrets as handles" leaves no bag-only v3 plaintext', async () => {
     const { collection } = importPostmanCollection(probe);
     const converted = await convertCollectionSecretsToHandles(collection);

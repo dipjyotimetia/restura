@@ -335,6 +335,7 @@ function countPostmanResponse(response: unknown): number {
 //    flagged secret) has its value blanked, counted once;
 //  - URLs (a whole URL value, or URL substrings of free text such as a
 //    script) lose userinfo and credential-named query values;
+//  - launch `argv` / `command` lose secret-flag, KEY=VALUE and URL credentials;
 //  - prototype-polluting keys are dropped.
 // A lone `{{var}}` reference is a pointer, not a secret, and is kept.
 
@@ -410,6 +411,93 @@ function walkV3String(value: string, counter: { n: number } | undefined): string
   });
 }
 
+// ── launch command lines (MCP stdio argv / command) ─────────────────────────
+
+/** Split a command line into argv (whitespace, single / double quotes). No shell. */
+export function splitCommandLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quote: '"' | "'" | null = null;
+  let has = false;
+  for (const ch of line) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      has = true;
+    } else if (/\s/.test(ch)) {
+      if (has || cur) out.push(cur);
+      cur = '';
+      has = false;
+    } else cur += ch;
+  }
+  if (has || cur) out.push(cur);
+  return out;
+}
+
+const ARG_FLAG = /^--?([^=\s-][^=\s]*)$/;
+const ARG_FLAG_ASSIGN = /^(--?)([^=\s]+)=(.*)$/s;
+const ARG_ENV_ASSIGN = /^([A-Za-z_][A-Za-z0-9_.-]*)=(.*)$/s;
+
+/** `-p` is the conventional short password flag; every other name goes through isSecretFieldName. */
+function isSecretArgName(name: string): boolean {
+  return name === 'p' || isSecretFieldName(name);
+}
+
+function isArgSecretValue(value: string): boolean {
+  return value !== '' && !SINGLE_VARIABLE_REFERENCE.test(value.trim());
+}
+
+/**
+ * Blank credential values in a launch argv: the argument after a secret-named
+ * flag (`--token X`, `-p X`), the value of `--secret-flag=X` and of
+ * `SECRET_KEY=X`, and URL userinfo / credential query values. `{{var}}`
+ * references are kept. Every edit is counted into `counter`.
+ */
+function walkArgv(argv: readonly unknown[], counter: { n: number } | undefined): unknown[] {
+  let afterSecretFlag = false;
+  return argv.map((arg) => {
+    if (typeof arg !== 'string') return arg;
+    const follows = afterSecretFlag;
+    afterSecretFlag = false;
+    const flag = ARG_FLAG.exec(arg);
+    if (flag) {
+      afterSecretFlag = isSecretArgName(String(flag[1]));
+      return arg;
+    }
+    if (follows && isArgSecretValue(arg)) {
+      if (counter) counter.n += 1;
+      return '';
+    }
+    const assign = ARG_FLAG_ASSIGN.exec(arg) ?? ARG_ENV_ASSIGN.exec(arg);
+    if (assign) {
+      const value = String(assign.at(-1));
+      if (isSecretArgName(String(assign.at(-2))) && isArgSecretValue(value)) {
+        if (counter) counter.n += 1;
+        return arg.slice(0, arg.length - value.length);
+      }
+    }
+    if (!arg.includes('://')) return arg;
+    if (counter) counter.n += countUrlStringSecrets(arg);
+    return redactUrlCredentialsForStorage(arg);
+  });
+}
+
+/** {@link walkArgv} for a display / sidecar copy of a launch argv. */
+export function redactCommandArgv(argv: readonly string[]): string[] {
+  return walkArgv(argv, undefined) as string[];
+}
+
+/** A command line with its credential args blanked (re-quoted only when an arg changed). */
+function walkCommandLine(line: string, counter: { n: number } | undefined): string {
+  const local = { n: 0 };
+  const redacted = walkArgv(splitCommandLine(line), local) as string[];
+  if (local.n === 0) return line;
+  if (counter) counter.n += local.n;
+  return redacted.map((a) => (a === '' || /[\s'"]/.test(a) ? JSON.stringify(a) : a)).join(' ');
+}
+
 function isV3SecretField(key: string, value: unknown): boolean {
   return !V3_STRUCTURAL_FIELDS.has(key) && isSecretFieldName(key) && hasCredentialContent(value);
 }
@@ -437,6 +525,10 @@ function walkV3Raw(
     } else if (k !== 'value' && isV3SecretField(k, v)) {
       if (counter) counter.n += 1;
       next[k] = '';
+    } else if (k === 'argv' && Array.isArray(v)) {
+      next[k] = walkArgv(v, counter);
+    } else if (k === 'command' && typeof v === 'string') {
+      next[k] = walkCommandLine(v, counter);
     } else {
       next[k] = walkV3Raw(v, counter, depth + 1, k === 'credentials');
     }

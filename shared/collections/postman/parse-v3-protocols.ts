@@ -13,6 +13,7 @@ import {
   rows,
   scrub,
 } from './parse-v3-shared';
+import { redactCommandArgv, splitCommandLine } from './redaction';
 import type { PostmanSidecar } from './sidecar';
 
 /** Postman v3 MQTT / Kafka (connection presets) and MCP converters (#1200). */
@@ -214,28 +215,7 @@ export function convertKafka(raw: Raw, name: string, sidecar: PostmanSidecar, ct
 
 // ── MCP ─────────────────────────────────────────────────────────────────────
 
-/** Split a command line into argv (whitespace, single / double quotes). No shell. */
-export function splitCommandLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = '';
-  let quote: '"' | "'" | null = null;
-  let has = false;
-  for (const ch of line) {
-    if (quote) {
-      if (ch === quote) quote = null;
-      else cur += ch;
-    } else if (ch === '"' || ch === "'") {
-      quote = ch;
-      has = true;
-    } else if (/\s/.test(ch)) {
-      if (has || cur) out.push(cur);
-      cur = '';
-      has = false;
-    } else cur += ch;
-  }
-  if (has || cur) out.push(cur);
-  return out;
-}
+export { splitCommandLine };
 
 /** Env vars that make a launched process load attacker-chosen code. */
 export const LOADER_ENV =
@@ -262,12 +242,14 @@ export function keepMcpStdio(raw: Raw, name: string, sidecar: PostmanSidecar, ct
   const env = arr(raw.env)
     .filter(isObj)
     .map((e) => ({ key: str(e.key), ...(e.disabled === true ? { disabled: true } : {}) }));
+  // scrub() blanks secret-flag / KEY=VALUE / URL-userinfo values in both
+  // `argv` and `command`; the warning shows the same redacted argv.
   sidecar.item = scrub({ ...raw, argv, env });
   ctx.report.unmodelled(
     'mcp-stdio',
     name,
     stdioWarning(
-      argv,
+      redactCommandArgv(argv),
       env.map((e) => e.key)
     )
   );
