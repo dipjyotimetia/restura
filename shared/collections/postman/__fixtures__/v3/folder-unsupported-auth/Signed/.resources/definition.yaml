@@ -1,0 +1,7 @@
+$kind: collection
+auth:
+  type: hawk
+  credentials:
+    authId: "{{hawkId}}"
+    algorithm: sha256
+order: 1000

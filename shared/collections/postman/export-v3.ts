@@ -1,6 +1,6 @@
 import { isConfiguredAuth } from '../../auth/inheritance';
 import type { AuthConfig, Collection, CollectionItem } from '../../types';
-import { isObj, type Raw } from './common';
+import { hasUnsupportedPostmanAuth, isObj, type Raw } from './common';
 import { type PostmanExportReport, PostmanExportReportBuilder } from './export-report';
 import { writePostmanV3Files } from './export-v3-files';
 import { exportGrpc, exportHttp } from './export-v3-http';
@@ -114,6 +114,21 @@ function containerAuth(
   return exportAuth(auth ?? { type: 'none' }, sidecar, AUTH_TYPES.collection, owner, ctx);
 }
 
+/**
+ * The auth a container hands its children for inheritance detection. A
+ * container whose own auth is an UNSUPPORTED Postman type (hawk, jwt, …, kept
+ * in the sidecar) cuts the chain: the importer gives its inheriting children
+ * `none`, and they must re-export WITHOUT `auth` so Postman signs them with
+ * the container's auth again.
+ */
+function authForChildren(
+  node: Collection | CollectionItem,
+  inherited: AuthConfig | undefined
+): AuthConfig | undefined {
+  if (hasUnsupportedPostmanAuth(node)) return { type: 'none' };
+  return isConfiguredAuth(node.auth) ? node.auth : inherited;
+}
+
 function exportItem(
   item: CollectionItem,
   inherited: AuthConfig | undefined,
@@ -126,7 +141,7 @@ function exportItem(
   const name = item.name || 'Untitled';
   if (item.variables?.length) ctx.report.dropped('folder-variables', name);
   if (item.contractSpec) ctx.report.dropped('contract-spec', name);
-  const childAuth = isConfiguredAuth(item.auth) ? item.auth : inherited;
+  const childAuth = authForChildren(item, inherited);
   const items = (item.items ?? [])
     .map((child) => exportItem(child, childAuth, ctx))
     .filter((x): x is Raw => x !== null);
@@ -154,7 +169,7 @@ export function exportPostmanV3Tree(
   const name = collection.name || 'Untitled Collection';
   if (collection.contractSpec) report.dropped('contract-spec', name);
   const items = collection.items
-    .map((item) => exportItem(item, collection.auth, ctx))
+    .map((item) => exportItem(item, authForChildren(collection, collection.auth), ctx))
     .filter((x): x is Raw => x !== null);
   const uses = isObj(sidecar?.uses) ? sidecar.uses : undefined;
   const tree = defined({

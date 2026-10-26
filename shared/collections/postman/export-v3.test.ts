@@ -62,7 +62,7 @@ function roundTrip(collection: Collection) {
 }
 
 describe('Postman v3 export — golden fixtures round-trip', () => {
-  for (const fixture of ['kitchen-sink', 'nested', 'all-kinds.json']) {
+  for (const fixture of ['kitchen-sink', 'nested', 'all-kinds.json', 'folder-unsupported-auth']) {
     it(`${fixture}: import → export → import is equivalent (sidecar included)`, () => {
       const input = fixture.endsWith('.json')
         ? (JSON.parse(readFileSync(join(FIXTURES, fixture), 'utf8')) as unknown)
@@ -74,6 +74,31 @@ describe('Postman v3 export — golden fixtures round-trip', () => {
       expect(normalise(again)).toEqual(normalise(first));
     });
   }
+
+  it('children inheriting an unsupported folder auth (hawk) export WITHOUT an auth key', () => {
+    const first = importPostmanV3Files(
+      loadFileMap(join(FIXTURES, 'folder-unsupported-auth'))
+    ).collection;
+    const { files } = exportPostmanV3(first);
+    expect(files['Signed/.resources/definition.yaml']).toMatch(/type: hawk/);
+    expect(files['Signed/Inherits.request.yaml']).not.toMatch(/^auth:/m);
+    expect(files['Signed/Own basic.request.yaml']).toMatch(/type: basic/);
+    expect(files['Top.request.yaml']).not.toMatch(/^auth:/m);
+    expect(files['.resources/definition.yaml']).toMatch(/type: bearer/);
+  });
+
+  it('collection-level unsupported auth: inheriting requests export without auth', () => {
+    const c = {
+      id: 'c',
+      name: 'C',
+      auth: { type: 'none' },
+      items: [httpReq('R', { type: 'none' })],
+      _postman: { auth: { type: 'jwt', jwt: [{ key: 'algorithm', value: 'HS256' }] } },
+    } as Collection;
+    const { files } = exportPostmanV3(c);
+    expect(files['.resources/definition.yaml']).toMatch(/type: jwt/);
+    expect(files['R.request.yaml']).not.toMatch(/^auth:/m);
+  });
 
   it('writes the migrate layout: root + folder definitions, request files, order, examples', () => {
     const first = importPostmanV3Files(loadFileMap(join(FIXTURES, 'kitchen-sink'))).collection;
