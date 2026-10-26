@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+import { isConfiguredAuth } from '../../auth/inheritance';
 import { checkHttpMethod } from '../../protocol/http-method';
 import type { AuthConfig, HttpMethod, KeyValue } from '../../types';
 import { activeAuthBlock, authParamsV2, convertPostmanAuth, unmappedAuthRemainder } from './auth';
@@ -64,6 +65,49 @@ export interface AuthOutcome {
    * live on the typed model and must not be duplicated (ADR-0007).
    */
   sidecarAuth?: Raw;
+  /**
+   * Set when the Postman auth type is unsupported (imported as `none`). The
+   * node's inheriting descendants must then get an explicit `none` too, never
+   * an ancestor's credentials (see {@link inheritAuth}).
+   */
+  unsupported?: string;
+}
+
+/**
+ * What a child inherits from its parent: the nearest configured auth, or the
+ * type of the nearest UNSUPPORTED auth that cut the chain (Postman would sign
+ * with that type; Restura must not substitute a credential from further up).
+ */
+export interface InheritedPostmanAuth {
+  auth?: AuthConfig;
+  unsupported?: string;
+}
+
+/** The inheritance a container (collection / folder) hands its children. */
+export function inheritFrom(
+  outcome: AuthOutcome,
+  parent: InheritedPostmanAuth
+): InheritedPostmanAuth {
+  if (outcome.unsupported) return { unsupported: outcome.unsupported };
+  if (isConfiguredAuth(outcome.auth)) return { auth: outcome.auth };
+  return parent;
+}
+
+/**
+ * Auth for a request that inherits (`auth` / `inherit` absent on it): the
+ * nearest ancestor's, or an explicit `none` plus a report entry naming the
+ * request when an unsupported ancestor auth cut the chain.
+ */
+export function inheritAuth(
+  inherited: InheritedPostmanAuth,
+  requestName: string,
+  ctx: ParseContext
+): AuthConfig | undefined {
+  if (inherited.unsupported) {
+    ctx.report.unsupportedAuth(inherited.unsupported, requestName);
+    return { type: 'none' };
+  }
+  return inherited.auth;
 }
 
 /**
@@ -86,7 +130,11 @@ export function convertAuthBlock(raw: Raw, ownerName: string, ctx: ParseContext)
       return { auth: result.auth, sidecarAuth: unmappedAuthRemainder(raw) };
     case 'unsupported':
       ctx.report.unsupportedAuth(result.authType, ownerName);
-      return { auth: result.auth, sidecarAuth: unmappedAuthRemainder(raw) };
+      return {
+        auth: result.auth,
+        sidecarAuth: unmappedAuthRemainder(raw),
+        unsupported: result.authType,
+      };
   }
 }
 

@@ -84,7 +84,8 @@ Postman input is parsed by the **same shared importer the Restura app uses** (`s
 - **Caps.** Untrusted input is bounded before it is read: at most 5,000 files, 10 MiB per file, 50 MiB in total and 50 MiB for a `.zip` (checked from the file size before reading, then inflated as a stream with a running byte count). A single `.json` / `.yaml` file may be up to 50 MiB.
 - **Folders.** The CLI walks a v3 folder with `lstat` and **never follows symlinks**: a symlinked file or directory is skipped and listed in the import report. Only YAML / JSON files are read; other files under `.resources/` (external scripts, binaries) are listed as unread.
 - **Import report.** Everything the importer dropped or approximated (unsupported auth, unsendable methods, saved responses, secret variables, MCP stdio items, item kinds with no Restura equivalent, …) is printed to **stderr**, grouped by kind with a count and the affected item names. The `json` reporter includes it as `importReport` (`{ sourceVersion, warnings[], skippedSymlinks? }`). Entries carry only names and fixed notes, never credentials.
-- **`--strict-import`** refuses the run (exit `2`, nothing is sent) when the import report has any entry.
+- **`--strict-import`** refuses the run (exit `2`, nothing is sent) when the import report has any entry. It counts exactly the import report's entries plus skipped symlinks. The CLI's own platform skips (Kafka / MQTT presets, the `[restura] skipping …` notices below) are not import loss and do not trip it.
+- **Inherited auth.** When a folder (or the collection) uses a Postman auth type Restura cannot sign, the importer gives the requests that inherit from it an explicit "no auth" and a report entry each. They never inherit a credential from further up (for example the collection's bearer token).
 
 What the CLI does with constructs it cannot run — it never runs them silently:
 

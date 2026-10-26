@@ -242,15 +242,14 @@ function unsupportedPostmanAuth(node: object, auth: AuthConfig | undefined): str
 }
 
 /**
- * Inheritance state for unsupported Postman auth. `ancestorAuths` are the
- * auth objects of the containers above the unsupported one: the parser bakes
- * an inherited auth into a request BY REFERENCE, so a request whose auth is one
- * of them inherited it past the unsupported container (a fallback credential
- * Postman would not have sent).
+ * Inheritance state for unsupported Postman auth: the nearest container
+ * (collection / folder) whose Postman auth Restura cannot sign. The shared
+ * parser gives its inheriting descendants an explicit `none` (never an
+ * ancestor's credentials); the CLI must still not send them, because its own
+ * `resolveEffectiveAuth` would fill `none` from the collection again.
  */
 interface AuthGuard {
   unsupported?: { type: string; owner: string };
-  ancestorAuths: readonly AuthConfig[];
 }
 
 function nextGuard(
@@ -259,11 +258,10 @@ function nextGuard(
   auth: AuthConfig | undefined,
   name: string
 ): AuthGuard {
-  const ancestorAuths = auth ? [...guard.ancestorAuths, auth] : guard.ancestorAuths;
   const type = unsupportedPostmanAuth(node, auth);
-  if (type) return { unsupported: { type, owner: name }, ancestorAuths: guard.ancestorAuths };
-  if (isConfiguredAuth(auth)) return { ancestorAuths };
-  return { ...guard, ancestorAuths };
+  if (type) return { unsupported: { type, owner: name } };
+  if (isConfiguredAuth(auth)) return {};
+  return guard;
 }
 
 function blockedReason(
@@ -277,8 +275,10 @@ function blockedReason(
   const own = unsupportedPostmanAuth(item, req.auth);
   if (own) return reason(own, '');
   const up = guard.unsupported;
-  if (!up) return undefined;
-  if (!isConfiguredAuth(req.auth) || guard.ancestorAuths.includes(req.auth)) {
+  // Fail-safe: any request without its own configured auth below an
+  // unsupported container is refused (this includes an explicit Postman
+  // `noauth`, which the internal model cannot tell apart from `inherit`).
+  if (up && !isConfiguredAuth(req.auth)) {
     return reason(up.type, ` (inherited from "${up.owner}")`);
   }
   return undefined;
@@ -346,7 +346,7 @@ function flattenInternal(c: Collection): LoadedRequest[] {
     [c.preRequestScript],
     [c.testScript],
     isConfiguredAuth(c.auth) ? c.auth : undefined,
-    nextGuard({ ancestorAuths: [] }, c, c.auth, c.name),
+    nextGuard({}, c, c.auth, c.name),
     out
   );
   return out;
