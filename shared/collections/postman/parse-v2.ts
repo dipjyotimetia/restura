@@ -278,7 +278,12 @@ function convertItem(
     for (const child of raw.item) {
       // An unsupported folder auth cuts the chain: its inheriting
       // descendants get `none`, never the collection's credentials.
-      const converted = convertItem(child, inheritFrom(authOut, inherited), ctx, depth + 1);
+      const converted = convertItem(
+        child,
+        inheritFrom({ auth: authOut.auth, _postman: sidecar }, inherited),
+        ctx,
+        depth + 1
+      );
       if (converted) items.push(converted);
     }
     const folder: CollectionItem = {
@@ -366,7 +371,11 @@ export function parsePostmanV2(data: Raw, ctx: ParseContext): Collection {
     testScript: scripts.testScript,
   };
   for (const item of arr(data.item)) {
-    const converted = convertItem(item, inheritFrom(authOut, {}), ctx);
+    const converted = convertItem(
+      item,
+      inheritFrom({ auth: authOut.auth, _postman: sidecar }, {}),
+      ctx
+    );
     if (converted) collection.items.push(converted);
   }
   return attachPostmanSidecar(collection, sidecar);

@@ -126,7 +126,8 @@ async function runCollectionWithSessions(
     }
   }
   assertCliSecretsAvailable(
-    loaded.requests,
+    // A blocked request is never sent, so its variables can't abort the run.
+    loaded.requests.filter((r) => !r.blocked),
     baseVars,
     new Set(loaded.meta.privateVariableNames ?? [])
   );
@@ -212,7 +213,19 @@ async function runCollectionWithSessions(
 
       const preScript = item.request.preRequestScript;
       const testScript = item.request.testScript;
-      let perRequestVars = { ...allVars };
+      // Folder variables sit between env + collection vars and the iteration
+      // row, as in the app's runner (`buildValueMap({ folders })`).
+      const folderVars = item.folderVariables ?? {};
+      let perRequestVars = { ...allVars, ...folderVars, ...row };
+      // Write script variables back to the run-wide map, except folder
+      // variables a script left untouched (they must not leak to requests
+      // outside the folder).
+      const writeBack = (before: Record<string, string>, after: Record<string, string>) => {
+        for (const k of Object.keys(after)) {
+          if (k in folderVars && after[k] === before[k]) continue;
+          allVars[k] = after[k]!;
+        }
+      };
       const allAssertions: Array<{ name: string; passed: boolean; error?: string }> = [];
       let scriptError: string | undefined;
       let preResult: RunScriptResult | undefined;
@@ -234,7 +247,7 @@ async function runCollectionWithSessions(
           preResult = pre;
           sendItem = applyPreRequestMetadata(item, pre, preVars);
           perRequestVars = pre.variables;
-          for (const k of Object.keys(pre.variables)) allVars[k] = pre.variables[k]!;
+          writeBack(preVars, pre.variables);
           applyCollectionMutations(pre.collectionMutations);
           if (pre.errors.length > 0) scriptError = `pre-request: ${pre.errors.join('; ')}`;
           if (pre.assertions.length > 0) allAssertions.push(...pre.assertions);
@@ -268,7 +281,7 @@ async function runCollectionWithSessions(
         try {
           const test = await runTestScript(testScript, sendItem, outcome, perRequestVars, runCtx);
           testResult = test;
-          for (const k of Object.keys(test.variables)) allVars[k] = test.variables[k]!;
+          writeBack(perRequestVars, test.variables);
           applyCollectionMutations(test.collectionMutations);
           if (test.assertions.length > 0) allAssertions.push(...test.assertions);
           if (test.errors.length > 0) {

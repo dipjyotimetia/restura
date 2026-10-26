@@ -1,4 +1,5 @@
-import { lstat, open, readdir } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, open, opendir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { POSTMAN_V3_LIMITS, PostmanV3ContainerError } from '@shared/collections/postman';
 import type { PostmanV3Limits } from '@shared/collections/postman/v3-container';
@@ -14,9 +15,13 @@ import type { PostmanFolderEntry } from '@shared/collections/postman/v3-folder';
  *    shared reader strips the wrapper with `pickedRoot: true`.
  *  - `lstat` only: symlinks (files or directories) are never followed; they
  *    are skipped and returned in `skippedSymlinks` so the caller reports them.
+ *  - Directories are streamed (`opendir`) and the walk stops at its cap, so a
+ *    huge directory is never listed in full.
  *  - Sizes come from `lstat`, so the shared caps are checked before anything
- *    is read, and `read()` itself stops at `maxFileBytes` in case the file
- *    grew after the walk.
+ *    is read. `read()` re-opens with `O_NOFOLLOW | O_NONBLOCK`, requires a
+ *    regular file with the walk's device + inode (a file swapped for a
+ *    symlink, FIFO or another file after the walk is refused) and stops at
+ *    `maxFileBytes` in case it grew.
  */
 export interface PostmanFolderWalk {
   entries: PostmanFolderEntry[];
@@ -35,16 +40,29 @@ export async function walkPostmanFolder(
   const maxVisited = caps.maxFiles * 4;
   let visited = 0;
 
+  const listCapped = async (abs: string): Promise<string[]> => {
+    const names: string[] = [];
+    const handle = await opendir(abs);
+    try {
+      for await (const dirent of handle) {
+        if (++visited > maxVisited) {
+          throw new PostmanV3ContainerError(`too many files (limit ${caps.maxFiles})`);
+        }
+        names.push(dirent.name);
+      }
+    } finally {
+      // `for await` closes the handle on normal completion; close on throw.
+      await handle.close().catch(() => {});
+    }
+    return names.sort();
+  };
+
   const walk = async (abs: string, rel: string, depth: number): Promise<void> => {
     // `.resources/<Name>.resources/examples` adds a few levels below a folder.
     if (depth > caps.maxDepth + 4) {
       throw new PostmanV3ContainerError(`folder nesting is too deep (limit ${caps.maxDepth})`);
     }
-    const names = (await readdir(abs)).sort();
-    for (const name of names) {
-      if (++visited > maxVisited) {
-        throw new PostmanV3ContainerError(`too many files (limit ${caps.maxFiles})`);
-      }
+    for (const name of await listCapped(abs)) {
       const childAbs = join(abs, name);
       const childRel = `${rel}/${name}`;
       const info = await lstat(childAbs);
@@ -57,10 +75,11 @@ export async function walkPostmanFolder(
         continue;
       }
       if (!info.isFile()) continue;
+      const identity = { dev: info.dev, ino: info.ino };
       entries.push({
         path: childRel,
         size: info.size,
-        read: () => readCapped(childAbs, childRel, caps.maxFileBytes),
+        read: () => readCapped(childAbs, childRel, identity, caps.maxFileBytes),
       });
     }
   };
@@ -69,10 +88,33 @@ export async function walkPostmanFolder(
   return { entries, skippedSymlinks };
 }
 
-/** Read at most `max` bytes; a file that grew past the cap is refused, not truncated. */
-async function readCapped(path: string, rel: string, max: number): Promise<string> {
-  const handle = await open(path, 'r');
+/** Read at most `max` bytes of the SAME regular file the walk saw. */
+async function readCapped(
+  path: string,
+  rel: string,
+  identity: { dev: number; ino: number },
+  max: number
+): Promise<string> {
+  // O_NOFOLLOW: a symlink swapped in after the walk fails to open (ELOOP).
+  // O_NONBLOCK: a FIFO swapped in cannot block the open; fstat refuses it.
+  const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+  let handle: Awaited<ReturnType<typeof open>>;
   try {
+    handle = await open(path, flags);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    throw new PostmanV3ContainerError(
+      code === 'ELOOP' || code === 'EMLINK'
+        ? `"${rel}" became a symlink after the folder was read`
+        : `"${rel}" could not be read`
+    );
+  }
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) throw new PostmanV3ContainerError(`"${rel}" is not a regular file`);
+    if (info.dev !== identity.dev || info.ino !== identity.ino) {
+      throw new PostmanV3ContainerError(`"${rel}" changed after the folder was read`);
+    }
     const chunks: Buffer[] = [];
     let total = 0;
     for (;;) {

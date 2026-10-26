@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { extname, join, relative } from 'node:path';
+import { join, relative } from 'node:path';
 import { isConfiguredAuth, resolveEffectiveAuth } from '@shared/auth/inheritance';
 import {
   fileCollectionMetaSchema,
@@ -9,7 +9,7 @@ import {
   fileSseRequestSchema,
   getRequestTypeFromFilename,
 } from '@shared/collections/legacy-file-schema';
-import { getPostmanSidecar, POSTMAN_V3_LIMITS } from '@shared/collections/postman';
+import { getPostmanSidecar } from '@shared/collections/postman';
 import {
   loadCollectionFromDir,
   loadCollectionFromFile,
@@ -29,12 +29,13 @@ import * as yaml from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
 import {
   type CliPostmanImportReport,
-  importPostmanDocument,
   importPostmanFolder,
-  importPostmanZip,
-  isPostmanDocument,
+  loadPostmanFile,
+  nextPostmanAuthGuard,
+  type PostmanAuthGuard,
   type PostmanLimits,
-  readCappedFile,
+  postmanBlockedReason,
+  postmanSecretVariableNames,
 } from './postmanImport.js';
 
 export interface LoadedRequest {
@@ -53,6 +54,12 @@ export interface LoadedRequest {
    * so they never go out unauthenticated or with a fallback credential.
    */
   blocked?: string;
+  /**
+   * Enabled variables of the folders above this request, outer → inner
+   * (inner wins). The runner layers them over env + collection vars and under
+   * the iteration row, matching the app's collection runner.
+   */
+  folderVariables?: Record<string, string>;
 }
 
 export type CollectionFormat =
@@ -104,42 +111,9 @@ export async function loadCollection(
   const limits = options.postmanLimits ?? {};
 
   if (info.isFile()) {
-    const ext = extname(target).toLowerCase();
-    if (ext === '.zip') {
-      const { collection, report } = await importPostmanZip(target, limits);
-      return fromPostman(collection, report);
-    }
-    if (ext === '.json') {
-      const text = (await readCappedFile(target, singleFileCap(limits), 'the file')).toString(
-        'utf8'
-      );
-      let data: unknown;
-      try {
-        data = JSON.parse(text);
-      } catch (error) {
-        throw new Error(
-          `${target} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-      if (!isPostmanDocument(data)) {
-        throw new Error(
-          `${target} is not a Postman collection (expected info.schema / info._postman_id for v2.x, or $kind: "collection" for v3).`
-        );
-      }
-      const { collection, report } = importPostmanDocument(data, limits);
-      return fromPostman(collection, report);
-    }
-    if (ext !== '.yaml' && ext !== '.yml') {
-      throw new Error(
-        `Unsupported collection file extension: ${target}. Expected .yaml / .yml (OpenCollection or Postman v3), .json (Postman v2.x / v3) or .zip (Postman v3).`
-      );
-    }
-    const text = (await readCappedFile(target, singleFileCap(limits), 'the file')).toString('utf8');
-    const doc = safeYaml(text);
-    if (isPostmanDocument(doc)) {
-      const { collection, report } = importPostmanDocument(doc, limits);
-      return fromPostman(collection, report);
-    }
+    // Postman (.zip / .json / Postman-v3 YAML) first; other YAML is OpenCollection.
+    const postman = await loadPostmanFile(target, limits);
+    if (postman) return fromPostman(postman.collection, postman.report);
     return loadOpenCollectionFile(target);
   }
 
@@ -173,27 +147,13 @@ export async function loadCollection(
 // Postman paths (#1202) — the shared parser, then the same flattening as OC
 // ---------------------------------------------------------------------------
 
-/** A single Postman document may be a whole v2.1 export: allow the total-size cap. */
-function singleFileCap(limits: PostmanLimits): number {
-  return limits.maxTotalBytes ?? POSTMAN_V3_LIMITS.maxTotalBytes;
-}
-
-/** Sniff-only YAML parse (safe default schema); a parse error falls through to the OC loader. */
-function safeYaml(text: string): unknown {
-  try {
-    return yaml.load(text);
-  } catch {
-    return undefined;
-  }
-}
-
 function fromPostman(c: Collection, report: CliPostmanImportReport): LoadedCollection {
   const meta = extractMeta(c);
   // v3 vault secrets import value-less (`secret: true`). Never fold them in
   // as an empty value (that would also shadow an `--env` value): treat them as
   // private variables, so a request that uses one without a value fails
   // explicitly (`assertCliSecretsAvailable`), the same rule as OC private vars.
-  const secretNames = collectSecretVariableNames(c);
+  const secretNames = postmanSecretVariableNames(c);
   if (secretNames.size > 0) {
     if (meta.variables) {
       meta.variables = meta.variables.filter((v) => !secretNames.has(v.key));
@@ -209,79 +169,6 @@ function fromPostman(c: Collection, report: CliPostmanImportReport): LoadedColle
     format: report.sourceVersion === '3.0' ? 'postman-v3' : 'postman-v2',
     importReport: report,
   };
-}
-
-type MaybeSecretVar = { key: string; secret?: boolean };
-
-function collectSecretVariableNames(c: Collection): Set<string> {
-  const out = new Set<string>();
-  const add = (vars: readonly MaybeSecretVar[] | undefined) => {
-    for (const v of vars ?? []) if (v.secret === true && v.key) out.add(v.key);
-  };
-  add(c.variables as MaybeSecretVar[] | undefined);
-  const walk = (items: CollectionItem[]) => {
-    for (const item of items) {
-      add((item as { variables?: MaybeSecretVar[] }).variables);
-      if (item.type === 'folder') walk(item.items ?? []);
-    }
-  };
-  walk(c.items ?? []);
-  return out;
-}
-
-/**
- * Postman auth Restura cannot sign (hawk, edgegrid, jwt, akamai, …) imports
- * as `none` with the raw block in the `_postman` sidecar. Returns the Postman
- * auth type when `node` is such a case.
- */
-function unsupportedPostmanAuth(node: object, auth: AuthConfig | undefined): string | undefined {
-  const sidecar = getPostmanSidecar(node);
-  if (!sidecar?.auth || sidecar.authBagOnly || isConfiguredAuth(auth)) return undefined;
-  const type = (sidecar.auth as { type?: unknown }).type;
-  return typeof type === 'string' && type !== '' ? type : 'unknown';
-}
-
-/**
- * Inheritance state for unsupported Postman auth: the nearest container
- * (collection / folder) whose Postman auth Restura cannot sign. The shared
- * parser gives its inheriting descendants an explicit `none` (never an
- * ancestor's credentials); the CLI must still not send them, because its own
- * `resolveEffectiveAuth` would fill `none` from the collection again.
- */
-interface AuthGuard {
-  unsupported?: { type: string; owner: string };
-}
-
-function nextGuard(
-  guard: AuthGuard,
-  node: object,
-  auth: AuthConfig | undefined,
-  name: string
-): AuthGuard {
-  const type = unsupportedPostmanAuth(node, auth);
-  if (type) return { unsupported: { type, owner: name } };
-  if (isConfiguredAuth(auth)) return {};
-  return guard;
-}
-
-function blockedReason(
-  item: object,
-  req: { auth?: AuthConfig },
-  guard: AuthGuard
-): string | undefined {
-  const reason = (type: string, from: string) =>
-    `not sent: Postman auth type "${type}"${from} is not supported by Restura (imported as no auth); ` +
-    'the CLI will not send it unauthenticated. Configure a supported auth or exclude the request.';
-  const own = unsupportedPostmanAuth(item, req.auth);
-  if (own) return reason(own, '');
-  const up = guard.unsupported;
-  // Fail-safe: any request without its own configured auth below an
-  // unsupported container is refused (this includes an explicit Postman
-  // `noauth`, which the internal model cannot tell apart from `inherit`).
-  if (up && !isConfiguredAuth(req.auth)) {
-    return reason(up.type, ` (inherited from "${up.owner}")`);
-  }
-  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +233,8 @@ function flattenInternal(c: Collection): LoadedRequest[] {
     [c.preRequestScript],
     [c.testScript],
     isConfiguredAuth(c.auth) ? c.auth : undefined,
-    nextGuard({}, c, c.auth, c.name),
+    nextPostmanAuthGuard({}, c),
+    {},
     out
   );
   return out;
@@ -364,7 +252,8 @@ function walkItems(
   inheritedPre: Array<string | undefined>,
   inheritedTest: Array<string | undefined>,
   inheritedAuth: AuthConfig | undefined,
-  guard: AuthGuard,
+  guard: PostmanAuthGuard,
+  folderVars: Readonly<Record<string, string>>,
   out: LoadedRequest[]
 ): void {
   for (const item of items) {
@@ -384,7 +273,10 @@ function walkItems(
         [...inheritedPre, item.preRequestScript],
         [...inheritedTest, item.testScript],
         isConfiguredAuth(item.auth) ? item.auth : inheritedAuth,
-        nextGuard(guard, item, item.auth, [...folderPath, item.name].join('/')),
+        nextPostmanAuthGuard(guard, item, [...folderPath, item.name].join('/')),
+        // Folder variables, outer → inner (inner wins), as the app's runner
+        // layers them (`flattenRunnables` + `buildValueMap({ folders })`).
+        { ...folderVars, ...folderVariableValues(item.variables) },
         out
       );
       continue;
@@ -420,15 +312,34 @@ function walkItems(
       ...(pre !== undefined ? { preRequestScript: pre } : {}),
       ...(test !== undefined ? { testScript: test } : {}),
     } as HttpRequest | GrpcRequest | SseRequest | McpRequest;
-    const blocked = blockedReason(item, req, guard);
+    const blocked = postmanBlockedReason(item, guard);
     out.push({
       relativePath: [...folderPath, item.name].join('/') || item.name,
       folderPath,
       type: t,
       request: effective,
       ...(blocked ? { blocked } : {}),
+      ...(Object.keys(folderVars).length > 0 ? { folderVariables: { ...folderVars } } : {}),
     });
   }
+}
+
+/**
+ * Enabled folder variables as a value map. Secret (value-less Postman vault),
+ * private and handle-backed variables are left out: the CLI cannot resolve
+ * them, and an empty value must never shadow a provided one.
+ */
+function folderVariableValues(
+  vars: ReadonlyArray<{ key: string; value: string; enabled?: boolean }> | undefined
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const v of vars ?? []) {
+    const flags = v as { secret?: unknown; private?: unknown; secretRef?: unknown };
+    if (!v.key || v.enabled === false) continue;
+    if (flags.secret === true || flags.private === true || flags.secretRef !== undefined) continue;
+    out[v.key] = v.value;
+  }
+  return out;
 }
 
 function reportSkippedPlaceholder(path: string): void {

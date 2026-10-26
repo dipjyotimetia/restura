@@ -1,4 +1,6 @@
 import { readFile, stat } from 'node:fs/promises';
+import { extname } from 'node:path';
+import { isConfiguredAuth } from '@shared/auth/inheritance';
 import {
   importPostmanCollection,
   importPostmanV3Files,
@@ -7,10 +9,12 @@ import {
   type PostmanImportIssue,
   type PostmanImportReport,
 } from '@shared/collections/postman';
+import { hasUnsupportedPostmanAuth } from '@shared/collections/postman/common';
 import { unzipPostmanV3Archive } from '@shared/collections/postman/v3-archive';
 import type { PostmanV3Limits } from '@shared/collections/postman/v3-container';
 import { collectPostmanFolderFiles } from '@shared/collections/postman/v3-folder';
-import type { Collection } from '@shared/types';
+import type { AuthConfig, Collection, CollectionItem } from '@shared/types';
+import * as yaml from 'js-yaml';
 import { walkPostmanFolder } from './postmanFolder.js';
 
 /**
@@ -167,4 +171,125 @@ export function formatImportReport(report: CliPostmanImportReport): string {
     lines.push(`  - symlink skipped, not followed (${report.skippedSymlinks.length}): ${shown}`);
   }
   return `${lines.join('\n')}\n`;
+}
+
+// ---------------------------------------------------------------------------
+// Single-file input (sniffing) — used by `loadCollection` for any file target
+// ---------------------------------------------------------------------------
+
+/** A single Postman document may be a whole v2.1 export: allow the total-size cap. */
+function singleFileCap(limits: PostmanLimits): number {
+  return limits.maxTotalBytes ?? POSTMAN_V3_LIMITS.maxTotalBytes;
+}
+
+/** Sniff-only YAML parse (safe default schema); a parse error falls through to the OC loader. */
+function safeYaml(text: string): unknown {
+  try {
+    return yaml.load(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Load a file target as Postman: `.zip` (v3 archive), `.json` (v2.x / v3; a
+ * non-Postman JSON file is an error) or `.yaml` / `.yml` with a v3
+ * `$kind: "collection"` root. Returns `null` for any other YAML, which the
+ * caller loads as OpenCollection. Other extensions are an error.
+ */
+export async function loadPostmanFile(
+  target: string,
+  limits: PostmanLimits = {}
+): Promise<PostmanLoadResult | null> {
+  const ext = extname(target).toLowerCase();
+  if (ext === '.zip') return importPostmanZip(target, limits);
+  if (ext === '.json') {
+    const text = (await readCappedFile(target, singleFileCap(limits), 'the file')).toString('utf8');
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      throw new Error(
+        `${target} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if (!isPostmanDocument(data)) {
+      throw new Error(
+        `${target} is not a Postman collection (expected info.schema / info._postman_id for v2.x, or $kind: "collection" for v3).`
+      );
+    }
+    return importPostmanDocument(data, limits);
+  }
+  if (ext !== '.yaml' && ext !== '.yml') {
+    throw new Error(
+      `Unsupported collection file extension: ${target}. Expected .yaml / .yml (OpenCollection or Postman v3), .json (Postman v2.x / v3) or .zip (Postman v3).`
+    );
+  }
+  const text = (await readCappedFile(target, singleFileCap(limits), 'the file')).toString('utf8');
+  const doc = safeYaml(text);
+  return isPostmanDocument(doc) ? importPostmanDocument(doc, limits) : null;
+}
+
+// ---------------------------------------------------------------------------
+// Secret variables + unsupported-auth guard (used while flattening the tree)
+// ---------------------------------------------------------------------------
+
+type MaybeSecretVar = { key: string; secret?: boolean };
+
+/** Names of the value-less v3 vault variables anywhere in the tree. */
+export function postmanSecretVariableNames(c: Collection): Set<string> {
+  const out = new Set<string>();
+  const add = (vars: readonly MaybeSecretVar[] | undefined) => {
+    for (const v of vars ?? []) if (v.secret === true && v.key) out.add(v.key);
+  };
+  add(c.variables as MaybeSecretVar[] | undefined);
+  const walk = (items: CollectionItem[]) => {
+    for (const item of items) {
+      add((item as { variables?: MaybeSecretVar[] }).variables);
+      if (item.type === 'folder') walk(item.items ?? []);
+    }
+  };
+  walk(c.items ?? []);
+  return out;
+}
+
+/**
+ * The nearest container (collection / folder) whose Postman auth Restura
+ * cannot sign. The shared parser gives its inheriting descendants an explicit
+ * `none`; the CLI must still not send them, because its own
+ * `resolveEffectiveAuth` would fill `none` from the collection again.
+ */
+export interface PostmanAuthGuard {
+  unsupported?: { type: string; owner: string };
+}
+
+/** The guard a container hands its children (the shared predicate decides). */
+export function nextPostmanAuthGuard(
+  guard: PostmanAuthGuard,
+  node: Collection | CollectionItem,
+  name: string = node.name
+): PostmanAuthGuard {
+  const type = hasUnsupportedPostmanAuth(node);
+  if (type) return { unsupported: { type, owner: name } };
+  if (isConfiguredAuth((node as { auth?: AuthConfig }).auth)) return {};
+  return guard;
+}
+
+/** Why a request item must not be sent, or `undefined`. */
+export function postmanBlockedReason(
+  item: CollectionItem,
+  guard: PostmanAuthGuard
+): string | undefined {
+  const reason = (type: string, from: string) =>
+    `not sent: Postman auth type "${type}"${from} is not supported by Restura (imported as no auth); ` +
+    'the CLI will not send it unauthenticated. Configure a supported auth or exclude the request.';
+  const own = hasUnsupportedPostmanAuth(item);
+  if (own) return reason(own, '');
+  const up = guard.unsupported;
+  // Fail-safe: any request without its own configured auth below an
+  // unsupported container is refused (this includes an explicit Postman
+  // `noauth`, which the internal model cannot tell apart from `inherit`).
+  const auth = (item.request as { auth?: AuthConfig } | undefined)?.auth;
+  if (up && !isConfiguredAuth(auth)) return reason(up.type, ` (inherited from "${up.owner}")`);
+  return undefined;
 }
