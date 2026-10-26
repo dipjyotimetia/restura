@@ -117,7 +117,13 @@ describe('Postman v3 export — renderer', () => {
   it('desktop: writes the folder under the picked directory via the directory-export IPC', async () => {
     const saveBrunoToDirectory = vi.fn().mockResolvedValue({ success: true });
     const selectDirectory = vi.fn().mockResolvedValue({ canceled: false, filePaths: ['/tmp/out'] });
-    h.electron = { collections: { selectDirectory, saveBrunoToDirectory } };
+    h.electron = {
+      collections: {
+        selectDirectory,
+        saveBrunoToDirectory,
+        inspectExportTarget: vi.fn().mockResolvedValue({ exists: false, nonEmpty: false }),
+      },
+    };
     expect(await savePostmanV3Export(collection(false))).toBe(true);
     expect(h.downloadBlob).not.toHaveBeenCalled();
     const [entries, dir] = saveBrunoToDirectory.mock.calls[0] as [
@@ -135,14 +141,76 @@ describe('Postman v3 export — renderer', () => {
       .mockResolvedValueOnce({ success: false, error: 'denied' })
       .mockResolvedValueOnce({ success: false });
     const selectDirectory = vi.fn().mockResolvedValueOnce({ canceled: true });
-    h.electron = { collections: { selectDirectory, saveBrunoToDirectory } };
+    h.electron = {
+      collections: {
+        selectDirectory,
+        saveBrunoToDirectory,
+        inspectExportTarget: vi.fn().mockResolvedValue({ exists: false, nonEmpty: false }),
+      },
+    };
     expect(await savePostmanV3Export(collection())).toBe(false);
     expect(saveBrunoToDirectory).not.toHaveBeenCalled();
     selectDirectory.mockResolvedValue({ canceled: false, filePaths: ['/tmp/out'] });
     expect(await savePostmanV3Export(collection())).toBe(false);
-    expect(h.toast.error).toHaveBeenCalledWith('denied');
+    expect(h.toast.error).toHaveBeenCalledWith(
+      'Postman v3 export failed: denied',
+      expect.anything()
+    );
     await savePostmanV3Export(collection());
-    expect(h.toast.error).toHaveBeenLastCalledWith('Postman v3 export failed');
+    expect(h.toast.error).toHaveBeenLastCalledWith(
+      'Postman v3 export failed: the folder could not be written',
+      expect.anything()
+    );
+  });
+
+  it('desktop: a rejected IPC call (validation / EACCES) is a visible error with the report', async () => {
+    const saveBrunoToDirectory = vi.fn().mockRejectedValue(new Error('EACCES: permission denied'));
+    const selectDirectory = vi.fn().mockResolvedValue({ canceled: false, filePaths: ['/tmp/out'] });
+    const inspectExportTarget = vi.fn().mockResolvedValue({ exists: false, nonEmpty: false });
+    h.electron = { collections: { selectDirectory, saveBrunoToDirectory, inspectExportTarget } };
+    expect(await savePostmanV3Export(collection())).toBe(false);
+    expect(h.toast.error).toHaveBeenCalledWith(
+      'Postman v3 export failed: EACCES: permission denied',
+      expect.objectContaining({ description: expect.anything() })
+    );
+    selectDirectory.mockRejectedValueOnce('boom');
+    expect(await savePostmanV3Export(collection(false))).toBe(false);
+    expect(h.toast.error).toHaveBeenLastCalledWith('Postman v3 export failed: boom', {});
+  });
+
+  it('desktop: an existing non-empty folder needs confirmation; Replace clears the old layout', async () => {
+    const saveBrunoToDirectory = vi.fn().mockResolvedValue({ success: true });
+    const selectDirectory = vi.fn().mockResolvedValue({ canceled: false, filePaths: ['/tmp/out'] });
+    const inspectExportTarget = vi.fn().mockResolvedValue({ exists: true, nonEmpty: true });
+    h.electron = { collections: { selectDirectory, saveBrunoToDirectory, inspectExportTarget } };
+    const confirmReplace = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    expect(await savePostmanV3Export(collection(false), { confirmReplace })).toBe(false);
+    expect(saveBrunoToDirectory).not.toHaveBeenCalled();
+    expect(confirmReplace).toHaveBeenCalledWith('Shop API', '/tmp/out');
+    expect(await savePostmanV3Export(collection(false), { confirmReplace })).toBe(true);
+    expect(inspectExportTarget).toHaveBeenCalledWith('/tmp/out', 'Shop API');
+    expect(saveBrunoToDirectory.mock.calls[0]?.[2]).toEqual({
+      replace: { layout: 'postman-v3', subdir: 'Shop API' },
+    });
+  });
+
+  it('web: a failed zip / download is a visible error', async () => {
+    h.downloadBlob.mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    expect(await savePostmanV3Export(collection(false))).toBe(false);
+    expect(h.toast.error).toHaveBeenCalledWith('Postman v3 export failed: blocked', {});
+  });
+
+  it('the default Replace prompt is a native confirm', async () => {
+    const saveBrunoToDirectory = vi.fn().mockResolvedValue({ success: true });
+    const selectDirectory = vi.fn().mockResolvedValue({ canceled: false, filePaths: ['/tmp/out'] });
+    const inspectExportTarget = vi.fn().mockResolvedValue({ exists: true, nonEmpty: true });
+    h.electron = { collections: { selectDirectory, saveBrunoToDirectory, inspectExportTarget } };
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    expect(await savePostmanV3Export(collection(false))).toBe(false);
+    expect(confirm.mock.calls[0]?.[0]).toMatch(/"Shop API" already exists/);
+    confirm.mockRestore();
   });
 
   it('the summary toast pluralises', async () => {

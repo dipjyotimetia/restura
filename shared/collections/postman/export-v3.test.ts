@@ -2,7 +2,10 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import Ajv from 'ajv';
 import { describe, expect, it } from 'vitest';
-import { redactCollectionSecrets } from '../../secrets/collection-redaction';
+import {
+  countCollectionInlineSecrets,
+  redactCollectionSecrets,
+} from '../../secrets/collection-redaction';
 import type { AuthConfig, Collection, CollectionItem, CollectionRequest } from '../../types';
 import { exportPostmanV3 } from './export-v3';
 import { safeFileName } from './export-v3-files';
@@ -474,6 +477,33 @@ describe('Postman v3 export — secrets', () => {
     expect(out.files['.resources/definition.yaml']).toContain("key: apiSecret\n    value: ''");
     // The hawk auth itself still round-trips (shape, not secret).
     expect(out.files['Hawk.request.yaml']).toMatch(/type: hawk/);
+  });
+
+  it('a kept form body (file rows) restored from the sidecar has its secret text rows blanked', () => {
+    const form = httpReq(
+      'Login',
+      { type: 'none' },
+      { method: 'POST', body: { type: 'form-data', formData: [] } }
+    );
+    Object.assign(form, {
+      _postman: {
+        body: {
+          type: 'formdata',
+          content: [
+            { type: 'text', key: 'password', value: 'form-pass-plain' },
+            { type: 'text', key: 'user', value: 'ada' },
+            { type: 'file', key: 'avatar', src: '/tmp/a.png' },
+          ],
+        },
+      },
+    });
+    const c: Collection = { id: 'c', name: 'C', items: [form] };
+    expect(countCollectionInlineSecrets(c)).toBe(1);
+    const out = exportPostmanV3(redactCollectionSecrets(c));
+    const file = out.files['Login.request.yaml'] ?? '';
+    expect(file).not.toContain('form-pass-plain');
+    expect(file).toContain('value: ada');
+    expect(file).toContain('src: /tmp/a.png');
   });
 
   it('secret variables are emptied even when secrets are included; handles never resolve', () => {

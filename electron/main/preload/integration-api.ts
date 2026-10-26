@@ -153,6 +153,9 @@ export const integrationApi: IntegrationApi = {
     saveBrunoToDirectory: invoke<ElectronAPI['collections']['saveBrunoToDirectory']>(
       IPC.collection.saveBrunoDirectory
     ),
+    inspectExportTarget: invoke<ElectronAPI['collections']['inspectExportTarget']>(
+      IPC.collection.inspectExportTarget
+    ),
     watchDirectory: invoke<ElectronAPI['collections']['watchDirectory']>(IPC.collection.watch),
     unwatchDirectory: invoke<ElectronAPI['collections']['unwatchDirectory']>(
       IPC.collection.unwatch

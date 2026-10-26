@@ -1,5 +1,6 @@
 import * as yaml from 'js-yaml';
 import { arr, isObj, type Raw } from './common';
+import { UNSAFE_OBJECT_KEYS } from './redaction';
 import type { PostmanV3FileMap } from './v3-container';
 
 /**
@@ -59,7 +60,7 @@ function rowsToMap(rows: unknown): unknown {
   for (const r of rows) {
     if (!isObj(r) || Object.keys(r).some((k) => k !== 'key' && k !== 'value')) return rows;
     if (typeof r.key !== 'string' || typeof r.value !== 'string' || keys.has(r.key)) return rows;
-    if (r.key === '__proto__' || r.key === 'constructor' || r.key === 'prototype') return rows;
+    if (UNSAFE_OBJECT_KEYS.has(r.key)) return rows;
     keys.add(r.key);
   }
   return Object.fromEntries(rows.map((r) => [(r as Raw).key, (r as Raw).value]));
@@ -70,10 +71,8 @@ function credentialsToMap(auth: unknown): unknown {
     if (!isObj(set) || !Array.isArray(set.credentials)) return set;
     const keys = set.credentials.map((c) => (isObj(c) ? c.key : undefined));
     const unique =
-      keys.every(
-        (k) =>
-          typeof k === 'string' && k !== '__proto__' && k !== 'constructor' && k !== 'prototype'
-      ) && new Set(keys).size === keys.length;
+      keys.every((k) => typeof k === 'string' && !UNSAFE_OBJECT_KEYS.has(k)) &&
+      new Set(keys).size === keys.length;
     if (!unique) return set;
     return {
       ...set,
