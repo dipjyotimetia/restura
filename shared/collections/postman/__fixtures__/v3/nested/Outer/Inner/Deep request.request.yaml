@@ -1,0 +1,26 @@
+$kind: http-request
+description: A deep request
+url: https://example.com/deep?q=a%20b
+method: PATCH
+headers:
+  - key: X-Trace
+    value: "1"
+    description: trace header
+queryParams:
+  - key: q
+    value: a%20b
+  - key: skip
+    value: "1"
+    disabled: true
+scripts:
+  - type: beforeRequest
+    code: |-
+      const a = 1;
+      const b = 2;
+      pm.environment.set('sum', a + b);
+      // line 4
+      // line 5
+      // line 6
+  - type: afterResponse
+    code: pm.test('json', () => pm.response.json());
+order: 1000

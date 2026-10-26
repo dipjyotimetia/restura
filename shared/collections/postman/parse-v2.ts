@@ -1,17 +1,28 @@
 import { v4 as uuid } from 'uuid';
 import { isConfiguredAuth } from '../../auth/inheritance';
-import { checkHttpMethod } from '../../protocol/http-method';
 import type {
   AuthConfig,
   Collection,
   CollectionItem,
   FormDataItem,
-  HttpMethod,
   HttpRequest,
   KeyValue,
 } from '../../types';
-import { activeAuthBlock, authParamsV2, convertPostmanAuth, unmappedAuthRemainder } from './auth';
-import type { PostmanReportBuilder } from './report';
+import {
+  type AuthOutcome,
+  arr,
+  coerceMethod,
+  convertAuthBlock,
+  description,
+  isObj,
+  keyValue,
+  MAX_POSTMAN_NESTING_DEPTH,
+  type ParseContext,
+  parseQueryString,
+  type Raw,
+  str,
+  substitutePathVariables,
+} from './common';
 import { attachPostmanSidecar, type PostmanSidecar } from './sidecar';
 
 /**
@@ -23,72 +34,12 @@ import { attachPostmanSidecar, type PostmanSidecar } from './sidecar';
  * every construct that is dropped or approximated.
  */
 
-export interface ParseContext {
-  report: PostmanReportBuilder;
-  transformScript: (script: string) => string;
-}
-
-type Raw = Record<string, unknown>;
-
-function isObj(v: unknown): v is Raw {
-  return !!v && typeof v === 'object' && !Array.isArray(v);
-}
-
-function arr(v: unknown): unknown[] {
-  return Array.isArray(v) ? v : [];
-}
-
-function str(v: unknown): string {
-  if (typeof v === 'string') return v;
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-  return '';
-}
-
-function description(v: unknown): string | undefined {
-  if (typeof v === 'string') return v || undefined;
-  if (isObj(v) && typeof v.content === 'string') return v.content;
-  return undefined;
-}
-
-function keyValue(row: Raw): KeyValue {
-  return {
-    id: uuid(),
-    key: str(row.key),
-    value: str(row.value),
-    enabled: row.disabled !== true,
-    description: description(row.description),
-  };
-}
-
-// ── auth ────────────────────────────────────────────────────────────────────
-
-interface AuthOutcome {
-  /** undefined → inherit from the parent. */
-  auth: AuthConfig | undefined;
-  /**
-   * Raw auth to keep in the sidecar (unsupported / approximated). For typed
-   * (approximated) types only the UNMAPPED keys are kept — mapped credentials
-   * live on the typed model and must not be duplicated (ADR-0007).
-   */
-  sidecarAuth?: Raw;
-}
+export type { ParseContext } from './common';
+export { MAX_POSTMAN_NESTING_DEPTH } from './common';
 
 function convertAuth(raw: unknown, ownerName: string, ctx: ParseContext): AuthOutcome {
   if (!isObj(raw)) return { auth: undefined };
-  const { type, block } = activeAuthBlock(raw);
-  const result = convertPostmanAuth(type, authParamsV2(block));
-  switch (result.status) {
-    case 'inherit':
-      return { auth: undefined };
-    case 'ok':
-      return { auth: result.auth };
-    case 'approximated':
-      ctx.report.unmodelled(result.construct, ownerName);
-      return { auth: result.auth, sidecarAuth: unmappedAuthRemainder(raw) };
-    case 'unsupported':
-      ctx.report.unsupportedAuth(result.authType, ownerName);
-      return { auth: result.auth, sidecarAuth: unmappedAuthRemainder(raw) };
-  }
+  return convertAuthBlock(raw, ownerName, ctx);
 }
 
 // ── events ──────────────────────────────────────────────────────────────────
@@ -128,20 +79,6 @@ function extractScripts(events: unknown, ctx: ParseContext): Scripts {
 
 // ── url ─────────────────────────────────────────────────────────────────────
 
-function parseQueryString(qs: string): KeyValue[] {
-  if (!qs) return [];
-  return qs
-    .split('&')
-    .filter((part) => part.length > 0)
-    .map((part) => {
-      const eq = part.indexOf('=');
-      return keyValue({
-        key: eq === -1 ? part : part.slice(0, eq),
-        value: eq === -1 ? '' : part.slice(eq + 1),
-      });
-    });
-}
-
 function joinPart(v: unknown, sep: string): string {
   if (Array.isArray(v)) return v.map(str).join(sep);
   return str(v);
@@ -159,55 +96,6 @@ function buildUrl(url: Raw): string {
   out += host;
   if (port) out += `:${port}`;
   if (path) out += `/${path}`;
-  return out;
-}
-
-/** A whole `:name` path segment (never a port like `host:8080` or a `{{var}}`). */
-const PATH_VARIABLE_SEGMENT = /^:([A-Za-z_][\w.-]*)$/;
-
-/**
- * Substitute `:name` path segments from Postman's `url.variable` list, as the
- * former SDK's `Url.toString()` did — Restura has no `:param` runtime, so a
- * literal `:id` would go on the wire. Only whole segments are replaced, and
- * only by a non-empty value. Entries that cannot be resolved (empty value, no
- * matching segment) or that carry a description (lost in the typed model)
- * are reported, and the whole list is kept in the sidecar.
- */
-function substitutePathVariables(
-  base: string,
-  variables: unknown[],
-  requestName: string,
-  sidecar: PostmanSidecar,
-  ctx: ParseContext
-): string {
-  const values = new Map<string, string>();
-  let lossy = false;
-  for (const v of variables) {
-    if (!isObj(v) || typeof v.key !== 'string') {
-      lossy = true;
-      continue;
-    }
-    const value = str(v.value);
-    if (value !== '') values.set(v.key, value);
-    else lossy = true;
-    if (description(v.description) !== undefined) lossy = true;
-  }
-  const used = new Set<string>();
-  const out = base
-    .split('/')
-    .map((segment) => {
-      const name = PATH_VARIABLE_SEGMENT.exec(segment)?.[1];
-      const value = name === undefined ? undefined : values.get(name);
-      if (name === undefined || value === undefined) return segment;
-      used.add(name);
-      return value;
-    })
-    .join('/');
-  if ([...values.keys()].some((k) => !used.has(k))) lossy = true;
-  if (lossy) {
-    sidecar.urlVariable = variables;
-    ctx.report.unmodelled('path-variables', requestName);
-  }
   return out;
 }
 
@@ -343,21 +231,6 @@ function convertBody(
   }
 }
 
-function coerceMethod(
-  raw: unknown,
-  requestName: string,
-  sidecar: PostmanSidecar,
-  ctx: ParseContext
-): HttpMethod {
-  // The former SDK upper-cased every method on parse; keep that behaviour.
-  const upper = (typeof raw === 'string' && raw.trim() ? raw : 'GET').trim().toUpperCase();
-  const check = checkHttpMethod(upper);
-  if (check.ok) return check.method;
-  ctx.report.unsupportedMethod(upper, requestName);
-  sidecar.method = raw;
-  return 'GET';
-}
-
 // ── items ───────────────────────────────────────────────────────────────────
 
 /** Item-level constructs shared by folders and requests. */
@@ -381,14 +254,6 @@ function collectItemExtras(
     ctx.report.unmodelled('extra-events', name);
   }
 }
-
-/**
- * Maximum folder nesting accepted on import. Real collections are a handful of
- * levels deep; the cap turns a hostile/garbage deeply nested document into a
- * clear import error instead of unbounded recursion here and in every
- * recursive consumer downstream (store, redaction, runner).
- */
-export const MAX_POSTMAN_NESTING_DEPTH = 64;
 
 function convertItem(
   raw: unknown,

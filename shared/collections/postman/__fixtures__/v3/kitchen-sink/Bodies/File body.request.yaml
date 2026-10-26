@@ -1,0 +1,8 @@
+$kind: http-request
+url: https://example.com/upload
+method: PUT
+body:
+  type: file
+  content:
+    src: /tmp/blob.bin
+order: 3000

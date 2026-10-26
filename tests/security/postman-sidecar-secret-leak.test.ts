@@ -2,6 +2,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { importPostmanCollection } from '../../shared/collections/postman';
 import {
+  countPostmanBagInlineSecrets,
+  redactPostmanBag,
+} from '../../shared/collections/postman/redaction';
+import {
   countCollectionInlineSecrets,
   redactCollectionSecrets,
 } from '../../shared/secrets/collection-redaction';
@@ -302,5 +306,210 @@ describe('Postman _postman sidecar never leaks plaintext through redaction', () 
     const { report } = importPostmanCollection(postman);
     const text = JSON.stringify(report);
     for (const s of SECRETS) expect(text).not.toContain(s);
+  });
+});
+
+describe('Postman v3 (#1200): sidecars use the v2 bag shape, so every guard covers them', () => {
+  const v3 = {
+    $kind: 'collection',
+    name: 'V3',
+    items: [
+      {
+        $kind: 'http-request',
+        name: 'Hawk',
+        url: 'https://x.example.com',
+        auth: { type: 'hawk', credentials: [{ key: 'authKey', value: 'V3_HAWK_KEY' }] },
+        examples: [
+          {
+            $kind: 'http-example',
+            name: 'ok',
+            request: {
+              url: 'https://x.example.com',
+              headers: [{ key: 'Authorization', value: 'Bearer V3_ORIG_AUTH' }],
+            },
+            response: {
+              statusCode: 200,
+              statusText: 'OK',
+              headers: [{ key: 'Set-Cookie', value: 'sid=V3_RESP_COOKIE' }],
+              body: { type: 'json', content: '{"token":"V3_RESP_BODY"}' },
+            },
+          },
+        ],
+      },
+      {
+        $kind: 'http-request',
+        name: 'OAuth1 RSA',
+        url: 'https://x.example.com',
+        auth: {
+          type: 'oauth1',
+          credentials: [
+            { key: 'consumerSecret', value: 'V3_MAPPED_CONSUMER_SECRET' },
+            { key: 'signatureMethod', value: 'RSA-SHA1' },
+            { key: 'privateKey', value: 'V3_RSA_KEY' },
+          ],
+        },
+      },
+    ],
+  };
+  const BAG_ONLY = ['V3_HAWK_KEY', 'V3_ORIG_AUTH', 'V3_RESP_COOKIE', 'V3_RESP_BODY', 'V3_RSA_KEY'];
+
+  it('mapped secrets are not duplicated into _postman', () => {
+    const { collection } = importPostmanCollection(v3);
+    const bag = JSON.stringify((collection.items[1] as { _postman?: unknown })._postman);
+    expect(bag).not.toContain('V3_MAPPED_CONSUMER_SECRET');
+    expect(bag).toContain('V3_RSA_KEY');
+  });
+
+  it('redaction blanks every v3 sidecar credential', () => {
+    const { collection } = importPostmanCollection(v3);
+    const text = JSON.stringify(redactCollectionSecrets(collection));
+    for (const s of [...BAG_ONLY, 'V3_MAPPED_CONSUMER_SECRET']) expect(text).not.toContain(s);
+  });
+
+  it('"store secrets as handles" leaves no v3 plaintext in _postman', async () => {
+    const { collection } = importPostmanCollection(v3);
+    const converted = await convertCollectionSecretsToHandles(collection);
+    const bags = JSON.stringify(converted.items.map((i) => (i as { _postman?: unknown })._postman));
+    for (const s of BAG_ONLY) expect(bags).not.toContain(s);
+  });
+
+  it('raw v3 bag fields: the export count and the redaction agree', () => {
+    // A hand-edited / older bag that was NOT scrubbed at import.
+    const bag = {
+      item: {
+        $kind: 'llm-request',
+        headers: [{ key: 'Authorization', value: 'RAW_ITEM_AUTH' }],
+        config: { apiKey: 'RAW_ITEM_APIKEY' },
+        env: [{ key: 'SAFE', value: '{{ref}}' }],
+      },
+      settings: { clientSecret: 'RAW_SETTINGS_SECRET', maxHeaderSize: 10 },
+      scripts: [{ type: 'grpc:beforeInvoke', code: 'x', password: 'RAW_SCRIPT_PW' }],
+      uses: { environment: ['env-1'] },
+      schema: { type: 'url', url: 'https://x', token: 'RAW_SCHEMA_TOKEN' },
+      authSets: [{ type: 'bearer', credentials: [{ key: 'token', value: 'RAW_AUTHSET_TOKEN' }] }],
+    };
+    const secrets = [
+      'RAW_ITEM_AUTH',
+      'RAW_ITEM_APIKEY',
+      'RAW_SETTINGS_SECRET',
+      'RAW_SCRIPT_PW',
+      'RAW_SCHEMA_TOKEN',
+      'RAW_AUTHSET_TOKEN',
+    ];
+    expect(countPostmanBagInlineSecrets(bag)).toBe(secrets.length);
+    const redacted = redactPostmanBag(bag);
+    const text = JSON.stringify(redacted);
+    for (const s of secrets) expect(text).not.toContain(s);
+    expect(text).toContain('{{ref}}');
+    expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
+  });
+
+  it('a v3 import with secrets in a raw item counts zero (scrubbed at import)', () => {
+    const { collection } = importPostmanCollection({
+      $kind: 'collection',
+      name: 'Raw',
+      items: [
+        {
+          $kind: 'websocket-request',
+          name: 'WS',
+          url: 'wss://x',
+          headers: [{ key: 'X-Api-Key', value: 'WS_KEY' }],
+        },
+      ],
+    });
+    expect(JSON.stringify(collection)).not.toContain('WS_KEY');
+    expect(countCollectionInlineSecrets(collection)).toBe(0);
+  });
+});
+
+describe('Postman v3 review (#1200): nested / numeric / array / userinfo secrets, bag-only auth', () => {
+  const probe = {
+    $kind: 'collection',
+    name: 'Probe',
+    items: [
+      {
+        $kind: 'websocket-request',
+        name: 'WS',
+        url: 'wss://user:URLPW@ws.example.com/?access_token=URLQTOKEN',
+        auth: { type: 'bearer', credentials: [{ key: 'token', value: 'WS_BEARER' }] },
+      },
+      {
+        $kind: 'http-request',
+        name: 'H',
+        url: 'https://x.example.com',
+        settings: {
+          apiKey: { value: 'NESTED' },
+          password: 1234,
+          token: ['ARR'],
+          maxHeaderSize: 10,
+        },
+      },
+      {
+        $kind: 'mqtt-request',
+        name: 'M',
+        url: 'mqtt://broker.example.com',
+        auth: {
+          type: 'basic',
+          credentials: [
+            { key: 'username', value: 'u' },
+            { key: 'password', value: 'PLAINPW' },
+          ],
+        },
+      },
+      {
+        $kind: 'kafka-request',
+        name: 'K',
+        mode: 'producer',
+        auth: { type: 'bearer', credentials: [{ key: 'token', value: 'KAFKA_BEARER' }] },
+      },
+    ],
+  };
+  const SECRETS = [
+    'URLPW',
+    'URLQTOKEN',
+    'NESTED',
+    '1234',
+    'ARR',
+    'PLAINPW',
+    'KAFKA_BEARER',
+    'WS_BEARER',
+  ];
+  const BAG_ONLY_AUTH = ['PLAINPW', 'KAFKA_BEARER', 'WS_BEARER'];
+
+  it('raw values are scrubbed at import (nested, numeric, array, URL userinfo / query)', () => {
+    const { collection } = importPostmanCollection(probe);
+    const text = JSON.stringify(collection);
+    for (const s of ['URLPW', 'URLQTOKEN', 'NESTED', '1234', '"ARR"'])
+      expect(text).not.toContain(s);
+  });
+
+  it('bag-only auth (broker presets, placeholders) is counted and redacted', () => {
+    const { collection } = importPostmanCollection(probe);
+    // MQTT basic password, Kafka bearer token and the WS bearer token live
+    // only in the bag: the export prompt must see every one of them.
+    expect(countCollectionInlineSecrets(collection)).toBe(BAG_ONLY_AUTH.length);
+    const text = JSON.stringify(redactCollectionSecrets(collection));
+    for (const s of SECRETS) expect(text).not.toContain(s);
+  });
+
+  it('a hand-edited bag: count equals what redaction blanks, for every value type', () => {
+    const bag = {
+      settings: { apiKey: { value: 'NESTED' }, password: 1234, token: ['ARR'], ok: 1 },
+      item: { url: 'https://u:URLPW@h.example.com/?api_key=Q&page=2' },
+    };
+    // apiKey, password, token subtrees + URL userinfo + api_key query value.
+    expect(countPostmanBagInlineSecrets(bag)).toBe(5);
+    const redacted = redactPostmanBag(bag);
+    const text = JSON.stringify(redacted);
+    for (const s of ['NESTED', '1234', 'ARR', 'URLPW', 'api_key=Q']) expect(text).not.toContain(s);
+    expect(text).toContain('page=2');
+    expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
+  });
+
+  it('"store secrets as handles" leaves no bag-only v3 plaintext', async () => {
+    const { collection } = importPostmanCollection(probe);
+    const converted = await convertCollectionSecretsToHandles(collection);
+    const bags = JSON.stringify(converted.items.map((i) => (i as { _postman?: unknown })._postman));
+    for (const s of SECRETS) expect(bags).not.toContain(s);
   });
 });

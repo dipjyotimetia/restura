@@ -1,0 +1,9 @@
+$kind: http-request
+url: https://example.com/jwt
+method: GET
+auth:
+  type: jwt
+  credentials:
+    algorithm: HS256
+    secret: s
+order: 8000

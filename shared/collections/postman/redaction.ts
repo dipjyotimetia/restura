@@ -1,5 +1,6 @@
 import { isSecretFieldName } from '../../secrets/key-value-redaction';
 import { isSecretHandle, type SecretValue } from '../../secrets/secret-ref';
+import { MAX_COLLECTION_TREE_DEPTH } from '../passthrough-bags';
 import {
   activeAuthBlock,
   mapPostmanAuthParams,
@@ -321,6 +322,119 @@ function countPostmanResponse(response: unknown): number {
 
 // ── bag ─────────────────────────────────────────────────────────────────────
 
+// ── v3 raw fields (#1200) ────────────────────────────────────────────────────
+//
+// v3 keeps some constructs as raw JSON (the importer scrubs them with this very
+// walk, but a bag can be hand-edited or come from an older build): items with
+// no Restura type, unmapped settings, protocol scripts, linked environments /
+// schemas, Kafka leftovers and the shape of multi-entry auth. One walk both
+// blanks and counts, so the export count always equals what redaction blanks:
+//  - a field whose NAME is a credential has its whole value blanked (any type:
+//    string, number, array, nested object), counted once;
+//  - a `{ key|name, value }` row whose name is a credential (or that is
+//    flagged secret) has its value blanked, counted once;
+//  - URL-like strings lose userinfo and credential-named query values;
+//  - prototype-polluting keys are dropped.
+// A lone `{{var}}` reference is a pointer, not a secret, and is kept.
+
+const V3_RAW_FIELDS = [
+  'item',
+  'settings',
+  'scripts',
+  'uses',
+  'schema',
+  'authSets',
+  'event',
+  'leftovers',
+] as const;
+
+/** Structural fields: their value is a name / kind, never a credential. */
+const V3_STRUCTURAL_FIELDS = new Set(['key', 'name', 'id', 'type', '$kind', 'description']);
+
+/** Keys that must never be copied onto a fresh object (prototype pollution). */
+export const UNSAFE_OBJECT_KEYS: ReadonlySet<string> = new Set([
+  '__proto__',
+  'constructor',
+  'prototype',
+]);
+
+function hasCredentialContent(v: unknown): boolean {
+  if (Array.isArray(v)) return v.length > 0;
+  if (isObj(v)) return Object.keys(v).length > 0;
+  if (typeof v === 'string' && SINGLE_VARIABLE_REFERENCE.test(v.trim())) return false;
+  return isCredentialValue(v) && v !== false;
+}
+
+function rowName(row: Raw): string {
+  if (typeof row.key === 'string') return row.key;
+  return typeof row.name === 'string' ? row.name : '';
+}
+
+function isV3SecretRow(row: Raw, inCredentials: boolean): boolean {
+  if (!('value' in row) || !hasCredentialContent(row.value)) return false;
+  if (row.type === 'secret' || row.secret === true) return true;
+  const name = rowName(row);
+  if (name === '') return false;
+  return inCredentials ? isPostmanAuthSecretKey(name) : isSecretFieldName(name);
+}
+
+function isV3SecretField(key: string, value: unknown): boolean {
+  return !V3_STRUCTURAL_FIELDS.has(key) && isSecretFieldName(key) && hasCredentialContent(value);
+}
+
+/** Redact (`counter` undefined) or count (`counter.n`) credentials in a raw v3 value. */
+function walkV3Raw(
+  value: unknown,
+  counter: { n: number } | undefined,
+  depth = 0,
+  inCredentials = false
+): unknown {
+  if (depth > MAX_COLLECTION_TREE_DEPTH) return null;
+  if (typeof value === 'string' && value.includes('://')) {
+    if (counter) counter.n += countUrlStringSecrets(value);
+    return redactUrlCredentialsForStorage(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => walkV3Raw(v, counter, depth + 1, inCredentials));
+  }
+  if (!isObj(value)) return value;
+  const secretRow = isV3SecretRow(value, inCredentials);
+  if (secretRow && counter) counter.n += 1;
+  const next: Raw = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (UNSAFE_OBJECT_KEYS.has(k)) continue;
+    if (k === 'value' && secretRow) {
+      next[k] = '';
+    } else if (k !== 'value' && isV3SecretField(k, v)) {
+      if (counter) counter.n += 1;
+      next[k] = '';
+    } else {
+      next[k] = walkV3Raw(v, counter, depth + 1, k === 'credentials');
+    }
+  }
+  return next;
+}
+
+/** Sanitised copy of a raw v3 value (the importer applies it before storing one). */
+export function redactPostmanV3Raw(value: unknown): unknown {
+  return walkV3Raw(value, undefined);
+}
+
+/** Credentials {@link redactPostmanV3Raw} would blank in `value`. */
+export function countPostmanV3Raw(value: unknown): number {
+  const counter = { n: 0 };
+  walkV3Raw(value, counter);
+  return counter.n;
+}
+
+function countV3RawFields(bag: Raw): number {
+  let n = 0;
+  for (const field of V3_RAW_FIELDS) {
+    if (bag[field] !== undefined) n += countPostmanV3Raw(bag[field]);
+  }
+  return n;
+}
+
 /** Returns a sanitised copy of a `_postman` sidecar; shape and non-secret fields survive. */
 export function redactPostmanBag(bag: unknown): unknown {
   if (!isObj(bag)) return bag;
@@ -329,6 +443,9 @@ export function redactPostmanBag(bag: unknown): unknown {
   if (bag.variable !== undefined) next.variable = redactPostmanRows(bag.variable);
   if (bag.urlVariable !== undefined) next.urlVariable = redactPostmanRows(bag.urlVariable);
   if (Array.isArray(bag.response)) next.response = bag.response.map(redactPostmanResponse);
+  for (const field of V3_RAW_FIELDS) {
+    if (bag[field] !== undefined) next[field] = walkV3Raw(bag[field], undefined);
+  }
   return next;
 }
 
@@ -339,9 +456,12 @@ export function redactPostmanBag(bag: unknown): unknown {
 export function countPostmanBagInlineSecrets(bag: unknown): number {
   if (!isObj(bag)) return 0;
   let n =
-    countPostmanAuthSecrets(bag.auth, false) +
+    // `authBagOnly`: the auth was NOT mapped onto the typed model (v3 broker
+    // presets and placeholder items), so every credential lives only here.
+    countPostmanAuthSecrets(bag.auth, bag.authBagOnly === true) +
     countPostmanRows(bag.variable) +
-    countPostmanRows(bag.urlVariable);
+    countPostmanRows(bag.urlVariable) +
+    countV3RawFields(bag);
   for (const response of Array.isArray(bag.response) ? bag.response : []) {
     n += countPostmanResponse(response);
   }

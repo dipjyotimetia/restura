@@ -1,0 +1,7 @@
+$kind: http-request
+url: https://example.com/xml
+method: POST
+body:
+  type: xml
+  content: <a/>
+order: 5000
