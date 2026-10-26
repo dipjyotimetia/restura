@@ -301,21 +301,34 @@ function redactWord(
  * and no whitespace or quotes (a quoted span is a value: fail closed).
  */
 function canBeExec(word: string): boolean {
-  return !ENV_ASSIGN.test(word) && !word.startsWith('-') && !/[\s'"]/.test(word);
+  return !word.startsWith('-') && !/[\s'"]/.test(word);
+}
+
+/**
+ * The executable slot: the FIRST word that is not `KEY=V` — whether or not
+ * it qualifies (an empty / quoted / option first word uses the slot up and is
+ * blanked or handled as an option). Never promotes a later word, so command
+ * and argv agree and a re-walk of `['', '']` blanks nothing.
+ */
+function execSlot(): (word: string) => boolean {
+  let used = false;
+  return (word) => {
+    if (used || ENV_ASSIGN.test(word)) return false;
+    used = true;
+    return canBeExec(word);
+  };
 }
 
 /**
  * An argv under the fail-closed policy, element by element and in place:
- * the first element that is not `KEY=V` is the executable; options keep
- * their names; every value becomes `''`.
+ * the executable slot (see {@link execSlot}) keeps a qualifying executable;
+ * options keep their names; every value becomes `''`.
  */
 export function walkArgv(argv: readonly unknown[], counter: Counter): unknown[] {
-  let execSeen = false;
+  const isExec = execSlot();
   return argv.map((arg) => {
     if (typeof arg !== 'string') return arg;
-    const exec = !execSeen && canBeExec(arg);
-    if (exec) execSeen = true;
-    return redactWord(arg, exec, counter, () => '');
+    return redactWord(arg, isExec(arg), counter, () => '');
   });
 }
 
@@ -359,7 +372,7 @@ function wordEnd(line: string, i: number): number {
 export function walkCommandLine(line: string, counter: Counter): string {
   const out: string[] = [];
   let last = 0;
-  let execSeen = false;
+  const isExec = execSlot();
   let i = 0;
   while (i < line.length) {
     if (/\s/.test(line.charAt(i))) {
@@ -368,9 +381,7 @@ export function walkCommandLine(line: string, counter: Counter): string {
     }
     const end = wordEnd(line, i);
     const word = line.slice(i, end);
-    const exec = !execSeen && canBeExec(word);
-    if (exec) execSeen = true;
-    const next = redactWord(word, exec, counter, (w) => (w.length > 1 ? "''" : '*'));
+    const next = redactWord(word, isExec(word), counter, (w) => (w.length > 1 ? "''" : '*'));
     if (next !== word) {
       out.push(line.slice(last, i), next);
       last = end;

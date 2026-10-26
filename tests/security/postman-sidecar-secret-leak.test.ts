@@ -1047,4 +1047,45 @@ describe('Postman v3 fail-closed launch commands (#1210): argument values are no
       '{{tok}}',
     ]);
   });
+
+  // The executable slot is the FIRST non-KEY=V word: if it does not qualify
+  // it is blanked / treated as an option, never handed to the next word.
+  const EXEC_SLOT: Array<[string, unknown[], string]> = [
+    [
+      '"C:\\Program Files\\node.exe" sk_live_LEAKX1',
+      ['C:\\Program Files\\node.exe', 'sk_live_LEAKX1'],
+      'LEAKX1',
+    ],
+    ["'npx' LEAKX2", ["'npx'", 'LEAKX2'], 'LEAKX2'],
+    ['"/path with space/tool" LEAKX3', ['/path with space/tool', 'LEAKX3'], 'LEAKX3'],
+    ['--token LEAKX4', ['--token', 'LEAKX4'], 'LEAKX4'],
+    ['- LEAKX5', ['-', 'LEAKX5'], 'LEAKX5'],
+    ['-- LEAKX6', ['--', 'LEAKX6'], 'LEAKX6'],
+    ['"" LEAKX7', ['', 'LEAKX7'], 'LEAKX7'],
+    ['--=a\\ LEAKX8', ['--=a\\', 'LEAKX8'], 'LEAKX8'],
+  ];
+
+  it.each(EXEC_SLOT)(
+    'exec slot %s: no next-word promotion (command and argv)',
+    (command, argv, secret) => {
+      expect(walkCommandLine(command, undefined)).not.toContain(secret);
+      expect(JSON.stringify(redactCommandArgv(argv as string[]))).not.toContain(secret);
+      expectBlanked({ item: { command } }, [secret]);
+      expectBlanked({ item: { argv } }, [secret]);
+      const r = importPostmanCollection(
+        v3([{ $kind: 'mcp-request', name: 'S', transport: 'stdio', command }])
+      );
+      expect(`${JSON.stringify(r.collection)}${JSON.stringify(r.report.warnings)}`).not.toContain(
+        secret
+      );
+    }
+  );
+
+  it('argv redaction is idempotent when the first element is blanked', () => {
+    const bag = { item: { argv: ['--$x', 'h'] } };
+    const redacted = redactPostmanBag(bag);
+    expect(countPostmanBagInlineSecrets(bag)).toBe(2);
+    expect(redacted).toEqual({ item: { argv: ['', ''] } });
+    expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
+  });
 });
