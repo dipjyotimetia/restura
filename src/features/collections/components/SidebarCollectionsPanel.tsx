@@ -44,7 +44,7 @@ import { CollectionWorkspaceActions } from './CollectionWorkspaceActions';
 import { FileStatusBadge } from './FileStatusBadge';
 import { SidebarEmptyState } from './SidebarEmptyState';
 
-export type ExportFormat = 'postman' | 'insomnia' | 'opencollection' | 'bruno';
+export type ExportFormat = 'postman' | 'postman-v3' | 'insomnia' | 'opencollection' | 'bruno';
 
 interface SidebarCollectionsPanelProps {
   collections: Collection[];
@@ -400,7 +400,13 @@ function CollectionMenu({
               onClick={() => onExport(collection.id, 'postman')}
               className="text-xs"
             >
-              Postman Collection
+              Postman v2.1 (single file)
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => onExport(collection.id, 'postman-v3')}
+              className="text-xs"
+            >
+              Postman v3 (folder / zip)
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => onExport(collection.id, 'insomnia')}
