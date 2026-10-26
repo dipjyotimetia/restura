@@ -208,7 +208,7 @@ worktree (`git merge --no-ff`), prints the files that more than one branch
 touched (shared registries such as `architecture.config.mts` or
 `capabilities.ts` are flagged, generated files are listed separately), then
 runs `type-check:all`, `lint`, `architecture:check`, `capabilities:check`,
-`verify:opencollection-types` and `test:coverage` on the result (`--e2e` adds
+`verify:opencollection-types`, `verify:postman-v3-types` and `test:coverage` on the result (`--e2e` adds
 the Electron and web Playwright suites). It prints a PASS/FAIL table with log
 paths and exits non-zero on any conflict or failure. It never pushes or
 changes your branches. Other options: `--continue-on-conflict`, `--no-fetch`,

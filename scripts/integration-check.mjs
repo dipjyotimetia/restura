@@ -24,6 +24,7 @@ export const DEFAULT_GATES = [
   'architecture:check',
   'capabilities:check',
   'verify:opencollection-types',
+  'verify:postman-v3-types',
   'test:coverage',
 ];
 export const E2E_GATES = [['test:e2e:electron:build', 'test:e2e:electron'], 'test:e2e'];
