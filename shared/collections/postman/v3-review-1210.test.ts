@@ -184,8 +184,9 @@ describe('2f: MCP stdio imports disabled', () => {
     const kept = getPostmanSidecar(item)?.item as Record<string, unknown>;
     expect(kept).toMatchObject({
       transport: 'stdio',
-      command: 'npx -y srv',
-      argv: ['npx', '-y', 'srv'],
+      // Fail closed: argument values are not imported.
+      command: "npx -y ''",
+      argv: ['npx', '-y', ''],
       env: [{ key: 'DEBUG' }, { key: 'OFF', disabled: true }],
     });
     expect(JSON.stringify(r.collection)).not.toContain('ENV_VALUE');

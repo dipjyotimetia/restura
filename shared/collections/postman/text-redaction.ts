@@ -14,12 +14,9 @@ export type Counter = { n: number } | undefined;
 /** A value that is exactly one `{{var}}` reference — a pointer, not a secret. */
 export const SINGLE_VARIABLE_REFERENCE = /^\{\{\s*[^{}\s]+\s*\}\}$/;
 
-/** Left where a blanked value must stay non-empty (`-p*`); a `*`-only value is already redacted. */
-const REDACTED_MASK = '*';
-
 function isSecretText(value: string): boolean {
   const v = value.trim();
-  return v !== '' && !/^\*+$/.test(v) && !SINGLE_VARIABLE_REFERENCE.test(v);
+  return v !== '' && !SINGLE_VARIABLE_REFERENCE.test(v);
 }
 
 function bump(counter: Counter): void {
@@ -93,12 +90,6 @@ export function isSecretHeaderLine(line: string): boolean {
   return !!m && isSecretFieldName(String(m[1]).trim()) && isSecretText(String(m[2]));
 }
 
-function redactHeaderLine(line: string, counter: Counter): string {
-  if (!isSecretHeaderLine(line)) return line;
-  bump(counter);
-  return `${line.slice(0, line.indexOf(':'))}: `;
-}
-
 // ── free text ───────────────────────────────────────────────────────────────
 
 // Every pattern here must stay linear on hostile input (#1210 re-audit: an
@@ -155,6 +146,9 @@ function redactQueryFragments(text: string, counter: Counter): string {
   const re = new RegExp(QUERY_FRAGMENT.source, 'g');
   let scanned = 0;
   let urlContext = false;
+  // URL-context value end, memoized: every value start before it ends there
+  // too, so a run of non-terminated fragments is scanned once (linear).
+  let urlEnd = -1;
   let out = '';
   let last = 0;
   for (let m = re.exec(text); m; m = re.exec(text)) {
@@ -166,11 +160,14 @@ function redactQueryFragments(text: string, counter: Counter): string {
     }
     const sep = String(m[1]);
     const name = String(m[2]);
+    // Cheap name check first: a non-credential name never triggers a value scan.
+    if (!isSecretFieldName(decodeComponent(name))) continue;
     const valueStart = at + sep.length + name.length + 1;
     let end = at + m[0].length;
     let literal: boolean;
     if (urlContext) {
-      end = urlValueEnd(text, valueStart);
+      if (valueStart >= urlEnd) urlEnd = urlValueEnd(text, valueStart);
+      end = urlEnd;
       literal = true;
     } else {
       const next = text.charAt(end);
@@ -181,7 +178,7 @@ function redactQueryFragments(text: string, counter: Counter): string {
       literal = URL_VALUE_END.test(next) || prose;
     }
     const value = text.slice(valueStart, end);
-    if (!literal || !isSecretText(value) || !isSecretFieldName(decodeComponent(name))) continue;
+    if (!literal || !isSecretText(value)) continue;
     bump(counter);
     out += text.slice(last, valueStart);
     last = end;
@@ -206,45 +203,23 @@ export function redactTextCredentials(value: string, counter: Counter): string {
   return redactQueryFragments(redactUserinfoInText(value, counter), counter);
 }
 
-/**
- * A header name followed by `:` inside text (boundary-anchored, so linear),
- * optionally glued to curl's `-H` (`-HAuthorization: …`).
- */
-const HEADER_NAME_IN_TEXT = /(?<![A-Za-z0-9_-])(?:-H)?([A-Za-z][A-Za-z0-9_-]*):/g;
-const HEADER_VALUE_END = `'"\n\r`;
-
-/**
- * `<secret-header-name>: value` anywhere in a command line (`curl -H
- * 'Authorization: Bearer X'` however it is quoted or split): the value up to
- * the next quote / line break becomes one space. Each character is scanned once.
- */
-function redactHeaderLinesInText(text: string, counter: Counter): string {
-  const re = new RegExp(HEADER_NAME_IN_TEXT.source, 'g');
-  let out = '';
-  let last = 0;
-  for (let m = re.exec(text); m; m = re.exec(text)) {
-    if (!isSecretFieldName(String(m[1]))) continue;
-    const start = re.lastIndex;
-    let end = start;
-    while (end < text.length && !HEADER_VALUE_END.includes(text.charAt(end))) end += 1;
-    if (!isSecretText(text.slice(start, end))) continue;
-    bump(counter);
-    out += `${text.slice(last, start)} `;
-    last = end;
-    re.lastIndex = end;
-  }
-  return out + text.slice(last);
-}
-
 // ── launch command lines (MCP stdio argv / command) ─────────────────────────
+//
+// FAIL CLOSED (#1210): an imported launch line keeps only its shape. The
+// executable (URL / userinfo redacted), option NAMES and `{{var}}` words
+// survive; every argument value — positional, after a flag, glued
+// (`--opt=V`, `-XV`), `KEY=V`, quoted spans, nested `sh -c` payloads — is
+// blanked. No guessing which values are secret. Edits are in place, never
+// longer than the input, linear, and a blanked word stays word-shaped, so a
+// second walk blanks nothing (count == blanked, count(redact(x)) == 0).
 
 /** Characters a backslash escapes inside double quotes. */
 const DQ_ESCAPABLE = `"'\\$\``;
 
 /**
  * Split a command line into argv (whitespace, single / double quotes, and
- * POSIX backslash escapes inside double quotes). No shell. Used to show and
- * keep a launch shape; redaction never re-splits with it.
+ * POSIX backslash escapes inside double quotes). No shell. Used to keep the
+ * launch shape (`argv`); redaction never re-splits with it.
  */
 export function splitCommandLine(line: string): string[] {
   const out: string[] = [];
@@ -275,99 +250,72 @@ export function splitCommandLine(line: string): string[] {
   return out;
 }
 
-/** Short options whose value may be attached: `-pSECRET`, `-HName: v`, `-uuser:pass`. */
-const ARG_ATTACHED = /^-([pHu])(.+)$/s;
-const ARG_FLAG = /^--?([^=\s-][^=\s]*)$/;
-const ARG_FLAG_ASSIGN = /^(--?)([^=\s]+)=(.*)$/s;
-const ARG_ENV_ASSIGN = /^([A-Za-z_][A-Za-z0-9_.-]*)=(.*)$/s;
+/** `KEY=` of an environment assignment. */
+const ENV_ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/;
+/** `--name` / `--name=` (the value, if any, follows). */
+const LONG_FLAG = /^--[A-Za-z0-9][A-Za-z0-9_.-]*=?/;
+/** `-X` (a short option; anything glued after it is a value). */
+const SHORT_FLAG = /^-[A-Za-z0-9]/;
 
-type ArgKind = 'secret' | 'header' | 'user' | 'plain';
+/** Already blanked (or empty): `''`, `""`, a `*` mask, or nothing at all. */
+function isBlank(value: string): boolean {
+  return value === '' || value === "''" || value === '""' || /^\*+$/.test(value);
+}
 
-function nameSegments(name: string): string[] {
-  return name
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .split(/[-_.\s]+/)
-    .map((s) => s.toLowerCase())
-    .filter(Boolean);
+/** A value that is kept: empty / already blanked, or a lone `{{var}}`. */
+function isKept(value: string): boolean {
+  return isBlank(value) || SINGLE_VARIABLE_REFERENCE.test(value.trim());
 }
 
 /**
- * What an option / variable name says about its value: a header line
- * (`-H`, `--header`), `user:password` (`-u`, `--user`, `--proxy-user`), a
- * secret (`isSecretFieldName`, the short `-p`, any `pass` segment, a `pat`
- * suffix such as `--github-pat`), or nothing. `--port` stays plain.
+ * One word (a command-line word, or an argv element) under the fail-closed
+ * policy. `blankWord` is what a whole blanked word becomes (`''` / `*` in a
+ * command line, so it stays a word; `''` in argv). Returns the new word.
  */
-function argKind(name: string): ArgKind {
-  const segs = nameSegments(name);
-  const last = segs.at(-1);
-  if (name === 'H' || last === 'header' || last === 'headers') return 'header';
-  if (name === 'u' || last === 'user') return 'user';
-  if (name === 'p' || isSecretFieldName(name) || segs.includes('pass') || last === 'pat') {
-    return 'secret';
-  }
-  return 'plain';
-}
-
-function redactArgValue(kind: ArgKind, value: string, counter: Counter): string {
-  if (kind === 'header') return redactHeaderLine(value, counter);
-  if (kind === 'user') {
-    const colon = value.indexOf(':');
-    if (colon === -1 || !isSecretText(value.slice(colon + 1))) return value;
+function redactWord(
+  word: string,
+  exec: boolean,
+  counter: Counter,
+  blankWord: (w: string) => string
+): string {
+  const keep = (prefix: string): string => {
+    const value = word.slice(prefix.length);
+    if (isKept(value)) return word;
     bump(counter);
-    return value.slice(0, colon + 1);
-  }
-  if (kind === 'secret') {
-    if (!isSecretText(value)) return value;
-    bump(counter);
-    return '';
-  }
-  return redactArg(value, counter);
+    return prefix;
+  };
+  const env = ENV_ASSIGN.exec(word);
+  if (env) return keep(env[0]);
+  const long = LONG_FLAG.exec(word);
+  if (long) return keep(long[0]);
+  const short = SHORT_FLAG.exec(word);
+  if (short) return keep(short[0]);
+  if (word === '-' || word === '--' || isKept(word)) return word;
+  if (exec) return redactTextCredentials(word, counter);
+  bump(counter);
+  return blankWord(word);
 }
 
 /**
- * A lone argument that is not an option value. One with whitespace (a nested
- * `sh -c "…"` line, a quoted value) gets the flat pass in place; anything
- * else is URL / text redacted. Flat-pass words have no whitespace, so this
- * never recurses more than once.
+ * True for the words that can be the executable: not `KEY=V`, not an option,
+ * and no whitespace or quotes (a quoted span is a value: fail closed).
  */
-function redactArg(arg: string, counter: Counter): string {
-  return /\s/.test(arg) ? walkCommandLine(arg, counter) : redactTextCredentials(arg, counter);
+function canBeExec(word: string): boolean {
+  return !ENV_ASSIGN.test(word) && !word.startsWith('-') && !/[\s'"]/.test(word);
 }
 
 /**
- * Blank credentials in a launch argv, element by element and in place: the
- * value after a secret / header / user option (`--token X`, `-H
- * "Authorization: Bearer X"`, `-u me:X`), the same in attached (`-pX`) and
- * `--opt=X` forms, `SECRET_KEY=X`, URL userinfo / credential query values,
- * and (flat pass) anything inside an element that contains whitespace. A
- * blanked element stays in place (`''`), so flag / value pairing is stable.
+ * An argv under the fail-closed policy, element by element and in place:
+ * the first element that is not `KEY=V` is the executable; options keep
+ * their names; every value becomes `''`.
  */
 export function walkArgv(argv: readonly unknown[], counter: Counter): unknown[] {
-  let pending: ArgKind = 'plain';
+  let execSeen = false;
   return argv.map((arg) => {
     if (typeof arg !== 'string') return arg;
-    const kind = pending;
-    pending = 'plain';
-    if (kind !== 'plain' && !arg.startsWith('-')) return redactArgValue(kind, arg, counter);
-    const attached = ARG_ATTACHED.exec(arg);
-    if (attached) {
-      const flag = String(attached[1]);
-      const value = redactArgValue(argKind(flag), String(attached[2]), counter);
-      // `-pX` → `-p*`, never a bare `-p` that would claim the next word on a re-walk.
-      return `-${flag}${value === '' ? REDACTED_MASK : value}`;
-    }
-    const flag = ARG_FLAG.exec(arg);
-    if (flag) {
-      pending = argKind(String(flag[1]));
-      return arg;
-    }
-    const assign = ARG_FLAG_ASSIGN.exec(arg) ?? ARG_ENV_ASSIGN.exec(arg);
-    if (assign) {
-      const value = String(assign.at(-1));
-      const prefix = arg.slice(0, arg.length - value.length);
-      return prefix + redactArgValue(argKind(String(assign.at(-2))), value, counter);
-    }
-    return redactArg(arg, counter);
+    const exec = !execSeen && canBeExec(arg);
+    if (exec) execSeen = true;
+    return redactWord(arg, exec, counter, () => '');
   });
 }
 
@@ -376,59 +324,60 @@ export function redactCommandArgv(argv: readonly string[]): string[] {
   return walkArgv(argv, undefined) as string[];
 }
 
-const EDGE_CHARS = `"'\\`;
+/** Index just past the quote that closes the one at `open` (or the end). */
+function closeQuote(line: string, open: number): number {
+  const q = line.charAt(open);
+  let k = open + 1;
+  while (k < line.length) {
+    const c = line.charAt(k);
+    if (q === '"' && c === '\\') k += 2;
+    else if (c === q) return k + 1;
+    else k += 1;
+  }
+  return line.length;
+}
+
+/** End of the word starting at `i`: whitespace ends it, a quoted span runs to its close. */
+function wordEnd(line: string, i: number): number {
+  let j = i;
+  while (j < line.length && !/\s/.test(line.charAt(j))) {
+    const c = line.charAt(j);
+    if (c === '"' || c === "'") j = closeQuote(line, j);
+    else if (c === '\\') j += 2;
+    else j += 1;
+  }
+  return Math.min(j, line.length);
+}
 
 /**
- * A command line (or a whitespace-containing argv element) with its
- * credentials blanked, by one quote-blind flat pass: secret header lines
- * anywhere in the text, then every whitespace-separated word with its edge
- * quotes / backslashes stripped walked as one flat argv (flag / value,
- * `--opt=X`, `KEY=X`, URL / text per word). Edits are made in place on the
- * original string — never re-quoted, re-joined, re-split or recursed — so
- * the work is linear, the output is never longer than the input, and a
- * blanked word stays a word (`''`, or `'` for a one-character value), which
- * keeps flag / value pairing and makes a second walk blank nothing.
- *
- * Best effort, not a shell parser: nested `sh -c` lines are covered because
- * their words are still words; a secret split across words with no
- * recognisable flag or header name can survive. The item is a disabled,
- * reference-only placeholder, so over-redaction is acceptable.
+ * A launch command line under the fail-closed policy, edited in place: words
+ * are found once (a quoted span — `"S TAIL"`, a nested `sh -c '…'` payload —
+ * is one word through its closing quote), each goes through
+ * {@link redactWord}, and a blanked word becomes `''` (or `*` for a
+ * one-character word) so the output is never longer than the input.
  */
 export function walkCommandLine(line: string, counter: Counter): string {
-  const local = { n: 0 };
-  const text = redactHeaderLinesInText(line, local);
-  const words: Array<{ start: number; end: number; lead: string; core: string; trail: string }> =
-    [];
-  for (const m of text.matchAll(/\S+/g)) {
-    const word = m[0];
-    let a = 0;
-    while (a < word.length && EDGE_CHARS.includes(word.charAt(a))) a += 1;
-    let b = word.length;
-    while (b > a && EDGE_CHARS.includes(word.charAt(b - 1))) b -= 1;
-    words.push({
-      start: m.index,
-      end: m.index + word.length,
-      lead: word.slice(0, a),
-      core: word.slice(a, b),
-      trail: word.slice(b),
-    });
-  }
-  const redacted = walkArgv(
-    words.map((w) => w.core),
-    local
-  ) as string[];
-  if (counter) counter.n += local.n;
-  if (local.n === 0) return line;
   const out: string[] = [];
   let last = 0;
-  words.forEach((w, i) => {
-    const r = String(redacted[i]);
-    if (r === w.core) return;
-    let word = `${w.lead}${r}${w.trail}`;
-    if (word === '') word = w.core.length > 1 ? "''" : "'";
-    out.push(text.slice(last, w.start), word);
-    last = w.end;
-  });
-  out.push(text.slice(last));
+  let execSeen = false;
+  let i = 0;
+  while (i < line.length) {
+    if (/\s/.test(line.charAt(i))) {
+      i += 1;
+      continue;
+    }
+    const end = wordEnd(line, i);
+    const word = line.slice(i, end);
+    const exec = !execSeen && canBeExec(word);
+    if (exec) execSeen = true;
+    const next = redactWord(word, exec, counter, (w) => (w.length > 1 ? "''" : '*'));
+    if (next !== word) {
+      out.push(line.slice(last, i), next);
+      last = end;
+    }
+    i = end;
+  }
+  if (last === 0) return line;
+  out.push(line.slice(last));
   return out.join('');
 }

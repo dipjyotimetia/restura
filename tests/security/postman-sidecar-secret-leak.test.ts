@@ -6,6 +6,7 @@ import {
   redactPostmanBag,
 } from '../../shared/collections/postman/redaction';
 import {
+  redactCommandArgv,
   redactTextCredentials,
   walkCommandLine,
 } from '../../shared/collections/postman/text-redaction';
@@ -539,13 +540,14 @@ describe('Postman v3 review (#1200): nested / numeric / array / userinfo secrets
       '--api-key=',
       '--client-secret=',
       'DB_PASSWORD=',
-      'https://h.example.com/x',
+      // Fail closed (#1210): every argument value is blanked, secret or not.
+      '',
       '--header',
       '{{authRef}}',
       '--secret',
       '{{vaultRef}}',
       '--port',
-      '8080',
+      '',
       '-y',
       '--verbose',
     ]);
@@ -556,7 +558,7 @@ describe('Postman v3 review (#1200): nested / numeric / array / userinfo secrets
     expect(countPostmanBagInlineSecrets(bag)).toBe(3);
     const redacted = redactPostmanBag(bag);
     expect(redacted).toEqual({
-      item: { argv: ['srv', '--token', '', 'PASSWORD=', 3], command: "srv --token '" },
+      item: { argv: ['srv', '--token', '', 'PASSWORD=', 3], command: 'srv --token *' },
     });
     expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
   });
@@ -587,10 +589,10 @@ describe('Postman v3 review (#1210): launch argv and free-text URL secrets', () 
     ['curl -H "X-Api-Key: LEAKA2"', ['LEAKA2'], 1],
     ['curl "--header=Authorization: Bearer LEAKA3"', ['LEAKA3'], 1],
     ['curl "-HAuthorization: Bearer LEAKA4"', ['LEAKA4'], 1],
-    ['srv --endpoint=https://u:LEAKA5@h/x?token=LEAKA6', ['LEAKA5', 'LEAKA6'], 2],
+    ['srv --endpoint=https://u:LEAKA5@h/x?token=LEAKA6', ['LEAKA5', 'LEAKA6'], 1],
     ['curl -u user:LEAKA7 --user admin:LEAKA8', ['LEAKA7', 'LEAKA8'], 2],
     ['srv --pass LEAKA9 --pat LEAKB1 --github-pat LEAKB2', ['LEAKA9', 'LEAKB1', 'LEAKB2'], 3],
-    ['mysql -pLEAKB3 --port 3306', ['LEAKB3'], 1],
+    ['mysql -pLEAKB3 --port 3306', ['LEAKB3', '3306'], 2],
     ['sh -c "node s.js --token LEAKB4"', ['LEAKB4'], 1],
     [`bash -c 'curl -H "X-Api-Key: LEAKB5" https://h'`, ['LEAKB5'], 1],
     ['"--token LEAKB6', ['LEAKB6'], 1],
@@ -608,7 +610,7 @@ describe('Postman v3 review (#1210): launch argv and free-text URL secrets', () 
     }
   );
 
-  it('argv form: counts exactly what it blanks; --port and {{var}} are kept', () => {
+  it('argv form: counts exactly what it blanks; flag names and {{var}} are kept', () => {
     const r = importPostmanCollection(
       v3([
         {
@@ -619,7 +621,9 @@ describe('Postman v3 review (#1210): launch argv and free-text URL secrets', () 
         },
       ])
     );
-    expect(JSON.stringify(r.collection)).toContain('"8080"');
+    // Fail closed: the port value is blanked too; the flag name and {{var}} stay.
+    expect(JSON.stringify(r.collection)).not.toContain('8080');
+    expect(JSON.stringify(r.collection)).toContain('"--port"');
     expect(JSON.stringify(r.collection)).toContain('{{t}}');
     const argv = [
       'curl',
@@ -687,6 +691,8 @@ describe('Postman v3 re-audit (#1210): ReDoS, script integrity, depth cap', () =
     ['edge-quote word', `x ${`'"\\`.repeat(big / 3)}y`],
     ['edge-quote words', `'"\\ `.repeat(big / 4)],
     ['flag soup', '--token '.repeat(big / 8)],
+    ['URL-context fragment run ending ;', `/${'?a=;'.repeat(big / 4)}`],
+    ['URL-context fragment run ending :', `/${'?a=:'.repeat(big / 4)}`],
     ['flag / value pairs (fixpoint rounds)', '--token x '.repeat(big / 10)],
     ['secret header lines', 'Authorization: Bearer x '.repeat(big / 24)],
     ['escaped nested command', `sh -c "${'\\"--token x\\" '.repeat(big / 14)}"`],
@@ -985,4 +991,60 @@ describe('Postman v3 simplification audit (#1210): bounded output, userinfo, URL
     expect(countPostmanBagInlineSecrets(bag)).toBe(1);
     expect(countPostmanBagInlineSecrets(redactPostmanBag(bag))).toBe(0);
   }
+});
+
+describe('Postman v3 fail-closed launch commands (#1210): argument values are not imported', () => {
+  const v3 = (items: unknown[]) => ({ $kind: 'collection', name: 'C', items });
+
+  function expectBlanked(bag: Record<string, unknown>, secrets: string[]) {
+    expect(countPostmanBagInlineSecrets(bag)).toBeGreaterThan(0);
+    const redacted = redactPostmanBag(bag);
+    const text = JSON.stringify(redacted);
+    for (const s of secrets) expect(text).not.toContain(s);
+    expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
+  }
+
+  const COMMANDS: Array<[string, string[]]> = [
+    ['tool --password "LEAKQ1 TAILQ1"', ['LEAKQ1', 'TAILQ1']],
+    ["tool --password='LEAKQ2 TAILQ2'", ['LEAKQ2', 'TAILQ2']],
+    ['tool "--password=LEAKQ3 TAILQ3"', ['LEAKQ3', 'TAILQ3']],
+    ['curl -u "bob:LEAKQ4 TAILQ4" h', ['LEAKQ4', 'TAILQ4']],
+    ['DB_PASSWORD="LEAKQ5 TAILQ5" node s', ['LEAKQ5', 'TAILQ5']],
+    [`sh -c "tool --password 'LEAKQ6 TAILQ6'"`, ['LEAKQ6', 'TAILQ6']],
+    ['curl example.com?token=LEAKQ8; ok', ['LEAKQ8']],
+    ['$(curl example.com?token=LEAKQ9)', ['LEAKQ9']],
+    ['sh -c "curl -s vault.local:8200?token=LEAKQA; run"', ['LEAKQA']],
+  ];
+
+  it.each(COMMANDS)(
+    'stdio %s: values blanked in collection, report and bag',
+    (command, secrets) => {
+      const r = importPostmanCollection(
+        v3([{ $kind: 'mcp-request', name: 'S', transport: 'stdio', command }])
+      );
+      const text = `${JSON.stringify(r.collection)}${JSON.stringify(r.report.warnings)}`;
+      for (const s of secrets) expect(text).not.toContain(s);
+      expectBlanked({ item: { command } }, secrets);
+      const out = walkCommandLine(command, undefined);
+      expect(out.length).toBeLessThanOrEqual(command.length);
+    }
+  );
+
+  it('argv: the nested payload of bash -lc is blanked', () => {
+    const argv = ['bash', '-lc', 'run --password "LEAKQ7 TAILQ7"'];
+    expectBlanked({ item: { argv } }, ['LEAKQ7', 'TAILQ7']);
+    expect(JSON.stringify(redactCommandArgv(argv))).not.toMatch(/LEAKQ7|TAILQ7/);
+  });
+
+  it('keeps the executable, flag names and {{var}} words; blanks everything else', () => {
+    const out = walkCommandLine('npx -y "server everything" --port=8080 {{tok}} KEY=v', undefined);
+    expect(out).toBe("npx -y '' --port= {{tok}} KEY=");
+    expect(redactCommandArgv(['npx', '-y', 'server', '--port=8080', '{{tok}}'])).toEqual([
+      'npx',
+      '-y',
+      '',
+      '--port=',
+      '{{tok}}',
+    ]);
+  });
 });

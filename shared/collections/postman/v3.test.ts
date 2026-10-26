@@ -404,7 +404,7 @@ describe('Postman v3 → Restura (every non-HTTP $kind)', () => {
     const kept = getPostmanSidecar(item)?.item as Record<string, unknown>;
     expect(kept).toMatchObject({
       transport: 'stdio',
-      argv: ['npx', '-y', '@modelcontextprotocol/server-everything'],
+      argv: ['npx', '-y', ''],
       env: [{ key: 'DEBUG' }],
     });
     const r = item;

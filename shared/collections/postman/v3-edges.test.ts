@@ -281,7 +281,7 @@ describe('v3 non-HTTP edges', () => {
     // stdio imports disabled: a placeholder holding the launch shape only.
     expect(stdio.type).toBe('folder');
     expect(getPostmanSidecar(stdio)?.item).toMatchObject({
-      argv: ['node', 'my server.js', '', '--flag'],
+      argv: ['node', '', '', '--flag'],
       env: [{ key: 'K', disabled: true }],
     });
     expect(JSON.stringify(stdio)).not.toContain('"v"');
