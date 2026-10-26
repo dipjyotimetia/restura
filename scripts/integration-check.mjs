@@ -34,6 +34,7 @@ export const GENERATED_PATTERNS = [
   /(?:^|\/)package-lock\.json$/,
   /^docs\/CAPABILITY_MATRIX\.md$/,
   /^shared\/opencollection\/spec-types\.ts$/,
+  /^shared\/collections\/postman\/v3-types\.ts$/,
   /\.generated\.[cm]?[jt]sx?$/,
   /(?:^|\/)gen\//,
   /^openwiki\//,
