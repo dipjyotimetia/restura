@@ -284,9 +284,16 @@ async function postmanParamToHandle(
   }
 }
 
+/**
+ * `auth` is the ORIGINAL block (plaintext needed to mint handles); `redacted`
+ * is its `redactPostmanBag` copy. Only the active `[type]` block is rebuilt
+ * from the original — every other key comes from the redacted copy, so a
+ * hostile sibling block (`bearer: [...]` beside `type: 'hawk'`) stays blanked.
+ */
 async function postmanAuthToHandles(
   store: SecretsStore,
   auth: Record<string, unknown>,
+  redacted: Record<string, unknown>,
   labelPrefix: string
 ): Promise<Record<string, unknown>> {
   const type = typeof auth.type === 'string' ? auth.type : '';
@@ -310,7 +317,7 @@ async function postmanAuthToHandles(
     );
     next = Object.fromEntries(entries);
   }
-  return { ...auth, [type]: next };
+  return { ...redacted, [type]: next };
 }
 
 /**
@@ -332,7 +339,12 @@ async function convertPostmanBagToHandles(
   const next = redactPostmanBag(bag) as Record<string, unknown>;
   const auth = original.auth;
   if (auth && typeof auth === 'object' && !Array.isArray(auth)) {
-    next.auth = await postmanAuthToHandles(store, auth as Record<string, unknown>, labelPrefix);
+    next.auth = await postmanAuthToHandles(
+      store,
+      auth as Record<string, unknown>,
+      next.auth as Record<string, unknown>,
+      labelPrefix
+    );
   }
   return { _postman: next };
 }

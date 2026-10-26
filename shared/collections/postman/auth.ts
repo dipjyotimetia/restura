@@ -94,13 +94,16 @@ export const POSTMAN_MAPPED_AUTH_PARAMS: Readonly<Record<string, ReadonlySet<str
 
 /**
  * The raw Postman auth block minus every key already mapped into the typed
- * model (see {@link POSTMAN_MAPPED_AUTH_PARAMS}). Unsupported types are
- * returned unchanged. Works on both v2.1 arrays and v2.0 object maps.
+ * model (see {@link POSTMAN_MAPPED_AUTH_PARAMS}). Unsupported types keep
+ * their whole active block. Sibling (inactive) type blocks are always dropped. Works on both v2.1 arrays and v2.0 object maps.
  */
 export function unmappedAuthRemainder(raw: Record<string, unknown>): Record<string, unknown> {
   const type = typeof raw.type === 'string' ? raw.type : '';
   const mapped = POSTMAN_MAPPED_AUTH_PARAMS[type];
-  if (!mapped) return raw;
+  // Only the ACTIVE type's block is kept. Postman ignores sibling blocks
+  // (`bearer: [...]` next to `type: 'hawk'`), but they can still hold
+  // credentials, so they are dropped rather than carried in the sidecar.
+  if (!mapped) return { type, [type]: raw[type] };
   const block = raw[type];
   let rest: unknown = block;
   if (Array.isArray(block)) {

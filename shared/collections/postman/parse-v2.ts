@@ -87,7 +87,7 @@ function convertAuth(raw: unknown, ownerName: string, ctx: ParseContext): AuthOu
       return { auth: result.auth, sidecarAuth: unmappedAuthRemainder(raw) };
     case 'unsupported':
       ctx.report.unsupportedAuth(result.authType, ownerName);
-      return { auth: result.auth, sidecarAuth: raw };
+      return { auth: result.auth, sidecarAuth: unmappedAuthRemainder(raw) };
   }
 }
 

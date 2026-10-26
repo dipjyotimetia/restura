@@ -142,6 +142,41 @@ describe('"store secrets as handles" import leaves no plaintext in _postman', ()
   });
 });
 
+describe('hostile sibling auth blocks never survive in plaintext', () => {
+  const hostileAuth = {
+    type: 'hawk',
+    hawk: [{ key: 'authKey', value: 'HAWK_SIBLING_KEY' }],
+    // Not the active type: Postman ignores it, but it is still credential material.
+    bearer: [{ key: 'token', value: 'SIBLING_BEARER' }],
+    edgegrid: { clientSecret: 'SIBLING_EDGEGRID' },
+  };
+  const collectionWith = () =>
+    importPostmanCollection({
+      info: {
+        name: 'S',
+        schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
+      },
+      item: [
+        { name: 'R', request: { method: 'GET', url: 'https://x.example.com', auth: hostileAuth } },
+      ],
+    }).collection;
+
+  it('import keeps only the active type block in the sidecar', () => {
+    const bag = (collectionWith().items[0] as { _postman?: { auth?: unknown } })._postman;
+    expect(bag?.auth).toEqual({ type: 'hawk', hawk: hostileAuth.hawk });
+  });
+
+  it('handle conversion of a pre-existing hostile bag leaves no sibling plaintext', async () => {
+    const collection = collectionWith();
+    // Simulate a bag persisted before import-time trimming (or crafted on disk).
+    (collection.items[0] as { _postman?: unknown })._postman = { auth: hostileAuth };
+    const text = JSON.stringify(await convertCollectionSecretsToHandles(collection));
+    for (const s of ['HAWK_SIBLING_KEY', 'SIBLING_BEARER', 'SIBLING_EDGEGRID']) {
+      expect(text).not.toContain(s);
+    }
+  });
+});
+
 describe('nesting depth is bounded', () => {
   function deepChain(depth: number): unknown {
     let node: Record<string, unknown> = {

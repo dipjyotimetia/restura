@@ -102,7 +102,9 @@ describe('convertPostmanAuth — typed mappings', () => {
       })
     ).toEqual({ type: 'oauth2', oauth2: { grant_type: 'implicit' } });
     const hawk = { type: 'hawk', hawk: { authKey: 'k' } };
-    expect(unmappedAuthRemainder(hawk)).toBe(hawk);
+    expect(unmappedAuthRemainder({ ...hawk, bearer: [{ key: 'token', value: 't' }] })).toEqual(
+      hawk
+    );
   });
 });
 
