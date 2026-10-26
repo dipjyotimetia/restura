@@ -22,8 +22,8 @@ export interface PostmanRequest {
   }>;
   /**
    * Postman v2.1 allows a plain string or a structured object. We EXPORT the
-   * string form: the postman-collection SDK ignores `raw` when given an
-   * object and rebuilds the URL from structured fields (protocol/host/path),
+   * string form: SDK-based tooling (e.g. Newman's postman-collection) ignores
+   * `raw` when given an object and rebuilds the URL from structured fields (protocol/host/path),
    * so an object carrying only `{ raw, query }` round-trips as a broken URL.
    * The string form is parsed correctly, template variables included.
    */
@@ -48,6 +48,13 @@ export interface PostmanRequest {
 
 export interface PostmanItem {
   name: string;
+  /**
+   * Constructs Restura does not model. On import they are reported and kept
+   * in the `_postman` sidecar (ADR 0034, `shared/collections/postman/`).
+   */
+  response?: unknown[];
+  protocolProfileBehavior?: unknown;
+  variable?: PostmanVariable[];
   request?: PostmanRequest;
   item?: PostmanItem[];
   /** Folder-level auth (Postman item groups support an auth block). */

@@ -358,11 +358,181 @@ function countOcBagInlineSecrets(node: unknown, opaque = false, modelled = false
   return count;
 }
 
+// ── Postman `_postman` sidecar (ADR 0034) ───────────────────────────────────
+//
+// The sidecar (`shared/collections/postman/sidecar.ts`) holds RAW Postman JSON
+// for constructs Restura cannot model: unsupported / approximated auth blocks,
+// saved responses (headers, cookies, bodies, original requests), item
+// variables. Unlike `_oc` it is per-node (never a whole-document copy), so
+// every bag is walked independently without double-counting.
+
+/**
+ * Postman auth parameter keys that carry credential material, across every
+ * auth type (incl. the unmodelled hawk / edgegrid / jwt / asap / akamai).
+ * Redaction additionally blanks any {@link isSecretFieldName} key.
+ */
+const POSTMAN_AUTH_SECRET_KEYS = new Set([
+  'password',
+  'token',
+  'tokenSecret',
+  'consumerSecret',
+  'clientSecret',
+  'clientToken',
+  'accessToken',
+  'refreshToken',
+  'authKey',
+  'secret',
+  'secretKey',
+  'sessionToken',
+  'privateKey',
+  'value',
+]);
+
+/**
+ * Postman auth types whose credentials the importer maps into the typed model
+ * (counted there). Keep in sync with `convertPostmanAuth` in
+ * `shared/collections/postman/auth.ts`: a bag holding one of these is an
+ * approximation copy, so counting it again would double-report.
+ */
+const TYPED_POSTMAN_AUTH_TYPES = new Set([
+  'noauth',
+  'inherit',
+  'basic',
+  'bearer',
+  'apikey',
+  'digest',
+  'awsv4',
+  'ntlm',
+  'oauth1',
+  'oauth2',
+]);
+
+function isNonEmptyScalar(v: unknown): boolean {
+  return (typeof v === 'string' && v !== '') || typeof v === 'number';
+}
+
+/** `[key, value]` pairs of a v2.1 (`[{ key, value }]`) or v2.0 (object map) param block. */
+function postmanAuthParamEntries(block: unknown): Array<[string, unknown]> {
+  if (Array.isArray(block)) {
+    return block
+      .filter(isPlainObject)
+      .map((e) => [typeof e.key === 'string' ? e.key : '', e.value] as [string, unknown]);
+  }
+  return isPlainObject(block) ? Object.entries(block) : [];
+}
+
+function isPostmanAuthSecretKey(key: string): boolean {
+  return POSTMAN_AUTH_SECRET_KEYS.has(key) || isSecretFieldName(key);
+}
+
+function redactPostmanAuth(auth: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...auth };
+  for (const [key, block] of Object.entries(auth)) {
+    if (key === 'type') continue;
+    if (Array.isArray(block)) {
+      next[key] = block.map((e) =>
+        isPlainObject(e) && typeof e.key === 'string' && isPostmanAuthSecretKey(e.key)
+          ? { ...e, value: '' }
+          : e
+      );
+    } else if (isPlainObject(block)) {
+      next[key] = Object.fromEntries(
+        Object.entries(block).map(([k, v]) => [k, isPostmanAuthSecretKey(k) ? '' : v])
+      );
+    }
+  }
+  return next;
+}
+
+function countPostmanAuthSecrets(auth: unknown, bagOnly: boolean): number {
+  if (!isPlainObject(auth)) return 0;
+  const type = typeof auth.type === 'string' ? auth.type : '';
+  if (!bagOnly && TYPED_POSTMAN_AUTH_TYPES.has(type)) return 0;
+  return postmanAuthParamEntries(auth[type]).filter(
+    ([k, v]) => isPostmanAuthSecretKey(k) && isNonEmptyScalar(v)
+  ).length;
+}
+
+/** A Postman `{ key, value }` header / query / variable row holding a plaintext secret. */
+function isPostmanSecretRow(row: unknown): boolean {
+  if (!isPlainObject(row)) return false;
+  if (row.type === 'secret' && isNonEmptyScalar(row.value)) return true;
+  return isPlaintextSecretOcRow(row);
+}
+
+function redactPostmanRows(rows: unknown): unknown {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map((row) => (isPostmanSecretRow(row) ? { ...(row as object), value: '' } : row));
+}
+
+function countPostmanRows(rows: unknown): number {
+  return Array.isArray(rows) ? rows.filter(isPostmanSecretRow).length : 0;
+}
+
+/** Saved responses + their `originalRequest`: everything here is bag-only. */
+function redactPostmanRequest(request: unknown): unknown {
+  if (!isPlainObject(request)) return request;
+  const next: Record<string, unknown> = { ...request, header: redactPostmanRows(request.header) };
+  if (isPlainObject(request.auth)) next.auth = redactPostmanAuth(request.auth);
+  if (isPlainObject(request.url)) {
+    next.url = { ...request.url, query: redactPostmanRows(request.url.query) };
+  }
+  // Request bodies can carry login payloads: keep only the mode.
+  if (isPlainObject(request.body)) next.body = { mode: request.body.mode };
+  return next;
+}
+
+function redactPostmanResponse(response: unknown): unknown {
+  if (!isPlainObject(response)) return response;
+  const next: Record<string, unknown> = { ...response, header: redactPostmanRows(response.header) };
+  if (typeof response.body === 'string') next.body = '';
+  if (Array.isArray(response.cookie)) {
+    next.cookie = response.cookie.map((c) => (isPlainObject(c) ? { ...c, value: '' } : c));
+  }
+  if (response.originalRequest !== undefined) {
+    next.originalRequest = redactPostmanRequest(response.originalRequest);
+  }
+  return next;
+}
+
+/** Returns a sanitised copy of a `_postman` sidecar; shape and non-secret fields survive. */
+export function redactPostmanBag(bag: unknown): unknown {
+  if (!isPlainObject(bag)) return bag;
+  const next: Record<string, unknown> = { ...bag };
+  if (isPlainObject(bag.auth)) next.auth = redactPostmanAuth(bag.auth);
+  if (bag.variable !== undefined) next.variable = redactPostmanRows(bag.variable);
+  if (Array.isArray(bag.response)) next.response = bag.response.map(redactPostmanResponse);
+  return next;
+}
+
+/** Plaintext secrets that live only in a `_postman` sidecar (see {@link redactPostmanBag}). */
+export function countPostmanBagInlineSecrets(bag: unknown): number {
+  if (!isPlainObject(bag)) return 0;
+  let n = countPostmanAuthSecrets(bag.auth, false) + countPostmanRows(bag.variable);
+  for (const response of Array.isArray(bag.response) ? bag.response : []) {
+    if (!isPlainObject(response)) continue;
+    n += countPostmanRows(response.header);
+    if (Array.isArray(response.cookie)) {
+      n += response.cookie.filter((c) => isPlainObject(c) && isNonEmptyScalar(c.value)).length;
+    }
+    const orig = response.originalRequest;
+    if (isPlainObject(orig)) {
+      n += countPostmanRows(orig.header) + countPostmanAuthSecrets(orig.auth, true);
+      if (isPlainObject(orig.url)) n += countPostmanRows(orig.url.query);
+    }
+  }
+  return n;
+}
+
 function redactItem(item: CollectionItem): CollectionItem {
   const next: CollectionItem = { ...item };
   const itemBag = (next as { _oc?: unknown })._oc;
   if (itemBag !== undefined) {
     (next as { _oc?: unknown })._oc = redactOcBag(itemBag);
+  }
+  const postmanBag = (next as { _postman?: unknown })._postman;
+  if (postmanBag !== undefined) {
+    (next as { _postman?: unknown })._postman = redactPostmanBag(postmanBag);
   }
   if (next.auth) next.auth = redactAuthConfigSecrets(next.auth);
   if (next.items) next.items = next.items.map(redactItem);
@@ -399,8 +569,9 @@ function redactItem(item: CollectionItem): CollectionItem {
  * proxy passwords, private keys, certificate passphrases, and secret values.
  */
 export function redactCollectionSecrets(collection: Collection): Collection {
-  const next = { ...collection } as Collection & { _oc?: unknown };
+  const next = { ...collection } as Collection & { _oc?: unknown; _postman?: unknown };
   if (next._oc !== undefined) next._oc = redactOcBag(next._oc);
+  if (next._postman !== undefined) next._postman = redactPostmanBag(next._postman);
   return {
     ...next,
     ...(collection.auth ? { auth: redactAuthConfigSecrets(collection.auth) } : {}),
@@ -424,9 +595,12 @@ export function countCollectionInlineSecrets(collection: Collection): number {
   if (rootOc !== undefined) {
     count += countOcBagInlineSecrets(rootOc);
   }
+  // `_postman` sidecars are per-node (never a whole-document copy): count each.
+  count += countPostmanBagInlineSecrets((collection as { _postman?: unknown })._postman);
   const walk = (items: CollectionItem[]) => {
     for (const item of items) {
       count += countAuthInlineSecrets(item.auth);
+      count += countPostmanBagInlineSecrets((item as { _postman?: unknown })._postman);
       if (rootOc === undefined) {
         // A `request` item's bag mirrors a typed node (http/graphql/grpc item or
         // SSE/MCP extension entry); a folder's bag is either a real OC folder or

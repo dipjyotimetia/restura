@@ -11,7 +11,8 @@ import type { Collection } from '@/types';
  * This gate runs the SAME Zod schema the store validators use, but only as a
  * reject-check: on success the ORIGINAL object is kept, never the parsed
  * copy. Zod strips unknown keys on parse, and importer outputs can carry
- * passthrough bags (e.g. OpenCollection's `_oc` for byte-stable round-trips)
+ * passthrough bags (OpenCollection's `_oc` for byte-stable round-trips, Postman's
+ * `_postman` sidecar for unmodelled constructs — ADR 0034)
  * that must survive untouched.
  */
 

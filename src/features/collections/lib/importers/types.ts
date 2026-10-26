@@ -21,7 +21,9 @@ export type ImportWarning =
   | { kind: 'har-field-discarded'; requestName: string; field: string }
   | { kind: 'har-lossy-body'; requestName: string; detail: string }
   | { kind: 'unsupported-option'; option: string }
-  | { kind: 'unresolved-file'; option: string; path: string };
+  | { kind: 'unresolved-file'; option: string; path: string }
+  /** A source construct with no Restura model, kept in a passthrough sidecar (e.g. `_postman`). */
+  | { kind: 'unmodelled-construct'; construct: string; requestName: string; detail: string };
 
 /**
  * Coerce a source-format method string into a sendable `HttpMethod`.
@@ -106,5 +108,7 @@ function describeWarning(w: ImportWarning): string {
       return `cURL option "${w.option}" is not supported`;
     case 'unresolved-file':
       return `Local file "${w.path}" from ${w.option} was not read`;
+    case 'unmodelled-construct':
+      return `${w.detail} ("${w.requestName}")`;
   }
 }

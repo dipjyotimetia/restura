@@ -108,14 +108,19 @@ function insertIntoTree(
 }
 
 /**
- * Drop the OpenCollection `_oc` passthrough bag from an item. The bag holds the
- * verbatim imported node; once the item (or a descendant) changes, the cached
- * OC subtree is stale and must be rebuilt from the live model on re-export.
+ * Import passthrough bags cached on items: OpenCollection's `_oc` (verbatim
+ * imported node) and Postman's `_postman` sidecar (raw constructs Restura
+ * cannot model, ADR 0034). Once the item (or a descendant) changes, a cached
+ * bag is stale — `_oc` must be rebuilt from the live model on re-export, and a
+ * `_postman` bag would describe a request the user has since edited.
  */
-function stripOcBag(item: CollectionItem): CollectionItem {
-  if (!('_oc' in item)) return item;
-  const next = { ...item } as CollectionItem & { _oc?: unknown };
-  delete next._oc;
+const PASSTHROUGH_BAG_KEYS = ['_oc', '_postman'] as const;
+
+/** Drop every import passthrough bag from an item (see {@link PASSTHROUGH_BAG_KEYS}). */
+function stripPassthroughBags(item: CollectionItem): CollectionItem {
+  if (!PASSTHROUGH_BAG_KEYS.some((key) => key in item)) return item;
+  const next = { ...item } as CollectionItem & Partial<Record<string, unknown>>;
+  for (const key of PASSTHROUGH_BAG_KEYS) delete next[key];
   return next;
 }
 
@@ -135,11 +140,11 @@ function ancestorPath(
   return null;
 }
 
-/** Strip the `_oc` bag from every item whose id is in `ids` (recursive). */
-function stripOcByIds(items: CollectionItem[], ids: Set<string>): CollectionItem[] {
+/** Strip the passthrough bags (`_oc`, `_postman`) from every item whose id is in `ids` (recursive). */
+function stripPassthroughByIds(items: CollectionItem[], ids: Set<string>): CollectionItem[] {
   return items.map((i) => {
-    const withChildren = i.items ? { ...i, items: stripOcByIds(i.items, ids) } : i;
-    return ids.has(i.id) ? stripOcBag(withChildren) : withChildren;
+    const withChildren = i.items ? { ...i, items: stripPassthroughByIds(i.items, ids) } : i;
+    return ids.has(i.id) ? stripPassthroughBags(withChildren) : withChildren;
   });
 }
 
@@ -250,7 +255,7 @@ export const useCollectionStore = create<CollectionState>()(
             // child. See the `_oc` staleness note on `updateCollectionItem`.
             const withItem = addToParent(col.items);
             const staleIds = new Set<string>(ancestorPath(withItem, item.id) ?? []);
-            return { ...col, items: stripOcByIds(withItem, staleIds) };
+            return { ...col, items: stripPassthroughByIds(withItem, staleIds) };
           }),
         })),
 
@@ -274,13 +279,13 @@ export const useCollectionStore = create<CollectionState>()(
               const next = items.map((i) => {
                 if (i.id === itemId) {
                   changed = true;
-                  return stripOcBag({ ...i, ...updates });
+                  return stripPassthroughBags({ ...i, ...updates });
                 }
                 if (i.items) {
                   const res = updateItem(i.items);
                   if (res.changed) {
                     changed = true;
-                    return stripOcBag({ ...i, items: res.items });
+                    return stripPassthroughBags({ ...i, items: res.items });
                   }
                 }
                 return i;
@@ -310,7 +315,7 @@ export const useCollectionStore = create<CollectionState>()(
             // here — that needs a Strategy-1 staleness change; tracked
             // separately.)
             const staleIds = new Set<string>(ancestorPath(col.items, itemId) ?? []);
-            return { ...col, items: stripOcByIds(removeItem(col.items), staleIds) };
+            return { ...col, items: stripPassthroughByIds(removeItem(col.items), staleIds) };
           }),
         })),
 
@@ -364,7 +369,7 @@ export const useCollectionStore = create<CollectionState>()(
             // parentId undefined), and root drops all resolve uniformly.
             const targetAncestors = ancestorPath(inserted, itemId) ?? [];
             const staleIds = new Set<string>([itemId, ...sourceAncestors, ...targetAncestors]);
-            return { ...col, items: stripOcByIds(inserted, staleIds) };
+            return { ...col, items: stripPassthroughByIds(inserted, staleIds) };
           }),
         })),
 

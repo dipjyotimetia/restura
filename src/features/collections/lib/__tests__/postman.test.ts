@@ -1,6 +1,60 @@
 import { describe, expect, it } from 'vitest';
 import type { HttpRequest, PostmanCollection } from '@/types';
 import { importPostmanCollection } from '../importers/postman';
+import type { ImportWarning } from '../importers/types';
+
+describe('importPostmanCollection — renderer adapter over the shared parser (#1199)', () => {
+  const withAuth = (auth: Record<string, unknown>): PostmanCollection =>
+    ({
+      info: {
+        name: 'Auth',
+        schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
+      },
+      item: [
+        { name: 'R', request: { method: 'GET', url: 'https://x.example.com', header: [], auth } },
+      ],
+    }) as unknown as PostmanCollection;
+
+  it('maps OAuth1 (previously dropped to none)', async () => {
+    const collection = await importPostmanCollection(
+      withAuth({
+        type: 'oauth1',
+        oauth1: [
+          { key: 'consumerKey', value: 'ck' },
+          { key: 'consumerSecret', value: 'cs' },
+        ],
+      })
+    );
+    expect(asHttp(collection.items[0]!).auth).toEqual({
+      type: 'oauth1',
+      oauth1: { consumerKey: 'ck', consumerSecret: 'cs' },
+    });
+  });
+
+  it('maps NTLM (previously dropped to none)', async () => {
+    const collection = await importPostmanCollection(
+      withAuth({ type: 'ntlm', ntlm: [{ key: 'username', value: 'u' }] })
+    );
+    expect(asHttp(collection.items[0]!).auth).toEqual({
+      type: 'ntlm',
+      ntlm: { username: 'u', password: '' },
+    });
+  });
+
+  it('warns on unsupported auth instead of dropping it silently', async () => {
+    const warnings: ImportWarning[] = [];
+    const collection = await importPostmanCollection(
+      withAuth({ type: 'hawk', hawk: [{ key: 'authKey', value: 'k' }] }),
+      warnings
+    );
+    expect(asHttp(collection.items[0]!).auth).toEqual({ type: 'none' });
+    expect(warnings).toEqual([{ kind: 'unsupported-auth', authType: 'hawk', requestName: 'R' }]);
+    expect((collection.items[0] as { _postman?: { auth?: unknown } })._postman?.auth).toEqual({
+      type: 'hawk',
+      hawk: [{ key: 'authKey', value: 'k' }],
+    });
+  });
+});
 
 function asHttp(item: { request?: unknown }): HttpRequest {
   return item.request as HttpRequest;

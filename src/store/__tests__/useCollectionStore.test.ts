@@ -327,6 +327,70 @@ extensions:
     });
   });
 
+  describe('Postman _postman sidecar is stripped on mutation (#1199)', () => {
+    const mkReq = (id: string) => ({
+      id,
+      type: 'request' as const,
+      name: id,
+      _postman: { response: [{ name: 'ok', body: 'x' }] },
+      request: {
+        id,
+        name: id,
+        type: 'http' as const,
+        method: 'GET' as const,
+        url: `https://api.example.com/${id}`,
+        headers: [],
+        params: [],
+        body: { type: 'none' as const },
+        auth: { type: 'none' as const },
+      },
+    });
+    const mkCollection = () =>
+      ({
+        id: 'pc',
+        name: 'P',
+        items: [
+          {
+            id: 'pf',
+            type: 'folder' as const,
+            name: 'F',
+            _postman: { protocolProfileBehavior: { strictSSL: false } },
+            items: [mkReq('a'), mkReq('b')],
+          },
+        ],
+      }) as unknown as Collection;
+    type WithSidecar = CollectionItem & { _postman?: unknown };
+    const find = (id: string): WithSidecar | undefined => {
+      const walk = (items: CollectionItem[]): CollectionItem | undefined => {
+        for (const i of items) {
+          if (i.id === id) return i;
+          const hit = i.items ? walk(i.items) : undefined;
+          if (hit) return hit;
+        }
+        return undefined;
+      };
+      const col = useCollectionStore.getState().collections.find((c) => c.id === 'pc')!;
+      return walk(col.items) as WithSidecar | undefined;
+    };
+
+    it('editing an item strips its sidecar and its ancestors; siblings keep theirs', () => {
+      const { addCollection, updateCollectionItem } = useCollectionStore.getState();
+      addCollection(mkCollection());
+      updateCollectionItem('pc', 'a', { name: 'renamed' });
+      expect(find('a')?._postman).toBeUndefined();
+      expect(find('pf')?._postman).toBeUndefined();
+      expect(find('b')?._postman).toEqual({ response: [{ name: 'ok', body: 'x' }] });
+    });
+
+    it('removing an item strips the parent folder sidecar', () => {
+      const { addCollection, removeCollectionItem } = useCollectionStore.getState();
+      addCollection(mkCollection());
+      removeCollectionItem('pc', 'b');
+      expect(find('pf')?._postman).toBeUndefined();
+      expect(find('a')?._postman).toBeDefined();
+    });
+  });
+
   describe('add/remove also defeat stale _oc bags (audit Fix 7, completeness)', () => {
     const mkReq = (id: string, name: string, method: 'GET' | 'POST' = 'GET') => ({
       id,
