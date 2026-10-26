@@ -552,7 +552,7 @@ describe('Postman v3 review (#1200): nested / numeric / array / userinfo secrets
     expect(countPostmanBagInlineSecrets(bag)).toBe(3);
     const redacted = redactPostmanBag(bag);
     expect(redacted).toEqual({
-      item: { argv: ['srv', '--token', '', 'PASSWORD=', 3], command: 'srv --token ""' },
+      item: { argv: ['srv', '--token', '', 'PASSWORD=', 3], command: "srv --token ''" },
     });
     expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
   });
@@ -562,5 +562,103 @@ describe('Postman v3 review (#1200): nested / numeric / array / userinfo secrets
     const converted = await convertCollectionSecretsToHandles(collection);
     const bags = JSON.stringify(converted.items.map((i) => (i as { _postman?: unknown })._postman));
     for (const s of SECRETS) expect(bags).not.toContain(s);
+  });
+});
+
+describe('Postman v3 review (#1210): launch argv and free-text URL secrets', () => {
+  const v3 = (items: unknown[]) => ({ $kind: 'collection', name: 'C', items });
+  const reportText = (r: { report: { warnings: unknown[] } }) => JSON.stringify(r.report.warnings);
+
+  /** count == what redaction blanks, nothing left behind, re-count is 0. */
+  function expectScrubbed(bag: Record<string, unknown>, secrets: string[], n: number) {
+    expect(countPostmanBagInlineSecrets(bag)).toBe(n);
+    const redacted = redactPostmanBag(bag);
+    const text = JSON.stringify(redacted);
+    for (const s of secrets) expect(text).not.toContain(s);
+    expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
+  }
+
+  const ARGV_CASES: Array<[string, string[], number]> = [
+    ['curl --header "Authorization: Bearer LEAKA1"', ['LEAKA1'], 1],
+    ['curl -H "X-Api-Key: LEAKA2"', ['LEAKA2'], 1],
+    ['curl "--header=Authorization: Bearer LEAKA3"', ['LEAKA3'], 1],
+    ['curl "-HAuthorization: Bearer LEAKA4"', ['LEAKA4'], 1],
+    ['srv --endpoint=https://u:LEAKA5@h/x?token=LEAKA6', ['LEAKA5', 'LEAKA6'], 2],
+    ['curl -u user:LEAKA7 --user admin:LEAKA8', ['LEAKA7', 'LEAKA8'], 2],
+    ['srv --pass LEAKA9 --pat LEAKB1 --github-pat LEAKB2', ['LEAKA9', 'LEAKB1', 'LEAKB2'], 3],
+    ['mysql -pLEAKB3 --port 3306', ['LEAKB3'], 1],
+    ['sh -c "node s.js --token LEAKB4"', ['LEAKB4'], 1],
+    [`bash -c 'curl -H "X-Api-Key: LEAKB5" https://h'`, ['LEAKB5'], 1],
+    ['"--token LEAKB6', ['LEAKB6'], 1],
+  ];
+
+  it.each(ARGV_CASES)(
+    'stdio command %s: no secret in collection, bag or report',
+    (command, secrets, n) => {
+      const r = importPostmanCollection(
+        v3([{ $kind: 'mcp-request', name: 'S', transport: 'stdio', command }])
+      );
+      const text = `${JSON.stringify(r.collection)}${reportText(r)}`;
+      for (const s of secrets) expect(text).not.toContain(s);
+      expectScrubbed({ item: { command } }, secrets, n);
+    }
+  );
+
+  it('argv form: counts exactly what it blanks; --port and {{var}} are kept', () => {
+    const r = importPostmanCollection(
+      v3([
+        {
+          $kind: 'mcp-request',
+          name: 'S',
+          transport: 'stdio',
+          command: 'srv --port 8080 --token {{t}}',
+        },
+      ])
+    );
+    expect(JSON.stringify(r.collection)).toContain('"8080"');
+    expect(JSON.stringify(r.collection)).toContain('{{t}}');
+    const argv = [
+      'curl',
+      '-H',
+      'Authorization: Bearer LEAKC1',
+      '-u',
+      'me:LEAKC2',
+      '--pass',
+      'LEAKC3',
+    ];
+    expectScrubbed({ item: { argv } }, ['LEAKC1', 'LEAKC2', 'LEAKC3'], 3);
+  });
+
+  const TEXT_CASES: Array<[string, string, number]> = [
+    ['https://h/x?q=a b&api_key=LEAKM1', 'LEAKM1', 1],
+    ['https://{{ host }}/x?token=LEAKM2', 'LEAKM2', 1],
+    ['https://user:LEAK M3@h/', 'LEAK M3', 1],
+    ['https://user:p(LEAKM4)ss@h/ is the server', 'LEAKM4', 1],
+    ['https://h/x?token=ab(LEAKM5)ef', 'LEAKM5', 1],
+    ["fetch('https://h/x?token=ab(LEAKM6)ef');\nnext();", 'LEAKM6', 1],
+    ['const u = base + "/x?api_key=LEAKL1";\nrun(u);', 'LEAKL1', 1],
+    ["const t = 'https://bob:LEAKL2@h/p';\nconst v = ok ? a?.b : c;", 'LEAKL2', 1],
+  ];
+
+  it.each(TEXT_CASES)('free text / URL value %j: redacted and counted', (value, secret, n) => {
+    const r = importPostmanCollection(
+      v3([
+        {
+          $kind: 'http-request',
+          name: 'R',
+          url: 'https://x.example.com',
+          settings: { note: value },
+          scripts: [{ type: 'grpc:beforeInvoke', code: value }],
+        },
+      ])
+    );
+    const text = `${JSON.stringify(r.collection)}${reportText(r)}`;
+    expect(text).not.toContain(secret);
+    expectScrubbed({ settings: { note: value } }, [secret], n);
+  });
+
+  it('script text keeps ternaries / optional chaining intact', () => {
+    const code = 'const v = ok ? a?.b : c;\nconst w = x?.y ?? z;';
+    expect(redactPostmanBag({ scripts: [{ code }] })).toEqual({ scripts: [{ code }] });
   });
 });

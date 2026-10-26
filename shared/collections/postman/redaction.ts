@@ -7,6 +7,15 @@ import {
   mappedAuthParamsFor,
   postmanAuthParamEntries,
 } from './auth';
+import {
+  countUrlStringSecrets,
+  isSecretHeaderLine,
+  redactTextCredentials,
+  redactUrlCredentialsForStorage,
+  SINGLE_VARIABLE_REFERENCE,
+  walkArgv,
+  walkCommandLine,
+} from './text-redaction';
 
 /**
  * Secret redaction / counting for the `_postman` sidecar (ADR 0034).
@@ -44,9 +53,6 @@ const POSTMAN_AUTH_SECRET_KEYS = new Set([
   'privateKey',
   'value',
 ]);
-
-/** A value that is exactly one `{{var}}` reference — a pointer, not a secret. */
-const SINGLE_VARIABLE_REFERENCE = /^\{\{\s*[^{}\s]+\s*\}\}$/;
 
 type Raw = Record<string, unknown>;
 
@@ -131,13 +137,6 @@ function countPostmanRows(rows: unknown): number {
   return Array.isArray(rows) ? rows.filter(isPostmanSecretRow).length : 0;
 }
 
-const HEADER_LINE = /^([^:]+):(.*)$/;
-
-function isSecretHeaderLine(line: string): boolean {
-  const m = HEADER_LINE.exec(line);
-  return !!m && isSecretFieldName((m[1] ?? '').trim()) && isPlaintextValue((m[2] ?? '').trim());
-}
-
 /** Headers as `[{ key, value }]`, a raw `"Key: Value\n…"` block, or a `{ Key: value }` map. */
 function redactPostmanHeaders(header: unknown): unknown {
   if (Array.isArray(header)) return redactPostmanRows(header);
@@ -169,61 +168,6 @@ function countPostmanHeaders(header: unknown): number {
 }
 
 // ── URLs: userinfo + credential-named query params (string, `raw`, `auth`, `query`)
-
-const URL_USERINFO = /^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i;
-
-function decodeComponent(text: string): string {
-  try {
-    return decodeURIComponent(text.replace(/\+/g, ' '));
-  } catch {
-    return text;
-  }
-}
-
-/**
- * Strip `user:pass@` userinfo and blank credential-named query values in a
- * URL string; templated URLs survive apart from the credential, and a value
- * that is one `{{var}}` reference is kept. Same policy as
- * `redactUrlCredentialsForStorage` (`shared/secrets/mcp-credential-redaction.ts`),
- * which cannot be imported here: that module depends on collection-redaction,
- * which depends on this one (runtime cycle).
- */
-function redactUrlCredentialsForStorage(url: string): string {
-  const out = url.replace(URL_USERINFO, '$1');
-  const queryStart = out.indexOf('?');
-  if (queryStart === -1) return out;
-  const hashStart = out.indexOf('#', queryStart);
-  const end = hashStart === -1 ? out.length : hashStart;
-  const query = out
-    .slice(queryStart + 1, end)
-    .split('&')
-    .map((pair) => {
-      const eq = pair.indexOf('=');
-      if (eq === -1) return pair;
-      const value = pair.slice(eq + 1);
-      if (!value || SINGLE_VARIABLE_REFERENCE.test(decodeComponent(value).trim())) return pair;
-      return isSecretFieldName(decodeComponent(pair.slice(0, eq))) ? `${pair.slice(0, eq)}=` : pair;
-    })
-    .join('&');
-  return `${out.slice(0, queryStart + 1)}${query}${out.slice(end)}`;
-}
-
-function queryPairs(url: string): string[] {
-  const q = url.indexOf('?');
-  if (q === -1) return [];
-  const hash = url.indexOf('#', q);
-  return url.slice(q + 1, hash === -1 ? url.length : hash).split('&');
-}
-
-/** Exactly the number of edits {@link redactUrlCredentialsForStorage} makes to `url`. */
-function countUrlStringSecrets(url: string): number {
-  const redacted = redactUrlCredentialsForStorage(url);
-  if (redacted === url) return 0;
-  const withoutUserinfo = url.replace(URL_USERINFO, '$1');
-  const before = queryPairs(withoutUserinfo);
-  const after = queryPairs(redacted);
-  return (withoutUserinfo === url ? 0 : 1) + before.filter((pair, i) => pair !== after[i]).length;
-}
 
 function redactUrlAuth(auth: Raw): Raw {
   return Object.fromEntries(
@@ -391,113 +335,6 @@ function isV3SecretRow(row: Raw, inCredentials: boolean): boolean {
   return inCredentials ? isPostmanAuthSecretKey(name) : isSecretFieldName(name);
 }
 
-/** A URL token inside free text (scripts, descriptions): stops at whitespace / quotes. */
-const URL_IN_TEXT = /[a-z][a-z0-9+.-]*:\/\/[^\s'"`<>()]+/gi;
-
-/**
- * URL credentials in a raw string. A whitespace-free value is one URL and is
- * redacted whole; free text (a script body, a description) only has its URL
- * substrings redacted, so a `?` in a ternary / optional chain is never read
- * as a query string.
- */
-function walkV3String(value: string, counter: { n: number } | undefined): string {
-  if (!/\s/.test(value)) {
-    if (counter) counter.n += countUrlStringSecrets(value);
-    return redactUrlCredentialsForStorage(value);
-  }
-  return value.replace(URL_IN_TEXT, (url) => {
-    if (counter) counter.n += countUrlStringSecrets(url);
-    return redactUrlCredentialsForStorage(url);
-  });
-}
-
-// ── launch command lines (MCP stdio argv / command) ─────────────────────────
-
-/** Split a command line into argv (whitespace, single / double quotes). No shell. */
-export function splitCommandLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = '';
-  let quote: '"' | "'" | null = null;
-  let has = false;
-  for (const ch of line) {
-    if (quote) {
-      if (ch === quote) quote = null;
-      else cur += ch;
-    } else if (ch === '"' || ch === "'") {
-      quote = ch;
-      has = true;
-    } else if (/\s/.test(ch)) {
-      if (has || cur) out.push(cur);
-      cur = '';
-      has = false;
-    } else cur += ch;
-  }
-  if (has || cur) out.push(cur);
-  return out;
-}
-
-const ARG_FLAG = /^--?([^=\s-][^=\s]*)$/;
-const ARG_FLAG_ASSIGN = /^(--?)([^=\s]+)=(.*)$/s;
-const ARG_ENV_ASSIGN = /^([A-Za-z_][A-Za-z0-9_.-]*)=(.*)$/s;
-
-/** `-p` is the conventional short password flag; every other name goes through isSecretFieldName. */
-function isSecretArgName(name: string): boolean {
-  return name === 'p' || isSecretFieldName(name);
-}
-
-function isArgSecretValue(value: string): boolean {
-  return value !== '' && !SINGLE_VARIABLE_REFERENCE.test(value.trim());
-}
-
-/**
- * Blank credential values in a launch argv: the argument after a secret-named
- * flag (`--token X`, `-p X`), the value of `--secret-flag=X` and of
- * `SECRET_KEY=X`, and URL userinfo / credential query values. `{{var}}`
- * references are kept. Every edit is counted into `counter`.
- */
-function walkArgv(argv: readonly unknown[], counter: { n: number } | undefined): unknown[] {
-  let afterSecretFlag = false;
-  return argv.map((arg) => {
-    if (typeof arg !== 'string') return arg;
-    const follows = afterSecretFlag;
-    afterSecretFlag = false;
-    const flag = ARG_FLAG.exec(arg);
-    if (flag) {
-      afterSecretFlag = isSecretArgName(String(flag[1]));
-      return arg;
-    }
-    if (follows && isArgSecretValue(arg)) {
-      if (counter) counter.n += 1;
-      return '';
-    }
-    const assign = ARG_FLAG_ASSIGN.exec(arg) ?? ARG_ENV_ASSIGN.exec(arg);
-    if (assign) {
-      const value = String(assign.at(-1));
-      if (isSecretArgName(String(assign.at(-2))) && isArgSecretValue(value)) {
-        if (counter) counter.n += 1;
-        return arg.slice(0, arg.length - value.length);
-      }
-    }
-    if (!arg.includes('://')) return arg;
-    if (counter) counter.n += countUrlStringSecrets(arg);
-    return redactUrlCredentialsForStorage(arg);
-  });
-}
-
-/** {@link walkArgv} for a display / sidecar copy of a launch argv. */
-export function redactCommandArgv(argv: readonly string[]): string[] {
-  return walkArgv(argv, undefined) as string[];
-}
-
-/** A command line with its credential args blanked (re-quoted only when an arg changed). */
-function walkCommandLine(line: string, counter: { n: number } | undefined): string {
-  const local = { n: 0 };
-  const redacted = walkArgv(splitCommandLine(line), local) as string[];
-  if (local.n === 0) return line;
-  if (counter) counter.n += local.n;
-  return redacted.map((a) => (a === '' || /[\s'"]/.test(a) ? JSON.stringify(a) : a)).join(' ');
-}
-
 function isV3SecretField(key: string, value: unknown): boolean {
   return !V3_STRUCTURAL_FIELDS.has(key) && isSecretFieldName(key) && hasCredentialContent(value);
 }
@@ -510,7 +347,7 @@ function walkV3Raw(
   inCredentials = false
 ): unknown {
   if (depth > MAX_COLLECTION_TREE_DEPTH) return null;
-  if (typeof value === 'string' && value.includes('://')) return walkV3String(value, counter);
+  if (typeof value === 'string') return redactTextCredentials(value, counter);
   if (Array.isArray(value)) {
     return value.map((v) => walkV3Raw(v, counter, depth + 1, inCredentials));
   }

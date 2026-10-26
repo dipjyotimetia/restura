@@ -13,8 +13,8 @@ import {
   rows,
   scrub,
 } from './parse-v3-shared';
-import { redactCommandArgv, splitCommandLine } from './redaction';
 import type { PostmanSidecar } from './sidecar';
+import { redactCommandArgv, splitCommandLine } from './text-redaction';
 
 /** Postman v3 MQTT / Kafka (connection presets) and MCP converters (#1200). */
 
