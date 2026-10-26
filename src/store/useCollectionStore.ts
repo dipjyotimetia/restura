@@ -310,6 +310,14 @@ export const useCollectionStore = create<CollectionState>()(
               let changed = false;
               const next = items.map((i) => {
                 if (i.id === itemId) {
+                  // A value-identical re-save (e.g. the folder settings dialog
+                  // writing back normalised values) changes nothing, so no bag
+                  // on the path is stale: keep the item and its ancestors.
+                  const current = i as unknown as Record<string, unknown>;
+                  const supplied = updates as Record<string, unknown>;
+                  if (Object.keys(supplied).every((k) => sameValue(supplied[k], current[k]))) {
+                    return i;
+                  }
                   changed = true;
                   return stripPassthroughBags({ ...i, ...updates });
                 }

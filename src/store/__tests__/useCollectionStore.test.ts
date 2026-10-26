@@ -382,6 +382,18 @@ extensions:
       expect(find('b')?._postman).toEqual({ response: [{ name: 'ok', body: 'x' }] });
     });
 
+    it('a value-identical item update (dialog re-save) keeps item and ancestor sidecars', () => {
+      const { addCollection, updateCollectionItem } = useCollectionStore.getState();
+      addCollection(mkCollection());
+      const a = find('a')!;
+      updateCollectionItem('pc', 'a', {
+        name: a.name,
+        request: structuredClone(a.request),
+      });
+      expect(find('a')?._postman).toEqual({ response: [{ name: 'ok', body: 'x' }] });
+      expect(find('pf')?._postman).toEqual({ protocolProfileBehavior: { strictSSL: false } });
+    });
+
     it('removing an item strips the parent folder sidecar', () => {
       const { addCollection, removeCollectionItem } = useCollectionStore.getState();
       addCollection(mkCollection());

@@ -23,7 +23,8 @@ export type PostmanUnmodelledConstruct =
   | 'file-body'
   | 'oauth2-grant'
   | 'oauth1-options'
-  | 'path-variables';
+  | 'path-variables'
+  | 'form-file';
 
 export type PostmanImportIssue =
   | { kind: 'unsupported-auth'; authType: string; requestName: string }
@@ -51,6 +52,7 @@ const CONSTRUCT_DETAIL: Record<PostmanUnmodelledConstruct, string> = {
   'file-body': 'Binary file body imported without its file; the original path was kept',
   'oauth2-grant': 'OAuth 2.0 grant type approximated (implicit / PKCE details not modelled)',
   'oauth1-options': 'OAuth 1.0 options approximated (unsupported signature method or placement)',
+  'form-file': 'Form-data file fields imported without their files; the original paths were kept',
   'path-variables':
     'URL path variables only partly applied (empty value, unused or described entries); originals kept for reference',
 };

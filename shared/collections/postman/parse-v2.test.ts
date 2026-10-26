@@ -128,6 +128,24 @@ describe('parsePostmanV2 — request shapes', () => {
     expect(r.params.map((q) => [q.key, q.value])).toEqual([['x', '1']]);
   });
 
+  it('keeps an unsendable method in the sidecar', () => {
+    const { collection } = withRequest({ method: 'TRACE', url: 'https://x.example.com' });
+    expect(getPostmanSidecar(collection.items[0]!)?.method).toBe('TRACE');
+  });
+
+  it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty'])(
+    'auth type %s is unsupported, never an inherited property',
+    (type) => {
+      const auth = JSON.parse(`{"type":"${type}"}`);
+      const { collection, report } = withRequest({ url: 'https://x.example.com', auth });
+      expect(req(collection.items[0]).auth).toEqual({ type: 'none' });
+      expect(report.warnings).toEqual([
+        { kind: 'unsupported-auth', authType: type, requestName: 'R' },
+      ]);
+      expect(getPostmanSidecar(collection.items[0]!)?.auth).toEqual({ type });
+    }
+  );
+
   it('reports an unrecognised schema version and an unsendable method', () => {
     const { report, collection } = importPostmanCollection({
       info: {
@@ -188,6 +206,29 @@ describe('parsePostmanV2 — request shapes', () => {
   });
 
   it('maps formdata (text, file, multi-file) and urlencoded bodies', () => {
+    const formdataBody = {
+      mode: 'formdata',
+      formdata: [
+        { key: 't', value: 'v', description: 'd' },
+        { key: 'f', type: 'file', src: '/a.png', disabled: true },
+        { key: 'm', type: 'file', src: ['/b.png', '/c.png'] },
+      ],
+    };
+    const fdResult = withRequest({ url: 'https://x.example.com', body: formdataBody });
+    // File rows carry base64 bytes in `value` at runtime, so a path never goes
+    // there: the row arrives empty (like the `file` body mode), named after the
+    // first path, and the full original body is kept + reported.
+    expect(
+      req(fdResult.collection.items[0]).body.formData?.map((f) => [f.key, f.value, f.fileName])
+    ).toEqual([
+      ['t', 'v', undefined],
+      ['f', '', 'a.png'],
+      ['m', '', 'b.png'],
+    ]);
+    expect(getPostmanSidecar(fdResult.collection.items[0]!)?.body).toEqual(formdataBody);
+    expect(fdResult.report.warnings).toEqual([
+      expect.objectContaining({ kind: 'unmodelled-construct', construct: 'form-file' }),
+    ]);
     const fd = req(
       withRequest({
         url: 'https://x.example.com',
@@ -203,8 +244,8 @@ describe('parsePostmanV2 — request shapes', () => {
     ).body;
     expect(fd.formData?.map((f) => [f.key, f.value, f.type, f.enabled, f.description])).toEqual([
       ['t', 'v', 'text', true, 'd'],
-      ['f', '/a.png', 'file', false, undefined],
-      ['m', '/b.png', 'file', true, undefined],
+      ['f', '', 'file', false, undefined],
+      ['m', '', 'file', true, undefined],
     ]);
     const ue = req(
       withRequest({

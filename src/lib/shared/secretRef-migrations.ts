@@ -1,4 +1,8 @@
-import { mapPostmanAuthParams, postmanAuthParamEntries } from '@shared/collections/postman/auth';
+import {
+  activeAuthBlock,
+  mapPostmanAuthParams,
+  postmanAuthParamEntries,
+} from '@shared/collections/postman/auth';
 import { isPostmanAuthSecretKey, redactPostmanBag } from '@shared/collections/postman/redaction';
 import { getPostmanSidecar } from '@shared/collections/postman/sidecar';
 import type { AuthConfig, Collection, CollectionItem, Request } from '@/types';
@@ -277,7 +281,12 @@ async function postmanParamToHandle(
   value: unknown,
   label: string
 ): Promise<unknown> {
-  if (!isPostmanAuthSecretKey(key) || typeof value !== 'string' || value === '') return value;
+  if (!isPostmanAuthSecretKey(key) || value === undefined || value === null || value === '') {
+    return value;
+  }
+  // A non-string credential (number, boolean, object) cannot become a handle
+  // and must not persist in plaintext either: blank it.
+  if (typeof value !== 'string') return '';
   try {
     const result = await store({ value, label });
     return result.ok ? { kind: 'handle', id: result.id, label } : '';
@@ -298,8 +307,8 @@ async function postmanAuthToHandles(
   redacted: Record<string, unknown>,
   labelPrefix: string
 ): Promise<Record<string, unknown>> {
-  const type = typeof auth.type === 'string' ? auth.type : '';
-  const block = auth[type];
+  const { type, block } = activeAuthBlock(auth);
+  if (block === undefined) return redacted;
   const label = (key: string) => `${labelPrefix}/_postman.${type}.${key}`;
   const values = await Promise.all(
     postmanAuthParamEntries(block).map((p) =>

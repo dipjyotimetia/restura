@@ -2,6 +2,104 @@ import { describe, expect, it } from 'vitest';
 import type { Collection } from '../../types';
 import { countCollectionInlineSecrets, redactCollectionSecrets } from '../collection-redaction';
 
+/** A collection with one request item whose sidecar is `bag`. */
+function withBag(bag: Record<string, unknown>): Collection {
+  return {
+    id: 'c',
+    name: 'C',
+    items: [{ id: 'r', name: 'R', type: 'folder', items: [], _postman: bag }],
+  } as unknown as Collection;
+}
+
+describe('_postman saved-response originalRequest: every URL / header shape', () => {
+  const bag = {
+    response: [
+      {
+        name: 'string url + string headers',
+        header: 'X-Api-Key: HDR_STRING_SECRET\nContent-Type: text/plain',
+        originalRequest: {
+          url: 'https://STR_USER:STR_PASS@api.example.com/a?api_key=STR_QUERY_SECRET&page=2',
+          header: { Authorization: 'Bearer HDR_MAP_SECRET', Accept: 'application/json' },
+        },
+      },
+      {
+        name: 'structured url with raw + auth',
+        originalRequest: {
+          url: {
+            raw: 'https://RAW_USER:RAW_PASS@api.example.com/b?access_token=RAW_QUERY_SECRET',
+            auth: { user: 'u', password: 'URL_AUTH_PASS' },
+            query: [{ key: 'access_token', value: 'RAW_QUERY_SECRET' }],
+          },
+        },
+      },
+      // Postman allows `originalRequest` to be a bare URL string.
+      { name: 'bare string request', originalRequest: 'https://x.example.com/?token=BARE_SECRET' },
+    ],
+  };
+  const SECRETS = [
+    'HDR_STRING_SECRET',
+    'STR_USER',
+    'STR_PASS',
+    'STR_QUERY_SECRET',
+    'HDR_MAP_SECRET',
+    'RAW_USER',
+    'RAW_PASS',
+    'RAW_QUERY_SECRET',
+    'URL_AUTH_PASS',
+    'BARE_SECRET',
+  ];
+
+  it('blanks userinfo, credential query params and every header form', () => {
+    const text = JSON.stringify(redactCollectionSecrets(withBag(bag)));
+    for (const s of SECRETS) expect(text).not.toContain(s);
+    // Non-secret parts survive.
+    for (const keep of ['page=2', 'text/plain', 'application/json', 'api.example.com/b']) {
+      expect(text).toContain(keep);
+    }
+  });
+
+  it('counts exactly what redaction blanks', () => {
+    // string header 1 + userinfo 1 + api_key 1 + map Authorization 1
+    // + raw userinfo 1 + raw access_token 1 + url.auth password 1 + query row 1
+    // + bare token 1 = 9
+    expect(countCollectionInlineSecrets(withBag(bag))).toBe(9);
+    expect(countCollectionInlineSecrets(redactCollectionSecrets(withBag(bag)))).toBe(0);
+  });
+});
+
+describe('_postman auth params: non-string values under secret keys', () => {
+  const bag = {
+    auth: {
+      type: 'hawk',
+      hawk: [
+        { key: 'authKey', value: 12345 },
+        { key: 'secret', value: { nested: 'OBJ_SECRET' } },
+        { key: 'algorithm', value: 'sha256' },
+      ],
+    },
+  };
+
+  it('are blanked and counted', () => {
+    const c = withBag(bag);
+    expect(countCollectionInlineSecrets(c)).toBe(2);
+    const text = JSON.stringify(redactCollectionSecrets(c));
+    expect(text).not.toContain('12345');
+    expect(text).not.toContain('OBJ_SECRET');
+    expect(text).toContain('sha256');
+  });
+});
+
+describe('_postman auth with prototype-named types', () => {
+  it.each(['constructor', '__proto__', 'toString'])(
+    '%s is treated as an inert unsupported block',
+    (type) => {
+      const c = withBag({ auth: JSON.parse(`{"type":"${type}"}`) });
+      expect(() => countCollectionInlineSecrets(c)).not.toThrow();
+      expect(() => redactCollectionSecrets(c)).not.toThrow();
+    }
+  );
+});
+
 type Bag = { _postman?: Record<string, unknown> };
 
 function fixture(): Collection {

@@ -10,7 +10,7 @@ import type {
   HttpRequest,
   KeyValue,
 } from '../../types';
-import { authParamsV2, convertPostmanAuth, unmappedAuthRemainder } from './auth';
+import { activeAuthBlock, authParamsV2, convertPostmanAuth, unmappedAuthRemainder } from './auth';
 import type { PostmanReportBuilder } from './report';
 import { attachPostmanSidecar, type PostmanSidecar } from './sidecar';
 
@@ -75,8 +75,8 @@ interface AuthOutcome {
 
 function convertAuth(raw: unknown, ownerName: string, ctx: ParseContext): AuthOutcome {
   if (!isObj(raw)) return { auth: undefined };
-  const type = str(raw.type);
-  const result = convertPostmanAuth(type, authParamsV2(raw[type]));
+  const { type, block } = activeAuthBlock(raw);
+  const result = convertPostmanAuth(type, authParamsV2(block));
   switch (result.status) {
     case 'inherit':
       return { auth: undefined };
@@ -280,21 +280,30 @@ function convertBody(
       return { type, raw: str(body.raw) };
     }
     case 'formdata': {
+      let hasFile = false;
       const formData: FormDataItem[] = arr(body.formdata)
         .filter(isObj)
-        .map((param) => {
-          const isFile = param.type === 'file';
-          // `src` may be a string or an array of paths (multi-file params).
-          const src = Array.isArray(param.src) ? str(param.src[0]) : str(param.src);
-          return {
+        .map((param): FormDataItem => {
+          const common = {
             id: uuid(),
             key: str(param.key),
-            value: isFile ? src : str(param.value),
             enabled: param.disabled !== true,
             description: description(param.description),
-            type: isFile ? 'file' : 'text',
           };
+          if (param.type !== 'file') return { ...common, value: str(param.value), type: 'text' };
+          // A file row's `value` holds the picked file's base64 bytes at
+          // runtime, so a local path must never go there. Like the `file`
+          // body mode: arrive empty (named after the first path) and keep the
+          // full original body — every `src` path — in the sidecar.
+          hasFile = true;
+          const first = Array.isArray(param.src) ? str(param.src[0]) : str(param.src);
+          const fileName = first.split(/[\\/]/).pop();
+          return { ...common, value: '', type: 'file', ...(fileName ? { fileName } : {}) };
         });
+      if (hasFile) {
+        sidecar.body = body;
+        ctx.report.unmodelled('form-file', requestName);
+      }
       return { type: 'form-data', formData };
     }
     case 'urlencoded': {
@@ -334,12 +343,18 @@ function convertBody(
   }
 }
 
-function coerceMethod(raw: unknown, requestName: string, ctx: ParseContext): HttpMethod {
+function coerceMethod(
+  raw: unknown,
+  requestName: string,
+  sidecar: PostmanSidecar,
+  ctx: ParseContext
+): HttpMethod {
   // The former SDK upper-cased every method on parse; keep that behaviour.
   const upper = (typeof raw === 'string' && raw.trim() ? raw : 'GET').trim().toUpperCase();
   const check = checkHttpMethod(upper);
   if (check.ok) return check.method;
   ctx.report.unsupportedMethod(upper, requestName);
+  sidecar.method = raw;
   return 'GET';
 }
 
@@ -426,7 +441,7 @@ function convertItem(
   if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
   const scripts = extractScripts(raw.event, ctx);
   const { url, params } = convertUrl(request.url, name, sidecar, ctx);
-  const method = coerceMethod(request.method, name, ctx);
+  const method = coerceMethod(request.method, name, sidecar, ctx);
   const body = convertBody(request.body, name, sidecar, ctx);
   collectItemExtras(raw, name, scripts, sidecar, ctx);
   if (Array.isArray(raw.response) && raw.response.length > 0) {

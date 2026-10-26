@@ -142,6 +142,30 @@ describe('"store secrets as handles" import leaves no plaintext in _postman', ()
   });
 });
 
+describe('handle conversion blanks non-string values under secret keys', () => {
+  it('a numeric / object secret is neither kept nor sent to the keychain', async () => {
+    const { collection } = importPostmanCollection({
+      info: {
+        name: 'N',
+        schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
+      },
+      item: [],
+    });
+    (collection as { _postman?: unknown })._postman = {
+      auth: {
+        type: 'hawk',
+        hawk: [
+          { key: 'authKey', value: 987654321 },
+          { key: 'secret', value: { nested: 'OBJ_SECRET_VALUE' } },
+        ],
+      },
+    };
+    const text = JSON.stringify(await convertCollectionSecretsToHandles(collection));
+    expect(text).not.toContain('987654321');
+    expect(text).not.toContain('OBJ_SECRET_VALUE');
+  });
+});
+
 describe('hostile sibling auth blocks never survive in plaintext', () => {
   const hostileAuth = {
     type: 'hawk',

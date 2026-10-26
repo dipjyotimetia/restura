@@ -28,9 +28,11 @@ export interface PostmanSidecar {
   variable?: unknown[];
   /** Same-kind events that lost to the last one (only the last one is imported). */
   event?: unknown[];
+  /** Original request method when it was unsendable and imported as GET. */
+  method?: unknown;
   /** Request `url.variable[]` when some entries could not be applied losslessly. */
   urlVariable?: unknown[];
-  /** Raw `file` body (the source path is not resolvable at import). */
+  /** Raw `file` body, or a form-data body with file rows (paths are not resolvable at import). */
   body?: unknown;
 }
 

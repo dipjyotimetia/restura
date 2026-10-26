@@ -148,14 +148,34 @@ export const POSTMAN_MAPPED_AUTH_PARAMS: Readonly<Record<string, ReadonlySet<str
  * model (see {@link POSTMAN_MAPPED_AUTH_PARAMS}). Unsupported types keep
  * their whole active block. Sibling (inactive) type blocks are always dropped. Works on both v2.1 arrays and v2.0 object maps.
  */
+function hasOwn(obj: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+/**
+ * The mapped-key set for a Postman auth `type`, by OWN property only. `type`
+ * is untrusted input: `constructor` / `__proto__` / `toString` must never
+ * resolve to an inherited property (they are simply unsupported types).
+ */
+export function mappedAuthParamsFor(type: string): ReadonlySet<string> | undefined {
+  return hasOwn(POSTMAN_MAPPED_AUTH_PARAMS, type) ? POSTMAN_MAPPED_AUTH_PARAMS[type] : undefined;
+}
+
+/** The active `{ type, block }` of a raw Postman auth object (own-property lookup only). */
+export function activeAuthBlock(auth: Record<string, unknown>): { type: string; block: unknown } {
+  const type = typeof auth.type === 'string' ? auth.type : '';
+  return { type, block: type !== '' && hasOwn(auth, type) ? auth[type] : undefined };
+}
+
 export function unmappedAuthRemainder(raw: Record<string, unknown>): Record<string, unknown> {
-  const type = typeof raw.type === 'string' ? raw.type : '';
-  const mapped = POSTMAN_MAPPED_AUTH_PARAMS[type];
+  const { type, block } = activeAuthBlock(raw);
+  if (block === undefined) return { type };
+  const mapped = mappedAuthParamsFor(type);
   // Only the ACTIVE type's block is kept. Postman ignores sibling blocks
   // (`bearer: [...]` next to `type: 'hawk'`), but they can still hold
   // credentials, so they are dropped rather than carried in the sidecar.
-  if (!mapped) return { type, [type]: raw[type] };
-  const rest = mapPostmanAuthParams(raw[type], (p) => (mapped.has(p.key) ? DROP_PARAM : p.value));
+  if (!mapped) return { type, [type]: block };
+  const rest = mapPostmanAuthParams(block, (p) => (mapped.has(p.key) ? DROP_PARAM : p.value));
   return { type, [type]: rest };
 }
 
