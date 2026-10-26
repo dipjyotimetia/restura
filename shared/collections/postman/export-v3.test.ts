@@ -435,10 +435,11 @@ describe('Postman v3 export — Restura-native collection', () => {
     expect(local._postman.item).toMatchObject({
       $kind: 'mcp-request',
       transport: 'stdio',
-      argv: ['npx', '-y', 'server everything'],
+      argv: ['npx', '-y', ''], // stdio argument values are never imported (fail closed)
       env: [{ key: 'TOKEN' }],
     });
     expect(JSON.stringify(local._postman)).not.toContain('env-secret');
+    expect(JSON.stringify(local._postman)).not.toContain('server everything');
     expect(againReport.warnings).toContainEqual(
       expect.objectContaining({ construct: 'mcp-stdio', requestName: 'Local MCP' })
     );
