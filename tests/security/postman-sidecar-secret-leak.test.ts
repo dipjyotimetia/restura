@@ -6,6 +6,10 @@ import {
   redactPostmanBag,
 } from '../../shared/collections/postman/redaction';
 import {
+  redactTextCredentials,
+  walkCommandLine,
+} from '../../shared/collections/postman/text-redaction';
+import {
   countCollectionInlineSecrets,
   redactCollectionSecrets,
 } from '../../shared/secrets/collection-redaction';
@@ -660,5 +664,93 @@ describe('Postman v3 review (#1210): launch argv and free-text URL secrets', () 
   it('script text keeps ternaries / optional chaining intact', () => {
     const code = 'const v = ok ? a?.b : c;\nconst w = x?.y ?? z;';
     expect(redactPostmanBag({ scripts: [{ code }] })).toEqual({ scripts: [{ code }] });
+  });
+});
+
+describe('Postman v3 re-audit (#1210): ReDoS, script integrity, depth cap', () => {
+  const big = 200_000;
+  const LETTERS = 'a'.repeat(big);
+  const HEX = '0123456789abcdef'.repeat(big / 16);
+  const INPUTS: Array<[string, string]> = [
+    ['letters', LETTERS],
+    ['hex blob', HEX],
+    ['? + letters', `?${LETTERS}`],
+    ['{{ + letters', `{{${LETTERS}`],
+    ['&k={{ + letters', `&token={{${LETTERS}`],
+    ['scheme:// + colons', `a://${':'.repeat(big)}`],
+    ['free text of repeated schemes', ` x ${'a://'.repeat(big / 4)}`],
+    ['?token= + parens', ` ?token=${'('.repeat(big)}`],
+    ['quote-heavy command line', `"a 'b `.repeat(big / 6)],
+  ];
+  // Generous bound (linear work is single-digit ms); the quadratic regex took seconds.
+  const BOUND_MS = 500;
+  const timed = (fn: () => unknown) => {
+    const t0 = performance.now();
+    fn();
+    return performance.now() - t0;
+  };
+
+  it.each(INPUTS)('%s (200 KB) is linear through text, command line and import', (_n, value) => {
+    expect(timed(() => redactTextCredentials(value, { n: 0 }))).toBeLessThan(BOUND_MS);
+    expect(timed(() => walkCommandLine(value, { n: 0 }))).toBeLessThan(BOUND_MS);
+    const v3 = {
+      $kind: 'collection',
+      name: 'C',
+      items: [{ $kind: 'http-request', name: 'R', url: 'https://x', settings: { note: value } }],
+    };
+    expect(timed(() => importPostmanCollection(v3))).toBeLessThan(BOUND_MS * 2);
+  });
+
+  const UNCHANGED = [
+    'if (x?.token==="abc") go();',
+    'obj?.password=v;\nnext();',
+    'var r=e?key=t:n;foo()',
+    'const u = `${b}?token=${tok}`;\nsend(u);',
+    'call(x?token=t);\nok();',
+    "const remote = 'ssh://deploy@example.com/repo.x';\nrun();",
+  ];
+
+  it.each(UNCHANGED)('JS / non-secret text %j comes through unchanged', (code) => {
+    expect(redactTextCredentials(code, undefined)).toBe(code);
+    const counter = { n: 0 };
+    redactTextCredentials(code, counter);
+    expect(counter.n).toBe(0);
+  });
+
+  it('URL-literal fragments in scripts are still blanked', () => {
+    const code = 'const a = base + "/x?api_key=LEAKR1";\nconst b = \'?token=LEAKR2&x=1\';';
+    const counter = { n: 0 };
+    const out = redactTextCredentials(code, undefined);
+    redactTextCredentials(code, counter);
+    expect(out).toBe('const a = base + "/x?api_key=";\nconst b = \'?token=&x=1\';');
+    expect(counter.n).toBe(2);
+  });
+
+  it('free-text userinfo: only the password goes; the username stays', () => {
+    const code = "const u = 'https://bob:LEAKR3@h/p';\nnext();";
+    expect(redactTextCredentials(code, undefined)).toBe("const u = 'https://bob:@h/p';\nnext();");
+  });
+
+  it('the nesting cap fails closed: a nested command line past the cap is still walked', () => {
+    const counter = { n: 0 };
+    const out = walkCommandLine('sh -c "node s.js --token LEAKR4"', counter, 3);
+    expect(out).not.toContain('LEAKR4');
+    expect(counter.n).toBe(1);
+  });
+
+  it('a quote-confused nested line gets a quote-ignoring second pass', () => {
+    const command = `sh -c "echo Don't; curl -H 'Authorization: Bearer LEAKR5' x"`;
+    const r = importPostmanCollection({
+      $kind: 'collection',
+      name: 'C',
+      items: [{ $kind: 'mcp-request', name: 'S', transport: 'stdio', command }],
+    });
+    const text = `${JSON.stringify(r.collection)}${JSON.stringify(r.report.warnings)}`;
+    expect(text).not.toContain('LEAKR5');
+    const bag = { item: { command } };
+    expect(countPostmanBagInlineSecrets(bag)).toBe(1);
+    const redacted = redactPostmanBag(bag);
+    expect(JSON.stringify(redacted)).not.toContain('LEAKR5');
+    expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
   });
 });

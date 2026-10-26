@@ -98,18 +98,32 @@ function redactHeaderLine(line: string, counter: Counter): string {
 
 // ── free text ───────────────────────────────────────────────────────────────
 
+// Every pattern here must stay linear on hostile input (#1210 re-audit: an
+// unanchored `[a-z][a-z0-9+.-]*:\/\/` retried at every letter was quadratic,
+// seconds per 100 KB, re-run on every export count). Scheme matches start only
+// at a scheme boundary (lookbehind), so a run of letters is scanned once.
 const SCHEME_START = /^[a-z][a-z0-9+.-]*:\/\//i;
-/** Userinfo inside text: only characters that cannot be in userinfo end it. */
-const USERINFO_IN_TEXT = /([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi;
-/** `?name=value` / `&name=value`, with or without a scheme; `{{ var }}` values stay whole. */
-const QUERY_FRAGMENT = /([?&])([^=&\s'"`#?<>]+)=((?:\{\{[^{}]*\}\}|[^&\s'"`#{])*)/g;
+/**
+ * `scheme://user:password@` inside text. Only the password is blanked, so a
+ * plain username (`ssh://deploy@host`) survives.
+ */
+const USERINFO_IN_TEXT = /(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*:\/\/[^\s/?#@:]*:)[^\s/?#@]+@/gi;
+/**
+ * `?name=value` / `&name=value`, with or without a scheme. Not after `?.`
+ * (optional chaining) and not `==` (comparison); `{{ var }}` and a balanced
+ * `( … )` stay inside the value; `$ ; : ) { }` end it.
+ */
+const QUERY_FRAGMENT =
+  /([?&])(?![.=])([^=&\s'"`#?<>]+)=(?!=)((?:\{\{[^{}]*\}\}|\([^()\s'"`]*\)|[^&\s'"`#{}()$;:])*)/g;
+/** A query value is a literal only when it ends where a URL can: `& # quote whitespace` or the end. */
+const LITERAL_VALUE_END = /^(?:[&#'"`\s]|$)/;
 
 /**
  * Credentials in a raw string value. A single-line value that starts with a
  * scheme is one URL and is redacted whole. Anything else is free text (a
- * script, a note): URL userinfo and credential-named `?k=v` / `&k=v`
- * fragments are blanked in place, so a `?` in a ternary / optional chain is
- * never read as a query string.
+ * script, a note): URL passwords and credential-named `?k=v` / `&k=v`
+ * literals are blanked in place; code (`x?.token==="a"`, `e?key=t:n`,
+ * `` `?token=${t}` ``) is left alone.
  */
 export function redactTextCredentials(value: string, counter: Counter): string {
   const body = value.trimStart();
@@ -119,15 +133,21 @@ export function redactTextCredentials(value: string, counter: Counter): string {
     return lead + redactUrlCredentialsForStorage(body);
   }
   return value
-    .replace(USERINFO_IN_TEXT, (_m, scheme: string) => {
+    .replace(USERINFO_IN_TEXT, (_m, prefix: string) => {
       bump(counter);
-      return scheme;
+      return `${prefix}@`;
     })
-    .replace(QUERY_FRAGMENT, (m, sep: string, name: string, val: string) => {
-      if (!isSecretText(val) || !isSecretFieldName(decodeComponent(name))) return m;
-      bump(counter);
-      return `${sep}${name}=`;
-    });
+    .replace(
+      QUERY_FRAGMENT,
+      (m, sep: string, name: string, val: string, offset: number, whole: string) => {
+        const literal = LITERAL_VALUE_END.test(
+          whole.slice(offset + m.length, offset + m.length + 1)
+        );
+        if (!literal || !isSecretText(val) || !isSecretFieldName(decodeComponent(name))) return m;
+        bump(counter);
+        return `${sep}${name}=`;
+      }
+    );
 }
 
 // ── launch command lines (MCP stdio argv / command) ─────────────────────────
@@ -206,10 +226,46 @@ function redactArgValue(kind: ArgKind, value: string, counter: Counter, depth: n
   return redactArg(value, counter, depth);
 }
 
-/** A lone argument that is not an option value: nested command line, URL or text. */
+/**
+ * A lone argument that is not an option value: nested command line, URL or
+ * text. Past the cap the nested line is still walked (loose split, below),
+ * so deep `sh -c` nesting fails closed; loose tokens are never re-split.
+ */
 function redactArg(arg: string, counter: Counter, depth: number): string {
-  if (/\s/.test(arg) && depth < MAX_COMMAND_DEPTH) return walkCommandLine(arg, counter, depth + 1);
+  if (/\s/.test(arg) && depth <= MAX_COMMAND_DEPTH) {
+    return walkCommandLine(arg, counter, depth + 1);
+  }
   return redactTextCredentials(arg, counter);
+}
+
+/**
+ * Whitespace split that honours quotes only at word edges, so an apostrophe
+ * inside a word (`Don't`) cannot swallow the rest of the line. Linear; the
+ * result is never split again.
+ */
+function splitLooseCommandLine(line: string): string[] {
+  const words = line.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (let i = 0; i < words.length; i += 1) {
+    const first = String(words[i]);
+    const q = first.charAt(0);
+    if (q !== '"' && q !== "'") {
+      out.push(first);
+      continue;
+    }
+    // Only the newest word is inspected (never the growing join): linear.
+    const parts = [first];
+    let closed = first.length > 1 && first.endsWith(q);
+    while (!closed && i + 1 < words.length) {
+      i += 1;
+      const next = String(words[i]);
+      parts.push(next);
+      closed = next.endsWith(q);
+    }
+    const joined = parts.join(' ');
+    out.push(closed ? joined.slice(1, -1) : joined.slice(1));
+  }
+  return out;
 }
 
 /**
@@ -251,17 +307,33 @@ export function redactCommandArgv(argv: readonly string[]): string[] {
   return walkArgv(argv, undefined) as string[];
 }
 
-/** Quote an argument so {@link splitCommandLine} reads it back unchanged. */
+/**
+ * Quote an argument so {@link splitCommandLine} reads it back unchanged
+ * (single quotes; an embedded `'` becomes the adjacent segment `"'"`).
+ */
 function quoteArg(a: string): string {
   if (a !== '' && !/[\s'"]/.test(a)) return a;
-  return a.includes("'") ? `"${a}"` : `'${a}'`;
+  return `'${a.replaceAll("'", `'"'"'`)}'`;
 }
 
-/** A command line with its credential args blanked (re-quoted only when an arg changed). */
-export function walkCommandLine(line: string, counter: Counter, depth = 0): string {
+function walkSplit(argv: string[], counter: Counter, depth: number): string | undefined {
   const local = { n: 0 };
-  const redacted = walkArgv(splitCommandLine(line), local, depth) as string[];
-  if (local.n === 0) return line;
+  const redacted = walkArgv(argv, local, depth) as string[];
+  if (local.n === 0) return undefined;
   if (counter) counter.n += local.n;
   return redacted.map(quoteArg).join(' ');
+}
+
+/**
+ * A command line with its credential args blanked (re-quoted only when an
+ * arg changed). Up to the nesting cap it is split like a shell; if that finds
+ * nothing, a quote-confused line (`echo Don't; curl -H 'Authorization: …'`)
+ * gets a second, loose pass. Past the cap only the loose pass runs.
+ */
+export function walkCommandLine(line: string, counter: Counter, depth = 0): string {
+  if (depth <= MAX_COMMAND_DEPTH) {
+    const strict = walkSplit(splitCommandLine(line), counter, depth);
+    if (strict !== undefined) return strict;
+  }
+  return walkSplit(splitLooseCommandLine(line), counter, MAX_COMMAND_DEPTH + 1) ?? line;
 }
