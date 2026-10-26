@@ -681,6 +681,15 @@ describe('Postman v3 re-audit (#1210): ReDoS, script integrity, depth cap', () =
     ['free text of repeated schemes', ` x ${'a://'.repeat(big / 4)}`],
     ['?token= + parens', ` ?token=${'('.repeat(big)}`],
     ['quote-heavy command line', `"a 'b `.repeat(big / 6)],
+    ['header-like names', 'Authorization: '.repeat(big / 15)],
+    ['escaped double quotes', `"${'\\"'.repeat(big / 2)}`],
+    ['URL-context fragments', `/${'?token=a;'.repeat(big / 9)}`],
+    ['edge-quote word', `x ${`'"\\`.repeat(big / 3)}y`],
+    ['edge-quote words', `'"\\ `.repeat(big / 4)],
+    ['flag soup', '--token '.repeat(big / 8)],
+    ['flag / value pairs (fixpoint rounds)', '--token x '.repeat(big / 10)],
+    ['secret header lines', 'Authorization: Bearer x '.repeat(big / 24)],
+    ['escaped nested command', `sh -c "${'\\"--token x\\" '.repeat(big / 14)}"`],
   ];
   // Generous bound (linear work is single-digit ms); the quadratic regex took seconds.
   const BOUND_MS = 500;
@@ -726,9 +735,9 @@ describe('Postman v3 re-audit (#1210): ReDoS, script integrity, depth cap', () =
     expect(counter.n).toBe(2);
   });
 
-  it('free-text userinfo: only the password goes; the username stays', () => {
+  it('free-text userinfo is blanked whole (ssh-like username-only is kept, see UNCHANGED)', () => {
     const code = "const u = 'https://bob:LEAKR3@h/p';\nnext();";
-    expect(redactTextCredentials(code, undefined)).toBe("const u = 'https://bob:@h/p';\nnext();");
+    expect(redactTextCredentials(code, undefined)).toBe("const u = 'https://h/p';\nnext();");
   });
 
   it('the nesting cap fails closed: a nested command line past the cap is still walked', () => {
@@ -752,5 +761,103 @@ describe('Postman v3 re-audit (#1210): ReDoS, script integrity, depth cap', () =
     const redacted = redactPostmanBag(bag);
     expect(JSON.stringify(redacted)).not.toContain('LEAKR5');
     expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
+  });
+});
+
+describe('Postman v3 final audit (#1210): URL context, userinfo, escapes, both passes, cap', () => {
+  const v3 = (items: unknown[]) => ({ $kind: 'collection', name: 'C', items });
+  const leakText = (r: { collection: unknown; report: { warnings: unknown[] } }) =>
+    `${JSON.stringify(r.collection)}${JSON.stringify(r.report.warnings)}`;
+
+  /** count == what redaction blanks (exact `n` when given), nothing left, re-count 0. */
+  function expectScrubbed(bag: Record<string, unknown>, secrets: string[], n?: number) {
+    const count = countPostmanBagInlineSecrets(bag);
+    if (n === undefined) expect(count).toBeGreaterThan(0);
+    else expect(count).toBe(n);
+    const redacted = redactPostmanBag(bag);
+    const text = JSON.stringify(redacted);
+    for (const s of secrets) expect(text).not.toContain(s);
+    expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
+  }
+
+  const TEXT_LEAKS: Array<[string, string]> = [
+    ['[docs](https://api.x.com/v1?api_key=LEAKU1)', 'LEAKU1'],
+    ['(see https://h/x?access_token=LEAKU2)', 'LEAKU2'],
+    ['$(curl https://h/x?token=LEAKU3)', 'LEAKU3'],
+    ['call https://h/x?token=LEAKU4; it returns 200', 'LEAKU4'],
+    ['https://h/x?api_key=LEAKU5:extra', 'LEAKU5'],
+    ['`https://h/x?token=LEAKU6${suffix}`', 'LEAKU6'],
+    ['"https://h/x?client_secret=LEAKU7}"', 'LEAKU7'],
+    ['use ?token=LEAKU8; then', 'LEAKU8'],
+    ['git clone https://ghp_LEAKU9@github.com/o/r.git', 'ghp_LEAKU9'],
+    ['https://sk_live_LEAKV1:@api.stripe.com', 'sk_live_LEAKV1'],
+  ];
+
+  it.each(TEXT_LEAKS)('%j: blanked in bag, collection and report; counted', (value, secret) => {
+    const r = importPostmanCollection(
+      v3([
+        {
+          $kind: 'http-request',
+          name: 'R',
+          url: 'https://x.example.com',
+          settings: { note: value },
+          scripts: [{ type: 'grpc:beforeInvoke', code: value }],
+        },
+      ])
+    );
+    expect(leakText(r)).not.toContain(secret);
+    expectScrubbed({ settings: { note: value } }, [secret], 1);
+    expect(redactTextCredentials(value, undefined)).not.toContain(secret);
+  });
+
+  const COMMAND_LEAKS: Array<[string, string[], number | undefined]> = [
+    ['sh -c "curl -H \\"Authorization: Bearer LEAKE1\\" u"', ['LEAKE1'], 1],
+    ['sh -c "sh -c \\"API_KEY=LEAKE2 node s\\""', ['LEAKE2'], 1],
+    [
+      `sh -c "echo Don't --token LEAKF1; curl -H 'Authorization: Bearer LEAKF2' x"`,
+      ['LEAKF1', 'LEAKF2'],
+      // Not exact: the shell-style re-parse of the quote-confused line also
+      // blanks one non-secret word (over-redaction); count == blanked holds.
+      undefined,
+    ],
+  ];
+
+  it.each(COMMAND_LEAKS)('stdio %s: every secret blanked; counted', (command, secrets, n) => {
+    const r = importPostmanCollection(
+      v3([{ $kind: 'mcp-request', name: 'S', transport: 'stdio', command }])
+    );
+    const text = leakText(r);
+    for (const s of secrets) expect(text).not.toContain(s);
+    expectScrubbed({ item: { command } }, secrets, n);
+  });
+
+  it('past the cap a flat pass still blanks a nested --token', () => {
+    const counter = { n: 0 };
+    const out = walkCommandLine('sh -c "node s --token LEAKG1"', counter, 4);
+    expect(out).not.toContain('LEAKG1');
+    expect(counter.n).toBe(1);
+  });
+
+  const nest = (cmd: string, levels: number) => {
+    let s = cmd;
+    for (let i = 0; i < levels; i += 1) s = `sh -c '${s.replaceAll("'", `'"'"'`)}'`;
+    return s;
+  };
+  const DEEP: Array<[string, string]> = [
+    ['node s --token LEAKH1', 'LEAKH1'],
+    ['node s --token=LEAKH2', 'LEAKH2'],
+    ["curl -H 'Authorization: Bearer LEAKH3' u", 'LEAKH3'],
+    ['API_KEY=LEAKH4 node s', 'LEAKH4'],
+  ];
+
+  it.each(DEEP)('%s nested 5 and 6 levels deep is blanked', (inner, secret) => {
+    for (const levels of [5, 6]) {
+      const command = nest(inner, levels);
+      const r = importPostmanCollection(
+        v3([{ $kind: 'mcp-request', name: 'S', transport: 'stdio', command }])
+      );
+      expect(leakText(r)).not.toContain(secret);
+      expectScrubbed({ item: { command } }, [secret]);
+    }
   });
 });
