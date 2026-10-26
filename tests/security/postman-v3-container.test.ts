@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { strToU8, zipSync } from 'fflate';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { importPostmanCollection } from '../../shared/collections/postman';
 import { unzipPostmanV3Archive } from '../../shared/collections/postman/v3-archive';
 import {
@@ -44,10 +44,17 @@ describe('Postman v3 container — path traversal', () => {
 });
 
 describe('Postman v3 container — bombs and caps', () => {
+  // 32 MiB of zeros is 3x the 10 MiB per-file cap; level 1 keeps building it
+  // cheap on slow CI runners (the 1 GiB memory-bound case lives in
+  // postman-v3-zip-bomb.test.ts). Built once, outside the timed test.
+  let bomb: Uint8Array;
+  beforeAll(() => {
+    bomb = zipSync({ 'bomb.request.yaml': new Uint8Array(32 * 1024 * 1024) }, { level: 1 });
+  }, 30_000);
+
   it('a zip bomb is refused before it is fully inflated', () => {
-    const zip = zipSync({ 'bomb.request.yaml': new Uint8Array(64 * 1024 * 1024) }, { level: 9 });
-    expect(zip.byteLength).toBeLessThan(1024 * 1024);
-    expect(() => unzipPostmanV3Archive(zip)).toThrowError(/too large/i);
+    expect(bomb.byteLength).toBeLessThan(1024 * 1024);
+    expect(() => unzipPostmanV3Archive(bomb)).toThrowError(/too large/i);
   });
 
   it('too many zip entries is refused', () => {

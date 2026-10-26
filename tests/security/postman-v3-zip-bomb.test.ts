@@ -75,5 +75,7 @@ describe('Postman v3 zip bomb (#1200 S5)', () => {
     const after = process.memoryUsage();
     const grown = after.heapUsed + after.arrayBuffers - (before.heapUsed + before.arrayBuffers);
     expect(grown).toBeLessThan(200 * MIB);
-  }, 30_000);
+    // Generating + inflating 1 GiB is genuinely heavy: explicit per-test
+    // timeout (not a global one) so slow CI runners do not flake.
+  }, 60_000);
 });
