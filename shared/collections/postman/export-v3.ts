@@ -1,6 +1,6 @@
 import { isConfiguredAuth } from '../../auth/inheritance';
 import type { AuthConfig, Collection, CollectionItem } from '../../types';
-import { hasUnsupportedPostmanAuth, isObj, type Raw } from './common';
+import { arr, hasUnsupportedPostmanAuth, isObj, type Raw } from './common';
 import { type PostmanExportReport, PostmanExportReportBuilder } from './export-report';
 import { writePostmanV3Files } from './export-v3-files';
 import { exportGrpc, exportHttp } from './export-v3-http';
@@ -69,9 +69,30 @@ function placeholderItem(item: CollectionItem, sidecar: PostmanSidecar | undefin
       ? AUTH_TYPES.websocket
       : raw.$kind === 'llm-request'
         ? AUTH_TYPES.llm
-        : undefined;
+        : raw.$kind === 'mcp-request'
+          ? AUTH_TYPES.mcp
+          : undefined;
   const auth = allowed ? restoreBagOnlyAuth(sidecar, allowed) : undefined;
+  if (raw.$kind === 'mcp-request') return defined({ ...stdioPlaceholder(rest), auth });
   return defined({ ...rest, auth });
+}
+
+/**
+ * A stdio MCP placeholder bag (`keepMcpStdio`) → a schema-valid stdio
+ * `mcp-request`: the bag's own `argv` (the split command, for the warning)
+ * is not a v3 field and is dropped — the already-scrubbed `command` carries
+ * the launch line — and env rows, kept as names only, are written with
+ * EMPTY values (`value` is required by `v3-key-value-meta`).
+ */
+function stdioPlaceholder(raw: Raw): Raw {
+  const { argv: _argv, env, ...rest } = raw;
+  const rows = arr(env)
+    .filter(isObj)
+    .filter((e) => typeof e.key === 'string')
+    .map((e) =>
+      defined({ key: e.key, value: '', disabled: e.disabled === true ? true : undefined })
+    );
+  return { ...rest, env: rows.length > 0 ? rows : undefined };
 }
 
 function exportRequest(

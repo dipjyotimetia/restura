@@ -57,8 +57,8 @@ function roundTrip(collection: Collection) {
   const wrapped = Object.fromEntries(
     Object.entries(out.files).map(([p, text]) => [`${safeFileName(collection.name)}/${p}`, text])
   );
-  const again = importPostmanV3Files(wrapped).collection;
-  return { out, again };
+  const { collection: again, report: againReport } = importPostmanV3Files(wrapped);
+  return { out, again, againReport };
 }
 
 describe('Postman v3 export — golden fixtures round-trip', () => {
@@ -356,7 +356,7 @@ function find(items: CollectionItem[], name: string): CollectionItem | undefined
 describe('Postman v3 export — Restura-native collection', () => {
   it('every protocol and auth type round-trips; lossy items are reported', () => {
     const source = nativeCollection();
-    const { out, again } = roundTrip(source);
+    const { out, again, againReport } = roundTrip(source);
     const constructs = out.report.entries.map((e) => `${e.itemName}:${e.construct}`);
     expect(constructs).toEqual(
       expect.arrayContaining([
@@ -413,11 +413,35 @@ describe('Postman v3 export — Restura-native collection', () => {
         expect({ ...after, settings: undefined }).toEqual({ ...before, settings: undefined });
       } else expect(after, name).toEqual(before);
     }
-    const local = find(a.items, 'Local MCP')?.request as unknown as {
-      stdio: { command: string; args: string[]; env: Array<{ key: string; value: string }> };
+    // The export itself carries the stdio launch line (env values emptied)…
+    const localFile = out.files['Local MCP.request.yaml'] ?? '';
+    expect(localFile).toMatch(/transport: stdio/);
+    expect(localFile).toContain('command: npx -y "server everything"');
+    // (This export includes secrets; the default redacted export blanks the env value.)
+    const redacted = exportPostmanV3(redactCollectionSecrets(source));
+    expect(redacted.files['Local MCP.request.yaml']).toContain('key: TOKEN');
+    expect(redacted.files['Local MCP.request.yaml']).not.toContain('env-secret');
+    // …but by design an imported file never launches a process: stdio comes
+    // back as a DISABLED placeholder folder with the launch config (env names
+    // only) in the sidecar, and the mcp-stdio warning.
+    expect(find(a.items, 'Local MCP')).toBeUndefined();
+    const local = find(again.items, 'Local MCP (MCP stdio, disabled)') as unknown as {
+      type: string;
+      items?: unknown[];
+      _postman: { item: { command: string; argv: string[]; env: Array<{ key: string }> } };
     };
-    expect(local.stdio.command).toBe('npx');
-    expect(local.stdio.args).toEqual(['-y', 'server everything']);
+    expect(local.type).toBe('folder');
+    expect(local.items ?? []).toEqual([]);
+    expect(local._postman.item).toMatchObject({
+      $kind: 'mcp-request',
+      transport: 'stdio',
+      argv: ['npx', '-y', 'server everything'],
+      env: [{ key: 'TOKEN' }],
+    });
+    expect(JSON.stringify(local._postman)).not.toContain('env-secret');
+    expect(againReport.warnings).toContainEqual(
+      expect.objectContaining({ construct: 'mcp-stdio', requestName: 'Local MCP' })
+    );
     const mqtt = find(a.items, 'Sensors')?.request as unknown as Record<string, unknown>;
     const mqttBefore = find(b.items, 'Sensors')?.request as unknown as Record<string, unknown>;
     expect({ ...mqtt, connection: undefined }).toEqual({ ...mqttBefore, connection: undefined });
