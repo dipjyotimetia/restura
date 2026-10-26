@@ -160,6 +160,22 @@ describe('saveBrunoEntriesToDirectory', () => {
     expect(ipcMain.removeHandler).toHaveBeenCalledTimes(2);
   });
 
+  it('both channels are rate limited per sender', async () => {
+    vi.mocked(ipcMain.handle).mockClear();
+    registerBrunoExportHandlerIPC();
+    const inspect = vi
+      .mocked(ipcMain.handle)
+      .mock.calls.find(([ch]) => ch === 'collection:inspect-export-target')?.[1] as (
+      ...a: unknown[]
+    ) => Promise<unknown>;
+    const event = {
+      sender: { id: 4242, isDestroyed: () => false },
+      senderFrame: { url: 'file:///app/dist/web/index.html' },
+    };
+    for (let i = 0; i < 60; i++) await inspect(event, tmpRoot, 'x');
+    await expect(inspect(event, tmpRoot, 'x')).rejects.toThrow(/Rate limit exceeded/);
+  });
+
   it('refuses a destination that is a directory, and a non-directory on the path', async () => {
     const target = path.join(tmpRoot, 'export-target');
     await fsp.mkdir(path.join(target, 'x.yaml'), { recursive: true });

@@ -393,7 +393,6 @@ function countV3RawFields(bag: Raw): number {
   return n;
 }
 
-/** Returns a sanitised copy of a `_postman` sidecar; shape and non-secret fields survive. */
 /** Form rows of a kept body: v3 `content[]` or v2 `formdata[]` / `urlencoded[]`. */
 const BODY_ROW_FIELDS = ['content', 'formdata', 'urlencoded'] as const;
 
@@ -409,6 +408,7 @@ function countPostmanBody(body: unknown): number {
   return BODY_ROW_FIELDS.reduce((n, f) => n + countPostmanRows(body[f]), 0);
 }
 
+/** Returns a sanitised copy of a `_postman` sidecar; shape and non-secret fields survive. */
 export function redactPostmanBag(bag: unknown): unknown {
   if (!isObj(bag)) return bag;
   const next: Raw = { ...bag };

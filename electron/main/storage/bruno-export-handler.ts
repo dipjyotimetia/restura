@@ -26,6 +26,7 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
+import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { createValidatedHandler, FilePathSchema } from '../ipc/ipc-validators';
 import { isPathRealSafe, isPathSafe } from './file-operations';
 
@@ -121,6 +122,8 @@ async function writeNoFollow(dest: string, content: string): Promise<void> {
   const st = await lstatOrNull(dest);
   if (st?.isSymbolicLink()) throw new Error(`refusing to follow a symlink: ${path.basename(dest)}`);
   if (st && !st.isFile()) throw new Error(`not a file: ${path.basename(dest)}`);
+  if (st && st.nlink > 1)
+    throw new Error(`refusing to overwrite a hard-linked file: ${path.basename(dest)}`);
   const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | O_NOFOLLOW;
   const handle = await fsp.open(dest, flags, 0o644);
   try {
@@ -150,6 +153,56 @@ async function removeLayoutFiles(dir: string, layout: ExportLayout, depth = 0): 
       await fsp.unlink(p);
     }
   }
+}
+
+/**
+ * Dry run of the write loop: every existing intermediate directory must be a
+ * real directory and every existing destination a plain, single-link file,
+ * all inside the real root. Runs before anything is deleted or written so a
+ * refusal leaves a previous export untouched.
+ */
+async function preflight(root: string, planned: Array<{ segments: string[]; dest: string }>) {
+  const realRoot = await fsp.realpath(root);
+  for (const { segments, dest } of planned) {
+    let dir = root;
+    for (const seg of segments.slice(0, -1)) {
+      dir = path.join(dir, seg);
+      const st = await lstatOrNull(dir);
+      if (!st) break;
+      if (st.isSymbolicLink()) throw new Error(`refusing to follow a symlink: ${seg}`);
+      if (!st.isDirectory()) throw new Error(`not a directory: ${seg}`);
+    }
+    const st = await lstatOrNull(dest);
+    if (st?.isSymbolicLink())
+      throw new Error(`refusing to follow a symlink: ${path.basename(dest)}`);
+    if (st && !st.isFile()) throw new Error(`not a file: ${path.basename(dest)}`);
+    if (st && st.nlink > 1) {
+      throw new Error(`refusing to overwrite a hard-linked file: ${path.basename(dest)}`);
+    }
+    if (!(await isPathRealSafe(dest)))
+      throw new Error('Access denied: export path resolves outside allowed directories');
+  }
+  return realRoot;
+}
+
+/** `replace.subdir` must be the export's single root segment, a real directory (or absent). */
+async function checkReplaceDir(
+  root: string,
+  subdir: string,
+  planned: Array<{ segments: string[] }>
+): Promise<string> {
+  const [name] = safeSegments(subdir);
+  if (!name || name !== subdir) throw new Error('invalid replace folder');
+  if (!planned.every((p) => p.segments.length > 1 && p.segments[0] === name)) {
+    throw new Error('replace folder must be the export root folder');
+  }
+  const dir = path.join(root, name);
+  const st = await lstatOrNull(dir);
+  if (st?.isSymbolicLink()) throw new Error('refusing to follow a symlinked export folder');
+  if (st && !st.isDirectory()) throw new Error('export folder is not a directory');
+  if (!(await isPathRealSafe(dir)))
+    throw new Error('Access denied: export folder resolves outside allowed directories');
+  return dir;
 }
 
 function utf8Bytes(s: string): number {
@@ -187,7 +240,6 @@ export async function saveBrunoEntriesToDirectory(
       if (!isPathSafe(dest)) throw new Error(`Access denied: ${entry.relativePath}`);
       planned.push({ segments, dest, content: entry.content });
     }
-    if (options.replace) safeSegments(options.replace.subdir);
   } catch (error) {
     return { success: false, error: (error as Error).message };
   }
@@ -200,11 +252,12 @@ export async function saveBrunoEntriesToDirectory(
     if (rootStat?.isSymbolicLink())
       throw new Error('refusing to follow a symlinked target directory');
     await fsp.mkdir(root, { recursive: true });
-    const realRoot = await fsp.realpath(root);
+    const replaceDir = options.replace
+      ? await checkReplaceDir(root, options.replace.subdir, planned)
+      : undefined;
+    const realRoot = await preflight(root, planned);
 
-    if (options.replace) {
-      await removeLayoutFiles(path.join(root, options.replace.subdir), options.replace.layout);
-    }
+    if (options.replace && replaceDir) await removeLayoutFiles(replaceDir, options.replace.layout);
 
     for (const { segments, dest, content } of planned) {
       let dir = root;
@@ -231,32 +284,44 @@ export async function inspectExportTarget(
 ): Promise<{ exists: boolean; nonEmpty: boolean }> {
   const [name] = safeSegments(childName);
   if (!name || name !== childName) throw new Error('invalid export folder name');
-  if (!isPathSafe(directoryPath))
+  if (!isPathSafe(directoryPath) || !(await isPathRealSafe(directoryPath))) {
     throw new Error('Access denied: Path is outside allowed directories');
+  }
   const target = path.join(path.resolve(directoryPath), name);
-  if (!isPathSafe(target)) throw new Error('Access denied: Path is outside allowed directories');
+  if (!isPathSafe(target) || !(await isPathRealSafe(target))) {
+    throw new Error('Access denied: Path is outside allowed directories');
+  }
   const st = await lstatOrNull(target);
   if (!st) return { exists: false, nonEmpty: false };
   if (!st.isDirectory()) return { exists: true, nonEmpty: true };
   return { exists: true, nonEmpty: (await fsp.readdir(target)).length > 0 };
 }
 
+/** Per-sender budget for the directory-export channels (writes and probes). */
+export const directoryExportRateLimiter = createKeyedRateLimiter(60, 60_000);
+
 export function registerBrunoExportHandlerIPC(): void {
   ipcMain.handle(
     IPC.collection.saveBrunoDirectory,
-    createValidatedHandler(
-      IPC.collection.saveBrunoDirectory,
-      SaveBrunoDirectorySchema,
-      ([entries, directoryPath, options]) =>
-        saveBrunoEntriesToDirectory(directoryPath, entries, options ?? {})
+    rateLimited(
+      directoryExportRateLimiter,
+      createValidatedHandler(
+        IPC.collection.saveBrunoDirectory,
+        SaveBrunoDirectorySchema,
+        ([entries, directoryPath, options]) =>
+          saveBrunoEntriesToDirectory(directoryPath, entries, options ?? {})
+      )
     )
   );
   ipcMain.handle(
     IPC.collection.inspectExportTarget,
-    createValidatedHandler(
-      IPC.collection.inspectExportTarget,
-      InspectExportTargetSchema,
-      ([directoryPath, childName]) => inspectExportTarget(directoryPath, childName)
+    rateLimited(
+      directoryExportRateLimiter,
+      createValidatedHandler(
+        IPC.collection.inspectExportTarget,
+        InspectExportTargetSchema,
+        ([directoryPath, childName]) => inspectExportTarget(directoryPath, childName)
+      )
     )
   );
 }
