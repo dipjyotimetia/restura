@@ -1,3 +1,4 @@
+import { deletePassthroughBags, hasPassthroughBag } from '@shared/collections/passthrough-bags';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -108,21 +109,26 @@ function insertIntoTree(
 }
 
 /**
- * Import passthrough bags cached on items: OpenCollection's `_oc` (verbatim
- * imported node) and Postman's `_postman` sidecar (raw constructs Restura
- * cannot model, ADR 0034). Once the item (or a descendant) changes, a cached
- * bag is stale — `_oc` must be rebuilt from the live model on re-export, and a
- * `_postman` bag would describe a request the user has since edited.
+ * Drop every import passthrough bag (`_oc`, `_postman` — see
+ * `PASSTHROUGH_BAG_KEYS`) from an item. Once the item (or a descendant)
+ * changes, a cached bag is stale: `_oc` must be rebuilt from the live model on
+ * re-export, and a `_postman` bag would describe a request the user has since
+ * edited.
  */
-const PASSTHROUGH_BAG_KEYS = ['_oc', '_postman'] as const;
-
-/** Drop every import passthrough bag from an item (see {@link PASSTHROUGH_BAG_KEYS}). */
 function stripPassthroughBags(item: CollectionItem): CollectionItem {
-  if (!PASSTHROUGH_BAG_KEYS.some((key) => key in item)) return item;
-  const next = { ...item } as CollectionItem & Partial<Record<string, unknown>>;
-  for (const key of PASSTHROUGH_BAG_KEYS) delete next[key];
-  return next;
+  if (!hasPassthroughBag(item)) return item;
+  return deletePassthroughBags({ ...item });
 }
+
+/**
+ * Recursion bound for the bag-stripping walk. Importers cap nesting (Postman:
+ * 64); deeper subtrees from other sources are left untouched rather than
+ * risking a stack overflow inside a store update.
+ */
+const MAX_STRIP_DEPTH = 256;
+
+/** Collection fields whose edit makes the root `_postman` sidecar stale. */
+const ROOT_SIDECAR_STALE_KEYS = ['auth', 'variables', 'preRequestScript', 'testScript'] as const;
 
 /** Ancestor folder ids on the path from the root to `itemId` (excludes the item). */
 function ancestorPath(
@@ -141,9 +147,16 @@ function ancestorPath(
 }
 
 /** Strip the passthrough bags (`_oc`, `_postman`) from every item whose id is in `ids` (recursive). */
-function stripPassthroughByIds(items: CollectionItem[], ids: Set<string>): CollectionItem[] {
+function stripPassthroughByIds(
+  items: CollectionItem[],
+  ids: Set<string>,
+  depth = 0
+): CollectionItem[] {
+  if (depth > MAX_STRIP_DEPTH) return items;
   return items.map((i) => {
-    const withChildren = i.items ? { ...i, items: stripPassthroughByIds(i.items, ids) } : i;
+    const withChildren = i.items
+      ? { ...i, items: stripPassthroughByIds(i.items, ids, depth + 1) }
+      : i;
     return ids.has(i.id) ? stripPassthroughBags(withChildren) : withChildren;
   });
 }
@@ -212,7 +225,16 @@ export const useCollectionStore = create<CollectionState>()(
         set((state) => ({
           collections: state.collections.map((col) => {
             if (col.id !== id) return col;
-            const next = migrateCollectionAuth({ ...col, ...updates });
+            const merged = { ...col, ...updates };
+            // The root Postman sidecar holds collection-scope constructs
+            // (unsupported auth, shadowed events, …); once auth / variables /
+            // scripts are edited it is stale. Root `_oc` is deliberately kept:
+            // `internalToOC` re-checks root auth / scripts freshness against
+            // the live model before taking its whole-collection shortcut.
+            if (ROOT_SIDECAR_STALE_KEYS.some((k) => k in updates)) {
+              delete (merged as { _postman?: unknown })._postman;
+            }
+            const next = migrateCollectionAuth(merged);
             validateCollection(next);
             return next;
           }),

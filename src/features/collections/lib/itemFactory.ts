@@ -1,3 +1,4 @@
+import { deletePassthroughBags } from '@shared/collections/passthrough-bags';
 import { v4 as uuidv4 } from 'uuid';
 import type { Collection, CollectionItem, HttpRequest, Request } from '@/types';
 import { uniqueName } from './names';
@@ -67,13 +68,14 @@ export function duplicateRequestItem(item: CollectionItem, siblingNames: string[
  * revisited — deleting the original would silently break the duplicate's auth.
  */
 export function duplicateCollection(collection: Collection, existingNames: string[]): Collection {
-  const dup = structuredClone(collection) as Collection & { _oc?: unknown };
-  delete dup._oc;
+  // Import passthrough bags (`_oc`, `_postman`) describe the source's
+  // identity / imported state; a duplicate must not inherit them.
+  const dup = deletePassthroughBags(structuredClone(collection));
   dup.id = uuidv4();
   dup.name = uniqueName(`${collection.name} copy`, existingNames);
   const reId = (items: CollectionItem[]) => {
     for (const item of items) {
-      delete (item as CollectionItem & { _oc?: unknown })._oc;
+      deletePassthroughBags(item);
       item.id = uuidv4();
       if (item.request) item.request.id = uuidv4();
       if (item.items) reId(item.items);

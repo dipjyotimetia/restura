@@ -1,3 +1,4 @@
+import { POSTMAN_MAPPED_AUTH_PARAMS } from '../collections/postman/auth';
 import type { AuthConfig, Collection, CollectionItem } from '../types';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from './auth-fields';
 import { countBrokerPresetSecrets, redactBrokerPreset } from './broker-preset-redaction';
@@ -388,25 +389,6 @@ const POSTMAN_AUTH_SECRET_KEYS = new Set([
   'value',
 ]);
 
-/**
- * Postman auth types whose credentials the importer maps into the typed model
- * (counted there). Keep in sync with `convertPostmanAuth` in
- * `shared/collections/postman/auth.ts`: a bag holding one of these is an
- * approximation copy, so counting it again would double-report.
- */
-const TYPED_POSTMAN_AUTH_TYPES = new Set([
-  'noauth',
-  'inherit',
-  'basic',
-  'bearer',
-  'apikey',
-  'digest',
-  'awsv4',
-  'ntlm',
-  'oauth1',
-  'oauth2',
-]);
-
 function isNonEmptyScalar(v: unknown): boolean {
   return (typeof v === 'string' && v !== '') || typeof v === 'number';
 }
@@ -421,7 +403,7 @@ function postmanAuthParamEntries(block: unknown): Array<[string, unknown]> {
   return isPlainObject(block) ? Object.entries(block) : [];
 }
 
-function isPostmanAuthSecretKey(key: string): boolean {
+export function isPostmanAuthSecretKey(key: string): boolean {
   return POSTMAN_AUTH_SECRET_KEYS.has(key) || isSecretFieldName(key);
 }
 
@@ -444,13 +426,32 @@ function redactPostmanAuth(auth: Record<string, unknown>): Record<string, unknow
   return next;
 }
 
+/**
+ * Plaintext credentials in a Postman auth block. `bagOnly` (saved-response
+ * `originalRequest` auth) counts every credential. Otherwise, for typed
+ * (mapped) types, keys the importer copies into the typed model are skipped
+ * — they are counted there — so only bag-only material counts (e.g. an OAuth1
+ * RSA `privateKey`). Agrees with {@link redactPostmanAuth}, which blanks every
+ * credential key.
+ */
 function countPostmanAuthSecrets(auth: unknown, bagOnly: boolean): number {
   if (!isPlainObject(auth)) return 0;
   const type = typeof auth.type === 'string' ? auth.type : '';
-  if (!bagOnly && TYPED_POSTMAN_AUTH_TYPES.has(type)) return 0;
+  const mapped = bagOnly ? undefined : POSTMAN_MAPPED_AUTH_PARAMS[type];
   return postmanAuthParamEntries(auth[type]).filter(
-    ([k, v]) => isPostmanAuthSecretKey(k) && isNonEmptyScalar(v)
+    ([k, v]) => !mapped?.has(k) && isPostmanAuthSecretKey(k) && isNonEmptyScalar(v)
   ).length;
+}
+
+/** A Postman request body with content (redaction keeps only its `mode`). */
+function hasPostmanBodyContent(body: unknown): boolean {
+  if (!isPlainObject(body)) return false;
+  return Object.entries(body).some(
+    ([k, v]) =>
+      k !== 'mode' &&
+      k !== 'options' &&
+      (isNonEmptyScalar(v) || (Array.isArray(v) && v.length > 0) || isPlainObject(v))
+  );
 }
 
 /** A Postman `{ key, value }` header / query / variable row holding a plaintext secret. */
@@ -512,19 +513,34 @@ export function countPostmanBagInlineSecrets(bag: unknown): number {
   for (const response of Array.isArray(bag.response) ? bag.response : []) {
     if (!isPlainObject(response)) continue;
     n += countPostmanRows(response.header);
+    // Saved-response bodies are blanked by redaction (they routinely hold
+    // tokens / PII), so the export warning must see them too.
+    if (isNonEmptyScalar(response.body)) n += 1;
     if (Array.isArray(response.cookie)) {
       n += response.cookie.filter((c) => isPlainObject(c) && isNonEmptyScalar(c.value)).length;
     }
     const orig = response.originalRequest;
     if (isPlainObject(orig)) {
       n += countPostmanRows(orig.header) + countPostmanAuthSecrets(orig.auth, true);
+      if (hasPostmanBodyContent(orig.body)) n += 1;
       if (isPlainObject(orig.url)) n += countPostmanRows(orig.url.query);
     }
   }
   return n;
 }
 
-function redactItem(item: CollectionItem): CollectionItem {
+/**
+ * Recursion bound for the redaction / counting walks. Importers cap nesting
+ * (Postman: 64), so this only trips on hostile or corrupt data. Fail closed:
+ * a subtree beyond the bound is replaced by an empty stub on redaction (nothing
+ * below it can leak) and counted as one secret (the export warning fires).
+ */
+const MAX_REDACTION_DEPTH = 256;
+
+function redactItem(item: CollectionItem, depth = 0): CollectionItem {
+  if (depth > MAX_REDACTION_DEPTH) {
+    return { id: item.id, name: item.name, type: item.type, ...(item.items ? { items: [] } : {}) };
+  }
   const next: CollectionItem = { ...item };
   const itemBag = (next as { _oc?: unknown })._oc;
   if (itemBag !== undefined) {
@@ -535,7 +551,7 @@ function redactItem(item: CollectionItem): CollectionItem {
     (next as { _postman?: unknown })._postman = redactPostmanBag(postmanBag);
   }
   if (next.auth) next.auth = redactAuthConfigSecrets(next.auth);
-  if (next.items) next.items = next.items.map(redactItem);
+  if (next.items) next.items = next.items.map((child) => redactItem(child, depth + 1));
   if (next.request) {
     // Redact the typed auth block AND any secret-bearing header / query-param /
     // metadata row (a token typed into a header is just as exfiltrable).
@@ -575,7 +591,7 @@ export function redactCollectionSecrets(collection: Collection): Collection {
   return {
     ...next,
     ...(collection.auth ? { auth: redactAuthConfigSecrets(collection.auth) } : {}),
-    items: collection.items.map(redactItem),
+    items: collection.items.map((item) => redactItem(item)),
   };
 }
 
@@ -597,7 +613,11 @@ export function countCollectionInlineSecrets(collection: Collection): number {
   }
   // `_postman` sidecars are per-node (never a whole-document copy): count each.
   count += countPostmanBagInlineSecrets((collection as { _postman?: unknown })._postman);
-  const walk = (items: CollectionItem[]) => {
+  const walk = (items: CollectionItem[], depth: number) => {
+    if (depth > MAX_REDACTION_DEPTH) {
+      count += 1;
+      return;
+    }
     for (const item of items) {
       count += countAuthInlineSecrets(item.auth);
       count += countPostmanBagInlineSecrets((item as { _postman?: unknown })._postman);
@@ -620,9 +640,9 @@ export function countCollectionInlineSecrets(collection: Collection): number {
         count += countStdioEnvInlineSecrets(stdioEnvOf(req));
         count += countBrokerPresetSecrets(item.request);
       }
-      if (item.items) walk(item.items);
+      if (item.items) walk(item.items, depth + 1);
     }
   };
-  walk(collection.items);
+  walk(collection.items, 0);
   return count;
 }

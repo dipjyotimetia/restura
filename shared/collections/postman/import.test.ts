@@ -67,7 +67,11 @@ describe('importPostmanCollection (shared, SDK-free)', () => {
     };
     const { collection, report } = importPostmanCollection(one({ auth }));
     expect(req(collection.items[0]).auth?.oauth1?.signatureMethod).toBeUndefined();
-    expect(getPostmanSidecar(collection.items[0]!)?.auth).toEqual(auth);
+    // Mapped keys (consumerKey) are not duplicated into the sidecar (ADR-0007).
+    expect(getPostmanSidecar(collection.items[0]!)?.auth).toEqual({
+      type: 'oauth1',
+      oauth1: [{ key: 'signatureMethod', value: 'RSA-SHA1' }],
+    });
     expect(constructs(report.warnings)).toEqual(['oauth1-options']);
   });
 

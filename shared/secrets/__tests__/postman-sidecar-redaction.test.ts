@@ -106,8 +106,9 @@ describe('_postman sidecar redaction', () => {
   it('counts plaintext secrets that live only in _postman bags', () => {
     // root jwt (1) + edgegrid (2) + hawk authId + authKey (2; `authId` matches the
     // shared credential-name heuristic) + secret vars (2) + response Set-Cookie
-    // header (1) + cookie (1) + originalRequest Authorization (1) + bearer (1) = 11
-    expect(countCollectionInlineSecrets(fixture())).toBe(11);
+    // header (1) + cookie (1) + response body (1; blanked by redaction too)
+    // + originalRequest Authorization (1) + bearer (1) = 12
+    expect(countCollectionInlineSecrets(fixture())).toBe(12);
   });
 
   it('does not double-count auth that the typed model already holds', () => {

@@ -36,6 +36,16 @@ const source: Collection = {
 };
 
 describe('duplicateCollection', () => {
+  it('drops Postman _postman sidecars from the root and every item (#1199)', () => {
+    const withBags = {
+      ...source,
+      _postman: { protocolProfileBehavior: { strictSSL: false } },
+      items: source.items.map((i) => ({ ...i, _postman: { response: [] } })),
+    } as Collection;
+    const dup = duplicateCollection(withBags, []);
+    expect(JSON.stringify(dup)).not.toContain('_postman');
+  });
+
   it('appends " copy" to the name and keeps content', () => {
     const dup = duplicateCollection(source, []);
     expect(dup.name).toBe('My API copy');

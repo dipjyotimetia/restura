@@ -49,14 +49,91 @@ export function authParamsV2(block: unknown): PostmanAuthParams {
   return out;
 }
 
+/**
+ * Postman auth parameter keys that {@link convertPostmanAuth} copies into the
+ * typed `AuthConfig`, per type. A type listed here is "typed": its mapped
+ * credentials live (and are handle-converted / redacted / counted) on the
+ * typed model, so they must NEVER be duplicated into the `_postman` sidecar
+ * (ADR-0007): the sidecar keeps only the remaining, unmapped keys. Types not
+ * listed are unsupported — their whole block is bag-only.
+ *
+ * `signatureMethod` / `grant_type` are deliberately absent: they are what the
+ * approximation is about, and are not secrets.
+ */
+export const POSTMAN_MAPPED_AUTH_PARAMS: Readonly<Record<string, ReadonlySet<string>>> = {
+  noauth: new Set(),
+  inherit: new Set(),
+  basic: new Set(['username', 'password']),
+  bearer: new Set(['token']),
+  apikey: new Set(['key', 'value', 'in']),
+  digest: new Set(['username', 'password']),
+  awsv4: new Set(['accessKey', 'secretKey', 'region', 'service']),
+  ntlm: new Set(['username', 'password', 'domain', 'workstation']),
+  oauth1: new Set([
+    'consumerKey',
+    'consumerSecret',
+    'token',
+    'tokenSecret',
+    'realm',
+    'nonce',
+    'timestamp',
+  ]),
+  oauth2: new Set([
+    'accessToken',
+    'tokenType',
+    'clientId',
+    'clientSecret',
+    'authUrl',
+    'accessTokenUrl',
+    'scope',
+    'redirect_uri',
+    'username',
+    'password',
+  ]),
+};
+
+/**
+ * The raw Postman auth block minus every key already mapped into the typed
+ * model (see {@link POSTMAN_MAPPED_AUTH_PARAMS}). Unsupported types are
+ * returned unchanged. Works on both v2.1 arrays and v2.0 object maps.
+ */
+export function unmappedAuthRemainder(raw: Record<string, unknown>): Record<string, unknown> {
+  const type = typeof raw.type === 'string' ? raw.type : '';
+  const mapped = POSTMAN_MAPPED_AUTH_PARAMS[type];
+  if (!mapped) return raw;
+  const block = raw[type];
+  let rest: unknown = block;
+  if (Array.isArray(block)) {
+    rest = block.filter(
+      (e) => !(e && typeof e === 'object' && mapped.has(String((e as { key?: unknown }).key)))
+    );
+  } else if (block && typeof block === 'object') {
+    rest = Object.fromEntries(
+      Object.entries(block as Record<string, unknown>).filter(([k]) => !mapped.has(k))
+    );
+  }
+  return { type, [type]: rest };
+}
+
 const OAUTH1_SIGNATURE_METHODS = new Set(['HMAC-SHA1', 'HMAC-SHA256', 'PLAINTEXT']);
 
+/**
+ * `T` with every possibly-undefined property made optional-and-defined, so the
+ * result is assignable under `exactOptionalPropertyTypes` (on in
+ * `src/features/http/tsconfig.json`, which reaches this file transitively).
+ */
+type Compact<T> = {
+  [K in keyof T as undefined extends T[K] ? never : K]: T[K];
+} & {
+  [K in keyof T as undefined extends T[K] ? K : never]?: Exclude<T[K], undefined>;
+};
+
 /** Drop keys whose value is `undefined` so consumers see only what was set. */
-function compact<T extends object>(obj: T): T {
+function compact<T extends object>(obj: T): Compact<T> {
   for (const k of Object.keys(obj) as Array<keyof T>) {
     if (obj[k] === undefined) delete obj[k];
   }
-  return obj;
+  return obj as Compact<T>;
 }
 
 export function convertPostmanAuth(type: string, params: PostmanAuthParams): AuthConversion {

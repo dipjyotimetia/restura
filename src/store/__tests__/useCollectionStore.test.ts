@@ -389,6 +389,32 @@ extensions:
       expect(find('pf')?._postman).toBeUndefined();
       expect(find('a')?._postman).toBeDefined();
     });
+
+    const root = () =>
+      useCollectionStore.getState().collections.find((c) => c.id === 'pc') as
+        | (Collection & { _postman?: unknown })
+        | undefined;
+    const withRootBag = () =>
+      ({ ...mkCollection(), _postman: { auth: { type: 'hawk' } } }) as unknown as Collection;
+
+    it.each([
+      ['auth', { auth: { type: 'bearer', bearer: { token: 't' } } }],
+      ['variables', { variables: [] }],
+      ['preRequestScript', { preRequestScript: 'rs.x()' }],
+      ['testScript', { testScript: 'rs.y()' }],
+    ])('updateCollection touching %s drops the root sidecar', (_field, updates) => {
+      const { addCollection, updateCollection } = useCollectionStore.getState();
+      addCollection(withRootBag());
+      updateCollection('pc', updates as Partial<Collection>);
+      expect(root()?._postman).toBeUndefined();
+    });
+
+    it('a rename keeps the root sidecar', () => {
+      const { addCollection, updateCollection } = useCollectionStore.getState();
+      addCollection(withRootBag());
+      updateCollection('pc', { name: 'Renamed' });
+      expect(root()?._postman).toEqual({ auth: { type: 'hawk' } });
+    });
   });
 
   describe('add/remove also defeat stale _oc bags (audit Fix 7, completeness)', () => {

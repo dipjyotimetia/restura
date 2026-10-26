@@ -10,7 +10,7 @@ import type {
   HttpRequest,
   KeyValue,
 } from '../../types';
-import { authParamsV2, convertPostmanAuth } from './auth';
+import { authParamsV2, convertPostmanAuth, unmappedAuthRemainder } from './auth';
 import type { PostmanReportBuilder } from './report';
 import { attachPostmanSidecar, type PostmanSidecar } from './sidecar';
 
@@ -65,25 +65,29 @@ function keyValue(row: Raw): KeyValue {
 interface AuthOutcome {
   /** undefined → inherit from the parent. */
   auth: AuthConfig | undefined;
-  /** Raw auth to keep in the sidecar (unsupported / approximated). */
-  keepRaw: boolean;
+  /**
+   * Raw auth to keep in the sidecar (unsupported / approximated). For typed
+   * (approximated) types only the UNMAPPED keys are kept — mapped credentials
+   * live on the typed model and must not be duplicated (ADR-0007).
+   */
+  sidecarAuth?: Raw;
 }
 
 function convertAuth(raw: unknown, ownerName: string, ctx: ParseContext): AuthOutcome {
-  if (!isObj(raw)) return { auth: undefined, keepRaw: false };
+  if (!isObj(raw)) return { auth: undefined };
   const type = str(raw.type);
   const result = convertPostmanAuth(type, authParamsV2(raw[type]));
   switch (result.status) {
     case 'inherit':
-      return { auth: undefined, keepRaw: false };
+      return { auth: undefined };
     case 'ok':
-      return { auth: result.auth, keepRaw: false };
+      return { auth: result.auth };
     case 'approximated':
       ctx.report.unmodelled(result.construct, ownerName);
-      return { auth: result.auth, keepRaw: true };
+      return { auth: result.auth, sidecarAuth: unmappedAuthRemainder(raw) };
     case 'unsupported':
       ctx.report.unsupportedAuth(result.authType, ownerName);
-      return { auth: result.auth, keepRaw: true };
+      return { auth: result.auth, sidecarAuth: raw };
   }
 }
 
@@ -307,18 +311,32 @@ function collectItemExtras(
   }
 }
 
+/**
+ * Maximum folder nesting accepted on import. Real collections are a handful of
+ * levels deep; the cap turns a hostile/garbage deeply nested document into a
+ * clear import error instead of unbounded recursion here and in every
+ * recursive consumer downstream (store, redaction, runner).
+ */
+export const MAX_POSTMAN_NESTING_DEPTH = 64;
+
 function convertItem(
   raw: unknown,
   parentAuth: AuthConfig | undefined,
-  ctx: ParseContext
+  ctx: ParseContext,
+  depth = 1
 ): CollectionItem | null {
   if (!isObj(raw)) return null;
+  if (depth > MAX_POSTMAN_NESTING_DEPTH) {
+    throw new Error(
+      `Invalid Postman collection: folders nest deeper than ${MAX_POSTMAN_NESTING_DEPTH} levels`
+    );
+  }
   const sidecar: PostmanSidecar = {};
 
   if (Array.isArray(raw.item)) {
     const name = str(raw.name) || 'Unnamed Folder';
     const authOut = convertAuth(raw.auth, name, ctx);
-    if (authOut.keepRaw) sidecar.auth = raw.auth;
+    if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
     // Folder auth overrides the collection auth for everything inside
     // (nearest ancestor wins).
     const folderAuth = isConfiguredAuth(authOut.auth) ? authOut.auth : undefined;
@@ -326,7 +344,7 @@ function convertItem(
     collectItemExtras(raw, name, scripts, sidecar, ctx);
     const items: CollectionItem[] = [];
     for (const child of raw.item) {
-      const converted = convertItem(child, folderAuth ?? parentAuth, ctx);
+      const converted = convertItem(child, folderAuth ?? parentAuth, ctx, depth + 1);
       if (converted) items.push(converted);
     }
     const folder: CollectionItem = {
@@ -349,7 +367,7 @@ function convertItem(
   const name = str(raw.name) || 'Unnamed Request';
 
   const authOut = convertAuth(request.auth, name, ctx);
-  if (authOut.keepRaw) sidecar.auth = request.auth;
+  if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
   const scripts = extractScripts(raw.event, ctx);
   const { url, params } = convertUrl(request.url);
   const method = coerceMethod(request.method, name, ctx);
@@ -391,7 +409,7 @@ export function parsePostmanV2(data: Raw, ctx: ParseContext): Collection {
   const sidecar: PostmanSidecar = {};
 
   const authOut = convertAuth(data.auth, name, ctx);
-  if (authOut.keepRaw) sidecar.auth = data.auth;
+  if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
   const scripts = extractScripts(data.event, ctx);
   if (scripts.shadowed.length > 0) {
     sidecar.event = scripts.shadowed;
