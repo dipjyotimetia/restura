@@ -9,6 +9,7 @@ import {
   fileSseRequestSchema,
   getRequestTypeFromFilename,
 } from '@shared/collections/legacy-file-schema';
+import { getPostmanSidecar, POSTMAN_V3_LIMITS } from '@shared/collections/postman';
 import {
   loadCollectionFromDir,
   loadCollectionFromFile,
@@ -26,6 +27,15 @@ import type {
 } from '@shared/types';
 import * as yaml from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  type CliPostmanImportReport,
+  importPostmanDocument,
+  importPostmanFolder,
+  importPostmanZip,
+  isPostmanDocument,
+  type PostmanLimits,
+  readCappedFile,
+} from './postmanImport.js';
 
 export interface LoadedRequest {
   /** Absolute path to the source file when loaded from a directory layout. */
@@ -36,9 +46,26 @@ export interface LoadedRequest {
   folderPath: string[];
   type: 'http' | 'grpc' | 'sse' | 'mcp';
   request: HttpRequest | GrpcRequest | SseRequest | McpRequest;
+  /**
+   * Set when the request must NOT be sent; the runner reports it as a failed
+   * ("not sent") result with this reason instead of executing it. Used for
+   * Postman requests whose auth type Restura cannot sign (imported as `none`),
+   * so they never go out unauthenticated or with a fallback credential.
+   */
+  blocked?: string;
 }
 
-export type CollectionFormat = 'opencollection-file' | 'opencollection-dir' | 'legacy-dir';
+export type CollectionFormat =
+  | 'opencollection-file'
+  | 'opencollection-dir'
+  | 'legacy-dir'
+  | 'postman-v2'
+  | 'postman-v3';
+
+export interface LoadCollectionOptions {
+  /** Override the shared Postman v3 caps (tests; defaults: `POSTMAN_V3_LIMITS`). */
+  postmanLimits?: PostmanLimits;
+}
 
 export interface LoadedCollection {
   meta: {
@@ -50,6 +77,8 @@ export interface LoadedCollection {
   requests: LoadedRequest[];
   /** Format detected at load time — used for deprecation warnings and reporters. */
   format: CollectionFormat;
+  /** Postman inputs only: the shared import report (what was dropped / approximated). */
+  importReport?: CliPostmanImportReport;
 }
 
 /**
@@ -67,13 +96,49 @@ export interface LoadedCollection {
  * All formats normalise to the same `LoadedRequest[]` shape so the runner
  * does not need to care which one produced the data.
  */
-export async function loadCollection(target: string): Promise<LoadedCollection> {
+export async function loadCollection(
+  target: string,
+  options: LoadCollectionOptions = {}
+): Promise<LoadedCollection> {
   const info = await stat(target);
+  const limits = options.postmanLimits ?? {};
 
   if (info.isFile()) {
     const ext = extname(target).toLowerCase();
+    if (ext === '.zip') {
+      const { collection, report } = await importPostmanZip(target, limits);
+      return fromPostman(collection, report);
+    }
+    if (ext === '.json') {
+      const text = (await readCappedFile(target, singleFileCap(limits), 'the file')).toString(
+        'utf8'
+      );
+      let data: unknown;
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        throw new Error(
+          `${target} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      if (!isPostmanDocument(data)) {
+        throw new Error(
+          `${target} is not a Postman collection (expected info.schema / info._postman_id for v2.x, or $kind: "collection" for v3).`
+        );
+      }
+      const { collection, report } = importPostmanDocument(data, limits);
+      return fromPostman(collection, report);
+    }
     if (ext !== '.yaml' && ext !== '.yml') {
-      throw new Error(`Unsupported collection file extension: ${target}. Expected .yaml or .yml.`);
+      throw new Error(
+        `Unsupported collection file extension: ${target}. Expected .yaml / .yml (OpenCollection or Postman v3), .json (Postman v2.x / v3) or .zip (Postman v3).`
+      );
+    }
+    const text = (await readCappedFile(target, singleFileCap(limits), 'the file')).toString('utf8');
+    const doc = safeYaml(text);
+    if (isPostmanDocument(doc)) {
+      const { collection, report } = importPostmanDocument(doc, limits);
+      return fromPostman(collection, report);
     }
     return loadOpenCollectionFile(target);
   }
@@ -91,12 +156,132 @@ export async function loadCollection(target: string): Promise<LoadedCollection> 
     return loadLegacyFileCollection(target);
   }
 
+  const postman = await importPostmanFolder(target, limits);
+  if (postman) return fromPostman(postman.collection, postman.report);
+
   throw new Error(
     `No recognised collection layout at ${target}. Expected one of:\n` +
       `  - <dir>/opencollection.yml (OpenCollection directory layout)\n` +
       `  - <dir>/_collection.yaml (legacy Restura file-collection, deprecated)\n` +
-      `  - a single .yaml/.yml file (bundled OpenCollection)`
+      `  - a Postman v3 folder (*.request.yaml / .resources/definition.yaml)\n` +
+      `  - a single .yaml/.yml file (bundled OpenCollection or Postman v3)\n` +
+      `  - a Postman .json (v2.0 / v2.1 / v3) or v3 .zip file`
   );
+}
+
+// ---------------------------------------------------------------------------
+// Postman paths (#1202) — the shared parser, then the same flattening as OC
+// ---------------------------------------------------------------------------
+
+/** A single Postman document may be a whole v2.1 export: allow the total-size cap. */
+function singleFileCap(limits: PostmanLimits): number {
+  return limits.maxTotalBytes ?? POSTMAN_V3_LIMITS.maxTotalBytes;
+}
+
+/** Sniff-only YAML parse (safe default schema); a parse error falls through to the OC loader. */
+function safeYaml(text: string): unknown {
+  try {
+    return yaml.load(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function fromPostman(c: Collection, report: CliPostmanImportReport): LoadedCollection {
+  const meta = extractMeta(c);
+  // v3 vault secrets import value-less (`secret: true`). Never fold them in
+  // as an empty value (that would also shadow an `--env` value): treat them as
+  // private variables, so a request that uses one without a value fails
+  // explicitly (`assertCliSecretsAvailable`), the same rule as OC private vars.
+  const secretNames = collectSecretVariableNames(c);
+  if (secretNames.size > 0) {
+    if (meta.variables) {
+      meta.variables = meta.variables.filter((v) => !secretNames.has(v.key));
+      if (meta.variables.length === 0) delete meta.variables;
+    }
+    meta.privateVariableNames = [
+      ...new Set([...(meta.privateVariableNames ?? []), ...secretNames]),
+    ];
+  }
+  return {
+    meta,
+    requests: flattenInternal(c),
+    format: report.sourceVersion === '3.0' ? 'postman-v3' : 'postman-v2',
+    importReport: report,
+  };
+}
+
+type MaybeSecretVar = { key: string; secret?: boolean };
+
+function collectSecretVariableNames(c: Collection): Set<string> {
+  const out = new Set<string>();
+  const add = (vars: readonly MaybeSecretVar[] | undefined) => {
+    for (const v of vars ?? []) if (v.secret === true && v.key) out.add(v.key);
+  };
+  add(c.variables as MaybeSecretVar[] | undefined);
+  const walk = (items: CollectionItem[]) => {
+    for (const item of items) {
+      add((item as { variables?: MaybeSecretVar[] }).variables);
+      if (item.type === 'folder') walk(item.items ?? []);
+    }
+  };
+  walk(c.items ?? []);
+  return out;
+}
+
+/**
+ * Postman auth Restura cannot sign (hawk, edgegrid, jwt, akamai, …) imports
+ * as `none` with the raw block in the `_postman` sidecar. Returns the Postman
+ * auth type when `node` is such a case.
+ */
+function unsupportedPostmanAuth(node: object, auth: AuthConfig | undefined): string | undefined {
+  const sidecar = getPostmanSidecar(node);
+  if (!sidecar?.auth || sidecar.authBagOnly || isConfiguredAuth(auth)) return undefined;
+  const type = (sidecar.auth as { type?: unknown }).type;
+  return typeof type === 'string' && type !== '' ? type : 'unknown';
+}
+
+/**
+ * Inheritance state for unsupported Postman auth. `ancestorAuths` are the
+ * auth objects of the containers above the unsupported one: the parser bakes
+ * an inherited auth into a request BY REFERENCE, so a request whose auth is one
+ * of them inherited it past the unsupported container (a fallback credential
+ * Postman would not have sent).
+ */
+interface AuthGuard {
+  unsupported?: { type: string; owner: string };
+  ancestorAuths: readonly AuthConfig[];
+}
+
+function nextGuard(
+  guard: AuthGuard,
+  node: object,
+  auth: AuthConfig | undefined,
+  name: string
+): AuthGuard {
+  const ancestorAuths = auth ? [...guard.ancestorAuths, auth] : guard.ancestorAuths;
+  const type = unsupportedPostmanAuth(node, auth);
+  if (type) return { unsupported: { type, owner: name }, ancestorAuths: guard.ancestorAuths };
+  if (isConfiguredAuth(auth)) return { ancestorAuths };
+  return { ...guard, ancestorAuths };
+}
+
+function blockedReason(
+  item: object,
+  req: { auth?: AuthConfig },
+  guard: AuthGuard
+): string | undefined {
+  const reason = (type: string, from: string) =>
+    `not sent: Postman auth type "${type}"${from} is not supported by Restura (imported as no auth); ` +
+    'the CLI will not send it unauthenticated. Configure a supported auth or exclude the request.';
+  const own = unsupportedPostmanAuth(item, req.auth);
+  if (own) return reason(own, '');
+  const up = guard.unsupported;
+  if (!up) return undefined;
+  if (!isConfiguredAuth(req.auth) || guard.ancestorAuths.includes(req.auth)) {
+    return reason(up.type, ` (inherited from "${up.owner}")`);
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +346,7 @@ function flattenInternal(c: Collection): LoadedRequest[] {
     [c.preRequestScript],
     [c.testScript],
     isConfiguredAuth(c.auth) ? c.auth : undefined,
+    nextGuard({ ancestorAuths: [] }, c, c.auth, c.name),
     out
   );
   return out;
@@ -178,10 +364,18 @@ function walkItems(
   inheritedPre: Array<string | undefined>,
   inheritedTest: Array<string | undefined>,
   inheritedAuth: AuthConfig | undefined,
+  guard: AuthGuard,
   out: LoadedRequest[]
 ): void {
   for (const item of items) {
     if (item.type === 'folder') {
+      const placeholder = getPostmanSidecar(item)?.item;
+      if (placeholder !== undefined && (item.items ?? []).length === 0) {
+        // A Postman v3 item kind with no Restura equivalent (WebSocket,
+        // Socket.IO, LLM, data …) imports as an empty placeholder folder.
+        reportSkippedPlaceholder([...folderPath, item.name].join('/'));
+        continue;
+      }
       // Thread this folder's default scripts (parent→child order) and its
       // default auth (nearest-ancestor-wins) down to its descendants.
       walkItems(
@@ -190,6 +384,7 @@ function walkItems(
         [...inheritedPre, item.preRequestScript],
         [...inheritedTest, item.testScript],
         isConfiguredAuth(item.auth) ? item.auth : inheritedAuth,
+        nextGuard(guard, item, item.auth, [...folderPath, item.name].join('/')),
         out
       );
       continue;
@@ -225,13 +420,22 @@ function walkItems(
       ...(pre !== undefined ? { preRequestScript: pre } : {}),
       ...(test !== undefined ? { testScript: test } : {}),
     } as HttpRequest | GrpcRequest | SseRequest | McpRequest;
+    const blocked = blockedReason(item, req, guard);
     out.push({
       relativePath: [...folderPath, item.name].join('/') || item.name,
       folderPath,
       type: t,
       request: effective,
+      ...(blocked ? { blocked } : {}),
     });
   }
+}
+
+function reportSkippedPlaceholder(path: string): void {
+  process.stderr.write(
+    `[restura] skipping "${path}": this Postman item kind has no Restura equivalent yet ` +
+      '(imported as an empty placeholder); it is not run by the CLI.\n'
+  );
 }
 
 function reportSkippedPreset(type: 'kafka' | 'mqtt', path: string): void {

@@ -7,6 +7,7 @@ import type { CliIterationRow } from './dataLoader.js';
 import { executeRequest } from './executors/dispatch.js';
 import { applyFilters, type FilterOptions } from './filter.js';
 import { CliMcpSessionPool } from './mcpSession.js';
+import { formatImportReport, importReportSize } from './postmanImport.js';
 import { DEFAULT_RETRY, type RetryOptions, withRetry } from './retry.js';
 import {
   applyPreRequestMetadata,
@@ -57,6 +58,11 @@ export interface RunOptions {
   /** Explicit HTTP(S) proxy URL. Overrides the HTTP_PROXY env var and composes with `tls`. */
   proxy?: string;
   externalSecretResolver?: ExternalSecretResolver;
+  /**
+   * Postman inputs: refuse to run (throw before any request) when the import
+   * report has any entry — something was dropped, approximated or skipped.
+   */
+  strictImport?: boolean;
 }
 
 /**
@@ -94,6 +100,17 @@ async function runCollectionWithSessions(
   mcpSessions: CliMcpSessionPool
 ): Promise<RunResult> {
   const loaded = await loadCollection(collectionDir);
+  if (loaded.importReport && importReportSize(loaded.importReport) > 0) {
+    // Human output: the grouped report goes to stderr (stdout stays the
+    // reporter's); structured reporters get it on `RunResult.importReport`.
+    process.stderr.write(formatImportReport(loaded.importReport));
+    if (options.strictImport) {
+      throw new Error(
+        `--strict-import: the Postman import report has ${importReportSize(loaded.importReport)} ` +
+          'entries (see above); refusing to run.'
+      );
+    }
+  }
 
   // Merge: env vars first, then collection vars override.
   const baseVars: Record<string, string> = { ...options.envVars };
@@ -169,6 +186,29 @@ async function runCollectionWithSessions(
       const item = filtered[idx];
       if (!item) break;
       await reporter.onRequestStart?.(item);
+
+      if (item.blocked) {
+        // Never executed (no scripts, no network): e.g. a Postman auth type
+        // the CLI cannot sign. Reported as a failed "not sent" result.
+        const result: RequestRunResult = {
+          request: item,
+          status: 0,
+          passed: false,
+          durationMs: 0,
+          bodyBytes: 0,
+          errorMessage: item.blocked,
+          notSent: true,
+          ...(isDataDriven ? { iteration: iter } : {}),
+        };
+        results.push(result);
+        await reporter.onRequestComplete?.(result);
+        if (options.bail) {
+          bailed = true;
+          break iterationLoop;
+        }
+        idx++;
+        continue;
+      }
 
       const preScript = item.request.preRequestScript;
       const testScript = item.request.testScript;
@@ -327,11 +367,13 @@ async function runCollectionWithSessions(
     }
   }
 
-  const summary = {
+  const notSent = results.filter((r) => r.notSent).length;
+  const summary: RunResult['summary'] = {
     total: results.length,
     passed: results.filter((r) => r.passed).length,
     failed: results.filter((r) => !r.passed && !r.errorMessage).length,
     errored: results.filter((r) => r.errorMessage !== undefined).length,
+    ...(notSent > 0 ? { notSent } : {}),
   };
 
   const final: RunResult = {
@@ -342,6 +384,7 @@ async function runCollectionWithSessions(
     durationMs: Date.now() - meta.startedAt,
     requests: results,
     summary,
+    ...(loaded.importReport ? { importReport: loaded.importReport } : {}),
   };
   await reporter.onEnd(final);
   return final;
