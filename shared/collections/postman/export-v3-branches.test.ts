@@ -901,3 +901,157 @@ describe('placeholders and empty collections export cleanly', () => {
     expect(files).toEqual({ '.resources/definition.yaml': '$kind: collection\nname: Empty\n' });
   });
 });
+
+describe('review fixes (#1212)', () => {
+  it('form-data: the live rows are the source of truth; the sidecar only restores file src', () => {
+    const sidecar = {
+      body: {
+        type: 'formdata',
+        content: [
+          { type: 'file', key: 'f', src: '/tmp/f' },
+          { type: 'file', key: 'gone', src: '/tmp/gone' },
+        ],
+      },
+    };
+    const { items, constructs } = run([
+      item(
+        'edited',
+        http({
+          method: 'POST',
+          body: {
+            type: 'form-data',
+            formData: [
+              { ...kv('f', ''), type: 'file', fileName: 'f' },
+              { ...kv('added', 'v'), type: 'text' },
+              { ...kv('new', ''), type: 'file', fileName: 'n.bin' },
+            ],
+          },
+        }),
+        sidecar
+      ),
+    ]);
+    expect(items[0]?.body).toEqual({
+      type: 'formdata',
+      content: [
+        { type: 'file', key: 'f', src: '/tmp/f' },
+        { type: 'text', key: 'added', value: 'v' },
+        { type: 'file', key: 'new', src: 'n.bin' },
+      ],
+    });
+    expect(constructs).toEqual(['form-file']);
+
+    // Same rows, edited text value: rebuilt from the live rows too.
+    const kept = {
+      body: {
+        type: 'formdata',
+        content: [
+          { type: 'text', key: 't', value: 'old' },
+          { type: 'file', key: 'f', src: ['/a', '/b'] },
+        ],
+      },
+    };
+    const edited = run([
+      item(
+        'value edit',
+        http({
+          method: 'POST',
+          body: {
+            type: 'form-data',
+            formData: [
+              { ...kv('t', 'new'), type: 'text' },
+              { ...kv('f', ''), type: 'file', fileName: 'a' },
+            ],
+          },
+        }),
+        kept
+      ),
+    ]);
+    expect(edited.items[0]?.body).toEqual({
+      type: 'formdata',
+      content: [
+        { type: 'text', key: 't', value: 'new' },
+        { type: 'file', key: 'f', src: ['/a', '/b'] },
+      ],
+    });
+  });
+
+  it('auth inheritance survives per-location secret handles and inline/string mixes', () => {
+    const handle = (id: string) => ({ kind: 'handle', id, label: `label-${id}` });
+    const { items } = run(
+      [
+        item('handle', http({ auth: { type: 'bearer', bearer: { token: handle('req') } } })),
+        item('inline', http({ auth: { type: 'bearer', bearer: { token: 'plain' } } })),
+        item('none', http({ auth: { type: 'none' } })),
+        item(
+          'different',
+          http({ auth: { type: 'basic', basic: { username: 'other', password: handle('x') } } })
+        ),
+      ],
+      { auth: { type: 'bearer', bearer: { token: handle('col') as never } } }
+    );
+    expect(items[0]?.auth).toBeUndefined();
+    // A different (exportable) plaintext token is a real override.
+    expect(items[1]?.auth).toEqual({
+      type: 'bearer',
+      credentials: [{ key: 'token', value: 'plain' }],
+    });
+    // `none` under a configured ancestor is Postman's explicit `noauth` (an
+    // inheriting request would carry the baked ancestor auth instead).
+    expect(items[2]?.auth).toEqual({ type: 'noauth' });
+    expect(items[3]?.auth).toEqual({
+      type: 'basic',
+      credentials: [
+        { key: 'username', value: 'other' },
+        { key: 'password', value: '' },
+      ],
+    });
+
+    const inline = run(
+      [
+        item(
+          'same',
+          http({ auth: { type: 'bearer', bearer: { token: { kind: 'inline', value: 'b' } } } })
+        ),
+        item(
+          'other',
+          http({ auth: { type: 'bearer', bearer: { token: { kind: 'inline', value: 'a' } } } })
+        ),
+      ],
+      { auth: { type: 'bearer', bearer: { token: 'b' } } }
+    );
+    expect(inline.items[0]?.auth).toBeUndefined();
+    expect(inline.items[1]?.auth).toEqual({
+      type: 'bearer',
+      credentials: [{ key: 'token', value: 'a' }],
+    });
+  });
+
+  it('file names stay within 255 UTF-8 bytes (suffix and collision counter included)', () => {
+    const long = '漢'.repeat(120);
+    const emoji = '😀'.repeat(100);
+    const tree = {
+      $kind: 'collection',
+      name: 'C',
+      items: [
+        { $kind: 'http-request', name: long, url: 'x' },
+        { $kind: 'http-request', name: long, url: 'x' },
+        {
+          $kind: 'http-request',
+          name: emoji,
+          url: 'x',
+          examples: [{ $kind: 'http-example', name: emoji }],
+        },
+        { $kind: 'collection', name: long, items: [] },
+      ],
+    };
+    const paths = Object.keys(writePostmanV3Files(tree));
+    for (const p of paths) {
+      for (const seg of p.split('/')) {
+        expect(Buffer.byteLength(seg, 'utf8')).toBeLessThanOrEqual(255);
+        expect(seg).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
+      }
+    }
+    expect(new Set(paths).size).toBe(paths.length);
+    expect(paths.filter((p) => p.endsWith('.request.yaml')).length).toBe(3);
+  });
+});

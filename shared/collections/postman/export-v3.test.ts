@@ -508,7 +508,18 @@ describe('Postman v3 export — secrets', () => {
     const form = httpReq(
       'Login',
       { type: 'none' },
-      { method: 'POST', body: { type: 'form-data', formData: [] } }
+      {
+        method: 'POST',
+        // What the importer produces next to the kept body.
+        body: {
+          type: 'form-data',
+          formData: [
+            { id: '1', key: 'password', value: 'form-pass-plain', enabled: true, type: 'text' },
+            { id: '2', key: 'user', value: 'ada', enabled: true, type: 'text' },
+            { id: '3', key: 'avatar', value: '', enabled: true, type: 'file', fileName: 'a.png' },
+          ],
+        },
+      }
     );
     Object.assign(form, {
       _postman: {

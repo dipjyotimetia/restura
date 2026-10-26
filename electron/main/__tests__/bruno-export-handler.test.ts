@@ -32,6 +32,7 @@ vi.mock('electron', () => {
 import {
   disposeBrunoExportHandlerIPC,
   registerBrunoExportHandlerIPC,
+  safeSegments,
   saveBrunoEntriesToDirectory,
 } from '../storage/bruno-export-handler';
 
@@ -187,5 +188,14 @@ describe('saveBrunoEntriesToDirectory', () => {
       (await saveBrunoEntriesToDirectory(target, [{ relativePath: 'file/y.yaml', content: '' }]))
         .success
     ).toBe(false);
+  });
+});
+
+describe('safeSegments byte bound', () => {
+  it('rejects a segment over 255 UTF-8 bytes even when under 255 UTF-16 units', () => {
+    const seg = `${'漢'.repeat(100)}.request.yaml`;
+    expect(seg.length).toBeLessThan(255);
+    expect(() => safeSegments(seg)).toThrow(/too long/);
+    expect(safeSegments(`${'漢'.repeat(80)}.request.yaml`)).toHaveLength(1);
   });
 });

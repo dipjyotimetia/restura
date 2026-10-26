@@ -1,3 +1,4 @@
+import { isConfiguredAuth } from '../../auth/inheritance';
 import type { AuthConfig, GrpcRequest, HttpRequest, RequestSettingsOverride } from '../../types';
 import { arr, isObj, type Raw, str } from './common';
 import {
@@ -25,7 +26,15 @@ export interface RequestOut {
   item: Raw;
 }
 
-/** Request auth: omitted when it equals what the importer would bake in (inherit). */
+/**
+ * Request auth: omitted (Postman `inherit`) when it equals what the importer
+ * bakes in from the nearest ancestor (secret refs compared as exported, see
+ * `sameAuth`), or when it is `none` with nothing to inherit. A `none` under a
+ * configured ancestor stays an explicit `noauth`: the importer only leaves
+ * `none` there when Postman said `noauth` (an inheriting request gets the
+ * ancestor's auth baked in), so exporting it as inherit would flip it on
+ * re-import.
+ */
 export function requestAuth(
   auth: AuthConfig,
   inherited: AuthConfig | undefined,
@@ -35,7 +44,10 @@ export function requestAuth(
   ctx: ExportContext
 ): Raw | undefined {
   const sidecarAuth = sidecar?.auth !== undefined && !sidecar.authBagOnly;
-  if (!sidecarAuth && (sameAuth(auth, inherited) || (!inherited && auth.type === 'none'))) {
+  if (
+    !sidecarAuth &&
+    (sameAuth(auth, inherited) || (!isConfiguredAuth(inherited) && auth.type === 'none'))
+  ) {
     return undefined;
   }
   return exportAuth(auth, sidecar, allowed, owner, ctx);
@@ -116,6 +128,25 @@ function httpSettings(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/**
+ * Does a kept v3 form body still describe the live rows? Same rows in order
+ * (key, file/text, enabled) and the same text values — an emptied kept value
+ * matches any live value, since secret redaction blanks the kept rows (that
+ * redaction is why the kept body, not the live rows, is exported when in sync).
+ */
+function keptFormMatches(kept: unknown[], live: NonNullable<HttpRequest['body']['formData']>) {
+  return (
+    kept.length === live.length &&
+    kept.every((k, i) => {
+      const p = live[i];
+      if (!p || !isObj(k) || k.key !== p.key) return false;
+      if ((k.type === 'file') !== (p.type === 'file')) return false;
+      if ((k.disabled === true) !== (p.enabled === false)) return false;
+      return p.type === 'file' || str(k.value) === '' || str(k.value) === p.value;
+    })
+  );
+}
+
 function formBody(
   req: HttpRequest,
   sidecar: PostmanSidecar | undefined,
@@ -123,7 +154,22 @@ function formBody(
   ctx: ExportContext
 ) {
   // The importer keeps the whole original form body when it had file rows.
-  if (isObj(sidecar?.body) && sidecar.body.type === 'formdata') return sidecar.body;
+  // It is restored verbatim only while it still describes the live rows; the
+  // live rows are the source of truth (the store strips `_postman` on edit,
+  // but a sidecar can outlive an edit on paths that do not), so an out-of-sync
+  // body is rebuilt from them and the sidecar only restores each file row's
+  // `src` (a local path Restura never models), matched by key in order.
+  const kept = isObj(sidecar?.body) && sidecar.body.type === 'formdata' ? sidecar.body : undefined;
+  if (kept && keptFormMatches(arr(kept.content), req.body.formData ?? [])) return kept;
+  const sidecarFiles = arr(kept?.content).filter(
+    (r): r is Raw => isObj(r) && r.type === 'file' && typeof r.key === 'string'
+  );
+  const takeSidecarSrc = (key: string): unknown => {
+    const i = sidecarFiles.findIndex((r) => r.key === key);
+    if (i === -1) return undefined;
+    const [row] = sidecarFiles.splice(i, 1);
+    return row?.src;
+  };
   let missingFile = false;
   const content = (req.body.formData ?? []).map((p) => {
     const common = { key: p.key };
@@ -133,6 +179,13 @@ function formBody(
       disabled: p.enabled === false ? true : undefined,
     });
     if (p.type === 'file') {
+      const src = takeSidecarSrc(p.key);
+      if (
+        typeof src === 'string' ||
+        (Array.isArray(src) && src.every((s) => typeof s === 'string'))
+      ) {
+        return { type: 'file', ...common, src, ...meta };
+      }
       missingFile = true;
       return { type: 'file', ...common, src: p.fileName ?? '', ...meta };
     }

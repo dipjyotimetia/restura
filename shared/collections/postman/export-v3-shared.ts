@@ -434,7 +434,14 @@ export const AUTH_TYPES = {
   llm: new Set(['basic', 'bearer', 'apikey', 'awsv4', 'azure']),
 } as const;
 
-/** Stable structural equality for auth configs (inheritance detection). */
+/**
+ * Stable structural equality for auth configs (inheritance detection), on the
+ * form the export writes: every SecretValue compares as its file text
+ * (`secretText`) — keychain handles / external refs as empty, inline refs as
+ * their plaintext. Desktop import gives the collection and each inheriting
+ * request distinct handle ids / labels for the same secret, so comparing the
+ * refs themselves would turn every inherited auth into an explicit block.
+ */
 export function sameAuth(a: AuthConfig | undefined, b: AuthConfig | undefined): boolean {
   return JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
 }
@@ -442,6 +449,8 @@ export function sameAuth(a: AuthConfig | undefined, b: AuthConfig | undefined): 
 function sortKeys(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(sortKeys);
   if (!isObj(v)) return v;
+  if (v.kind === 'handle' || v.kind === 'external') return '';
+  if (v.kind === 'inline' && typeof v.value === 'string') return v.value;
   return Object.fromEntries(
     Object.keys(v)
       .sort()

@@ -87,7 +87,9 @@ export function safeSegments(relativePath: string): string[] {
     if (s === '' || s === '.' || s === '..')
       throw new Error(`invalid path segment in "${relativePath}"`);
     if (WINDOWS_RESERVED.test(s)) throw new Error(`reserved file name "${s}"`);
-    if (s.length > 255) throw new Error('path segment too long');
+    // Filesystems cap a segment at 255 bytes (APFS / ext4: UTF-8), not 255
+    // UTF-16 units — a multibyte name under `length` 255 still ENAMETOOLONGs.
+    if (Buffer.byteLength(s, 'utf8') > 255) throw new Error('path segment too long');
   }
   return segments;
 }

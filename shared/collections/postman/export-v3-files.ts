@@ -22,12 +22,37 @@ import type { PostmanV3FileMap } from './v3-container';
 const ILLEGAL = /[/\\:*?"<>|\u0000-\u001f\u007f]/g;
 const RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)$/i;
 export const MAX_NAME_LENGTH = 80;
+/**
+ * Filesystems cap a path segment at 255 bytes (UTF-8 on APFS / ext4), so the
+ * name budget leaves room for the longest suffix written after it
+ * (`.request.yaml` / `.example.yaml`, 13 bytes; `.resources` is shorter).
+ * Collision counters (` (2)`) are carved out of this budget, not added to it.
+ */
+const MAX_SEGMENT_BYTES = 255;
+export const MAX_NAME_BYTES = MAX_SEGMENT_BYTES - '.request.yaml'.length;
+
+const utf8 = new TextEncoder();
+const byteLength = (s: string) => utf8.encode(s).length;
+
+/** Longest prefix of `s` within `maxBytes` UTF-8 bytes, cut on code-point boundaries. */
+function truncateBytes(s: string, maxBytes: number): string {
+  let out = '';
+  let bytes = 0;
+  for (const ch of s) {
+    const n = byteLength(ch);
+    if (bytes + n > maxBytes) break;
+    out += ch;
+    bytes += n;
+  }
+  return out;
+}
 
 /** A filename-safe form of `name` (no separators, no `..`, no reserved names, bounded). */
-export function safeFileName(name: string): string {
+export function safeFileName(name: string, maxBytes: number = MAX_NAME_BYTES): string {
   let s = name.replace(ILLEGAL, '_').trim();
   s = s.replace(/^\.+/, (m) => '_'.repeat(m.length));
-  s = Array.from(s).slice(0, MAX_NAME_LENGTH).join('');
+  // `_` prefix for a reserved name below costs one byte.
+  s = truncateBytes(Array.from(s).slice(0, MAX_NAME_LENGTH).join(''), maxBytes - 1);
   s = s.replace(/[. ]+$/, '');
   if (s === '') s = 'Untitled';
   if (RESERVED.test(s.replace(/\..*$/, ''))) s = `_${s}`;
@@ -39,9 +64,11 @@ class NameSet {
   private readonly used = new Set<string>();
 
   claim(name: string): string {
-    const base = safeFileName(name);
-    let candidate = base;
-    for (let n = 2; this.used.has(candidate.toLowerCase()); n++) candidate = `${base} (${n})`;
+    let candidate = safeFileName(name);
+    for (let n = 2; this.used.has(candidate.toLowerCase()); n++) {
+      const suffix = ` (${n})`;
+      candidate = `${safeFileName(name, MAX_NAME_BYTES - suffix.length)}${suffix}`;
+    }
     this.used.add(candidate.toLowerCase());
     return candidate;
   }
