@@ -556,7 +556,7 @@ describe('Postman v3 review (#1200): nested / numeric / array / userinfo secrets
     expect(countPostmanBagInlineSecrets(bag)).toBe(3);
     const redacted = redactPostmanBag(bag);
     expect(redacted).toEqual({
-      item: { argv: ['srv', '--token', '', 'PASSWORD=', 3], command: "srv --token ''" },
+      item: { argv: ['srv', '--token', '', 'PASSWORD=', 3], command: "srv --token '" },
     });
     expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
   });
@@ -716,6 +716,11 @@ describe('Postman v3 re-audit (#1210): ReDoS, script integrity, depth cap', () =
     'var r=e?key=t:n;foo()',
     'const u = `${b}?token=${tok}`;\nsend(u);',
     'call(x?token=t);\nok();',
+    'call(x?token=t)',
+    'call(x?token=t)\nnext()',
+    'f(a?token=b)',
+    'g(a?secret=b) || h()',
+    'r=e?key=t: n',
     "const remote = 'ssh://deploy@example.com/repo.x';\nrun();",
   ];
 
@@ -742,7 +747,7 @@ describe('Postman v3 re-audit (#1210): ReDoS, script integrity, depth cap', () =
 
   it('the nesting cap fails closed: a nested command line past the cap is still walked', () => {
     const counter = { n: 0 };
-    const out = walkCommandLine('sh -c "node s.js --token LEAKR4"', counter, 3);
+    const out = walkCommandLine('sh -c "node s.js --token LEAKR4"', counter);
     expect(out).not.toContain('LEAKR4');
     expect(counter.n).toBe(1);
   });
@@ -833,7 +838,7 @@ describe('Postman v3 final audit (#1210): URL context, userinfo, escapes, both p
 
   it('past the cap a flat pass still blanks a nested --token', () => {
     const counter = { n: 0 };
-    const out = walkCommandLine('sh -c "node s --token LEAKG1"', counter, 4);
+    const out = walkCommandLine('sh -c "node s --token LEAKG1"', counter);
     expect(out).not.toContain('LEAKG1');
     expect(counter.n).toBe(1);
   });
@@ -860,4 +865,124 @@ describe('Postman v3 final audit (#1210): URL context, userinfo, escapes, both p
       expectScrubbed({ item: { command } }, [secret]);
     }
   });
+});
+
+describe('Postman v3 simplification audit (#1210): bounded output, userinfo, URL values', () => {
+  const wrap = (cmd: string, levels: number) => {
+    let s = cmd;
+    for (let i = 0; i < levels; i += 1) s = `sh -c '${s.replaceAll("'", `'"'"'`)}'`;
+    return s;
+  };
+
+  it.each([200_000, 1_000_000])(
+    'a nested-quote flood (%d bytes) never grows and stays fast',
+    (size) => {
+      // 3 wrap levels turn each `'` into 125 characters; size the input to `size`.
+      const flood = wrap(`--token LEAKS1 "${"'".repeat(Math.floor(size / 125))}"`, 3);
+      expect(flood.length).toBeLessThanOrEqual(size + 200);
+      const t0 = performance.now();
+      const counter = { n: 0 };
+      walkCommandLine(flood, counter);
+      const out = walkCommandLine(flood, undefined);
+      expect(performance.now() - t0).toBeLessThan(1500);
+      expect(out.length).toBeLessThanOrEqual(flood.length);
+      expect(out).not.toContain('LEAKS1');
+      expect(counter.n).toBeGreaterThan(0);
+      const bag = { item: { command: flood, argv: [flood] } };
+      const redacted = redactPostmanBag(bag) as { item: { command: string; argv: string[] } };
+      expect(redacted.item.command.length).toBeLessThanOrEqual(flood.length);
+      expect(String(redacted.item.argv[0]).length).toBeLessThanOrEqual(flood.length);
+      expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
+    }
+  );
+
+  it('userinfo with an @ in the password is blanked to the last @, idempotently', () => {
+    const code = "const u = 'https://admin:P@ssw0rd@h/x';\nnext();";
+    const once = redactTextCredentials(code, undefined);
+    expect(once).toBe("const u = 'https://h/x';\nnext();");
+    const counter = { n: 0 };
+    redactTextCredentials(once, counter);
+    expect(counter.n).toBe(0);
+  });
+
+  it.each([
+    ['const a = "https://h/x?auth=user:LEAKS2&y=1";\nrun(a);', 'LEAKS2', 'y=1'],
+    ['const b = "https://h/x?token=123456:LEAKS3";\nrun(b);', 'LEAKS3', 'run(b)'],
+    ['const c = `https://h/x?token=ab$LEAKS4${x}`;\nrun(c);', 'LEAKS4', '${x}'],
+  ])('URL-context value %j runs to & # quote whitespace or ${', (code, secret, kept) => {
+    const out = redactTextCredentials(code, undefined);
+    expect(out).not.toContain(secret);
+    expect(out).toContain(kept);
+    expectRecountZero({ settings: { note: code } });
+  });
+
+  it('deterministic fuzz: redaction is idempotent (re-count 0) and never lengthens', () => {
+    const PARTS = [
+      '--token',
+      ' ',
+      'X',
+      '-H',
+      "'",
+      '"',
+      '\\',
+      'Authorization:',
+      'Bearer',
+      'https://',
+      'a:b@',
+      '@',
+      'h/x',
+      '?token=',
+      '&api_key=',
+      'v',
+      ';',
+      ':',
+      ')',
+      '(',
+      '${',
+      '}',
+      '=',
+      'KEY=',
+      'API_KEY=',
+      '-p',
+      'pw',
+      '-u',
+      'u:p',
+      '\n',
+      'sh -c ',
+      '{{x}}',
+      '/',
+      '?.',
+      '==',
+      '#',
+      'ssh://',
+    ];
+    let seed = 7;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    const failures: string[] = [];
+    for (let i = 0; i < 5000; i += 1) {
+      let s = '';
+      const len = 1 + Math.floor(rnd() * 14);
+      for (let j = 0; j < len; j += 1) s += PARTS[Math.floor(rnd() * PARTS.length)];
+      for (const bag of [
+        { item: { command: s } },
+        { settings: { note: s } },
+        { item: { argv: [s] } },
+      ]) {
+        if (countPostmanBagInlineSecrets(redactPostmanBag(bag)) !== 0) {
+          failures.push(JSON.stringify(bag));
+        }
+      }
+      if (walkCommandLine(s, undefined).length > s.length) failures.push(`grows: ${s}`);
+      if (redactTextCredentials(s, undefined).length > s.length) failures.push(`grows: ${s}`);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  function expectRecountZero(bag: Record<string, unknown>) {
+    expect(countPostmanBagInlineSecrets(bag)).toBe(1);
+    expect(countPostmanBagInlineSecrets(redactPostmanBag(bag))).toBe(0);
+  }
 });
