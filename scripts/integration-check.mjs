@@ -24,6 +24,7 @@ export const DEFAULT_GATES = [
   'architecture:check',
   'capabilities:check',
   'verify:opencollection-types',
+  'verify:postman-v3-types',
   'test:coverage',
 ];
 export const E2E_GATES = [['test:e2e:electron:build', 'test:e2e:electron'], 'test:e2e'];
@@ -34,6 +35,7 @@ export const GENERATED_PATTERNS = [
   /(?:^|\/)package-lock\.json$/,
   /^docs\/CAPABILITY_MATRIX\.md$/,
   /^shared\/opencollection\/spec-types\.ts$/,
+  /^shared\/collections\/postman\/v3-types\.ts$/,
   /\.generated\.[cm]?[jt]sx?$/,
   /(?:^|\/)gen\//,
   /^openwiki\//,
