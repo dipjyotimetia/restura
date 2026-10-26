@@ -50,7 +50,7 @@ export const MCP_CAPABILITIES = {
     web: false,
     desktop: true,
     notes:
-      'Desktop main process spawns the command without a shell after a per-launch native consent prompt; the child gets an allowlisted environment, and is killed on disconnect/quit. Web and the CLI never spawn processes',
+      'Desktop main process spawns the command without a shell after a per-launch native consent prompt; the child gets an allowlisted environment, and is killed on disconnect/quit. Web and the CLI never spawn processes. Stdio items from a Postman v3 import are kept for fidelity and still need that consent prompt at connect; the CLI never launches them',
   },
   'mcp.configImport': {
     label: 'Import MCP servers from Claude Desktop / Cursor / VS Code configs',
