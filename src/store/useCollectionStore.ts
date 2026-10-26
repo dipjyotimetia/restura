@@ -1,3 +1,9 @@
+import {
+  deletePassthroughBags,
+  hasPassthroughBag,
+  MAX_COLLECTION_TREE_DEPTH,
+} from '@shared/collections/passthrough-bags';
+import { clearPostmanSidecar } from '@shared/collections/postman/sidecar';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -108,16 +114,27 @@ function insertIntoTree(
 }
 
 /**
- * Drop the OpenCollection `_oc` passthrough bag from an item. The bag holds the
- * verbatim imported node; once the item (or a descendant) changes, the cached
- * OC subtree is stale and must be rebuilt from the live model on re-export.
+ * Drop every import passthrough bag (`_oc`, `_postman` — see
+ * `PASSTHROUGH_BAG_KEYS`) from an item. Once the item (or a descendant)
+ * changes, a cached bag is stale: `_oc` must be rebuilt from the live model on
+ * re-export, and a `_postman` bag would describe a request the user has since
+ * edited.
  */
-function stripOcBag(item: CollectionItem): CollectionItem {
-  if (!('_oc' in item)) return item;
-  const next = { ...item } as CollectionItem & { _oc?: unknown };
-  delete next._oc;
-  return next;
+function stripPassthroughBags(item: CollectionItem): CollectionItem {
+  if (!hasPassthroughBag(item)) return item;
+  return deletePassthroughBags({ ...item });
 }
+
+// Past MAX_COLLECTION_TREE_DEPTH the bag-stripping walk leaves deeper subtrees
+// untouched rather than risking a stack overflow inside a store update.
+
+/** Structural equality for plain JSON-shaped store values (auth, variables, scripts). */
+function sameValue(a: unknown, b: unknown): boolean {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Collection fields whose edit makes the root `_postman` sidecar stale. */
+const ROOT_SIDECAR_STALE_KEYS = ['auth', 'variables', 'preRequestScript', 'testScript'] as const;
 
 /** Ancestor folder ids on the path from the root to `itemId` (excludes the item). */
 function ancestorPath(
@@ -135,11 +152,18 @@ function ancestorPath(
   return null;
 }
 
-/** Strip the `_oc` bag from every item whose id is in `ids` (recursive). */
-function stripOcByIds(items: CollectionItem[], ids: Set<string>): CollectionItem[] {
+/** Strip the passthrough bags (`_oc`, `_postman`) from every item whose id is in `ids` (recursive). */
+function stripPassthroughByIds(
+  items: CollectionItem[],
+  ids: Set<string>,
+  depth = 0
+): CollectionItem[] {
+  if (depth > MAX_COLLECTION_TREE_DEPTH) return items;
   return items.map((i) => {
-    const withChildren = i.items ? { ...i, items: stripOcByIds(i.items, ids) } : i;
-    return ids.has(i.id) ? stripOcBag(withChildren) : withChildren;
+    const withChildren = i.items
+      ? { ...i, items: stripPassthroughByIds(i.items, ids, depth + 1) }
+      : i;
+    return ids.has(i.id) ? stripPassthroughBags(withChildren) : withChildren;
   });
 }
 
@@ -207,7 +231,20 @@ export const useCollectionStore = create<CollectionState>()(
         set((state) => ({
           collections: state.collections.map((col) => {
             if (col.id !== id) return col;
-            const next = migrateCollectionAuth({ ...col, ...updates });
+            const merged = { ...col, ...updates };
+            // The root Postman sidecar holds collection-scope constructs
+            // (unsupported auth, shadowed events, …); once auth / variables /
+            // scripts are edited it is stale. Root `_oc` is deliberately kept:
+            // `internalToOC` re-checks root auth / scripts freshness against
+            // the live model before taking its whole-collection shortcut.
+            // Strip only on a real change: file-collection reloads pass the
+            // whole collection back in with these keys present but unchanged.
+            if (
+              ROOT_SIDECAR_STALE_KEYS.some((k) => k in updates && !sameValue(updates[k], col[k]))
+            ) {
+              clearPostmanSidecar(merged);
+            }
+            const next = migrateCollectionAuth(merged);
             validateCollection(next);
             return next;
           }),
@@ -250,7 +287,7 @@ export const useCollectionStore = create<CollectionState>()(
             // child. See the `_oc` staleness note on `updateCollectionItem`.
             const withItem = addToParent(col.items);
             const staleIds = new Set<string>(ancestorPath(withItem, item.id) ?? []);
-            return { ...col, items: stripOcByIds(withItem, staleIds) };
+            return { ...col, items: stripPassthroughByIds(withItem, staleIds) };
           }),
         })),
 
@@ -273,14 +310,22 @@ export const useCollectionStore = create<CollectionState>()(
               let changed = false;
               const next = items.map((i) => {
                 if (i.id === itemId) {
+                  // A value-identical re-save (e.g. the folder settings dialog
+                  // writing back normalised values) changes nothing, so no bag
+                  // on the path is stale: keep the item and its ancestors.
+                  const current = i as unknown as Record<string, unknown>;
+                  const supplied = updates as Record<string, unknown>;
+                  if (Object.keys(supplied).every((k) => sameValue(supplied[k], current[k]))) {
+                    return i;
+                  }
                   changed = true;
-                  return stripOcBag({ ...i, ...updates });
+                  return stripPassthroughBags({ ...i, ...updates });
                 }
                 if (i.items) {
                   const res = updateItem(i.items);
                   if (res.changed) {
                     changed = true;
-                    return stripOcBag({ ...i, items: res.items });
+                    return stripPassthroughBags({ ...i, items: res.items });
                   }
                 }
                 return i;
@@ -310,7 +355,7 @@ export const useCollectionStore = create<CollectionState>()(
             // here — that needs a Strategy-1 staleness change; tracked
             // separately.)
             const staleIds = new Set<string>(ancestorPath(col.items, itemId) ?? []);
-            return { ...col, items: stripOcByIds(removeItem(col.items), staleIds) };
+            return { ...col, items: stripPassthroughByIds(removeItem(col.items), staleIds) };
           }),
         })),
 
@@ -364,7 +409,7 @@ export const useCollectionStore = create<CollectionState>()(
             // parentId undefined), and root drops all resolve uniformly.
             const targetAncestors = ancestorPath(inserted, itemId) ?? [];
             const staleIds = new Set<string>([itemId, ...sourceAncestors, ...targetAncestors]);
-            return { ...col, items: stripOcByIds(inserted, staleIds) };
+            return { ...col, items: stripPassthroughByIds(inserted, staleIds) };
           }),
         })),
 

@@ -1,3 +1,10 @@
+import {
+  MAX_COLLECTION_TREE_DEPTH,
+  PASSTHROUGH_BAG_KEYS,
+  type PassthroughBagKey,
+} from '../collections/passthrough-bags';
+import { countPostmanBagInlineSecrets, redactPostmanBag } from '../collections/postman/redaction';
+import { getPostmanSidecar } from '../collections/postman/sidecar';
 import type { AuthConfig, Collection, CollectionItem } from '../types';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from './auth-fields';
 import { countBrokerPresetSecrets, redactBrokerPreset } from './broker-preset-redaction';
@@ -358,14 +365,35 @@ function countOcBagInlineSecrets(node: unknown, opaque = false, modelled = false
   return count;
 }
 
-function redactItem(item: CollectionItem): CollectionItem {
-  const next: CollectionItem = { ...item };
-  const itemBag = (next as { _oc?: unknown })._oc;
-  if (itemBag !== undefined) {
-    (next as { _oc?: unknown })._oc = redactOcBag(itemBag);
+// `_postman` sidecar redaction lives with the Postman module
+// (`shared/collections/postman/redaction.ts`); the walks below apply it to
+// every bag alongside `_oc`.
+
+/** Per-bag sanitisers, keyed by passthrough bag (iterated via `PASSTHROUGH_BAG_KEYS`). */
+const BAG_REDACTORS: Record<PassthroughBagKey, (bag: unknown) => unknown> = {
+  _oc: redactOcBag,
+  _postman: redactPostmanBag,
+};
+
+function redactBags<T extends object>(node: T): T {
+  const next = { ...node } as Record<string, unknown>;
+  for (const key of PASSTHROUGH_BAG_KEYS) {
+    if (next[key] !== undefined) next[key] = BAG_REDACTORS[key](next[key]);
   }
+  return next as T;
+}
+
+// Past `MAX_COLLECTION_TREE_DEPTH` the walks fail closed: a subtree beyond the
+// bound is replaced by an empty stub on redaction (nothing below it can leak)
+// and counted as one secret (the export warning fires).
+
+function redactItem(item: CollectionItem, depth = 0): CollectionItem {
+  if (depth > MAX_COLLECTION_TREE_DEPTH) {
+    return { id: item.id, name: item.name, type: item.type, ...(item.items ? { items: [] } : {}) };
+  }
+  const next: CollectionItem = redactBags(item);
   if (next.auth) next.auth = redactAuthConfigSecrets(next.auth);
-  if (next.items) next.items = next.items.map(redactItem);
+  if (next.items) next.items = next.items.map((child) => redactItem(child, depth + 1));
   if (next.request) {
     // Redact the typed auth block AND any secret-bearing header / query-param /
     // metadata row (a token typed into a header is just as exfiltrable).
@@ -399,12 +427,11 @@ function redactItem(item: CollectionItem): CollectionItem {
  * proxy passwords, private keys, certificate passphrases, and secret values.
  */
 export function redactCollectionSecrets(collection: Collection): Collection {
-  const next = { ...collection } as Collection & { _oc?: unknown };
-  if (next._oc !== undefined) next._oc = redactOcBag(next._oc);
+  const next = redactBags(collection);
   return {
     ...next,
     ...(collection.auth ? { auth: redactAuthConfigSecrets(collection.auth) } : {}),
-    items: collection.items.map(redactItem),
+    items: collection.items.map((item) => redactItem(item)),
   };
 }
 
@@ -424,9 +451,16 @@ export function countCollectionInlineSecrets(collection: Collection): number {
   if (rootOc !== undefined) {
     count += countOcBagInlineSecrets(rootOc);
   }
-  const walk = (items: CollectionItem[]) => {
+  // `_postman` sidecars are per-node (never a whole-document copy): count each.
+  count += countPostmanBagInlineSecrets(getPostmanSidecar(collection));
+  const walk = (items: CollectionItem[], depth: number) => {
+    if (depth > MAX_COLLECTION_TREE_DEPTH) {
+      count += 1;
+      return;
+    }
     for (const item of items) {
       count += countAuthInlineSecrets(item.auth);
+      count += countPostmanBagInlineSecrets(getPostmanSidecar(item));
       if (rootOc === undefined) {
         // A `request` item's bag mirrors a typed node (http/graphql/grpc item or
         // SSE/MCP extension entry); a folder's bag is either a real OC folder or
@@ -446,9 +480,9 @@ export function countCollectionInlineSecrets(collection: Collection): number {
         count += countStdioEnvInlineSecrets(stdioEnvOf(req));
         count += countBrokerPresetSecrets(item.request);
       }
-      if (item.items) walk(item.items);
+      if (item.items) walk(item.items, depth + 1);
     }
   };
-  walk(collection.items);
+  walk(collection.items, 0);
   return count;
 }

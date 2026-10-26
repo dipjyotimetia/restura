@@ -1,3 +1,10 @@
+import {
+  activeAuthBlock,
+  mapPostmanAuthParams,
+  postmanAuthParamEntries,
+} from '@shared/collections/postman/auth';
+import { isPostmanAuthSecretKey, redactPostmanBag } from '@shared/collections/postman/redaction';
+import { getPostmanSidecar } from '@shared/collections/postman/sidecar';
 import type { AuthConfig, Collection, CollectionItem, Request } from '@/types';
 import { getElectronAPI, isElectron } from './platform';
 import { coerceToInlineSecret, isInlineSecretRef } from './secretRef';
@@ -209,34 +216,134 @@ export async function convertCollectionSecretsToHandles(
   collection: Collection
 ): Promise<Collection> {
   if (!isElectron()) return collection;
+  const api = getElectronAPI();
+  const store: SecretsStore | undefined = api?.secrets?.store
+    ? (args) => api.secrets.store(args)
+    : undefined;
   const items = await Promise.all(
-    (collection.items ?? []).map((item) => convertItemSecretsToHandles(item, collection.name))
+    (collection.items ?? []).map((item) =>
+      convertItemSecretsToHandles(item, collection.name, store)
+    )
   );
   const auth = await convertInlineSecretsToHandles(
     collection.auth,
     `${collection.name}/<collection>`
   );
-  return { ...collection, items, ...(auth ? { auth } : {}) };
+  const bag = store
+    ? await convertPostmanBagToHandles(collection, `${collection.name}/<collection>`, store)
+    : {};
+  return { ...collection, items, ...(auth ? { auth } : {}), ...bag };
 }
 
 async function convertItemSecretsToHandles(
   item: CollectionItem,
-  prefix: string
+  prefix: string,
+  store: SecretsStore | undefined
 ): Promise<CollectionItem> {
   if (item.type === 'folder') {
     const items = await Promise.all(
-      (item.items ?? []).map((sub) => convertItemSecretsToHandles(sub, `${prefix}/${item.name}`))
+      (item.items ?? []).map((sub) =>
+        convertItemSecretsToHandles(sub, `${prefix}/${item.name}`, store)
+      )
     );
     // Folder-level default auth carries secrets too (mirrors collection.auth).
     const auth = await convertInlineSecretsToHandles(item.auth, `${prefix}/${item.name}/<folder>`);
-    return { ...item, items, ...(auth ? { auth } : {}) };
+    const bag = store
+      ? await convertPostmanBagToHandles(item, `${prefix}/${item.name}/<folder>`, store)
+      : {};
+    return { ...item, items, ...(auth ? { auth } : {}), ...bag };
   }
+  const bag = store ? await convertPostmanBagToHandles(item, `${prefix}/${item.name}`, store) : {};
   if (item.request && 'auth' in item.request) {
     const req = item.request as Request & { auth: AuthConfig };
     const auth = await convertInlineSecretsToHandles(req.auth, `${prefix}/${item.name}`);
     if (auth) {
-      return { ...item, request: { ...req, auth } as typeof item.request };
+      return { ...item, request: { ...req, auth } as typeof item.request, ...bag };
     }
   }
-  return item;
+  return { ...item, ...bag };
+}
+
+type SecretsStore = (args: {
+  value: string;
+  label: string;
+}) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+
+/**
+ * Convert one Postman auth parameter value (v2.1 `[{ key, value }]` entry or
+ * v2.0 map value) to a handle. FAILS CLOSED: if the keychain store rejects,
+ * the value is blanked rather than kept. The sidecar is reference-only, and
+ * plaintext there is exactly what handle storage was asked to avoid.
+ */
+async function postmanParamToHandle(
+  store: SecretsStore,
+  key: string,
+  value: unknown,
+  label: string
+): Promise<unknown> {
+  if (!isPostmanAuthSecretKey(key) || value === undefined || value === null || value === '') {
+    return value;
+  }
+  // A non-string credential (number, boolean, object) cannot become a handle
+  // and must not persist in plaintext either: blank it.
+  if (typeof value !== 'string') return '';
+  try {
+    const result = await store({ value, label });
+    return result.ok ? { kind: 'handle', id: result.id, label } : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * `auth` is the ORIGINAL block (plaintext needed to mint handles); `redacted`
+ * is its `redactPostmanBag` copy. Only the active `[type]` block is rebuilt
+ * from the original — every other key comes from the redacted copy, so a
+ * hostile sibling block (`bearer: [...]` beside `type: 'hawk'`) stays blanked.
+ */
+async function postmanAuthToHandles(
+  store: SecretsStore,
+  auth: Record<string, unknown>,
+  redacted: Record<string, unknown>,
+  labelPrefix: string
+): Promise<Record<string, unknown>> {
+  const { type, block } = activeAuthBlock(auth);
+  if (block === undefined) return redacted;
+  const label = (key: string) => `${labelPrefix}/_postman.${type}.${key}`;
+  const values = await Promise.all(
+    postmanAuthParamEntries(block).map((p) =>
+      postmanParamToHandle(store, p.key, p.value, label(p.key))
+    )
+  );
+  const next = mapPostmanAuthParams(block, (_p, i) => values[i]);
+  return { ...redacted, [type]: next };
+}
+
+/**
+ * ADR 0034 / ADR-0007: a Postman `_postman` sidecar can hold bag-only
+ * credentials (unsupported hawk / edgegrid / jwt auth, an OAuth1 RSA
+ * `privateKey`, refresh tokens) plus saved-response headers, cookies and
+ * bodies. When the user opts into handle storage, credential auth params
+ * become keychain handles and every other secret-bearing value is blanked
+ * (`redactPostmanBag`), so no plaintext persists anywhere in the collection.
+ */
+async function convertPostmanBagToHandles(
+  node: object,
+  labelPrefix: string,
+  store: SecretsStore
+): Promise<{ _postman?: unknown }> {
+  const bag = getPostmanSidecar(node);
+  if (!bag || typeof bag !== 'object') return {};
+  const original = bag as Record<string, unknown>;
+  const next = redactPostmanBag(bag) as Record<string, unknown>;
+  const auth = original.auth;
+  if (auth && typeof auth === 'object' && !Array.isArray(auth)) {
+    next.auth = await postmanAuthToHandles(
+      store,
+      auth as Record<string, unknown>,
+      next.auth as Record<string, unknown>,
+      labelPrefix
+    );
+  }
+  return { _postman: next };
 }

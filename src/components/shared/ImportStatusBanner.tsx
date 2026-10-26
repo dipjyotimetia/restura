@@ -130,6 +130,8 @@ function describeWarning(warning: ImportWarning): string {
       return `cURL option "${warning.option}" is not supported`;
     case 'unresolved-file':
       return `Local file "${warning.path}" from ${warning.option} was not read`;
+    case 'unmodelled-construct':
+      return `${warning.detail} ("${warning.requestName}")`;
     default:
       return 'Unknown warning';
   }

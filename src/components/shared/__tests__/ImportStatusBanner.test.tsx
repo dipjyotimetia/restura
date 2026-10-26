@@ -54,6 +54,32 @@ describe('ImportStatusBanner', () => {
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
+  it('describes unmodelled-construct warnings (Postman _postman sidecar, #1199)', () => {
+    render(
+      <ImportStatusBanner
+        status="success"
+        warnings={[
+          {
+            kind: 'unmodelled-construct',
+            construct: 'saved-responses',
+            requestName: 'Get user',
+            detail: 'Saved responses (examples) are not modelled; kept for reference only',
+          },
+        ]}
+        environmentOnlyName={null}
+        errorMessage=""
+        onDismiss={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByText(
+        'Saved responses (examples) are not modelled; kept for reference only ("Get user")'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Unknown warning')).not.toBeInTheDocument();
+  });
+
   it('describes each supported warning, caps the list, and falls back safely for unknown data', () => {
     const warnings = [
       { kind: 'unrecognized-body', requestName: 'Body shape' },

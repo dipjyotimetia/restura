@@ -1,0 +1,42 @@
+# ADR 0034: Shared Postman Parser and `_postman` Sidecar
+
+**Status:** Accepted, 2026-10-26
+
+## Context
+
+Postman v2.x import lived in the renderer (`src/features/collections/lib/importers/postman.ts`) on top of the `postman-collection` SDK. That had three problems:
+
+- **No CLI path.** The CLI and other runtime-neutral code cannot import renderer `src/`, so a second importer would have been needed for `restura` CLI import (#1202).
+- **Silent loss.** Unsupported auth (hawk, edgegrid, jwt, akamai, and OAuth1 / NTLM, which Restura does support) became `none` with no warning. Saved responses, `protocolProfileBehavior`, item variables, extra same-kind events, file-body paths and OAuth2 implicit / PKCE details were dropped without a trace.
+- **No room for v3.** Postman Collection v3 ([epic #1197](https://github.com/dipjyotimetia/restura/issues/1197)) is a multi-file YAML folder whose objects are all `additionalProperties: false`. The SDK cannot read it, and v3 must reach the same internal model as v2.1.
+
+## Decision
+
+1. **One SDK-free parser in `shared/collections/postman/`.** It runs anywhere (no DOM, no `src/` imports) and is used by the renderer importer (now a thin adapter) and later by the CLI. Version front ends (`parse-v2.ts` for v2.0 / v2.1, a v3 front end in #1200) feed one normalised path. They share the auth mapping (`auth.ts`, which also owns the single walk over v2.1 array / v2.0 map parameter blocks), the report (`report.ts`), the sidecar (`sidecar.ts`) and its redaction (`redaction.ts`). `importPostmanCollection(data, { transformScript }) → { collection, report }`. `transformScript` defaults to the `pm.*` → `rs.*` migration, which now lives in `shared/scripts/script-migrations.ts` (the old renderer path re-exports it). URL path variables (`:id` segments with `url.variable` values) are substituted as the old SDK did, because Restura has no `:param` runtime.
+2. **No silent loss.** Every construct that is dropped or approximated produces a structured report entry (the shapes are a subset of the renderer's `ImportWarning`, so the UI and CLI print them unchanged). Its raw Postman JSON is also kept in a `_postman` sidecar on the collection, folder or request item it came from. That includes an unsendable method (imported as `GET`), form-data file rows (imported empty, because a file row's `value` holds file bytes, not a path) and partly applied URL path variables. The report is import-only for now; an export report comes with v3 export (#1201). OAuth1 and NTLM now map 1:1. Unsupported auth becomes `none` with a warning and the raw active block in the sidecar. OAuth2 implicit / PKCE and OAuth1 RSA, body/URL placement and unsupported signature methods map approximately, with a warning and only the unmapped keys in the sidecar. Mapped typed credentials import inline exactly as before; they become handles only through the existing "store secrets as handles" opt-in. v3 vault-secret variables will import value-less with a warning (#1200).
+3. **The sidecar lives in Restura only, and behaves like OpenCollection's `_oc`.** The import gate keeps the original object, so `_postman` survives validation. `useCollectionStore` strips `_oc` and `_postman` together along the mutation path, so a bag never describes a request the user has since edited. The root `_postman` is dropped when collection auth, variables or scripts actually change. Every path that strips or duplicates bags uses one list, `PASSTHROUGH_BAG_KEYS` (`shared/collections/passthrough-bags.ts`). The sidecar is stored **raw** (in memory and in the persisted store), not redacted. It is redacted on export and on handle conversion: `shared/secrets/collection-redaction.ts` applies `shared/collections/postman/redaction.ts` to every bag wherever `_oc` bags are handled, because bags can carry credentials. That covers hawk keys, edgegrid tokens, jwt secrets and OAuth secrets, plus saved-response headers in every shape, cookies, bodies, and original-request URL userinfo and credential query parameters. The export-warning count matches exactly what redaction blanks. The sidecar never holds a second copy of mapped credentials (ADR-0007). With handle storage on, `convertCollectionSecretsToHandles` turns bag-only auth credentials into keychain handles and blanks every other secret-bearing value; if the keychain rejects, it fails closed. Import rejects folder nesting deeper than 64 levels. Report entries carry only names and fixed notes, and sidecar contents are never logged.
+   - The sidecar is **never written into v3 files** (the v3 schema forbids extra properties).
+   - It is **store-scoped**. It is not part of the git-native file format, so a desktop file-backed collection loses it on save and reload (the IPC collection schema drops unknown root keys). That is intentional. Keeping it would need a redacted `x-restura-postman` extension later.
+4. **Formats (planned: #1200 / #1201).** v2.1 (single JSON file) stays the default export. v3 on disk is a YAML folder. Import accepts a folder, a zip or a single JSON/YAML file. Export writes a folder on Electron and a zip on the web.
+5. **MCP stdio items from a v3 import (planned: #1200) arrive disabled** and flagged, and are never auto-run (CLI included), because an imported file must not be able to launch a local process.
+6. **The importer no longer uses the `postman-collection` SDK, but the runtime dependency stays.** `@types/postman-collection` is removed. The `postman-collection` package itself is kept on purpose: the script sandbox bundles it (`scripts/build-sandbox-libs.mjs`) so user scripts can call `require('postman-collection')`, which is documented Postman compatibility (`docs/postman-compat.md`). Removing it would break that. The dependency now exists only for the sandbox, not for import.
+7. **The v3 schema is vendored and its types are generated (#1198).** `vendor/postman/v3.0.0/schema.json` is the source. `npm run gen:postman-v3-types` regenerates `shared/collections/postman/v3-types.ts`, and `npm run verify:postman-v3-types` (part of `validate:static`) fails on drift, like the OpenCollection types gate.
+
+### Alternatives considered
+
+- **Keep the SDK for v2.1 and write a v3 parser beside it.** Rejected. It means two internal paths, the SDK still cannot run outside the renderer bundle cheaply, and the silent drops would remain.
+- **Drop unmodelled constructs with only a warning.** Rejected. Re-export and future features (saved responses, examples) would have nothing to work from.
+- **Embed the sidecar in exported files.** Rejected. v3 is `additionalProperties: false`, and an embedded bag would re-emit stale or secret data.
+
+## Consequences
+
+- One place to fix Postman parsing for the renderer and the CLI. v3 adds a front end, not a second importer.
+- Users see what was lost or approximated at import time.
+- Each new sidecar field must be added to `redactPostmanBag` / `countPostmanBagInlineSecrets` (`shared/collections/postman/redaction.ts`), and each newly mapped auth key to `POSTMAN_MAPPED_AUTH_PARAMS` (`auth.ts`). Otherwise secrets are duplicated, double-counted or missed.
+- The root `_oc` is still not stripped by `updateCollection`: `internalToOC` re-checks root auth and scripts against the live model before it uses the cached root.
+
+## References
+
+- Code: `shared/collections/postman/`, `shared/collections/passthrough-bags.ts`, `shared/scripts/script-migrations.ts`, `src/features/collections/lib/importers/postman.ts`, `src/store/useCollectionStore.ts` (`stripPassthroughBags`), `shared/secrets/collection-redaction.ts`, `src/lib/shared/secretRef-migrations.ts`, `tests/security/postman-sidecar-secret-leak.test.ts`
+- Issues: #1197 (epic), #1198, #1199, #1200, #1201, #1202
+- Related: [ADR 0007 (SecretRef pattern)](./0007-secret-ref-pattern.md)

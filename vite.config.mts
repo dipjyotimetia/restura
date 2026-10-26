@@ -119,7 +119,7 @@ export default defineConfig({
     //
     // Only libraries known to be in the eager graph are bucketed here. Heavy
     // libs that are already isolated behind dynamic import() — monaco-editor,
-    // @xyflow/react, quickjs-emscripten, postman-collection — are deliberately
+    // @xyflow/react, quickjs-emscripten — are deliberately
     // left to Vite's default splitting so they stay lazily loaded.
     ...(skipCloudflare && {
       rollupOptions: {
