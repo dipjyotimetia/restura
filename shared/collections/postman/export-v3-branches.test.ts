@@ -975,11 +975,45 @@ describe('review fixes (#1212)', () => {
     });
   });
 
-  it('auth inheritance survives per-location secret handles and inline/string mixes', () => {
+  it('secret refs collapse only when provably the same secret (no credential misrouting)', () => {
+    const handle = (id: string, label = `label-${id}`) => ({ kind: 'handle', id, label });
+    const ext = (secretId: string, label = 'l') => ({
+      kind: 'external',
+      provider: 'aws-secrets-manager',
+      profileId: 'p',
+      secretId,
+      label,
+    });
+    const bearer = (token: unknown) => http({ auth: { type: 'bearer', bearer: { token } } });
+    const explicitBlank = { type: 'bearer', credentials: [{ key: 'token', value: '' }] };
+    // Request handle A vs folder handle B → explicit (blank) block.
+    const ab = run([item('A', bearer(handle('A')))], {
+      auth: { type: 'bearer', bearer: { token: handle('B') as never } },
+    });
+    expect(ab.items[0]?.auth).toEqual(explicitBlank);
+    // The same handle id (label differs) → inherits.
+    const same = run([item('A', bearer(handle('A', 'other label')))], {
+      auth: { type: 'bearer', bearer: { token: handle('A') as never } },
+    });
+    expect(same.items[0]?.auth).toBeUndefined();
+    // Handle vs a folder token of '' → explicit.
+    const blank = run([item('A', bearer(handle('A')))], {
+      auth: { type: 'bearer', bearer: { token: '' } },
+    });
+    expect(blank.items[0]?.auth).toEqual(explicitBlank);
+    // External refs: same secretId inherits, a different one is explicit.
+    const exts = run([item('same', bearer(ext('s1', 'x'))), item('other', bearer(ext('s2')))], {
+      auth: { type: 'bearer', bearer: { token: ext('s1') as never } },
+    });
+    expect(exts.items[0]?.auth).toBeUndefined();
+    expect(exts.items[1]?.auth).toEqual(explicitBlank);
+  });
+
+  it('auth inheritance compares inline/string secrets by value', () => {
     const handle = (id: string) => ({ kind: 'handle', id, label: `label-${id}` });
     const { items } = run(
       [
-        item('handle', http({ auth: { type: 'bearer', bearer: { token: handle('req') } } })),
+        item('handle', http({ auth: { type: 'bearer', bearer: { token: handle('col') } } })),
         item('inline', http({ auth: { type: 'bearer', bearer: { token: 'plain' } } })),
         item('none', http({ auth: { type: 'none' } })),
         item(

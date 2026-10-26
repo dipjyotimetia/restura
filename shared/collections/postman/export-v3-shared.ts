@@ -435,12 +435,15 @@ export const AUTH_TYPES = {
 } as const;
 
 /**
- * Stable structural equality for auth configs (inheritance detection), on the
- * form the export writes: every SecretValue compares as its file text
- * (`secretText`) — keychain handles / external refs as empty, inline refs as
- * their plaintext. Desktop import gives the collection and each inheriting
- * request distinct handle ids / labels for the same secret, so comparing the
- * refs themselves would turn every inherited auth into an explicit block.
+ * Stable structural equality for auth configs (inheritance detection). A
+ * secret ref collapses with another only when it is provably the same secret:
+ * inline refs compare as their plaintext (equal to a plain string of the same
+ * value); keychain handles by `id`; external refs by provider / profile /
+ * secret / selector. Labels never count. Anything else stays distinct — a
+ * false "same" exports the request as inherit, so on re-import it would use
+ * the ancestor's credential (misrouting). Desktop handle conversion
+ * (`convertCollectionSecretsToHandles`) mints a fresh id per location with no
+ * provenance marker, so such requests export an explicit, blank-secret block.
  */
 export function sameAuth(a: AuthConfig | undefined, b: AuthConfig | undefined): boolean {
   return JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
@@ -449,7 +452,15 @@ export function sameAuth(a: AuthConfig | undefined, b: AuthConfig | undefined): 
 function sortKeys(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(sortKeys);
   if (!isObj(v)) return v;
-  if (v.kind === 'handle' || v.kind === 'external') return '';
+  // Tagged objects: never equal to a plain string (e.g. a blank folder token).
+  if (v.kind === 'handle') return { '\u0000handle': str(v.id) };
+  if (v.kind === 'external') {
+    return {
+      '\u0000external': [v.provider, v.profileId, v.secretId, v.selector ?? null].map((x) =>
+        typeof x === 'string' ? x : null
+      ),
+    };
+  }
   if (v.kind === 'inline' && typeof v.value === 'string') return v.value;
   return Object.fromEntries(
     Object.keys(v)
