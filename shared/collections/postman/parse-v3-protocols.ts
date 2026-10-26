@@ -1,6 +1,5 @@
 import { v4 as uuid } from 'uuid';
 import { kafkaEntryToInternal, mqttEntryToInternal } from '../../opencollection/broker-items';
-import { mcpStdioFromOC } from '../../opencollection/mcp-stdio-extension';
 import type { KafkaRequest, McpRequest, MqttRequest } from '../../types';
 import { arr, description, isObj, type ParseContext, type Raw, str } from './common';
 import {
@@ -34,10 +33,14 @@ export function keepLeftovers(
   sidecar: PostmanSidecar,
   ctx: ParseContext
 ): void {
-  if (Object.keys(leftovers).length === 0) return;
+  const keys = Object.keys(leftovers);
+  if (keys.length === 0) return;
   sidecar.leftovers = scrub(leftovers);
-  ctx.report.unmodelled('broker-leftovers', name);
+  ctx.report.unmodelled('broker-leftovers', name, keys.join(', '));
 }
+
+/** Payload encodings Restura's MQTT model cannot express (payloads are sent as text). */
+const MQTT_BINARY_ENCODINGS = new Set(['hex', 'base64']);
 
 export const MQTT_MAPPED_SETTINGS = new Set([
   'keepAlive',
@@ -68,6 +71,16 @@ export function convertMqtt(raw: Raw, name: string, sidecar: PostmanSidecar, ctx
   );
   if (Object.keys(unmappedSettings).length > 0) leftovers.settings = unmappedSettings;
   if (raw.properties !== undefined) leftovers.properties = raw.properties;
+  // Hex / base64 payloads would be published as their text: keep the payload
+  // visible but record (and warn about) the encoding the bytes need.
+  const payloadEncodings = [
+    ...messages.map((m, i) => ({
+      message: str(m.name) || `#${i + 1}`,
+      contentType: m.contentType,
+    })),
+    ...(lastWill ? [{ message: 'lastWill', contentType: lastWill.type }] : []),
+  ].filter((e) => MQTT_BINARY_ENCODINGS.has(str(e.contentType)));
+  if (payloadEncodings.length > 0) leftovers.payloadEncodings = payloadEncodings;
   keepLeftovers(leftovers, name, sidecar, ctx);
   const req: MqttRequest = mqttEntryToInternal({
     info: { name, description: description(raw.description) },
@@ -106,13 +119,47 @@ export const KAFKA_ENCODINGS: Record<string, string> = {
   base64: 'base64',
 };
 
+/** Hex text (whitespace allowed) → base64, or undefined when it is not plain hex. */
+export function hexToBase64(hex: string): string | undefined {
+  const h = hex.replace(/\s+/g, '');
+  if (h.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(h)) return undefined;
+  let binary = '';
+  for (let i = 0; i < h.length; i += 2)
+    binary += String.fromCharCode(parseInt(h.slice(i, i + 2), 16));
+  return btoa(binary);
+}
+
+/**
+ * A v3 Kafka key / value → Restura content + encoding. Hex has no Restura
+ * encoding, so it is converted to the same bytes in base64; content that is
+ * not plain hex (a `{{var}}`, a typo) or an unknown encoding cannot be sent
+ * correctly and is kept in `leftovers` (warned) instead of silently re-encoded.
+ */
+function kafkaContent(c: unknown, side: 'key' | 'value', leftovers: Raw) {
+  const raw = isObj(c) ? c : {};
+  const type = str(raw.contentType);
+  const text = str(raw.content);
+  if (type === 'hex') {
+    const b64 = hexToBase64(text);
+    if (b64 !== undefined) return { content: b64, encoding: 'base64' };
+  }
+  const encoding = KAFKA_ENCODINGS[type];
+  if (type !== '' && encoding === undefined) leftovers[side] = raw;
+  return { content: text, encoding };
+}
+
+function kafkaBrokers(url: unknown): string[] {
+  const list = typeof url === 'string' ? url.split(',') : arr(url);
+  return list.map((b) => str(b).trim()).filter((b) => b !== '');
+}
+
 export function convertKafka(raw: Raw, name: string, sidecar: PostmanSidecar, ctx: ParseContext) {
   const settings = isObj(raw.settings) ? raw.settings : {};
   const messages = arr(raw.messages).filter(isObj);
   const first = messages[0];
-  const content = (c: unknown) => (isObj(c) ? c : {});
   const consumer = raw.mode === 'consumer';
-  const start = isObj(raw.startPosition) ? str(raw.startPosition.type) : '';
+  const startPosition = isObj(raw.startPosition) ? raw.startPosition : {};
+  const start = str(startPosition.type);
   keepBrokerAuth(raw, name, sidecar, ctx);
   keepSchema(raw, name, sidecar, ctx);
   // Kafka presets have no script slots: every script is kept and reported.
@@ -121,6 +168,10 @@ export function convertKafka(raw: Raw, name: string, sidecar: PostmanSidecar, ct
   const leftovers: Raw = {};
   if (consumer && raw.stopAfter !== undefined) leftovers.stopAfter = raw.stopAfter;
   if (messages.length > 1) leftovers.messages = messages.slice(1);
+  // Restura's `timestamp` consume mode has no timestamp field: keep the value.
+  if (Object.keys(startPosition).some((k) => k !== 'type')) leftovers.startPosition = startPosition;
+  const key = first ? kafkaContent(first.key, 'key', leftovers) : undefined;
+  const value = first ? kafkaContent(first.value, 'value', leftovers) : undefined;
   keepLeftovers(leftovers, name, sidecar, ctx);
   if (settings.strictSSL === false) {
     ctx.report.securityDowngrade('strictSSL', name, 'TLS certificate verification is off');
@@ -129,7 +180,7 @@ export function convertKafka(raw: Raw, name: string, sidecar: PostmanSidecar, ct
     info: { name, description: description(raw.description) },
     kafka: {
       connection: {
-        bootstrapBrokers: arr(raw.url),
+        bootstrapBrokers: kafkaBrokers(raw.url),
         securityProtocol: settings.secureConnection === true ? 'SSL' : 'PLAINTEXT',
         acks: KAFKA_ACKS[str(raw.acknowledgements)],
         compression: settings.compression,
@@ -138,10 +189,10 @@ export function convertKafka(raw: Raw, name: string, sidecar: PostmanSidecar, ct
       produce: first
         ? {
             topic: first.topic,
-            key: content(first.key).content,
-            keyEncoding: KAFKA_ENCODINGS[str(content(first.key).contentType)],
-            value: content(first.value).content,
-            valueEncoding: KAFKA_ENCODINGS[str(content(first.value).contentType)],
+            key: key?.content,
+            keyEncoding: key?.encoding,
+            value: value?.content,
+            valueEncoding: value?.encoding,
             headers: arr(first.headers)
               .filter(isObj)
               .map((h) => ({ name: h.key, value: h.value, enabled: h.disabled !== true })),
@@ -200,6 +251,28 @@ export function stdioWarning(argv: string[], envNames: string[]): string {
   return parts.join('; ');
 }
 
+/**
+ * MCP stdio imports DISABLED (ADR 0034 §5): an imported file must never be
+ * able to launch a local process, so the item becomes a placeholder (built by
+ * the caller) and only the launch shape is kept for reference — command,
+ * argv and env NAMES (never env values), scrubbed like every sidecar value.
+ */
+export function keepMcpStdio(raw: Raw, name: string, sidecar: PostmanSidecar, ctx: ParseContext) {
+  const argv = splitCommandLine(str(raw.command));
+  const env = arr(raw.env)
+    .filter(isObj)
+    .map((e) => ({ key: str(e.key), ...(e.disabled === true ? { disabled: true } : {}) }));
+  sidecar.item = scrub({ ...raw, argv, env });
+  ctx.report.unmodelled(
+    'mcp-stdio',
+    name,
+    stdioWarning(
+      argv,
+      env.map((e) => e.key)
+    )
+  );
+}
+
 export function convertMcp(raw: Raw, name: string, sidecar: PostmanSidecar, ctx: ParseContext) {
   const authOut = convertAuth(raw.auth, name, sidecar, ctx);
   const scripts = extractScripts(raw.scripts, name, sidecar, ctx);
@@ -215,33 +288,11 @@ export function convertMcp(raw: Raw, name: string, sidecar: PostmanSidecar, ctx:
     preRequestScript: scripts.preRequestScript,
     testScript: scripts.testScript,
   };
-  if (raw.transport === 'stdio') {
-    // Mirrors OpenCollection's mcp-stdio-extension: shape-checked only. A
-    // collection can describe a launch but never approve it — consent is
-    // decided by Electron main at connect time (ADR 0030); nothing connects
-    // at import.
-    const argv = splitCommandLine(str(raw.command));
-    const [command = '', ...args] = argv;
-    const env = arr(raw.env)
-      .filter(isObj)
-      .map((e) => ({ key: str(e.key), value: str(e.value), enabled: e.disabled !== true }));
-    const stdio = mcpStdioFromOC({ command, args, env });
-    req.transport = 'stdio';
-    if (stdio) req.stdio = stdio;
-    ctx.report.unmodelled(
-      'mcp-stdio',
-      name,
-      stdioWarning(
-        argv,
-        env.map((e) => e.key)
-      )
-    );
-  } else {
-    req.url = str(raw.url);
-    req.headers = rows(raw.headers);
-    // The v3 schema's only remote transport is `sse` (HTTP + Server-Sent Events).
-    req.transport = raw.transport === 'sse' ? 'http-sse' : 'streamable-http';
-  }
+  req.url = str(raw.url);
+  req.headers = rows(raw.headers);
+  // The v3 schema's only remote transport is `sse` (HTTP + Server-Sent Events);
+  // stdio never reaches here (see keepMcpStdio).
+  req.transport = raw.transport === 'sse' ? 'http-sse' : 'streamable-http';
   if (typeof raw.message === 'string' && raw.message.trim() !== '') {
     try {
       const msg = JSON.parse(raw.message) as unknown;

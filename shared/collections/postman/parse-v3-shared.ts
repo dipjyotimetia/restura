@@ -182,12 +182,30 @@ export function scrub(value: unknown): unknown {
 
 // ── examples / schema ───────────────────────────────────────────────────────
 
+/** HTTP response fields mapped onto the v2 saved-response shape. */
+const HTTP_RESPONSE_FIELDS = new Set(['statusCode', 'statusText', 'headers', 'body']);
+
+/**
+ * Saved-response body: the HTTP body, else (gRPC `messages` / `metadata` /
+ * `trailers`, GraphQL / MQTT `events`, ...) the non-HTTP response data as
+ * JSON, so a non-HTTP example is not reduced to an empty body. Bodies are
+ * blanked (and counted) by the export redactor like any saved response.
+ */
+function exampleBody(response: Raw): string {
+  const body = isObj(response.body) ? response.body : {};
+  if (typeof body.content === 'string') return body.content;
+  if (typeof response.body === 'string') return response.body;
+  const rest = Object.fromEntries(
+    Object.entries(response).filter(([k]) => !HTTP_RESPONSE_FIELDS.has(k))
+  );
+  return Object.keys(rest).length > 0 ? JSON.stringify(rest) : '';
+}
+
 /** v3 example → v2 saved-response shape (walked by the redactor). */
 export function exampleToV2(ex: unknown): unknown {
   if (!isObj(ex)) return ex;
   const request = isObj(ex.request) ? ex.request : {};
   const response = isObj(ex.response) ? ex.response : {};
-  const body = isObj(response.body) ? response.body : {};
   const reqBody = isObj(request.body) ? request.body : undefined;
   return {
     name: str(ex.name),
@@ -200,7 +218,7 @@ export function exampleToV2(ex: unknown): unknown {
     code: typeof response.statusCode === 'number' ? response.statusCode : undefined,
     status: str(response.statusText),
     header: arr(response.headers),
-    body: typeof body.content === 'string' ? body.content : str(response.body),
+    body: exampleBody(response),
   };
 }
 

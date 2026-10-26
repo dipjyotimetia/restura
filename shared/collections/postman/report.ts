@@ -83,7 +83,7 @@ const CONSTRUCT_DETAIL: Record<PostmanUnmodelledConstruct, string> = {
   'unsupported-item-kind':
     'This Postman item kind is not yet supported as a Restura collection item; imported as an empty placeholder, original kept for reference',
   'mcp-stdio':
-    'MCP stdio server — desktop-only: web and CLI cannot launch it; on desktop Restura asks for consent before launching and never auto-connects',
+    'MCP stdio server — imported DISABLED as a placeholder (an imported file never launches a process); command, args and env names (never values) kept for reference. Stdio is desktop-only: recreate it there, where Restura asks for consent before every launch',
   'collection-uses': 'Linked environments are not imported; kept for reference only',
   'broker-leftovers':
     'Some broker options (extra topics / messages, stop conditions, settings) have no Restura equivalent; kept for reference only',

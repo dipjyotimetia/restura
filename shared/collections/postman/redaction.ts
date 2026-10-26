@@ -333,7 +333,8 @@ function countPostmanResponse(response: unknown): number {
 //    string, number, array, nested object), counted once;
 //  - a `{ key|name, value }` row whose name is a credential (or that is
 //    flagged secret) has its value blanked, counted once;
-//  - URL-like strings lose userinfo and credential-named query values;
+//  - URLs (a whole URL value, or URL substrings of free text such as a
+//    script) lose userinfo and credential-named query values;
 //  - prototype-polluting keys are dropped.
 // A lone `{{var}}` reference is a pointer, not a secret, and is kept.
 
@@ -348,8 +349,19 @@ const V3_RAW_FIELDS = [
   'leftovers',
 ] as const;
 
-/** Structural fields: their value is a name / kind, never a credential. */
-const V3_STRUCTURAL_FIELDS = new Set(['key', 'name', 'id', 'type', '$kind', 'description']);
+/**
+ * Structural fields: their value is a name / kind, never a credential
+ * (`credentialKeys`: the key NAMES of a multi-auth set, values never kept).
+ */
+const V3_STRUCTURAL_FIELDS = new Set([
+  'key',
+  'name',
+  'id',
+  'type',
+  '$kind',
+  'description',
+  'credentialKeys',
+]);
 
 /** Keys that must never be copied onto a fresh object (prototype pollution). */
 export const UNSAFE_OBJECT_KEYS: ReadonlySet<string> = new Set([
@@ -378,6 +390,26 @@ function isV3SecretRow(row: Raw, inCredentials: boolean): boolean {
   return inCredentials ? isPostmanAuthSecretKey(name) : isSecretFieldName(name);
 }
 
+/** A URL token inside free text (scripts, descriptions): stops at whitespace / quotes. */
+const URL_IN_TEXT = /[a-z][a-z0-9+.-]*:\/\/[^\s'"`<>()]+/gi;
+
+/**
+ * URL credentials in a raw string. A whitespace-free value is one URL and is
+ * redacted whole; free text (a script body, a description) only has its URL
+ * substrings redacted, so a `?` in a ternary / optional chain is never read
+ * as a query string.
+ */
+function walkV3String(value: string, counter: { n: number } | undefined): string {
+  if (!/\s/.test(value)) {
+    if (counter) counter.n += countUrlStringSecrets(value);
+    return redactUrlCredentialsForStorage(value);
+  }
+  return value.replace(URL_IN_TEXT, (url) => {
+    if (counter) counter.n += countUrlStringSecrets(url);
+    return redactUrlCredentialsForStorage(url);
+  });
+}
+
 function isV3SecretField(key: string, value: unknown): boolean {
   return !V3_STRUCTURAL_FIELDS.has(key) && isSecretFieldName(key) && hasCredentialContent(value);
 }
@@ -390,10 +422,7 @@ function walkV3Raw(
   inCredentials = false
 ): unknown {
   if (depth > MAX_COLLECTION_TREE_DEPTH) return null;
-  if (typeof value === 'string' && value.includes('://')) {
-    if (counter) counter.n += countUrlStringSecrets(value);
-    return redactUrlCredentialsForStorage(value);
-  }
+  if (typeof value === 'string' && value.includes('://')) return walkV3String(value, counter);
   if (Array.isArray(value)) {
     return value.map((v) => walkV3Raw(v, counter, depth + 1, inCredentials));
   }

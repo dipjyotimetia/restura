@@ -23,7 +23,7 @@ import {
   str,
   substitutePathVariables,
 } from './common';
-import { convertKafka, convertMcp, convertMqtt } from './parse-v3-protocols';
+import { convertKafka, convertMcp, convertMqtt, keepMcpStdio } from './parse-v3-protocols';
 import {
   convertAuth,
   convertVariables,
@@ -280,6 +280,7 @@ const PLACEHOLDER_LABEL: Record<string, string> = {
   'socket.io-request': 'Socket.IO',
   'llm-request': 'LLM request',
   'data-request': 'Data request',
+  'mcp-request': 'MCP stdio, disabled',
 };
 
 type Converted = { req: CollectionRequest; inherits: boolean };
@@ -303,7 +304,8 @@ function convertRequest(
     case 'kafka-request':
       return convertKafka(raw, name, sidecar, ctx);
     case 'mcp-request':
-      return convertMcp(raw, name, sidecar, ctx);
+      // stdio imports disabled: a placeholder (ADR 0034 §5).
+      return raw.transport === 'stdio' ? null : convertMcp(raw, name, sidecar, ctx);
     default:
       return null;
   }
@@ -368,8 +370,12 @@ function convertItem(
     // does for unknown item types) holding the scrubbed raw item.
     const label = PLACEHOLDER_LABEL[kind] ?? (kind || 'unknown kind');
     keepBagOnlyAuth(raw, sidecar);
-    sidecar.item = scrub(raw);
-    ctx.report.unmodelled('unsupported-item-kind', name, label);
+    if (kind === 'mcp-request') {
+      keepMcpStdio(raw, name, sidecar, ctx);
+    } else {
+      sidecar.item = scrub(raw);
+      ctx.report.unmodelled('unsupported-item-kind', name, label);
+    }
     return attachPostmanSidecar<CollectionItem>(
       { id: uuid(), name: `${name} (${label})`, type: 'folder', items: [] },
       sidecar
