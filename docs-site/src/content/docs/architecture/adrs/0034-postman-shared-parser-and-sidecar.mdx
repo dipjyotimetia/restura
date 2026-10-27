@@ -48,3 +48,12 @@ Postman v2.x import lived in the renderer (`src/features/collections/lib/importe
 - Code: `shared/collections/postman/`, `shared/collections/passthrough-bags.ts`, `shared/scripts/script-migrations.ts`, `src/features/collections/lib/importers/postman.ts`, `src/store/useCollectionStore.ts` (`stripPassthroughBags`), `shared/secrets/collection-redaction.ts`, `src/lib/shared/secretRef-migrations.ts`, `tests/security/postman-sidecar-secret-leak.test.ts`
 - Issues: #1197 (epic), #1198, #1199, #1200, #1201, #1202, #1203
 - Related: [ADR 0007 (SecretRef pattern)](/architecture/adrs/0007-secret-ref-pattern/)
+
+## Amendments (2026-10-27)
+
+- **(a) v3 is now the default export**, superseding "v2.1 stays the default" in decision 4. Why: v3 is Postman's current format; v2.1 stays in the menu for Newman.
+- **(b) MCP stdio imports become an empty placeholder folder with no request object**, replacing the disabled request in decision 5. Why: with no request, nothing (runner, workflows, CLI, Electron) can ever launch it. The launch shape is kept in the sidecar with fail-closed argv: exec, option names and env names are kept, every value is blanked.
+- **(c) WebSocket / Socket.IO items import as placeholders** until native items exist ([#1209](https://github.com/dipjyotimetia/restura/issues/1209)). Why: Restura has no collection item kind for them yet.
+- **(d) `postman-collection` stays a dependency only for the script sandbox**, as in decision 6. Why: the sandbox's `require('postman-collection')` needs it; the importer and exporters never use it.
+- **(e) The v2.1 schema is vendored (`vendor/postman/v2.1.0`)** and STRICT generated `PostmanV21*` types are used for export. Import stays lenient and runtime-guarded and reports off-schema values. Why: export must emit schema-valid files, while real-world Postman files routinely stray from the schema.
+- **(f) The v2.1 exporter moved to `shared/collections/postman/export-v2.ts`** and shares the export report with v3. Why: one runtime-neutral exporter for the renderer and CLI, with one report shape.

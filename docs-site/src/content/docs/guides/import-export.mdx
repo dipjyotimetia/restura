@@ -5,7 +5,7 @@ description: Move collections in and out of Restura — Postman v2/v3, Insomnia,
 
 import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
 
-Restura imports from the major API client formats and exports to **OpenCollection** — the open, vendor-neutral collection spec — as well as Postman (v2.1 single file or v3 folder), Insomnia, and Bruno.
+Restura imports from the major API client formats and exports to **OpenCollection** — the open, vendor-neutral collection spec — as well as Postman (v3 folder / zip, or v2.1 single file), Insomnia, and Bruno.
 
 **Drop a file anywhere** in the window to import it: Restura detects the format (Postman, Insomnia, OpenAPI, Hoppscotch, Bruno, `.http`, HAR, OpenCollection) and opens the import review — nothing is added until you confirm. You can also pick a format and choose a file from **Import collection**.
 
@@ -49,8 +49,8 @@ target is checked by the normal URL and DNS safety policy.
 From the collection menu:
 
 - **OpenCollection** (YAML) — the canonical export format. A single `.yml` file. See the [round-trip guarantees](/reference/opencollection/#round-trip-guarantees) for what is and isn't preserved.
-- **Postman v2.1 (single file)** — the default Postman export, for sharing with Postman users.
-- **Postman v3 (folder / zip)** — Postman's YAML folder format. See [Postman v3 export](#postman-v3-export).
+- **Postman v3 (folder / zip)** — the default and recommended Postman export: Postman's current YAML folder format. See [Postman v3 export](#postman-v3-export).
+- **Postman v2.1 (single file · Newman)** — one JSON file for Newman and other v2.1 tooling. See [Postman v2.1 export](#postman-v21-export).
 - **Insomnia** — for sharing with Insomnia users.
 - **Bruno** (`.bru` archive) — for sharing with Bruno users.
 
@@ -63,8 +63,9 @@ In OpenCollection exports, data the OpenCollection schema has no slot for — SS
 Pick a Postman v2.0 / v2.1 JSON file, a v3 **folder** (**Import folder**), a `.zip`, or a single v3 JSON/YAML file. The version is detected automatically and every format goes through the same parser the CLI uses.
 
 - **Import report, no silent loss.** Anything dropped or approximated is listed after import: unsupported auth, saved responses, item variables, extra events, file-body paths and similar. The raw Postman data is kept in a `_postman` sidecar in the Restura store (not in file-backed, Git-friendly collections, so it is lost when a desktop file collection is saved and reloaded; see [ADR 0034](/architecture/adrs/0034-postman-shared-parser-and-sidecar/)).
-- **Auth.** OAuth 1.0a and NTLM map directly. Unsupported types (hawk, jwt, edgegrid, asap, azure, sasl, akamai) import as no auth with a warning.
-- **Other kinds.** WebSocket, Socket.IO, LLM and data items become placeholder folders (native WebSocket / Socket.IO items are tracked in [#1209](https://github.com/dipjyotimetia/restura/issues/1209)). MCP stdio items import as disabled placeholders: Restura keeps the program, option names and env variable names, but not argument or env values, so recreate the request and re-enter them before you connect. Vault (secret) variables import without a value.
+- **Auth.** OAuth 1.0a and NTLM map directly. jwt, asap and akamai auth are accepted and reported in the import report. Other unsupported types (hawk, edgegrid, azure, sasl) import as no auth with a warning.
+- **Secret variables.** v2.1 variables marked `type: "secret"` (off-schema, but Postman emits them) import value-less with a warning.
+- **Other kinds.** WebSocket, Socket.IO, LLM and data items become placeholder folders (native WebSocket / Socket.IO items are tracked in [#1209](https://github.com/dipjyotimetia/restura/issues/1209)). MCP stdio items import as an empty placeholder folder named `<name> (MCP stdio, disabled)` with no request inside, so nothing can launch them. Restura keeps the program, option names and env variable names in the `_postman` sidecar, but never argument or env values; recreate the request and re-enter them before you connect. Vault (secret) variables import without a value.
 - **Security downgrades** such as `strictSSL: false` are called out as warnings.
 - **Limits.** Archives up to 50 MB, with per-file, total, file-count and folder-depth limits; path traversal in archives is refused.
 
@@ -80,6 +81,18 @@ In the app, Restura's `none` auth means "inherit". A request whose Postman auth 
 - **Desktop:** writes `<picked folder>/<name>/`. If that folder is not empty Restura asks before replacing it, and replacing removes only Postman layout files, never other files you keep there.
 - **Export report.** Items v3 cannot hold are listed after export: SSE requests are dropped, WSSE auth becomes no auth, secret variables are written with an empty value, Restura-only HTTP settings, GraphQL / gRPC extras, attached contract specs and folder variables are not exported, MCP Streamable HTTP is written as SSE, and some Kafka / MQTT broker options are left out.
 - **Secrets** follow the include-secrets prompt below.
+
+<Aside type="caution" title="Newman cannot run v3">
+Newman cannot run v3 collections. For Newman or CI on v2.1 tooling, export **Postman v2.1**. The Restura CLI (`restura run`) runs both formats.
+</Aside>
+
+## Postman v2.1 export
+
+**Postman v2.1 (single file · Newman)** writes one `.json` file.
+
+- **Round trip.** The export restores the `_postman` sidecar: saved responses / examples, `protocolProfileBehavior`, extra events and unsupported auth.
+- **Auth.** basic, bearer, apikey, oauth1, oauth2, digest, awsv4 and ntlm are exported. Secrets are exported empty.
+- **Export report.** Non-HTTP items (gRPC, GraphQL over WebSocket, Kafka, MQTT, MCP, SSE and so on) are reported in the export report and not exported, because v2.1 has no item kinds for them.
 
 ## Secret redaction on export
 

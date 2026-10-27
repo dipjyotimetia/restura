@@ -2,6 +2,8 @@
 
 Collection import/export (Postman v2.x and v3) is covered in the docs-site guide *Import & export* and ADR 0034; this page is about scripts only.
 
+Export menu: **Postman v3 (folder / zip)** is first, the default and recommended. **Postman v2.1 (single file · Newman)** is second. Newman cannot run v3 collections, so pick v2.1 for Newman or CI on v2.1 tooling; the Restura CLI runs both. The v2.1 export restores the `_postman` sidecar (saved responses/examples, `protocolProfileBehavior`, extra events, unsupported auth) and exports basic/bearer/apikey/oauth1/oauth2/digest/awsv4/ntlm auth with secrets empty. Non-HTTP items (gRPC, GraphQL-over-ws, Kafka, MQTT, MCP, SSE) are listed in the export report, not exported. v2.1 import takes `type: "secret"` variables value-less with a warning and accepts jwt/asap/akamai auth with a report entry.
+
 Restura runs your existing Postman test scripts unmodified, with very few
 exceptions. Both pre-request scripts and test scripts execute inside a QuickJS
 WASM sandbox (see [ADR-0004](./adr/0004-security-hardening.md)) — same security
@@ -115,15 +117,6 @@ change; some signatures diverge (e.g., `hopp.response.body` vs.
 | Arbitrary `require('...')`      | Only the bundled library set above is available — no npm or Node core modules                 |
 
 The CLI runs the same sandbox, but `pm.sendRequest`, `pm.cookies`, and `pm.vault` are not wired there (no cookie jar or OS keychain in a CI process) and reject with a clear error.
-
-------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pm.sendRequest(url, callback)`                                                 | The QuickJS sandbox is sync-only in v1. Use a binding-only OWS workflow to sequence saved HTTP requests; branching, retries, and arbitrary callback scripting are intentionally unavailable in the current safe profile. The async sandbox upgrade is on the roadmap if a partner team needs callback-style scripting |
-| `pm.expect(x).to.have.property('a').and.equal(1)` — subject narrowing on `.and` | Use the two-arg form: `pm.expect(x).to.have.property('a', 1)`                                                                                                                                                                                                                     |
-| `pm.expect(arr).to.include.members([...])`                                      | Use `pm.expect(arr).to.have.members([...])`                                                                                                                                                                                                                                       |
-| `pm.execution.skipRequest()` / `setNextRequest()`                               | No OWS equivalent in Restura's bounded profile. Split the run into explicit saved requests or use collection scripts where appropriate.                                                                                                                                              |
-| `pm.visualizer.set(...)`                                                        | Custom visualizers aren't supported. Use the Monaco preview tab in the response viewer                                                                                                                                                                                            |
-| `tv4.validateResult(...)`                                                       | Use the Contracts tab (lands in the contract-testing milestone) for OpenAPI/JSON-Schema validation                                                                                                                                                                                |
-| `xml2Json` global                                                               | Not bundled. JSON-only test scripts in v1                                                                                                                                                                                                                                         |
 
 ---
 

@@ -246,7 +246,12 @@ describe('importCurlCommand', () => {
       { kind: 'unknown-dynamic-var', varName: 'token', count: 1 },
       { kind: 'bruno-syntax', pattern: 'bru.getEnv', requestName: 'Bruno' },
       { kind: 'platform-unsupported', feature: 'Kafka', requestName: 'Kafka request' },
-      { kind: 'schema-version', format: 'Postman', version: '3', note: 'newer export' },
+      {
+        kind: 'schema-version',
+        format: 'Postman',
+        version: '9',
+        note: 'Unrecognised schema; parsed as v2.1',
+      },
       { kind: 'har-cookies-discarded', requestName: 'Cookies' },
       { kind: 'har-redirect', requestName: 'Redirect', status: 302 },
       { kind: 'har-response-discarded', requestName: 'Response' },
