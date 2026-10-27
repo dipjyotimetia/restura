@@ -50,6 +50,14 @@ export interface PostmanSidecar {
    * placeholder items): every credential in it is bag-only.
    */
   authBagOnly?: true;
+  /**
+   * The Postman auth on this collection / folder / request was an explicit
+   * `noauth` (#1232). Restura's `{ type: 'none' }` means *inherit*, so this
+   * marker is what keeps "deliberately unauthenticated" distinct: it cuts
+   * auth inheritance on import, blocks sending (no ancestor credential may be
+   * substituted), and makes Postman export write `noauth` explicitly.
+   */
+  noauth?: true;
   /** v3 broker options with no preset equivalent (extra topics / messages, stopAfter). */
   leftovers?: unknown;
   /** v3 folder description (Restura folders have none). */
