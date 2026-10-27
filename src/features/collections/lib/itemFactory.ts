@@ -1,4 +1,6 @@
 import { deletePassthroughBags } from '@shared/collections/passthrough-bags';
+import { postmanGuardMarkers } from '@shared/collections/postman/auth-guard';
+import { attachPostmanSidecar } from '@shared/collections/postman/sidecar';
 import { v4 as uuidv4 } from 'uuid';
 import type { Collection, CollectionItem, HttpRequest, Request } from '@/types';
 import { uniqueName } from './names';
@@ -51,7 +53,16 @@ export function duplicateRequestItem(item: CollectionItem, siblingNames: string[
     id: uuidv4(),
     name: baseName,
   } as Request;
-  return { id: uuidv4(), name: baseName, type: 'request', request: clonedRequest };
+  const copy: CollectionItem = {
+    id: uuidv4(),
+    name: baseName,
+    type: 'request',
+    request: clonedRequest,
+  };
+  // Only the Postman send-guard markers travel (#1228): a copy of an explicit
+  // `noauth` / unsupported-auth request must stay blocked, never inherit.
+  const markers = postmanGuardMarkers(item);
+  return markers ? attachPostmanSidecar(copy, markers) : copy;
 }
 
 /**
@@ -67,15 +78,23 @@ export function duplicateRequestItem(item: CollectionItem, siblingNames: string[
  * If handle reaping is ever added to the delete path, this sharing must be
  * revisited — deleting the original would silently break the duplicate's auth.
  */
+/** Delete every passthrough bag in place, then re-attach only the guard markers. */
+function stripBagsKeepingGuard<T extends object>(node: T): T {
+  const markers = postmanGuardMarkers(node);
+  deletePassthroughBags(node);
+  return markers ? attachPostmanSidecar(node, markers) : node;
+}
+
 export function duplicateCollection(collection: Collection, existingNames: string[]): Collection {
   // Import passthrough bags (`_oc`, `_postman`) describe the source's
-  // identity / imported state; a duplicate must not inherit them.
-  const dup = deletePassthroughBags(structuredClone(collection));
+  // identity / imported state; a duplicate must not inherit them — except the
+  // Postman send-guard markers (#1228), which keep inheritance cut in the copy.
+  const dup = stripBagsKeepingGuard(structuredClone(collection));
   dup.id = uuidv4();
   dup.name = uniqueName(`${collection.name} copy`, existingNames);
   const reId = (items: CollectionItem[]) => {
     for (const item of items) {
-      deletePassthroughBags(item);
+      stripBagsKeepingGuard(item);
       item.id = uuidv4();
       if (item.request) item.request.id = uuidv4();
       if (item.items) reId(item.items);

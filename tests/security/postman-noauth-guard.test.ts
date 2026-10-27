@@ -5,6 +5,7 @@ import {
   resolveInheritedAuthForSend,
 } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { flattenRunnables } from '@/features/collections/lib/flattenRunnables';
+import { duplicateCollection, duplicateRequestItem } from '@/features/collections/lib/itemFactory';
 import { introspectSchema } from '@/features/graphql/lib/introspection';
 import { prepareSubscriptionHandshake } from '@/features/graphql/lib/subscriptionAuth';
 import { startGrpcStream } from '@/features/grpc/lib/grpcStreamingClient';
@@ -290,5 +291,55 @@ describe('a noauth request with no configured auth anywhere is still sendable', 
     }
     expect(flattenRunnables(collection.items).every((r) => r.blocked === undefined)).toBe(true);
     expect(report.warnings).toEqual([]);
+  });
+});
+
+describe('guard markers survive duplicates and root edits (#1228 round 5)', () => {
+  const { collection: imported } = importPostmanCollection(v2);
+
+  it('a duplicated noauth request under a bearer collection is still blocked', () => {
+    const source = find(imported.items, 'Noauth request')!;
+    const copy = duplicateRequestItem(source, []);
+    expect((copy as { _postman?: unknown })._postman).toEqual({ noauth: true });
+    const withCopy: Collection = { ...imported, items: [...imported.items, copy] };
+    expect(postmanBlockedReasonFor(withCopy, copy.request!.id, 'Restura')).toMatch(/"No Auth"/);
+  });
+
+  it('a duplicated collection keeps the hawk folder cut: its children are blocked', () => {
+    const dup = duplicateCollection(imported, []);
+    const child = find(dup.items, 'Hawk child')!;
+    expect(postmanBlockedReasonFor(dup, child.request!.id, 'Restura')).toMatch(
+      /"hawk" \(inherited from "Hawk folder"\)/
+    );
+    // Only the markers are copied: no credentials, no other sidecar data.
+    expect(JSON.stringify(dup)).not.toContain('"authId"');
+    expect((find(dup.items, 'Hawk folder') as { _postman?: unknown })._postman).toEqual({
+      auth: { type: 'hawk' },
+    });
+  });
+
+  it('the root hawk marker survives a script variable write-back and a scripts edit', () => {
+    const rootHawk = importPostmanCollection({
+      info: { name: 'Root hawk', schema: V21 },
+      auth: { type: 'hawk', hawk: [{ key: 'authId', value: 'id' }] },
+      variable: [{ key: 'k', value: '1' }],
+      event: [
+        { listen: 'test', script: { exec: 'a()' } },
+        { listen: 'test', script: { exec: 'b()' } },
+      ],
+      item: [{ name: 'Child', request: { method: 'GET', url: 'https://x.example/c' } }],
+    }).collection;
+    const store = useCollectionStore.getState();
+    store.addCollection(rootHawk);
+    const stored = () =>
+      useCollectionStore.getState().collections.find((c) => c.id === rootHawk.id)!;
+    const childId = rootHawk.items[0]!.request!.id;
+    store.applyCollectionVarMutations(rootHawk.id, { k: '2' });
+    expect((stored() as { _postman?: unknown })._postman).toEqual({ auth: { type: 'hawk' } });
+    expect(postmanBlockedReasonFor(stored(), childId, 'Restura')).toMatch(/"hawk"/);
+    store.updateCollection(rootHawk.id, { preRequestScript: 'x()' });
+    expect((stored() as { _postman?: unknown })._postman).toEqual({ auth: { type: 'hawk' } });
+    store.updateCollection(rootHawk.id, { auth: { type: 'bearer', bearer: { token: 't' } } });
+    expect((stored() as { _postman?: unknown })._postman).toBeUndefined();
   });
 });
