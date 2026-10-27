@@ -76,6 +76,8 @@ Secret-bearing auth fields (tokens, passwords, client secrets, private keys) use
 
 Auth on a collection cascades to every child folder and request unless overridden. Use the **Inherit auth from parent** option (default) on new requests.
 
+Imported Postman "No Auth" is the exception: Restura's `none` means inherit, so an imported explicit `noauth` request below a configured ancestor, or any request below an unsupported-auth folder, is not sent and the Auth tab shows a "Not sent" banner. See [Postman import](/guides/import-export/#postman-import).
+
 ## Tips
 
 - Store API keys as **environment variables** rather than inline on the request — they survive auth-type changes and are easy to swap.
