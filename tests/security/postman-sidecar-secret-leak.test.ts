@@ -802,6 +802,10 @@ describe('Postman v3 final audit (#1210): URL context, userinfo, escapes, both p
     ['use ?token=LEAKU8; then', 'LEAKU8'],
     ['git clone https://ghp_LEAKU9@github.com/o/r.git', 'ghp_LEAKU9'],
     ['https://sk_live_LEAKV1:@api.stripe.com', 'sk_live_LEAKV1'],
+    // A single line that starts with a URL is not only that URL: later URLs
+    // in the same line are still free text.
+    ['https://docs.example.com/a see https://bob:LEAKV2@h/x', 'LEAKV2'],
+    ['https://h/x?q=1 and https://h2/?token=LEAKV3', 'LEAKV3'],
   ];
 
   it.each(TEXT_LEAKS)('%j: blanked in bag, collection and report; counted', (value, secret) => {
