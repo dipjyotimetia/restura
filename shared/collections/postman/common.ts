@@ -49,6 +49,17 @@ export function keyValue(row: Raw): KeyValue {
 }
 
 /**
+ * A secret variable row: value-less and flagged `secret`, plus a
+ * `secret-variable` report entry naming the variable (the v3 path's rule,
+ * `parse-v3-shared.ts` convertVariables). Postman vaults are never contacted
+ * and a secret value never enters the typed model or a sidecar.
+ */
+export function secretKeyValue(row: Raw, ownerName: string, ctx: ParseContext): KeyValue {
+  ctx.report.unmodelled('secret-variable', ownerName, str(row.key));
+  return { ...keyValue({ ...row, value: '' }), secret: true };
+}
+
+/**
  * Maximum folder nesting accepted on import. Real collections are a handful of
  * levels deep; the cap turns a hostile/garbage deeply nested document into a
  * clear import error instead of unbounded recursion here and in every

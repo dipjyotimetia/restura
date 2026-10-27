@@ -456,7 +456,11 @@ export const useCollectionStore = create<CollectionState>()(
                 changed = true;
               }
             }
-            return changed ? { ...col, variables: next } : col;
+            if (!changed) return col;
+            // Same staleness rule as updateCollection: a real variables change
+            // makes the root `_postman` sidecar stale. Root `_oc` is kept —
+            // internalToOC re-checks root variables freshness itself.
+            return clearPostmanSidecar({ ...col, variables: next });
           }),
         })),
     }),

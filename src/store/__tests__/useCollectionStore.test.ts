@@ -428,6 +428,31 @@ extensions:
       expect(root()?._postman).toEqual({ auth: { type: 'hawk' } });
     });
 
+    it('a script variable write-back drops the root sidecar, keeps root _oc (same rule as updateCollection)', () => {
+      const { addCollection, applyCollectionVarMutations } = useCollectionStore.getState();
+      addCollection({
+        ...withRootBag(),
+        _oc: { info: { name: 'P' } },
+        variables: [{ id: 'v1', key: 'token', value: 'old', enabled: true }],
+      } as unknown as Collection);
+      applyCollectionVarMutations('pc', { token: 'new' });
+      const col = root() as (Collection & { _postman?: unknown; _oc?: unknown }) | undefined;
+      expect(col?.variables?.map((v) => [v.key, v.value])).toEqual([['token', 'new']]);
+      expect(col?._postman).toBeUndefined();
+      // Root `_oc` is kept: internalToOC re-checks root variables freshness.
+      expect(col?._oc).toEqual({ info: { name: 'P' } });
+    });
+
+    it('a no-op script variable write-back keeps the root sidecar', () => {
+      const { addCollection, applyCollectionVarMutations } = useCollectionStore.getState();
+      addCollection({
+        ...withRootBag(),
+        variables: [{ id: 'v1', key: 'token', value: 'same', enabled: true }],
+      } as unknown as Collection);
+      applyCollectionVarMutations('pc', { token: 'same', missing: null });
+      expect(root()?._postman).toEqual({ auth: { type: 'hawk' } });
+    });
+
     it('a whole-collection update with unchanged auth/variables/scripts keeps the root sidecar', () => {
       // useFileCollectionStore reloads pass the full collection back in.
       const { addCollection, updateCollection } = useCollectionStore.getState();
