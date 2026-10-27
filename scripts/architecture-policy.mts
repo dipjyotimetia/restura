@@ -141,7 +141,7 @@ function isProductionSource(path: string): boolean {
     !/\.(?:test|spec)\.(?:ts|tsx|mts|cts)$/.test(path) &&
     !/(?:^|\/)tests?(?:\/|$)/.test(path) &&
     !/(?:^|\/)(?:dist|out|coverage)(?:\/|$)/.test(path) &&
-    !/(?:generated|spec-types|v3-types|bundle\.generated)\.(?:ts|tsx|mts|cts)$/.test(path)
+    !/(?:generated|spec-types|v3-types|v21-types|bundle\.generated)\.(?:ts|tsx|mts|cts)$/.test(path)
   );
 }
 
