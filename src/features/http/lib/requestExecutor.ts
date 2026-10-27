@@ -755,6 +755,7 @@ export async function executeStreamingRequest(
   options: RequestExecutorOptions
 ): Promise<StreamingExecutionResult> {
   options.signal?.throwIfAborted();
+  assertPostmanSendable(options.request); // same pre-send refusal as executeRequest (#1232)
   const { spec, effectiveSettings } = await buildProxyRequestSpec(options);
 
   const streamingSpec: ProxyRequestBody = {

@@ -161,7 +161,14 @@ function GraphQLRequestBuilder() {
   ) => {
     // Effective auth (inherited, {{vars}} resolved, keychain refs main-side) —
     // see lib/subscriptionAuth.ts (#878, #882).
-    const handshake = prepareSubscriptionHandshake(httpRequest);
+    let handshake: ReturnType<typeof prepareSubscriptionHandshake>;
+    try {
+      handshake = prepareSubscriptionHandshake(httpRequest);
+    } catch (err) {
+      // e.g. a Postman auth-guard refusal (#1232): show why, connect nothing.
+      toast.error(err instanceof Error ? err.message : 'Subscription failed');
+      return;
+    }
     const resolvedUrl = handshake.url;
     if (!resolvedUrl) {
       toast.error('URL required');

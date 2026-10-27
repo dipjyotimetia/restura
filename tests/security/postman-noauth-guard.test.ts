@@ -8,7 +8,7 @@ import { flattenRunnables } from '@/features/collections/lib/flattenRunnables';
 import { introspectSchema } from '@/features/graphql/lib/introspection';
 import { prepareSubscriptionHandshake } from '@/features/graphql/lib/subscriptionAuth';
 import { startGrpcStream } from '@/features/grpc/lib/grpcStreamingClient';
-import { executeRequest } from '@/features/http/lib/requestExecutor';
+import { executeRequest, executeStreamingRequest } from '@/features/http/lib/requestExecutor';
 import { buildMcpRunConnectAuth } from '@/features/mcp/lib/mcpRunRequest';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -157,6 +157,19 @@ describe.each([
     await expect(
       executeRequest({
         request: asTab(collection, name),
+        envVars: {},
+        globalSettings: useSettingsStore.getState().settings,
+        resolveVariables: (text) => text,
+      })
+    ).rejects.toThrow(/not sent: Postman auth/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('streaming send (executeStreamingRequest) refuses too', async () => {
+    const { collection } = load();
+    await expect(
+      executeStreamingRequest({
+        request: asTab(collection, 'Noauth request'),
         envVars: {},
         globalSettings: useSettingsStore.getState().settings,
         resolveVariables: (text) => text,
