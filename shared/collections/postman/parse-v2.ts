@@ -1,19 +1,15 @@
 import { v4 as uuid } from 'uuid';
 import { isConfiguredAuth } from '../../auth/inheritance';
-import type {
-  AuthConfig,
-  Collection,
-  CollectionItem,
-  FormDataItem,
-  HttpRequest,
-  KeyValue,
-} from '../../types';
+import type { Collection, CollectionItem, FormDataItem, HttpRequest, KeyValue } from '../../types';
 import {
   type AuthOutcome,
   arr,
   coerceMethod,
   convertAuthBlock,
   description,
+  type InheritedPostmanAuth,
+  inheritAuth,
+  inheritFrom,
   isObj,
   keyValue,
   MAX_POSTMAN_NESTING_DEPTH,
@@ -257,7 +253,7 @@ function collectItemExtras(
 
 function convertItem(
   raw: unknown,
-  parentAuth: AuthConfig | undefined,
+  inherited: InheritedPostmanAuth,
   ctx: ParseContext,
   depth = 1
 ): CollectionItem | null {
@@ -280,7 +276,14 @@ function convertItem(
     collectItemExtras(raw, name, scripts, sidecar, ctx);
     const items: CollectionItem[] = [];
     for (const child of raw.item) {
-      const converted = convertItem(child, folderAuth ?? parentAuth, ctx, depth + 1);
+      // An unsupported folder auth cuts the chain: its inheriting
+      // descendants get `none`, never the collection's credentials.
+      const converted = convertItem(
+        child,
+        inheritFrom({ auth: authOut.auth, _postman: sidecar }, inherited),
+        ctx,
+        depth + 1
+      );
       if (converted) items.push(converted);
     }
     const folder: CollectionItem = {
@@ -323,7 +326,7 @@ function convertItem(
     headers: convertHeaders(request.header),
     params,
     body,
-    auth: authOut.auth ?? parentAuth ?? { type: 'none' },
+    auth: authOut.auth ?? inheritAuth(inherited, name, ctx) ?? { type: 'none' },
     preRequestScript: scripts.preRequestScript,
     testScript: scripts.testScript,
   };
@@ -368,7 +371,11 @@ export function parsePostmanV2(data: Raw, ctx: ParseContext): Collection {
     testScript: scripts.testScript,
   };
   for (const item of arr(data.item)) {
-    const converted = convertItem(item, collection.auth, ctx);
+    const converted = convertItem(
+      item,
+      inheritFrom({ auth: authOut.auth, _postman: sidecar }, {}),
+      ctx
+    );
     if (converted) collection.items.push(converted);
   }
   return attachPostmanSidecar(collection, sidecar);

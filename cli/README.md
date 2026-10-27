@@ -63,15 +63,40 @@ By default, an interactive run shows a live dashboard (the `tui` reporter); pipe
 
 ## Supported collection formats
 
-The loader auto-detects three layouts:
+The loader auto-detects these layouts:
 
-| Layout                                   | Detected when…                                                  |
-| ---------------------------------------- | --------------------------------------------------------------- |
-| **OpenCollection directory** (preferred) | the target directory contains `opencollection.yml` (or `.yaml`) |
-| **OpenCollection bundled file**          | the target path ends in `.yaml`/`.yml`                          |
-| **Legacy file-collection** (deprecated)  | the target directory contains `_collection.yaml`                |
+| Layout                                   | Detected when…                                                                                          |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **OpenCollection directory** (preferred) | the target directory contains `opencollection.yml` (or `.yaml`)                                         |
+| **OpenCollection bundled file**          | the target path ends in `.yaml`/`.yml` (and is not a Postman v3 document)                               |
+| **Legacy file-collection** (deprecated)  | the target directory contains `_collection.yaml`                                                        |
+| **Postman v2.0 / v2.1**                  | a `.json` file whose `info.schema` is a Postman schema URL, or that has `info._postman_id`             |
+| **Postman v3 single file**               | a `.json` / `.yaml` / `.yml` file whose root has `$kind: "collection"`                                  |
+| **Postman v3 folder**                    | a directory (without the markers above) containing `*.request.yaml` or `.resources/definition.yaml`    |
+| **Postman v3 archive**                   | a `.zip` file                                                                                           |
 
 The legacy format prints a stderr deprecation warning the first time it's loaded.
+
+### Postman collections
+
+Postman input is parsed by the **same shared importer the Restura app uses** (`shared/collections/postman/`, [ADR 0034](../docs/adr/0034-postman-shared-parser-and-sidecar.md)), so a collection runs in CI the way it imports in the app. `pm.*` scripts are migrated to `rs.*` as on import.
+
+- **Caps.** Untrusted input is bounded before it is read: at most 5,000 files, 10 MiB per file, 50 MiB in total and 50 MiB for a `.zip` (checked from the file size before reading, then inflated as a stream with a running byte count). A single `.json` / `.yaml` file may be up to 50 MiB.
+- **Folders.** The CLI walks a v3 folder with `lstat` and **never follows symlinks**: a symlinked file or directory is skipped and listed in the import report. Each file is re-opened with `O_NOFOLLOW` and must still be the same regular file (device and inode) that the walk saw. A file swapped for a symlink, a FIFO or another file in between is refused. Only YAML / JSON files are read; other files under `.resources/` (external scripts, binaries) are listed as unread.
+- **Import report.** Everything the importer dropped or approximated (unsupported auth, unsendable methods, saved responses, secret variables, MCP stdio items, item kinds with no Restura equivalent, …) is printed to **stderr**, grouped by kind with a count and the affected item names. The `json` reporter includes it as `importReport` (`{ sourceVersion, warnings[], skippedSymlinks? }`). Entries carry only names and fixed notes, never credentials.
+- **`--strict-import`** refuses the run (exit `2`, nothing is sent) when the import report has any entry. It counts exactly the import report's entries plus skipped symlinks. The CLI's own platform skips (Kafka / MQTT presets, the `[restura] skipping …` notices below) are not import loss and do not trip it.
+- **Inherited auth.** When a folder (or the collection) uses a Postman auth type Restura cannot sign, the importer gives the requests that inherit from it an explicit "no auth" and a report entry each. They never inherit a credential from further up (for example the collection's bearer token).
+
+What the CLI does with constructs it cannot run — it never runs them silently:
+
+| Construct                                                                                     | CLI behaviour                                                                                                                                                                                                                  |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Unsupported Postman auth (hawk, edgegrid, jwt, akamai, asap, …), on the request or inherited | **Not sent.** The request is reported as errored with `not sent: Postman auth type "…" is not supported…` and counted as "not sent" in the summary; it is never sent unauthenticated or with a credential from further up. |
+| MCP stdio items                                                                               | **Never launched.** The item errors with the existing "MCP stdio transport is desktop-only" reason.                                                                                                                           |
+| Requests that are not sent (above)                                                            | Refused in the executor layer too, so `restura run`, OWS workflows and agent tools all refuse them. Their variables never abort a run in the secret-variable pre-check.                                                       |
+| Kafka / MQTT items                                                                            | Skipped with a `[restura] skipping … preset` notice on stderr, as for OpenCollection presets. This is a platform skip (the CLI has no broker transport), not import loss: it is stderr-only and is **not** an import-report entry. |
+| WebSocket, Socket.IO, LLM and data items                                                      | Imported as empty placeholders and skipped with a `[restura] skipping "…"` notice on stderr. Each is also an `unsupported-item-kind` import-report entry, so `--strict-import` and the `json` reporter see them. |
+| v3 secret (vault) variables                                                                   | Imported without a value. A run that references one fails before sending anything unless you provide the value with `--env`; an empty value is never sent.                                                                   |
 
 ## Supported protocols
 
@@ -91,7 +116,7 @@ Header-based auth (Bearer, Basic, API-key, OAuth2) is applied to HTTP/GraphQL, g
 restura run [collection] [options]
 ```
 
-`[collection]` accepts a directory (any supported layout) or a bundled `.yaml`/`.yml` file. Omit it in a terminal to choose one via the [interactive wizard](#interactive-mode); in CI it is required.
+`[collection]` accepts a directory (any supported layout, including a Postman v3 folder), a bundled `.yaml`/`.yml` file, or a Postman `.json` / v3 `.zip` file (see [Postman collections](#postman-collections)). Omit it in a terminal to choose one via the [interactive wizard](#interactive-mode); in CI it is required.
 
 | Flag                        | Default       | Description                                                                                                                       |
 | --------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -118,6 +143,7 @@ restura run [collection] [options]
 | `--cert-passphrase <value>` |               | Passphrase for an encrypted `--client-key`.                                                                                       |
 | `--proxy <url>`             |               | HTTP(S) proxy URL. Overrides `HTTP_PROXY`/`HTTPS_PROXY` and composes with the TLS options.                                        |
 | `--external-secrets-config <file>` |        | YAML/JSON profiles for resolving external secret references (AWS Secrets Manager, Google Secret Manager, Azure Key Vault). See [External secrets](#external-secrets). |
+| `--strict-import`           | `false`       | Postman input: exit `2` without running anything if the [import report](#postman-collections) has any entry.                     |
 
 TLS options apply to all HTTPS traffic for the run (HTTP/GraphQL/gRPC/SSE/MCP). They are global flags rather than per-request settings; per-domain client certificates (collection `clientCertificates`) are not yet honored — pass the cert that the run needs via `--client-cert`.
 
@@ -169,11 +195,12 @@ Variables set inside a script (`pm.environment.set('K', 'v')`) propagate to subs
 
 ## Variables
 
-Three layered sources, in order of precedence (later wins):
+Four layered sources, in order of precedence (later wins), the same order the app's collection runner uses:
 
 1. `--env` file
-2. Collection variables (declared in `opencollection.yml` or `_collection.yaml`)
-3. Iteration row (when `--data` is set)
+2. Collection variables (declared in `opencollection.yml` or `_collection.yaml`, or the Postman collection's variables)
+3. Folder variables of the folders above the request, outer → inner (inner wins). Secret, private and handle-backed folder variables are not resolved by the CLI.
+4. Iteration row (when `--data` is set)
 
 Substitutions are `{{NAME}}`. Unknown vars are left in place so the upstream sees them and you notice the gap.
 
@@ -229,11 +256,12 @@ The `live` reporter (also what CI logs get) prints one line per request:
 | ---- | ------------------------------------------------------------------------------- |
 | `0`  | Every request passed AND at least one request ran                               |
 | `1`  | One or more requests failed or errored (or no requests matched after filtering) |
-| `2`  | Internal error: missing collection, bad reporter name, IO failure, …            |
+| `2`  | Internal error: missing collection, bad reporter name, IO failure, a Postman input over the caps, `--strict-import` with a non-empty import report, … |
 
 ## Troubleshooting
 
-- **`No recognised collection layout`** — your target directory needs one of `opencollection.yml`, `opencollection.yaml`, or `_collection.yaml`. Re-export from the Restura app if unsure.
+- **`No recognised collection layout`** — your target directory needs one of `opencollection.yml`, `opencollection.yaml`, or `_collection.yaml`, or must be a Postman v3 folder (`*.request.yaml` / `.resources/definition.yaml`). Re-export from the Restura app if unsure.
+- **`not sent: Postman auth type "…" is not supported`** — the Postman request (or a folder above it) uses an auth type Restura cannot sign. Switch it to a supported auth in the app, or `--exclude` it.
 - **`Invalid URL`** — the URL after `{{var}}` resolution isn't a valid absolute URL. Check that `--env` is loaded and your var names match.
 - **`Localhost URLs are not allowed`** — add `--allow-localhost` for local upstreams. Off by default to prevent SSRF in shared CI.
 - **gRPC requests return `UNKNOWN`** — the upstream likely doesn't speak Connect protocol. On auto / Connect the CLI uses Connect-over-HTTP, not gRPC-over-HTTP/2 binary framing; set the request's wire protocol to gRPC-Web for a gRPC-Web endpoint (e.g. Envoy `grpc_web`).

@@ -1,15 +1,15 @@
 import {
-  createMcpTools,
   type AgentTool,
   type ContentBlock,
+  createMcpTools,
   type ResolvedAgentTools,
   type ToolSource,
 } from '@shared/agent-lab';
 import type { HttpRequest } from '@shared/types';
-import type { LoadedRequest } from './collectionLoader.js';
-import type { ExecuteOptions, ExecuteOutcome } from './executors/types.js';
 import type { AgentRuntimeManifest } from '../commands/agentRuntime.js';
 import { connectCliMcpClient } from './agentMcpClient.js';
+import type { LoadedRequest } from './collectionLoader.js';
+import type { ExecuteOptions, ExecuteOutcome } from './executors/types.js';
 import { createPinnedMcpFetchSession } from './pinnedMcpFetch.js';
 
 export interface CliAgentToolDependencies {
@@ -72,6 +72,9 @@ export async function resolveCliAgentTools(
       }
       if (item.type !== 'http') {
         throw new Error(`agent request tool must be HTTP: ${requestId}`);
+      }
+      if (item.blocked) {
+        throw new Error(`agent request tool ${requestId} ${item.blocked}`);
       }
       const request = item.request as HttpRequest;
       const method = request.method.toUpperCase();

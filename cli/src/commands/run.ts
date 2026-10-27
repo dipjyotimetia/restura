@@ -10,9 +10,9 @@ import { TuiReporter } from '../reporters/tui.js';
 import type { Reporter } from '../reporters/types.js';
 import { loadIterationData } from '../runner/dataLoader.js';
 import { loadEnv } from '../runner/envLoader.js';
+import { loadExternalSecretResolver } from '../runner/external-secret-config.js';
 import { parseRetryOn } from '../runner/retry.js';
 import { type RunOptions, runCollection } from '../runner/runner.js';
-import { loadExternalSecretResolver } from '../runner/external-secret-config.js';
 import { interactive, showCursor } from '../ui/colors.js';
 import { runWizard } from '../ui/wizard.js';
 
@@ -40,6 +40,7 @@ export interface RunOpts {
   certPassphrase?: string;
   proxy?: string;
   externalSecretsConfig?: string;
+  strictImport?: boolean;
 }
 
 /** Build TLS options from --insecure / --ca / --client-cert / --client-key. */
@@ -74,7 +75,7 @@ export function registerRunCommand(program: Command): void {
     )
     .argument(
       '[collection]',
-      'Path to a collection directory (OpenCollection or legacy `_collection.yaml`) or a bundled YAML file. Omit in a TTY to pick one interactively.'
+      'Path to a collection: OpenCollection directory or bundled YAML, legacy `_collection.yaml` directory, or a Postman collection (v2.x .json; v3 folder, .zip or .json/.yaml). Omit in a TTY to pick one interactively.'
     )
     .option('--env <file>', 'Path to env file (json or yaml)')
     .option(
@@ -114,6 +115,11 @@ export function registerRunCommand(program: Command): void {
     .option(
       '--external-secrets-config <file>',
       'YAML/JSON file mapping external secret profile ids to explicit identities'
+    )
+    .option(
+      '--strict-import',
+      'Postman input: exit 2 without running anything if the import report has any entry',
+      false
     )
     .action(async (collectionPath: string | undefined, opts: RunOpts) => {
       // A missing collection launches the wizard in a TTY; in CI it's an error
@@ -177,6 +183,7 @@ export async function executeRun(collectionPath: string, opts: RunOpts): Promise
         ...(tls ? { tls } : {}),
         ...(opts.proxy ? { proxy: opts.proxy } : {}),
         ...(externalSecretResolver ? { externalSecretResolver } : {}),
+        ...(opts.strictImport ? { strictImport: true } : {}),
       },
       reporter
     );

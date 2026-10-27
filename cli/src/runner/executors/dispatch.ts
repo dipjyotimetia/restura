@@ -16,6 +16,11 @@ export async function executeRequest(
   item: LoadedRequest,
   opts: ExecuteOptions
 ): Promise<ExecuteOutcome> {
+  // Refused at load time (see `LoadedRequest.blocked`): never executed, for
+  // every protocol and every caller.
+  if (item.blocked) {
+    return { status: 0, passed: false, durationMs: 0, bodyBytes: 0, errorMessage: item.blocked };
+  }
   switch (item.type) {
     case 'http':
       return executeHttp(item, opts);

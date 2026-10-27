@@ -40,7 +40,7 @@ export async function runWizard(): Promise<WizardResult> {
 
   const collectionPath = orCancel(
     await text({
-      message: 'Collection — directory or bundled .yaml file',
+      message: 'Collection — directory, bundled .yaml, or Postman .json / .zip / v3 folder',
       placeholder: './my-collection',
       validate: (v) => (v && existsSync(v.trim()) ? undefined : 'Path does not exist'),
     })
