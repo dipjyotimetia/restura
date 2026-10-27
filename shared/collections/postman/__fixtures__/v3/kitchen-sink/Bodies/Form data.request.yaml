@@ -1,0 +1,13 @@
+$kind: http-request
+url: https://example.com/form
+method: POST
+body:
+  type: formdata
+  content:
+    - type: text
+      key: name
+      value: Ada
+    - type: file
+      key: avatar
+      src: /tmp/avatar.png
+order: 1000

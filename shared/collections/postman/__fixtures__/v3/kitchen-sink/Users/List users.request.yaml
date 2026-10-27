@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{baseUrl}}/users?page=1&limit=10"
+method: GET
+headers:
+  - key: Accept
+    value: application/json
+  - key: X-Off
+    value: "1"
+    disabled: true
+queryParams:
+  page: "1"
+  limit: "10"
+auth:
+  type: noauth
+scripts:
+  - type: afterResponse
+    code: pm.test('200', () => pm.response.to.have.status(200));
+examples: ./.resources/List users.resources/examples
+order: 1000

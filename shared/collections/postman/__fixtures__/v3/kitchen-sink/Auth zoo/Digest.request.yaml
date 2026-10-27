@@ -1,0 +1,9 @@
+$kind: http-request
+url: https://example.com/dg
+method: GET
+auth:
+  type: digest
+  credentials:
+    username: du
+    password: dp
+order: 5000

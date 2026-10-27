@@ -1,0 +1,27 @@
+$kind: collection
+name: Kitchen Sink
+description: Golden v2.1 source
+variables:
+  - key: baseUrl
+    value: https://api.example.com
+    secret: false
+  - key: token
+    value: ""
+    secret: false
+  - key: off
+    value: x
+    disabled: true
+    secret: false
+scripts:
+  - type: http:beforeRequest
+    code: pm.variables.set('t', Date.now());
+    language: text/javascript
+  - type: http:afterResponse
+    code: pm.test('ok', () => pm.response.to.be.ok);
+    language: text/javascript
+auth:
+  - id: 6514f1c8-72e2-4e70-bf2e-48a67b99b1fc
+    type: bearer
+    name: bearer auth
+    credentials:
+      token: "{{token}}"

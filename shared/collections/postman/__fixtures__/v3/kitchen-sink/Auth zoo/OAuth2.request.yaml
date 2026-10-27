@@ -1,0 +1,11 @@
+$kind: http-request
+url: https://example.com/o2
+method: GET
+auth:
+  type: oauth2
+  credentials:
+    clientId: cid
+    accessTokenUrl: https://example.com/token
+    clientSecret: csec
+    grant_type: client_credentials
+order: 3000

@@ -1,0 +1,10 @@
+$kind: http-request
+url: https://example.com/ntlm
+method: GET
+auth:
+  type: ntlm
+  credentials:
+    username: nu
+    password: np
+    domain: CORP
+order: 7000

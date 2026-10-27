@@ -1,0 +1,13 @@
+$kind: collection
+description: User endpoints
+scripts:
+  - type: http:beforeRequest
+    code: console.log('folder');
+auth:
+  - id: 92043ff8-688e-410a-b490-ede8040b7a79
+    type: basic
+    name: basic auth
+    credentials:
+      username: u
+      password: p
+order: 1000

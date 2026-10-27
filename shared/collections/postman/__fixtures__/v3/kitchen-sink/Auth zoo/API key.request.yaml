@@ -1,0 +1,10 @@
+$kind: http-request
+url: https://example.com/ak
+method: GET
+auth:
+  type: apikey
+  credentials:
+    key: X-Key
+    value: v
+    in: header
+order: 4000
