@@ -129,3 +129,36 @@ describe('nested OAuth2 parameter rows are redacted and counted', () => {
     }
   });
 });
+
+describe('bag-only auth handles (placeholders, broker presets) are reported', () => {
+  it('a websocket placeholder bearer handle: v3 empties it with a secret-handle entry', () => {
+    const placeholder: CollectionItem = { id: 'p', name: 'Socket', type: 'folder', items: [] };
+    Object.assign(placeholder, {
+      _postman: {
+        item: { $kind: 'websocket-request', name: 'Socket', url: 'wss://api.example.com/ws' },
+        authBagOnly: true,
+        auth: {
+          type: 'bearer',
+          bearer: [
+            {
+              key: 'token',
+              value: { kind: 'handle', id: 'h-9', label: 'Col/Socket/_postman.bearer.token' },
+            },
+          ],
+        },
+      },
+    });
+    const c: Collection = { id: 'c', name: 'Col', items: [placeholder] };
+    const out = exportPostmanV3(c);
+    const text = Object.values(out.files).join('\n');
+    expect(text).not.toContain('h-9');
+    expect(text).not.toContain('_postman.bearer.token');
+    expect(out.report.entries).toContainEqual(
+      expect.objectContaining({ construct: 'secret-handle', itemName: 'Socket' })
+    );
+    // v2.1 has no websocket kind: the placeholder is skipped (reported), nothing is written.
+    const v21 = exportPostmanV21(c);
+    expect(JSON.stringify(v21.collection)).not.toContain('h-9');
+    expect(v21.report.entries.map((e) => e.construct)).toEqual(['placeholder-item']);
+  });
+});

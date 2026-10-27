@@ -96,7 +96,7 @@ export function exportMqtt(
           })
         : undefined,
       properties: isObj(left.properties) ? left.properties : undefined,
-      auth: restoreBagOnlyAuth(sidecar, AUTH_TYPES.mqtt),
+      auth: restoreBagOnlyAuth(sidecar, AUTH_TYPES.mqtt, name, ctx),
       settings,
       messages: nonEmpty(messages),
     }),
@@ -141,7 +141,7 @@ export function exportKafka(
     $kind: 'kafka-request',
     name,
     url: c.bootstrapBrokers,
-    auth: restoreBagOnlyAuth(sidecar, AUTH_TYPES.kafka),
+    auth: restoreBagOnlyAuth(sidecar, AUTH_TYPES.kafka, name, ctx),
     settings: Object.keys(settings).length > 0 ? settings : undefined,
     schema: isObj(sidecar?.schema) ? sidecar.schema : undefined,
     scripts: restoreScripts(sidecar, KAFKA_PHASES),

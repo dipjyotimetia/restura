@@ -669,31 +669,41 @@ describe('v2.1 export — remaining edges', () => {
     expect(req?.request.auth?.type).toBe('hawk');
   });
 
-  it('bag-only restores (no report context) never write a handle', () => {
-    const restored = restoreBagOnlyAuth(
-      {
-        authBagOnly: true,
-        auth: {
-          type: 'basic',
-          basic: [
-            { key: 'username', value: { kind: 'inline', value: 'u' } },
-            { key: 'password', value: { kind: 'handle', id: 'h', label: 'L' } },
-          ],
-        },
+  it('bag-only restores empty handles (reported); dropped or empty sets report nothing', () => {
+    const report = new PostmanExportReportBuilder();
+    const ctx = { report, transformScript: (x: string) => x };
+    const basic = {
+      authBagOnly: true as const,
+      auth: {
+        type: 'basic',
+        basic: [
+          { key: 'username', value: { kind: 'inline', value: 'u' } },
+          { key: 'password', value: { kind: 'handle', id: 'h', label: 'L' } },
+        ],
       },
-      new Set(['basic'])
-    );
-    expect(restored).toEqual({
+    };
+    expect(restoreBagOnlyAuth(basic, new Set(['basic']), 'Bag', ctx)).toEqual({
       type: 'basic',
       credentials: [
         { key: 'username', value: 'u' },
         { key: 'password', value: '' },
       ],
     });
+    expect(report.entries.map((e) => [e.construct, e.itemName])).toEqual([
+      ['secret-handle', 'Bag'],
+    ]);
+    // A type the target kind does not allow is dropped before its handles are read.
+    expect(restoreBagOnlyAuth(basic, new Set(['bearer']), 'Bag', ctx)).toBeUndefined();
+    expect(report.entries).toHaveLength(1);
     expect(new PostmanExportReportBuilder().build().targetVersion).toBe('3.0');
     expect(
-      restoreBagOnlyAuth({ authBagOnly: true, auth: { type: '' } }, new Set())
+      restoreBagOnlyAuth({ authBagOnly: true, auth: { type: '' } }, new Set(), 'B', ctx)
     ).toBeUndefined();
-    expect(restoreBagOnlyAuth({ authBagOnly: true, auth: 'raw' }, new Set())).toBeUndefined();
+    expect(
+      restoreBagOnlyAuth({ authBagOnly: true, auth: 'raw' }, new Set(), 'B', ctx)
+    ).toBeUndefined();
+    expect(
+      restoreBagOnlyAuth({ authBagOnly: true, auth: { type: 'noauth' } }, new Set(), 'B', ctx)
+    ).toEqual({ type: 'noauth' });
   });
 });

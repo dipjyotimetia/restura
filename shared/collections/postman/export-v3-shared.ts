@@ -367,20 +367,17 @@ function isSecretRefValue(v: unknown): v is Exclude<SecretValue, string> {
  * (`convertPostmanBagToHandles`) leaves `{ kind: 'handle', id, label }`
  * objects in the bag; like typed fields they go through {@link secretText}
  * (EMPTY + a `secret-handle` entry), so neither the keychain id nor the label
- * (collection / request names) reaches a file. Without a report context
- * (bag-only restores) a handle is still emptied.
+ * (collection / request names) reaches a file.
  */
-function bagValue(v: unknown, owner: string | undefined, ctx: ExportContext | undefined): unknown {
-  if (!isSecretRefValue(v)) return v ?? '';
-  if (ctx && owner !== undefined) return secretText(v, owner, ctx);
-  return v.kind === 'inline' ? v.value : '';
+function bagValue(v: unknown, owner: string, ctx: ExportContext): unknown {
+  return isSecretRefValue(v) ? secretText(v, owner, ctx) : (v ?? '');
 }
 
 /** v2-shaped sidecar auth `{ type, [type]: [{ key, value }] }` → credential rows. */
 function sidecarCreds(
   raw: unknown,
-  owner?: string,
-  ctx?: ExportContext
+  owner: string,
+  ctx: ExportContext
 ): { type: string; creds: Cred[] } | undefined {
   if (!isObj(raw) || typeof raw.type !== 'string') return undefined;
   const type = raw.type;
@@ -432,14 +429,18 @@ export function exportAuth(
 /** Bag-only auth (broker presets, placeholder items) → v3 credential set. */
 export function restoreBagOnlyAuth(
   sidecar: PostmanSidecar | undefined,
-  allowed: ReadonlySet<string>
+  allowed: ReadonlySet<string>,
+  owner: string,
+  ctx: ExportContext
 ): Raw | undefined {
   if (!sidecar?.authBagOnly) return undefined;
-  const bag = sidecarCreds(sidecar.auth);
-  if (!bag || bag.type === '') return undefined;
-  if (bag.type === 'noauth') return { type: 'noauth' };
-  if (!allowed.has(bag.type)) return undefined;
-  return { type: bag.type, credentials: bag.creds };
+  const type = isObj(sidecar.auth) ? sidecar.auth.type : undefined;
+  if (typeof type !== 'string' || type === '') return undefined;
+  if (type === 'noauth') return { type: 'noauth' };
+  // Checked before reading credentials: a dropped set must not report its handles.
+  if (!allowed.has(type)) return undefined;
+  const bag = sidecarCreds(sidecar.auth, owner, ctx);
+  return bag && { type: bag.type, credentials: bag.creds };
 }
 
 const CREDENTIAL_TYPES = [
