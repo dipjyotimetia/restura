@@ -19,7 +19,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import type { Reporter, RunResult } from '../../reporters/types';
 import { loadCollection } from '../collectionLoader';
 import { walkPostmanFolder } from '../postmanFolder';
-import { formatImportReport } from '../postmanImport';
+import { formatImportReport, isPostmanDocument } from '../postmanImport';
 import { runCollection } from '../runner';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -118,9 +118,11 @@ describe('loadCollection — Postman', () => {
     const types = loaded.requests.map((r) => r.type);
     expect(types).not.toContain('kafka');
     const names = loaded.requests.map((r) => r.request.name);
-    expect(names).toContain('Local MCP');
+    // MCP stdio imports as a disabled placeholder folder (#1210), never a runnable request.
+    expect(names.some((n) => n.includes('Local MCP'))).toBe(false);
     expect(names.some((n) => n.includes('Echo socket'))).toBe(false);
     const out = stderr.mock.calls.map((c) => String(c[0])).join('');
+    expect(out).toMatch(/Local MCP/);
     expect(out).toMatch(/skipping .*Echo socket/);
     expect(out).toMatch(/skipping Kafka preset/);
     // Secret variable: value-less, never folded in as an empty value.
@@ -283,8 +285,8 @@ describe('runCollection — Postman safety', () => {
       silentReporter
     );
     expect(existsSync(marker)).toBe(false);
-    expect(result.requests[0]?.passed).toBe(false);
-    expect(result.requests[0]?.errorMessage).toMatch(/stdio/);
+    // The stdio item imports as a disabled placeholder folder: nothing runnable is left.
+    expect(result.requests).toHaveLength(0);
   });
 
   it('--strict-import refuses to run when the report has entries', async () => {
@@ -414,5 +416,25 @@ describe('restura run --strict-import', () => {
     await expect(executeRun(KITCHEN, { ...base, strictImport: true })).rejects.toThrow('exit:2');
     expect(exit).toHaveBeenCalledWith(2);
     expect(hits).toHaveLength(0);
+  });
+});
+
+describe('isPostmanDocument — v2 schema host', () => {
+  const doc = (schema: string) => ({ info: { name: 'x', schema } });
+
+  it('accepts the real Postman schema hosts', () => {
+    expect(
+      isPostmanDocument(doc('https://schema.getpostman.com/json/collection/v2.1.0/collection.json'))
+    ).toBe(true);
+    expect(isPostmanDocument(doc('http://getpostman.com/json/collection/v2.0.0/'))).toBe(true);
+  });
+
+  it('matches the URL host, not a substring anywhere in the URL', () => {
+    expect(isPostmanDocument(doc('https://evil.example/getpostman.com/collection.json'))).toBe(
+      false
+    );
+    expect(isPostmanDocument(doc('https://getpostman.com.evil.example/c.json'))).toBe(false);
+    expect(isPostmanDocument(doc('https://notgetpostman.com/c.json'))).toBe(false);
+    expect(isPostmanDocument(doc('not a url getpostman.com'))).toBe(false);
   });
 });
