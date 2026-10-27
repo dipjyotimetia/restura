@@ -244,7 +244,11 @@ export async function loadPostmanFile(
 
 type MaybeSecretVar = { key: string; secret?: boolean };
 
-/** Names of the value-less v3 vault variables anywhere in the tree. */
+/**
+ * Names of the value-less secret variables anywhere in the tree: v3 vault
+ * variables and v2.1 `type: "secret"` variables both import with
+ * `secret: true` and no value.
+ */
 export function postmanSecretVariableNames(c: Collection): Set<string> {
   const out = new Set<string>();
   const add = (vars: readonly MaybeSecretVar[] | undefined) => {

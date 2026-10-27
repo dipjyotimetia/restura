@@ -61,6 +61,36 @@ describe('parsePostmanV2 — secret variables (G2, #1228)', () => {
     ).toHaveLength(2);
   });
 
+  it('item-level secret sidecar rows are allowlisted: extra value-bearing keys are dropped', () => {
+    const { collection: c } = importPostmanCollection({
+      info: { name: 'C', schema: V21 },
+      item: [
+        {
+          name: 'F',
+          variable: [
+            {
+              key: 'fs',
+              type: 'secret',
+              value: 'X',
+              initialValue: 'IV',
+              currentValue: 'CV',
+              src: 'SRC',
+              disabled: true,
+              description: 'd',
+            },
+          ],
+          item: [],
+        },
+      ],
+    });
+    const sidecar = getPostmanSidecar(c.items[0]!);
+    expect(sidecar?.variable).toEqual([
+      { key: 'fs', type: 'secret', disabled: true, description: 'd' },
+    ]);
+    const json = JSON.stringify(c);
+    for (const leak of ['"X"', 'IV', 'CV', 'SRC']) expect(json).not.toContain(leak);
+  });
+
   it('a disabled secret variable stays disabled and value-less', () => {
     const { collection: c } = importPostmanCollection({
       info: { name: 'C', schema: V21 },

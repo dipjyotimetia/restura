@@ -330,8 +330,14 @@ function collectItemExtras(
     sidecar.variable = item.variable.map((v) => {
       if (!isSecretVariable(v)) return v;
       ctx.report.unmodelled('secret-variable', name, str(v.key));
-      const { value: _value, ...rest } = v;
-      return rest;
+      // Allowlist, not denylist: exports can carry other value-bearing keys
+      // (`initialValue`, `currentValue`, …) that must never reach the bag.
+      return {
+        ...(v.key !== undefined ? { key: v.key } : {}),
+        type: v.type,
+        ...(v.disabled !== undefined ? { disabled: v.disabled } : {}),
+        ...(v.description !== undefined ? { description: v.description } : {}),
+      };
     });
     ctx.report.unmodelled('item-variables', name);
   }
