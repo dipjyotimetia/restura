@@ -64,7 +64,7 @@ Pick a Postman v2.0 / v2.1 JSON file, a v3 **folder** (**Import folder**), a `.z
 
 - **Import report, no silent loss.** Anything dropped or approximated is listed after import: unsupported auth, saved responses, item variables, extra events, file-body paths and similar. The raw Postman data is kept in a `_postman` sidecar in the Restura store (not in file-backed, Git-friendly collections, so it is lost when a desktop file collection is saved and reloaded; see [ADR 0034](/architecture/adrs/0034-postman-shared-parser-and-sidecar/)).
 - **Auth.** OAuth 1.0a and NTLM map directly. Unsupported types (hawk, jwt, edgegrid, asap, azure, sasl, akamai) import as no auth with a warning.
-- **Other kinds.** WebSocket, Socket.IO, LLM and data items become placeholder folders (native WebSocket / Socket.IO items are tracked in [#1209](https://github.com/dipjyotimetia/restura/issues/1209)). MCP stdio items import for fidelity, work on desktop only, and ask for consent when you connect. Vault (secret) variables import without a value.
+- **Other kinds.** WebSocket, Socket.IO, LLM and data items become placeholder folders (native WebSocket / Socket.IO items are tracked in [#1209](https://github.com/dipjyotimetia/restura/issues/1209)). MCP stdio items import as disabled placeholders: Restura keeps the program, option names and env variable names, but not argument or env values, so recreate the request and re-enter them before you connect. Vault (secret) variables import without a value.
 - **Security downgrades** such as `strictSSL: false` are called out as warnings.
 - **Limits.** Archives up to 50 MB, with per-file, total, file-count and folder-depth limits; path traversal in archives is refused.
 
