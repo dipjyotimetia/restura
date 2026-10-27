@@ -1,0 +1,13 @@
+$kind: http-request
+url: https://example.com/o1
+method: GET
+auth:
+  type: oauth1
+  credentials:
+    addParamsToHeader: true
+    signatureMethod: HMAC-SHA1
+    tokenSecret: ts
+    token: t
+    consumerSecret: cs
+    consumerKey: ck
+order: 2000

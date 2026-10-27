@@ -23,7 +23,9 @@ export type ImportWarning =
   | { kind: 'unsupported-option'; option: string }
   | { kind: 'unresolved-file'; option: string; path: string }
   /** A source construct with no Restura model, kept in a passthrough sidecar (e.g. `_postman`). */
-  | { kind: 'unmodelled-construct'; construct: string; requestName: string; detail: string };
+  | { kind: 'unmodelled-construct'; construct: string; requestName: string; detail: string }
+  /** An imported setting that weakens transport security (e.g. TLS verification off). */
+  | { kind: 'security-downgrade'; setting: string; requestName: string; detail: string };
 
 /**
  * Coerce a source-format method string into a sendable `HttpMethod`.
@@ -52,6 +54,8 @@ export interface ImportResult {
   /** Optional separate environments to push into useEnvironmentStore. */
   environments?: Environment[];
   warnings: ImportWarning[];
+  /** Detected source format/version for the import preview (e.g. "Postman v3"). */
+  sourceLabel?: string;
 }
 
 /**
@@ -110,5 +114,7 @@ function describeWarning(w: ImportWarning): string {
       return `Local file "${w.path}" from ${w.option} was not read`;
     case 'unmodelled-construct':
       return `${w.detail} ("${w.requestName}")`;
+    case 'security-downgrade':
+      return `Security downgrade in "${w.requestName}": ${w.detail} (${w.setting})`;
   }
 }

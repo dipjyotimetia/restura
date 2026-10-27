@@ -1,0 +1,10 @@
+$kind: collection
+auth:
+  - id: f3fa4960-bd05-4a21-98db-2a3290a42efa
+    type: apikey
+    name: apikey auth
+    credentials:
+      key: api_key
+      value: "{{k}}"
+      in: query
+order: 1000

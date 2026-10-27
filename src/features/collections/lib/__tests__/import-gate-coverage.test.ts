@@ -3,7 +3,7 @@ import type { PostmanCollection } from '@/types';
 import { importHoppscotchCollection } from '../importers/hoppscotch';
 import { importInsomniaCollection } from '../importers/insomnia';
 import { importOpenAPICollection } from '../importers/openapi';
-import { importPostmanCollection } from '../importers/postman';
+import { importPostmanCollection, importPostmanV3Files } from '../importers/postman';
 import type { ImportWarning } from '../importers/types';
 import { validateImportedCollection } from '../importers/validateImported';
 
@@ -206,5 +206,63 @@ describe('import gate coverage — representative clean fixtures pass', () => {
     };
     const collection = await importOpenAPICollection(spec);
     expect(validateImportedCollection(collection)).toEqual({ ok: true });
+  });
+});
+
+describe('import gate coverage — Postman v3', () => {
+  const v3 = (items: unknown[]) => ({ $kind: 'collection', name: 'Postman v3', items });
+  const methods = (items: Array<{ request?: unknown }>) =>
+    items.map((i) => (i.request as { method?: string } | undefined)?.method);
+
+  it('extension methods survive verbatim; gate passes', async () => {
+    const warnings: ImportWarning[] = [];
+    const collection = await importPostmanCollection(
+      v3([
+        { $kind: 'http-request', name: 'Purge', method: 'PURGE', url: 'https://cdn.example.com' },
+        { $kind: 'http-request', name: 'Find', method: 'PROPFIND', url: 'https://dav.example.com' },
+        { $kind: 'http-request', name: 'Link', method: 'LINK', url: 'https://api.example.com' },
+      ]),
+      warnings
+    );
+    expect(validateImportedCollection(collection)).toEqual({ ok: true });
+    expect(warnings.filter((w) => w.kind === 'unsupported-method')).toEqual([]);
+    expect(methods(collection.items)).toEqual(['PURGE', 'PROPFIND', 'LINK']);
+  });
+
+  it('CONNECT / TRACE downgrade to GET with a warning; gate passes', async () => {
+    const warnings: ImportWarning[] = [];
+    const collection = await importPostmanCollection(
+      v3([
+        { $kind: 'http-request', name: 'Tunnel', method: 'CONNECT', url: 'https://x' },
+        { $kind: 'http-request', name: 'Trace', method: 'TRACE', url: 'https://x' },
+      ]),
+      warnings
+    );
+    expect(validateImportedCollection(collection)).toEqual({ ok: true });
+    expect(warnings.filter((w) => w.kind === 'unsupported-method')).toEqual([
+      { kind: 'unsupported-method', method: 'CONNECT', requestName: 'Tunnel' },
+      { kind: 'unsupported-method', method: 'TRACE', requestName: 'Trace' },
+    ]);
+    expect(methods(collection.items)).toEqual(['GET', 'GET']);
+  });
+
+  it('every $kind and a YAML folder pass the gate', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const allKinds = JSON.parse(
+      readFileSync(
+        resolve(process.cwd(), 'shared/collections/postman/__fixtures__/v3/all-kinds.json'),
+        'utf8'
+      )
+    );
+    expect(validateImportedCollection(await importPostmanCollection(allKinds))).toEqual({
+      ok: true,
+    });
+    const folder = importPostmanV3Files({
+      'Demo/.resources/definition.yaml': '$kind: collection\nname: Demo\n',
+      'Demo/Get.request.yaml': '$kind: http-request\nurl: https://x/y?a=1\nmethod: get\norder: 1\n',
+    });
+    expect(folder.detectedVersion).toBe('3.0');
+    expect(validateImportedCollection(folder.collection)).toEqual({ ok: true });
   });
 });

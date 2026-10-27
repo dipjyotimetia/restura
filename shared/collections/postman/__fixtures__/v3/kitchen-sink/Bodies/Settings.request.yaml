@@ -1,0 +1,9 @@
+$kind: http-request
+url: https://example.com/settings
+method: GET
+settings:
+  strictSSL: false
+  followRedirects: false
+  maxRedirects: 3
+  disableUrlEncoding: true
+order: 7000

@@ -1,0 +1,11 @@
+$kind: http-request
+url: https://example.com/aws
+method: GET
+auth:
+  type: awsv4
+  credentials:
+    region: us-east-1
+    service: s3
+    secretKey: SK
+    accessKey: AK
+order: 6000

@@ -1,4 +1,12 @@
+import {
+  isPostmanV3Paths,
+  POSTMAN_V3_LIMITS,
+  PostmanV3ContainerError,
+  type PostmanV3FileMap,
+} from '@shared/collections/postman';
+import { collectPostmanFolderFiles } from '@shared/collections/postman/v3-folder';
 import * as yaml from 'js-yaml';
+import type { ImportWarning } from '@/features/collections/lib/importers/types';
 import { getElectronAPI, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
 
 export type ImportType =
@@ -28,10 +36,10 @@ export const FORMATS: FormatMeta[] = [
   {
     id: 'postman',
     name: 'Postman',
-    tagline: 'v2.1 collections & environments',
+    tagline: 'v2.1 & v3 collections, environments',
     initials: 'PM',
     color: '#ff6c37',
-    accept: '.json,.yaml,.yml',
+    accept: '.json,.yaml,.yml,.zip',
   },
   {
     id: 'insomnia',
@@ -109,6 +117,7 @@ export const FORMATS: FormatMeta[] = [
 
 export const FEATURE_LISTS: Record<ImportType, string[]> = {
   postman: [
+    'v2.1 JSON, or v3 as a folder, .zip or single JSON/YAML file',
     'Collections and folders',
     'HTTP requests (all methods)',
     'Query parameters and headers',
@@ -116,6 +125,7 @@ export const FEATURE_LISTS: Record<ImportType, string[]> = {
     'Auth (Basic, Bearer, API Key, OAuth2, AWS Sig)',
     'Pre-request and test scripts',
     'Environment variables',
+    'v3: GraphQL, gRPC, MQTT, Kafka and MCP requests',
   ],
   insomnia: [
     'Workspaces and request groups',
@@ -228,6 +238,8 @@ export function detectImportFormat(text: string, fileName: string): ParsedImport
   if (typeof record.opencollection === 'string') return 'opencollection';
   if (typeof record.openapi === 'string' || typeof record.swagger === 'string') return 'openapi';
   if (record.info && typeof record.info === 'object' && 'schema' in record.info) return 'postman';
+  // Postman v3 logical tree (single JSON / YAML file).
+  if (record.$kind === 'collection') return 'postman';
   if (record._type === 'export' || Array.isArray(record.resources)) return 'insomnia';
   if ('v' in record && (Array.isArray(record.requests) || Array.isArray(record.folders)))
     return 'hoppscotch';
@@ -252,3 +264,72 @@ export async function fetchRemoteArtifact(url: string): Promise<string> {
   }
   return result.text;
 }
+
+/** A dropped / picked .zip is a Postman v3 archive when it holds v3 files; else Bruno. */
+export function detectZipImportFormat(paths: readonly string[]): 'postman' | 'bruno' {
+  return isPostmanV3Paths(paths) ? 'postman' : 'bruno';
+}
+
+/**
+ * Thin File adapter over the shared folder walk (`collectPostmanFolderFiles`):
+ * caps are applied to `File.size` before anything is read, only YAML / JSON is
+ * read, and non-YAML files under `.resources/` are recorded as unread.
+ */
+export async function readPostmanFolderFiles(files: readonly File[]): Promise<PostmanV3FileMap> {
+  return collectPostmanFolderFiles(
+    files.map((f) => ({
+      path: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
+      size: f.size,
+      read: () => f.text(),
+    }))
+  );
+}
+
+/**
+ * A picked folder with request files but no `.resources/` entries: either a
+ * hand-made folder or a picker that skipped hidden directories. Collection and
+ * folder metadata (auth, scripts, variables, examples) would then be missing.
+ */
+export function folderPickWarnings(files: PostmanV3FileMap): ImportWarning[] {
+  const paths = Object.keys(files);
+  const hasResources = paths.some((p) => p.split('/').includes('.resources'));
+  if (hasResources || !isPostmanV3Paths(paths)) return [];
+  return [
+    {
+      kind: 'unmodelled-construct',
+      construct: 'folder-resources',
+      requestName: paths[0]?.split('/')[0] ?? 'folder',
+      detail:
+        'No .resources folders were included, so collection / folder auth, scripts, variables and examples may be missing; import a .zip of the folder instead',
+    },
+  ];
+}
+
+/**
+ * Read a picked / dropped .zip, refusing it by `File.size` BEFORE its bytes
+ * are loaded into memory (the shared reader re-checks the byte length).
+ */
+export async function readZipBytes(file: File): Promise<Uint8Array> {
+  if (file.size > POSTMAN_V3_LIMITS.maxArchiveBytes) {
+    throw new PostmanV3ContainerError('archive is too large');
+  }
+  return new Uint8Array(await file.arrayBuffer());
+}
+
+/** A dropped .zip: a Postman v3 archive when it holds v3 files, else a Bruno export. */
+export async function detectDroppedZip(file: File): Promise<'postman' | 'bruno'> {
+  const bytes = await readZipBytes(file);
+  const { listZipEntryNames } = await import('@shared/collections/postman/v3-archive');
+  return detectZipImportFormat(listZipEntryNames(bytes));
+}
+
+/** True when a drop carries a directory (its File has no readable contents). */
+export function isDirectoryDrop(dataTransfer: DataTransfer): boolean {
+  const item = dataTransfer.items?.[0] as
+    | (DataTransferItem & { webkitGetAsEntry?: () => { isDirectory?: boolean } | null })
+    | undefined;
+  return item?.webkitGetAsEntry?.()?.isDirectory === true;
+}
+
+export const DIRECTORY_DROP_MESSAGE =
+  'Folders cannot be dropped here: drop a .zip of the collection folder, or use "Import folder".';

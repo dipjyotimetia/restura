@@ -1,0 +1,139 @@
+{
+  "$kind": "collection",
+  "name": "All Kinds",
+  "description": "Hand-authored single-file v3 logical tree covering every non-HTTP $kind",
+  "variables": [
+    { "key": "host", "value": "example.com" },
+    {
+      "key": "apiToken",
+      "secret": true,
+      "source": { "provider": "postman", "postman": { "type": "local", "secretId": "apiToken" } }
+    }
+  ],
+  "scripts": [
+    { "type": "http:beforeRequest", "code": "pm.variables.set('a', 1);" },
+    { "type": "grpc:beforeInvoke", "code": "console.log('grpc');" }
+  ],
+  "items": [
+    {
+      "$kind": "graphql-request",
+      "name": "Me query",
+      "url": "https://{{host}}/graphql",
+      "query": "query Me { me { id } }",
+      "variables": "{\"x\":1}",
+      "operationName": "Me",
+      "headers": [{ "key": "X-Client", "value": "restura" }],
+      "auth": { "type": "bearer", "credentials": [{ "key": "token", "value": "{{apiToken}}" }] },
+      "scripts": [{ "type": "afterResponse", "code": "pm.test('ok', () => {});" }]
+    },
+    {
+      "$kind": "grpc-request",
+      "name": "Say hello",
+      "url": "grpc.example.com:443",
+      "methodPath": "helloworld.Greeter/SayHello",
+      "message": { "content": "{\"name\":\"Ada\"}" },
+      "metadata": [{ "key": "x-trace", "value": "1" }],
+      "settings": { "secureConnection": true, "connectionTimeout": 5000 }
+    },
+    {
+      "$kind": "websocket-request",
+      "name": "Echo socket",
+      "url": "wss://echo.example.com",
+      "messages": [
+        { "$kind": "websocket-message", "name": "hi", "content": "hello", "contentType": "text" }
+      ]
+    },
+    {
+      "$kind": "socket.io-request",
+      "name": "Chat",
+      "url": "https://chat.example.com",
+      "events": [{ "name": "message" }]
+    },
+    {
+      "$kind": "mqtt-request",
+      "name": "Sensors",
+      "url": "mqtt://broker.example.com:1883",
+      "clientId": "restura-1",
+      "version": 5,
+      "topics": [{ "name": "sensors/#", "qos": 1, "subscribe": true }],
+      "settings": {
+        "keepAlive": 30,
+        "cleanSession": false,
+        "autoReconnect": false,
+        "connectionTimeout": 10000
+      },
+      "messages": [
+        {
+          "$kind": "mqtt-message",
+          "name": "Temp",
+          "topic": "sensors/temp",
+          "content": "21",
+          "contentType": "text",
+          "qos": 1,
+          "retain": true
+        },
+        {
+          "$kind": "mqtt-message",
+          "name": "Humidity",
+          "topic": "sensors/hum",
+          "content": "40",
+          "contentType": "text"
+        }
+      ]
+    },
+    {
+      "$kind": "kafka-request",
+      "name": "Produce order",
+      "mode": "producer",
+      "url": ["kafka-1:9092", "kafka-2:9092"],
+      "acknowledgements": "all",
+      "settings": { "compression": "gzip" },
+      "messages": [
+        {
+          "$kind": "kafka-message",
+          "name": "order",
+          "topic": "orders",
+          "key": { "contentType": "text", "content": "o-1" },
+          "value": { "contentType": "json", "content": "{\"id\":1}" },
+          "headers": [{ "key": "source", "value": "restura" }],
+          "partition": 2
+        }
+      ]
+    },
+    {
+      "$kind": "kafka-request",
+      "name": "Consume orders",
+      "mode": "consumer",
+      "url": ["kafka-1:9092"],
+      "topics": [{ "name": "orders" }, { "name": "skipped", "disabled": true }],
+      "startPosition": { "type": "beginning" }
+    },
+    {
+      "$kind": "mcp-request",
+      "name": "Remote MCP",
+      "transport": "sse",
+      "url": "https://mcp.example.com/mcp",
+      "headers": [{ "key": "X-Team", "value": "core" }],
+      "message": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}"
+    },
+    {
+      "$kind": "mcp-request",
+      "name": "Local MCP",
+      "transport": "stdio",
+      "command": "npx -y @modelcontextprotocol/server-everything",
+      "env": [{ "key": "DEBUG", "value": "1" }]
+    },
+    {
+      "$kind": "llm-request",
+      "name": "Ask model",
+      "url": "https://llm.example.com/v1",
+      "userPrompts": [{ "value": "hi", "active": true, "contentType": "text" }]
+    },
+    {
+      "$kind": "data-request",
+      "name": "Rows",
+      "type": "postgres",
+      "query": "select 1"
+    }
+  ]
+}

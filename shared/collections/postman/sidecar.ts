@@ -34,6 +34,30 @@ export interface PostmanSidecar {
   urlVariable?: unknown[];
   /** Raw `file` body, or a form-data body with file rows (paths are not resolvable at import). */
   body?: unknown;
+  // ── v3 (#1200). Credential-bearing v3 data is stored in the v2 shapes above
+  // (auth as `{ type, [type]: [{ key, value }] }`, examples as `response[]`)
+  // so the redactor walks it; the raw fields below are scrubbed at import.
+  /** v3 request `settings` with no Restura equivalent. */
+  settings?: unknown;
+  /** v3 collection scripts for protocols other than HTTP. */
+  scripts?: unknown[];
+  /** v3 linked schema (`schema`). */
+  schema?: unknown;
+  /** v3 root `uses` (linked environments). */
+  uses?: unknown;
+  /**
+   * The `auth` block was not mapped onto any typed model (v3 broker presets,
+   * placeholder items): every credential in it is bag-only.
+   */
+  authBagOnly?: true;
+  /** v3 broker options with no preset equivalent (extra topics / messages, stopAfter). */
+  leftovers?: unknown;
+  /** v3 folder description (Restura folders have none). */
+  description?: string;
+  /** v3 multi-entry auth: shape of every credential set (keys only, never values). */
+  authSets?: unknown[];
+  /** Raw v3 item with no Restura equivalent (credentials scrubbed). */
+  item?: unknown;
 }
 
 export type WithPostmanSidecar<T> = T & { _postman?: PostmanSidecar };

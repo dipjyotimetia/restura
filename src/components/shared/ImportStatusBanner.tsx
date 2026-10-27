@@ -132,6 +132,8 @@ function describeWarning(warning: ImportWarning): string {
       return `Local file "${warning.path}" from ${warning.option} was not read`;
     case 'unmodelled-construct':
       return `${warning.detail} ("${warning.requestName}")`;
+    case 'security-downgrade':
+      return `Security downgrade in "${warning.requestName}": ${warning.detail} (${warning.setting})`;
     default:
       return 'Unknown warning';
   }

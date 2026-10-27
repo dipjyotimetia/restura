@@ -89,7 +89,12 @@ describe('ImportStatusBanner', () => {
       { kind: 'unknown-dynamic-var', varName: 'token', count: 2 },
       { kind: 'bruno-syntax', pattern: 'bru.getEnv', requestName: 'Bruno' },
       { kind: 'platform-unsupported', feature: 'Kafka', requestName: 'Kafka request' },
-      { kind: 'schema-version', format: 'Postman', version: '3', note: 'newer export' },
+      {
+        kind: 'schema-version',
+        format: 'Postman',
+        version: '4.0',
+        note: 'Unrecognised schema; parsed as v2.1',
+      },
       { kind: 'har-cookies-discarded', requestName: 'HAR cookies' },
       { kind: 'har-redirect', requestName: 'HAR redirect', status: 302 },
       { kind: 'har-response-discarded', requestName: 'HAR response' },
@@ -123,7 +128,9 @@ describe('ImportStatusBanner', () => {
     expect(screen.getByText(/\{\{\$token\}\} referenced 2×/)).toBeInTheDocument();
     expect(screen.getByText(/Bruno-specific syntax "bru.getEnv"/)).toBeInTheDocument();
     expect(screen.getByText(/Kafka not available on this platform/)).toBeInTheDocument();
-    expect(screen.getByText('Postman v3: newer export')).toBeInTheDocument();
+    expect(
+      screen.getByText('Postman v4.0: Unrecognised schema; parsed as v2.1')
+    ).toBeInTheDocument();
     expect(screen.getByText('Cookies were discarded from "HAR cookies"')).toBeInTheDocument();
     expect(screen.getByText('Redirect (302) captured for "HAR redirect"')).toBeInTheDocument();
     expect(

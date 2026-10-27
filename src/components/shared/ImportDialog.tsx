@@ -18,38 +18,44 @@ import {
   importInsomniaCollection,
   importOpenAPICollection,
   importOpenCollection,
-  importPostmanCollection,
   importPostmanEnvironment,
   isHoppscotchEnvironment,
   isPostmanEnvironment,
   parseHarImport,
   validateImportedCollection,
 } from '@/features/collections/lib/importers';
+import {
+  importPostmanV3Files,
+  importPostmanWithReport,
+} from '@/features/collections/lib/importers/postman';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
 import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { HarImportReview } from './HarImportReview';
+import { ImportFolderPicker } from './ImportFolderPicker';
 import { ImportDropZone, ImportFormatCard } from './ImportFormatPicker';
 import { ImportStatusBanner } from './ImportStatusBanner';
 import {
+  DIRECTORY_DROP_MESSAGE,
+  detectDroppedZip,
   detectImportFormat,
   detectRemoteFormat,
   FEATURE_LISTS,
   FORMATS,
   fetchRemoteArtifact,
+  folderPickWarnings,
   type ImportType,
+  isDirectoryDrop,
   type ParsedImportType,
+  readPostmanFolderFiles,
+  readZipBytes,
 } from './import-dialog-data';
 
 const IMPORTERS: Record<ParsedImportType, (data: unknown) => Promise<ImportResult>> = {
-  postman: async (data) => {
-    const warnings: ImportWarning[] = [];
-    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
-    const collection = await importPostmanCollection(data as any, warnings);
-    return { collection, warnings };
-  },
+  // v2.x JSON or a single-file v3 logical tree (`$kind: collection`).
+  postman: async (data) => importPostmanWithReport(data),
   insomnia: async (data) => importInsomniaCollection(data),
   openapi: async (data) => {
     const warnings: ImportWarning[] = [];
@@ -168,6 +174,13 @@ export default function ImportDialog({
       return type === 'http'
         ? importHttpFile(text, { fileName: file.name })
         : importCurlCommand(text);
+    }
+    if (type === 'postman' && file.name.toLowerCase().endsWith('.zip')) {
+      // Postman v3 archive: entry paths and inflated sizes are capped and
+      // traversal-checked in the shared reader (fflate loaded on demand).
+      const bytes = await readZipBytes(file);
+      const { unzipPostmanV3Archive } = await import('@shared/collections/postman/v3-archive');
+      return importPostmanV3Files(unzipPostmanV3Archive(bytes));
     }
     if (type === 'bruno' && file.name.toLowerCase().endsWith('.zip')) {
       const { unzipToEntries } = await import('@/lib/shared/zip-utils');
@@ -326,7 +339,7 @@ export default function ImportDialog({
     void (async () => {
       try {
         const type = droppedFile.name.toLowerCase().endsWith('.zip')
-          ? 'bruno'
+          ? await detectDroppedZip(droppedFile)
           : detectImportFormat(await droppedFile.text(), droppedFile.name);
         if (cancelled) return;
         setActiveFormat(type);
@@ -341,11 +354,29 @@ export default function ImportDialog({
     };
   }, [open, droppedFile]);
 
+  const handleFolderUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    if (files.length === 0) return;
+    try {
+      const picked = await readPostmanFolderFiles(files);
+      const outcome = importPostmanV3Files(picked, { pickedRoot: true });
+      outcome.warnings.push(...folderPickWarnings(picked));
+      stageImport(outcome, 'postman');
+    } catch (error: unknown) {
+      handleImportError(error);
+    }
+  };
+
   const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     if (activeFormat === 'url') return;
     const file = event.dataTransfer.files?.[0];
     if (!file) return;
+    if (isDirectoryDrop(event.dataTransfer)) {
+      handleImportError(new Error(DIRECTORY_DROP_MESSAGE));
+      return;
+    }
     try {
       const outcome = await processImportFile(file, activeFormat);
       stageImport(outcome, activeFormat);
@@ -490,7 +521,8 @@ export default function ImportDialog({
                 {reviewFormat && (
                   <p className="mt-1 text-sp-12 text-sp-muted">
                     Detected format:{' '}
-                    {FORMATS.find((candidate) => candidate.id === reviewFormat)?.name}
+                    {('kind' in pendingOutcome ? undefined : pendingOutcome.sourceLabel) ??
+                      FORMATS.find((candidate) => candidate.id === reviewFormat)?.name}
                   </p>
                 )}
                 {'kind' in pendingOutcome ? (
@@ -632,6 +664,9 @@ export default function ImportDialog({
                     onFileUpload={handleFileUpload}
                     onDrop={handleDrop}
                   />
+                  {activeFormat === 'postman' && (
+                    <ImportFolderPicker onFolderPicked={(e) => void handleFolderUpload(e)} />
+                  )}
                   <div className="mt-2">
                     <button
                       type="button"

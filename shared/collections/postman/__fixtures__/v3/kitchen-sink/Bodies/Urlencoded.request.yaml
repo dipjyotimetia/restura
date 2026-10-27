@@ -1,0 +1,12 @@
+$kind: http-request
+url: https://example.com/urlenc
+method: POST
+body:
+  type: urlencoded
+  content:
+    - key: a
+      value: "1"
+    - key: b
+      value: "2"
+      disabled: true
+order: 2000

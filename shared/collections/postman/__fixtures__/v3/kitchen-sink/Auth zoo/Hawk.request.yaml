@@ -1,0 +1,10 @@
+$kind: http-request
+url: https://example.com/hawk
+method: GET
+auth:
+  type: hawk
+  credentials:
+    algorithm: sha256
+    authKey: k
+    authId: id
+order: 1000
