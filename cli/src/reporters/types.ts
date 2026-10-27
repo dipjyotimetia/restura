@@ -1,4 +1,5 @@
 import type { LoadedRequest } from '../runner/collectionLoader.js';
+import type { CliPostmanImportReport } from '../runner/postmanImport.js';
 
 export interface RunMeta {
   collectionName: string;
@@ -43,6 +44,8 @@ export interface RequestRunResult {
   grpcStatus?: GrpcStatusInfo;
   /** 0-based iteration when `--data` drove the run. */
   iteration?: number;
+  /** The request was never executed (see `LoadedRequest.blocked`); counted as errored. */
+  notSent?: boolean;
 }
 
 export interface RunResult {
@@ -54,7 +57,11 @@ export interface RunResult {
     passed: number;
     failed: number;
     errored: number;
+    /** Requests refused before execution (subset of `errored`); absent when 0. */
+    notSent?: number;
   };
+  /** Postman inputs only: the shared import report (warnings, skipped symlinks). */
+  importReport?: CliPostmanImportReport;
 }
 
 export interface Reporter {

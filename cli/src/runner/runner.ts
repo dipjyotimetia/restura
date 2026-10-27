@@ -7,6 +7,7 @@ import type { CliIterationRow } from './dataLoader.js';
 import { executeRequest } from './executors/dispatch.js';
 import { applyFilters, type FilterOptions } from './filter.js';
 import { CliMcpSessionPool } from './mcpSession.js';
+import { formatImportReport, importReportSize } from './postmanImport.js';
 import { DEFAULT_RETRY, type RetryOptions, withRetry } from './retry.js';
 import {
   applyPreRequestMetadata,
@@ -57,6 +58,11 @@ export interface RunOptions {
   /** Explicit HTTP(S) proxy URL. Overrides the HTTP_PROXY env var and composes with `tls`. */
   proxy?: string;
   externalSecretResolver?: ExternalSecretResolver;
+  /**
+   * Postman inputs: refuse to run (throw before any request) when the import
+   * report has any entry — something was dropped, approximated or skipped.
+   */
+  strictImport?: boolean;
 }
 
 /**
@@ -94,6 +100,17 @@ async function runCollectionWithSessions(
   mcpSessions: CliMcpSessionPool
 ): Promise<RunResult> {
   const loaded = await loadCollection(collectionDir);
+  if (loaded.importReport && importReportSize(loaded.importReport) > 0) {
+    // Human output: the grouped report goes to stderr (stdout stays the
+    // reporter's); structured reporters get it on `RunResult.importReport`.
+    process.stderr.write(formatImportReport(loaded.importReport));
+    if (options.strictImport) {
+      throw new Error(
+        `--strict-import: the Postman import report has ${importReportSize(loaded.importReport)} ` +
+          'entries (see above); refusing to run.'
+      );
+    }
+  }
 
   // Merge: env vars first, then collection vars override.
   const baseVars: Record<string, string> = { ...options.envVars };
@@ -109,7 +126,8 @@ async function runCollectionWithSessions(
     }
   }
   assertCliSecretsAvailable(
-    loaded.requests,
+    // A blocked request is never sent, so its variables can't abort the run.
+    loaded.requests.filter((r) => !r.blocked),
     baseVars,
     new Set(loaded.meta.privateVariableNames ?? [])
   );
@@ -162,6 +180,10 @@ async function runCollectionWithSessions(
     const row = iterations[iter] ?? {};
     // Layer base + row vars; mutated across requests by scripts.
     const allVars: Record<string, string> = { ...baseVars, ...row };
+    // Values a script changed this iteration. Layered on top of folder vars and
+    // the row, as the app's runner does (`environmentOverrides`), so a script
+    // write is not undone by a static folder default on the next request.
+    const scriptOverrides: Record<string, string> = {};
     let jumps = 0;
 
     for (let idx = 0; idx < filtered.length; ) {
@@ -170,9 +192,55 @@ async function runCollectionWithSessions(
       if (!item) break;
       await reporter.onRequestStart?.(item);
 
+      if (item.blocked) {
+        // Never executed (no scripts, no network): e.g. a Postman auth type
+        // the CLI cannot sign. Reported as a failed "not sent" result.
+        const result: RequestRunResult = {
+          request: item,
+          status: 0,
+          passed: false,
+          durationMs: 0,
+          bodyBytes: 0,
+          errorMessage: item.blocked,
+          notSent: true,
+          ...(isDataDriven ? { iteration: iter } : {}),
+        };
+        results.push(result);
+        await reporter.onRequestComplete?.(result);
+        if (options.bail) {
+          bailed = true;
+          break iterationLoop;
+        }
+        idx++;
+        continue;
+      }
+
       const preScript = item.request.preRequestScript;
       const testScript = item.request.testScript;
-      let perRequestVars = { ...allVars };
+      // Precedence matches the app's runner: env + collection < folder vars
+      // (`buildValueMap({ folders })`) < iteration row < script-set values.
+      const folderVars = item.folderVariables ?? {};
+      let perRequestVars = { ...allVars, ...folderVars, ...row, ...scriptOverrides };
+      // Write script variables back to the run-wide map, except folder
+      // variables a script left untouched (they must not leak to requests
+      // outside the folder). A changed value also becomes a script override —
+      // unless it was a pm.collectionVariables write, which stays in its own
+      // (lower) scope, as in the app.
+      const writeBack = (
+        before: Record<string, string>,
+        after: Record<string, string>,
+        collectionMutations: Record<string, string | null> | undefined
+      ) => {
+        for (const k of Object.keys(after)) {
+          const changed = after[k] !== before[k];
+          if (k in folderVars && !changed) continue;
+          allVars[k] = after[k]!;
+          if (changed && !(collectionMutations && k in collectionMutations)) {
+            scriptOverrides[k] = after[k]!;
+          }
+        }
+        for (const k of Object.keys(collectionMutations ?? {})) delete scriptOverrides[k];
+      };
       const allAssertions: Array<{ name: string; passed: boolean; error?: string }> = [];
       let scriptError: string | undefined;
       let preResult: RunScriptResult | undefined;
@@ -194,7 +262,7 @@ async function runCollectionWithSessions(
           preResult = pre;
           sendItem = applyPreRequestMetadata(item, pre, preVars);
           perRequestVars = pre.variables;
-          for (const k of Object.keys(pre.variables)) allVars[k] = pre.variables[k]!;
+          writeBack(preVars, pre.variables, pre.collectionMutations);
           applyCollectionMutations(pre.collectionMutations);
           if (pre.errors.length > 0) scriptError = `pre-request: ${pre.errors.join('; ')}`;
           if (pre.assertions.length > 0) allAssertions.push(...pre.assertions);
@@ -228,7 +296,7 @@ async function runCollectionWithSessions(
         try {
           const test = await runTestScript(testScript, sendItem, outcome, perRequestVars, runCtx);
           testResult = test;
-          for (const k of Object.keys(test.variables)) allVars[k] = test.variables[k]!;
+          writeBack(perRequestVars, test.variables, test.collectionMutations);
           applyCollectionMutations(test.collectionMutations);
           if (test.assertions.length > 0) allAssertions.push(...test.assertions);
           if (test.errors.length > 0) {
@@ -327,11 +395,13 @@ async function runCollectionWithSessions(
     }
   }
 
-  const summary = {
+  const notSent = results.filter((r) => r.notSent).length;
+  const summary: RunResult['summary'] = {
     total: results.length,
     passed: results.filter((r) => r.passed).length,
     failed: results.filter((r) => !r.passed && !r.errorMessage).length,
     errored: results.filter((r) => r.errorMessage !== undefined).length,
+    ...(notSent > 0 ? { notSent } : {}),
   };
 
   const final: RunResult = {
@@ -342,6 +412,7 @@ async function runCollectionWithSessions(
     durationMs: Date.now() - meta.startedAt,
     requests: results,
     summary,
+    ...(loaded.importReport ? { importReport: loaded.importReport } : {}),
   };
   await reporter.onEnd(final);
   return final;

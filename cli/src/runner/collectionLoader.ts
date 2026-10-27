@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { extname, join, relative } from 'node:path';
+import { join, relative } from 'node:path';
 import { isConfiguredAuth, resolveEffectiveAuth } from '@shared/auth/inheritance';
 import {
   fileCollectionMetaSchema,
@@ -9,6 +9,7 @@ import {
   fileSseRequestSchema,
   getRequestTypeFromFilename,
 } from '@shared/collections/legacy-file-schema';
+import { getPostmanSidecar } from '@shared/collections/postman';
 import {
   loadCollectionFromDir,
   loadCollectionFromFile,
@@ -26,6 +27,16 @@ import type {
 } from '@shared/types';
 import * as yaml from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  type CliPostmanImportReport,
+  importPostmanFolder,
+  loadPostmanFile,
+  nextPostmanAuthGuard,
+  type PostmanAuthGuard,
+  type PostmanLimits,
+  postmanBlockedReason,
+  postmanSecretVariableNames,
+} from './postmanImport.js';
 
 export interface LoadedRequest {
   /** Absolute path to the source file when loaded from a directory layout. */
@@ -36,9 +47,32 @@ export interface LoadedRequest {
   folderPath: string[];
   type: 'http' | 'grpc' | 'sse' | 'mcp';
   request: HttpRequest | GrpcRequest | SseRequest | McpRequest;
+  /**
+   * Set when the request must NOT be sent; the runner reports it as a failed
+   * ("not sent") result with this reason instead of executing it. Used for
+   * Postman requests whose auth type Restura cannot sign (imported as `none`),
+   * so they never go out unauthenticated or with a fallback credential.
+   */
+  blocked?: string;
+  /**
+   * Enabled variables of the folders above this request, outer → inner
+   * (inner wins). The runner layers them over env + collection vars and under
+   * the iteration row, matching the app's collection runner.
+   */
+  folderVariables?: Record<string, string>;
 }
 
-export type CollectionFormat = 'opencollection-file' | 'opencollection-dir' | 'legacy-dir';
+export type CollectionFormat =
+  | 'opencollection-file'
+  | 'opencollection-dir'
+  | 'legacy-dir'
+  | 'postman-v2'
+  | 'postman-v3';
+
+export interface LoadCollectionOptions {
+  /** Override the shared Postman v3 caps (tests; defaults: `POSTMAN_V3_LIMITS`). */
+  postmanLimits?: PostmanLimits;
+}
 
 export interface LoadedCollection {
   meta: {
@@ -50,6 +84,8 @@ export interface LoadedCollection {
   requests: LoadedRequest[];
   /** Format detected at load time — used for deprecation warnings and reporters. */
   format: CollectionFormat;
+  /** Postman inputs only: the shared import report (what was dropped / approximated). */
+  importReport?: CliPostmanImportReport;
 }
 
 /**
@@ -67,14 +103,17 @@ export interface LoadedCollection {
  * All formats normalise to the same `LoadedRequest[]` shape so the runner
  * does not need to care which one produced the data.
  */
-export async function loadCollection(target: string): Promise<LoadedCollection> {
+export async function loadCollection(
+  target: string,
+  options: LoadCollectionOptions = {}
+): Promise<LoadedCollection> {
   const info = await stat(target);
+  const limits = options.postmanLimits ?? {};
 
   if (info.isFile()) {
-    const ext = extname(target).toLowerCase();
-    if (ext !== '.yaml' && ext !== '.yml') {
-      throw new Error(`Unsupported collection file extension: ${target}. Expected .yaml or .yml.`);
-    }
+    // Postman (.zip / .json / Postman-v3 YAML) first; other YAML is OpenCollection.
+    const postman = await loadPostmanFile(target, limits);
+    if (postman) return fromPostman(postman.collection, postman.report);
     return loadOpenCollectionFile(target);
   }
 
@@ -91,12 +130,45 @@ export async function loadCollection(target: string): Promise<LoadedCollection> 
     return loadLegacyFileCollection(target);
   }
 
+  const postman = await importPostmanFolder(target, limits);
+  if (postman) return fromPostman(postman.collection, postman.report);
+
   throw new Error(
     `No recognised collection layout at ${target}. Expected one of:\n` +
       `  - <dir>/opencollection.yml (OpenCollection directory layout)\n` +
       `  - <dir>/_collection.yaml (legacy Restura file-collection, deprecated)\n` +
-      `  - a single .yaml/.yml file (bundled OpenCollection)`
+      `  - a Postman v3 folder (*.request.yaml / .resources/definition.yaml)\n` +
+      `  - a single .yaml/.yml file (bundled OpenCollection or Postman v3)\n` +
+      `  - a Postman .json (v2.0 / v2.1 / v3) or v3 .zip file`
   );
+}
+
+// ---------------------------------------------------------------------------
+// Postman paths (#1202) — the shared parser, then the same flattening as OC
+// ---------------------------------------------------------------------------
+
+function fromPostman(c: Collection, report: CliPostmanImportReport): LoadedCollection {
+  const meta = extractMeta(c);
+  // v3 vault secrets import value-less (`secret: true`). Never fold them in
+  // as an empty value (that would also shadow an `--env` value): treat them as
+  // private variables, so a request that uses one without a value fails
+  // explicitly (`assertCliSecretsAvailable`), the same rule as OC private vars.
+  const secretNames = postmanSecretVariableNames(c);
+  if (secretNames.size > 0) {
+    if (meta.variables) {
+      meta.variables = meta.variables.filter((v) => !secretNames.has(v.key));
+      if (meta.variables.length === 0) delete meta.variables;
+    }
+    meta.privateVariableNames = [
+      ...new Set([...(meta.privateVariableNames ?? []), ...secretNames]),
+    ];
+  }
+  return {
+    meta,
+    requests: flattenInternal(c),
+    format: report.sourceVersion === '3.0' ? 'postman-v3' : 'postman-v2',
+    importReport: report,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +233,8 @@ function flattenInternal(c: Collection): LoadedRequest[] {
     [c.preRequestScript],
     [c.testScript],
     isConfiguredAuth(c.auth) ? c.auth : undefined,
+    nextPostmanAuthGuard({}, c),
+    {},
     out
   );
   return out;
@@ -178,10 +252,19 @@ function walkItems(
   inheritedPre: Array<string | undefined>,
   inheritedTest: Array<string | undefined>,
   inheritedAuth: AuthConfig | undefined,
+  guard: PostmanAuthGuard,
+  folderVars: Readonly<Record<string, string>>,
   out: LoadedRequest[]
 ): void {
   for (const item of items) {
     if (item.type === 'folder') {
+      const placeholder = getPostmanSidecar(item)?.item;
+      if (placeholder !== undefined && (item.items ?? []).length === 0) {
+        // A Postman v3 item kind with no Restura equivalent (WebSocket,
+        // Socket.IO, LLM, data …) imports as an empty placeholder folder.
+        reportSkippedPlaceholder([...folderPath, item.name].join('/'));
+        continue;
+      }
       // Thread this folder's default scripts (parent→child order) and its
       // default auth (nearest-ancestor-wins) down to its descendants.
       walkItems(
@@ -190,6 +273,10 @@ function walkItems(
         [...inheritedPre, item.preRequestScript],
         [...inheritedTest, item.testScript],
         isConfiguredAuth(item.auth) ? item.auth : inheritedAuth,
+        nextPostmanAuthGuard(guard, item, [...folderPath, item.name].join('/')),
+        // Folder variables, outer → inner (inner wins), as the app's runner
+        // layers them (`flattenRunnables` + `buildValueMap({ folders })`).
+        { ...folderVars, ...folderVariableValues(item.variables) },
         out
       );
       continue;
@@ -225,13 +312,41 @@ function walkItems(
       ...(pre !== undefined ? { preRequestScript: pre } : {}),
       ...(test !== undefined ? { testScript: test } : {}),
     } as HttpRequest | GrpcRequest | SseRequest | McpRequest;
+    const blocked = postmanBlockedReason(item, guard);
     out.push({
       relativePath: [...folderPath, item.name].join('/') || item.name,
       folderPath,
       type: t,
       request: effective,
+      ...(blocked ? { blocked } : {}),
+      ...(Object.keys(folderVars).length > 0 ? { folderVariables: { ...folderVars } } : {}),
     });
   }
+}
+
+/**
+ * Enabled folder variables as a value map. Secret (value-less Postman vault),
+ * private and handle-backed variables are left out: the CLI cannot resolve
+ * them, and an empty value must never shadow a provided one.
+ */
+function folderVariableValues(
+  vars: ReadonlyArray<{ key: string; value: string; enabled?: boolean }> | undefined
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const v of vars ?? []) {
+    const flags = v as { secret?: unknown; private?: unknown; secretRef?: unknown };
+    if (!v.key || v.enabled === false) continue;
+    if (flags.secret === true || flags.private === true || flags.secretRef !== undefined) continue;
+    out[v.key] = v.value;
+  }
+  return out;
+}
+
+function reportSkippedPlaceholder(path: string): void {
+  process.stderr.write(
+    `[restura] skipping "${path}": this Postman item kind has no Restura equivalent yet ` +
+      '(imported as an empty placeholder); it is not run by the CLI.\n'
+  );
 }
 
 function reportSkippedPreset(type: 'kafka' | 'mqtt', path: string): void {

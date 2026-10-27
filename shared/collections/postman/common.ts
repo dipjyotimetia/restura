@@ -1,9 +1,10 @@
 import { v4 as uuid } from 'uuid';
+import { isConfiguredAuth } from '../../auth/inheritance';
 import { checkHttpMethod } from '../../protocol/http-method';
 import type { AuthConfig, HttpMethod, KeyValue } from '../../types';
 import { activeAuthBlock, authParamsV2, convertPostmanAuth, unmappedAuthRemainder } from './auth';
 import type { PostmanReportBuilder } from './report';
-import type { PostmanSidecar } from './sidecar';
+import { getPostmanSidecar, type PostmanSidecar } from './sidecar';
 
 /**
  * Helpers shared by the Postman version front ends (`parse-v2.ts`,
@@ -64,6 +65,72 @@ export interface AuthOutcome {
    * live on the typed model and must not be duplicated (ADR-0007).
    */
   sidecarAuth?: Raw;
+}
+
+/**
+ * THE predicate for "this node's Postman auth could not be imported"
+ * (#1202; also used by the CLI runner and the #1201 exporter — keep the name
+ * and signature stable).
+ *
+ * `node` is an imported collection, folder or request item (or any object
+ * with `auth` / `request.auth` and a `_postman` sidecar). Returns the Postman
+ * auth type (e.g. `"hawk"`) when the node carries a `_postman.auth` sidecar
+ * that is NOT bag-only (bag-only = broker presets / placeholders, whose auth
+ * never had a typed model) and its own auth is not configured — i.e. the
+ * unsupported type was imported as `none`. Approximated types (OAuth2
+ * implicit, OAuth1 RSA, …) also keep a sidecar but map to a configured auth,
+ * so they return `undefined`. Never returns credential values.
+ */
+export function hasUnsupportedPostmanAuth(node: object): string | undefined {
+  const sidecar = getPostmanSidecar(node);
+  if (!sidecar?.auth || sidecar.authBagOnly) return undefined;
+  const n = node as { auth?: AuthConfig; request?: { auth?: AuthConfig } };
+  const own = n.request && typeof n.request === 'object' ? n.request.auth : n.auth;
+  if (isConfiguredAuth(own)) return undefined;
+  const type = isObj(sidecar.auth) ? sidecar.auth.type : undefined;
+  return typeof type === 'string' && type !== '' ? type : 'unknown';
+}
+
+/**
+ * What a child inherits from its parent: the nearest configured auth, or the
+ * type of the nearest UNSUPPORTED auth that cut the chain (Postman would sign
+ * with that type; Restura must not substitute a credential from further up).
+ */
+export interface InheritedPostmanAuth {
+  auth?: AuthConfig;
+  unsupported?: string;
+}
+
+/**
+ * The inheritance a container (collection / folder) hands its children.
+ * `node` is the container's imported auth plus its sidecar, as seen by
+ * {@link hasUnsupportedPostmanAuth}.
+ */
+export function inheritFrom(
+  node: { auth: AuthConfig | undefined; _postman: PostmanSidecar },
+  parent: InheritedPostmanAuth
+): InheritedPostmanAuth {
+  const unsupported = hasUnsupportedPostmanAuth(node);
+  if (unsupported) return { unsupported };
+  if (isConfiguredAuth(node.auth)) return { auth: node.auth };
+  return parent;
+}
+
+/**
+ * Auth for a request that inherits (`auth` / `inherit` absent on it): the
+ * nearest ancestor's, or an explicit `none` plus a report entry naming the
+ * request when an unsupported ancestor auth cut the chain.
+ */
+export function inheritAuth(
+  inherited: InheritedPostmanAuth,
+  requestName: string,
+  ctx: ParseContext
+): AuthConfig | undefined {
+  if (inherited.unsupported) {
+    ctx.report.unsupportedAuth(inherited.unsupported, requestName);
+    return { type: 'none' };
+  }
+  return inherited.auth;
 }
 
 /**

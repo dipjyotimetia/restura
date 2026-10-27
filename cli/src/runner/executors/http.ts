@@ -26,6 +26,9 @@ export async function executeHttp(
   if (item.type !== 'http') {
     return errorOutcome(`HTTP executor received non-http request: ${item.type}`);
   }
+  // Refused at load time (e.g. a Postman auth type the CLI cannot sign): never
+  // sent, from any entry point (collection runner, OWS workflows, agent tools).
+  if (item.blocked) return errorOutcome(item.blocked);
   let req = item.request as HttpRequest;
 
   // GraphQL: shape the wire request exactly as the app does (shared

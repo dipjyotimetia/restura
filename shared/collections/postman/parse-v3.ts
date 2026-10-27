@@ -1,7 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { isConfiguredAuth } from '../../auth/inheritance';
 import type {
-  AuthConfig,
   Collection,
   CollectionItem,
   CollectionRequest,
@@ -14,6 +13,9 @@ import {
   arr,
   coerceMethod,
   description,
+  type InheritedPostmanAuth,
+  inheritAuth,
+  inheritFrom,
   isObj,
   keyValue,
   MAX_POSTMAN_NESTING_DEPTH,
@@ -320,7 +322,7 @@ const HTTP_KINDS = new Set(['http-request', 'graphql-request']);
 
 function convertItem(
   raw: unknown,
-  parentAuth: AuthConfig | undefined,
+  inherited: InheritedPostmanAuth,
   ctx: ItemContext,
   depth: number
 ): CollectionItem | null {
@@ -346,7 +348,14 @@ function convertItem(
     if (desc) sidecar.description = desc;
     const items: CollectionItem[] = [];
     for (const child of arr(raw.items)) {
-      const converted = convertItem(child, folderAuth ?? parentAuth, ctx, depth + 1);
+      // An unsupported folder auth cuts the chain: its inheriting
+      // descendants get `none`, never the collection's credentials.
+      const converted = convertItem(
+        child,
+        inheritFrom({ auth: authOut.auth, _postman: sidecar }, inherited),
+        ctx,
+        depth + 1
+      );
       if (converted) items.push(converted);
     }
     const folder: CollectionItem = {
@@ -383,7 +392,10 @@ function convertItem(
   }
   const { req, inherits } = converted;
   // `inherit` / no auth: bake the nearest ancestor's auth, as the v2 parser does.
-  if (inherits && parentAuth && 'auth' in req) req.auth = parentAuth;
+  if (inherits && 'auth' in req) {
+    const auth = inheritAuth(inherited, name, ctx);
+    if (auth) req.auth = auth;
+  }
   return attachPostmanSidecar<CollectionItem>(
     { id: uuid(), name, type: 'request', request: req },
     sidecar
@@ -412,7 +424,12 @@ export function parsePostmanV3(tree: Raw, parseCtx: ParseContext): Collection {
     testScript: scripts.testScript,
   };
   for (const item of arr(tree.items)) {
-    const converted = convertItem(item, collection.auth, ctx, 1);
+    const converted = convertItem(
+      item,
+      inheritFrom({ auth: authOut.auth, _postman: sidecar }, {}),
+      ctx,
+      1
+    );
     if (converted) collection.items.push(converted);
   }
   // Restura collection scripts run for every request; Postman's `http:*`

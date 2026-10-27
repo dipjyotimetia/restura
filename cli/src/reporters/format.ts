@@ -29,5 +29,6 @@ export function formatRequestLine(r: RequestRunResult): string {
 export function formatSummaryLine(result: RunResult): string {
   const { passed, failed, errored, total } = result.summary;
   const summary = `${passed}/${total} passed`;
-  return `${passed === total ? color.green(summary) : color.red(summary)} (${failed} failed, ${errored} errored) in ${(result.durationMs / 1000).toFixed(2)}s`;
+  const notSent = result.summary.notSent ? `, ${result.summary.notSent} not sent` : '';
+  return `${passed === total ? color.green(summary) : color.red(summary)} (${failed} failed, ${errored} errored${notSent}) in ${(result.durationMs / 1000).toFixed(2)}s`;
 }
