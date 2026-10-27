@@ -189,18 +189,21 @@ function redactQueryFragments(text: string, counter: Counter): string {
 
 /**
  * Credentials in a raw string value. A single-line value that starts with a
- * scheme is one URL and is redacted whole. Anything else is free text (a
- * script, a note): URL userinfo and credential-named `?k=v` / `&k=v` literals
- * are blanked in place; code (`x?.token==="a"`, `e?key=t:n`) is left alone.
+ * scheme is redacted as one URL first. Every value is then treated as free text
+ * (a script, a note), so a later URL on the same line is still covered: URL
+ * userinfo and credential-named `?k=v` / `&k=v` literals are blanked in place,
+ * and code (`x?.token==="a"`, `e?key=t:n`) is left alone. The free-text pass
+ * sees the already-redacted URL, so nothing is blanked or counted twice.
  */
 export function redactTextCredentials(value: string, counter: Counter): string {
   const body = value.trimStart();
   const lead = value.slice(0, value.length - body.length);
+  let text = value;
   if (SCHEME_START.test(body) && !body.includes('\n')) {
     if (counter) counter.n += countUrlStringSecrets(body);
-    return lead + redactUrlCredentialsForStorage(body);
+    text = lead + redactUrlCredentialsForStorage(body);
   }
-  return redactQueryFragments(redactUserinfoInText(value, counter), counter);
+  return redactQueryFragments(redactUserinfoInText(text, counter), counter);
 }
 
 // ── launch command lines (MCP stdio argv / command) ─────────────────────────
