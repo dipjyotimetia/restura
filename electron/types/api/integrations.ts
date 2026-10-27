@@ -281,10 +281,21 @@ export interface ElectronCollectionsAPI {
     collection: unknown,
     path: string
   ) => Promise<{ success: boolean; error?: string }>;
+  /**
+   * Write a directory export (Bruno / Postman v3) under `path`. With
+   * `replace`, files matching the export layout inside `<path>/<subdir>` are
+   * deleted first (never anything else, never through symlinks).
+   */
   saveBrunoToDirectory: (
     entries: Array<{ relativePath: string; content: string }>,
-    path: string
+    path: string,
+    options?: { replace?: { layout: 'postman-v3' | 'bruno'; subdir: string } }
   ) => Promise<{ success: boolean; error?: string }>;
+  /** Whether `<path>/<childName>` exists and is non-empty (no symlink is followed). */
+  inspectExportTarget: (
+    path: string,
+    childName: string
+  ) => Promise<{ exists: boolean; nonEmpty: boolean }>;
   watchDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
   unwatchDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
   selectDirectory: () => Promise<{ canceled: boolean; filePaths?: string[] }>;

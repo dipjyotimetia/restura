@@ -28,6 +28,14 @@ import {
 export type { PostmanAuthParams } from './auth';
 export { authParamsV2, convertPostmanAuth } from './auth';
 export type {
+  PostmanExportConstruct,
+  PostmanExportIssue,
+  PostmanExportReport,
+  PostmanV3Export,
+  PostmanV3ExportOptions,
+} from './export-v3';
+export { exportPostmanV3, exportPostmanV3Tree, postmanV3SafeFileName } from './export-v3';
+export type {
   PostmanImportIssue,
   PostmanImportReport,
   PostmanSourceVersion,

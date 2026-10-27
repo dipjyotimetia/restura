@@ -1,0 +1,9 @@
+$kind: http-request
+url: https://example.com/own
+method: GET
+auth:
+  type: basic
+  credentials:
+    username: u
+    password: "{{pw}}"
+order: 2000
