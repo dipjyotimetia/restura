@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
+import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { useRequestAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
@@ -203,6 +204,8 @@ export function useHttpRequest(): UseHttpRequestReturn {
       // Error handling is mostly done in executeRequest but if it throws, we catch here
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
       console.error('Request execution error:', errorMessage);
+      // e.g. a Postman auth-guard refusal (#1232): nothing was sent; say why.
+      toast.error('Request failed', { description: errorMessage });
       announceRequestFailed(errorMessage);
     } finally {
       setLoading(false);
