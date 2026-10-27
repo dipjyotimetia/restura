@@ -385,10 +385,20 @@ export const features: Feature[] = [
     'collections',
     'import-export',
     'Import & export',
-    'Import Postman, Insomnia, Bruno, Hoppscotch, OpenAPI, curl, and .http files; export portable OpenCollection or Bruno files.',
+    'Import Postman, Insomnia, Bruno, Hoppscotch, OpenAPI, curl, and .http files; export portable OpenCollection, Postman, Insomnia or Bruno files.',
     'shipped',
     all,
     '/guides/import-export/'
+  ),
+  entry(
+    'collections',
+    'postman-v3',
+    'Postman v2 / v3 import and v3 export',
+    'Import Postman v2.x and v3 (folder, zip or file) with an import report, export Postman v3 as a folder or zip, and run Postman inputs from the CLI.',
+    'shipped',
+    all,
+    '/guides/import-export/',
+    ['import-export']
   ),
   entry(
     'collections',

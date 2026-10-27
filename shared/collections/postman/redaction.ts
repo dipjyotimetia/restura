@@ -393,10 +393,26 @@ function countV3RawFields(bag: Raw): number {
   return n;
 }
 
+/** Form rows of a kept body: v3 `content[]` or v2 `formdata[]` / `urlencoded[]`. */
+const BODY_ROW_FIELDS = ['content', 'formdata', 'urlencoded'] as const;
+
+function redactPostmanBody(body: unknown): unknown {
+  if (!isObj(body)) return body;
+  const next: Raw = { ...body };
+  for (const f of BODY_ROW_FIELDS) if (Array.isArray(body[f])) next[f] = redactPostmanRows(body[f]);
+  return next;
+}
+
+function countPostmanBody(body: unknown): number {
+  if (!isObj(body)) return 0;
+  return BODY_ROW_FIELDS.reduce((n, f) => n + countPostmanRows(body[f]), 0);
+}
+
 /** Returns a sanitised copy of a `_postman` sidecar; shape and non-secret fields survive. */
 export function redactPostmanBag(bag: unknown): unknown {
   if (!isObj(bag)) return bag;
   const next: Raw = { ...bag };
+  if (bag.body !== undefined) next.body = redactPostmanBody(bag.body);
   if (isObj(bag.auth)) next.auth = redactPostmanAuth(bag.auth);
   if (bag.variable !== undefined) next.variable = redactPostmanRows(bag.variable);
   if (bag.urlVariable !== undefined) next.urlVariable = redactPostmanRows(bag.urlVariable);
@@ -419,6 +435,7 @@ export function countPostmanBagInlineSecrets(bag: unknown): number {
     countPostmanAuthSecrets(bag.auth, bag.authBagOnly === true) +
     countPostmanRows(bag.variable) +
     countPostmanRows(bag.urlVariable) +
+    countPostmanBody(bag.body) +
     countV3RawFields(bag);
   for (const response of Array.isArray(bag.response) ? bag.response : []) {
     n += countPostmanResponse(response);

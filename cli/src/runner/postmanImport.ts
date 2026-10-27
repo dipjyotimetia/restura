@@ -37,8 +37,9 @@ export interface PostmanLoadResult {
 
 export type PostmanLimits = Partial<PostmanV3Limits>;
 
-/** True when `schema` is a URL on getpostman.com (the v2.x schema host), matched by hostname. */
-function isPostmanSchemaUrl(schema: string): boolean {
+/** True when `schema` is a URL hosted on getpostman.com (or its subdomains). */
+function isPostmanSchemaUrl(schema: unknown): boolean {
+  if (typeof schema !== 'string') return false;
   try {
     const host = new URL(schema).hostname.toLowerCase();
     return host === 'getpostman.com' || host.endsWith('.getpostman.com');
@@ -55,10 +56,7 @@ export function isPostmanDocument(data: unknown): boolean {
   const info = obj.info;
   if (!info || typeof info !== 'object') return false;
   const i = info as Record<string, unknown>;
-  return (
-    (typeof i.schema === 'string' && isPostmanSchemaUrl(i.schema)) ||
-    typeof i._postman_id === 'string'
-  );
+  return isPostmanSchemaUrl(i.schema) || typeof i._postman_id === 'string';
 }
 
 /** Size-check a single input file against `cap` BEFORE reading it. */

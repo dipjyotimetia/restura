@@ -31,6 +31,7 @@ import { copyBrokerPresetSecrets, DUPLICATE_CREDENTIALS_FAILED } from '../lib/br
 import { duplicateCollection } from '../lib/itemFactory';
 import { buildMockRoutes, buildMockRoutesFromSpec, mergeMockRoutes } from '../lib/mockRoutes';
 import { isNameTaken, siblingNamesOfItem, uniqueName } from '../lib/names';
+import { savePostmanV3Export } from '../lib/postmanV3Export';
 
 export interface ExportPrompt {
   collection: Collection;
@@ -138,6 +139,8 @@ export function useCollectionSidebarCommands() {
       }
       if (format === 'postman') {
         downloadJSON(exportToPostman(collection), `${collection.name}.postman_collection.json`);
+      } else if (format === 'postman-v3') {
+        if (!(await savePostmanV3Export(collection))) return;
       } else if (format === 'insomnia') {
         downloadJSON(exportToInsomnia(collection), `${collection.name}.insomnia.json`);
       } else if (format === 'opencollection') {

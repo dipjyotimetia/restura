@@ -27,7 +27,7 @@ On desktop, **Save to Collection** on a Kafka or MQTT tab stores a *connection p
 - **Save changes** (tab menu or <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>S</kbd>) on a tab opened from a preset updates that preset in place.
 - The collection runner and the CLI skip presets (the runner lists how many).
 - **Per-environment presets.** Brokers, topics, keys, payloads and headers can hold `{{variables}}`; they're resolved from the active environment when you connect, produce, subscribe or publish (unresolved ones are sent as typed and flagged in the message log).
-- Presets export through OpenCollection (`x-restura-kafka` / `x-restura-mqtt`, see the [reference](/reference/opencollection/#restura-extensions)) and git-native collections. Postman, Insomnia and Bruno exports write a named "not supported" stub instead.
+- Presets export through OpenCollection (`x-restura-kafka` / `x-restura-mqtt`, see the [reference](/reference/opencollection/#restura-extensions)) and git-native collections. Postman v3 export carries Kafka / MQTT items but reports broker-only options (SASL, TLS paths, schema registry, …) as not exported; Insomnia and Bruno exports write a named "not supported" stub instead.
 - On the web build, imported presets are listed but open the desktop-only panel.
 
 ## Inheritance
@@ -47,7 +47,7 @@ Anything you set on a folder cascades to every descendant unless that descendant
 
 ## Sharing
 
-Restura imports and exports **OpenCollection** natively (see [reference](/reference/opencollection/)) and supports **Postman v2.1**, **Insomnia**, **Hoppscotch**, **Bruno**, and **OpenAPI / Swagger** import. Export your work to share with teammates or commit to your repo.
+Restura imports and exports **OpenCollection** natively (see [reference](/reference/opencollection/)) and supports **Postman** (v2.0 / v2.1 and the v3 folder format; see [Import & export](/guides/import-export/#postman-import)), **Insomnia**, **Hoppscotch**, **Bruno**, and **OpenAPI / Swagger** import. Export your work to share with teammates or commit to your repo.
 
 On the desktop client, you can also point Restura at a **filesystem-backed workspace** and use Git on the directory.
 

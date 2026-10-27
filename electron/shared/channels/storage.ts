@@ -18,6 +18,7 @@ export const STORAGE_IPC = {
     openInExplorer: 'collection:open-in-explorer',
     getFileInfo: 'collection:get-file-info',
     saveBrunoDirectory: 'collection:save-bruno-directory',
+    inspectExportTarget: 'collection:inspect-export-target',
   },
   owsWorkspace: {
     list: 'ows-workspace:list',
