@@ -9,7 +9,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
-import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -41,7 +41,8 @@ function buildExecutorOptions(request: HttpRequest) {
   // inheritance itself; without this, a load test of a request that inherits
   // ancestor auth would fire every iteration unauthenticated (mismatching a
   // real send, which this runner's contract promises to match).
-  const inherited = resolveInheritedAuthFor(request);
+  // Refuses a Postman-guard-blocked request (#1232) before any iteration.
+  const inherited = resolveInheritedAuthForSend(request);
   const effectiveRequest = withEffectiveAuth(request, inherited?.auth);
   const envStore = useEnvironmentStore.getState();
   const activeEnv = envStore.getActiveEnvironment();

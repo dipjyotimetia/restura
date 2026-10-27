@@ -19,7 +19,7 @@ import {
   assertHandleSupported,
 } from '@/features/auth/lib/applyAuthHeaders';
 import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
-import { postmanSendBlockedReason } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { assertPostmanSendable } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { persistableRefreshedAuth, refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import {
@@ -508,8 +508,7 @@ export async function executeRequest(
   signal?.throwIfAborted();
   // Pre-send refusal (#1232): a Postman `noauth` / unsupported-auth request
   // would otherwise go out with an ancestor's credential. Nothing runs.
-  const blocked = postmanSendBlockedReason(request);
-  if (blocked) throw new Error(blocked);
+  assertPostmanSendable(request);
   const startTime = Date.now();
   const baseInfo = {
     requestName: options.info?.requestName ?? request.name,

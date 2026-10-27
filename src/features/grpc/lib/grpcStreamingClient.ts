@@ -26,7 +26,7 @@ import {
 import { connectErrorDetails, type GrpcStatusDetail } from '@shared/protocol/grpc-status-details';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
-import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import type { GrpcRequest } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
@@ -106,7 +106,8 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   // runner applies `withEffectiveAuth` before `prepareGrpcRequest`). Without
   // this an inherited unsupported type (e.g. SigV4) slipped past the #900
   // block and inherited Bearer/Basic was silently dropped from streams.
-  const inherited = resolveInheritedAuthFor(rawArgs.request);
+  // Refuses a Postman-guard-blocked request (#1232).
+  const inherited = resolveInheritedAuthForSend(rawArgs.request);
   const args: StartGrpcStreamArgs = inherited
     ? { ...rawArgs, request: withEffectiveAuth(rawArgs.request, inherited.auth) }
     : rawArgs;

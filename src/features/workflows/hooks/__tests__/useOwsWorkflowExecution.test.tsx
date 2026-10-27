@@ -102,6 +102,140 @@ describe('useOwsWorkflowExecution', () => {
     expect(result.current.result?.status).toBe('success');
   });
 
+  it.each([
+    [
+      'an explicit Postman noauth request',
+      {
+        id: 'item-1',
+        name: 'Saved request',
+        type: 'request',
+        _postman: { noauth: true },
+        request: 'REQ',
+      },
+      /"No Auth"/,
+    ],
+    [
+      'a hawk-folder child',
+      {
+        id: 'hf',
+        name: 'HF',
+        type: 'folder',
+        _postman: { auth: { type: 'hawk' } },
+        items: [{ id: 'item-1', name: 'Saved request', type: 'request', request: 'REQ' }],
+      },
+      /"hawk" \(inherited from "HF"\)/,
+    ],
+  ])('refuses %s instead of sending the collection bearer (#1232)', async (_l, node, reason) => {
+    const savedRequest = {
+      id: 'request-1',
+      name: 'Saved request',
+      type: 'http',
+      method: 'GET',
+      url: 'https://example.test/saved',
+      headers: [],
+      params: [],
+      body: { type: 'none' },
+      auth: { type: 'none' },
+    };
+    const withRequest = JSON.parse(
+      JSON.stringify(node).replaceAll('"REQ"', JSON.stringify(savedRequest))
+    );
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'collection-1',
+          name: 'Collection',
+          auth: { type: 'bearer', bearer: { token: 'collection-secret' } },
+          variables: [],
+          items: [withRequest],
+        },
+      ],
+    } as never);
+    const bound: OwsStoredWorkflow =
+      'items' in node
+        ? {
+            ...workflow,
+            bindings: {
+              version: 1,
+              tasks: {
+                '/do/0/request': {
+                  kind: 'saved-request',
+                  call: 'http',
+                  resourceId: 'HF/Saved%20request',
+                },
+              },
+            },
+          }
+        : workflow;
+    const { result } = renderHook(() => useOwsWorkflowExecution());
+    await act(async () => {
+      await result.current.run(bound);
+    });
+    expect(runRequest).not.toHaveBeenCalled();
+    expect(result.current.result).toMatchObject({ status: 'failed' });
+    expect(result.current.result?.steps[0]?.error).toMatch(reason);
+  });
+
+  it('applies the nearest folder auth, not only the collection auth', async () => {
+    runRequest.mockResolvedValue({ status: 200, headers: {}, body: 'ok', size: 2, time: 1 });
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'collection-1',
+          name: 'Collection',
+          auth: { type: 'bearer', bearer: { token: 'collection' } },
+          variables: [],
+          items: [
+            {
+              id: 'f',
+              name: 'F',
+              type: 'folder',
+              auth: { type: 'bearer', bearer: { token: 'folder' } },
+              items: [
+                {
+                  id: 'item-1',
+                  name: 'Saved request',
+                  type: 'request',
+                  request: {
+                    id: 'request-1',
+                    name: 'Saved request',
+                    type: 'http',
+                    method: 'GET',
+                    url: 'https://example.test/saved',
+                    headers: [],
+                    params: [],
+                    body: { type: 'none' },
+                    auth: { type: 'none' },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as never);
+    const { result } = renderHook(() => useOwsWorkflowExecution());
+    await act(async () => {
+      await result.current.run({
+        ...workflow,
+        bindings: {
+          version: 1,
+          tasks: {
+            '/do/0/request': {
+              kind: 'saved-request',
+              call: 'http',
+              resourceId: 'F/Saved%20request',
+            },
+          },
+        },
+      });
+    });
+    expect(runRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ auth: { type: 'bearer', bearer: { token: 'folder' } } }),
+      expect.anything()
+    );
+  });
+
   it('resolves a Git-stable saved-request logical path instead of a regenerated request id', async () => {
     runRequest.mockResolvedValue({ status: 200, headers: {}, body: 'ok', size: 2, time: 1 });
     useCollectionStore.setState({

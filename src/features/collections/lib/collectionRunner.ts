@@ -291,6 +291,23 @@ async function runCollectionWithPool(
       const protocolId = runnable.request.type;
       const protocol = protocolRegistry.get(protocolId);
 
+      // Postman send guard (#1232): never sent, for every protocol (the CLI
+      // reports the same reason as a "not sent" result).
+      if (runnable.blocked) {
+        results.push({
+          itemId: runnable.itemId,
+          itemName: runnable.name,
+          protocol: protocolId,
+          iteration: iter,
+          status: 'skipped',
+          assertions: [],
+          skippedReason: runnable.blocked,
+        });
+        emit(false);
+        idx++;
+        continue;
+      }
+
       // Skip protocols without a usable single-shot runner.
       if (!protocol || STREAMING_PROTOCOLS.has(protocolId)) {
         results.push({
