@@ -163,6 +163,17 @@ function sameValue(a: unknown, b: unknown): boolean {
 /** Collection fields whose edit makes the root `_postman` sidecar stale. */
 const ROOT_SIDECAR_STALE_KEYS = ['auth', 'variables', 'preRequestScript', 'testScript'] as const;
 
+/**
+ * Clear the stale root `_postman` sidecar, but keep its send-guard markers
+ * (#1228) unless the root auth itself was edited — the collection-level twin
+ * of {@link stripPassthroughBagsKeepingGuard}.
+ */
+function clearRootSidecarKeepingGuard<T extends Collection>(col: T, authEdited: boolean): T {
+  const markers = authEdited ? undefined : postmanGuardMarkers(col);
+  clearPostmanSidecar(col);
+  return markers ? attachPostmanSidecar(col, markers) : col;
+}
+
 /** Ancestor folder ids on the path from the root to `itemId` (excludes the item). */
 function ancestorPath(
   items: CollectionItem[],
@@ -269,7 +280,10 @@ export const useCollectionStore = create<CollectionState>()(
             if (
               ROOT_SIDECAR_STALE_KEYS.some((k) => k in updates && !sameValue(updates[k], col[k]))
             ) {
-              clearPostmanSidecar(merged);
+              clearRootSidecarKeepingGuard(
+                merged,
+                'auth' in updates && !sameValue(updates.auth, col.auth)
+              );
             }
             const next = migrateCollectionAuth(merged);
             validateCollection(next);
@@ -491,7 +505,7 @@ export const useCollectionStore = create<CollectionState>()(
             // Same staleness rule as updateCollection: a real variables change
             // makes the root `_postman` sidecar stale. Root `_oc` is kept —
             // internalToOC re-checks root variables freshness itself.
-            return clearPostmanSidecar({ ...col, variables: next });
+            return clearRootSidecarKeepingGuard({ ...col, variables: next }, false);
           }),
         })),
     }),

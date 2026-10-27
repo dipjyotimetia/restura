@@ -410,16 +410,22 @@ extensions:
     const withRootBag = () =>
       ({ ...mkCollection(), _postman: { auth: { type: 'hawk' } } }) as unknown as Collection;
 
+    // Stale root data is cleared; only the send-guard markers (#1228) survive
+    // a non-auth edit, and an auth edit clears them too.
+    const HAWK_MARKER = { auth: { type: 'hawk' } };
     it.each([
-      ['auth', { auth: { type: 'bearer', bearer: { token: 't' } } }],
-      ['variables', { variables: [] }],
-      ['preRequestScript', { preRequestScript: 'rs.x()' }],
-      ['testScript', { testScript: 'rs.y()' }],
-    ])('updateCollection touching %s drops the root sidecar', (_field, updates) => {
+      ['auth', { auth: { type: 'bearer', bearer: { token: 't' } } }, undefined],
+      ['variables', { variables: [] }, HAWK_MARKER],
+      ['preRequestScript', { preRequestScript: 'rs.x()' }, HAWK_MARKER],
+      ['testScript', { testScript: 'rs.y()' }, HAWK_MARKER],
+    ])('updateCollection touching %s drops the stale root sidecar', (_field, updates, kept) => {
       const { addCollection, updateCollection } = useCollectionStore.getState();
-      addCollection(withRootBag());
+      addCollection({
+        ...withRootBag(),
+        _postman: { auth: { type: 'hawk', hawk: [{ key: 'authId', value: 'id' }] }, event: [{}] },
+      } as unknown as Collection);
       updateCollection('pc', updates as Partial<Collection>);
-      expect(root()?._postman).toBeUndefined();
+      expect(root()?._postman).toEqual(kept);
     });
 
     it('a rename keeps the root sidecar', () => {
@@ -504,13 +510,15 @@ extensions:
       const { addCollection, applyCollectionVarMutations } = useCollectionStore.getState();
       addCollection({
         ...withRootBag(),
+        _postman: { auth: { type: 'hawk' }, event: [{}] },
         _oc: { info: { name: 'P' } },
         variables: [{ id: 'v1', key: 'token', value: 'old', enabled: true }],
       } as unknown as Collection);
       applyCollectionVarMutations('pc', { token: 'new' });
       const col = root() as (Collection & { _postman?: unknown; _oc?: unknown }) | undefined;
       expect(col?.variables?.map((v) => [v.key, v.value])).toEqual([['token', 'new']]);
-      expect(col?._postman).toBeUndefined();
+      // Stale root data dropped; only the send-guard marker (#1228) survives.
+      expect(col?._postman).toEqual({ auth: { type: 'hawk' } });
       // Root `_oc` is kept: internalToOC re-checks root variables freshness.
       expect(col?._oc).toEqual({ info: { name: 'P' } });
     });
