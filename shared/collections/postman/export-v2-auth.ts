@@ -2,7 +2,7 @@ import { isConfiguredAuth } from '../../auth/inheritance';
 import type { AuthConfig } from '../../types';
 import { arr, isObj, type Raw, str } from './common';
 import { requestAuth } from './export-v3-http';
-import { type ExportContext, exportAuth } from './export-v3-shared';
+import { type ExportContext, exportAuth, isExplicitNoauth } from './export-v3-shared';
 import type { PostmanSidecar } from './sidecar';
 import type { PostmanV21Auth, PostmanV21AuthAttribute } from './v21-types';
 
@@ -124,6 +124,8 @@ export function v21AuthForChildren(
   inherited: V21Inherited
 ): V21Inherited {
   if (unsupported) return V21_AUTH_TYPES.has(unsupported) ? { type: 'none' } : AUTH_CUT;
+  // An explicit-noauth container (Q28): its inheriting children inherit that noauth.
+  if (isExplicitNoauth(node.auth, node._postman)) return { type: 'none' };
   return isConfiguredAuth(node.auth) ? node.auth : inherited;
 }
 
@@ -135,6 +137,7 @@ export function v21ContainerAuth(
   ctx: ExportContext,
   emitNone: boolean
 ): PostmanV21Auth | undefined {
+  if (isExplicitNoauth(auth, sidecar)) return { type: 'noauth' };
   const bagAuth = sidecar?.auth !== undefined && !sidecar.authBagOnly;
   if (!bagAuth && !isConfiguredAuth(auth) && !(emitNone && auth)) return undefined;
   return toV21Auth(
@@ -155,6 +158,7 @@ export function v21RequestAuth(
   owner: string,
   ctx: ExportContext
 ): PostmanV21Auth | undefined {
+  if (isExplicitNoauth(auth, sidecar)) return { type: 'noauth' };
   let parent: AuthConfig | undefined;
   if (inherited === AUTH_CUT) {
     const bagAuth = sidecar?.auth !== undefined && !sidecar.authBagOnly;

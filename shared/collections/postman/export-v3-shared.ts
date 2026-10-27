@@ -1,3 +1,4 @@
+import { isConfiguredAuth } from '../../auth/inheritance';
 import { migrateScriptRsToPm } from '../../scripts/script-migrations';
 import type { SecretValue } from '../../secrets/secret-ref';
 import type { AuthConfig, KeyValue, ScopedVariable } from '../../types';
@@ -230,6 +231,19 @@ function credsOf(pairs: Array<[string, string | undefined]>): Cred[] {
   return pairs
     .filter((p): p is [string, string] => p[1] !== undefined)
     .map(([key, value]) => ({ key, value }));
+}
+
+/**
+ * Q28: the node's Postman auth was an explicit `noauth` (`_postman.noauth`,
+ * set at import) and the user has not configured an auth since. It must be
+ * exported as an explicit `noauth` — omitted means inherit, and Postman /
+ * Newman would sign it with an ancestor's credential.
+ */
+export function isExplicitNoauth(
+  auth: AuthConfig | undefined,
+  sidecar: PostmanSidecar | undefined
+): boolean {
+  return sidecar?.noauth === true && !isConfiguredAuth(auth);
 }
 
 /**

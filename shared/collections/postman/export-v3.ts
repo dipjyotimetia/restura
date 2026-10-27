@@ -14,6 +14,7 @@ import {
   exportAuth,
   exportScripts,
   exportVariables,
+  isExplicitNoauth,
   restoreBagOnlyAuth,
 } from './export-v3-shared';
 import { getPostmanSidecar, type PostmanSidecar } from './sidecar';
@@ -130,6 +131,7 @@ function containerAuth(
   ctx: ExportContext,
   emitNone: boolean
 ): Raw | undefined {
+  if (isExplicitNoauth(auth, sidecar)) return { type: 'noauth' };
   const bagAuth = sidecar?.auth !== undefined && !sidecar.authBagOnly;
   if (!bagAuth && !isConfiguredAuth(auth) && !(emitNone && auth)) return undefined;
   return exportAuth(auth ?? { type: 'none' }, sidecar, AUTH_TYPES.collection, owner, ctx);
@@ -147,6 +149,8 @@ function authForChildren(
   inherited: AuthConfig | undefined
 ): AuthConfig | undefined {
   if (hasUnsupportedPostmanAuth(node)) return { type: 'none' };
+  // An explicit-noauth container: its inheriting children inherit that noauth.
+  if (isExplicitNoauth(node.auth, getPostmanSidecar(node))) return { type: 'none' };
   return isConfiguredAuth(node.auth) ? node.auth : inherited;
 }
 
