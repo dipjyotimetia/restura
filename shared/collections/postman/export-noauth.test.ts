@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import Ajv from 'ajv';
 import { describe, expect, it } from 'vitest';
 import type { AuthConfig, Collection, CollectionItem } from '../../types';
 import { exportPostmanV21 } from './export-v2';
@@ -89,4 +92,43 @@ describe('explicit Postman noauth export (Q28)', () => {
     expect(exportPostmanV21(c).collection.auth).toEqual({ type: 'noauth' });
     expect((exportPostmanV3Tree(c).tree as { auth?: unknown }).auth).toEqual({ type: 'noauth' });
   });
+});
+
+describe('a guard-only unsupported bag with no parameters (#1228 after a child edit)', () => {
+  const validator = (version: string) =>
+    new Ajv({ strict: false, allErrors: true }).compile(
+      JSON.parse(
+        readFileSync(resolve(process.cwd(), `vendor/postman/${version}/schema.json`), 'utf8')
+      ) as object
+    );
+  const collection = (type: string): Collection => ({
+    id: 'c',
+    name: 'C',
+    auth: { type: 'bearer', bearer: { token: 'col' } },
+    items: [folder('Guarded', [req('Child', { type: 'none' })], { auth: { type } })],
+  });
+
+  for (const type of ['hawk', 'jwt']) {
+    it(`${type}: v2.1 and v3 export without a crash, schema-valid`, () => {
+      const v21 = exportPostmanV21(collection(type));
+      const v21Doc = JSON.parse(JSON.stringify(v21.collection)) as { item: V21Node[] };
+      const v21Valid = validator('v2.1.0');
+      expect(v21Valid(v21Doc) ? [] : v21Valid.errors).toEqual([]);
+      const v3 = exportPostmanV3Tree(collection(type));
+      const v3Valid = validator('v3.0.0');
+      expect(v3Valid(v3.tree) ? [] : v3Valid.errors).toEqual([]);
+      const v3Folder = (v3.tree as unknown as { items: V3Node[] }).items[0];
+      if (type === 'hawk') {
+        // Type-only: Postman keeps signing the children with hawk (re-entered there).
+        expect(v21Doc.item[0]?.auth).toEqual({ type: 'hawk', hawk: [] });
+        expect(v3Folder?.auth).toEqual({ type: 'hawk', credentials: [] });
+      } else {
+        // No v2.1 jwt type: noauth + a report entry; children stay explicitly unsigned.
+        expect(v21Doc.item[0]?.auth).toEqual({ type: 'noauth' });
+        expect(v21Doc.item[0]?.item?.[0]?.request?.auth).toEqual({ type: 'noauth' });
+        expect(v21.report.entries.map((e) => e.construct)).toContain('auth-unsupported-for-kind');
+        expect(v3Folder?.auth).toEqual({ type: 'jwt', credentials: [] });
+      }
+    });
+  }
 });
