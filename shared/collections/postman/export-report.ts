@@ -36,7 +36,9 @@ export type PostmanExportConstruct =
   | 'multi-auth'
   // v2.1 only (#1229)
   | 'non-http-request'
-  | 'placeholder-item';
+  | 'placeholder-item'
+  | 'restored-events'
+  | 'restored-file-path';
 
 export interface PostmanExportIssue {
   /** `dropped`: not in the files at all; `emptied`: written without its value; `approximated`: written differently. */
@@ -89,6 +91,10 @@ const DETAIL: Record<PostmanExportConstruct, string> = {
   'multi-auth': 'Only the first credential set of a multi-set Postman auth is exported',
   'non-http-request':
     'Postman v2.1 has no item kind for this request type (only HTTP and GraphQL); not exported',
+  'restored-events':
+    'Extra scripts kept from the Postman import were restored; Restura never showed or ran them, but Postman / Newman will',
+  'restored-file-path':
+    'Local file paths kept from the Postman import were restored; Postman / Newman will upload the files at those paths',
   'placeholder-item':
     'This imported Postman item kind has no Postman v2.1 equivalent; not exported',
 };

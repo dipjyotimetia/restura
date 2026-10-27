@@ -7,7 +7,7 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock('sonner', () => ({ toast: h.toast }));
 
-import { EXPORT_MENU_ITEMS } from '../../components/SidebarCollectionsPanel';
+import { EXPORT_MENU_ITEMS } from '../../components/exportMenuItems';
 import { exportToPostman, getCollectionExportWarnings } from '../exporters';
 import { savePostmanV21Export } from '../postmanV3Export';
 
@@ -83,6 +83,21 @@ describe('Postman v2.1 export — renderer', () => {
       'Exported Shop API.postman_collection.json — 1 item not exported as-is',
       expect.anything()
     );
+  });
+
+  it('a failed download is a visible error (with the report when there is one)', () => {
+    URL.createObjectURL = vi.fn(() => {
+      throw 'blocked';
+    });
+    expect(savePostmanV21Export(collection())).toBe(false);
+    expect(h.toast.error).toHaveBeenLastCalledWith('Postman v2.1 export failed: blocked', {
+      description: expect.anything(),
+    });
+    URL.createObjectURL = vi.fn(() => {
+      throw new Error('denied');
+    });
+    expect(savePostmanV21Export({ id: 'e', name: 'Empty', items: [] })).toBe(false);
+    expect(h.toast.error).toHaveBeenLastCalledWith('Postman v2.1 export failed: denied', {});
   });
 
   it('the export report supersedes the postman export warnings', () => {

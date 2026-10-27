@@ -41,19 +41,11 @@ import {
   type TreeState,
 } from './CollectionTree';
 import { CollectionWorkspaceActions } from './CollectionWorkspaceActions';
+import { EXPORT_MENU_ITEMS, type ExportFormat } from './exportMenuItems';
 import { FileStatusBadge } from './FileStatusBadge';
 import { SidebarEmptyState } from './SidebarEmptyState';
 
-export type ExportFormat = 'postman-v3' | 'postman-v21' | 'insomnia' | 'opencollection' | 'bruno';
-
-/** Export submenu, in display order: Postman v3 is the default (#1229). */
-export const EXPORT_MENU_ITEMS: ReadonlyArray<{ format: ExportFormat; label: string }> = [
-  { format: 'postman-v3', label: 'Postman v3 (folder / zip)' },
-  { format: 'postman-v21', label: 'Postman v2.1 (single file · Newman)' },
-  { format: 'insomnia', label: 'Insomnia Collection' },
-  { format: 'opencollection', label: 'OpenCollection (YAML)' },
-  { format: 'bruno', label: 'Bruno (.bru archive)' },
-];
+export type { ExportFormat } from './exportMenuItems';
 
 interface SidebarCollectionsPanelProps {
   collections: Collection[];

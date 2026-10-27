@@ -93,11 +93,14 @@ export function v21Events(
   pre: string | undefined,
   test: string | undefined,
   sidecar: PostmanSidecar | undefined,
+  owner: string,
   ctx: ExportContext
 ): PostmanV21Event[] | undefined {
   const kept = arr(sidecar?.event)
     .map(keptEvent)
     .filter((e): e is PostmanV21Event => e !== undefined);
+  // Scripts Restura never showed or ran; Postman / Newman will run them.
+  if (kept.length > 0) ctx.report.approximated('restored-events', owner, String(kept.length));
   const live = (listen: string, code: string): PostmanV21Event => ({
     listen,
     script: { type: 'text/javascript', exec: ctx.transformScript(code).split('\n') },
@@ -145,15 +148,44 @@ export function v21Variables(
     if (!isObj(raw)) continue;
     const key = typeof raw.key === 'string' ? raw.key : str(raw.id);
     if (seen.has(key)) continue;
-    if (raw.type === 'secret' && raw.value !== undefined && raw.value !== '') {
-      // Postman secret-typed variables are emptied like Restura secret ones.
-      ctx.report.emptied('secret-variable', owner, key);
-      out.push({ ...raw, value: anyValue('') } as PostmanV21Variable);
-      continue;
-    }
-    out.push(raw as PostmanV21Variable);
+    out.push(keptVariable(raw, owner, ctx));
   }
   return out.length > 0 ? out : undefined;
+}
+
+const V21_VARIABLE_TYPES = new Set<unknown>(['string', 'boolean', 'any', 'number']);
+
+/**
+ * A kept Postman variable row (item / URL variables, already redacted),
+ * narrowed to the v2.1 schema fields. A `type: "secret"` row (Postman vault
+ * style, imported value-less) has no v2.1 type: it is written as a plain
+ * variable with an EMPTY value and reported, like a Restura secret variable.
+ */
+function keptVariable(raw: Raw, owner: string, ctx: ExportContext): PostmanV21Variable {
+  const secret = raw.type === 'secret' || raw.secret === true;
+  const key = typeof raw.key === 'string' ? raw.key : undefined;
+  if (secret) ctx.report.emptied('secret-variable', owner, key ?? str(raw.id));
+  const description =
+    typeof raw.description === 'string' || isObj(raw.description)
+      ? (structuredClone(raw.description) as PostmanV21Variable['description'])
+      : undefined;
+  return compact({
+    id: typeof raw.id === 'string' ? raw.id : undefined,
+    key,
+    value: secret
+      ? anyValue('')
+      : raw.value === undefined
+        ? undefined
+        : anyValue(structuredClone(raw.value)),
+    type:
+      !secret && V21_VARIABLE_TYPES.has(raw.type)
+        ? (raw.type as NonNullable<PostmanV21Variable['type']>)
+        : undefined,
+    name: typeof raw.name === 'string' ? raw.name : undefined,
+    description,
+    system: typeof raw.system === 'boolean' ? raw.system : undefined,
+    disabled: typeof raw.disabled === 'boolean' ? raw.disabled : undefined,
+  });
 }
 
 // ── headers / url ───────────────────────────────────────────────────────────
@@ -175,17 +207,18 @@ export function v21Headers(
 
 /** Structured URL parts (Newman ignores `raw` in the object form, so they must be set). */
 function urlParts(base: string) {
-  const m = /^(?:([A-Za-z][\w+.-]*):\/\/)?([^/]*)(.*)$/.exec(base);
-  const protocol = m?.[1];
-  let host = m?.[2] ?? '';
-  const pathPart = m?.[3] ?? '';
+  const sep = base.indexOf('://');
+  const protocol = sep > 0 ? base.slice(0, sep) : undefined;
+  const rest = sep > 0 ? base.slice(sep + 3) : base;
+  const slash = rest.indexOf('/');
+  let host = slash === -1 ? rest : rest.slice(0, slash);
+  const path = slash === -1 ? '' : rest.slice(slash + 1);
   let port: string | undefined;
-  const portMatch = /^(.*):(\d+)$/.exec(host);
-  if (portMatch && !host.includes('{{')) {
-    host = portMatch[1] ?? host;
-    port = portMatch[2];
+  const colon = host.lastIndexOf(':');
+  if (colon !== -1 && /^\d+$/.test(host.slice(colon + 1))) {
+    port = host.slice(colon + 1);
+    host = host.slice(0, colon);
   }
-  const path = pathPart.replace(/^\//, '');
   return compact({
     protocol,
     host: host === '' ? undefined : host.includes('{{') ? [host] : host.split('.'),
@@ -194,11 +227,15 @@ function urlParts(base: string) {
   });
 }
 
-function urlVariables(sidecar: PostmanSidecar | undefined): PostmanV21Variable[] {
+function urlVariables(
+  sidecar: PostmanSidecar | undefined,
+  owner: string,
+  ctx: ExportContext
+): PostmanV21Variable[] {
   return arr(sidecar?.urlVariable)
     .filter(isObj)
     .filter((v) => typeof v.key === 'string')
-    .map((v) => v as PostmanV21Variable);
+    .map((v) => keptVariable(v, owner, ctx));
 }
 
 /**
@@ -221,7 +258,7 @@ export function v21Url(
     .map((r) => `${str(r.key)}=${str(r.value)}`)
     .join('&');
   const raw = qs ? `${beforeHash}${beforeHash.includes('?') ? '&' : '?'}${qs}${fragment}` : req.url;
-  const variable = urlVariables(sidecar);
+  const variable = urlVariables(sidecar, owner, ctx);
   const lossy =
     variable.length > 0 || rows.some((r) => r.disabled === true || r.description !== undefined);
   if (!lossy) return raw;
@@ -274,6 +311,13 @@ function keptFormRows(body: unknown): FormRow[] | undefined {
   });
 }
 
+/** A file row whose `src` is a (restored) local path Postman / Newman would upload. */
+function hasLocalPath(row: FormRow): boolean {
+  if (row.type !== 'file' || !('src' in row)) return false;
+  const src = row.src;
+  return (typeof src === 'string' && src !== '') || (Array.isArray(src) && src.length > 0);
+}
+
 /** Do the kept rows still describe the live ones? (see `keptFormMatches` in export-v3-http.ts) */
 function keptMatches(kept: FormRow[], live: NonNullable<HttpRequest['body']['formData']>) {
   return (
@@ -284,7 +328,8 @@ function keptMatches(kept: FormRow[], live: NonNullable<HttpRequest['body']['for
       if ((k.type === 'file') !== (p.type === 'file')) return false;
       if ((k.disabled === true) !== (p.enabled === false)) return false;
       if (p.type === 'file') return true;
-      const value = 'value' in k ? str(k.value) : '';
+      // Same kind as the live text row, so the kept row is a text row.
+      const value = str((k as { value?: unknown }).value);
       return value === '' || value === p.value;
     })
   );
@@ -299,9 +344,13 @@ function formBody(
   const live = req.body.formData ?? [];
   const kept = keptFormRows(sidecar?.body);
   // In sync: the kept rows are exported (secret redaction blanks them, not the live rows).
-  if (kept && keptMatches(kept, live)) return { mode: 'formdata', formdata: kept };
+  if (kept && keptMatches(kept, live)) {
+    if (kept.some(hasLocalPath)) ctx.report.approximated('restored-file-path', owner);
+    return { mode: 'formdata', formdata: kept };
+  }
   const files = (kept ?? []).filter((r) => r.type === 'file');
   let missing = false;
+  let restored = false;
   const formdata = live.map((p): FormRow => {
     const meta = compact({
       disabled: p.enabled === false ? true : undefined,
@@ -315,9 +364,11 @@ function formBody(
     const [row] = i === -1 ? [] : files.splice(i, 1);
     const src = row && 'src' in row ? row.src : undefined;
     if (src === undefined || src === null || src === '') missing = true;
+    else restored = true;
     return compact({ key: p.key, src: src ?? p.fileName ?? '', type: 'file' as const, ...meta });
   });
   if (missing) ctx.report.emptied('form-file', owner);
+  if (restored) ctx.report.approximated('restored-file-path', owner);
   return { mode: 'formdata', formdata };
 }
 
@@ -381,6 +432,9 @@ export function v21Body(
       const file =
         kept?.mode === 'file' ? kept.file : kept?.type === 'file' ? kept.content : undefined;
       if (isObj(file) && (typeof file.src === 'string' || file.src === null)) {
+        if (typeof file.src === 'string' && file.src !== '') {
+          ctx.report.approximated('restored-file-path', owner);
+        }
         return { mode: 'file', file: { src: file.src } };
       }
       ctx.report.emptied('binary-body', owner);
@@ -412,8 +466,9 @@ export function v21ProtocolProfile(
   owner: string,
   ctx: ExportContext
 ): PostmanV21ProtocolProfileBehavior | undefined {
+  // Cloned: the sidecar is store state and must never be aliased into output.
   const out: Raw = isObj(sidecar?.protocolProfileBehavior)
-    ? { ...sidecar.protocolProfileBehavior }
+    ? structuredClone(sidecar.protocolProfileBehavior)
     : {};
   if (s) {
     let protocolVersion: string | undefined;
@@ -450,5 +505,7 @@ export function v21ProtocolProfile(
 export function keptProtocolProfile(
   sidecar: PostmanSidecar | undefined
 ): PostmanV21ProtocolProfileBehavior | undefined {
-  return isObj(sidecar?.protocolProfileBehavior) ? sidecar.protocolProfileBehavior : undefined;
+  return isObj(sidecar?.protocolProfileBehavior)
+    ? structuredClone(sidecar.protocolProfileBehavior)
+    : undefined;
 }

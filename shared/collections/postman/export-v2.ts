@@ -114,7 +114,7 @@ function exportHttpItem(
   return compact({
     name,
     variable: v21Variables(undefined, sidecar, name, ctx),
-    event: v21Events(req.preRequestScript, req.testScript, sidecar, ctx),
+    event: v21Events(req.preRequestScript, req.testScript, sidecar, name, ctx),
     request,
     response: savedResponses(sidecar),
     protocolProfileBehavior: v21ProtocolProfile(req.settings, sidecar, name, ctx),
@@ -162,7 +162,7 @@ function exportItem(
     description: typeof sidecar?.description === 'string' ? sidecar.description : undefined,
     variable: v21Variables(item.variables, sidecar, name, ctx),
     item: children,
-    event: v21Events(item.preRequestScript, item.testScript, sidecar, ctx),
+    event: v21Events(item.preRequestScript, item.testScript, sidecar, name, ctx),
     auth: v21ContainerAuth(item.auth, sidecar, name, ctx, false),
     protocolProfileBehavior: keptProtocolProfile(sidecar),
   });
@@ -193,7 +193,7 @@ export function exportPostmanV21(
       schema: POSTMAN_V21_SCHEMA_URL,
     }),
     item: items,
-    event: v21Events(collection.preRequestScript, collection.testScript, sidecar, ctx),
+    event: v21Events(collection.preRequestScript, collection.testScript, sidecar, name, ctx),
     variable: v21Variables(collection.variables, undefined, name, ctx),
     auth: v21ContainerAuth(collection.auth, sidecar, name, ctx, true),
     protocolProfileBehavior: keptProtocolProfile(sidecar),

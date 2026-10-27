@@ -344,15 +344,37 @@ function typedAuthToV3(auth: AuthConfig, owner: string, ctx: ExportContext): Raw
   }
 }
 
+function isSecretRefValue(v: unknown): v is Exclude<SecretValue, string> {
+  return isObj(v) && (v.kind === 'handle' || v.kind === 'external' || v.kind === 'inline');
+}
+
+/**
+ * A sidecar credential value as file text. Handle conversion
+ * (`convertPostmanBagToHandles`) leaves `{ kind: 'handle', id, label }`
+ * objects in the bag; like typed fields they go through {@link secretText}
+ * (EMPTY + a `secret-handle` entry), so neither the keychain id nor the label
+ * (collection / request names) reaches a file. Without a report context
+ * (bag-only restores) a handle is still emptied.
+ */
+function bagValue(v: unknown, owner: string | undefined, ctx: ExportContext | undefined): unknown {
+  if (!isSecretRefValue(v)) return v ?? '';
+  if (ctx && owner !== undefined) return secretText(v, owner, ctx);
+  return v.kind === 'inline' ? v.value : '';
+}
+
 /** v2-shaped sidecar auth `{ type, [type]: [{ key, value }] }` → credential rows. */
-function sidecarCreds(raw: unknown): { type: string; creds: Cred[] } | undefined {
+function sidecarCreds(
+  raw: unknown,
+  owner?: string,
+  ctx?: ExportContext
+): { type: string; creds: Cred[] } | undefined {
   if (!isObj(raw) || typeof raw.type !== 'string') return undefined;
   const type = raw.type;
   const block = Object.prototype.hasOwnProperty.call(raw, type) ? raw[type] : undefined;
   const creds: Cred[] = Array.isArray(block)
-    ? block.filter(isObj).map((c) => ({ key: str(c.key), value: c.value ?? '' }))
+    ? block.filter(isObj).map((c) => ({ key: str(c.key), value: bagValue(c.value, owner, ctx) }))
     : isObj(block)
-      ? Object.entries(block).map(([key, value]) => ({ key, value: value ?? '' }))
+      ? Object.entries(block).map(([key, value]) => ({ key, value: bagValue(value, owner, ctx) }))
       : [];
   return { type, creds };
 }
@@ -373,7 +395,7 @@ export function exportAuth(
   owner: string,
   ctx: ExportContext
 ): Raw | undefined {
-  const bag = sidecar?.authBagOnly ? undefined : sidecarCreds(sidecar?.auth);
+  const bag = sidecar?.authBagOnly ? undefined : sidecarCreds(sidecar?.auth, owner, ctx);
   let set: Raw | undefined;
   if (auth.type === 'none' && bag && bag.type !== 'noauth' && bag.type !== '') {
     set = { type: bag.type, credentials: bag.creds };
