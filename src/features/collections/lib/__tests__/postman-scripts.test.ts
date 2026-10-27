@@ -1,7 +1,12 @@
+import type { PostmanV21Collection } from '@shared/collections/postman';
+import type { PostmanV21Event } from '@shared/collections/postman/v21-types';
 import { describe, expect, it } from 'vitest';
-import type { Collection, HttpRequest, PostmanCollection } from '@/types';
+import type { Collection, HttpRequest } from '@/types';
 import { exportToPostman } from '../exporters';
 import { importPostmanCollection } from '../importers/postman';
+
+/** An exported event's script text. */
+const code = (e: PostmanV21Event | undefined) => [e?.script?.exec ?? []].flat().join('\n');
 
 function asHttp(item: { request?: unknown }): HttpRequest {
   return item.request as HttpRequest;
@@ -14,7 +19,7 @@ function testEvent(code: string) {
   return { listen: 'test', script: { type: 'text/javascript', exec: code.split('\n') } };
 }
 
-const importData = (overrides: Partial<PostmanCollection>): PostmanCollection =>
+const importData = (overrides: Partial<PostmanV21Collection>): PostmanV21Collection =>
   ({
     info: {
       name: 'Scripts',
@@ -22,7 +27,7 @@ const importData = (overrides: Partial<PostmanCollection>): PostmanCollection =>
     },
     item: [],
     ...overrides,
-    // biome-ignore lint/suspicious/noExplicitAny: PostmanCollection type is loose
+    // biome-ignore lint/suspicious/noExplicitAny: PostmanV21Collection type is loose
   }) as any;
 
 describe('Postman import — pm.* -> rs.* migration', () => {
@@ -117,17 +122,17 @@ describe('Postman export — rs.* -> pm.* reverse migration', () => {
   it('reverse-migrates scripts at request, folder, and collection level', () => {
     const out = exportToPostman(collection);
     // collection level
-    expect(out.event?.[0]?.script.exec.join('\n')).toBe('pm.variables.set("c", 1);');
+    expect(code(out.event?.[0])).toBe('pm.variables.set("c", 1);');
     // folder level
     const folder = out.item[0]!;
-    expect(folder.event?.[0]?.script.exec.join('\n')).toBe('pm.variables.set("f", 1);');
+    expect(code(folder.event?.[0])).toBe('pm.variables.set("f", 1);');
     // request level
-    const req = folder.item![0]!;
+    const req = ('item' in folder ? folder.item : [])[0]!;
     const pre = req.event?.find((e) => e.listen === 'prerequest');
     const test = req.event?.find((e) => e.listen === 'test');
-    expect(pre?.script.exec.join('\n')).toBe('pm.variables.set("r", 1);');
-    expect(test?.script.exec.join('\n')).toContain('pm.test("req"');
-    expect(test?.script.exec.join('\n')).not.toMatch(/\brs\./);
+    expect(code(pre)).toBe('pm.variables.set("r", 1);');
+    expect(code(test)).toContain('pm.test("req"');
+    expect(code(test)).not.toMatch(/\brs\./);
   });
 });
 
@@ -148,7 +153,7 @@ describe('Postman round-trip', () => {
     const imported = await importPostmanCollection(data);
     const exported = exportToPostman(imported);
     const test = exported.item[0]?.event?.find((e) => e.listen === 'test');
-    expect(test?.script.exec.join('\n')).toBe(original);
+    expect(code(test)).toBe(original);
   });
 });
 

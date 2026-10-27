@@ -4,8 +4,9 @@ import {
   type PostmanImportResult,
   type PostmanSourceVersion,
   type PostmanV3FileMap,
+  type PostmanV21Collection,
 } from '@shared/collections/postman';
-import type { Collection, PostmanCollection } from '@/types';
+import type { Collection } from '@/types';
 import type { ImportResult, ImportWarning } from './types';
 
 /**
@@ -20,7 +21,7 @@ import type { ImportResult, ImportWarning } from './types';
  * shared parser migrates Postman's `pm.*` namespace to `rs.*` by default.
  */
 export async function importPostmanCollection(
-  postmanData: PostmanCollection | unknown,
+  postmanData: PostmanV21Collection | unknown,
   warnings?: ImportWarning[]
 ): Promise<Collection> {
   const result = importPostmanWithReport(postmanData);

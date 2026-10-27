@@ -1,10 +1,11 @@
+import type { PostmanV21Collection } from '@shared/collections/postman';
 import { describe, expect, it } from 'vitest';
-import type { HttpRequest, PostmanCollection } from '@/types';
+import type { HttpRequest } from '@/types';
 import { importPostmanCollection } from '../importers/postman';
 import type { ImportWarning } from '../importers/types';
 
 describe('importPostmanCollection — renderer adapter over the shared parser (#1199)', () => {
-  const withAuth = (auth: Record<string, unknown>): PostmanCollection =>
+  const withAuth = (auth: Record<string, unknown>): PostmanV21Collection =>
     ({
       info: {
         name: 'Auth',
@@ -13,7 +14,7 @@ describe('importPostmanCollection — renderer adapter over the shared parser (#
       item: [
         { name: 'R', request: { method: 'GET', url: 'https://x.example.com', header: [], auth } },
       ],
-    }) as unknown as PostmanCollection;
+    }) as unknown as PostmanV21Collection;
 
   it('maps OAuth1 (previously dropped to none)', async () => {
     const collection = await importPostmanCollection(
@@ -62,7 +63,7 @@ function asHttp(item: { request?: unknown }): HttpRequest {
 
 describe('importPostmanCollection — OAuth2 full preservation', () => {
   it('preserves all OAuth2 flow fields from a Postman collection', async () => {
-    const postmanData: PostmanCollection = {
+    const postmanData: PostmanV21Collection = {
       info: {
         name: 'OAuth2 Test',
         schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
@@ -88,7 +89,7 @@ describe('importPostmanCollection — OAuth2 full preservation', () => {
                 { key: 'redirect_uri', value: 'https://app.example.com/callback', type: 'string' },
               ],
             },
-            // biome-ignore lint/suspicious/noExplicitAny: PostmanCollection type is loose
+            // biome-ignore lint/suspicious/noExplicitAny: PostmanV21Collection type is loose
           } as any,
         },
       ],
@@ -112,7 +113,7 @@ describe('importPostmanCollection — OAuth2 full preservation', () => {
   });
 
   it('maps grant_type=client_credentials correctly', async () => {
-    const postmanData: PostmanCollection = {
+    const postmanData: PostmanV21Collection = {
       info: {
         name: 'Client Credentials',
         schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
@@ -143,7 +144,7 @@ describe('importPostmanCollection — OAuth2 full preservation', () => {
   });
 
   it('maps grant_type=password_credentials to "password" and pulls credentials', async () => {
-    const postmanData: PostmanCollection = {
+    const postmanData: PostmanV21Collection = {
       info: {
         name: 'Password Grant',
         schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
@@ -176,7 +177,7 @@ describe('importPostmanCollection — OAuth2 full preservation', () => {
   });
 
   it('drops grant_type=implicit (Restura does not model implicit flow)', async () => {
-    const postmanData: PostmanCollection = {
+    const postmanData: PostmanV21Collection = {
       info: {
         name: 'Implicit',
         schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
@@ -207,7 +208,7 @@ describe('importPostmanCollection — OAuth2 full preservation', () => {
   });
 
   it('strips undefined fields from the resulting oauth2 object', async () => {
-    const postmanData: PostmanCollection = {
+    const postmanData: PostmanV21Collection = {
       info: {
         name: 'Sparse',
         schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',

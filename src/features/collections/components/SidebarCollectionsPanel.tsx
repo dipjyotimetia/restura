@@ -44,7 +44,16 @@ import { CollectionWorkspaceActions } from './CollectionWorkspaceActions';
 import { FileStatusBadge } from './FileStatusBadge';
 import { SidebarEmptyState } from './SidebarEmptyState';
 
-export type ExportFormat = 'postman' | 'postman-v3' | 'insomnia' | 'opencollection' | 'bruno';
+export type ExportFormat = 'postman-v3' | 'postman-v21' | 'insomnia' | 'opencollection' | 'bruno';
+
+/** Export submenu, in display order: Postman v3 is the default (#1229). */
+export const EXPORT_MENU_ITEMS: ReadonlyArray<{ format: ExportFormat; label: string }> = [
+  { format: 'postman-v3', label: 'Postman v3 (folder / zip)' },
+  { format: 'postman-v21', label: 'Postman v2.1 (single file · Newman)' },
+  { format: 'insomnia', label: 'Insomnia Collection' },
+  { format: 'opencollection', label: 'OpenCollection (YAML)' },
+  { format: 'bruno', label: 'Bruno (.bru archive)' },
+];
 
 interface SidebarCollectionsPanelProps {
   collections: Collection[];
@@ -396,33 +405,15 @@ function CollectionMenu({
             Export
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
-            <DropdownMenuItem
-              onClick={() => onExport(collection.id, 'postman')}
-              className="text-xs"
-            >
-              Postman v2.1 (single file)
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onExport(collection.id, 'postman-v3')}
-              className="text-xs"
-            >
-              Postman v3 (folder / zip)
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onExport(collection.id, 'insomnia')}
-              className="text-xs"
-            >
-              Insomnia Collection
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onExport(collection.id, 'opencollection')}
-              className="text-xs"
-            >
-              OpenCollection (YAML)
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onExport(collection.id, 'bruno')} className="text-xs">
-              Bruno (.bru archive)
-            </DropdownMenuItem>
+            {EXPORT_MENU_ITEMS.map(({ format, label }) => (
+              <DropdownMenuItem
+                key={format}
+                onClick={() => onExport(collection.id, format)}
+                className="text-xs"
+              >
+                {label}
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         {isElectron && (

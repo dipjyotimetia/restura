@@ -1,0 +1,141 @@
+{
+  "info": {
+    "name": "Sidecar Shop",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "protocolProfileBehavior": { "disableBodyPruning": true },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": { "type": "text/javascript", "exec": ["console.log('first');"] }
+    },
+    {
+      "listen": "prerequest",
+      "script": { "type": "text/javascript", "exec": ["pm.variables.set('a', 1);"] }
+    }
+  ],
+  "variable": [{ "key": "baseUrl", "value": "https://shop.example.com" }],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "col-token", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Hawk folder",
+      "auth": {
+        "type": "hawk",
+        "hawk": [
+          { "key": "authId", "value": "hawk-id", "type": "string" },
+          { "key": "algorithm", "value": "sha256", "type": "string" }
+        ]
+      },
+      "variable": [{ "key": "folderVar", "value": "f" }],
+      "item": [
+        {
+          "name": "Inherits hawk",
+          "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/hawk" }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Get order",
+          "protocolProfileBehavior": { "followRedirects": false, "strictSSL": false },
+          "variable": [{ "key": "itemVar", "value": "i" }],
+          "event": [
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": ["pm.test('old', () => {});"] }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('ok', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/orders/:orderId/:missing?expand=items",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", ":orderId", ":missing"],
+              "query": [{ "key": "expand", "value": "items" }],
+              "variable": [
+                { "key": "orderId", "value": "42", "description": "Order id" },
+                { "key": "missing", "value": "" }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/orders/42"
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "cookie": [],
+              "body": "{\"id\":42}"
+            }
+          ]
+        },
+        {
+          "name": "Upload",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/upload",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "note", "value": "hello", "type": "text" },
+                { "key": "file", "src": "/tmp/report.pdf", "type": "file" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Raw file",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": "{{baseUrl}}/blob",
+            "body": { "mode": "file", "file": { "src": "/tmp/blob.bin" } }
+          }
+        },
+        {
+          "name": "Edgegrid",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/akamai",
+            "auth": {
+              "type": "edgegrid",
+              "edgegrid": [
+                { "key": "baseURL", "value": "https://akamai.example.com", "type": "string" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Explicit none",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/open",
+            "auth": { "type": "noauth" }
+          }
+        }
+      ]
+    }
+  ]
+}

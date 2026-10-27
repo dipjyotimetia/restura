@@ -1,8 +1,8 @@
 /**
- * Structured export report for Postman v3 export (#1201) — the export-side
- * counterpart of `./report.ts`.
+ * Structured export report for Postman v3 (#1201) and v2.1 (#1229) export —
+ * the export-side counterpart of `./report.ts`.
  *
- * Every Restura construct that a v3 file cannot hold (SSE requests, WSSE auth,
+ * Every Restura construct that the target file cannot hold (SSE requests, WSSE auth,
  * Restura-only settings, secret values, …) is dropped from the files or
  * approximated, and produces exactly one entry here. Entries carry only item
  * names, construct ids and fixed notes — never values — so a report is safe
@@ -33,7 +33,10 @@ export type PostmanExportConstruct =
   | 'kafka-mode'
   | 'description'
   | 'examples'
-  | 'multi-auth';
+  | 'multi-auth'
+  // v2.1 only (#1229)
+  | 'non-http-request'
+  | 'placeholder-item';
 
 export interface PostmanExportIssue {
   /** `dropped`: not in the files at all; `emptied`: written without its value; `approximated`: written differently. */
@@ -44,8 +47,10 @@ export interface PostmanExportIssue {
   detail: string;
 }
 
+export type PostmanExportTargetVersion = '2.1' | '3.0';
+
 export interface PostmanExportReport {
-  targetVersion: '3.0';
+  targetVersion: PostmanExportTargetVersion;
   entries: PostmanExportIssue[];
 }
 
@@ -61,7 +66,7 @@ const DETAIL: Record<PostmanExportConstruct, string> = {
   'folder-variables': 'Postman v3 folders have no variables; folder variables were not exported',
   'restura-settings': 'Restura-only request settings were not exported',
   'contract-spec': 'Attached contract spec is Restura-only; not exported',
-  'body-unsupported': 'This body type has no Postman v3 equivalent; exported without a body',
+  'body-unsupported': 'This body type has no Postman equivalent; exported without a body',
   'form-file': 'Form-data file fields exported without a file path; re-pick the files in Postman',
   'binary-body': 'Binary file body exported without its file; re-pick it in Postman',
   'graphql-extras': 'GraphQL schema / subscription settings are Restura-only; not exported',
@@ -82,6 +87,10 @@ const DETAIL: Record<PostmanExportConstruct, string> = {
   description: 'Postman v3 has no description for this kind; not exported',
   examples: 'Saved examples for this request kind cannot be restored; not exported',
   'multi-auth': 'Only the first credential set of a multi-set Postman auth is exported',
+  'non-http-request':
+    'Postman v2.1 has no item kind for this request type (only HTTP and GraphQL); not exported',
+  'placeholder-item':
+    'This imported Postman item kind has no Postman v2.1 equivalent; not exported',
 };
 
 export class PostmanExportReportBuilder {
@@ -113,7 +122,7 @@ export class PostmanExportReportBuilder {
     this.add('approximated', construct, itemName, extra);
   }
 
-  build(): PostmanExportReport {
-    return { targetVersion: '3.0', entries: this.entries };
+  build(targetVersion: PostmanExportTargetVersion = '3.0'): PostmanExportReport {
+    return { targetVersion, entries: this.entries };
   }
 }
