@@ -1,5 +1,7 @@
 # Postman script compatibility (`pm.*`)
 
+Collection import/export (Postman v2.x and v3) is covered in the docs-site guide *Import & export* and ADR 0034; this page is about scripts only.
+
 Restura runs your existing Postman test scripts unmodified, with very few
 exceptions. Both pre-request scripts and test scripts execute inside a QuickJS
 WASM sandbox (see [ADR-0004](./adr/0004-security-hardening.md)) — same security
