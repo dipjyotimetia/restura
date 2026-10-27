@@ -559,7 +559,8 @@ describe('Postman v3 export — secrets', () => {
       },
     });
     const c: Collection = { id: 'c', name: 'C', items: [form] };
-    expect(countCollectionInlineSecrets(c)).toBe(1);
+    // The kept sidecar row and (Q29) the live form row are both blanked, so both count.
+    expect(countCollectionInlineSecrets(c)).toBe(2);
     const out = exportPostmanV3(redactCollectionSecrets(c));
     const file = out.files['Login.request.yaml'] ?? '';
     expect(file).not.toContain('form-pass-plain');
