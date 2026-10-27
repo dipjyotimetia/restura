@@ -1,0 +1,6 @@
+$kind: collection
+name: Folder Unsupported Auth
+auth:
+  type: bearer
+  credentials:
+    token: "{{token}}"

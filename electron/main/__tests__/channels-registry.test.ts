@@ -98,6 +98,7 @@ describe('IPC channel registry shape', () => {
         "IPC.captureBridge.status": "capture-bridge:status",
         "IPC.captureBridge.stop": "capture-bridge:stop",
         "IPC.collection.getFileInfo": "collection:get-file-info",
+        "IPC.collection.inspectExportTarget": "collection:inspect-export-target",
         "IPC.collection.loadDirectory": "collection:load-directory",
         "IPC.collection.openInExplorer": "collection:open-in-explorer",
         "IPC.collection.saveBrunoDirectory": "collection:save-bruno-directory",

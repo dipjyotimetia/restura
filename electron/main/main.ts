@@ -48,7 +48,10 @@ import {
 } from './security/external-secret-profile-store';
 import { registerKeychainStatusIPC } from './security/keychain-status-handler';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
-import { registerBrunoExportHandlerIPC } from './storage/bruno-export-handler';
+import {
+  disposeBrunoExportHandlerIPC,
+  registerBrunoExportHandlerIPC,
+} from './storage/bruno-export-handler';
 import {
   cleanupCollectionWatchers,
   isRegisteredCollectionDirectory,
@@ -155,7 +158,10 @@ const IPC_MODULES: IpcModule[] = [
   { register: () => registerDeepLinkImportIPC() },
   { register: () => registerAutoUpdaterIPC(isDev) },
   { register: () => registerFileOperationsIPC(getMainWindow) },
-  { register: () => registerBrunoExportHandlerIPC() },
+  {
+    register: () => registerBrunoExportHandlerIPC(),
+    dispose: () => disposeBrunoExportHandlerIPC(),
+  },
   { register: () => registerHttpHandlerIPC(logRequest) },
   { register: () => registerGrpcHandlerIPC(logRequest), dispose: () => stopStreamCleanup() },
   { register: () => registerGrpcReflectionIPC() },
