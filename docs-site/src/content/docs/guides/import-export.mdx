@@ -72,6 +72,8 @@ Pick a Postman v2.0 / v2.1 JSON file, a v3 **folder** (**Import folder**), a `.z
 
 <Aside type="caution" title="Imported No Auth and unsupported auth are not sent">
 Restura's `none` auth means "inherit", so an imported "No Auth" or unsupported-auth request could otherwise pick up a parent's credentials. Restura refuses to send these instead ("Not sent: ..."): an explicit Postman `noauth` request below a configured ancestor, and any request below a folder whose auth is unsupported (hawk, jwt, and so on). The explicit `noauth` choice is remembered in the `_postman` sidecar and cuts inheritance. This applies on web, desktop and the CLI, to single send on every protocol, the collection runner (items are skipped with the reason), workflows and AI Lab tools. The Auth tab shows a "Not sent" banner. Configure the request's own auth or exclude it to send. This is an interim guard until Restura models "No Auth" natively ([#1232](https://github.com/dipjyotimetia/restura/issues/1232)).
+
+The guard holds while the collection stays in Restura's own store (and in Postman export), but OpenCollection and git-folder saves do not preserve it until [#1232](https://github.com/dipjyotimetia/restura/issues/1232) adds an explicit no-auth to the model: they write `none` as omitted, which means inherit, so the request inherits the ancestor credential again after the round trip. Set the auth explicitly on those requests before saving to those formats.
 </Aside>
 
 ## Postman v3 export

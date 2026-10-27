@@ -78,6 +78,8 @@ Auth on a collection cascades to every child folder and request unless overridde
 
 Imported Postman "No Auth" is the exception: Restura's `none` means inherit, so an imported explicit `noauth` request below a configured ancestor, or any request below an unsupported-auth folder, is not sent and the Auth tab shows a "Not sent" banner. See [Postman import](/guides/import-export/#postman-import).
 
+The guard holds while the collection stays in Restura's own store (and in Postman export), but OpenCollection and git-folder saves do not preserve it until #1232 adds an explicit no-auth to the model: they write `none` as omitted, which means inherit, so the request inherits the ancestor credential again after the round trip. Set the auth explicitly on those requests before saving to those formats.
+
 ## Tips
 
 - Store API keys as **environment variables** rather than inline on the request — they survive auth-type changes and are easy to swap.
