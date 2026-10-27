@@ -130,6 +130,25 @@ describe('loadCollection — Postman', () => {
     expect(loaded.meta.variables?.some((v) => v.key === 'apiToken')).toBe(false);
   });
 
+  it('v2.1 type:"secret" variables load value-less as private variables, reported for --strict-import', async () => {
+    quietStderr();
+    const loaded = await loadCollection(resolve(FIXTURES, '../v21/secret-variables.json'));
+    expect(loaded.meta.privateVariableNames).toContain('apiToken');
+    expect(loaded.meta.variables?.some((v) => v.key === 'apiToken')).toBe(false);
+    const json = JSON.stringify(loaded);
+    for (const plaintext of [
+      'COLLECTION-SECRET-PLAINTEXT',
+      'FOLDER-SECRET-PLAINTEXT',
+      'REQUEST-SECRET-PLAINTEXT',
+    ]) {
+      expect(json).not.toContain(plaintext);
+    }
+    const secretEntries = (loaded.importReport?.warnings ?? []).filter(
+      (w) => w.kind === 'unmodelled-construct' && w.construct === 'secret-variable'
+    );
+    expect(secretEntries).toHaveLength(3);
+  });
+
   it('loads a v3 .zip built in-test', async () => {
     quietStderr();
     const zip = zipSync(fileMap(KITCHEN, 'kitchen-sink/'));
