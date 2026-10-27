@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import {
+  PostmanAuthBlockedError,
+  resolveInheritedAuthFor,
+  resolveInheritedAuthForSend,
+} from '@/features/auth/lib/resolveInheritedAuthFor';
 import { flattenRunnables } from '@/features/collections/lib/flattenRunnables';
+import { introspectSchema } from '@/features/graphql/lib/introspection';
+import { prepareSubscriptionHandshake } from '@/features/graphql/lib/subscriptionAuth';
+import { startGrpcStream } from '@/features/grpc/lib/grpcStreamingClient';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
+import { buildMcpRunConnectAuth } from '@/features/mcp/lib/mcpRunRequest';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { importPostmanCollection } from '../../shared/collections/postman';
@@ -167,6 +175,79 @@ describe.each([
     }
     const control = runnables.find((x) => x.name === 'Control');
     expect(control?.blocked).toBeUndefined();
+  });
+});
+
+describe('non-HTTP single sends refuse a blocked request instead of sending `none` (#1232)', () => {
+  const seed = (request: object) => {
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c',
+          name: 'Col',
+          auth: { type: 'bearer', bearer: { token: SECRET } },
+          items: [
+            {
+              id: 'hf',
+              name: 'HF',
+              type: 'folder',
+              _postman: { auth: { type: 'hawk' } },
+              items: [{ id: 'i', name: 'R', type: 'request', request }],
+            },
+          ],
+        } as unknown as Collection,
+      ],
+      activeCollectionId: null,
+    });
+  };
+  const http = (): HttpRequest => ({
+    id: 'blocked-1',
+    name: 'R',
+    type: 'http',
+    method: 'POST',
+    url: 'https://x.example/graphql',
+    headers: [],
+    params: [],
+    body: { type: 'none' },
+    auth: { type: 'none' },
+  });
+  const REASON = /not sent: Postman auth type "hawk" \(inherited from "HF"\)/;
+
+  it('resolveInheritedAuthForSend throws PostmanAuthBlockedError; sendable requests pass', () => {
+    seed(http());
+    expect(() => resolveInheritedAuthForSend(http())).toThrow(PostmanAuthBlockedError);
+    expect(resolveInheritedAuthForSend({ id: 'unknown', auth: { type: 'none' } })).toBeUndefined();
+  });
+
+  it('gRPC streams reject before connecting', async () => {
+    const grpc = {
+      id: 'blocked-1',
+      name: 'R',
+      type: 'grpc',
+      url: 'grpc.example:443',
+      auth: { type: 'none' },
+    };
+    seed(grpc);
+    await expect(
+      startGrpcStream({ request: grpc as never, resolveVariables: (t) => t })
+    ).rejects.toThrow(REASON);
+  });
+
+  it('MCP connect auth fails closed with the reason', () => {
+    const mcp = { id: 'blocked-1', name: 'R', type: 'mcp', auth: { type: 'none' }, headers: [] };
+    seed(mcp);
+    expect(buildMcpRunConnectAuth(mcp as never)).toEqual({
+      ok: false,
+      error: expect.stringMatching(REASON),
+    });
+  });
+
+  it('GraphQL introspection fails with the reason and subscriptions refuse', async () => {
+    seed(http());
+    const result = await introspectSchema('https://x.example/graphql', { request: http() });
+    expect(result).toMatchObject({ success: false, error: expect.stringMatching(REASON) });
+    expect(() => prepareSubscriptionHandshake(http())).toThrow(REASON);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

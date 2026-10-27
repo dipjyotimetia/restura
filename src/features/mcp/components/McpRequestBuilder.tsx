@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Floater } from '@/components/ui/spatial';
-import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import {
+  postmanSendBlockedReason,
+  resolveInheritedAuthFor,
+} from '@/features/auth/lib/resolveInheritedAuthFor';
 import {
   displayHost,
   McpClientRequestDialog,
@@ -261,6 +264,8 @@ export default function McpRequestBuilder() {
     // Same auth as a connection: inline headers on web, main-resolved on
     // desktop. Unappliable auth fails the run closed — an anonymous probe
     // would report misleading 401s as conformance failures.
+    const blocked = postmanSendBlockedReason(request);
+    if (blocked) return { error: blocked };
     const endpointAuth = buildMcpConnectAuth({
       auth: request.auth,
       inherited: resolveInheritedAuthFor(request),
@@ -285,6 +290,9 @@ export default function McpRequestBuilder() {
     );
     const connectionId = active.id;
     // #896: apply McpRequest.auth (inline on web, main-resolved on desktop).
+    // Postman send guard (#1232): refuse rather than connect without it.
+    const blocked = postmanSendBlockedReason(request);
+    if (blocked) return { error: blocked };
     const auth = buildMcpConnectAuth({
       auth: request.auth,
       inherited: resolveInheritedAuthFor(request),

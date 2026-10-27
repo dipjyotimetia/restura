@@ -1,3 +1,4 @@
+import { postmanBlockedReasonFor } from '@shared/collections/postman/auth-guard';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { internalToOC } from '@/lib/opencollection/from-internal';
 import {
@@ -5,7 +6,7 @@ import {
   serializeOpenCollectionYAML,
 } from '@/lib/opencollection/serializer';
 import { ocToInternal } from '@/lib/opencollection/to-internal';
-import type { Collection, CollectionItem, McpRequest, SseRequest } from '@/types';
+import type { Collection, CollectionItem, HttpRequest, McpRequest, SseRequest } from '@/types';
 import { useCollectionStore } from '../useCollectionStore';
 
 describe('useCollectionStore', () => {
@@ -426,6 +427,77 @@ extensions:
       addCollection(withRootBag());
       updateCollection('pc', { name: 'Renamed' });
       expect(root()?._postman).toEqual({ auth: { type: 'hawk' } });
+    });
+
+    describe('Postman auth-guard markers survive ancestor edits (#1232)', () => {
+      const guarded = (folderBag: Record<string, unknown>) =>
+        ({
+          id: 'pc',
+          name: 'P',
+          auth: { type: 'bearer', bearer: { token: 'collection-secret' } },
+          items: [
+            {
+              id: 'pf',
+              type: 'folder' as const,
+              name: 'F',
+              _postman: { ...folderBag, protocolProfileBehavior: { strictSSL: false } },
+              items: [mkReq('a'), mkReq('b')],
+            },
+          ],
+        }) as unknown as Collection;
+      const col = () => useCollectionStore.getState().collections.find((c) => c.id === 'pc')!;
+      const reqId = (id: string) => find(id)?.request?.id ?? '';
+
+      it.each([
+        ['noauth', { noauth: true }, /"No Auth" \(inherited from "F"\)/],
+        ['hawk', { auth: { type: 'hawk', hawk: [{ key: 'authKey', value: 'K' }] } }, /"hawk"/],
+      ])('editing a sibling under a %s folder keeps the other child blocked', (_l, bag, reason) => {
+        const { addCollection, updateCollectionItem } = useCollectionStore.getState();
+        addCollection(guarded(bag));
+        expect(postmanBlockedReasonFor(col(), reqId('b'), 'Restura')).toMatch(reason);
+        const a = find('a')!;
+        updateCollectionItem('pc', 'a', {
+          request: { ...(a.request as HttpRequest), url: 'https://api.example.com/changed' },
+        });
+        expect(find('a')?._postman).toBeUndefined();
+        expect(postmanBlockedReasonFor(col(), reqId('b'), 'Restura')).toMatch(reason);
+        // Only the guard markers survive: no stale constructs, no credentials.
+        expect(JSON.stringify(find('pf')?._postman)).not.toMatch(/strictSSL|authKey/);
+      });
+
+      it('removing a child keeps the folder marker; editing the folder auth clears it', () => {
+        const { addCollection, removeCollectionItem, updateCollectionItem } =
+          useCollectionStore.getState();
+        addCollection(guarded({ noauth: true }));
+        removeCollectionItem('pc', 'a');
+        expect(find('pf')?._postman).toEqual({ noauth: true });
+        updateCollectionItem('pc', 'pf', { name: 'Renamed' });
+        expect(find('pf')?._postman).toEqual({ noauth: true });
+        updateCollectionItem('pc', 'pf', {
+          auth: { type: 'basic', basic: { username: 'u', password: 'p' } },
+        });
+        expect(find('pf')?._postman).toBeUndefined();
+        expect(postmanBlockedReasonFor(col(), reqId('b'), 'Restura')).toBeUndefined();
+      });
+
+      it("a request's own noauth marker is cleared only when its auth is edited", () => {
+        const { addCollection, updateCollectionItem } = useCollectionStore.getState();
+        const c = guarded({});
+        (c.items[0]!.items![0] as WithSidecar)._postman = { noauth: true, response: [] };
+        addCollection(c);
+        const a = () => find('a')!;
+        updateCollectionItem('pc', 'a', {
+          request: { ...(a().request as HttpRequest), url: 'https://x/2' },
+        });
+        expect(a()._postman).toEqual({ noauth: true });
+        updateCollectionItem('pc', 'a', {
+          request: {
+            ...(a().request as HttpRequest),
+            auth: { type: 'bearer', bearer: { token: 'own' } },
+          },
+        });
+        expect(a()._postman).toBeUndefined();
+      });
     });
 
     it('a script variable write-back drops the root sidecar, keeps root _oc (same rule as updateCollection)', () => {

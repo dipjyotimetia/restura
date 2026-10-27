@@ -51,3 +51,26 @@ export function postmanSendBlockedReason(
   }
   return undefined;
 }
+
+/** A send refused by the Postman send guard (#1232); `message` is the user-facing reason. */
+export class PostmanAuthBlockedError extends Error {
+  override name = 'PostmanAuthBlockedError';
+}
+
+/** Throw {@link PostmanAuthBlockedError} when the Postman send guard refuses this request. */
+export function assertPostmanSendable(request: Pick<Request, 'id'> & { auth: AuthConfig }): void {
+  const reason = postmanSendBlockedReason(request);
+  if (reason) throw new PostmanAuthBlockedError(reason);
+}
+
+/**
+ * Send-time {@link resolveInheritedAuthFor}: refuses (throws
+ * {@link PostmanAuthBlockedError}) instead of sending a request the Postman
+ * send guard blocks, matching the CLI and `executeRequest` (#1232).
+ */
+export function resolveInheritedAuthForSend(
+  request: Pick<Request, 'id'> & { auth: AuthConfig }
+): InheritedAuth | undefined {
+  assertPostmanSendable(request);
+  return resolveInheritedAuthFor(request);
+}

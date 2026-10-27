@@ -232,6 +232,31 @@ describe('runCollection', () => {
     expect(runRequestMock).not.toHaveBeenCalled();
   });
 
+  it.each(['http', 'sse'] as const)(
+    'skips a Postman-guard-blocked %s runnable with its reason, before dispatch (#1232)',
+    async (type) => {
+      const result = await runCollection(
+        {
+          collection,
+          scopeName: 'C',
+          runnables: [{ ...runnable('1', 'blocked', type), blocked: 'not sent: Postman auth …' }],
+          baseVars: {},
+          iterations: 1,
+          dataRows: [],
+          delayMs: 0,
+          stopOnFailure: false,
+        },
+        noop,
+        new AbortController().signal
+      );
+      expect(result.requests[0]).toMatchObject({
+        status: 'skipped',
+        skippedReason: 'not sent: Postman auth …',
+      });
+      expect(runRequestMock).not.toHaveBeenCalled();
+    }
+  );
+
   it('halts on first failure when stopOnFailure is set', async () => {
     behaviors.push({ status: 500 }, { status: 200 });
     const result = await runCollection(

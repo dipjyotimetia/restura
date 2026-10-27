@@ -1,6 +1,6 @@
 import { isConfiguredAuth } from '../../auth/inheritance';
 import type { AuthConfig, Collection, CollectionItem } from '../../types';
-import { getPostmanSidecar } from './sidecar';
+import { getPostmanSidecar, type PostmanSidecar } from './sidecar';
 
 /**
  * THE Postman send guard (#1228, #1232), shared by every send path: the CLI
@@ -157,4 +157,27 @@ export function postmanBlockedReasonFor(
   };
   const reason = visit(collection.items ?? [], nextPostmanAuthGuard({}, collection));
   return reason ? reason : undefined;
+}
+
+/**
+ * The part of a node's `_postman` sidecar the send guard depends on: the
+ * explicit-`noauth` marker and the TYPE of an unsupported auth (never its
+ * credentials). The store keeps these when it strips a stale bag from an
+ * ANCESTOR of an edited node, so editing one request cannot silently
+ * re-enable inheritance for its siblings. Returns `undefined` when the node
+ * carries neither (or its own auth is now configured).
+ */
+export function postmanGuardMarkers(node: object): PostmanSidecar | undefined {
+  const sidecar = getPostmanSidecar(node);
+  if (!sidecar) return undefined;
+  const unsupported = hasUnsupportedPostmanAuth(node);
+  const configured = isConfiguredAuth(
+    (node as { auth?: AuthConfig; request?: { auth?: AuthConfig } }).request?.auth ??
+      (node as { auth?: AuthConfig }).auth
+  );
+  const markers: PostmanSidecar = {
+    ...(unsupported ? { auth: { type: unsupported } } : {}),
+    ...(sidecar.noauth === true && !configured ? { noauth: true as const } : {}),
+  };
+  return Object.keys(markers).length > 0 ? markers : undefined;
 }

@@ -97,7 +97,8 @@ function CollectionRunnerDialogInner({ scope, onClose, initialConfig }: Props) {
         preRequestScript: collection.preRequestScript,
         testScript: collection.testScript,
       },
-      collection.auth
+      collection.auth,
+      collection
     );
   }, [collection, scope?.folderId]);
 
