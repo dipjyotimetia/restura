@@ -1,6 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
 import { extname } from 'node:path';
-import { isConfiguredAuth } from '@shared/auth/inheritance';
 import {
   importPostmanCollection,
   importPostmanV3Files,
@@ -9,11 +8,15 @@ import {
   type PostmanImportIssue,
   type PostmanImportReport,
 } from '@shared/collections/postman';
-import { hasUnsupportedPostmanAuth } from '@shared/collections/postman/common';
+import {
+  nextPostmanAuthGuard,
+  type PostmanAuthGuard,
+  postmanBlockedReason as sharedPostmanBlockedReason,
+} from '@shared/collections/postman/auth-guard';
 import { unzipPostmanV3Archive } from '@shared/collections/postman/v3-archive';
 import type { PostmanV3Limits } from '@shared/collections/postman/v3-container';
 import { collectPostmanFolderFiles } from '@shared/collections/postman/v3-folder';
-import type { AuthConfig, Collection, CollectionItem } from '@shared/types';
+import type { Collection, CollectionItem } from '@shared/types';
 import * as yaml from 'js-yaml';
 import { walkPostmanFolder } from './postmanFolder.js';
 
@@ -266,42 +269,17 @@ export function postmanSecretVariableNames(c: Collection): Set<string> {
 }
 
 /**
- * The nearest container (collection / folder) whose Postman auth Restura
- * cannot sign. The shared parser gives its inheriting descendants an explicit
- * `none`; the CLI must still not send them, because its own
- * `resolveEffectiveAuth` would fill `none` from the collection again.
+ * The Postman send guard (explicit `noauth`, unsupported auth) is shared
+ * with the app: `shared/collections/postman/auth-guard.ts` (#1228, #1232).
+ * The CLI's own `resolveEffectiveAuth` would fill `none` from an ancestor,
+ * so a blocked request is refused at load time (`LoadedRequest.blocked`).
  */
-export interface PostmanAuthGuard {
-  unsupported?: { type: string; owner: string };
-}
+export { nextPostmanAuthGuard, type PostmanAuthGuard };
 
-/** The guard a container hands its children (the shared predicate decides). */
-export function nextPostmanAuthGuard(
-  guard: PostmanAuthGuard,
-  node: Collection | CollectionItem,
-  name: string = node.name
-): PostmanAuthGuard {
-  const type = hasUnsupportedPostmanAuth(node);
-  if (type) return { unsupported: { type, owner: name } };
-  if (isConfiguredAuth((node as { auth?: AuthConfig }).auth)) return {};
-  return guard;
-}
-
-/** Why a request item must not be sent, or `undefined`. */
+/** Why a request item must not be sent by the CLI, or `undefined`. */
 export function postmanBlockedReason(
   item: CollectionItem,
   guard: PostmanAuthGuard
 ): string | undefined {
-  const reason = (type: string, from: string) =>
-    `not sent: Postman auth type "${type}"${from} is not supported by Restura (imported as no auth); ` +
-    'the CLI will not send it unauthenticated. Configure a supported auth or exclude the request.';
-  const own = hasUnsupportedPostmanAuth(item);
-  if (own) return reason(own, '');
-  const up = guard.unsupported;
-  // Fail-safe: any request without its own configured auth below an
-  // unsupported container is refused (this includes an explicit Postman
-  // `noauth`, which the internal model cannot tell apart from `inherit`).
-  const auth = (item.request as { auth?: AuthConfig } | undefined)?.auth;
-  if (up && !isConfiguredAuth(auth)) return reason(up.type, ` (inherited from "${up.owner}")`);
-  return undefined;
+  return sharedPostmanBlockedReason(item, guard, 'the CLI');
 }
