@@ -1,3 +1,8 @@
+import {
+  nextPostmanAuthGuard,
+  type PostmanAuthGuard,
+  postmanBlockedReason,
+} from '@shared/collections/postman/auth-guard';
 import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
 import type { AuthConfig, CollectionItem, Request, ScopedVariable } from '@/types';
 import { isBrokerRequest } from '@/types';
@@ -27,6 +32,12 @@ export interface RunnableRequest {
   folderVariables?: ScopedVariable[][];
   request: Request;
   inheritedAuth?: AuthConfig;
+  /**
+   * Set when the Postman send guard refuses this request (explicit `noauth`
+   * or unsupported Postman auth, #1232): the runner must not send it.
+   * `inheritedAuth` is then an explicit `none`, never an ancestor credential.
+   */
+  blocked?: string;
 }
 
 /** Collection-scope (root) scripts, applied to every request in the run. */
@@ -67,19 +78,22 @@ function flatten(
   inheritedTest: Array<string | undefined>,
   inheritedAuth: AuthConfig | undefined,
   folderPath: string[],
-  folderVariables: ScopedVariable[][]
+  folderVariables: ScopedVariable[][],
+  guard: PostmanAuthGuard
 ): RunnableRequest[] {
   const out: RunnableRequest[] = [];
   for (const item of items) {
     if (item.type === 'request' && item.request) {
       // Kafka / MQTT presets (#984) are connection presets, not runnable requests.
       if (isBrokerRequest(item.request)) continue;
+      const blocked = postmanBlockedReason(item, guard, 'Restura');
       out.push({
         itemId: item.id,
         name: item.name,
         folderPath,
         request: withEffectiveScripts(item.request, inheritedPre, inheritedTest),
-        inheritedAuth,
+        inheritedAuth: blocked ? { type: 'none' } : inheritedAuth,
+        ...(blocked ? { blocked } : {}),
         ...(folderVariables.length > 0 ? { folderVariables } : {}),
       });
     } else if (item.items) {
@@ -90,7 +104,8 @@ function flatten(
           [...inheritedTest, item.testScript],
           effectiveFolderAuth(item, inheritedAuth),
           [...folderPath, item.name],
-          item.variables ? [...folderVariables, item.variables] : folderVariables
+          item.variables ? [...folderVariables, item.variables] : folderVariables,
+          nextPostmanAuthGuard(guard, item)
         )
       );
     }
@@ -138,12 +153,19 @@ export function flattenRunnables(
   items: CollectionItem[],
   folderId?: string,
   rootScripts?: RootScripts,
-  rootAuth?: AuthConfig
+  rootAuth?: AuthConfig,
+  /** The collection itself, for the Postman send guard's root (sidecar + name). */
+  root?: Parameters<typeof nextPostmanAuthGuard>[1]
 ): RunnableRequest[] {
+  const rootGuard = root
+    ? nextPostmanAuthGuard({}, root)
+    : isConfiguredAuth(rootAuth)
+      ? { configured: { owner: 'collection' } }
+      : {};
   const rootPre: Array<string | undefined> = [rootScripts?.preRequestScript];
   const rootTest: Array<string | undefined> = [rootScripts?.testScript];
 
-  if (!folderId) return flatten(items, rootPre, rootTest, rootAuth, [], []);
+  if (!folderId) return flatten(items, rootPre, rootTest, rootAuth, [], [], rootGuard);
 
   const path = findFolderPath(items, folderId);
   if (!path || path.length === 0) return [];
@@ -163,7 +185,8 @@ export function flattenRunnables(
     [...rootTest, ...path.map((f) => f.testScript)],
     pathAuth,
     path.map((folder) => folder.name),
-    path.flatMap((folder) => (folder.variables ? [folder.variables] : []))
+    path.flatMap((folder) => (folder.variables ? [folder.variables] : [])),
+    path.reduce<PostmanAuthGuard>((g, folder) => nextPostmanAuthGuard(g, folder), rootGuard)
   );
 }
 

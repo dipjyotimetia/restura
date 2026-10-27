@@ -4,7 +4,7 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { HttpRequest, Response } from '@/types';
+import type { CollectionItem, HttpRequest, Response } from '@/types';
 
 const executeRequestMock = vi.hoisted(() => vi.fn());
 
@@ -290,6 +290,35 @@ describe('Restura request agent tools', () => {
     await expect(
       resolveResturaAgentTools([{ kind: 'restura-request', requestId: 'missing' }])
     ).rejects.toThrow('HTTP request tool not found: missing');
+  });
+
+  it('refuses a Postman noauth request below a configured auth without executing it (#1232)', async () => {
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'col',
+          name: 'Col',
+          auth: { type: 'bearer', bearer: { token: 'collection-secret' } },
+          items: [
+            {
+              id: 'item-1',
+              name: 'Get order',
+              type: 'request',
+              request: request(),
+              _postman: { noauth: true },
+            } as CollectionItem,
+          ],
+        },
+      ],
+      activeCollectionId: null,
+    });
+    const [tool] = await resolveResturaAgentTools([
+      { kind: 'restura-request', requestId: 'request-1' },
+    ]);
+    await expect(tool!.execute({}, { signal: new AbortController().signal })).rejects.toThrow(
+      /not sent: Postman auth is "No Auth"/
+    );
+    expect(executeRequestMock).not.toHaveBeenCalled();
   });
 
   it('uses globals, active environment, and only the owning collection scope', async () => {

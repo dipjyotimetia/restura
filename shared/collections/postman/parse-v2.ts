@@ -13,6 +13,7 @@ import {
   isObj,
   keyValue,
   MAX_POSTMAN_NESTING_DEPTH,
+  markExplicitNoauth,
   type ParseContext,
   parseQueryString,
   type Raw,
@@ -374,6 +375,7 @@ function convertFolder(
   const name = str(raw.name) || 'Unnamed Folder';
   const authOut = convertAuth(raw.auth, name, ctx);
   if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
+  markExplicitNoauth(authOut, sidecar, inherited, name, ctx);
   // Folder auth overrides the collection auth for everything inside
   // (nearest ancestor wins).
   const folderAuth = isConfiguredAuth(authOut.auth) ? authOut.auth : undefined;
@@ -416,6 +418,7 @@ function convertRequestItem(
 
   const authOut = convertAuth(request.auth, name, ctx);
   if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
+  markExplicitNoauth(authOut, sidecar, inherited, name, ctx);
   const scripts = extractScripts(raw.event, ctx);
   const { url, params } = convertUrl(request.url, name, sidecar, ctx);
   const method = coerceMethod(request.method, name, sidecar, ctx);
@@ -462,6 +465,7 @@ export function parsePostmanV2(input: Raw, ctx: ParseContext): Collection {
 
   const authOut = convertAuth(data.auth, name, ctx);
   if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
+  markExplicitNoauth(authOut, sidecar, {}, name, ctx);
   const scripts = extractScripts(data.event, ctx);
   if (scripts.shadowed.length > 0) {
     sidecar.event = scripts.shadowed;

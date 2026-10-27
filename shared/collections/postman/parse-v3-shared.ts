@@ -41,6 +41,7 @@ export function convertAuth(
     if (!first) return { auth: undefined };
     const out = convertAuthBlock(toV2AuthShape(first), ownerName, ctx);
     if (out.sidecarAuth) sidecar.auth = out.sidecarAuth;
+    if (out.noauth) sidecar.noauth = true;
     if (sets.length > 1 || first.rules !== undefined) {
       ctx.report.unmodelled('multi-auth', ownerName);
       // Credential VALUES of the other sets are not kept (they would be
@@ -60,6 +61,8 @@ export function convertAuth(
   if (!isObj(raw)) return { auth: undefined };
   const out = convertAuthBlock(toV2AuthShape(raw), ownerName, ctx);
   if (out.sidecarAuth) sidecar.auth = out.sidecarAuth;
+  // Explicit `noauth` (#1232): cuts inheritance and arms the send guard.
+  if (out.noauth) sidecar.noauth = true;
   return out;
 }
 

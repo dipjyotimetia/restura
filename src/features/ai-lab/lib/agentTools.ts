@@ -1,4 +1,5 @@
 import type { AgentTool, AgentToolSourceAdapter, ToolSource } from '@shared/agent-lab';
+import { postmanBlockedReasonFor } from '@shared/collections/postman/auth-guard';
 import {
   findInheritedAuthWithSource,
   resolveEffectiveAuth,
@@ -130,6 +131,12 @@ export async function resolveResturaAgentTools(sources: ToolSource[]): Promise<A
             env: useEnvironmentStore.getState().getActiveEnvironment()?.variables,
             collection: collection?.variables,
           });
+          // Postman send guard (#1232): refuse rather than substitute an
+          // ancestor credential for an explicit `noauth` / unsupported auth.
+          const blocked = collection
+            ? postmanBlockedReasonFor(collection, request.id, 'Restura', request.auth)
+            : undefined;
+          if (blocked) throw new Error(`agent request tool ${request.id} ${blocked}`);
           const inherited = collection
             ? findInheritedAuthWithSource(collection, request.id)
             : undefined;
