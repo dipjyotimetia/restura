@@ -11,6 +11,7 @@ import type {
   RequestBody,
 } from '@/types';
 import { loadBrunoLang } from '../bruno-lang';
+import { applyEnvironmentSecretPolicy, type EnvironmentImportOptions } from './postman-environment';
 import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
 
 /**
@@ -39,7 +40,10 @@ const BRUNO_SYNTAX_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\{\{\$randomInt\(\d+,\s*\d+\)\}\}/g, label: 'randomInt with range' },
 ];
 
-export async function importBrunoCollection(source: BrunoSource): Promise<ImportResult> {
+export async function importBrunoCollection(
+  source: BrunoSource,
+  options: EnvironmentImportOptions = {}
+): Promise<ImportResult> {
   const lang = await loadBrunoLang();
   const warnings: ImportWarning[] = [];
 
@@ -71,7 +75,10 @@ export async function importBrunoCollection(source: BrunoSource): Promise<Import
     if (!e.relativePath.startsWith('environments/') || !e.relativePath.endsWith('.bru')) continue;
     const envName = e.relativePath.slice('environments/'.length, -'.bru'.length);
     const parsed = lang.bruToEnvJsonV2(e.content) as Record<string, unknown>;
-    environments.push(bruEnvToEnvironment(envName, parsed));
+    // Secret values are dropped unless the caller opts in (#1231).
+    const env = applyEnvironmentSecretPolicy(bruEnvToEnvironment(envName, parsed), options);
+    environments.push(env.environment);
+    warnings.push(...env.warnings);
   }
 
   // Collection-level defaults are parsed but not yet applied to items —

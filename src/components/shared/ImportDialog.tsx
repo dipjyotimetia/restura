@@ -186,7 +186,11 @@ export default function ImportDialog({
     if (type === 'bruno' && file.name.toLowerCase().endsWith('.zip')) {
       const { unzipToEntries } = await import('@/lib/shared/zip-utils');
       const entries = await unzipToEntries(new Uint8Array(await file.arrayBuffer()));
-      return importBrunoCollection({ kind: 'directory', entries });
+      // Environment secret values: same platform policy as env files (#1231).
+      return importBrunoCollection(
+        { kind: 'directory', entries },
+        { keepSecretValues: isElectron() }
+      );
     }
     const text = await file.text();
     return processImportData(parseFileContent(text, file.name), type);
