@@ -410,20 +410,59 @@ describe('Postman v3 (#1200): sidecars use the v2 bag shape, so every guard cove
   });
 
   it('a v3 import with secrets in a raw item counts zero (scrubbed at import)', () => {
+    // A placeholder kind (LLM): the raw item is kept, scrubbed, in the sidecar.
     const { collection } = importPostmanCollection({
       $kind: 'collection',
       name: 'Raw',
       items: [
         {
-          $kind: 'websocket-request',
-          name: 'WS',
-          url: 'wss://x',
-          headers: [{ key: 'X-Api-Key', value: 'WS_KEY' }],
+          $kind: 'llm-request',
+          name: 'LLM',
+          url: 'https://x',
+          headers: [{ key: 'X-Api-Key', value: 'LLM_KEY' }],
         },
       ],
     });
-    expect(JSON.stringify(collection)).not.toContain('WS_KEY');
+    expect(JSON.stringify(collection)).not.toContain('LLM_KEY');
     expect(countCollectionInlineSecrets(collection)).toBe(0);
+  });
+
+  it('a v3 WebSocket / Socket.IO item is typed (#1209): every secret is counted and redacted on export', () => {
+    const { collection } = importPostmanCollection({
+      $kind: 'collection',
+      name: 'Typed',
+      items: [
+        {
+          $kind: 'websocket-request',
+          name: 'WS',
+          url: 'wss://user:WS_URLPW@x.example.com/?access_token=WS_QTOKEN&page=2',
+          headers: [{ key: 'X-Api-Key', value: 'WS_KEY' }],
+          auth: { type: 'bearer', credentials: [{ key: 'token', value: 'WS_BEARER' }] },
+        },
+        {
+          $kind: 'socket.io-request',
+          name: 'SIO',
+          url: 'https://sio.example.com/?token=SIO_QTOKEN',
+          headers: [{ key: 'Authorization', value: 'Bearer SIO_HDR' }],
+          queryParams: [{ key: 'api_key', value: 'SIO_KEY' }],
+        },
+      ],
+    });
+    const secrets = [
+      'WS_URLPW',
+      'WS_QTOKEN',
+      'WS_KEY',
+      'WS_BEARER',
+      'SIO_QTOKEN',
+      'SIO_HDR',
+      'SIO_KEY',
+    ];
+    // The typed rows / URLs hold what the connection needs; the export prompt sees all of it.
+    expect(countCollectionInlineSecrets(collection)).toBe(secrets.length);
+    const text = JSON.stringify(redactCollectionSecrets(collection));
+    for (const s of secrets) expect(text).not.toContain(s);
+    expect(text).toContain('page=2');
+    expect(countCollectionInlineSecrets(redactCollectionSecrets(collection))).toBe(0);
   });
 });
 
@@ -433,7 +472,9 @@ describe('Postman v3 review (#1200): nested / numeric / array / userinfo secrets
     name: 'Probe',
     items: [
       {
-        $kind: 'websocket-request',
+        // A placeholder kind (raw item kept, scrubbed, in the sidecar). Typed
+        // WebSocket items (#1209) are covered above.
+        $kind: 'llm-request',
         name: 'WS',
         url: 'wss://user:URLPW@ws.example.com/?access_token=URLQTOKEN',
         auth: { type: 'bearer', credentials: [{ key: 'token', value: 'WS_BEARER' }] },

@@ -4,6 +4,7 @@ import { secretValueSchema } from '../secrets/secret-ref';
 import { GRAPHQL_SUBSCRIPTION_PROTOCOLS, HTTP_VERSION_PREFERENCES } from '../types/http';
 import { kafkaRequestSchema, mqttRequestSchema } from './broker';
 import { keyValueSchema } from './key-value';
+import { socketIoRequestSchema, webSocketRequestSchema } from './stream-preset';
 
 // HTTP Method Schema
 // Any RFC 9110 token (#857). CONNECT/TRACE/TRACK are deliberately NOT rejected here:
@@ -22,6 +23,7 @@ export const urlSchema = z
 
 export { kafkaRequestSchema, mqttRequestSchema } from './broker';
 export { keyValueSchema } from './key-value';
+export { socketIoRequestSchema, webSocketRequestSchema } from './stream-preset';
 
 /** Variables with scope/export metadata. Request headers and params remain KeyValue. */
 export const scopedVariableSchema = keyValueSchema.extend({
@@ -362,6 +364,8 @@ export const collectionItemSchema: z.ZodType<any> = z.lazy(() =>
         mcpRequestSchema,
         kafkaRequestSchema,
         mqttRequestSchema,
+        webSocketRequestSchema,
+        socketIoRequestSchema,
       ])
       .optional(),
     items: z.array(collectionItemSchema).optional(),
