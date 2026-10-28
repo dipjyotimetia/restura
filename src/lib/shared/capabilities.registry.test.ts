@@ -97,6 +97,7 @@ describe('capability registry shape', () => {
         "collections.file",
         "collections.git",
         "collections.brokerPresets",
+        "collections.streamPresets",
         "collections.postmanImport",
         "collections.postmanV3Export",
         "workflows.ows",

@@ -1,15 +1,20 @@
 import { toast } from 'sonner';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { CollectionItem, Request, RequestTab } from '@/types';
-import { isBrokerMode, isBrokerRequest } from '@/types';
+import { isBrokerRequest, isConnectionPresetMode, isStreamPresetRequest } from '@/types';
 import { snapshotBrokerTab, USERINFO_STRIPPED_WARNING } from './brokerPresets';
 import { isNameTaken, siblingNamesOfItem } from './names';
+import { snapshotStreamTab } from './streamPresets';
 
-/** Tabs whose save-back may target a Kafka / MQTT preset rather than `request`. */
-export function isBrokerPresetTab(
+/**
+ * Tabs whose save-back may target a connection preset (Kafka / MQTT #984,
+ * WebSocket / Socket.IO #1209) rather than `request`. Their edits live in the
+ * connection store and never mark the tab dirty, so they can always save.
+ */
+export function isConnectionPresetTab(
   tab: Pick<RequestTab, 'modeOverride' | 'savedRequestId'>
 ): boolean {
-  return !!tab.savedRequestId && isBrokerMode(tab.modeOverride);
+  return !!tab.savedRequestId && isConnectionPresetMode(tab.modeOverride);
 }
 
 /**
@@ -20,8 +25,10 @@ export function isBrokerPresetTab(
  *
  * A Kafka / MQTT tab linked to a preset (#984) re-snapshots its live connection
  * into the preset — same request id, so its secure-storage credential scope is
- * kept and refreshed. Without `tab` (or for a non-broker tab) a preset is never
- * overwritten with the tab's HTTP placeholder.
+ * kept and refreshed. A WebSocket / Socket.IO tab linked to its saved item
+ * (#1209) re-snapshots its connection the same way. Without `tab` (or for a
+ * tab of another kind) a connection item is never overwritten with the tab's
+ * HTTP placeholder.
  *
  * Returns true when saved; callers clear the tab's dirty flag on success.
  */
@@ -60,6 +67,18 @@ export function saveTabBackToCollection(
     snapshot.persistSecrets().catch(() => {
       toast.error('Saved without credentials — re-enter them after opening the preset');
     });
+    return true;
+  }
+  if (existing?.request && isStreamPresetRequest(existing.request)) {
+    const snapshot =
+      tab?.modeOverride === existing.request.type
+        ? snapshotStreamTab(tab, request.name, existing.request.id)
+        : null;
+    if (!snapshot) {
+      toast.error('Open this WebSocket / Socket.IO item in its own tab to save changes to it');
+      return false;
+    }
+    store.updateAnyCollectionItem(savedRequestId, { name: request.name, request: snapshot });
     return true;
   }
   store.updateAnyCollectionItem(savedRequestId, { name: request.name, request });

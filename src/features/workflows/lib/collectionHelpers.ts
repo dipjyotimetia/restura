@@ -7,7 +7,7 @@
  * `find` / `walk` here are the shared implementation.
  */
 import type { CollectionItem, CollectionRequest, HttpRequest, Request } from '@/types';
-import { isBrokerRequest } from '@/types';
+import { isConnectionPresetRequest } from '@/types';
 
 /** Find a single request by id. Returns `undefined` if missing. */
 export function findRequestInItems(
@@ -17,7 +17,7 @@ export function findRequestInItems(
   for (const item of items) {
     if (item.type === 'request' && item.request?.id === requestId) {
       // Kafka / MQTT presets (#984) cannot be bound to a workflow request node.
-      return isBrokerRequest(item.request) ? undefined : item.request;
+      return isConnectionPresetRequest(item.request) ? undefined : item.request;
     }
     if (item.items) {
       const found = findRequestInItems(item.items, requestId);
@@ -43,7 +43,7 @@ export function findRequestByReference(
     const segment = encodeURIComponent(item.name);
     const logicalPath = parentPath ? `${parentPath}/${segment}` : segment;
     if (item.type === 'request' && item.request && logicalPath === reference) {
-      return isBrokerRequest(item.request) ? undefined : item.request;
+      return isConnectionPresetRequest(item.request) ? undefined : item.request;
     }
     if (item.items) {
       const found = findRequestByReference(item.items, reference, logicalPath);

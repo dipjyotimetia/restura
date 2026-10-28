@@ -33,7 +33,7 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useCollectionRun } from '../hooks/useCollectionRun';
 import { type IterationRow, loadDataFile } from '../lib/dataLoader';
-import { findFolder, flattenRunnables, skippedBrokerPresets } from '../lib/flattenRunnables';
+import { findFolder, flattenRunnables, skippedConnectionPresets } from '../lib/flattenRunnables';
 
 export interface RunnerScope {
   collectionId: string;
@@ -103,7 +103,7 @@ function CollectionRunnerDialogInner({ scope, onClose, initialConfig }: Props) {
   }, [collection, scope?.folderId]);
 
   const skippedPresets = useMemo(
-    () => (collection ? skippedBrokerPresets(collection.items, scope?.folderId) : []),
+    () => (collection ? skippedConnectionPresets(collection.items, scope?.folderId) : []),
     [collection, scope?.folderId]
   );
 
@@ -382,7 +382,7 @@ function CollectionRunnerDialogInner({ scope, onClose, initialConfig }: Props) {
                 Stop finishes the in-flight request, then halts. SSE / WebSocket / MCP requests are
                 skipped.
                 {skippedPresets.length > 0 &&
-                  ` ${skippedPresets.length} Kafka / MQTT connection preset${skippedPresets.length === 1 ? '' : 's'} skipped (presets open in their panel and are not run).`}
+                  ` ${skippedPresets.length} connection preset${skippedPresets.length === 1 ? '' : 's'} (Kafka / MQTT / WebSocket / Socket.IO) skipped (they open in their panel and are not run).`}
               </p>
             )}
           </div>

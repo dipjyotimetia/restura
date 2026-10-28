@@ -5,7 +5,7 @@ import {
 } from '@shared/collections/postman/auth-guard';
 import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
 import type { AuthConfig, CollectionItem, Request, ScopedVariable } from '@/types';
-import { isBrokerRequest } from '@/types';
+import { isConnectionPresetRequest } from '@/types';
 
 /**
  * A single executable leaf extracted from a collection tree, preserving the
@@ -84,8 +84,9 @@ function flatten(
   const out: RunnableRequest[] = [];
   for (const item of items) {
     if (item.type === 'request' && item.request) {
-      // Kafka / MQTT presets (#984) are connection presets, not runnable requests.
-      if (isBrokerRequest(item.request)) continue;
+      // Connection presets (Kafka / MQTT #984, WebSocket / Socket.IO #1209) are
+      // not runnable requests; `skippedConnectionPresets` reports them.
+      if (isConnectionPresetRequest(item.request)) continue;
       const blocked = postmanBlockedReason(item, guard, 'Restura');
       out.push({
         itemId: item.id,
@@ -191,16 +192,17 @@ export function flattenRunnables(
 }
 
 /**
- * Names of the Kafka / MQTT connection presets (#984) in a run scope. They are
- * not runnable requests, so the runner leaves them out; the dialog reports
- * them as skipped (the CLI prints the same notice).
+ * Names of the connection presets — Kafka / MQTT (#984), WebSocket / Socket.IO
+ * (#1209) — in a run scope. They are not runnable requests, so the runner
+ * leaves them out; the dialog reports them as skipped (the CLI prints the same
+ * notice).
  */
-export function skippedBrokerPresets(items: CollectionItem[], folderId?: string): string[] {
+export function skippedConnectionPresets(items: CollectionItem[], folderId?: string): string[] {
   const scope = folderId ? (findFolderPath(items, folderId)?.at(-1)?.items ?? []) : items;
   const out: string[] = [];
   const walk = (level: CollectionItem[]) => {
     for (const item of level) {
-      if (item.request && isBrokerRequest(item.request)) out.push(item.name);
+      if (item.request && isConnectionPresetRequest(item.request)) out.push(item.name);
       if (item.items) walk(item.items);
     }
   };

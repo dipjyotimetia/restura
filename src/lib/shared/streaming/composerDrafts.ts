@@ -1,6 +1,6 @@
 /**
- * In-memory composer drafts for the Kafka and MQTT panels, keyed by
- * connection id (#984).
+ * In-memory composer drafts for the Kafka, MQTT (#984), WebSocket and
+ * Socket.IO (#1209) panels, keyed by connection id.
  *
  * The produce / publish / subscribe forms keep their text in component state.
  * Two flows need it outside the component:
@@ -15,7 +15,12 @@
  * stored unresolved (`{{var}}` intact) — resolution happens at send time.
  */
 
-import type { KafkaPresetPayloadMode, KeyValue, MqttPresetQoS } from '@/types';
+import type {
+  KafkaPresetPayloadMode,
+  KeyValue,
+  MqttPresetQoS,
+  WebSocketPresetFormat,
+} from '@/types';
 
 export interface KafkaProduceDraft {
   key: string;
@@ -36,8 +41,42 @@ export interface MqttComposerDraft {
   subQos: MqttPresetQoS;
 }
 
+export interface WebSocketComposerDraft {
+  body: string;
+  format: WebSocketPresetFormat;
+}
+
+export interface SocketIoComposerDraft {
+  eventName: string;
+  /** Raw JSON args text as typed. */
+  args: string;
+  ack: boolean;
+}
+
 const kafkaDrafts = new Map<string, KafkaProduceDraft>();
 const mqttDrafts = new Map<string, MqttComposerDraft>();
+const webSocketDrafts = new Map<string, WebSocketComposerDraft>();
+const socketIoDrafts = new Map<string, SocketIoComposerDraft>();
+
+export function getWebSocketComposerDraft(
+  connectionId: string | null
+): WebSocketComposerDraft | undefined {
+  return connectionId ? webSocketDrafts.get(connectionId) : undefined;
+}
+
+export function setWebSocketComposerDraft(connectionId: string, draft: WebSocketComposerDraft) {
+  webSocketDrafts.set(connectionId, draft);
+}
+
+export function getSocketIoComposerDraft(
+  connectionId: string | null
+): SocketIoComposerDraft | undefined {
+  return connectionId ? socketIoDrafts.get(connectionId) : undefined;
+}
+
+export function setSocketIoComposerDraft(connectionId: string, draft: SocketIoComposerDraft) {
+  socketIoDrafts.set(connectionId, draft);
+}
 
 export function getKafkaProduceDraft(connectionId: string | null): KafkaProduceDraft | undefined {
   return connectionId ? kafkaDrafts.get(connectionId) : undefined;
@@ -87,5 +126,7 @@ export function clearPendingSecrets(connectionId: string): void {
 export function clearComposerDrafts(connectionId: string): void {
   kafkaDrafts.delete(connectionId);
   mqttDrafts.delete(connectionId);
+  webSocketDrafts.delete(connectionId);
+  socketIoDrafts.delete(connectionId);
   clearPendingSecrets(connectionId);
 }

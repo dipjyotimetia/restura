@@ -223,7 +223,11 @@ describe('runner: Postman review fixes', () => {
       (w) => w.kind === 'unmodelled-construct' && w.construct === 'unsupported-item-kind'
     );
     expect(placeholders.map((w) => ('requestName' in w ? w.requestName : ''))).toEqual(
-      expect.arrayContaining(['Echo socket', 'Chat', 'Ask model', 'Rows'])
+      expect.arrayContaining(['Ask model', 'Rows'])
+    );
+    // WebSocket / Socket.IO import as native items since #1209 — not placeholders.
+    expect(placeholders.map((w) => ('requestName' in w ? w.requestName : ''))).not.toContain(
+      'Echo socket'
     );
   });
 });
