@@ -41,6 +41,7 @@
       "!docs/CAPABILITY_MATRIX.md",
       "!shared/opencollection/spec-types.ts",
       "!shared/collections/postman/v3-types.ts",
+      "!shared/collections/postman/v21-types.ts",
       "!shared/scripts/sandbox-libraries/bundle.generated.ts",
       "!scripts/sandbox-shims/**",
       "!vendor/**",
