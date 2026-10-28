@@ -165,3 +165,35 @@ describe('flattenRunnables — inherited auth threading', () => {
     expect(flattenRunnables([req('r1', 'R')])[0]!.inheritedAuth).toBeUndefined();
   });
 });
+
+describe('flattenRunnables — Postman send guard (#1232)', () => {
+  const bearer: AuthConfig = { type: 'bearer', bearer: { token: 't' } };
+  const items = (): CollectionItem[] => [
+    {
+      id: 'nf',
+      name: 'NF',
+      type: 'folder',
+      _postman: { noauth: true },
+      items: [req('c', 'Child')],
+    } as CollectionItem,
+    req('ok', 'Ok'),
+  ];
+
+  it('a folder run below a noauth folder flags the child and withholds the inherited auth', () => {
+    const [child] = flattenRunnables(items(), 'nf', undefined, bearer);
+    expect(child?.blocked).toMatch(/inherited from "NF"/);
+    expect(child?.inheritedAuth).toEqual({ type: 'none' });
+  });
+
+  it('the collection root (name + sidecar) seeds the guard when given', () => {
+    const root = { id: 'col', name: 'My API', items: [], auth: bearer };
+    const run = flattenRunnables(items(), undefined, undefined, bearer, root);
+    expect(run.find((r) => r.name === 'Child')?.blocked).toMatch(/"My API"/);
+    expect(run.find((r) => r.name === 'Ok')?.blocked).toBeUndefined();
+    expect(run.find((r) => r.name === 'Ok')?.inheritedAuth).toEqual(bearer);
+  });
+
+  it('nothing is blocked without a configured auth above', () => {
+    expect(flattenRunnables(items()).every((r) => r.blocked === undefined)).toBe(true);
+  });
+});

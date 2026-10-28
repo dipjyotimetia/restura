@@ -21,6 +21,7 @@ import {
   MAX_POSTMAN_NESTING_DEPTH,
   type ParseContext,
   type Raw,
+  reportExplicitNoauth,
   splitUrlQuery,
   str,
   substitutePathVariables,
@@ -340,6 +341,7 @@ function convertItem(
   if (kind === 'collection') {
     const name = str(raw.name) || 'Unnamed Folder';
     const authOut = convertAuth(raw.auth, name, sidecar, ctx);
+    reportExplicitNoauth(sidecar, inherited, name, ctx);
     const folderAuth = isConfiguredAuth(authOut.auth) ? authOut.auth : undefined;
     const scripts = extractScripts(raw.scripts, name, sidecar, ctx);
     const variables = convertVariables(raw.variables, name, sidecar, ctx);
@@ -391,6 +393,7 @@ function convertItem(
     );
   }
   const { req, inherits } = converted;
+  reportExplicitNoauth(sidecar, inherited, name, ctx);
   // `inherit` / no auth: bake the nearest ancestor's auth, as the v2 parser does.
   if (inherits && 'auth' in req) {
     const auth = inheritAuth(inherited, name, ctx);

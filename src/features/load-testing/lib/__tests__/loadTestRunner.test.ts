@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import type { AuthConfig, HttpRequest } from '@/types';
 import { runLoadTest } from '../loadTestRunner';
@@ -25,11 +25,11 @@ vi.mock('@/store/useConsoleStore', () => ({
 // Folder/collection auth inheritance reads the collection store; stub it so the
 // runner's inheritance application is controllable (default: nothing inherited).
 vi.mock('@/features/auth/lib/resolveInheritedAuthFor', () => ({
-  resolveInheritedAuthFor: vi.fn(() => undefined),
+  resolveInheritedAuthForSend: vi.fn(() => undefined),
 }));
 
 const mockExec = vi.mocked(executeRequest);
-const mockInherit = vi.mocked(resolveInheritedAuthFor);
+const mockInherit = vi.mocked(resolveInheritedAuthForSend);
 
 function req(): HttpRequest {
   return {
@@ -152,7 +152,7 @@ describe('runLoadTest', () => {
       bearer: { token: 'inherited-token' },
     } as AuthConfig;
     mockInherit.mockReturnValue({ auth: inheritedBearer } as ReturnType<
-      typeof resolveInheritedAuthFor
+      typeof resolveInheritedAuthForSend
     >);
 
     await runLoadTest(

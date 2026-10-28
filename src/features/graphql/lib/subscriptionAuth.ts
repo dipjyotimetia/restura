@@ -17,7 +17,7 @@
 import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
-import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { isElectron } from '@/lib/shared/platform';
@@ -250,7 +250,8 @@ export function buildSubscriptionHandshake(
  */
 export function prepareSubscriptionHandshake(request: HttpRequest): SubscriptionHandshake {
   const { values, secretVariables } = buildActiveRequestVariableResolution();
-  const inherited = resolveInheritedAuthFor(request);
+  // Refuses a Postman-guard-blocked request (#1232).
+  const inherited = resolveInheritedAuthForSend(request);
   return buildSubscriptionHandshake({
     request,
     ...(inherited ? { inheritedAuth: inherited.auth } : {}),

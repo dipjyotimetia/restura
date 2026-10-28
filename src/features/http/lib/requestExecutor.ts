@@ -19,6 +19,7 @@ import {
   assertHandleSupported,
 } from '@/features/auth/lib/applyAuthHeaders';
 import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
+import { assertPostmanSendable } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { persistableRefreshedAuth, refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import {
@@ -505,6 +506,9 @@ export async function executeRequest(
 ): Promise<RequestExecutionResult> {
   const { request, envVars, collectionVars, iterationData, location, signal } = options;
   signal?.throwIfAborted();
+  // Pre-send refusal (#1232): a Postman `noauth` / unsupported-auth request
+  // would otherwise go out with an ancestor's credential. Nothing runs.
+  assertPostmanSendable(request);
   const startTime = Date.now();
   const baseInfo = {
     requestName: options.info?.requestName ?? request.name,
@@ -751,6 +755,7 @@ export async function executeStreamingRequest(
   options: RequestExecutorOptions
 ): Promise<StreamingExecutionResult> {
   options.signal?.throwIfAborted();
+  assertPostmanSendable(options.request); // same pre-send refusal as executeRequest (#1232)
   const { spec, effectiveSettings } = await buildProxyRequestSpec(options);
 
   const streamingSpec: ProxyRequestBody = {
