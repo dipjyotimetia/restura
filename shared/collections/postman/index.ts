@@ -38,6 +38,7 @@ export type {
   PostmanV3ExportOptions,
 } from './export-v3';
 export { exportPostmanV3, exportPostmanV3Tree, postmanV3SafeFileName } from './export-v3';
+export { upgradeStreamPlaceholders } from './parse-v3-streaming';
 export type {
   PostmanImportIssue,
   PostmanImportReport,

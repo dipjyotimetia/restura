@@ -4,6 +4,7 @@ import {
   MAX_COLLECTION_TREE_DEPTH,
 } from '@shared/collections/passthrough-bags';
 import { postmanGuardMarkers } from '@shared/collections/postman/auth-guard';
+import { upgradeStreamPlaceholders } from '@shared/collections/postman/parse-v3-streaming';
 import { attachPostmanSidecar, clearPostmanSidecar } from '@shared/collections/postman/sidecar';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
@@ -23,6 +24,16 @@ function migrateCollectionAuth(collection: Collection): Collection {
   const migratedItems = collection.items?.map((item) => migrateItemAuth(item)) ?? [];
   const auth = collection.auth ? migrateAuthConfigToSecretRef(collection.auth) : undefined;
   return { ...collection, items: migratedItems, ...(auth ? { auth } : {}) };
+}
+
+/**
+ * Pre-#1209 Postman WebSocket / Socket.IO placeholder folders → native items
+ * (rebuilt from their `_postman` sidecar). Idempotent; unchanged collections
+ * keep their reference.
+ */
+function upgradeCollectionPlaceholders(collection: Collection): Collection {
+  const items = upgradeStreamPlaceholders(collection.items ?? []);
+  return items === collection.items ? collection : { ...collection, items };
 }
 
 function migrateItemAuth(item: CollectionItem): CollectionItem {
@@ -258,7 +269,7 @@ export const useCollectionStore = create<CollectionState>()(
       activeCollectionId: null,
 
       addCollection: (collection) => {
-        const migrated = migrateCollectionAuth(collection);
+        const migrated = migrateCollectionAuth(upgradeCollectionPlaceholders(collection));
         validateCollection(migrated);
         set((state) => ({
           collections: [...state.collections, migrated],
@@ -511,7 +522,9 @@ export const useCollectionStore = create<CollectionState>()(
     }),
     {
       name: 'collection-storage',
-      version: 3, // v3: SecretValue widening (ADR-0007)
+      // v3: SecretValue widening (ADR-0007); v4: WebSocket / Socket.IO
+      // placeholder folders → native items (#1209).
+      version: 4,
       storage: dexieStorageAdapters.collections(),
       // #896: saved MCP credentials never reach the browser's unencrypted
       // IndexedDB (desktop passes through — its store is keychain-encrypted).
@@ -526,6 +539,9 @@ export const useCollectionStore = create<CollectionState>()(
             ...state,
             collections: state.collections.map((c) => migrateCollectionAuth(c)),
           };
+        }
+        if (state && version < 4 && Array.isArray(state.collections)) {
+          state = { ...state, collections: state.collections.map(upgradeCollectionPlaceholders) };
         }
         return state as CollectionState;
       },

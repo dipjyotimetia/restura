@@ -17,6 +17,7 @@ import {
   isExplicitNoauth,
   restoreBagOnlyAuth,
 } from './export-v3-shared';
+import { exportSocketIo, exportWebSocket } from './export-v3-streaming';
 import { getPostmanSidecar, type PostmanSidecar } from './sidecar';
 import type { PostmanV3FileMap } from './v3-container';
 
@@ -122,6 +123,10 @@ function exportRequest(
       return exportMqtt(req, name, sidecar, ctx).item;
     case 'kafka':
       return exportKafka(req, name, sidecar, ctx).item;
+    case 'websocket':
+      return exportWebSocket(req, name, sidecar, ctx).item;
+    case 'socketio':
+      return exportSocketIo(req, name, sidecar, ctx).item;
     case 'sse':
       ctx.report.dropped('sse-request', name);
       return null;

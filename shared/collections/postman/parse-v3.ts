@@ -38,6 +38,7 @@ import {
   rows,
   scrub,
 } from './parse-v3-shared';
+import { convertSocketIo, convertWebSocket } from './parse-v3-streaming';
 import { attachPostmanSidecar, type PostmanSidecar } from './sidecar';
 
 /**
@@ -279,8 +280,6 @@ function convertGrpc(raw: Raw, name: string, sidecar: PostmanSidecar, ctx: Parse
 // ── items ───────────────────────────────────────────────────────────────────
 
 const PLACEHOLDER_LABEL: Record<string, string> = {
-  'websocket-request': 'WebSocket',
-  'socket.io-request': 'Socket.IO',
   'llm-request': 'LLM request',
   'data-request': 'Data request',
   'mcp-request': 'MCP stdio, disabled',
@@ -306,6 +305,10 @@ function convertRequest(
       return convertMqtt(raw, name, sidecar, ctx);
     case 'kafka-request':
       return convertKafka(raw, name, sidecar, ctx);
+    case 'websocket-request':
+      return convertWebSocket(raw, name, sidecar, ctx);
+    case 'socket.io-request':
+      return convertSocketIo(raw, name, sidecar, ctx);
     case 'mcp-request':
       // stdio imports disabled: a placeholder (ADR 0034 §5).
       return raw.transport === 'stdio' ? null : convertMcp(raw, name, sidecar, ctx);
