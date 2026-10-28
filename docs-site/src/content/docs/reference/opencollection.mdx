@@ -13,7 +13,8 @@ Postman's format is locked. Insomnia's is locked. Bruno's is its own. Switching 
 
 ## What it covers
 
-- Request-shaped protocols Restura can save and run: HTTP, GraphQL, gRPC, SSE, and MCP (SSE / MCP ride along as `x-restura-*` extensions — see [Restura extensions](#restura-extensions)). WebSocket and Socket.IO tabs can't be saved to a collection yet ([#886](https://github.com/dipjyotimetia/restura/issues/886)); a WebSocket item in an imported file shows up as a placeholder folder and an `x-restura-socketio` entry is kept opaquely, both re-exported unchanged while untouched.
+- Request-shaped protocols Restura can save and run: HTTP, GraphQL, gRPC, SSE, and MCP (SSE / MCP ride along as `x-restura-*` extensions — see [Restura extensions](#restura-extensions)).
+- **WebSocket and Socket.IO connections** ([#1209](https://github.com/dipjyotimetia/restura/issues/1209)): a WebSocket item is the spec's native `websocket` item (URL, headers, message or message variants), with Restura-only fields in `x-restura-websocket`; Socket.IO rides in `x-restura-socketio`. Neither is run by the collection runner or the CLI — see [Restura extensions](#restura-extensions).
 - **Kafka and MQTT connection presets** (desktop): broker connection plus the produce / consume or publish / subscribe drafts, carried in `x-restura-kafka` / `x-restura-mqtt`. Credentials are never part of a preset — see [Restura extensions](#restura-extensions).
 - Nested folders with inherited auth, scripts, and variables (folder `request.variables`; variables marked **Keep local** are never written). Folder-level default headers in the spec aren't mapped yet.
 - Environments with scoped variables.
@@ -31,14 +32,14 @@ Restura exports the bundled YAML everywhere and the directory layout on desktop 
 
 ## Round-trip guarantees
 
-Exporting a collection and importing it back into Restura preserves HTTP, GraphQL, gRPC, SSE, and MCP requests — including their auth, scripts, and folder placement — Kafka and MQTT connection presets (everything except credentials, which never leave the machine), plus collection- and folder-level auth, scripts, and variables. A round-trip test exports a fully-populated request of each type and checks every field comes back; a new request field can't be added without either carrying it or listing it as a known gap.
+Exporting a collection and importing it back into Restura preserves HTTP, GraphQL, gRPC, SSE, and MCP requests — including their auth, scripts, and folder placement — Kafka and MQTT connection presets (everything except credentials, which never leave the machine), WebSocket and Socket.IO connections, plus collection- and folder-level auth, scripts, and variables. A round-trip test exports a fully-populated request of each type and checks every field comes back; a new request field can't be added without either carrying it or listing it as a known gap.
 
 Known gaps — these are **not** preserved yet:
 
 - HTTP per-request **settings** (timeout, redirects, TLS verification) and the **contract link** (`contractRef`). The HTTP version preference is the exception: it round-trips through `x-restura-http`.
 - The **secret** marker on individual headers (the header value itself is exported).
 - OAuth 1.0a signature methods Restura can't sign with (`RSA-*`, `HMAC-SHA512`) import as the signer default; the original value survives only while the imported item is unedited.
-- WebSocket and Socket.IO items (see [What it covers](#what-it-covers)).
+- A WebSocket item's OpenCollection `auth` block (Restura has no WebSocket auth): it survives only while the imported item is unedited. An `xml` message imports as text.
 
 HTTP methods round-trip as written, including extension methods such as `PROPFIND` or `QUERY` (case preserved). An imported request whose method is invalid or refused (`CONNECT`, `TRACE`, `TRACK`) becomes `GET`, and Restura shows a warning naming the request.
 
@@ -46,12 +47,14 @@ Importing a Postman v2.1 collection into Restura and exporting as OpenCollection
 
 ## Restura extensions
 
-The OpenCollection v1.0.0 JSON Schema has no item type for SSE, MCP, Kafka or MQTT, and its request, folder and auth objects reject unknown keys. Restura therefore keeps what the schema can't hold in the document's free-form root `extensions` field instead of adding non-schema keys to items or auth blocks (which the [VS Code extension](/guides/vscode-extension/)'s schema validation would flag):
+The OpenCollection v1.0.0 JSON Schema has no item type for SSE, MCP, Kafka, MQTT or Socket.IO, and its request, folder and auth objects reject unknown keys. Restura therefore keeps what the schema can't hold in the document's free-form root `extensions` field instead of adding non-schema keys to items or auth blocks (which the [VS Code extension](/guides/vscode-extension/)'s schema validation would flag):
 
 | Extension | Carries |
 | --- | --- |
 | `x-restura-sse`, `x-restura-mcp` | SSE / MCP requests (all fields). A `folderPath` (ancestor folder names) records the folder an item lives in; entries without one load at the collection root. An MCP request stores one operation: `defaultMethod` (e.g. `tools/call`) plus `defaultParams`. |
 | `x-restura-kafka`, `x-restura-mqtt` | Kafka / MQTT connection presets, placed with a `folderPath` like SSE / MCP. A Kafka entry holds `connection` (bootstrap brokers, client id, security protocol, SASL mechanism + username, TLS file paths, Schema Registry URL + username, acks, compression, idempotence, transactional id), `produce` (topic, key, payload template, encodings, headers, partition) and `consume` (group id, topics, start mode). An MQTT entry holds `connection` (broker URL, protocol version, client id, keepalive, clean start, timeouts, username, TLS file paths, last will, session expiry), the `publish` / `subscribe` drafts and saved publish `templates` (incl. MQTT 5 user properties). **No passwords, OAuth tokens or key passphrases are ever written** — they stay in the desktop's encrypted store, so a teammate (or the same machine after a re-import) re-enters them. Values may contain `{{var}}` references, resolved when you connect or send. |
+| `x-restura-websocket` | Restura-only fields of native `websocket` items, matched by `path` (plus `index` when names repeat): `protocols` (subprotocols), `options` (auto-reconnect, attempts, delay, heartbeat interval / message, permessage-deflate), `frameAssertion`, and the composer draft (`message`) when the item also has saved messages. Saved messages are the native item's message variants (`title` + `message`); a `hex` message is written as `binary`. |
+| `x-restura-socketio` | Socket.IO connections, placed with a `folderPath` like SSE / MCP: `url`, `namespace`, `path`, handshake `auth`, `query` and `headers` rows, `transports`, `subscribedEvents`, the `emit` draft, saved emit `templates` and `options` (reconnect, timeout, forceNew). Entries from older, hand-written files that used `{ key: value }` maps for `auth` / `query` still import, and are written back in the row form. Header / query / handshake-auth values are written as stored; with secrets excluded, credential-named rows, URL credentials and every literal handshake-auth value are blanked. |
 | `x-restura-grpc` | gRPC schema snapshots (reflected descriptors or an uploaded `.proto`), stored once per content hash (`schemas`), plus per-request `timeout` and `schemaFetchedAt` (when the snapshot was captured). `requests` entries reference a snapshot by hash and are matched to items by `path` (folder names + request name). |
 | `x-restura-graphql` | GraphQL schemas loaded by hand (SDL file, pasted SDL or introspection JSON — stored as SDL), stored once per hash of the SDL (`schemas`). `requests` entries reference a schema by hash, carry its provenance (`source`, `fileName`, `importedAt`), the request's subscription wire protocol (`subscriptionProtocol`) and the selected `operationName` of a multi-operation document — in any combination — and are matched to items by `path` (plus `index` among same-path HTTP requests when names repeat). |
 | `x-restura-auth` | Auth options the schema's auth objects lack: OAuth 1.0a `addParamsToBody`, NTLM `workstation`, WSSE `passwordType`. Each entry names its `target` (`collection`, `folder` or `request`), `path` and auth `type`, and only applies to a node whose auth has that type. |

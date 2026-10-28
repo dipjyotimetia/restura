@@ -40,6 +40,7 @@ The Electron main process opens the socket directly with the native `ws` library
 ## Tips
 
 - Save a session: every send/receive is stored in history, replayable later.
+- **Save to Collection** stores the connection (URL, subprotocols, headers, reconnect / heartbeat options, frame assertion, the message you're composing and your saved messages) as a collection item you can reopen from the sidebar; see [WebSocket and Socket.IO connections](/guides/collections/#websocket-and-socketio-connections). It isn't run by the collection runner or the CLI. Headers and URL credentials are blanked on export when secrets are excluded; message payloads are not.
 - Use **frame assertions** (above) for per-frame checks; they run on received frames only and do not write variables back.
 - For Socket.IO (which is *not* a plain WebSocket), use the [Socket.IO protocol](/protocols/socket-io/).
 

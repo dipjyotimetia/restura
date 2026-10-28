@@ -45,6 +45,10 @@ The web build connects **browser-direct** with `socket.io-client`, so emits, lis
 - **allows loopback and private addresses** by default, since Socket.IO servers routinely run on `localhost` or a LAN dev box during development;
 - **caps concurrency** — 50 open connections and 20 connection attempts per minute, per renderer window, matching the other streaming protocols.
 
+## Save to a collection
+
+**Save to Collection** stores the connection — URL, namespace, path, transports, handshake `auth` / query / header rows, reconnect and timeout options, subscribed events, the emit you're composing and your saved emits — as a collection item you can reopen from the sidebar (it shows an **SIO** badge); see [WebSocket and Socket.IO connections](/guides/collections/#websocket-and-socketio-connections). It isn't run by the collection runner or the CLI. The rows are stored like the live connection keeps them (not as keychain handles); on export with secrets excluded every literal handshake `auth` value, credential-named query / header values and URL credentials are blanked. Emit payloads are not redacted.
+
 ## Gotchas
 
 <Aside type="note">
