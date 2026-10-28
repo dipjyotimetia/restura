@@ -393,12 +393,33 @@ export const features: Feature[] = [
   entry(
     'collections',
     'postman-v3',
-    'Postman v2 / v3 import and v3 export',
-    'Import Postman v2.x and v3 (folder, zip or file) with an import report, export Postman v3 as a folder or zip, and run Postman inputs from the CLI.',
+    'Postman v2 / v3 import and export',
+    'Import Postman v2.x and v3 (folder, zip or file) with an import report, export Postman v3 (default) as a folder or zip or v2.1 as a single file, and run Postman inputs from the CLI.',
     'shipped',
     all,
     '/guides/import-export/',
     ['import-export']
+  ),
+  entry(
+    'collections',
+    'postman-followups',
+    'Postman round-trip follow-ups',
+    'Export to Postman from the CLI, keep saved responses as examples, open Postman v3 folders as live collections, and import WebSocket / Socket.IO items natively.',
+    'planned',
+    all,
+    '/guides/import-export/',
+    ['postman-v3'],
+    {
+      today:
+        'Postman v2.x / v3 import and v2.1 / v3 export work in the app. Saved responses live only in the _postman sidecar, the CLI cannot export, and WebSocket / Socket.IO items import as placeholder folders.',
+      milestones: [
+        done('Postman v2.x / v3 import and v2.1 / v3 export in the app'),
+        todo('CLI export to Postman (--format postman-v2.1|postman-v3)', 1204),
+        todo('Saved responses / examples model (today the _postman sidecar only)', 1205),
+        todo('Open Postman v3 folders as live git-native collections', 1206),
+        todo('Native WebSocket / Socket.IO collection items', 1209),
+      ],
+    }
   ),
   entry(
     'collections',
