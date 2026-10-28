@@ -30,7 +30,7 @@ Folder hierarchy, environment variables with `{{variable}}` substitution, collec
 
 ### Import / export
 
-Postman (import v2.0 / v2.1 / v3 folder, zip or file, with an import report; export v2.1 single file or v3 folder / zip with an export report; `restura run` runs the same Postman inputs), Insomnia (import + export), OpenAPI / Swagger (import), Bruno (import), Hoppscotch (import), OpenCollection (import + export), and one POSIX-shell cURL command (import). Public, credential-free HTTPS URLs can import the existing text collection/spec formats through a bounded backend fetch and mandatory preview. HAR import with mandatory review and OpenAPI 3.0 export are also available.
+Postman (import v2.0 / v2.1 / v3 folder, zip or file, with an import report; export v3 folder / zip (default) or v2.1 single file with an export report; `restura run` runs the same Postman inputs), Insomnia (import + export), OpenAPI / Swagger (import), Bruno (import), Hoppscotch (import), OpenCollection (import + export), and one POSIX-shell cURL command (import). Public, credential-free HTTPS URLs can import the existing text collection/spec formats through a bounded backend fetch and mandatory preview. HAR import with mandatory review and OpenAPI 3.0 export are also available. Planned Postman follow-ups: CLI export to Postman (`--format postman-v2.1|postman-v3`, #1204), a saved responses / examples model (today only the `_postman` sidecar keeps them, #1205), opening Postman v3 folders as live git-native collections (#1206), and native WebSocket / Socket.IO collection items (these import as placeholders today, #1209).
 
 ### Scripting
 
