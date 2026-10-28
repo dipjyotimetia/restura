@@ -11,7 +11,7 @@ import type {
 } from '../../types';
 import { arr, description, isObj, type ParseContext, type Raw, str } from './common';
 import { keepBrokerAuth } from './parse-v3-protocols';
-import { rows, scrub } from './parse-v3-shared';
+import { keepExamples, rows, scrub } from './parse-v3-shared';
 import { PostmanReportBuilder } from './report';
 import { attachPostmanSidecar, getPostmanSidecar, type PostmanSidecar } from './sidecar';
 
@@ -21,7 +21,7 @@ import { attachPostmanSidecar, getPostmanSidecar, type PostmanSidecar } from './
  *
  * Restura models the URL, handshake headers / query, saved messages and the
  * reconnect knobs. Everything else (handshake timeout, max payload, strictSSL,
- * Socket.IO client version, examples, event descriptions, message encodings
+ * Socket.IO client version, event descriptions, message encodings
  * Restura cannot send) is kept scrubbed in the sidecar's `leftovers` and
  * reported; export restores it. Postman WebSocket auth has no Restura slot:
  * it is kept bag-only (like broker auth) and reported as unsupported.
@@ -111,7 +111,9 @@ export function convertWebSocket(
   if (encodings.length > 0) leftovers.payloadEncodings = encodings;
   const rest = unmappedSettings(settings, WS_MAPPED_SETTINGS);
   if (rest) leftovers.settings = rest;
-  if (arr(raw.examples).length > 0) leftovers.examples = raw.examples;
+  // Examples go to the saved-response bag (v2 shape) like every other kind's,
+  // so the export redactor blanks and counts their bodies and headers.
+  keepExamples(raw, name, sidecar, ctx);
   if (settings.strictSSL === false) {
     ctx.report.securityDowngrade('strictSSL', name, 'TLS certificate verification is off');
   }
@@ -193,7 +195,9 @@ export function convertSocketIo(
   }
   const rest = unmappedSettings(settings, SIO_MAPPED_SETTINGS);
   if (rest) leftovers.settings = rest;
-  if (arr(raw.examples).length > 0) leftovers.examples = raw.examples;
+  // Examples go to the saved-response bag (v2 shape) like every other kind's,
+  // so the export redactor blanks and counts their bodies and headers.
+  keepExamples(raw, name, sidecar, ctx);
   if (settings.strictSSL === false) {
     ctx.report.securityDowngrade('strictSSL', name, 'TLS certificate verification is off');
   }

@@ -92,7 +92,7 @@ const CONSTRUCT_DETAIL: Record<PostmanUnmodelledConstruct, string> = {
   'broker-leftovers':
     'Some broker options (extra topics / messages, stop conditions, settings) have no Restura equivalent; kept for reference only',
   'connection-leftovers':
-    'Some WebSocket / Socket.IO options (handshake timeout, max payload, TLS verification, client version, examples, event notes, message encodings) have no Restura equivalent; kept for reference only',
+    'Some WebSocket / Socket.IO options (handshake timeout, max payload, TLS verification, client version, event notes, message encodings) have no Restura equivalent; kept for reference only',
   'collection-script-scope':
     'Collection HTTP scripts run for EVERY request in Restura, including gRPC / MCP / broker requests',
   'unread-file':

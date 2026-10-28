@@ -15,7 +15,8 @@ import type { PostmanSidecar } from './sidecar';
  * Restura WebSocket / Socket.IO collection items → Postman v3
  * `websocket-request` / `socket.io-request` (#1209). The inverse of
  * `parse-v3-streaming.ts`: the import `leftovers` (settings Restura does not
- * model, disabled query rows, event notes, message encodings, examples) and
+ * model, disabled query rows, event notes, message encodings), saved examples
+ * (the v2 `response[]` bag) and
  * bag-only WebSocket auth are restored from the sidecar; Restura-only options
  * are reported as not exported.
  */
@@ -38,9 +39,43 @@ function keptEncoding(left: Raw, message: string, arg?: number): string | undefi
   return typeof hit?.contentType === 'string' ? hit.contentType : undefined;
 }
 
-function examples(left: Raw): unknown[] | undefined {
-  const list = arr(left.examples);
-  return list.length > 0 ? list : undefined;
+/**
+ * Sidecar `response[]` (v2 saved-response shape, written by `keepExamples` /
+ * `exampleToV2`) → v3 `websocket-example` / `socket.io-example`s. The frames
+ * were packed as JSON into the v2 `body`; a redacted (blanked) or non-JSON
+ * body restores an empty session.
+ */
+function restoreExamples(
+  sidecar: PostmanSidecar | undefined,
+  kind: 'websocket-example' | 'socket.io-example'
+): Raw[] | undefined {
+  const out = arr(sidecar?.response)
+    .filter(isObj)
+    .map((ex, i) => {
+      const req = isObj(ex.originalRequest) ? ex.originalRequest : {};
+      const headers = arr(req.header)
+        .filter(isObj)
+        .filter((h) => typeof h.key === 'string')
+        .map((h) => defined({ key: h.key, value: typeof h.value === 'string' ? h.value : '' }));
+      let response: Raw = {};
+      try {
+        const parsed = JSON.parse(typeof ex.body === 'string' ? ex.body : '') as unknown;
+        if (isObj(parsed)) response = parsed;
+      } catch {
+        // Blanked by redaction (or not JSON): an empty session.
+      }
+      const request = defined({
+        url: typeof req.url === 'string' && req.url !== '' ? req.url : undefined,
+        headers: headers.length > 0 ? headers : undefined,
+      });
+      return defined({
+        name: typeof ex.name === 'string' && ex.name !== '' ? ex.name : `Example ${i + 1}`,
+        $kind: kind,
+        request: Object.keys(request).length > 0 ? request : undefined,
+        response,
+      });
+    });
+  return out.length > 0 ? out : undefined;
 }
 
 export function exportWebSocket(
@@ -94,7 +129,7 @@ export function exportWebSocket(
       auth: restoreBagOnlyAuth(sidecar, AUTH_TYPES.websocket, name, ctx),
       settings: Object.keys(settings).length > 0 ? settings : undefined,
       messages: nonEmpty(messages),
-      examples: examples(left),
+      examples: restoreExamples(sidecar, 'websocket-example'),
     }),
   };
 }
@@ -169,7 +204,7 @@ export function exportSocketIo(
       events: nonEmpty(events),
       settings: Object.keys(settings).length > 0 ? settings : undefined,
       messages: nonEmpty(messages),
-      examples: examples(left),
+      examples: restoreExamples(sidecar, 'socket.io-example'),
     }),
   };
 }

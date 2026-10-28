@@ -5,6 +5,10 @@ import {
 } from '../collections/passthrough-bags';
 import { countPostmanBagInlineSecrets, redactPostmanBag } from '../collections/postman/redaction';
 import { getPostmanSidecar } from '../collections/postman/sidecar';
+import {
+  countUrlStringSecrets,
+  redactUrlCredentialsForStorage,
+} from '../collections/postman/text-redaction';
 import type { AuthConfig, Collection, CollectionItem } from '../types';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from './auth-fields';
 import { countBrokerPresetSecrets, redactBrokerPreset } from './broker-preset-redaction';
@@ -219,6 +223,10 @@ export function redactOcBag(node: unknown): unknown {
       output[key] = redactOcAuthBlock(value as Record<string, unknown>);
     } else if (key === 'passphrase' && typeof value === 'string') {
       output[key] = '';
+    } else if (key === 'url' && typeof value === 'string') {
+      // URL userinfo + credential-named query values (`?access_token=`): an
+      // unedited item re-exports verbatim from its bag (#1209).
+      output[key] = redactUrlCredentialsForStorage(value);
     } else if (key === 'value' && input.secret === true) {
       output[key] = '';
     } else if (key === 'stdio' && isPlainObject(value) && Array.isArray(value.env)) {
@@ -378,6 +386,9 @@ function countOcBagInlineSecrets(
   // Cert / private-key passphrase (root `config.clientCertificates[].passphrase`
   // and per-environment certs) — a string field the internal model never sees.
   if (typeof obj.passphrase === 'string' && obj.passphrase.length > 0) count += 1;
+  // URL userinfo / credential-named query values in a bag URL (a typed
+  // request's copy may be counted too — an over-count, the safe direction).
+  if (typeof obj.url === 'string') count += countUrlStringSecrets(obj.url);
   for (const [key, value] of Object.entries(obj)) {
     // `auth` is handled above; `passphrase` is a scalar already counted. Recurse
     // everything else (incl. `proxy` → `proxy.config.auth`) so nested config
