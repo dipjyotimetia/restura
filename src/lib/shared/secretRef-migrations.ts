@@ -228,7 +228,8 @@ interface AncestorAuth {
  * What a container hands its children, mirroring the Postman exporters'
  * `authForChildren`: a configured auth becomes the new nearest ancestor; an
  * explicit `none` (Postman `noauth`) or an unsupported auth imported as `none`
- * cuts the chain; no auth at all passes the parent's ancestor through.
+ * cuts the chain; any other unconfigured auth (absent, or a plain `none`)
+ * passes the parent's ancestor through.
  */
 function ancestorForChildren(
   node: object,
@@ -239,7 +240,7 @@ function ancestorForChildren(
   if (hasUnsupportedPostmanAuth(node)) return undefined;
   if (isExplicitNoauth(original, getPostmanSidecar(node))) return undefined;
   if (isConfiguredAuth(original) && converted) return { original, converted };
-  return original ? undefined : inherited;
+  return inherited;
 }
 
 /**
@@ -256,7 +257,11 @@ function ancestorForChildren(
  * Sharing an id is safe because the auth editor always mints a new handle
  * rather than overwriting one in place (`SecretInput`), and deleting a
  * request or collection never reaps handles (the invariant
- * `duplicateCollection` relies on too).
+ * `duplicateCollection` relies on too; `secretStoreNoOverwrite.test.ts` pins
+ * the no-`id` rule). Consequences of sharing: a manual delete in
+ * Settings → Secrets removes the credential from EVERY location sharing the
+ * handle, and the shared handle carries the ancestor's label
+ * (`<collection>/<folder>/...`), not the request's.
  */
 export async function convertCollectionSecretsToHandles(
   collection: Collection

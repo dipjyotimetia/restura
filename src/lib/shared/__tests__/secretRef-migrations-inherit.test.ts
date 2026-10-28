@@ -16,13 +16,17 @@ import type { AuthConfig, Collection, CollectionItem } from '@/types';
 
 type Raw = Record<string, unknown>;
 
-async function loadConverter() {
+type StoreResult = { ok: true; id: string } | { ok: false; error: string };
+
+async function loadConverter(
+  impl?: (args: { value: string; label: string }, call: number) => Promise<StoreResult>
+) {
   vi.resetModules();
   let n = 0;
-  const store = vi.fn(async (_args: { value: string; label: string }) => ({
-    ok: true as const,
-    id: `h-${++n}`,
-  }));
+  const store = vi.fn(
+    async (args: { value: string; label: string }): Promise<StoreResult> =>
+      impl ? impl(args, ++n) : { ok: true, id: `h-${++n}` }
+  );
   vi.doMock('../platform', () => ({
     isElectron: () => true,
     getElectronAPI: () => ({ secrets: { store } }),
@@ -84,6 +88,30 @@ function findRaw(items: unknown, name: string): Raw {
     }
   }
   throw new Error(`no raw item ${name}`);
+}
+
+/** A Restura-native tree (no Postman sidecars), for shapes the importer never emits. */
+function native(auth: AuthConfig, items: unknown[]): Collection {
+  return { id: 'c', name: 'Col', auth, items } as unknown as Collection;
+}
+
+function nativeReq(name: string, auth: AuthConfig): unknown {
+  return {
+    id: `r-${name}`,
+    type: 'request',
+    name,
+    request: {
+      id: `q-${name}`,
+      type: 'http',
+      name,
+      method: 'GET',
+      url: 'https://api.example.com/x',
+      headers: [],
+      params: [],
+      body: { type: 'none' },
+      auth,
+    },
+  };
 }
 
 const requestAuth = (c: Collection, name: string) =>
@@ -194,6 +222,101 @@ describe('convertCollectionSecretsToHandles keeps Postman inheritance (#1226)', 
 
     expect(tokenOf(requestAuth(converted, 'Below'))).toMatchObject({ kind: 'handle' });
     expect(tokenOf(requestAuth(converted, 'Below'))).not.toEqual(tokenOf(converted.auth));
+  });
+
+  it('a pass-through folder with no auth: the request reuses the collection handle', async () => {
+    const { convertCollectionSecretsToHandles, store } = await loadConverter();
+    const { collection } = importPostmanCollection(
+      v21(bearer('tok-col'), [{ name: 'Plain', item: [req('Deep')] }])
+    );
+
+    const converted = await convertCollectionSecretsToHandles(collection);
+
+    expect(store).toHaveBeenCalledTimes(1);
+    expect(tokenOf(requestAuth(converted, 'Deep'))).toEqual(tokenOf(converted.auth));
+    const { tree } = exportPostmanV3Tree(converted);
+    expect(findRaw(tree.items, 'Deep').auth).toBeUndefined();
+    const v2 = exportPostmanV21(converted).collection as unknown as Raw;
+    expect((findRaw(v2.item, 'Deep').request as Raw).auth).toBeUndefined();
+  });
+
+  it('a plain `none` folder (no explicit-noauth marker) passes the ancestor through, like the exporters', async () => {
+    const { convertCollectionSecretsToHandles, store } = await loadConverter();
+    const collection = native({ type: 'bearer', bearer: { token: 'tok-col' } }, [
+      {
+        id: 'f',
+        type: 'folder',
+        name: 'NoneFolder',
+        auth: { type: 'none' },
+        items: [nativeReq('Below', { type: 'bearer', bearer: { token: 'tok-col' } })],
+      },
+    ]);
+
+    const converted = await convertCollectionSecretsToHandles(collection);
+
+    expect(store).toHaveBeenCalledTimes(1);
+    expect(tokenOf(requestAuth(converted, 'Below'))).toEqual(tokenOf(converted.auth));
+    const { tree } = exportPostmanV3Tree(converted);
+    expect(findRaw(tree.items, 'Below').auth).toBeUndefined();
+  });
+
+  it('an unsupported-auth folder cuts the chain (converter and v2.1 export)', async () => {
+    const { convertCollectionSecretsToHandles } = await loadConverter();
+    const hawk = {
+      type: 'hawk',
+      hawk: [
+        { key: 'authId', value: 'hawk-id' },
+        { key: 'authKey', value: 'hawk-key' },
+      ],
+    };
+    const jwt = { type: 'jwt', jwt: [{ key: 'secret', value: 'jwt-secret' }] };
+    const { collection } = importPostmanCollection(
+      v21(bearer('tok-col'), [
+        { name: 'H', auth: hawk, item: [req('UnderHawk', bearer('tok-col'))] },
+        { name: 'J', auth: jwt, item: [req('JExplicit', bearer('tok-col')), req('JInherit')] },
+      ])
+    );
+
+    const converted = await convertCollectionSecretsToHandles(collection);
+
+    // Same plaintext as the collection, but the chain is cut: its own handle.
+    for (const name of ['UnderHawk', 'JExplicit']) {
+      expect(tokenOf(requestAuth(converted, name))).toMatchObject({ kind: 'handle' });
+      expect(tokenOf(requestAuth(converted, name))).not.toEqual(tokenOf(converted.auth));
+    }
+    // v2.1: a jwt folder is a hard cut; nothing below it may export as inherit.
+    const v2 = exportPostmanV21(converted).collection as unknown as Raw;
+    expect((findRaw(v2.item, 'JExplicit').request as Raw).auth).toMatchObject({ type: 'bearer' });
+    expect((findRaw(v2.item, 'JInherit').request as Raw).auth).toEqual({ type: 'noauth' });
+  });
+
+  it.each([
+    ['rejects', () => Promise.reject(new Error('Rate limit exceeded'))],
+    ['returns ok:false', () => Promise.resolve({ ok: false as const, error: 'locked' })],
+  ])('ancestor store %s: the request stays inline and equal to the ancestor', async (_l, fail) => {
+    const { convertCollectionSecretsToHandles, store } = await loadConverter(() => fail());
+    const { collection } = importPostmanCollection(v21(bearer('tok-col'), [req('Inherits')]));
+
+    const converted = await convertCollectionSecretsToHandles(collection);
+
+    expect(store).toHaveBeenCalledTimes(1);
+    expect(tokenOf(converted.auth)).not.toMatchObject({ kind: 'handle' });
+    expect(requestAuth(converted, 'Inherits')).toEqual(converted.auth);
+  });
+
+  it('a partially converted ancestor is reused whole (no half-reuse, no extra store calls)', async () => {
+    const { convertCollectionSecretsToHandles, store } = await loadConverter(async (_a, call) =>
+      call === 1 ? { ok: true, id: 'h-1' } : Promise.reject(new Error('Rate limit exceeded'))
+    );
+    const oauth2 = { type: 'oauth2', oauth2: { accessToken: 'at', clientSecret: 'cs' } } as const;
+    const collection = native(oauth2, [nativeReq('Inherits', oauth2)]);
+
+    const converted = await convertCollectionSecretsToHandles(collection);
+
+    expect(store).toHaveBeenCalledTimes(2);
+    expect(converted.auth?.oauth2?.accessToken).toMatchObject({ kind: 'handle', id: 'h-1' });
+    expect(converted.auth?.oauth2?.clientSecret).toBe('cs');
+    expect(requestAuth(converted, 'Inherits')).toEqual(converted.auth);
   });
 
   it('web is a no-op', async () => {
