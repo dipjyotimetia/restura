@@ -149,9 +149,9 @@ export async function loadCollection(
 
 function fromPostman(c: Collection, report: CliPostmanImportReport): LoadedCollection {
   const meta = extractMeta(c);
-  // v3 vault secrets import value-less (`secret: true`). Never fold them in
-  // as an empty value (that would also shadow an `--env` value): treat them as
-  // private variables, so a request that uses one without a value fails
+  // Secret variables (v3 vault, v2.1 `type: "secret"`) import value-less
+  // (`secret: true`). Never fold them in as an empty value (that would also
+  // shadow an `--env` value): treat them as private variables, so a request that uses one without a value fails
   // explicitly (`assertCliSecretsAvailable`), the same rule as OC private vars.
   const secretNames = postmanSecretVariableNames(c);
   if (secretNames.size > 0) {

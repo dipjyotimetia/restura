@@ -24,6 +24,7 @@ export type PostmanUnmodelledConstruct =
   | 'oauth2-grant'
   | 'oauth1-options'
   | 'form-file'
+  | 'explicit-noauth'
   // v3 (#1200)
   | 'multi-auth'
   | 'secret-variable'
@@ -68,6 +69,8 @@ const CONSTRUCT_DETAIL: Record<PostmanUnmodelledConstruct, string> = {
   'oauth2-grant': 'OAuth 2.0 grant type approximated (implicit / PKCE details not modelled)',
   'oauth1-options': 'OAuth 1.0 options approximated (unsupported signature method or placement)',
   'form-file': 'Form-data file fields imported without their files; the original paths were kept',
+  'explicit-noauth':
+    'Explicit "No Auth" below a configured auth: Restura treats no auth as inherit, so the affected requests are NOT sent (no ancestor credential is substituted) until their auth is configured',
   'multi-auth':
     'Several credential sets selected by rule; only the first was imported, all were kept for reference',
   'secret-variable':

@@ -3,8 +3,9 @@ import { isConfiguredAuth } from '../../auth/inheritance';
 import { checkHttpMethod } from '../../protocol/http-method';
 import type { AuthConfig, HttpMethod, KeyValue } from '../../types';
 import { activeAuthBlock, authParamsV2, convertPostmanAuth, unmappedAuthRemainder } from './auth';
+import { hasUnsupportedPostmanAuth } from './auth-guard';
 import type { PostmanReportBuilder } from './report';
-import { getPostmanSidecar, type PostmanSidecar } from './sidecar';
+import type { PostmanSidecar } from './sidecar';
 
 /**
  * Helpers shared by the Postman version front ends (`parse-v2.ts`,
@@ -49,6 +50,17 @@ export function keyValue(row: Raw): KeyValue {
 }
 
 /**
+ * A secret variable row: value-less and flagged `secret`, plus a
+ * `secret-variable` report entry naming the variable (the v3 path's rule,
+ * `parse-v3-shared.ts` convertVariables). Postman vaults are never contacted
+ * and a secret value never enters the typed model or a sidecar.
+ */
+export function secretKeyValue(row: Raw, ownerName: string, ctx: ParseContext): KeyValue {
+  ctx.report.unmodelled('secret-variable', ownerName, str(row.key));
+  return { ...keyValue({ ...row, value: '' }), secret: true };
+}
+
+/**
  * Maximum folder nesting accepted on import. Real collections are a handful of
  * levels deep; the cap turns a hostile/garbage deeply nested document into a
  * clear import error instead of unbounded recursion here and in every
@@ -65,31 +77,19 @@ export interface AuthOutcome {
    * live on the typed model and must not be duplicated (ADR-0007).
    */
   sidecarAuth?: Raw;
+  /**
+   * The Postman auth was an explicit `noauth` (#1232). Callers set
+   * `_postman.noauth` so inheritance is cut and the send guard can tell it
+   * apart from `inherit` (both are `{ type: 'none' }` in the typed model).
+   */
+  noauth?: true;
 }
 
-/**
- * THE predicate for "this node's Postman auth could not be imported"
- * (#1202; also used by the CLI runner and the #1201 exporter — keep the name
- * and signature stable).
- *
- * `node` is an imported collection, folder or request item (or any object
- * with `auth` / `request.auth` and a `_postman` sidecar). Returns the Postman
- * auth type (e.g. `"hawk"`) when the node carries a `_postman.auth` sidecar
- * that is NOT bag-only (bag-only = broker presets / placeholders, whose auth
- * never had a typed model) and its own auth is not configured — i.e. the
- * unsupported type was imported as `none`. Approximated types (OAuth2
- * implicit, OAuth1 RSA, …) also keep a sidecar but map to a configured auth,
- * so they return `undefined`. Never returns credential values.
- */
-export function hasUnsupportedPostmanAuth(node: object): string | undefined {
-  const sidecar = getPostmanSidecar(node);
-  if (!sidecar?.auth || sidecar.authBagOnly) return undefined;
-  const n = node as { auth?: AuthConfig; request?: { auth?: AuthConfig } };
-  const own = n.request && typeof n.request === 'object' ? n.request.auth : n.auth;
-  if (isConfiguredAuth(own)) return undefined;
-  const type = isObj(sidecar.auth) ? sidecar.auth.type : undefined;
-  return typeof type === 'string' && type !== '' ? type : 'unknown';
-}
+// THE "this node's Postman auth could not be imported" predicate lives with
+// the send guard (kept free of this file's EOPT-unsafe helpers, so renderer
+// code under `exactOptionalPropertyTypes` can import it); re-exported here
+// for its existing importers.
+export { hasUnsupportedPostmanAuth };
 
 /**
  * What a child inherits from its parent: the nearest configured auth, or the
@@ -112,6 +112,10 @@ export function inheritFrom(
 ): InheritedPostmanAuth {
   const unsupported = hasUnsupportedPostmanAuth(node);
   if (unsupported) return { unsupported };
+  // An explicit `noauth` cuts the chain too: its inheriting descendants get
+  // `none`, never an ancestor's credential (the send guard then refuses them
+  // while a configured auth sits above, see `auth-guard.ts`).
+  if (node._postman.noauth === true) return {};
   if (isConfiguredAuth(node.auth)) return { auth: node.auth };
   return parent;
 }
@@ -147,7 +151,7 @@ export function convertAuthBlock(raw: Raw, ownerName: string, ctx: ParseContext)
     case 'inherit':
       return { auth: undefined };
     case 'ok':
-      return { auth: result.auth };
+      return type === 'noauth' ? { auth: result.auth, noauth: true } : { auth: result.auth };
     case 'approximated':
       ctx.report.unmodelled(result.construct, ownerName);
       return { auth: result.auth, sidecarAuth: unmappedAuthRemainder(raw) };
@@ -155,6 +159,33 @@ export function convertAuthBlock(raw: Raw, ownerName: string, ctx: ParseContext)
       ctx.report.unsupportedAuth(result.authType, ownerName);
       return { auth: result.auth, sidecarAuth: unmappedAuthRemainder(raw) };
   }
+}
+
+/**
+ * Mark an explicit Postman `noauth` on `sidecar` and, when a configured
+ * ancestor auth would otherwise be substituted at send time, report it.
+ */
+export function markExplicitNoauth(
+  authOut: AuthOutcome,
+  sidecar: PostmanSidecar,
+  inherited: InheritedPostmanAuth,
+  ownerName: string,
+  ctx: ParseContext
+): void {
+  if (!authOut.noauth) return;
+  sidecar.noauth = true;
+  reportExplicitNoauth(sidecar, inherited, ownerName, ctx);
+}
+
+/** Report a `_postman.noauth` owner when a configured ancestor auth sits above it. */
+export function reportExplicitNoauth(
+  sidecar: PostmanSidecar,
+  inherited: InheritedPostmanAuth,
+  ownerName: string,
+  ctx: ParseContext
+): void {
+  if (sidecar.noauth === true && inherited.auth)
+    ctx.report.unmodelled('explicit-noauth', ownerName);
 }
 
 export function parseQueryString(qs: string): KeyValue[] {

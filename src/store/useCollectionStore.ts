@@ -3,7 +3,8 @@ import {
   hasPassthroughBag,
   MAX_COLLECTION_TREE_DEPTH,
 } from '@shared/collections/passthrough-bags';
-import { clearPostmanSidecar } from '@shared/collections/postman/sidecar';
+import { postmanGuardMarkers } from '@shared/collections/postman/auth-guard';
+import { attachPostmanSidecar, clearPostmanSidecar } from '@shared/collections/postman/sidecar';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -125,6 +126,32 @@ function stripPassthroughBags(item: CollectionItem): CollectionItem {
   return deletePassthroughBags({ ...item });
 }
 
+/**
+ * {@link stripPassthroughBags}, but keep the Postman send-guard markers
+ * (`_postman.noauth`, the unsupported auth TYPE — #1232) as a minimal bag.
+ * Used for every node whose OWN auth was not edited (ancestors on a mutation
+ * path, an item edited in other fields): dropping them would silently
+ * re-enable auth inheritance for the whole subtree.
+ */
+function stripPassthroughBagsKeepingGuard(item: CollectionItem): CollectionItem {
+  if (!hasPassthroughBag(item)) return item;
+  const markers = postmanGuardMarkers(item);
+  const stripped = deletePassthroughBags({ ...item });
+  return markers ? attachPostmanSidecar(stripped, markers) : stripped;
+}
+
+/** Whether `updates` changes the item's own auth (folder `auth` or `request.auth`). */
+function editsOwnAuth(current: CollectionItem, updates: Partial<CollectionItem>): boolean {
+  if ('auth' in updates && !sameValue(updates.auth, current.auth)) return true;
+  return (
+    'request' in updates &&
+    !sameValue(
+      (updates.request as { auth?: unknown } | undefined)?.auth,
+      (current.request as { auth?: unknown } | undefined)?.auth
+    )
+  );
+}
+
 // Past MAX_COLLECTION_TREE_DEPTH the bag-stripping walk leaves deeper subtrees
 // untouched rather than risking a stack overflow inside a store update.
 
@@ -135,6 +162,17 @@ function sameValue(a: unknown, b: unknown): boolean {
 
 /** Collection fields whose edit makes the root `_postman` sidecar stale. */
 const ROOT_SIDECAR_STALE_KEYS = ['auth', 'variables', 'preRequestScript', 'testScript'] as const;
+
+/**
+ * Clear the stale root `_postman` sidecar, but keep its send-guard markers
+ * (#1228) unless the root auth itself was edited — the collection-level twin
+ * of {@link stripPassthroughBagsKeepingGuard}.
+ */
+function clearRootSidecarKeepingGuard<T extends Collection>(col: T, authEdited: boolean): T {
+  const markers = authEdited ? undefined : postmanGuardMarkers(col);
+  clearPostmanSidecar(col);
+  return markers ? attachPostmanSidecar(col, markers) : col;
+}
 
 /** Ancestor folder ids on the path from the root to `itemId` (excludes the item). */
 function ancestorPath(
@@ -163,7 +201,7 @@ function stripPassthroughByIds(
     const withChildren = i.items
       ? { ...i, items: stripPassthroughByIds(i.items, ids, depth + 1) }
       : i;
-    return ids.has(i.id) ? stripPassthroughBags(withChildren) : withChildren;
+    return ids.has(i.id) ? stripPassthroughBagsKeepingGuard(withChildren) : withChildren;
   });
 }
 
@@ -242,7 +280,10 @@ export const useCollectionStore = create<CollectionState>()(
             if (
               ROOT_SIDECAR_STALE_KEYS.some((k) => k in updates && !sameValue(updates[k], col[k]))
             ) {
-              clearPostmanSidecar(merged);
+              clearRootSidecarKeepingGuard(
+                merged,
+                'auth' in updates && !sameValue(updates.auth, col.auth)
+              );
             }
             const next = migrateCollectionAuth(merged);
             validateCollection(next);
@@ -319,13 +360,17 @@ export const useCollectionStore = create<CollectionState>()(
                     return i;
                   }
                   changed = true;
-                  return stripPassthroughBags({ ...i, ...updates });
+                  const merged = { ...i, ...updates };
+                  // Own guard markers go stale only when this node's auth is edited.
+                  return editsOwnAuth(i, updates)
+                    ? stripPassthroughBags(merged)
+                    : stripPassthroughBagsKeepingGuard(merged);
                 }
                 if (i.items) {
                   const res = updateItem(i.items);
                   if (res.changed) {
                     changed = true;
-                    return stripPassthroughBags({ ...i, items: res.items });
+                    return stripPassthroughBagsKeepingGuard({ ...i, items: res.items });
                   }
                 }
                 return i;
@@ -456,7 +501,11 @@ export const useCollectionStore = create<CollectionState>()(
                 changed = true;
               }
             }
-            return changed ? { ...col, variables: next } : col;
+            if (!changed) return col;
+            // Same staleness rule as updateCollection: a real variables change
+            // makes the root `_postman` sidecar stale. Root `_oc` is kept —
+            // internalToOC re-checks root variables freshness itself.
+            return clearRootSidecarKeepingGuard({ ...col, variables: next }, false);
           }),
         })),
     }),

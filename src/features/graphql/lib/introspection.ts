@@ -6,7 +6,7 @@ import {
   printSchema,
 } from 'graphql';
 import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
-import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { executeRequest, resolveEffectiveSettings } from '@/features/http/lib/requestExecutor';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -134,7 +134,8 @@ function buildIntrospectionRequest(
   };
 
   // A request with no auth of its own picks up the nearest ancestor's, as on Send.
-  const inherited = resolveInheritedAuthFor(request);
+  // Refuses a Postman-guard-blocked request (#1232): surfaced as a failure.
+  const inherited = resolveInheritedAuthForSend(request);
   return { ...request, auth: resolveEffectiveAuth(request.auth, inherited?.auth) };
 }
 

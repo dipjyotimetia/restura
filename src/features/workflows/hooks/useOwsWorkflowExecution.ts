@@ -1,10 +1,11 @@
+import { postmanBlockedReasonFor } from '@shared/collections/postman/auth-guard';
 import type { OwsExecutionResult, OwsExecutionStep } from '@shared/ows/executor';
 import { executeOwsWorkflow } from '@shared/ows/executor';
 import { getGraphqlResponseErrors } from '@shared/ows/graphql-operation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
-import { findAncestorFolderVariables } from '@/lib/shared/activeRequestScopes';
+import { findInheritedAuth, withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { protocolRegistry } from '@/features/registry/registry';
+import { findAncestorFolderVariables } from '@/lib/shared/activeRequestScopes';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -155,7 +156,12 @@ export function useOwsWorkflowExecution() {
               if (!protocol) {
                 throw new Error(`${graphql ? 'GraphQL' : 'HTTP'} protocol adapter is unavailable.`);
               }
-              const authed = withEffectiveAuth(request, collection.auth);
+              // Postman send guard (#1232): never substitute an ancestor
+              // credential for an explicit `noauth` / unsupported auth.
+              const blocked = postmanBlockedReasonFor(collection, request.id, 'Restura');
+              if (blocked) throw new Error(blocked);
+              // Nearest folder auth, else the collection auth (single-send rule).
+              const authed = withEffectiveAuth(request, findInheritedAuth(collection, request.id));
               const incomingVariables = stringVariables(variables);
               const folderVariables = buildValueMap({
                 folders: findAncestorFolderVariables(collection.items, binding.resourceId),

@@ -1,4 +1,5 @@
-import { KeyRound } from 'lucide-react';
+import { postmanBlockedReasonFor } from '@shared/collections/postman/auth-guard';
+import { KeyRound, ShieldAlert } from 'lucide-react';
 import { useMemo } from 'react';
 import {
   findInheritedAuthWithSource,
@@ -19,8 +20,25 @@ export function useInheritedAuth(
   return useMemo(() => {
     if (isConfiguredAuth(request.auth)) return undefined;
     for (const collection of collections) {
+      // A Postman-guard-blocked request inherits nothing (#1232).
+      if (postmanBlockedReasonFor(collection, request.id, 'Restura', request.auth))
+        return undefined;
       const found = findInheritedAuthWithSource(collection, request.id);
       if (found) return found;
+    }
+    return undefined;
+  }, [collections, request.id, request.auth]);
+}
+
+/** Why the Postman send guard refuses this request (#1232), or `undefined`. Live. */
+export function usePostmanSendBlock(
+  request: Pick<Request, 'id'> & { auth: AuthConfig }
+): string | undefined {
+  const collections = useCollectionStore((s) => s.collections);
+  return useMemo(() => {
+    for (const collection of collections) {
+      const reason = postmanBlockedReasonFor(collection, request.id, 'Restura', request.auth);
+      if (reason) return reason;
     }
     return undefined;
   }, [collections, request.id, request.auth]);
@@ -54,7 +72,19 @@ export function InheritedAuthHint({
   request: Pick<Request, 'id'> & { auth: AuthConfig };
 }) {
   const inherited = useInheritedAuth(request);
+  const blocked = usePostmanSendBlock(request);
 
+  if (blocked) {
+    return (
+      <div
+        role="alert"
+        className="mb-3 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground"
+      >
+        <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-destructive" />
+        <span>Not sent: {blocked.replace(/^not sent: /, '')}</span>
+      </div>
+    );
+  }
   if (!inherited) return null;
 
   return (

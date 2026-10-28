@@ -1,0 +1,82 @@
+{
+  "info": {
+    "name": "Off-schema auth",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "jwt",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/jwt",
+        "auth": {
+          "type": "jwt",
+          "jwt": [
+            { "key": "secret", "value": "JWT-SECRET", "type": "string" },
+            { "key": "algorithm", "value": "HS256", "type": "string" },
+            { "key": "payload", "value": "{\"sub\":\"1\"}", "type": "string" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "asap",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/asap",
+        "auth": {
+          "type": "asap",
+          "asap": [
+            { "key": "privateKey", "value": "ASAP-PRIVATE-KEY", "type": "string" },
+            { "key": "issuer", "value": "svc", "type": "string" },
+            { "key": "kid", "value": "k1", "type": "string" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "akamai",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/akamai",
+        "auth": {
+          "type": "akamai",
+          "akamai": [
+            { "key": "accessToken", "value": "AKAMAI-ACCESS", "type": "string" },
+            { "key": "clientSecret", "value": "AKAMAI-SECRET", "type": "string" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "hawk",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/hawk",
+        "auth": { "type": "hawk", "hawk": [{ "key": "authKey", "value": "HAWK-KEY" }] }
+      }
+    },
+    {
+      "name": "edgegrid",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/edgegrid",
+        "auth": {
+          "type": "edgegrid",
+          "edgegrid": [{ "key": "clientToken", "value": "EG-TOKEN" }],
+          "bearer": [{ "key": "token", "value": "SIBLING-BEARER" }]
+        }
+      }
+    },
+    {
+      "name": "jwt-folder",
+      "auth": { "type": "jwt", "jwt": [{ "key": "secret", "value": "FOLDER-JWT" }] },
+      "item": [
+        {
+          "name": "inherits-jwt",
+          "request": { "method": "GET", "url": "https://api.example.com/inherit" }
+        }
+      ]
+    }
+  ]
+}

@@ -130,6 +130,25 @@ describe('loadCollection — Postman', () => {
     expect(loaded.meta.variables?.some((v) => v.key === 'apiToken')).toBe(false);
   });
 
+  it('v2.1 type:"secret" variables load value-less as private variables, reported for --strict-import', async () => {
+    quietStderr();
+    const loaded = await loadCollection(resolve(FIXTURES, '../v21/secret-variables.json'));
+    expect(loaded.meta.privateVariableNames).toContain('apiToken');
+    expect(loaded.meta.variables?.some((v) => v.key === 'apiToken')).toBe(false);
+    const json = JSON.stringify(loaded);
+    for (const plaintext of [
+      'COLLECTION-SECRET-PLAINTEXT',
+      'FOLDER-SECRET-PLAINTEXT',
+      'REQUEST-SECRET-PLAINTEXT',
+    ]) {
+      expect(json).not.toContain(plaintext);
+    }
+    const secretEntries = (loaded.importReport?.warnings ?? []).filter(
+      (w) => w.kind === 'unmodelled-construct' && w.construct === 'secret-variable'
+    );
+    expect(secretEntries).toHaveLength(3);
+  });
+
   it('loads a v3 .zip built in-test', async () => {
     quietStderr();
     const zip = zipSync(fileMap(KITCHEN, 'kitchen-sink/'));
@@ -167,8 +186,58 @@ describe('loadCollection — Postman', () => {
     const loaded = await loadCollection(KITCHEN);
     const hawk = loaded.requests.find((r) => r.relativePath === 'Auth zoo/Hawk');
     expect(hawk?.blocked).toMatch(/hawk/);
+    // An explicit Postman `noauth` below the folder's basic auth is refused
+    // (#1232): Restura would otherwise substitute the folder credential.
     const users = loaded.requests.find((r) => r.relativePath === 'Users/List users');
-    expect(users?.blocked).toBeUndefined();
+    expect(users?.blocked).toMatch(/"No Auth".*the CLI will not send/);
+    const getUser = loaded.requests.find((r) => r.relativePath === 'Users/Get user');
+    expect(getUser?.blocked).toBeUndefined();
+  });
+
+  it('refuses explicit-noauth requests (own or via a noauth folder) below a configured auth', async () => {
+    quietStderr();
+    const path = join(tmp(), 'noauth.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        info: {
+          name: 'N',
+          schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
+        },
+        auth: { type: 'bearer', bearer: [{ key: 'token', value: 'collection-secret' }] },
+        item: [
+          {
+            name: 'NF',
+            auth: { type: 'noauth' },
+            item: [{ name: 'Child', request: { method: 'GET', url: `${baseUrl}/c` } }],
+          },
+          {
+            name: 'Own',
+            request: { method: 'GET', url: `${baseUrl}/o`, auth: { type: 'noauth' } },
+          },
+          {
+            name: 'HF',
+            auth: { type: 'hawk', hawk: [{ key: 'authId', value: 'id' }] },
+            item: [{ name: 'Hawk child', request: { method: 'GET', url: `${baseUrl}/h` } }],
+          },
+          { name: 'Control', request: { method: 'GET', url: `${baseUrl}/k` } },
+        ],
+      })
+    );
+    const loaded = await loadCollection(path);
+    const blocked = Object.fromEntries(loaded.requests.map((r) => [r.relativePath, r.blocked]));
+    expect(blocked['NF/Child']).toMatch(/"No Auth" \(inherited from "NF"\)/);
+    expect(blocked.Own).toMatch(/"No Auth"/);
+    expect(blocked['HF/Hawk child']).toMatch(/"hawk" \(inherited from "HF"\)/);
+    expect(blocked.Control).toBeUndefined();
+    const result: RunResult = await runCollection(
+      path,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      silentReporter
+    );
+    expect(result.summary.notSent).toBe(3);
+    // Only the control request reaches the wire.
+    expect(hits.map((h) => h.url)).toEqual(['/k']);
   });
 });
 

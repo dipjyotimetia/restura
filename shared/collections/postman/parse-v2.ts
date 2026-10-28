@@ -13,13 +13,25 @@ import {
   isObj,
   keyValue,
   MAX_POSTMAN_NESTING_DEPTH,
+  markExplicitNoauth,
   type ParseContext,
   parseQueryString,
   type Raw,
+  secretKeyValue,
   str,
   substitutePathVariables,
 } from './common';
 import { attachPostmanSidecar, type PostmanSidecar } from './sidecar';
+import type {
+  PostmanV21Auth,
+  PostmanV21Collection,
+  PostmanV21Event,
+  PostmanV21Info,
+  PostmanV21Item,
+  PostmanV21ItemGroup,
+  PostmanV21Request,
+  PostmanV21Url,
+} from './v21-types';
 
 /**
  * SDK-free parser for Postman Collection v2.0 / v2.1 JSON.
@@ -33,9 +45,71 @@ import { attachPostmanSidecar, type PostmanSidecar } from './sidecar';
 export type { ParseContext } from './common';
 export { MAX_POSTMAN_NESTING_DEPTH } from './common';
 
+// ── narrowing (#1228) ───────────────────────────────────────────────────────
+//
+// The generated `PostmanV21*` types are STRICT, but real Postman exports go
+// beyond the schema: off-schema auth types (jwt, asap, akamai), `type:
+// "secret"` variables, scalar variable values, bare-string scripts, v2.0
+// object-map auth params, junk entries. So the parser narrows input into
+// LOOSE views of the generated types instead: the schema's keys, with every
+// value `unknown` unless a guard below checked it (`Narrowed` refines exactly
+// those keys). The guards only test the fields they refine and hand back the
+// same object (or a shallow copy with just the refined key replaced), so
+// nothing is cast wholesale and unchecked leaves are still
+// coerced by `str` / `arr` / `isObj` at the point of use.
+
+/** `T`'s keys, all optional, values unchecked. */
+type Loose<T> = { [K in keyof T]?: unknown };
+/** {@link Loose} `T` with the keys in `Known` refined to the checked types. */
+type Narrowed<T, Known> = Omit<Loose<T>, keyof Known> & Known;
+
+type V21Info = Loose<PostmanV21Info>;
+type V21Collection = Narrowed<PostmanV21Collection, { info: V21Info }>;
+/** The schema's auth keys plus any off-schema type block (`jwt`, `asap`, …). */
+type V21Auth = Loose<PostmanV21Auth> & Raw;
+type V21Event = Narrowed<PostmanV21Event, { listen: string }>;
+type V21ItemGroup = Narrowed<PostmanV21ItemGroup, { item: unknown[] }>;
+type V21RequestObject = Loose<Exclude<PostmanV21Request, string>>;
+type V21Item = Narrowed<PostmanV21Item, { request: V21RequestObject }>;
+type V21UrlObject = Loose<Exclude<PostmanV21Url, string>>;
+type V21Body = Loose<NonNullable<V21RequestBody>>;
+type V21RequestBody = Exclude<PostmanV21Request, string>['body'];
+
+function narrowCollection(data: Raw): V21Collection {
+  return { ...data, info: isObj(data.info) ? data.info : {} };
+}
+
+function isEvent(v: unknown): v is V21Event {
+  return isObj(v) && typeof v.listen === 'string';
+}
+
+function isItemGroup(v: Raw): v is V21ItemGroup {
+  return Array.isArray(v.item);
+}
+
+/** v2 allows `request` to be a bare URL string (implicit GET). */
+function narrowRequest(v: unknown): V21RequestObject | undefined {
+  if (typeof v === 'string') return { url: v };
+  return isObj(v) ? v : undefined;
+}
+
+function narrowItem(v: Raw): V21Item | undefined {
+  const request = narrowRequest(v.request);
+  return request ? { ...v, request } : undefined;
+}
+
+/**
+ * Postman's app emits `type: "secret"` on collection / folder / request
+ * variables even though the v2.1 schema's enum is string|boolean|any|number.
+ */
+function isSecretVariable(v: unknown): v is Raw & { type: 'secret' } {
+  return isObj(v) && v.type === 'secret';
+}
+
 function convertAuth(raw: unknown, ownerName: string, ctx: ParseContext): AuthOutcome {
   if (!isObj(raw)) return { auth: undefined };
-  return convertAuthBlock(raw, ownerName, ctx);
+  const auth: V21Auth = raw;
+  return convertAuthBlock(auth, ownerName, ctx);
 }
 
 // ── events ──────────────────────────────────────────────────────────────────
@@ -59,7 +133,7 @@ function extractScripts(events: unknown, ctx: ParseContext): Scripts {
   const last = new Map<string, { event: unknown; text: string }>();
   const shadowed: unknown[] = [];
   for (const event of arr(events)) {
-    if (!isObj(event) || typeof event.listen !== 'string') continue;
+    if (!isEvent(event)) continue;
     const text = execText(event.script);
     if (text === undefined) continue;
     const prev = last.get(event.listen);
@@ -81,7 +155,7 @@ function joinPart(v: unknown, sep: string): string {
 }
 
 /** Rebuild a URL from structured Postman parts (used only when `raw` is absent). */
-function buildUrl(url: Raw): string {
+function buildUrl(url: V21UrlObject): string {
   const protocol = str(url.protocol);
   const host = joinPart(url.host, '.');
   const port = str(url.port);
@@ -106,7 +180,8 @@ function convertUrl(
   if (typeof url === 'string') {
     full = url;
   } else if (isObj(url)) {
-    full = typeof url.raw === 'string' ? url.raw : buildUrl(url);
+    const structured: V21UrlObject = url;
+    full = typeof structured.raw === 'string' ? structured.raw : buildUrl(structured);
     if (Array.isArray(url.query)) {
       params = url.query.filter(isObj).map(keyValue);
     }
@@ -153,6 +228,15 @@ function convertBody(
   ctx: ParseContext
 ): HttpRequest['body'] {
   if (!isObj(body)) return { type: 'none' };
+  return convertBodyObject(body, requestName, sidecar, ctx);
+}
+
+function convertBodyObject(
+  body: V21Body,
+  requestName: string,
+  sidecar: PostmanSidecar,
+  ctx: ParseContext
+): HttpRequest['body'] {
   switch (body.mode) {
     case 'raw': {
       const options = isObj(body.options) ? body.options : undefined;
@@ -231,7 +315,7 @@ function convertBody(
 
 /** Item-level constructs shared by folders and requests. */
 function collectItemExtras(
-  item: Raw,
+  item: V21Item | V21ItemGroup,
   name: string,
   scripts: Scripts,
   sidecar: PostmanSidecar,
@@ -242,7 +326,20 @@ function collectItemExtras(
     ctx.report.unmodelled('protocol-profile-behavior', name);
   }
   if (Array.isArray(item.variable) && item.variable.length > 0) {
-    sidecar.variable = item.variable;
+    // Item variables are not modelled, so the whole list is kept for
+    // reference — except secret values, which never enter a sidecar.
+    sidecar.variable = item.variable.map((v) => {
+      if (!isSecretVariable(v)) return v;
+      ctx.report.unmodelled('secret-variable', name, str(v.key));
+      // Allowlist, not denylist: exports can carry other value-bearing keys
+      // (`initialValue`, `currentValue`, …) that must never reach the bag.
+      return {
+        ...(v.key !== undefined ? { key: v.key } : {}),
+        type: v.type,
+        ...(v.disabled !== undefined ? { disabled: v.disabled } : {}),
+        ...(v.description !== undefined ? { description: v.description } : {}),
+      };
+    });
     ctx.report.unmodelled('item-variables', name);
   }
   if (scripts.shadowed.length > 0) {
@@ -263,50 +360,65 @@ function convertItem(
       `Invalid Postman collection: folders nest deeper than ${MAX_POSTMAN_NESTING_DEPTH} levels`
     );
   }
+  if (isItemGroup(raw)) return convertFolder(raw, inherited, ctx, depth);
+  const item = narrowItem(raw);
+  return item ? convertRequestItem(item, inherited, ctx) : null;
+}
+
+function convertFolder(
+  raw: V21ItemGroup,
+  inherited: InheritedPostmanAuth,
+  ctx: ParseContext,
+  depth: number
+): CollectionItem {
   const sidecar: PostmanSidecar = {};
-
-  if (Array.isArray(raw.item)) {
-    const name = str(raw.name) || 'Unnamed Folder';
-    const authOut = convertAuth(raw.auth, name, ctx);
-    if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
-    // Folder auth overrides the collection auth for everything inside
-    // (nearest ancestor wins).
-    const folderAuth = isConfiguredAuth(authOut.auth) ? authOut.auth : undefined;
-    const scripts = extractScripts(raw.event, ctx);
-    collectItemExtras(raw, name, scripts, sidecar, ctx);
-    const items: CollectionItem[] = [];
-    for (const child of raw.item) {
-      // An unsupported folder auth cuts the chain: its inheriting
-      // descendants get `none`, never the collection's credentials.
-      const converted = convertItem(
-        child,
-        inheritFrom({ auth: authOut.auth, _postman: sidecar }, inherited),
-        ctx,
-        depth + 1
-      );
-      if (converted) items.push(converted);
-    }
-    const folder: CollectionItem = {
-      id: uuid(),
-      name,
-      type: 'folder',
-      items,
-      // Keep the folder auth at folder level so it stays editable and
-      // round-trips on export (descendants also get it baked).
-      ...(folderAuth ? { auth: folderAuth } : {}),
-      preRequestScript: scripts.preRequestScript,
-      testScript: scripts.testScript,
-    };
-    return attachPostmanSidecar(folder, sidecar);
+  const name = str(raw.name) || 'Unnamed Folder';
+  const authOut = convertAuth(raw.auth, name, ctx);
+  if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
+  markExplicitNoauth(authOut, sidecar, inherited, name, ctx);
+  // Folder auth overrides the collection auth for everything inside
+  // (nearest ancestor wins).
+  const folderAuth = isConfiguredAuth(authOut.auth) ? authOut.auth : undefined;
+  const scripts = extractScripts(raw.event, ctx);
+  collectItemExtras(raw, name, scripts, sidecar, ctx);
+  const items: CollectionItem[] = [];
+  for (const child of raw.item) {
+    // An unsupported folder auth cuts the chain: its inheriting
+    // descendants get `none`, never the collection's credentials.
+    const converted = convertItem(
+      child,
+      inheritFrom({ auth: authOut.auth, _postman: sidecar }, inherited),
+      ctx,
+      depth + 1
+    );
+    if (converted) items.push(converted);
   }
+  const folder: CollectionItem = {
+    id: uuid(),
+    name,
+    type: 'folder',
+    items,
+    // Keep the folder auth at folder level so it stays editable and
+    // round-trips on export (descendants also get it baked).
+    ...(folderAuth ? { auth: folderAuth } : {}),
+    preRequestScript: scripts.preRequestScript,
+    testScript: scripts.testScript,
+  };
+  return attachPostmanSidecar(folder, sidecar);
+}
 
-  // v2 allows `request` to be a bare URL string (implicit GET).
-  const request = typeof raw.request === 'string' ? { url: raw.request } : raw.request;
-  if (!isObj(request)) return null;
+function convertRequestItem(
+  raw: V21Item,
+  inherited: InheritedPostmanAuth,
+  ctx: ParseContext
+): CollectionItem {
+  const sidecar: PostmanSidecar = {};
+  const { request } = raw;
   const name = str(raw.name) || 'Unnamed Request';
 
   const authOut = convertAuth(request.auth, name, ctx);
   if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
+  markExplicitNoauth(authOut, sidecar, inherited, name, ctx);
   const scripts = extractScripts(raw.event, ctx);
   const { url, params } = convertUrl(request.url, name, sidecar, ctx);
   const method = coerceMethod(request.method, name, sidecar, ctx);
@@ -336,19 +448,24 @@ function convertItem(
   );
 }
 
-function convertVariables(variables: unknown): KeyValue[] {
+function convertVariables(variables: unknown, ownerName: string, ctx: ParseContext): KeyValue[] {
   return arr(variables)
     .filter(isObj)
-    .map((v) => keyValue({ ...v, key: v.key ?? v.id }));
+    .map((v) => {
+      const row = { ...v, key: v.key ?? v.id };
+      return isSecretVariable(v) ? secretKeyValue(row, ownerName, ctx) : keyValue(row);
+    });
 }
 
-export function parsePostmanV2(data: Raw, ctx: ParseContext): Collection {
-  const info = isObj(data.info) ? data.info : {};
+export function parsePostmanV2(input: Raw, ctx: ParseContext): Collection {
+  const data = narrowCollection(input);
+  const { info } = data;
   const name = str(info.name) || 'Imported Collection';
   const sidecar: PostmanSidecar = {};
 
   const authOut = convertAuth(data.auth, name, ctx);
   if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
+  markExplicitNoauth(authOut, sidecar, {}, name, ctx);
   const scripts = extractScripts(data.event, ctx);
   if (scripts.shadowed.length > 0) {
     sidecar.event = scripts.shadowed;
@@ -359,7 +476,7 @@ export function parsePostmanV2(data: Raw, ctx: ParseContext): Collection {
     ctx.report.unmodelled('protocol-profile-behavior', name);
   }
 
-  const variables = convertVariables(data.variable);
+  const variables = convertVariables(data.variable, name, ctx);
   const collection: Collection = {
     id: uuid(),
     name,

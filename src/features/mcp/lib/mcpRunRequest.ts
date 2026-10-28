@@ -23,7 +23,10 @@ import {
 } from '@shared/protocol/mcp-run';
 import { v4 as uuidv4 } from 'uuid';
 import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
-import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import {
+  postmanSendBlockedReason,
+  resolveInheritedAuthFor,
+} from '@/features/auth/lib/resolveInheritedAuthFor';
 import type { RunContext } from '@/features/registry/types';
 import type { PmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
 import { readPmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
@@ -213,6 +216,9 @@ function enabledHeaders(request: McpRequest): Record<string, string> {
  * resolves, handles included.
  */
 export function buildMcpRunConnectAuth(mcp: McpRequest): McpConnectAuth {
+  // Postman send guard (#1232): refuse, never connect with `none` instead.
+  const blocked = postmanSendBlockedReason({ id: mcp.id, auth: mcp.auth ?? { type: 'none' } });
+  if (blocked) return { ok: false, error: blocked };
   return buildMcpConnectAuth({
     auth: mcp.auth,
     inherited: resolveInheritedAuthFor({ id: mcp.id, auth: mcp.auth ?? { type: 'none' } }),

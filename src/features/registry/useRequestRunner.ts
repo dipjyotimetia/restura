@@ -17,7 +17,7 @@
  */
 import { useCallback, useRef } from 'react';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
-import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -74,7 +74,8 @@ export function useRequestRunner() {
       // runner resolves it: the collection runner and workflow executor
       // bypass run() and thread inherited auth themselves, so there is no
       // double application.
-      const inherited = resolveInheritedAuthFor(rawRequest);
+      // Refuses a Postman-guard-blocked request (#1232), like an unknown protocol.
+      const inherited = resolveInheritedAuthForSend(rawRequest);
       const request = inherited ? withEffectiveAuth(rawRequest, inherited.auth) : rawRequest;
 
       // Cancel any prior in-flight request from this hook instance. Builders

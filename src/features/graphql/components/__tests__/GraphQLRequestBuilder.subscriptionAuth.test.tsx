@@ -106,6 +106,33 @@ describe('GraphQLRequestBuilder — subscription auth', () => {
     expect(toastMocks.warning).not.toHaveBeenCalled();
   });
 
+  it('a Postman-guard-blocked subscription toasts the reason and never connects (#1232)', () => {
+    const request = subscriptionRequest({ type: 'none' });
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'col',
+          name: 'C',
+          items: [
+            { id: 'sub-req', name: 'Sub', type: 'request', request, _postman: { noauth: true } },
+          ],
+          auth: { type: 'bearer', bearer: { token: 'inherited-token' } },
+        } as unknown as Collection,
+      ],
+    });
+    toastMocks.error.mockReset();
+    openTab(request);
+    render(<GraphQLRequestBuilder />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Subscribe/ }));
+
+    expect(toastMocks.error).toHaveBeenCalledWith(
+      expect.stringMatching(/^not sent: Postman auth is "No Auth"/)
+    );
+    expect(subMocks.ctor).not.toHaveBeenCalled();
+    expect(subMocks.connect).not.toHaveBeenCalled();
+  });
+
   it('warns (web) when keychain auth cannot be applied, and shows the notice', () => {
     openTab(
       subscriptionRequest({ type: 'bearer', bearer: { token: { kind: 'handle', id: 'h' } } })
