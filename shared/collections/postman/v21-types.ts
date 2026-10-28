@@ -59,43 +59,6 @@ export type PostmanV21Version =
     }
   | string;
 /**
- * Using variables in your Postman requests eliminates the need to duplicate requests, which can save a lot of time. Variables can be defined, and referenced to from any part of a request.
- *
- * This interface was referenced by `Collection`'s JSON-Schema
- * via the `definition` "variable".
- */
-export type PostmanV21Variable = PostmanV21Variable1 & {
-  /**
-   * A variable ID is a unique user-defined value that identifies the variable within a collection. In traditional terms, this would be a variable name.
-   */
-  id?: string;
-  /**
-   * A variable key is a human friendly value that identifies the variable within a collection. In traditional terms, this would be a variable name.
-   */
-  key?: string;
-  /**
-   * The value that a variable holds in this collection. Ultimately, the variables will be replaced by this value, when say running a set of requests from a collection
-   */
-  value?: unknown;
-  /**
-   * A variable may have multiple types. This field specifies the type of the variable.
-   */
-  type?: "string" | "boolean" | "any" | "number";
-  /**
-   * Variable name
-   */
-  name?: string;
-  description?: PostmanV21Description;
-  /**
-   * When set to true, indicates that this variable has been set by Postman
-   */
-  system?: boolean;
-  disabled?: boolean;
-};
-export type PostmanV21Variable1 = {
-  [k: string]: unknown;
-};
-/**
  * Collection variables allow you to define a set of variables, that are a *part of the collection*, as opposed to environments, which are separate entities.
  * *Note: Collection variables must not contain any sensitive information.*
  *
@@ -333,6 +296,40 @@ export interface PostmanV21Item {
   request: PostmanV21Request;
   response?: PostmanV21Response[];
   protocolProfileBehavior?: PostmanV21ProtocolProfileBehavior;
+}
+/**
+ * Using variables in your Postman requests eliminates the need to duplicate requests, which can save a lot of time. Variables can be defined, and referenced to from any part of a request.
+ *
+ * This interface was referenced by `Collection`'s JSON-Schema
+ * via the `definition` "variable".
+ */
+export interface PostmanV21Variable {
+  /**
+   * A variable ID is a unique user-defined value that identifies the variable within a collection. In traditional terms, this would be a variable name.
+   */
+  id?: string;
+  /**
+   * A variable key is a human friendly value that identifies the variable within a collection. In traditional terms, this would be a variable name.
+   */
+  key?: string;
+  /**
+   * The value that a variable holds in this collection. Ultimately, the variables will be replaced by this value, when say running a set of requests from a collection
+   */
+  value?: unknown;
+  /**
+   * A variable may have multiple types. This field specifies the type of the variable.
+   */
+  type?: "string" | "boolean" | "any" | "number";
+  /**
+   * Variable name
+   */
+  name?: string;
+  description?: PostmanV21Description;
+  /**
+   * When set to true, indicates that this variable has been set by Postman
+   */
+  system?: boolean;
+  disabled?: boolean;
 }
 /**
  * Defines a script associated with an associated event name

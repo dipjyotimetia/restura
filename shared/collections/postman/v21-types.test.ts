@@ -45,6 +45,12 @@ describe('Postman v2.1 generated types', () => {
     expect([v.value, n.value]).toEqual(['https://x', 3]);
   });
 
+  it('variables stay strict: unknown keys are rejected', () => {
+    // @ts-expect-error not a v2.1 variable field
+    const bad: PostmanV21Variable = { key: 'k', initialValue: 'x' };
+    expect(bad.key).toBe('k');
+  });
+
   it('vendored schema pins required fields and auth enum', () => {
     expect(schema.required).toEqual(['info', 'item']);
     expect(schema.definitions.info?.required).toEqual(['name', 'schema']);

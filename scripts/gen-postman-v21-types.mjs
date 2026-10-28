@@ -63,6 +63,28 @@ const pinUntyped = (node) => {
   for (const v of Object.values(node)) pinUntyped(v);
 };
 pinUntyped(schema);
+// An `anyOf` whose branches only list `required` keys ("at least one of id /
+// key / name") compiles to a `{ [k: string]: unknown }` helper intersected into
+// the type, which re-opens it to ANY extra key and defeats the strict types.
+// The constraint is not expressible as a TS type anyway, so drop it here; the
+// v2.1 exporter always writes `key`.
+const dropRequiredOnlyAnyOf = (node) => {
+  if (Array.isArray(node)) {
+    for (const v of node) dropRequiredOnlyAnyOf(v);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  if (
+    Array.isArray(node.anyOf) &&
+    node.anyOf.every(
+      (b) => b && typeof b === 'object' && Object.keys(b).every((k) => k === 'required')
+    )
+  ) {
+    delete node.anyOf;
+  }
+  for (const v of Object.values(node)) dropRequiredOnlyAnyOf(v);
+};
+dropRequiredOnlyAnyOf(schema);
 // Name each top-level definition after its key: `item-group` -> `ItemGroup`.
 const pascal = (k) => k.replace(/(^|-)(\w)/g, (_, __, c) => c.toUpperCase());
 for (const [key, def] of Object.entries(schema.definitions ?? {})) def.title = pascal(key);
