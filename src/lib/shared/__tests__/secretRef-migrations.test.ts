@@ -218,3 +218,94 @@ describe('convertInlineSecretsToHandles — IPC failure degradation', () => {
     vi.doUnmock('../platform');
   });
 });
+
+describe('convertCollectionSecretsToHandles — Postman sidecar nested OAuth2 rows (#1233)', () => {
+  it('turns secret rows inside tokenRequestParams into handles and leaves no plaintext', async () => {
+    vi.resetModules();
+    let n = 0;
+    const store = vi.fn(async () => ({ ok: true as const, id: `h-${++n}` }));
+    vi.doMock('../platform', () => ({
+      isElectron: () => true,
+      getElectronAPI: () => ({ secrets: { store } }),
+    }));
+    const { convertCollectionSecretsToHandles } = await import('../secretRef-migrations');
+
+    const collection = {
+      id: 'c',
+      name: 'Col',
+      items: [
+        {
+          id: 'r',
+          type: 'request' as const,
+          name: 'Req',
+          request: { id: 'req', type: 'http', method: 'GET', url: 'https://x' },
+          _postman: {
+            auth: {
+              type: 'oauth2',
+              oauth2: [
+                {
+                  key: 'tokenRequestParams',
+                  value: [
+                    { key: 'client_assertion', value: 'ASSERT-PLAIN', send_as: 'request_body' },
+                    { key: 'audience', value: 'api://public', send_as: 'request_body' },
+                  ],
+                },
+                { key: 'code_verifier', value: 'VERIFIER-PLAIN' },
+              ],
+            },
+          },
+        },
+      ],
+    };
+    const out = await convertCollectionSecretsToHandles(collection as never);
+    const json = JSON.stringify(out);
+    expect(json).not.toContain('ASSERT-PLAIN');
+    expect(json).not.toContain('VERIFIER-PLAIN');
+    // Non-secret rows survive untouched.
+    expect(json).toContain('api://public');
+    const oauth2 = (
+      out.items[0] as unknown as {
+        _postman: { auth: { oauth2: { key: string; value: unknown }[] } };
+      }
+    )._postman.auth.oauth2;
+    const rows = oauth2.find((p) => p.key === 'tokenRequestParams')!.value as {
+      key: string;
+      value: unknown;
+    }[];
+    expect(rows[0]!.value).toMatchObject({
+      kind: 'handle',
+      label: expect.stringContaining('client_assertion'),
+    });
+    expect(rows[1]!.value).toBe('api://public');
+    vi.doUnmock('../platform');
+  });
+
+  it('blanks a secret row when the keychain store rejects (fail closed)', async () => {
+    vi.resetModules();
+    const store = vi.fn(async () => ({ ok: false as const, error: 'denied' }));
+    vi.doMock('../platform', () => ({
+      isElectron: () => true,
+      getElectronAPI: () => ({ secrets: { store } }),
+    }));
+    const { convertCollectionSecretsToHandles } = await import('../secretRef-migrations');
+    const collection = {
+      id: 'c',
+      name: 'Col',
+      items: [],
+      _postman: {
+        auth: {
+          type: 'oauth2',
+          oauth2: [
+            {
+              key: 'refreshRequestParams',
+              value: [{ key: 'client_secret', value: 'SEC-PLAIN' }],
+            },
+          ],
+        },
+      },
+    };
+    const out = await convertCollectionSecretsToHandles(collection as never);
+    expect(JSON.stringify(out)).not.toContain('SEC-PLAIN');
+    vi.doUnmock('../platform');
+  });
+});
