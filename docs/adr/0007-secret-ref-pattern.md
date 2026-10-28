@@ -134,3 +134,9 @@ the plaintext. The list lives in
 - Should there be a single "Secrets" panel in Settings that lists every
   handle, with a delete button? Probably yes (depends on the MCP-server
   Settings UI which is in flight).
+
+**Update 2026-10-28:** On desktop, importers convert inline secrets to
+handles. Since #1226, a request whose auth is identical to its nearest
+ancestor's reuses that ancestor's handle. Environment-file secrets (#1231)
+are not converted to handles: desktop keeps them as secret-flagged env vars
+and web drops them. Keychain handles for env vars remain a follow-up.

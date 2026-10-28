@@ -255,6 +255,8 @@ git commit -m "feat(cli): collection loader from file-collection-schema"
 
 `--env path/to/env.{json,yaml}` loads variables. Format compatible with Postman's environment export AND a simpler flat `{key: value}` object.
 
+> **Correction (2026-10-28):** As shipped, `envLoader` accepts only the flat `{key: value}` shape (string values only). Postman environment exports are not read.
+
 ```ts
 export async function loadEnv(filePath: string): Promise<Record<string, string>>;
 ```

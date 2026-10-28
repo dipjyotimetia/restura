@@ -10,7 +10,7 @@ An environment is a named set of variables. Pick one in the top-right selector a
 ## What you can put in a variable
 
 - **Plain strings** — `base_url`, `team_id`, `version`.
-- **Secrets** — `api_token`, `client_secret`. Marking an environment variable "secret" masks it in the UI and in collection exports, but the value is still stored as plaintext — environment variables don't use the `SecretRef` handle pattern. For values that need OS-keychain protection, store them on the request's Auth tab instead (see [Authentication](/guides/auth/)), where supported credential fields can be saved as a `SecretRef` handle.
+- **Secrets** — `api_token`, `client_secret`. Marking an environment variable "secret" masks it in the UI and in collection exports, but the value is still stored as plaintext — environment variables don't use the `SecretRef` handle pattern. Secret variables imported from Postman or Hoppscotch environment files keep their value on desktop, but on web and self-host the value is dropped and you re-enter it. For values that need OS-keychain protection, store them on the request's Auth tab instead (see [Authentication](/guides/auth/)), where supported credential fields can be saved as a `SecretRef` handle.
 - **Globals** — workspace-wide values shared by every request. Edit them under **Environments → Globals**, or from scripts with `pm.globals` / `rs.globals`. They're stored as plain values, so keep credentials in environment secrets.
 
 ## Variable resolution order
