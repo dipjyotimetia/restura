@@ -95,7 +95,7 @@ export function isPostmanAuthSecretKey(key: string): boolean {
  * `refreshRequestParams` / `authRequestParams`: `[{ key, value, send_as }]`)
  * holding a credential.
  */
-function isAuthSecretRow(row: unknown): boolean {
+export function isAuthSecretRow(row: unknown): boolean {
   if (!isObj(row) || !isCredentialValue(row.value)) return false;
   if (row.type === 'secret' || row.secret === true) return true;
   return typeof row.key === 'string' && isPostmanAuthSecretKey(row.key);

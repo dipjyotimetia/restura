@@ -3,7 +3,11 @@ import {
   mapPostmanAuthParams,
   postmanAuthParamEntries,
 } from '@shared/collections/postman/auth';
-import { isPostmanAuthSecretKey, redactPostmanBag } from '@shared/collections/postman/redaction';
+import {
+  isAuthSecretRow,
+  isPostmanAuthSecretKey,
+  redactPostmanBag,
+} from '@shared/collections/postman/redaction';
 import { getPostmanSidecar } from '@shared/collections/postman/sidecar';
 import type { AuthConfig, Collection, CollectionItem, Request } from '@/types';
 import { getElectronAPI, isElectron } from './platform';
@@ -281,9 +285,31 @@ async function postmanParamToHandle(
   value: unknown,
   label: string
 ): Promise<unknown> {
-  if (!isPostmanAuthSecretKey(key) || value === undefined || value === null || value === '') {
-    return value;
+  // Nested parameter rows (OAuth2 `tokenRequestParams` / `refreshRequestParams`
+  // / `authRequestParams`: `[{ key, value, send_as }]`) are judged row by row,
+  // never by the param's own key — the same predicate the export redactor uses
+  // (#1233). Non-secret rows are kept as they are.
+  if (Array.isArray(value)) {
+    return Promise.all(
+      value.map(async (row, i) => {
+        if (!isAuthSecretRow(row)) return row;
+        const r = row as { key?: unknown; value?: unknown };
+        const rowLabel = `${label}.${typeof r.key === 'string' ? r.key : i}`;
+        return { ...(row as object), value: await credentialToHandle(store, r.value, rowLabel) };
+      })
+    );
   }
+  if (!isPostmanAuthSecretKey(key)) return value;
+  return credentialToHandle(store, value, label);
+}
+
+/** One credential value → handle. FAILS CLOSED (blank) on any non-string or store failure. */
+async function credentialToHandle(
+  store: SecretsStore,
+  value: unknown,
+  label: string
+): Promise<unknown> {
+  if (value === undefined || value === null || value === '') return value;
   // A non-string credential (number, boolean, object) cannot become a handle
   // and must not persist in plaintext either: blank it.
   if (typeof value !== 'string') return '';
