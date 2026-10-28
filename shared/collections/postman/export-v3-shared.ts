@@ -1,3 +1,4 @@
+import { isConfiguredAuth } from '../../auth/inheritance';
 import { migrateScriptRsToPm } from '../../scripts/script-migrations';
 import type { SecretValue } from '../../secrets/secret-ref';
 import type { AuthConfig, KeyValue, ScopedVariable } from '../../types';
@@ -233,6 +234,19 @@ function credsOf(pairs: Array<[string, string | undefined]>): Cred[] {
 }
 
 /**
+ * Q28: the node's Postman auth was an explicit `noauth` (`_postman.noauth`,
+ * set at import) and the user has not configured an auth since. It must be
+ * exported as an explicit `noauth` — omitted means inherit, and Postman /
+ * Newman would sign it with an ancestor's credential.
+ */
+export function isExplicitNoauth(
+  auth: AuthConfig | undefined,
+  sidecar: PostmanSidecar | undefined
+): boolean {
+  return sidecar?.noauth === true && !isConfiguredAuth(auth);
+}
+
+/**
  * Restura `AuthConfig` → v3 `{ type, credentials }` (the inverse of
  * `convertPostmanAuth`), without sidecar data. `undefined` = not exportable.
  */
@@ -344,15 +358,34 @@ function typedAuthToV3(auth: AuthConfig, owner: string, ctx: ExportContext): Raw
   }
 }
 
+function isSecretRefValue(v: unknown): v is Exclude<SecretValue, string> {
+  return isObj(v) && (v.kind === 'handle' || v.kind === 'external' || v.kind === 'inline');
+}
+
+/**
+ * A sidecar credential value as file text. Handle conversion
+ * (`convertPostmanBagToHandles`) leaves `{ kind: 'handle', id, label }`
+ * objects in the bag; like typed fields they go through {@link secretText}
+ * (EMPTY + a `secret-handle` entry), so neither the keychain id nor the label
+ * (collection / request names) reaches a file.
+ */
+function bagValue(v: unknown, owner: string, ctx: ExportContext): unknown {
+  return isSecretRefValue(v) ? secretText(v, owner, ctx) : (v ?? '');
+}
+
 /** v2-shaped sidecar auth `{ type, [type]: [{ key, value }] }` → credential rows. */
-function sidecarCreds(raw: unknown): { type: string; creds: Cred[] } | undefined {
+function sidecarCreds(
+  raw: unknown,
+  owner: string,
+  ctx: ExportContext
+): { type: string; creds: Cred[] } | undefined {
   if (!isObj(raw) || typeof raw.type !== 'string') return undefined;
   const type = raw.type;
   const block = Object.prototype.hasOwnProperty.call(raw, type) ? raw[type] : undefined;
   const creds: Cred[] = Array.isArray(block)
-    ? block.filter(isObj).map((c) => ({ key: str(c.key), value: c.value ?? '' }))
+    ? block.filter(isObj).map((c) => ({ key: str(c.key), value: bagValue(c.value, owner, ctx) }))
     : isObj(block)
-      ? Object.entries(block).map(([key, value]) => ({ key, value: value ?? '' }))
+      ? Object.entries(block).map(([key, value]) => ({ key, value: bagValue(value, owner, ctx) }))
       : [];
   return { type, creds };
 }
@@ -373,7 +406,7 @@ export function exportAuth(
   owner: string,
   ctx: ExportContext
 ): Raw | undefined {
-  const bag = sidecar?.authBagOnly ? undefined : sidecarCreds(sidecar?.auth);
+  const bag = sidecar?.authBagOnly ? undefined : sidecarCreds(sidecar?.auth, owner, ctx);
   let set: Raw | undefined;
   if (auth.type === 'none' && bag && bag.type !== 'noauth' && bag.type !== '') {
     set = { type: bag.type, credentials: bag.creds };
@@ -396,14 +429,18 @@ export function exportAuth(
 /** Bag-only auth (broker presets, placeholder items) → v3 credential set. */
 export function restoreBagOnlyAuth(
   sidecar: PostmanSidecar | undefined,
-  allowed: ReadonlySet<string>
+  allowed: ReadonlySet<string>,
+  owner: string,
+  ctx: ExportContext
 ): Raw | undefined {
   if (!sidecar?.authBagOnly) return undefined;
-  const bag = sidecarCreds(sidecar.auth);
-  if (!bag || bag.type === '') return undefined;
-  if (bag.type === 'noauth') return { type: 'noauth' };
-  if (!allowed.has(bag.type)) return undefined;
-  return { type: bag.type, credentials: bag.creds };
+  const type = isObj(sidecar.auth) ? sidecar.auth.type : undefined;
+  if (typeof type !== 'string' || type === '') return undefined;
+  if (type === 'noauth') return { type: 'noauth' };
+  // Checked before reading credentials: a dropped set must not report its handles.
+  if (!allowed.has(type)) return undefined;
+  const bag = sidecarCreds(sidecar.auth, owner, ctx);
+  return bag && { type: bag.type, credentials: bag.creds };
 }
 
 const CREDENTIAL_TYPES = [

@@ -14,6 +14,7 @@ import {
   exportAuth,
   exportScripts,
   exportVariables,
+  isExplicitNoauth,
   restoreBagOnlyAuth,
 } from './export-v3-shared';
 import { getPostmanSidecar, type PostmanSidecar } from './sidecar';
@@ -59,7 +60,11 @@ export interface PostmanV3Export {
 }
 
 /** Placeholder folder created at import for a v3 item kind Restura cannot model. */
-function placeholderItem(item: CollectionItem, sidecar: PostmanSidecar | undefined): Raw | null {
+function placeholderItem(
+  item: CollectionItem,
+  sidecar: PostmanSidecar | undefined,
+  ctx: ExportContext
+): Raw | null {
   if (item.type !== 'folder' || (item.items?.length ?? 0) > 0) return null;
   const raw = sidecar?.item;
   if (!isObj(raw) || typeof raw.$kind !== 'string' || raw.$kind === 'collection') return null;
@@ -72,7 +77,9 @@ function placeholderItem(item: CollectionItem, sidecar: PostmanSidecar | undefin
         : raw.$kind === 'mcp-request'
           ? AUTH_TYPES.mcp
           : undefined;
-  const auth = allowed ? restoreBagOnlyAuth(sidecar, allowed) : undefined;
+  const auth = allowed
+    ? restoreBagOnlyAuth(sidecar, allowed, item.name || 'Untitled', ctx)
+    : undefined;
   if (raw.$kind === 'mcp-request') return defined({ ...stdioPlaceholder(rest), auth });
   return defined({ ...rest, auth });
 }
@@ -130,6 +137,7 @@ function containerAuth(
   ctx: ExportContext,
   emitNone: boolean
 ): Raw | undefined {
+  if (isExplicitNoauth(auth, sidecar)) return { type: 'noauth' };
   const bagAuth = sidecar?.auth !== undefined && !sidecar.authBagOnly;
   if (!bagAuth && !isConfiguredAuth(auth) && !(emitNone && auth)) return undefined;
   return exportAuth(auth ?? { type: 'none' }, sidecar, AUTH_TYPES.collection, owner, ctx);
@@ -147,6 +155,8 @@ function authForChildren(
   inherited: AuthConfig | undefined
 ): AuthConfig | undefined {
   if (hasUnsupportedPostmanAuth(node)) return { type: 'none' };
+  // An explicit-noauth container: its inheriting children inherit that noauth.
+  if (isExplicitNoauth(node.auth, getPostmanSidecar(node))) return { type: 'none' };
   return isConfiguredAuth(node.auth) ? node.auth : inherited;
 }
 
@@ -156,7 +166,7 @@ function exportItem(
   ctx: ExportContext
 ): Raw | null {
   const sidecar = getPostmanSidecar(item);
-  const placeholder = placeholderItem(item, sidecar);
+  const placeholder = placeholderItem(item, sidecar, ctx);
   if (placeholder) return placeholder;
   if (item.type === 'request') return exportRequest(item, inherited, sidecar, ctx);
   const name = item.name || 'Untitled';

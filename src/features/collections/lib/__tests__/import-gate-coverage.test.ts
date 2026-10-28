@@ -1,5 +1,5 @@
+import type { PostmanV21Collection } from '@shared/collections/postman';
 import { describe, expect, it } from 'vitest';
-import type { PostmanCollection } from '@/types';
 import { importHoppscotchCollection } from '../importers/hoppscotch';
 import { importInsomniaCollection } from '../importers/insomnia';
 import { importOpenAPICollection } from '../importers/openapi';
@@ -17,7 +17,7 @@ import { validateImportedCollection } from '../importers/validateImported';
 
 describe('import gate coverage — extension methods survive, denied methods do not sink the import', () => {
   it('Postman: PURGE is preserved verbatim; gate passes', async () => {
-    const postman: PostmanCollection = {
+    const postman: PostmanV21Collection = {
       info: {
         name: 'Varnish Tools',
         schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
@@ -115,7 +115,7 @@ describe('import gate coverage — extension methods survive, denied methods do 
 
 describe('import gate coverage — representative clean fixtures pass', () => {
   it('Postman with folders, auth, scripts, bodies, params passes the gate', async () => {
-    const postman: PostmanCollection = {
+    const postman: PostmanV21Collection = {
       info: {
         name: 'Full-shape',
         schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',

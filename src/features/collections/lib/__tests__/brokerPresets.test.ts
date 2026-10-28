@@ -20,7 +20,7 @@ import {
   reapBrokerPresetSecretsForItem,
   snapshotBrokerTab,
 } from '../brokerPresets';
-import { exportToInsomnia, exportToPostman, getCollectionExportWarnings } from '../exporters';
+import { exportToInsomnia, exportToPostmanV21, getCollectionExportWarnings } from '../exporters';
 import { skippedBrokerPresets } from '../flattenRunnables';
 import { duplicateCollection, duplicateRequestItem } from '../itemFactory';
 import { openCollectionItem } from '../openCollectionItem';
@@ -291,15 +291,16 @@ describe('opening and saving Kafka / MQTT presets (#984)', () => {
 describe('non-OpenCollection exports of Kafka / MQTT presets (#984)', () => {
   const collection = { id: 'c', name: 'Brokers', items: [item(KAFKA), item(MQTT)] };
 
-  it('emits clearly-marked Postman / Insomnia stubs and warns', () => {
-    const postman = exportToPostman(collection);
-    expect(postman.item.map((i) => i.name)).toEqual([
-      'Orders [KAFKA — not supported in Postman]',
-      'Sensors [MQTT — not supported in Postman]',
+  it('skips them in Postman v2.1 (reported), emits Insomnia stubs and warns', () => {
+    const postman = exportToPostmanV21(collection);
+    expect(postman.collection.item).toEqual([]);
+    expect(postman.report.entries.map((e) => [e.construct, e.itemName, e.kind])).toEqual([
+      ['non-http-request', 'Orders', 'dropped'],
+      ['non-http-request', 'Sensors', 'dropped'],
     ]);
     const insomnia = exportToInsomnia(collection);
     expect(JSON.stringify(insomnia)).toContain('Orders [KAFKA — not supported in Insomnia]');
-    expect(getCollectionExportWarnings(collection, 'postman')).toEqual(
+    expect(getCollectionExportWarnings(collection, 'insomnia')).toEqual(
       expect.arrayContaining([
         'KAFKA requests are exported as non-runnable stubs',
         'MQTT requests are exported as non-runnable stubs',

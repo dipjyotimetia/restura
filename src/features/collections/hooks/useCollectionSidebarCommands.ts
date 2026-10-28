@@ -6,7 +6,6 @@ import {
   downloadText,
   exportToInsomnia,
   exportToOpenCollection,
-  exportToPostman,
   getCollectionExportWarnings,
 } from '@/features/collections/lib/exporters';
 import { loadContractSpec } from '@/features/contracts/lib/specLoader';
@@ -31,7 +30,7 @@ import { copyBrokerPresetSecrets, DUPLICATE_CREDENTIALS_FAILED } from '../lib/br
 import { duplicateCollection } from '../lib/itemFactory';
 import { buildMockRoutes, buildMockRoutesFromSpec, mergeMockRoutes } from '../lib/mockRoutes';
 import { isNameTaken, siblingNamesOfItem, uniqueName } from '../lib/names';
-import { savePostmanV3Export } from '../lib/postmanV3Export';
+import { savePostmanV3Export, savePostmanV21Export } from '../lib/postmanV3Export';
 
 export interface ExportPrompt {
   collection: Collection;
@@ -130,15 +129,16 @@ export function useCollectionSidebarCommands() {
 
   const performExport = useCallback(
     async (collection: Collection, format: ExportFormat) => {
-      if (format === 'postman' || format === 'insomnia' || format === 'opencollection') {
+      // Postman v2.1 / v3 show the structured export report instead.
+      if (format === 'insomnia' || format === 'opencollection') {
         const warnings = getCollectionExportWarnings(collection, format);
         if (warnings.length > 0)
           toast.warning(
             `${warnings[0]}${warnings.length > 1 ? ` (+${warnings.length - 1} more)` : ''}`
           );
       }
-      if (format === 'postman') {
-        downloadJSON(exportToPostman(collection), `${collection.name}.postman_collection.json`);
+      if (format === 'postman-v21') {
+        if (!savePostmanV21Export(collection)) return;
       } else if (format === 'postman-v3') {
         if (!(await savePostmanV3Export(collection))) return;
       } else if (format === 'insomnia') {

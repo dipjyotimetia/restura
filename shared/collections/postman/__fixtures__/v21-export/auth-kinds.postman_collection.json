@@ -1,0 +1,160 @@
+{
+  "info": {
+    "name": "Auth kinds",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Basic",
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.com/basic",
+        "auth": {
+          "type": "basic",
+          "basic": [{ "key": "username", "value": "ada" }, { "key": "password", "value": "pw" }]
+        }
+      }
+    },
+    {
+      "name": "Bearer",
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.com/bearer",
+        "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "tok" }] }
+      }
+    },
+    {
+      "name": "ApiKey",
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.com/apikey",
+        "auth": {
+          "type": "apikey",
+          "apikey": [
+            { "key": "key", "value": "X-Key" },
+            { "key": "value", "value": "k" },
+            { "key": "in", "value": "query" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Digest",
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.com/digest",
+        "auth": {
+          "type": "digest",
+          "digest": [{ "key": "username", "value": "dg" }, { "key": "password", "value": "dpw" }]
+        }
+      }
+    },
+    {
+      "name": "NTLM",
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.com/ntlm",
+        "auth": {
+          "type": "ntlm",
+          "ntlm": [
+            { "key": "username", "value": "nu" },
+            { "key": "password", "value": "npw" },
+            { "key": "domain", "value": "CORP" },
+            { "key": "workstation", "value": "WS1" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "OAuth1",
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.com/oauth1",
+        "auth": {
+          "type": "oauth1",
+          "oauth1": [
+            { "key": "consumerKey", "value": "ck" },
+            { "key": "consumerSecret", "value": "cs" },
+            { "key": "token", "value": "t" },
+            { "key": "tokenSecret", "value": "ts" },
+            { "key": "signatureMethod", "value": "HMAC-SHA256" },
+            { "key": "realm", "value": "r" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "OAuth1 RSA",
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.com/oauth1rsa",
+        "auth": {
+          "type": "oauth1",
+          "oauth1": [
+            { "key": "consumerKey", "value": "ck" },
+            { "key": "signatureMethod", "value": "RSA-SHA1" },
+            { "key": "addParamsToHeader", "value": "false" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "OAuth2",
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.com/oauth2",
+        "auth": {
+          "type": "oauth2",
+          "oauth2": [
+            { "key": "accessToken", "value": "at" },
+            { "key": "grant_type", "value": "client_credentials" },
+            { "key": "clientId", "value": "cid" },
+            { "key": "clientSecret", "value": "csec" },
+            { "key": "accessTokenUrl", "value": "https://x.example.com/token" },
+            { "key": "scope", "value": "read" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "OAuth2 PKCE",
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.com/pkce",
+        "auth": {
+          "type": "oauth2",
+          "oauth2": [
+            { "key": "grant_type", "value": "authorization_code_with_pkce" },
+            { "key": "challengeAlgorithm", "value": "S256" },
+            { "key": "authUrl", "value": "https://x.example.com/auth" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "AWS",
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.com/aws",
+        "auth": {
+          "type": "awsv4",
+          "awsv4": [
+            { "key": "accessKey", "value": "AK" },
+            { "key": "secretKey", "value": "SK" },
+            { "key": "region", "value": "eu-west-1" },
+            { "key": "service", "value": "s3" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "No auth",
+      "request": {
+        "method": "GET",
+        "url": "https://x.example.com/none",
+        "auth": { "type": "noauth" }
+      }
+    },
+    { "name": "Inherit", "request": { "method": "GET", "url": "https://x.example.com/inherit" } }
+  ]
+}

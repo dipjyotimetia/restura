@@ -41,10 +41,11 @@ import {
   type TreeState,
 } from './CollectionTree';
 import { CollectionWorkspaceActions } from './CollectionWorkspaceActions';
+import { EXPORT_MENU_ITEMS, type ExportFormat } from './exportMenuItems';
 import { FileStatusBadge } from './FileStatusBadge';
 import { SidebarEmptyState } from './SidebarEmptyState';
 
-export type ExportFormat = 'postman' | 'postman-v3' | 'insomnia' | 'opencollection' | 'bruno';
+export type { ExportFormat } from './exportMenuItems';
 
 interface SidebarCollectionsPanelProps {
   collections: Collection[];
@@ -396,33 +397,15 @@ function CollectionMenu({
             Export
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
-            <DropdownMenuItem
-              onClick={() => onExport(collection.id, 'postman')}
-              className="text-xs"
-            >
-              Postman v2.1 (single file)
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onExport(collection.id, 'postman-v3')}
-              className="text-xs"
-            >
-              Postman v3 (folder / zip)
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onExport(collection.id, 'insomnia')}
-              className="text-xs"
-            >
-              Insomnia Collection
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onExport(collection.id, 'opencollection')}
-              className="text-xs"
-            >
-              OpenCollection (YAML)
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onExport(collection.id, 'bruno')} className="text-xs">
-              Bruno (.bru archive)
-            </DropdownMenuItem>
+            {EXPORT_MENU_ITEMS.map(({ format, label }) => (
+              <DropdownMenuItem
+                key={format}
+                onClick={() => onExport(collection.id, format)}
+                className="text-xs"
+              >
+                {label}
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         {isElectron && (

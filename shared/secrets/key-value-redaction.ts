@@ -10,10 +10,11 @@
  * A row is treated as secret when it is explicitly flagged `secret`, or when
  * its key name matches a credential pattern. Redaction blanks the value and
  * keeps the row so the export still round-trips the request shape — the
- * recipient re-enters the credential. Secret material in the *request body*
- * (e.g. `{"api_key":"…"}`) is intentionally out of scope here: auto-rewriting
- * arbitrary bodies risks corrupting them; that residual is documented in the
- * export flow.
+ * recipient re-enters the credential. The same rule applies to the text rows
+ * of a structured urlencoded / form-data body (`collection-redaction.ts`,
+ * Q29). Secret material inside a free-form *request body* (e.g. a JSON
+ * `{"api_key":"…"}`) is intentionally out of scope: auto-rewriting arbitrary
+ * bodies risks corrupting them; that residual is documented in the export flow.
  *
  * Imports only a flat string list from `@shared` (resolves under both the
  * renderer and the Electron main tsconfigs), so it stays portable across both.
