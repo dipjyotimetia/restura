@@ -1,5 +1,7 @@
 export type {
   BrunoSource,
+  EnvironmentImportOptions,
+  EnvironmentImportResult,
   HarEnvironmentCandidate,
   HarImportPreview,
   HarPreviewEntry,
@@ -15,6 +17,7 @@ export {
   importCurlCommand,
   importHoppscotchCollection,
   importHoppscotchEnvironment,
+  importHoppscotchEnvironmentDetailed,
   importHttpFile,
   importInsomniaCollection,
   importOpenAPICollection,
@@ -22,6 +25,7 @@ export {
   importOpenCollectionDetailed,
   importPostmanCollection,
   importPostmanEnvironment,
+  importPostmanEnvironmentDetailed,
   isHoppscotchCollection,
   isHoppscotchEnvironment,
   isPostmanEnvironment,
