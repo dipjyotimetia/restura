@@ -30,6 +30,61 @@ const stripTitles = (node) => {
   }
 };
 stripTitles(schema);
+// Description-only property schemas (no `type`, `$ref`, combinator, enum or
+// shape) accept ANY JSON value in the schema — e.g. `variable.value`,
+// `certificate.{key,cert}.src`, `description.version`. json-schema-to-typescript
+// compiles them to `{ [k: string]: unknown }`, which rejects strings and
+// numbers, so pin them to `unknown`. Only property schemas are touched (never
+// a `properties` map itself).
+const TYPE_KEYS = [
+  'type',
+  '$ref',
+  'oneOf',
+  'anyOf',
+  'allOf',
+  'enum',
+  'const',
+  'properties',
+  'items',
+];
+const pinUntyped = (node) => {
+  if (Array.isArray(node)) {
+    for (const v of node) pinUntyped(v);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  if (node.properties && typeof node.properties === 'object') {
+    for (const prop of Object.values(node.properties)) {
+      if (prop && typeof prop === 'object' && !TYPE_KEYS.some((k) => k in prop)) {
+        prop.tsType = 'unknown';
+      }
+    }
+  }
+  for (const v of Object.values(node)) pinUntyped(v);
+};
+pinUntyped(schema);
+// An `anyOf` whose branches only list `required` keys ("at least one of id /
+// key / name") compiles to a `{ [k: string]: unknown }` helper intersected into
+// the type, which re-opens it to ANY extra key and defeats the strict types.
+// The constraint is not expressible as a TS type anyway, so drop it here; the
+// v2.1 exporter always writes `key`.
+const dropRequiredOnlyAnyOf = (node) => {
+  if (Array.isArray(node)) {
+    for (const v of node) dropRequiredOnlyAnyOf(v);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  if (
+    Array.isArray(node.anyOf) &&
+    node.anyOf.every(
+      (b) => b && typeof b === 'object' && Object.keys(b).every((k) => k === 'required')
+    )
+  ) {
+    delete node.anyOf;
+  }
+  for (const v of Object.values(node)) dropRequiredOnlyAnyOf(v);
+};
+dropRequiredOnlyAnyOf(schema);
 // Name each top-level definition after its key: `item-group` -> `ItemGroup`.
 const pascal = (k) => k.replace(/(^|-)(\w)/g, (_, __, c) => c.toUpperCase());
 for (const [key, def] of Object.entries(schema.definitions ?? {})) def.title = pascal(key);
