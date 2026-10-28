@@ -337,3 +337,44 @@ export function socketIoEntryToInternal(entry: Obj): SocketIoRequest {
   if (typeof i.description === 'string' && i.description) req.description = i.description;
   return req;
 }
+
+// ---------------------------------------------------------------------------
+// Back-compat: pre-#1209 `x-restura-socketio` in a persisted root `_oc` bag
+// ---------------------------------------------------------------------------
+
+function folderItemsByPath(items: CollectionItem[], folderPath: unknown): CollectionItem[] | null {
+  if (!Array.isArray(folderPath) || folderPath.length === 0) return null;
+  let level = items;
+  for (const segment of folderPath) {
+    const next = level.find((it) => it.type === 'folder' && it.name === segment);
+    if (!next) return null;
+    next.items ??= [];
+    level = next.items;
+  }
+  return level;
+}
+
+/**
+ * Before #1209 `x-restura-socketio` was an opaque pass-through: an imported
+ * collection kept its entries ONLY in the root `_oc` bag. The extension is
+ * now Restura-managed (rebuilt from the live tree on export), so those
+ * entries would vanish on the next export. Materialise them as native
+ * Socket.IO items (placed by `folderPath`, else at the root) and drop the
+ * list from the cached root. Returns `collection` unchanged when there is
+ * nothing to do; never mutates its input.
+ */
+export function materializeLegacySocketIo<T extends { items: CollectionItem[] }>(collection: T): T {
+  const oc = (collection as { _oc?: unknown })._oc;
+  const ext = obj(obj(oc).extensions);
+  const list = ext[SOCKETIO_EXTENSION_KEY];
+  if (!Array.isArray(list)) return collection;
+  const items = JSON.parse(JSON.stringify(collection.items ?? [])) as CollectionItem[];
+  for (const raw of list) {
+    const entry = obj(raw);
+    const request = socketIoEntryToInternal(entry);
+    const target = folderItemsByPath(items, entry.folderPath) ?? items;
+    target.push({ id: uuid(), name: request.name, type: 'request', request });
+  }
+  const { [SOCKETIO_EXTENSION_KEY]: _drop, ...rest } = ext;
+  return { ...collection, items, _oc: { ...obj(oc), extensions: rest } };
+}

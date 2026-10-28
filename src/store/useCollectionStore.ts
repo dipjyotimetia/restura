@@ -6,6 +6,7 @@ import {
 import { postmanGuardMarkers } from '@shared/collections/postman/auth-guard';
 import { upgradeStreamPlaceholders } from '@shared/collections/postman/parse-v3-streaming';
 import { attachPostmanSidecar, clearPostmanSidecar } from '@shared/collections/postman/sidecar';
+import { materializeLegacySocketIo } from '@shared/opencollection/stream-items';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -34,6 +35,17 @@ function migrateCollectionAuth(collection: Collection): Collection {
 function upgradeCollectionPlaceholders(collection: Collection): Collection {
   const items = upgradeStreamPlaceholders(collection.items ?? []);
   return items === collection.items ? collection : { ...collection, items };
+}
+
+/**
+ * v3 → v4 (#1209): Postman placeholder folders become native items, and
+ * Socket.IO entries an older OpenCollection import kept only in the cached
+ * root `_oc` (then an opaque pass-through) become native Socket.IO items —
+ * the extension is now rebuilt from the live tree, so they would otherwise
+ * be dropped on the next export.
+ */
+export function migrateCollectionToV4(collection: Collection): Collection {
+  return materializeLegacySocketIo(upgradeCollectionPlaceholders(collection));
 }
 
 function migrateItemAuth(item: CollectionItem): CollectionItem {
@@ -541,7 +553,7 @@ export const useCollectionStore = create<CollectionState>()(
           };
         }
         if (state && version < 4 && Array.isArray(state.collections)) {
-          state = { ...state, collections: state.collections.map(upgradeCollectionPlaceholders) };
+          state = { ...state, collections: state.collections.map(migrateCollectionToV4) };
         }
         return state as CollectionState;
       },

@@ -944,5 +944,53 @@ extensions:
       const opts = useCollectionStore.persist.getOptions();
       expect(() => (opts.migrate as (s: unknown, v: number) => unknown)({}, 3)).not.toThrow();
     });
+
+    it('v3 → v4 materialises legacy x-restura-socketio entries kept only in the root _oc (#1209)', async () => {
+      const { internalToOC } = await import('@shared/opencollection/from-internal');
+      const opts = useCollectionStore.persist.getOptions();
+      const legacy = {
+        id: 'c',
+        name: 'Legacy',
+        items: [{ id: 'f', name: 'Live', type: 'folder', items: [] }],
+        _oc: {
+          opencollection: '1.0.0',
+          info: { name: 'Legacy' },
+          items: [{ info: { name: 'Live' }, items: [] }],
+          extensions: {
+            'x-other': { keep: true },
+            'x-restura-socketio': [
+              {
+                info: { type: 'socketio', name: 'Chat Room' },
+                folderPath: ['Live'],
+                socketio: { url: 'https://chat', namespace: '/chat', auth: { token: '{{t}}' } },
+              },
+              { info: { type: 'socketio', name: 'Root' }, socketio: { url: 'https://r' } },
+            ],
+          },
+        },
+      };
+      const result = (opts.migrate as (s: unknown, v: number) => unknown)(
+        { collections: [legacy] },
+        3
+      ) as { collections: Array<Collection & { _oc?: { extensions?: object } }> };
+      const col = result.collections[0]!;
+      expect(col.items.map((i) => i.name)).toEqual(['Live', 'Root']);
+      expect(col.items[0]!.items![0]).toMatchObject({
+        name: 'Chat Room',
+        request: { type: 'socketio', url: 'https://chat', namespace: '/chat' },
+      });
+      expect(col._oc?.extensions).toEqual({ 'x-other': { keep: true } });
+      // The next export carries both entries (previously silently dropped).
+      const out = internalToOC(col) as { extensions: Record<string, unknown[]> };
+      expect(out.extensions['x-restura-socketio']).toHaveLength(2);
+      expect(out.extensions['x-other']).toEqual({ keep: true });
+      // A collection without the legacy list is untouched (same reference).
+      const fresh = { id: 'n', name: 'N', items: [] };
+      const again = (opts.migrate as (s: unknown, v: number) => unknown)(
+        { collections: [fresh] },
+        3
+      ) as { collections: unknown[] };
+      expect(again.collections[0]).toBe(fresh);
+    });
   });
 });
