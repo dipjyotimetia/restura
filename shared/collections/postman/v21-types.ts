@@ -27,9 +27,7 @@ export type PostmanV21Description =
       /**
        * Description can have versions associated with it, which should be put in this property.
        */
-      version?: {
-        [k: string]: unknown;
-      };
+      version?: unknown;
     }
   | string
   | null;
@@ -78,9 +76,7 @@ export type PostmanV21Variable = PostmanV21Variable1 & {
   /**
    * The value that a variable holds in this collection. Ultimately, the variables will be replaced by this value, when say running a set of requests from a collection
    */
-  value?: {
-    [k: string]: unknown;
-  };
+  value?: unknown;
   /**
    * A variable may have multiple types. This field specifies the type of the variable.
    */
@@ -495,9 +491,7 @@ export interface PostmanV21Certificate {
     /**
      * The path to file containing key for certificate, on the file system
      */
-    src?: {
-      [k: string]: unknown;
-    };
+    src?: unknown;
   };
   /**
    * An object containing path to file certificate, on the file system
@@ -506,9 +500,7 @@ export interface PostmanV21Certificate {
     /**
      * The path to file containing key for certificate, on the file system
      */
-    src?: {
-      [k: string]: unknown;
-    };
+    src?: unknown;
   };
   /**
    * The passphrase for the certificate

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import type { HttpRequest } from '@/types';
 import { type LoadProgress, type LoadTestOptions, runLoadTest } from '../lib/loadTestRunner';
 
@@ -47,10 +48,15 @@ export function useLoadTest() {
         }
       },
       ac.signal
-    ).finally(() => {
-      if (abortRef.current === ac) abortRef.current = null;
-      if (isCurrent()) setRunning(false);
-    });
+    )
+      .catch((error: unknown) => {
+        // e.g. a Postman-guard-blocked request (#1232): show why nothing ran.
+        if (isCurrent()) toast.error(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (abortRef.current === ac) abortRef.current = null;
+        if (isCurrent()) setRunning(false);
+      });
   }, []);
 
   const stop = useCallback(() => {

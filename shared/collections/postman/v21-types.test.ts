@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { PostmanV21Auth, PostmanV21Collection, PostmanV21Item } from './v21-types';
+import type {
+  PostmanV21Auth,
+  PostmanV21Collection,
+  PostmanV21Item,
+  PostmanV21Variable,
+} from './v21-types';
 
 interface SchemaNode {
   required?: string[];
@@ -32,6 +37,12 @@ describe('Postman v2.1 generated types', () => {
     // @ts-expect-error jwt is off-schema
     const bad: PostmanV21Auth = { type: 'jwt' };
     expect([auth.type, bad.type]).toEqual(['bearer', 'jwt']);
+  });
+
+  it('description-only schema properties accept any JSON value (string variable values)', () => {
+    const v: PostmanV21Variable = { key: 'baseUrl', value: 'https://x' };
+    const n: PostmanV21Variable = { key: 'retries', value: 3, type: 'number' };
+    expect([v.value, n.value]).toEqual(['https://x', 3]);
   });
 
   it('vendored schema pins required fields and auth enum', () => {

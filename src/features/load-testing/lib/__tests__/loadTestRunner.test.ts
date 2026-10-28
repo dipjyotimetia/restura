@@ -53,6 +53,23 @@ beforeEach(() => {
 });
 
 describe('runLoadTest', () => {
+  it('refuses a Postman-guard-blocked request before any iteration (#1232)', async () => {
+    mockInherit.mockImplementation(() => {
+      throw new Error('not sent: Postman auth is "No Auth"');
+    });
+    const onProgress = vi.fn();
+    await expect(
+      runLoadTest(
+        req(),
+        { iterations: 5, concurrency: 2 },
+        onProgress,
+        new AbortController().signal
+      )
+    ).rejects.toThrow(/not sent: Postman auth/);
+    expect(mockExec).not.toHaveBeenCalled();
+    expect(onProgress).not.toHaveBeenCalled();
+  });
+
   it('fires exactly `iterations` requests and reports completion', async () => {
     const onProgress = vi.fn();
     const final = await runLoadTest(

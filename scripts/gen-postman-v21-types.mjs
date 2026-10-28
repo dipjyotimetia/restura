@@ -30,6 +30,39 @@ const stripTitles = (node) => {
   }
 };
 stripTitles(schema);
+// Description-only property schemas (no `type`, `$ref`, combinator, enum or
+// shape) accept ANY JSON value in the schema — e.g. `variable.value`,
+// `certificate.{key,cert}.src`, `description.version`. json-schema-to-typescript
+// compiles them to `{ [k: string]: unknown }`, which rejects strings and
+// numbers, so pin them to `unknown`. Only property schemas are touched (never
+// a `properties` map itself).
+const TYPE_KEYS = [
+  'type',
+  '$ref',
+  'oneOf',
+  'anyOf',
+  'allOf',
+  'enum',
+  'const',
+  'properties',
+  'items',
+];
+const pinUntyped = (node) => {
+  if (Array.isArray(node)) {
+    for (const v of node) pinUntyped(v);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  if (node.properties && typeof node.properties === 'object') {
+    for (const prop of Object.values(node.properties)) {
+      if (prop && typeof prop === 'object' && !TYPE_KEYS.some((k) => k in prop)) {
+        prop.tsType = 'unknown';
+      }
+    }
+  }
+  for (const v of Object.values(node)) pinUntyped(v);
+};
+pinUntyped(schema);
 // Name each top-level definition after its key: `item-group` -> `ItemGroup`.
 const pascal = (k) => k.replace(/(^|-)(\w)/g, (_, __, c) => c.toUpperCase());
 for (const [key, def] of Object.entries(schema.definitions ?? {})) def.title = pascal(key);

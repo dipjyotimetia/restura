@@ -41,7 +41,7 @@ function buildExecutorOptions(request: HttpRequest) {
   // inheritance itself; without this, a load test of a request that inherits
   // ancestor auth would fire every iteration unauthenticated (mismatching a
   // real send, which this runner's contract promises to match).
-  // Refuses a Postman-guard-blocked request (#1232) before any iteration.
+  // Throws for a Postman-guard-blocked request (#1232); see runLoadTest.
   const inherited = resolveInheritedAuthForSend(request);
   const effectiveRequest = withEffectiveAuth(request, inherited?.auth);
   const envStore = useEnvironmentStore.getState();
@@ -66,6 +66,9 @@ export async function runLoadTest(
   onProgress: (progress: LoadProgress) => void,
   signal: AbortSignal
 ): Promise<LoadProgress> {
+  // Fail fast: a Postman-guard-blocked request (#1232) throws here, before any
+  // iteration, instead of being swallowed per-iteration as status-0 samples.
+  buildExecutorOptions(request);
   const samples: LoadSample[] = [];
   const total = Math.max(1, options.iterations);
   const concurrency = Math.max(1, options.concurrency);
