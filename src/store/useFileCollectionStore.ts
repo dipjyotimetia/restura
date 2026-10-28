@@ -362,7 +362,8 @@ function reconcileRequestIds(
   incoming.id = existing.id;
   const oldRecord = existing as unknown as Record<string, unknown>;
   const newRecord = incoming as unknown as Record<string, unknown>;
-  for (const key of ['headers', 'params', 'metadata']) {
+  // `query` / `handshakeAuth`: Socket.IO collection items (#1209).
+  for (const key of ['headers', 'params', 'metadata', 'query', 'handshakeAuth']) {
     newRecord[key] = reconcileKeyValues(
       oldRecord[key] as KeyValue[] | undefined,
       newRecord[key] as KeyValue[] | undefined

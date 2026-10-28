@@ -189,15 +189,38 @@ const graphqlRequest = z.object({
   }),
 });
 
+const websocketMessage = z.object({ type: z.string(), data: z.string() });
+
+// Every spec WebSocketRequest field Restura reads or must keep in the verbatim
+// `_oc` bag (#1209): a bare schema stripped messages, auth and docs on parse.
 const websocketRequest = z.object({
   info: z.object({
     type: z.literal('websocket'),
     name: z.string().min(1),
+    description: description.optional(),
+    seq: z.number().optional(),
+    tags: z.array(z.string()).optional(),
   }),
   websocket: z.object({
     url: z.string(),
     headers: z.array(httpHeader).optional(),
+    message: z
+      .union([
+        websocketMessage,
+        z.array(
+          z.object({
+            title: z.string(),
+            selected: z.boolean().optional(),
+            message: websocketMessage,
+          })
+        ),
+      ])
+      .optional(),
+    auth: auth.optional(),
   }),
+  runtime: z.object({}).passthrough().optional(),
+  settings: z.object({}).passthrough().optional(),
+  docs: z.string().optional(),
 });
 
 const folder: z.ZodType<unknown> = z.lazy(() =>

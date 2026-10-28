@@ -57,9 +57,9 @@ describe('OpenCollection root-level structural staleness — removal', () => {
     expect(itemNames(out)).not.toContain('List Users');
   });
 
-  it('removing the root websocket placeholder folder does not resurrect it', async () => {
+  it('removing the root websocket item does not resurrect it', async () => {
     const internal = await loadInternal('multi-protocol.yaml');
-    const out: any = internalToOC(removeRootByName(internal, 'Stock Ticker (WebSocket)'));
+    const out: any = internalToOC(removeRootByName(internal, 'Stock Ticker'));
     expect(itemNames(out)).not.toContain('Stock Ticker');
   });
 
@@ -91,10 +91,28 @@ extensions:
 });
 
 describe('OpenCollection root-level structural staleness — byte-stability (no false positives)', () => {
-  it('unmodified multi-protocol round-trips byte-stable (socketio + websocket canary)', async () => {
-    const oc = await loadCollectionFromFile('tests/fixtures/opencollection/multi-protocol.yaml');
-    const out = internalToOC(ocToInternal(oc));
-    expect(serializeOpenCollectionYAML(out)).toBe(serializeOpenCollectionYAML(oc));
+  it('unmodified multi-protocol round-trips (websocket verbatim; socket.io canonicalised)', async () => {
+    const oc: any = await loadCollectionFromFile(
+      'tests/fixtures/opencollection/multi-protocol.yaml'
+    );
+    const out: any = internalToOC(ocToInternal(oc));
+    // Every item (incl. the native websocket one) emits verbatim from its bag.
+    expect(out.items).toEqual(oc.items);
+    expect(out.extensions['x-restura-sse']).toEqual(oc.extensions['x-restura-sse']);
+    // Socket.IO is a typed item since #1209 (no verbatim bag, like Kafka / MQTT):
+    // the legacy hand-written map shape is re-emitted in the canonical row form.
+    const [sio] = out.extensions['x-restura-socketio'];
+    expect(sio.info).toEqual({ type: 'socketio', name: 'Chat Room' });
+    expect(sio.socketio).toMatchObject({
+      url: '{{API_HOST}}',
+      namespace: '/chat',
+      transports: ['websocket', 'polling'],
+      auth: [{ name: 'token', value: 'demo-token' }],
+      query: [{ name: 'room', value: 'lobby' }],
+    });
+    // …and is stable from there on.
+    const again: any = internalToOC(ocToInternal(out));
+    expect(serializeOpenCollectionYAML(again)).toBe(serializeOpenCollectionYAML(out));
   });
 
   it('unmodified simple-http round-trips byte-stable', async () => {

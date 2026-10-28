@@ -3,11 +3,12 @@ import { authFromInternal } from './auth-from-internal';
 import { kafkaToOC, mqttToOC } from './broker-items';
 import { kvFromInternal } from './key-value';
 import { mcpStdioToOC } from './mcp-stdio-extension';
+import { socketIoToOC } from './stream-items';
 
 /**
  * Export-side helpers for request kinds that OpenCollection has no item type
- * for (SSE, MCP, Kafka, MQTT). They are emitted into root `extensions` lists
- * (`x-restura-sse` / `-mcp` / `-kafka` / `-mqtt`) with a `folderPath`; see
+ * for (SSE, MCP, Kafka, MQTT, Socket.IO). They are emitted into root `extensions`
+ * lists (`x-restura-sse` / `-mcp` / `-kafka` / `-mqtt` / `-socketio`) with a `folderPath`; see
  * `from-internal.ts` (caller) and `to-internal.ts` (`placeExtensionItems`).
  */
 
@@ -19,6 +20,7 @@ export interface ExtensionLists {
   mcp: unknown[];
   kafka: unknown[];
   mqtt: unknown[];
+  socketio: unknown[];
 }
 
 /**
@@ -44,7 +46,9 @@ export function pushStreamItem(
           ? (it._oc ?? kafkaToOC(it.name, r))
           : r?.type === 'mqtt'
             ? (it._oc ?? mqttToOC(it.name, r))
-            : undefined;
+            : r?.type === 'socketio'
+              ? (it._oc ?? socketIoToOC(it.name, r))
+              : undefined;
   if (!r || entry === undefined) return false;
   lists[r.type as keyof ExtensionLists].push(withFolderPath(entry, folderPath));
   return true;

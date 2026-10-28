@@ -54,9 +54,12 @@ const stringRecord = (v: unknown): Record<string, string> | undefined => {
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 };
 
+/** `T` with every key optional and `undefined` removed (sound under exactOptionalPropertyTypes). */
+type Defined<T> = { [K in keyof T]?: Exclude<T[K], undefined> };
+
 /** Copy only the defined keys of `src` — keeps exported YAML free of `undefined`s. */
-function defined<T extends Obj>(src: T): Partial<T> {
-  return Object.fromEntries(Object.entries(src).filter(([, v]) => v !== undefined)) as Partial<T>;
+function defined<T extends Obj>(src: T): Defined<T> {
+  return Object.fromEntries(Object.entries(src).filter(([, v]) => v !== undefined)) as Defined<T>;
 }
 
 function info(type: 'kafka' | 'mqtt', name: string, description: string | undefined): Obj {
