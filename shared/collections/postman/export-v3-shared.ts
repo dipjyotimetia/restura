@@ -1,4 +1,3 @@
-import { isConfiguredAuth } from '../../auth/inheritance';
 import { migrateScriptRsToPm } from '../../scripts/script-migrations';
 import type { SecretValue } from '../../secrets/secret-ref';
 import type { AuthConfig, KeyValue, ScopedVariable } from '../../types';
@@ -234,19 +233,6 @@ function credsOf(pairs: Array<[string, string | undefined]>): Cred[] {
 }
 
 /**
- * Q28: the node's Postman auth was an explicit `noauth` (`_postman.noauth`,
- * set at import) and the user has not configured an auth since. It must be
- * exported as an explicit `noauth` — omitted means inherit, and Postman /
- * Newman would sign it with an ancestor's credential.
- */
-export function isExplicitNoauth(
-  auth: AuthConfig | undefined,
-  sidecar: PostmanSidecar | undefined
-): boolean {
-  return sidecar?.noauth === true && !isConfiguredAuth(auth);
-}
-
-/**
  * Restura `AuthConfig` → v3 `{ type, credentials }` (the inverse of
  * `convertPostmanAuth`), without sidecar data. `undefined` = not exportable.
  */
@@ -471,38 +457,7 @@ export const AUTH_TYPES = {
   llm: new Set(['basic', 'bearer', 'apikey', 'awsv4', 'azure']),
 } as const;
 
-/**
- * Stable structural equality for auth configs (inheritance detection). A
- * secret ref collapses with another only when it is provably the same secret:
- * inline refs compare as their plaintext (equal to a plain string of the same
- * value); keychain handles by `id`; external refs by provider / profile /
- * secret / selector. Labels never count. Anything else stays distinct — a
- * false "same" exports the request as inherit, so on re-import it would use
- * the ancestor's credential (misrouting). Desktop handle conversion
- * (`convertCollectionSecretsToHandles`) mints a fresh id per location with no
- * provenance marker, so such requests export an explicit, blank-secret block.
- */
-export function sameAuth(a: AuthConfig | undefined, b: AuthConfig | undefined): boolean {
-  return JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
-}
-
-function sortKeys(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(sortKeys);
-  if (!isObj(v)) return v;
-  // Tagged objects: never equal to a plain string (e.g. a blank folder token).
-  if (v.kind === 'handle') return { '\u0000handle': str(v.id) };
-  if (v.kind === 'external') {
-    return {
-      '\u0000external': [v.provider, v.profileId, v.secretId, v.selector ?? null].map((x) =>
-        typeof x === 'string' ? x : null
-      ),
-    };
-  }
-  if (v.kind === 'inline' && typeof v.value === 'string') return v.value;
-  return Object.fromEntries(
-    Object.keys(v)
-      .sort()
-      .filter((k) => v[k] !== undefined)
-      .map((k) => [k, sortKeys(v[k])])
-  );
-}
+// `sameAuth` (inheritance detection; secret refs compared as exported, see its
+// doc for the #1226 handle-reuse contract) and `isExplicitNoauth` live in a
+// leaf module so desktop handle conversion can share them without `./common`.
+export { isExplicitNoauth, sameAuth } from './auth-identity';

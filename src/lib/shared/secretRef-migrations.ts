@@ -1,8 +1,11 @@
+import { isConfiguredAuth } from '@shared/auth/inheritance';
 import {
   activeAuthBlock,
   mapPostmanAuthParams,
   postmanAuthParamEntries,
 } from '@shared/collections/postman/auth';
+import { hasUnsupportedPostmanAuth } from '@shared/collections/postman/auth-guard';
+import { isExplicitNoauth, sameAuth } from '@shared/collections/postman/auth-identity';
 import {
   isAuthSecretRow,
   isPostmanAuthSecretKey,
@@ -212,9 +215,53 @@ export async function convertInlineSecretsToHandles(
 }
 
 /**
+ * The nearest ancestor (collection or folder) whose auth an inheriting request
+ * would take: its auth BEFORE conversion (for the identity check) and after
+ * (whose handles an identical request reuses).
+ */
+interface AncestorAuth {
+  original: AuthConfig;
+  converted: AuthConfig;
+}
+
+/**
+ * What a container hands its children, mirroring the Postman exporters'
+ * `authForChildren`: a configured auth becomes the new nearest ancestor; an
+ * explicit `none` (Postman `noauth`) or an unsupported auth imported as `none`
+ * cuts the chain; any other unconfigured auth (absent, or a plain `none`)
+ * passes the parent's ancestor through.
+ */
+function ancestorForChildren(
+  node: object,
+  original: AuthConfig | undefined,
+  converted: AuthConfig | undefined,
+  inherited: AncestorAuth | undefined
+): AncestorAuth | undefined {
+  if (hasUnsupportedPostmanAuth(node)) return undefined;
+  if (isExplicitNoauth(original, getPostmanSidecar(node))) return undefined;
+  if (isConfiguredAuth(original) && converted) return { original, converted };
+  return inherited;
+}
+
+/**
  * Walk a Collection tree and convert every request's inline sensitive auth
  * field into a keychain-backed handle. Returns a new tree; original is not
  * mutated. No-op on web (silently passes the collection through).
+ *
+ * #1226: importers bake an inheriting request's ancestor auth into the
+ * request. Minting a fresh handle there makes `sameAuth` see two different
+ * credentials, so a Postman export writes an explicit blank-secret block
+ * instead of `inherit`. A request whose WHOLE auth config equals its NEAREST
+ * ancestor's (secrets compared by plaintext via `sameAuth`) therefore reuses
+ * that ancestor's handles — never across siblings, never past a chain cut.
+ * Sharing an id is safe because the auth editor always mints a new handle
+ * rather than overwriting one in place (`SecretInput`), and deleting a
+ * request or collection never reaps handles (the invariant
+ * `duplicateCollection` relies on too; `secretStoreNoOverwrite.test.ts` pins
+ * the no-`id` rule). Consequences of sharing: a manual delete in
+ * Settings → Secrets removes the credential from EVERY location sharing the
+ * handle, and the shared handle carries the ancestor's label
+ * (`<collection>/<folder>/...`), not the request's.
  */
 export async function convertCollectionSecretsToHandles(
   collection: Collection
@@ -224,14 +271,16 @@ export async function convertCollectionSecretsToHandles(
   const store: SecretsStore | undefined = api?.secrets?.store
     ? (args) => api.secrets.store(args)
     : undefined;
-  const items = await Promise.all(
-    (collection.items ?? []).map((item) =>
-      convertItemSecretsToHandles(item, collection.name, store)
-    )
-  );
+  // An ancestor's auth is converted before its children so they can reuse it.
   const auth = await convertInlineSecretsToHandles(
     collection.auth,
     `${collection.name}/<collection>`
+  );
+  const ancestor = ancestorForChildren(collection, collection.auth, auth, undefined);
+  const items = await Promise.all(
+    (collection.items ?? []).map((item) =>
+      convertItemSecretsToHandles(item, collection.name, store, ancestor)
+    )
   );
   const bag = store
     ? await convertPostmanBagToHandles(collection, `${collection.name}/<collection>`, store)
@@ -242,16 +291,18 @@ export async function convertCollectionSecretsToHandles(
 async function convertItemSecretsToHandles(
   item: CollectionItem,
   prefix: string,
-  store: SecretsStore | undefined
+  store: SecretsStore | undefined,
+  inherited: AncestorAuth | undefined
 ): Promise<CollectionItem> {
   if (item.type === 'folder') {
-    const items = await Promise.all(
-      (item.items ?? []).map((sub) =>
-        convertItemSecretsToHandles(sub, `${prefix}/${item.name}`, store)
-      )
-    );
     // Folder-level default auth carries secrets too (mirrors collection.auth).
     const auth = await convertInlineSecretsToHandles(item.auth, `${prefix}/${item.name}/<folder>`);
+    const ancestor = ancestorForChildren(item, item.auth, auth, inherited);
+    const items = await Promise.all(
+      (item.items ?? []).map((sub) =>
+        convertItemSecretsToHandles(sub, `${prefix}/${item.name}`, store, ancestor)
+      )
+    );
     const bag = store
       ? await convertPostmanBagToHandles(item, `${prefix}/${item.name}/<folder>`, store)
       : {};
@@ -260,7 +311,10 @@ async function convertItemSecretsToHandles(
   const bag = store ? await convertPostmanBagToHandles(item, `${prefix}/${item.name}`, store) : {};
   if (item.request && 'auth' in item.request) {
     const req = item.request as Request & { auth: AuthConfig };
-    const auth = await convertInlineSecretsToHandles(req.auth, `${prefix}/${item.name}`);
+    const auth =
+      inherited && isConfiguredAuth(req.auth) && sameAuth(req.auth, inherited.original)
+        ? (structuredClone(inherited.converted) as AuthConfig)
+        : await convertInlineSecretsToHandles(req.auth, `${prefix}/${item.name}`);
     if (auth) {
       return { ...item, request: { ...req, auth } as typeof item.request, ...bag };
     }
