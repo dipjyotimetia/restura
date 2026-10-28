@@ -262,7 +262,11 @@ function countNonEmptyStrings(obj: Record<string, unknown>, fields: Set<string>)
  * double-counted; a type listed here but no longer modelled is UNDER-counted
  * (export plaintext warning suppressed).
  */
-const MODELLED_OC_ITEM_TYPES = new Set(['http', 'graphql', 'grpc', 'websocket']);
+// `websocket` stays opaque even though a WebSocket item is typed since #1209:
+// pre-#1209 placeholder folders still hold the whole item only in their bag.
+// For a typed WebSocket item its header rows are therefore counted twice
+// (typed + bag) — an over-count, the safe direction for the export warning.
+const MODELLED_OC_ITEM_TYPES = new Set(['http', 'graphql', 'grpc']);
 
 /**
  * Modelled item types whose `auth` block is NOT modelled: a WebSocket item
