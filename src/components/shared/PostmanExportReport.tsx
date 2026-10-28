@@ -26,7 +26,7 @@ export function PostmanExportReportList({ report }: { report: PostmanExportRepor
 }
 
 /**
- * Tell the user what a Postman v3 export left out (SSE requests, WSSE auth,
+ * Tell the user what a Postman v3 or v2.1 export left out (SSE / non-HTTP requests, WSSE auth,
  * emptied secrets, Restura-only settings, …). Mirrors the import banner's
  * warning list, as a toast because export has no dialog of its own.
  */

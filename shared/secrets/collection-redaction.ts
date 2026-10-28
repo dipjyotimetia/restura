@@ -387,6 +387,36 @@ function redactBags<T extends object>(node: T): T {
 // bound is replaced by an empty stub on redaction (nothing below it can leak)
 // and counted as one secret (the export warning fires).
 
+/**
+ * Structured urlencoded / form-data body rows (Q29): the text rows of the
+ * body that is actually sent, under the same credential-name rule as headers
+ * and query params (and as `_postman` sidecar bodies). File rows hold file
+ * bytes / names, never typed credentials, and are left alone; rows left over
+ * on a non-form body are not exported, so they are neither counted nor touched.
+ */
+const FORM_BODY_TYPES = new Set(['form-data', 'x-www-form-urlencoded']);
+
+function formBodyTextRows(req: Record<string, unknown>): SecretableRow[] | undefined {
+  const body = req.body as { type?: unknown; formData?: unknown } | undefined;
+  if (!body || !FORM_BODY_TYPES.has(String(body.type)) || !Array.isArray(body.formData)) {
+    return undefined;
+  }
+  return (body.formData as Array<SecretableRow & { type?: unknown }>).filter(
+    (row) => row.type !== 'file'
+  );
+}
+
+function redactFormBody(req: Record<string, unknown>): void {
+  if (!formBodyTextRows(req)) return;
+  const body = req.body as { formData: Array<SecretableRow & { type?: unknown }> };
+  req.body = {
+    ...body,
+    formData: body.formData.map((row) =>
+      row.type === 'file' ? row : (redactSecretKeyValues([row])?.[0] ?? row)
+    ),
+  };
+}
+
 function redactItem(item: CollectionItem, depth = 0): CollectionItem {
   if (depth > MAX_COLLECTION_TREE_DEPTH) {
     return { id: item.id, name: item.name, type: item.type, ...(item.items ? { items: [] } : {}) };
@@ -404,6 +434,7 @@ function redactItem(item: CollectionItem, depth = 0): CollectionItem {
       req.params = redactSecretKeyValues(req.params as SecretableRow[]);
     if (Array.isArray(req.metadata))
       req.metadata = redactSecretKeyValues(req.metadata as SecretableRow[]);
+    redactFormBody(req);
     if ('auth' in req) req.auth = redactAuthConfigSecrets(req.auth as AuthConfig);
     // MCP stdio launch env (credential-named values, inline SecretRefs).
     const stdioEnv = stdioEnvOf(req);
@@ -477,6 +508,7 @@ export function countCollectionInlineSecrets(collection: Collection): number {
         count += countSecretKeyValues(req.headers as SecretableRow[] | undefined);
         count += countSecretKeyValues(req.params as SecretableRow[] | undefined);
         count += countSecretKeyValues(req.metadata as SecretableRow[] | undefined);
+        count += countSecretKeyValues(formBodyTextRows(req));
         count += countStdioEnvInlineSecrets(stdioEnvOf(req));
         count += countBrokerPresetSecrets(item.request);
       }

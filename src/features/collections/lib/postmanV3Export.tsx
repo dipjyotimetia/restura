@@ -11,6 +11,29 @@ import {
 import { downloadBlob } from '@/lib/shared/file-utils';
 import { getElectronAPI } from '@/lib/shared/platform';
 import type { Collection } from '@/types';
+import { downloadJSON, exportToPostmanV21 } from './exporters';
+
+/**
+ * Postman v2.1 (#1229): one `<name>.postman_collection.json` download — the
+ * same on web and desktop — then the export report. `collection` is already
+ * redacted per the include-secrets choice. Returns false when it failed.
+ */
+export function savePostmanV21Export(collection: Collection): boolean {
+  const { collection: doc, report } = exportToPostmanV21(collection);
+  const filename = `${collection.name}.postman_collection.json`;
+  try {
+    downloadJSON(doc, filename);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    toast.error(
+      `Postman v2.1 export failed: ${reason}`,
+      report.entries.length > 0 ? { description: <PostmanExportReportList report={report} /> } : {}
+    );
+    return false;
+  }
+  showPostmanExportReport(report, `Exported ${filename}`);
+  return true;
+}
 
 /**
  * Postman v3 (#1201): the YAML folder as `{ relativePath, content }` entries

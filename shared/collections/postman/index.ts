@@ -27,6 +27,9 @@ import {
 
 export type { PostmanAuthParams } from './auth';
 export { authParamsV2, convertPostmanAuth } from './auth';
+export type { PostmanExportTargetVersion } from './export-report';
+export type { PostmanV21Export, PostmanV21ExportOptions } from './export-v2';
+export { exportPostmanV21, POSTMAN_V21_SCHEMA_URL } from './export-v2';
 export type {
   PostmanExportConstruct,
   PostmanExportIssue,
@@ -51,6 +54,11 @@ export {
   PostmanV3ContainerError,
   readPostmanV3Container,
 } from './v3-container';
+export type {
+  PostmanV21Collection,
+  PostmanV21Item,
+  PostmanV21ItemGroup,
+} from './v21-types';
 
 export interface PostmanImportOptions {
   /**

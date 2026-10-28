@@ -1,7 +1,10 @@
+import {
+  exportPostmanV21,
+  type PostmanV21Collection,
+  type PostmanV21Export,
+} from '@shared/collections/postman';
 import { isKnownHttpMethod, normalizeHttpMethod } from '@shared/protocol/http-method';
 import { v4 as uuidv4 } from 'uuid';
-import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
-import { migrateScriptRsToPm } from '@/features/scripts/lib/scriptMigrations';
 import { internalToOC, serializeOpenCollectionYAML } from '@/lib/opencollection';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import type {
@@ -11,12 +14,13 @@ import type {
   Environment,
   HttpRequest,
   InsomniaResource,
-  PostmanAuth,
-  PostmanCollection,
-  PostmanItem,
 } from '@/types';
 
-export type CollectionExportFormat = 'postman' | 'insomnia' | 'opencollection';
+/**
+ * Formats that still report through string warnings. Postman v2.1 / v3 use
+ * the structured export report instead (`shared/collections/postman/export-report.ts`).
+ */
+export type CollectionExportFormat = 'insomnia' | 'opencollection';
 
 /** User-visible advisories for data a target format cannot faithfully carry. */
 export function getCollectionExportWarnings(
@@ -41,8 +45,6 @@ export function getCollectionExportWarnings(
             `${item.request.type.toUpperCase()} requests are exported as non-runnable stubs`
           );
         }
-      } else if (format === 'postman' && item.request.params.some((param) => !param.enabled)) {
-        warnings.add('Postman export omits disabled query parameters');
       }
       const scripted =
         'preRequestScript' in item.request &&
@@ -69,9 +71,23 @@ export function getCollectionExportWarnings(
 }
 
 /**
+ * Postman v2.1 (single JSON file, Newman) — a thin call to the shared
+ * exporter (`shared/collections/postman/export-v2.ts`, #1229). Callers apply
+ * the "include secrets" redaction first. Use {@link exportToPostmanV21} for
+ * the structured export report.
+ */
+export function exportToPostman(collection: Collection): PostmanV21Collection {
+  return exportPostmanV21(collection).collection;
+}
+
+/** Postman v2.1 collection JSON plus the structured export report. */
+export function exportToPostmanV21(collection: Collection): PostmanV21Export {
+  return exportPostmanV21(collection);
+}
+
+/**
  * Append a request's enabled params to its URL as a query string. `encode`
- * percent-encodes keys/values (HAR wants encoded URLs); leave it off for
- * formats whose raw URLs carry `{{template}}` variables verbatim (Postman).
+ * percent-encodes keys/values (HAR wants encoded URLs).
  */
 function appendQueryString(
   url: string,
@@ -88,127 +104,8 @@ function appendQueryString(
   return `${url}${url.includes('?') ? '&' : '?'}${qs}`;
 }
 
-// Build a Postman `event[]` array from native rs.* scripts, reverse-migrating
-// them back to pm.* so the exported collection runs in Postman itself.
-function buildPostmanScriptEvents(
-  preRequestScript?: string,
-  testScript?: string
-): PostmanItem['event'] {
-  const events: NonNullable<PostmanItem['event']> = [];
-  if (preRequestScript) {
-    events.push({
-      listen: 'prerequest',
-      script: { type: 'text/javascript', exec: migrateScriptRsToPm(preRequestScript).split('\n') },
-    });
-  }
-  if (testScript) {
-    events.push({
-      listen: 'test',
-      script: { type: 'text/javascript', exec: migrateScriptRsToPm(testScript).split('\n') },
-    });
-  }
-  return events.length > 0 ? events : undefined;
-}
-
-// Export to Postman Format
-export function exportToPostman(collection: Collection): PostmanCollection {
-  const event = buildPostmanScriptEvents(collection.preRequestScript, collection.testScript);
-  return {
-    info: {
-      name: collection.name,
-      description: collection.description,
-      schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
-    },
-    item: collection.items.map(convertToPostmanItem),
-    auth: collection.auth ? convertAuthToPostman(collection.auth) : undefined,
-    // Private variables are local-only — never exported.
-    variable: (collection.variables ?? [])
-      .filter((v) => !v.private)
-      .map((variable) => ({
-        key: variable.key,
-        value: variable.value,
-        disabled: !variable.enabled,
-        ...(variable.description ? { description: variable.description } : {}),
-      })),
-    ...(event ? { event } : {}),
-  };
-}
-
-function convertToPostmanItem(item: CollectionItem): PostmanItem {
-  if (item.type === 'folder') {
-    const event = buildPostmanScriptEvents(item.preRequestScript, item.testScript);
-    const auth = isConfiguredAuth(item.auth) ? convertAuthToPostman(item.auth) : undefined;
-    return {
-      name: item.name,
-      item: (item.items || []).map(convertToPostmanItem),
-      ...(auth ? { auth } : {}),
-      ...(event ? { event } : {}),
-    };
-  }
-
-  // Postman supports only HTTP-style requests; emit a stub for unsupported protocols
-  // so the surrounding folder structure round-trips, with a clear name marker.
-  const request = item.request;
-  if (request?.type !== 'http') {
-    return {
-      name: request
-        ? `${item.name} [${request.type.toUpperCase()} — not supported in Postman]`
-        : item.name,
-      request: {
-        method: 'GET',
-        header: [],
-        url: request && 'url' in request ? request.url : '',
-      },
-    };
-  }
-
-  // Emit the URL as a string with enabled params inlined — see the
-  // PostmanRequest.url type for why the `{ raw, query }` object form breaks
-  // on re-import. Disabled params can't be represented in the string form
-  // and are dropped (Postman itself drops them from `raw` too).
-  const rawUrl = appendQueryString(request.url, request.params);
-  return {
-    name: item.name,
-    request: {
-      method: request.method,
-      header: request.headers.map((h) => ({
-        key: h.key,
-        value: h.value,
-        disabled: !h.enabled,
-        description: h.description,
-      })),
-      url: rawUrl,
-      body: convertBodyToPostman(request.body),
-      auth: request.auth.type !== 'none' ? convertAuthToPostman(request.auth) : undefined,
-    },
-    // Reverse-migrate native rs.* back to pm.* so scripts run in Postman.
-    event: buildPostmanScriptEvents(request.preRequestScript, request.testScript) ?? [],
-  };
-}
-
-function convertBodyToPostman(
-  body: HttpRequest['body']
-): { mode: string; raw?: string; options?: unknown } | undefined {
-  if (body.type === 'none') return undefined;
-
-  const modeMap: Record<string, string> = {
-    json: 'raw',
-    xml: 'raw',
-    text: 'raw',
-    'form-data': 'formdata',
-    'x-www-form-urlencoded': 'urlencoded',
-    binary: 'file',
-  };
-
-  return {
-    mode: modeMap[body.type] || 'raw',
-    raw: body.raw,
-    options: body.type === 'json' ? { raw: { language: 'json' } } : undefined,
-  };
-}
-
 /**
- * Render a SecretValue for text-only export formats (Postman, Insomnia, Bruno).
+ * Render a SecretValue for text-only export formats (Insomnia, Bruno).
  * Inline values become plaintext (mirrors pre-SecretRef behaviour). Handles
  * become a `{{handle:<label>}}` placeholder so the export round-trips a
  * reference without leaking the keychain plaintext.
@@ -220,60 +117,6 @@ function exportSecretValue(value: SecretValue | undefined): string {
   if (value.kind === 'external')
     return `{{external:${value.provider}:${value.profileId}:${value.secretId}${value.selector ? `:${value.selector}` : ''}}}`;
   return `{{handle:${value.label ?? value.id}}}`;
-}
-
-function convertAuthToPostman(auth: AuthConfig): PostmanAuth | undefined {
-  switch (auth.type) {
-    case 'basic':
-      return {
-        type: 'basic',
-        basic: [
-          { key: 'username', value: auth.basic?.username || '', type: 'string' },
-          { key: 'password', value: exportSecretValue(auth.basic?.password), type: 'string' },
-        ],
-      };
-    case 'bearer':
-      return {
-        type: 'bearer',
-        bearer: [{ key: 'token', value: exportSecretValue(auth.bearer?.token), type: 'string' }],
-      };
-    case 'api-key':
-      return {
-        type: 'apikey',
-        apikey: [
-          { key: 'key', value: auth.apiKey?.key || '', type: 'string' },
-          { key: 'value', value: exportSecretValue(auth.apiKey?.value), type: 'string' },
-          { key: 'in', value: auth.apiKey?.in || 'header', type: 'string' },
-        ],
-      };
-    case 'oauth2':
-      return {
-        type: 'oauth2',
-        oauth2: [
-          {
-            key: 'accessToken',
-            value: exportSecretValue(auth.oauth2?.accessToken),
-            type: 'string',
-          },
-        ],
-      };
-    case 'aws-signature':
-      return {
-        type: 'awsv4',
-        awsv4: [
-          { key: 'accessKey', value: auth.awsSignature?.accessKey || '', type: 'string' },
-          {
-            key: 'secretKey',
-            value: exportSecretValue(auth.awsSignature?.secretKey),
-            type: 'string',
-          },
-          { key: 'region', value: auth.awsSignature?.region || '', type: 'string' },
-          { key: 'service', value: auth.awsSignature?.service || '', type: 'string' },
-        ],
-      };
-    default:
-      return undefined;
-  }
 }
 
 // Export to Insomnia Format

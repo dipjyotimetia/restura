@@ -10,6 +10,7 @@ import {
   GRAPHQL_PHASES,
   GRPC_PHASES,
   HTTP_REQUEST_PHASES,
+  isExplicitNoauth,
   kvRows,
   sameAuth,
 } from './export-v3-shared';
@@ -43,6 +44,7 @@ export function requestAuth(
   owner: string,
   ctx: ExportContext
 ): Raw | undefined {
+  if (isExplicitNoauth(auth, sidecar)) return { type: 'noauth' };
   const sidecarAuth = sidecar?.auth !== undefined && !sidecar.authBagOnly;
   if (
     !sidecarAuth &&

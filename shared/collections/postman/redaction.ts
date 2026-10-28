@@ -52,6 +52,10 @@ const POSTMAN_AUTH_SECRET_KEYS = new Set([
   'sessionToken',
   'privateKey',
   'value',
+  // OAuth2 PKCE / client-assertion material (top level or in parameter rows).
+  'code_verifier',
+  'client_assertion',
+  'assertion',
 ]);
 
 type Raw = Record<string, unknown>;
@@ -86,14 +90,40 @@ export function isPostmanAuthSecretKey(key: string): boolean {
 
 // ── auth ────────────────────────────────────────────────────────────────────
 
+/**
+ * A row of a nested auth parameter list (OAuth2 `tokenRequestParams` /
+ * `refreshRequestParams` / `authRequestParams`: `[{ key, value, send_as }]`)
+ * holding a credential.
+ */
+function isAuthSecretRow(row: unknown): boolean {
+  if (!isObj(row) || !isCredentialValue(row.value)) return false;
+  if (row.type === 'secret' || row.secret === true) return true;
+  return typeof row.key === 'string' && isPostmanAuthSecretKey(row.key);
+}
+
+/** Nested parameter rows are walked row by row, never by the param's own key. */
+function isParamRows(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
+function redactAuthParamValue(key: string, value: unknown): unknown {
+  if (isParamRows(value)) {
+    return value.map((row) => (isAuthSecretRow(row) ? { ...(row as object), value: '' } : row));
+  }
+  return isPostmanAuthSecretKey(key) && isCredentialValue(value) ? '' : value;
+}
+
+function countAuthParamValue(key: string, value: unknown): number {
+  if (isParamRows(value)) return value.filter(isAuthSecretRow).length;
+  return isPostmanAuthSecretKey(key) && isCredentialValue(value) ? 1 : 0;
+}
+
 /** Blank every credential param in EVERY block of an auth object (incl. inactive siblings). */
 export function redactPostmanAuth(auth: Raw): Raw {
   const next: Raw = { ...auth };
   for (const [key, block] of Object.entries(auth)) {
     if (key === 'type') continue;
-    next[key] = mapPostmanAuthParams(block, (p) =>
-      isPostmanAuthSecretKey(p.key) && isCredentialValue(p.value) ? '' : p.value
-    );
+    next[key] = mapPostmanAuthParams(block, (p) => redactAuthParamValue(p.key, p.value));
   }
   return next;
 }
@@ -112,9 +142,9 @@ function countPostmanAuthSecrets(auth: unknown, bagOnly: boolean): number {
   for (const [key, block] of Object.entries(auth)) {
     if (key === 'type') continue;
     const mapped = !bagOnly && key === type ? mappedAuthParamsFor(type) : undefined;
-    n += postmanAuthParamEntries(block).filter(
-      (p) => !mapped?.has(p.key) && isPostmanAuthSecretKey(p.key) && isCredentialValue(p.value)
-    ).length;
+    for (const p of postmanAuthParamEntries(block)) {
+      if (!mapped?.has(p.key)) n += countAuthParamValue(p.key, p.value);
+    }
   }
   return n;
 }
