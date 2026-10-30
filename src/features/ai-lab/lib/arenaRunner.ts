@@ -136,12 +136,18 @@ async function runArenaPhases(
     if (cfg) {
       const key = modelKeyOf(t.model);
       try {
-        const completion = await completeWithRetry(() =>
-          completeLlm(specFor(cfg, t.model.model, buildMessages(input.system, t.userText)))
+        const completion = await completeWithRetry(
+          () =>
+            completeLlm(specFor(cfg, t.model.model, buildMessages(input.system, t.userText)), {
+              signal,
+            }),
+          { signal }
         );
         if (completion.ok) outputs[t.caseId]![key] = completion.text;
         else failures[t.caseId]![key] = completion.error?.message ?? 'completion failed';
       } catch (e) {
+        // A call aborted by Stop is a cancellation, not a failed contestant.
+        if (signal.aborted) return;
         failures[t.caseId]![key] = errorText(e);
       }
     }
@@ -153,12 +159,15 @@ async function runArenaPhases(
   // Phase B: judge every unordered model pair per case.
   const judgeCfg = input.providers[input.judgeModel.providerConfigId];
   const complete: JudgeComplete = (messages, tools) =>
-    completeWithRetry(() =>
-      completeLlm(
-        specFor(judgeCfg!, input.judgeModel.model, messages as LlmChatMessage[], {
-          tools: tools as LlmCallSpec['tools'],
-        })
-      )
+    completeWithRetry(
+      () =>
+        completeLlm(
+          specFor(judgeCfg!, input.judgeModel.model, messages as LlmChatMessage[], {
+            tools: tools as LlmCallSpec['tools'],
+          }),
+          { signal }
+        ),
+      { signal }
     );
 
   const judgeTasks: Array<{ caseId: string; aKey: string; bKey: string }> = [];
@@ -195,6 +204,8 @@ async function runArenaPhases(
           const winner = v.winner === 'A' ? 'a' : v.winner === 'B' ? 'b' : 'tie';
           match = { a: t.aKey, b: t.bKey, winner };
         } catch (e) {
+          // Stop aborts in-flight judge calls; that match is cancelled, not errored.
+          if (signal.aborted) return;
           match = { a: t.aKey, b: t.bKey, winner: 'error', error: `judge: ${errorText(e)}` };
         }
       }

@@ -293,6 +293,72 @@ describe('runArena', () => {
   });
 });
 
+describe('runArena cancellation (#1020)', () => {
+  const MODELS = [
+    { providerConfigId: 'p1', model: 'gpt-4o' },
+    { providerConfigId: 'p2', model: 'claude' },
+  ];
+  const abortError = () => new DOMException('Operation cancelled', 'AbortError');
+  const base = (signal: AbortSignal) => ({
+    input: {
+      dataset: DATASET,
+      models: MODELS,
+      judgeModel: { providerConfigId: 'p1', model: 'gpt-4o' },
+      providers: { p1: PROVIDER_A, p2: PROVIDER_B },
+      concurrency: 2,
+    },
+    signal,
+  });
+
+  beforeEach(() => {
+    mockComplete.mockReset();
+  });
+
+  it('passes the abort signal to every contestant and judge completeLlm call', async () => {
+    const controller = new AbortController();
+    mockComplete.mockImplementation(async (spec: { tools?: unknown[] }) =>
+      spec.tools
+        ? {
+            ok: true,
+            text: '',
+            toolCalls: [{ id: 'j', name: 'submit_comparison', input: '{"winner":"A"}' }],
+          }
+        : { ok: true, text: 'answer', toolCalls: [] }
+    );
+    const { input, signal } = base(controller.signal);
+    await runArena(input, () => {}, signal);
+
+    expect(mockComplete.mock.calls.length).toBeGreaterThanOrEqual(4);
+    for (const call of mockComplete.mock.calls) expect(call[1]).toEqual({ signal });
+  });
+
+  it('does not record a contestant call aborted by Stop as an errored match', async () => {
+    const controller = new AbortController();
+    mockComplete.mockImplementation(async () => {
+      controller.abort();
+      throw abortError();
+    });
+    const { input, signal } = base(controller.signal);
+    const result = await runArena(input, () => {}, signal);
+    expect(result.matches).toEqual([]);
+  });
+
+  it('does not record a judge call aborted by Stop as an errored match', async () => {
+    const controller = new AbortController();
+    mockComplete.mockImplementation(async (spec: { tools?: unknown[] }) => {
+      if (spec.tools) {
+        controller.abort();
+        throw abortError();
+      }
+      return { ok: true, text: 'answer', toolCalls: [] };
+    });
+    const { input, signal } = base(controller.signal);
+    const result = await runArena(input, () => {}, signal);
+    expect(result.matches).toEqual([]);
+    expect(arenaRunStatus(result.matches, signal.aborted)).toBe('cancelled');
+  });
+});
+
 describe('arenaRunStatus', () => {
   const ok = { a: 'x', b: 'y', winner: 'a' as const };
   const bad = { a: 'x', b: 'y', winner: 'error' as const, error: 'boom' };
