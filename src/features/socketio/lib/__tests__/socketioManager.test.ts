@@ -14,13 +14,21 @@ const sio = vi.hoisted(() => {
     anyListeners: Listener[] = [];
     emitted: Array<{ flags: string[]; args: unknown[] }> = [];
     private flags: string[] = [];
-    io = { on: () => this.io };
+    listeners = new Map<string, Listener>();
+    managerListeners = new Map<string, Listener>();
+    io = {
+      on: (evt: string, cb: Listener) => {
+        this.managerListeners.set(evt, cb);
+        return this.io;
+      },
+    };
     constructor(url: string, opts: Record<string, unknown>) {
       this.url = url;
       this.opts = opts;
       FakeSocket.last = this;
     }
-    on() {
+    on(evt: string, cb: Listener) {
+      this.listeners.set(evt, cb);
       return this;
     }
     onAny(cb: Listener) {
@@ -211,5 +219,71 @@ describe('socketioManager (browser)', () => {
       electron.delete(id);
       spy.mockRestore();
     }
+  });
+
+  it('maps browser socket + manager lifecycle events onto store state', () => {
+    connectWithVariables(id, scope);
+    const sock = socket();
+    sock.listeners.get('connect')?.();
+    expect(conn().status).toBe('connected');
+    expect(socketioManager.isConnected(id)).toBe(true);
+    sock.listeners.get('connect_error')?.(new Error('nope'));
+    expect(conn().events.at(-1)).toMatchObject({ eventName: 'connect_error', args: ['nope'] });
+    sock.managerListeners.get('reconnect_attempt')?.(2);
+    expect(conn().status).toBe('reconnecting');
+    expect(conn().reconnectAttemptCount).toBe(2);
+    sock.managerListeners.get('reconnect')?.(2);
+    expect(conn().events.at(-1)).toMatchObject({ eventName: 'reconnect', args: [{ attempt: 2 }] });
+    sock.managerListeners.get('reconnect_failed')?.();
+    expect(conn().events.at(-1)).toMatchObject({ eventName: 'reconnect_failed' });
+    sock.listeners.get('disconnect')?.('transport close');
+    expect(conn().status).toBe('disconnected');
+    expect(conn().events.at(-1)).toMatchObject({ eventName: 'disconnect' });
+  });
+
+  it('warns that extraHeaders are dropped on the browser websocket transport', () => {
+    useSocketIOStore
+      .getState()
+      .setKv(id, 'extraHeaders', [{ id: 'h', key: 'x-a', value: '1', enabled: true }]);
+    connectWithVariables(id, scope);
+    expect(conn().events.some((e) => /Custom headers are ignored/.test(String(e.args[0])))).toBe(
+      true
+    );
+  });
+
+  it('refuses to emit while disconnected and resolves acks in time', () => {
+    socketioManager.emit(id, 'x', []);
+    expect(conn().events.at(-1)?.args[0]).toBe('Cannot emit: socket is not connected');
+
+    connectWithVariables(id, scope);
+    socketioManager.emit(id, 'q', ['a'], true);
+    const call = socket().emitted.at(-1)!;
+    const cb = call.args.at(-1) as (...a: unknown[]) => void;
+    cb('pong', new Uint8Array([1]));
+    expect(conn().events.at(-1)).toMatchObject({
+      direction: 'ack',
+      ackStatus: 'ok',
+      args: ['pong', { $binary: 'AQ==' }],
+    });
+    cb('late'); // already resolved — ignored
+    expect(conn().events.filter((e) => e.direction === 'ack')).toHaveLength(1);
+  });
+
+  it('reports a server ack reply whose callback throws', () => {
+    connectWithVariables(id, scope);
+    socket().fireAny('q', () => {
+      throw new Error('socket closed');
+    });
+    const row = conn().events.find((e) => e.eventName === 'q')!;
+    expect(socketioManager.canReplyServerAck(id, row.serverAckId!)).toBe(true);
+    socketioManager.replyServerAck(id, row.serverAckId!, []);
+    expect(conn().events.at(-1)?.args[0]).toBe('Ack reply failed: socket closed');
+  });
+
+  it('cleanup disconnects every browser socket', () => {
+    connectWithVariables(id, scope);
+    socketioManager.cleanup();
+    expect(socket().connected).toBe(false);
+    expect(conn().status).toBe('disconnected');
   });
 });
