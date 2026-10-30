@@ -43,7 +43,8 @@ export async function* executeAiChat(
         code: 'guard',
         message:
           'Refused to send: messages still contain raw secrets after redaction. ' +
-          'Toggle "Send raw" if this is intentional.',
+          'If sending them is intentional, enable the unredacted-send override: ' +
+          '"Send raw" in the assistant, or "Send unredacted to cloud providers" in AI Lab.',
       };
       yield { type: 'done' };
       return;
