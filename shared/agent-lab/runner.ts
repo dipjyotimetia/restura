@@ -22,6 +22,20 @@ import type {
 
 export type { PermissionClass } from './policy';
 
+/** Per-call output ceiling: the desktop IPC schema (`AiLabCompleteBase`) rejects larger values. */
+export const MAX_PER_CALL_OUTPUT_TOKENS = 32_768;
+
+/**
+ * `maxTokens` is a run-wide budget; a single call may ask for at most the
+ * remaining budget, the model's known output cap, and the transport ceiling.
+ */
+export function clampOutputTokens(remaining: number, modelCap?: number): number {
+  return Math.max(
+    1,
+    Math.min(remaining, modelCap && modelCap > 0 ? modelCap : Infinity, MAX_PER_CALL_OUTPUT_TOKENS)
+  );
+}
+
 export interface AgentTool {
   definition: AgentToolDefinition;
   permissionClass: PermissionClass;
@@ -289,7 +303,11 @@ export class AgentRunner {
           messages,
           tools: tools.map((tool) => tool.definition),
           ...(continuationId ? { continuationId } : {}),
-          ...(remainingTokens === undefined ? {} : { maxOutputTokens: remainingTokens }),
+          ...(remainingTokens === undefined
+            ? {}
+            : {
+                maxOutputTokens: clampOutputTokens(remainingTokens, capabilities.maxOutputTokens),
+              }),
         };
         const requestErrors = validateGenerationRequest(generationRequest, capabilities);
         if (requestErrors.length > 0) throw new Error(requestErrors.join('; '));

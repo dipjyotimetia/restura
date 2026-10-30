@@ -1,6 +1,7 @@
 // Renderer → IPC bridge for AI Lab model calls. Wraps window.electron.aiLab so
 // the rest of the feature (runner, scorers, Playground) never touches the raw
 // bridge. Electron-only — throws a clear error on web.
+import { MAX_PER_CALL_OUTPUT_TOKENS } from '@shared/agent-lab';
 import {
   type ChatStreamEvent,
   type CompletionResult,
@@ -58,7 +59,10 @@ export function specFor(
     rawMode: isLocalProvider(cfg.provider) || opts.sendUnredactedToCloud === true,
     ...(cfg.apiKeyHandleId ? { apiKeyHandleId: cfg.apiKeyHandleId } : {}),
     ...(cfg.baseUrl ? { baseUrlOverride: cfg.baseUrl } : {}),
-    ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}),
+    // The IPC schema caps one call's output; clamp so no caller can fail validation.
+    ...(opts.maxOutputTokens
+      ? { maxOutputTokens: Math.min(opts.maxOutputTokens, MAX_PER_CALL_OUTPUT_TOKENS) }
+      : {}),
     ...(opts.tools ? { tools: opts.tools } : {}),
   };
 }

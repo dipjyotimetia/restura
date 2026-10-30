@@ -51,6 +51,15 @@ describe('specFor', () => {
   });
 });
 
+describe('specFor maxOutputTokens clamp (#1021)', () => {
+  it('never exceeds the 32768 IPC ceiling', () => {
+    expect(specFor(CLOUD, 'gpt-4o', MSGS, { maxOutputTokens: 100_000 }).maxOutputTokens).toBe(
+      32_768
+    );
+    expect(specFor(CLOUD, 'gpt-4o', MSGS, { maxOutputTokens: 512 }).maxOutputTokens).toBe(512);
+  });
+});
+
 describe('completeLlm (web guard)', () => {
   it('rejects when not running in Electron (no window.electron bridge)', async () => {
     await expect(completeLlm(specFor(CLOUD, 'gpt-4o', MSGS))).rejects.toThrow(/desktop app/i);
