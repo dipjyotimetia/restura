@@ -8,7 +8,7 @@ Manager, libsecret on Linux). The key is fetched once per session through
 the `secureKey` IPC channel and cached in renderer memory.
 
 Plain text only when the OS reports
-`safeStorage.isEncryptionAvailable() === false`, in which case the user is
+`await safeStorage.isAsyncEncryptionAvailable() === false`, in which case the user is
 warned at startup.
 
 ## Web (Cloudflare Pages)

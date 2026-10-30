@@ -102,9 +102,9 @@ function getStore(): ConsentStoreShape {
 
 type MacKeyProvider = () => Buffer | null;
 
-function safeStorageUsable(): boolean {
+async function safeStorageUsable(): Promise<boolean> {
   try {
-    if (!safeStorage.isEncryptionAvailable()) return false;
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) return false;
     // Linux without a keyring falls back to a hard-coded password; that is
     // not a secret, so treat it as unavailable and fail closed.
     const backend = (
@@ -116,8 +116,8 @@ function safeStorageUsable(): boolean {
   }
 }
 
-const defaultMacKeyProvider: MacKeyProvider = () => {
-  if (!safeStorageUsable()) return null;
+async function loadMacKey(): Promise<Buffer | null> {
+  if (!(await safeStorageUsable())) return null;
   const file = path.join(app.getPath('userData'), MAC_KEY_FILE);
   let sealed: Buffer;
   try {
@@ -129,7 +129,7 @@ const defaultMacKeyProvider: MacKeyProvider = () => {
     return mintMacKey(file);
   }
   try {
-    const hex = safeStorage.decryptString(sealed);
+    const { result: hex } = await safeStorage.decryptStringAsync(sealed);
     if (/^[0-9a-f]{64}$/.test(hex)) return Buffer.from(hex, 'hex');
   } catch {
     // fall through
@@ -137,13 +137,13 @@ const defaultMacKeyProvider: MacKeyProvider = () => {
   // Present but not a valid sealed key (keychain changed, file damaged or
   // replaced): do not overwrite it. Every launch prompts for this session.
   return null;
-};
+}
 
-function mintMacKey(file: string): Buffer | null {
+async function mintMacKey(file: string): Promise<Buffer | null> {
   try {
     const key = crypto.randomBytes(32);
     // 'wx': never replace a file that appeared in the meantime.
-    fs.writeFileSync(file, safeStorage.encryptString(key.toString('hex')), {
+    fs.writeFileSync(file, await safeStorage.encryptStringAsync(key.toString('hex')), {
       mode: 0o600,
       flag: 'wx',
     });
@@ -153,12 +153,29 @@ function mintMacKey(file: string): Buffer | null {
   }
 }
 
+/** Set by `primeStdioConsentMacKey`; undefined until startup has run it. */
+let primedMacKey: Buffer | null = null;
+
+/**
+ * Load (or mint) the MAC key with the async safeStorage API. Call once after
+ * `app` is ready; the synchronous consent checks then read it from memory.
+ * Until it has run, remembered approvals are disabled (fail closed).
+ */
+export async function primeStdioConsentMacKey(): Promise<void> {
+  primedMacKey = await loadMacKey();
+  cachedMacKey = undefined;
+}
+
+const defaultMacKeyProvider: MacKeyProvider = () => primedMacKey;
+
 let macKeyProvider: MacKeyProvider = defaultMacKeyProvider;
 let cachedMacKey: Buffer | null | undefined;
 
 /** Test-only seam: inject the MAC key source (null = safeStorage unavailable). */
 export function __setStdioConsentMacKeyProviderForTests(provider: MacKeyProvider | null): void {
   macKeyProvider = provider ?? defaultMacKeyProvider;
+  // Resetting to the real provider also forgets the primed key (a "restart").
+  if (provider === null) primedMacKey = null;
   cachedMacKey = undefined;
 }
 
