@@ -36,6 +36,34 @@ export function clampOutputTokens(remaining: number, modelCap?: number): number 
   );
 }
 
+/**
+ * Tool output fed back to the model is capped well under the desktop IPC
+ * per-message ceiling (200k chars) so a large response cannot break the next turn.
+ */
+export const MAX_TOOL_OUTPUT_CHARS = 100_000;
+
+function textOfBlock(block: ContentBlock): string {
+  if (block.type === 'text' || block.type === 'reasoning-summary') return block.text;
+  if (block.type === 'json') return JSON.stringify(block.value) ?? '';
+  return '';
+}
+
+/** Cap a tool result for the next model turn, replacing the excess with a visible marker. */
+export function truncateToolOutputForModel(
+  blocks: ContentBlock[],
+  maxChars = MAX_TOOL_OUTPUT_CHARS
+): ContentBlock[] {
+  const total = blocks.reduce((sum, block) => sum + textOfBlock(block).length, 0);
+  if (total <= maxChars) return blocks;
+  const text = blocks.map(textOfBlock).filter(Boolean).join('\n');
+  return [
+    {
+      type: 'text',
+      text: `${text.slice(0, maxChars)}\n[truncated: tool output was ${total} characters; only the first ${maxChars} are shown]`,
+    },
+  ];
+}
+
 export interface AgentTool {
   definition: AgentToolDefinition;
   permissionClass: PermissionClass;
@@ -515,7 +543,11 @@ export class AgentRunner {
               output: toolOutput,
               durationMs: this.now() - toolStartedAt,
             });
-            messages.push({ role: 'tool', toolCallId: toolCall.id, content: toolOutput });
+            messages.push({
+              role: 'tool',
+              toolCallId: toolCall.id,
+              content: truncateToolOutputForModel(toolOutput),
+            });
           } catch (cause) {
             const toolError = cause instanceof Error ? cause.message : String(cause);
             emit({

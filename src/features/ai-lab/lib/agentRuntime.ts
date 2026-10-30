@@ -33,6 +33,42 @@ type Complete = (
 
 const DEFAULT_JUDGE_MAX_OUTPUT_TOKENS = 512;
 
+// Desktop IPC limits for one AI Lab call (electron/main/ipc/validators/ai.ts).
+const IPC_MAX_MESSAGES = 200;
+const IPC_MAX_CONTENT_CHARS = 200_000;
+// A single assistant turn may carry up to 64 parallel tool calls (IPC schema).
+const MAX_PAIRED_TOOL_RESULTS = 64;
+const OMITTED_NOTE = '\n\n[Earlier conversation turns were omitted to fit the request size limit.]';
+
+type IpcMessage = ReturnType<typeof text>[number];
+
+/**
+ * Fit a long agent history inside the IPC message limits. Keeps the leading
+ * system/task messages and the most recent turns; a window never starts on a
+ * tool result (it is pulled back to its owning assistant message) so the
+ * provider never sees an orphaned tool call or result.
+ */
+export function windowMessagesForIpc(messages: IpcMessage[]): IpcMessage[] {
+  const clipped = messages.map((m) =>
+    m.content.length > IPC_MAX_CONTENT_CHARS
+      ? {
+          ...m,
+          content: `${m.content.slice(0, IPC_MAX_CONTENT_CHARS - 200)}\n[truncated: ${m.content.length} characters exceeded the request size limit]`,
+        }
+      : m
+  );
+  if (clipped.length <= IPC_MAX_MESSAGES) return clipped;
+  const firstUser = clipped.findIndex((m) => m.role === 'user');
+  const headEnd = firstUser < 0 ? 0 : firstUser + 1;
+  const budget = IPC_MAX_MESSAGES - headEnd - MAX_PAIRED_TOOL_RESULTS;
+  let start = Math.max(headEnd, clipped.length - budget);
+  while (start > headEnd && clipped[start]?.role === 'tool') start -= 1;
+  const head = clipped.slice(0, headEnd);
+  const first = head[0];
+  if (first?.role === 'system') head[0] = { ...first, content: first.content + OMITTED_NOTE };
+  return [...head, ...clipped.slice(start)];
+}
+
 function suiteModelRefs(suite: AgentSuite): Array<{ ref: ModelRef; path: string }> {
   return [
     ...suite.agents.map((agent, index) => ({ ref: agent.model, path: `agents[${index}].model` })),
@@ -158,7 +194,7 @@ export function createDesktopAgentProviders(
             const unsupported = validateGenerationRequest(request, capabilities);
             if (unsupported.length > 0) throw new Error(unsupported.join('; '));
             const completion = await complete(
-              specFor(config, request.model.model, text(request.messages), {
+              specFor(config, request.model.model, windowMessagesForIpc(text(request.messages)), {
                 ...(request.maxOutputTokens !== undefined
                   ? { maxOutputTokens: request.maxOutputTokens }
                   : {}),

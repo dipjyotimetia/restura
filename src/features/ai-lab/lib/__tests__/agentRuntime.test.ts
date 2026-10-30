@@ -1063,3 +1063,119 @@ describe('desktop agent provider bridge', () => {
     ).rejects.toThrow('model call failed');
   });
 });
+
+// IPC limits for one AI Lab call (electron/main/ipc/validators/ai.ts):
+// `content.max(200_000)` per message and `messages.max(200)`.
+const IPC_MAX_CONTENT = 200_000;
+const IPC_MAX_MESSAGES = 200;
+
+describe('desktop agent loop stays within the IPC message limits (#1035)', () => {
+  function toolConfig() {
+    const config = provider('cfg', 'model');
+    config.capabilityOverrides = {
+      model: { ...config.capabilityOverrides!.model!, toolCalling: true },
+    };
+    return config;
+  }
+
+  function loopSuite(maxSteps: number): AgentSuite {
+    return {
+      schemaVersion: 2,
+      id: 'loop-suite',
+      name: 'Loop suite',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'agent',
+          model: { providerId: 'cfg', model: 'model' },
+          instructions: 'Keep calling the tool.',
+          tools: [{ kind: 'fixture', fixtureId: 'big' }],
+          limits: { maxSteps, maxWallTimeMs: 60_000, maxToolCalls: maxSteps },
+        },
+      ],
+      tasks: [{ id: 'task', input: [{ type: 'text', text: 'Go' }] }],
+      graders: [],
+      trials: 1,
+    };
+  }
+
+  function resolverReturning(text: string) {
+    return createAgentToolResolver([
+      createFixtureToolSourceAdapter([
+        {
+          id: 'big',
+          tool: {
+            name: 'big_tool',
+            description: 'Returns a large payload.',
+            inputSchema: { type: 'object', additionalProperties: false },
+          },
+          output: [{ type: 'text', text }],
+        },
+      ]),
+    ]);
+  }
+
+  /** Model calls the tool `toolTurns` times, then answers. Records every spec. */
+  function scriptedModel(toolTurns: number) {
+    const specs: Array<{ messages: Array<Record<string, unknown>> }> = [];
+    let turn = 0;
+    completeLlm.mockImplementation(async (spec: { messages: Array<Record<string, unknown>> }) => {
+      specs.push({ messages: spec.messages });
+      turn += 1;
+      if (turn > toolTurns) return { ok: true, text: 'done', toolCalls: [] };
+      return {
+        ok: true,
+        text: '',
+        toolCalls: [{ id: `call-${turn}`, name: 'big_tool', input: '{}' }],
+      };
+    });
+    return specs;
+  }
+
+  it('truncates an oversized tool result with a visible marker before the next turn', async () => {
+    const specs = scriptedModel(1);
+    await runDesktopAgentSuite(
+      loopSuite(3),
+      { cfg: toolConfig() },
+      { complete: completeLlm, toolResolver: resolverReturning('x'.repeat(250_000)) }
+    );
+    const second = specs[1]!;
+    const lengths = second.messages.map((m) => String(m.content).length);
+    expect(Math.max(...lengths)).toBeLessThanOrEqual(IPC_MAX_CONTENT);
+    const toolMessage = second.messages.find((m) => m.role === 'tool');
+    expect(String(toolMessage?.content)).toContain('[truncated');
+  });
+
+  it('windows history so a long tool loop never exceeds the message cap, keeping pairs intact', async () => {
+    const specs = scriptedModel(130);
+    await runDesktopAgentSuite(
+      loopSuite(140),
+      { cfg: toolConfig() },
+      { complete: completeLlm, toolResolver: resolverReturning('ok') }
+    );
+    expect(specs.length).toBeGreaterThan(110);
+    for (const { messages } of specs) {
+      expect(messages.length).toBeLessThanOrEqual(IPC_MAX_MESSAGES);
+      // Every tool message answers a tool call made by an earlier assistant message.
+      const called = new Set<string>();
+      for (const m of messages) {
+        if (m.role === 'assistant') {
+          for (const c of (m.toolCalls as Array<{ id: string }> | undefined) ?? [])
+            called.add(c.id);
+        }
+        if (m.role === 'tool') expect(called.has(String(m.toolCallId))).toBe(true);
+      }
+      // Every assistant tool call has its tool result still present.
+      const answered = new Set(
+        messages.filter((m) => m.role === 'tool').map((m) => String(m.toolCallId))
+      );
+      for (const m of messages) {
+        for (const c of (m.toolCalls as Array<{ id: string }> | undefined) ?? []) {
+          expect(answered.has(c.id)).toBe(true);
+        }
+      }
+      expect(messages[0]?.role).toBe('system');
+      expect(messages[1]?.role).toBe('user');
+    }
+  });
+});
