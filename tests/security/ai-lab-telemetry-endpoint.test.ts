@@ -40,6 +40,19 @@ describe('AI Lab telemetry export endpoint guard (#1034)', () => {
     await expect(pinTelemetryEndpoint('https://collector.example/')).rejects.toThrow();
   });
 
+  it('allows the explicit bracketed IPv6 loopback collector', async () => {
+    await expect(pinTelemetryEndpoint('http://[::1]:4318/v1/traces')).resolves.toMatchObject({
+      ip: '::1',
+      family: 6,
+      port: 4318,
+    });
+    expect(mockLookup).not.toHaveBeenCalled();
+  });
+
+  it('still refuses a bracketed non-loopback private literal', async () => {
+    await expect(pinTelemetryEndpoint('http://[fd00::5]:4318/')).rejects.toThrow();
+  });
+
   it('still allows the explicit loopback HTTP collector', async () => {
     await expect(pinTelemetryEndpoint('http://127.0.0.1:4318/v1/traces')).resolves.toMatchObject({
       ip: '127.0.0.1',
