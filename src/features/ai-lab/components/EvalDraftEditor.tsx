@@ -1,4 +1,5 @@
 import { AlertTriangle, FilePlus2, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -31,6 +32,48 @@ interface EvalDraftEditorProps {
   onToggleModel: (key: string) => void;
   onChangeSelectedModels: (selected: Set<string>) => void;
   onOpenModels: () => void;
+}
+
+/**
+ * Whole-percent input that tolerates an empty or partial value while typing
+ * (clearing the field to type a new number must not snap back) and clamps to
+ * 1-100 on blur. Only valid in-range values reach the draft while typing.
+ */
+export function PassThresholdInput({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (pct: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  return (
+    <Input
+      id="eval-pass-threshold"
+      data-testid="eval-pass-threshold"
+      className="w-20"
+      type="number"
+      min={1}
+      max={100}
+      value={text}
+      onChange={(event) => {
+        setText(event.target.value);
+        const n = Math.round(Number(event.target.value));
+        if (event.target.value !== '' && Number.isFinite(n) && n >= 1 && n <= 100) onChange(n);
+      }}
+      onBlur={() => {
+        const n = Math.round(Number(text));
+        if (text === '' || !Number.isFinite(n)) {
+          setText(String(value));
+          return;
+        }
+        const clamped = Math.max(1, Math.min(100, n));
+        setText(String(clamped));
+        onChange(clamped);
+      }}
+    />
+  );
 }
 
 /**
@@ -186,22 +229,9 @@ export function EvalDraftEditor({
           <Label htmlFor="eval-pass-threshold" className="sp-label">
             Pass threshold (%)
           </Label>
-          <Input
-            id="eval-pass-threshold"
-            data-testid="eval-pass-threshold"
-            className="w-20"
-            type="number"
-            min={1}
-            max={100}
+          <PassThresholdInput
             value={draft.passThresholdPct}
-            onChange={(event) =>
-              onPatchDraft({
-                passThresholdPct: Math.max(
-                  1,
-                  Math.min(100, Math.round(Number(event.target.value)) || 100)
-                ),
-              })
-            }
+            onChange={(passThresholdPct) => onPatchDraft({ passThresholdPct })}
           />
         </div>
         <p className="text-sp-11 text-sp-dim">
