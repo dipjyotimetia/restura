@@ -5,12 +5,14 @@ description: Use whenever adding, modifying, or extending features in the Restur
 
 # Restura feature development
 
-Restura is a multi-protocol API client. The renderer is one shared React SPA running in two harnesses:
+Restura is a multi-protocol API client. One shared React SPA runs against three backends, and the CLI re-implements execution headlessly:
 
 - **Web** — served from Cloudflare Pages. Network calls go through a Hono Worker at `worker/`.
+- **Self-host** — the same Hono app, served by `worker/node-entry.ts`.
 - **Electron** — same renderer, but `electron/main/` IPC handlers replace the Worker.
+- **CLI** — `cli/src/runner/executors/*`; it must behave like the app or fail explicitly.
 
-This dual-harness design is the central thing to understand. **Most feature bugs in this repo come from wiring one harness and forgetting the other.** The skill exists to keep that from happening.
+This multi-backend design is the central thing to understand. **Most feature bugs in this repo come from wiring one backend and forgetting the others.** The skill exists to keep that from happening.
 
 ## Step 1 — Categorize the feature
 
@@ -44,7 +46,7 @@ These apply to every category.
 ### Validation philosophy — different at each layer
 
 - **Electron IPC handlers**: Zod is mandatory. Always wrap with `createValidatedHandler(channel, schema, fn)` from `electron/main/ipc/validators/` (`boundary.ts`, re-exported by its `index.ts`).
-- **Worker handlers**: No Zod. Manual checks (method allow-list, `validateURL()` for SSRF, header strip-list). Keeps the Worker bundle small for cold starts. Don't introduce Zod there.
+- **Worker handlers**: Manual checks by default (method allow-list, `validateURL()` for SSRF, header strip-list) to keep the Worker bundle small for cold starts. Where a handler does validate a request body with Zod (`telemetry`, `remote-import`, `ws-ticket`), it goes through `worker/shared/validate-body.ts`; keep Zod off the hot proxy paths.
 - **Zustand updates**: Soft Zod via `src/lib/shared/store-validators.ts` — failures log a warning but don't block the update. Mirror this for new stores.
 - **Renderer code**: Zod where boundaries are crossed (parsing imports, untrusted inputs), not on internal data flow.
 
@@ -72,7 +74,7 @@ Read the focused reference for each layer your category touches:
 - `references/adding-new-protocol.md` — end-to-end checklist for category A
 - `references/gotchas.md` — non-obvious traps; **read once before any non-trivial change**
 
-Each reference is intentionally short (~100–150 lines) so you can load the ones you need without bloating context.
+Load only the references your category needs.
 
 ## Step 4 — Tests
 
@@ -89,19 +91,20 @@ For new IPC schemas, add a test that asserts the Zod schema rejects malformed in
 Run before declaring done:
 
 ```bash
-npm run validate   # type-check + lint + test:run
+npm run validate   # full product gate: static policy + tests + builds + size
 ```
 
-## Step 5 — Verify both harnesses
+## Step 5 — Verify every backend the change reaches
 
-If the change touches the dispatch path (executor, Worker handler, IPC handler, type declarations), test in **both** harnesses before claiming complete:
+If the change touches the dispatch path (executor, Worker handler, IPC handler, type declarations), test each backend it reaches before claiming complete:
 
 ```bash
 npm run dev           # Web (Vite + Worker via Miniflare). http://localhost:5173
 npm run electron:dev  # Electron renders the same Vite dev server in a window
+npm run build:docker  # Self-host: confirms the Node entry still builds
 ```
 
-The whole reason Worker and IPC handlers are separate is so each harness uses its native capabilities. They will diverge if you don't watch them.
+For the CLI, run the executor tests (`npm test --workspace cli`). The Worker, IPC handlers and CLI executors are separate so each uses its native capabilities. They will diverge if you don't watch them.
 
 ## "Done" checklist
 
@@ -112,6 +115,7 @@ The whole reason Worker and IPC handlers are separate is so each harness uses it
 - [ ] Tests added (unit minimum; schema tests for new IPC; SSRF test for new Worker handler)
 - [ ] `npm run validate` passes
 - [ ] If dispatch path was touched: manually verified in both `npm run dev` and `npm run electron:dev`
+- [ ] If protocol, auth or transport changed: the CLI executor matches the app or refuses explicitly
 
 ## When _not_ to use this skill
 

@@ -6,8 +6,8 @@ allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task
 ---
 
 You are running a fix-until-green loop on the current branch. The exit
-criterion is deterministic: **`npm run validate` exits 0** (type-check:all +
-lint + format:check + codegen freshness + tests + CLI tests). Do not stop
+criterion is deterministic: **`npm run validate` exits 0** (static policy,
+tests, then all builds and size). Do not stop
 because the work "looks done" — stop when the gate is green or the attempt cap
 is hit.
 

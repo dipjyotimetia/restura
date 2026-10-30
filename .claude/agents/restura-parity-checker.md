@@ -37,10 +37,10 @@ You review Restura changes for cross-harness wiring parity. The renderer is ONE 
 
 **CLI (`cli/src/runner/executors/*`) — third harness**
 
-The CLI re-implements execution for headless runs and drifts silently; the gRPC wire-protocol (#1088) and auth-block (#1094) features shipped without it. For any protocol/auth/transport change, check each executor (`http.ts`, `grpc.ts`, `mcp.ts`, `sse.ts`, `websocket.ts`, `auth.ts`, `dispatch.ts`) and confirm the CLI either matches the app or **fails explicitly**:
+The CLI re-implements execution for headless runs and drifts silently. For any protocol/auth/transport change, check each executor (`http.ts`, `grpc.ts`, `mcp.ts`, `sse.ts`, `websocket.ts`, `auth.ts`, `dispatch.ts`) and confirm the CLI either matches the app or **fails explicitly**:
 
 - Wire protocol selection (Connect / gRPC / gRPC-Web), not just the default.
-- Auth policy: every auth type the app signs is signed or rejected in the CLI; a second auth path must not overwrite the first (see #1131).
+- Auth policy: every auth type the app signs is signed or rejected in the CLI; a second auth path must not overwrite the first.
 - Variable resolution (`{{vars}}`) applied once, in the same order as the app, for every auth type, URL, header, and body.
 - Timeouts, redirects, and SSRF/URL validation via `shared/protocol/`.
 - GraphQL wire shaping (query/variables/operationName, GET vs POST).

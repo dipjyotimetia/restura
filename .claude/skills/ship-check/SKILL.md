@@ -15,7 +15,7 @@ Determine the diff under review: `git diff --stat main...HEAD` and `git status -
 
 ## Gates (run all; capture pass/fail + output)
 
-1. **Type-check (all six projects)** — `npm run type-check:all`. NOTE: plain `type-check` only covers the renderer; this is the real gate. If it fails but renderer is clean, the error is in worker/electron-main/cli/echo/http.
+1. **Type-check (all projects)** — `npm run type-check:all`. NOTE: plain `type-check` only covers the renderer; this is the real gate. If it fails but renderer is clean, the error is in worker/electron-main/cli/echo/http.
 2. **Lint** — `npm run lint`.
 3. **Codegen freshness** — `npm run verify:opencollection-types` and `npm run capabilities:check`. On failure, the fix is to regenerate (`gen:opencollection-types` / `capabilities:matrix`), not hand-edit.
 4. **Unit/integration + coverage** — `npm run test:run`.
