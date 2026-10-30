@@ -49,12 +49,13 @@ type IpcMessage = ReturnType<typeof text>[number];
  * provider never sees an orphaned tool call or result.
  */
 export function windowMessagesForIpc(messages: IpcMessage[]): IpcMessage[] {
+  const clipContent = (content: string, max: number): string =>
+    content.length > max
+      ? `${content.slice(0, max - 200)}\n[truncated: ${content.length} characters exceeded the request size limit]`
+      : content;
   const clipped = messages.map((m) =>
     m.content.length > IPC_MAX_CONTENT_CHARS
-      ? {
-          ...m,
-          content: `${m.content.slice(0, IPC_MAX_CONTENT_CHARS - 200)}\n[truncated: ${m.content.length} characters exceeded the request size limit]`,
-        }
+      ? { ...m, content: clipContent(m.content, IPC_MAX_CONTENT_CHARS) }
       : m
   );
   if (clipped.length <= IPC_MAX_MESSAGES) return clipped;
@@ -65,7 +66,14 @@ export function windowMessagesForIpc(messages: IpcMessage[]): IpcMessage[] {
   while (start > headEnd && clipped[start]?.role === 'tool') start -= 1;
   const head = clipped.slice(0, headEnd);
   const first = head[0];
-  if (first?.role === 'system') head[0] = { ...first, content: first.content + OMITTED_NOTE };
+  if (first?.role === 'system') {
+    // Clip to leave room for the note, so appending it cannot exceed the limit.
+    head[0] = {
+      ...first,
+      content:
+        clipContent(first.content, IPC_MAX_CONTENT_CHARS - OMITTED_NOTE.length) + OMITTED_NOTE,
+    };
+  }
   return [...head, ...clipped.slice(start)];
 }
 

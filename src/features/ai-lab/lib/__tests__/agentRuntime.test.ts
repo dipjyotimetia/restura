@@ -10,6 +10,7 @@ import {
   createDesktopAgentProviders,
   runDesktopAgentBundle,
   runDesktopAgentSuite,
+  windowMessagesForIpc,
 } from '../agentRuntime';
 
 const completeLlm = vi.fn();
@@ -1221,5 +1222,22 @@ describe('suite unredacted-cloud override (#1028)', () => {
       { complete: completeLlm, sendUnredactedToCloud: true }
     );
     expect(completeLlm.mock.calls[0]?.[0]).toMatchObject({ rawMode: true });
+  });
+});
+
+describe('windowMessagesForIpc system-message bound', () => {
+  it('keeps a near-limit system message under the IPC limit after the omitted note', () => {
+    const messages = [
+      { role: 'system' as const, content: 's'.repeat(199_990) },
+      { role: 'user' as const, content: 'task' },
+      ...Array.from({ length: 260 }, (_, i) => ({
+        role: 'assistant' as const,
+        content: `turn ${i}`,
+      })),
+    ];
+    const windowed = windowMessagesForIpc(messages);
+    expect(windowed.length).toBeLessThan(messages.length);
+    for (const m of windowed) expect(m.content.length).toBeLessThanOrEqual(200_000);
+    expect(windowed[0]?.content.endsWith('request size limit.]')).toBe(true);
   });
 });

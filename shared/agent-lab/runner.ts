@@ -56,11 +56,19 @@ export function truncateToolOutputForModel(
   const total = blocks.reduce((sum, block) => sum + textOfBlock(block).length, 0);
   if (total <= maxChars) return blocks;
   const text = blocks.map(textOfBlock).filter(Boolean).join('\n');
+  // Never cut between the halves of a surrogate pair.
+  let end = maxChars;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  // Blocks that carry no text (images, documents, artifacts) are not what
+  // overflowed; keep them rather than silently dropping the evidence.
+  const kept = blocks.filter((block) => textOfBlock(block) === '' && block.type !== 'text');
   return [
     {
       type: 'text',
-      text: `${text.slice(0, maxChars)}\n[truncated: tool output was ${total} characters; only the first ${maxChars} are shown]`,
+      text: `${text.slice(0, end)}\n[truncated: tool output was ${total} characters; only the first ${end} are shown]`,
     },
+    ...kept,
   ];
 }
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GenerationRequest, GenerationResponse, ProviderAdapter } from '../provider';
 import { ProviderRegistry } from '../provider';
-import { AgentRunner, type AgentTool } from '../runner';
+import { AgentRunner, type AgentTool, truncateToolOutputForModel } from '../runner';
 import type { AgentSuite } from '../types';
 
 const capabilities = {
@@ -840,5 +840,35 @@ describe('AgentRunner per-call maxOutputTokens clamp (#1021)', () => {
 
   it('leaves the provider default when there is no run budget', async () => {
     expect(await firstCallMaxOutput(undefined, 4_096)).toBeUndefined();
+  });
+});
+
+describe('truncateToolOutputForModel', () => {
+  it('keeps image and document blocks when truncating text', () => {
+    const image = { type: 'image' as const, mimeType: 'image/png', data: 'AAAA' };
+    const doc = { type: 'document' as const, mimeType: 'application/pdf', uri: 'file:///a.pdf' };
+    const out = truncateToolOutputForModel(
+      [{ type: 'text', text: 'x'.repeat(50) }, image, doc],
+      10
+    );
+    expect(out).toHaveLength(3);
+    expect(out[0]).toMatchObject({ type: 'text' });
+    expect(out.slice(1)).toEqual([image, doc]);
+  });
+
+  it('does not split a surrogate pair at the cut', () => {
+    // The 10th UTF-16 unit is the high half of the emoji.
+    const out = truncateToolOutputForModel(
+      [{ type: 'text', text: `${'a'.repeat(9)}\u{1F600}tail` }],
+      10
+    );
+    const text = (out[0] as { text: string }).text;
+    expect(text.startsWith(`${'a'.repeat(9)}\n[truncated`)).toBe(true);
+    expect(text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  });
+
+  it('passes small outputs through untouched', () => {
+    const blocks = [{ type: 'text' as const, text: 'ok' }];
+    expect(truncateToolOutputForModel(blocks, 10)).toBe(blocks);
   });
 });
