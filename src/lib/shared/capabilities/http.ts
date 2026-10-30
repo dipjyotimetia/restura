@@ -84,4 +84,11 @@ export const HTTP_CAPABILITIES = {
     notes:
       'Web streams via the Worker proxy; Electron IPC buffers the full response (renderer falls back to the buffered path)',
   },
+  'http.auth.ntlm': {
+    label: 'NTLM authentication',
+    web: false,
+    desktop: true,
+    notes:
+      'NTLMv2 handshake (type 1 → 2 → 3) on one pinned HTTP/1.1 connection, only for the requested origin; fails explicitly if the server drops the connection or HTTP/2 is required. Web and self-host send the request without authentication and the editor says so; the CLI refuses NTLM requests (#1069)',
+  },
 } as const satisfies Record<string, CapabilityRow>;

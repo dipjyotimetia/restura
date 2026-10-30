@@ -132,5 +132,10 @@ These are connection-based or lossy on OpenCollection import — use the manifes
   desktop and the CLI. Point a Digest-auth request at
   `GET /digest-auth/:user/:pass` (MD5, `qop=auth`) with the same user/password
   to exercise the challenge/retry end-to-end.
-- **NTLM** — not applied on send yet on any platform
-  ([#1069](https://github.com/dipjyotimetia/restura/issues/1069)).
+- **NTLM** — desktop only
+  ([#1069](https://github.com/dipjyotimetia/restura/issues/1069)). Point an NTLM
+  request at `GET /ntlm/protected` with user `alice` / `wonderland` and domain
+  `RESTURA` (or `RESTURA\alice`). The server verifies the NTLMv2 proof and
+  rejects a type 3 message that arrives on a different connection from the
+  challenge. Web and self-host send NTLM requests unauthenticated; the CLI
+  refuses them.

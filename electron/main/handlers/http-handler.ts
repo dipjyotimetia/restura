@@ -18,8 +18,14 @@ import type {
 } from '@shared/protocol/types';
 import { createLogger } from '@shared/runtime/logger';
 import type { HttpVersionPreference } from '@shared/types';
-import { ipcMain, session } from 'electron';
-import { Agent, buildConnector, ProxyAgent, request as undiciRequest } from 'undici';
+import { ipcMain } from 'electron';
+import {
+  Agent,
+  buildConnector,
+  type Dispatcher,
+  ProxyAgent,
+  request as undiciRequest,
+} from 'undici';
 import { IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
@@ -49,12 +55,20 @@ import {
   wrapConnectorForTiming,
   wrapConnectorRequireH2,
 } from './http-connector-wrappers';
+import { applyPacProxy } from './http-pac-proxy';
 import { subscribeProxyAlpnCapture } from './http-proxy-alpn';
 import { decodeResponseBody, tryParseJson, wireCodings } from './http-response-stream';
 import { createSecureLookup, openSocksSocket } from './http-secure-connection';
 import { createSocksDispatcher } from './http-socks-dispatcher';
 import { h2NotNegotiatedError, resolveHttpVersionPlan } from './http-version';
 import { interceptorRegistry } from './interceptor-registry';
+import {
+  createNtlmConnectionPin,
+  dispatchWithNtlm,
+  type NtlmFetchAuth,
+  ntlmFetchAuthFor,
+  pinHttp1ForNtlm,
+} from './ntlm-handshake';
 
 export { decodeBodyStream } from './http-response-stream';
 export { openSocksSocket } from './http-secure-connection';
@@ -276,9 +290,15 @@ function buildConnectOptions(
 // propagation, ALPN capture) live inside this closure.
 // Exported as a test seam so the full form-data/binary/gzip round-trip can be
 // exercised against a local mock upstream without standing up IPC.
-export function buildElectronFetcher(electronConfig: HttpRequestConfig): Fetcher {
+export function buildElectronFetcher(
+  electronConfig: HttpRequestConfig,
+  ntlmAuth?: NtlmFetchAuth
+): Fetcher {
   return async (req: FetcherRequest): Promise<FetcherResponse> => {
     const url = new URL(req.url);
+    // NTLM (#1069) only for the origin the user targeted, on one pinned socket.
+    const ntlm = ntlmAuth?.origin === url.origin ? ntlmAuth.credentials : undefined;
+    const pin = ntlm ? createNtlmConnectionPin() : {};
     const isHttps = url.protocol === 'https:';
     const signal = electronConfig.signal
       ? AbortSignal.any([req.signal, electronConfig.signal])
@@ -336,7 +356,10 @@ export function buildElectronFetcher(electronConfig: HttpRequestConfig): Fetcher
     // HTTP version (#864). 'auto' keeps the historical behaviour: h2 offered
     // via ALPN over TLS, HTTP/1.1 over cleartext. The plan feeds every
     // dispatcher path below (direct, HTTP/env proxy, SOCKS).
-    const versionPlan = resolveHttpVersionPlan(electronConfig.httpVersion, isHttps);
+    const versionPlan = pinHttp1ForNtlm(
+      resolveHttpVersionPlan(electronConfig.httpVersion, isHttps),
+      ntlm
+    );
     const { allowH2 } = versionPlan;
     // undici's ProxyAgent sends cleartext targets as forward-proxy HTTP/1.1
     // requests; it cannot speak h2c through the proxy. Fail loudly rather than
@@ -396,6 +419,7 @@ export function buildElectronFetcher(electronConfig: HttpRequestConfig): Fetcher
         assertNoH2cViaHttpProxy();
         const proxyUri = `${proxyType}://${electronConfig.proxy.host}:${electronConfig.proxy.port}`;
         const proxyOpts: ProxyAgent.Options = {
+          ...pin,
           uri: proxyUri,
           allowH2,
           // requestTls applies to the upstream TLS handshake — that's where mTLS and ALPN matter.
@@ -436,7 +460,8 @@ export function buildElectronFetcher(electronConfig: HttpRequestConfig): Fetcher
             }),
           },
           // mTLS client cert + custom CA — previously dropped on the SOCKS path.
-          certMaterial
+          certMaterial,
+          pin
         );
         // SOCKS path: TLS happens inside our custom connector — capture ALPN there.
         if (captureAlpn) {
@@ -445,6 +470,7 @@ export function buildElectronFetcher(electronConfig: HttpRequestConfig): Fetcher
         }
       } else {
         dispatcher = new Agent({
+          ...pin,
           allowH2,
           connect: {
             ...connectOpts,
@@ -462,6 +488,7 @@ export function buildElectronFetcher(electronConfig: HttpRequestConfig): Fetcher
       assertNoH2cViaHttpProxy();
       const proxyUri = `${envProxy.type}://${envProxy.host}:${envProxy.port}`;
       const proxyOpts: ProxyAgent.Options = {
+        ...pin,
         uri: proxyUri,
         allowH2,
         requestTls: { ...connectOpts, ...versionTls } as ProxyAgent.Options['requestTls'],
@@ -495,6 +522,7 @@ export function buildElectronFetcher(electronConfig: HttpRequestConfig): Fetcher
         ? wrapConnectorForAlpn(innerConnector, alpnHolder)
         : innerConnector;
       dispatcher = new Agent({
+        ...pin,
         allowH2,
         connect: wrapConnectorForTiming(
           versionPlan.requireH2
@@ -536,19 +564,17 @@ export function buildElectronFetcher(electronConfig: HttpRequestConfig): Fetcher
 
     let response: Awaited<ReturnType<typeof undiciRequest>>;
     try {
-      response = await undiciRequest(req.url, {
-        method: req.method as Parameters<typeof undiciRequest>[1] extends infer O
-          ? O extends { method?: infer M }
-            ? M
-            : never
-          : never,
-        headers: outHeaders,
-        body: undiciBody,
-        signal,
-        dispatcher,
-        // undici's default is no auto-follow; redirects are followed (and
-        // credentials stripped cross-origin) by the shared followRedirects.
-      });
+      // No auto-follow: the shared followRedirects owns redirects (and strips
+      // credentials cross-origin). Every NTLM leg reuses this one dispatcher.
+      const send = (headers: Record<string, string>) =>
+        undiciRequest(req.url, {
+          method: req.method as Dispatcher.HttpMethod,
+          headers,
+          body: undiciBody,
+          signal,
+          dispatcher,
+        });
+      response = ntlm ? await dispatchWithNtlm(send, outHeaders, ntlm) : await send(outHeaders);
     } catch (err) {
       // Connection / dispatch failed — release the dispatcher, the SOCKS
       // tunnel, and any diagnostic-channel listener immediately.
@@ -660,63 +686,16 @@ async function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse>
   }
 
   // PAC proxy resolution (Electron-specific — uses Electron's session.resolveProxy)
-  let resolvedConfig = policyConfig;
-  if (
-    policyConfig.proxy?.enabled &&
-    policyConfig.proxy.type === 'pac' &&
-    policyConfig.proxy.pacUrl
-  ) {
-    try {
-      const proxyResult = await session.defaultSession.resolveProxy(policyConfig.url);
-      if (proxyResult.startsWith('PROXY ') || proxyResult.startsWith('HTTPS ')) {
-        const proxyAddr = proxyResult.split(' ')[1];
-        if (proxyAddr) {
-          const colonIdx = proxyAddr.lastIndexOf(':');
-          const host = colonIdx !== -1 ? proxyAddr.substring(0, colonIdx) : proxyAddr;
-          const port = colonIdx !== -1 ? parseInt(proxyAddr.substring(colonIdx + 1), 10) : 8080;
-          resolvedConfig = {
-            ...policyConfig,
-            proxy: { ...policyConfig.proxy, type: 'http', host, port },
-          };
-        }
-      } else if (proxyResult.startsWith('SOCKS5 ')) {
-        const proxyAddr = proxyResult.split(' ')[1];
-        if (proxyAddr) {
-          const colonIdx = proxyAddr.lastIndexOf(':');
-          const host = colonIdx !== -1 ? proxyAddr.substring(0, colonIdx) : proxyAddr;
-          const port = colonIdx !== -1 ? parseInt(proxyAddr.substring(colonIdx + 1), 10) : 1080;
-          resolvedConfig = {
-            ...policyConfig,
-            proxy: { ...policyConfig.proxy!, type: 'socks5', host, port },
-          };
-        }
-      } else if (proxyResult.startsWith('SOCKS ')) {
-        const proxyAddr = proxyResult.split(' ')[1];
-        if (proxyAddr) {
-          const colonIdx = proxyAddr.lastIndexOf(':');
-          const host = colonIdx !== -1 ? proxyAddr.substring(0, colonIdx) : proxyAddr;
-          const port = colonIdx !== -1 ? parseInt(proxyAddr.substring(colonIdx + 1), 10) : 1080;
-          resolvedConfig = {
-            ...policyConfig,
-            proxy: { ...policyConfig.proxy!, type: 'socks4', host, port },
-          };
-        }
-      }
-      // If DIRECT, proceed without proxy
-    } catch (e) {
-      // PAC resolution failed — proceed without proxy, but warn so a user who
-      // configured auto-proxy (PAC) isn't silently bypassed to a direct request.
-      log.warn('PAC proxy resolution failed; proceeding without proxy', {
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
-  }
+  const resolvedConfig = await applyPacProxy(policyConfig);
 
   const interceptedConfig = await interceptorRegistry.runRequest(resolvedConfig);
 
   const mainAuth = await materializeHttpAuth(interceptedConfig);
 
-  const fetcher = buildElectronFetcher(interceptedConfig);
+  const fetcher = buildElectronFetcher(
+    interceptedConfig,
+    ntlmFetchAuthFor(mainAuth.auth, interceptedConfig.url)
+  );
   const redirectPolicy: {
     followOriginalMethod?: boolean;
     followAuthHeader?: boolean;

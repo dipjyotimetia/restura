@@ -150,6 +150,36 @@ and the CLI apply the same rules. See
 
 Pinned by `tests/security/digest-auth.test.ts`.
 
+### NTLM auth (desktop only)
+
+NTLM authenticates a connection, so the type 1 → 2 → 3 handshake runs inside
+one Electron fetcher call (`electron/main/handlers/ntlm-handshake.ts`). Web
+and self-host don't send NTLM, and the CLI refuses it. See
+[ADR 0036](adr/0036-ntlm-desktop-fetcher-handshake.md).
+
+- **No credentials before the challenge.** The first request carries only a
+  type 1 NEGOTIATE (flags, no user, domain or workstation). After the type 2
+  challenge, only the NTLMv2 HMAC proof is sent, never the password.
+- **One connection, enforced.** The dispatcher gets a single-socket client
+  whose connector refuses any second connection before writing a byte, so a
+  type 3 can't hop to another pooled socket. A challenge with
+  `Connection: close` fails the request before type 3 is built.
+- **HTTP/1.1 only.** h2 negotiation is disabled; an explicit HTTP/2
+  preference fails instead of downgrading silently.
+- **Origin-bound.** Credentials apply only to the requested origin; a
+  redirect hop to another origin gets no NTLM header.
+- **Secrets resolved in main.** Keychain `SecretRef` passwords are resolved
+  in Electron main at send time (ADR 0007).
+- **Tunnelled through proxies.** Through an HTTP proxy, NTLM always uses a
+  `CONNECT` tunnel (even for `http:` targets), so a pooling proxy can't move
+  the handshake to another upstream connection.
+- **Residual risk:** no MIC or channel binding (Extended Protection). Over
+  `http:`, or with certificate verification off, an on-path attacker can
+  capture the NTLMv2 response (crackable offline) or relay it live. Use
+  `https:` with verification on.
+
+Pinned by `tests/security/ntlm-auth.test.ts`.
+
 ## SSRF / DNS-rebind guard (Electron)
 
 All Electron transports validate the destination against the shared SSRF

@@ -1,0 +1,52 @@
+# ADR 0036: NTLM as a Desktop-Only Handshake in the Electron Fetcher
+
+**Status:** Accepted, 2026-10-30
+
+## Context
+
+NTLM could be configured, imported, exported and inherited, but no harness sent it ([#1069](https://github.com/dipjyotimetia/restura/issues/1069), split from [#861](https://github.com/dipjyotimetia/restura/issues/861)). Requests went out without an `Authorization` header and the editor showed `UnappliedAuthNotice` everywhere.
+
+NTLM (MS-NLMP) authenticates a **connection**, not a request. The client sends a NEGOTIATE (type 1) message, the server answers `401` with a CHALLENGE (type 2) holding a server nonce, and the client answers with an AUTHENTICATE (type 3) message **on the same socket**. If the type 3 lands on another connection, the server has no challenge to verify it against.
+
+[ADR 0001](./0001-shared-protocol-layer.md) puts protocol logic once in `shared/protocol/`, and [ADR 0029](./0029-digest-auth-challenge-retry.md) did that for Digest. NTLM can't follow: the shared core only sees a `Fetcher`, and none of the backends promise that two fetcher calls share a socket. The Worker's `fetch` pools connections out of our control, and the Electron fetcher opens a dispatcher per call.
+
+## Decision
+
+Run the NTLM handshake **inside one Electron fetcher call**, and make it desktop-only.
+
+- `electron/main/handlers/ntlm-message.ts` is the MS-NLMP codec: type 1, type 2 parsing, and an NTLMv2 type 3. MD4 is implemented there because OpenSSL 3 no longer ships it. It is checked against the RFC 1320 and MS-NLMP §4.2.4 test vectors.
+- `electron/main/handlers/ntlm-handshake.ts` drives the exchange through the dispatcher the fetcher already built for that hop (direct, HTTP/env proxy, or SOCKS).
+- `makeHttpRequest` resolves the credentials in main (`ntlmFetchAuthFor`, which reads `SecretRef` handles per [ADR 0007](./0007-secret-ref-pattern.md)) and passes them to `buildElectronFetcher`. The shared core is unchanged and stays backend-agnostic.
+
+### Security boundary
+
+- **No credentials before the challenge.** Leg 1 carries only the type 1 message: flags, with no user, domain or workstation. The type 3 proof is computed only after a type 2 arrives. The password never goes on the wire, only the NTLMv2 HMAC.
+- **Connection affinity, enforced.** For an NTLM hop, the dispatcher's `factory` gives each origin a single-socket `Client`. Its connector refuses every connection after the first, before any bytes are written, so a type 3 can never move to another pooled socket. A challenge that arrives with `Connection: close` fails the request before type 3 is built.
+- **HTTP/1.1 only.** HTTP/2 multiplexes a connection that NTLM would authenticate, so NTLM disables h2 negotiation. An explicit HTTP/2 or h2c preference fails loudly instead of being downgraded silently.
+- **Origin-bound.** Credentials apply only to the origin the user requested. A redirect hop to another origin gets no NTLM header; the shared redirect follower still owns redirects.
+- **A non-NTLM `401` is returned untouched**, as is any response to type 1 that isn't a `401` carrying a type 2 token.
+
+Pinned by `tests/security/ntlm-auth.test.ts`, `electron/main/__tests__/ntlm-message.test.ts`, and `electron/main/__tests__/http-handler-ntlm.test.ts`. The last of these runs against the echo mock's independent verifier (`e2e/mocks/ntlmRoute.ts`), which shares no code with the client and rejects a type 3 sent on any socket other than the challenged one.
+
+## Consequences
+
+**Positive**
+
+- NTLM works on desktop over direct, HTTP/env-proxy and SOCKS connections, with keychain passwords.
+- The capability matrix says it plainly: `http.auth.ntlm` is desktop-only.
+
+**Negative / residual risk**
+
+- **Platform split.** Web and self-host send the request without authentication and the editor says so; the CLI refuses NTLM requests explicitly (`NTLM authentication is desktop-only`) instead of sending them unauthenticated. If a backend gains connection control, it can reuse the codec.
+- **Unresolvable secrets fail.** A keychain password that can't be resolved fails the request instead of trying an empty password, which would still count toward account lockout. A challenge body over 1 MiB fails the request too.
+- **Two round trips per hop.** Each fetcher call opens and authenticates its own connection; there is no authenticated-connection cache across requests. A request body is sent on both legs.
+- **No MIC, signing or sealing.** The type 3 has no MIC and negotiates no session key. That is enough for HTTP authentication against IIS-style servers, but not for servers that require Extended Protection (channel binding).
+- **NTLMv2 only.** LM and NTLMv1 responses are never sent.
+- **Proxies.** Through an HTTP proxy, NTLM requests are always `CONNECT`-tunnelled, `http:` targets included, so the pinned socket reaches the origin rather than a proxy that may pool upstream connections. A proxy that refuses `CONNECT` to port 80 therefore can't carry NTLM.
+- **HTTP only.** SSE, WebSocket, gRPC and GraphQL subscriptions don't use NTLM.
+
+## References
+
+- Code: `electron/main/handlers/ntlm-message.ts`, `electron/main/handlers/ntlm-handshake.ts`, `electron/main/handlers/http-handler.ts`, `electron/main/handlers/http-socks-dispatcher.ts`, `cli/src/runner/executors/http.ts`
+- Docs: docs-site `/guides/auth/`, [`docs/security.md`](../security.md)
+- Related: [ADR 0001 (shared protocol layer)](./0001-shared-protocol-layer.md), [ADR 0029 (Digest)](./0029-digest-auth-challenge-retry.md), [ADR 0007 (SecretRef)](./0007-secret-ref-pattern.md), [ADR 0012 (capability matrix)](./0012-capability-matrix-source-of-truth.md)

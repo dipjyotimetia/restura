@@ -161,7 +161,7 @@ export function exportSocketIo(
   const o = req.options ?? {};
   const extras = [
     req.namespace && req.namespace !== '/' ? 'namespace' : '',
-    req.handshakeAuth.length > 0 ? 'handshake auth' : '',
+    req.handshakeAuth.length > 0 || req.handshakeAuthJson ? 'handshake auth' : '',
     req.transports.length !== 2 ? 'transports' : '',
     o.forceNew ? 'forceNew' : '',
   ].filter(Boolean);

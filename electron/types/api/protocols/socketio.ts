@@ -5,13 +5,16 @@ export interface SocketIoConnectIpcConfig {
   url: string;
   namespace?: string;
   path?: string;
-  auth?: Record<string, string | number | boolean>;
+  /** Any JSON-serialisable handshake auth object (nested values allowed). */
+  auth?: Record<string, unknown>;
   query?: Record<string, string>;
   extraHeaders?: Record<string, string>;
   transports?: Array<'websocket' | 'polling'>;
   reconnection?: boolean;
   reconnectionAttempts?: number;
   reconnectionDelay?: number;
+  reconnectionDelayMax?: number;
+  randomizationFactor?: number;
   timeout?: number;
   forceNew?: boolean;
 }
@@ -22,11 +25,23 @@ export interface SocketIoEmitIpcConfig {
   args: unknown[];
   ackId?: string;
   ackTimeoutMs?: number;
+  /** `socket.volatile` — drop the emit if the transport isn't writable. */
+  volatile?: boolean;
+  /** `false` → `socket.compress(false)`. */
+  compress?: boolean;
+}
+
+/** Reply to a server-requested acknowledgement surfaced as `serverAckId` on an event. */
+export interface SocketIoReplyAckIpcConfig {
+  connectionId: string;
+  serverAckId: string;
+  args: unknown[];
 }
 
 export interface ElectronSocketIoAPI {
   connect: (config: SocketIoConnectIpcConfig) => Promise<{ success: boolean; error?: string }>;
   emit: (config: SocketIoEmitIpcConfig) => Promise<{ success: boolean; error?: string }>;
+  replyAck: (config: SocketIoReplyAckIpcConfig) => Promise<{ success: boolean; error?: string }>;
   disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => void;

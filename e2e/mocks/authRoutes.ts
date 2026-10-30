@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { bearerToken, writeJson as json } from '../utils/serverHelpers';
+import { ntlmProtectedEndpoint } from './ntlmRoute';
 import { verifyOAuth1 } from './oauth1Verify';
 
 /**
@@ -972,6 +973,7 @@ export const authRoutes: AuthRoute[] = [
   awsProtectedEndpoint,
   wsseProtectedEndpoint,
   oauth1ProtectedEndpoint,
+  ntlmProtectedEndpoint,
   tokenEndpoint,
   authorizeEndpoint,
   deviceAuthorizationEndpoint,
