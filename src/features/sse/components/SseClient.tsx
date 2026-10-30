@@ -132,6 +132,7 @@ export default function SseClient() {
 
     sseManager.connect(active.id, url, resolvedHeaders, {
       reconnectOnResume: request.reconnectOnResume ?? true,
+      autoReconnect: request.autoReconnect ?? true,
     });
   };
 
@@ -190,6 +191,16 @@ export default function SseClient() {
         />
         <Label htmlFor="resume" className="text-sp-11 text-sp-muted">
           Reconnect on resume (Last-Event-ID)
+        </Label>
+      </div>
+      <div className="flex items-center gap-2 pt-2">
+        <Switch
+          id="auto-reconnect"
+          checked={request.autoReconnect ?? true}
+          onCheckedChange={(autoReconnect) => update({ autoReconnect })}
+        />
+        <Label htmlFor="auto-reconnect" className="text-sp-11 text-sp-muted">
+          Auto-reconnect (honours server retry)
         </Label>
       </div>
     </div>

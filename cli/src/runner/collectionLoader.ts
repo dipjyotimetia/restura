@@ -521,6 +521,7 @@ function parseLegacyRequest(
       };
       if (parsed.eventFilter) out.eventFilter = parsed.eventFilter;
       if (parsed.reconnectOnResume !== undefined) out.reconnectOnResume = parsed.reconnectOnResume;
+      if (parsed.autoReconnect !== undefined) out.autoReconnect = parsed.autoReconnect;
       if (parsed.preRequestScript !== undefined) out.preRequestScript = parsed.preRequestScript;
       if (parsed.testScript !== undefined) out.testScript = parsed.testScript;
       return out;

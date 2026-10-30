@@ -280,6 +280,7 @@ export const sseRequestSchema = z.object({
   auth: authConfigSchema,
   eventFilter: z.array(z.string()).optional(),
   reconnectOnResume: z.boolean().optional(),
+  autoReconnect: z.boolean().optional(),
   preRequestScript: z.string().optional(),
   testScript: z.string().optional(),
 });

@@ -1,8 +1,10 @@
 import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
+import { isReconnectableSseResponse } from '@shared/protocol/sse-parser';
 import { createLogger } from '@shared/runtime/logger';
 import { ipcMain, type WebContents } from 'electron';
 import { EVENT_PREFIX, IPC } from '../../shared/channels';
+import type { SseClosePayload } from '../../types/api/protocols';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import {
@@ -135,13 +137,17 @@ function discardBody(body: ReadableStream<Uint8Array> | null | undefined): void 
 
 async function readStream(
   entry: ActiveSse,
-  body: ReadableStream<Uint8Array> | null
+  body: ReadableStream<Uint8Array> | null,
+  reconnectable: boolean
 ): Promise<void> {
   const { connectionId, webContentsId } = entry;
   if (!body) {
     if (connections.get(connectionId, webContentsId) === entry) {
       connections.emit(connectionId, webContentsId, 'error', { message: 'No response body' });
-      connections.emitAndRemove(connectionId, webContentsId, 'close', { reason: 'no body' });
+      connections.emitAndRemove(connectionId, webContentsId, 'close', {
+        reason: 'no body',
+        ...(reconnectable ? {} : { fatal: true }),
+      } satisfies SseClosePayload);
     }
     return;
   }
@@ -180,7 +186,14 @@ async function readStream(
     }
     if (connections.get(connectionId, webContentsId) !== entry) return;
     if (!entry.explicitlyClosed) {
-      connections.emitAndRemove(connectionId, webContentsId, 'close', { reason: 'stream ended' });
+      const lastEventId = parser.getLastEventId();
+      const retry = parser.getReconnectionTime();
+      connections.emitAndRemove(connectionId, webContentsId, 'close', {
+        reason: 'stream ended',
+        ...(reconnectable ? {} : { fatal: true }),
+        ...(lastEventId !== undefined ? { lastEventId: entry.redact(lastEventId) } : {}),
+        ...(retry !== undefined ? { retry } : {}),
+      } satisfies SseClosePayload);
     } else {
       connections.remove(connectionId, webContentsId);
     }
@@ -364,7 +377,8 @@ export function registerSseHandlerIPC(): void {
           connections.emit(connectionId, webContentsId, 'error', { message });
           connections.emitAndRemove(connectionId, webContentsId, 'close', {
             reason: `HTTP ${response.status}`,
-          });
+            fatal: true,
+          } satisfies SseClosePayload);
         }
         return { success: false, error: message };
       }
@@ -376,7 +390,15 @@ export function registerSseHandlerIPC(): void {
       }
       connections.emit(connectionId, webContentsId, 'open');
       // Drain the stream in the background — we already returned success.
-      void readStream(entry, response.body ?? null);
+      // 204 / non-event-stream Content-Type: still streamed, but closes fatal.
+      const contentType = Object.entries(response.headers ?? {}).find(
+        ([k]) => k.toLowerCase() === 'content-type'
+      )?.[1];
+      void readStream(
+        entry,
+        response.body ?? null,
+        isReconnectableSseResponse(response.status, contentType ?? null)
+      );
       return { success: true };
     } catch (err) {
       if (claimedEntry && connections.get(connectionId, webContentsId) === claimedEntry) {

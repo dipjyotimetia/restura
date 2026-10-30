@@ -94,3 +94,33 @@ describe('SseParser', () => {
     expect(events[0]?.lastEventId).toBeUndefined();
   });
 });
+
+describe('SseParser stream state (#848)', () => {
+  it('carries an id from a data-less heartbeat onto the next event', () => {
+    const events = feedAll('id: 1\ndata: a\n\nid: 2\n\ndata: b\n\n');
+    expect(events.map((e) => e.lastEventId)).toEqual(['1', '2']);
+  });
+
+  it('exposes the id of a trailing heartbeat for reconnect', () => {
+    const p = new SseParser();
+    p.feed('id: 1\ndata: a\n\nid: 9\n\n', () => {});
+    expect(p.getLastEventId()).toBe('9');
+  });
+
+  it('reports an empty-id reset as ""', () => {
+    const p = new SseParser();
+    const events: ParsedSseEvent[] = [];
+    p.feed('id: 1\ndata: a\n\nid:\ndata: b\n\n', (e) => events.push(e));
+    expect(events[1]?.lastEventId).toBe('');
+    expect(p.getLastEventId()).toBe('');
+  });
+
+  it('exposes the latest valid retry and resets with the stream', () => {
+    const p = new SseParser();
+    p.feed('retry: 3000\n\nretry: nope\n\n', () => {});
+    expect(p.getReconnectionTime()).toBe(3000);
+    p.reset();
+    expect(p.getReconnectionTime()).toBeUndefined();
+    expect(p.getLastEventId()).toBeUndefined();
+  });
+});
