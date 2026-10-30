@@ -9,6 +9,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import {
+  SOCKETIO_CONNECTION_OPTION_DEFAULTS,
   type SocketIOConnection,
   useSocketIOStore,
 } from '@/features/socketio/store/useSocketIOStore';
@@ -36,6 +37,8 @@ export function socketIoPresetFromConnection(
     namespace: conn.namespace,
     path: conn.path,
     handshakeAuth: copyRows(conn.auth),
+    ...(conn.authMode === 'json' ? { handshakeAuthMode: 'json' as const } : {}),
+    ...(conn.authJson && conn.authJson.trim() !== '{}' ? { handshakeAuthJson: conn.authJson } : {}),
     query: copyRows(conn.query),
     headers: copyRows(conn.extraHeaders),
     transports: [...conn.transports],
@@ -53,8 +56,13 @@ export function socketIoPresetFromConnection(
       autoReconnect: conn.autoReconnect,
       reconnectionAttempts: conn.reconnectionAttempts,
       reconnectionDelay: conn.reconnectionDelay,
+      reconnectionDelayMax: conn.reconnectionDelayMax,
+      randomizationFactor: conn.randomizationFactor,
       timeout: conn.timeout,
       forceNew: conn.forceNew,
+      volatile: conn.emitOptions.volatile,
+      compress: conn.emitOptions.compress,
+      ackTimeoutMs: conn.emitOptions.ackTimeoutMs,
     },
   };
 }
@@ -68,6 +76,9 @@ export function applySocketIoPreset(connectionId: string, preset: SocketIoReques
   set(connectionId, 'namespace', preset.namespace || '/');
   set(connectionId, 'path', preset.path || '/socket.io');
   set(connectionId, 'auth', copyRows(preset.handshakeAuth));
+  set(connectionId, 'authMode', preset.handshakeAuthMode === 'json' ? 'json' : 'kv');
+  if (preset.handshakeAuthJson !== undefined)
+    set(connectionId, 'authJson', preset.handshakeAuthJson);
   set(connectionId, 'query', copyRows(preset.query));
   set(connectionId, 'extraHeaders', copyRows(preset.headers));
   if (preset.transports.length > 0) set(connectionId, 'transports', [...preset.transports]);
@@ -86,5 +97,21 @@ export function applySocketIoPreset(connectionId: string, preset: SocketIoReques
   }
   if (o.timeout !== undefined) set(connectionId, 'timeout', o.timeout);
   if (o.forceNew !== undefined) set(connectionId, 'forceNew', o.forceNew);
+  if (o.reconnectionDelayMax !== undefined) {
+    set(connectionId, 'reconnectionDelayMax', o.reconnectionDelayMax);
+  }
+  if (o.randomizationFactor !== undefined) {
+    set(connectionId, 'randomizationFactor', o.randomizationFactor);
+  }
+  if (o.volatile !== undefined || o.compress !== undefined || o.ackTimeoutMs !== undefined) {
+    const current = useSocketIOStore.getState().connections[connectionId]?.emitOptions;
+    set(connectionId, 'emitOptions', {
+      ...(current ?? SOCKETIO_CONNECTION_OPTION_DEFAULTS.emitOptions),
+      ...(o.volatile !== undefined ? { volatile: o.volatile } : {}),
+      ...(o.compress !== undefined ? { compress: o.compress } : {}),
+      // 0 would time every ack out at once (the desktop IPC schema rejects it).
+      ...(o.ackTimeoutMs ? { ackTimeoutMs: Math.min(o.ackTimeoutMs, 60_000) } : {}),
+    });
+  }
   setSocketIoComposerDraft(connectionId, { ...preset.emit });
 }
