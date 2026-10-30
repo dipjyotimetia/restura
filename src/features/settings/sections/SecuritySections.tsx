@@ -1,9 +1,9 @@
-import { Info, KeyRound, ShieldAlert, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
 import type {
   ExternalSecretProfile,
   ExternalSecretProfileInput,
 } from '@shared/secrets/external-secret-profile';
+import { Info, KeyRound, ShieldAlert, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Button } from '@/components/ui/button';
@@ -66,11 +66,14 @@ export function SecuritySection() {
         <span>
           On the desktop app these govern Restura&rsquo;s HTTP, WebSocket, SSE, Socket.IO, gRPC, and
           MCP requests. In the browser they gate an in-app pre-check only — the hosted web app and
-          self-host server enforce their own network policy, which always takes precedence.
-          Cloud-metadata endpoints (e.g. <span className="font-mono">169.254.169.254</span>) are
-          blocked on every platform, regardless of these settings. Kafka and MQTT brokers follow
-          protocol-appropriate rules — private/LAN broker addresses stay reachable (cloud-metadata
-          is still blocked) — so these two toggles don&rsquo;t restrict them.
+          self-host server enforce their own network policy, which always takes precedence. The
+          exception is WebSocket, Socket.IO and GraphQL subscriptions, which the browser opens
+          directly: there, loopback and private targets are refused unless &ldquo;Allow private /
+          internal IPs&rdquo; is on. Cloud-metadata endpoints (e.g.{' '}
+          <span className="font-mono">169.254.169.254</span>) are blocked on every platform,
+          regardless of these settings. Kafka and MQTT brokers follow protocol-appropriate rules —
+          private/LAN broker addresses stay reachable (cloud-metadata is still blocked) — so these
+          two toggles don&rsquo;t restrict them.
         </span>
       </p>
     </>
