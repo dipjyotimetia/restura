@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures/servers';
+import { expect, test } from '../fixtures/servers';
 
 /**
  * Desktop AI Lab against a LOCAL mock LLM — renderer → IPC → ai-lab-handler →
@@ -28,7 +28,9 @@ test.describe('Desktop AI Lab (local OpenAI-compatible provider)', () => {
       await page.getByPlaceholder('http://localhost:11434').fill(servers.http.url);
       // API key intentionally blank — local provider, no secret/keychain.
       await page.getByRole('button', { name: 'Connect & save' }).click();
-      await expect(page.getByText('mock-model').first()).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText('mock-model').first()).toBeVisible({
+        timeout: 15_000,
+      });
 
       // Favorite the discovered model so the catalog curation path is covered.
       await page.getByRole('button', { name: 'Add mock-model to favorites' }).click();
@@ -42,9 +44,70 @@ test.describe('Desktop AI Lab (local OpenAI-compatible provider)', () => {
       await page.getByRole('button', { name: /run on/i }).click();
 
       // The mock streams choices[].delta.content = "echo: hello".
-      await expect(page.getByText('echo: hello').first()).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText('echo: hello').first()).toBeVisible({
+        timeout: 20_000,
+      });
     } finally {
       // Restore the request workspace — the window is shared across specs.
+      await page.evaluate(() => {
+        window.location.hash = '#/';
+      });
+      await expect(page.getByRole('main', { name: 'Request workspace' })).toBeVisible({
+        timeout: 15_000,
+      });
+    }
+  });
+
+  // Reuses the provider connected above: the window and its stores are shared
+  // across this file. Covers the controls added by the 2026-10-12 review fixes
+  // (epic #1057) in their real workspaces, that a loopback provider is not refused
+  // by the cloud secret check (#1028), and that none of it raises a renderer error.
+  test('review-batch controls work, and a local run accepts a secret in the prompt', async ({
+    app: page,
+  }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+
+    await page.evaluate(() => {
+      window.location.hash = '#/ai-lab';
+    });
+    try {
+      await page.getByRole('button', { name: 'Playground', exact: true }).click();
+      const playgroundOverride = page.getByTestId('playground-send-unredacted');
+      await expect(playgroundOverride).not.toBeChecked();
+      await playgroundOverride.click();
+      await expect(playgroundOverride).toBeChecked();
+      await playgroundOverride.click();
+      await expect(playgroundOverride).not.toBeChecked();
+      await page.locator('textarea').first().fill('key is AKIAIOSFODNN7EXAMPLE');
+      await page.getByRole('button', { name: /run on/i }).click();
+      await expect(page.getByText('echo: hello').first()).toBeVisible({
+        timeout: 20_000,
+      });
+      await expect(page.getByText(/Refused to send/)).toHaveCount(0);
+
+      await page.getByRole('button', { name: 'Arena', exact: true }).click();
+      const arenaOverride = page.getByTestId('arena-send-unredacted');
+      await expect(arenaOverride).not.toBeChecked();
+      await arenaOverride.click();
+      await expect(arenaOverride).toBeChecked();
+
+      // The threshold can be cleared while typing and clamps on blur (#1024).
+      await page.getByRole('button', { name: 'Evals', exact: true }).click();
+      const threshold = page.getByTestId('eval-pass-threshold');
+      await expect(threshold).toHaveValue('100');
+      await threshold.fill('');
+      await expect(threshold).toHaveValue('');
+      await threshold.fill('0');
+      await threshold.blur();
+      await expect(threshold).toHaveValue('1');
+      await threshold.fill('75');
+      await threshold.blur();
+      await expect(threshold).toHaveValue('75');
+      await expect(page.getByTestId('eval-tools-editor')).toBeVisible();
+
+      expect(pageErrors).toEqual([]);
+    } finally {
       await page.evaluate(() => {
         window.location.hash = '#/';
       });
