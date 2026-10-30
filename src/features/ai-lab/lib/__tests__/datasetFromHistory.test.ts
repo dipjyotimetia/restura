@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { HttpRequest, Response as HttpResponse } from '@/types/http';
 import {
   type CapturedRequest,
+  capturedRequestsToCases,
   capturedRequestToCase,
   previewRedactions,
   secretValuesFromScopes,
@@ -153,6 +154,54 @@ describe('capturedRequestToCase environment/secret stripping (#1029)', () => {
     expect(c.vars.url).not.toContain('ssw0rd');
     expect(c.vars.url).not.toContain('abcDEF123456');
     expect(c.vars.url?.startsWith('https://api.test/v1?')).toBe(true);
+  });
+
+  it('skips disabled and unnamed headers and tolerates missing or non-text bodies', () => {
+    const none = capturedRequestToCase({
+      request: req({
+        headers: [
+          { id: 'a', key: 'X-Off', value: 'hidden', enabled: false },
+          { id: 'b', key: '', value: 'nameless', enabled: true },
+        ],
+        body: { type: 'none' },
+      }),
+    });
+    expect(none.vars.headers).toBe('{}');
+    expect(none.vars.body).toBe('');
+    const binary = capturedRequestToCase({
+      request: req({ body: { type: 'binary' } as HttpRequest['body'] }),
+    });
+    expect(binary.vars.body).toBe('');
+    expect(
+      capturedRequestToCase({ request: { ...req(), body: undefined } as unknown as HttpRequest })
+        .vars.body
+    ).toBe('');
+  });
+
+  it('scrubs a host-only URL, empty query pairs and bare templated query tokens', () => {
+    const c = capturedRequestToCase({
+      request: req({ url: 'https://api.test?a=1&&{{tok}}&flag#x' }),
+    });
+    expect(c.vars.url).toBe('https://api.test?a=[REDACTED]&&{{tok}}&[REDACTED]');
+  });
+
+  it('handles a response without a body and the default options', () => {
+    const response = {
+      id: 'r',
+      requestId: 'r1',
+      status: 204,
+      statusText: 'No Content',
+      headers: {},
+      size: 0,
+      time: 1,
+      timestamp: 0,
+    } as unknown as HttpResponse;
+    expect(capturedRequestToCase({ request: req(), response }).reference).toBe('');
+    const [only] = capturedRequestsToCases([{ request: req() }]);
+    expect(only?.vars.method).toBe('POST');
+    expect(previewRedactions({ request: req(), response }).map((d) => d.field)).toEqual([
+      'headers',
+    ]);
   });
 
   it('collects scoped variable values, including disabled ones', () => {

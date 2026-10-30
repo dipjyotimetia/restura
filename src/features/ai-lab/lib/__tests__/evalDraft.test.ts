@@ -23,7 +23,7 @@ vi.mock('@/features/ai-lab/lib/llmClient', () => ({
   testConnection: vi.fn(),
 }));
 
-import { draftFromConfig, evalConfigFromDraft } from '../evalDraft';
+import { draftFromConfig, evalConfigFromDraft, targetFor, targetModeOf } from '../evalDraft';
 import { runEval } from '../evalRunner';
 
 const MODELS = [{ providerConfigId: 'p1', model: 'gpt-4o' }];
@@ -58,6 +58,43 @@ describe('eval draft <-> config (#1019)', () => {
       }
     );
     expect(config.tools).toEqual([LOOKUP]);
+  });
+
+  it('maps target modes both ways and defaults a missing prompt and threshold', () => {
+    expect(targetFor('text')).toEqual({ kind: 'text' });
+    expect(targetFor('graphql')).toEqual({
+      kind: 'http-exec',
+      parseFrom: 'fenced',
+      protocol: 'graphql',
+    });
+    expect(targetModeOf(targetFor('http'))).toBe('http');
+    expect(targetModeOf(undefined)).toBe('text');
+    const draft = draftFromConfig(
+      {
+        id: 'e',
+        name: 'n',
+        promptId: 'pr',
+        datasetId: 'd',
+        models: MODELS,
+        scorers: [],
+        concurrency: 1,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      undefined
+    );
+    expect(draft).toMatchObject({ system: '', user: '', passThresholdPct: 100, tools: [] });
+    expect(draft.sendUnredactedToCloud).toBe(false);
+  });
+
+  it('persists the unredacted override only when it is on', () => {
+    const on = evalConfigFromDraft(
+      { ...DRAFT, sendUnredactedToCloud: true },
+      { promptId: 'pr', models: MODELS, now: 1 }
+    );
+    expect(on.sendUnredactedToCloud).toBe(true);
+    const off = evalConfigFromDraft(DRAFT, { promptId: 'pr', models: MODELS, now: 1 });
+    expect('sendUnredactedToCloud' in off).toBe(false);
   });
 
   it('omits tools when none are configured', () => {
