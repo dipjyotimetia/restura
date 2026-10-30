@@ -108,6 +108,13 @@ export function Arena() {
     setArenaRunId(null);
   };
 
+  // Errored matches are listed, not scored: they never reach the leaderboard.
+  const erroredMatches = useMemo(
+    () => activeRun?.matches.filter((m) => m.winner === 'error') ?? [],
+    [activeRun]
+  );
+  const scoredMatchCount = (activeRun?.matches.length ?? 0) - erroredMatches.length;
+
   const leaderboard = useMemo(() => {
     if (!activeRun) return [];
     return computeElo(activeRun.modelKeys, activeRun.matches);
@@ -294,8 +301,29 @@ export function Arena() {
               <div>
                 <h3 className="sp-label mb-2">
                   Leaderboard — {activeRun.datasetName} (
-                  {plural(activeRun.matches.length, 'match', 'matches')})
+                  {plural(scoredMatchCount, 'scored match', 'scored matches')})
                 </h3>
+                {erroredMatches.length > 0 && (
+                  <div
+                    role="alert"
+                    className="mb-3 rounded-sp-btn border border-destructive/40 bg-sp-surface-lo px-3 py-2 text-sp-12"
+                  >
+                    <p className="flex items-center gap-1.5 font-medium text-destructive">
+                      <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                      {plural(erroredMatches.length, 'match', 'matches')} errored and{' '}
+                      {erroredMatches.length === 1 ? 'is' : 'are'} excluded from the ratings
+                    </p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sp-11 text-sp-muted">
+                      {[...new Set(erroredMatches.map((m) => m.error ?? 'unknown error'))]
+                        .slice(0, 3)
+                        .map((message) => (
+                          <li key={message} className="break-words">
+                            {message}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
                 <table className="w-full text-sp-12">
                   <thead>
                     <tr className="border-b border-sp-line text-left text-sp-11 uppercase tracking-wide text-sp-muted">

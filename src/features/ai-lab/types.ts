@@ -336,8 +336,13 @@ export interface EvalRun {
 export interface ArenaMatch {
   a: string;
   b: string;
-  winner: 'a' | 'b' | 'tie';
+  /** 'error' = a contestant or the judge failed; excluded from Elo, shown as an error. */
+  winner: 'a' | 'b' | 'tie' | 'error';
+  error?: string;
 }
+
+/** Arena adds `partial` (some matches errored) to the shared run statuses. */
+export type ArenaRunStatus = EvalRunStatus | 'partial';
 
 export interface ArenaRun {
   id: string;
@@ -350,7 +355,7 @@ export interface ArenaRun {
   matches: ArenaMatch[];
   startedAt: number;
   finishedAt?: number;
-  status: EvalRunStatus;
+  status: ArenaRunStatus;
   /** Set when the app closed mid-run; restored as `cancelled` and labelled 'interrupted'. */
   interrupted?: boolean;
 }

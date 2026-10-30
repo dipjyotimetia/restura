@@ -152,4 +152,25 @@ describe('per-record hydration recovery (#1030)', () => {
     });
     expect(useArenaStore.getState().runs.r?.matches).toHaveLength(1);
   });
+
+  it('keeps partial arena runs and errored matches through hydration (#1023)', async () => {
+    mem.items.set('arenaRuns/arena-runs-store', {
+      version: 1,
+      state: {
+        runs: {
+          p: {
+            ...arenaRun('p', 'partial'),
+            matches: [
+              { a: 'a', b: 'b', winner: 'a' },
+              { a: 'a', b: 'b', winner: 'error', error: 'bad key' },
+            ],
+          },
+        },
+      },
+    });
+    await useArenaStore.persist.rehydrate();
+    expect(useArenaStore.getState().runs.p?.status).toBe('partial');
+    expect(useArenaStore.getState().runs.p?.matches[1]?.winner).toBe('error');
+    expect(quarantined('arenaRuns/')).toHaveLength(0);
+  });
 });

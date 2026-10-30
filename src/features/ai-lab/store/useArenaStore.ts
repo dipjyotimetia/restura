@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ArenaStateSchema } from '@/lib/shared/store-validators';
 import { newestFirst } from '../lib/newestFirst';
-import type { ArenaMatch, ArenaRun, EvalRunStatus } from '../types';
+import type { ArenaMatch, ArenaRun, ArenaRunStatus } from '../types';
 import { partitionRecords, quarantineInvalid } from './quarantine';
 
 /** Bound arena history like eval runs — the whole table is re-encrypted on write. */
@@ -21,7 +21,7 @@ interface ArenaState extends PersistedArenaState {
     modelKeys: string[];
     modelLabels: Record<string, string>;
   }) => string;
-  finishRun: (runId: string, matches: ArenaMatch[], status: EvalRunStatus) => void;
+  finishRun: (runId: string, matches: ArenaMatch[], status: ArenaRunStatus) => void;
   deleteRun: (id: string) => void;
   listRuns: () => ArenaRun[];
 }
