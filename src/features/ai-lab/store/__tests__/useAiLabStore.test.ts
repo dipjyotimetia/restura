@@ -621,6 +621,33 @@ describe('useAiLabStore — prompts', () => {
   });
 });
 
+describe('useAiLabStore — local unredacted override (#1028)', () => {
+  beforeEach(reset);
+
+  it('sets, clears and drops the override with its suite, and validates', () => {
+    const s = useAiLabStore.getState();
+    s.setAgentSuiteUnredacted('a', true);
+    s.setAgentSuiteUnredacted('b', true);
+    expect(useAiLabStore.getState().agentUnredactedSuites).toEqual({ a: true, b: true });
+    useAiLabStore.getState().setAgentSuiteUnredacted('a', false);
+    useAiLabStore.getState().removeAgentSuite('b');
+    expect(useAiLabStore.getState().agentUnredactedSuites).toEqual({});
+    expect(
+      AiLabStateSchema.safeParse({ providers: {}, prompts: {}, datasets: {}, evalConfigs: {} })
+        .success
+    ).toBe(true);
+    expect(
+      AiLabStateSchema.safeParse({
+        providers: {},
+        prompts: {},
+        datasets: {},
+        evalConfigs: {},
+        agentUnredactedSuites: { a: true },
+      }).success
+    ).toBe(true);
+  });
+});
+
 describe('useAiLabStore — datasets', () => {
   beforeEach(reset);
 

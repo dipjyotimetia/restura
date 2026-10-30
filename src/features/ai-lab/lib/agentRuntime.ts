@@ -164,22 +164,6 @@ function text(messages: GenerationMessage[]): Array<{
   }));
 }
 
-/** Suite-level override (persisted in `suite.metadata`, visible in the suite JSON). */
-export function suiteSendsUnredactedToCloud(suite: AgentSuite): boolean {
-  return suite.metadata?.sendUnredactedToCloud === true;
-}
-
-/** Set or clear the override in `suite.metadata`, leaving other metadata untouched. */
-export function withSendUnredactedToCloud<S extends Pick<AgentSuite, 'metadata'>>(
-  suite: S,
-  enabled: boolean
-): S {
-  const { sendUnredactedToCloud: _drop, ...rest } = suite.metadata ?? {};
-  const metadata = enabled ? { ...rest, sendUnredactedToCloud: true } : rest;
-  const { metadata: _old, ...others } = suite;
-  return (Object.keys(metadata).length > 0 ? { ...others, metadata } : others) as S;
-}
-
 export function createDesktopAgentProviders(
   configs: Record<string, AiLabProviderConfig>,
   complete: Complete = completeLlm,
@@ -256,6 +240,8 @@ export async function runDesktopAgentSuite(
     signal?: AbortSignal;
     reportProgress?: (progress: number) => void;
     toolResolver?: AgentToolResolver;
+    /** Local per-suite override (AI Lab store), never read from portable suite data. */
+    sendUnredactedToCloud?: boolean;
   } = {}
 ): Promise<AgentSuiteReport> {
   preflightDesktopAgentSuite(suite);
@@ -270,7 +256,7 @@ export async function runDesktopAgentSuite(
   const providers = createDesktopAgentProviders(
     configs,
     options.complete ?? completeLlm,
-    suiteSendsUnredactedToCloud(suite)
+    options.sendUnredactedToCloud === true
   );
   const runner = new AgentRunner({
     providers,

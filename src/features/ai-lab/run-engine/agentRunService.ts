@@ -89,6 +89,7 @@ export function startAgentRun(
     (live.completedReport !== null && live.completedReport.id !== live.persistedReportId)
   )
     return false;
+  const sendUnredactedToCloud = useAiLabStore.getState().agentUnredactedSuites?.[suite.id] === true;
   const started = engine.start(
     'agent-suite',
     (context) =>
@@ -101,6 +102,7 @@ export function startAgentRun(
                 useAgentRunLiveStore.setState({ progress });
             },
             ...(requestApproval ? { requestApproval } : {}),
+            ...(sendUnredactedToCloud ? { sendUnredactedToCloud } : {}),
           }).then((result) => result.report)
         : runDesktopAgentSuite(suite, providers, {
             signal: context.signal,
@@ -110,6 +112,7 @@ export function startAgentRun(
                 useAgentRunLiveStore.setState({ progress });
             },
             ...(requestApproval ? { requestApproval } : {}),
+            ...(sendUnredactedToCloud ? { sendUnredactedToCloud } : {}),
           }),
     {
       classifyResult: (report) => report.status,

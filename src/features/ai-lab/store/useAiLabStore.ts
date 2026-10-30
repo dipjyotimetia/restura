@@ -38,6 +38,12 @@ interface PersistedAiLabState {
   runReports: Record<string, AiLabReportEnvelope>;
   reportQuarantineCount: number;
   agentTelemetry?: AgentTelemetryConfig;
+  /**
+   * Suites the user allowed to send unredacted prompts to cloud providers.
+   * Local-only (never in portable suite JSON) and keyed by suite id, so an
+   * imported suite cannot switch the secret check off (#1028).
+   */
+  agentUnredactedSuites?: Record<string, boolean>;
 }
 
 interface AiLabState extends PersistedAiLabState {
@@ -89,6 +95,7 @@ interface AiLabState extends PersistedAiLabState {
   upsertAgentSuite: (suite: unknown) => string;
   removeAgentSuite: (id: string) => void;
   setAgentTelemetryConfig: (config?: AgentTelemetryConfig) => void;
+  setAgentSuiteUnredacted: (suiteId: string, enabled: boolean) => void;
   hydrateRunReports: () => Promise<void>;
   saveRunReport: (report: AiLabReportEnvelope) => Promise<void>;
   removeRunReport: (id: string) => Promise<void>;
@@ -104,6 +111,7 @@ const DEFAULT_STATE: PersistedAiLabState = {
   agentSuites: {},
   runReports: {},
   reportQuarantineCount: 0,
+  agentUnredactedSuites: {},
 };
 
 const RECENT_MODEL_LIMIT = 20;
@@ -462,9 +470,15 @@ export const useAiLabStore = create<AiLabState>()(
         set((state) => {
           const next = { ...state.agentSuites };
           delete next[id];
-          return { agentSuites: next };
+          const { [id]: _override, ...overrides } = state.agentUnredactedSuites ?? {};
+          return { agentSuites: next, agentUnredactedSuites: overrides };
         }),
       setAgentTelemetryConfig: (agentTelemetry) => set({ agentTelemetry }),
+      setAgentSuiteUnredacted: (suiteId, enabled) =>
+        set((state) => {
+          const { [suiteId]: _old, ...rest } = state.agentUnredactedSuites ?? {};
+          return { agentUnredactedSuites: enabled ? { ...rest, [suiteId]: true } : rest };
+        }),
       hydrateRunReports: () =>
         enqueueReportMutation(async () => {
           const loaded = await getAiLabReportRepository().load();
@@ -513,6 +527,7 @@ export const useAiLabStore = create<AiLabState>()(
         agentSuites: state.agentSuites,
         reportQuarantineCount: state.reportQuarantineCount,
         ...(state.agentTelemetry ? { agentTelemetry: state.agentTelemetry } : {}),
+        agentUnredactedSuites: state.agentUnredactedSuites ?? {},
       }),
       merge: (persisted, current) => {
         const { state, invalid } = recoverAiLabRecords(migrateAiLabState(persisted ?? {}));

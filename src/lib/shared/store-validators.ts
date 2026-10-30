@@ -532,6 +532,7 @@ export const AiLabStateSchema = z.object({
   runReports: z.record(z.string(), AiLabReportEnvelopeSchema).default({}),
   reportQuarantineCount: z.number().int().nonnegative().default(0),
   agentTelemetry: AgentTelemetryConfigSchema.optional(),
+  agentUnredactedSuites: z.record(z.string(), z.boolean()).optional(),
 });
 
 export type PersistedAiLabState = z.infer<typeof AiLabStateSchema>;

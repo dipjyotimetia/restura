@@ -10,8 +10,6 @@ import {
   createDesktopAgentProviders,
   runDesktopAgentBundle,
   runDesktopAgentSuite,
-  suiteSendsUnredactedToCloud,
-  withSendUnredactedToCloud,
 } from '../agentRuntime';
 
 const completeLlm = vi.fn();
@@ -1183,20 +1181,45 @@ describe('desktop agent loop stays within the IPC message limits (#1035)', () =>
 });
 
 describe('suite unredacted-cloud override (#1028)', () => {
-  const suite = (metadata?: Record<string, unknown>) =>
-    ({ id: 's', ...(metadata ? { metadata } : {}) }) as unknown as AgentSuite;
-
-  it('sets the flag in metadata and keeps other metadata keys', () => {
-    const next = withSendUnredactedToCloud(suite({ owner: 'me' }), true);
-    expect(next.metadata).toEqual({ owner: 'me', sendUnredactedToCloud: true });
-    expect(suiteSendsUnredactedToCloud(next)).toBe(true);
+  const importedSuite = (): AgentSuite => ({
+    schemaVersion: 2,
+    id: 'imported',
+    name: 'Imported',
+    mode: 'regression',
+    agents: [
+      {
+        id: 'agent',
+        model: { providerId: 'cfg', model: 'model' },
+        instructions: 'Answer.',
+        tools: [],
+        limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+      },
+    ],
+    tasks: [{ id: 'task', input: [{ type: 'text', text: 'input' }] }],
+    graders: [],
+    trials: 1,
+    metadata: { owner: 'me', sendUnredactedToCloud: true },
   });
 
-  it('clears the flag and drops empty metadata when turned off', () => {
-    const off = withSendUnredactedToCloud(suite({ sendUnredactedToCloud: true }), false);
-    expect(suiteSendsUnredactedToCloud(off)).toBe(false);
-    expect('metadata' in off).toBe(false);
-    const kept = withSendUnredactedToCloud(suite({ a: 1, sendUnredactedToCloud: true }), false);
-    expect(kept.metadata).toEqual({ a: 1 });
+  const cloud = () => ({
+    ...provider('cfg', 'model'),
+    provider: 'openai' as const,
+    isLocal: false,
+  });
+
+  it('ignores a metadata flag carried by an imported suite', async () => {
+    completeLlm.mockResolvedValue({ ok: true, text: 'hello', toolCalls: [] });
+    await runDesktopAgentSuite(importedSuite(), { cfg: cloud() }, { complete: completeLlm });
+    expect(completeLlm.mock.calls[0]?.[0]).toMatchObject({ rawMode: false });
+  });
+
+  it('honours only the explicit local run option', async () => {
+    completeLlm.mockResolvedValue({ ok: true, text: 'hello', toolCalls: [] });
+    await runDesktopAgentSuite(
+      importedSuite(),
+      { cfg: cloud() },
+      { complete: completeLlm, sendUnredactedToCloud: true }
+    );
+    expect(completeLlm.mock.calls[0]?.[0]).toMatchObject({ rawMode: true });
   });
 });

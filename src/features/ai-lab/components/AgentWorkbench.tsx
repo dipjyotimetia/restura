@@ -14,7 +14,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { downloadBlob } from '@/lib/shared/file-utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import { suiteSendsUnredactedToCloud, withSendUnredactedToCloud } from '../lib/agentRuntime';
 import {
   cancelAgentRun,
   dismissAgentReport,
@@ -78,6 +77,8 @@ export function AgentWorkbench() {
   const suites = useAiLabStore((state) => state.agentSuites);
   const upsert = useAiLabStore((state) => state.upsertAgentSuite);
   const remove = useAiLabStore((state) => state.removeAgentSuite);
+  const unredactedSuites = useAiLabStore((state) => state.agentUnredactedSuites);
+  const setSuiteUnredacted = useAiLabStore((state) => state.setAgentSuiteUnredacted);
   const providers = useAiLabStore((state) => state.providers);
   const collections = useCollectionStore((state) => state.collections);
   const mcpConnections = useMcpStore((state) => state.connections);
@@ -349,10 +350,21 @@ export function AgentWorkbench() {
               Cancel
             </Button>
           ) : (
-            <Button size="sm" variant="outline" onClick={run}>
-              <Play className="mr-1.5 h-3.5 w-3.5" />
-              Run
-            </Button>
+            <>
+              {guidedSuite && unredactedSuites?.[guidedSuite.id] === true && (
+                <span
+                  data-testid="agent-unredacted-badge"
+                  className="rounded-sp-btn border border-sp-line px-1.5 py-0.5 text-sp-11 text-sp-text"
+                  title="Secret check is off for cloud providers on this machine. Change it under Checks & budgets."
+                >
+                  Sending unredacted to cloud
+                </span>
+              )}
+              <Button size="sm" variant="outline" onClick={run}>
+                <Play className="mr-1.5 h-3.5 w-3.5" />
+                Run
+              </Button>
+            </>
           )}
           <Button size="sm" onClick={save}>
             <Save className="mr-1.5 h-3.5 w-3.5" />
@@ -378,6 +390,8 @@ export function AgentWorkbench() {
             <GuidedStep
               step={builderStep}
               suite={guidedSuite}
+              sendUnredacted={unredactedSuites?.[guidedSuite.id] === true}
+              onSendUnredactedChange={(enabled) => setSuiteUnredacted(guidedSuite.id, enabled)}
               onChange={(update) => updateGuidedSuite(guidedPayload, update)}
               onExport={exportSuite}
             />
@@ -523,11 +537,15 @@ function ToolApprovalDialog({
 function GuidedStep({
   step,
   suite,
+  sendUnredacted,
+  onSendUnredactedChange,
   onChange,
   onExport,
 }: {
   step: BuilderStep;
   suite: AgentSuite;
+  sendUnredacted: boolean;
+  onSendUnredactedChange: (enabled: boolean) => void;
   onChange: (update: (suite: NormalizedAgentSuite) => NormalizedAgentSuite) => void;
   onExport: () => void;
 }) {
@@ -595,16 +613,14 @@ function GuidedStep({
             <Checkbox
               id="agent-send-unredacted"
               data-testid="agent-send-unredacted"
-              checked={suiteSendsUnredactedToCloud(suite)}
-              onCheckedChange={(checked) =>
-                onChange((current) => withSendUnredactedToCloud(current, checked === true))
-              }
+              checked={sendUnredacted}
+              onCheckedChange={(checked) => onSendUnredactedChange(checked === true)}
             />
             <span>
               Send unredacted to cloud providers
               <span className="block text-sp-11 text-sp-muted">
-                Off by default: cloud calls are refused if the prompt still contains a secret.
-                Stored in the suite metadata. Local providers are never checked.
+                Off by default: cloud calls are refused if the prompt still contains a secret. Kept
+                on this machine only, never in the suite JSON. Local providers are never checked.
               </span>
             </span>
           </label>

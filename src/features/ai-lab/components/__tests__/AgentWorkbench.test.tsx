@@ -122,6 +122,7 @@ describe('AgentWorkbench runs', () => {
       recentModelKeys: [],
       agentSuites: {},
       runReports: {},
+      agentUnredactedSuites: {},
     });
     useAiLabUiStore.setState({ tab: 'agents', reportRunId: null });
     useCollectionStore.setState({ collections: [], activeCollectionId: null });
@@ -159,19 +160,22 @@ describe('AgentWorkbench runs', () => {
     expect(draft.policies).toHaveLength(1);
   });
 
-  it('toggles the unredacted-cloud override in suite metadata from the checks step (#1028)', async () => {
+  it('keeps the unredacted-cloud override local, out of the suite JSON (#1028)', async () => {
     const user = userEvent.setup();
     render(<AgentWorkbench />);
-    const metadata = () =>
-      JSON.parse((screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value).metadata;
+    const json = () => (screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value;
 
     await user.click(screen.getByRole('tab', { name: 'Checks & budgets' }));
     const box = screen.getByRole('checkbox', { name: /send unredacted to cloud providers/i });
     expect(box).not.toBeChecked();
+    expect(screen.queryByTestId('agent-unredacted-badge')).toBeNull();
     await user.click(box);
-    expect(metadata()).toMatchObject({ sendUnredactedToCloud: true });
+    expect(json()).not.toContain('sendUnredactedToCloud');
+    const suiteId = JSON.parse(json()).id as string;
+    expect(useAiLabStore.getState().agentUnredactedSuites).toEqual({ [suiteId]: true });
+    expect(screen.getByTestId('agent-unredacted-badge')).toBeInTheDocument();
     await user.click(box);
-    expect(metadata()?.sendUnredactedToCloud).toBeUndefined();
+    expect(useAiLabStore.getState().agentUnredactedSuites).toEqual({});
   });
 
   it('renders each guided builder step and edits bundle-contained suites', async () => {
