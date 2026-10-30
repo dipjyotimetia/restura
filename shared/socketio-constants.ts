@@ -6,18 +6,16 @@
  */
 
 /**
- * Socket.IO lifecycle events handled explicitly. The catch-all `onAny`
+ * Socket-level lifecycle events handled explicitly. The catch-all `onAny`
  * forwarder skips these so application events don't compete with our own
- * lifecycle signalling.
+ * lifecycle signalling. `reconnect*` are deliberately absent: in Socket.IO v4
+ * they are Manager events (`socket.io.on(...)`), so a server application event
+ * with one of those names is legitimate and must reach the log.
  */
 export const SOCKETIO_RESERVED_EVENTS: ReadonlySet<string> = new Set([
   'connect',
   'disconnect',
   'connect_error',
-  'reconnect',
-  'reconnect_attempt',
-  'reconnect_error',
-  'reconnect_failed',
 ]);
 
 /** IPC channel names. Single source of truth so handler and renderer can't drift. */
@@ -32,7 +30,7 @@ export const socketioChannels = {
   reconnectFailed: (id: string) => `socketio:reconnect_failed:${id}` as const,
 } as const;
 
-/** URL schemes a Socket.IO server may legitimately use. Mirror in `electron/main/ipc/ipc-validators.ts`. */
+/** URL schemes a Socket.IO server may legitimately use. Mirror in `electron/main/ipc/validators/socketio.ts`. */
 export const SOCKETIO_VALID_SCHEMES: ReadonlySet<string> = new Set([
   'http:',
   'https:',

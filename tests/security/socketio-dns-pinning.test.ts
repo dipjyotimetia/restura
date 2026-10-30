@@ -52,6 +52,7 @@ vi.mock('../../electron/main/ipc/ipc-validators', () => ({
       fn(c, e),
   SocketIoConnectSchema: {},
   SocketIoEmitSchema: {},
+  SocketIoReplyAckSchema: {},
   SocketIoDisconnectSchema: {},
 }));
 

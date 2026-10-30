@@ -1,5 +1,5 @@
 import { createServer, type Server as HttpServer } from 'node:http';
-import { Server as SocketIOServer, type Socket } from 'socket.io';
+import { type Socket, Server as SocketIOServer } from 'socket.io';
 import { bindLocalhost } from '../utils/serverHelpers';
 
 export interface SocketIOReceivedEvent {
@@ -23,6 +23,8 @@ export interface MockSocketIOServerHandle {
   receivedEvents: () => SocketIOReceivedEvent[];
   /** Snapshot of the most recent handshake auth payload, for assertions. */
   lastAuth: () => Record<string, unknown> | null;
+  /** Ack replies the client sent for server-initiated `question` emits (see `request-ack`). */
+  serverAckReplies: () => unknown[][];
   reset: () => void;
   close: () => Promise<void>;
 }
@@ -32,6 +34,8 @@ export interface MockSocketIOServerHandle {
  *
  *   /        (default) — echoes every event back as `<event>:echo` with the same args.
  *                         If the client supplies an ack callback, the same args are returned.
+ *                         A `request-ack` event makes the server emit `question` WITH an
+ *                         ack callback; the client's reply is recorded in `serverAckReplies`.
  *   /chat              — broadcasts each received event to every other peer in the namespace.
  *   /admin             — refuses connections unless `auth.token === 'admin-token'`.
  *
@@ -46,6 +50,7 @@ export async function startMockSocketIOServer(
   let connectionCount = 0;
   const received: SocketIOReceivedEvent[] = [];
   let lastAuthSnapshot: Record<string, unknown> | null = null;
+  const serverAckReplies: unknown[][] = [];
 
   const httpServer: HttpServer = createServer((_req, res) => {
     // Bare GET should at least return something — useful for liveness checks.
@@ -74,6 +79,13 @@ export async function startMockSocketIOServer(
 
     socket.onAny((eventName: string, ...args: unknown[]) => {
       received.push({ namespace: '/', eventName, args, auth, query });
+
+      if (eventName === 'request-ack') {
+        socket.emit('question', args[0] ?? 'please ack', (...reply: unknown[]) => {
+          serverAckReplies.push(reply);
+        });
+        return;
+      }
 
       // The last arg may be an ack callback the client passed. Socket.IO doesn't
       // expose this directly via onAny — clients invoke it through `emit(event, ..., cb)`,
@@ -130,7 +142,9 @@ export async function startMockSocketIOServer(
     connectionCount: () => connectionCount,
     receivedEvents: () => received.slice(),
     lastAuth: () => lastAuthSnapshot,
+    serverAckReplies: () => serverAckReplies.slice(),
     reset: () => {
+      serverAckReplies.splice(0, serverAckReplies.length);
       connectionCount = 0;
       received.splice(0, received.length);
       lastAuthSnapshot = null;
