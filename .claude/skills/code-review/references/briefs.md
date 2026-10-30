@@ -59,7 +59,7 @@ One agent, small diff. Run the `correctness` brief, then the `standards` brief, 
 
 ## verify
 
-You are a **verifier**, not a reviewer. The header lists candidate Important findings, each with `file:line`, mechanism and scenario. For each one, open the cited file and its direct callers/callees and decide independently whether the bug is real as described. Do not hunt for new bugs. Answer per finding, nothing else:
+You are a **verifier**, not a reviewer. The header lists candidate Important findings from any axis, each with `file:line`, mechanism and scenario. For each one, open the cited file and its direct callers/callees and decide independently whether the finding is real as described: for a Correctness finding, whether the scenario happens; for a Standards finding, whether the cited rule exists in the named standards file and the hunk breaks it; for a Spec finding, whether the quoted spec line exists and the diff really lacks or contradicts it. Do not hunt for new findings. Answer per finding, nothing else:
 
 ```
 <n>. CONFIRMED | REJECTED | DOWNGRADE→Nit | DOWNGRADE→Pre-existing — <one sentence of evidence with file:line>

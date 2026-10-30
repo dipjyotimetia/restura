@@ -53,7 +53,7 @@ One message, all sub-agent calls together, foreground. Each gets the header from
 
 ### 6. Verify (Standard and Deep)
 
-Collect the Important findings from the correctness agent(s), de-duplicated by `file:line` and mechanism. If none, skip. Otherwise run the `verify` brief: one agent at Standard, two independent agents at Deep, each with only the finding list in its header. Post as **Important** only what the vote allows: Standard, CONFIRMED; Deep, CONFIRMED by both. Apply DOWNGRADE verdicts. A Deep finding confirmed by one of two goes under `Unconfirmed` at the end of Correctness, non-blocking. REJECTED findings are dropped and counted in the summary line, not listed.
+Collect the Important findings from **every** sub-agent (Correctness, Standards and Spec alike, since a documented-invariant breach or a missing requirement can be Important), de-duplicated by `file:line` and mechanism, each tagged with its axis. If none, skip. Otherwise run the `verify` brief: one agent at Standard, two independent agents at Deep, each with only the finding list in its header. Post as **Important** only what the vote allows: Standard, CONFIRMED; Deep, CONFIRMED by both. Apply DOWNGRADE verdicts. A Deep finding confirmed by one of two goes under `Unconfirmed` at the end of its axis, non-blocking. REJECTED findings are dropped and counted in the summary line, not listed. At Quick there is no verifier, so the single agent's Important findings stand on their evidence (`REVIEW.md` rule); no `Important` tag from any axis reaches the report as blocking at Standard or Deep without passing the vote.
 
 ### 7. Aggregate
 
