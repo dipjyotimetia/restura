@@ -22,7 +22,6 @@ import {
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { getExecutionPolicy } from '../security/execution-policy';
-import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
 import {
   bindBrowseDelivery,
@@ -31,6 +30,7 @@ import {
   openBrowseStream,
 } from './kafka/browse-consumer';
 import { buildClientOptions, type KafkaClientOptions } from './kafka/client-options';
+import { guardKafkaConnect, resolveKafkaConnect } from './kafka/connect-preflight';
 import { registerKafkaConsumerControlHandlers } from './kafka/consumer-control-handlers';
 import {
   type ConsumerStreamHooks,
@@ -324,8 +324,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       }
 
       try {
-        assertKafkaBrokersSafe(cfg.bootstrapBrokers, getExecutionPolicy().security);
-        if (cfg.registry) assertRegistryUrlSafe(cfg.registry.url, getExecutionPolicy().security);
+        await guardKafkaConnect(cfg, getExecutionPolicy().security); // SSRF + DNS (SEC-K1)
       } catch (err) {
         const msg = errorMessage(err);
         log.warn('connection rejected by transport guard', { connectionId });
@@ -334,12 +333,13 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       }
 
       try {
-        const clientOptions = buildClientOptions(cfg);
+        const ready = await resolveKafkaConnect(cfg); // secret handles + TLS paths (SEC-K3)
+        const clientOptions = buildClientOptions(ready);
         const kafka = getKafka();
 
         // Registry encodes/decodes both fields over a TLS-policy, SSRF-guarded agent.
         const security = getExecutionPolicy().security;
-        registry = cfg.registry && (await createKafkaRegistryClient(cfg.registry, security));
+        registry = ready.registry && (await createKafkaRegistryClient(ready.registry, security));
 
         // Registry payloads are encoded here; plain strings are UTF-8 encoded.
         const producerOptions = {

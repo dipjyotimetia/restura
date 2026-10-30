@@ -19,8 +19,9 @@ vi.mock('@/lib/shared/platform', () => ({
   getElectronAPI: () => mocks.electronApi,
   isElectron: () => mocks.isElectron,
 }));
-vi.mock('@/lib/shared/secure-storage', () => ({
-  secureStorage: { set: mocks.setSecret },
+// Typed connection credentials go into main-process handles (SEC-K3).
+vi.mock('@/lib/shared/broker-secrets', () => ({
+  putBrokerSecret: mocks.setSecret,
 }));
 vi.mock('@/features/kafka/lib/kafkaManager', () => ({
   kafkaManager: { connect: mocks.connect, disconnect: mocks.disconnect },
@@ -36,7 +37,7 @@ describe('useKafkaConnection', () => {
     mocks.isElectron = true;
     mocks.connect.mockReset().mockResolvedValue({ ok: true });
     mocks.disconnect.mockReset().mockResolvedValue(undefined);
-    mocks.setSecret.mockReset();
+    mocks.setSecret.mockReset().mockResolvedValue(undefined);
     mocks.openFile.mockReset();
     mocks.storeSecret.mockReset();
     mocks.electronApi = null;
@@ -81,7 +82,8 @@ describe('useKafkaConnection', () => {
 
     expect(mocks.setSecret).toHaveBeenCalledWith(
       `kafka:${connection.id}:registry-token`,
-      'bearer-secret'
+      'bearer-secret',
+      expect.stringContaining('Kafka')
     );
     expect(mocks.connect).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -117,15 +119,18 @@ describe('useKafkaConnection', () => {
 
     expect(mocks.setSecret).toHaveBeenCalledWith(
       `kafka:${connection.id}:sasl-password`,
-      'sasl-secret'
+      'sasl-secret',
+      expect.stringContaining('Kafka')
     );
     expect(mocks.setSecret).toHaveBeenCalledWith(
       `kafka:${connection.id}:tls-passphrase`,
-      'tls-secret'
+      'tls-secret',
+      expect.stringContaining('Kafka')
     );
     expect(mocks.setSecret).toHaveBeenCalledWith(
       `kafka:${connection.id}:registry-password`,
-      'registry-secret'
+      'registry-secret',
+      expect.stringContaining('Kafka')
     );
     expect(mocks.connect).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -137,6 +142,38 @@ describe('useKafkaConnection', () => {
           auth: expect.objectContaining({ password: KAFKA_SECRET_SENTINEL }),
         }),
       })
+    );
+  });
+
+  it('awaits the handle write before connecting and stops when it fails', async () => {
+    const order: string[] = [];
+    mocks.setSecret.mockImplementation(async () => {
+      await Promise.resolve();
+      order.push('stored');
+    });
+    mocks.connect.mockImplementation(async () => {
+      order.push('connect');
+      return { ok: true };
+    });
+    const { result } = renderHook(() => useKafkaConnection());
+    const connection = result.current.connection!;
+    act(() => {
+      result.current.updateAuth(connection.id, {
+        securityProtocol: 'SASL_PLAINTEXT',
+        sasl: { mechanism: 'PLAIN', username: 'alice', password: '' },
+      });
+      result.current.setSaslPasswordDraft('sasl-secret');
+    });
+    await act(async () => result.current.connect());
+    expect(order).toEqual(['stored', 'connect']);
+
+    mocks.connect.mockClear();
+    mocks.setSecret.mockRejectedValueOnce(new Error('Secure secret storage is unavailable'));
+    act(() => result.current.setSaslPasswordDraft('again'));
+    await act(async () => result.current.connect());
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(useKafkaStore.getState().connections[connection.id]!.messages.at(-1)?.error).toBe(
+      'Secure secret storage is unavailable'
     );
   });
 
@@ -161,7 +198,8 @@ describe('useKafkaConnection', () => {
     await act(async () => result.current.connect());
     expect(mocks.setSecret).toHaveBeenCalledWith(
       `kafka:${connection.id}:oauth-token`,
-      'oauth-token'
+      'oauth-token',
+      expect.stringContaining('Kafka')
     );
     expect(mocks.connect).toHaveBeenCalledWith(
       expect.objectContaining({

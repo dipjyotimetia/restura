@@ -112,6 +112,88 @@ describe('broker execution policy', () => {
     ).toThrow(/Kafka client cannot honor the configured SOCKS5 proxy/);
   });
 
+  describe('every bootstrap broker is checked (SEC-K2)', () => {
+    const noProxy = { enabled: false, type: 'http' as const, host: '', port: 8080, bypassList: [] };
+    const tls = { verifySsl: true, serverCipherOrder: false };
+
+    it('fails closed when the proxy applies only to the second broker', () => {
+      setExecutionPolicy({
+        security: { allowLocalhost: true, allowPrivateIPs: false },
+        proxy: {
+          enabled: true,
+          type: 'socks5',
+          host: 'proxy.example.test',
+          port: 1080,
+          bypassList: ['kafka-1.internal.test'],
+        },
+        timeout: 30_000,
+        tls,
+        certificates: { clientCertificates: [], caCertificates: [] },
+      });
+      // The first broker alone is bypassed, so it connects…
+      expect(() =>
+        resolveKafkaExecutionPolicy({
+          bootstrapBrokers: ['kafka-1.internal.test:9092'],
+          usesTls: false,
+        })
+      ).not.toThrow();
+      // …but a proxied second broker must not be dialled directly.
+      expect(() =>
+        resolveKafkaExecutionPolicy({
+          bootstrapBrokers: ['kafka-1.internal.test:9092', 'kafka-2.example.test:9092'],
+          usesTls: false,
+        })
+      ).toThrow(/proxy for broker kafka-2\.example\.test:9092/);
+    });
+
+    it('rejects a per-host client certificate that matches only one TLS broker', () => {
+      setExecutionPolicy({
+        security: { allowLocalhost: true, allowPrivateIPs: false },
+        proxy: noProxy,
+        timeout: 30_000,
+        tls,
+        certificates: {
+          clientCertificates: [
+            { id: 'b1-only', host: 'kafka-1.example.test', cert: hostClientCert },
+          ],
+          caCertificates: [],
+        },
+      });
+      expect(() =>
+        resolveKafkaExecutionPolicy({
+          bootstrapBrokers: ['kafka-1.example.test:9093', 'kafka-2.example.test:9093'],
+          usesTls: true,
+        })
+      ).toThrow(/different TLS certificates/);
+      // Without TLS the per-host certificate is irrelevant.
+      expect(() =>
+        resolveKafkaExecutionPolicy({
+          bootstrapBrokers: ['kafka-1.example.test:9092', 'kafka-2.example.test:9092'],
+          usesTls: false,
+        })
+      ).not.toThrow();
+    });
+
+    it('accepts brokers that resolve to identical TLS material', () => {
+      setExecutionPolicy({
+        security: { allowLocalhost: true, allowPrivateIPs: false },
+        proxy: noProxy,
+        timeout: 30_000,
+        tls,
+        certificates: {
+          clientCert: globalClientCert,
+          clientCertificates: [{ id: 'all', host: '*.example.test', cert: hostClientCert }],
+          caCertificates: [],
+        },
+      });
+      const resolved = resolveKafkaExecutionPolicy({
+        bootstrapBrokers: ['kafka-1.example.test:9093', 'kafka-2.example.test:9093'],
+        usesTls: true,
+      });
+      expect(resolved.tls).toMatchObject({ pfx: expect.any(Buffer), rejectUnauthorized: true });
+    });
+  });
+
   describe('schema registry', () => {
     const noProxy = { enabled: false, type: 'http' as const, host: '', port: 8080, bypassList: [] };
 

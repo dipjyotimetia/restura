@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import { brokerSecretHandleId, brokerSecretRef } from '@/lib/shared/broker-secrets';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../../electron/shared/kafka-channels';
+import { createFakeSecretsApi } from '../../../../../tests/helpers/fakeSecretsApi';
 import { KAFKA_FLUSH_INTERVAL_MS } from '../consumedMessageBuffer';
 
 function installElectronMock(storedSecrets: Record<string, string> = {}) {
@@ -25,12 +27,14 @@ function installElectronMock(storedSecrets: Record<string, string> = {}) {
     delete: vi.fn(),
     clear: vi.fn(),
   };
+  const secrets = createFakeSecretsApi();
   Object.defineProperty(window, 'electron', {
-    value: { isElectron: true, kafka, store },
+    value: { isElectron: true, kafka, store, secrets: secrets.api },
     configurable: true,
   });
   return {
     kafka,
+    secrets,
     emit: (channel: string, payload: unknown) => {
       for (const listener of listeners.get(channel) ?? []) listener(payload);
     },
@@ -72,9 +76,9 @@ describe('kafkaManager — Schema Registry', () => {
     );
   });
 
-  it('resolves a stored (sentinel) bearer token from secure storage', async () => {
+  it('sends a stored (sentinel) bearer token as its handle, migrating a legacy value', async () => {
     const secrets: Record<string, string> = {};
-    const { kafka } = installElectronMock(secrets);
+    const { kafka, secrets: handles } = installElectronMock(secrets);
     const id = useKafkaStore.getState().createConnection();
     secrets[`kafka:${id}:registry-token`] = 'stored-token';
     useKafkaStore.getState().updateConnection(id, {
@@ -87,8 +91,15 @@ describe('kafkaManager — Schema Registry', () => {
     await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
     expect(kafka.connect).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        registry: expect.objectContaining({ auth: { type: 'bearer', token: 'stored-token' } }),
+        registry: expect.objectContaining({
+          auth: { type: 'bearer', token: brokerSecretRef(`kafka:${id}:registry-token`) },
+        }),
       })
+    );
+    // The plaintext now lives only in main; the IPC carries the reference.
+    expect(JSON.stringify(kafka.connect.mock.calls.at(-1))).not.toContain('stored-token');
+    expect(handles.records.get(brokerSecretHandleId(`kafka:${id}:registry-token`))).toEqual(
+      expect.objectContaining({ value: 'stored-token' })
     );
   });
 
@@ -169,7 +180,7 @@ describe('kafkaManager — Schema Registry', () => {
     expect(kafka.connect).not.toHaveBeenCalled();
   });
 
-  it('resolves stored Basic passwords and omits empty Basic auth', async () => {
+  it('sends stored Basic passwords as handles and omits empty Basic auth', async () => {
     const secrets: Record<string, string> = {};
     const { kafka } = installElectronMock(secrets);
     const id = useKafkaStore.getState().createConnection();
@@ -180,7 +191,10 @@ describe('kafkaManager — Schema Registry', () => {
     await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
     expect(kafka.connect).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        registry: { url: 'https://r.test', auth: { password: 'stored-pw' } },
+        registry: {
+          url: 'https://r.test',
+          auth: { password: brokerSecretRef(`kafka:${id}:registry-password`) },
+        },
       })
     );
 

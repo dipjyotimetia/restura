@@ -11,6 +11,7 @@ import {
   storeKafkaPresetSecrets,
 } from '@/features/kafka/lib/kafkaPreset';
 import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import { brokerSecretHandleId, brokerSecretRef } from '@/lib/shared/broker-secrets';
 import {
   getKafkaProduceDraft,
   getMqttComposerDraft,
@@ -19,6 +20,7 @@ import {
   setPendingSecret,
 } from '@/lib/shared/streaming/composerDrafts';
 import { kafkaRequestSchema } from '@/lib/shared/validations';
+import { createFakeSecretsApi } from '../../../../../tests/helpers/fakeSecretsApi';
 
 const vault = vi.hoisted(() => new Map<string, string>());
 vi.mock('@/lib/shared/secure-storage', () => ({
@@ -29,6 +31,24 @@ vi.mock('@/lib/shared/secure-storage', () => ({
     remove: (key: string) => vault.delete(key),
   },
 }));
+
+// The main-process handle store, behind `window.electron.secrets` (SEC-K3).
+let secrets = createFakeSecretsApi();
+const handleOf = (key: string) => brokerSecretHandleId(key);
+const stash = (key: string, value: string) => secrets.records.set(handleOf(key), { value });
+const held = (key: string) => secrets.records.get(handleOf(key))?.value;
+const isHeld = (key: string) => secrets.records.has(handleOf(key));
+
+beforeEach(() => {
+  secrets = createFakeSecretsApi();
+  Object.defineProperty(window, 'electron', {
+    value: { secrets: secrets.api },
+    configurable: true,
+  });
+});
+afterEach(() => {
+  delete (window as unknown as { electron?: unknown }).electron;
+});
 
 function makeConnection(): string {
   const store = useKafkaStore.getState();
@@ -150,29 +170,32 @@ describe('kafka collection presets (#984)', () => {
 
   it('copies credentials into the preset scope and back, never into the preset', async () => {
     const source = makeConnection();
-    vault.set(kafkaSecretKey(source, 'sasl-password'), 'pw');
-    vault.set(kafkaSecretKey(source, 'tls-passphrase'), 'pp');
-    vault.set(kafkaSecretKey(source, 'registry-password'), 'rp');
+    stash(kafkaSecretKey(source, 'sasl-password'), 'pw');
+    stash(kafkaSecretKey(source, 'tls-passphrase'), 'pp');
+    stash(kafkaSecretKey(source, 'registry-password'), 'rp');
     const conn = useKafkaStore.getState().connections[source]!;
     const preset = kafkaPresetFromConnection(conn, 'P', 'req-9');
-    vault.set(kafkaSecretKey(kafkaPresetSecretScope('req-9'), 'oauth-token'), 'stale');
+    stash(kafkaSecretKey(kafkaPresetSecretScope('req-9'), 'oauth-token'), 'stale');
 
     await storeKafkaPresetSecrets(conn, preset.id);
     const scope = kafkaPresetSecretScope('req-9');
-    expect(vault.get(kafkaSecretKey(scope, 'sasl-password'))).toBe('pw');
-    expect(vault.get(kafkaSecretKey(scope, 'tls-passphrase'))).toBe('pp');
-    expect(vault.get(kafkaSecretKey(scope, 'registry-password'))).toBe('rp');
-    expect(vault.has(kafkaSecretKey(scope, 'oauth-token'))).toBe(false);
+    expect(held(kafkaSecretKey(scope, 'sasl-password'))).toBe('pw');
+    expect(held(kafkaSecretKey(scope, 'tls-passphrase'))).toBe('pp');
+    expect(held(kafkaSecretKey(scope, 'registry-password'))).toBe('rp');
+    expect(isHeld(kafkaSecretKey(scope, 'oauth-token'))).toBe(false);
     expect(JSON.stringify(preset)).not.toMatch(/"pw"|"pp"|"rp"/);
 
     const target = useKafkaStore.getState().createConnection();
     applyKafkaPreset(target, preset);
     await restoreKafkaPresetSecrets(preset.id, target);
     const opened = useKafkaStore.getState().connections[target]!;
-    expect(vault.get(kafkaSecretKey(target, 'sasl-password'))).toBe('pw');
+    expect(held(kafkaSecretKey(target, 'sasl-password'))).toBe('pw');
     expect(opened.auth.sasl).toMatchObject({ password: KAFKA_SECRET_SENTINEL });
     expect(opened.auth.tls?.passphrase).toBe(KAFKA_SECRET_SENTINEL);
     expect(opened.registry?.auth?.password).toBe(KAFKA_SECRET_SENTINEL);
+    // Stored values move handle→handle in main; nothing lands in renderer storage.
+    expect(secrets.api.copy).toHaveBeenCalled();
+    expect([...vault.values()]).toEqual([]);
   });
 
   it('restores an OAUTHBEARER token and leaves a credential-less connection untouched', async () => {
@@ -208,7 +231,7 @@ describe('kafka collection presets (#984)', () => {
     await restoreKafkaPresetSecrets('r', target);
     expect(useKafkaStore.getState().connections[target]!.auth).toEqual(before.auth);
 
-    vault.set(kafkaSecretKey(kafkaPresetSecretScope('r'), 'oauth-token'), 'tok');
+    stash(kafkaSecretKey(kafkaPresetSecretScope('r'), 'oauth-token'), 'tok');
     await restoreKafkaPresetSecrets('r', target);
     expect(useKafkaStore.getState().connections[target]!.auth.sasl).toMatchObject({
       mechanism: 'OAUTHBEARER',
@@ -276,18 +299,28 @@ describe('kafka preset credential lifecycle (#984 review)', () => {
     setPendingSecret(kafkaSecretKey(id, 'sasl-password'), 'typed-pw');
     await storeKafkaPresetSecrets(useKafkaStore.getState().connections[id]!, 'req-p');
     const scope = kafkaPresetSecretScope('req-p');
-    expect(vault.get(kafkaSecretKey(scope, 'sasl-password'))).toBe('typed-pw');
-    expect(vault.get(kafkaSecretKey(scope, 'tls-passphrase'))).toBe('plain-pp');
-    expect(vault.has(kafkaSecretKey(scope, 'registry-password'))).toBe(false);
+    expect(held(kafkaSecretKey(scope, 'sasl-password'))).toBe('typed-pw');
+    expect(held(kafkaSecretKey(scope, 'tls-passphrase'))).toBe('plain-pp');
+    expect(isHeld(kafkaSecretKey(scope, 'registry-password'))).toBe(false);
   });
 
   it('reaps and copies a preset scope', async () => {
-    vault.set(kafkaSecretKey(kafkaPresetSecretScope('a'), 'oauth-token'), 'tok');
+    stash(kafkaSecretKey(kafkaPresetSecretScope('a'), 'oauth-token'), 'tok');
     await copyKafkaPresetSecrets('a', 'b');
-    expect(vault.get(kafkaSecretKey(kafkaPresetSecretScope('b'), 'oauth-token'))).toBe('tok');
-    expect(await readKafkaPresetSecrets('b')).toEqual({ 'oauth-token': 'tok' });
-    reapKafkaPresetSecrets('a');
+    expect(held(kafkaSecretKey(kafkaPresetSecretScope('b'), 'oauth-token'))).toBe('tok');
+    // Presence flags only — the plaintext never comes back to the renderer.
+    expect(await readKafkaPresetSecrets('b')).toEqual({ 'oauth-token': true });
+    expect(secrets.api.copy).toHaveBeenCalled();
+    await reapKafkaPresetSecrets('a');
     expect(await readKafkaPresetSecrets('a')).toEqual({});
+  });
+
+  it('migrates a legacy secureStorage preset credential into its handle once', async () => {
+    const key = kafkaSecretKey(kafkaPresetSecretScope('old'), 'sasl-password');
+    vault.set(key, 'legacy-pw');
+    expect(await readKafkaPresetSecrets('old')).toEqual({ 'sasl-password': true });
+    expect(held(key)).toBe('legacy-pw');
+    expect(vault.has(key)).toBe(false);
   });
 
   it('clears drafts and pending credentials when the connection goes away', () => {
@@ -325,9 +358,7 @@ describe('kafka preset credential lifecycle (#984 review)', () => {
       expect(kafkaRequestSchema.safeParse(preset).success).toBe(true);
 
       await storeKafkaPresetSecrets(conn, 'req-b');
-      expect(vault.get(kafkaSecretKey(kafkaPresetSecretScope('req-b'), 'registry-token'))).toBe(
-        'tok'
-      );
+      expect(held(kafkaSecretKey(kafkaPresetSecretScope('req-b'), 'registry-token'))).toBe('tok');
 
       const target = useKafkaStore.getState().createConnection();
       applyKafkaPreset(target, preset);
@@ -337,8 +368,12 @@ describe('kafka preset credential lifecycle (#984 review)', () => {
         authType: 'bearer',
         bearerToken: KAFKA_SECRET_SENTINEL,
       });
+      expect(held(kafkaSecretKey(target, 'registry-token'))).toBe('tok');
       const resolved = await resolveRegistry(target, opened.registry);
-      expect(resolved?.auth).toEqual({ type: 'bearer', token: 'tok' });
+      expect(resolved?.auth).toEqual({
+        type: 'bearer',
+        token: brokerSecretRef(kafkaSecretKey(target, 'registry-token')),
+      });
     });
 
     it('keeps authType for a handle-backed token and surfaces the re-enter error', async () => {
@@ -347,9 +382,7 @@ describe('kafka preset credential lifecycle (#984 review)', () => {
       const preset = kafkaPresetFromConnection(conn, 'H', 'req-h');
       expect(preset.connection.registry?.authType).toBe('bearer');
       await storeKafkaPresetSecrets(conn, 'req-h');
-      expect(vault.has(kafkaSecretKey(kafkaPresetSecretScope('req-h'), 'registry-token'))).toBe(
-        false
-      );
+      expect(isHeld(kafkaSecretKey(kafkaPresetSecretScope('req-h'), 'registry-token'))).toBe(false);
       const target = useKafkaStore.getState().createConnection();
       applyKafkaPreset(target, preset);
       await restoreKafkaPresetSecrets('req-h', target);
@@ -361,9 +394,7 @@ describe('kafka preset credential lifecycle (#984 review)', () => {
       const source = bearerConnection(undefined);
       setPendingSecret(kafkaSecretKey(source, 'registry-token'), 'typed');
       await storeKafkaPresetSecrets(useKafkaStore.getState().connections[source]!, 'req-p');
-      expect(vault.get(kafkaSecretKey(kafkaPresetSecretScope('req-p'), 'registry-token'))).toBe(
-        'typed'
-      );
+      expect(held(kafkaSecretKey(kafkaPresetSecretScope('req-p'), 'registry-token'))).toBe('typed');
     });
 
     it('an old preset without authType still behaves as basic/none', async () => {
