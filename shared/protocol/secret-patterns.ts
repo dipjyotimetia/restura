@@ -20,7 +20,9 @@ export function headerDenylistRegex(): RegExp[] {
 /** JWTs, Bearer tokens, `key=value` secrets, and prefixed provider/cloud tokens. */
 export function bodyTokenPatterns(): RegExp[] {
   return [
-    /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWT
+    // JWT. The lookbehind anchors the start so a dotless `eyJeyJ…` run cannot
+    // retry from every `eyJ` (quadratic) while a real token after a space, quote or `=` matches.
+    /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
     /Bearer\s+[A-Za-z0-9._\-+/=]{8,}/g,
     /(api[_-]?key|secret|password|token)["']?\s*[:=]\s*["']?[A-Za-z0-9._\-+/=]{8,}/gi,
     /\bsk-(?:ant-|or-v1-|proj-)?[A-Za-z0-9_-]{16,}/g, // OpenAI / Anthropic / OpenRouter keys
