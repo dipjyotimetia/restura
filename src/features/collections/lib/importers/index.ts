@@ -11,6 +11,7 @@ export {
 export {
   importHoppscotchCollection,
   importHoppscotchEnvironment,
+  importHoppscotchEnvironmentDetailed,
   isHoppscotchCollection,
   isHoppscotchEnvironment,
 } from './hoppscotch';
@@ -19,7 +20,13 @@ export { importInsomniaCollection } from './insomnia';
 export { importOpenAPICollection } from './openapi';
 export { importOpenCollection, importOpenCollectionDetailed } from './opencollection';
 export { importPostmanCollection } from './postman';
-export { importPostmanEnvironment, isPostmanEnvironment } from './postman-environment';
+export {
+  type EnvironmentImportOptions,
+  type EnvironmentImportResult,
+  importPostmanEnvironment,
+  importPostmanEnvironmentDetailed,
+  isPostmanEnvironment,
+} from './postman-environment';
 export type { ImportResult, ImportWarning } from './types';
 export { summarizeWarnings } from './types';
 export { type ImportValidation, validateImportedCollection } from './validateImported';

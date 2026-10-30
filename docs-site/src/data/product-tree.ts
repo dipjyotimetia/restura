@@ -1,6 +1,6 @@
 /** Public editorial roadmap. Verify availability against capabilities.ts and source
  * before changing a status; planned/exploring entries carry no delivery dates. */
-export const reviewedOn = '2026-10-12';
+export const reviewedOn = '2026-10-30';
 export const statuses = {
   shipped: 'Shipped',
   'in-progress': 'In progress',
@@ -404,20 +404,20 @@ export const features: Feature[] = [
     'collections',
     'postman-followups',
     'Postman round-trip follow-ups',
-    'Export to Postman from the CLI, keep saved responses as examples, open Postman v3 folders as live collections, and import WebSocket / Socket.IO items natively.',
+    'Export to Postman from the CLI, keep saved responses as examples, and open Postman v3 folders as live collections.',
     'planned',
     all,
     '/guides/import-export/',
     ['postman-v3'],
     {
       today:
-        'Postman v2.x / v3 import and v2.1 / v3 export work in the app. Saved responses live only in the _postman sidecar, the CLI cannot export, and WebSocket / Socket.IO items import as placeholder folders.',
+        'Postman v2.x / v3 import and v2.1 / v3 export work in the app. Saved responses live only in the _postman sidecar, and the CLI cannot export. WebSocket / Socket.IO items import and export as native collection items.',
       milestones: [
         done('Postman v2.x / v3 import and v2.1 / v3 export in the app'),
         todo('CLI export to Postman (--format postman-v2.1|postman-v3)', 1204),
         todo('Saved responses / examples model (today the _postman sidecar only)', 1205),
         todo('Open Postman v3 folders as live git-native collections', 1206),
-        todo('Native WebSocket / Socket.IO collection items', 1209),
+        done('Native WebSocket / Socket.IO collection items (#1209)'),
       ],
     }
   ),

@@ -3,6 +3,7 @@ import type { HttpRequest } from '@/types';
 import {
   importHoppscotchCollection,
   importHoppscotchEnvironment,
+  importHoppscotchEnvironmentDetailed,
   isHoppscotchCollection,
   isHoppscotchEnvironment,
 } from '../importers/hoppscotch';
@@ -143,7 +144,7 @@ describe('importHoppscotchCollection', () => {
       ],
     };
 
-    const result = importHoppscotchEnvironment(env);
+    const result = importHoppscotchEnvironment(env, { keepSecretValues: true });
     expect(result.name).toBe('Production');
     expect(result.variables).toHaveLength(2);
     const apiHost = result.variables.find((v) => v.key === 'API_HOST');
@@ -152,6 +153,38 @@ describe('importHoppscotchCollection', () => {
     const token = result.variables.find((v) => v.key === 'TOKEN');
     expect(token?.value).toBe('secret-token-value');
     expect(token?.secret).toBe(true);
+  });
+
+  it('drops secret values by default and warns with the keys only (#1231)', () => {
+    const result = importHoppscotchEnvironmentDetailed({
+      v: 2,
+      name: 'Production',
+      variables: [
+        { key: 'API_HOST', initialValue: 'https://api.example.com', secret: false },
+        {
+          key: 'TOKEN',
+          initialValue: 'init-tok',
+          currentValue: 'secret-token-value',
+          secret: true,
+        },
+      ],
+    });
+    expect(result.environment.variables.map((v) => [v.key, v.value, v.secret])).toEqual([
+      ['API_HOST', 'https://api.example.com', undefined],
+      ['TOKEN', '', true],
+    ]);
+    expect(result.droppedSecretKeys).toEqual(['TOKEN']);
+    expect(result.warnings).toMatchInlineSnapshot(`
+      [
+        {
+          "construct": "secret-variable",
+          "detail": "Secret variable imported without a value; re-enter it: TOKEN",
+          "kind": "unmodelled-construct",
+          "requestName": "Production",
+        },
+      ]
+    `);
+    expect(JSON.stringify(result)).not.toMatch(/secret-token-value|init-tok/);
   });
 
   it('rejects garbage input with a readable error', () => {

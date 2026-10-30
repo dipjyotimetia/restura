@@ -12,6 +12,11 @@ import type {
   KeyValue,
   RequestBody,
 } from '@/types';
+import {
+  applyEnvironmentSecretPolicy,
+  type EnvironmentImportOptions,
+  type EnvironmentImportResult,
+} from './postman-environment';
 import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
 
 /**
@@ -183,19 +188,33 @@ export function isHoppscotchCollection(data: unknown): boolean {
   return hoppCollection.safeParse(data).success;
 }
 
-export function importHoppscotchEnvironment(data: unknown): Environment {
+export function importHoppscotchEnvironmentDetailed(
+  data: unknown,
+  options: EnvironmentImportOptions = {}
+): EnvironmentImportResult {
   const r = hoppEnvironment.parse(data);
-  return {
-    id: uuid(),
-    name: r.name,
-    variables: r.variables.map((v) => ({
+  // Secret values are dropped unless the caller opts in (#1231).
+  return applyEnvironmentSecretPolicy(
+    {
       id: uuid(),
-      key: v.key,
-      value: v.currentValue ?? v.initialValue ?? v.value ?? '',
-      enabled: true,
-      ...(v.secret ? { secret: true } : {}),
-    })),
-  };
+      name: r.name,
+      variables: r.variables.map((v) => ({
+        id: uuid(),
+        key: v.key,
+        value: v.currentValue ?? v.initialValue ?? v.value ?? '',
+        enabled: true,
+        ...(v.secret ? { secret: true } : {}),
+      })),
+    },
+    options
+  );
+}
+
+export function importHoppscotchEnvironment(
+  data: unknown,
+  options: EnvironmentImportOptions = {}
+): Environment {
+  return importHoppscotchEnvironmentDetailed(data, options).environment;
 }
 
 export function importHoppscotchCollection(data: unknown): ImportResult {

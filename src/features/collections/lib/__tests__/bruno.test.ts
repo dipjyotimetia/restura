@@ -261,6 +261,78 @@ post {
       ]);
     });
 
+    describe('environment secret values (#1231)', () => {
+      const source: BrunoSource = {
+        kind: 'directory',
+        entries: [
+          {
+            relativePath: 'environments/dev.bru',
+            content: `vars {
+  HOST: https://dev.example.com
+}
+
+vars:secret [
+  SECRET_TOKEN
+]
+`,
+          },
+        ],
+      };
+      const vars = (result: Awaited<ReturnType<typeof importBrunoCollection>>) =>
+        result.environments![0]!.variables.map((v) => [v.key, v.value, v.secret]);
+
+      it('drops secret values by default and warns with the keys only', async () => {
+        const result = await importBrunoCollection(source);
+        expect(vars(result)).toMatchInlineSnapshot(`
+          [
+            [
+              "HOST",
+              "https://dev.example.com",
+              undefined,
+            ],
+            [
+              "SECRET_TOKEN",
+              "",
+              true,
+            ],
+          ]
+        `);
+        expect(
+          result.warnings.filter(
+            (w) => w.kind === 'unmodelled-construct' && w.construct === 'secret-variable'
+          )
+        ).toMatchInlineSnapshot(`
+          [
+            {
+              "construct": "secret-variable",
+              "detail": "Secret variable imported without a value; re-enter it: SECRET_TOKEN",
+              "kind": "unmodelled-construct",
+              "requestName": "dev",
+            },
+          ]
+        `);
+      });
+
+      it('keeps secret values with keepSecretValues: true', async () => {
+        const result = await importBrunoCollection(source, { keepSecretValues: true });
+        expect(vars(result)).toMatchInlineSnapshot(`
+          [
+            [
+              "HOST",
+              "https://dev.example.com",
+              undefined,
+            ],
+            [
+              "SECRET_TOKEN",
+              "",
+              true,
+            ],
+          ]
+        `);
+        expect(result.warnings).toEqual([]);
+      });
+    });
+
     it('falls back to default name when bruno.json is missing', async () => {
       const result = await importBrunoCollection({
         kind: 'directory',

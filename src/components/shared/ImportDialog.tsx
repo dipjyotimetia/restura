@@ -7,18 +7,19 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Floater } from '@/components/ui/spatial';
 import {
   buildHarImportCollections,
+  type EnvironmentImportResult,
   type HarImportPreview,
   type ImportResult,
   type ImportWarning,
   importBrunoCollection,
   importCurlCommand,
   importHoppscotchCollection,
-  importHoppscotchEnvironment,
+  importHoppscotchEnvironmentDetailed,
   importHttpFile,
   importInsomniaCollection,
   importOpenAPICollection,
   importOpenCollection,
-  importPostmanEnvironment,
+  importPostmanEnvironmentDetailed,
   isHoppscotchEnvironment,
   isPostmanEnvironment,
   parseHarImport,
@@ -137,13 +138,12 @@ export default function ImportDialog({
     }
   };
 
+  type EnvironmentOnlyOutcome = { kind: 'environment-only' } & EnvironmentImportResult;
   type ProcessOutcome =
     | ImportResult
-    | { kind: 'environment-only'; environment: ReturnType<typeof importPostmanEnvironment> }
+    | EnvironmentOnlyOutcome
     | { kind: 'har-preview'; preview: HarImportPreview };
-  type PendingOutcome =
-    | ImportResult
-    | { kind: 'environment-only'; environment: ReturnType<typeof importPostmanEnvironment> };
+  type PendingOutcome = ImportResult | EnvironmentOnlyOutcome;
 
   const processImportData = async (
     data: unknown,
@@ -153,13 +153,14 @@ export default function ImportDialog({
       if (typeof data !== 'string') throw new Error('HAR input must be JSON text');
       return { kind: 'har-preview', preview: parseHarImport(data) };
     }
+    // Secret env values (#1231): desktop keeps them like a hand-typed secret
+    // env var; web/self-host drops them and warns with the keys only.
+    const envOptions = { keepSecretValues: isElectron() };
     if (type === 'postman' && isPostmanEnvironment(data)) {
-      const env = importPostmanEnvironment(data);
-      return { kind: 'environment-only', environment: env };
+      return { kind: 'environment-only', ...importPostmanEnvironmentDetailed(data, envOptions) };
     }
     if (type === 'hoppscotch' && isHoppscotchEnvironment(data)) {
-      const env = importHoppscotchEnvironment(data);
-      return { kind: 'environment-only', environment: env };
+      return { kind: 'environment-only', ...importHoppscotchEnvironmentDetailed(data, envOptions) };
     }
     return IMPORTERS[type](data);
   };
@@ -185,7 +186,11 @@ export default function ImportDialog({
     if (type === 'bruno' && file.name.toLowerCase().endsWith('.zip')) {
       const { unzipToEntries } = await import('@/lib/shared/zip-utils');
       const entries = await unzipToEntries(new Uint8Array(await file.arrayBuffer()));
-      return importBrunoCollection({ kind: 'directory', entries });
+      // Environment secret values: same platform policy as env files (#1231).
+      return importBrunoCollection(
+        { kind: 'directory', entries },
+        { keepSecretValues: isElectron() }
+      );
     }
     const text = await file.text();
     return processImportData(parseFileContent(text, file.name), type);
@@ -210,7 +215,7 @@ export default function ImportDialog({
       return;
     }
     if ('kind' in outcome) {
-      setWarnings([]);
+      setWarnings(outcome.warnings);
     } else {
       const validation = validateImportedCollection(outcome.collection);
       if (!validation.ok) {
@@ -234,15 +239,18 @@ export default function ImportDialog({
     if ('kind' in outcome) {
       addEnvironment(outcome.environment);
       setImportStatus('success');
-      setWarnings((prev) => (prev.length === 0 ? prev : []));
+      setWarnings(outcome.warnings);
       setEnvironmentOnlyName(outcome.environment.name);
       setPendingOutcome(null);
       setReviewFormat(null);
-      setTimeout(() => {
-        onOpenChange(false);
-        setImportStatus('idle');
-        setEnvironmentOnlyName(null);
-      }, 1500);
+      // Like collection imports, stay open while there are warnings to read.
+      if (outcome.warnings.length === 0) {
+        setTimeout(() => {
+          onOpenChange(false);
+          setImportStatus('idle');
+          setEnvironmentOnlyName(null);
+        }, 1500);
+      }
       return;
     }
     const collection =
@@ -526,9 +534,17 @@ export default function ImportDialog({
                   </p>
                 )}
                 {'kind' in pendingOutcome ? (
-                  <p className="mt-1 text-sp-12 text-sp-text">
-                    Environment: <strong>{pendingOutcome.environment.name}</strong>
-                  </p>
+                  <>
+                    <p className="mt-1 text-sp-12 text-sp-text">
+                      Environment: <strong>{pendingOutcome.environment.name}</strong>
+                    </p>
+                    {pendingOutcome.droppedSecretKeys.length > 0 && (
+                      <p className="mt-1 text-sp-12 text-amber-300">
+                        Secret values are not imported in the browser. Re-enter after import:{' '}
+                        {pendingOutcome.droppedSecretKeys.join(', ')}
+                      </p>
+                    )}
+                  </>
                 ) : (
                   <>
                     <p className="mt-1 text-sp-12 text-sp-text">
