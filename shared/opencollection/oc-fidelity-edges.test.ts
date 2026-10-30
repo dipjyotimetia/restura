@@ -232,9 +232,9 @@ describe('SSE / MCP extension entries — minimal and hand-written', () => {
           { info: { name: 'Empty' }, folderPath: [] },
           { info: { name: 'BadSeg' }, folderPath: [1] },
           { info: { name: 'Missing' }, folderPath: ['Nope'] },
-          // A WebSocket placeholder shares the folder shape internally but is
-          // not a real OC folder — it must never adopt an entry.
-          { info: { name: 'IntoWs' }, folderPath: ['Live (WebSocket)'] },
+          // A WebSocket item (a request since #1209) is not a folder — it must
+          // never adopt an entry.
+          { info: { name: 'IntoWs' }, folderPath: ['Live'] },
           { info: { name: 'Nested' }, folderPath: ['Real'] },
         ],
       },
@@ -249,8 +249,10 @@ describe('SSE / MCP extension entries — minimal and hand-written', () => {
     );
     const real = c.items.find((i) => i.name === 'Real');
     expect(real?.items?.map((i) => i.name)).toEqual(['Nested']);
-    const ws = c.items.find((i) => i.name === 'Live (WebSocket)');
-    expect(ws?.items).toEqual([]);
+    const ws = c.items.find((i) => i.name === 'Live');
+    expect(ws?.type).toBe('request');
+    expect(ws?.request?.type).toBe('websocket');
+    expect(ws?.items).toBeUndefined();
   });
 
   it('re-exports SSE nested two folders deep under a verbatim (unchanged) parent folder', () => {

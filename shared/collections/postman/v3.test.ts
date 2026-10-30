@@ -10,6 +10,8 @@ import type {
   KafkaRequest,
   McpRequest,
   MqttRequest,
+  SocketIoRequest,
+  WebSocketRequest,
 } from '../../types';
 import { detectPostmanVersion, importPostmanCollection } from './index';
 import { getPostmanSidecar } from './sidecar';
@@ -342,13 +344,35 @@ describe('Postman v3 → Restura (every non-HTTP $kind)', () => {
     expect(r.metadata.map((m) => m.key)).toEqual(['x-trace']);
   });
 
-  it('websocket / socket.io → placeholder folder + report + sidecar (no Restura item type)', () => {
-    for (const name of ['Echo socket (WebSocket)', 'Chat (Socket.IO)']) {
-      const item = find(collection.items, name)!;
-      expect(item.type).toBe('folder');
-      expect(item.items).toEqual([]);
-      expect(getPostmanSidecar(item)?.item).toBeDefined();
-    }
+  it('websocket-request → native WebSocket item (not a placeholder folder) (#1209)', () => {
+    const item = find(collection.items, 'Echo socket')!;
+    expect(item.type).toBe('request');
+    expect(getPostmanSidecar(item)?.item).toBeUndefined();
+    const r = item.request as WebSocketRequest;
+    expect(r).toMatchObject({
+      type: 'websocket',
+      url: 'wss://echo.example.com',
+      protocols: [],
+      headers: [],
+      message: { body: 'hello', format: 'text' },
+      templates: [{ name: 'hi', body: 'hello', format: 'text' }],
+    });
+    expect(find(collection.items, 'Echo socket (WebSocket)')).toBeUndefined();
+  });
+
+  it('socket.io-request → native Socket.IO item with its subscribed events (#1209)', () => {
+    const item = find(collection.items, 'Chat')!;
+    expect(item.type).toBe('request');
+    const r = item.request as SocketIoRequest;
+    expect(r).toMatchObject({
+      type: 'socketio',
+      url: 'https://chat.example.com',
+      namespace: '/',
+      path: '/socket.io',
+      subscribedEvents: ['message'],
+      templates: [],
+    });
+    expect(find(collection.items, 'Chat (Socket.IO)')).toBeUndefined();
   });
 
   it('mqtt-request → MQTT preset', () => {
@@ -422,8 +446,9 @@ describe('Postman v3 → Restura (every non-HTTP $kind)', () => {
       expect(item.type).toBe('folder');
       expect(getPostmanSidecar(item)?.item).toBeDefined();
     }
+    // WebSocket / Socket.IO are native items since #1209: only LLM + data remain.
     expect(constructs(report.warnings).filter((c) => c === 'unsupported-item-kind')).toHaveLength(
-      4
+      2
     );
   });
 });

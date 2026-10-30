@@ -348,27 +348,26 @@ describe('TabBar', () => {
   });
 
   describe('Save to Collection availability', () => {
-    it.each([
-      ['websocket', 'WebSocket'],
-      ['socketio', 'Socket.IO'],
-    ] as const)('is disabled with an explanation for %s tabs', async (mode, label) => {
-      // The disabled item has pointer-events: none; click it anyway.
-      const user = userEvent.setup({ pointerEventsCheck: 0 });
-      const onSaveToCollection = vi.fn();
-      useRequestStore.getState().openTabWithMode(mode);
-      render(<TabBar onSaveToCollection={onSaveToCollection} />);
+    it.each(['websocket', 'socketio'] as const)(
+      'is enabled for %s tabs on web and desktop (connection items, #1209)',
+      async (mode) => {
+        platform.electron = false;
+        try {
+          const user = userEvent.setup();
+          const onSaveToCollection = vi.fn();
+          const id = useRequestStore.getState().openTabWithMode(mode);
+          render(<TabBar onSaveToCollection={onSaveToCollection} />);
 
-      fireEvent.contextMenu(screen.getAllByRole('tab')[0]!);
-      const item = await screen.findByRole('menuitem', { name: /Save to Collection/ });
-      expect(item).toHaveAttribute('data-disabled');
-      expect(item).toHaveTextContent('Not supported yet');
-      expect(item).toHaveAttribute(
-        'aria-description',
-        expect.stringContaining(`${label} sessions can't be saved to a collection yet`)
-      );
-      await user.click(item);
-      expect(onSaveToCollection).not.toHaveBeenCalled();
-    });
+          fireEvent.contextMenu(screen.getAllByRole('tab')[0]!);
+          const item = await screen.findByRole('menuitem', { name: /Save to Collection/ });
+          expect(item).not.toHaveAttribute('data-disabled');
+          await user.click(item);
+          expect(onSaveToCollection).toHaveBeenCalledWith(id);
+        } finally {
+          platform.electron = true;
+        }
+      }
+    );
 
     it.each(['kafka', 'mqtt'] as const)(
       'is enabled for %s tabs on desktop (connection presets, #984)',
@@ -419,17 +418,17 @@ describe('TabBar', () => {
       expect(onSaveToCollection).toHaveBeenCalledWith(id);
     });
 
-    it('offers no Save… hand-off when closing a dirty uncollectable tab', async () => {
+    it('offers the Save… hand-off when closing a dirty WebSocket tab (#1209)', async () => {
       const user = userEvent.setup();
       const id = useRequestStore.getState().openTabWithMode('websocket');
       useRequestStore.setState((s) => ({
         tabs: s.tabs.map((t) => (t.id === id ? { ...t, isDirty: true } : t)),
       }));
-      render(<TabBar />);
+      render(<TabBar onSaveToCollection={vi.fn()} />);
 
       await user.click(screen.getByRole('button', { name: /^close / }));
       expect(screen.getByRole('alertdialog')).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Save…' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Save…' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Discard' })).toBeInTheDocument();
     });
   });

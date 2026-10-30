@@ -35,7 +35,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
-import { isBrokerPresetTab, saveTabBackToCollection } from '@/features/collections/lib/saveBack';
+import {
+  isConnectionPresetTab,
+  saveTabBackToCollection,
+} from '@/features/collections/lib/saveBack';
 import { CAPABILITIES } from '@/lib/shared/capabilities';
 import { isElectron } from '@/lib/shared/platform';
 import { useOverflowFade } from '@/lib/shared/useOverflowFade';
@@ -469,9 +472,11 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                       Save to Collection…
                     </ContextMenuItem>
                   )}
-                  {/* Kafka / MQTT edits live in the connection store and never mark
-                      the tab dirty, so a preset-linked tab can always save (#984). */}
-                  {(tab.isDirty || isBrokerPresetTab(tab)) && tab.savedRequestId && (
+                  {/* Connection-preset edits (Kafka / MQTT / WebSocket /
+                      Socket.IO) live in the connection store and never mark
+                      the tab dirty, so a preset-linked tab can always save
+                      (#984, #1209). */}
+                  {(tab.isDirty || isConnectionPresetTab(tab)) && tab.savedRequestId && (
                     <ContextMenuItem onClick={() => handleSaveBack(tab.id, tab.savedRequestId!)}>
                       Save changes
                     </ContextMenuItem>

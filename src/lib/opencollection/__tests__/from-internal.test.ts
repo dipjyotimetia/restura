@@ -16,7 +16,14 @@ describe('internalToOC', () => {
     const oc = await loadCollectionFromFile('tests/fixtures/opencollection/multi-protocol.yaml');
     const internal = ocToInternal(oc);
     const oc2 = internalToOC(internal);
-    expect(oc2).toEqual(oc);
+    // Socket.IO entries are typed since #1209 and re-emitted canonically
+    // (structure-roundtrip.test.ts); everything else is unchanged.
+    const strip = (doc: typeof oc) => ({
+      ...doc,
+      extensions: { ...doc.extensions, 'x-restura-socketio': undefined },
+    });
+    expect(strip(oc2)).toEqual(strip(oc));
+    expect(oc2.extensions?.['x-restura-socketio']).toHaveLength(1);
   });
 
   it('emits a fresh OC for an internal Collection without _oc passthrough', () => {

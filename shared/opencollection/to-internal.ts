@@ -29,6 +29,13 @@ import { applyHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extensio
 import { kvToInternal } from './key-value';
 import { mcpStdioFromOC, mcpTransportFromOC } from './mcp-stdio-extension';
 import type { OpenCollection } from './schemas';
+import {
+  applyWebSocketExtension,
+  SOCKETIO_EXTENSION_KEY,
+  socketIoEntryToInternal,
+  WEBSOCKET_EXTENSION_KEY,
+  webSocketFromOC,
+} from './stream-items';
 
 /**
  * Bridge from OpenCollection (v1.0.0) → Restura's internal `Collection` shape.
@@ -38,8 +45,8 @@ import type { OpenCollection } from './schemas';
  *   - GraphQL         → mapped onto an `HttpRequest` (POST + body type 'graphql').
  *                       Restura's renderer already treats GraphQL as a flavour of HTTP,
  *                       and the internal `Request` union has no GraphQL variant.
- *   - WebSocket       → surfaced as a CollectionItem of type='folder' named
- *                       "<original> (WebSocket)". Restura has UI for WebSocket but no
+ *   - WebSocket       → a native WebSocket connection item (#1209); Restura-only
+ *                       fields re-applied from extensions['x-restura-websocket'].
  *                       persistent internal type yet — folders preserve visibility
  *                       without lying about runnability. Tracked as DONE_WITH_CONCERNS.
  *   - extensions['x-restura-sse'] / ['x-restura-mcp'] / ['x-restura-kafka'] /
@@ -94,6 +101,12 @@ export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
   applyHttpExtension(
     items,
     (oc.extensions as Record<string, unknown> | undefined)?.[HTTP_EXTENSION_KEY]
+  );
+  // Restura-only WebSocket fields (subprotocols, draft, options, frame
+  // assertion) — path-keyed like x-restura-http (stream-items.ts).
+  applyWebSocketExtension(
+    items,
+    (oc.extensions as Record<string, unknown> | undefined)?.[WEBSOCKET_EXTENSION_KEY]
   );
   const collection: WithOC<Collection> = {
     id: uuid(),
@@ -171,13 +184,11 @@ function itemToInternal(item: unknown): WithOC<CollectionItem>[] {
   const name = info.name ?? 'Unnamed';
 
   if (t === 'websocket') {
-    // Phase 0 placeholder: surface as folder. Preserve _oc for from-internal roundtrip.
-    const out: WithOC<CollectionItem> = {
-      id: uuid(),
-      type: 'folder',
-      name: `${name} (WebSocket)`,
-      items: [],
-    };
+    // Native WebSocket connection item (#1209). The verbatim bag keeps OC-only
+    // data Restura does not model (e.g. handshake `auth`) for an unedited
+    // round trip; Restura-only fields come from `x-restura-websocket`.
+    const req = webSocketFromOC(it);
+    const out: WithOC<CollectionItem> = { id: uuid(), type: 'request', name, request: req };
     out._oc = it;
     return [out];
   }
@@ -663,6 +674,7 @@ function placeExtensionItems(
     ['x-restura-mcp', mcpEntryToInternal],
     [KAFKA_EXTENSION_KEY, kafkaEntryToInternal],
     [MQTT_EXTENSION_KEY, mqttEntryToInternal],
+    [SOCKETIO_EXTENSION_KEY, socketIoEntryToInternal],
   ];
   for (const [key, toInternal] of lists) {
     const list = ext?.[key];
@@ -686,26 +698,29 @@ function extensionRequestItem(
     name: req.name,
     request: req,
   };
-  // Kafka / MQTT presets keep NO verbatim bag: the typed preset is lossless,
-  // and a raw entry could smuggle credential keys (sasl.password, …) past the
-  // secret-free preset types into persistence and re-export (#984).
-  if (req.type !== 'kafka' && req.type !== 'mqtt') item._oc = entry;
+  // Kafka / MQTT presets (#984) and Socket.IO items (#1209) keep NO verbatim
+  // bag: the typed item is lossless, and a raw entry could smuggle unmodelled
+  // keys (sasl.password, …) past the typed shapes into persistence / re-export.
+  if (!TYPED_ONLY_TYPES.has(req.type)) item._oc = entry;
   return item;
 }
 
-/** The root bag minus the broker preset lists (see extensionRequestItem). */
+const TYPED_ONLY_TYPES = new Set(['kafka', 'mqtt', 'socketio']);
+const TYPED_ONLY_LISTS = [KAFKA_EXTENSION_KEY, MQTT_EXTENSION_KEY, SOCKETIO_EXTENSION_KEY];
+
+/** The root bag minus the typed-only extension lists (see extensionRequestItem). */
 function withoutBrokerExtensions(oc: OpenCollection): OpenCollection {
   const ext = oc.extensions as Record<string, unknown> | undefined;
-  if (!ext || !(KAFKA_EXTENSION_KEY in ext || MQTT_EXTENSION_KEY in ext)) return oc;
-  const { [KAFKA_EXTENSION_KEY]: _kafka, [MQTT_EXTENSION_KEY]: _mqtt, ...rest } = ext;
-  return { ...oc, extensions: rest } as OpenCollection;
+  if (!ext || !TYPED_ONLY_LISTS.some((k) => k in ext)) return oc;
+  const rest = Object.entries(ext).filter(([k]) => !TYPED_ONLY_LISTS.includes(k));
+  return { ...oc, extensions: Object.fromEntries(rest) } as OpenCollection;
 }
 
 /**
  * Walk `folderPath` (folder names) from the root and return the matching
  * folder's `items` array, or null when the path is absent, empty or
- * unresolvable. Only genuine OC folders match — WebSocket / unknown-type
- * placeholders (also internal `folder`s) are skipped. Duplicate sibling names
+ * unresolvable. Only genuine OC folders match — unknown-type placeholders
+ * (also internal `folder`s) are skipped. Duplicate sibling names
  * resolve to the first match.
  */
 function resolveFolderItems(

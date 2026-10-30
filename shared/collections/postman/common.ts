@@ -40,12 +40,15 @@ export function description(v: unknown): string | undefined {
 }
 
 export function keyValue(row: Raw): KeyValue {
+  const desc = description(row.description);
   return {
     id: uuid(),
     key: str(row.key),
     value: str(row.value),
     enabled: row.disabled !== true,
-    description: description(row.description),
+    // Always present (possibly undefined) for v2 parity; spread keeps the
+    // shape sound under exactOptionalPropertyTypes.
+    ...({ description: desc } as { description?: string }),
   };
 }
 

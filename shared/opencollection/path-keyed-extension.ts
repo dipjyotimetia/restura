@@ -1,6 +1,6 @@
 import { sha256HexSync } from '../protocol/crypto-utils';
 import type { CollectionItem, Request } from '../types';
-import { isBrokerRequest } from '../types/broker';
+import { isConnectionPresetRequest } from '../types/request';
 
 /**
  * Shared machinery for Restura's collection-level OpenCollection extensions
@@ -47,7 +47,7 @@ export function walkRequests<T extends Request>(
       walkRequests(it.items, match, visit, [...parents, it.name]);
       continue;
     }
-    if (it.request && !isBrokerRequest(it.request) && match(it.request)) {
+    if (it.request && !isConnectionPresetRequest(it.request) && match(it.request)) {
       visit(it.request, [...parents, it.name]);
     }
   }

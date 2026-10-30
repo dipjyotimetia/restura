@@ -26,6 +26,12 @@ import { buildGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension'
 import { buildHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
 import { kvFromInternal } from './key-value';
 import type { OpenCollection } from './schemas';
+import {
+  buildWebSocketExtension,
+  SOCKETIO_EXTENSION_KEY,
+  WEBSOCKET_EXTENSION_KEY,
+  webSocketToOC,
+} from './stream-items';
 import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-internal';
 
 /**
@@ -42,9 +48,9 @@ import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-interna
  *      `info` extras, `config` extras, `docs`, request defaults, and any
  *      non-restura extensions survive) and only the `items` array plus
  *      Restura-managed extensions (`x-restura-sse` / `x-restura-mcp` /
- *      `x-restura-auth`) get replaced with fresh values. Unknown extensions like
- *      `x-restura-socketio` survive unchanged because the merge keeps every
- *      non-restura-managed key from the cached extensions bag.
+ *      `x-restura-auth`) get replaced with fresh values. Unknown extensions
+ *      survive unchanged because the merge keeps every non-restura-managed key
+ *      from the cached extensions bag.
  *   3. **Synthesise from scratch.** No `_oc` on the collection — likely
  *      authored in-app rather than imported. Build a minimal OC document
  *      from the internal model alone.
@@ -58,7 +64,9 @@ import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-interna
  *   - SSE / MCP requests do not live in the OC `items` array; they go into
  *     `extensions['x-restura-sse']` / `extensions['x-restura-mcp']`, with a
  *     `folderPath` (ancestor folder names) when nested in a folder (#866).
- *   - WebSocket placeholders survive only via `_oc` bags on folder items.
+ *   - WebSocket connections (#1209) are native OC `websocket` items; their
+ *     Restura-only fields go to `extensions['x-restura-websocket']`. Socket.IO
+ *     connections go to `extensions['x-restura-socketio']` (folderPath).
  *   - Auth name conversions: internal `api-key`/`aws-signature` ↔ OC
  *     `apikey`/`awsv4`.
  *   - OAuth1 `addParamsToBody`, NTLM `workstation` and WSSE `passwordType`
@@ -101,7 +109,7 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     return c._oc as OpenCollection;
   }
 
-  const lists: ExtensionLists = { sse: [], mcp: [], kafka: [], mqtt: [] };
+  const lists: ExtensionLists = { sse: [], mcp: [], kafka: [], mqtt: [], socketio: [] };
   const items: unknown[] = [];
 
   for (const it of c.items ?? []) {
@@ -127,6 +135,8 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     'x-restura-mcp': nonEmpty(lists.mcp),
     [KAFKA_EXTENSION_KEY]: nonEmpty(lists.kafka),
     [MQTT_EXTENSION_KEY]: nonEmpty(lists.mqtt),
+    [SOCKETIO_EXTENSION_KEY]: nonEmpty(lists.socketio),
+    [WEBSOCKET_EXTENSION_KEY]: buildWebSocketExtension(c.items),
     'x-restura-contract': c.contractSpec,
     [AUTH_EXTENSION_KEY]: buildAuthExtension(c),
     [GRPC_EXTENSION_KEY]: buildGrpcExtension(c.items),
@@ -374,11 +384,14 @@ function requestFromInternal(name: string, r: CollectionRequest): unknown {
       if (runtime) out.runtime = runtime;
       return out;
     }
+    case 'websocket':
+      return webSocketToOC(name, r);
     case 'sse':
     case 'mcp':
     case 'kafka':
     case 'mqtt':
-      // SSE / MCP / Kafka / MQTT must be routed into extensions by the caller.
+    case 'socketio':
+      // SSE / MCP / Kafka / MQTT / Socket.IO must be routed into extensions by the caller.
       throw new Error(
         `internalToOC: ${r.type} requests must be emitted via extensions, not requestFromInternal`
       );
@@ -481,14 +494,13 @@ function allFolderAuthsUnchanged(items: CollectionItem[] | undefined): boolean {
  * it and the cached document re-emits the deleted item. A count reconciliation
  * catches it. The root carries the extension-item asymmetry: sse/mcp/kafka/mqtt
  * requests live in `c.items` internally but under
- * `extensions['x-restura-sse'|'-mcp'|'-kafka'|'-mqtt']` in `c._oc` (NOT
- * `c._oc.items`), so the two partitions reconcile separately. Opaque extensions
- * (x-restura-socketio) have no live counterpart and are not counted.
+ * `extensions['x-restura-sse'|'-mcp'|'-kafka'|'-mqtt'|'-socketio']` in `c._oc`
+ * (NOT `c._oc.items`), so the two partitions reconcile separately.
  * Count is sufficient: adds are already caught by `allItemsHaveOcBag` (the new
  * item lacks a bag); only a removal strictly drops the count. Nested removals
  * are handled by ancestor `_oc`-stripping in the store, so this stays root-only.
  */
-const EXTENSION_REQUEST_TYPES = new Set(['sse', 'mcp', 'kafka', 'mqtt']);
+const EXTENSION_REQUEST_TYPES = new Set(['sse', 'mcp', 'kafka', 'mqtt', 'socketio']);
 
 function rootStructureUnchanged(c: WithOC<Collection>): boolean {
   const cached = c._oc as OpenCollection | undefined;
@@ -514,7 +526,8 @@ function rootStructureUnchanged(c: WithOC<Collection>): boolean {
     rootEntries(ext['x-restura-sse']) +
     rootEntries(ext['x-restura-mcp']) +
     rootEntries(ext[KAFKA_EXTENSION_KEY]) +
-    rootEntries(ext[MQTT_EXTENSION_KEY]);
+    rootEntries(ext[MQTT_EXTENSION_KEY]) +
+    rootEntries(ext[SOCKETIO_EXTENSION_KEY]);
   return liveNonStream === (cached.items ?? []).length && liveStream === cachedStream;
 }
 

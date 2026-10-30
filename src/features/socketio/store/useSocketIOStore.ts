@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
+import { clearComposerDrafts } from '@/lib/shared/streaming/composerDrafts';
 import {
   migrateConnectionTemplates,
   type SocketIOEmitTemplate,
@@ -161,7 +162,8 @@ export const useSocketIOStore = create<SocketIOState>()(
         return id;
       },
 
-      removeConnection: (id) =>
+      removeConnection: (id) => {
+        clearComposerDrafts(id);
         set((state) => {
           const { [id]: _, ...rest } = state.connections;
           const nextMap = Object.fromEntries(
@@ -172,7 +174,8 @@ export const useSocketIOStore = create<SocketIOState>()(
             connectionByTabId: nextMap,
             activeConnectionId: state.activeConnectionId === id ? null : state.activeConnectionId,
           };
-        }),
+        });
+      },
 
       setActiveConnection: (id) => set({ activeConnectionId: id }),
 
@@ -193,6 +196,7 @@ export const useSocketIOStore = create<SocketIOState>()(
       cleanupConnectionForTab: (tabId) => {
         const connectionId = get().connectionByTabId[tabId];
         if (!connectionId) return;
+        clearComposerDrafts(connectionId);
         set((state) => {
           const { [connectionId]: _drop, ...restConns } = state.connections;
           const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;

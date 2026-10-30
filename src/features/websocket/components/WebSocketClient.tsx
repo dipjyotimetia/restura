@@ -52,10 +52,15 @@ import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { isElectron } from '@/lib/shared/platform';
 import { modLabel } from '@/lib/shared/shortcuts';
 import {
+  getWebSocketComposerDraft,
+  setWebSocketComposerDraft,
+} from '@/lib/shared/streaming/composerDrafts';
+import {
   newTemplateId,
   nextTemplateName,
   type WebSocketMessageTemplate,
 } from '@/lib/shared/streaming/messageTemplates';
+import { useComposerDraftSync } from '@/lib/shared/streaming/useComposerDraftSync';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
@@ -179,6 +184,19 @@ function WebSocketClient() {
   const activeConnectionId = activeTabId ? (connectionByTabId[activeTabId] ?? null) : null;
   const connection = useWebSocketStore((s) =>
     activeConnectionId ? (s.connections[activeConnectionId] ?? null) : null
+  );
+  // Composer ⇄ draft map: an opened collection item seeds it; Save to
+  // Collection reads it (#1209).
+  useComposerDraftSync(
+    activeConnectionId,
+    { body: message, format: sendFormatToTemplateFormat(sendFormat) },
+    getWebSocketComposerDraft,
+    setWebSocketComposerDraft,
+    (draft) => {
+      setMessage(draft.body);
+      setSendFormat(templateFormatToSendFormat(draft.format));
+    },
+    { body: '', format: 'json' }
   );
   const {
     ensureConnectionForTab,

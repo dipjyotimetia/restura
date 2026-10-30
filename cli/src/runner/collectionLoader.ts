@@ -260,8 +260,10 @@ function walkItems(
     if (item.type === 'folder') {
       const placeholder = getPostmanSidecar(item)?.item;
       if (placeholder !== undefined && (item.items ?? []).length === 0) {
-        // A Postman v3 item kind with no Restura equivalent (WebSocket,
-        // Socket.IO, LLM, data …) imports as an empty placeholder folder.
+        // A Postman v3 item kind with no Restura equivalent (LLM, data,
+        // MCP stdio …) imports as an empty placeholder folder. WebSocket /
+        // Socket.IO import as native items since #1209 (skipped below);
+        // only collections saved before that may still hold placeholders.
         reportSkippedPlaceholder([...folderPath, item.name].join('/'));
         continue;
       }
@@ -284,16 +286,17 @@ function walkItems(
     const req = item.request;
     if (!req) continue;
     const t = req.type;
-    if (t === 'kafka' || t === 'mqtt') {
-      // Kafka / MQTT connection presets (#984) hold no runnable request — the
-      // CLI has no broker transport. Report the skip instead of failing.
+    if (t === 'kafka' || t === 'mqtt' || t === 'websocket' || t === 'socketio') {
+      // Connection presets — Kafka / MQTT (#984), WebSocket / Socket.IO (#1209) —
+      // hold no runnable request; the app's runner skips them too. Report the
+      // skip instead of failing.
       reportSkippedPreset(t, [...folderPath, item.name].join('/'));
       continue;
     }
     if (t !== 'http' && t !== 'grpc' && t !== 'sse' && t !== 'mcp') {
-      // GraphQL/WebSocket are not in the internal Request union; ocToInternal
-      // already converted GraphQL → http-body=graphql and surfaced WebSocket
-      // as a folder, so anything else here is genuinely unrunnable.
+      // GraphQL is not in the internal Request union (ocToInternal converts
+      // it to http with a graphql body) and the connection presets were
+      // handled above, so anything else here is genuinely unrunnable.
       continue;
     }
     // Bake effective auth + combined scripts into the request so the executor
@@ -349,11 +352,21 @@ function reportSkippedPlaceholder(path: string): void {
   );
 }
 
-function reportSkippedPreset(type: 'kafka' | 'mqtt', path: string): void {
-  const label = type === 'kafka' ? 'Kafka' : 'MQTT';
+const PRESET_LABEL = {
+  kafka: 'Kafka',
+  mqtt: 'MQTT',
+  websocket: 'WebSocket',
+  socketio: 'Socket.IO',
+} as const;
+
+function reportSkippedPreset(type: keyof typeof PRESET_LABEL, path: string): void {
+  const label = PRESET_LABEL[type];
+  const where =
+    type === 'kafka' || type === 'mqtt'
+      ? 'Kafka and MQTT connection presets open in the Restura desktop app'
+      : 'WebSocket and Socket.IO connections open in the Restura app';
   process.stderr.write(
-    `[restura] skipping ${label} preset "${path}": Kafka and MQTT connection presets ` +
-      'open in the Restura desktop app and are not run by the CLI.\n'
+    `[restura] skipping ${label} preset "${path}": ${where} and are not run by the CLI.\n`
   );
 }
 

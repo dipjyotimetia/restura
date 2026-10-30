@@ -1,16 +1,18 @@
 import { toast } from 'sonner';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { CollectionItem } from '@/types';
-import { isBrokerRequest } from '@/types';
+import { isBrokerRequest, isStreamPresetRequest } from '@/types';
 import { openBrokerPreset } from './brokerPresets';
+import { openStreamPreset } from './streamPresets';
 
 const opening = new Set<string>();
 
 /**
  * Open a saved collection item — the ONE entry point shared by the sidebar,
  * command palette and deep links. Focuses the tab already linked to the item
- * when there is one; Kafka / MQTT presets (#984) open their connection panel
- * prefilled; every other request opens as a normal request tab.
+ * when there is one; Kafka / MQTT presets (#984) and WebSocket / Socket.IO
+ * items (#1209) open their connection panel prefilled; every other request
+ * opens as a normal request tab.
  *
  * Returns false when the item is not an openable request.
  */
@@ -31,6 +33,10 @@ export function openCollectionItem(item: CollectionItem): boolean {
         toast.error('Could not open the preset — its saved credentials could not be read');
       })
       .finally(() => opening.delete(item.id));
+    return true;
+  }
+  if (isStreamPresetRequest(item.request)) {
+    openStreamPreset(item.id, item.request);
     return true;
   }
   requests.openTab(item.request, { savedRequestId: item.id, switchTo: true });

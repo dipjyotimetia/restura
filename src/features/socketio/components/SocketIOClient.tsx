@@ -45,10 +45,15 @@ import {
 import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { modLabel } from '@/lib/shared/shortcuts';
 import {
+  getSocketIoComposerDraft,
+  setSocketIoComposerDraft,
+} from '@/lib/shared/streaming/composerDrafts';
+import {
   newTemplateId,
   nextTemplateName,
   type SocketIOEmitTemplate,
 } from '@/lib/shared/streaming/messageTemplates';
+import { useComposerDraftSync } from '@/lib/shared/streaming/useComposerDraftSync';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
@@ -212,6 +217,20 @@ function SocketIOClient() {
   const [emitArgsText, setEmitArgsText] = useState('"hello"');
   const [emitError, setEmitError] = useState<string | null>(null);
   const [requestAck, setRequestAck] = useState(false);
+  // Composer ⇄ draft map: an opened collection item seeds it; Save to
+  // Collection reads it (#1209).
+  useComposerDraftSync(
+    activeConnectionId,
+    { eventName: emitEventName, args: emitArgsText, ack: requestAck },
+    getSocketIoComposerDraft,
+    setSocketIoComposerDraft,
+    (draft) => {
+      setEmitEventName(draft.eventName);
+      setEmitArgsText(draft.args);
+      setRequestAck(draft.ack);
+    },
+    { eventName: 'message', args: '"hello"', ack: false }
+  );
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [frozen, setFrozen] = useState(false);

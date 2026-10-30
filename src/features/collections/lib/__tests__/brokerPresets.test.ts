@@ -21,7 +21,7 @@ import {
   snapshotBrokerTab,
 } from '../brokerPresets';
 import { exportToInsomnia, exportToPostmanV21, getCollectionExportWarnings } from '../exporters';
-import { skippedBrokerPresets } from '../flattenRunnables';
+import { skippedConnectionPresets } from '../flattenRunnables';
 import { duplicateCollection, duplicateRequestItem } from '../itemFactory';
 import { openCollectionItem } from '../openCollectionItem';
 import { saveTabBackToCollection } from '../saveBack';
@@ -412,9 +412,9 @@ describe('preset save-back, credential lifecycle and runner reporting (#984 revi
       item(KAFKA),
       { id: 'f', name: 'F', type: 'folder', items: [item(MQTT)] },
     ];
-    expect(skippedBrokerPresets(items)).toEqual(['Orders', 'Sensors']);
-    expect(skippedBrokerPresets(items, 'f')).toEqual(['Sensors']);
-    expect(skippedBrokerPresets(items, 'nope')).toEqual([]);
+    expect(skippedConnectionPresets(items)).toEqual(['Orders', 'Sensors']);
+    expect(skippedConnectionPresets(items, 'f')).toEqual(['Sensors']);
+    expect(skippedConnectionPresets(items, 'nope')).toEqual([]);
   });
 
   it('strips userinfo from a snapshot of an MQTT tab', () => {
