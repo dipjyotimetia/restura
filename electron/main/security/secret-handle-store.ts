@@ -208,6 +208,12 @@ const HandleIdSchema = z.object({
   id: z.uuid(),
 });
 
+const CopyInputSchema = z.object({
+  from: z.uuid(),
+  to: z.uuid(),
+  label: StoreInputSchema.shape.label,
+});
+
 // Generous budget: the SecretRef import migration
 // (src/lib/shared/secretRef-migrations.ts) stores one handle per sensitive
 // auth field in a tight loop when converting an imported collection, so a
@@ -289,6 +295,27 @@ export function registerSecretHandleIPC(): void {
     getStore().clear();
     return { ok: true };
   });
+
+  // Main-side duplicate: lets the renderer move a stored secret between scopes
+  // (connection ↔ saved preset) without the plaintext ever crossing IPC.
+  handleSecretChannel(IPC.secret.copy, CopyInputSchema, ({ from, to, label }) => {
+    const source = getStore().get(from);
+    if (isInternalRecord(getStore().get(to))) {
+      return { ok: false, error: 'This secret is managed by Restura and cannot be overwritten' };
+    }
+    if (!source || isInternalRecord(source)) return { ok: true, copied: false };
+    storeSecretHandle({
+      id: to,
+      value: source.value,
+      ...(label !== undefined
+        ? { label }
+        : source.label !== undefined
+          ? { label: source.label }
+          : {}),
+      ...(source.scope !== undefined ? { scope: source.scope } : {}),
+    });
+    return { ok: true, copied: true };
+  });
 }
 
 /** Tear down IPC handlers; idempotent. */
@@ -298,6 +325,7 @@ export function unregisterSecretHandleIPC(): void {
   ipcMain.removeHandler(IPC.secret.describe);
   ipcMain.removeHandler(IPC.secret.list);
   ipcMain.removeHandler(IPC.secret.clear);
+  ipcMain.removeHandler(IPC.secret.copy);
 }
 
 // ---------------------------------------------------------------------------

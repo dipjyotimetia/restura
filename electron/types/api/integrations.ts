@@ -374,6 +374,16 @@ export interface ElectronSecretsAPI {
     { ok: true; handles: ElectronSecretHandleSummary[] } | { ok: false; error: string }
   >;
   clear: () => Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * Duplicate handle `from` into handle `to` entirely in main — the renderer
+   * moves a stored secret (e.g. a broker password into a saved preset) without
+   * ever reading its plaintext. `copied: false` when `from` does not exist.
+   */
+  copy: (args: {
+    from: string;
+    to: string;
+    label?: string;
+  }) => Promise<{ ok: true; copied: boolean } | { ok: false; error: string }>;
 }
 
 /** Renderer-visible profile metadata only; resolved provider values stay in main. */

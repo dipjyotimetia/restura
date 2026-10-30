@@ -102,6 +102,7 @@ export const integrationApi: IntegrationApi = {
     describe: (id) => ipcRenderer.invoke(IPC.secret.describe, { id }),
     list: invoke<ElectronAPI['secrets']['list']>(IPC.secret.list),
     clear: invoke<ElectronAPI['secrets']['clear']>(IPC.secret.clear),
+    copy: invoke<ElectronAPI['secrets']['copy']>(IPC.secret.copy),
   },
   externalSecrets: {
     list: invoke<ElectronAPI['externalSecrets']['list']>(IPC.externalSecrets.list),
