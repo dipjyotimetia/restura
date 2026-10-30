@@ -46,6 +46,8 @@ export const socketIoRequestSchema = z.object({
   namespace: z.string(),
   path: z.string(),
   handshakeAuth: z.array(keyValueSchema),
+  handshakeAuthMode: z.enum(['kv', 'json']).optional(),
+  handshakeAuthJson: z.string().optional(),
   query: z.array(keyValueSchema),
   headers: z.array(keyValueSchema),
   transports: z.array(z.enum(['websocket', 'polling'])),
@@ -57,8 +59,13 @@ export const socketIoRequestSchema = z.object({
       autoReconnect: z.boolean().optional(),
       reconnectionAttempts: nonNegInt.optional(),
       reconnectionDelay: nonNegInt.optional(),
+      reconnectionDelayMax: nonNegInt.optional(),
+      randomizationFactor: z.number().min(0).max(1).optional(),
       timeout: nonNegInt.optional(),
       forceNew: z.boolean().optional(),
+      volatile: z.boolean().optional(),
+      compress: z.boolean().optional(),
+      ackTimeoutMs: nonNegInt.optional(),
     })
     .optional(),
 });

@@ -13,7 +13,8 @@ import type { KeyValue } from './common';
  * and Socket.IO auth rows as plain key/value rows, so these shapes do too.
  * Credential-looking rows are blanked by export redaction
  * (`shared/secrets/stream-preset-redaction.ts`) and the Socket.IO handshake
- * auth payload (`handshakeAuth`) is blanked wholesale. Every string may hold `{{var}}`
+ * auth payload (`handshakeAuth` rows, or `handshakeAuthJson` in JSON mode) is
+ * blanked wholesale. Every string may hold `{{var}}`
  * tokens; values are stored unresolved.
  */
 
@@ -68,10 +69,19 @@ export interface SocketIoPresetOptions {
   autoReconnect?: boolean;
   reconnectionAttempts?: number;
   reconnectionDelay?: number;
+  reconnectionDelayMax?: number;
+  /** 0–1 jitter applied to the reconnection delay. */
+  randomizationFactor?: number;
   /** Handshake timeout, ms. */
   timeout?: number;
   forceNew?: boolean;
+  /** Per-emit modifiers applied to every emit from the composer. */
+  volatile?: boolean;
+  compress?: boolean;
+  ackTimeoutMs?: number;
 }
+
+export type SocketIoPresetAuthMode = 'kv' | 'json';
 
 export interface SocketIoRequest {
   id: string;
@@ -88,6 +98,10 @@ export interface SocketIoRequest {
    * mis-handle a row list. Every value is blanked on export.
    */
   handshakeAuth: KeyValue[];
+  /** `json` sends `handshakeAuthJson` instead of the rows. Absent = `kv`. */
+  handshakeAuthMode?: SocketIoPresetAuthMode;
+  /** Handshake auth as JSON text, stored unresolved (`{{var}}` resolved at connect). */
+  handshakeAuthJson?: string;
   query: KeyValue[];
   /** Handshake headers (`extraHeaders` in the connection store). */
   headers: KeyValue[];

@@ -123,6 +123,55 @@ describe('Socket.IO apply / snapshot', () => {
     clearComposerDrafts(id);
     const snap = socketIoPresetFromConnection(useSocketIOStore.getState().connections[id]!, 'Z');
     expect(snap.emit).toEqual({ eventName: 'message', args: '', ack: false });
+    // A fresh connection saves neither a JSON auth mode nor its default `{}` text.
+    expect(snap.handshakeAuthMode).toBeUndefined();
+    expect(snap.handshakeAuthJson).toBeUndefined();
+  });
+
+  it('round-trips JSON auth, reconnection tuning and emit options through a saved item', () => {
+    const s = useSocketIOStore.getState();
+    const src = s.createConnection('https://json');
+    s.updateConnectionField(src, 'authMode', 'json');
+    s.updateConnectionField(src, 'authJson', '{"token":"{{token}}","user":{"id":{{uid}}}}');
+    s.updateConnectionField(src, 'reconnectionDelayMax', 9_000);
+    s.updateConnectionField(src, 'randomizationFactor', 0.25);
+    s.updateConnectionField(src, 'emitOptions', {
+      volatile: true,
+      compress: false,
+      ackTimeoutMs: 2_500,
+    });
+    const snap = socketIoPresetFromConnection(useSocketIOStore.getState().connections[src]!, 'J');
+    expect(snap).toMatchObject({
+      handshakeAuthMode: 'json',
+      handshakeAuthJson: '{"token":"{{token}}","user":{"id":{{uid}}}}',
+      options: {
+        reconnectionDelayMax: 9_000,
+        randomizationFactor: 0.25,
+        volatile: true,
+        compress: false,
+        ackTimeoutMs: 2_500,
+      },
+    });
+
+    const dst = s.createConnection('https://other');
+    applySocketIoPreset(dst, snap);
+    expect(useSocketIOStore.getState().connections[dst]).toMatchObject({
+      authMode: 'json',
+      authJson: '{"token":"{{token}}","user":{"id":{{uid}}}}',
+      reconnectionDelayMax: 9_000,
+      randomizationFactor: 0.25,
+      emitOptions: { volatile: true, compress: false, ackTimeoutMs: 2_500 },
+    });
+  });
+
+  it('ignores a zero ack timeout and keeps defaults for items saved before JSON auth', () => {
+    const id = useSocketIOStore.getState().createConnection('https://legacy');
+    applySocketIoPreset(id, { ...SIO, options: { ackTimeoutMs: 0, volatile: true } });
+    expect(useSocketIOStore.getState().connections[id]).toMatchObject({
+      authMode: 'kv',
+      authJson: '{}',
+      emitOptions: { volatile: true, compress: true, ackTimeoutMs: 15_000 },
+    });
   });
 });
 
