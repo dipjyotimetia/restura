@@ -159,9 +159,12 @@ Husky installs two hooks on `npm install`:
   `*.snap`, so a snapshot that passes locally is missing in CI; use
   `toMatchInlineSnapshot()`), and added lines containing an absolute path to
   your checkout.
-- **pre-push** runs `npm run type-check`, `npm run architecture:check`, and
-  `vitest related` for the files your branch changed since its merge-base with
-  `origin/main` (the full suite if the Vitest config/setup changed). The full
+- **pre-push** runs `npm run type-check:related` (the tsconfig projects your
+  branch touched: the renderer always, plus Electron, Worker, CLI, echo,
+  extensions or tooling as needed; every project when `shared/` or a root
+  config changed), `npm run architecture:check`, and `vitest related` for the
+  files your branch changed since its merge-base with `origin/main` (the full
+  suite if the Vitest config/setup changed). The full
   `test:coverage` budget is enforced by CI on every PR and re-run on top of
   current `main` by the merge lane (see [docs/CI_CD.md](docs/CI_CD.md)). To run
   it locally before pushing, use `RESTURA_PREPUSH_FULL=1 git push`.

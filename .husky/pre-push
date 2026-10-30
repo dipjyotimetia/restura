@@ -1,4 +1,6 @@
-# Fast pre-push: renderer type-check, architecture policy, and only the Vitest
+# Fast pre-push: type-check of the tsconfig projects this branch touched
+# (scripts/type-check-related.mjs; the renderer always, every project when
+# shared/ or a root config changed), architecture policy, and only the Vitest
 # suites related to what this branch changed (vs its merge-base with
 # origin/main). The full `test:coverage` run (~3 min, merged-suite budget) is
 # NOT repeated on every push: CI enforces it on every PR, and the `main`
@@ -12,7 +14,7 @@
 # the repository context Git exports to hooks.
 unset GIT_DIR GIT_WORK_TREE
 
-npm run type-check
+npm run type-check:related
 npm run architecture:check
 
 if [ "${RESTURA_PREPUSH_FULL:-}" = "1" ]; then
