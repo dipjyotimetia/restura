@@ -16,6 +16,8 @@ export interface PendingRequest {
   abort: (result: { cancelled?: boolean; error: string }) => void;
 }
 
+const MAX_PENDING_REQUESTS = 32;
+
 /** The slice of a live connection a request needs. */
 export interface MqttRequestHost {
   client: MqttClient;
@@ -71,6 +73,13 @@ export async function runMqttRequest(
   }
   if (entry.pendingRequests.has(cfg.requestId)) {
     return { success: false, error: 'Request already in flight' };
+  }
+  // Each request holds a subscription + timer until it settles; bound them.
+  if (entry.pendingRequests.size >= MAX_PENDING_REQUESTS) {
+    return {
+      success: false,
+      error: `Too many requests in flight on this connection (max ${MAX_PENDING_REQUESTS})`,
+    };
   }
   const responseTopic =
     cfg.responseTopic ?? `restura/resp/${entry.clientId || 'client'}/${randomUUID()}`;
