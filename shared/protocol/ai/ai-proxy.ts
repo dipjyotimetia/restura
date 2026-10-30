@@ -4,7 +4,7 @@ import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 import { ResponseTooLargeError, readErrorPreview } from './bounded-read';
 import { PROVIDER_ROUTES } from './provider-routes';
 import { getProviderModule } from './providers';
-import { detectUnredactedSecrets, scrubProviderError } from './redaction';
+import { detectUnredactedSecrets, scrubProviderError, scrubSecretText } from './redaction';
 import type { ChatRequestSpec, ChatStreamEvent } from './types';
 
 type SecretResolver = (handleId: string) => Promise<string | undefined>;
@@ -29,6 +29,11 @@ function isAbortError(e: unknown, signal: AbortSignal | undefined): boolean {
  * secretResolver reading from the encrypted handle store. Same orchestrator
  * runs regardless of backend.
  */
+/** Provider-supplied error text can echo the auth header, even inside a 200 stream. */
+function scrubEvent(ev: ChatStreamEvent, apiKey: string): ChatStreamEvent {
+  return ev.type === 'error' ? { ...ev, message: scrubSecretText(ev.message, apiKey) } : ev;
+}
+
 export async function* executeAiChat(
   spec: ChatRequestSpec,
   fetcher: Fetcher,
@@ -88,7 +93,11 @@ export async function* executeAiChat(
     if (isAbortError(e, spec.signal)) {
       yield { type: 'error', code: 'aborted', message: 'Stream aborted.' };
     } else {
-      yield { type: 'error', code: 'network', message: e instanceof Error ? e.message : String(e) };
+      yield {
+        type: 'error',
+        code: 'network',
+        message: scrubSecretText(e instanceof Error ? e.message : String(e), apiKey),
+      };
     }
     yield { type: 'done' };
     return;
@@ -133,18 +142,22 @@ export async function* executeAiChat(
         throw new ResponseTooLargeError();
       }
       for (const sse of parser.feed(value)) {
-        for (const ev of decoder.feed(sse.data, sse.event)) yield ev;
+        for (const ev of decoder.feed(sse.data, sse.event)) yield scrubEvent(ev, apiKey);
       }
     }
     for (const sse of parser.flush()) {
-      for (const ev of decoder.feed(sse.data, sse.event)) yield ev;
+      for (const ev of decoder.feed(sse.data, sse.event)) yield scrubEvent(ev, apiKey);
     }
-    for (const ev of decoder.flush()) yield ev;
+    for (const ev of decoder.flush()) yield scrubEvent(ev, apiKey);
   } catch (e) {
     if (isAbortError(e, spec.signal)) {
       yield { type: 'error', code: 'aborted', message: 'Stream aborted.' };
     } else {
-      yield { type: 'error', code: 'network', message: e instanceof Error ? e.message : String(e) };
+      yield {
+        type: 'error',
+        code: 'network',
+        message: scrubSecretText(e instanceof Error ? e.message : String(e), apiKey),
+      };
     }
     yield { type: 'done' };
   }

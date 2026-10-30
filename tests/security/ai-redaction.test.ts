@@ -7,6 +7,7 @@ import {
   effectiveRawMode,
   redactBody,
   redactHeaders,
+  scrubProviderError,
 } from '@shared/protocol/ai/redaction';
 import { describe, expect, it } from 'vitest';
 import { specFor } from '@/features/ai-lab/lib/llmClient';
@@ -244,6 +245,86 @@ describe('provider error bodies never return the resolved key (ADR-0007)', () =>
     };
     expect(error.message).toContain('Provider 401');
     expect(error.message).not.toContain(KEY);
+  });
+
+  const chat = async (fetcher: never) => {
+    const events: Array<{ type: string; message?: string }> = [];
+    for await (const ev of executeAiChat(
+      {
+        provider: 'openai',
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        apiKeyHandleId: 'h',
+        rawMode: false,
+        signal: new AbortController().signal,
+      } as never,
+      fetcher,
+      async () => KEY
+    )) {
+      events.push(ev as never);
+    }
+    return events.filter((e) => e.type === 'error');
+  };
+
+  it('chat: an error event inside a 200 stream omits the key', async () => {
+    const sse = `data: ${JSON.stringify({ error: { message: `bad key ${KEY}` } })}\n\n`;
+    const fetcher = (async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      contentLengthHeader: null,
+      text: async () => sse,
+      body: new Response(sse).body,
+    })) as never;
+    const errors = await chat(fetcher);
+    expect(errors.length).toBeGreaterThan(0);
+    for (const e of errors) expect(e.message).not.toContain(KEY);
+  });
+
+  it('chat: a transport error that quotes the key omits it', async () => {
+    const fetcher = (async () => {
+      throw new Error(`connect failed, header was Bearer ${KEY}`);
+    }) as never;
+    const errors = await chat(fetcher);
+    expect(errors[0]?.message).not.toContain(KEY);
+  });
+
+  it('chat: a key with embedded CR/LF is removed line by line', async () => {
+    const odd = 'zq_first-line-123\r\nzq_second-line-456';
+    const events: string[] = [];
+    for await (const ev of executeAiChat(
+      {
+        provider: 'openai',
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        apiKeyHandleId: 'h',
+        rawMode: false,
+        signal: new AbortController().signal,
+      } as never,
+      (async () => {
+        throw new Error('invalid header value: zq_first-line-123 / zq_second-line-456');
+      }) as never,
+      async () => odd
+    )) {
+      if (ev.type === 'error') events.push(ev.message);
+    }
+    expect(events.join()).not.toMatch(/zq_(first|second)-line/);
+  });
+
+  it('a very short key does not mangle the text', () => {
+    expect(scrubProviderError('a banana is a fruit', 'a', 500)).toBe('a banana is a fruit');
+  });
+
+  it('discovery: a transport error that quotes the key omits it', async () => {
+    const err = await listModels({
+      provider: 'openai',
+      baseUrl: 'https://api.example',
+      apiKey: KEY,
+      fetcher: (async () => {
+        throw new Error(`socket hang up (Bearer ${KEY})`);
+      }) as never,
+    }).catch((e: Error) => e);
+    expect((err as Error).message).not.toContain(KEY);
   });
 
   it('discovery: the thrown error omits the key', async () => {

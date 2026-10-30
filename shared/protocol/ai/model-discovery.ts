@@ -1,6 +1,6 @@
 import type { Fetcher } from '@shared/protocol/types';
 import { readBoundedText, readErrorPreview } from './bounded-read';
-import { scrubProviderError } from './redaction';
+import { scrubProviderError, scrubSecretText } from './redaction';
 import { isLocalProvider, type Provider } from './types';
 
 export interface DiscoveredModel {
@@ -148,7 +148,9 @@ async function fetchJson(url: string, args: DiscoverArgs): Promise<unknown> {
     if (timeout.aborted && !args.signal?.aborted) {
       throw new Error(`Model discovery timed out after ${timeoutMs}ms`);
     }
-    throw e;
+    if (e instanceof Error && e.name === 'AbortError') throw e;
+    // Transport errors can quote the request headers, key included.
+    throw new Error(scrubSecretText(e instanceof Error ? e.message : String(e), args.apiKey));
   }
   if (res.status < 200 || res.status >= 300) {
     let detail = '';

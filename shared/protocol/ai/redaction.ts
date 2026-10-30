@@ -100,8 +100,25 @@ export function detectUnredactedSecrets(text: string): boolean {
  * half so neither step matches it.
  */
 export function scrubProviderError(body: string, apiKey: string | undefined, max: number): string {
-  const withoutKey = apiKey ? body.split(apiKey).join('[REDACTED]') : body;
-  return redactBody(withoutKey, 'default').slice(0, max);
+  return scrubSecretText(body, apiKey).slice(0, max);
+}
+
+/** Shorter literals are structural noise ("a", "8080"); removing them would mangle text. */
+export const MIN_SECRET_LITERAL_LENGTH = 8;
+
+/**
+ * Remove the literal key (and each line of a key with embedded CR/LF, which
+ * undici quotes line by line in header errors), then pattern-redact. No clipping.
+ */
+export function scrubSecretText(text: string, apiKey: string | undefined): string {
+  let out = text;
+  if (apiKey) {
+    const literals = [apiKey, ...apiKey.split(/[\r\n]+/)]
+      .filter((l) => l.length >= MIN_SECRET_LITERAL_LENGTH)
+      .sort((x, y) => y.length - x.length);
+    for (const literal of literals) out = out.split(literal).join('[REDACTED]');
+  }
+  return redactBody(out, 'default');
 }
 
 /**

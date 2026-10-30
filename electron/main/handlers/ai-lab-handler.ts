@@ -20,7 +20,7 @@ import { runToCompletion } from '@shared/protocol/ai/ai-complete';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { listModels, testConnection } from '@shared/protocol/ai/model-discovery';
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
-import { effectiveRawMode } from '@shared/protocol/ai/redaction';
+import { effectiveRawMode, scrubSecretText } from '@shared/protocol/ai/redaction';
 import { type ChatRequestSpec, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
 import { createLogger } from '@shared/runtime/logger';
@@ -437,7 +437,8 @@ export function registerAiLabHandlers(): void {
       });
       return { ok: true as const, models };
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      // The shared layer already removed the key; redact patterns before logging too.
+      const msg = scrubSecretText(e instanceof Error ? e.message : String(e), undefined);
       log.warn('listModels failed', { provider, error: msg });
       return { ok: false as const, error: msg };
     }
@@ -467,7 +468,8 @@ export function registerAiLabHandlers(): void {
       });
       return result;
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      // The shared layer already removed the key; redact patterns before logging too.
+      const msg = scrubSecretText(e instanceof Error ? e.message : String(e), undefined);
       log.warn('testConnection failed', { provider, error: msg });
       return { ok: false as const, error: msg };
     }
