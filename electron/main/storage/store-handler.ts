@@ -13,6 +13,7 @@ import {
   StoreSetSchema,
 } from '../ipc/ipc-validators';
 import { getOrCreateEncryptedKey } from '../security/encrypted-key';
+import { CREDENTIAL_STORE_KEY } from '../security/store-keys';
 import { createResilientStore } from './resilient-store';
 
 const log = createLogger('store');
@@ -30,10 +31,10 @@ interface ElectronStoreInstance {
 /**
  * The store is created LAZILY on first use, not at module import.
  *
- * getOrCreateEncryptedKey() calls safeStorage.isEncryptionAvailable(), which on
- * macOS only returns true AFTER the app emits 'ready'. This module is imported
- * by main.ts before app.whenReady(), so eager creation here derived the key with
- * the keychain "unavailable" — forcing a plaintext-key fallback, the misleading
+ * safeStorage only reports the keychain as available AFTER the app emits
+ * 'ready' (the key is derived by primeStoreKeys() at that point). This module is
+ * imported by main.ts before app.whenReady(), so eager creation here would run
+ * before the key exists / with the keychain "unavailable" — forcing a plaintext-key fallback, the misleading
  * "Secrets are stored without OS-keychain protection" banner, and an unstable
  * key that made previously-encrypted data fail to decrypt. Deferring creation to
  * first use (which always happens after the app is ready) lets safeStorage back
@@ -47,10 +48,7 @@ function getStoreInstance(): ElectronStoreInstance {
     // overwrites on read, so plain clearInvalidConfig would lose it).
     store = createResilientStore<ElectronStoreInstance>({
       name: 'restura-encrypted-store',
-      encryptionKey: getOrCreateEncryptedKey({
-        fileName: '.encryption-key',
-        storeLabel: 'credential store',
-      }),
+      encryptionKey: getOrCreateEncryptedKey(CREDENTIAL_STORE_KEY),
     });
   }
   return store;

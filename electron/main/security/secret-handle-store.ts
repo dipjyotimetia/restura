@@ -38,6 +38,7 @@ import { assertTrustedSender } from '../ipc/ipc-validators';
 import { createResilientStore } from '../storage/resilient-store';
 import { getOrCreateEncryptedKey } from './encrypted-key';
 import { hasControlChars } from './mcp-stdio-policy';
+import { SECRET_HANDLE_STORE_KEY } from './store-keys';
 
 interface HandleRecord {
   value: string;
@@ -71,10 +72,7 @@ function getStore(): SecretStoreShape {
   if (storeInstance) return storeInstance;
   storeInstance = createResilientStore<SecretStoreShape>({
     name: 'restura-secret-handles',
-    encryptionKey: getOrCreateEncryptedKey({
-      fileName: '.secret-handles-key',
-      storeLabel: 'secret-handle store',
-    }),
+    encryptionKey: getOrCreateEncryptedKey(SECRET_HANDLE_STORE_KEY),
   });
   return storeInstance;
 }

@@ -50,7 +50,7 @@ export function registerKeychainStatusIPC(): void {
     // imply work happened that didn't, and the user knows whether they
     // need to manually clear-and-reinitialise.
     const status = getKeyStoreStatus();
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) {
       return {
         rotated: false,
         status,
