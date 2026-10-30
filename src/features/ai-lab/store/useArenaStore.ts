@@ -5,6 +5,7 @@ import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ArenaStateSchema } from '@/lib/shared/store-validators';
 import { newestFirst } from '../lib/newestFirst';
 import type { ArenaMatch, ArenaRun, EvalRunStatus } from '../types';
+import { partitionRecords, quarantineInvalid } from './quarantine';
 
 /** Bound arena history like eval runs — the whole table is re-encrypted on write. */
 const MAX_RUNS = 30;
@@ -81,13 +82,17 @@ export const useArenaStore = create<ArenaState>()(
       partialize: (state) => ({ runs: state.runs }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
-        const parsed = ArenaStateSchema.safeParse(state);
-        if (!parsed.success) {
-          useArenaStore.setState({ ...DEFAULT_STATE });
-          return;
+        // Validate per run: one corrupt run must not wipe the whole history.
+        const { valid, invalid } = partitionRecords(
+          state.runs,
+          ArenaStateSchema.shape.runs.valueType
+        );
+        if (Object.keys(invalid).length > 0) {
+          void quarantineInvalid('arenaRuns', 'arena-runs-store', 'arena run', { runs: invalid });
+          useArenaStore.setState({ runs: valid as Record<string, ArenaRun> });
         }
         // A run still 'running' at hydrate was interrupted by a reload.
-        const runs = { ...state.runs };
+        const runs = { ...(valid as Record<string, ArenaRun>) };
         let touched = false;
         for (const [id, run] of Object.entries(runs)) {
           if (run.status === 'running') {

@@ -6,6 +6,7 @@ import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { EvalRunStateSchema } from '@/lib/shared/store-validators';
 import { newestFirst } from '../lib/newestFirst';
 import type { EvalCellResult, EvalRun, EvalRunStatus } from '../types';
+import { partitionRecords, quarantineInvalid } from './quarantine';
 
 /** Keep run history bounded — evals can be large and we re-encrypt the lot on write. */
 const MAX_RUNS = 50;
@@ -100,13 +101,18 @@ export const useEvalRunStore = create<EvalRunState>()(
       partialize: (state) => ({ runs: state.runs }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
-        const parsed = EvalRunStateSchema.safeParse(state);
-        if (!parsed.success) {
-          useEvalRunStore.setState({ ...DEFAULT_STATE });
-          return;
+        // Validate per run: one corrupt run must not wipe the whole history.
+        const { valid, invalid } = partitionRecords(
+          state.runs,
+          EvalRunStateSchema.shape.runs.valueType
+        );
+        const dropped = Object.keys(invalid).length > 0;
+        if (dropped) {
+          void quarantineInvalid('evalRuns', 'eval-runs-store', 'eval run', { runs: invalid });
+          useEvalRunStore.setState({ runs: valid as Record<string, EvalRun> });
         }
         // A run still 'running' at hydrate time was interrupted by a reload.
-        const runs = { ...state.runs };
+        const runs = { ...(valid as Record<string, EvalRun>) };
         let touched = false;
         for (const [id, run] of Object.entries(runs)) {
           if (run.status === 'running') {
