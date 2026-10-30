@@ -93,6 +93,18 @@ export function detectUnredactedSecrets(text: string): boolean {
 }
 
 /**
+ * Make an upstream error body safe to surface: remove the literal resolved key
+ * (a 401 that echoes the auth header would otherwise carry it into error
+ * events, eval results and persisted arena matches; ADR-0007), then pattern
+ * redact, and only then clip. Order matters: clipping first could cut a key in
+ * half so neither step matches it.
+ */
+export function scrubProviderError(body: string, apiKey: string | undefined, max: number): string {
+  const withoutKey = apiKey ? body.split(apiKey).join('[REDACTED]') : body;
+  return redactBody(withoutKey, 'default').slice(0, max);
+}
+
+/**
  * Whether the outgoing-secret check is skipped for one call. `explicit` is the
  * user's visible override (per-suite "Send unredacted", assistant "Send raw").
  * Otherwise only a local-runtime kind whose pinned, validated address is

@@ -4,7 +4,7 @@ import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 import { ResponseTooLargeError, readErrorPreview } from './bounded-read';
 import { PROVIDER_ROUTES } from './provider-routes';
 import { getProviderModule } from './providers';
-import { detectUnredactedSecrets } from './redaction';
+import { detectUnredactedSecrets, scrubProviderError } from './redaction';
 import type { ChatRequestSpec, ChatStreamEvent } from './types';
 
 type SecretResolver = (handleId: string) => Promise<string | undefined>;
@@ -101,7 +101,7 @@ export async function* executeAiChat(
     yield {
       type: 'error',
       code: 'provider',
-      message: `Provider ${response.status}: ${detail.slice(0, 500)}`,
+      message: `Provider ${response.status}: ${scrubProviderError(detail, apiKey, 500)}`,
     };
     yield { type: 'done' };
     return;

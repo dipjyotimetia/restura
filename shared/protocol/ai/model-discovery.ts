@@ -1,5 +1,6 @@
 import type { Fetcher } from '@shared/protocol/types';
 import { readBoundedText, readErrorPreview } from './bounded-read';
+import { scrubProviderError } from './redaction';
 import { isLocalProvider, type Provider } from './types';
 
 export interface DiscoveredModel {
@@ -141,7 +142,9 @@ async function fetchJson(url: string, args: DiscoverArgs): Promise<unknown> {
     } catch {
       detail = '';
     }
-    throw new Error(`Model discovery failed (${res.status}): ${detail.slice(0, 300)}`);
+    throw new Error(
+      `Model discovery failed (${res.status}): ${scrubProviderError(detail, args.apiKey, 300)}`
+    );
   }
   const raw = await readBoundedText(res);
   try {

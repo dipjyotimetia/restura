@@ -1,6 +1,7 @@
 // tests/security/ai-redaction.test.ts
 
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
+import { listModels } from '@shared/protocol/ai/model-discovery';
 import {
   detectUnredactedSecrets,
   effectiveRawMode,
@@ -194,5 +195,53 @@ describe('AI Lab secret check follows provider kind (#1028)', () => {
     const spec = specFor(cloud, 'gpt-4o', msgs, { sendUnredactedToCloud: true });
     expect(spec.rawMode).toBe(true);
     expect(await firstEvent(spec)).toMatchObject({ type: 'error', code: 'network' });
+  });
+});
+
+describe('provider error bodies never return the resolved key (ADR-0007)', () => {
+  // Deliberately not a recognisable token shape, so only literal removal can catch it.
+  const KEY = 'zq_9f8a7b6c5d4e3f2a1b0c';
+  const echo = (status: number) =>
+    (async () => ({
+      status,
+      statusText: 'Unauthorized',
+      headers: {},
+      contentLengthHeader: null,
+      text: async () =>
+        `{"error":"bad key","echo":{"Authorization":"Bearer ${KEY}","x-api-key":"${KEY}"}}`,
+    })) as never;
+
+  it('chat: the error event omits the key', async () => {
+    const events: unknown[] = [];
+    for await (const ev of executeAiChat(
+      {
+        provider: 'openai',
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        apiKeyHandleId: 'h',
+        rawMode: false,
+        signal: new AbortController().signal,
+      } as never,
+      echo(401),
+      async () => KEY
+    )) {
+      events.push(ev);
+    }
+    const error = events.find((e) => (e as { type: string }).type === 'error') as {
+      message: string;
+    };
+    expect(error.message).toContain('Provider 401');
+    expect(error.message).not.toContain(KEY);
+  });
+
+  it('discovery: the thrown error omits the key', async () => {
+    const err = await listModels({
+      provider: 'openai',
+      baseUrl: 'https://api.example',
+      apiKey: KEY,
+      fetcher: echo(401),
+    }).catch((e: Error) => e);
+    expect((err as Error).message).toContain('Model discovery failed (401)');
+    expect((err as Error).message).not.toContain(KEY);
   });
 });
