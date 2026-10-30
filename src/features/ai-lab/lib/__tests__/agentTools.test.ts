@@ -127,6 +127,34 @@ describe('Restura request agent tools', () => {
     );
   });
 
+  it('names both requests whose truncated tool names collide', async () => {
+    const ids = [`${'a'.repeat(70)}-one`, `${'a'.repeat(70)}-two`];
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c1',
+          name: 'Orders',
+          items: ids.map((id) => ({
+            id: `item-${id}`,
+            name: id,
+            type: 'request' as const,
+            request: request({ id }),
+          })),
+        },
+      ],
+      activeCollectionId: 'c1',
+    });
+
+    const error = await resolveResturaAgentTools(
+      ids.map((requestId) => ({ kind: 'restura-request' as const, requestId }))
+    ).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('tool name collision');
+    expect((error as Error).message).toContain(ids[0]);
+    expect((error as Error).message).toContain(ids[1]);
+  });
+
   it('passes the runner signal into request execution', async () => {
     const controller = new AbortController();
     const execute = vi.fn().mockResolvedValue(response());

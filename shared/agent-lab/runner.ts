@@ -253,11 +253,17 @@ export class AgentRunner {
       );
       const tools = Array.isArray(resolvedTools) ? resolvedTools : resolvedTools.tools;
       disposeTools = Array.isArray(resolvedTools) ? undefined : resolvedTools.dispose;
-      const duplicateToolNames = tools
-        .map((tool) => tool.definition.name)
-        .filter((name, index, names) => names.indexOf(name) !== index);
-      if (duplicateToolNames.length) {
-        throw new Error(`duplicate resolved tool name: ${duplicateToolNames[0]}`);
+      const firstByName = new Map<string, AgentTool>();
+      for (const tool of tools) {
+        const first = firstByName.get(tool.definition.name);
+        if (first) {
+          // Names are truncated/sanitized upstream, so identical names often
+          // come from different sources: name both so the author can tell.
+          throw new Error(
+            `duplicate resolved tool name: ${tool.definition.name} (${JSON.stringify(first.definition.description)} and ${JSON.stringify(tool.definition.description)})`
+          );
+        }
+        firstByName.set(tool.definition.name, tool);
       }
       if (agent.handoffs?.length) {
         throw new Error('agent handoffs require a registered handoff runtime');

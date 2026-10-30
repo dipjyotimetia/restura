@@ -96,6 +96,7 @@ function findItem(items: CollectionItem[], id: string): CollectionItem | undefin
 
 export async function resolveResturaAgentTools(sources: ToolSource[]): Promise<AgentTool[]> {
   const tools: AgentTool[] = [];
+  const requestIdByToolName = new Map<string, string>();
   for (const source of sources) {
     if (source.kind !== 'restura-request') {
       throw new Error(`${source.kind} tool sources need their runtime adapter configured`);
@@ -120,53 +121,60 @@ export async function resolveResturaAgentTools(sources: ToolSource[]): Promise<A
         collection?.testScript?.trim() ||
         itemHasScripts(collection?.items ?? [], item.request.id)
     );
-    tools.push(
-      createResturaRequestTool(
-        item.request,
-        async (request, signal) => {
-          signal?.throwIfAborted();
-          const collectionVars = buildValueMap({ collection: collection?.variables });
-          const envVars = buildValueMap({
-            globals: useGlobalsStore.getState().vars,
-            env: useEnvironmentStore.getState().getActiveEnvironment()?.variables,
-            collection: collection?.variables,
-          });
-          // Postman send guard (#1232): refuse rather than substitute an
-          // ancestor credential for an explicit `noauth` / unsupported auth.
-          const blocked = collection
-            ? postmanBlockedReasonFor(collection, request.id, 'Restura', request.auth)
-            : undefined;
-          if (blocked) throw new Error(`agent request tool ${request.id} ${blocked}`);
-          const inherited = collection
-            ? findInheritedAuthWithSource(collection, request.id)
-            : undefined;
-          const effectiveAuth = resolveEffectiveAuth(request.auth, inherited?.auth);
-          const requestForExec =
-            effectiveAuth === request.auth ? request : { ...request, auth: effectiveAuth };
-          const result = await executeRequest({
-            request: requestForExec,
-            envVars,
-            globalSettings: useSettingsStore.getState().settings,
-            resolveVariables: (value) => useEnvironmentStore.getState().resolveVariables(value),
-            collectionVars,
-            ...(signal ? { signal } : {}),
-          });
-          signal?.throwIfAborted();
-          if (
-            hasExecutableScripts &&
-            collection &&
-            result.transportOk &&
-            result.collectionVarsMutations
-          ) {
-            useCollectionStore
-              .getState()
-              .applyCollectionVarMutations(collection.id, result.collectionVarsMutations);
-          }
-          return result.response;
-        },
-        hasExecutableScripts
-      )
+    const tool = createResturaRequestTool(
+      item.request,
+      async (request, signal) => {
+        signal?.throwIfAborted();
+        const collectionVars = buildValueMap({ collection: collection?.variables });
+        const envVars = buildValueMap({
+          globals: useGlobalsStore.getState().vars,
+          env: useEnvironmentStore.getState().getActiveEnvironment()?.variables,
+          collection: collection?.variables,
+        });
+        // Postman send guard (#1232): refuse rather than substitute an
+        // ancestor credential for an explicit `noauth` / unsupported auth.
+        const blocked = collection
+          ? postmanBlockedReasonFor(collection, request.id, 'Restura', request.auth)
+          : undefined;
+        if (blocked) throw new Error(`agent request tool ${request.id} ${blocked}`);
+        const inherited = collection
+          ? findInheritedAuthWithSource(collection, request.id)
+          : undefined;
+        const effectiveAuth = resolveEffectiveAuth(request.auth, inherited?.auth);
+        const requestForExec =
+          effectiveAuth === request.auth ? request : { ...request, auth: effectiveAuth };
+        const result = await executeRequest({
+          request: requestForExec,
+          envVars,
+          globalSettings: useSettingsStore.getState().settings,
+          resolveVariables: (value) => useEnvironmentStore.getState().resolveVariables(value),
+          collectionVars,
+          ...(signal ? { signal } : {}),
+        });
+        signal?.throwIfAborted();
+        if (
+          hasExecutableScripts &&
+          collection &&
+          result.transportOk &&
+          result.collectionVarsMutations
+        ) {
+          useCollectionStore
+            .getState()
+            .applyCollectionVarMutations(collection.id, result.collectionVarsMutations);
+        }
+        return result.response;
+      },
+      hasExecutableScripts
     );
+    // Names are sanitized and cut to 64 chars; two requests can collapse to one.
+    const firstRequestId = requestIdByToolName.get(tool.definition.name);
+    if (firstRequestId !== undefined) {
+      throw new Error(
+        `agent tool name collision: requests ${firstRequestId} and ${item.request.id} both map to "${tool.definition.name}"`
+      );
+    }
+    requestIdByToolName.set(tool.definition.name, item.request.id);
+    tools.push(tool);
   }
   return tools;
 }

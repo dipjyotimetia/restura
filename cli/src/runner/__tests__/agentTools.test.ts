@@ -86,6 +86,37 @@ describe('resolveCliAgentTools', () => {
   });
 });
 
+describe('resolveCliAgentTools name collisions', () => {
+  const prefix = 'a'.repeat(70);
+  const ids = [`${prefix}-one`, `${prefix}-two`];
+
+  it('names both requests whose 64-char tool names collide', async () => {
+    const deps = dependencies();
+    deps.loadCollection.mockResolvedValue({
+      requests: ids.map((id) => ({
+        relativePath: `Orders/${id}`,
+        folderPath: ['Orders'],
+        type: 'http',
+        request: { id, method: 'GET' },
+      })),
+    });
+
+    const error = await resolveCliAgentTools(
+      ids.map((requestId) => ({ kind: 'restura-request', requestId })) satisfies ToolSource[],
+      {
+        schemaVersion: 1,
+        sources: [{ id: 'orders', kind: 'collection', path: './orders', requestIds: ids }],
+      },
+      { variables: {}, environment: {}, timeoutMs: 5_000, allowLocalhost: false },
+      deps
+    ).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(AgentPreflightError);
+    expect((error as Error).message).toContain(ids[0]);
+    expect((error as Error).message).toContain(ids[1]);
+  });
+});
+
 describe('resolveCliAgentTools scripted requests', () => {
   it.each(['preRequestScript', 'testScript'])(
     'refuses a saved request carrying a %s (scripts never run in the CLI)',
