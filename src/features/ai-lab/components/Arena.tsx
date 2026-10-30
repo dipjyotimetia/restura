@@ -271,7 +271,7 @@ export function Arena() {
                     <SelectItem key={r.id} value={r.id}>
                       {r.datasetName} · {plural(r.modelKeys.length, 'model')} ·{' '}
                       {formatRelativeTime(r.startedAt)}
-                      {r.status !== 'done' ? ` · ${r.status}` : ''}
+                      {r.status !== 'done' ? ` · ${r.interrupted ? 'interrupted' : r.status}` : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>

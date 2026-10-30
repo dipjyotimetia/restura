@@ -18,6 +18,7 @@ const STATE_TONE: Record<string, Tone> = {
   done: 'ok',
   error: 'error',
   cancelled: 'muted',
+  interrupted: 'muted',
 };
 
 export function StatusChip({

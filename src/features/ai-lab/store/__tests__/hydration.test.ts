@@ -126,4 +126,30 @@ describe('per-record hydration recovery (#1030)', () => {
       expect(quarantined('arenaRuns/arena-runs-store__invalid-')).toHaveLength(1)
     );
   });
+
+  it('restores an interrupted eval run as cancelled and flags it interrupted', async () => {
+    mem.items.set('evalRuns/eval-runs-store', {
+      version: 1,
+      state: { runs: { r: evalRun('r', 'running'), d: evalRun('d', 'done') } },
+    });
+    await useEvalRunStore.persist.rehydrate();
+    const runs = useEvalRunStore.getState().runs;
+    expect(runs.r).toMatchObject({ status: 'cancelled', interrupted: true });
+    expect(runs.r?.finishedAt).toBeTypeOf('number');
+    expect(runs.d?.status).toBe('done');
+    expect(runs.d).not.toHaveProperty('interrupted');
+  });
+
+  it('restores an interrupted arena run as cancelled and flags it interrupted', async () => {
+    mem.items.set('arenaRuns/arena-runs-store', {
+      version: 1,
+      state: { runs: { r: arenaRun('r', 'running') } },
+    });
+    await useArenaStore.persist.rehydrate();
+    expect(useArenaStore.getState().runs.r).toMatchObject({
+      status: 'cancelled',
+      interrupted: true,
+    });
+    expect(useArenaStore.getState().runs.r?.matches).toHaveLength(1);
+  });
 });

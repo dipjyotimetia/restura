@@ -116,7 +116,7 @@ export const useEvalRunStore = create<EvalRunState>()(
         let touched = false;
         for (const [id, run] of Object.entries(runs)) {
           if (run.status === 'running') {
-            runs[id] = { ...run, status: 'error', finishedAt: Date.now() };
+            runs[id] = { ...run, status: 'cancelled', interrupted: true, finishedAt: Date.now() };
             touched = true;
           }
         }

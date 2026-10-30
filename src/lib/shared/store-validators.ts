@@ -587,6 +587,7 @@ const EvalRunSchema = z.object({
   startedAt: z.number(),
   finishedAt: z.number().optional(),
   status: z.enum(['running', 'done', 'cancelled', 'error']),
+  interrupted: z.boolean().optional(),
   cells: z.array(EvalCellResultSchema),
   totalCells: z.number(),
 });
@@ -613,6 +614,7 @@ const ArenaRunSchema = z.object({
   startedAt: z.number(),
   finishedAt: z.number().optional(),
   status: z.enum(['running', 'done', 'cancelled', 'error']),
+  interrupted: z.boolean().optional(),
 });
 
 export const ArenaStateSchema = z.object({

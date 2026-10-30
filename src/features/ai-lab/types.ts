@@ -325,6 +325,8 @@ export interface EvalRun {
   startedAt: number;
   finishedAt?: number;
   status: EvalRunStatus;
+  /** Set when the app closed mid-run; restored as `cancelled` and labelled 'interrupted'. */
+  interrupted?: boolean;
   cells: EvalCellResult[];
   totalCells: number;
 }
@@ -349,4 +351,6 @@ export interface ArenaRun {
   startedAt: number;
   finishedAt?: number;
   status: EvalRunStatus;
+  /** Set when the app closed mid-run; restored as `cancelled` and labelled 'interrupted'. */
+  interrupted?: boolean;
 }
