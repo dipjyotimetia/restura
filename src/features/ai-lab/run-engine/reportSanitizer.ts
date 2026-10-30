@@ -4,6 +4,8 @@ import type { AiLabReportEnvelope } from './reportEnvelope';
 export const MAX_AGENT_REPORT_BYTES = 2 * 1024 * 1024;
 export const MAX_AGENT_REPORT_COUNT = 20;
 export const MAX_AGENT_REPORT_TOTAL_BYTES = 20 * 1024 * 1024;
+export const MAX_EVAL_REPORT_COUNT = 50;
+export const MAX_EVAL_REPORT_TOTAL_BYTES = 50 * 1024 * 1024;
 const MAX_CONTENT_CHARS = 64 * 1024;
 const AGGRESSIVE_CONTENT_CHARS = 4 * 1024;
 const SENSITIVE_KEY = new Set([
@@ -39,23 +41,62 @@ export function sanitizeAgentSuiteReportForPersistence(
   return sanitized;
 }
 
-export function retainAgentReports(
-  reports: Record<string, AiLabReportEnvelope>
-): Record<string, AiLabReportEnvelope> {
-  const evalReports = Object.values(reports).filter((report) => report.kind === 'eval');
-  const ordered = Object.values(reports)
-    .filter((report) => report.kind === 'agent-suite')
-    .sort((left, right) => right.startedAt - left.startedAt || left.id.localeCompare(right.id));
+export interface ReportRetentionLimits {
+  agentCount: number;
+  agentBytes: number;
+  evalCount: number;
+  evalBytes: number;
+}
+
+const DEFAULT_RETENTION: ReportRetentionLimits = {
+  agentCount: MAX_AGENT_REPORT_COUNT,
+  agentBytes: MAX_AGENT_REPORT_TOTAL_BYTES,
+  evalCount: MAX_EVAL_REPORT_COUNT,
+  evalBytes: MAX_EVAL_REPORT_TOTAL_BYTES,
+};
+
+/** Newest-first within a count and byte budget; evicts older reports deterministically. */
+function retainNewest(
+  reports: AiLabReportEnvelope[],
+  maxCount: number,
+  maxBytes: number
+): AiLabReportEnvelope[] {
+  const ordered = [...reports].sort(
+    (left, right) => right.startedAt - left.startedAt || left.id.localeCompare(right.id)
+  );
   const retained: AiLabReportEnvelope[] = [];
   let bytes = 0;
   for (const report of ordered) {
     const size = serializedBytes(report);
-    if (retained.length >= MAX_AGENT_REPORT_COUNT || bytes + size > MAX_AGENT_REPORT_TOTAL_BYTES)
-      continue;
+    if (retained.length >= maxCount || bytes + size > maxBytes) continue;
     retained.push(report);
     bytes += size;
   }
-  return Object.fromEntries([...evalReports, ...retained].map((report) => [report.id, report]));
+  return retained;
+}
+
+/**
+ * Bound the persisted `runReports` blob (rewritten in full on every save) by
+ * count and size, separately for agent and eval reports. Eviction is permanent;
+ * eval runs also live in useEvalRunStore until its own cap prunes them.
+ */
+export function retainAgentReports(
+  reports: Record<string, AiLabReportEnvelope>,
+  limits: Partial<ReportRetentionLimits> = {}
+): Record<string, AiLabReportEnvelope> {
+  const cap = { ...DEFAULT_RETENTION, ...limits };
+  const all = Object.values(reports);
+  const evalReports = retainNewest(
+    all.filter((report) => report.kind === 'eval'),
+    cap.evalCount,
+    cap.evalBytes
+  );
+  const agentReports = retainNewest(
+    all.filter((report) => report.kind === 'agent-suite'),
+    cap.agentCount,
+    cap.agentBytes
+  );
+  return Object.fromEntries([...evalReports, ...agentReports].map((report) => [report.id, report]));
 }
 
 function sanitizeValue(value: unknown, maxChars: number, key = ''): unknown {
