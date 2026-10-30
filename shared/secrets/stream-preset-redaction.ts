@@ -19,7 +19,7 @@ import { countSecretKeyValues, redactSecretKeyValues } from './key-value-redacti
  *    made only of `{{var}}` references are kept.
  */
 
-const TEMPLATE_ONLY = /^(\s*\{\{[^{}]*\}\}\s*)+$/;
+const TEMPLATE_ONLY = /^\s*\{\{[^{}]*\}\}(?:\s+\{\{[^{}]*\}\})*\s*$/;
 
 function isLiteralValue(value: string): boolean {
   return value !== '' && !TEMPLATE_ONLY.test(value);
