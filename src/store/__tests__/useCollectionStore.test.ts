@@ -1,5 +1,5 @@
 import { postmanBlockedReasonFor } from '@shared/collections/postman/auth-guard';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { internalToOC } from '@/lib/opencollection/from-internal';
 import {
   parseOpenCollectionYAML,
@@ -943,6 +943,69 @@ extensions:
     it('handles an empty/first-run blob without throwing', () => {
       const opts = useCollectionStore.persist.getOptions();
       expect(() => (opts.migrate as (s: unknown, v: number) => unknown)({}, 3)).not.toThrow();
+    });
+
+    it('v3 → v4 never rejects on a malformed collection: the others survive intact (#1209)', () => {
+      const opts = useCollectionStore.persist.getOptions();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const placeholder = {
+        id: 'p',
+        name: 'Feed (WebSocket)',
+        type: 'folder',
+        items: [],
+        _postman: { item: { $kind: 'websocket-request', name: 'Feed', url: 'wss://x' } },
+      };
+      const good = { id: 'good', name: 'Good', items: [placeholder] };
+      const nullItems = { id: 'nulls', name: 'Nulls', items: [null, { ...placeholder, id: 'p2' }] };
+      const nested = {
+        id: 'nested',
+        name: 'Nested',
+        items: [{ id: 'f', name: 'F', type: 'folder', items: [null, 7] }],
+      };
+      // A getter that throws stands in for any malformed shape a converter trips on.
+      const exploding = { id: 'boom', name: 'Boom', items: [] as unknown[] };
+      Object.defineProperty(exploding, '_oc', {
+        enumerable: true,
+        get() {
+          throw new Error('corrupt');
+        },
+      });
+      const migrate = opts.migrate as (s: unknown, v: number) => unknown;
+      let result: { collections: Array<Collection | null> } | undefined;
+      expect(() => {
+        result = migrate({ collections: [good, nullItems, nested, exploding, null] }, 3) as {
+          collections: Array<Collection | null>;
+        };
+      }).not.toThrow();
+      const [g, n, ne, boom, nil] = result!.collections;
+      expect(g!.items[0]).toMatchObject({ name: 'Feed', type: 'request' });
+      // Null entries are tolerated; the placeholder next to them is still upgraded.
+      expect(n!.items[0]).toBeNull();
+      expect(n!.items[1]).toMatchObject({ name: 'Feed', type: 'request' });
+      expect(ne).toBe(nested);
+      expect(boom).toBe(exploding);
+      expect(nil).toBeNull();
+      expect(warn).toHaveBeenCalled();
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('wss://x');
+      warn.mockRestore();
+    });
+
+    it('addCollection materialises legacy x-restura-socketio entries too (#1209)', () => {
+      useCollectionStore.setState({ collections: [] });
+      useCollectionStore.getState().addCollection({
+        id: 'c',
+        name: 'Legacy',
+        items: [],
+        _oc: {
+          opencollection: '1.0.0',
+          info: { name: 'Legacy' },
+          extensions: {
+            'x-restura-socketio': [{ info: { name: 'Chat' }, socketio: { url: 'https://x' } }],
+          },
+        },
+      } as Collection);
+      const col = useCollectionStore.getState().collections[0]!;
+      expect(col.items.map((i) => [i.name, i.request?.type])).toEqual([['Chat', 'socketio']]);
     });
 
     it('v3 → v4 materialises legacy x-restura-socketio entries kept only in the root _oc (#1209)', async () => {

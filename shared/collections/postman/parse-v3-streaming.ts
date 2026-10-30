@@ -253,15 +253,18 @@ const PLACEHOLDER_SUFFIX: Record<string, string> = {
  * other node is returned unchanged (same reference). Idempotent.
  */
 export function upgradeStreamPlaceholder(item: CollectionItem): CollectionItem {
-  if (item.type !== 'folder' || (item.items?.length ?? 0) > 0) return item;
+  if (!isObj(item) || item.type !== 'folder' || (item.items?.length ?? 0) > 0) return item;
   const old = getPostmanSidecar(item);
   const raw = old?.item;
   if (!isObj(raw)) return item;
   const kind = str(raw.$kind);
   const suffix = PLACEHOLDER_SUFFIX[kind];
   if (!suffix) return item;
+  const label = str(item.name);
   const name =
-    str(raw.name) || (item.name.endsWith(suffix) ? item.name.slice(0, -suffix.length) : item.name);
+    str(raw.name).trim() ||
+    (label.endsWith(suffix) ? label.slice(0, -suffix.length) : label).trim() ||
+    `Untitled ${suffix.trim().slice(1, -1)}`;
   const sidecar: PostmanSidecar = {};
   const ctx: ParseContext = { report: new PostmanReportBuilder(), transformScript: (s) => s };
   const { req } =
@@ -289,7 +292,7 @@ export function upgradeStreamPlaceholders(items: CollectionItem[]): CollectionIt
       changed = true;
       return upgraded;
     }
-    if (!item.items || item.items.length === 0) return item;
+    if (!isObj(item) || !Array.isArray(item.items) || item.items.length === 0) return item;
     const children = upgradeStreamPlaceholders(item.items);
     if (children === item.items) return item;
     changed = true;

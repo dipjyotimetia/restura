@@ -45,7 +45,20 @@ function upgradeCollectionPlaceholders(collection: Collection): Collection {
  * be dropped on the next export.
  */
 export function migrateCollectionToV4(collection: Collection): Collection {
-  return materializeLegacySocketIo(upgradeCollectionPlaceholders(collection));
+  // One malformed collection must never reject the whole rehydrate: the store
+  // would come back empty and the next persisted `set` would overwrite the
+  // user's data. Keep it as it was (it still loads and round-trips).
+  try {
+    if (!collection || typeof collection !== 'object') return collection;
+    return materializeLegacySocketIo(upgradeCollectionPlaceholders(collection));
+  } catch (err) {
+    console.warn(
+      `[collections] Could not upgrade WebSocket / Socket.IO items in a collection (${
+        err instanceof Error ? err.name : 'error'
+      }); it was kept unchanged`
+    );
+    return collection;
+  }
 }
 
 function migrateItemAuth(item: CollectionItem): CollectionItem {
@@ -281,7 +294,7 @@ export const useCollectionStore = create<CollectionState>()(
       activeCollectionId: null,
 
       addCollection: (collection) => {
-        const migrated = migrateCollectionAuth(upgradeCollectionPlaceholders(collection));
+        const migrated = migrateCollectionAuth(migrateCollectionToV4(collection));
         validateCollection(migrated);
         set((state) => ({
           collections: [...state.collections, migrated],
@@ -308,7 +321,7 @@ export const useCollectionStore = create<CollectionState>()(
                 'auth' in updates && !sameValue(updates.auth, col.auth)
               );
             }
-            const next = migrateCollectionAuth(merged);
+            const next = migrateCollectionAuth(migrateCollectionToV4(merged));
             validateCollection(next);
             return next;
           }),

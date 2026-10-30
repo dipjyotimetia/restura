@@ -258,4 +258,16 @@ describe('upgradeStreamPlaceholder guards', () => {
     );
     expect(odd.name).toBe('Odd');
   });
+
+  it('never produces an empty name (the item schema requires one)', () => {
+    const blank = (kind: string, name: string) =>
+      upgradeStreamPlaceholder(
+        attachPostmanSidecar<CollectionItem>(
+          { id: 'b', name, type: 'folder', items: [] },
+          { item: { $kind: kind, name: '' } }
+        )
+      ).name;
+    expect(blank('websocket-request', ' (WebSocket)')).toBe('Untitled WebSocket');
+    expect(blank('socket.io-request', '')).toBe('Untitled Socket.IO');
+  });
 });
