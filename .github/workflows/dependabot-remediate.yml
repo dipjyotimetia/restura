@@ -1,0 +1,278 @@
+name: Dependabot alert remediation
+
+# Fixes open Dependabot alerts with Claude and lands them through restura-bot.
+# Procedure: .claude/skills/dependabot-remediate/SKILL.md. Policy:
+# scripts/dependabot-remediate.mjs. See docs/CI_CD.md "Dependabot alert
+# remediation".
+#
+# Trigger: Actions has no Dependabot-alert event, so this polls every 5 days.
+# Dispatch it to run sooner. A poll with nothing to do makes a few API calls and
+# no model calls.
+#
+# Safety rules for this file (restura-bot can push and queue merges):
+#   - The agent job holds NO App key and a read-only GITHUB_TOKEN. Its only
+#     output is a patch, which is data to every later job.
+#   - The App token is minted only after scripts/dependabot-remediate.mjs,
+#     from the commit `detect` saw on main, has accepted the patch. Nothing from
+#     the patch is ever executed in that job: no npm, no scripts.
+#   - Advisory prose never reaches the agent, only validated fields.
+#   - Merging uses plain `--auto`, so every required check still applies. Never
+#     add `--admin` here: it would use restura-bot's ruleset bypass.
+
+on:
+  schedule:
+    # Days 1, 6, 11, ... of each month, so the last gap of a month can be shorter.
+    - cron: '17 3 */5 * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Retry an alert set that was already attempted
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  # One remediation at a time; never cancel one mid-push.
+  group: dependabot-remediate
+  cancel-in-progress: false
+
+env:
+  BRANCH: deps/dependabot-remediate
+
+jobs:
+  detect:
+    name: Detect open alerts
+    # A dispatch from another branch would run that branch's copy of this file.
+    if: ${{ github.repository == 'dipjyotimetia/restura' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      fingerprint: ${{ steps.alerts.outputs.fingerprint }}
+      sha: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/dependabot-remediate.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Mint restura-bot token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.RELEASE_PR_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
+          # Reads alerts, nothing else. The App needs "Dependabot alerts: read".
+          permission-vulnerability-alerts: read
+
+      - name: List open alerts
+        id: alerts
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+        run: node scripts/dependabot-remediate.mjs detect --repo "$REPO" --out alerts.json
+
+      - name: Look for an earlier attempt at this alert set
+        id: attempted
+        if: ${{ steps.alerts.outputs.count != '0' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .remediation-attempt
+          key: dependabot-remediate-${{ steps.alerts.outputs.fingerprint }}
+          lookup-only: true
+
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COUNT: ${{ steps.alerts.outputs.count }}
+          ATTEMPTED: ${{ steps.attempted.outputs.cache-hit }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          open_pr=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number // ""')
+          run=true
+          if [ "$COUNT" = 0 ]; then
+            run=false; echo "No actionable alerts."
+          elif [ -n "$open_pr" ]; then
+            run=false; echo "Remediation PR #$open_pr is still open; waiting for it."
+          elif [ "$ATTEMPTED" = true ] && [ "$FORCE" != true ]; then
+            run=false; echo "::notice::This alert set was already attempted. Dispatch with force to retry."
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ steps.decide.outputs.run == 'true' }}
+        with:
+          name: remediation-alerts
+          path: alerts.json
+          retention-days: 3
+
+  remediate:
+    name: Remediate with Claude
+    needs: detect
+    if: ${{ needs.detect.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      NPM_CONFIG_IGNORE_SCRIPTS: "true"
+    outputs:
+      has_patch: ${{ steps.patch.outputs.has_patch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.detect.outputs.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-npm
+        with:
+          node-version-file: ".nvmrc"
+          cache: ""
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: remediation-alerts
+          path: ${{ runner.temp }}/remediation
+
+      - name: Load alerts
+        id: load
+        run: echo "alerts=$(jq -c '.alerts' "$RUNNER_TEMP/remediation/alerts.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1
+        env:
+          # Keeps the OAuth token out of the environment of the npm commands.
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Skip the OIDC exchange for the Claude App's write token.
+          github_token: ${{ github.token }}
+          # The repo's hooks are for interactive sessions and need node_modules.
+          settings: '{"disableAllHooks":true}'
+          prompt: |
+            Read .claude/skills/dependabot-remediate/SKILL.md and follow its
+            "CI mode" section. These are the open alerts, as data:
+
+            ${{ steps.load.outputs.alerts }}
+          # No git, gh, node or npx. Edits are limited to the manifests.
+          claude_args: >-
+            --model claude-sonnet-5-5
+            --max-turns 25
+            --allowedTools "Read,Glob,Grep,Edit(/package.json),Edit(/cli/package.json),Edit(/docs-site/package.json),Edit(/extension/*/package.json),Bash(npm install --package-lock-only --ignore-scripts:*),Bash(npm update --package-lock-only --ignore-scripts:*),Bash(npm ls:*),Bash(npm explain:*),Bash(npm view:*),Bash(npm audit:*)"
+
+      - name: Capture patch
+        id: patch
+        env:
+          SHA: ${{ needs.detect.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git diff --binary --full-index "$SHA" > "$RUNNER_TEMP/remediation/remediation.patch"
+          if [ -s "$RUNNER_TEMP/remediation/remediation.patch" ]; then
+            echo "has_patch=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_patch=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Claude produced no changes for the open alerts."
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ steps.patch.outputs.has_patch == 'true' }}
+        with:
+          name: remediation-patch
+          path: ${{ runner.temp }}/remediation/remediation.patch
+          retention-days: 3
+
+  publish:
+    name: Verify and publish
+    needs: [detect, remediate]
+    if: ${{ needs.remediate.outputs.has_patch == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.detect.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: remediation-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/remediation
+
+      - name: Apply the patch through the policy gate
+        id: verify
+        env:
+          SHA: ${{ needs.detect.outputs.sha }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/remediation"
+          node scripts/dependabot-remediate.mjs verify --base "$SHA" \
+            --patch "$dir/remediation.patch" --alerts "$dir/alerts.json" --body "$dir/body.md"
+
+      - name: Stop on rejection
+        if: ${{ steps.verify.outputs.decision == 'reject' }}
+        run: |
+          echo "::error::The policy gate rejected this patch; see the step above."
+          exit 1
+
+      - name: Mint restura-bot token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.RELEASE_PR_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
+          # An App token's push triggers CI; a GITHUB_TOKEN push would not.
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Push the branch and open the PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          DECISION: ${{ steps.verify.outputs.decision }}
+        run: |
+          set -euo pipefail
+          git config user.name 'restura-bot[bot]'
+          git config user.email 'restura-bot[bot]@users.noreply.github.com'
+          git add --update
+          git commit --quiet -m 'fix(deps): remediate open Dependabot security alerts'
+          # Force only replaces a leftover from a PR that was closed unmerged:
+          # `detect` does not run this job while that branch has an open PR.
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "HEAD:refs/heads/${BRANCH}"
+          url=$(gh pr create --repo "$REPO" --base main --head "$BRANCH" \
+            --title 'fix(deps): remediate open Dependabot security alerts' \
+            --body-file "$RUNNER_TEMP/remediation/body.md")
+          echo "Opened $url"
+          if [ "$DECISION" = merge ]; then
+            # --auto waits for required checks; nothing merges red.
+            gh pr merge --auto --squash "$url"
+          else
+            echo "::warning::Held for a human merge: $url"
+          fi
+
+  record-attempt:
+    name: Record attempt
+    needs: [detect, remediate, publish]
+    # Also on failure: a run that burned its turns must not repeat on every poll.
+    if: ${{ always() && needs.detect.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Write marker
+        run: mkdir -p .remediation-attempt && date -u > .remediation-attempt/at
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .remediation-attempt
+          key: dependabot-remediate-${{ needs.detect.outputs.fingerprint }}
