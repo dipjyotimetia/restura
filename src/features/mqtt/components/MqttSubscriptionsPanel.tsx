@@ -159,17 +159,11 @@ export function MqttSubscriptionsPanel({
                   )}
                   <Badge variant="outline" className="font-mono text-sp-10">
                     {subscription.status}
+                    {subscription.subscriptionIdentifier !== undefined
+                      ? ` · id ${subscription.subscriptionIdentifier}`
+                      : ''}
+                    {subscription.options?.noLocal ? ' · no local' : ''}
                   </Badge>
-                  {subscription.subscriptionIdentifier !== undefined && (
-                    <Badge variant="outline" className="font-mono text-sp-10">
-                      id {subscription.subscriptionIdentifier}
-                    </Badge>
-                  )}
-                  {subscription.options?.noLocal && (
-                    <Badge variant="outline" className="font-mono text-sp-10">
-                      nl
-                    </Badge>
-                  )}
                   <button
                     className="ml-auto text-sp-dim hover:text-red-400"
                     onClick={() => onUnsubscribe(subscription.topicFilter)}

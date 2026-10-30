@@ -66,6 +66,6 @@ describe('MqttSubscriptionsPanel', () => {
     expect(onSubOptionsChange).toHaveBeenCalledWith({ noLocal: true });
     fireEvent.change(screen.getByPlaceholderText('optional'), { target: { value: '42' } });
     expect(onSubIdentifierChange).toHaveBeenCalledWith(42);
-    expect(screen.getByText('id 7')).toBeTruthy();
+    expect(screen.getByText(/subscribed · id 7 · no local/)).toBeTruthy();
   });
 });
