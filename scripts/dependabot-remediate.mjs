@@ -256,14 +256,27 @@ function checkLock(path, before, after, reasons, holds, upgrades) {
       reasons.push(`${path}: invalid package path ${key}`);
       continue;
     }
-    if (entry.name && entry.name !== name) {
-      reasons.push(`${path}: ${key} is an alias for ${entry.name}`);
+    // An alias already in the lock may move; a new one could smuggle in any package.
+    const tarballName = entry.name ?? name;
+    if (entry.name && entry.name !== name && entry.name !== prior?.name) {
+      reasons.push(`${path}: ${key} is a new alias for ${entry.name}`);
     }
-    if (!entry.resolved?.startsWith(`https://registry.npmjs.org/${name}/-/`)) {
-      reasons.push(`${path}: ${key} does not resolve to its npm tarball`);
-    }
-    if (!entry.integrity?.startsWith('sha512-')) {
-      reasons.push(`${path}: ${key} has no sha512 integrity`);
+    if (entry.inBundle) {
+      // Ships inside its parent's tarball, so there is nothing of its own to
+      // verify. Only a nested entry without a URL can be genuinely bundled.
+      if (key.split('node_modules/').length <= 2 || entry.resolved) {
+        reasons.push(`${path}: ${key} is not a valid bundled entry`);
+      }
+    } else {
+      // Exact match: a prefix check would pass `.../foo/-/../../evil/-/evil.tgz`.
+      const tarball = tarballName.slice(tarballName.lastIndexOf('/') + 1);
+      const expected = `https://registry.npmjs.org/${tarballName}/-/${tarball}-${entry.version}.tgz`;
+      if (entry.resolved !== expected) {
+        reasons.push(`${path}: ${key} does not resolve to its npm tarball`);
+      }
+      if (!entry.integrity?.startsWith('sha512-')) {
+        reasons.push(`${path}: ${key} has no sha512 integrity`);
+      }
     }
     if (entry.hasInstallScript && !prior?.hasInstallScript) {
       holds.push(`${path}: \`${name}@${entry.version}\` adds an install script`);
@@ -400,6 +413,7 @@ export function renderBody(result, skippedCount = 0) {
 }
 
 function parseArgs(argv) {
+  /** @type {Record<string, string>} */
   const args = {};
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
@@ -422,6 +436,7 @@ function setOutput(values) {
   }
 }
 
+/** @param {Record<string, string>} args */
 function runDetect({ repo, out }) {
   const stdout = execFileSync(
     'gh',
@@ -439,10 +454,11 @@ function runDetect({ repo, out }) {
   setOutput({ count: alerts.length, fingerprint: fingerprint(alerts) });
 }
 
+/** @param {Record<string, string>} args */
 function runVerify({ base, patch, alerts: alertsPath, body }) {
   const { alerts, skipped } = JSON.parse(readFileSync(alertsPath, 'utf8'));
   const shape = checkPatchShape(git('apply', '--numstat', patch), git('apply', '--summary', patch));
-  /** @type {ReturnType<typeof evaluateChange> | {decision: 'reject', reasons: string[]}} */
+  /** @type {{decision: string, reasons: string[], holds?: string[]}} */
   let result;
   if (shape.reasons.length > 0) {
     result = { decision: 'reject', reasons: shape.reasons };
@@ -452,7 +468,7 @@ function runVerify({ base, patch, alerts: alertsPath, body }) {
     const locksAfter = Object.fromEntries(
       lockPaths.map((path) => [path, JSON.parse(readFileSync(path, 'utf8'))])
     );
-    result = evaluateChange({
+    const evaluation = evaluateChange({
       alerts,
       locksAfter,
       files: shape.paths.map((path) => ({
@@ -461,7 +477,8 @@ function runVerify({ base, patch, alerts: alertsPath, body }) {
         after: JSON.parse(readFileSync(path, 'utf8')),
       })),
     });
-    writeFileSync(body, renderBody(result, skipped));
+    writeFileSync(body, renderBody(evaluation, skipped));
+    result = evaluation;
   }
   console.log(`Decision: ${result.decision}`);
   for (const reason of result.reasons) console.log(`::error::${reason}`);

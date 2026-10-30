@@ -224,6 +224,15 @@ for (const [label, bad] of [
   ['no integrity', { integrity: undefined }],
   ['a weak integrity', { integrity: 'sha1-abc' }],
   ['an alias', { name: 'evil' }],
+  ['a traversal URL', { resolved: 'https://registry.npmjs.org/foo/-/../../evil/-/evil-1.0.1.tgz' }],
+  [
+    'an encoded traversal URL',
+    { resolved: 'https://registry.npmjs.org/foo/-/%2e%2e/%2e%2e/evil/-/evil-1.0.1.tgz' },
+  ],
+  ['a query string', { resolved: 'https://registry.npmjs.org/foo/-/foo-1.0.1.tgz?x=1' }],
+  ['credentials in the URL', { resolved: 'https://a@registry.npmjs.org/foo/-/foo-1.0.1.tgz' }],
+  ['another version tarball', { resolved: 'https://registry.npmjs.org/foo/-/foo-0.0.1.tgz' }],
+  ['a top-level bundled flag', { inBundle: true, resolved: undefined, integrity: undefined }],
 ]) {
   test(`a lock entry with ${label} is rejected`, () => {
     const result = evaluateChange({
@@ -236,6 +245,46 @@ for (const [label, bad] of [
     assert.equal(result.decision, 'reject');
   });
 }
+
+test('a real bundled entry has no tarball of its own to check', () => {
+  const key = 'node_modules/parent/node_modules/inner';
+  const bundled = (version) => ({ [key]: { version, inBundle: true } });
+  const result = evaluateChange({
+    alerts: [alert()],
+    ...lockChange(bundled('1.0.0'), bundled('1.0.1')),
+  });
+  assert.equal(result.decision, 'merge');
+});
+
+test('a bundled entry that also names a URL is rejected', () => {
+  const key = 'node_modules/parent/node_modules/inner';
+  const result = evaluateChange({
+    alerts: [alert()],
+    ...lockChange(
+      {},
+      { [key]: { version: '1.0.1', inBundle: true, resolved: 'https://evil.example/inner.tgz' } }
+    ),
+  });
+  assert.equal(result.decision, 'reject');
+});
+
+test('an alias already in the lock may move, checked against its real package', () => {
+  const key = 'node_modules/string-width-cjs';
+  const aliased = (version) => ({
+    [key]: { ...entry('string-width', version), name: 'string-width' },
+  });
+  const moved = evaluateChange({
+    alerts: [alert()],
+    ...lockChange(aliased('4.2.3'), aliased('4.2.4')),
+  });
+  assert.equal(moved.decision, 'merge');
+
+  const retargeted = evaluateChange({
+    alerts: [alert()],
+    ...lockChange(aliased('4.2.3'), { [key]: { ...entry('evil', '4.2.4'), name: 'evil' } }),
+  });
+  assert.equal(retargeted.decision, 'reject');
+});
 
 test('files outside the dependency manifests are rejected', () => {
   const { files, locksAfter } = lockChange();

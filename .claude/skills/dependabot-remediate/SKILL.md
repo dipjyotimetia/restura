@@ -89,7 +89,7 @@ gh api --paginate '/repos/dipjyotimetia/restura/dependabot/alerts?state=open&per
 2. Apply the ladder, then install cleanly so local gates test the new tree:
    `npx -y npm@12.1.0 ci`, then `node scripts/ensure-sandbox-libs.mjs`.
 3. Run `npm run validate`. If docs-site changed, run its `npm ci` and build too.
-   If `wrangler` or `miniflare` changed, boot `npm run dev` and hit `/health`.
+   If `wrangler` or `miniflare` changed, boot `npm run dev` and hit the Worker's health route.
 4. Commit with explicit `git add <paths>`. Open one PR listing each alert's before
    and after versions, and name any major version crossed.
 5. Ask `gh pr merge <n> --auto --squash` only if the user wants it merged, and
