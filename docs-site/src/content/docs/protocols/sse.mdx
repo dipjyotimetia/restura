@@ -30,8 +30,8 @@ Reconnection is **automatic** (WHATWG §9.2.3) while **Auto-reconnect** is on (t
 - When an open stream ends or errors, the status changes to **reconnecting** and Restura reconnects after the reconnection time — 1 s by default, or the server's last `retry:` value. Each attempt is logged and counted in the **Reconnect** stat.
 - Reconnects send `Last-Event-ID: <last id seen>` when "Reconnect on resume" is on (default), so a spec-compliant server replays only what you missed. The same header is sent when you click **Connect** again yourself.
 - The last event ID is tracked per the spec: an `id:` persists across later events until a new one arrives, a data-less heartbeat block carrying only `id:` still moves it, and an empty `id:` resets it — after which no `Last-Event-ID` header is sent.
-- Restura does **not** reconnect when the server says not to: a non-2xx status, `204 No Content`, or a response whose `Content-Type` isn't `text/event-stream`. A connect that fails before the stream has ever opened isn't retried either.
-- Up to 5 consecutive reconnect attempts are made without a successful open; after that the stream is marked disconnected. A successful reconnect resets the count.
+- Restura does **not** reconnect when the server says not to: a non-2xx status, `204 No Content`, or a response whose `Content-Type` isn't `text/event-stream`. A connect that fails before the stream has ever opened isn't retried either. Network failures on a reconnect (server unreachable, or the web proxy's own `502`/`504` while the upstream restarts) are retried.
+- Up to 5 consecutive reconnect attempts are made without receiving an event; after that the stream is marked disconnected. The count resets once a reconnected stream delivers an event — a server that accepts and immediately closes doesn't reconnect forever.
 - Clicking **Stop** cancels any pending reconnect — a deliberate stop leaves the connection closed.
 - The [CLI](/reference/cli/) captures a stream for a fixed window and does not reconnect.
 

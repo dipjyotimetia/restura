@@ -16,7 +16,7 @@ const URL_ = 'https://example.com/stream';
 /** A proxied reply whose body yields `chunks` then ends (server dropped the stream). */
 function streamResponse(
   chunks: string[],
-  init: { status?: number; contentType?: string } = {}
+  init: { status?: number; contentType?: string; proxyGenerated?: boolean } = {}
 ): Response {
   const enc = new TextEncoder();
   let i = 0;
@@ -33,7 +33,11 @@ function streamResponse(
     ok: status >= 200 && status < 300,
     status,
     statusText: 'OK',
-    headers: new Headers({ 'content-type': init.contentType ?? 'text/event-stream' }),
+    // The Worker marks replies that came from the upstream; its own errors lack it.
+    headers: new Headers({
+      'content-type': init.contentType ?? 'text/event-stream',
+      ...(init.proxyGenerated ? {} : { 'x-restura-proxy-stream': '1' }),
+    }),
     body,
   } as unknown as Response;
 }
@@ -114,6 +118,29 @@ describe('sseManager auto-reconnect (web)', () => {
     expect(mockExecute).toHaveBeenCalledTimes(2);
     expect(conn(id).status).toBe('disconnected');
     expect(messages(id)).toContain('HTTP 503 OK');
+  });
+
+  it('retries a 502 the proxy generated itself (upstream unreachable)', async () => {
+    mockExecute
+      .mockResolvedValueOnce(streamResponse(['data: a\n\n']))
+      .mockResolvedValueOnce(streamResponse([], { status: 502, proxyGenerated: true }))
+      .mockResolvedValue(streamResponse(['data: b\n\n']));
+    sseManager.connect(id, URL_);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(mockExecute).toHaveBeenCalledTimes(3);
+    expect(messages(id)).toContain('HTTP 502 OK');
+  });
+
+  it('gives up on an upstream that opens and closes without delivering events', async () => {
+    mockExecute
+      .mockResolvedValueOnce(streamResponse(['data: a\n\n']))
+      .mockResolvedValue(streamResponse([': heartbeat\n\n']));
+    sseManager.connect(id, URL_);
+    await vi.advanceTimersByTimeAsync(20_000);
+    // Opening alone doesn't reset the cap: 1 initial + 5 reconnects.
+    expect(mockExecute).toHaveBeenCalledTimes(6);
+    expect(conn(id).status).toBe('disconnected');
+    expect(messages(id)).toContain('Gave up after 5 reconnect attempts');
   });
 
   it('keeps retrying connect-phase network errors once armed, then gives up at the cap', async () => {

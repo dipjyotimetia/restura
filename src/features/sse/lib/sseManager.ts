@@ -1,3 +1,4 @@
+import { PROXY_STREAM_MARKER_HEADER } from '@shared/protocol/proxy-limits';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import { isReconnectableSseResponse } from '@shared/protocol/sse-parser';
 import { useSseStore } from '@/features/sse/store/useSseStore';
@@ -33,6 +34,19 @@ export function cleanupSseElectronListeners(
   api?.sse?.removeAllListeners(`sse:close:${connectionId}`);
 }
 
+/**
+ * A 502/503/504 the Worker generated itself (upstream unreachable / timed
+ * out — no stream marker) is a network error, which WHATWG §9.2.3 retries,
+ * matching Electron where the same failure closes non-fatally. An upstream's
+ * own non-2xx carries the marker and still fails the connection.
+ */
+function isProxyTransportFailure(response: Response): boolean {
+  return (
+    response.headers.get(PROXY_STREAM_MARKER_HEADER) === null &&
+    (response.status === 502 || response.status === 503 || response.status === 504)
+  );
+}
+
 /** How one connect attempt ended — `fatal` per WHATWG "fail the connection". */
 interface AttemptEnd {
   message: string;
@@ -56,7 +70,11 @@ interface SseSession {
   autoReconnect: boolean;
   /** Reconnection time in ms — the store default until the server sends `retry:`. */
   retryMs: number;
-  /** Reconnects scheduled since the last successful open (capped by `maxReconnectAttempts`). */
+  /**
+   * Reconnects scheduled since a stream last delivered an event (capped by
+   * `maxReconnectAttempts`). Reset on the first event, not on open, so an
+   * upstream that accepts and immediately closes can't loop forever.
+   */
   failures: number;
   /** A stream opened in this session — arms auto-reconnect for connect-phase failures too. */
   opened: boolean;
@@ -202,7 +220,6 @@ class SseManager {
     const session = this.sessions.get(connectionId);
     if (!session || !this.isCurrent(connectionId, attempt)) return;
     session.opened = true;
-    session.failures = 0;
     const s = useSseStore.getState();
     s.updateConnectionStatus(connectionId, 'connected');
     s.setLastConnectedAt(connectionId, Date.now());
@@ -212,7 +229,10 @@ class SseManager {
   private onEvent(connectionId: string, attempt: Attempt, e: ParsedSseEvent): void {
     if (!this.isCurrent(connectionId, attempt)) return;
     const session = this.sessions.get(connectionId);
-    if (session && e.retry !== undefined) session.retryMs = e.retry;
+    if (session) {
+      session.failures = 0;
+      if (e.retry !== undefined) session.retryMs = e.retry;
+    }
     useSseStore.getState().appendEvent(connectionId, {
       event: e.event,
       data: e.data,
@@ -307,7 +327,7 @@ class SseManager {
         release();
         this.endAttempt(connectionId, attempt, {
           message: `HTTP ${response.status} ${response.statusText}`,
-          fatal: true,
+          fatal: !isProxyTransportFailure(response),
         });
         return;
       }
