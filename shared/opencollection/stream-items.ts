@@ -42,6 +42,9 @@ const optStr = (v: unknown): string | undefined => (typeof v === 'string' ? v : 
 const optBool = (v: unknown): boolean | undefined => (typeof v === 'boolean' ? v : undefined);
 const optNum = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.trunc(v) : undefined;
+/** A 0–1 fraction (not truncated). */
+const optFraction = (v: unknown): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1 ? v : undefined;
 const strArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 /**
@@ -268,8 +271,13 @@ function sioOptions(o: SocketIoPresetOptions | undefined): SocketIoPresetOptions
     autoReconnect: o.autoReconnect,
     reconnectionAttempts: o.reconnectionAttempts,
     reconnectionDelay: o.reconnectionDelay,
+    reconnectionDelayMax: o.reconnectionDelayMax,
+    randomizationFactor: o.randomizationFactor,
     timeout: o.timeout,
     forceNew: o.forceNew,
+    volatile: o.volatile,
+    compress: o.compress,
+    ackTimeoutMs: o.ackTimeoutMs,
   });
 }
 
@@ -280,6 +288,8 @@ export function socketIoToOC(name: string, r: SocketIoRequest): unknown {
     namespace: r.namespace,
     path: r.path,
     auth: r.handshakeAuth.length > 0 ? r.handshakeAuth.map(kvFromInternal) : undefined,
+    authMode: r.handshakeAuthMode === 'json' ? 'json' : undefined,
+    authJson: r.handshakeAuthJson || undefined,
     query: r.query.length > 0 ? r.query.map(kvFromInternal) : undefined,
     headers: r.headers.length > 0 ? r.headers.map(kvFromInternal) : undefined,
     transports: [...r.transports],
@@ -330,10 +340,18 @@ export function socketIoEntryToInternal(entry: Obj): SocketIoRequest {
     autoReconnect: optBool(o.autoReconnect),
     reconnectionAttempts: optNum(o.reconnectionAttempts),
     reconnectionDelay: optNum(o.reconnectionDelay),
+    reconnectionDelayMax: optNum(o.reconnectionDelayMax),
+    randomizationFactor: optFraction(o.randomizationFactor),
     timeout: optNum(o.timeout),
     forceNew: optBool(o.forceNew),
+    volatile: optBool(o.volatile),
+    compress: optBool(o.compress),
+    ackTimeoutMs: optNum(o.ackTimeoutMs),
   });
   if (options) req.options = options;
+  if (s.authMode === 'json') req.handshakeAuthMode = 'json';
+  const authJson = optStr(s.authJson);
+  if (authJson) req.handshakeAuthJson = authJson;
   if (typeof i.description === 'string' && i.description) req.description = i.description;
   return req;
 }

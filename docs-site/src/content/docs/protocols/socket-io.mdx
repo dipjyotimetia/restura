@@ -10,25 +10,28 @@ Socket.IO isn't plain WebSocket — it has its own framing, namespacing, ack cal
 ## What works
 
 - **Connect** to any Socket.IO server, with or without namespacing (`/admin`, etc.) — the namespace is joined onto the URL's origin, matching what `io('http://host/admin')` would do.
-- **Path** — override the engine.io handshake path (default `/socket.io`) for servers mounted elsewhere.
-- **Auth payload + query params** on connect — editable while disconnected; the auth map is sent in the handshake `auth` field, query params on the connection URL.
-  Both are edited in a key/value table with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; values are sent exactly as typed (no `{{variable}}` resolution).
+- **Connection options** — click **Options** while disconnected to edit everything the client sends at connect time: handshake auth, query params, `extraHeaders`, the engine.io **path** (default `/socket.io`, for servers mounted elsewhere), **transports**, **reconnection** (on/off, attempts, delay, max delay, randomization factor), the handshake **timeout** and **force new**. All of it is saved with the connection.
+- **Auth payload** — two modes. **Key/value** sends a flat string map, edited in a key/value table with bulk edit (one `key: value` per line, `//` to disable a row); values are sent exactly as typed (no `{{variable}}` resolution). **JSON** sends any JSON object — nested objects, numbers and booleans included — with `{{variables}}` resolved at connect time (JSON-escaped inside strings, like emits). Invalid JSON, or anything that isn't an object, blocks the connect with an error in the transcript.
+- **Query params** — appended to the connection URL; key/value table, sent as typed.
 - **Emit events** — pick an event name, send a JSON / string / number payload.
 - **`{{variables}}` in emits** — the event name and the JSON args are resolved at emit time with the same scopes as HTTP (globals, environment, collection and folder variables, `{{$dynamic}}` helpers), before the args are parsed. A variable inside a JSON string is JSON-escaped, so a value containing quotes stays one string; outside strings it is inserted as-is (e.g. an unquoted number). Unresolved names are sent literally and flagged in the transcript; secret values are masked in the logged copy.
 - **Saved emits** — click **Saved** in the composer to keep named emits per connection (event name + args + ack flag). Save, rename, reorder and delete them; click to load into the composer, or send directly with the send button / <kbd>Shift</kbd>+<kbd>Enter</kbd>. They are stored unresolved.
-- **Listen** — subscribe to event names; live messages stream into the transcript. Reserved lifecycle events (`connect`, `disconnect`, `connect_error`, `reconnect*`) never show up as application events — they're rendered as system messages instead.
-- **Acks** — toggle **Ack** in the compose bar to request the callback-based response; the resolved ack args stream back into the transcript with an `ok` or `timeout` status (15s).
-- **Reconnect** — on/off, with configurable attempt count and delay; attempts, successes, and failures all show up as system events.
+- **Listen** — subscribe to event names; live messages stream into the transcript. Only the Socket-level reserved events (`connect`, `disconnect`, `connect_error`) are kept out of the application log — they're rendered as system messages. Reconnect lifecycle is reported from the Manager as system messages too, so a server application event that happens to be called `reconnect` or `reconnect_attempt` still shows up as a received event.
+- **Acks** — toggle **Ack** in the compose bar to request the callback-based response; the resolved ack args stream back into the transcript with an `ok` or `timeout` status. The timeout defaults to 15s and is set per connection under **Emit options**.
+- **Server-requested acks** — when the server emits with a callback (`socket.emit('evt', data, (reply) => …)`), the received row is marked **ACK?**. Select it and use **Send ack** to answer with JSON args (same syntax as the composer, `{{variables}}` included); the row flips to **ACKED** and the reply is logged as `<ack reply>`. Each ack can be answered once, and pending acks are dropped on disconnect.
+- **Emit options** — the sliders button in the composer sets **volatile** (drop the emit if the transport isn't writable), **compress** (off → `socket.compress(false)`) and the ack timeout for every emit on that connection.
+- **Binary arguments** — write `{"$binary": "<base64>"}` anywhere in the emit (or ack reply) JSON to send that value as a binary attachment. Binary the server sends is shown the same way.
+- **Reconnect** — on/off, with configurable attempts, delay, max delay and randomization factor; attempts, successes, and failures all show up as system events.
 - **Transports** — `websocket`, `polling`, or both (Socket.IO's default upgrade-from-polling negotiation).
 - **Force new** — open a second physical connection to the same URL/namespace instead of reusing one.
-- **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at connect time.
+- **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved with the same scopes as emits at connect time, for that connection only — the stored URL keeps its `{{template}}`, so switching environments changes the target and a secret in the URL is never saved in plaintext.
 - **Freeze & export the log** — freeze pauses the view while messages keep arriving (a counter shows how many are new; search and filters still apply), and export downloads the current filtered log as JSON or NDJSON (one message per line).
 
 ## Authentication
 
 Socket.IO authenticates at the handshake, not per event, and Restura exposes every place a server might look for credentials:
 
-- **Auth payload** — arbitrary key/value pairs sent in the handshake's `auth` field (`io(url, { auth: {...} })`). This is the idiomatic spot for a token, checked server-side in an `io.use()` middleware — e.g. `{ token: 'Bearer xyz' }`.
+- **Auth payload** — sent in the handshake's `auth` field (`io(url, { auth: {...} })`), either as key/value pairs or as a JSON object (use JSON mode for nested payloads and to pull a token from `{{variables}}`). This is the idiomatic spot for a token, checked server-side in an `io.use()` middleware — e.g. `{ token: 'Bearer xyz' }`.
 - **Query parameters** — appended to the connection URL, for servers that read credentials off the query string instead.
 - **Custom headers (`extraHeaders`)** on the initial HTTP handshake request. <Badge text="desktop only" variant="caution" /> in practice: browsers silently drop `extraHeaders` on the WebSocket transport, so the web build only delivers them if you force the **polling** transport. The desktop app applies them on every transport because the handshake runs in the Electron main process, not the browser — see the [WebSocket protocol](/protocols/websocket/) for the same pattern.
 - There's no Socket.IO-specific OAuth/SigV4/mTLS flow — bring a bearer token via the auth payload, matching whatever your server's `io.use()` middleware expects.
@@ -45,9 +48,11 @@ The web build connects **browser-direct** with `socket.io-client`, so emits, lis
 - **allows loopback and private addresses** by default, since Socket.IO servers routinely run on `localhost` or a LAN dev box during development;
 - **caps concurrency** — 50 open connections and 20 connection attempts per minute, per renderer window, matching the other streaming protocols.
 
+Both builds cap **incoming events at 1 MiB**, matching the WebSocket client: a larger event is logged as a `[payload omitted: … exceeds the 1.0 MB limit]` placeholder instead of its args (a server-requested ack on it can still be answered). On desktop the `websocket` transport also refuses frames over 1 MiB outright, which closes the transport — expect a disconnect (and a reconnect, if enabled) rather than a placeholder in that case.
+
 ## Save to a collection
 
-**Save to Collection** stores the connection — URL, namespace, path, transports, handshake `auth` / query / header rows, reconnect and timeout options, subscribed events, the emit you're composing and your saved emits — as a collection item you can reopen from the sidebar (it shows an **SIO** badge); see [WebSocket and Socket.IO connections](/guides/collections/#websocket-and-socketio-connections). It isn't run by the collection runner or the CLI. The rows are stored like the live connection keeps them (not as keychain handles); on export with secrets excluded every literal handshake `auth` value, credential-named query / header values and URL credentials are blanked. Emit payloads are not redacted.
+**Save to Collection** stores the connection — URL, namespace, path, transports, handshake auth (key/value rows or the JSON payload, with the selected mode), query / header rows, reconnect options (attempts, delay, max delay, randomization), timeout, force new, emit options (volatile, compress, ack timeout), subscribed events, the emit you're composing and your saved emits — as a collection item you can reopen from the sidebar (it shows an **SIO** badge); see [WebSocket and Socket.IO connections](/guides/collections/#websocket-and-socketio-connections). It isn't run by the collection runner or the CLI. The rows are stored like the live connection keeps them (not as keychain handles); on export with secrets excluded every literal handshake `auth` value, credential-named query / header values and URL credentials are blanked. For a JSON auth payload that means every literal value at any depth (strings, numbers, booleans) becomes `""` while keys, structure and `{{variable}}` references are kept; a payload that isn't valid JSON is blanked entirely. Emit payloads are not redacted.
 
 ## Gotchas
 
@@ -57,7 +62,8 @@ Reconnection settings (attempts, delay) only apply if **auto-reconnect** is on. 
 
 - **Namespace is joined onto the origin, not the path.** A base URL with a path component (`https://host/api`) plus namespace `/chat` connects to `https://host/chat` — the `/api` segment is dropped. Keep the base URL to scheme + host when you're using namespaces.
 - **Forcing `polling` to unblock `extraHeaders` also disables the WebSocket upgrade** — expect higher latency on chatty event streams, not just header delivery.
-- **Acks time out at 15s** with no per-request override; a slow handler and a dropped event look identical in the transcript until the timeout fires.
+- **Acks time out after the configured ack timeout** (15s by default, see **Emit options**); a slow handler and a dropped event look identical in the transcript until the timeout fires.
+- **Volatile emits are silently dropped** when the transport isn't writable (for example mid-reconnect) — the `sent` row is still logged.
 - **`forceNew`** opens a second physical socket to the same URL/namespace — handy for testing concurrent-session behavior, but easy to leave on and end up debugging two connections instead of one.
 
 ## Test it locally

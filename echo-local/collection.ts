@@ -4,8 +4,8 @@
 // Scope is deliberate (see echo-local/README.md and the coverage matrix in the
 // plan): only auth that round-trips cleanly through OpenCollection import is
 // included (none/basic/bearer/apikey/awsv4). OAuth2 needs a grant-type the
-// importer drops, and oauth1/wsse/digest/ntlm are lossy or unapplied by the
-// client — those are documented in the manifest as manual steps instead.
+// importer drops, and oauth1/wsse/digest/ntlm are lossy on import or not
+// sent by every client — those are documented in the manifest as manual steps.
 //
 // Builds a plain object (validated by the unit test against the real Zod schema
 // + importOpenCollection) so this module stays free of any src/ import.

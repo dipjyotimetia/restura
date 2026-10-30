@@ -25,6 +25,7 @@ rather than discover it experimentally.
 | TLS minimum protocol version | ❌ | ✅ | Web client uses the runtime's default TLS floor |
 | HTTP version control (force HTTP/1.1, HTTP/2, h2c prior knowledge) | ❌ | ✅ | Web always negotiates via the runtime (Auto). h2c prior knowledge works direct and through SOCKS, not through an HTTP proxy |
 | Incremental HTTP response streaming | ✅ | ❌ | Web streams via the Worker proxy; Electron IPC buffers the full response (renderer falls back to the buffered path) |
+| NTLM authentication | ❌ | ✅ | NTLMv2 handshake (type 1 → 2 → 3) on one pinned HTTP/1.1 connection, only for the requested origin; fails explicitly if the server drops the connection or HTTP/2 is required. Web and self-host send the request without authentication and the editor says so; the CLI refuses NTLM requests (#1069) |
 | Load / performance testing | ✅ | ✅ | Fidelity differs: web is capped by ~6 browser connections per origin and the Worker proxy rate limit (100 req/min); desktop by the IPC rate budget. Results above those budgets include self-inflicted throttling |
 | WebSocket connect | ✅ | ✅ |  |
 | WebSocket custom request headers | ❌ | ✅ | Browser WS API forbids handshake headers; web connects directly and warns when headers would be dropped. The /api/ws-ticket → /api/ws Worker relay exists but is not wired into the renderer yet |

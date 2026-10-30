@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSocketIOStore } from '@/features/socketio/store/useSocketIOStore';
 import type { StreamingVariableScope } from '@/lib/shared/streaming/messageVariables';
-import { emitWithVariables, parseEmitArgs } from '../emitWithVariables';
+import { emitWithVariables, parseEmitArgs, replyAckWithVariables } from '../emitWithVariables';
 import { socketioManager } from '../socketioManager';
 
 const scope: StreamingVariableScope = {
@@ -43,12 +43,12 @@ describe('emitWithVariables', () => {
         scope
       )
     ).toEqual({ ok: true });
-    expect(emit).toHaveBeenCalledWith(id, 'join', [{ room: 'lobby' }, 7], true, undefined);
+    expect(emit).toHaveBeenCalledWith(id, 'join', [{ room: 'lobby' }, 7], true, undefined, {});
   });
 
   it('defaults a blank event name to "message"', () => {
     emitWithVariables(id, { eventName: ' ', args: '', ack: false }, scope);
-    expect(emit).toHaveBeenCalledWith(id, 'message', [], false, undefined);
+    expect(emit).toHaveBeenCalledWith(id, 'message', [], false, undefined, {});
   });
 
   it('returns parse errors without emitting', () => {
@@ -70,10 +70,14 @@ describe('emitWithVariables', () => {
 
   it('masks secrets in the logged copy', () => {
     emitWithVariables(id, { eventName: 'auth', args: '{"t":"{{token}}"}', ack: false }, scope);
-    expect(emit).toHaveBeenCalledWith(id, 'auth', [{ t: 'sekrit' }], false, {
-      eventName: 'auth',
-      args: [{ t: '••••••' }],
-    });
+    expect(emit).toHaveBeenCalledWith(
+      id,
+      'auth',
+      [{ t: 'sekrit' }],
+      false,
+      { eventName: 'auth', args: [{ t: '••••••' }] },
+      {}
+    );
   });
 
   it('never echoes a secret in the JSON parse error', () => {
@@ -104,7 +108,8 @@ describe('emitWithVariables', () => {
       'x',
       [{ room: 'lobby","admin":true,"x":"y' }, 'a"b'],
       false,
-      { eventName: 'x', args: [{ room: 'lobby","admin":true,"x":"y' }, '••••••'] }
+      { eventName: 'x', args: [{ room: 'lobby","admin":true,"x":"y' }, '••••••'] },
+      {}
     );
   });
 
@@ -115,10 +120,72 @@ describe('emitWithVariables', () => {
       secretNames: new Set(['pin']),
     };
     emitWithVariables(id, { eventName: 'pin', args: '[{{pin}}]', ack: false }, numeric);
-    expect(emit).toHaveBeenCalledWith(id, 'pin', [1234], false, {
-      eventName: 'pin',
-      args: ['[args hidden: contains secret values]'],
+    expect(emit).toHaveBeenCalledWith(
+      id,
+      'pin',
+      [1234],
+      false,
+      { eventName: 'pin', args: ['[args hidden: contains secret values]'] },
+      {}
+    );
+  });
+
+  it('decodes $binary markers to Uint8Array and forwards emit options', () => {
+    const out = emitWithVariables(
+      id,
+      {
+        eventName: 'upload',
+        args: '[{"file":{"$binary":"AQID"}}]',
+        ack: true,
+        options: { volatile: true, compress: false, ackTimeoutMs: 2_000 },
+      },
+      scope
+    );
+    expect(out).toEqual({ ok: true });
+    const [, , wire, , , options] = emit.mock.calls[0] as unknown[];
+    const file = (wire as Array<{ file: unknown }>)[0]?.file;
+    expect(file).toBeInstanceOf(Uint8Array);
+    expect(Array.from(file as Uint8Array)).toEqual([1, 2, 3]);
+    expect(options).toEqual({ volatile: true, compress: false, ackTimeoutMs: 2_000 });
+  });
+
+  it('rejects invalid base64 in a $binary marker', () => {
+    const out = emitWithVariables(
+      id,
+      { eventName: 'x', args: '{"$binary":"!!notbase64!!"}', ack: false },
+      scope
+    );
+    expect(out.ok).toBe(false);
+    expect(emit).not.toHaveBeenCalled();
+  });
+});
+
+describe('replyAckWithVariables', () => {
+  let id: string;
+  let reply: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    id = useSocketIOStore.getState().createConnection();
+    reply = vi.spyOn(socketioManager, 'replyServerAck').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    useSocketIOStore.getState().removeConnection(id);
+    vi.restoreAllMocks();
+  });
+
+  it('resolves variables and masks secrets in the logged reply', () => {
+    expect(replyAckWithVariables(id, 'srv-1', '[{"t":"{{token}}"},{{n}}]', scope)).toEqual({
+      ok: true,
     });
+    expect(reply).toHaveBeenCalledWith(id, 'srv-1', [{ t: 'sekrit' }, 7], {
+      args: [{ t: '••••••' }, 7],
+    });
+  });
+
+  it('returns JSON errors without replying', () => {
+    expect(replyAckWithVariables(id, 'srv-1', '{bad', scope).ok).toBe(false);
+    expect(reply).not.toHaveBeenCalled();
   });
 });
 

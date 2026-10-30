@@ -52,6 +52,7 @@ describe('capability registry shape', () => {
         "http.tls.minVersion",
         "http.version",
         "http.streamingResponse",
+        "http.auth.ntlm",
         "loadTesting.basic",
         "websocket.basic",
         "websocket.customHeaders",

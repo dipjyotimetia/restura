@@ -27,13 +27,16 @@ export function createSocksDispatcher(
    * exactly as they do on the direct/HTTP-proxy paths. Omitting this silently
    * dropped mTLS and custom-CA settings whenever a SOCKS proxy was configured.
    */
-  certMaterial?: Record<string, unknown>
+  certMaterial?: Record<string, unknown>,
+  /** Extra Agent options — the NTLM single-connection pin (`factory`). */
+  agentOptions?: Pick<Agent.Options, 'factory'> & { proxyTunnel?: boolean }
 ): Agent {
   // undici's connector callback type is strictly [Error, null] | [null, Socket]; assert
   // through unknown so the TLSSocket / Socket variants are accepted.
   type SocksCallback = (err: Error | null, socket: net.Socket | null) => void;
   const { allowH2 } = versionPlan;
   return new Agent({
+    ...(agentOptions?.factory ? { factory: agentOptions.factory } : {}),
     allowH2,
     connect: ((_opts: unknown, cb: SocksCallback) => {
       try {

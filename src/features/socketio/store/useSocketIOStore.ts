@@ -16,6 +16,17 @@ import { filterSocketIOEvents } from '../lib/eventFilter';
 export type SocketIOStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 export type SocketIOEventDirection = 'sent' | 'received' | 'system' | 'ack';
 export type SocketIOTransport = 'websocket' | 'polling';
+export type SocketIOAuthMode = 'kv' | 'json';
+
+/** Per-emit modifiers applied to every emit from the composer (SIO-5). */
+export interface SocketIOEmitOptions {
+  /** `socket.volatile` — drop the emit if the transport isn't writable. */
+  volatile: boolean;
+  /** `false` → `socket.compress(false)`. */
+  compress: boolean;
+  /** How long to wait for an ack before marking it timed out. */
+  ackTimeoutMs: number;
+}
 
 export interface SocketIOEvent {
   id: string;
@@ -26,6 +37,14 @@ export interface SocketIOEvent {
   ackId?: string;
   /** When direction === 'ack', whether the ack arrived ('ok') or timed out ('timeout'). */
   ackStatus?: 'ok' | 'timeout';
+  /**
+   * Set on a received event whose server emit asked for an acknowledgement
+   * (SIO-1). The callback itself stays in the manager / Electron main —
+   * functions never enter the store.
+   */
+  serverAckId?: string;
+  /** True once the user has answered the server-requested ack. */
+  serverAckReplied?: boolean;
   timestamp: number;
 }
 
@@ -35,14 +54,21 @@ export interface SocketIOConnection {
   namespace: string;
   path: string;
   auth: KeyValue[];
+  /** `kv` sends `auth` as a flat string map; `json` sends `authJson` parsed (SIO-4). */
+  authMode: SocketIOAuthMode;
+  /** Handshake auth as JSON, stored unresolved — `{{var}}` is substituted at connect time. */
+  authJson: string;
   query: KeyValue[];
   extraHeaders: KeyValue[];
   transports: SocketIOTransport[];
   autoReconnect: boolean;
   reconnectionAttempts: number;
   reconnectionDelay: number;
+  reconnectionDelayMax: number;
+  randomizationFactor: number;
   timeout: number;
   forceNew: boolean;
+  emitOptions: SocketIOEmitOptions;
   status: SocketIOStatus;
   reconnectAttemptCount: number;
   events: SocketIOEvent[];
@@ -91,6 +117,7 @@ interface SocketIOState {
     args: unknown[],
     status: 'ok' | 'timeout'
   ) => void;
+  markServerAckReplied: (connectionId: string, serverAckId: string) => void;
   clearEvents: (connectionId: string) => void;
 
   // KeyValue helpers
@@ -116,8 +143,56 @@ interface SocketIOState {
 
 const DEFAULT_RECONNECT_ATTEMPTS = 5;
 const DEFAULT_RECONNECT_DELAY = 1_000;
+const DEFAULT_RECONNECT_DELAY_MAX = 5_000;
+const DEFAULT_RANDOMIZATION_FACTOR = 0.5;
 const DEFAULT_HANDSHAKE_TIMEOUT = 20_000;
+export const DEFAULT_ACK_TIMEOUT_MS = 15_000;
 const MAX_EVENTS_PER_CONNECTION = 1000;
+
+/** Defaults for fields added after v2 — applied to new and migrated connections. */
+export const SOCKETIO_CONNECTION_OPTION_DEFAULTS = {
+  authMode: 'kv' as SocketIOAuthMode,
+  authJson: '{}',
+  reconnectionDelayMax: DEFAULT_RECONNECT_DELAY_MAX,
+  randomizationFactor: DEFAULT_RANDOMIZATION_FACTOR,
+  emitOptions: { volatile: false, compress: true, ackTimeoutMs: DEFAULT_ACK_TIMEOUT_MS },
+};
+
+/** v2 → v3: fill the connection options / auth mode / emit options added for #847. */
+export function migrateConnectionOptions(state: unknown): unknown {
+  if (!state || typeof state !== 'object') return state;
+  const record = state as { connections?: unknown };
+  if (!record.connections || typeof record.connections !== 'object') return state;
+  if (Array.isArray(record.connections)) return { ...record, connections: {} };
+  const d = SOCKETIO_CONNECTION_OPTION_DEFAULTS;
+  const connections = Object.fromEntries(
+    Object.entries(record.connections as Record<string, unknown>).map(([id, conn]) => {
+      if (!conn || typeof conn !== 'object') return [id, conn];
+      const c = conn as Record<string, unknown>;
+      return [
+        id,
+        {
+          ...c,
+          authMode: c.authMode === 'json' ? 'json' : d.authMode,
+          authJson: typeof c.authJson === 'string' ? c.authJson : d.authJson,
+          reconnectionDelayMax:
+            typeof c.reconnectionDelayMax === 'number'
+              ? c.reconnectionDelayMax
+              : d.reconnectionDelayMax,
+          randomizationFactor:
+            typeof c.randomizationFactor === 'number'
+              ? c.randomizationFactor
+              : d.randomizationFactor,
+          emitOptions:
+            c.emitOptions && typeof c.emitOptions === 'object'
+              ? { ...d.emitOptions, ...(c.emitOptions as object) }
+              : { ...d.emitOptions },
+        },
+      ];
+    })
+  );
+  return { ...record, connections };
+}
 
 function emptyConnection(id: string, url: string): SocketIOConnection {
   return {
@@ -126,14 +201,19 @@ function emptyConnection(id: string, url: string): SocketIOConnection {
     namespace: '/',
     path: '/socket.io',
     auth: [],
+    authMode: SOCKETIO_CONNECTION_OPTION_DEFAULTS.authMode,
+    authJson: SOCKETIO_CONNECTION_OPTION_DEFAULTS.authJson,
     query: [],
     extraHeaders: [],
     transports: ['websocket', 'polling'],
     autoReconnect: true,
     reconnectionAttempts: DEFAULT_RECONNECT_ATTEMPTS,
     reconnectionDelay: DEFAULT_RECONNECT_DELAY,
+    reconnectionDelayMax: DEFAULT_RECONNECT_DELAY_MAX,
+    randomizationFactor: DEFAULT_RANDOMIZATION_FACTOR,
     timeout: DEFAULT_HANDSHAKE_TIMEOUT,
     forceNew: false,
+    emitOptions: { ...SOCKETIO_CONNECTION_OPTION_DEFAULTS.emitOptions },
     status: 'disconnected',
     reconnectAttemptCount: 0,
     events: [],
@@ -323,6 +403,23 @@ export const useSocketIOStore = create<SocketIOState>()(
           };
         }),
 
+      markServerAckReplied: (connectionId, serverAckId) =>
+        set((state) => {
+          const c = state.connections[connectionId];
+          if (!c) return state;
+          return {
+            connections: {
+              ...state.connections,
+              [connectionId]: {
+                ...c,
+                events: c.events.map((e) =>
+                  e.serverAckId === serverAckId ? { ...e, serverAckReplied: true } : e
+                ),
+              },
+            },
+          };
+        }),
+
       clearEvents: (connectionId) =>
         set((state) => {
           const c = state.connections[connectionId];
@@ -387,7 +484,7 @@ export const useSocketIOStore = create<SocketIOState>()(
     createPersistedStore<SocketIOState>({
       store: 'socketioConnections',
       persistName: 'socketio-storage',
-      version: 2,
+      version: 3,
       steps: [
         {
           name: 'add-emit-templates',
@@ -395,6 +492,11 @@ export const useSocketIOStore = create<SocketIOState>()(
           apply: (state) => ({
             state: migrateConnectionTemplates(state, socketIOTemplateSchema),
           }),
+        },
+        {
+          name: 'add-connection-options',
+          fromVersion: 2,
+          apply: (state) => ({ state: migrateConnectionOptions(state) }),
         },
       ],
       partialize: (state) => ({

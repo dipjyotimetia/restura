@@ -9,7 +9,9 @@
  * downstream — most by `shared/protocol/auth-signer.ts` (digest by the 401
  * challenge/retry in `shared/protocol/digest-auth.ts`) via the `resolveSecret`
  * option threaded through `executeHttpProxy`, so a digest password handle is
- * resolved here in main at wire time. This helper returns nothing for them.
+ * resolved here in main at wire time. NTLM runs its connection-bound handshake
+ * inside the Electron fetcher (`handlers/ntlm-handshake.ts`). This helper
+ * returns nothing for them.
  */
 
 import type { ProtocolAuthConfig } from '@shared/protocol/types';
@@ -65,7 +67,7 @@ export function applyNonSignAtWireAuth(auth: AnyAuth | undefined): AppliedCreden
       return { headers: { Authorization: `${tokenType} ${token}` }, params: {} };
     }
     // Sign-at-wire types (and digest's challenge/retry) — caller's
-    // `executeHttpProxy(resolveSecret)` handles these.
+    // `executeHttpProxy(resolveSecret)` handles these; NTLM the Electron fetcher.
     case 'digest':
     case 'oauth1':
     case 'aws-signature':
