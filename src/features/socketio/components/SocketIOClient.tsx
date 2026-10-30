@@ -228,7 +228,8 @@ function SocketIOClient() {
       setEmitEventName(draft.eventName);
       setEmitArgsText(draft.args);
       setRequestAck(draft.ack);
-    }
+    },
+    { eventName: 'message', args: '"hello"', ack: false }
   );
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);

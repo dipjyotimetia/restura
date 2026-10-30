@@ -137,6 +137,33 @@ describe('composer drafts', () => {
     expect(getSocketIoComposerDraft('c')).toBeUndefined();
   });
 
+  it("A → B switch then save: B snapshots what is on screen, not A's text", () => {
+    const a = useWebSocketStore.getState().createConnection('wss://a');
+    const b = useWebSocketStore.getState().createConnection('wss://b');
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => {
+        const [draft, setDraft] = useState<WebSocketComposerDraft>({ body: '', format: 'json' });
+        useComposerDraftSync(
+          id,
+          draft,
+          getWebSocketComposerDraft,
+          setWebSocketComposerDraft,
+          setDraft,
+          { body: '', format: 'json' }
+        );
+        return { draft, setDraft };
+      },
+      { initialProps: { id: a } }
+    );
+    act(() => result.current.setDraft({ body: 'typed on A', format: 'text' }));
+    rerender({ id: b });
+    const conn = useWebSocketStore.getState().connections[b]!;
+    expect(result.current.draft.body).toBe('');
+    expect(webSocketPresetFromConnection(conn, 'B').message).toEqual(result.current.draft);
+    clearComposerDrafts(a);
+    clearComposerDrafts(b);
+  });
+
   it('useComposerDraftSync seeds from a stored draft and mirrors later edits', () => {
     setWebSocketComposerDraft('a', { body: 'seeded', format: 'json' });
     const { result, rerender } = renderHook(
@@ -147,7 +174,8 @@ describe('composer drafts', () => {
           draft,
           getWebSocketComposerDraft,
           setWebSocketComposerDraft,
-          setDraft
+          setDraft,
+          { body: '', format: 'json' }
         );
         return { draft, setDraft };
       },
@@ -156,10 +184,16 @@ describe('composer drafts', () => {
     expect(result.current.draft).toEqual({ body: 'seeded', format: 'json' });
     act(() => result.current.setDraft({ body: 'edited', format: 'text' }));
     expect(getWebSocketComposerDraft('a')).toEqual({ body: 'edited', format: 'text' });
-    // Switching to a connection without a draft keeps the text but never
-    // writes the previous connection's state under the new id on the switch.
+    // Switching to a connection without a draft resets the composer to its
+    // defaults and stores them, so what is on screen is what a save captures
+    // (never the previous connection's text).
     rerender({ id: 'b' });
-    expect(getWebSocketComposerDraft('b')).toBeUndefined();
+    expect(result.current.draft).toEqual({ body: '', format: 'json' });
+    expect(getWebSocketComposerDraft('b')).toEqual({ body: '', format: 'json' });
+    // Switching back restores A's text.
+    rerender({ id: 'a' });
+    expect(result.current.draft).toEqual({ body: 'edited', format: 'text' });
+    rerender({ id: 'b' });
     act(() => result.current.setDraft({ body: 'for b', format: 'text' }));
     expect(getWebSocketComposerDraft('b')).toEqual({ body: 'for b', format: 'text' });
     rerender({ id: null });

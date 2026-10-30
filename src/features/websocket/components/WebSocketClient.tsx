@@ -195,7 +195,8 @@ function WebSocketClient() {
     (draft) => {
       setMessage(draft.body);
       setSendFormat(templateFormatToSendFormat(draft.format));
-    }
+    },
+    { body: '', format: 'json' }
   );
   const {
     ensureConnectionForTab,
