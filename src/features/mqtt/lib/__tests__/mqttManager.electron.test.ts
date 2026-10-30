@@ -306,3 +306,19 @@ describe('mqttManager — secrets, binary and MQTT 5 events (#850)', () => {
     expect(lost).toHaveLength(1);
   });
 });
+
+describe('mqttManager — empty payloads (PR #1267 review)', () => {
+  beforeEach(() => resetStore());
+  afterEach(() => {
+    delete (window as unknown as { electron?: unknown }).electron;
+  });
+
+  it('keeps an empty payload on publish (clearing a retained message)', async () => {
+    const { mqtt } = installElectronMock();
+    const id = useMqttStore.getState().createConnection();
+    await mqttManager.publish({ connectionId: id, topic: 't', payload: '', qos: 0, retain: true });
+    expect(mqtt.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ topic: 't', payload: '', retain: true })
+    );
+  });
+});
