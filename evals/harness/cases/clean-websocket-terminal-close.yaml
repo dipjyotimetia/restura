@@ -1,7 +1,7 @@
 id: clean-websocket-terminal-close
 title: 'Control: stop WebSocket reconnect loops and drop credentials on terminal close'
 origin: real
-split: train
+split: test
 expectClean: true
 sourcePRs: ['#1162']
 # Main just before #1162. No later commit touches the files below.

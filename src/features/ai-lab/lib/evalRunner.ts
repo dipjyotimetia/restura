@@ -18,6 +18,7 @@ import type {
 } from '../types';
 import { runPool } from './concurrencyPool';
 import type { ExecResult } from './execCell';
+import { sameModelRef, selfJudgingMessage } from './judgePolicy';
 import { completeLlm, type LlmCallSpec, type LlmChatMessage, specFor } from './llmClient';
 import { renderTemplate } from './promptTemplate';
 import { extractGraphqlSpec, extractRequestSpec } from './requestExtractor';
@@ -114,9 +115,13 @@ async function scoreCell(
   scorers: ScorerConfig[],
   ctx: Omit<ScorerContext, 'judge' | 'runScript' | 'pairwise'>,
   providers: Record<string, AiLabProviderConfig>,
+  modelUnderTest: ModelRef,
   signal: AbortSignal
 ): Promise<EvalCellResult['scores']> {
   const completeFor = (model: ModelRef): JudgeComplete => {
+    // Fail closed: a judge that is the model under test grades its own output. The
+    // builder refuses such a config up front; this guard covers headless callers.
+    if (sameModelRef(model, modelUnderTest)) throw new Error(selfJudgingMessage(model));
     const cfg = providers[model.providerConfigId];
     if (!cfg) throw new Error('judge provider not configured');
     // The judge algorithm (criteria, sampling, aggregation) lives in shared
@@ -308,6 +313,7 @@ async function runCell(
         ...usagePatch,
       },
       providers,
+      modelRef,
       opts.signal
     );
   } catch (e) {

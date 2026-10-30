@@ -45,8 +45,9 @@ A **dataset** is a list of cases. Each case carries:
 - `expected` *(optional)* — an exact expected output, for exact-match scoring.
 - `reference` *(optional)* — a gold/reference answer, for reference-based scorers, the judge, and the pairwise scorer.
 - `turns` *(optional)* — a multi-turn conversation (`{ role: 'user' | 'assistant'; content }[]`). When present, the runner replays these turns as the model input instead of the prompt's single user message (`{{vars}}` still resolve inside each turn).
+- `split` *(optional)* — `train` or `test`. Tag the cases you will **not** look at while tuning a prompt as `test`; untagged cases count as train. The report then shows pass rates per split. Tune against train and read test only to confirm: train going up while test stays flat means the prompt overfit the cases you looked at.
 
-Cases are edited as a compact JSON array, and you can **import / export** a dataset as **CSV** or **JSONL** (JSONL preserves `turns`; flat CSV does not). Beyond hand-authoring, four generators seed a dataset:
+Cases are edited as a compact JSON array, and you can **import / export** a dataset as **CSV** or **JSONL** (JSONL preserves `turns`; flat CSV does not; both carry `split`). Beyond hand-authoring, four generators seed a dataset:
 
 ### Generate from an OpenAPI spec
 
@@ -96,7 +97,7 @@ A cell passes only when its model call succeeded **and** every scorer passed. Ea
 
 ### LLM-as-judge
 
-The `judge` scorer calls a model of your choosing with the output, the case's reference, and a rubric, and asks it to return a structured judgement (`score` 0–1, `reasoning`, `pass`) via a tool call. Use any provider for the judge, including a cheaper or local model than the one under test. The judge engine supports **multi-criteria weighted rubrics** (each criterion scored independently; a `gate` criterion fails the cell regardless of the weighted score), **self-consistency** (run the judge N≤5 times and aggregate by median, reporting score variance), and **calibration anchors** (reference-scored examples that pin the 0–1 scale).
+The `judge` scorer calls a model of your choosing with the output, the case's reference, and a rubric, and asks it to return a structured judgement (`score` 0–1, `reasoning`, `pass`) via a tool call. Use any provider for the judge, including a cheaper or local model than the one under test, but never the model under test itself: a judge grading its own output inflates agreement, so the eval refuses to start when a judge or pairwise scorer's judge is one of the selected models. The judge engine supports **multi-criteria weighted rubrics** (each criterion scored independently; a `gate` criterion fails the cell regardless of the weighted score), **self-consistency** (run the judge N≤5 times and aggregate by median, reporting score variance), and **calibration anchors** (reference-scored examples that pin the 0–1 scale).
 
 ### Tool-call & pairwise scorers
 

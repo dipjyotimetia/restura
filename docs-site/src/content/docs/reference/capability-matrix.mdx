@@ -21,7 +21,7 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 - Collections, environments, scripts, and the safe OWS workflow profile (`do`, `set`, `wait`, timeout/cancellation, and bound HTTP saved-request calls). OWS event/process tasks, controls without a bounded runtime, and non-HTTP calls are rejected.
 - Load testing — fire an HTTP request at bounded concurrency (browser caps effective concurrency ~6).
 - Persistent IndexedDB storage (not encrypted at rest).
-- SSRF guard on all upstream requests.
+- SSRF guard on every request proxied through the Worker (HTTP, GraphQL queries and `graphql-sse`, gRPC, SSE, MCP). WebSocket, Socket.IO and GraphQL WebSocket subscriptions connect browser-direct, so they get an in-app check instead: loopback, private-network and cloud-metadata targets are refused unless **Allow private / internal IPs** is on, and Restura asks before sending credentials over `ws://` / `http://`.
 
 ### Desktop only
 

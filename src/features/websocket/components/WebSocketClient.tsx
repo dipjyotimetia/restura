@@ -47,6 +47,7 @@ import type { WsCloseOptions } from '@/features/websocket/lib/wsControlFrames';
 import { wsExportName, wsToLogEntries } from '@/features/websocket/lib/wsLogExport';
 import type { WebSocketMessageType } from '@/features/websocket/store/useWebSocketStore';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
+import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { isElectron } from '@/lib/shared/platform';
@@ -174,6 +175,7 @@ function WebSocketClient() {
   // null = auto (open only when something is configured); boolean = user override.
   const [configOpenOverride, setConfigOpenOverride] = useState<boolean | null>(null);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const cleartextGuard = useCleartextCredentialsGuard();
 
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const activeTabId = useActiveTabId();
@@ -273,10 +275,17 @@ function WebSocketClient() {
   const negotiated = isConnected ? connection.negotiated : undefined;
   const configOpen = configOpenOverride ?? configCount > 0;
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     try {
       const resolvedUrl = resolveVariables(connection.url);
       const headers = keyValuePairsToRecord(connection.headers);
+      // ws:// would carry URL / handshake credentials in cleartext (#898).
+      if (
+        cleartextGuard.needsConfirm(resolvedUrl, { headers }) &&
+        !(await cleartextGuard.confirm())
+      ) {
+        return;
+      }
       websocketManager.connect(
         activeConnectionId,
         resolvedUrl,
@@ -672,6 +681,7 @@ function WebSocketClient() {
 
   return (
     <div className="flex flex-1 flex-col gap-2.5 bg-transparent p-3 overflow-hidden">
+      <cleartextGuard.Dialog />
       {/* Connection bar */}
       <Floater radius="pill" className="flex items-center gap-2 px-3 h-12 shrink-0">
         <ProtoChip protocol="WS" />
@@ -741,7 +751,7 @@ function WebSocketClient() {
           <Button
             variant="cta"
             size="cta"
-            onClick={handleConnect}
+            onClick={() => void handleConnect()}
             disabled={!connection.url}
             className="min-w-[80px]"
           >

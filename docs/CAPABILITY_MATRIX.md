@@ -29,7 +29,7 @@ rather than discover it experimentally.
 | Load / performance testing | ✅ | ✅ | Fidelity differs: web is capped by ~6 browser connections per origin and the Worker proxy rate limit (100 req/min); desktop by the IPC rate budget. Results above those budgets include self-inflicted throttling |
 | WebSocket connect | ✅ | ✅ |  |
 | WebSocket custom request headers | ❌ | ✅ | Browser WS API forbids handshake headers; web connects directly and warns when headers would be dropped. The /api/ws-ticket → /api/ws Worker relay exists but is not wired into the renderer yet |
-| WS through Worker (SSRF gate, header policy) | ❌ | ❌ | Worker routes exist (/api/ws-ticket, /api/ws) but the web renderer connects directly via the browser WebSocket API; desktop uses Node ws with the same guards |
+| WS through Worker (SSRF gate, header policy) | ❌ | ❌ | Worker routes exist (/api/ws-ticket, /api/ws) but the web renderer connects directly via the browser WebSocket API (as do Socket.IO and GraphQL subscriptions), so an in-app check refuses loopback / private / cloud-metadata targets unless "Allow private / internal IPs" is on, and confirms before sending credentials over ws:// (#898); desktop uses Node ws with the DNS-pinned guard |
 | WebSocket ping / pong frames (with RTT) | ❌ | ✅ | The browser WebSocket API exposes no ping/pong control frames; web disables the Ping control with an explanatory tooltip. Custom close code/reason and the negotiated subprotocol/extensions work on both |
 | Disable WebSocket permessage-deflate per connection | ❌ | ✅ | The browser always negotiates compression itself; desktop can turn the offer off |
 | Server-Sent Events | ✅ | ✅ |  |

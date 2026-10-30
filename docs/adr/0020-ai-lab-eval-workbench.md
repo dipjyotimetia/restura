@@ -77,6 +77,13 @@ The capability matrix distinguishes fully wired features from extension contract
 
 These guarantees do not broaden platform support: the AI Lab UI and in-app execution remain Electron-only while the CLI exposes only the headless subset above. Desktop supports saved Restura request tools, deterministic fixture tools, and saved MCP profiles with fresh policy-enforced sessions, allowlists, cancellation cleanup, and per-call approval. Sandboxes remain unsupported (`web:false`, `desktop:false`) until a concrete provider is wired end to end.
 
+## Addendum (2026-10-30): held-out split and a judge that is never the model under test
+
+Two gaps against Anthropic's eval-design guidance, closed in the eval workbench (not the Agents tab):
+
+- **Held-out cases.** A dataset case carries an optional `split: 'train' | 'test'` (untagged counts as train; JSONL and a reserved CSV `split` column round-trip it; the structured editor has a per-case control). The report shows per-model pass rates for train and test when a dataset holds any case out, with the rule beside it: tune a prompt against train, read test only to confirm, and treat "train up, test flat" as overfitting. The runner itself is unchanged: every case still runs; the split is a reporting and discipline boundary, not a filter, because a user hillclimbing in the Playground needs to see both numbers.
+- **No self-judging.** A `judge` or `pairwise` scorer whose judge model is one of the models under test grades its own output. The builder refuses to start such a run with one message, and the runner fails the scorer closed per cell (`judge model … is the model under test`) for headless callers. Same model id on a different provider config is a different endpoint and stays allowed.
+
 ## References
 
 - Code: `src/features/ai-lab/`, `shared/agent-lab/`, `electron/main/handlers/ai-lab-handler.ts`, `shared/protocol/ai/{ai-complete,model-discovery,provider-routes,types,judge}.ts`, `src/lib/shared/{judgeBridge,completeRetry}.ts`, `cli/src/commands/agent.ts`

@@ -22,6 +22,7 @@ export interface EditableCase {
   expected?: string;
   reference?: string;
   turns?: DatasetCase['turns'];
+  split?: DatasetCase['split'];
 }
 
 /** The Datasets tab's unsaved work buffer (session-scoped, never persisted). */
@@ -50,6 +51,7 @@ export function normalizeCase(c: unknown): EditableCase {
     ...(typeof obj.expected === 'string' ? { expected: obj.expected } : {}),
     ...(typeof obj.reference === 'string' ? { reference: obj.reference } : {}),
     ...(obj.turns !== undefined ? { turns: obj.turns as DatasetCase['turns'] } : {}),
+    ...(obj.split === 'train' || obj.split === 'test' ? { split: obj.split } : {}),
   };
 }
 
@@ -94,5 +96,6 @@ export function caseSummary(c: EditableCase): string {
   if (c.expected) parts.push('expected ✓');
   if (c.reference) parts.push('reference ✓');
   if (c.turns) parts.push(plural(c.turns.length, 'turn'));
+  if (c.split === 'test') parts.push('held-out');
   return parts.join(' · ');
 }

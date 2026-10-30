@@ -1,7 +1,7 @@
 id: cli-grpc-auth-block-parity
 title: App blocks auth gRPC can't apply, but the CLI gRPC executor silently sends unauthenticated
 origin: real
-split: train
+split: test
 sourcePRs: ['#1088']
 fixPRs: ['#1161']
 base: d547cbe098579a09f5f505b46aa4e9a4127bc404

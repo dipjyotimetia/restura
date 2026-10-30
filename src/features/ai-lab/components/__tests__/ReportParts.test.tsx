@@ -10,6 +10,7 @@ import {
   type ModelStats,
   ReportSummary,
   statsByModel,
+  statsBySplit,
 } from '../ReportSummary';
 
 const RUN: EvalRun = {
@@ -161,6 +162,49 @@ describe('report components', () => {
         { name: 'Style', passed: 0, total: 1 },
       ],
     });
+  });
+
+  it('splits pass rates by train and held-out test cases only when the dataset holds some out', () => {
+    expect(statsBySplit(RUN, DATASET)).toEqual([]);
+    expect(statsBySplit(RUN, undefined)).toEqual([]);
+    const heldOut: Dataset = {
+      ...DATASET,
+      cases: [
+        { id: 'case-a', vars: {}, split: 'test' },
+        { id: 'case-b', vars: {} },
+      ],
+    };
+    const splits = statsBySplit(RUN, heldOut);
+    // case-b's cell for model-a is notEvaluated, so train stays empty for it.
+    expect(splits).toEqual([
+      {
+        key: 'provider-a:model-a',
+        label: 'Alpha',
+        train: { passed: 0, total: 0 },
+        test: { passed: 1, total: 1 },
+      },
+      {
+        key: 'provider-b:model-b',
+        label: 'model-b',
+        train: { passed: 0, total: 0 },
+        test: { passed: 0, total: 1 },
+      },
+    ]);
+    render(
+      <ReportSummary
+        run={RUN}
+        stats={STATS}
+        previousStatsByKey={new Map()}
+        judge={{ judged: 0, avgVariance: null, criteria: [] }}
+        splits={splits}
+        hasPreviousRun={false}
+        onExport={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    );
+    expect(screen.getByRole('table', { name: 'Pass rate by split' })).toBeVisible();
+    expect(screen.getByText('100% (1/1)')).toBeVisible();
+    expect(screen.getByText(/Train up with test flat/)).toBeVisible();
   });
 
   it('renders report actions, deltas, costs, judge criteria, and the previous-run explanation', () => {

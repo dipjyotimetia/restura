@@ -42,6 +42,7 @@ import {
   type SocketIOEventFilter,
   useSocketIOStore,
 } from '@/features/socketio/store/useSocketIOStore';
+import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
 import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { modLabel } from '@/lib/shared/shortcuts';
 import {
@@ -55,7 +56,7 @@ import {
 } from '@/lib/shared/streaming/messageTemplates';
 import { useComposerDraftSync } from '@/lib/shared/streaming/useComposerDraftSync';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
-import { cn } from '@/lib/shared/utils';
+import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 
@@ -232,6 +233,7 @@ function SocketIOClient() {
     { eventName: 'message', args: '"hello"', ack: false }
   );
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const cleartextGuard = useCleartextCredentialsGuard();
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [frozen, setFrozen] = useState(false);
   // null = auto (open only when something is configured); boolean = user override.
@@ -287,8 +289,18 @@ function SocketIOClient() {
   const configCount = connection.auth.length + connection.query.length;
   const configOpen = configOpenOverride ?? configCount > 0;
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     const resolvedUrl = resolveVariables(connection.url);
+    // ws:// / http:// would carry the auth payload / credential headers in cleartext (#898).
+    const creds = {
+      headers: {
+        ...keyValuePairsToRecord(connection.query),
+        ...keyValuePairsToRecord(connection.extraHeaders),
+      },
+      authPayload: keyValuePairsToRecord(connection.auth),
+    };
+    if (cleartextGuard.needsConfirm(resolvedUrl, creds) && !(await cleartextGuard.confirm()))
+      return;
     if (resolvedUrl !== connection.url) {
       updateConnectionField(activeConnectionId, 'url', resolvedUrl);
     }
@@ -346,6 +358,7 @@ function SocketIOClient() {
 
   return (
     <div className="flex flex-1 flex-col gap-2.5 bg-transparent p-3 overflow-hidden">
+      <cleartextGuard.Dialog />
       {/* Connection bar */}
       <Floater radius="pill" className="flex items-center gap-2 px-3 h-12 shrink-0">
         <ProtoChip protocol="SOCKETIO" />
@@ -426,7 +439,7 @@ function SocketIOClient() {
           <Button
             variant="cta"
             size="cta"
-            onClick={handleConnect}
+            onClick={() => void handleConnect()}
             disabled={!connection.url}
             className="min-w-[80px]"
           >

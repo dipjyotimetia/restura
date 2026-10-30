@@ -6,6 +6,7 @@ import {
   type SocketIOTransport,
   useSocketIOStore,
 } from '@/features/socketio/store/useSocketIOStore';
+import { checkBrowserSocketTargetFromSettings } from '@/lib/shared/browserSocketPolicy';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
 
@@ -214,6 +215,18 @@ class SocketIOManager {
   private connectViaBrowser(connectionId: string, config: ConnectConfig): void {
     const store = useSocketIOStore.getState();
     const url = buildSocketIOConnectUrl(config.url, config.namespace);
+
+    // Browser-direct: the Worker's SSRF guard never sees this socket (#898).
+    const target = checkBrowserSocketTargetFromSettings(url);
+    if (!target.ok) {
+      store.addEvent(connectionId, {
+        direction: 'system',
+        eventName: '<system>',
+        args: [`Connection refused: ${target.error}`],
+      });
+      store.updateConnectionStatus(connectionId, 'disconnected');
+      return;
+    }
 
     let socket: Socket;
     try {

@@ -6,6 +6,7 @@ import { Floater } from '@/components/ui/spatial';
 import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
 import { useEvalRun } from '../hooks/useEvalRun';
 import { useModelSelection } from '../hooks/useModelSelection';
+import { selfJudgingScorer } from '../lib/judgePolicy';
 import { modelKey } from '../lib/modelOptions';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
@@ -14,6 +15,9 @@ import { EvalDraftEditor } from './EvalDraftEditor';
 import { EvalRunControls } from './EvalRunControls';
 import { SCORER_LABEL, ScorerEditor } from './ScorerEditor';
 import { VerdictChip } from './VerdictChip';
+
+const selfJudgingReason = (scorer: { kind: 'judge' | 'pairwise'; judgeModel: ModelRef }) =>
+  `The ${SCORER_LABEL[scorer.kind]} scorer's judge (${scorer.judgeModel.model}) is also a model under test; pick a different judge.`;
 
 function targetFor(mode: 'text' | 'http' | 'graphql'): EvalTarget {
   if (mode === 'text') return { kind: 'text' };
@@ -113,6 +117,16 @@ export function EvalBuilder() {
       (scorer.kind === 'judge' || scorer.kind === 'pairwise') &&
       (!scorer.judgeModel.providerConfigId || !scorer.judgeModel.model)
   );
+  // A judge must not be a model under test: it would grade its own output. Refuse
+  // here with one message rather than failing every cell.
+  const selectedModelRefs = useMemo<ModelRef[]>(
+    () =>
+      modelOptions
+        .filter((model) => selectedSet.has(model.key))
+        .map((model) => ({ providerConfigId: model.cfg.id, model: model.model })),
+    [modelOptions, selectedSet]
+  );
+  const selfJudging = selfJudgingScorer(scorers, selectedModelRefs);
 
   const run = () => {
     if (!draft.datasetId) {
@@ -130,6 +144,10 @@ export function EvalBuilder() {
       toast.error(
         `Pick a judge model for the ${SCORER_LABEL[unconfiguredJudgeScorer.kind]} scorer.`
       );
+      return;
+    }
+    if (selfJudging) {
+      toast.error(selfJudgingReason(selfJudging));
       return;
     }
     const promptId = upsertPrompt({
@@ -157,14 +175,21 @@ export function EvalBuilder() {
     () => progress?.cells.reduce((count, cell) => count + (cell.passed ? 1 : 0), 0) ?? 0,
     [progress]
   );
-  const canRun = !!draft.datasetId && selectedSet.size > 0 && !unconfiguredJudgeScorer && !running;
+  const canRun =
+    !!draft.datasetId &&
+    selectedSet.size > 0 &&
+    !unconfiguredJudgeScorer &&
+    !selfJudging &&
+    !running;
   const runDisabledReason = !draft.datasetId
     ? 'Pick a dataset to run.'
     : selectedSet.size === 0
       ? 'Select at least one model.'
       : unconfiguredJudgeScorer
         ? `Pick a judge model for the ${SCORER_LABEL[unconfiguredJudgeScorer.kind]} scorer.`
-        : null;
+        : selfJudging
+          ? selfJudgingReason(selfJudging)
+          : null;
 
   useCmdEnterRun(() => {
     if (canRun) run();

@@ -9,6 +9,7 @@ import { subscribeGraphQLSse } from './graphqlSseSubscription';
 import { runLegacyWsSubscription } from './legacyWsSubscription';
 import {
   AUTO_SUBPROTOCOLS,
+  assertBrowserSocketTargetAllowed,
   assertWebSocketUrl,
   describeSubscriptionError,
   GRAPHQL_TRANSPORT_WS_SUBPROTOCOL,
@@ -344,6 +345,7 @@ export class GraphQLSubscriptionClient {
   ): void {
     const wsUrl = toWebSocketUrl(options.url);
     assertWebSocketUrl(wsUrl);
+    assertBrowserSocketTargetAllowed(wsUrl);
     // Desktop: a renderer-direct WebSocket is CSP-blocked, so tunnel graphql-ws
     // over the WebSocket IPC bridge. Web keeps the native WebSocket.
     const webSocketImpl = adopted
