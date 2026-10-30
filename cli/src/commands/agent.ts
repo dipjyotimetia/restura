@@ -8,6 +8,7 @@ import {
   type AgentSuiteReport,
   AgentSuiteRunner,
   AgentSuiteSchema,
+  type AgentTelemetryConfig,
   AgentTelemetryConfigSchema,
   type AgentToolResolver,
   AnthropicMessagesAdapter,
@@ -25,7 +26,7 @@ import type { Fetcher } from '@shared/protocol/types';
 import type { Command } from 'commander';
 import { resolveCliGrounding } from '../runner/agentGrounding.js';
 import { AgentPreflightError } from '../runner/agentPreflightError.js';
-import { exportCliAgentTelemetry } from '../runner/agentTelemetry.js';
+import { exportCliAgentTelemetry, preflightCliTelemetry } from '../runner/agentTelemetry.js';
 import { resolveCliAgentTools } from '../runner/agentTools.js';
 import { loadCollection } from '../runner/collectionLoader.js';
 import { loadEnv } from '../runner/envLoader.js';
@@ -290,6 +291,7 @@ export async function evaluateAgentSuite(
     : undefined;
   const toolResolver = createAgentToolResolver();
   preflightAgentSuite(suite, toolResolver, runtime);
+  await preflightTelemetryEndpoint(options, dependencies);
   const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);
   await exportTelemetryIfConfigured(report, options, dependencies);
   if (options.output)
@@ -311,6 +313,7 @@ export async function evaluateAgentBundle(
     : undefined;
   const toolResolver = createAgentToolResolver([createFixtureToolSourceAdapter(bundle.fixtures)]);
   preflightAgentSuite(suite, toolResolver, runtime);
+  await preflightTelemetryEndpoint(options, dependencies);
   const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);
   await exportTelemetryIfConfigured(report, options, dependencies);
   const gates = evaluateAgentBundleBaseline(bundle, report);
@@ -373,6 +376,23 @@ export async function runAgentEval(
     process.removeListener('SIGINT', onSignal);
     process.removeListener('SIGTERM', onSignal);
   }
+}
+
+/** A refused collector endpoint is invalid input: fail (exit 2) before any model call. */
+async function preflightTelemetryEndpoint(
+  options: AgentEvalOptions,
+  dependencies: AgentEvalDependencies
+): Promise<void> {
+  if (!options.telemetryConfig) return;
+  let config: AgentTelemetryConfig;
+  try {
+    config = AgentTelemetryConfigSchema.parse(
+      JSON.parse(await dependencies.readText(options.telemetryConfig))
+    );
+  } catch {
+    return; // unreadable/invalid config keeps the existing export-time "skipped" handling
+  }
+  await preflightCliTelemetry(config);
 }
 
 async function exportTelemetryIfConfigured(

@@ -20,6 +20,8 @@ import {
 } from '../agent';
 import { AgentRuntimeManifestSchema } from '../agentRuntime';
 
+const lookupMock = vi.hoisted(() => vi.fn());
+vi.mock('node:dns/promises', () => ({ lookup: lookupMock }));
 vi.mock('../../runner/agentMcpClient', () => ({ connectCliMcpClient: vi.fn() }));
 
 function suite(
@@ -371,6 +373,38 @@ describe('cost preflight', () => {
     expect(over.results[0]?.scores.find((item) => item.graderId === 'cost-1')?.detail).toContain(
       '$1.200000'
     );
+  });
+});
+
+describe('telemetry endpoint preflight', () => {
+  it('exits 2 before any model call when the collector hostname resolves to a private address', async () => {
+    lookupMock.mockResolvedValue([{ address: '10.0.0.5', family: 4 }]);
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependenciesWithFiles(
+      {
+        '/suite.json': suite(),
+        '/telemetry.json': {
+          enabled: true,
+          target: 'otlp',
+          endpoint: 'https://collector.example.test/v1/traces',
+          environment: 'ci',
+          sampleRate: 1,
+          auth: { mode: 'none' },
+        },
+      },
+      fetcher
+    );
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      expect(await runAgentEval('/suite.json', { telemetryConfig: '/telemetry.json' }, deps)).toBe(
+        2
+      );
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('collector.example.test'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
   });
 });
 

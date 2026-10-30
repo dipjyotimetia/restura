@@ -285,7 +285,7 @@ OPENAI_API_KEY=... restura agent eval ./checkout.agent-suite.json --output agent
 | `--env <file>`              |         | JSON or YAML env file used by saved requests: a flat `{ "key": "value" }` object (string values only). Postman and Hoppscotch environment exports are not read. |
 | `--timeout <ms>`            | `30000` | Per saved-HTTP-request timeout.                                                                          |
 | `--allow-localhost`         | `false` | Permit localhost saved-request targets.                                                                  |
-| `--telemetry-config <file>` |         | Metadata-only Langfuse or OTLP export; credentials must be environment references. See [Agent telemetry](https://github.com/dipjyotimetia/restura/blob/main/docs/AGENT_TELEMETRY.md). |
+| `--telemetry-config <file>` |         | Metadata-only Langfuse or OTLP export; credentials must be environment references; the collector hostname is resolved once and every address validated (private, link-local, metadata and loopback-via-hostname results are refused with exit 2 before the run), and OTLP connects only to that validated address (Langfuse gets the DNS validation but no connect pin). See [Agent telemetry](https://github.com/dipjyotimetia/restura/blob/main/docs/AGENT_TELEMETRY.md). |
 
 Agents use `providerId: "openai.responses"` or `"anthropic.messages"` with an environment credential such as `{ "source": "env", "name": "OPENAI_API_KEY" }`. The OpenAI adapter is stateless (`store: false`, no `previous_response_id` continuation).
 
