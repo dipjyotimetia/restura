@@ -1,5 +1,7 @@
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/proxy-limits';
 import { SseParser } from '@shared/protocol/sse-parser';
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
+import { ResponseTooLargeError, readErrorPreview } from './bounded-read';
 import { PROVIDER_ROUTES } from './provider-routes';
 import { getProviderModule } from './providers';
 import { detectUnredactedSecrets } from './redaction';
@@ -91,7 +93,7 @@ export async function* executeAiChat(
   if (!ok) {
     let detail = '';
     try {
-      detail = await response.text();
+      detail = await readErrorPreview(response);
     } catch {
       detail = '';
     }
@@ -114,11 +116,17 @@ export async function* executeAiChat(
   const decoder = getProviderModule(spec.provider).createDecoder(spec.model);
   const parser = new SseParser();
   const reader = response.body.getReader();
+  let received = 0;
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       if (!value) continue;
+      received += value.length;
+      if (received > MAX_RESPONSE_SIZE) {
+        await reader.cancel();
+        throw new ResponseTooLargeError();
+      }
       for (const sse of parser.feed(value)) {
         for (const ev of decoder.feed(sse.data, sse.event)) yield ev;
       }

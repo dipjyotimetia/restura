@@ -1,4 +1,5 @@
 import type { Fetcher } from '@shared/protocol/types';
+import { readBoundedText, readErrorPreview } from './bounded-read';
 import { isLocalProvider, type Provider } from './types';
 
 export interface DiscoveredModel {
@@ -136,13 +137,13 @@ async function fetchJson(url: string, args: DiscoverArgs): Promise<unknown> {
   if (res.status < 200 || res.status >= 300) {
     let detail = '';
     try {
-      detail = await res.text();
+      detail = await readErrorPreview(res);
     } catch {
       detail = '';
     }
     throw new Error(`Model discovery failed (${res.status}): ${detail.slice(0, 300)}`);
   }
-  const raw = await res.text();
+  const raw = await readBoundedText(res);
   try {
     return JSON.parse(raw);
   } catch {
