@@ -327,3 +327,75 @@ describe('sse-handler (StreamRegistry-backed)', () => {
     expect(res.success).toBe(true);
   });
 });
+
+describe('sse-handler close payload (#848 reconnect)', () => {
+  beforeEach(() => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
+    mockHandle.mockClear();
+    mockEmitTo.mockClear();
+    mockStreaming.mockReset();
+    registerSseHandlerIPC();
+  });
+  afterEach(() => stopSseCleanup());
+
+  function bodyOf(text: string): ReadableStream<Uint8Array> {
+    return new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(text));
+        controller.close();
+      },
+    });
+  }
+
+  async function closePayloadFor(
+    id: string,
+    response: { status: number; headers: Record<string, string>; body: string }
+  ) {
+    mockStreaming.mockResolvedValue({
+      ok: true,
+      response: { ...response, statusText: 'OK', body: bodyOf(response.body) },
+    });
+    const { event } = makeEvent(7);
+    await handlerFor('sse:connect')(event, { connectionId: id, url: 'https://example.com/s' });
+    await flush();
+    return mockEmitTo.mock.calls.find((c) => c[1] === `sse:close:${id}`)?.[2];
+  }
+
+  it('carries stream state moved by data-less blocks and stays reconnectable', async () => {
+    const payload = await closePayloadFor('r1', {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+      body: 'id: 1\ndata: a\n\nretry: 1500\nid: 2\n\n',
+    });
+    expect(payload).toEqual({ reason: 'stream ended', lastEventId: '2', retry: 1500 });
+  });
+
+  it.each([
+    ['204', 204, 'text/event-stream'],
+    ['a wrong content type', 200, 'application/json'],
+  ])('marks the close fatal after %s', async (_label, status, contentType) => {
+    const payload = await closePayloadFor(`f${status}`, {
+      status,
+      headers: { 'Content-Type': contentType },
+      body: 'data: a\n\n',
+    });
+    expect(payload).toMatchObject({ reason: 'stream ended', fatal: true });
+  });
+
+  it('marks a non-2xx close fatal', async () => {
+    mockStreaming.mockResolvedValue({
+      ok: true,
+      response: { status: 503, statusText: 'Unavailable', headers: {}, body: bodyOf('') },
+    });
+    const { event } = makeEvent(7);
+    await handlerFor('sse:connect')(event, { connectionId: 'n1', url: 'https://example.com/s' });
+    const close = mockEmitTo.mock.calls.find((c) => c[1] === 'sse:close:n1')?.[2];
+    expect(close).toEqual({ reason: 'HTTP 503', fatal: true });
+  });
+});

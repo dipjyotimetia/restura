@@ -149,3 +149,107 @@ describe('SseParser un-delimited buffer cap (OOM guard)', () => {
     expect(() => p.feed(enc(burst))).not.toThrow();
   });
 });
+
+describe('SseParser WHATWG conformance (#848)', () => {
+  // SSE-1 (#956): a CRLF pair split across chunks is ONE line terminator.
+  it('parses a CRLF-framed event split at every byte offset as exactly one event', () => {
+    const wire = 'id: 7\r\nevent: tick\r\ndata: a\r\ndata: b\r\n\r\n';
+    for (let i = 0; i <= wire.length; i++) {
+      for (let j = i; j <= wire.length; j++) {
+        const p = new SseParser();
+        const events = [
+          ...p.feed(enc(wire.slice(0, i))),
+          ...p.feed(enc(wire.slice(i, j))),
+          ...p.feed(enc(wire.slice(j))),
+          ...p.flush(),
+        ];
+        expect(events, `split at ${i}/${j}`).toEqual<SseEvent[]>([
+          { id: '7', event: 'tick', data: 'a\nb' },
+        ]);
+      }
+    }
+  });
+
+  it('dispatches a bare-CR terminated event without waiting for the next chunk', () => {
+    const p = new SseParser();
+    expect(p.feed(enc('data: a\r'))).toEqual([]);
+    expect(p.feed(enc('\r'))).toEqual<SseEvent[]>([{ data: 'a' }]);
+    // The next chunk's leading LF is a genuine (empty) line, not half a CRLF.
+    expect(p.feed(enc('data: b\n\n'))).toEqual<SseEvent[]>([{ data: 'b' }]);
+  });
+
+  it('treats CR + LF in separate chunks as a single line ending', () => {
+    const p = new SseParser();
+    expect(p.feed(enc('data: a\r'))).toEqual([]);
+    // Without the fix the leading \n would form a blank line and dispatch early.
+    expect(p.feed(enc('\ndata: b\r\n\r\n'))).toEqual<SseEvent[]>([{ data: 'a\nb' }]);
+  });
+
+  it('keeps a pending CR across a chunk that decodes to no text', () => {
+    const p = new SseParser();
+    expect(p.feed(enc('data: a\r'))).toEqual([]);
+    expect(p.feed(new Uint8Array(0))).toEqual([]);
+    // The empty chunk did not consume the pending CR.
+    expect(p.feed(enc('\ndata: b\n\n'))).toEqual<SseEvent[]>([{ data: 'a\nb' }]);
+  });
+
+  it('leaves LF-only streams unaffected', () => {
+    const p = new SseParser();
+    expect(p.feed(enc('data: a\n'))).toEqual([]);
+    expect(p.feed(enc('\n'))).toEqual<SseEvent[]>([{ data: 'a' }]);
+  });
+
+  // SSE-3 (#962): id-only heartbeat blocks still move the last event ID.
+  it('updates lastEventId from a data-less id block', () => {
+    const p = new SseParser();
+    expect(p.feed(enc('id: 1\ndata: a\n\n'))).toHaveLength(1);
+    expect(p.lastEventId).toBe('1');
+    expect(p.feed(enc('id: 2\n: heartbeat\n\n'))).toEqual([]);
+    expect(p.lastEventId).toBe('2');
+  });
+
+  it('pairs each event with the last event ID current at its dispatch', () => {
+    const p = new SseParser();
+    const out = p.feedWithState(enc('id: 1\ndata: a\n\nid: 2\n\ndata: b\n\n'));
+    expect(out).toEqual([
+      { event: { id: '1', data: 'a' }, lastEventId: '1' },
+      { event: { data: 'b' }, lastEventId: '2' },
+    ]);
+  });
+
+  // SSE-4 (#965): an empty id resets the last event ID.
+  it('resets lastEventId to "" on an empty id field', () => {
+    const p = new SseParser();
+    p.feed(enc('id: 5\ndata: a\n\n'));
+    expect(p.feed(enc('id:\ndata: b\n\n'))).toEqual<SseEvent[]>([{ id: '', data: 'b' }]);
+    expect(p.lastEventId).toBe('');
+    p.feed(enc('id: 6\n\n'));
+    p.feed(enc('id\n\n')); // no-colon form: field "id", empty value
+    expect(p.lastEventId).toBe('');
+  });
+
+  it('ignores an id containing NUL', () => {
+    const p = new SseParser();
+    p.feed(enc('id: 1\n\n'));
+    p.feed(enc('id: a\0b\ndata: x\n\n'));
+    expect(p.lastEventId).toBe('1');
+  });
+
+  // SSE-5 (#968): retry accepts ASCII digits only.
+  it.each(['', '1e3', '0x10', '-1', '1.5', '  100', '10a', '+5'])(
+    'ignores non-digit retry value %j',
+    (value) => {
+      const p = new SseParser();
+      const events = p.feed(enc(`retry:${value}\ndata: x\n\n`));
+      expect(events).toEqual<SseEvent[]>([{ data: 'x' }]);
+      expect(p.reconnectionTime).toBeUndefined();
+    }
+  );
+
+  it('accepts a digits-only retry, including from a data-less block', () => {
+    const p = new SseParser();
+    expect(p.feed(enc('retry: 0\ndata: x\n\n'))).toEqual<SseEvent[]>([{ data: 'x', retry: 0 }]);
+    expect(p.feed(enc('retry: 2500\n\n'))).toEqual([]);
+    expect(p.reconnectionTime).toBe(2500);
+  });
+});

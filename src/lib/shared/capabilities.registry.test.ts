@@ -61,6 +61,7 @@ describe('capability registry shape', () => {
         "websocket.perMessageDeflateToggle",
         "sse.basic",
         "sse.customHeaders",
+        "sse.autoReconnect",
         "mcp.basic",
         "mcp.clientRequests",
         "mcp.serverNotifications",
