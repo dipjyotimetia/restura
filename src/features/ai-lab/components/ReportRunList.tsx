@@ -1,6 +1,6 @@
 import { formatRelativeTime } from '@/lib/shared/console-format';
 import { cn } from '@/lib/shared/utils';
-import type { AiLabReportEnvelope } from '../run-engine/reportEnvelope';
+import { type AiLabReportEnvelope, reportChipState } from '../run-engine/reportEnvelope';
 import { StatusChip } from './StatusChip';
 
 interface ReportRunListProps {
@@ -35,7 +35,7 @@ export function ReportRunList({ reports, selectedId, onSelect }: ReportRunListPr
           </div>
           <div className="mt-1 flex items-center justify-between">
             <StatusChip
-              state={report.status}
+              state={reportChipState(report)}
               {...(report.statusReason
                 ? { label: `${report.status}: ${report.statusReason}` }
                 : {})}

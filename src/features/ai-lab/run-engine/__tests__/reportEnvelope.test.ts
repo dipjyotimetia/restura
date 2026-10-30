@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { evalPassOutcome } from '../../lib/evalPassThreshold';
 import type { EvalCellResult, EvalRun } from '../../types';
-import { adaptEvalRunReport } from '../reportEnvelope';
+import { adaptEvalRunReport, reportChipState } from '../reportEnvelope';
 
 const LEGACY_RUN: EvalRun = {
   id: 'legacy',
@@ -44,6 +44,21 @@ const cell = (passed: boolean, extra: Partial<EvalCellResult> = {}): EvalCellRes
 });
 const skipped = () => cell(false, { scores: [], notEvaluated: true });
 const errored = () => cell(false, { ok: false, error: 'boom', scores: [] });
+
+describe('report status chip state (#1040)', () => {
+  it('shows an eval run restored after an app close as interrupted, not cancelled', () => {
+    const interrupted = adaptEvalRunReport({
+      ...LEGACY_RUN,
+      status: 'cancelled',
+      interrupted: true,
+    });
+    expect(reportChipState(interrupted)).toBe('interrupted');
+    expect(reportChipState(adaptEvalRunReport({ ...LEGACY_RUN, status: 'cancelled' }))).toBe(
+      'cancelled'
+    );
+    expect(reportChipState(adaptEvalRunReport(LEGACY_RUN))).toBe('passed');
+  });
+});
 
 describe('eval pass threshold (#1024)', () => {
   it('fails a 0% run instead of reporting passed', () => {

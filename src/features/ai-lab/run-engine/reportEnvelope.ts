@@ -272,6 +272,11 @@ export function createAgentSuiteReportEnvelope(
   };
 }
 
+/** Chip state for a report row: an eval run closed mid-flight reads `interrupted`, not `cancelled`. */
+export function reportChipState(report: AiLabReportEnvelope): string {
+  return report.kind === 'eval' && report.payload.interrupted ? 'interrupted' : report.status;
+}
+
 function evalStatus(run: EvalRun): { status: RunStatus; reason?: string } {
   if (run.status === 'running') return { status: 'running' };
   if (run.status !== 'done') return { status: run.status };
