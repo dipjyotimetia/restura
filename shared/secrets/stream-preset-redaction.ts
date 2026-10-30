@@ -19,7 +19,10 @@ import { countSecretKeyValues, redactSecretKeyValues } from './key-value-redacti
  *    made only of `{{var}}` references are kept.
  */
 
-const TEMPLATE_ONLY = /^\s*\{\{[^{}]*\}\}(?:\s+\{\{[^{}]*\}\})*\s*$/;
+// Leading whitespace sits outside the repeat so adjacent `\s*` never overlap
+// (no catastrophic backtracking on `{{}}\t{{}}\t…`). Adjacent references with
+// no whitespace between them (`{{a}}{{b}}`) are still reference-only.
+const TEMPLATE_ONLY = /^\s*(?:\{\{[^{}]*\}\}\s*)+$/;
 
 function isLiteralValue(value: string): boolean {
   return value !== '' && !TEMPLATE_ONLY.test(value);
