@@ -65,6 +65,9 @@ export async function initElectronSentry(): Promise<void> {
     // No DSN: the renderer SDK auto-connects to the main-process SDK over IPC.
     // No tracing integration — errors/crashes only, no spans.
     Sentry.init({
+      // SDK 11 replaced `sendDefaultPii`; its defaults collect user info, so opt out
+      // here too (events are also scrubbed in the main process before sending).
+      dataCollection: { userInfo: false },
       // Filter noise from browser-extension scripts injected into the renderer —
       // this must be in the renderer SDK where extension URLs actually originate.
       denyUrls: [/extensions\//i, /^chrome-extension:\/\//, /^moz-extension:\/\//],
