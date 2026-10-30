@@ -1,7 +1,10 @@
 // tests/security/ai-redaction.test.ts
 
+import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { detectUnredactedSecrets, redactBody, redactHeaders } from '@shared/protocol/ai/redaction';
 import { describe, expect, it } from 'vitest';
+import { specFor } from '@/features/ai-lab/lib/llmClient';
+import type { AiLabProviderConfig } from '@/features/ai-lab/types';
 
 const JWT_BODY = (s: string) => `{"token":"${s}"}`;
 
@@ -103,5 +106,59 @@ describe('prefix-recognizable provider/cloud tokens (no key name, no Bearer)', (
     expect(out['Private-Token']).toBe('[REDACTED]');
     // Challenge header is diagnostic, not a credential — must survive.
     expect(out['WWW-Authenticate']).toBe('Bearer realm="api"');
+  });
+});
+
+describe('AI Lab secret check follows provider kind (#1028)', () => {
+  const CAPTURED = `{"value":"${'sk-' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ012345'}"}`;
+  const mk = (id: string, provider: AiLabProviderConfig['provider'], isLocal: boolean) =>
+    ({
+      id,
+      provider,
+      label: 'p',
+      pricingKnown: false,
+      isLocal,
+      models: [],
+      createdAt: 0,
+    }) as AiLabProviderConfig;
+  const cloud = mk('c', 'openai', false);
+  const ollama = mk('l', 'ollama', true);
+  const compat = mk('o', 'openai-compatible', true);
+  const msgs = [{ role: 'user' as const, content: CAPTURED }];
+
+  // Run the real orchestrator; the fetcher throws so a call that passes the
+  // guard surfaces as a `network` error instead of touching the wire.
+  async function firstEvent(spec: ReturnType<typeof specFor>) {
+    const fetcher = (async () => {
+      throw new Error('upstream reached');
+    }) as never;
+    for await (const ev of executeAiChat(
+      { ...spec, apiKeyHandleId: '', signal: new AbortController().signal } as never,
+      fetcher,
+      async () => undefined
+    )) {
+      return ev;
+    }
+    return undefined;
+  }
+
+  it('cloud kinds keep the secret check on, so captured secrets are refused', async () => {
+    const spec = specFor(cloud, 'gpt-4o', msgs);
+    expect(spec.rawMode).toBe(false);
+    expect(await firstEvent(spec)).toMatchObject({ type: 'error', code: 'guard' });
+  });
+
+  it('local kinds (incl. LAN openai-compatible) keep the check off', async () => {
+    for (const cfg of [ollama, compat]) {
+      const spec = specFor(cfg, 'm', msgs);
+      expect(spec.rawMode).toBe(true);
+      expect(await firstEvent(spec)).toMatchObject({ type: 'error', code: 'network' });
+    }
+  });
+
+  it('the visible per-suite override sends unredacted to cloud', async () => {
+    const spec = specFor(cloud, 'gpt-4o', msgs, { sendUnredactedToCloud: true });
+    expect(spec.rawMode).toBe(true);
+    expect(await firstEvent(spec)).toMatchObject({ type: 'error', code: 'network' });
   });
 });

@@ -1,29 +1,29 @@
 import {
-  AgentRunner,
-  applyAgentBundleBaseline,
-  createAgentToolResolver,
-  createFixtureToolSourceAdapter,
   type AgentBundle,
+  AgentRunner,
   type AgentSuite,
   type AgentSuiteReport,
   AgentSuiteRunner,
   type AgentToolResolver,
   aggregateJudgeVotes,
+  applyAgentBundleBaseline,
   CallbackProviderAdapter,
+  createAgentToolResolver,
+  createFixtureToolSourceAdapter,
+  evaluateAgentBundleBaseline,
   type GenerationMessage,
   type JudgeFailure,
   type JudgeModelVote,
   type ModelRef,
   ProviderRegistry,
-  evaluateAgentBundleBaseline,
   validateGenerationRequest,
 } from '@shared/agent-lab';
 import type { CompletionResult } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
+import { resolveDesktopGrounding } from './agentGrounding';
+import { createMcpAgentToolSourceAdapter } from './agentMcpTools';
 import { capabilitiesForDesktopModel, knownCostForCompletion } from './agentModelCapabilities';
 import { createResturaRequestToolSourceAdapter } from './agentTools';
-import { createMcpAgentToolSourceAdapter } from './agentMcpTools';
-import { resolveDesktopGrounding } from './agentGrounding';
 import { completeLlm, type LlmCallSpec, specFor } from './llmClient';
 
 type Complete = (
@@ -128,9 +128,15 @@ function text(messages: GenerationMessage[]): Array<{
   }));
 }
 
+/** Suite-level override (persisted in `suite.metadata`, visible in the suite JSON). */
+export function suiteSendsUnredactedToCloud(suite: AgentSuite): boolean {
+  return suite.metadata?.sendUnredactedToCloud === true;
+}
+
 export function createDesktopAgentProviders(
   configs: Record<string, AiLabProviderConfig>,
-  complete: Complete = completeLlm
+  complete: Complete = completeLlm,
+  sendUnredactedToCloud = false
 ): ProviderRegistry {
   return new ProviderRegistry(
     Object.values(configs).map(
@@ -157,6 +163,7 @@ export function createDesktopAgentProviders(
                   ? { maxOutputTokens: request.maxOutputTokens }
                   : {}),
                 ...(request.tools ? { tools: request.tools } : {}),
+                ...(sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
               }),
               context.signal ? { signal: context.signal } : {}
             );
@@ -213,7 +220,11 @@ export async function runDesktopAgentSuite(
     ]);
   for (const agent of suite.agents) toolResolver.assertSupported(agent.tools);
   const execution = capabilityExecutionMetadata(suite, configs);
-  const providers = createDesktopAgentProviders(configs, options.complete ?? completeLlm);
+  const providers = createDesktopAgentProviders(
+    configs,
+    options.complete ?? completeLlm,
+    suiteSendsUnredactedToCloud(suite)
+  );
   const runner = new AgentRunner({
     providers,
     async resolveCredential() {

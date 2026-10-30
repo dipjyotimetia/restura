@@ -1,7 +1,12 @@
 // Renderer → IPC bridge for AI Lab model calls. Wraps window.electron.aiLab so
 // the rest of the feature (runner, scorers, Playground) never touches the raw
 // bridge. Electron-only — throws a clear error on web.
-import type { ChatStreamEvent, CompletionResult, Provider } from '@shared/protocol/ai/types';
+import {
+  type ChatStreamEvent,
+  type CompletionResult,
+  isLocalProvider,
+  type Provider,
+} from '@shared/protocol/ai/types';
 import { getElectronAPI } from '@/lib/shared/platform';
 import type { AiLabProviderConfig } from '../types';
 
@@ -34,16 +39,23 @@ export function specFor(
   cfg: AiLabProviderConfig,
   model: string,
   messages: LlmChatMessage[],
-  opts: { maxOutputTokens?: number; tools?: LlmCallSpec['tools'] } = {}
+  opts: {
+    maxOutputTokens?: number;
+    tools?: LlmCallSpec['tools'];
+    /** Per-suite override: skip the main-process secret check for a cloud provider. */
+    sendUnredactedToCloud?: boolean;
+  } = {}
 ): LlmCallSpec {
   return {
     provider: cfg.provider,
     model,
     messages,
-    // AI Lab prompts are user-authored test inputs (no auto-captured request
-    // context), so the redaction paranoia pass is off — otherwise a prompt that
-    // legitimately mentions a token would be refused.
-    rawMode: true,
+    // Cloud kinds keep the main-process secret check ON: eval datasets imported
+    // from history and agent saved-request tool results can carry captured data.
+    // Local runtimes (Ollama, openai-compatible, incl. LAN) never leave the
+    // user's network, so the check is off there. `sendUnredactedToCloud` is the
+    // explicit, visible per-suite override.
+    rawMode: isLocalProvider(cfg.provider) || opts.sendUnredactedToCloud === true,
     ...(cfg.apiKeyHandleId ? { apiKeyHandleId: cfg.apiKeyHandleId } : {}),
     ...(cfg.baseUrl ? { baseUrlOverride: cfg.baseUrl } : {}),
     ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}),

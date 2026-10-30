@@ -27,9 +27,10 @@ const LOCAL: AiLabProviderConfig = {
 const MSGS = [{ role: 'user' as const, content: 'hi' }];
 
 describe('specFor', () => {
-  it('always sets rawMode true and includes the api key handle for cloud providers', () => {
+  it('keeps the secret check on for cloud providers unless overridden', () => {
     const spec = specFor(CLOUD, 'gpt-4o', MSGS);
-    expect(spec.rawMode).toBe(true);
+    expect(spec.rawMode).toBe(false);
+    expect(specFor(CLOUD, 'gpt-4o', MSGS, { sendUnredactedToCloud: true }).rawMode).toBe(true);
     expect(spec.apiKeyHandleId).toBe('handle-1');
     expect(spec.baseUrlOverride).toBeUndefined();
     expect(spec.model).toBe('gpt-4o');
@@ -37,6 +38,7 @@ describe('specFor', () => {
 
   it('includes baseUrlOverride and omits the key for a keyless local provider', () => {
     const spec = specFor(LOCAL, 'llama3.2', MSGS);
+    expect(spec.rawMode).toBe(true);
     expect(spec.baseUrlOverride).toBe('http://localhost:11434');
     expect(spec.apiKeyHandleId).toBeUndefined();
   });

@@ -515,6 +515,7 @@ const EvalConfigSchema = z.object({
       })
     )
     .optional(),
+  sendUnredactedToCloud: z.boolean().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

@@ -1,5 +1,6 @@
 import { AlertTriangle, FilePlus2, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -198,6 +199,22 @@ export function EvalDraftEditor({
           </SelectContent>
         </Select>
         {draft.targetMode !== 'text' && <HttpExecutionWarning />}
+      </div>
+      <div className="flex items-start gap-2">
+        <Checkbox
+          id="eval-send-unredacted"
+          checked={draft.sendUnredactedToCloud === true}
+          onCheckedChange={(checked) => onPatchDraft({ sendUnredactedToCloud: checked === true })}
+        />
+        <div className="space-y-0.5">
+          <Label htmlFor="eval-send-unredacted" className="text-sp-12 text-sp-text">
+            Send unredacted to cloud providers
+          </Label>
+          <p className="text-sp-11 text-sp-dim">
+            Off by default: cloud calls are refused if the prompt still contains a secret. Local
+            providers are never checked.
+          </p>
+        </div>
       </div>
     </div>
   );

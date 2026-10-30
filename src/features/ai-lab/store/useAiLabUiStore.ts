@@ -50,6 +50,7 @@ export interface EvalDraft {
   scorers: ScorerConfig[];
   concurrency: number;
   targetMode: EvalTargetMode;
+  sendUnredactedToCloud?: boolean;
 }
 
 export interface ArenaDraft {
@@ -78,6 +79,7 @@ const defaultEvalDraft = (): EvalDraft => ({
   scorers: [],
   concurrency: 4,
   targetMode: 'text',
+  sendUnredactedToCloud: false,
 });
 
 const defaultArenaDraft = (): ArenaDraft => ({

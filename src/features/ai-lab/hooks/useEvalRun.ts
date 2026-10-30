@@ -141,6 +141,7 @@ function start(config: EvalConfig): void {
         concurrency: config.concurrency,
         target,
         ...(config.tools ? { tools: config.tools } : {}),
+        ...(config.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
         ...(target.kind === 'http-exec' ? { runRequest: executeExtractedRequest } : {}),
       },
       onProgress,

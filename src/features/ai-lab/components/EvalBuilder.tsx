@@ -101,6 +101,7 @@ export function EvalBuilder() {
       scorers: config.scorers,
       concurrency: config.concurrency,
       targetMode: targetModeOf(config.target),
+      sendUnredactedToCloud: config.sendUnredactedToCloud === true,
     });
   };
 
@@ -164,6 +165,7 @@ export function EvalBuilder() {
       scorers,
       concurrency: draft.concurrency,
       target: targetFor(draft.targetMode),
+      ...(draft.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

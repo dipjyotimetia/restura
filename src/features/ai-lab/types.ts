@@ -255,6 +255,8 @@ export interface EvalConfig {
   target?: EvalTarget;
   /** Tool definitions exposed to the model (enables the tool-call scorer). */
   tools?: AiToolDef[];
+  /** Visible per-suite override: skip the secret check for cloud providers (default off). */
+  sendUnredactedToCloud?: boolean;
   createdAt: number;
   updatedAt: number;
 }
