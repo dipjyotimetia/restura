@@ -6,6 +6,7 @@ import { Floater } from '@/components/ui/spatial';
 import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
 import { useEvalRun } from '../hooks/useEvalRun';
 import { useModelSelection } from '../hooks/useModelSelection';
+import { DEFAULT_PASS_THRESHOLD } from '../lib/evalPassThreshold';
 import { selfJudgingScorer } from '../lib/judgePolicy';
 import { modelKey } from '../lib/modelOptions';
 import { useAiLabStore } from '../store/useAiLabStore';
@@ -102,6 +103,7 @@ export function EvalBuilder() {
       concurrency: config.concurrency,
       targetMode: targetModeOf(config.target),
       sendUnredactedToCloud: config.sendUnredactedToCloud === true,
+      passThresholdPct: Math.round((config.passThreshold ?? DEFAULT_PASS_THRESHOLD) * 100),
     });
   };
 
@@ -165,6 +167,7 @@ export function EvalBuilder() {
       scorers,
       concurrency: draft.concurrency,
       target: targetFor(draft.targetMode),
+      passThreshold: draft.passThresholdPct / 100,
       ...(draft.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
       createdAt: Date.now(),
       updatedAt: Date.now(),

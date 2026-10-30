@@ -257,6 +257,8 @@ export interface EvalConfig {
   tools?: AiToolDef[];
   /** Visible per-suite override: skip the secret check for cloud providers (default off). */
   sendUnredactedToCloud?: boolean;
+  /** Fraction (0-1) of scored cells that must pass for the run to read `passed`. Default 1. */
+  passThreshold?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -327,6 +329,8 @@ export interface EvalRun {
   status: EvalRunStatus;
   /** Set when the app closed mid-run; restored as `cancelled` and labelled 'interrupted'. */
   interrupted?: boolean;
+  /** Pass threshold in force when the run started; absent on runs that predate it. */
+  passThreshold?: number;
   cells: EvalCellResult[];
   totalCells: number;
 }

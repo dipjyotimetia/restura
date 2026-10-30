@@ -436,6 +436,8 @@ export const useAiLabStore = create<AiLabState>()(
                 // reloaded http-exec eval silently score text again.
                 ...(cfg.target ? { target: cfg.target } : {}),
                 ...(cfg.tools ? { tools: cfg.tools } : {}),
+                ...(cfg.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
+                ...(cfg.passThreshold !== undefined ? { passThreshold: cfg.passThreshold } : {}),
                 createdAt: prev?.createdAt ?? now,
                 updatedAt: now,
               },

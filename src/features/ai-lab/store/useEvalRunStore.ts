@@ -23,6 +23,7 @@ interface EvalRunState extends PersistedEvalRunState {
     datasetId?: string;
     datasetName?: string;
     modelLabels?: Record<string, string>;
+    passThreshold?: number;
   }) => string;
   /** Single-cell convenience over addCells. */
   addCell: (runId: string, cell: EvalCellResult) => void;
@@ -61,6 +62,7 @@ export const useEvalRunStore = create<EvalRunState>()(
           ...(init.datasetId ? { datasetId: init.datasetId } : {}),
           ...(init.datasetName ? { datasetName: init.datasetName } : {}),
           ...(init.modelLabels ? { modelLabels: init.modelLabels } : {}),
+          ...(init.passThreshold !== undefined ? { passThreshold: init.passThreshold } : {}),
           startedAt: Date.now(),
           status: 'running',
           cells: [],

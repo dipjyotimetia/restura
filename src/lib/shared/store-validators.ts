@@ -516,6 +516,7 @@ const EvalConfigSchema = z.object({
     )
     .optional(),
   sendUnredactedToCloud: z.boolean().optional(),
+  passThreshold: z.number().min(0).max(1).optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -588,6 +589,7 @@ const EvalRunSchema = z.object({
   finishedAt: z.number().optional(),
   status: z.enum(['running', 'done', 'cancelled', 'error']),
   interrupted: z.boolean().optional(),
+  passThreshold: z.number().min(0).max(1).optional(),
   cells: z.array(EvalCellResultSchema),
   totalCells: z.number(),
 });

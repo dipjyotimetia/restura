@@ -51,6 +51,8 @@ export interface EvalDraft {
   concurrency: number;
   targetMode: EvalTargetMode;
   sendUnredactedToCloud?: boolean;
+  /** Pass threshold as a whole percent (1-100) of scored cells. */
+  passThresholdPct: number;
 }
 
 export interface ArenaDraft {
@@ -80,6 +82,7 @@ const defaultEvalDraft = (): EvalDraft => ({
   concurrency: 4,
   targetMode: 'text',
   sendUnredactedToCloud: false,
+  passThresholdPct: 100,
 });
 
 const defaultArenaDraft = (): ArenaDraft => ({

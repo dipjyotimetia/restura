@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { DEFAULT_PASS_THRESHOLD } from '../lib/evalPassThreshold';
 import { type EvalProgress, runEval } from '../lib/evalRunner';
 import { executeExtractedRequest } from '../lib/execCell';
 import { modelKey, modelLabelFor } from '../lib/modelOptions';
@@ -78,6 +79,7 @@ function start(config: EvalConfig): void {
     datasetId: dataset.id,
     datasetName: dataset.name,
     modelLabels,
+    passThreshold: config.passThreshold ?? DEFAULT_PASS_THRESHOLD,
   });
   useEvalLiveStore.setState({ lastRunId: runId });
 

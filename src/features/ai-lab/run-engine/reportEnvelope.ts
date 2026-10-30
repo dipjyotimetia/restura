@@ -6,6 +6,7 @@ import {
   TraceEventSchema,
 } from '@shared/agent-lab';
 import { z } from 'zod';
+import { evalPassOutcome } from '../lib/evalPassThreshold';
 import type { EvalRun } from '../types';
 import type { RunStatus } from './types';
 
@@ -15,6 +16,8 @@ interface ReportBase {
   startedAt: number;
   finishedAt: number;
   status: RunStatus;
+  /** Why the status is what it is when not self-evident (e.g. "nothing scored"). */
+  statusReason?: string;
 }
 
 export type AiLabReportEnvelope =
@@ -35,6 +38,7 @@ const ReportBaseSchema = z.object({
   startedAt: z.number(),
   finishedAt: z.number(),
   status: z.enum(['queued', 'running', 'cancelling', 'passed', 'failed', 'error', 'cancelled']),
+  statusReason: z.string().optional(),
 });
 
 const UsageSchema = z.object({
@@ -202,6 +206,8 @@ export const EvalRunReportSchema = z.object({
   startedAt: z.number(),
   finishedAt: z.number().optional(),
   status: z.enum(['running', 'done', 'cancelled', 'error']),
+  interrupted: z.boolean().optional(),
+  passThreshold: z.number().min(0).max(1).optional(),
   totalCells: z.number().int().nonnegative(),
   cells: z.array(
     z.object({
@@ -238,13 +244,15 @@ export const AiLabReportEnvelopeSchema = z.discriminatedUnion('kind', [
 ]) as unknown as z.ZodType<AiLabReportEnvelope>;
 
 export function adaptEvalRunReport(run: EvalRun): AiLabReportEnvelope {
+  const { status, reason } = evalStatus(run);
   return {
     id: run.id,
     kind: 'eval',
     name: run.configName,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt ?? run.startedAt,
-    status: evalStatus(run.status),
+    status,
+    ...(reason ? { statusReason: reason } : {}),
     payload: run,
   };
 }
@@ -264,8 +272,12 @@ export function createAgentSuiteReportEnvelope(
   };
 }
 
-function evalStatus(status: EvalRun['status']): RunStatus {
-  if (status === 'done') return 'passed';
-  if (status === 'running') return 'running';
-  return status;
+function evalStatus(run: EvalRun): { status: RunStatus; reason?: string } {
+  if (run.status === 'running') return { status: 'running' };
+  if (run.status !== 'done') return { status: run.status };
+  // Runs recorded before the threshold existed keep their old 'passed' verdict;
+  // re-judging history against a rule it never ran under would flip stored results.
+  if (run.passThreshold === undefined) return { status: 'passed' };
+  const { status, reason } = evalPassOutcome(run.cells, run.passThreshold);
+  return reason ? { status, reason } : { status };
 }

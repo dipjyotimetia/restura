@@ -661,4 +661,21 @@ describe('useAiLabStore — eval configs', () => {
     useAiLabStore.getState().removeEvalConfig(id);
     expect(useAiLabStore.getState().evalConfigs[id]).toBeUndefined();
   });
+
+  it('persists the pass threshold and the unredacted-cloud override (#1024)', () => {
+    const id = useAiLabStore.getState().upsertEvalConfig({
+      name: 'e',
+      promptId: 'p',
+      datasetId: 'd',
+      models: [],
+      scorers: [],
+      concurrency: 4,
+      passThreshold: 0.8,
+      sendUnredactedToCloud: true,
+    });
+    expect(useAiLabStore.getState().evalConfigs[id]).toMatchObject({
+      passThreshold: 0.8,
+      sendUnredactedToCloud: true,
+    });
+  });
 });

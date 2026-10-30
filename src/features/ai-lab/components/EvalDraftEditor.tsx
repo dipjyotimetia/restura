@@ -181,6 +181,33 @@ export function EvalDraftEditor({
           Parallel model calls — lower it if your provider rate-limits.
         </p>
       </div>
+      <div className="space-y-1">
+        <div className="flex items-center gap-3">
+          <Label htmlFor="eval-pass-threshold" className="sp-label">
+            Pass threshold (%)
+          </Label>
+          <Input
+            id="eval-pass-threshold"
+            data-testid="eval-pass-threshold"
+            className="w-20"
+            type="number"
+            min={1}
+            max={100}
+            value={draft.passThresholdPct}
+            onChange={(event) =>
+              onPatchDraft({
+                passThresholdPct: Math.max(
+                  1,
+                  Math.min(100, Math.round(Number(event.target.value)) || 100)
+                ),
+              })
+            }
+          />
+        </div>
+        <p className="text-sp-11 text-sp-dim">
+          Share of scored cells that must pass for the run to read passed. 100 = every scored cell.
+        </p>
+      </div>
       <div className="space-y-1.5">
         <Label htmlFor="eval-score-target" className="sp-label">
           Score target
