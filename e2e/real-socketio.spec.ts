@@ -1,6 +1,6 @@
-import { test, expect } from './fixtures/servers';
-import { switchMode } from './utils/selectors';
 import { io as ioClient } from 'socket.io-client';
+import { expect, test } from './fixtures/servers';
+import { switchMode } from './utils/selectors';
 
 /**
  * Real Socket.IO server with three namespaces:
@@ -198,6 +198,38 @@ test.describe('Real Socket.IO server', () => {
         { timeout: 10_000 }
       )
       .toBe(true);
+
+    await page
+      .getByRole('button', { name: /Disconnect/i })
+      .first()
+      .click()
+      .catch(() => {});
+  });
+
+  test('UI: answers a server-requested acknowledgement', async ({ app: page, servers }) => {
+    await switchMode(page, 'socketio');
+
+    await page.getByRole('textbox', { name: 'Socket.IO server URL' }).fill(servers.socketio.url);
+    await page.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.getByTestId('socketio-status')).toHaveText(/connected/i, { timeout: 15_000 });
+
+    // `request-ack` makes the mock emit `question` with an ack callback.
+    await page.getByRole('textbox', { name: 'Event name' }).fill('request-ack');
+    await page.getByRole('textbox', { name: /Emit arguments \(JSON\)/i }).fill('"are you there?"');
+    await page.getByRole('button', { name: /^Emit$/ }).click();
+
+    const row = page.getByTestId('socketio-event-row').filter({ hasText: 'question' }).first();
+    await expect(row).toContainText('ACK?', { timeout: 10_000 });
+    await row.click();
+
+    const reply = page.getByTestId('socketio-ack-reply');
+    await reply.getByRole('textbox', { name: /Acknowledgement arguments/ }).fill('[{"answer":42}]');
+    await reply.getByRole('button', { name: /Send ack/ }).click();
+
+    await expect
+      .poll(() => servers.socketio.serverAckReplies(), { timeout: 10_000 })
+      .toEqual([[{ answer: 42 }]]);
+    await expect(row).toContainText('ACKED');
 
     await page
       .getByRole('button', { name: /Disconnect/i })

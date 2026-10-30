@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useSocketIOStore } from '@/features/socketio/store/useSocketIOStore';
+import {
+  migrateConnectionOptions,
+  useSocketIOStore,
+} from '@/features/socketio/store/useSocketIOStore';
 
 describe('useSocketIOStore', () => {
   beforeEach(() => {
@@ -128,5 +131,45 @@ describe('useSocketIOStore', () => {
       useSocketIOStore.getState().removeConnection(id);
       expect(useSocketIOStore.getState().connectionByTabId['tab-A']).toBeUndefined();
     });
+  });
+});
+
+describe('migrateConnectionOptions (v2 → v3)', () => {
+  it('fills the options added for #847 without touching existing fields', () => {
+    const out = migrateConnectionOptions({
+      connections: {
+        a: { id: 'a', url: '{{base}}', auth: [], emitOptions: { volatile: true } },
+        b: { id: 'b', authMode: 'json', authJson: '{"x":1}', reconnectionDelayMax: 1 },
+      },
+    }) as { connections: Record<string, Record<string, unknown>> };
+    expect(out.connections.a).toMatchObject({
+      url: '{{base}}',
+      authMode: 'kv',
+      authJson: '{}',
+      reconnectionDelayMax: 5_000,
+      randomizationFactor: 0.5,
+      emitOptions: { volatile: true, compress: true, ackTimeoutMs: 15_000 },
+    });
+    expect(out.connections.b).toMatchObject({
+      authMode: 'json',
+      authJson: '{"x":1}',
+      reconnectionDelayMax: 1,
+    });
+  });
+
+  it('tolerates malformed state', () => {
+    expect(migrateConnectionOptions(null)).toBeNull();
+    expect(migrateConnectionOptions({ connections: [] })).toEqual({ connections: {} });
+  });
+});
+
+describe('markServerAckReplied', () => {
+  it('flags the matching received event', () => {
+    const s = useSocketIOStore.getState();
+    const id = s.createConnection();
+    s.addEvent(id, { direction: 'received', eventName: 'q', args: [], serverAckId: 'srv-1' });
+    s.markServerAckReplied(id, 'srv-1');
+    expect(useSocketIOStore.getState().connections[id]?.events[0]?.serverAckReplied).toBe(true);
+    s.removeConnection(id);
   });
 });

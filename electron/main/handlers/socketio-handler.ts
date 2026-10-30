@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { Agent as HttpAgent } from 'node:http';
 import { Agent as HttpsAgent } from 'node:https';
 import { createLogger } from '@shared/runtime/logger';
 import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
+import { prepareIncomingArgs, SOCKETIO_MAX_INCOMING_BYTES } from '@shared/socketio-payload';
 import { ipcMain, type WebContents } from 'electron';
 import type * as SocketIoClient from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
@@ -15,6 +17,7 @@ import {
   SocketIoConnectSchema,
   SocketIoDisconnectSchema,
   SocketIoEmitSchema,
+  SocketIoReplyAckSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
@@ -46,6 +49,8 @@ const getIo = async (): Promise<SocketIoModule['io']> =>
 
 const MAX_CONCURRENT_SOCKETIO_CONNECTIONS = 50;
 const DEFAULT_ACK_TIMEOUT_MS = 15_000;
+/** Unanswered server-requested acks kept per connection; oldest dropped beyond this. */
+const MAX_PENDING_SERVER_ACKS = 500;
 
 function resolveSocketIoExecutionPolicy<T extends PolicyTransportConfig>(config: T) {
   return resolvePolicyTransport(config);
@@ -60,6 +65,8 @@ interface ActiveSocketIO {
   webContentsId: number;
   explicitlyClosed: boolean;
   pendingAcks: Map<string, NodeJS.Timeout>;
+  /** Server-requested ack callbacks awaiting the user's reply, keyed by serverAckId. */
+  serverAcks: Map<string, (...args: unknown[]) => void>;
   /** Pinned-DNS agent backing every transport for this connection; destroyed on teardown. */
   agent: HttpAgent | HttpsAgent;
 }
@@ -69,6 +76,7 @@ function disposeSocketIo(entry: ActiveSocketIO): void {
   entry.explicitlyClosed = true;
   for (const t of entry.pendingAcks.values()) clearTimeout(t);
   entry.pendingAcks.clear();
+  entry.serverAcks.clear();
   try {
     entry.socket.disconnect();
   } catch {
@@ -223,10 +231,16 @@ export function registerSocketIoHandlerIPC(): void {
           reconnection: config.reconnection ?? true,
           reconnectionAttempts: config.reconnectionAttempts ?? 5,
           reconnectionDelay: config.reconnectionDelay ?? 1_000,
+          reconnectionDelayMax: config.reconnectionDelayMax ?? 5_000,
+          randomizationFactor: config.randomizationFactor ?? 0.5,
           timeout: policyConfig.timeout,
           rejectUnauthorized: policyConfig.verifySsl,
           forceNew: config.forceNew ?? false,
           autoConnect: true,
+          // Cap inbound websocket frames like the WebSocket handler (an
+          // oversize frame closes the transport). Polling has no transport cap;
+          // prepareIncomingArgs drops oversize events before IPC.
+          transportOptions: { websocket: { maxPayload: SOCKETIO_MAX_INCOMING_BYTES } },
           // engine.io types `agent` as string|boolean for historical reasons, but
           // at runtime it forwards the value straight to ws / http(s).request,
           // both of which accept an http(s).Agent. Cast at the boundary.
@@ -241,6 +255,7 @@ export function registerSocketIoHandlerIPC(): void {
           webContentsId,
           explicitlyClosed: false,
           pendingAcks: new Map(),
+          serverAcks: new Map(),
           agent,
         };
 
@@ -277,11 +292,29 @@ export function registerSocketIoHandlerIPC(): void {
         });
 
         // Forwards application events; lifecycle events above already cover
-        // SOCKETIO_RESERVED_EVENTS.
-        socket.onAny((eventName: string, ...args: unknown[]) => {
+        // SOCKETIO_RESERVED_EVENTS. A server-requested ack callback is kept
+        // here (functions can't cross IPC) and answered via replyAck.
+        socket.onAny((eventName: string, ...rawArgs: unknown[]) => {
           if (activeConnections.get(connectionId, webContentsId) !== entry) return;
           if (SOCKETIO_RESERVED_EVENTS.has(eventName)) return;
-          emitTo(webContentsId, socketioChannels.event(connectionId), { eventName, args });
+          const { args, ack, oversizeBytes } = prepareIncomingArgs(rawArgs);
+          if (oversizeBytes !== undefined) {
+            log.warn('oversize event dropped', { connectionId, eventName, bytes: oversizeBytes });
+          }
+          let serverAckId: string | undefined;
+          if (ack) {
+            serverAckId = randomUUID();
+            entry.serverAcks.set(serverAckId, ack);
+            if (entry.serverAcks.size > MAX_PENDING_SERVER_ACKS) {
+              const oldest = entry.serverAcks.keys().next().value;
+              if (oldest !== undefined) entry.serverAcks.delete(oldest);
+            }
+          }
+          emitTo(webContentsId, socketioChannels.event(connectionId), {
+            eventName,
+            args,
+            ...(serverAckId ? { serverAckId } : {}),
+          });
         });
 
         // Commit only the exact live reservation. For reconnects, also require
@@ -324,6 +357,10 @@ export function registerSocketIoHandlerIPC(): void {
       }
 
       try {
+        // Per-emit modifiers (SIO-5). Both return the socket with a one-shot flag set.
+        let emitter: Socket = entry.socket;
+        if (config.volatile) emitter = emitter.volatile;
+        if (config.compress === false) emitter = emitter.compress(false);
         if (config.ackId) {
           const ackId = config.ackId;
           const timeoutMs = config.ackTimeoutMs ?? DEFAULT_ACK_TIMEOUT_MS;
@@ -338,18 +375,18 @@ export function registerSocketIoHandlerIPC(): void {
           }, timeoutMs);
           entry.pendingAcks.set(ackId, timeoutHandle);
 
-          entry.socket.emit(config.eventName, ...config.args, (...ackArgs: unknown[]) => {
+          emitter.emit(config.eventName, ...config.args, (...ackArgs: unknown[]) => {
             const handle = entry.pendingAcks.get(ackId);
             if (handle === undefined) return; // already timed out
             clearTimeout(handle);
             entry.pendingAcks.delete(ackId);
             emitTo(webContentsId, socketioChannels.ack(entry.connectionId), {
               ackId,
-              args: ackArgs,
+              args: prepareIncomingArgs(ackArgs).args,
             });
           });
         } else {
-          entry.socket.emit(config.eventName, ...config.args);
+          emitter.emit(config.eventName, ...config.args);
         }
         return { success: true };
       } catch (err) {
@@ -359,6 +396,32 @@ export function registerSocketIoHandlerIPC(): void {
         };
       }
     })
+  );
+
+  ipcMain.handle(
+    IPC.socketio.replyAck,
+    createValidatedEventHandler(
+      IPC.socketio.replyAck,
+      SocketIoReplyAckSchema,
+      async (config, event) => {
+        const entry = activeConnections.getForOwner(config.connectionId, event.sender.id);
+        if (!entry) return { success: false, error: 'Not connected' };
+        const ack = entry.serverAcks.get(config.serverAckId);
+        if (!ack) {
+          return { success: false, error: 'Acknowledgement already answered or expired' };
+        }
+        entry.serverAcks.delete(config.serverAckId);
+        try {
+          ack(...config.args);
+          return { success: true };
+        } catch (err) {
+          return {
+            success: false,
+            error: err instanceof Error ? err.message : 'Ack reply failed',
+          };
+        }
+      }
+    )
   );
 
   ipcMain.handle(

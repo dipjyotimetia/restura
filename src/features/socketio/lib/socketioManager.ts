@@ -1,8 +1,12 @@
 import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
+import { encodeBinaryArgs, prepareIncomingArgs } from '@shared/socketio-payload';
 import { io as ioClient, type Socket } from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
 import { buildSocketIOConnectUrl, validateSocketIOUrl } from '@/features/socketio/lib/url-helpers';
 import {
+  DEFAULT_ACK_TIMEOUT_MS,
+  SOCKETIO_CONNECTION_OPTION_DEFAULTS,
+  type SocketIOEmitOptions,
   type SocketIOTransport,
   useSocketIOStore,
 } from '@/features/socketio/store/useSocketIOStore';
@@ -13,16 +17,47 @@ interface ConnectConfig {
   url: string;
   namespace: string;
   path: string;
-  auth: Record<string, string>;
+  auth: Record<string, unknown>;
   query: Record<string, string>;
   extraHeaders: Record<string, string>;
   transports: SocketIOTransport[];
   reconnection: boolean;
   reconnectionAttempts: number;
   reconnectionDelay: number;
+  reconnectionDelayMax: number;
+  randomizationFactor: number;
   timeout: number;
   forceNew: boolean;
 }
+
+/** Values resolved by the caller (`connectWithVariables`) that must not be written back to the store. */
+export interface ConnectOverrides {
+  url?: string;
+  auth?: Record<string, unknown>;
+}
+
+export type ParsedAuthJson =
+  | { ok: true; auth: Record<string, unknown> }
+  | { ok: false; error: string };
+
+/** Parse handshake auth JSON (SIO-4). Socket.IO requires a plain object. */
+export function parseAuthJson(text: string): ParsedAuthJson {
+  const trimmed = text.trim();
+  if (!trimmed) return { ok: true, auth: {} };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Invalid JSON' };
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: 'Auth payload must be a JSON object' };
+  }
+  return { ok: true, auth: parsed as Record<string, unknown> };
+}
+
+/** Unanswered server-requested acks kept per connection; oldest dropped beyond this. */
+const MAX_PENDING_SERVER_ACKS = 500;
 
 interface PendingAck {
   resolve: (args: unknown[]) => void;
@@ -34,30 +69,57 @@ class SocketIOManager {
   private electronConnections = new Set<string>();
   private subscriptions = new Map<string, Set<string>>(); // connectionId → eventNames
   private browserAcks = new Map<string, Map<string, PendingAck>>(); // connectionId → ackId → pending
+  // connectionId → serverAckId → server-requested ack callback (web only; desktop keeps them in main)
+  private browserServerAcks = new Map<string, Map<string, (...args: unknown[]) => void>>();
 
-  connect(connectionId: string): void {
+  /**
+   * `overrides` carries the `{{var}}`-resolved URL / auth for this live
+   * connection only — they are never written back to the persisted store
+   * (SIO-2).
+   */
+  connect(connectionId: string, overrides: ConnectOverrides = {}): void {
     const store = useSocketIOStore.getState();
     const connection = store.connections[connectionId];
     if (!connection) return;
 
     this.disconnect(connectionId);
 
-    const v = validateSocketIOUrl(connection.url);
-    if (!v.valid) {
+    const fail = (message: string) => {
       store.addEvent(connectionId, {
         direction: 'system',
         eventName: '<system>',
-        args: [`Connection failed: ${v.error}`],
+        args: [`Connection failed: ${message}`],
       });
       store.updateConnectionStatus(connectionId, 'disconnected');
+    };
+
+    const url = overrides.url ?? connection.url;
+    const v = validateSocketIOUrl(url);
+    if (!v.valid) {
+      fail(v.error ?? 'Invalid URL');
       return;
     }
 
+    let auth: Record<string, unknown>;
+    if (overrides.auth) {
+      auth = overrides.auth;
+    } else if (connection.authMode === 'json') {
+      const parsed = parseAuthJson(connection.authJson ?? '');
+      if (!parsed.ok) {
+        fail(`Invalid auth JSON: ${parsed.error}`);
+        return;
+      }
+      auth = parsed.auth;
+    } else {
+      auth = keyValuePairsToRecord(connection.auth);
+    }
+
+    const d = SOCKETIO_CONNECTION_OPTION_DEFAULTS;
     const config: ConnectConfig = {
-      url: connection.url,
+      url,
       namespace: connection.namespace || '/',
       path: connection.path || '/socket.io',
-      auth: keyValuePairsToRecord(connection.auth),
+      auth,
       query: keyValuePairsToRecord(connection.query),
       extraHeaders: keyValuePairsToRecord(connection.extraHeaders),
       transports:
@@ -65,6 +127,8 @@ class SocketIOManager {
       reconnection: connection.autoReconnect,
       reconnectionAttempts: connection.reconnectionAttempts,
       reconnectionDelay: connection.reconnectionDelay,
+      reconnectionDelayMax: connection.reconnectionDelayMax ?? d.reconnectionDelayMax,
+      randomizationFactor: connection.randomizationFactor ?? d.randomizationFactor,
       timeout: connection.timeout,
       forceNew: connection.forceNew,
     };
@@ -101,10 +165,13 @@ class SocketIOManager {
     eventName: string,
     args: unknown[],
     withAck = false,
-    display?: { eventName: string; args: unknown[] }
+    display?: { eventName: string; args: unknown[] },
+    options: Partial<SocketIOEmitOptions> = {}
   ): void {
     const store = useSocketIOStore.getState();
-    const logged = display ?? { eventName, args };
+    // Binary args (Uint8Array) are logged as `{ $binary }` markers.
+    const logged = display ?? { eventName, args: encodeBinaryArgs(args) };
+    const ackTimeoutMs = options.ackTimeoutMs ?? DEFAULT_ACK_TIMEOUT_MS;
 
     if (this.electronConnections.has(connectionId)) {
       const api = getElectronAPI();
@@ -115,7 +182,14 @@ class SocketIOManager {
         ...logged,
         ...(ackId ? { ackId } : {}),
       });
-      void api.socketio.emit({ connectionId, eventName, args, ...(ackId ? { ackId } : {}) });
+      void api.socketio.emit({
+        connectionId,
+        eventName,
+        args,
+        ...(ackId ? { ackId, ackTimeoutMs } : {}),
+        ...(options.volatile ? { volatile: true } : {}),
+        ...(options.compress === false ? { compress: false } : {}),
+      });
       return;
     }
 
@@ -129,6 +203,11 @@ class SocketIOManager {
       return;
     }
 
+    // Per-emit modifiers (SIO-5). Both return the socket with a one-shot flag set.
+    let emitter: Socket = socket;
+    if (options.volatile) emitter = emitter.volatile;
+    if (options.compress === false) emitter = emitter.compress(false);
+
     if (withAck) {
       const ackId = uuidv4();
       store.addEvent(connectionId, { direction: 'sent', ...logged, ackId });
@@ -140,7 +219,7 @@ class SocketIOManager {
           acks.delete(ackId);
           useSocketIOStore.getState().resolveAck(connectionId, ackId, [], 'timeout');
         }
-      }, 15_000);
+      }, ackTimeoutMs);
       pending.set(ackId, {
         timer,
         resolve: (ackArgs) => {
@@ -149,18 +228,75 @@ class SocketIOManager {
       });
       this.browserAcks.set(connectionId, pending);
 
-      socket.emit(eventName, ...args, (...ackArgs: unknown[]) => {
+      emitter.emit(eventName, ...args, (...ackArgs: unknown[]) => {
         const acks = this.browserAcks.get(connectionId);
         const p = acks?.get(ackId);
         if (!p) return;
         clearTimeout(p.timer);
         acks!.delete(ackId);
-        p.resolve(ackArgs);
+        p.resolve(prepareIncomingArgs(ackArgs).args);
       });
     } else {
       store.addEvent(connectionId, { direction: 'sent', ...logged });
-      socket.emit(eventName, ...args);
+      emitter.emit(eventName, ...args);
     }
+  }
+
+  /**
+   * Answer a server-requested acknowledgement (SIO-1). `display` keeps
+   * resolved secrets out of the logged copy, as for emits.
+   */
+  replyServerAck(
+    connectionId: string,
+    serverAckId: string,
+    args: unknown[],
+    display?: { args: unknown[] }
+  ): void {
+    const logReply = () => {
+      const s = useSocketIOStore.getState();
+      s.markServerAckReplied(connectionId, serverAckId);
+      s.addEvent(connectionId, {
+        direction: 'sent',
+        eventName: '<ack reply>',
+        args: display?.args ?? encodeBinaryArgs(args),
+      });
+    };
+    const logFailure = (message: string) =>
+      useSocketIOStore.getState().addEvent(connectionId, {
+        direction: 'system',
+        eventName: '<system>',
+        args: [`Ack reply failed: ${message}`],
+      });
+
+    if (this.electronConnections.has(connectionId)) {
+      const api = getElectronAPI();
+      if (!api?.socketio) return;
+      void api.socketio
+        .replyAck({ connectionId, serverAckId, args })
+        .then((res) => (res?.success ? logReply() : logFailure(res?.error ?? 'unknown error')))
+        .catch((err: unknown) => logFailure(err instanceof Error ? err.message : 'IPC error'));
+      return;
+    }
+
+    const acks = this.browserServerAcks.get(connectionId);
+    const ack = acks?.get(serverAckId);
+    if (!ack) {
+      logFailure('acknowledgement already answered or expired');
+      return;
+    }
+    acks!.delete(serverAckId);
+    try {
+      ack(...args);
+      logReply();
+    } catch (err) {
+      logFailure(err instanceof Error ? err.message : 'unknown error');
+    }
+  }
+
+  /** Whether a server-requested ack can still be answered from this renderer. */
+  canReplyServerAck(connectionId: string, serverAckId: string): boolean {
+    if (this.electronConnections.has(connectionId)) return this.isConnected(connectionId);
+    return this.browserServerAcks.get(connectionId)?.has(serverAckId) ?? false;
   }
 
   disconnect(connectionId: string): void {
@@ -195,6 +331,7 @@ class SocketIOManager {
       for (const p of acks.values()) clearTimeout(p.timer);
       this.browserAcks.delete(connectionId);
     }
+    this.browserServerAcks.delete(connectionId);
     this.subscriptions.delete(connectionId);
     store.updateConnectionStatus(connectionId, 'disconnected');
   }
@@ -227,6 +364,8 @@ class SocketIOManager {
         reconnection: config.reconnection,
         reconnectionAttempts: config.reconnectionAttempts,
         reconnectionDelay: config.reconnectionDelay,
+        reconnectionDelayMax: config.reconnectionDelayMax,
+        randomizationFactor: config.randomizationFactor,
         timeout: config.timeout,
         forceNew: config.forceNew,
         autoConnect: true,
@@ -295,12 +434,27 @@ class SocketIOManager {
       });
     });
 
-    socket.onAny((eventName: string, ...args: unknown[]) => {
+    // Same shaping as the desktop handler: the server-requested ack callback
+    // is split off and kept here, binary is encoded, oversize payloads dropped.
+    socket.onAny((eventName: string, ...rawArgs: unknown[]) => {
       if (SOCKETIO_RESERVED_EVENTS.has(eventName)) return;
+      const { args, ack } = prepareIncomingArgs(rawArgs);
+      let serverAckId: string | undefined;
+      if (ack) {
+        serverAckId = uuidv4();
+        const acks = this.browserServerAcks.get(connectionId) ?? new Map();
+        acks.set(serverAckId, ack);
+        if (acks.size > MAX_PENDING_SERVER_ACKS) {
+          const oldest = acks.keys().next().value;
+          if (oldest !== undefined) acks.delete(oldest);
+        }
+        this.browserServerAcks.set(connectionId, acks);
+      }
       useSocketIOStore.getState().addEvent(connectionId, {
         direction: 'received',
         eventName,
         args,
+        ...(serverAckId ? { serverAckId } : {}),
       });
     });
 
@@ -384,12 +538,15 @@ class SocketIOManager {
     });
 
     api.socketio.on(socketioChannels.event(connectionId), (payload: unknown) => {
-      const data = payload as { eventName?: string; args?: unknown[] } | undefined;
+      const data = payload as
+        | { eventName?: string; args?: unknown[]; serverAckId?: string }
+        | undefined;
       if (!data?.eventName) return;
       useSocketIOStore.getState().addEvent(connectionId, {
         direction: 'received',
         eventName: data.eventName,
         args: data.args ?? [],
+        ...(typeof data.serverAckId === 'string' ? { serverAckId: data.serverAckId } : {}),
       });
     });
 
@@ -421,6 +578,8 @@ class SocketIOManager {
         reconnection: config.reconnection,
         reconnectionAttempts: config.reconnectionAttempts,
         reconnectionDelay: config.reconnectionDelay,
+        reconnectionDelayMax: config.reconnectionDelayMax,
+        randomizationFactor: config.randomizationFactor,
         timeout: config.timeout,
         forceNew: config.forceNew,
       })

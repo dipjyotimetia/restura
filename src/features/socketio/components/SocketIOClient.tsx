@@ -2,7 +2,6 @@ import { Filter, Search, Send, Trash2, X } from 'lucide-react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import {
   FreezeToggle,
   LogExportMenu,
@@ -30,6 +29,15 @@ import {
   ToggleField,
   VariableText,
 } from '@/components/ui/spatial';
+import {
+  SocketIOAckReply,
+  SocketIOEmitOptionsMenu,
+} from '@/features/socketio/components/SocketIOAckControls';
+import {
+  countConfiguredOptions,
+  SocketIOConnectionOptions,
+} from '@/features/socketio/components/SocketIOConnectionOptions';
+import { connectWithVariables } from '@/features/socketio/lib/connectWithVariables';
 import { type EmitInput, emitWithVariables } from '@/features/socketio/lib/emitWithVariables';
 import { filterSocketIOEvents } from '@/features/socketio/lib/eventFilter';
 import {
@@ -38,6 +46,7 @@ import {
 } from '@/features/socketio/lib/socketioLogExport';
 import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import {
+  SOCKETIO_CONNECTION_OPTION_DEFAULTS,
   type SocketIOEventDirection,
   type SocketIOEventFilter,
   useSocketIOStore,
@@ -57,7 +66,6 @@ import { useComposerDraftSync } from '@/lib/shared/streaming/useComposerDraftSyn
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 
 const formatDuration = (ms: number): string => {
   const seconds = Math.floor(ms / 1000);
@@ -198,7 +206,6 @@ function SocketIOClient() {
     clearEvents,
     setEventFilter,
     setSearchQuery,
-    setKv,
   } = useSocketIOStore(
     useShallow((s) => ({
       ensureConnectionForTab: s.ensureConnectionForTab,
@@ -207,11 +214,8 @@ function SocketIOClient() {
       clearEvents: s.clearEvents,
       setEventFilter: s.setEventFilter,
       setSearchQuery: s.setSearchQuery,
-      setKv: s.setKv,
     }))
   );
-
-  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
 
   const [emitEventName, setEmitEventName] = useState('message');
   const [emitArgsText, setEmitArgsText] = useState('"hello"');
@@ -284,15 +288,13 @@ function SocketIOClient() {
 
   const isConnected = connection.status === 'connected';
   const isConnecting = connection.status === 'connecting' || connection.status === 'reconnecting';
-  const configCount = connection.auth.length + connection.query.length;
+  const configCount = countConfiguredOptions(connection);
   const configOpen = configOpenOverride ?? configCount > 0;
 
+  // Resolves {{var}} in the URL / JSON auth for the live connection only —
+  // the stored template is never overwritten (SIO-2).
   const handleConnect = () => {
-    const resolvedUrl = resolveVariables(connection.url);
-    if (resolvedUrl !== connection.url) {
-      updateConnectionField(activeConnectionId, 'url', resolvedUrl);
-    }
-    socketioManager.connect(activeConnectionId);
+    connectWithVariables(activeConnectionId);
   };
 
   const handleDisconnect = () => {
@@ -300,8 +302,9 @@ function SocketIOClient() {
   };
 
   // {{var}} resolution, unresolved warnings and secret masking: emitWithVariables (#974).
+  const emitOptions = connection.emitOptions ?? SOCKETIO_CONNECTION_OPTION_DEFAULTS.emitOptions;
   const emitInput = (input: EmitInput) => {
-    const out = emitWithVariables(activeConnectionId, input);
+    const out = emitWithVariables(activeConnectionId, { ...input, options: emitOptions });
     setEmitError(out.ok ? null : out.error);
   };
   const handleEmit = () =>
@@ -435,34 +438,16 @@ function SocketIOClient() {
         )}
       </Floater>
 
-      {/* Connection config (handshake auth + query) — only while disconnected,
-          collapsed behind the Options toggle when empty so the events console
-          stays above the fold. */}
+      {/* Connection options (handshake auth, query, headers, path, transports,
+          reconnection, timeout, forceNew) — only while disconnected, collapsed
+          behind the Options toggle when untouched so the events console stays
+          above the fold. */}
       {configOpen && !isConnected && !isConnecting && (
-        <Floater radius="panel" className="flex flex-col gap-3 px-3 py-3 shrink-0">
-          <div>
-            <span className="text-sp-11 font-medium text-sp-muted">Auth (handshake payload)</span>
-            <div className="mt-1">
-              {/* Auth and query maps are sent as typed — no {{var}} resolution. */}
-              <KeyValueTable
-                items={connection.auth}
-                onChange={(items) => setKv(activeConnectionId, 'auth', items)}
-                itemLabel="auth field"
-                addLabel="Add auth field"
-              />
-            </div>
-          </div>
-          <div>
-            <span className="text-sp-11 font-medium text-sp-muted">Query params</span>
-            <div className="mt-1">
-              <KeyValueTable
-                items={connection.query}
-                onChange={(items) => setKv(activeConnectionId, 'query', items)}
-                itemLabel="query param"
-                addLabel="Add query param"
-              />
-            </div>
-          </div>
+        <Floater
+          radius="panel"
+          className="flex flex-col px-3 py-3 shrink-0 max-h-[45vh] overflow-auto"
+        >
+          <SocketIOConnectionOptions connection={connection} />
         </Floater>
       )}
 
@@ -600,6 +585,15 @@ function SocketIOClient() {
                     </span>
                     <span className="text-sp-dim text-sp-11">{argsSize(event.args)}</span>
                     <span className="truncate text-sp-12 text-sp-text">
+                      {event.serverAckId && (
+                        <span
+                          className="mr-1.5 font-bold text-sp-11"
+                          style={{ color: 'var(--color-warning)' }}
+                          title="The server requested an acknowledgement"
+                        >
+                          {event.serverAckReplied ? 'ACKED' : 'ACK?'}
+                        </span>
+                      )}
                       {event.ackId
                         ? `ack:${event.ackStatus ?? 'pending'} ${previewArgs(event.args)}`
                         : previewArgs(event.args)}
@@ -647,6 +641,14 @@ function SocketIOClient() {
                 </div>
               )}
             </div>
+            {selectedEvent?.serverAckId && (
+              <SocketIOAckReply
+                key={selectedEvent.id}
+                connectionId={activeConnectionId}
+                event={selectedEvent}
+                isConnected={isConnected}
+              />
+            )}
           </Floater>
 
           {/* Compose */}
@@ -660,6 +662,7 @@ function SocketIOClient() {
                 onToggle={() => setTemplatesOpen(!templatesOpen)}
               />
               <div className="flex-1" />
+              <SocketIOEmitOptionsMenu connectionId={activeConnectionId} options={emitOptions} />
               <span className="text-sp-11 text-sp-muted">Ack</span>
               <ToggleField
                 size="sm"

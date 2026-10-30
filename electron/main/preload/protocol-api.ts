@@ -33,6 +33,7 @@ export const protocolApi: ProtocolApi = {
   socketio: {
     connect: invoke<ElectronAPI['socketio']['connect']>(IPC.socketio.connect),
     emit: invoke<ElectronAPI['socketio']['emit']>(IPC.socketio.emit),
+    replyAck: invoke<ElectronAPI['socketio']['replyAck']>(IPC.socketio.replyAck),
     disconnect: invoke<ElectronAPI['socketio']['disconnect']>(IPC.socketio.disconnect),
     ...channelEventBridge(CHANNEL_PREFIXES.socketio),
   },
