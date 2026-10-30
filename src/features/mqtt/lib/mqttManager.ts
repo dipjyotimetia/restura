@@ -66,10 +66,14 @@ async function secretField(
   return (await ensureBrokerSecret(key, MQTT_SECRET_LABELS[field])) ? brokerSecretRef(key) : null;
 }
 
+/**
+ * Drop `undefined` keys only — `''` is a real value (an empty payload clears a
+ * retained message), and form fields already map blank input to undefined.
+ */
 function defined<T extends Record<string, unknown>>(
   obj: T
 ): { [K in keyof T]?: Exclude<T[K], undefined> } {
-  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== '')) as {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as {
     [K in keyof T]?: Exclude<T[K], undefined>;
   };
 }
