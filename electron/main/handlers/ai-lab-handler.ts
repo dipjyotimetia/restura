@@ -55,6 +55,9 @@ const completeRateLimiter = createKeyedRateLimiter(1200, 60_000);
 // Discovery is user-initiated (click "test connection" / "refresh models"); a modest
 // cap is plenty and bounds a renderer probing arbitrary hosts in a tight loop.
 const discoveryRateLimiter = createKeyedRateLimiter(60, 60_000);
+// Telemetry export fans out to a user-configured collector; a modest ceiling is
+// ample for one export per finished trace.
+const telemetryRateLimiter = createKeyedRateLimiter(120, 60_000);
 const MAX_CONCURRENT_STREAMS = 6; // Playground compares a handful of models at once.
 const COMPLETE_CONCURRENCY = 8; // Hard ceiling on simultaneous upstream model calls.
 
@@ -260,6 +263,9 @@ export function registerAiLabHandlers(): void {
     assertTrustedSender(IPC.aiLab.exportTelemetry, event);
     const parsed = AiLabTelemetryExportSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
+    if (!telemetryRateLimiter.check(event.sender.id)) {
+      return { ok: false as const, error: 'Rate limited. Slow down.' };
+    }
     const delivery = agentTelemetry.enqueue(parsed.data.trace, parsed.data.config);
     await agentTelemetry.flush();
     return { ok: true as const, delivery };

@@ -276,6 +276,31 @@ describe('ai-lab-handler', () => {
       expect(mockRunToCompletion).not.toHaveBeenCalled();
     });
 
+    it('telemetry export rejects when the limiter denies', async () => {
+      mockRateCheck.mockReturnValue(false);
+      const res = await handlerFor('ai-lab:telemetry:export')(TRUSTED, {
+        config: {
+          enabled: false,
+          target: 'otlp',
+          endpoint: 'https://collector.example/v1/traces',
+          environment: 'ci',
+          sampleRate: 1,
+          auth: { mode: 'none' },
+        },
+        trace: {
+          id: 't',
+          suiteId: 's',
+          taskId: 'k',
+          trial: 1,
+          agentId: 'a',
+          startedAt: 1,
+          events: [],
+        },
+      });
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/rate limit/i);
+    });
+
     it('discovery (list-models) rejects when the limiter denies', async () => {
       mockRateCheck.mockReturnValue(false);
       const res = await handlerFor('ai-lab:list-models')(TRUSTED, {
