@@ -74,6 +74,11 @@ export function preflightAgentSuite(
     if (!['openai.responses', 'anthropic.messages'].includes(agent.model.providerId)) {
       throw new Error(`headless provider adapter not registered: ${agent.model.providerId}`);
     }
+    if (agent.handoffs?.length) {
+      throw new Error(
+        `headless agent eval does not support handoffs (agent ${agent.id}); remove agents[].handoffs`
+      );
+    }
     if (agent.model.baseUrl) {
       throw new Error(
         'headless agent eval refuses suite baseUrl overrides; configure a trusted adapter plugin'

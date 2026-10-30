@@ -287,6 +287,31 @@ describe('policy profile CI gating', () => {
   });
 });
 
+describe('handoff preflight', () => {
+  it('exits 2 before any model call when an agent declares handoffs', async () => {
+    const base = suite();
+    const agent = base.agents[0]!;
+    const withHandoffs: AgentSuite = {
+      ...base,
+      agents: [
+        { ...agent, handoffs: ['agent-2'] },
+        { ...agent, id: 'agent-2' },
+      ],
+    };
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependenciesWithFiles({ '/suite.json': withHandoffs }, fetcher);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      expect(await runAgentEval('/suite.json', {}, deps)).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('handoffs'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+});
+
 describe('runAgentEval exit codes', () => {
   const mcpRuntime = {
     schemaVersion: 1,
