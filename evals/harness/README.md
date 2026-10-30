@@ -27,14 +27,14 @@ scripts/harness-eval.mjs   runner
 
 | id | type | split | origin | seam | source → fix |
 |---|---|---|---|---|---|
-| mcp-panel-collapse | defect | train | real | cross-branch | #1133 + #1134 → #1150 |
-| mcp-runner-auth-override | defect | train | real | cross-consumer | #1131 → #1151 |
-| cli-auth-double-expansion | defect | train | real | cross-consumer | #1163 (commits 1-2) → #1163 (commit 3) |
-| sigv4-interactive-send-dropped | defect | train | real | cross-consumer | c6c751c2 → 115b64f1 / 0ef20dc7 |
-| cli-grpc-auth-block-parity | defect | train | real | cross-harness | #1088 → #1161 |
+| mcp-panel-collapse | defect | train (seen) | real | cross-branch | #1133 + #1134 → #1150 |
+| mcp-runner-auth-override | defect | train (seen) | real | cross-consumer | #1131 → #1151 |
+| cli-auth-double-expansion | defect | train (seen) | real | cross-consumer | #1163 (commits 1-2) → #1163 (commit 3) |
+| sigv4-interactive-send-dropped | defect | **test** | real | cross-consumer | c6c751c2 → 115b64f1 / 0ef20dc7 |
+| cli-grpc-auth-block-parity | defect | **test** | real | cross-harness | #1088 → #1161 |
 | cli-graphql-get-parity | defect | **test** | real | cross-harness | #1109 → #1161 |
 | kafka-preset-registry-bearer | defect | **test** | real | cross-branch | #1127 after #1130 → #1153 |
-| grpc-no-deadline-web-stream | defect | train | real | cross-harness | #1089 → #1152 |
+| grpc-no-deadline-web-stream | defect | **test** | real | cross-harness | #1089 → #1152 |
 | sse-post-body-web-unwired | defect | train | synthetic | cross-harness | none |
 | sse-spec-signature-seam | defect | **test** | synthetic | cross-branch | none |
 | mcp-conformance-anonymous-auth | defect | train | real | cross-consumer | #1134 → #1160 |
@@ -43,10 +43,16 @@ scripts/harness-eval.mjs   runner
 | clean-set-cookie-cap | control | **test** | real | none | #1158, no follow-up fix |
 | clean-graphql-tab-fallback | control | train | real | none | #1156, no follow-up fix |
 | clean-broker-preset-binding | control | **test** | real | none | #1159, no follow-up fix |
-| clean-websocket-terminal-close | control | train | real | none | #1162 (source only), no follow-up fix |
+| clean-websocket-terminal-close | control | **test** | real | none | #1162 (source only), no follow-up fix |
 | clean-mcp-import-header-handles | control | train | real | none | #1165 (source only), no follow-up fix |
 | clean-electron-store-backup | control | **test** | real | none | #1164 (source only), no follow-up fix |
 | clean-kafka-browse-bounds | control | train | real | none | #1154 (source only), no follow-up fix |
+
+Every defect case so far comes from one two-week window (PRs #1088 to #1165, the post-merge
+audit of 2026-10-25), and a third of them are MCP. That samples one period's failure
+fingerprint, so when escaped defects are turned into cases, prefer a seam, protocol or harness
+pair the suite does not cover yet (web Worker vs self-host Node, Kafka/MQTT, the collection
+runner, importers) over another MCP or CLI-auth variant; the "Adding a case" section says how.
 
 Real defect cases are reconstructed from `docs/audits/post-merge-review-2026-10-25.md` and git
 history. Each `base` is the main commit the original branch was cut from (or merged onto), and
@@ -229,7 +235,13 @@ The markdown summary reports:
 - **Totals**: cost and minutes for the whole invocation.
 - **Noise**: how many cases flipped within this invocation, and the recall CI half-width.
   **Don't act on a config difference smaller than the CI half-width; add runs or cases.** With
-  about 20 scored defect runs, the half-width is around 20 points.
+  about 20 scored defect runs, the half-width is around 20 points. The **noise pre-flight**
+  (printed before any model call and repeated in the summary) states this for the planned
+  cases x runs at the worst case p = 0.5, and what it would take to reach 15 and 10 points.
+- **Always failed**: cases that failed on every scored run. Anthropic's tell for a bad task is one
+  that fails regardless of replicates: read its transcripts for ambiguity or an unfair grader
+  (for example a fixture that does not type-check on its own, where a reviewer that reports the
+  compile error and stops is behaving reasonably) before treating it as a harness gap.
 - **Routing**: across review runs, how often each skill (Skill tool) and subagent (Task/Agent
   `subagent_type`) ran, by runs and calls. This is the signal for folding or pruning a reviewer:
   if `/ship-check` never routes to an agent, the agent is not what is catching the bugs.
@@ -263,22 +275,73 @@ into skills, agents or CLAUDE.md turns that case "seen", and the summary shows i
 
 ## Train / test split
 
-Every case has a required `split` (the Cases table shows it). The rule: about 30% of cases are
-held out as **test** (a unit test keeps it between 20% and 40%), the test split always has at
-least one control and at least one defect, and a case's split is assigned once, when it is
-added, and never moved after results have been seen. Everything else is **train**.
-`--split train|test|all` (default `all`) filters the run.
+Every case has a required `split` (the Cases table shows it). The held-out **test** split is
+what the ADR 0033 gate reads, so it has to be large enough to show a change: about half the
+cases (a unit test keeps it between 40% and 60%), always with controls and defects, and sized so
+that a 3-run plan over it passes the noise pre-flight. Cases the harness already mentions
+(`leakTerms` hits, "seen") stay in **train**: they measure memorisation. A case's split is
+assigned when it is added and is not moved once results have been read against it. The split
+was rebalanced on 2026-10-30 (from 6 to 10 held-out cases) before any baseline existed, so no
+result had been read against the old split. `--split train|test|all` (default `all`) filters
+the run.
+
+Two uses, two rules (ADR 0033):
+
+- **Regression gate** for any harness change (reviewer topology, skill descriptions, routing,
+  vendored skills): run **all** cases at 3 runs against the committed baseline and read the
+  per-case flips. Train cases count here too: leakage only matters once you have tuned on
+  them. A change is kept when no defect case is newly missed on every run, no control is newly
+  false-positive on every run, and recall and precision on unseen cases are not below the
+  baseline's point estimate by more than the pre-flight half-width.
+- **Hillclimb acceptance** for a change made to raise the numbers: iterate on **train**, confirm
+  on **test**. Train up and test flat is suspected overfitting (revert); any regression on test
+  (revert); both up (keep), where "up" means more than the half-width the pre-flight printed.
 
 Hillclimbing rules, when you change skills, agents or CLAUDE.md to raise these numbers:
 
-1. Read only **train** transcripts. Do not open test transcripts while iterating.
-2. Propose **one root-cause change per round** (one skill/agent/prompt change, not a batch).
-3. Keep the change only if train improves **and** test improves. Train up with test flat means
-   the change overfit the train cases: revert it.
-4. Never paste failure content or case specifics (file names, symbols, the defect) into skills,
+1. Before round one, read the noise pre-flight: if the smallest change you would act on is
+   smaller than the half-width, add runs or cases first (the pre-flight says how many).
+2. Read only **train** transcripts. Do not open test transcripts while iterating.
+3. Propose **one root-cause change per round** (one skill/agent/prompt change, not a batch),
+   large enough to show above the noise: rewrite the section that causes the miss or add the
+   missing rule, not a reworded line.
+4. Keep the change only if train improves **and** test does not regress (see the rules above).
+5. Never paste failure content or case specifics (file names, symbols, the defect) into skills,
    agents or CLAUDE.md. Fix the behaviour, not the case.
-5. Exclude a case as broken or ambiguous only after reading its transcripts, and say why in the
+6. **When the score stalls** for two rounds, or no single fix could gain more than the noise,
+   stop editing and bucket every remaining train failure by cause: ambiguous or unfair case
+   (fix or drop the case, say why in `notes`), harness error (fix the runner), run-to-run
+   variance (add runs), legitimate miss (only these continue into further rounds). The summary
+   already separates incomplete, contaminated, errored, judge-disagreement and always-failed
+   runs; start from those lists.
+7. Exclude a case as broken or ambiguous only after reading its transcripts, and say why in the
    case's `notes`.
+
+### Cost is an objective
+
+Every run records cost and minutes, and the flip report prints the mean cost and minutes per run
+over the cases both sides share. "Hold recall and precision, cut cost" is a complete, well-scoped
+hillclimb goal (it is the goal of every reviewer fold, and it still works when recall is
+saturated): state it as such and read the cost line with the flips.
+
+### Calibration: does the eval order models correctly?
+
+A well-designed eval scores higher with a stronger model or more effort; if it does not, the
+tasks are ambiguous or the judge is miscalibrated. Before the first baseline, and after any
+change to the cases or the rubric, run the test split once with `--model claude-sonnet-5-5` and
+once with `--model claude-opus-5-5` (same judge, same harness). Opus must score at or above
+Sonnet on recall without worse precision. If it does not, read the always-failed and
+judge-disagreement cases before trusting any number from this suite.
+
+### Validating the judge
+
+The judge is not the model under test (the runner warns when it is), and `--judge-repeat 3`
+grades every review three times so grader noise shows up as **judge disagreements** rather than
+as reviewer flips. `--save-baseline` turns that on by default. Once, on the first baseline, read
+every judge verdict (`judge.verdicts[].reason` in the result JSON, next to the review text) and
+note any you would have scored differently: scoring failures are the most common eval
+misconfiguration, and a judge you have not read is a judge you are trusting blind. Record the
+agreement count in the baseline PR.
 
 ## Baselines
 
@@ -287,9 +350,9 @@ Hillclimbing rules, when you change skills, agents or CLAUDE.md to raise these n
 never collide; the runner refuses to overwrite an existing file and checks before the run
 starts): config, `harnessSha`, `claudeVersion` (from `claude --version`: results depend on the
 CLI version, and a flip report across versions prints a warning), start time, runs per case,
-models, split, and per case caught /
+models (requested and resolved), split, and per case caught /
 runs / pass@1 / pass@n / pass^n / mean score / mean cost, plus recall and precision with CIs, the
-pass@1 totals and the routing counts. It contains no review text, judge reasons
+pass@1 totals, the noise pre-flight and the routing counts. It contains no review text, judge reasons
 or transcripts, so it is safe to commit, and it is how an A/B result outlives the gitignored
 `.claude/metrics/`. `--compare` and the automatic flip report accept a full result or a baseline
 file. See `baselines/README.md`.
@@ -297,15 +360,15 @@ file. See `baselines/README.md`.
 ADR 0033 gates reviewer, routing and vendored-skill changes on "test split at or above the
 baseline", so a committed baseline must exist before that rule can be applied. The cheapest way
 to produce one is the `Eval harness` workflow: dispatch it with `save-baseline` ticked (test
-split, 2 runs, default config `ci-<sha>`), download the `eval-baseline-<run id>` artifact and
-commit the file in a chore PR. Re-baseline after every accepted harness change, and whenever the
+split, 3 runs, `model` pinned, judge x3, default config `ci-<sha>`), download the
+`eval-baseline-<run id>` artifact and commit the file in a chore PR. Re-baseline after every accepted harness change, and whenever the
 pinned CLI version in `eval-harness.yml` is bumped.
 
 ## Running
 
 ```bash
 npm run eval:harness -- --dry-run                 # validate cases, apply overlay + patches, check the combined merge; no model calls
-npm run eval:harness -- --case mcp-panel-collapse # one case, 2 runs, config "current", harness = HEAD
+npm run eval:harness -- --case mcp-panel-collapse # one case, 3 runs, config "current", harness = HEAD
 npm run eval:harness -- --split train --runs 3    # hillclimb on train only
 npm run eval:harness -- --cleanup                 # remove legacy harness-eval/* branches and worktrees
 ```
@@ -313,21 +376,28 @@ npm run eval:harness -- --cleanup                 # remove legacy harness-eval/*
 A/B comparison of two harness versions (same cases, same models, different harness commit):
 
 ```bash
-npm run eval:harness -- --harness-ref main --config A --runs 3 --save-baseline
-npm run eval:harness -- --harness-ref <branch> --config C --runs 3 \
+npm run eval:harness -- --harness-ref main --config A --model claude-sonnet-5-5 --save-baseline
+npm run eval:harness -- --harness-ref <branch> --config C --model claude-sonnet-5-5 --judge-repeat 3 \
   --compare evals/harness/baselines/<YYYY-MM-DD>T<HHMM>--A.json
 ```
 
 Options:
 
 - `--case <id>` (repeatable); `--split train|test|all` (default `all`).
-- `--runs N` (1-20, default 2).
+- `--runs N` (1-20, default 3).
 - `--config <label>` (default `current`; `[A-Za-z0-9._-]+` without `--`): recorded, names the
   output files and selects the previous result with exactly that config for the flip report.
 - `--harness-ref <ref>` (default `HEAD` of the checkout running the script): the harness commit
   overlaid on every case base, resolved once per invocation.
-- `--model <model>` (reviewer; default: the `claude` CLI default), `--judge-model <model>`
-  (default `sonnet`), `--judge-repeat 1|3` (default 1), `--no-judge`.
+- `--model <model>` (reviewer; default: the `claude` CLI default, which varies per machine and
+  release, so `--save-baseline` requires it), `--judge-model <model>` (default `sonnet`),
+  `--judge-repeat 1|3` (default 1; 3 when `--save-baseline` is set), `--no-judge`. Every result
+  also records the model ids the sessions actually used (`resolvedModels`, from the stream's
+  init event and the result's `modelUsage`), and a comparison across different resolved models
+  prints a warning.
+- `--max-noise <pts>` (default 25): the widest worst-case recall CI half-width, in points, that
+  `--save-baseline` accepts. The noise pre-flight prints the planned half-width before any model
+  call and refuses a noisier baseline; raise this deliberately, or add runs or cases.
 - `--max-budget-usd <n>` (per review run, default 20).
 - `--out <dir>` (default `.claude/metrics/evals/`, gitignored).
 - `--compare <result-or-baseline.json>` (flip report against a specific earlier result or a
@@ -379,6 +449,10 @@ deliberately.
    split a branch into several patches if needed.
 3. Write `cases/<id>.yaml`, then run `npm run eval:harness -- --dry-run --case <id>`.
 4. Mark anything invented as `origin: synthetic`.
-5. Give it a `split` before running it, keeping the test share near 30% with at least one control
-   and one defect held out (see "Train / test split"). Never move a case between splits after
-   its results have been seen.
+5. Give it a `split` before running it, keeping the test share near half with controls and
+   defects held out, and seen cases (`leakTerms` hits) in train (see "Train / test split").
+   Never move a case between splits after its results have been seen.
+6. Prefer breadth over depth: say in one line why the case is hard before adding it (a human
+   judgement, not "the current model fails it"), and favour a seam, protocol or harness pair
+   the table does not cover yet over another variant of one it does. A suite drawn from one
+   incident window measures that window's failure fingerprint, not what is intrinsically hard.

@@ -410,6 +410,37 @@ describe('runEval', () => {
     }
   );
 
+  it('fails a judge scorer closed when the judge is the model under test', async () => {
+    mockComplete.mockResolvedValue(result('Paris'));
+    const cells = await runEval(
+      {
+        prompt: PROMPT,
+        dataset: { ...DATASET, cases: [{ ...DATASET.cases[0]!, reference: 'Paris' }] },
+        models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
+        scorers: [
+          {
+            id: 'judge',
+            kind: 'judge',
+            judgeModel: { providerConfigId: 'p1', model: 'gpt-4o' },
+            rubric: 'Correctness',
+            passThreshold: 0.5,
+          },
+          { id: 'c', kind: 'contains', needle: 'Paris' },
+        ],
+        providers: { p1: PROVIDER },
+        concurrency: 1,
+      },
+      () => {},
+      new AbortController().signal
+    );
+    // One completion for the cell, none for the judge: it never ran.
+    expect(mockComplete).toHaveBeenCalledTimes(1);
+    expect(cells[0]?.scores[0]).toMatchObject({ kind: 'judge', passed: false });
+    expect(cells[0]?.scores[0]?.detail).toMatch(/model under test/);
+    expect(cells[0]?.scores[1]).toMatchObject({ kind: 'contains', passed: true });
+    expect(cells[0]?.passed).toBe(false);
+  });
+
   it('runs a configured structured judge through the provider bridge', async () => {
     mockComplete.mockResolvedValueOnce(result('Paris')).mockResolvedValueOnce({
       ok: true,
@@ -436,7 +467,7 @@ describe('runEval', () => {
           {
             id: 'judge',
             kind: 'judge',
-            judgeModel: { providerConfigId: 'p1', model: 'gpt-4o' },
+            judgeModel: { providerConfigId: 'p1', model: 'gpt-4o-judge' },
             rubric: 'Correctness',
             passThreshold: 0.5,
           },
@@ -482,7 +513,7 @@ describe('runEval', () => {
             {
               id: 'pairwise',
               kind: 'pairwise',
-              judgeModel: { providerConfigId: 'p1', model: 'gpt-4o' },
+              judgeModel: { providerConfigId: 'p1', model: 'gpt-4o-judge' },
               baseline: 'reference',
               passThreshold: 0.5,
               ...(criterion ? { criteria: [criterion], swapPositions: true } : {}),

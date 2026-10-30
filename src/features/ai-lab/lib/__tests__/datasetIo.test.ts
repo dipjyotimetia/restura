@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DatasetCaseInput } from '../datasetIo';
-import { casesFromCsv, casesFromJsonl, casesToCsv, casesToJsonl } from '../datasetIo';
+import { casesFromCsv, casesFromJsonl, casesToCsv, casesToJsonl, coerceSplit } from '../datasetIo';
 
 const CASES: DatasetCaseInput[] = [
   { vars: { country: 'France' }, expected: 'Paris' },
@@ -23,6 +23,16 @@ describe('JSONL round-trip', () => {
   it('throws on a malformed line', () => {
     expect(() => casesFromJsonl('{bad')).toThrow();
   });
+
+  it('round-trips the held-out split tag and drops unknown values', () => {
+    const jsonl = casesToJsonl([{ vars: { q: '1' }, split: 'test' }, { vars: { q: '2' } }]);
+    const parsed = casesFromJsonl(jsonl);
+    expect(parsed[0]!.split).toBe('test');
+    expect(parsed[1]!.split).toBeUndefined();
+    expect(casesFromJsonl('{"vars":{},"split":"TRAIN "}')[0]!.split).toBe('train');
+    expect(casesFromJsonl('{"vars":{},"split":"holdout"}')[0]!.split).toBeUndefined();
+    expect(coerceSplit(3)).toBeUndefined();
+  });
 });
 
 describe('CSV round-trip', () => {
@@ -38,6 +48,15 @@ describe('CSV round-trip', () => {
     const csv = casesToCsv([{ vars: { note: 'a, b\nc' }, expected: 'x' }]);
     const back = casesFromCsv(csv);
     expect(back[0]!.vars.note).toBe('a, b\nc');
+  });
+
+  it('carries the split as a reserved column, not a variable', () => {
+    const csv = casesToCsv([{ vars: { q: 'a' }, split: 'test' }, { vars: { q: 'b' } }]);
+    expect(csv.split(/\r?\n/)[0]).toBe('q,expected,reference,split');
+    const back = casesFromCsv(csv);
+    expect(back[0]).toEqual({ vars: { q: 'a' }, split: 'test' });
+    expect(back[1]).toEqual({ vars: { q: 'b' } });
+    expect(back[1]!.vars.split).toBeUndefined();
   });
 
   it('escapes embedded double quotes', () => {

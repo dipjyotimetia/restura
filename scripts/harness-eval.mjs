@@ -24,11 +24,15 @@
 //     [--config <label>] [--harness-ref <ref>] [--model <model>]
 //     [--judge-model <model>] [--judge-repeat N] [--dry-run] [--out <dir>]
 //     [--no-judge] [--max-budget-usd <n>] [--compare <result-or-baseline.json>]
-//     [--save-baseline]
+//     [--save-baseline] [--max-noise <pts>]
 //   npm run eval:harness -- --cleanup   # remove leftovers of crashed runs
 //
 // --dry-run validates every case, applies the harness overlay and its patches
 // (plus the combined merge) in throwaway isolated repos without calling any model.
+// Before a real run the noise pre-flight prints the worst-case CI half-width the
+// planned cases x runs can show (and what it would take to reach 15 and 10
+// points); --save-baseline refuses a plan wider than --max-noise (default 25),
+// needs an explicit --model, and grades every review with the judge x3.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -111,7 +115,7 @@ const GENERIC_PROBE =
 export function parseEvalArgs(argv) {
   const options = {
     caseIds: [],
-    runs: 2,
+    runs: 3,
     config: 'current',
     dryRun: false,
     cleanup: false,
@@ -125,7 +129,9 @@ export function parseEvalArgs(argv) {
     saveBaseline: false,
     maxBudgetUsd: 20,
     compare: undefined,
+    maxNoisePts: DEFAULT_MAX_NOISE_PTS,
   };
+  let judgeRepeatExplicit = false;
   const valued = [
     '--case',
     '--runs',
@@ -138,6 +144,7 @@ export function parseEvalArgs(argv) {
     '--split',
     '--max-budget-usd',
     '--compare',
+    '--max-noise',
   ];
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -172,6 +179,12 @@ export function parseEvalArgs(argv) {
         // Odd only, so the majority vote never ties.
         if (repeat !== 1 && repeat !== 3) throw new Error('--judge-repeat must be 1 or 3');
         options.judgeRepeat = repeat;
+        judgeRepeatExplicit = true;
+      } else if (name === '--max-noise') {
+        const pts = Number(value);
+        if (!(pts > 0 && pts <= 50))
+          throw new Error('--max-noise must be a number of percentage points from 1 to 50');
+        options.maxNoisePts = pts;
       } else if (name === '--harness-ref') {
         if (value.startsWith('-') || /\s/.test(value))
           throw new Error('--harness-ref must be a git ref or commit');
@@ -190,7 +203,99 @@ export function parseEvalArgs(argv) {
   }
   if (options.saveBaseline && options.dryRun)
     throw new Error('--save-baseline needs a real run (a dry run has nothing to record)');
+  // A baseline is compared with later runs, so its configuration must be reproducible: the
+  // reviewer model is pinned explicitly (the CLI default varies per machine and per release)
+  // and the judge grades each review three times so grader noise is measured, not assumed.
+  if (options.saveBaseline && !options.model)
+    throw new Error(
+      '--save-baseline needs an explicit --model (the CLI default varies per machine and release, so a baseline without one cannot be reproduced)'
+    );
+  if (options.saveBaseline && !judgeRepeatExplicit) options.judgeRepeat = 3;
   return options;
+}
+
+/**
+ * Default ceiling, in percentage points, on the recall CI half-width a baseline may have. A
+ * baseline noisier than this cannot show a change that anyone would act on, so
+ * `--save-baseline` refuses to write one (raise it with `--max-noise` deliberately).
+ */
+export const DEFAULT_MAX_NOISE_PTS = 25;
+
+/** Wilson 95% half-width, in points, for n trials at the worst case p = 0.5 (null for n = 0). */
+export function noiseHalfWidthPts(n) {
+  const ci = wilsonInterval(Math.round(n / 2), n);
+  return ci ? Math.round(ci.halfWidth * 100) : null;
+}
+
+/** Smallest trial count whose worst-case half-width is at most `pts` points. */
+export function trialsForHalfWidth(pts) {
+  for (let n = 1; n <= 100000; n += 1) {
+    const ci = wilsonInterval(Math.round(n / 2), n);
+    if (ci && ci.halfWidth * 100 <= pts) return n;
+  }
+  return null;
+}
+
+/**
+ * The noise pre-flight (Anthropic's eval guidance: before the first hillclimb round, check that
+ * eval noise is smaller than the smallest improvement you would act on). From the planned
+ * cases and runs, the worst-case recall and precision CI half-widths, the trials needed to
+ * reach 15 and 10 points, and whether a baseline is allowed at `maxNoisePts`.
+ * @param {Array<{ expectClean: boolean }>} cases
+ * @param {number} runs
+ * @param {{ maxNoisePts?: number }} [options]
+ */
+export function noisePlan(cases, runs, { maxNoisePts = DEFAULT_MAX_NOISE_PTS } = {}) {
+  const defectCases = cases.filter((c) => !c.expectClean).length;
+  const controlCases = cases.length - defectCases;
+  const defectTrials = defectCases * runs;
+  const controlTrials = controlCases * runs;
+  const recallHalfWidthPts = noiseHalfWidthPts(defectTrials);
+  const precisionHalfWidthPts = noiseHalfWidthPts(controlTrials);
+  const targets = [15, 10].map((pts) => {
+    const trials = trialsForHalfWidth(pts);
+    return {
+      pts,
+      trials,
+      runsWithTheseCases: defectCases > 0 && trials ? Math.ceil(trials / defectCases) : null,
+      casesAtTheseRuns: runs > 0 && trials ? Math.ceil(trials / runs) : null,
+    };
+  });
+  return {
+    defectCases,
+    controlCases,
+    runs,
+    defectTrials,
+    controlTrials,
+    recallHalfWidthPts,
+    precisionHalfWidthPts,
+    maxNoisePts,
+    targets,
+    baselineAllowed: recallHalfWidthPts !== null && recallHalfWidthPts <= maxNoisePts,
+  };
+}
+
+/** Human-readable pre-flight lines (printed before any model call). */
+export function formatNoisePlan(plan) {
+  const lines = [
+    `Noise pre-flight: ${plural(plan.defectCases, 'defect case')} x ${plural(plan.runs, 'run')} = ${plural(plan.defectTrials, 'recall trial')} (worst-case 95% CI half-width ±${plan.recallHalfWidthPts ?? 'n/a'} pts); ${plural(plan.controlCases, 'control')} x ${plan.runs} = ${plural(plan.controlTrials, 'precision trial')} (±${plan.precisionHalfWidthPts ?? 'n/a'} pts).`,
+    'A difference between two configurations smaller than the half-width is noise.',
+  ];
+  for (const target of plan.targets) {
+    if (!target.trials) continue;
+    const how = [];
+    if (target.runsWithTheseCases) how.push(`${target.runsWithTheseCases} runs of these cases`);
+    if (target.casesAtTheseRuns)
+      how.push(`${target.casesAtTheseRuns} defect cases at ${plan.runs} runs`);
+    lines.push(
+      `To detect a ${target.pts}-point change you need ${plural(target.trials, 'recall trial')}${how.length > 0 ? ` (${how.join(', or ')})` : ''}.`
+    );
+  }
+  if (!plan.baselineAllowed)
+    lines.push(
+      `This plan is too noisy for a baseline (half-width ±${plan.recallHalfWidthPts ?? 'n/a'} pts > ${plan.maxNoisePts}): add runs or cases, or raise --max-noise deliberately.`
+    );
+  return lines;
 }
 
 /**
@@ -537,10 +642,12 @@ export const SEEN_TEST_WARNING =
 export function buildReviewPrompt(_evalCase, branchRefs, effectiveBase) {
   if (typeof effectiveBase !== 'string' || !SHA_RE.test(effectiveBase))
     throw new Error('buildReviewPrompt needs the effective base (the harness overlay commit)');
+  // Plain operational wording: the prompt never says it is an eval, so the reviewer behaves as
+  // it would for a developer (a model told it is being measured may review differently).
   return [
     `/ship-check --quick ${branchRefs.join(' ')}`,
     '',
-    `Eval harness note: these branches were cut from commit ${effectiveBase}. Treat that commit as`,
+    `These branches were cut from commit ${effectiveBase}. Treat that commit as`,
     '`main`/`origin/main` for every diff and gate (e.g. `git diff <base>...<branch>`, and',
     `\`npm run integration-check -- --base ${effectiveBase} --no-fetch <branches>\`).`,
     'Do not push, open PRs, or run gh mutations. End with your consolidated findings, ranked by',
@@ -607,6 +714,12 @@ export function parseClaudeJson(stdout) {
 
 /** The fields both output formats report, from a `result` envelope/event. */
 function shapeResult(parsed) {
+  // `modelUsage` is keyed by the exact model id the session billed, so an alias such as
+  // `sonnet` (or no --model at all) resolves to the model that actually reviewed.
+  const modelsUsed =
+    parsed.modelUsage && typeof parsed.modelUsage === 'object'
+      ? Object.keys(parsed.modelUsage).sort()
+      : [];
   return {
     text: typeof parsed.result === 'string' ? parsed.result : '',
     subtype: typeof parsed.subtype === 'string' ? parsed.subtype : null,
@@ -616,6 +729,8 @@ function shapeResult(parsed) {
     isError: parsed.is_error === true,
     sessionId: typeof parsed.session_id === 'string' ? parsed.session_id : null,
     permissionDenials: Array.isArray(parsed.permission_denials) ? parsed.permission_denials : [],
+    modelsUsed,
+    resolvedModel: modelsUsed[0] ?? null,
   };
 }
 
@@ -629,6 +744,7 @@ function shapeResult(parsed) {
  */
 export function parseClaudeStream(stdout) {
   let result = null;
+  let initModel = null;
   const toolStats = { toolCalls: 0, skills: [], agents: [] };
   for (const line of String(stdout ?? '').split('\n')) {
     const trimmed = line.trim();
@@ -641,6 +757,10 @@ export function parseClaudeStream(stdout) {
     }
     if (!event || typeof event !== 'object') continue;
     if (event.type === 'result') result = event;
+    // The init event names the main model the session was configured with (an alias resolved
+    // by the CLI); the result's modelUsage names every model billed, subagents included.
+    if (event.type === 'system' && event.subtype === 'init' && typeof event.model === 'string')
+      initModel = event.model;
     const content = event.type === 'assistant' ? event.message?.content : null;
     if (!Array.isArray(content)) continue;
     for (const block of content) {
@@ -657,7 +777,39 @@ export function parseClaudeStream(stdout) {
     }
   }
   if (!result) throw new Error('no result event in claude stream-json output');
-  return { ...shapeResult(result), toolStats };
+  const shaped = shapeResult(result);
+  return { ...shaped, resolvedModel: initModel ?? shaped.resolvedModel, toolStats };
+}
+
+/**
+ * The reviewer and judge model ids a result's scored runs actually used (from the stream's
+ * init event and the result's modelUsage), as sorted unique lists. A baseline keeps these so a
+ * later comparison can tell a harness change from a model change.
+ */
+export function resolvedModels(runs) {
+  const reviewer = new Set();
+  const judge = new Set();
+  for (const run of runs ?? []) {
+    if (typeof run.review?.resolvedModel === 'string') reviewer.add(run.review.resolvedModel);
+    if (typeof run.judgeResolvedModel === 'string') judge.add(run.judgeResolvedModel);
+  }
+  return { reviewer: [...reviewer].sort(), judge: [...judge].sort() };
+}
+
+/** Warning text when two results were produced by different resolved reviewer or judge models. */
+export function modelMismatchWarning(previous, current) {
+  const same = (a, b) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
+  const problems = [];
+  if (
+    previous?.reviewer?.length &&
+    current?.reviewer?.length &&
+    !same(previous.reviewer, current.reviewer)
+  )
+    problems.push(`reviewer ${previous.reviewer.join('+')} vs ${current.reviewer.join('+')}`);
+  if (previous?.judge?.length && current?.judge?.length && !same(previous.judge, current.judge))
+    problems.push(`judge ${previous.judge.join('+')} vs ${current.judge.join('+')}`);
+  if (problems.length === 0) return null;
+  return `warning: the compared run used different models (${problems.join('; ')}). Flips may be model noise rather than harness change; compare like with like.`;
 }
 
 const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1062,6 +1214,9 @@ export function summarise(runs) {
       incomplete: entry.incomplete,
       contaminated: entry.contaminated,
       flipped: entry.caught > 0 && entry.caught < entry.runs,
+      // Failed on every scored run. Anthropic's tell for a bad task: a case that fails
+      // regardless of replicates is suspect (ambiguous, unfair grader) before it is a harness gap.
+      alwaysFailed: entry.runs > 0 && entry.caught === 0,
       meanScore: round(mean(entry.scores)),
       // pass@1 = c/n, the per-trial rate: comparable across invocations with different run counts.
       passAt1: round(passAtK(entry.runs, entry.caught, 1), 4),
@@ -1108,6 +1263,10 @@ export function summarise(runs) {
   const noise = {
     flippedCases: Object.values(cases).filter((c) => c.flipped).length,
     recallHalfWidth: recall.ci?.halfWidth ?? null,
+    alwaysFailedCases: Object.entries(cases)
+      .filter(([, c]) => c.alwaysFailed)
+      .map(([id]) => id)
+      .sort(),
   };
   // Mean per-case pass@1 (each case weighs the same, whatever its run count).
   const meanPassAt1 = (clean) =>
@@ -1169,6 +1328,38 @@ export function diffFlips(previous, current) {
 }
 
 /**
+ * Cost and time of the two invocations, as the mean per scored run over cases both sides
+ * have (so a different case selection does not masquerade as a saving). Cost is an eval
+ * objective in its own right: "hold recall and precision, cut cost" is the goal of every
+ * reviewer fold. Either side may be a full result or a summary-only baseline.
+ */
+export function diffCost(previous, current) {
+  const before = caseSummaries(previous);
+  const after = caseSummaries(current);
+  const shared = Object.keys(after).filter(
+    (id) => before[id] && before[id].runs > 0 && after[id].runs > 0
+  );
+  const meanOf = (side, key) => {
+    const values = shared.map((id) => side[id][key]).filter((v) => typeof v === 'number');
+    return values.length === 0 ? null : round(mean(values));
+  };
+  const change = (a, b) => (a === null || b === null || a === 0 ? null : round((b - a) / a, 3));
+  const costBefore = meanOf(before, 'meanCostUsd');
+  const costAfter = meanOf(after, 'meanCostUsd');
+  const minutesBefore = meanOf(before, 'meanMinutes');
+  const minutesAfter = meanOf(after, 'meanMinutes');
+  return {
+    cases: shared.length,
+    costUsd: { before: costBefore, after: costAfter, change: change(costBefore, costAfter) },
+    minutes: {
+      before: minutesBefore,
+      after: minutesAfter,
+      change: change(minutesBefore, minutesAfter),
+    },
+  };
+}
+
+/**
  * The committed, summary-only form of a result: configuration, per-case
  * summary and the headline rates with CIs. No review text, judge reasons or
  * transcripts, so it is safe to check in.
@@ -1184,6 +1375,8 @@ export function buildBaseline(result) {
     runsPerCase: result.runsPerCase,
     model: result.model ?? null,
     judgeModel: result.judgeModel ?? null,
+    // The model ids the sessions actually used (an alias or an unset --model resolves here).
+    resolvedModels: result.resolvedModels ?? resolvedModels(result.runs),
     judgeRepeat: result.judgeRepeat ?? 1,
     split: result.split ?? 'all',
     cases: summary.cases,
@@ -1252,9 +1445,11 @@ function harnessLine(result) {
     );
   if (result.claudeVersion) parts.push(`Claude Code ${result.claudeVersion}`);
   if (!result.dryRun) {
-    parts.push(`reviewer model ${result.model ?? 'CLI default'}`);
+    const used = result.resolvedModels ?? resolvedModels(result.runs ?? []);
+    const resolved = (ids) => (ids && ids.length > 0 ? ` (resolved: ${ids.join(', ')})` : '');
+    parts.push(`reviewer model ${result.model ?? 'CLI default'}${resolved(used.reviewer)}`);
     parts.push(
-      `judge ${result.judgeModel ?? 'CLI default'}${(result.judgeRepeat ?? 1) > 1 ? ` x${result.judgeRepeat}` : ''}`
+      `judge ${result.judgeModel ?? 'CLI default'}${(result.judgeRepeat ?? 1) > 1 ? ` x${result.judgeRepeat}` : ''}${resolved(used.judge)}`
     );
   }
   if (result.split && result.split !== 'all') parts.push(`split ${result.split}`);
@@ -1289,9 +1484,14 @@ function seenSection(result) {
  * @param {any} result
  * @param {any[]} [flips]
  * @param {string} [comparedTo]
- * @param {{ previousClaudeVersion?: string | null }} [options]
+ * @param {{ previousClaudeVersion?: string | null; previousModels?: any; cost?: any; noisePlan?: any }} [options]
  */
-export function formatSummaryMarkdown(result, flips, comparedTo, { previousClaudeVersion } = {}) {
+export function formatSummaryMarkdown(
+  result,
+  flips,
+  comparedTo,
+  { previousClaudeVersion, previousModels, cost, noisePlan: plan } = {}
+) {
   const lines = [
     `# Harness eval: ${result.config}`,
     '',
@@ -1319,6 +1519,7 @@ export function formatSummaryMarkdown(result, flips, comparedTo, { previousClaud
     `Contaminated (graded as failures): ${summary.contaminated}.`,
     `Harness errors (excluded from both): ${summary.errors}, error rate ${pct(summary.errorRate)}. Judge self-disagreements: ${summary.judgeDisagreements}.`,
     `Noise: ${plural(noise.flippedCases, 'case')} flipped within this invocation; recall CI half-width ±${noise.recallHalfWidth === null ? 'n/a' : `${Math.round(noise.recallHalfWidth * 100)} pts`}. Do not act on a config difference smaller than the half-width; add runs or cases.`,
+    `Always failed (every scored run; check the case for ambiguity or an unfair grader before tuning the harness): ${noise.alwaysFailedCases.length === 0 ? 'none' : noise.alwaysFailedCases.join(', ')}.`,
     `pass@1 (per-trial rate): defects ${pct(summary.passAt1.defects)}, controls ${pct(summary.passAt1.controls)} (mean over cases; compare this across invocations with different run counts).`,
     `Totals: $${fixed(totals.costUsd, 2)} and ${fixed(totals.minutes, 1)} min over ${plural(totals.runs, 'run')} (review + judge).`,
     '',
@@ -1396,10 +1597,16 @@ export function formatSummaryMarkdown(result, flips, comparedTo, { previousClaud
         lines.push(`  - ${hit.tool}: \`${cell(hit.snippet).replace(/`/g, "'")}\``);
     }
   }
+  if (plan) lines.push('', '## Noise pre-flight', '', ...formatNoisePlan(plan));
   if (flips) {
     lines.push('', `## Flips${comparedTo ? ` vs ${comparedTo}` : ''}`);
     const versionWarning = claudeVersionWarning(previousClaudeVersion, result.claudeVersion);
     if (versionWarning) lines.push('', versionWarning);
+    const modelWarning = modelMismatchWarning(
+      previousModels,
+      result.resolvedModels ?? resolvedModels(result.runs)
+    );
+    if (modelWarning) lines.push('', modelWarning);
     if (flips.length === 0) lines.push('', 'No case changed its caught rate.');
     else {
       lines.push('', '| case | type | before | after | kind |', '|---|---|---|---|---|');
@@ -1407,6 +1614,14 @@ export function formatSummaryMarkdown(result, flips, comparedTo, { previousClaud
         lines.push(
           `| ${flip.caseId} | ${flip.type} | ${flip.before} | ${flip.after} | ${flip.kind} |`
         );
+    }
+    if (cost && cost.cases > 0) {
+      const money = (v) => (v === null ? 'n/a' : `$${v.toFixed(2)}`);
+      const delta = (c) => (c === null ? '' : ` (${c > 0 ? '+' : ''}${Math.round(c * 100)}%)`);
+      lines.push(
+        '',
+        `Cost over the ${plural(cost.cases, 'shared case')}: mean per run ${money(cost.costUsd.before)} -> ${money(cost.costUsd.after)}${delta(cost.costUsd.change)}; mean minutes ${fixed(cost.minutes.before, 1)} -> ${fixed(cost.minutes.after, 1)}${delta(cost.minutes.change)}.`
+      );
     }
   }
   return `${lines.join('\n')}\n`;
@@ -2058,6 +2273,7 @@ export async function runCase(evalCase, ctx) {
       const repeat = ctx.judgeRepeat ?? 1;
       const verdicts = [];
       let judgeCost = null;
+      let judgeResolvedModel = null;
       for (let attempt = 1; attempt <= repeat; attempt += 1) {
         const judgeRun = classifyClaudeRun(
           await exec.run('claude', judgeArgs, {
@@ -2070,6 +2286,8 @@ export async function runCase(evalCase, ctx) {
         if (judgeRun.status !== 'ok') throw new Error(`judge: ${judgeRun.reason}`);
         if (typeof judgeRun.parsed.costUsd === 'number')
           judgeCost = (judgeCost ?? 0) + judgeRun.parsed.costUsd;
+        if (typeof judgeRun.parsed.resolvedModel === 'string')
+          judgeResolvedModel = judgeRun.parsed.resolvedModel;
         try {
           verdicts.push(parseJudgeVerdict(judgeRun.parsed.text));
         } catch (error) {
@@ -2077,6 +2295,7 @@ export async function runCase(evalCase, ctx) {
         }
       }
       outcome.judgeCostUsd = judgeCost;
+      outcome.judgeResolvedModel = judgeResolvedModel;
       const { disagreement, ...majority } = majorityVerdict(verdicts);
       outcome.judge = majority;
       outcome.judgeDisagreement = disagreement;
@@ -2213,6 +2432,18 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   // Fail before spending money if the baseline this run would write already exists.
   if (options.saveBaseline && !options.dryRun && fs.existsSync(baselinePath(result)))
     throw new Error(`baseline ${baselinePath(result)} already exists; not overwriting`);
+  // Noise pre-flight: say, before any model call, how small a change this plan can show.
+  const plan = options.dryRun
+    ? null
+    : noisePlan(cases, runs, { maxNoisePts: options.maxNoisePts ?? DEFAULT_MAX_NOISE_PTS });
+  if (plan) {
+    result.noisePlan = plan;
+    for (const line of formatNoisePlan(plan)) log(line);
+    if (options.saveBaseline && !plan.baselineAllowed)
+      throw new Error(
+        `refusing --save-baseline: recall CI half-width ±${plan.recallHalfWidthPts ?? 'n/a'} pts exceeds --max-noise ${plan.maxNoisePts}; add runs or cases (see the pre-flight above)`
+      );
+  }
 
   // Ctrl-C / kill mid-run: stop the child, remove this run's temp dir (the
   // isolated repo lives inside it; the main repo is never mutated), exit non-zero.
@@ -2294,23 +2525,35 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
 
   fs.mkdirSync(outDir, { recursive: true });
   let flips;
+  let cost;
   let comparedTo;
   let previousClaudeVersion = null;
+  let previousModels = null;
   if (!options.dryRun) {
+    result.resolvedModels = resolvedModels(result.runs);
     // Either a full result or a committed baseline (diffFlips accepts both).
     const previousFile = options.compare ?? latestResult(outDir, options.config, `${base}.json`);
     if (previousFile && fs.existsSync(previousFile)) {
       const previous = JSON.parse(fs.readFileSync(previousFile, 'utf8'));
       flips = diffFlips(previous, result);
+      cost = diffCost(previous, result);
       comparedTo = path.basename(previousFile);
       previousClaudeVersion = previous.claudeVersion ?? null;
+      previousModels = previous.resolvedModels ?? resolvedModels(previous.runs ?? []);
       const versionWarning = claudeVersionWarning(previousClaudeVersion, result.claudeVersion);
       if (versionWarning) log(versionWarning);
+      const modelWarning = modelMismatchWarning(previousModels, result.resolvedModels);
+      if (modelWarning) log(modelWarning);
     }
   }
   fs.writeFileSync(`${base}.json`, redactSecrets(`${JSON.stringify(result, null, 2)}\n`));
   const markdown = redactSecrets(
-    formatSummaryMarkdown(result, flips, comparedTo, { previousClaudeVersion })
+    formatSummaryMarkdown(result, flips, comparedTo, {
+      previousClaudeVersion,
+      previousModels,
+      cost,
+      noisePlan: plan,
+    })
   );
   fs.writeFileSync(`${base}.md`, markdown);
   log(`\n${markdown}`);

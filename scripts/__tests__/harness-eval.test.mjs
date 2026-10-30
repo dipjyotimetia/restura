@@ -14,10 +14,13 @@ import {
   cleanupTracked,
   cleanupTrackedAsync,
   createIsolatedRepo,
+  DEFAULT_MAX_NOISE_PTS,
   decideCaught,
   detectContamination,
+  diffCost,
   diffFlips,
   findOverlayLeaks,
+  formatNoisePlan,
   formatSummaryMarkdown,
   gradeMustMention,
   HARNESS_OVERLAY_PATHS,
@@ -29,8 +32,11 @@ import {
   loadCases,
   majorityVerdict,
   mergePackageScripts,
+  modelMismatchWarning,
   nodeExec,
   nodeModulesFingerprint,
+  noiseHalfWidthPts,
+  noisePlan,
   overlayHarness,
   parseClaudeJson,
   parseClaudeStream,
@@ -42,11 +48,13 @@ import {
   passHatK,
   readOverlayFiles,
   redactSecrets,
+  resolvedModels,
   runCase,
   runEval,
   selectLeftovers,
   summarise,
   syncExec,
+  trialsForHalfWidth,
   validateCase,
   wilsonInterval,
   writeBaseline,
@@ -255,6 +263,8 @@ test('parseClaudeJson extracts text, cost, duration and denials', () => {
     isError: false,
     sessionId: 's1',
     permissionDenials: [],
+    modelsUsed: [],
+    resolvedModel: null,
   });
   assert.throws(() => parseClaudeJson('not json'), /claude JSON/);
 });
@@ -372,6 +382,7 @@ test('summarise excludes harness errors and splits defect recall from control pr
     incomplete: 0,
     contaminated: 0,
     flipped: true,
+    alwaysFailed: false,
     meanScore: 2,
     passAt1: 0.5,
     passAtK: 1,
@@ -389,6 +400,7 @@ test('summarise excludes harness errors and splits defect recall from control pr
     incomplete: 0,
     contaminated: 0,
     flipped: true,
+    alwaysFailed: false,
     meanScore: 1.5,
     passAt1: 0.5,
     passAtK: 1,
@@ -510,7 +522,7 @@ test('parseEvalArgs applies defaults, flags and validation', () => {
   assert.equal(defaults.judgeRepeat, 1);
   assert.equal(defaults.split, 'all');
   assert.equal(defaults.saveBaseline, false);
-  assert.equal(defaults.runs, 2);
+  assert.equal(defaults.runs, 3);
   assert.equal(defaults.config, 'current');
   assert.equal(defaults.dryRun, false);
   assert.equal(defaults.cleanup, false);
@@ -1157,6 +1169,8 @@ test('parseClaudeStream returns the parseClaudeJson shape plus tool routing stat
     isError: false,
     sessionId: 'sess',
     permissionDenials: [],
+    modelsUsed: [],
+    resolvedModel: null,
     toolStats: {
       toolCalls: 5,
       skills: ['ship-check', 'code-review'],
@@ -1381,8 +1395,20 @@ test('the real case set keeps a usable held-out split (properties, not a case li
     heldOut.some((c) => !c.expectClean),
     'test split needs at least one defect'
   );
+  // The held-out split carries the gate, so it must be large enough to show a change: about
+  // half the cases, and a default 3-run plan over it must pass the noise pre-flight.
   const fraction = heldOut.length / cases.length;
-  assert.ok(fraction >= 0.2 && fraction <= 0.4, `test fraction ${fraction.toFixed(2)}`);
+  assert.ok(fraction >= 0.4 && fraction <= 0.6, `test fraction ${fraction.toFixed(2)}`);
+  const plan = noisePlan(heldOut, 3);
+  assert.ok(
+    plan.baselineAllowed,
+    `a 3-run test-split baseline must clear --max-noise (half-width ±${plan.recallHalfWidthPts} pts)`
+  );
+  // Cases the harness already mentions (leakTerms) measure memorisation, so they stay in train.
+  assert.ok(
+    heldOut.every((c) => c.leakTerms.length === 0),
+    'seen cases must not be held out'
+  );
 });
 
 test('loadCases filters by split (fixture cases)', () => {
@@ -2303,4 +2329,175 @@ test('parseClaudeVersion reads the CLI version; claudeVersionWarning fires only 
   assert.equal(claudeVersionWarning('2.1.310', '2.1.310'), null);
   assert.equal(claudeVersionWarning(null, '2.1.310'), null);
   assert.match(claudeVersionWarning('2.1.300', '2.1.310'), /2\.1\.300.*2\.1\.310/);
+});
+
+// ---------------------------------------------------------------- noise, models, cost
+
+test('parseClaudeStream records the resolved model from the init event and modelUsage', () => {
+  const stream = [
+    { type: 'system', subtype: 'init', session_id: 's', model: 'claude-sonnet-5-5-20261001' },
+    {
+      type: 'result',
+      subtype: 'success',
+      result: 'READY',
+      modelUsage: { 'claude-sonnet-5-5-20261001': { inputTokens: 1 }, 'claude-haiku-5-5': {} },
+    },
+  ]
+    .map((e) => JSON.stringify(e))
+    .join('\n');
+  const parsed = parseClaudeStream(stream);
+  assert.equal(parsed.resolvedModel, 'claude-sonnet-5-5-20261001');
+  assert.deepEqual(parsed.modelsUsed, ['claude-haiku-5-5', 'claude-sonnet-5-5-20261001']);
+  // Without an init model, the first billed model stands in.
+  const noInit = parseClaudeStream(
+    JSON.stringify({ type: 'result', subtype: 'success', result: 'x', modelUsage: { m1: {} } })
+  );
+  assert.equal(noInit.resolvedModel, 'm1');
+  assert.equal(
+    parseClaudeJson(JSON.stringify({ result: 'x', modelUsage: { j: {} } })).resolvedModel,
+    'j'
+  );
+});
+
+test('resolvedModels aggregates reviewer and judge ids; modelMismatchWarning fires only when they differ', () => {
+  const runs = [
+    { status: 'ok', review: { resolvedModel: 'opus-1' }, judgeResolvedModel: 'sonnet-1' },
+    { status: 'ok', review: { resolvedModel: 'opus-1' }, judgeResolvedModel: 'sonnet-1' },
+    { status: 'error' },
+  ];
+  assert.deepEqual(resolvedModels(runs), { reviewer: ['opus-1'], judge: ['sonnet-1'] });
+  assert.equal(modelMismatchWarning(resolvedModels(runs), resolvedModels(runs)), null);
+  assert.equal(modelMismatchWarning(null, resolvedModels(runs)), null);
+  assert.equal(modelMismatchWarning({ reviewer: [], judge: [] }, resolvedModels(runs)), null);
+  const other = { reviewer: ['sonnet-1'], judge: ['sonnet-1'] };
+  assert.match(modelMismatchWarning(resolvedModels(runs), other), /reviewer opus-1 vs sonnet-1/);
+  assert.doesNotMatch(modelMismatchWarning(resolvedModels(runs), other), /judge sonnet/);
+});
+
+test('--save-baseline needs an explicit --model, defaults the judge to x3 and accepts --max-noise', () => {
+  assert.throws(() => parseEvalArgs(['--save-baseline']), /--model/);
+  const base = parseEvalArgs(['--save-baseline', '--model', 'claude-sonnet-5-5']);
+  assert.equal(base.judgeRepeat, 3);
+  assert.equal(base.maxNoisePts, DEFAULT_MAX_NOISE_PTS);
+  const explicit = parseEvalArgs(['--save-baseline', '--model', 'opus', '--judge-repeat', '1']);
+  assert.equal(explicit.judgeRepeat, 1);
+  assert.equal(parseEvalArgs([]).judgeRepeat, 1);
+  assert.equal(parseEvalArgs(['--max-noise', '15']).maxNoisePts, 15);
+  assert.throws(() => parseEvalArgs(['--max-noise', '0']), /--max-noise/);
+  assert.throws(() => parseEvalArgs(['--max-noise', '80']), /--max-noise/);
+});
+
+test('noisePlan sizes the half-width from the planned trials and says what a baseline needs', () => {
+  const cases = [
+    { expectClean: false },
+    { expectClean: false },
+    { expectClean: false },
+    { expectClean: true },
+  ];
+  const tiny = noisePlan(cases, 2);
+  assert.equal(tiny.defectTrials, 6);
+  assert.equal(tiny.controlTrials, 2);
+  // Six trials: a 95% CI half-width around ±35 points at p = 0.5.
+  assert.ok(
+    tiny.recallHalfWidthPts >= 30 && tiny.recallHalfWidthPts <= 40,
+    String(tiny.recallHalfWidthPts)
+  );
+  assert.equal(tiny.baselineAllowed, false);
+  assert.equal(tiny.targets[0].pts, 15);
+  assert.ok(tiny.targets[0].trials > tiny.defectTrials);
+  assert.equal(tiny.targets[0].runsWithTheseCases, Math.ceil(tiny.targets[0].trials / 3));
+  const lines = formatNoisePlan(tiny);
+  assert.match(lines[0], /3 defect cases x 2 runs = 6 recall trials/);
+  assert.match(lines.at(-1), /too noisy for a baseline/);
+  // Twelve defect cases at three runs sit under the default ceiling.
+  const twelve = Array.from({ length: 12 }, () => ({ expectClean: false }));
+  const plan = noisePlan(twelve, 3);
+  assert.equal(plan.defectTrials, 36);
+  assert.ok(plan.recallHalfWidthPts <= DEFAULT_MAX_NOISE_PTS);
+  assert.equal(plan.baselineAllowed, true);
+  assert.doesNotMatch(formatNoisePlan(plan).join('\n'), /too noisy/);
+  assert.equal(noisePlan([], 2).recallHalfWidthPts, null);
+  assert.equal(noisePlan([], 2).baselineAllowed, false);
+  // trialsForHalfWidth is monotone: a tighter target needs more trials.
+  assert.ok(trialsForHalfWidth(10) > trialsForHalfWidth(15));
+  assert.ok(noiseHalfWidthPts(trialsForHalfWidth(15)) <= 15);
+});
+
+test('summarise flags cases that failed every scored run', () => {
+  const summary = summarise([
+    { caseId: 'never', status: 'ok', expectClean: false, caught: false },
+    { caseId: 'never', status: 'ok', expectClean: false, caught: false },
+    { caseId: 'some', status: 'ok', expectClean: false, caught: true },
+    { caseId: 'some', status: 'ok', expectClean: false, caught: false },
+    { caseId: 'ctrl', status: 'ok', expectClean: true, caught: false },
+    { caseId: 'err', status: 'error', expectClean: false },
+  ]);
+  assert.equal(summary.cases.never.alwaysFailed, true);
+  assert.equal(summary.cases.some.alwaysFailed, false);
+  assert.equal(summary.cases.ctrl.alwaysFailed, true);
+  assert.equal(summary.cases.err.alwaysFailed, false);
+  assert.deepEqual(summary.noise.alwaysFailedCases, ['ctrl', 'never']);
+  const md = formatSummaryMarkdown({
+    config: 'c',
+    startedAt: '2026-10-30T00:00:00.000Z',
+    dryRun: false,
+    runs: [{ caseId: 'never', run: 1, status: 'ok', expectClean: false, caught: false }],
+  });
+  assert.match(md, /Always failed \(every scored run.*\): never\./);
+});
+
+test('diffCost compares mean cost and minutes over shared cases; markdown shows it with the flips', () => {
+  const run = (caseId, k, costUsd, minutes, caught = true) => ({
+    caseId,
+    run: k,
+    status: 'ok',
+    expectClean: false,
+    caught,
+    review: { costUsd, durationMs: minutes * 60000, resolvedModel: 'opus-1' },
+    judgeResolvedModel: 'sonnet-1',
+  });
+  const previous = buildBaseline({
+    config: 'A',
+    startedAt: '2026-10-25T00:00:00.000Z',
+    runsPerCase: 2,
+    runs: [run('a', 1, 4, 10), run('a', 2, 6, 14), run('only-before', 1, 50, 99)],
+  });
+  assert.deepEqual(previous.resolvedModels, { reviewer: ['opus-1'], judge: ['sonnet-1'] });
+  const current = {
+    config: 'B',
+    startedAt: '2026-10-26T00:00:00.000Z',
+    dryRun: false,
+    runs: [run('a', 1, 2, 6), run('a', 2, 3, 6, false), run('only-after', 1, 1, 1)],
+  };
+  const cost = diffCost(previous, current);
+  assert.equal(cost.cases, 1);
+  assert.deepEqual(cost.costUsd, { before: 5, after: 2.5, change: -0.5 });
+  assert.deepEqual(cost.minutes, { before: 12, after: 6, change: -0.5 });
+  const md = formatSummaryMarkdown(current, diffFlips(previous, current), 'A.json', {
+    cost,
+    previousModels: previous.resolvedModels,
+    noisePlan: noisePlan([{ expectClean: false }], 2),
+  });
+  assert.match(
+    md,
+    /Cost over the 1 shared case: mean per run \$5\.00 -> \$2\.50 \(-50%\); mean minutes 12\.0 -> 6\.0 \(-50%\)/
+  );
+  assert.match(md, /\| a \| defect \| 2\/2 \| 1\/2 \| regressed \|/);
+  assert.match(md, /## Noise pre-flight/);
+  assert.doesNotMatch(md, /different models/);
+  const mismatch = formatSummaryMarkdown(current, [], 'A.json', {
+    previousModels: { reviewer: ['sonnet-1'], judge: ['sonnet-1'] },
+  });
+  assert.match(
+    mismatch,
+    /warning: the compared run used different models \(reviewer sonnet-1 vs opus-1\)/
+  );
+  assert.match(mismatch, /reviewer model CLI default \(resolved: opus-1\)/);
+  assert.equal(diffCost({ cases: {} }, current).cases, 0);
+});
+
+test('the review prompt never announces an eval', () => {
+  const prompt = buildReviewPrompt(defectCase(), ['feat/a'], EFFECTIVE);
+  assert.doesNotMatch(prompt, /eval/i);
+  assert.match(prompt, new RegExp(`cut from commit ${EFFECTIVE}`));
 });

@@ -6,7 +6,7 @@ import { formatRelativeTime } from '@/lib/shared/console-format';
 import { percentile } from '@/lib/shared/loadStats';
 import { cn } from '@/lib/shared/utils';
 import { modelKey, parseModelKey } from '../lib/modelOptions';
-import type { EvalCellResult, EvalRun } from '../types';
+import type { Dataset, EvalCellResult, EvalRun } from '../types';
 
 export interface ModelStats {
   /** `providerConfigId:model` key. */
@@ -56,6 +56,44 @@ export function statsByModel(run: EvalRun): ModelStats[] {
   });
 }
 
+/** Pass rates per model on the train and held-out test cases of a dataset. */
+export interface SplitStats {
+  key: string;
+  label: string;
+  train: { passed: number; total: number };
+  test: { passed: number; total: number };
+}
+
+/**
+ * Per-model pass rates split by the dataset's `split` tags (untagged cases count as
+ * train). Returns an empty list when no case is tagged `test`, so the report shows
+ * the block only for datasets that actually hold cases out. Reads the dataset as it
+ * is now: retagging a case after a run moves its cells between the two columns.
+ */
+export function statsBySplit(run: EvalRun, dataset: Dataset | undefined): SplitStats[] {
+  if (!dataset || !dataset.cases.some((c) => c.split === 'test')) return [];
+  const splitOf = new Map<string, 'train' | 'test'>(
+    dataset.cases.map((c) => [c.id, c.split === 'test' ? 'test' : 'train'])
+  );
+  const groups = new Map<string, SplitStats>();
+  for (const cell of run.cells) {
+    if (cell.notEvaluated) continue;
+    const split = splitOf.get(cell.caseId);
+    if (!split) continue;
+    const key = modelKey(cell.modelRef);
+    const entry = groups.get(key) ?? {
+      key,
+      label: labelForModel(run, key),
+      train: { passed: 0, total: 0 },
+      test: { passed: 0, total: 0 },
+    };
+    entry[split].total += 1;
+    if (cell.passed) entry[split].passed += 1;
+    groups.set(key, entry);
+  }
+  return [...groups.values()];
+}
+
 export interface JudgeStats {
   /** Number of judge score instances across the run's cells. */
   judged: number;
@@ -98,6 +136,8 @@ interface ReportSummaryProps {
   stats: ModelStats[];
   previousStatsByKey: Map<string, ModelStats>;
   judge: JudgeStats;
+  /** Per-split pass rates; empty when the dataset holds nothing out. */
+  splits?: SplitStats[];
   hasPreviousRun: boolean;
   onExport: (format: 'csv' | 'json' | 'md') => void;
   onDelete: () => void;
@@ -110,11 +150,14 @@ export function ReportSummary({
   stats,
   previousStatsByKey,
   judge,
+  splits = [],
   hasPreviousRun,
   onExport,
   onDelete,
   children,
 }: ReportSummaryProps) {
+  const rate = (s: { passed: number; total: number }) =>
+    s.total === 0 ? '—' : `${((s.passed / s.total) * 100).toFixed(0)}% (${s.passed}/${s.total})`;
   return (
     <Floater radius="panel" elevation="float" className="space-y-4 bg-sp-surface p-4">
       <div className="flex items-center justify-between gap-2">
@@ -208,6 +251,36 @@ export function ReportSummary({
           </tbody>
         </table>
       </div>
+
+      {splits.length > 0 && (
+        <div className="space-y-2 border-t border-sp-line pt-3">
+          <h3 className="sp-label">Train vs held-out test</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sp-12" aria-label="Pass rate by split">
+              <thead>
+                <tr className="border-b border-sp-line text-left text-sp-11 uppercase tracking-wide text-sp-muted">
+                  <th className="py-2 pr-3 font-medium">Model</th>
+                  <th className="py-2 pr-3 font-medium">Train</th>
+                  <th className="py-2 pr-3 font-medium">Test</th>
+                </tr>
+              </thead>
+              <tbody className="text-sp-text">
+                {splits.map((split) => (
+                  <tr key={split.key} className="border-b border-sp-line">
+                    <td className="py-2 pr-3 font-medium">{split.label}</td>
+                    <td className="py-2 pr-3 tabular-nums">{rate(split.train)}</td>
+                    <td className="py-2 pr-3 tabular-nums">{rate(split.test)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-sp-11 text-sp-muted">
+            Tune against train; read test only to confirm. Train up with test flat means the prompt
+            overfit the cases you looked at.
+          </p>
+        </div>
+      )}
 
       {judge.judged > 0 && judge.criteria.length > 0 && (
         <div className="space-y-2 border-t border-sp-line pt-3">

@@ -16,7 +16,7 @@ import { useEvalRunStore } from '../store/useEvalRunStore';
 import { EmptyState } from './EmptyState';
 import { ReportMatrix } from './ReportMatrix';
 import { ReportRunList } from './ReportRunList';
-import { judgeStats, ReportSummary, statsByModel } from './ReportSummary';
+import { judgeStats, ReportSummary, statsByModel, statsBySplit } from './ReportSummary';
 import { StatusChip } from './StatusChip';
 
 // Preserved export for the focused aggregation tests and downstream consumers.
@@ -295,6 +295,11 @@ export function ReportView() {
     () => new Map(previous ? statsByModel(previous).map((m) => [m.key, m]) : []),
     [previous]
   );
+  const splits = useMemo(
+    () =>
+      active ? statsBySplit(active, active.datasetId ? datasets[active.datasetId] : undefined) : [],
+    [active, datasets]
+  );
   const judge = useMemo(
     () => (active ? judgeStats(active) : { judged: 0, avgVariance: null, criteria: [] }),
     [active]
@@ -346,6 +351,7 @@ export function ReportView() {
               stats={sortedStats}
               previousStatsByKey={prevStatsByKey}
               judge={judge}
+              splits={splits}
               hasPreviousRun={Boolean(previous)}
               onExport={exportRun}
               onDelete={() => void handleDeleteClick()}
