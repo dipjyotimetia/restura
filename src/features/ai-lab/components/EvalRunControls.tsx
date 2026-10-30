@@ -2,6 +2,7 @@ import { Play, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Stat } from '@/components/ui/spatial';
+import { dismissPendingReport } from '../hooks/useEvalRun';
 import type { EvalProgress } from '../lib/evalRunner';
 import { StatusChip } from './StatusChip';
 
@@ -59,9 +60,20 @@ export function EvalRunControls({
       {error && <p className="text-sp-12 text-destructive">{error}</p>}
       {persistenceError && <p className="text-sp-12 text-destructive">{persistenceError}</p>}
       {hasPendingReport && (
-        <Button variant="outline" size="sm" className="w-full" onClick={onRetrySave}>
-          Retry report save
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="flex-1" onClick={onRetrySave}>
+            Retry report save
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1"
+            title="Discard the unsaved report so you can start a new run"
+            onClick={dismissPendingReport}
+          >
+            Discard report
+          </Button>
+        </div>
       )}
       {progress && (
         <div className="space-y-2">

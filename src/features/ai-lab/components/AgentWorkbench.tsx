@@ -11,9 +11,11 @@ import { Bot, Download, Play, Plus, Save, Square, Trash2, Upload } from 'lucide-
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import { downloadBlob } from '@/lib/shared/file-utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import {
   cancelAgentRun,
+  dismissAgentReport,
   registerAgentRunOwner,
   retryAgentReportPersistence,
   startAgentRun,
@@ -443,6 +445,25 @@ export function AgentWorkbench() {
             <Button size="sm" variant="ghost" onClick={() => void retryAgentReportPersistence()}>
               Retry save
             </Button>
+          )}
+          {persistenceError && completedReport && (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  downloadBlob(
+                    JSON.stringify(completedReport, null, 2),
+                    `${completedReport.id}.agent-report.json`
+                  )
+                }
+              >
+                Export report
+              </Button>
+              <Button size="sm" variant="ghost" onClick={dismissAgentReport}>
+                Dismiss
+              </Button>
+            </>
           )}
           {completedReport && (
             <Button size="sm" variant="ghost" onClick={() => openReport(completedReport.id)}>

@@ -33,11 +33,22 @@ export class AgentReportTooLargeError extends Error {
 export function sanitizeAgentSuiteReportForPersistence(
   envelope: Extract<AiLabReportEnvelope, { kind: 'agent-suite' }>
 ): Extract<AiLabReportEnvelope, { kind: 'agent-suite' }> {
+  const sanitized = sanitizeAgentSuiteReportForExport(envelope);
+  if (serializedBytes(sanitized) > MAX_AGENT_REPORT_BYTES) throw new AgentReportTooLargeError();
+  return sanitized;
+}
+
+/**
+ * Same redaction and truncation as persistence, without the size gate, so the
+ * user can still export a report that is too large to store.
+ */
+export function sanitizeAgentSuiteReportForExport(
+  envelope: Extract<AiLabReportEnvelope, { kind: 'agent-suite' }>
+): Extract<AiLabReportEnvelope, { kind: 'agent-suite' }> {
   let sanitized = sanitizeValue(envelope, MAX_CONTENT_CHARS) as typeof envelope;
   if (serializedBytes(sanitized) > MAX_AGENT_REPORT_BYTES) {
     sanitized = sanitizeValue(sanitized, AGGRESSIVE_CONTENT_CHARS) as typeof envelope;
   }
-  if (serializedBytes(sanitized) > MAX_AGENT_REPORT_BYTES) throw new AgentReportTooLargeError();
   return sanitized;
 }
 
