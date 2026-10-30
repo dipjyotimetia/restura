@@ -28,6 +28,9 @@ rebase` instead of pushing. If the repo needs a mechanical adaptation
 
 1. Check the latest `security-audit` and `scorecard` workflow runs and any
    open CodeQL/secret-scanning alerts.
+   Open Dependabot alerts belong to the `dependabot-remediate` workflow: check
+   its latest run and any held `deps/dependabot-remediate` PR rather than fixing
+   them here.
 2. For each new finding: classify — false positive (document why), mechanical
    fix (apply it via the normal branch + PR flow), or judgment call.
 3. Anything touching `shared/protocol/`, the SSRF/DNS/broker guards, IPC

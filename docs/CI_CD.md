@@ -23,6 +23,7 @@ secret scanning, required reviewers, secrets).
 | **Dependency Review**     | `.github/workflows/dependency-review.yml`        | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                                                |
 | **Security Audit**        | `.github/workflows/security-audit.yml`           | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                                                           |
 | **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml`    | PR (Dependabot only)                     | Approves (as restura-bot) and auto-merges patch/minor dependency updates once required checks pass (see §4).                                                            |
+| **Dependabot alert remediation** | `.github/workflows/dependabot-remediate.yml` | Every 5 days + manual | Claude fixes open Dependabot alerts; a policy gate checks the patch and restura-bot opens and auto-merges the PR (see §4). |
 | **OpenWiki update**       | `.github/workflows/openwiki-update.yml`          | weekly, manual                           | Runs [OpenWiki](https://github.com/langchain-ai/openwiki) against OpenRouter to diff recent commits and open a PR updating `openwiki/`, the agent-facing docs (see §8). |
 | **Release**               | `.github/workflows/release.yml`                  | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                                                   |
 | **Release signing check** | `.github/workflows/release-signing-check.yml`    | weekly, manual, signing config on `main` | Signs the macOS app with the real Developer ID cert (no notarize, no publish) so signing regressions surface before release day.                                        |
@@ -198,6 +199,44 @@ How Dependabot runs are hardened (in `ci.yml`):
 
 Tune the auto-merge scope (e.g. patch-only) by editing the `case` in the
 `Classify update` step of `dependabot-auto-merge.yml`.
+
+#### Dependabot alert remediation
+
+`dependabot-remediate.yml` handles what grouped version updates don't: open
+security alerts, including transitive ones that need a parent bump or an override.
+Actions has no Dependabot-alert event, so it polls every 5 days (`workflow_dispatch`
+to run now). A new alert can wait up to 5 days. A poll with nothing to do makes no model calls.
+
+1. **Detect** lists open npm alerts, reduced to validated fields so advisory prose
+   never reaches the agent. It stops if a remediation PR is open, or if this exact
+   alert set was already attempted (dispatch with `force` to retry; the marker
+   expires with the Actions cache after about a week without use).
+2. **Remediate** runs Claude with the `dependabot-remediate` skill, a read-only
+   `GITHUB_TOKEN`, no App key, and tools limited to the manifests and lock-only npm
+   commands. Its only output is a patch.
+3. **Publish** runs `scripts/dependabot-remediate.mjs verify` from the commit on
+   `main`, then mints the restura-bot token, pushes `deps/dependabot-remediate` and
+   opens the PR.
+
+| Verdict  | When                                                                                                                        | Result                    |
+| -------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `reject` | Touches anything but dependency versions and overrides, a lock entry isn't that package's npm tarball, or no alert is fixed | No PR, the workflow fails |
+| `hold`   | Runtime or direct major bump, a new install script, or more than 25 new packages                                            | PR without auto-merge     |
+| `merge`  | Everything else                                                                                                             | PR with `--auto --squash` |
+
+Auto-merge is the normal lane, so all required checks apply on an up-to-date branch.
+It never uses `--admin`. CI treats this branch like a Dependabot PR (`--ignore-scripts`,
+no deploy preview, no Electron jobs), because it can bring in a brand-new release:
+security fixes skip the Dependabot cooldown by design.
+
+Prerequisites:
+
+- ✅ Secrets `RELEASE_PR_APP_ID`, `RELEASE_PR_APP_PRIVATE_KEY` and
+  `CLAUDE_CODE_OAUTH_TOKEN`.
+- ⚠️ The restura-bot App needs **Dependabot alerts: read**, on top of the contents
+  and pull-request access the release flow uses. Add it in the App's settings, then
+  accept the change on its installation. Without it, the `detect` job fails when
+  minting its token.
 
 ### 5. OpenSSF Scorecard
 

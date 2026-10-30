@@ -83,6 +83,12 @@ cases:
     expectSkills: [roadmap-sync]
     forbidSkills: [batch-ship]
 
+  - id: dependabot-alerts-fix
+    split: train
+    prompt: GitHub is showing a bunch of open security alerts on vulnerable transitive npm packages. Can you sort them out?
+    expectSkills: [dependabot-remediate]
+    forbidSkills: [batch-ship]
+
   # ---------------------------------------------------------------- negative
   - id: typo-fix-not-batch
     split: train
