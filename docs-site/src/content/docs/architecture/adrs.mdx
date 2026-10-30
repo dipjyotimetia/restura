@@ -44,6 +44,7 @@ timeline
   2026-10-25 : 0032 — Agent harness: evals first, hook-enforced rules
   2026-10-25 : 0033 — Evals gate harness changes
   2026-10-26 : 0034 — Shared Postman parser and _postman sidecar
+  2026-10-30 : 0035 — Review depth tiers, verification vote and REVIEW.md
 ```
 
 <CardGrid>
@@ -216,6 +217,11 @@ timeline
     title="0034 — Shared Postman parser and _postman sidecar"
     description="One SDK-free Postman parser in shared/ for renderer and CLI; dropped or approximated constructs are reported and kept raw in a store-scoped _postman sidecar (stripped on edit, redacted on export and handle conversion); OAuth1 and NTLM map 1:1. v3 is the default export; v2.1 stays as the Newman option."
     href="/architecture/adrs/0034-postman-shared-parser-and-sidecar/"
+  />
+  <LinkCard
+    title="0035 — Review depth tiers, verification vote and REVIEW.md"
+    description="The code-review skill picks Quick/Standard/Deep from the diff, verifies Important findings with independent voters before posting, tags findings Important / Nit / Pre-existing, caps nits and rounds, and loads a code-owner REVIEW.md; sub-agents read briefs from disk instead of receiving pasted context."
+    href="/architecture/adrs/0035-review-depth-tiers-verification-and-review-md/"
   />
 </CardGrid>
 

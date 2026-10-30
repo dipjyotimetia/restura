@@ -72,7 +72,8 @@ jobs:
           # say otherwise or it's a no-op.
           prompt: >-
             /code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
-            ${{ github.event.action == 'labeled' && 'Re-review requested via the claude-review label: do NOT stop because Claude already commented; only post issues not raised in an earlier Claude comment.' || '' }}
+            Follow REVIEW.md at the repo root: evidence (file:line) for every finding, tag each Important / Nit / Pre-existing, at most 5 nits, skip its listed paths, start the summary with a count and say "Nothing to fix." when there is nothing.
+            ${{ github.event.action == 'labeled' && 'Re-review requested via the claude-review label: do NOT stop because Claude already commented; only post issues not raised in an earlier Claude comment, and if this is the fourth or later review round say so and ask the author to reconsider the approach instead of patching again.' || '' }}
           # The plugin's frontmatter `allowed-tools` isn't honoured headlessly:
           # every gh command it uses must be listed or the run silently no-ops.
           claude_args: >-
@@ -114,6 +115,7 @@ jobs:
             Use the `code-review` skill to review PR #${{ github.event.pull_request.number }}. You are running non-interactively in CI: never ask questions.
             - Fixed point: `HEAD^1` (the base tip; HEAD is the PR merge ref).
             - Spec: the PR title/body (`gh pr view ${{ github.event.pull_request.number }}`) and any issues it references (`gh issue view <n>`). If none, skip the Spec axis.
+            - Rounds: count earlier `# Correctness, Standards & Spec review` comments on the PR (`gh pr view ${{ github.event.pull_request.number }} --comments`); this is round (count + 1). Pass their findings as prior findings so none is repeated, and apply the skill's round cap.
             ${{ github.event.pull_request.base.ref != github.event.repository.default_branch && format('- This is one layer of a stacked PR (base `{0}`): later layers are separate PRs, so do not report their work as missing.', github.event.pull_request.base.ref) || '' }}
             Post the aggregated report as ONE comment via `gh pr comment ${{ github.event.pull_request.number }} --body-file <file>`, starting with `# Correctness, Standards & Spec review` and keeping the skill's `## Correctness` / `## Standards` / `## Spec` sections. Post nothing else.
           claude_args: >-

@@ -66,6 +66,7 @@ export const HARNESS_OVERLAY_PATHS = [
   '.agents',
   'CLAUDE.md',
   'AGENTS.md',
+  'REVIEW.md',
   'docs/agents',
   'skills-lock.json',
   'scripts/integration-check.mjs',

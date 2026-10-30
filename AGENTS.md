@@ -50,6 +50,7 @@ Full catalogue (e2e, desktop e2e, echo stacks, Docker, deploy): `docs/agents/arc
 | Any feature / new protocol / auth / importer | `.claude/skills/restura-feature-dev/SKILL.md` (+ `references/`) |
 | Architecture tour, subsystem notes, full commands | `docs/agents/architecture.md` |
 | Verifying / shipping / release gates | `.claude/skills/restura-production-checks/SKILL.md`, `.claude/skills/ship-check/SKILL.md` |
+| Reviewing a diff / PR | `.claude/skills/code-review/SKILL.md`, `REVIEW.md` (what failure looks like per area, evidence rule, caps, depth, rounds) |
 | UI change | `.claude/skills/verify-ui-change/SKILL.md` — compiling is not verified |
 | Multi-PR / parallel agent delivery | `docs/agents/delivery.md`, `.claude/skills/batch-ship/SKILL.md` |
 | Security boundary (SSRF, IPC, secrets, sandboxes) | `.claude/agents/restura-security-auditor.md`, `tests/security/` |
