@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import { createValidatedHandler, NoInputSchema } from '../ipc/ipc-validators';
 import { getOrCreateEncryptedKey } from '../security/encrypted-key';
+import { VAULT_STORE_KEY } from '../security/store-keys';
 import { createResilientStore } from './resilient-store';
 
 interface VaultRecord {
@@ -44,10 +45,7 @@ function getStore(): VaultStoreShape {
   if (storeInstance) return storeInstance;
   storeInstance = createResilientStore<VaultStoreShape>({
     name: 'restura-vault',
-    encryptionKey: getOrCreateEncryptedKey({
-      fileName: '.vault-key',
-      storeLabel: 'pm.vault store',
-    }),
+    encryptionKey: getOrCreateEncryptedKey(VAULT_STORE_KEY),
   });
   return storeInstance;
 }

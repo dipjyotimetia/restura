@@ -8,11 +8,11 @@
  * consistent — a security fix in one place lands in both.
  */
 
+import { createLogger } from '@shared/runtime/logger';
 import * as crypto from 'crypto';
 import { app, safeStorage } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { createLogger } from '@shared/runtime/logger';
 
 const log = createLogger('keystore');
 
@@ -89,15 +89,23 @@ function tightenKeyFileMode(keyFile: string): void {
   }
 }
 
+/** Keys derived by `primeEncryptedKeys`, keyed by key file name. */
+const primedKeys = new Map<string, string>();
+
 /**
  * Read an existing key from disk (decrypting via safeStorage when possible),
- * or generate a fresh 32-byte random key and persist it. Returns the hex
+ * or generate a fresh 32-byte random key and persist it. Resolves to the hex
  * key string suitable for use as an electron-store `encryptionKey`.
+ *
+ * Uses the async safeStorage API: the sync `encryptString` / `decryptString` /
+ * `isEncryptionAvailable` trio is deprecated and slated for removal in
+ * Electron 46. Ciphertext is interchangeable between the two APIs (same key
+ * store), so key files written by older builds keep decrypting.
  *
  * Uses readFileSync + ENOENT catch instead of existsSync→readFileSync to avoid
  * a TOCTOU race window (academic for an app-private dir, but cheap to remove).
  */
-export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
+export async function deriveEncryptedKey(opts: EncryptedKeyOptions): Promise<string> {
   const keyFile = path.join(app.getPath('userData'), opts.fileName);
 
   let encryptedKey: Buffer | null = null;
@@ -117,11 +125,11 @@ export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
 
   if (encryptedKey !== null) {
     tightenKeyFileMode(keyFile);
-    if (safeStorage.isEncryptionAvailable()) {
+    if (await isKeychainAvailable()) {
       try {
-        const decrypted = safeStorage.decryptString(encryptedKey);
+        const { result } = await safeStorage.decryptStringAsync(encryptedKey);
         recordKeyStoreState(opts.storeLabel, 'safeStorage');
-        return decrypted;
+        return result;
       } catch {
         emitFallbackWarning(opts.storeLabel, 'decrypt-failed');
         recordKeyStoreState(opts.storeLabel, 'plaintext', 'decrypt-failed');
@@ -135,8 +143,8 @@ export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
 
   const newKey = crypto.randomBytes(32).toString('hex');
   try {
-    if (safeStorage.isEncryptionAvailable()) {
-      fs.writeFileSync(keyFile, safeStorage.encryptString(newKey));
+    if (await isKeychainAvailable()) {
+      fs.writeFileSync(keyFile, await safeStorage.encryptStringAsync(newKey));
       recordKeyStoreState(opts.storeLabel, 'safeStorage');
     } else {
       emitFallbackWarning(opts.storeLabel, 'no-keyring');
@@ -151,4 +159,45 @@ export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
     });
   }
   return newKey;
+}
+
+async function isKeychainAvailable(): Promise<boolean> {
+  try {
+    return await safeStorage.isAsyncEncryptionAvailable();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Derive every store key once, after `app` is ready and before any IPC handler
+ * can touch a store. The async safeStorage API cannot back the synchronous
+ * store accessors directly, so this runs the async work up front and
+ * `getOrCreateEncryptedKey` serves the result from memory.
+ */
+export async function primeEncryptedKeys(specs: readonly EncryptedKeyOptions[]): Promise<void> {
+  const keys = await Promise.all(specs.map((spec) => deriveEncryptedKey(spec)));
+  specs.forEach((spec, i) => {
+    primedKeys.set(spec.fileName, keys[i] as string);
+  });
+}
+
+/**
+ * Synchronous accessor for a key derived by `primeEncryptedKeys`. Throws if the
+ * key was not primed — a store opened before startup priming would otherwise
+ * silently get a different key and fail to decrypt existing data.
+ */
+export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
+  const key = primedKeys.get(opts.fileName);
+  if (key === undefined) {
+    throw new Error(
+      `encryption key "${opts.fileName}" was not primed — call primeEncryptedKeys() at startup`
+    );
+  }
+  return key;
+}
+
+/** Test-only: drop primed keys so tests can re-derive. */
+export function __resetPrimedKeysForTests(): void {
+  primedKeys.clear();
 }
