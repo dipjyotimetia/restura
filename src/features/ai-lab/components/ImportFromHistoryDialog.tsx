@@ -24,6 +24,7 @@ import {
   type CapturedRequest,
   capturedRequestsToCases,
   previewRedactions,
+  secretValuesFromScopes,
 } from '../lib/datasetFromHistory';
 import { plural } from '../lib/plural';
 import { useAiLabStore } from '../store/useAiLabStore';
@@ -51,13 +52,32 @@ function collectRequests(items: CollectionItem[], path: string, out: Candidate[]
   }
 }
 
-/** Every known env/global variable value, across all environments (a history entry may predate the active one). */
-function collectSecretValues(): string[] {
-  const values = new Set<string>(Object.values(useGlobalsStore.getState().vars));
-  for (const env of useEnvironmentStore.getState().environments) {
-    for (const v of env.variables) if (v.enabled !== false && v.value) values.add(v.value);
+/** Collect variables of every folder beneath a collection (nested folders included). */
+function folderScopes(
+  items: CollectionItem[],
+  out: Array<ReadonlyArray<{ value: string }> | undefined>
+): void {
+  for (const item of items) {
+    if (item.variables?.length) out.push(item.variables);
+    if (item.items?.length) folderScopes(item.items, out);
   }
-  return [...values];
+}
+
+/**
+ * Every known variable value across all scopes (a history entry may predate
+ * the active environment): globals, every environment, and collection and folder
+ * variables. Disabled variables are included; over-stripping is harmless.
+ */
+function collectSecretValues(): string[] {
+  const scopes: Array<ReadonlyArray<{ value: string }> | undefined> = [
+    Object.values(useGlobalsStore.getState().vars).map((value) => ({ value })),
+  ];
+  for (const env of useEnvironmentStore.getState().environments) scopes.push(env.variables);
+  for (const collection of useCollectionStore.getState().collections) {
+    scopes.push(collection.variables);
+    folderScopes(collection.items, scopes);
+  }
+  return secretValuesFromScopes(scopes);
 }
 
 const clip = (text: string) => (text.length > 160 ? `${text.slice(0, 160)}…` : text);

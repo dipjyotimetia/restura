@@ -4,6 +4,7 @@ import {
   type CapturedRequest,
   capturedRequestToCase,
   previewRedactions,
+  secretValuesFromScopes,
 } from '../datasetFromHistory';
 
 function req(over: Partial<HttpRequest> = {}): HttpRequest {
@@ -110,6 +111,59 @@ describe('capturedRequestToCase environment/secret stripping (#1029)', () => {
       request: req({ url: '{{baseUrl}}/users?token={{token}}&q=a' }),
     });
     expect(c.vars.url).toBe('{{baseUrl}}/users?token={{token}}&q=[REDACTED]');
+  });
+
+  it('pattern-redacts header values, not just denylisted header names', () => {
+    const c = capturedRequestToCase({
+      request: req({
+        headers: [
+          { id: 'h', key: 'X-Relay', value: 'Bearer abcdef1234567890', enabled: true },
+          { id: 'g', key: 'X-Note', value: 'hello', enabled: true },
+        ],
+      }),
+    });
+    const headers = JSON.parse(c.vars.headers ?? '{}') as Record<string, string>;
+    expect(headers['X-Relay']).not.toContain('abcdef1234567890');
+    expect(headers['X-Note']).toBe('hello');
+  });
+
+  it('strips encoded forms of known values (url-encoded, base64, JSON-escaped)', () => {
+    const value = 'p@ss "w0rd"/ü+9z';
+    const encoded = encodeURIComponent(value);
+    const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(value)));
+    const jsonEscaped = JSON.stringify(value).slice(1, -1);
+    const c = capturedRequestToCase(
+      {
+        request: req({
+          url: `https://api.test/x?q=${encoded}`,
+          headers: [{ id: 'h', key: 'X-B', value: b64, enabled: true }],
+          body: { type: 'json', raw: `{"pw":"${jsonEscaped}"}` },
+        }),
+      },
+      { secretValues: [value] }
+    );
+    const out = JSON.stringify(c);
+    for (const form of [value, encoded, b64, jsonEscaped]) expect(out).not.toContain(form);
+  });
+
+  it('handles an @ inside the password and bare query tokens', () => {
+    const c = capturedRequestToCase({
+      request: req({ url: 'https://user:p@ssw0rd@api.test/v1?abcDEF123456&flag=1' }),
+    });
+    expect(c.vars.url).not.toContain('ssw0rd');
+    expect(c.vars.url).not.toContain('abcDEF123456');
+    expect(c.vars.url?.startsWith('https://api.test/v1?')).toBe(true);
+  });
+
+  it('collects scoped variable values, including disabled ones', () => {
+    const environment = [
+      { key: 'a', value: 'enabled-secret-1', enabled: true },
+      { key: 'b', value: 'disabled-secret-2', enabled: false },
+      { key: 'c', value: '' },
+    ];
+    expect(
+      secretValuesFromScopes([environment, undefined, [{ value: 'folder-secret-3' }]])
+    ).toEqual(['enabled-secret-1', 'disabled-secret-2', 'folder-secret-3']);
   });
 
   it('previewRedactions lists only changed fields with before and after', () => {

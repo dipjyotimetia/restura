@@ -38,36 +38,81 @@ function requestBodyText(req: HttpRequest): string {
   return '';
 }
 
-/** Replace every occurrence of a known env/secret value (longest first). */
+function base64Utf8(text: string): string {
+  let binary = '';
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+/** The forms a value takes once it is embedded in a URL, a header or a JSON body. */
+function secretVariants(value: string): string[] {
+  const b64 = base64Utf8(value);
+  return [
+    ...new Set([
+      value,
+      encodeURIComponent(value),
+      b64,
+      b64.replace(/=+$/, ''),
+      JSON.stringify(value).slice(1, -1),
+    ]),
+  ].filter((v) => v.length >= MIN_ENV_VALUE_LENGTH);
+}
+
+/** Replace every occurrence of a known env/secret value, and its encoded forms (longest first). */
 function stripSecretValues(text: string, values: readonly string[] | undefined): string {
   if (!values?.length || !text) return text;
   let out = text;
-  for (const v of [...values].sort((a, b) => b.length - a.length)) {
-    if (v.length >= MIN_ENV_VALUE_LENGTH) out = out.split(v).join('[REDACTED]');
-  }
+  const variants = values
+    .filter((v) => v.length >= MIN_ENV_VALUE_LENGTH)
+    .flatMap(secretVariants)
+    .sort((a, b) => b.length - a.length);
+  for (const v of variants) out = out.split(v).join('[REDACTED]');
   return out;
+}
+
+/**
+ * Values to strip from the variables of every scope (environments, globals,
+ * collection and folder variables). Disabled variables are included on
+ * purpose: a history entry may predate the toggle, and over-stripping is harmless.
+ */
+export function secretValuesFromScopes(
+  scopes: ReadonlyArray<ReadonlyArray<{ value: string }> | undefined>
+): string[] {
+  const values = new Set<string>();
+  for (const scope of scopes) for (const v of scope ?? []) if (v.value) values.add(v.value);
+  return [...values];
 }
 
 const TEMPLATE_ONLY = /^\{\{[^{}]+\}\}$/;
 // A long mixed letter+digit segment is an opaque id/token, not a route word.
 const OPAQUE_SEGMENT = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9_-]{20,}$/;
 
-/** Scrub userinfo, fragment, query values and opaque path segments of a URL string. */
+/**
+ * Scrub userinfo, fragment, query values and opaque path segments of a URL
+ * string. Done on the raw string rather than via `new URL(...).toString()`,
+ * which would percent-encode `{{templates}}`; the authority split follows the
+ * WHATWG rule (userinfo ends at the LAST `@`) so `user:p@ssw0rd@host` is handled.
+ */
 function scrubUrl(url: string): string {
   const noFragment = url.replace(/#.*$/, '');
-  const [pathPart = '', ...queryRest] = noFragment.split('?');
-  const path = pathPart
-    .replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/i, '$1')
+  const qIndex = noFragment.indexOf('?');
+  const pathPart = qIndex < 0 ? noFragment : noFragment.slice(0, qIndex);
+  const queryPart = qIndex < 0 ? null : noFragment.slice(qIndex + 1);
+  const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(pathPart)?.[0] ?? '';
+  const rest = pathPart.slice(scheme.length);
+  const authorityEnd = rest.indexOf('/') < 0 ? rest.length : rest.indexOf('/');
+  const at = scheme ? rest.slice(0, authorityEnd).lastIndexOf('@') : -1;
+  const path = (scheme + rest.slice(at + 1))
     .split('/')
     .map((seg) => (OPAQUE_SEGMENT.test(seg) ? '[REDACTED]' : seg))
     .join('/');
-  if (queryRest.length === 0) return path;
-  const query = queryRest
-    .join('?')
+  if (queryPart === null) return path;
+  const query = queryPart
     .split('&')
     .map((pair) => {
       const eq = pair.indexOf('=');
-      if (eq < 0) return pair;
+      // A bare `?token` has no key to keep: the whole pair may be the secret.
+      if (eq < 0) return pair === '' || TEMPLATE_ONLY.test(pair) ? pair : '[REDACTED]';
       return TEMPLATE_ONLY.test(pair.slice(eq + 1)) ? pair : `${pair.slice(0, eq + 1)}[REDACTED]`;
     })
     .join('&');
@@ -91,7 +136,8 @@ function buildVars(item: CapturedRequest, o: RedactionOptions | null): Record<st
   }
   const headers: Record<string, string> = {};
   for (const [k, v] of Object.entries(redactHeaders(rawHeaders, 'default'))) {
-    headers[k] = stripSecretValues(v, o.secretValues);
+    // Names are denylisted by redactHeaders; values still get the token patterns.
+    headers[k] = redactText(v, o);
   }
   return {
     method: item.request.method,
