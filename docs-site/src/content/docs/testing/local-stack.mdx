@@ -64,7 +64,11 @@ npm run echo:local -- manifest              # write + print the manifest, then e
 | WebSocket | `ws://localhost:8085/echo` | Also `/chat`, `/graphql`, `/ping`, `/close` |
 | Secure WebSocket | `wss://localhost:8543/echo` | Same paths over TLS (CA-signed); the packaged desktop CSP allows `wss:` only |
 | Socket.IO | `http://localhost:8086` | Namespaces `/`, `/chat`, `/admin` |
-| MCP | `http://localhost:8087/mcp` | Streamable-http |
+| MCP | `http://localhost:8087/mcp` | streamable-http (2025-era SDK, stateless) |
+| MCP v2 | `http://localhost:8088/mcp` | v2 SDK: modern `server/discover` era + legacy fallback, subscriptions, `list_changed` pushes |
+| MCP OAuth | `http://localhost:8093/mcp` | OAuth-protected resource; authorization server on `:8089` (RFC 8414 metadata, RFC 7591 registration, auto-approving PKCE S256) |
+| graphql-sse | `http://localhost:8091/graphql/stream` | graphql-sse distinct-connections mode |
+| Legacy graphql-ws | `ws://localhost:8092/graphql` | Apollo `subscriptions-transport-ws`; graphql-transport-ws stays on `ws://localhost:8085/graphql` |
 | MQTT | `mqtt://localhost:1883` / `mqtts://localhost:8883` / `ws://localhost:8083/mqtt` / `wss://localhost:8084/mqtt` | EMQX MQTT 5 (Docker); dashboard on `:18083` (`admin`/`public`) |
 | Kafka | `localhost:9092` | Redpanda PLAINTEXT (Docker) |
 | Kafka SSL | `localhost:9093` | TLS, no SASL; self-signed broker cert (verify-SSL off) |
@@ -106,7 +110,10 @@ Some protocols and auth schemes are connection-based, or lossy on OpenCollection
 - **OAuth2** — configure client-credentials manually: token URL `http://localhost:8080/oauth/token`, client `restura-client`/`restura-secret`, scope `read`; call `GET /oauth/protected`. OpenCollection import drops the grant type, so this can't be a click-Send collection entry.
 - **WSSE** — import is lossy, so configure manually (UsernameToken / PasswordDigest). `GET /wsse/protected` verifies the `X-WSSE` digest end-to-end.
 - **OAuth1** — signed at the wire; import is lossy, so configure manually. `GET /oauth1/protected` verifies the signature end-to-end via an independent RFC 5849 verifier (`e2e/mocks/oauth1Verify.ts`) that does not share code with the client signer.
-- **Digest** — the server's `/digest-auth/:user/:pass` route (MD5, `qop=auth`) exercises Restura's 401 challenge/retry. **NTLM** isn't applied on send yet.
+- **Digest** — the server's `/digest-auth/:user/:pass` route (MD5, `qop=auth`) exercises Restura's 401 challenge/retry on every platform.
+- **NTLM** — desktop only. `GET /ntlm/protected` with user `alice` / `wonderland`, domain `RESTURA`; the server verifies the NTLMv2 proof and rejects a type 3 message sent on a different connection. Web and self-host send NTLM requests unauthenticated; the CLI refuses them.
+- **MCP OAuth** — connect to `http://localhost:8093/mcp` with OAuth auth and no credentials: the 401 + `resource_metadata` challenge leads the client to the authorization server on `:8089` (dynamic registration, auto-approving PKCE `/authorize`, `/token`). `http://localhost:8088/mcp` is the v2-SDK server (modern/legacy era, resource subscriptions, `list_changed` pushes).
+- **GraphQL subscriptions** — graphql-transport-ws on `ws://localhost:8085/graphql`, Apollo legacy `graphql-ws` on `ws://localhost:8092/graphql`, graphql-sse on `http://localhost:8091/graphql/stream`; query `subscription { tick(count: 3) { n timestamp } }`.
 
 ## Related
 

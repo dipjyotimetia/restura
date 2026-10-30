@@ -1,4 +1,4 @@
-import { buildSchema, type GraphQLResolveInfo, graphql } from 'graphql';
+import { buildSchema, type GraphQLResolveInfo, getOperationAST, graphql, parse } from 'graphql';
 import type { Context } from 'hono';
 import type { EchoEnv } from '../index';
 
@@ -54,28 +54,68 @@ const rootValue = {
   }),
 };
 
+function selectsMutation(query: string, operationName: unknown): boolean {
+  try {
+    const op = getOperationAST(
+      parse(query),
+      typeof operationName === 'string' ? operationName : undefined
+    );
+    return op?.operation === 'mutation';
+  } catch {
+    return false;
+  }
+}
+
 export async function graphqlEcho(c: Context<{ Bindings: EchoEnv }>): Promise<Response> {
   if (c.req.method === 'OPTIONS') {
     return new Response(null, { status: 204 });
   }
 
-  const contentType = c.req.header('content-type') ?? '';
-  if (!contentType.includes('application/json')) {
-    return c.json({ errors: [{ message: 'Content-Type must be application/json' }] }, 400);
-  }
-
   let body: { query?: unknown; variables?: unknown; operationName?: unknown };
-  try {
-    const text = await c.req.text();
-    if (text.length > 65_536) {
-      return c.json({ errors: [{ message: 'Request body too large' }] }, 413);
+  if (c.req.method === 'GET') {
+    // GraphQL-over-HTTP GET (query / variables / operationName as URL params),
+    // mirroring the e2e mock so a request built for one upstream works on the
+    // other. Mutations over GET are refused by the spec; graphql-js doesn't
+    // enforce that, so resolve the operation the request actually selects
+    // (leading comments, multi-operation documents + operationName) and refuse
+    // it here. A document that fails to parse falls through to execution,
+    // which reports the syntax error the normal way.
+    const url = new URL(c.req.url);
+    const rawVariables = url.searchParams.get('variables');
+    let variables: unknown;
+    if (rawVariables) {
+      try {
+        variables = JSON.parse(rawVariables);
+      } catch {
+        return c.json({ errors: [{ message: 'Invalid JSON in variables' }] }, 400);
+      }
     }
-    body = JSON.parse(text) as { query?: unknown; variables?: unknown; operationName?: unknown };
-    if (typeof body !== 'object' || body === null) {
-      throw new Error('Not an object');
+    body = {
+      query: url.searchParams.get('query') ?? undefined,
+      variables,
+      operationName: url.searchParams.get('operationName') ?? undefined,
+    };
+    if (typeof body.query === 'string' && selectsMutation(body.query, body.operationName)) {
+      return c.json({ errors: [{ message: 'Mutations are not allowed over GET' }] }, 405);
     }
-  } catch {
-    return c.json({ errors: [{ message: 'Invalid JSON body' }] }, 400);
+  } else {
+    const contentType = c.req.header('content-type') ?? '';
+    if (!contentType.includes('application/json')) {
+      return c.json({ errors: [{ message: 'Content-Type must be application/json' }] }, 400);
+    }
+
+    try {
+      const text = await c.req.text();
+      if (text.length > 65_536) {
+        return c.json({ errors: [{ message: 'Request body too large' }] }, 413);
+      }
+      body = JSON.parse(text) as { query?: unknown; variables?: unknown; operationName?: unknown };
+      if (typeof body !== 'object' || body === null) {
+        throw new Error('Not an object');
+      }
+    } catch {
+      return c.json({ errors: [{ message: 'Invalid JSON body' }] }, 400);
+    }
   }
 
   const query = typeof body.query === 'string' ? body.query : '';
