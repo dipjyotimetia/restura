@@ -63,6 +63,7 @@ export interface ArenaDraft {
   judgeKey: string;
   system: string;
   concurrency: number;
+  sendUnredactedToCloud?: boolean;
 }
 
 const defaultPlaygroundDraft = (): PlaygroundDraft => ({
@@ -94,6 +95,7 @@ const defaultArenaDraft = (): ArenaDraft => ({
   judgeKey: '',
   system: '',
   concurrency: 4,
+  sendUnredactedToCloud: false,
 });
 
 interface AiLabUiState {

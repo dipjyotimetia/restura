@@ -20,6 +20,8 @@ export interface ArenaInput {
   concurrency: number;
   /** System prompt sent to every contestant (optional). */
   system?: string;
+  /** Visible per-run override: skip the secret check for cloud providers (default off). */
+  sendUnredactedToCloud?: boolean;
 }
 
 export interface ArenaProgress {
@@ -130,6 +132,7 @@ async function runArenaPhases(
     const userText = caseUserText(c.vars);
     for (const m of input.models) genTasks.push({ caseId: c.id, userText, model: m });
   }
+  const overrideOpts = input.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {};
   let genDone = 0;
   await runPool(genTasks, input.concurrency, signal, async (t) => {
     const cfg = input.providers[t.model.providerConfigId];
@@ -138,9 +141,10 @@ async function runArenaPhases(
       try {
         const completion = await completeWithRetry(
           () =>
-            completeLlm(specFor(cfg, t.model.model, buildMessages(input.system, t.userText)), {
-              signal,
-            }),
+            completeLlm(
+              specFor(cfg, t.model.model, buildMessages(input.system, t.userText), overrideOpts),
+              { signal }
+            ),
           { signal }
         );
         if (completion.ok) outputs[t.caseId]![key] = completion.text;
@@ -164,6 +168,7 @@ async function runArenaPhases(
         completeLlm(
           specFor(judgeCfg!, input.judgeModel.model, messages as LlmChatMessage[], {
             tools: tools as LlmCallSpec['tools'],
+            ...overrideOpts,
           }),
           { signal }
         ),

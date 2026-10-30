@@ -19,6 +19,7 @@ export interface ArenaRunConfig {
   judgeModel: ModelRef;
   concurrency: number;
   system?: string;
+  sendUnredactedToCloud?: boolean;
 }
 
 /**
@@ -79,6 +80,7 @@ function start(config: ArenaRunConfig): void {
           providers: lab.providers,
           concurrency: config.concurrency,
           ...(config.system ? { system: config.system } : {}),
+          ...(config.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
         },
         (p) => useArenaLiveStore.setState({ progress: p }),
         ac.signal

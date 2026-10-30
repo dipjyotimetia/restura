@@ -332,6 +332,30 @@ describe('runArena cancellation (#1020)', () => {
     for (const call of mockComplete.mock.calls) expect(call[1]).toEqual({ signal });
   });
 
+  it('threads the unredacted-cloud override to contestant and judge calls only when set (#1040)', async () => {
+    mockComplete.mockImplementation(async (spec: { tools?: unknown[] }) =>
+      spec.tools
+        ? {
+            ok: true,
+            text: '',
+            toolCalls: [{ id: 'j', name: 'submit_comparison', input: '{"winner":"A"}' }],
+          }
+        : { ok: true, text: 'answer', toolCalls: [] }
+    );
+    const { input, signal } = base(new AbortController().signal);
+    await runArena(input, () => {}, signal);
+    for (const call of mockComplete.mock.calls) {
+      expect(call[0]).not.toHaveProperty('sendUnredactedToCloud');
+    }
+
+    mockComplete.mockClear();
+    await runArena({ ...input, sendUnredactedToCloud: true }, () => {}, signal);
+    const specs = mockComplete.mock.calls.map((call) => call[0]);
+    expect(specs.some((spec) => spec.tools)).toBe(true); // judge calls
+    expect(specs.some((spec) => !spec.tools)).toBe(true); // contestant calls
+    for (const spec of specs) expect(spec).toMatchObject({ sendUnredactedToCloud: true });
+  });
+
   it('does not record a contestant call aborted by Stop as an errored match', async () => {
     const controller = new AbortController();
     mockComplete.mockImplementation(async () => {

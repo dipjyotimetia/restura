@@ -3,6 +3,7 @@ import { useCallback, useMemo } from 'react';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -80,6 +81,7 @@ export function Arena() {
       judgeModel: { providerConfigId: judge.cfg.id, model: judge.model },
       concurrency: draft.concurrency,
       ...(draft.system.trim() ? { system: draft.system.trim() } : {}),
+      ...(draft.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
     });
   };
 
@@ -228,6 +230,23 @@ export function Arena() {
             <p className="text-sp-11 text-sp-dim">
               Parallel model calls — lower it if your provider rate-limits.
             </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <Checkbox
+              id="arena-send-unredacted"
+              data-testid="arena-send-unredacted"
+              checked={draft.sendUnredactedToCloud === true}
+              onCheckedChange={(checked) => patchDraft({ sendUnredactedToCloud: checked === true })}
+            />
+            <div className="space-y-0.5">
+              <Label htmlFor="arena-send-unredacted" className="text-sp-12 text-sp-text">
+                Send unredacted to cloud providers
+              </Label>
+              <p className="text-sp-11 text-sp-dim">
+                Off by default: cloud calls (contestants and judge) are refused if a case still
+                contains a secret. Local providers are never checked.
+              </p>
+            </div>
           </div>
           {estimatedMatches > 0 && (
             <div className="flex items-center justify-between rounded-sp-btn border border-sp-line bg-sp-surface-lo px-3 py-2 text-sp-11">
