@@ -94,11 +94,15 @@ export async function startLegacyGraphqlWsServer(
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
     };
     ws.on('message', (raw) => {
-      const msg = JSON.parse(raw.toString()) as {
-        type: string;
-        id?: string;
-        payload?: OperationBody;
-      };
+      let msg: { type: string; id?: string; payload?: OperationBody };
+      try {
+        msg = JSON.parse(raw.toString()) as typeof msg;
+      } catch {
+        // A malformed frame must not take down the (shared, in echo-local)
+        // process — the real server closes with 1003 (unsupported data).
+        ws.close(1003, 'Invalid JSON');
+        return;
+      }
       received.push(msg as unknown as Record<string, unknown>);
       switch (msg.type) {
         case 'connection_init':
@@ -175,7 +179,15 @@ export async function startGraphqlSseServer(
       raw += c.toString();
     });
     req.on('end', () => {
-      const body = (raw ? JSON.parse(raw) : {}) as OperationBody;
+      let body: OperationBody;
+      try {
+        body = (raw ? JSON.parse(raw) : {}) as OperationBody;
+      } catch {
+        // Invalid JSON is the client's error, not a reason to crash the process.
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ errors: [{ message: 'Invalid JSON body' }] }));
+        return;
+      }
       requests.push({ method: req.method ?? '', headers: req.headers, body });
       if (req.method !== 'POST' || !req.url?.startsWith('/graphql/stream')) {
         res.writeHead(405, { 'content-type': 'text/plain' }).end('method not allowed');

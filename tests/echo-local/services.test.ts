@@ -90,6 +90,73 @@ describe('fixed-port factories the launcher relies on', () => {
     expect(doc.authorization_servers).toEqual([as.url]);
   });
 
+  it('OAuth-protected MCP resource identifies itself by the host the client dialled', async () => {
+    // echo-local advertises `localhost` while the listener binds 127.0.0.1; the
+    // SDK's auth flow rejects a PRM `resource` whose origin differs from the
+    // server URL, so both the challenge URL and the document must follow Host.
+    const as = await startMockOAuthServer({ port: 0 });
+    closers.push(as.close);
+    const mcp = await startMockMcpServer({
+      port: 0,
+      oauth: { isAuthorized: () => false, authorizationServers: [as.url] },
+    });
+    closers.push(mcp.close);
+    const viaLocalhost = `http://localhost:${mcp.port}/mcp`;
+    const challenge = await fetch(viaLocalhost, { method: 'POST' });
+    const metadataUrl = /resource_metadata="([^"]+)"/.exec(
+      challenge.headers.get('www-authenticate') ?? ''
+    )?.[1];
+    expect(metadataUrl).toBe(
+      `http://localhost:${mcp.port}/.well-known/oauth-protected-resource/mcp`
+    );
+    const doc = (await (await fetch(metadataUrl!)).json()) as { resource: string };
+    expect(doc.resource).toBe(viaLocalhost);
+  });
+
+  it('graphql-sse server rejects invalid JSON with 400 and keeps serving', async () => {
+    const sse = await startGraphqlSseServer({ port: 0 });
+    closers.push(sse.close);
+    const bad = await fetch(sse.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+      body: '{not json',
+    });
+    expect(bad.status).toBe(400);
+    const good = await fetch(sse.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+      body: JSON.stringify({ query: 'subscription { tick(count: 1) { n } }' }),
+    });
+    expect(good.status).toBe(200);
+    expect(await good.text()).toContain('event: next');
+  });
+
+  it('legacy graphql-ws server closes a malformed frame with 1003 and keeps serving', async () => {
+    const legacy = await startLegacyGraphqlWsServer({ port: 0 });
+    closers.push(legacy.close);
+    const closeCode = await new Promise<number>((resolve, reject) => {
+      const ws = new WebSocket(legacy.url, 'graphql-ws');
+      ws.on('open', () => ws.send('{not json'));
+      ws.on('close', (code) => resolve(code));
+      ws.on('error', reject);
+    });
+    expect(closeCode).toBe(1003);
+    // The process survived: a well-formed handshake still works.
+    const ack = await new Promise<string>((resolve, reject) => {
+      const ws = new WebSocket(legacy.url, 'graphql-ws');
+      ws.on('open', () => ws.send(JSON.stringify({ type: 'connection_init' })));
+      ws.on('message', (data: Buffer) => {
+        const msg = JSON.parse(data.toString()) as { type: string };
+        if (msg.type === 'connection_ack') {
+          ws.close();
+          resolve(msg.type);
+        }
+      });
+      ws.on('error', reject);
+    });
+    expect(ack).toBe('connection_ack');
+  });
+
   it('graphql-sse server honours `port` and streams `next` events', async () => {
     const sse = await startGraphqlSseServer({ port: 0 });
     closers.push(sse.close);
