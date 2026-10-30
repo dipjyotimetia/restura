@@ -5,7 +5,7 @@
 // the user is offered an export of that backup.
 import { toast } from 'sonner';
 import type { z } from 'zod';
-import { setDexieStorageItemStrict } from '@/lib/shared/dexie-storage';
+import { getDexieStorageItemStrict, setDexieStorageItemStrict } from '@/lib/shared/dexie-storage';
 import { downloadBlob } from '@/lib/shared/file-utils';
 
 type QuarantineTable = 'aiLab' | 'evalRuns' | 'arenaRuns';
@@ -41,6 +41,17 @@ export function hasQuarantinedData(blob: Record<string, unknown>): boolean {
 }
 
 /**
+ * Content-addressed backup key. The invalid data stays in the live store until
+ * its next write, so every launch re-quarantines the SAME blob; a fixed key per
+ * content makes that an overwrite instead of one more backup row per launch.
+ */
+async function backupKey(storeName: string, json: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(json));
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${storeName}__invalid-${hex.slice(0, 16)}`;
+}
+
+/**
  * Save `blob` next to the live store key and tell the user. Best-effort: a
  * failed backup write must not break hydration, but it is surfaced in the toast.
  */
@@ -51,23 +62,28 @@ export function quarantineInvalid(
   blob: Record<string, unknown>
 ): Promise<void> {
   if (!hasQuarantinedData(blob)) return Promise.resolve();
-  const key = `${storeName}__invalid-${Date.now()}`;
   const count = Object.values(blob).reduce<number>(
     (sum, section) =>
       sum + (section && typeof section === 'object' ? Object.keys(section).length : 1),
     0
   );
-  console.warn(`[ai-lab] quarantined ${count} invalid ${label} record(s) to "${key}"`);
-  const saved = setDexieStorageItemStrict(table, key, blob).then(
-    () => true,
-    () => false
-  );
+  const saved = backupKey(storeName, JSON.stringify(blob))
+    .then(async (key) => {
+      // Skip the write when this exact backup is already stored.
+      const existing = await getDexieStorageItemStrict(table, key).catch(() => null);
+      if (existing === null) await setDexieStorageItemStrict(table, key, blob);
+      console.warn(`[ai-lab] quarantined ${count} invalid ${label} record(s) to "${key}"`);
+    })
+    .then(
+      () => true,
+      () => false
+    );
   return saved.then((ok) => {
     // The Toaster may not be mounted while the store hydrates at import time.
     setTimeout(() => {
       toast.warning(`${count} invalid ${label} record${count === 1 ? ' was' : 's were'} removed`, {
         description: ok
-          ? 'A backup was saved. Export it to inspect or recover the data.'
+          ? 'A backup copy was kept. Use Export backup to save it as a file; the app cannot restore it for you.'
           : 'The backup could not be saved. Export it now before closing the app.',
         duration: 15_000,
         action: {
