@@ -147,6 +147,54 @@ describe('capturedRequestToCase environment/secret stripping (#1029)', () => {
     for (const form of [value, encoded, b64, jsonEscaped]) expect(out).not.toContain(form);
   });
 
+  it.each([
+    ['u:hunter2@h.example/p', 'h.example/p'],
+    ['//u:hunter2@h.example/p', '//h.example/p'],
+    ['{{proto}}://u:hunter2@h.example/p', '{{proto}}://h.example/p'],
+    ['https:/u:hunter2@h.example/p', 'https:/h.example/p'],
+    ['https:u:hunter2@h.example/p', 'https:h.example/p'],
+    ['https:\\\\u:hunter2@h.example/p', 'https:\\\\h.example/p'],
+    ['https://u:hun/ter2@h.example/p', 'https://h.example/p'],
+    ['https://u:hun?ter2@h.example/p', 'https://h.example/p'],
+    ['https://u:hun#ter2@h.example/p', 'https://h.example/p'],
+  ])('strips userinfo from %s', (url, expected) => {
+    const out = capturedRequestToCase({ request: req({ url }) }).vars.url;
+    expect(out).toBe(expected);
+    expect(out).not.toMatch(/hunter2|hun|ter2/);
+  });
+
+  it('keeps hosts, ports and @ in paths or queries that are not userinfo', () => {
+    const scrub = (url: string) => capturedRequestToCase({ request: req({ url }) }).vars.url;
+    expect(scrub('https://api.test/users/@me')).toBe('https://api.test/users/@me');
+    expect(scrub('https://api.test:8080/users/@me')).toBe('https://api.test:8080/users/@me');
+    expect(scrub('https://api.test/x?e=a:b@c')).toBe('https://api.test/x?e=[REDACTED]');
+  });
+
+  it('cuts the fragment including text after a newline, in linear time', () => {
+    const c = capturedRequestToCase({ request: req({ url: 'https://api.test/x#a\nsecretTail' }) });
+    expect(c.vars.url).toBe('https://api.test/x');
+    const start = performance.now();
+    capturedRequestToCase({ request: req({ url: `https://api.test/${'#'.repeat(200_000)}` }) });
+    expect(performance.now() - start).toBeLessThan(1_000);
+  });
+
+  it('strips a known value before pattern redaction so the tail cannot survive', () => {
+    const c = capturedRequestToCase(
+      { request: req({ body: { type: 'json', raw: 'Bearer abcdefgh!RESTOFSECRET' } }) },
+      { secretValues: ['abcdefgh!RESTOFSECRET'] }
+    );
+    expect(c.vars.body).not.toContain('RESTOFSECRET');
+  });
+
+  it('does not throw on a lone surrogate in a known value', () => {
+    expect(() =>
+      capturedRequestToCase(
+        { request: req({ body: { type: 'json', raw: 'x' } }) },
+        { secretValues: ['secret-\ud800-value'] }
+      )
+    ).not.toThrow();
+  });
+
   it('handles an @ inside the password and bare query tokens', () => {
     const c = capturedRequestToCase({
       request: req({ url: 'https://user:p@ssw0rd@api.test/v1?abcDEF123456&flag=1' }),

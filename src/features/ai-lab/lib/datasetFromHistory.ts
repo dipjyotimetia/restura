@@ -3,7 +3,11 @@
 // assistant uses before any request/response text reaches a model, plus known
 // environment/secret values and URL scrubbing. Pure — the dialog supplies the
 // raw history/collection items and the env values to strip.
-import { redactBody, redactHeaders } from '@shared/protocol/ai/redaction';
+import {
+  MIN_SECRET_LITERAL_LENGTH,
+  redactBody,
+  redactHeaders,
+} from '@shared/protocol/ai/redaction';
 import type { KeyValue } from '@/types/common';
 import type { HttpRequest, Response as HttpResponse } from '@/types/http';
 import type { DatasetCase } from '../types';
@@ -20,7 +24,7 @@ export interface RedactionOptions {
 }
 
 /** Short structural values ("8080", "v2") are not secrets; mirrors the assistant prompt builder. */
-export const MIN_ENV_VALUE_LENGTH = 8;
+export const MIN_ENV_VALUE_LENGTH = MIN_SECRET_LITERAL_LENGTH;
 
 function headersToRecord(headers: KeyValue[]): Record<string, string> {
   const out: Record<string, string> = {};
@@ -47,10 +51,16 @@ function base64Utf8(text: string): string {
 /** The forms a value takes once it is embedded in a URL, a header or a JSON body. */
 function secretVariants(value: string): string[] {
   const b64 = base64Utf8(value);
+  let urlEncoded = value;
+  try {
+    urlEncoded = encodeURIComponent(value);
+  } catch {
+    // A lone surrogate is not encodable; the raw and other forms still apply.
+  }
   return [
     ...new Set([
       value,
-      encodeURIComponent(value),
+      urlEncoded,
       b64,
       b64.replace(/=+$/, ''),
       JSON.stringify(value).slice(1, -1),
@@ -87,25 +97,52 @@ const TEMPLATE_ONLY = /^\{\{[^{}]+\}\}$/;
 // A long mixed letter+digit segment is an opaque id/token, not a route word.
 const OPAQUE_SEGMENT = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9_-]{20,}$/;
 
+// Optional scheme (known web schemes may be followed by anything, others only by a
+// slash so `user:pw@host` is not mistaken for a scheme; `{{var}}` may stand in for
+// one), then any run of `/` or `\`.
+const URL_PREFIX =
+  /^(?:(?:https?|wss?|ftps?):|(?:[a-z][a-z0-9+.-]*|\{\{[^{}]+\}\}):(?=[\\/]))?[\\/]*/i;
+
+/** Remove `userinfo@` from the text after the scheme prefix. */
+function stripUserinfo(rest: string): string {
+  // Standard rule: the authority ends at the first `/ \ ? #`; userinfo ends at its last `@`.
+  const authorityEnd = rest.search(/[/\\?#]/);
+  const authority = authorityEnd < 0 ? rest : rest.slice(0, authorityEnd);
+  const at = authority.lastIndexOf('@');
+  if (at >= 0) return rest.slice(at + 1);
+  // Lenient rule for passwords holding `/ ? #`: `u:pa/ss@host`. Only when a `:`
+  // opens before any delimiter and what follows it is not a bare port, so
+  // `host:8080/users/@me` and `?e=a:b@c` are left alone.
+  const lastAt = rest.lastIndexOf('@');
+  if (lastAt < 0) return rest;
+  const candidate = rest.slice(0, lastAt);
+  const delimiter = candidate.search(/[/\\?#]/);
+  const head = delimiter < 0 ? candidate : candidate.slice(0, delimiter);
+  const colon = head.indexOf(':');
+  if (colon < 0 || /^\d*$/.test(head.slice(colon + 1))) return rest;
+  return rest.slice(lastAt + 1);
+}
+
 /**
  * Scrub userinfo, fragment, query values and opaque path segments of a URL
  * string. Done on the raw string rather than via `new URL(...).toString()`,
- * which would percent-encode `{{templates}}`; the authority split follows the
- * WHATWG rule (userinfo ends at the LAST `@`) so `user:p@ssw0rd@host` is handled.
+ * which would percent-encode `{{templates}}` and rejects the scheme-less and
+ * malformed shapes history can hold.
  */
 function scrubUrl(url: string): string {
-  const noFragment = url.replace(/#.*$/, '');
+  const prefix = URL_PREFIX.exec(url)?.[0] ?? '';
+  const withoutUserinfo = stripUserinfo(url.slice(prefix.length));
+  const hash = withoutUserinfo.indexOf('#');
+  const noFragment = hash < 0 ? withoutUserinfo : withoutUserinfo.slice(0, hash);
   const qIndex = noFragment.indexOf('?');
   const pathPart = qIndex < 0 ? noFragment : noFragment.slice(0, qIndex);
   const queryPart = qIndex < 0 ? null : noFragment.slice(qIndex + 1);
-  const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(pathPart)?.[0] ?? '';
-  const rest = pathPart.slice(scheme.length);
-  const authorityEnd = rest.indexOf('/') < 0 ? rest.length : rest.indexOf('/');
-  const at = scheme ? rest.slice(0, authorityEnd).lastIndexOf('@') : -1;
-  const path = (scheme + rest.slice(at + 1))
-    .split('/')
-    .map((seg) => (OPAQUE_SEGMENT.test(seg) ? '[REDACTED]' : seg))
-    .join('/');
+  const path =
+    prefix +
+    pathPart
+      .split('/')
+      .map((seg) => (OPAQUE_SEGMENT.test(seg) ? '[REDACTED]' : seg))
+      .join('/');
   if (queryPart === null) return path;
   const query = queryPart
     .split('&')
@@ -119,8 +156,10 @@ function scrubUrl(url: string): string {
   return `${path}?${query}`;
 }
 
+// Known literals go first: a pattern such as `Bearer <token>` stops at the first
+// character outside its class and would leave the tail of a literal behind.
 const redactText = (text: string, o: RedactionOptions): string =>
-  stripSecretValues(redactBody(text, 'default'), o.secretValues);
+  redactBody(stripSecretValues(text, o.secretValues), 'default');
 
 /** Case vars for a request; `o === null` keeps everything raw (diff baseline only). */
 function buildVars(item: CapturedRequest, o: RedactionOptions | null): Record<string, string> {
