@@ -78,6 +78,18 @@ Digest is answered in the shared HTTP core, so web, self-hosted, desktop and the
 
 **Residual risk:** over plain `http:`, an attacker on the network can strip a SHA-256 challenge and force MD5, and can see the exchange anyway. Use `https:` for Digest-protected APIs.
 
+### NTLM auth (desktop only)
+
+NTLM authenticates a connection, so the desktop app runs the whole handshake on one connection inside the Electron main process ([ADR 0036](/architecture/adrs/0036-ntlm-desktop-fetcher-handshake/)). Web and self-hosted don't send it, and the CLI refuses it.
+
+- The first request carries only a negotiate message, with **no credentials**. After the server's challenge, only an HMAC proof is sent, never the password.
+- The handshake is **pinned to one HTTP/1.1 connection**. A second connection is refused before any bytes are written, so the authenticate message can't move to another socket. If the server closes the connection after the challenge, the request fails.
+- Credentials go only to the **origin you requested**, never to a redirect target on another origin.
+
+Through an HTTP proxy, NTLM always uses a `CONNECT` tunnel, even for `http:` targets, so a pooling proxy can't move the handshake to another upstream connection.
+
+**Residual risk:** no MIC or channel binding (Extended Protection). Over plain `http:`, or with certificate verification off, an attacker on the network can capture the NTLMv2 response (crackable offline) or relay it. Use `https:` with verification on.
+
 ## Renderer lockdown (desktop)
 
 The Electron renderer is sandboxed (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`) and pinned down by two policies in `electron/main/main.ts`:
@@ -131,6 +143,7 @@ Local dev bypasses auth only when Miniflare is detected or `DEV_BYPASS_AUTH=true
 - [ADR 0007 — SecretRef pattern](/architecture/adrs/)
 - [ADR 0027 — Telemetry and privacy-preserving usage signal](/architecture/adrs/0027-telemetry-and-privacy-preserving-usage-analytics/)
 - [ADR 0029 — Digest auth via challenge-retry](/architecture/adrs/0029-digest-auth-challenge-retry/)
+- [ADR 0036 — NTLM as a desktop-only fetcher handshake](/architecture/adrs/0036-ntlm-desktop-fetcher-handshake/)
 </Aside>
 
 ## Reporting

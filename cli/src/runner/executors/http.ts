@@ -15,7 +15,7 @@ import type { ExecuteOptions, ExecuteOutcome } from './types';
  * HTTP + GraphQL executor. GraphQL is represented internally as an HttpRequest
  * with `body.type === 'graphql'` (see `ocToInternal`), so the same code path
  * serves both. Auth that needs wire-level signing (AWS SigV4, OAuth1, WSSE,
- * NTLM) is forwarded to `executeHttpProxy` which delegates to `auth-signer`.
+ * Digest) is forwarded to `executeHttpProxy`; NTLM is refused (desktop-only).
  * Renderer-applied auth (Bearer, Basic, API-key, OAuth2) is materialised
  * here into headers/query params before the call.
  */
@@ -92,6 +92,11 @@ export async function executeHttp(
       ...(opts.oauthFetch ? { fetch: opts.oauthFetch } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
+    // NTLM needs the desktop fetcher's pinned-connection handshake (#1069);
+    // refuse rather than send the request unauthenticated.
+    if (resolvedAuth?.type === 'ntlm') {
+      return errorOutcome('NTLM authentication is desktop-only; the CLI cannot send this request');
+    }
     applyAuthHeaders(resolvedAuth, headers, params);
     const proxyAuth = toProtocolAuth(resolvedAuth);
 
