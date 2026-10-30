@@ -264,7 +264,7 @@ export function SseEventTimeline({
                     >
                       {entry.event}
                     </span>
-                    {entry.lastEventId !== undefined && (
+                    {entry.lastEventId && (
                       <span className="font-mono text-sp-9 text-sp-dim tabular-nums">
                         id={entry.lastEventId}
                       </span>

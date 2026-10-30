@@ -10,22 +10,31 @@
  * frame parser's `feed(Uint8Array): SseEvent[]` API directly, delete this shim.
  */
 
-import { type ParsedSseEvent, type SseEvent, SseParser as SseFrameParser } from './sse-parser';
+import {
+  type DispatchedSseEvent,
+  type ParsedSseEvent,
+  SseParser as SseFrameParser,
+} from './sse-parser';
 
 export type { ParsedSseEvent };
 
 export class SseStreamReader {
   private inner = new SseFrameParser();
   private encoder = new TextEncoder();
-  /** Carry between events per spec — `id:` persists until a new id is received. */
-  private currentLastEventId: string | undefined;
 
-  private dispatch(e: SseEvent, onEvent: (e: ParsedSseEvent) => void): void {
-    if (e.id !== undefined) this.currentLastEventId = e.id;
+  /**
+   * `lastEventId` is carried between events per spec (`id:` persists until a
+   * new id is received) and comes from the frame parser's stream state, so
+   * data-less `id:` heartbeats and empty-id resets count too.
+   */
+  private dispatch(
+    { event: e, lastEventId }: DispatchedSseEvent,
+    onEvent: (e: ParsedSseEvent) => void
+  ): void {
     const built: ParsedSseEvent = {
       event: e.event ?? 'message',
       data: e.data,
-      ...(this.currentLastEventId !== undefined ? { lastEventId: this.currentLastEventId } : {}),
+      ...(lastEventId !== undefined ? { lastEventId } : {}),
       ...(e.retry !== undefined ? { retry: e.retry } : {}),
     };
     onEvent(built);
@@ -37,18 +46,25 @@ export class SseStreamReader {
    */
   feed(chunk: string, onEvent: (e: ParsedSseEvent) => void): void {
     const bytes = this.encoder.encode(chunk);
-    for (const e of this.inner.feed(bytes)) this.dispatch(e, onEvent);
+    for (const d of this.inner.feedWithState(bytes)) this.dispatch(d, onEvent);
   }
 
   /** Drop any buffered partial line and pending event. Call on connection close. */
   reset(): void {
     this.inner = new SseFrameParser();
-    this.currentLastEventId = undefined;
   }
 
-  /** Read the current Last-Event-ID for use in reconnect headers. */
+  /**
+   * Read the current Last-Event-ID for use in reconnect headers. `""` means the
+   * server reset it with an empty `id:` — send no `Last-Event-ID` header.
+   */
   getLastEventId(): string | undefined {
-    return this.currentLastEventId;
+    return this.inner.lastEventId;
+  }
+
+  /** Most recent valid server `retry:` (ms), or undefined if none was sent. */
+  getReconnectionTime(): number | undefined {
+    return this.inner.reconnectionTime;
   }
 }
 

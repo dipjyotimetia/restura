@@ -2,6 +2,20 @@
 
 import type { ProtocolSecretValue } from './shared';
 
+/**
+ * `sse:close:<id>` payload. `fatal` marks the WHATWG "fail the connection"
+ * cases (non-2xx, 204, wrong Content-Type) — the renderer must not
+ * auto-reconnect. `lastEventId` / `retry` are the parser's stream state at
+ * close, which data-less `id:` / `retry:` blocks may have moved without any
+ * event crossing IPC; the renderer resumes from them.
+ */
+export interface SseClosePayload {
+  reason: string;
+  fatal?: boolean;
+  lastEventId?: string;
+  retry?: number;
+}
+
 export interface ElectronSseAPI {
   connect: (config: {
     connectionId: string;

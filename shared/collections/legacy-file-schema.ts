@@ -129,6 +129,7 @@ export const fileSseRequestSchema = z.object({
   auth: fileAuthConfigSchema.optional(),
   eventFilter: z.array(z.string()).optional(),
   reconnectOnResume: z.boolean().optional(),
+  autoReconnect: z.boolean().optional(),
   preRequestScript: z.string().optional(),
   testScript: z.string().optional(),
 });

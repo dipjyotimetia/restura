@@ -100,6 +100,7 @@ function sseToOC(name: string, r: SseRequest): unknown {
   }
   if (r.eventFilter?.length) sse.eventFilter = r.eventFilter;
   if (typeof r.reconnectOnResume === 'boolean') sse.reconnectOnResume = r.reconnectOnResume;
+  if (typeof r.autoReconnect === 'boolean') sse.autoReconnect = r.autoReconnect;
   const auth = authFromInternal(r.auth);
   if (auth) sse.auth = auth;
   const out: Record<string, unknown> = { info: { type: 'sse', name }, sse };

@@ -86,7 +86,7 @@ describe('SseClient ↔ collections', () => {
     await user.click(screen.getByRole('button', { name: 'Add header (0)' }));
     await user.click(screen.getByRole('button', { name: 'Add param (0)' }));
     await user.click(screen.getByRole('button', { name: 'Auth: none' }));
-    await user.click(screen.getByRole('switch'));
+    await user.click(screen.getByRole('switch', { name: 'Reconnect on resume (Last-Event-ID)' }));
     act(() => {
       useSseStore.getState().appendEvent(useSseStore.getState().activeConnectionId!, {
         event: 'tick',
@@ -152,7 +152,7 @@ describe('SseClient ↔ collections', () => {
       expect.any(String),
       'https://saved.example.com/sse?topic=news',
       { 'X-Key': 'k' },
-      { reconnectOnResume: false }
+      { reconnectOnResume: false, autoReconnect: true }
     );
     // Hydration alone is not an edit.
     expect(useRequestStore.getState().tabs[0]?.isDirty).toBe(false);

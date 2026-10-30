@@ -763,6 +763,7 @@ function sseEntryToInternal(entry: Record<string, unknown>): SseRequest {
   if (typeof sseCfg.reconnectOnResume === 'boolean') {
     req.reconnectOnResume = sseCfg.reconnectOnResume;
   }
+  if (typeof sseCfg.autoReconnect === 'boolean') req.autoReconnect = sseCfg.autoReconnect;
   if (scripts.preRequest) req.preRequestScript = scripts.preRequest;
   if (scripts.test) req.testScript = scripts.test;
   return req;

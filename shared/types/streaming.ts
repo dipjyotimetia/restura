@@ -16,6 +16,11 @@ export interface SseRequest {
   eventFilter?: string[];
   /** Whether to reconnect using Last-Event-ID on disconnect */
   reconnectOnResume?: boolean;
+  /**
+   * Automatically reestablish the stream (WHATWG §9.2.3) after it drops,
+   * honouring the server's `retry:`; defaults to true.
+   */
+  autoReconnect?: boolean;
   preRequestScript?: string;
   testScript?: string;
 }

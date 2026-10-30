@@ -200,6 +200,7 @@ const SSE_FIELDS = {
   auth: 'roundtrip',
   eventFilter: 'roundtrip',
   reconnectOnResume: 'roundtrip',
+  autoReconnect: 'roundtrip',
   preRequestScript: 'roundtrip',
   testScript: 'roundtrip',
 } as const satisfies Record<keyof SseRequest, FieldPolicy>;
@@ -214,6 +215,7 @@ const SSE_FIXTURE: Required<SseRequest> = {
   auth: AUTHS.wsse,
   eventFilter: ['price', 'trade'],
   reconnectOnResume: false,
+  autoReconnect: false,
   preRequestScript: 'rs.variables.set("s", 1);',
   testScript: 'rs.test("sse", () => {});',
 };
