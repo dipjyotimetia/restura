@@ -34,7 +34,11 @@ interval polling — events push, polls burn tokens.
 4. **Unresolved review comments?** For each: if the fix is unambiguous and
    scoped, apply it, push, and resolve the thread. If a comment is ambiguous
    or asks for an architectural change, do NOT guess — surface it to the user
-   with your reading of the options.
+   with your reading of the options. Count review rounds per PR (one round =
+   one push answering reviewer findings); after three rounds stop pushing
+   fixes and surface the PR, because the approach needs a rethink, not a
+   fourth patch (`REVIEW.md`, "Rounds"). Answer every finding: fix it or
+   resolve the thread with a one-line reason.
 5. **Dependabot PRs**: leave them to `dependabot-auto-merge` unless CI is red;
    if red on a dep bump, diagnose whether the bump or the repo is at fault and
    say which.

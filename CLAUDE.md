@@ -43,6 +43,7 @@ Full catalogue (e2e, desktop e2e, echo stacks, Docker, deploy): `docs/agents/arc
 | Any feature / new protocol / auth / importer | `restura-feature-dev` skill (+ its `references/`) |
 | Architecture tour, subsystem notes, full commands | `docs/agents/architecture.md` |
 | Verifying / shipping / release gates | `restura-production-checks` skill, `/ship-check` |
+| Reviewing a diff / PR | `code-review` skill, `REVIEW.md` (what failure looks like per area, evidence rule, caps, depth, rounds) |
 | UI change | `verify-ui-change` skill — compiling is not verified |
 | Multi-PR / parallel agent delivery | `docs/agents/delivery.md`, `/batch-ship` |
 | Security boundary (SSRF, IPC, secrets, sandboxes) | `restura-security-auditor` agent, `tests/security/` |
