@@ -142,8 +142,10 @@ async function createSpanProcessor(
     config.target === 'langfuse' ? config.baseUrl : config.endpoint
   );
   if (config.target === 'langfuse') {
-    // LangfuseSpanProcessor builds its own exporter without an agent hook, so
-    // this target gets the pre-flight DNS validation but not the connect pin.
+    // This target gets the pre-flight DNS validation but not the connect pin. A
+    // pinned exporter can be passed via LangfuseSpanProcessor's `exporter`
+    // param, but a custom exporter bypasses Langfuse's OTLP batch byte limit
+    // and would have to enforce it itself, so it is not wired.
     const [publicKey, secretKey] = await Promise.all([
       credentialResolver(config.publicKey),
       credentialResolver(config.secretKey),

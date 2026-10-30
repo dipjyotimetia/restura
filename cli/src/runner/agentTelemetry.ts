@@ -66,8 +66,10 @@ export async function exportCliAgentTelemetry(
   );
   const processor =
     config.target === 'langfuse'
-      ? // LangfuseSpanProcessor builds its own exporter with no agent hook, so
-        // this target gets the DNS validation above but not the connect pin.
+      ? // This target gets the DNS validation above but not the connect pin. A
+        // pinned exporter can be passed via LangfuseSpanProcessor's `exporter`
+        // param, but a custom exporter bypasses Langfuse's OTLP batch byte
+        // limit and would have to enforce it itself, so it is not wired.
         new LangfuseSpanProcessor({
           publicKey: resolve(config.publicKey),
           secretKey: resolve(config.secretKey),
