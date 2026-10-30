@@ -191,6 +191,18 @@ describe('AI Lab secret check follows provider kind (#1028)', () => {
     expect(await firstEvent(lanSpec)).toMatchObject({ type: 'error', code: 'network' });
   });
 
+  it('scans replayed assistant tool-call arguments, not only message content', async () => {
+    const spec = specFor(cloud, 'gpt-4o', [
+      { role: 'user', content: 'call it' },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 't1', name: 'http', input: CAPTURED }],
+      },
+    ]);
+    expect(await firstEvent(spec)).toMatchObject({ type: 'error', code: 'guard' });
+  });
+
   it('the visible per-suite override sends unredacted to cloud', async () => {
     const spec = specFor(cloud, 'gpt-4o', msgs, { sendUnredactedToCloud: true });
     expect(spec.rawMode).toBe(true);

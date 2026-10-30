@@ -36,7 +36,11 @@ export async function* executeAiChat(
 ): AsyncGenerator<ChatStreamEvent, void, unknown> {
   // 1. Paranoia pass on outgoing messages.
   if (!spec.rawMode) {
-    const blob = spec.messages.map((m) => m.content).join('\n');
+    // Replayed assistant tool calls carry arguments the model (or a tool result
+    // it echoed) produced, so scan those too, not just `content`.
+    const blob = spec.messages
+      .flatMap((m) => [m.content, ...(m.toolCalls ?? []).map((call) => call.input)])
+      .join('\n');
     if (detectUnredactedSecrets(blob)) {
       yield {
         type: 'error',
