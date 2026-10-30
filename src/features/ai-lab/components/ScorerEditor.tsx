@@ -258,6 +258,24 @@ function ScorerRow({
             value={scorer.argsSchema ?? ''}
             onChange={(event) => onChange({ argsSchema: event.target.value })}
           />
+          <Select
+            value={scorer.expectedArgsFrom ?? 'none'}
+            onValueChange={(value) =>
+              onChange({
+                expectedArgsFrom:
+                  value === 'none' ? undefined : (value as 'expected' | 'reference'),
+              })
+            }
+          >
+            <SelectTrigger aria-label="Match call args against">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Don&apos;t compare args to a case value</SelectItem>
+              <SelectItem value="expected">Args must equal case.expected (JSON)</SelectItem>
+              <SelectItem value="reference">Args must equal case.reference (JSON)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       )}
       {scorer.kind === 'pairwise' && (

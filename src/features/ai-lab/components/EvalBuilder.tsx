@@ -6,29 +6,20 @@ import { Floater } from '@/components/ui/spatial';
 import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
 import { useEvalRun } from '../hooks/useEvalRun';
 import { useModelSelection } from '../hooks/useModelSelection';
-import { DEFAULT_PASS_THRESHOLD } from '../lib/evalPassThreshold';
+import { draftFromConfig, evalConfigFromDraft } from '../lib/evalDraft';
 import { selfJudgingScorer } from '../lib/judgePolicy';
 import { modelKey } from '../lib/modelOptions';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
-import type { EvalCellResult, EvalConfig, EvalTarget, ModelRef, ScorerConfig } from '../types';
+import type { EvalCellResult, EvalConfig, ModelRef, ScorerConfig } from '../types';
 import { EvalDraftEditor } from './EvalDraftEditor';
 import { EvalRunControls } from './EvalRunControls';
+import { EvalToolsEditor } from './EvalToolsEditor';
 import { SCORER_LABEL, ScorerEditor } from './ScorerEditor';
 import { VerdictChip } from './VerdictChip';
 
 const selfJudgingReason = (scorer: { kind: 'judge' | 'pairwise'; judgeModel: ModelRef }) =>
   `The ${SCORER_LABEL[scorer.kind]} scorer's judge (${scorer.judgeModel.model}) is also a model under test; pick a different judge.`;
-
-function targetFor(mode: 'text' | 'http' | 'graphql'): EvalTarget {
-  if (mode === 'text') return { kind: 'text' };
-  return { kind: 'http-exec', parseFrom: 'fenced', protocol: mode };
-}
-
-function targetModeOf(target: EvalTarget | undefined): 'text' | 'http' | 'graphql' {
-  if (target?.kind === 'http-exec') return target.protocol;
-  return 'text';
-}
 
 export function EvalBuilder() {
   const providers = useAiLabStore((state) => state.providers);
@@ -90,22 +81,8 @@ export function EvalBuilder() {
     : undefined;
 
   /** Populate the draft from a saved eval config (prompt text included). */
-  const loadConfig = (config: EvalConfig) => {
-    const prompt = prompts[config.promptId];
-    setDraft({
-      configId: config.id,
-      name: config.name,
-      system: prompt?.system ?? '',
-      user: prompt?.user ?? '',
-      datasetId: config.datasetId,
-      selected: config.models.map(modelKey),
-      scorers: config.scorers,
-      concurrency: config.concurrency,
-      targetMode: targetModeOf(config.target),
-      sendUnredactedToCloud: config.sendUnredactedToCloud === true,
-      passThresholdPct: Math.round((config.passThreshold ?? DEFAULT_PASS_THRESHOLD) * 100),
-    });
-  };
+  const loadConfig = (config: EvalConfig) =>
+    setDraft(draftFromConfig(config, prompts[config.promptId]));
 
   const deleteConfig = async () => {
     if (!savedConfig || !(await confirmDeleteConfig())) return;
@@ -158,20 +135,7 @@ export function EvalBuilder() {
       system: draft.system,
       user: draft.user,
     });
-    const config: EvalConfig = {
-      id: draft.configId,
-      name: draft.name,
-      promptId,
-      datasetId: draft.datasetId,
-      models,
-      scorers,
-      concurrency: draft.concurrency,
-      target: targetFor(draft.targetMode),
-      passThreshold: draft.passThresholdPct / 100,
-      ...(draft.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
+    const config = evalConfigFromDraft(draft, { promptId, models, now: Date.now() });
     upsertEvalConfig(config);
     start(config);
   };
@@ -247,6 +211,9 @@ export function EvalBuilder() {
             firstModelRef={firstModelRef}
             onChange={setScorers}
           />
+          <div className="mt-4 border-t border-sp-line pt-4">
+            <EvalToolsEditor tools={draft.tools} onChange={(tools) => patchDraft({ tools })} />
+          </div>
           {progress && progress.cells.length > 0 && (
             <div className="mt-4 space-y-2 border-t border-sp-line pt-4">
               <span className="sp-label">Live results</span>

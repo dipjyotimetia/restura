@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import type { DatasetDraft, EditableCase } from '../lib/datasetDraft';
-import type { ScorerConfig } from '../types';
+import type { AiToolDef, ScorerConfig } from '../types';
 
 /**
  * Session-scoped AI Lab UI state. Deliberately NOT persisted: a module-level
@@ -53,6 +53,8 @@ export interface EvalDraft {
   sendUnredactedToCloud?: boolean;
   /** Pass threshold as a whole percent (1-100) of scored cells. */
   passThresholdPct: number;
+  /** Tool definitions offered to the model (needed by the tool-call scorer). */
+  tools: AiToolDef[];
 }
 
 export interface ArenaDraft {
@@ -83,6 +85,7 @@ const defaultEvalDraft = (): EvalDraft => ({
   targetMode: 'text',
   sendUnredactedToCloud: false,
   passThresholdPct: 100,
+  tools: [],
 });
 
 const defaultArenaDraft = (): ArenaDraft => ({

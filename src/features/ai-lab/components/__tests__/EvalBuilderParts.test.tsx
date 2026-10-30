@@ -46,6 +46,7 @@ const DRAFT: EvalDraft = {
   selected: [],
   scorers: [],
   passThresholdPct: 100,
+  tools: [],
   concurrency: 4,
   targetMode: 'http',
 };
