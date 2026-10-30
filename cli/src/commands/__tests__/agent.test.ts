@@ -312,6 +312,43 @@ describe('handoff preflight', () => {
   });
 });
 
+describe('scripted saved-request preflight', () => {
+  it('exits 2 before any model call when a listed request has scripts', async () => {
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependenciesWithFiles(
+      {
+        '/suite.json': suite({ tools: [{ kind: 'restura-request', requestId: 'get-orders' }] }),
+        '/runtime.json': {
+          schemaVersion: 1,
+          sources: [
+            { id: 'orders', kind: 'collection', path: './orders', requestIds: ['get-orders'] },
+          ],
+        },
+      },
+      fetcher
+    );
+    vi.mocked(deps.loadCollection).mockResolvedValue({
+      requests: [
+        {
+          relativePath: 'get-orders',
+          folderPath: [],
+          type: 'http',
+          request: { id: 'get-orders', method: 'GET', testScript: 'pm.test("x", () => {})' },
+        },
+      ],
+    } as Awaited<ReturnType<AgentEvalDependencies['loadCollection']>>);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      expect(await runAgentEval('/suite.json', { runtime: '/runtime.json' }, deps)).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('script'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+});
+
 describe('runAgentEval exit codes', () => {
   const mcpRuntime = {
     schemaVersion: 1,

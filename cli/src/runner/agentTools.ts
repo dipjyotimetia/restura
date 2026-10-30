@@ -83,6 +83,15 @@ export async function resolveCliAgentTools(
         throw new Error(`agent request tool must use GET, HEAD, or OPTIONS: ${requestId}`);
       }
 
+      // Desktop classes a scripted request as a mutation and runs its scripts;
+      // the CLI never runs them, so the two harnesses would diverge silently.
+      if (request.preRequestScript?.trim() || request.testScript?.trim()) {
+        throw new AgentPreflightError(
+          `agent request tool ${requestId} has pre-request or test scripts (own or inherited); ` +
+            'the CLI does not run scripts for agent tools, so use an unscripted request'
+        );
+      }
+
       tools.push({
         definition: {
           name: `request_${requestId.replace(/[^a-zA-Z0-9_-]/g, '_')}`.slice(0, 64),

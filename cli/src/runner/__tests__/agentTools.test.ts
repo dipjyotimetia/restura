@@ -86,6 +86,35 @@ describe('resolveCliAgentTools', () => {
   });
 });
 
+describe('resolveCliAgentTools scripted requests', () => {
+  it.each(['preRequestScript', 'testScript'])(
+    'refuses a saved request carrying a %s (scripts never run in the CLI)',
+    async (field) => {
+      const deps = dependencies();
+      deps.loadCollection.mockResolvedValue({
+        requests: [
+          {
+            relativePath: 'Orders/Get orders',
+            folderPath: ['Orders'],
+            type: 'http',
+            request: { id: 'get-orders', method: 'GET', [field]: 'pm.environment.set("a", 1)' },
+          },
+        ],
+      });
+
+      const error = await resolveCliAgentTools(
+        [{ kind: 'restura-request', requestId: 'get-orders' }] satisfies ToolSource[],
+        runtime,
+        { variables: {}, environment: {}, timeoutMs: 5_000, allowLocalhost: false },
+        deps
+      ).catch((cause: unknown) => cause);
+
+      expect(error).toBeInstanceOf(AgentPreflightError);
+      expect((error as Error).message).toMatch(/get-orders.*script/);
+    }
+  );
+});
+
 describe('resolveCliAgentTools MCP annotations', () => {
   const mcpRuntime: AgentRuntimeManifest = {
     schemaVersion: 1,
