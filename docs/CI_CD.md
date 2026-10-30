@@ -112,8 +112,8 @@ rules_) for `main`:
   | `Electron pack smoke (windows-latest)` | CI / `electron-smoke`          |
   | `Extension build + E2E`                | CI / `e2e-extension`           |
 
-  `Vitest (shard 1/2)` / `(2/2)` need not be required: `validate` fails when
-  either shard fails. Leave `VS Code extension integration` optional (it
+  `Vitest (shard 1/4)` … `(4/4)` need not be required: `validate` fails when
+  any shard fails. Leave `VS Code extension integration` optional (it
   downloads VS Code and can flake).
 
   > Do **not** require `Deploy preview` — it is skipped on forked PRs by design,
