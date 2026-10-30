@@ -4,6 +4,7 @@ import {
   WS_IPC_MAX_MESSAGE_LENGTH,
 } from '@shared/protocol/ws-binary-codec';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
+import { checkBrowserSocketTargetFromSettings } from '@/lib/shared/browserSocketPolicy';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import {
   attachControlFrameListeners,
@@ -126,6 +127,14 @@ class WebSocketManager {
     // the main-process path adds custom headers + the DNS-pinned SSRF guard.
     if (isElectron()) {
       this.connectViaElectron(connectionId, url, headers ?? {}, protocols, isReconnect);
+      return;
+    }
+
+    // Browser-direct: the Worker's SSRF guard never sees this socket (#898).
+    const target = checkBrowserSocketTargetFromSettings(url);
+    if (!target.ok) {
+      store.addMessage(connectionId, 'system', `Connection refused: ${target.error}`);
+      store.updateConnectionStatus(connectionId, 'disconnected');
       return;
     }
 

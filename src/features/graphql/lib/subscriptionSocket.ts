@@ -1,3 +1,4 @@
+import { checkBrowserSocketTargetFromSettings } from '@/lib/shared/browserSocketPolicy';
 import { isElectron } from '@/lib/shared/platform';
 import { ElectronGraphQLSocket, type MainSideHandshakeAuth } from './electronGraphQLSocket';
 
@@ -81,7 +82,19 @@ export function openSubscriptionSocket(
 ): SubscriptionSocket {
   assertWebSocketUrl(url);
   if (isElectron()) return new ElectronGraphQLSocket(url, protocols, headers, mainSide);
+  assertBrowserSocketTargetAllowed(url);
   return new WebSocket(url, protocols) as unknown as SubscriptionSocket;
+}
+
+/**
+ * Web only: refuse loopback / private-network targets before the browser
+ * connects directly — the Worker's SSRF guard never sees these sockets (#898).
+ * Throws synchronously so `connect()` reports it immediately.
+ */
+export function assertBrowserSocketTargetAllowed(url: string): void {
+  if (isElectron()) return;
+  const target = checkBrowserSocketTargetFromSettings(url);
+  if (!target.ok) throw new Error(`Connection refused: ${target.error}`);
 }
 
 /**

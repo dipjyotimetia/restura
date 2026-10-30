@@ -29,6 +29,8 @@ Restura's WebSocket client gives you a full session viewer: every frame sent and
 
 The browser `WebSocket` API can't set custom headers on the upgrade, and the web build currently connects directly with the browser API — so handshake headers configured in the UI are **not sent** on web (a system message in the transcript says so when it happens). A Worker relay (`/api/ws-ticket` → `/api/ws`) exists server-side to lift this limitation but is not wired into the renderer yet. Use the desktop app when the server requires upgrade headers.
 
+Because the web build connects browser-direct, the Worker's SSRF guard doesn't apply. Restura runs an in-app check instead: loopback, private-network and cloud-metadata targets are refused unless **Settings → Security → Allow private / internal IPs** is on (cloud metadata is always refused). On every platform, connecting over `ws://` with credentials in the URL or a credential-named header asks for confirmation first.
+
 ## Desktop-specific path
 
 The Electron main process opens the socket directly with the native `ws` library, so:

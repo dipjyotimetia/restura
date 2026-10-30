@@ -16,7 +16,7 @@ export const WEBSOCKET_CAPABILITIES = {
     web: false,
     desktop: false,
     notes:
-      'Worker routes exist (/api/ws-ticket, /api/ws) but the web renderer connects directly via the browser WebSocket API; desktop uses Node ws with the same guards',
+      'Worker routes exist (/api/ws-ticket, /api/ws) but the web renderer connects directly via the browser WebSocket API (as do Socket.IO and GraphQL subscriptions), so an in-app check refuses loopback / private / cloud-metadata targets unless "Allow private / internal IPs" is on, and confirms before sending credentials over ws:// (#898); desktop uses Node ws with the DNS-pinned guard',
   },
   'websocket.ping': {
     label: 'WebSocket ping / pong frames (with RTT)',

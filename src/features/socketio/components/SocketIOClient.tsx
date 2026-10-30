@@ -44,13 +44,14 @@ import {
   socketioExportName,
   socketioToLogEntries,
 } from '@/features/socketio/lib/socketioLogExport';
-import { socketioManager } from '@/features/socketio/lib/socketioManager';
+import { parseAuthJson, socketioManager } from '@/features/socketio/lib/socketioManager';
 import {
   SOCKETIO_CONNECTION_OPTION_DEFAULTS,
   type SocketIOEventDirection,
   type SocketIOEventFilter,
   useSocketIOStore,
 } from '@/features/socketio/store/useSocketIOStore';
+import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
 import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { modLabel } from '@/lib/shared/shortcuts';
 import {
@@ -62,9 +63,13 @@ import {
   nextTemplateName,
   type SocketIOEmitTemplate,
 } from '@/lib/shared/streaming/messageTemplates';
+import {
+  getActiveStreamingVariableScope,
+  resolveStreamingText,
+} from '@/lib/shared/streaming/messageVariables';
 import { useComposerDraftSync } from '@/lib/shared/streaming/useComposerDraftSync';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
-import { cn } from '@/lib/shared/utils';
+import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
 
 const formatDuration = (ms: number): string => {
@@ -236,6 +241,7 @@ function SocketIOClient() {
     { eventName: 'message', args: '"hello"', ack: false }
   );
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const cleartextGuard = useCleartextCredentialsGuard();
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [frozen, setFrozen] = useState(false);
   // null = auto (open only when something is configured); boolean = user override.
@@ -293,7 +299,27 @@ function SocketIOClient() {
 
   // Resolves {{var}} in the URL / JSON auth for the live connection only —
   // the stored template is never overwritten (SIO-2).
-  const handleConnect = () => {
+  const handleConnect = async () => {
+    const resolvedUrl = resolveStreamingText(
+      connection.url,
+      getActiveStreamingVariableScope()
+    ).wire;
+    // ws:// / http:// would carry the auth payload / credential headers in cleartext (#898).
+    const jsonAuth = connection.authMode === 'json' ? parseAuthJson(connection.authJson) : null;
+    const creds = {
+      headers: {
+        ...keyValuePairsToRecord(connection.query),
+        ...keyValuePairsToRecord(connection.extraHeaders),
+      },
+      // Unparseable JSON still counts as a credential payload; connect rejects it later.
+      authPayload: jsonAuth
+        ? jsonAuth.ok
+          ? jsonAuth.auth
+          : { json: connection.authJson }
+        : keyValuePairsToRecord(connection.auth),
+    };
+    if (cleartextGuard.needsConfirm(resolvedUrl, creds) && !(await cleartextGuard.confirm()))
+      return;
     connectWithVariables(activeConnectionId);
   };
 
@@ -349,6 +375,7 @@ function SocketIOClient() {
 
   return (
     <div className="flex flex-1 flex-col gap-2.5 bg-transparent p-3 overflow-hidden">
+      <cleartextGuard.Dialog />
       {/* Connection bar */}
       <Floater radius="pill" className="flex items-center gap-2 px-3 h-12 shrink-0">
         <ProtoChip protocol="SOCKETIO" />
@@ -429,7 +456,7 @@ function SocketIOClient() {
           <Button
             variant="cta"
             size="cta"
-            onClick={handleConnect}
+            onClick={() => void handleConnect()}
             disabled={!connection.url}
             className="min-w-[80px]"
           >

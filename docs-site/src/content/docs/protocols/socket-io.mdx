@@ -42,7 +42,7 @@ Set `extraHeaders` and don't see them at the server on web? That's expected — 
 
 ## Transports
 
-The web build connects **browser-direct** with `socket.io-client`, so emits, listeners, and ack callbacks all work without a proxy. The desktop app runs the same client library inside the Electron main process, and additionally:
+The web build connects **browser-direct** with `socket.io-client`, so emits, listeners, and ack callbacks all work without a proxy. Because the Worker's SSRF guard never sees that connection, Restura refuses loopback, private-network and cloud-metadata targets on web unless **Settings → Security → Allow private / internal IPs** is on (cloud metadata is always refused), and on every platform asks before sending a handshake `auth` payload or credential-named query / header values over `http://` / `ws://`. The desktop app runs the same client library inside the Electron main process, and additionally:
 
 - **pins the connection to a pre-validated IP** after the initial SSRF check — the same DNS-rebind mitigation used for [WebSocket](/protocols/websocket/) and gRPC streams (see [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/));
 - **allows loopback and private addresses** by default, since Socket.IO servers routinely run on `localhost` or a LAN dev box during development;
