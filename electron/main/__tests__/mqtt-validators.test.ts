@@ -38,10 +38,19 @@ describe('MQTT IPC validators', () => {
       expect(result.success).toBe(true);
     });
 
-    it('rejects a non-mqtt broker scheme (ws://)', () => {
+    it('accepts MQTT-over-WebSocket broker URLs (ws:// / wss://) with a path', () => {
+      for (const brokerUrl of [
+        'ws://broker.example.com:8083/mqtt',
+        'wss://broker.example.com/mqtt',
+      ]) {
+        expect(MqttConnectSchema.safeParse({ ...baseConnect, brokerUrl }).success).toBe(true);
+      }
+    });
+
+    it('rejects a non-mqtt broker scheme (http://)', () => {
       const result = MqttConnectSchema.safeParse({
         ...baseConnect,
-        brokerUrl: 'ws://broker.example.com:8080',
+        brokerUrl: 'http://broker.example.com:8080',
       });
       expect(result.success).toBe(false);
     });
@@ -89,7 +98,7 @@ describe('MQTT IPC validators', () => {
           payload: '',
           qos: 0,
           retain: false,
-          correlationData: 'x'.repeat(4097),
+          correlationData: 'x'.repeat(8193),
         }).success
       ).toBe(false);
     });

@@ -18,6 +18,10 @@ vi.mock('../ipc/ipc-utils', () => ({
   emitTo: mockEmitTo,
   errorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
+// DNS-time broker guard (SEC-K1) has its own suite (tests/security/broker-dns-guard.test.ts).
+vi.mock('../security/broker-dns-guard', () => ({
+  assertKafkaBrokerHostsResolveSafe: vi.fn(async () => undefined),
+}));
 vi.mock('../security/kafka-broker-guard', () => ({
   assertKafkaBrokersSafe: vi.fn(),
   assertRegistryUrlSafe: vi.fn(),

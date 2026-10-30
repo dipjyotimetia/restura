@@ -8,6 +8,8 @@ export const MQTT_IPC = {
     subscribe: 'mqtt:subscribe',
     unsubscribe: 'mqtt:unsubscribe',
     disconnect: 'mqtt:disconnect',
+    request: 'mqtt:request',
+    requestCancel: 'mqtt:request-cancel',
   },
 } as const;
 
@@ -19,5 +21,8 @@ export const MQTT_EVENT_PREFIX = {
     subscribed: 'mqtt:subscribed:',
     unsubscribed: 'mqtt:unsubscribed:',
     close: 'mqtt:close:',
+    disconnected: 'mqtt:disconnected:',
+    reconnect: 'mqtt:reconnect:',
+    offline: 'mqtt:offline:',
   },
 } as const;

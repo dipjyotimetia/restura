@@ -8,6 +8,7 @@ export const SECURITY_IPC = {
     describe: 'secret:describe',
     list: 'secret:list',
     clear: 'secret:clear',
+    copy: 'secret:copy',
   },
   externalSecrets: {
     list: 'external-secrets:list',

@@ -126,6 +126,8 @@ export const protocolApi: ProtocolApi = {
     subscribe: invoke<ElectronAPI['mqtt']['subscribe']>(IPC.mqtt.subscribe),
     unsubscribe: invoke<ElectronAPI['mqtt']['unsubscribe']>(IPC.mqtt.unsubscribe),
     disconnect: invoke<ElectronAPI['mqtt']['disconnect']>(IPC.mqtt.disconnect),
+    request: invoke<ElectronAPI['mqtt']['request']>(IPC.mqtt.request),
+    cancelRequest: invoke<ElectronAPI['mqtt']['cancelRequest']>(IPC.mqtt.requestCancel),
     ...channelEventBridge(CHANNEL_PREFIXES.mqtt),
   },
 };

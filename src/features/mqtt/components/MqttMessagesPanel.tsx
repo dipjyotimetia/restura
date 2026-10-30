@@ -1,5 +1,5 @@
 import { RefreshCw, Search } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { LogExportMenu } from '@/components/shared/messageLog/MessageLogControls';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,7 @@ import {
 import { CodeEditorFrame, ConnectionBadge, Floater, Stat } from '@/components/ui/spatial';
 import { TabsContent } from '@/components/ui/tabs';
 import { mqttToLogEntries } from '@/features/mqtt/lib/mqttLogExport';
+import { displayMqttBinary, mqttBinaryLength } from '@/features/mqtt/lib/mqttPayload';
 import type {
   MqttConnection,
   MqttMessage,
@@ -76,11 +77,16 @@ const MessageRow = memo(function MessageRow({
             {message.topic}
           </span>
         )}
+        {message.payloadEncoding === 'base64' && !message.error && (
+          <span className="mr-2 text-sp-dim">[binary]</span>
+        )}
         <span
           className={cn(message.error ? 'text-red-400' : 'text-sp-text')}
           title={message.payload}
         >
-          {message.error ? message.error : message.payload}
+          {message.error
+            ? message.error
+            : displayMqttBinary(message.payload, message.payloadEncoding)}
         </span>
       </span>
     </li>
@@ -215,6 +221,7 @@ export function MqttMessagesPanel({
 }
 
 function MessageDetail({ message }: { message: MqttMessage | null }) {
+  const [binaryView, setBinaryView] = useState<'hex' | 'base64'>('hex');
   if (!message) {
     return (
       <Floater radius="panel" className="flex flex-col min-h-0 overflow-hidden">
@@ -227,13 +234,30 @@ function MessageDetail({ message }: { message: MqttMessage | null }) {
 
   const metadata: Array<[string, string]> = [];
   if (message.responseTopic) metadata.push(['Response topic', message.responseTopic]);
-  if (message.correlationData) metadata.push(['Correlation data', message.correlationData]);
+  if (message.correlationData !== undefined) {
+    metadata.push([
+      'Correlation data',
+      message.correlationDataEncoding === 'base64'
+        ? `${displayMqttBinary(message.correlationData, 'base64')} (hex)`
+        : message.correlationData,
+    ]);
+  }
   if (message.contentType) metadata.push(['Content type', message.contentType]);
+  if (message.payloadFormatIndicator !== undefined) {
+    metadata.push([
+      'Payload format',
+      message.payloadFormatIndicator ? 'UTF-8 (indicator 1)' : 'bytes (indicator 0)',
+    ]);
+  }
+  if (message.latencyMs !== undefined) metadata.push(['Round trip', `${message.latencyMs} ms`]);
   if (message.subscriptionIdentifier !== undefined) {
     const ids = message.subscriptionIdentifier;
     metadata.push(['Subscription id', Array.isArray(ids) ? ids.join(', ') : String(ids)]);
   }
-  const formattedPayload = formatJson(message.payload);
+  const isBinary = message.payloadEncoding === 'base64';
+  const formattedPayload = isBinary
+    ? displayMqttBinary(message.payload, 'base64', binaryView)
+    : formatJson(message.payload);
 
   return (
     <Floater radius="panel" className="flex flex-col min-h-0 overflow-hidden">
@@ -274,7 +298,31 @@ function MessageDetail({ message }: { message: MqttMessage | null }) {
           {metadata.length > 0 && <MetadataGrid label="MQTT 5 metadata" entries={metadata} />}
 
           <div className="space-y-1">
-            <div className="sp-label">Payload</div>
+            <div className="flex items-center gap-2">
+              <span className="sp-label">Payload</span>
+              {isBinary && (
+                <>
+                  <span className="font-mono text-sp-11 text-sp-dim">
+                    binary · {mqttBinaryLength(message.payload, 'base64')} bytes
+                  </span>
+                  <div className="ml-auto flex gap-1">
+                    {(['hex', 'base64'] as const).map((view) => (
+                      <button
+                        key={view}
+                        type="button"
+                        onClick={() => setBinaryView(view)}
+                        className={cn(
+                          'px-1.5 rounded-sp-btn font-mono text-sp-11',
+                          binaryView === view ? 'bg-sp-active text-sp-text' : 'text-sp-dim'
+                        )}
+                      >
+                        {view}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
             <CodeEditorFrame lineCount={formattedPayload.split('\n').length}>
               <pre className="whitespace-pre-wrap break-all text-sp-text">{formattedPayload}</pre>
             </CodeEditorFrame>

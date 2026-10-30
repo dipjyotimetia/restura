@@ -1,8 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import {
+  brokerSecretHandleId,
+  brokerSecretRef,
+  putBrokerSecret,
+} from '@/lib/shared/broker-secrets';
+import { secureStorage } from '@/lib/shared/secure-storage';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../../electron/shared/kafka-channels';
+import {
+  createFakeElectronStore,
+  createFakeSecretsApi,
+} from '../../../../../tests/helpers/fakeSecretsApi';
+import { KAFKA_SECRET_SENTINEL } from '../../store/useKafkaStore';
 import { KAFKA_FLUSH_INTERVAL_MS } from '../consumedMessageBuffer';
+import { kafkaSecretKey } from '../kafkaManager';
 
 function installElectronMock() {
   const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
@@ -30,13 +42,22 @@ function installElectronMock() {
     removeAllListeners: (channel: string) => listeners.delete(channel),
   };
   const readFile = vi.fn(async () => ({ success: true, content: 'pem-data' }));
+  const secrets = createFakeSecretsApi();
+  const electronStore = createFakeElectronStore();
   Object.defineProperty(window, 'electron', {
-    value: { isElectron: true, kafka, fs: { readFile } },
+    value: {
+      isElectron: true,
+      kafka,
+      fs: { readFile },
+      secrets: secrets.api,
+      store: electronStore.api,
+    },
     configurable: true,
   });
   return {
     kafka,
     readFile,
+    secrets,
     handlerCount: (channel: string) => listeners.get(channel)?.length ?? 0,
     emit: (channel: string, payload: unknown) => {
       for (const listener of listeners.get(channel) ?? []) listener(payload);
@@ -418,21 +439,111 @@ describe('kafkaManager (Electron path)', () => {
       },
     });
     await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
-    expect(readFile).toHaveBeenCalledTimes(3);
+    // TLS files are read in main (SEC-K3): the renderer forwards paths only.
+    expect(readFile).not.toHaveBeenCalled();
     expect(kafka.connect).toHaveBeenLastCalledWith(
       expect.objectContaining({
         auth: {
           securityProtocol: 'SSL',
           tls: {
-            ca: 'pem-data',
-            cert: 'pem-data',
-            key: 'pem-data',
+            caPath: '/tmp/ca.pem',
+            certPath: '/tmp/cert.pem',
+            keyPath: '/tmp/key.pem',
             passphrase: 'secret',
             rejectUnauthorized: false,
           },
         },
       })
     );
+  });
+
+  it('sends only broker-secret handles and TLS paths for stored credentials (SEC-K3)', async () => {
+    const { kafka, readFile, secrets } = installElectronMock();
+    const id = useKafkaStore.getState().createConnection();
+    const store = useKafkaStore.getState();
+    await putBrokerSecret(kafkaSecretKey(id, 'sasl-password'), 'sasl-plain');
+    await putBrokerSecret(kafkaSecretKey(id, 'tls-passphrase'), 'pass-plain');
+    await putBrokerSecret(kafkaSecretKey(id, 'registry-password'), 'reg-plain');
+    // A legacy secureStorage value is migrated into its handle on first use.
+    secureStorage.set(kafkaSecretKey(id, 'registry-token'), 'legacy-token');
+    store.updateAuth(id, {
+      securityProtocol: 'SASL_SSL',
+      sasl: { mechanism: 'SCRAM-SHA-256', username: 'u', password: KAFKA_SECRET_SENTINEL },
+      tls: {
+        caPath: '/home/u/ca.pem',
+        certPath: '/home/u/cert.pem',
+        keyPath: '/home/u/key.pem',
+        passphrase: KAFKA_SECRET_SENTINEL,
+      },
+    });
+    store.updateConnection(id, {
+      registry: {
+        url: 'https://registry.example.test',
+        auth: { username: 'r', password: KAFKA_SECRET_SENTINEL },
+      },
+    });
+
+    await expect(kafkaManager.connect(useKafkaStore.getState().connections[id]!)).resolves.toEqual({
+      ok: true,
+    });
+    const payload = (kafka.connect.mock.calls.at(-1) as unknown as [unknown])[0];
+    expect(payload).toMatchObject({
+      auth: {
+        securityProtocol: 'SASL_SSL',
+        sasl: {
+          mechanism: 'SCRAM-SHA-256',
+          username: 'u',
+          password: brokerSecretRef(kafkaSecretKey(id, 'sasl-password')),
+        },
+        tls: {
+          caPath: '/home/u/ca.pem',
+          certPath: '/home/u/cert.pem',
+          keyPath: '/home/u/key.pem',
+          passphrase: brokerSecretRef(kafkaSecretKey(id, 'tls-passphrase')),
+        },
+      },
+      registry: {
+        auth: { username: 'r', password: brokerSecretRef(kafkaSecretKey(id, 'registry-password')) },
+      },
+    });
+    const wire = JSON.stringify(payload);
+    for (const plaintext of ['sasl-plain', 'pass-plain', 'reg-plain', 'pem-data', 'BEGIN']) {
+      expect(wire).not.toContain(plaintext);
+    }
+    expect(readFile).not.toHaveBeenCalled();
+
+    // Bearer: the legacy value moved into the handle; only the ref is sent.
+    store.updateConnection(id, {
+      registry: {
+        url: 'https://registry.example.test',
+        authType: 'bearer',
+        bearerToken: KAFKA_SECRET_SENTINEL,
+      },
+    });
+    await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+    const bearerPayload = (kafka.connect.mock.calls.at(-1) as unknown as [unknown])[0];
+    expect(bearerPayload).toMatchObject({
+      registry: {
+        auth: { type: 'bearer', token: brokerSecretRef(kafkaSecretKey(id, 'registry-token')) },
+      },
+    });
+    expect(JSON.stringify(bearerPayload)).not.toContain('legacy-token');
+    expect(secureStorage.get(kafkaSecretKey(id, 'registry-token'))).toBeNull();
+    expect(
+      secrets.records.get(brokerSecretHandleId(kafkaSecretKey(id, 'registry-token')))?.value
+    ).toBe('legacy-token');
+  });
+
+  it('reports a missing stored credential instead of connecting without it', async () => {
+    const { kafka } = installElectronMock();
+    const id = useKafkaStore.getState().createConnection();
+    useKafkaStore.getState().updateAuth(id, {
+      securityProtocol: 'SASL_PLAINTEXT',
+      sasl: { mechanism: 'PLAIN', username: 'u', password: KAFKA_SECRET_SENTINEL },
+    });
+    const result = await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+    expect(result.ok).toBe(false);
+    expect(kafka.connect).not.toHaveBeenCalled();
   });
 
   it('forwards SecretRef handles (never plaintext) for client-credentials, MSK IAM and GSSAPI', async () => {

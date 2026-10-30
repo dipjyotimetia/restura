@@ -5,19 +5,30 @@ description: Connect to MQTT brokers — publish, subscribe, QoS, TLS, and MQTT 
 
 import { Badge } from '@astrojs/starlight/components';
 
-<Badge text="desktop only" variant="caution" /> The browser sandbox doesn't allow raw TCP connections, so MQTT — a long-lived pub/sub session over a raw TCP/TLS socket — is available only in the [desktop app](/overview/install/).
+<Badge text="desktop only" variant="caution" /> The browser sandbox doesn't allow raw TCP connections, so MQTT — a long-lived pub/sub session over a raw TCP/TLS (or WebSocket) socket opened by the desktop main process — is available only in the [desktop app](/overview/install/).
 
 ## What works
 
-- **Connect** — `mqtt://` or `mqtts://` brokers; pick **MQTT 3.1.1** or **MQTT 5.0** per connection.
-- **Publish** — send to a topic with a chosen **QoS** (0, 1, or 2) and an optional **retain** flag; payloads are text, JSON, or binary.
+- **Connect** — pick **MQTT 3.1.1** or **MQTT 5.0** per connection, over any of four transports:
+
+  | URL | Transport |
+  |---|---|
+  | `mqtt://host:1883` | TCP |
+  | `mqtts://host:8883` | TLS |
+  | `ws://host:8083/mqtt` | MQTT over WebSocket (subprotocol `mqtt`, MQTT 5.0 §6) |
+  | `wss://host/mqtt` | MQTT over secure WebSocket — AWS IoT Core, HiveMQ Cloud, EMQX Cloud, Azure Event Grid |
+
+  All four go through the same broker guard and DNS check, and `mqtts://` / `wss://` use the same TLS settings. A SOCKS proxy from **Settings → Proxy** is used for `mqtt://` / `mqtts://`. An HTTP proxy, or any proxy with `ws://` / `wss://`, makes the connection fail with an explicit error, so Restura never quietly connects directly.
+- **Publish** — send to a topic with a chosen **QoS** (0, 1, or 2) and an optional **retain** flag. Pick the **payload format**: **Text**, **JSON** (validated before sending), **Hex** (`de ad be ef`) or **Base64**. Hex and Base64 carry arbitrary bytes, so protobuf, CBOR, images and compressed data go out unchanged.
+- **Binary-safe receive** — payloads and correlation data that aren't valid UTF-8 cross from the main process as base64 and appear as `[binary]`. The message detail shows them as hex or Base64, with the byte count. They are never decoded as lossy UTF-8.
 - **`{{variables}}`** — publish topic and payload are resolved at publish time with the same scopes as HTTP, as are the broker URL (at connect) and subscribe topic filters; unresolved names are sent literally and flagged in the message log, and secret values are masked in the logged copy.
 - **Save to a collection** — **Save to Collection** on an MQTT tab stores a shareable *connection preset* (broker URL, protocol version, client id, session options, username, TLS paths, last will, the publish / subscribe drafts and saved publishes). Opening it from the sidebar opens this panel prefilled. The password and key passphrase stay in the encrypted local store and are never exported. See [Kafka and MQTT connection presets](/guides/collections/#kafka-and-mqtt-connection-presets).
 - **Saved publishes** — the **Publish** tab keeps named publishes per connection (topic + payload + QoS + retain). Save, rename, reorder and delete them; click to load into the form, or publish directly with the send button / <kbd>Shift</kbd>+<kbd>Enter</kbd>. They are stored unresolved.
 - **Subscribe** — one or more topic filters (wildcards included); messages stream live with topic, QoS, retain / dup flags, and timestamp.
+- **Connection status** — if the broker drops the connection, the status goes **connected → reconnecting → connected** while auto-reconnect retries. An MQTT 5 broker-initiated `DISCONNECT` is logged with its reason code name and reason string, for example `Disconnected by server: Session taken over (0x8E) — …`.
 - **Export the log** — download the current filtered messages as JSON or NDJSON (one message per line).
-- **Auth** — username / password. On desktop the password is stored in the OS keychain (see [secrets](/architecture/adrs/0007-secret-ref-pattern/)) and resolved only at connect time, never persisted in clear.
-- **TLS** — `mqtts://` with server-certificate validation, optional client certificate (mTLS: CA / cert / key / passphrase), and a `rejectUnauthorized` toggle.
+- **Auth** — username / password. The password (and the TLS key passphrase, and MQTT 5 enhanced-auth data) is stored as a main-process **secret handle** encrypted with the OS keychain ([ADR 0007](/architecture/adrs/0007-secret-ref-pattern/)). The connect request carries only the handle reference, and the main process resolves it right before dialling. The plaintext never goes back to the UI. Credentials saved by older versions are moved into a handle the first time you connect.
+- **TLS** — `mqtts://` / `wss://` with server-certificate validation, optional client certificate (mTLS: CA / cert / key / passphrase), and a `rejectUnauthorized` toggle. The UI stores only the **file paths**. The desktop main process reads the files at connect time, with the same path allowlist as other file access, so key material never passes through the UI.
 - **Last Will & Testament (LWT)** — topic, payload, QoS, and retain that the broker publishes if your client drops.
 - **Session control** — clean start, keepalive, connect timeout, and auto-reconnect.
 
@@ -25,20 +36,34 @@ import { Badge } from '@astrojs/starlight/components';
 
 When you select protocol version 5, Restura surfaces the extra wire features:
 
-- **Session expiry interval** on `CONNECT`.
-- **User properties** — arbitrary key/value pairs carried on each message.
-- **Message expiry interval**, **content type**, **response topic**, **correlation data**, and **subscription identifier** are decoded and shown on received messages.
+- **CONNECT properties** — session expiry interval, receive maximum, maximum packet size, topic alias maximum, request response / problem information, user properties, and an enhanced-authentication method + initial auth data (§4.12). If the broker sends back a multi-step `AUTH` challenge, it's reported as an error; continuing the challenge isn't supported.
+- **Server-assigned client ID** — leave **Client ID** empty with **Clean start** on, and the broker assigns one (§3.1.3.1). The assigned ID is shown under the field and in the log. A 3.1.1 connection still requires a client ID.
+- **CONNACK** — the session-present flag, assigned client ID, the broker's topic alias maximum and server keep-alive appear in the *Connected* log line.
+- **Will properties** — will delay interval (avoids false "offline" alerts on brief reconnects), message expiry, content type, response topic, correlation data, payload format indicator and user properties for the Last Will.
+- **Publish properties** — content type, message expiry interval, **payload format indicator** (UTF-8 vs bytes), **topic alias** (rejected with a clear error above the broker's CONNACK *Topic Alias Maximum*), response topic and correlation data.
+- **Subscription options** — **No Local** (don't receive your own publishes), **Retain As Published**, **Retain Handling** (0 / 1 / 2) and a **Subscription Identifier**. Received messages show which identifier matched.
+- **Received metadata** — user properties, message expiry, content type, payload format indicator, response topic, correlation data (binary-safe) and subscription identifier.
 
-A 3.1.1 connection simply omits these fields.
+On a 3.1.1 connection the MQTT 5 controls are hidden, and the main process rejects MQTT 5-only publish / subscribe fields with an explicit error. Will and CONNECT properties are never sent.
+
+## Request / response (MQTT 5)
+
+**Request** on the Publish tab runs an MQTT 5 request/response exchange (§4.10), like an HTTP request over MQTT:
+
+1. The main process subscribes to a response topic (QoS 1, No Local). The default topic is generated as `restura/resp/<clientId>/<uuid>`; you can set your own in **Response topic**.
+2. It publishes your message with that **Response Topic** and **Correlation Data**. You can set the correlation data yourself; otherwise it's 16 random bytes.
+3. It waits for the first message on the response topic whose correlation bytes match exactly, compared as raw bytes.
+
+The log shows the request, the reply and the **round-trip latency**. If no reply arrives within the **Request timeout**, the request ends with a timeout error. **Cancel request** stops it, and so does disconnecting. In every case the temporary subscription is removed, unless you were already subscribed to that topic.
 
 ## Broker guard
 
-Every broker URL runs through a pre-flight SSRF check (`electron/main/security/mqtt-broker-guard.ts`) before the socket opens. Unlike the HTTP guard, **private and loopback addresses are allowed** — MQTT brokers routinely live on LAN / IoT networks (a Mosquitto box on a Raspberry Pi, an EMQX cluster behind VPC peering, `localhost:1883`). The guard only rejects:
+Every broker URL is checked twice before the socket opens:
 
-- cloud-metadata literal IPs (`169.254.169.254` and friends) and hostnames (`metadata.google.internal`, …),
-- non-`mqtt:` / non-`mqtts:` schemes and malformed URLs.
+1. **URL check** (`electron/main/security/mqtt-broker-guard.ts`). It rejects schemes other than `mqtt:` / `mqtts:` / `ws:` / `wss:`, malformed URLs, cloud-metadata IPs and hostnames (`169.254.169.254`, `metadata.google.internal`, …), and literal loopback / private IPs that **Settings → Security** doesn't allow.
+2. **DNS check** (`electron/main/security/broker-dns-guard.ts`). The broker hostname is resolved, and **every** A/AAAA record is checked against the same policy. A public name that resolves to `127.0.0.1` or RFC 1918 space (for example `localtest.me`) is therefore refused while **Allow private IPs** is off, the default. The connection then dials the checked address: the IP itself for `mqtt://` / `mqtts://`, keeping the hostname for TLS SNI and certificate checks, or a pinned lookup for `ws://` / `wss://`. Reconnects reuse that address, so a DNS rebind can't redirect the connection.
 
-This is **pre-flight only** — it does not mitigate a true DNS-rebind (a TTL=0 swap during connect), the same residual gap documented for Kafka in [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/).
+MQTT brokers often run on LAN / IoT networks (a Mosquitto box on a Raspberry Pi, an EMQX cluster behind VPC peering). To reach them, turn on **Allow private IPs** (and **Allow localhost** for `localhost:1883`). Behind a SOCKS proxy the proxy resolves the broker hostname, so only the URL check applies.
 
 ## Tips
 
@@ -51,4 +76,4 @@ This is **pre-flight only** — it does not mitigate a true DNS-rebind (a TTL=0 
 - [Kafka](/protocols/kafka/) — the other desktop-only broker protocol.
 - [Self-hosting](/self-hosting/docker/) — MQTT stays desktop-only even when self-hosting the SPA; the pub/sub path needs Node.
 - [Capability matrix](/reference/capability-matrix/)
-- [Local test stack](/testing/local-stack/) — run a real MQTT broker (EMQX) locally to test against instead of a mock.
+- [Local test stack](/testing/local-stack/) — run a real MQTT broker (EMQX) locally to test against instead of a mock. EMQX in the echo-local stack also serves MQTT over WebSocket at `ws://localhost:8083/mqtt`.

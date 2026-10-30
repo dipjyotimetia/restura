@@ -1,3 +1,5 @@
+import { type KafkaSecretField, kafkaSecretStorageKey } from '@shared/protocol/broker-secret-id';
+import type { ProtocolSecretValue } from '@shared/protocol/types';
 import {
   ConsumedMessageBuffer,
   type KafkaConsumedPayload,
@@ -17,8 +19,9 @@ import {
   onKafkaMessagesCleared,
   useKafkaStore,
 } from '@/features/kafka/store/useKafkaStore';
+import { brokerSecretRef, ensureBrokerSecret } from '@/lib/shared/broker-secrets';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import { secureStorage } from '@/lib/shared/secure-storage';
+import type { SecretRef } from '@/lib/shared/secretRef';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
 import type {
   ElectronKafkaAPI,
@@ -32,6 +35,7 @@ import type {
   KafkaRecordFieldIpc,
   KafkaRegistryIpc,
   KafkaSaslIpc,
+  KafkaTlsIpc,
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
 import { isKafkaBrowse, type KafkaSubscribePayload, toBrowseSubscribe } from './kafkaBrowse';
@@ -39,27 +43,33 @@ import { isKafkaBrowse, type KafkaSubscribePayload, toBrowseSubscribe } from './
 export type KafkaResetGroupOffsetsParams = Parameters<ElectronKafkaAPI['resetGroupOffsets']>[0];
 export type KafkaDeleteGroupOffsetsParams = Parameters<ElectronKafkaAPI['deleteGroupOffsets']>[0];
 
-export type KafkaSecretField =
-  | 'sasl-password'
-  | 'oauth-token'
-  | 'tls-passphrase'
-  | 'registry-password'
-  | 'registry-token';
+export type { KafkaSecretField };
 
 export function kafkaSecretKey(connectionId: string, field: KafkaSecretField): string {
   // Every field name matches a secureStorage sensitive-key pattern
-  // (`password`/`token`/`passphrase`) so the value routes to electron-store +
-  // safeStorage in the desktop build rather than plaintext localStorage.
-  return `kafka:${connectionId}:${field}`;
-}
-
-function readSecret(connectionId: string, field: KafkaSecretField): Promise<string | null> {
-  return secureStorage.getAsync(kafkaSecretKey(connectionId, field));
+  // (`password`/`token`/`passphrase`), so a legacy pre-handle value lives in
+  // electron-store + safeStorage, never plaintext localStorage.
+  return kafkaSecretStorageKey(connectionId, field);
 }
 
 /**
- * Resolve the persisted registry config (secret sentinels) into the plaintext
- * IPC shape. Returns undefined when no registry is configured.
+ * A sentinel-marked field means "stored in the main-process handle for this
+ * key" (SEC-K3). Returns the handle reference to send over IPC — never the
+ * plaintext — or null when nothing is stored (legacy secureStorage values are
+ * migrated into the handle on first use).
+ */
+async function storedSecretRef(
+  connectionId: string,
+  field: KafkaSecretField
+): Promise<SecretRef | null> {
+  const key = kafkaSecretKey(connectionId, field);
+  return (await ensureBrokerSecret(key)) ? brokerSecretRef(key) : null;
+}
+
+/**
+ * Resolve the persisted registry config into the IPC shape: sentinel-marked
+ * secrets become the connection's broker-secret handle (resolved in main).
+ * Returns undefined when no registry is configured.
  */
 export async function resolveRegistry(
   connectionId: string,
@@ -71,7 +81,9 @@ export async function resolveRegistry(
     // Handles / external refs cross IPC as references and resolve only in main.
     const stored = registry.bearerToken;
     const token =
-      stored === KAFKA_SECRET_SENTINEL ? await readSecret(connectionId, 'registry-token') : stored;
+      stored === KAFKA_SECRET_SENTINEL
+        ? await storedSecretRef(connectionId, 'registry-token')
+        : stored;
     if (!token || (typeof token === 'object' && token.kind === 'inline' && !token.value)) {
       throw new Error('Missing Schema Registry bearer token — re-enter it.');
     }
@@ -79,16 +91,15 @@ export async function resolveRegistry(
     return out;
   }
   if (registry.auth) {
-    // A sentinel means the real value lives in secureStorage; otherwise it's
-    // the inline value (or undefined).
-    const resolve = (value: string | undefined, field: KafkaSecretField): Promise<string | null> =>
-      value === KAFKA_SECRET_SENTINEL
-        ? readSecret(connectionId, field)
-        : Promise.resolve(value ?? null);
-    // Basic stays in the untyped wire shape (main normalises it to type 'basic').
-    const auth: { username?: string; password?: string } = {};
+    // A sentinel means the value lives in the handle for this field; otherwise
+    // it's the inline value (or undefined).
+    const auth: { username?: string; password?: ProtocolSecretValue } = {};
     if (registry.auth.username) auth.username = registry.auth.username;
-    const password = await resolve(registry.auth.password, 'registry-password');
+    const stored = registry.auth.password;
+    const password =
+      stored === KAFKA_SECRET_SENTINEL
+        ? await storedSecretRef(connectionId, 'registry-password')
+        : stored || null;
     if (password) auth.password = password;
     if (Object.keys(auth).length > 0) out.auth = auth;
   }
@@ -96,23 +107,24 @@ export async function resolveRegistry(
 }
 
 /**
- * Resolve the persisted SASL block into its IPC shape. Legacy password/static
- * token secrets are read from secureStorage (sentinel); SecretRef handles for
- * OAuth client secrets and AWS keys are forwarded as handles and resolved only
- * in main. Returns null when a required credential is missing.
+ * Resolve the persisted SASL block into its IPC shape. Sentinel-marked
+ * password / static-token secrets go as the connection's broker-secret handle;
+ * SecretRef handles for OAuth client secrets and AWS keys are forwarded as
+ * handles. Both resolve only in main. Returns null when a required credential
+ * is missing.
  */
 async function resolveSasl(connectionId: string, sasl: KafkaSasl): Promise<KafkaSaslIpc | null> {
   if (isKafkaPasswordSasl(sasl)) {
     const password =
       sasl.password === KAFKA_SECRET_SENTINEL
-        ? ((await readSecret(connectionId, 'sasl-password')) ?? '')
+        ? await storedSecretRef(connectionId, 'sasl-password')
         : sasl.password;
     return password ? { mechanism: sasl.mechanism, username: sasl.username, password } : null;
   }
   if (isKafkaStaticOAuthSasl(sasl)) {
     const token =
       sasl.token === KAFKA_SECRET_SENTINEL
-        ? ((await readSecret(connectionId, 'oauth-token')) ?? '')
+        ? await storedSecretRef(connectionId, 'oauth-token')
         : sasl.token;
     if (!token) return null;
     return {
@@ -172,57 +184,30 @@ async function resolveSasl(connectionId: string, sasl: KafkaSasl): Promise<Kafka
 }
 
 /**
- * Resolve the persisted KafkaAuth (which holds sentinels for secrets and
- * file paths for TLS material) into the wire-format expected by the Electron
- * IPC handler (which expects plaintext + file contents).
+ * Resolve the persisted KafkaAuth into the IPC shape. Secrets go as
+ * broker-secret handles and TLS material as file PATHS — main reads the files
+ * (allowlisted) so key material never transits the renderer (SEC-K3).
  */
 async function resolveAuth(connectionId: string, auth: KafkaAuth): Promise<KafkaAuthIpc | null> {
   if (auth.securityProtocol === 'PLAINTEXT') {
     return { securityProtocol: 'PLAINTEXT' };
   }
 
-  // Resolve TLS material once — used by SASL_SSL and SSL.
-  let tlsIpc:
-    | {
-        ca?: string;
-        cert?: string;
-        key?: string;
-        passphrase?: string;
-        rejectUnauthorized?: boolean;
-      }
-    | undefined;
+  // Resolve TLS once — used by SASL_SSL and SSL.
+  let tlsIpc: KafkaTlsIpc | undefined;
   if (auth.tls) {
-    tlsIpc = {};
-    if (auth.tls.rejectUnauthorized !== undefined) {
-      tlsIpc.rejectUnauthorized = auth.tls.rejectUnauthorized;
-    }
-    const api = getElectronAPI();
-    if (api) {
-      const readPath = (p?: string): Promise<{ success: boolean; content?: string } | null> =>
-        p ? api.fs.readFile(p) : Promise.resolve(null);
-      const [caResult, certResult, keyResult] = await Promise.all([
-        readPath(auth.tls.caPath),
-        readPath(auth.tls.certPath),
-        readPath(auth.tls.keyPath),
-      ]);
-      if (auth.tls.caPath) {
-        if (!caResult?.success || !caResult.content) return null;
-        tlsIpc.ca = caResult.content;
-      }
-      if (auth.tls.certPath) {
-        if (!certResult?.success || !certResult.content) return null;
-        tlsIpc.cert = certResult.content;
-      }
-      if (auth.tls.keyPath) {
-        if (!keyResult?.success || !keyResult.content) return null;
-        tlsIpc.key = keyResult.content;
-      }
-    }
-    if (auth.tls.passphrase === KAFKA_SECRET_SENTINEL) {
-      const real = await readSecret(connectionId, 'tls-passphrase');
-      if (real) tlsIpc.passphrase = real;
-    } else if (auth.tls.passphrase) {
-      tlsIpc.passphrase = auth.tls.passphrase;
+    const { caPath, certPath, keyPath, passphrase, rejectUnauthorized } = auth.tls;
+    tlsIpc = {
+      ...(rejectUnauthorized !== undefined ? { rejectUnauthorized } : {}),
+      ...(caPath ? { caPath } : {}),
+      ...(certPath ? { certPath } : {}),
+      ...(keyPath ? { keyPath } : {}),
+    };
+    if (passphrase === KAFKA_SECRET_SENTINEL) {
+      const ref = await storedSecretRef(connectionId, 'tls-passphrase');
+      if (ref) tlsIpc.passphrase = ref;
+    } else if (passphrase) {
+      tlsIpc.passphrase = passphrase;
     }
   }
 

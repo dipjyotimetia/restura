@@ -1,34 +1,77 @@
+import { type MqttSecretField, mqttBoundSecretHandleId } from '@shared/protocol/broker-secret-id';
 import { createLogger } from '@shared/runtime/logger';
+import type { SecretValue } from '@shared/secrets/secret-ref';
 import type { WebContents } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import type * as MqttLib from 'mqtt';
-import type { IClientOptions, IConnackPacket, IPublishPacket, MqttClient } from 'mqtt';
+import type { IConnackPacket, IDisconnectPacket, IPublishPacket, MqttClient } from 'mqtt';
 import { IPC } from '../../shared/channels';
 import { MQTT_CHANNEL, mqttChannel } from '../../shared/mqtt-channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
-import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
+import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
   assertTrustedSender,
   createValidatedEventHandler,
-  type MqttConnectConfig,
   MqttConnectSchema,
   MqttDisconnectSchema,
   MqttPublishSchema,
+  MqttRequestCancelSchema,
+  MqttRequestSchema,
   MqttSubscribeSchema,
   MqttUnsubscribeSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
+import { resolveMqttBrokerAddress } from '../security/broker-dns-guard';
 import {
   type BrokerTlsOptions,
   resolveMqttExecutionPolicy,
 } from '../security/broker-execution-policy';
+import { loadBrokerTlsFiles } from '../security/broker-tls-files';
 import { getExecutionPolicy } from '../security/execution-policy';
 import { assertMqttBrokerSafe } from '../security/mqtt-broker-guard';
+import { describeSecretHandle, unwrapSecretValueMain } from '../security/secret-handle-store';
+import { type PendingRequest, runMqttRequest } from './mqtt/request';
+import {
+  buildClientOptions,
+  decodeBinary,
+  type MqttResolvedConnect,
+  publishProperties,
+  toMessageEvent,
+  v5OnlyPublishFields,
+} from './mqtt/wire';
 
 const log = createLogger('mqtt');
+
+const MISSING_SECRET: Record<MqttSecretField, string> = {
+  password: 'Stored MQTT password is missing — re-enter it.',
+  'tls-passphrase': 'Stored TLS key passphrase is missing — re-enter it.',
+  'auth-data': 'Stored MQTT authentication data is missing — re-enter it.',
+};
+
+/**
+ * Resolve one MQTT credential (ADR-0007). A handle resolves only when it is
+ * the one bound to THIS connection's field (deterministic id derived from the
+ * connection id), so a crafted connect payload cannot send another feature's
+ * stored secret to an arbitrary broker. Unresolvable → explicit error.
+ */
+function resolveMqttSecret(
+  connectionId: string,
+  field: MqttSecretField,
+  value: SecretValue
+): string {
+  if (typeof value === 'object' && value.kind === 'handle') {
+    if (value.id !== mqttBoundSecretHandleId(connectionId, field)) {
+      throw new Error('This stored secret is not available to this MQTT connection.');
+    }
+    if (!describeSecretHandle(value.id)) throw new Error(MISSING_SECRET[field]);
+  }
+  const plaintext = unwrapSecretValueMain(value);
+  if (plaintext === undefined) throw new Error(MISSING_SECRET[field]);
+  return plaintext;
+}
 
 // `mqtt` is moderately heavy and most sessions never open a connection. Load it
 // lazily on first use rather than at module load (which runs before
@@ -49,6 +92,10 @@ export function __setMqttForTests(lib: typeof MqttLib | undefined): void {
 }
 
 export const mqttRateLimiter = createKeyedRateLimiter(20, 60_000);
+// Per-renderer budget for broker-touching calls after connect (publish,
+// subscribe, request — each a broker round trip). Generous enough for
+// templates fired in quick succession; bounds a runaway renderer.
+export const mqttOpRateLimiter = createKeyedRateLimiter(1200, 60_000);
 
 const MAX_CONCURRENT_MQTT_CONNECTIONS = 20;
 
@@ -61,6 +108,13 @@ interface ActiveMqtt {
   subscriptions: Set<string>;
   brokerUrl: string;
   createdAt: number;
+  protocolVersion: 4 | 5;
+  /** Client id in use — the broker-assigned one once CONNACK carries it. */
+  clientId: string;
+  /** CONNACK Topic Alias Maximum (MQTT 5); 0 = the broker accepts none. */
+  topicAliasMaximum: number;
+  /** In-flight MQTT 5 request/response exchanges, keyed by requestId. */
+  pendingRequests: Map<string, PendingRequest>;
 }
 
 // Shared connection bookkeeping (map + renderer-destroyed cleanup). Like Kafka,
@@ -115,90 +169,81 @@ function emitToEntry(entry: ActiveMqtt, channel: string, ...args: unknown[]): vo
   emitTo(entry.webContentsId, channel, ...args);
 }
 
-// MQTT.js forwards unknown options through to the underlying tls.connect, but
-// its typed `IClientOptions` omits `passphrase`. Widen locally so we can set it.
-type MqttClientOptions = IClientOptions & BrokerTlsOptions & { passphrase?: string };
-
-function buildClientOptions(
-  cfg: MqttConnectConfig,
-  policyConfig: ReturnType<typeof resolveMqttExecutionPolicy>
-): MqttClientOptions {
-  const opts: MqttClientOptions = {
-    protocolVersion: cfg.protocolVersion,
-    clientId: cfg.clientId,
-    keepalive: cfg.keepalive,
-    clean: cfg.cleanStart,
-    connectTimeout: policyConfig.connectTimeout,
-    // 0 disables auto-reconnect; otherwise retry every second.
-    reconnectPeriod: cfg.autoReconnect ? 1000 : 0,
-  };
-
-  if (cfg.username !== undefined) opts.username = cfg.username;
-  if (cfg.password !== undefined) opts.password = cfg.password;
-
-  if (policyConfig.tls) {
-    Object.assign(opts, policyConfig.tls);
-  }
-  if (policyConfig.socksProxy) opts.socksProxy = policyConfig.socksProxy;
-
-  if (cfg.lwt) {
-    opts.will = {
-      topic: cfg.lwt.topic,
-      payload: Buffer.from(cfg.lwt.payload),
-      qos: cfg.lwt.qos,
-      retain: cfg.lwt.retain,
-    };
-  }
-
-  // MQTT 5.0 CONNECT properties.
-  if (cfg.protocolVersion === 5 && cfg.sessionExpiryInterval !== undefined) {
-    opts.properties = { sessionExpiryInterval: cfg.sessionExpiryInterval };
-  }
-
-  return opts;
-}
-
 function bindClientListeners(entry: ActiveMqtt): void {
   const { client } = entry;
+  const current = (): boolean =>
+    activeConnections.get(entry.connectionId, entry.webContentsId) === entry;
 
   client.on('connect', (connack: IConnackPacket) => {
-    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
+    if (!current()) return;
+    const props = connack.properties ?? {};
+    if (props.assignedClientIdentifier) entry.clientId = props.assignedClientIdentifier;
+    entry.topicAliasMaximum = props.topicAliasMaximum ?? 0;
     emitToEntry(entry, mqttChannel(MQTT_CHANNEL.CONNECTED, entry.connectionId), {
       timestamp: Date.now(),
       sessionPresent: connack.sessionPresent ?? false,
       ...(connack.reasonCode !== undefined ? { reasonCode: connack.reasonCode } : {}),
+      ...(props.assignedClientIdentifier
+        ? { assignedClientIdentifier: props.assignedClientIdentifier }
+        : {}),
+      ...(props.topicAliasMaximum !== undefined
+        ? { topicAliasMaximum: props.topicAliasMaximum }
+        : {}),
+      ...(props.serverKeepAlive !== undefined ? { serverKeepAlive: props.serverKeepAlive } : {}),
+      ...(props.receiveMaximum !== undefined ? { receiveMaximum: props.receiveMaximum } : {}),
+      ...(props.maximumQoS !== undefined ? { maximumQoS: props.maximumQoS } : {}),
+      ...(props.retainAvailable !== undefined ? { retainAvailable: props.retainAvailable } : {}),
+      ...(props.responseInformation ? { responseInformation: props.responseInformation } : {}),
+      ...(props.reasonString ? { reasonString: props.reasonString } : {}),
     });
   });
 
   client.on('message', (topic: string, payload: Buffer, packet: IPublishPacket) => {
-    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
-    const props = packet.properties ?? {};
-    emitToEntry(entry, mqttChannel(MQTT_CHANNEL.MESSAGE, entry.connectionId), {
-      topic,
-      payload: payload.toString(),
-      qos: packet.qos,
-      retain: packet.retain ?? false,
-      dup: packet.dup ?? false,
+    if (!current()) return;
+    const event = toMessageEvent(topic, payload, packet);
+    emitToEntry(entry, mqttChannel(MQTT_CHANNEL.MESSAGE, entry.connectionId), event);
+    // MQTT 5 request/response: settle the request whose correlation bytes match.
+    const correlation = packet.properties?.correlationData;
+    if (correlation && entry.pendingRequests.size > 0) {
+      const bytes = Buffer.from(correlation);
+      for (const pending of entry.pendingRequests.values()) {
+        if (pending.responseTopic === topic && pending.correlation.equals(bytes)) {
+          pending.respond(event);
+          break;
+        }
+      }
+    }
+  });
+
+  // Broker-initiated MQTT 5 DISCONNECT (§3.14) — surface the reason (MQTT-6).
+  client.on('disconnect', (packet: IDisconnectPacket) => {
+    if (!current()) return;
+    emitToEntry(entry, mqttChannel(MQTT_CHANNEL.DISCONNECTED, entry.connectionId), {
       timestamp: Date.now(),
-      ...(props.userProperties ? { userProperties: props.userProperties } : {}),
-      ...(props.messageExpiryInterval !== undefined
-        ? { messageExpiryInterval: props.messageExpiryInterval }
-        : {}),
-      ...(props.contentType ? { contentType: props.contentType } : {}),
-      ...(props.responseTopic ? { responseTopic: props.responseTopic } : {}),
-      // MQTT 5 request/response correlation — Buffer on the wire, surfaced as text.
-      ...(props.correlationData
-        ? { correlationData: Buffer.from(props.correlationData).toString() }
-        : {}),
-      // Which subscription matched (MQTT 5 subscription identifier).
-      ...(props.subscriptionIdentifier !== undefined
-        ? { subscriptionIdentifier: props.subscriptionIdentifier }
+      reasonCode: packet.reasonCode ?? 0,
+      ...(packet.properties?.reasonString ? { reasonString: packet.properties.reasonString } : {}),
+      ...(packet.properties?.serverReference
+        ? { serverReference: packet.properties.serverReference }
         : {}),
     });
   });
 
+  client.on('reconnect', () => {
+    if (!current()) return;
+    emitToEntry(entry, mqttChannel(MQTT_CHANNEL.RECONNECT, entry.connectionId), {
+      timestamp: Date.now(),
+    });
+  });
+
+  client.on('offline', () => {
+    if (!current()) return;
+    emitToEntry(entry, mqttChannel(MQTT_CHANNEL.OFFLINE, entry.connectionId), {
+      timestamp: Date.now(),
+    });
+  });
+
   client.on('error', (err: Error) => {
-    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
+    if (!current()) return;
     const code = (err as NodeJS.ErrnoException).code;
     log.warn('client error', {
       connectionId: entry.connectionId,
@@ -212,12 +257,20 @@ function bindClientListeners(entry: ActiveMqtt): void {
   });
 
   client.on('close', () => {
-    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
+    if (!current()) return;
     emitToEntry(entry, mqttChannel(MQTT_CHANNEL.CLOSE, entry.connectionId), {});
   });
 }
 
+/** Fail every in-flight request on a connection that is going away. */
+function abortPendingRequests(entry: ActiveMqtt, error: string): void {
+  for (const pending of [...entry.pendingRequests.values()]) {
+    pending.abort({ cancelled: true, error });
+  }
+}
+
 function endClient(entry: ActiveMqtt, force = true): Promise<void> {
+  abortPendingRequests(entry, 'Connection closed');
   return new Promise<void>((resolve) => {
     try {
       entry.client.removeAllListeners();
@@ -229,6 +282,10 @@ function endClient(entry: ActiveMqtt, force = true): Promise<void> {
 }
 
 export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
+  // mqtt.js falls back to process.env.MQTTJS_SOCKS_PROXY whenever no SOCKS
+  // proxy is configured — a proxy the acknowledged execution policy never
+  // approved. Only Settings → Proxy may route MQTT traffic.
+  delete process.env.MQTTJS_SOCKS_PROXY;
   ipcMain.handle(IPC.mqtt.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.mqtt.connect, event);
     const cfg = validateIpcInput(MqttConnectSchema, rawConfig, IPC.mqtt.connect);
@@ -291,13 +348,39 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       }
 
       let policyConfig: ReturnType<typeof resolveMqttExecutionPolicy>;
+      const resolved: MqttResolvedConnect = {};
       try {
+        const security = getExecutionPolicy().security;
+        assertMqttBrokerSafe(cfg.brokerUrl, security);
+        // Secrets arrive as SecretRef handles and TLS material as file paths;
+        // both resolve here, in main, at wire time (ADR-0007 / SEC-K3).
+        if (cfg.password !== undefined) {
+          resolved.password = resolveMqttSecret(connectionId, 'password', cfg.password);
+        }
+        const authData = cfg.properties?.authenticationData;
+        if (cfg.protocolVersion === 5 && authData !== undefined) {
+          resolved.authenticationData = resolveMqttSecret(connectionId, 'auth-data', authData);
+        }
+        let tls: BrokerTlsOptions | undefined;
+        if (cfg.tls) {
+          const { passphrase, ...files } = cfg.tls;
+          tls = await loadBrokerTlsFiles(files);
+          if (passphrase !== undefined) {
+            tls.passphrase = resolveMqttSecret(connectionId, 'tls-passphrase', passphrase);
+          }
+        }
         policyConfig = resolveMqttExecutionPolicy({
           brokerUrl: cfg.brokerUrl,
           connectTimeout: cfg.connectTimeout,
-          ...(cfg.tls ? { tls: cfg.tls } : {}),
+          ...(tls ? { tls } : {}),
         });
-        assertMqttBrokerSafe(cfg.brokerUrl, getExecutionPolicy().security);
+        // DNS-time guard (SEC-K1): every A/AAAA record is checked against the
+        // private-IP / localhost policy and the dial is pinned to it. Behind a
+        // SOCKS proxy the proxy resolves the target, so there's nothing local
+        // to check or pin.
+        if (!policyConfig.socksProxy) {
+          resolved.pinned = await resolveMqttBrokerAddress(cfg.brokerUrl, security);
+        }
       } catch (err) {
         const msg = errorMessage(err);
         logEntry(400, msg);
@@ -310,7 +393,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         }
 
         const mqtt = getMqtt();
-        const client = mqtt.connect(cfg.brokerUrl, buildClientOptions(cfg, policyConfig));
+        const client = mqtt.connect(cfg.brokerUrl, buildClientOptions(cfg, policyConfig, resolved));
         const wc = webContents.fromId(webContentsId) ?? undefined;
         const entry: ActiveMqtt = {
           client,
@@ -320,6 +403,10 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           subscriptions: new Set<string>(),
           brokerUrl: cfg.brokerUrl,
           createdAt: Date.now(),
+          protocolVersion: cfg.protocolVersion,
+          clientId: cfg.clientId,
+          topicAliasMaximum: 0,
+          pendingRequests: new Map(),
         };
         if (!activeConnections.tryAdd(connectionId, event.sender, entry)) {
           await endClient(entry);
@@ -343,39 +430,144 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
   ipcMain.handle(
     IPC.mqtt.publish,
-    createValidatedEventHandler(IPC.mqtt.publish, MqttPublishSchema, async (cfg, event) => {
-      const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
-      if (!entry) return { success: false, error: 'Not connected' };
+    rateLimited(
+      mqttOpRateLimiter,
+      createValidatedEventHandler(IPC.mqtt.publish, MqttPublishSchema, async (cfg, event) => {
+        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
+        if (!entry) return { success: false, error: 'Not connected' };
 
-      const properties: NonNullable<Parameters<MqttClient['publish']>[2]>['properties'] = {};
-      if (cfg.userProperties) properties.userProperties = cfg.userProperties;
-      if (cfg.messageExpiryInterval !== undefined) {
-        properties.messageExpiryInterval = cfg.messageExpiryInterval;
-      }
-      if (cfg.contentType) properties.contentType = cfg.contentType;
-      if (cfg.responseTopic) properties.responseTopic = cfg.responseTopic;
-      if (cfg.correlationData) properties.correlationData = Buffer.from(cfg.correlationData);
+        const v5Fields = entry.protocolVersion === 5 ? [] : v5OnlyPublishFields(cfg);
+        if (v5Fields.length > 0) {
+          return {
+            success: false,
+            error: `MQTT 5 properties (${v5Fields.join(', ')}) are not available on an MQTT 3.1.1 connection`,
+          };
+        }
+        if (cfg.topicAlias !== undefined && cfg.topicAlias > entry.topicAliasMaximum) {
+          return {
+            success: false,
+            error:
+              entry.topicAliasMaximum === 0
+                ? 'The broker does not accept topic aliases (Topic Alias Maximum is 0)'
+                : `Topic alias ${cfg.topicAlias} exceeds the broker's Topic Alias Maximum (${entry.topicAliasMaximum})`,
+          };
+        }
 
-      return new Promise<{
-        success: boolean;
-        ack?: {
-          topic: string;
-          qos: 0 | 1 | 2;
-          packetId?: number;
-          reasonCode?: number;
-          timestamp: number;
-        };
-        error?: string;
-      }>((resolve) => {
-        entry.client.publish(
-          cfg.topic,
-          cfg.payload,
-          {
-            qos: cfg.qos,
-            retain: cfg.retain,
-            ...(Object.keys(properties).length > 0 ? { properties } : {}),
-          },
-          (err, packet) => {
+        const properties = publishProperties(cfg);
+        const payload = decodeBinary(cfg.payload, cfg.payloadEncoding);
+
+        return new Promise<{
+          success: boolean;
+          ack?: {
+            topic: string;
+            qos: 0 | 1 | 2;
+            packetId?: number;
+            reasonCode?: number;
+            timestamp: number;
+          };
+          error?: string;
+        }>((resolve) => {
+          entry.client.publish(
+            cfg.topic,
+            payload,
+            {
+              qos: cfg.qos,
+              retain: cfg.retain,
+              ...(Object.keys(properties).length > 0 ? { properties } : {}),
+            },
+            (err, packet) => {
+              if (activeConnections.get(cfg.connectionId, entry.webContentsId) !== entry) {
+                resolve({ success: false, error: 'Not connected' });
+                return;
+              }
+              if (err) {
+                resolve({ success: false, error: errorMessage(err) });
+                return;
+              }
+              // `packet` is the PUBACK/PUBCOMP for QoS 1/2; undefined for QoS 0.
+              const ackPacket = packet as { messageId?: number; reasonCode?: number } | undefined;
+              resolve({
+                success: true,
+                ack: {
+                  topic: cfg.topic,
+                  qos: cfg.qos,
+                  ...(ackPacket?.messageId !== undefined ? { packetId: ackPacket.messageId } : {}),
+                  ...(ackPacket?.reasonCode !== undefined
+                    ? { reasonCode: ackPacket.reasonCode }
+                    : {}),
+                  timestamp: Date.now(),
+                },
+              });
+            }
+          );
+        });
+      })
+    )
+  );
+
+  ipcMain.handle(
+    IPC.mqtt.request,
+    rateLimited(
+      mqttOpRateLimiter,
+      createValidatedEventHandler(IPC.mqtt.request, MqttRequestSchema, async (cfg, event) => {
+        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
+        if (!entry) return { success: false, error: 'Not connected' };
+        return runMqttRequest(
+          entry,
+          cfg,
+          () => activeConnections.get(entry.connectionId, entry.webContentsId) === entry
+        );
+      })
+    )
+  );
+
+  ipcMain.handle(
+    IPC.mqtt.requestCancel,
+    rateLimited(
+      mqttOpRateLimiter,
+      createValidatedEventHandler(
+        IPC.mqtt.requestCancel,
+        MqttRequestCancelSchema,
+        async (cfg, event) => {
+          const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
+          const pending = entry?.pendingRequests.get(cfg.requestId);
+          if (!pending) return { success: false };
+          pending.abort({ cancelled: true, error: 'Request cancelled' });
+          return { success: true };
+        }
+      )
+    )
+  );
+
+  ipcMain.handle(
+    IPC.mqtt.subscribe,
+    rateLimited(
+      mqttOpRateLimiter,
+      createValidatedEventHandler(IPC.mqtt.subscribe, MqttSubscribeSchema, async (cfg, event) => {
+        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
+        if (!entry) return { success: false, error: 'Not connected' };
+
+        const v5Requested = cfg.options !== undefined || cfg.subscriptionIdentifier !== undefined;
+        if (v5Requested && entry.protocolVersion !== 5) {
+          return {
+            success: false,
+            error:
+              'Subscription options and identifiers require an MQTT 5 connection (this one is MQTT 3.1.1)',
+          };
+        }
+        const subscribeOpts: Parameters<MqttClient['subscribe']>[1] = { qos: cfg.qos };
+        if (cfg.options?.noLocal !== undefined) subscribeOpts.nl = cfg.options.noLocal;
+        if (cfg.options?.retainAsPublished !== undefined) {
+          subscribeOpts.rap = cfg.options.retainAsPublished;
+        }
+        if (cfg.options?.retainHandling !== undefined)
+          subscribeOpts.rh = cfg.options.retainHandling;
+        if (cfg.subscriptionIdentifier !== undefined) {
+          subscribeOpts.properties = { subscriptionIdentifier: cfg.subscriptionIdentifier };
+        }
+
+        return new Promise<{ success: boolean; error?: string }>((resolve) => {
+          entry.client.subscribe(cfg.topicFilter, subscribeOpts, (err, granted) => {
             if (activeConnections.get(cfg.connectionId, entry.webContentsId) !== entry) {
               resolve({ success: false, error: 'Not connected' });
               return;
@@ -384,83 +576,61 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
               resolve({ success: false, error: errorMessage(err) });
               return;
             }
-            // `packet` is the PUBACK/PUBCOMP for QoS 1/2; undefined for QoS 0.
-            const ackPacket = packet as { messageId?: number; reasonCode?: number } | undefined;
-            resolve({
-              success: true,
-              ack: {
-                topic: cfg.topic,
-                qos: cfg.qos,
-                ...(ackPacket?.messageId !== undefined ? { packetId: ackPacket.messageId } : {}),
-                ...(ackPacket?.reasonCode !== undefined
-                  ? { reasonCode: ackPacket.reasonCode }
-                  : {}),
-                timestamp: Date.now(),
-              },
+            const first = granted?.[0];
+            // Granted QoS of 128 (0x80) signals the broker rejected the filter.
+            if (first && first.qos >= 128) {
+              resolve({
+                success: false,
+                error: `Subscription rejected (reason code ${first.qos})`,
+              });
+              return;
+            }
+            entry.subscriptions.add(cfg.topicFilter);
+            emitToEntry(entry, mqttChannel(MQTT_CHANNEL.SUBSCRIBED, cfg.connectionId), {
+              topicFilter: cfg.topicFilter,
+              grantedQos: first?.qos ?? cfg.qos,
+              ...(cfg.subscriptionIdentifier !== undefined
+                ? { subscriptionIdentifier: cfg.subscriptionIdentifier }
+                : {}),
             });
-          }
-        );
-      });
-    })
-  );
-
-  ipcMain.handle(
-    IPC.mqtt.subscribe,
-    createValidatedEventHandler(IPC.mqtt.subscribe, MqttSubscribeSchema, async (cfg, event) => {
-      const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
-      if (!entry) return { success: false, error: 'Not connected' };
-
-      return new Promise<{ success: boolean; error?: string }>((resolve) => {
-        entry.client.subscribe(cfg.topicFilter, { qos: cfg.qos }, (err, granted) => {
-          if (activeConnections.get(cfg.connectionId, entry.webContentsId) !== entry) {
-            resolve({ success: false, error: 'Not connected' });
-            return;
-          }
-          if (err) {
-            resolve({ success: false, error: errorMessage(err) });
-            return;
-          }
-          const first = granted?.[0];
-          // Granted QoS of 128 (0x80) signals the broker rejected the filter.
-          if (first && first.qos >= 128) {
-            resolve({ success: false, error: `Subscription rejected (reason code ${first.qos})` });
-            return;
-          }
-          entry.subscriptions.add(cfg.topicFilter);
-          emitToEntry(entry, mqttChannel(MQTT_CHANNEL.SUBSCRIBED, cfg.connectionId), {
-            topicFilter: cfg.topicFilter,
-            grantedQos: first?.qos ?? cfg.qos,
+            resolve({ success: true });
           });
-          resolve({ success: true });
         });
-      });
-    })
+      })
+    )
   );
 
   ipcMain.handle(
     IPC.mqtt.unsubscribe,
-    createValidatedEventHandler(IPC.mqtt.unsubscribe, MqttUnsubscribeSchema, async (cfg, event) => {
-      const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
-      if (!entry) return { success: false, error: 'Not connected' };
+    rateLimited(
+      mqttOpRateLimiter,
+      createValidatedEventHandler(
+        IPC.mqtt.unsubscribe,
+        MqttUnsubscribeSchema,
+        async (cfg, event) => {
+          const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
+          if (!entry) return { success: false, error: 'Not connected' };
 
-      return new Promise<{ success: boolean; error?: string }>((resolve) => {
-        entry.client.unsubscribe(cfg.topicFilter, (err) => {
-          if (activeConnections.get(cfg.connectionId, entry.webContentsId) !== entry) {
-            resolve({ success: false, error: 'Not connected' });
-            return;
-          }
-          if (err) {
-            resolve({ success: false, error: errorMessage(err) });
-            return;
-          }
-          entry.subscriptions.delete(cfg.topicFilter);
-          emitToEntry(entry, mqttChannel(MQTT_CHANNEL.UNSUBSCRIBED, cfg.connectionId), {
-            topicFilter: cfg.topicFilter,
+          return new Promise<{ success: boolean; error?: string }>((resolve) => {
+            entry.client.unsubscribe(cfg.topicFilter, (err) => {
+              if (activeConnections.get(cfg.connectionId, entry.webContentsId) !== entry) {
+                resolve({ success: false, error: 'Not connected' });
+                return;
+              }
+              if (err) {
+                resolve({ success: false, error: errorMessage(err) });
+                return;
+              }
+              entry.subscriptions.delete(cfg.topicFilter);
+              emitToEntry(entry, mqttChannel(MQTT_CHANNEL.UNSUBSCRIBED, cfg.connectionId), {
+                topicFilter: cfg.topicFilter,
+              });
+              resolve({ success: true });
+            });
           });
-          resolve({ success: true });
-        });
-      });
-    })
+        }
+      )
+    )
   );
 
   ipcMain.handle(

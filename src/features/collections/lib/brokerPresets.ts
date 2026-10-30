@@ -15,6 +15,7 @@ import {
   applyKafkaPreset,
   applyKafkaPresetSecrets,
   copyKafkaPresetSecrets,
+  type KafkaPresetSecrets,
   kafkaPresetFromConnection,
   readKafkaPresetSecrets,
   reapKafkaPresetSecrets,
@@ -79,7 +80,9 @@ async function credentialsMatchPreset(preset: BrokerRequest): Promise<boolean> {
  */
 export async function openBrokerPreset(itemId: string, preset: BrokerRequest): Promise<string> {
   const desktop = isElectron();
-  let secrets = {};
+  // Kafka: presence flags (values stay in main-process handles). MQTT: its
+  // own preset secret map.
+  let secrets: Record<string, string | true> = {};
   if (desktop) {
     try {
       secrets =
@@ -109,11 +112,18 @@ export async function openBrokerPreset(itemId: string, preset: BrokerRequest): P
   if (preset.type === 'kafka') {
     const connectionId = useKafkaStore.getState().ensureConnectionForTab(tabId);
     applyKafkaPreset(connectionId, preset);
-    applyKafkaPresetSecrets(connectionId, secrets);
+    if (Object.keys(secrets).length > 0) {
+      try {
+        // Handle copy preset → connection happens in main (SEC-K3).
+        await applyKafkaPresetSecrets(preset.id, connectionId, secrets as KafkaPresetSecrets);
+      } catch {
+        toast.error('Could not read the saved credentials — re-enter them before connecting');
+      }
+    }
   } else {
     const connectionId = useMqttStore.getState().ensureConnectionForTab(tabId);
     applyMqttPreset(connectionId, preset);
-    applyMqttPresetSecrets(connectionId, secrets);
+    await applyMqttPresetSecrets(connectionId, preset.id, secrets);
   }
   return tabId;
 }
@@ -215,7 +225,8 @@ function walkPresets(items: CollectionItem[], visit: (preset: BrokerRequest) => 
 export function reapBrokerPresetSecrets(items: CollectionItem[]): void {
   walkPresets(items, (preset) => {
     secureStorage.remove(bindingKey(preset.type, preset.id));
-    if (preset.type === 'kafka') reapKafkaPresetSecrets(preset.id);
+    // Fire-and-forget: deleting the item must not wait on (or fail with) the keychain.
+    if (preset.type === 'kafka') void reapKafkaPresetSecrets(preset.id).catch(() => undefined);
     else reapMqttPresetSecrets(preset.id);
   });
 }

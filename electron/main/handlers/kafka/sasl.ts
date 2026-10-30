@@ -37,6 +37,20 @@ export interface KafkaSaslDeps {
 /** Scope stamped on every handle the Kafka connection form stores. */
 export const KAFKA_SECRET_SCOPE = 'kafka';
 
+export const MISSING_KAFKA_CREDENTIAL = 'Stored Kafka credential is missing — re-enter it';
+
+/**
+ * Narrow an already-resolved SecretValue to plaintext. The connect handler
+ * resolves stored-credential handles first (`resolveKafkaConnect`), so
+ * an unresolved handle here is a bug — fail explicitly rather than hand a
+ * broker an empty or `[object Object]` credential.
+ */
+export function plaintextKafkaSecret(value: ProtocolSecretValue): string {
+  if (typeof value === 'string') return value;
+  if (value.kind === 'inline') return value.value;
+  throw new Error(MISSING_KAFKA_CREDENTIAL);
+}
+
 /**
  * Resolve a Kafka SASL SecretValue to plaintext, main-process only.
  *
@@ -130,7 +144,11 @@ export function buildKafkaSaslOptions(
     case 'PLAIN':
     case 'SCRAM-SHA-256':
     case 'SCRAM-SHA-512':
-      return { mechanism: sasl.mechanism, username: sasl.username, password: sasl.password };
+      return {
+        mechanism: sasl.mechanism,
+        username: sasl.username,
+        password: plaintextKafkaSecret(sasl.password),
+      };
     case 'OAUTHBEARER': {
       const extensions = sasl.extensions ? { oauthBearerExtensions: sasl.extensions } : {};
       if (sasl.mode === 'client-credentials') {
@@ -155,7 +173,7 @@ export function buildKafkaSaslOptions(
           ...extensions,
         };
       }
-      return { mechanism: 'OAUTHBEARER', token: sasl.token, ...extensions };
+      return { mechanism: 'OAUTHBEARER', token: plaintextKafkaSecret(sasl.token), ...extensions };
     }
     case 'GSSAPI':
       return {

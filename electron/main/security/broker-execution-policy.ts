@@ -77,52 +77,87 @@ function socksProxyUrl(proxy: NonNullable<ReturnType<typeof getActiveProxy>>): s
 
 /**
  * Folds acknowledged global policy into a native MQTT connection. MQTT.js has
- * first-class SOCKS support; HTTP-family proxy configurations must fail closed
- * until a CONNECT-capable raw-socket adapter is available.
+ * first-class SOCKS support for its raw TCP/TLS transports; HTTP-family proxy
+ * configurations — and any proxy for the WebSocket transports (`ws:`/`wss:`),
+ * which dial through a DNS-pinned `ws` socket — fail closed until a
+ * CONNECT-capable adapter is available.
  */
 export function resolveMqttExecutionPolicy<T extends MqttPolicyInput>(
   config: T
 ): T & { connectTimeout: number; tls?: BrokerTlsOptions; socksProxy?: string } {
   assertExecutionPolicyReady();
   const url = new URL(config.brokerUrl);
+  const isWebSocket = url.protocol === 'ws:' || url.protocol === 'wss:';
   const proxy = getActiveProxy(url);
-  if (proxy && proxy.type !== 'socks4' && proxy.type !== 'socks5') {
+  if (proxy && (isWebSocket || (proxy.type !== 'socks4' && proxy.type !== 'socks5'))) {
     throw new Error(
-      `MQTT client cannot honor the configured ${proxy.type.toUpperCase()} proxy for raw broker connections`
+      `MQTT client cannot honor the configured ${proxy.type.toUpperCase()} proxy for ${
+        isWebSocket ? 'WebSocket' : 'raw'
+      } broker connections`
     );
   }
 
+  const usesTls = url.protocol === 'mqtts:' || url.protocol === 'wss:';
   return {
     ...config,
     connectTimeout: config.connectTimeout ?? getExecutionPolicy().timeout,
-    ...(url.protocol === 'mqtts:' ? { tls: selectedTls(url, config.tls) } : {}),
+    ...(usesTls ? { tls: selectedTls(url, config.tls) } : {}),
     ...(proxy ? { socksProxy: socksProxyUrl(proxy) } : {}),
   };
 }
 
+/** Stable comparison key for resolved TLS material (Buffers compared by content). */
+function tlsFingerprint(tls: BrokerTlsOptions): string {
+  return JSON.stringify(
+    Object.entries(tls)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => [k, Buffer.isBuffer(v) ? v.toString('base64') : v])
+  );
+}
+
 /**
  * Folds acknowledged global policy into a native Kafka connection. The current
- * Kafka client has no socket/proxy injection hook, so an active proxy is a
- * hard error rather than a direct-connection bypass.
+ * Kafka client has no socket/proxy injection hook, so an active proxy for ANY
+ * bootstrap broker is a hard error rather than a direct-connection bypass. The
+ * client also takes a single TLS context for every broker, so bootstrap
+ * brokers whose host-matched certificates differ are rejected rather than
+ * silently dialled with the first broker's material.
  */
 export function resolveKafkaExecutionPolicy<T extends KafkaPolicyInput>(
   config: T
 ): T & { connectTimeout: number; tls?: BrokerTlsOptions } {
   assertExecutionPolicyReady();
-  const firstBroker = config.bootstrapBrokers[0];
-  if (!firstBroker) throw new Error('Kafka connection requires at least one bootstrap broker');
-  const url = new URL(`kafka://${firstBroker}`);
-  const proxy = getActiveProxy(url);
-  if (proxy) {
-    throw new Error(
-      `Kafka client cannot honor the configured ${proxy.type.toUpperCase()} proxy for broker connections`
-    );
+  if (config.bootstrapBrokers.length === 0) {
+    throw new Error('Kafka connection requires at least one bootstrap broker');
+  }
+  let tls: BrokerTlsOptions | undefined;
+  let tlsKey: string | undefined;
+  for (const broker of config.bootstrapBrokers) {
+    const url = new URL(`kafka://${broker}`);
+    const proxy = getActiveProxy(url);
+    if (proxy) {
+      throw new Error(
+        `Kafka client cannot honor the configured ${proxy.type.toUpperCase()} proxy for broker ${broker}`
+      );
+    }
+    if (!config.usesTls) continue;
+    const brokerTls = selectedTls(url, config.tls);
+    const key = tlsFingerprint(brokerTls);
+    if (tls === undefined) {
+      tls = brokerTls;
+      tlsKey = key;
+    } else if (key !== tlsKey) {
+      throw new Error(
+        `Kafka bootstrap brokers resolve to different TLS certificates (${config.bootstrapBrokers[0]} vs ${broker}); the Kafka client uses one TLS context for every broker — split them into separate connections`
+      );
+    }
   }
 
   return {
     ...config,
     connectTimeout: config.connectTimeout ?? getExecutionPolicy().timeout,
-    ...(config.usesTls ? { tls: selectedTls(url, config.tls) } : {}),
+    ...(tls ? { tls } : {}),
   };
 }
 

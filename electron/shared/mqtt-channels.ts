@@ -22,6 +22,12 @@ export const MQTT_CHANNEL = {
   UNSUBSCRIBED: EVENT_PREFIX.mqtt.unsubscribed,
   /** The connection closed (disconnect, broker close, or teardown). */
   CLOSE: EVENT_PREFIX.mqtt.close,
+  /** Broker-initiated MQTT 5 DISCONNECT (with `{ reasonCode, reasonString? }`). */
+  DISCONNECTED: EVENT_PREFIX.mqtt.disconnected,
+  /** mqtt.js is about to retry the connection (auto-reconnect). */
+  RECONNECT: EVENT_PREFIX.mqtt.reconnect,
+  /** The client went offline (connection lost; reconnect may follow). */
+  OFFLINE: EVENT_PREFIX.mqtt.offline,
 } as const;
 
 export type MqttChannelPrefix = (typeof MQTT_CHANNEL)[keyof typeof MQTT_CHANNEL];

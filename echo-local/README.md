@@ -65,7 +65,7 @@ npm run echo:local -- manifest                # write + print the manifest, exit
 | Secure WebSocket | `wss://localhost:8543/echo`                        | same paths over TLS (CA-signed); the packaged desktop CSP allows `wss:` only   |
 | Socket.IO        | `http://localhost:8086`                            | namespaces `/` `/chat` `/admin`                                                |
 | MCP              | `http://localhost:8087/mcp`                        | streamable-http                                                                |
-| MQTT             | `mqtt://localhost:1883` / `mqtts://localhost:8883` | EMQX MQTT 5 (Docker); dashboard `:18083` (admin/public)                        |
+| MQTT             | `mqtt://localhost:1883` / `mqtts://localhost:8883` / `ws://localhost:8083/mqtt` / `wss://localhost:8084/mqtt` | EMQX MQTT 5 (Docker); dashboard `:18083` (admin/public) |
 | Kafka            | `localhost:9092`                                   | Redpanda PLAINTEXT (Docker)                                                    |
 | Kafka SSL        | `localhost:9093`                                   | TLS, no SASL; self-signed broker cert (verify-SSL off)                         |
 | Kafka SASL       | `localhost:9094`                                   | SASL_PLAINTEXT, SCRAM-SHA-256 (`restura` / `restura-secret`)                   |

@@ -43,6 +43,7 @@ const KAFKA_FIELDS: Record<KafkaSecretField, true> = {
 const MQTT_FIELDS: Record<MqttSecretField, true> = {
   password: true,
   'tls-passphrase': true,
+  'auth-data': true,
 };
 const SECRET_KEYS = [
   ...(Object.keys(KAFKA_FIELDS) as KafkaSecretField[]).map((f) => kafkaSecretKey('conn-1', f)),

@@ -27,8 +27,10 @@ export type KafkaAcks = 0 | 1 | -1;
 
 /**
  * Sentinel marker for secrets the store must never serialize in clear.
- * The real value lives in secureStorage (electron-store + safeStorage) and
- * is resolved by `kafkaManager` just before the IPC call.
+ * The real value lives in the main-process secret-handle store under the
+ * deterministic handle for `kafka:<connectionId>:<field>`
+ * (`src/lib/shared/broker-secrets.ts`); `kafkaManager` sends that handle — never
+ * the plaintext — and main resolves it at connect (SEC-K3).
  */
 export const KAFKA_SECRET_SENTINEL = '__restura_secret__';
 
@@ -73,14 +75,14 @@ export type KafkaSasl =
   | {
       mechanism: KafkaPasswordMechanism;
       username: string;
-      /** Persisted as the sentinel; real value comes from secureStorage */
+      /** Persisted as the sentinel; real value lives in a main-process handle */
       password: string;
     }
   | {
       mechanism: 'OAUTHBEARER';
       /** Absent on configs saved before client-credentials support. */
       mode?: 'static';
-      /** Persisted as the sentinel; real value comes from secureStorage */
+      /** Persisted as the sentinel; real value lives in a main-process handle */
       token: string;
       extensions?: Record<string, string>;
     }
@@ -122,7 +124,7 @@ export interface KafkaTls {
   caPath?: string;
   certPath?: string;
   keyPath?: string;
-  /** Persisted as the sentinel; real value comes from secureStorage */
+  /** Persisted as the sentinel; real value lives in a main-process handle */
   passphrase?: string;
   rejectUnauthorized?: boolean;
 }
@@ -136,7 +138,7 @@ export interface KafkaAuth {
 /**
  * Confluent Schema Registry config. When set, the consumer decodes
  * Avro/Protobuf/JSON Schema messages via the registry. Auth secrets persist as
- * the sentinel; real values live in secureStorage (resolved by kafkaManager).
+ * the sentinel; real values live in main-process handles (resolved in main).
  * HTTPS uses the Settings TLS policy (custom CA, mTLS, verify) for its host.
  */
 export interface KafkaRegistry {
@@ -145,7 +147,7 @@ export interface KafkaRegistry {
   authType?: 'basic' | 'bearer';
   auth?: {
     username?: string;
-    /** Persisted as the sentinel; real value comes from secureStorage */
+    /** Persisted as the sentinel; real value lives in a main-process handle */
     password?: string;
   };
   /**

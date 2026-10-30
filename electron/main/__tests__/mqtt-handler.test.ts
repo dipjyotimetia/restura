@@ -4,6 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockEmitTo = vi.hoisted(() => vi.fn());
 const mockBrokerSafe = vi.hoisted(() => vi.fn());
+// DNS-time broker guard (SEC-K1): resolves the host and returns the pinned
+// address. Its policy decisions are covered by tests/security/broker-dns-guard.
+const mockResolveBroker = vi.hoisted(() =>
+  vi.fn(async (brokerUrl: string) => {
+    const u = new URL(brokerUrl);
+    return { host: u.hostname, ip: '203.0.113.7', port: Number(u.port) || 1883, family: 4 };
+  })
+);
 
 vi.mock('electron', () => ({
   ipcMain: { handle: mockHandle, removeHandler: vi.fn() },
@@ -21,6 +29,9 @@ vi.mock('../ipc/ipc-utils', () => ({
 // is a no-op spy so tests only assert the handler's wiring to it.
 vi.mock('../security/mqtt-broker-guard', () => ({
   assertMqttBrokerSafe: mockBrokerSafe,
+}));
+vi.mock('../security/broker-dns-guard', () => ({
+  resolveMqttBrokerAddress: mockResolveBroker,
 }));
 
 import type * as MqttLib from 'mqtt';
@@ -276,7 +287,7 @@ describe('mqtt-handler', () => {
     });
     expect(client.publish).toHaveBeenCalledWith(
       'devices/alpha',
-      'hello',
+      Buffer.from('hello'),
       expect.objectContaining({ qos: 1, retain: false }),
       expect.any(Function)
     );

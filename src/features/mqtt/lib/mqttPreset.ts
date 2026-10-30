@@ -3,19 +3,29 @@
  *
  * Mirror of `src/features/kafka/lib/kafkaPreset.ts`: the preset captures the
  * connection, the composer drafts and the saved publish templates — never the
- * password or TLS passphrase. Those are copied between the live connection's
- * secure-storage scope (`mqtt:<connectionId>:<field>`) and the preset's
- * (`mqtt:preset-<requestId>:<field>`).
+ * password or TLS passphrase. Those live in main-process secret handles and
+ * are copied in main between the live connection's scope
+ * (`mqtt:<connectionId>:<field>`) and the preset's
+ * (`mqtt:preset-<requestId>:<field>`) — the renderer never reads them back.
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { type MqttSecretField, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
+import {
+  MQTT_SECRET_LABELS,
+  type MqttSecretField,
+  mqttSecretKey,
+} from '@/features/mqtt/lib/mqttManager';
 import {
   MQTT_SECRET_SENTINEL,
   type MqttConnection,
   useMqttStore,
 } from '@/features/mqtt/store/useMqttStore';
-import { secureStorage } from '@/lib/shared/secure-storage';
+import {
+  copyBrokerSecret,
+  ensureBrokerSecret,
+  putBrokerSecret,
+  removeBrokerSecret,
+} from '@/lib/shared/broker-secrets';
 import {
   getMqttComposerDraft,
   getPendingSecret,
@@ -25,7 +35,7 @@ import {
 import { newTemplateId } from '@/lib/shared/streaming/messageTemplates';
 import type { MqttPresetConnection, MqttPresetPublish, MqttRequest } from '@/types';
 
-const SECRET_FIELDS: readonly MqttSecretField[] = ['password', 'tls-passphrase'];
+const SECRET_FIELDS: readonly MqttSecretField[] = ['password', 'tls-passphrase', 'auth-data'];
 
 export function mqttPresetSecretScope(requestId: string): string {
   return `preset-${requestId}`;
@@ -61,6 +71,11 @@ function presetConnection(conn: MqttConnection): MqttPresetConnection {
     };
   }
   if (conn.lwt) out.lwt = { ...conn.lwt };
+  if (conn.connectProperties) {
+    // Auth data is a local secret (copied with the preset's credentials).
+    const { authenticationData: _secret, ...connectProperties } = conn.connectProperties;
+    if (Object.keys(connectProperties).length > 0) out.connectProperties = connectProperties;
+  }
   if (conn.sessionExpiryInterval !== undefined) {
     out.sessionExpiryInterval = conn.sessionExpiryInterval;
   }
@@ -119,6 +134,7 @@ export function applyMqttPreset(connectionId: string, preset: MqttRequest): void
     username: c.username,
     password: undefined,
     sessionExpiryInterval: c.sessionExpiryInterval,
+    connectProperties: c.connectProperties ? { ...c.connectProperties } : undefined,
     templates: preset.templates.map((t) => ({ ...t, id: newTemplateId() })),
   });
   store.updateTls(connectionId, c.tls ? { ...c.tls } : undefined);
@@ -133,24 +149,13 @@ export function applyMqttPreset(connectionId: string, preset: MqttRequest): void
   });
 }
 
-export type MqttPresetSecrets = Partial<Record<MqttSecretField, string>>;
-
-/** Stored (sentinel), pending (typed, not yet connected) or plaintext field value. */
-async function heldSecret(
-  connectionId: string,
-  field: MqttSecretField,
-  value: string | undefined
-): Promise<string | null> {
-  const key = mqttSecretKey(connectionId, field);
-  const pending = getPendingSecret(key);
-  if (pending) return pending;
-  if (value === MQTT_SECRET_SENTINEL) return secureStorage.getAsync(key);
-  return value ? value : null;
-}
+/** Which credentials a preset holds — presence only, never the values. */
+export type MqttPresetSecrets = Partial<Record<MqttSecretField, true>>;
 
 /**
  * Save side: copy the credentials the connection holds into the preset scope;
  * fields it does not hold are cleared so a re-save never keeps a stale secret.
+ * A typed-but-not-yet-connected (pending) value is stored directly.
  */
 export async function storeMqttPresetSecrets(
   conn: MqttConnection,
@@ -160,37 +165,65 @@ export async function storeMqttPresetSecrets(
   const fieldValue: Record<MqttSecretField, string | undefined> = {
     password: conn.password,
     'tls-passphrase': conn.tls?.passphrase,
+    'auth-data': conn.connectProperties?.authenticationData,
   };
   for (const field of SECRET_FIELDS) {
-    const value = await heldSecret(conn.id, field, fieldValue[field]);
-    if (value) secureStorage.set(mqttSecretKey(target, field), value);
-    else secureStorage.remove(mqttSecretKey(target, field));
+    const from = mqttSecretKey(conn.id, field);
+    const to = mqttSecretKey(target, field);
+    const label = MQTT_SECRET_LABELS[field];
+    const value = getPendingSecret(from) ?? fieldValue[field];
+    if (value === MQTT_SECRET_SENTINEL) await copyBrokerSecret(from, to, label);
+    else if (value) await putBrokerSecret(to, value, label);
+    else await removeBrokerSecret(to);
   }
 }
 
-/** Read the credentials stored for a preset (absent fields omitted). */
+/** Which credentials are stored for a preset (absent fields omitted). */
 export async function readMqttPresetSecrets(requestId: string): Promise<MqttPresetSecrets> {
   const scope = mqttPresetSecretScope(requestId);
   const out: MqttPresetSecrets = {};
   for (const field of SECRET_FIELDS) {
-    const value = await secureStorage.getAsync(mqttSecretKey(scope, field));
-    if (value) out[field] = value;
+    if (await ensureBrokerSecret(mqttSecretKey(scope, field), MQTT_SECRET_LABELS[field])) {
+      out[field] = true;
+    }
   }
   return out;
 }
 
-/** Write preset credentials onto a tab connection (sync) and sentinel-mark them. */
-export function applyMqttPresetSecrets(connectionId: string, secrets: MqttPresetSecrets): void {
+/**
+ * Copy the preset's stored credentials (those listed in `secrets`) onto a tab
+ * connection, then sentinel-mark them.
+ */
+export async function applyMqttPresetSecrets(
+  connectionId: string,
+  requestId: string,
+  secrets: MqttPresetSecrets
+): Promise<void> {
+  const scope = mqttPresetSecretScope(requestId);
+  const copied: MqttPresetSecrets = {};
   for (const field of SECRET_FIELDS) {
-    const value = secrets[field];
-    if (value) secureStorage.set(mqttSecretKey(connectionId, field), value);
+    if (!secrets[field]) continue;
+    const ok = await copyBrokerSecret(
+      mqttSecretKey(scope, field),
+      mqttSecretKey(connectionId, field),
+      MQTT_SECRET_LABELS[field]
+    );
+    if (ok) copied[field] = true;
   }
   const store = useMqttStore.getState();
   const conn = store.connections[connectionId];
   if (!conn) return;
-  if (secrets.password) store.updateConnection(connectionId, { password: MQTT_SECRET_SENTINEL });
-  if (secrets['tls-passphrase'] && conn.tls) {
+  if (copied.password) store.updateConnection(connectionId, { password: MQTT_SECRET_SENTINEL });
+  if (copied['tls-passphrase'] && conn.tls) {
     store.updateTls(connectionId, { ...conn.tls, passphrase: MQTT_SECRET_SENTINEL });
+  }
+  if (copied['auth-data']) {
+    store.updateConnection(connectionId, {
+      connectProperties: {
+        ...(conn.connectProperties ?? {}),
+        authenticationData: MQTT_SECRET_SENTINEL,
+      },
+    });
   }
 }
 
@@ -199,21 +232,26 @@ export async function restoreMqttPresetSecrets(
   requestId: string,
   connectionId: string
 ): Promise<void> {
-  applyMqttPresetSecrets(connectionId, await readMqttPresetSecrets(requestId));
+  await applyMqttPresetSecrets(connectionId, requestId, await readMqttPresetSecrets(requestId));
 }
 
 /** Delete every credential stored for a preset (preset deleted). */
 export function reapMqttPresetSecrets(requestId: string): void {
   const scope = mqttPresetSecretScope(requestId);
-  for (const field of SECRET_FIELDS) secureStorage.remove(mqttSecretKey(scope, field));
+  for (const field of SECRET_FIELDS) {
+    void removeBrokerSecret(mqttSecretKey(scope, field)).catch(() => {});
+  }
 }
 
 /** Copy a preset's credentials to another preset id (duplicate). */
 export async function copyMqttPresetSecrets(fromId: string, toId: string): Promise<void> {
-  const secrets = await readMqttPresetSecrets(fromId);
-  const scope = mqttPresetSecretScope(toId);
+  const from = mqttPresetSecretScope(fromId);
+  const to = mqttPresetSecretScope(toId);
   for (const field of SECRET_FIELDS) {
-    const value = secrets[field];
-    if (value) secureStorage.set(mqttSecretKey(scope, field), value);
+    await copyBrokerSecret(
+      mqttSecretKey(from, field),
+      mqttSecretKey(to, field),
+      MQTT_SECRET_LABELS[field]
+    );
   }
 }
