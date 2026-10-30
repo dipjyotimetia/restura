@@ -61,6 +61,7 @@ import {
 } from '@/features/graphql/store/useGraphQLErrorStore';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
+import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
@@ -126,6 +127,7 @@ function GraphQLRequestBuilder() {
   const [loadSchemaOpen, setLoadSchemaOpen] = useState(false);
   const { confirm: confirmReplaceImported, DialogComponent: ReplaceImportedDialog } =
     useConfirmDialog(REPLACE_IMPORTED_CONFIRM);
+  const cleartextGuard = useCleartextCredentialsGuard();
 
   const sendShortcut = useSendShortcut();
   // An errors panel asked to reveal a query location — show the editor.
@@ -155,7 +157,7 @@ function GraphQLRequestBuilder() {
   })();
   const queryBytes = new Blob([query]).size;
 
-  const handleSubscribe = (
+  const handleSubscribe = async (
     operationName = operationState.operationName,
     variablesText = graphqlVariables
   ) => {
@@ -181,6 +183,13 @@ function GraphQLRequestBuilder() {
     } catch {
       toast.error('Invalid JSON in variables');
       return;
+    }
+
+    // ws:// / http:// sends auth in cleartext (#898): confirm first. Bail if
+    // declined, or if another subscribe started while the dialog was open.
+    const creds = { headers: handshake.headers, force: handshake.mainSide !== undefined };
+    if (cleartextGuard.needsConfirm(resolvedUrl, creds)) {
+      if (!(await cleartextGuard.confirm()) || subscriptionClientRef.current) return;
     }
 
     setSubscriptionLog(emptySubscriptionLog);
@@ -382,7 +391,7 @@ function GraphQLRequestBuilder() {
     if (!operation || !httpRequest.url) return;
     const variablesText = selectOperation(operation);
     if (operation.type === 'subscription') {
-      if (!subscriptionClientRef.current) handleSubscribe(operation.name, variablesText);
+      if (!subscriptionClientRef.current) void handleSubscribe(operation.name, variablesText);
     } else if (!isLoading) {
       void handleSendRequest(operation.name, variablesText);
     }
@@ -474,7 +483,7 @@ function GraphQLRequestBuilder() {
         <Button
           variant="cta"
           size="cta"
-          onClick={() => handleSubscribe()}
+          onClick={() => void handleSubscribe()}
           disabled={!httpRequest.url}
           title="graphql-ws over WebSocket"
           className="min-w-[100px] shrink-0"
@@ -536,7 +545,7 @@ function GraphQLRequestBuilder() {
     : isSubscription
       ? isSubscribed
         ? null
-        : () => handleSubscribe()
+        : () => void handleSubscribe()
       : isLoading
         ? null
         : () => void handleSendRequest();
@@ -782,6 +791,7 @@ function GraphQLRequestBuilder() {
         onLoad={handleSchemaLoaded}
       />
       <ReplaceImportedDialog />
+      <cleartextGuard.Dialog />
     </div>
   );
 }
