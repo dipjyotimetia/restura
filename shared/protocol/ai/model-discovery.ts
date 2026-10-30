@@ -68,7 +68,12 @@ export interface DiscoverArgs {
   apiKey?: string;
   fetcher: Fetcher;
   signal?: AbortSignal;
+  /** Per-request deadline; defaults to {@link MODEL_DISCOVERY_TIMEOUT_MS}. */
+  timeoutMs?: number;
 }
+
+/** A discovery GET against a hung or blackholed host must not wait forever. */
+export const MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
 
 /**
  * Ollama lists models at `GET /api/tags` → `{ models: [{ name, details, ... }] }`.
@@ -128,13 +133,23 @@ async function fetchJson(url: string, args: DiscoverArgs): Promise<unknown> {
       headers.Authorization = `Bearer ${args.apiKey}`;
     }
   }
-  const res = await args.fetcher({
-    url,
-    method: 'GET',
-    headers,
-    body: undefined,
-    signal: args.signal ?? new AbortController().signal,
-  });
+  const timeoutMs = args.timeoutMs ?? MODEL_DISCOVERY_TIMEOUT_MS;
+  const timeout = AbortSignal.timeout(timeoutMs);
+  let res: Awaited<ReturnType<Fetcher>>;
+  try {
+    res = await args.fetcher({
+      url,
+      method: 'GET',
+      headers,
+      body: undefined,
+      signal: args.signal ? AbortSignal.any([args.signal, timeout]) : timeout,
+    });
+  } catch (e) {
+    if (timeout.aborted && !args.signal?.aborted) {
+      throw new Error(`Model discovery timed out after ${timeoutMs}ms`);
+    }
+    throw e;
+  }
   if (res.status < 200 || res.status >= 300) {
     let detail = '';
     try {
