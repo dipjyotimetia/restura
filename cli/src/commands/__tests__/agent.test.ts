@@ -250,6 +250,43 @@ function dependenciesWithFiles(files: Record<string, unknown>, fetcher: Fetcher)
   return deps;
 }
 
+type PolicyProfile = NonNullable<AgentSuite['policies']>[number];
+
+function suiteWithPolicy(policy: Pick<PolicyProfile, 'autoApprove' | 'ciEligible'>): AgentSuite {
+  const base = suite();
+  return {
+    ...base,
+    policies: [{ id: 'policy-1', name: 'Policy', version: 1, ...policy }],
+    agents: base.agents.map((agent) => ({ ...agent, policyId: 'policy-1' })),
+  };
+}
+
+describe('policy profile CI gating', () => {
+  it.each([
+    ['not ciEligible', { autoApprove: [], ciEligible: false }],
+    ['auto-approving mutations', { autoApprove: ['mutation'], ciEligible: true }],
+  ])('exits 2 for a %s profile before any model call', async (_name, policy) => {
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependenciesWithFiles({ '/suite.json': suiteWithPolicy(policy) }, fetcher);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      expect(await runAgentEval('/suite.json', {}, deps)).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('ciEligible'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it('admits a ciEligible read-only profile and suites with no profile', () => {
+    expect(() =>
+      preflightAgentSuite(suiteWithPolicy({ autoApprove: ['read'], ciEligible: true }))
+    ).not.toThrow();
+    expect(() => preflightAgentSuite(suite())).not.toThrow();
+  });
+});
+
 describe('runAgentEval exit codes', () => {
   const mcpRuntime = {
     schemaVersion: 1,

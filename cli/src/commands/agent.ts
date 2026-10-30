@@ -15,6 +15,7 @@ import {
   createAgentToolResolver,
   createFixtureToolSourceAdapter,
   evaluateAgentBundleBaseline,
+  isCiSafePolicy,
   migrateAgentSuite,
   OpenAiResponsesAdapter,
   ProviderRegistry,
@@ -76,6 +77,19 @@ export function preflightAgentSuite(
     if (agent.model.baseUrl) {
       throw new Error(
         'headless agent eval refuses suite baseUrl overrides; configure a trusted adapter plugin'
+      );
+    }
+  }
+
+  // A desktop profile may auto-approve writes; CI must never inherit that.
+  // Suites with no profile pass, and only referenced profiles are applied.
+  for (const agent of suite.agents) {
+    const profile = agent.policyId
+      ? suite.policies?.find((candidate) => candidate.id === agent.policyId)
+      : undefined;
+    if (profile && !isCiSafePolicy(profile)) {
+      throw new Error(
+        `policy profile ${profile.id} is not CI-safe: headless eval requires ciEligible: true and only read auto-approvals`
       );
     }
   }
