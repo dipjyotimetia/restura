@@ -23,13 +23,15 @@ workflows/<workflow-id>/layout.restura.json
 
 Restura currently runs:
 
-- `do`, `set`, and `wait` tasks;
+- `do`, `set`, and `wait` tasks, with `if` guards on tasks;
+- `for` loops (`each` / `at`) and `try` / `catch` recovery;
+- typed data and outputs;
 - task and workflow timeout/cancellation; and
-- an HTTP `call` bound to a saved HTTP request.
+- an HTTP `call` bound to a saved HTTP **or GraphQL** request. Saved GraphQL **mutations** require explicit approval before they run.
 
 The call uses the sentinel `restura://saved-request`; the actual URL, headers, authentication, and body come only from the saved request. This keeps every run on Restura's normal SSRF, header, secret, approval, timeout, and cancellation path.
 
-`fork`, `for`, `switch`, `try`, event and process tasks, OpenAPI, AsyncAPI, MCP, A2A, inline secrets/authentication, schedules, extensions, and arbitrary scripts are rejected rather than partially executed.
+`fork`, `switch`, `emit` / `listen` / `raise`, process (`run`) tasks, OpenAPI, AsyncAPI, MCP, A2A, inline secrets/authentication, schedules, extensions, and arbitrary scripts are rejected rather than partially executed.
 
 ## Authoring and Git
 

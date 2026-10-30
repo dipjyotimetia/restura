@@ -3,7 +3,7 @@ title: Reverse proxy
 description: Putting Restura behind nginx, Caddy, or Traefik. WebSocket upgrades, headers, TLS.
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
 When you self-host Restura, put it behind your reverse proxy of choice for TLS termination, auth (via Cloudflare Access, OIDC, etc.), and rate limiting.
 
@@ -90,8 +90,12 @@ services:
 ## With Cloudflare Access (or any header-injecting IdP)
 
 1. Put Cloudflare Access in front of `restura.example.com` and configure your identity provider.
-2. In the Restura container, set `REQUIRE_CF_ACCESS=true`.
-3. The server reads the user identity from the `Cf-Access-Authenticated-User-Email` header (or your IdP's equivalent) and skips the shared-token check.
+2. In the Restura container, set `REQUIRE_CF_ACCESS=true` and leave `WORKER_PROXY_TOKEN` **unset**.
+3. The server accepts a request that carries a non-empty `Cf-Access-Authenticated-User-Email` header.
+
+<Aside type="caution">
+The server only checks that the header is present; it does not verify it. If `WORKER_PROXY_TOKEN` is also set, the token check runs first and is the only one used — requests without the token get `401` even when the header is present. Make the container reachable **only** through your authenticating proxy, and have the proxy overwrite or strip any `Cf-Access-Authenticated-User-Email` header a client sends, otherwise anyone who can reach the container directly can forge it.
+</Aside>
 
 Make sure the header your IdP injects matches what the server reads — see [Self-hosting / Docker](/self-hosting/docker/) for the env var names.
 

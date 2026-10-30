@@ -47,5 +47,8 @@
       "katex": "^0.18.2"
     },
     "sharp": "$sharp"
+  },
+  "devDependencies": {
+    "starlight-links-validator": "^0.27.0"
   }
 }

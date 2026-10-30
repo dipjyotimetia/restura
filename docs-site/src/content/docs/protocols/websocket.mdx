@@ -1,6 +1,6 @@
 ---
 title: WebSocket
-description: Connect, send text or binary frames, watch the full message history, auto-reconnect.
+description: Connect, send text or binary frames, inspect the session transcript, send ping/pong and close frames, auto-reconnect.
 ---
 
 Restura's WebSocket client gives you a full session viewer: every frame sent and received, with timestamps, payload type, and a search bar over the transcript.
@@ -17,9 +17,9 @@ Restura's WebSocket client gives you a full session viewer: every frame sent and
 - **`{{variables}}` in messages** — text, JSON and hex frames are resolved at send time with the same scopes as HTTP (globals, active environment, collection and folder variables, plus `{{$dynamic}}` helpers); hex is resolved *before* the bytes are parsed. In `json` format a variable inside a JSON string is JSON-escaped, so quotes in a value can't change the structure. Unresolved names are sent literally and flagged with a system message in the transcript. Values of variables marked secret are masked (`••••••`) in the transcript; desktop keychain-handle secrets are never resolved in the renderer, so they are reported as unresolved.
 - **Saved messages** — click **Saved** in the composer to keep named messages per connection (body + `text` / `json` / `hex` format). Save the current composer, rename, reorder, delete; click a saved message to load it, or use its send button / <kbd>Shift</kbd>+<kbd>Enter</kbd> to send it directly. Saved messages are stored as typed — variables are resolved only when sent.
 - **Frame assertions** — the flask button in the message log opens an optional script that runs in the QuickJS [script sandbox](/guides/scripts/) for every frame *received* after it is enabled. The frame is bound as the test-script response (`pm.response.text()` / `pm.response.json()`), so `pm.test` and `pm.expect` work as in HTTP test scripts. Variables are deliberately not available to frame scripts (`pm.environment.get` returns `undefined`), and frames larger than 256 KB are skipped (marked in the transcript). Each frame gets a pass/fail badge in the transcript; select it to see per-test results. The script and its enabled state are saved with the connection.
-- **Auto-reconnect** — backoff with jitter, configurable per session.
+- **Auto-reconnect** — toggle in the stats row (while disconnected); reconnects with backoff and jitter up to a maximum attempt count, on web and desktop.
 - **Resizable options pane** — with **Options** open, subprotocols and handshake headers get their own pane above the message log; drag the divider (or focus it and use the arrow keys) to resize. The position is remembered.
-- **Auth on connect** — Bearer, Basic, API Key, OAuth 2.0, carried as upgrade headers on desktop.
+- **Authentication** — there is no auth picker for WebSocket. Add an `Authorization` (or other) row to the handshake header table; headers are sent on desktop only (browsers can't set upgrade headers).
 - **Custom close code + reason** — the chevron next to **Disconnect** sends a close frame with your own status code (`1000` or an application code `3000`-`4999`, per RFC 6455) and an optional reason of up to 123 UTF-8 bytes. Works on web and desktop.
 - **Ping / pong** — desktop only. **Ping** sends a Ping control frame (the chevron adds an optional payload of up to 125 bytes); the matching pong is logged as a system entry with its round-trip time, which also feeds the **Latency** stat. Pings the server sends are logged too (they are answered automatically). The browser `WebSocket` API exposes no ping/pong frames, so on web the control is disabled and the transcript can't show them.
 - **permessage-deflate toggle** — desktop only. Under **Options**, turn off *Offer permessage-deflate compression* to test servers without compression; browsers always negotiate compression themselves.
@@ -37,11 +37,11 @@ The Electron main process opens the socket directly with the native `ws` library
 
 - Custom headers go straight on the upgrade frame — no Worker ticket needed.
 - The connection is **pinned to a pre-validated IP** at connect time, closing the DNS-rebind window that pre-flight validation alone leaves open (see [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/)).
-- Redirects on the upgrade are followed.
+- Same-host redirects on the upgrade are followed; a redirect to a different host is refused.
 
 ## Tips
 
-- Save a session: every send/receive is stored in history, replayable later.
+- Messages are not written to request history and are not persisted across restarts. To keep a session, **export the log** (above) as JSON or NDJSON.
 - **Save to Collection** stores the connection (URL, subprotocols, headers, reconnect / heartbeat options, frame assertion, the message you're composing and your saved messages) as a collection item you can reopen from the sidebar; see [WebSocket and Socket.IO connections](/guides/collections/#websocket-and-socketio-connections). It isn't run by the collection runner or the CLI. Headers and URL credentials are blanked on export when secrets are excluded; message payloads are not.
 - Use **frame assertions** (above) for per-frame checks; they run on received frames only and do not write variables back.
 - For Socket.IO (which is *not* a plain WebSocket), use the [Socket.IO protocol](/protocols/socket-io/).

@@ -12,7 +12,7 @@ Make the AI path **Electron-first and provider-agnostic**, with the orchestrator
 
 - Transport: the renderer streams over the IPC bridge — `window.electron.ai` → `ai:chat` / `ai:chat:cancel`, with per-call event channels `ai:chat:chunk:<id>` / `ai:chat:end:<id>` → `electron/main/ai-handler.ts` → `shared/protocol/ai/ai-proxy.ts`. The renderer's `streamConsumer.ts` must subscribe to the chunk channel **before** invoking `chat` to avoid dropping the first tokens.
 - Provider-agnostic core: `ai-proxy.ts` orchestrates and emits raw SSE bytes downstream. Per-provider wire shapes live in `provider-routes.ts`; decoders in `providers/{openai,anthropic,openrouter}.ts`, each paired with a fixture test.
-- Redaction: the renderer captures context via `lib/contextSnapshot.ts` (method, path, protocol, redacted headers/body, response, active env name) and `redaction.ts` scrubs secrets and URLs before anything leaves the machine.
+- Redaction: the renderer captures context via `lib/contextSnapshot.ts` (method, path, protocol, redacted headers/body, response, active env name) and `redaction.ts` scrubs secrets (sensitive headers, body tokens, environment-variable values) before anything leaves the machine. The request URL is included as written; host redaction was part of the original design but was never implemented.
 - **No `/api/ai` Worker route exists yet.** The web build is not wired through the proxy. Platform parity must be confirmed, not assumed — this is the main reason the feature is marked "active development."
 
 ## Increment: inline actions + Agent Mode (2026-06)
@@ -48,7 +48,7 @@ capability matrix, `web: false`), consistent with the no-`/api/ai` decision abov
 **Positive**
 
 - Adding a provider is a decoder + fixture, not an orchestration rewrite.
-- Secrets/URLs are redacted at the renderer boundary, so the main process and the provider never see them.
+- Secrets are redacted at the renderer boundary, so the main process and the provider never see them. URLs (including hostnames) are not redacted and are visible to the provider.
 - Streaming + cancel reuse the same IPC event-channel pattern as the other streaming protocols.
 
 **Negative**

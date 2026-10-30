@@ -811,6 +811,11 @@ jobs:
       - name: Type-check docs (astro check)
         run: npm --prefix docs-site run check
 
+      - name: Check docs claims (repo paths and npm scripts named in the docs exist)
+        run: npm run docs:claims
+
+      # starlight-links-validator runs as part of this build and fails it on a
+      # broken internal link or anchor.
       - name: Build docs
         run: npm --prefix docs-site run build
 

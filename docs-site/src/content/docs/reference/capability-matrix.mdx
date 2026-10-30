@@ -4,6 +4,7 @@ description: What works on web vs desktop. Auto-generated from src/lib/shared/ca
 ---
 
 import { Aside } from '@astrojs/starlight/components';
+import CapabilityTable from './_capability-table.md';
 
 Restura's capability matrix is **data-driven**: there's a single source of truth at [`src/lib/shared/capabilities.ts`](https://github.com/dipjyotimetia/restura/blob/main/src/lib/shared/capabilities.ts) and a CI gate (`npm run capabilities:check`) that fails if the published doc drifts from the code.
 
@@ -14,11 +15,11 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 - HTTP / REST (all methods, body types).
 - GraphQL — queries, mutations, subscriptions over WebSocket (`graphql-transport-ws` / legacy `subscriptions-transport-ws`) or `graphql-sse`.
 - gRPC unary + server streaming (via the Connect protocol).
-- WebSocket — connect, send/receive, full history.
+- WebSocket — connect, send/receive, session transcript with export (no request history).
 - Server-Sent Events — basic stream viewer with reconnection.
 - MCP — streamable-HTTP transport (`http-sse` is desktop-only).
 - Socket.IO — emit / listen / ack.
-- Collections, environments, scripts, and the safe OWS workflow profile (`do`, `set`, `wait`, timeout/cancellation, and bound HTTP saved-request calls). OWS event/process tasks, controls without a bounded runtime, and non-HTTP calls are rejected.
+- Collections, environments, scripts, and the safe OWS workflow profile: sequential, guarded (`if`), loop (`for`) and recovery (`try`/`catch`) controls with typed data/output, timeout/cancellation, and binding-only HTTP or GraphQL saved-request calls (GraphQL mutations need explicit approval). Other controls, event/process tasks, inline transport configuration and unsupported transports are rejected.
 - Load testing — fire an HTTP request at bounded concurrency (browser caps effective concurrency ~6).
 - Persistent IndexedDB storage (not encrypted at rest).
 - SSRF guard on every request proxied through the Worker (HTTP, GraphQL queries and `graphql-sse`, gRPC, SSE, MCP). WebSocket, Socket.IO and GraphQL WebSocket subscriptions connect browser-direct, so they get an in-app check instead: loopback, private-network and cloud-metadata targets are refused unless **Allow private / internal IPs** is on, and Restura asks before sending credentials over `ws://` / `http://`.
@@ -40,12 +41,20 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 - **Native shell / notifications / tray**.
 - **Local mock HTTP server**.
 - **AI assistant** — request-aware chat (OpenAI / Anthropic / OpenRouter); Electron-first, streams over IPC. No Worker `/api/ai` route.
+- **Inline AI actions** — one-click *Fix request* / *Generate tests* / *Enrich docs* from a request or response, sent through the assistant's propose-and-apply flow. See the [AI assistant](/guides/ai-assistant/).
+- **`rs.vault` and `rs.judge` in scripts** — `rs.vault` is an encrypted key-value store backed by the OS keychain; `rs.judge` runs an LLM-as-judge semantic assertion. Both are desktop only. See [Scripts](/guides/scripts/).
 - **AI Lab** — prompt/model testing workbench (Playground, dataset evals with deterministic + script + LLM-as-judge + tool-call + pairwise scorers, an execute-and-score `http-exec` target, model-vs-model Arena, and versioned agent suites) against local and cloud models. Needs the localhost SSRF carve-out.
 - **AI Lab agent tools** — saved HTTP requests and MCP servers run through the existing execution/security boundaries; non-read requests require explicit approval. Pluggable code-sandbox contracts exist, but no sandbox provider ships yet.
 
 <Aside title="Canonical reference">
 The full, auto-generated matrix lives at [`docs/CAPABILITY_MATRIX.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/CAPABILITY_MATRIX.md). Run `npm run capabilities:matrix` to regenerate after updating `capabilities.ts`.
 </Aside>
+
+## Full matrix
+
+Generated from `src/lib/shared/capabilities.ts` — the quick summary above is hand-written, this table is not. CI fails if it is stale.
+
+<CapabilityTable />
 
 ## Self-hosted
 

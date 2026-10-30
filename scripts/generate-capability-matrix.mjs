@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Generate docs/CAPABILITY_MATRIX.md from src/lib/shared/capabilities.ts.
- * Run with `--check` to fail when the doc is stale (CI gate).
+ * Generate docs/CAPABILITY_MATRIX.md and the docs-site capability table partial
+ * from src/lib/shared/capabilities.ts.
+ * Run with `--check` to fail when either is stale (CI gate).
  *
  * Loads the real composed `CAPABILITIES` object rather than regex-parsing the
  * TS source: esbuild (already a devDependency, used for the preload bundle)
@@ -18,6 +19,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const sourcePath = path.join(repoRoot, 'src/lib/shared/capabilities.ts');
 const docPath = path.join(repoRoot, 'docs/CAPABILITY_MATRIX.md');
+// Rendered by docs-site/.../reference/capability-matrix.mdx. The leading
+// underscore keeps Starlight from publishing the partial as a page of its own.
+const sitePartialPath = path.join(
+  repoRoot,
+  'docs-site/src/content/docs/reference/_capability-table.md'
+);
 
 const bundled = await build({
   entryPoints: [sourcePath],
@@ -106,15 +113,34 @@ if (expected === 0 || rendered.length !== expected) {
   );
 }
 
+const sitePartial = `<!-- Generated from src/lib/shared/capabilities.ts by \`npm run capabilities:matrix\`. Do not edit by hand. -->
+
+| Capability | Web | Desktop | Notes |
+| --- | :-: | :-: | --- |
+${tableRows.join('\n')}
+`;
+
+const outputs = [
+  { file: docPath, content: doc, label: 'CAPABILITY_MATRIX.md' },
+  { file: sitePartialPath, content: sitePartial, label: path.relative(repoRoot, sitePartialPath) },
+];
+
 const check = process.argv.includes('--check');
 if (check) {
-  const current = fs.existsSync(docPath) ? fs.readFileSync(docPath, 'utf8') : '';
-  if (current !== doc) {
-    console.error('CAPABILITY_MATRIX.md is stale. Run `npm run capabilities:matrix` to update.');
-    process.exit(1);
+  let stale = false;
+  for (const { file, content, label } of outputs) {
+    const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+    if (current !== content) {
+      console.error(`${label} is stale. Run \`npm run capabilities:matrix\` to update.`);
+      stale = true;
+    } else {
+      console.log(`${label} is up to date.`);
+    }
   }
-  console.log('CAPABILITY_MATRIX.md is up to date.');
+  if (stale) process.exit(1);
 } else {
-  fs.writeFileSync(docPath, doc);
-  console.log(`Wrote ${docPath} (${rows.length} rows)`);
+  for (const { file, content } of outputs) {
+    fs.writeFileSync(file, content);
+    console.log(`Wrote ${file} (${rows.length} rows)`);
+  }
 }

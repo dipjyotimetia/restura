@@ -45,7 +45,7 @@ The exact, machine-generated truth lives in [`src/lib/shared/capabilities.ts`](h
 
 ## How the network path differs
 
-On **web**, the SPA `fetch`es `/api/*` on the same origin, which hits a Cloudflare Worker that performs SSRF validation, applies the auth signing, and forwards to the upstream. This avoids CORS friction and gives a uniform fetch surface.
+On **web**, the SPA on Cloudflare Pages `fetch`es `/api/*` on the Worker at `api.restura.dev` — a different origin, allowed through a CORS allowlist (`ALLOWED_ORIGIN`). The Worker performs SSRF validation, applies the auth signing, and forwards to the upstream, giving the renderer a uniform fetch surface. (Only the self-hosted Node server serves the SPA and `/api/*` from one origin.)
 
 WebSocket, Socket.IO and GraphQL WebSocket subscriptions are the exception: on web they connect **browser-direct**, so the Worker's SSRF guard never sees them. Restura applies an in-app check instead — loopback (`localhost`, `127.0.0.1`, `::1`), private-network (RFC 1918, link-local, CGNAT) and cloud-metadata targets are refused unless you turn on **Settings → Security → Allow private / internal IPs** (cloud metadata stays blocked regardless), and Restura asks for confirmation before sending credentials over unencrypted `ws://` / `http://`.
 
