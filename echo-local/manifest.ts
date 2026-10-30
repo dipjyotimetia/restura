@@ -60,6 +60,7 @@ export function buildManifest(opts: { host: string; certs?: EchoCerts | undefine
       'auth.awsProtected': `${http}/aws/protected`,
       'auth.wsseProtected': `${http}/wsse/protected  (verifies the X-WSSE UsernameToken digest)`,
       'auth.digest': `${http}/digest-auth/${TEST_AUTH_FIXTURES.user.username}/${TEST_AUTH_FIXTURES.user.password}`,
+      'auth.ntlm': `${http}/ntlm/protected  (NTLMv2, desktop only — rejects a type 3 sent on another connection)`,
     },
     credentials: TEST_AUTH_FIXTURES,
     tls: opts.certs
@@ -144,8 +145,8 @@ export function buildManifest(opts: { host: string; certs?: EchoCerts | undefine
         wsse: 'Imports as no-auth (OpenCollection lossy) — configure manually (PasswordDigest). GET /wsse/protected verifies the X-WSSE UsernameToken digest end-to-end.',
         oauth2:
           'Token fetch uses a renderer fetch() blocked by the packaged-build CSP for http://. Use the dev build (npm run electron:dev) for OAuth2 against :8080, or it only works unpackaged.',
-        digest: 'Server supports it, but the desktop client transport does not apply Digest yet.',
-        ntlm: 'Not implemented in the desktop client transport.',
+        digest: `Answered after the 401 challenge on every platform. GET /digest-auth/${TEST_AUTH_FIXTURES.user.username}/${TEST_AUTH_FIXTURES.user.password} (MD5, qop=auth) with the same user/password.`,
+        ntlm: `Desktop only. GET /ntlm/protected with user ${TEST_AUTH_FIXTURES.user.username} / ${TEST_AUTH_FIXTURES.user.password}, domain RESTURA (or RESTURA\\${TEST_AUTH_FIXTURES.user.username}). Web/self-host send it unauthenticated; the CLI refuses it.`,
       },
     },
   };

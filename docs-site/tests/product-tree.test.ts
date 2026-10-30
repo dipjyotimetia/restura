@@ -33,6 +33,7 @@ describe('public product tree', () => {
       'local-storage',
       'secret-handles',
       'native-tls',
+      'digest-ntlm',
       'proxy-settings',
       'external-secrets',
     ]);

@@ -267,22 +267,10 @@ export const features: Feature[] = [
     'security',
     'digest-ntlm',
     'Digest & NTLM execution',
-    'Challenge/response authentication on send. Digest is answered on every platform; NTLM is still saved-only and is expected to be desktop-only.',
-    'in-progress',
+    'Challenge/response authentication on send. Digest is answered on every platform; NTLM is answered on desktop.',
+    'shipped',
     all,
-    '/guides/auth/',
-    [],
-    {
-      today:
-        'Digest (RFC 7616: MD5, SHA-256 and their -sess variants, qop=auth) is answered by one retry after a 401 challenge in the shared protocol core, so web, self-hosted, desktop and the CLI all send it. NTLM settings are saved and validated, and the app warns that NTLM is not applied.',
-      milestones: [
-        done('Settings editors and validated configuration'),
-        done('In-app notice for schemes that are not yet applied'),
-        done('Digest challenge/response in the shared protocol core'),
-        done('Retry-on-401 in the desktop and web proxies'),
-        todo('NTLM handshake over a kept-alive desktop connection', 1069),
-      ],
-    }
+    '/guides/auth/'
   ),
   entry(
     'security',

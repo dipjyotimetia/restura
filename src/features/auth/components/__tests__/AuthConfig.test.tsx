@@ -73,15 +73,26 @@ describe('AuthConfiguration — new auth variants', () => {
   });
 
   describe('NTLM', () => {
-    it('warns that NTLM auth is not applied to the request (web or desktop)', () => {
+    it('warns on web that NTLM is desktop-only and is not applied here', () => {
       const ntlmAuth: AuthConfigType = {
         type: 'ntlm',
         ntlm: { username: '', password: '' },
       };
       render(<AuthConfiguration auth={ntlmAuth} onChange={vi.fn()} />);
       expect(screen.getByTestId('ntlm-unimplemented-warning')).toHaveTextContent(
-        /isn’t applied yet/i
+        /desktop-only.*without authentication/i
       );
+    });
+
+    it('shows no unapplied warning on desktop, where the handshake runs (#1069)', () => {
+      vi.mocked(platform.isElectron).mockReturnValue(true);
+      const ntlmAuth: AuthConfigType = {
+        type: 'ntlm',
+        ntlm: { username: '', password: '' },
+      };
+      render(<AuthConfiguration auth={ntlmAuth} onChange={vi.fn()} />);
+      expect(screen.queryByTestId('ntlm-unimplemented-warning')).toBeNull();
+      expect(screen.getByPlaceholderText('Enter username')).toBeInTheDocument();
     });
 
     it('persists username edits via onChange with shape {type, ntlm}', async () => {
