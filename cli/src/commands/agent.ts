@@ -1,33 +1,35 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import {
-  AgentRunner,
-  applyAgentBundleBaseline,
-  createAgentToolResolver,
-  createFixtureToolSourceAdapter,
   type AgentBundle,
   AgentBundleSchema,
+  AgentRunner,
+  type AgentRunnerDependencies,
   type AgentSuite,
   type AgentSuiteReport,
   AgentSuiteRunner,
-  type AgentToolResolver,
   AgentSuiteSchema,
   AgentTelemetryConfigSchema,
+  type AgentToolResolver,
   AnthropicMessagesAdapter,
-  migrateAgentSuite,
+  applyAgentBundleBaseline,
+  createAgentToolResolver,
+  createFixtureToolSourceAdapter,
   evaluateAgentBundleBaseline,
+  migrateAgentSuite,
   OpenAiResponsesAdapter,
   ProviderRegistry,
 } from '@shared/agent-lab';
 import type { Fetcher } from '@shared/protocol/types';
 import type { Command } from 'commander';
+import { resolveCliGrounding } from '../runner/agentGrounding.js';
+import { AgentPreflightError } from '../runner/agentPreflightError.js';
+import { exportCliAgentTelemetry } from '../runner/agentTelemetry.js';
+import { resolveCliAgentTools } from '../runner/agentTools.js';
+import { loadCollection } from '../runner/collectionLoader.js';
 import { loadEnv } from '../runner/envLoader.js';
 import { executeHttp } from '../runner/executors/http.js';
-import { loadCollection } from '../runner/collectionLoader.js';
-import { resolveCliAgentTools } from '../runner/agentTools.js';
-import { resolveCliGrounding } from '../runner/agentGrounding.js';
 import { undiciFetcher } from '../runner/undiciFetcher.js';
-import { AgentRuntimeManifestSchema, type AgentRuntimeManifest } from './agentRuntime.js';
-import { exportCliAgentTelemetry } from '../runner/agentTelemetry.js';
+import { type AgentRuntimeManifest, AgentRuntimeManifestSchema } from './agentRuntime.js';
 
 export interface AgentEvalOptions {
   output?: string;
@@ -36,6 +38,8 @@ export interface AgentEvalOptions {
   timeout?: string;
   allowLocalhost?: boolean;
   telemetryConfig?: string;
+  /** Programmatic cancellation (the CLI wires SIGINT/SIGTERM to it). */
+  signal?: AbortSignal;
 }
 
 export interface AgentEvalDependencies {
@@ -148,6 +152,43 @@ async function runAgentSuite(
     new OpenAiResponsesAdapter({ fetcher: dependencies.fetcher }),
     new AnthropicMessagesAdapter({ fetcher: dependencies.fetcher }),
   ]);
+  // Tool-resolution refusals are invalid input (exit 2), but the runner records
+  // a resolve error as a failed trial. Capture them and stop the suite so the
+  // command can rethrow once the run unwinds (sessions disposed by the runner).
+  const stop = new AbortController();
+  const forwardAbort = (): void => stop.abort(options.signal?.reason);
+  options.signal?.addEventListener('abort', forwardAbort, { once: true });
+  if (options.signal?.aborted) forwardAbort();
+  let preflightFailure: AgentPreflightError | undefined;
+
+  const resolveSourceTools: AgentRunnerDependencies['resolveTools'] = async (sources, signal) => {
+    const runtimeSources = sources.filter(
+      (source) => source.kind === 'restura-request' || source.kind === 'mcp'
+    );
+    const adapterSources = sources.filter(
+      (source) => source.kind !== 'restura-request' && source.kind !== 'mcp'
+    );
+    const adapterTools = await toolResolver.resolve(adapterSources, signal);
+    if (runtimeSources.length === 0) return adapterTools;
+    if (!runtime) throw new Error('headless tool sources require a runtime manifest');
+    const resolved = await resolveCliAgentTools(
+      runtimeSources,
+      runtime,
+      {
+        variables,
+        environment: dependencies.environment,
+        timeoutMs,
+        allowLocalhost: Boolean(options.allowLocalhost),
+        ...(signal ? { signal } : {}),
+      },
+      { loadCollection: dependencies.loadCollection, executeHttp: dependencies.executeHttp }
+    );
+    return {
+      tools: [...adapterTools, ...resolved.tools],
+      dispose: resolved.dispose,
+    };
+  };
+
   const runner = new AgentRunner({
     providers,
     async resolveCredential(ref) {
@@ -157,31 +198,15 @@ async function runAgentSuite(
       return dependencies.environment[ref.name];
     },
     async resolveTools(sources, signal) {
-      const runtimeSources = sources.filter(
-        (source) => source.kind === 'restura-request' || source.kind === 'mcp'
-      );
-      const adapterSources = sources.filter(
-        (source) => source.kind !== 'restura-request' && source.kind !== 'mcp'
-      );
-      const adapterTools = await toolResolver.resolve(adapterSources, signal);
-      if (runtimeSources.length === 0) return adapterTools;
-      if (!runtime) throw new Error('headless tool sources require a runtime manifest');
-      const resolved = await resolveCliAgentTools(
-        runtimeSources,
-        runtime,
-        {
-          variables,
-          environment: dependencies.environment,
-          timeoutMs,
-          allowLocalhost: Boolean(options.allowLocalhost),
-          ...(signal ? { signal } : {}),
-        },
-        { loadCollection: dependencies.loadCollection, executeHttp: dependencies.executeHttp }
-      );
-      return {
-        tools: [...adapterTools, ...resolved.tools],
-        dispose: resolved.dispose,
-      };
+      try {
+        return await resolveSourceTools(sources, signal);
+      } catch (error) {
+        if (error instanceof AgentPreflightError) {
+          preflightFailure ??= error;
+          stop.abort(error);
+        }
+        throw error;
+      }
     },
     async resolveGrounding(selection, signal) {
       if (!runtime) throw new Error('headless grounding requires a runtime manifest');
@@ -198,7 +223,16 @@ async function runAgentSuite(
       );
     },
   });
-  return new AgentSuiteRunner({ run: (request) => runner.run(request) }).run({ suite });
+  try {
+    const report = await new AgentSuiteRunner({ run: (request) => runner.run(request) }).run({
+      suite,
+      signal: stop.signal,
+    });
+    if (preflightFailure) throw preflightFailure;
+    return report;
+  } finally {
+    options.signal?.removeEventListener('abort', forwardAbort);
+  }
 }
 
 export async function evaluateAgentSuite(
@@ -260,29 +294,32 @@ export function registerAgentCommand(program: Command): void {
       'Metadata-only Langfuse or OTLP telemetry configuration; credentials must be environment references'
     )
     .action(async (suitePath: string, options: AgentEvalOptions) => {
-      try {
-        const input = JSON.parse(await defaultDependencies.readText(suitePath)) as Record<
-          string,
-          unknown
-        >;
-        if ('suite' in input && 'fixtures' in input) {
-          const result = await evaluateAgentBundle(suitePath, options);
-          process.stdout.write(
-            `${JSON.stringify({ ...result.report.summary, gates: result.gates })}\n`
-          );
-          process.exitCode = agentBundleExitCode(result);
-        } else {
-          const report = await evaluateAgentSuite(suitePath, options);
-          process.stdout.write(`${JSON.stringify(report.summary)}\n`);
-          process.exitCode = agentEvalExitCode(report);
-        }
-      } catch (error) {
-        console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
-        process.exitCode = agentEvalExitCode(
-          error instanceof Error ? error : new Error(String(error))
-        );
-      }
+      process.exitCode = await runAgentEval(suitePath, options);
     });
+}
+
+/** Run one suite or bundle and return the process exit code (0 pass, 1 evaluated failure, 2 invalid input). */
+export async function runAgentEval(
+  suitePath: string,
+  options: AgentEvalOptions = {},
+  dependencies: AgentEvalDependencies = defaultDependencies
+): Promise<0 | 1 | 2> {
+  try {
+    const input = JSON.parse(await dependencies.readText(suitePath)) as Record<string, unknown>;
+    if ('suite' in input && 'fixtures' in input) {
+      const result = await evaluateAgentBundle(suitePath, options, dependencies);
+      process.stdout.write(
+        `${JSON.stringify({ ...result.report.summary, gates: result.gates })}\n`
+      );
+      return agentBundleExitCode(result);
+    }
+    const report = await evaluateAgentSuite(suitePath, options, dependencies);
+    process.stdout.write(`${JSON.stringify(report.summary)}\n`);
+    return agentEvalExitCode(report);
+  } catch (error) {
+    console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
+    return agentEvalExitCode(error instanceof Error ? error : new Error(String(error)));
+  }
 }
 
 async function exportTelemetryIfConfigured(

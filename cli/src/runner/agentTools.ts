@@ -8,6 +8,7 @@ import {
 import type { HttpRequest } from '@shared/types';
 import type { AgentRuntimeManifest } from '../commands/agentRuntime.js';
 import { connectCliMcpClient } from './agentMcpClient.js';
+import { AgentPreflightError } from './agentPreflightError.js';
 import type { LoadedRequest } from './collectionLoader.js';
 import type { ExecuteOptions, ExecuteOutcome } from './executors/types.js';
 import { createPinnedMcpFetchSession } from './pinnedMcpFetch.js';
@@ -138,6 +139,16 @@ export async function resolveCliAgentTools(
       const mcpTools = await createMcpTools({ ...source, allowedTools }, client, options.signal, {
         nameForTool: (name) => cliMcpToolName(runtimeSource.id, name),
       });
+      // Annotations are never trusted to *grant* access, but a server that
+      // flags a tool destructive is a strong signal the operator's readOnly
+      // assertion is wrong. Refuse rather than run it unattended in CI.
+      const destructive = mcpTools.filter((tool) => tool.permissionClass === 'destructive');
+      if (destructive.length > 0) {
+        throw new AgentPreflightError(
+          `MCP source ${runtimeSource.id} lists tools the server marks destructiveHint: true; ` +
+            `remove them from allowedTools: ${destructive.map((tool) => tool.definition.name).join(', ')}`
+        );
+      }
       tools.push(...mcpTools.map((tool) => ({ ...tool, permissionClass: 'read' as const })));
     }
   } catch (error) {

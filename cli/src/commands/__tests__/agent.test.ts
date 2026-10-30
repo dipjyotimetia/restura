@@ -1,22 +1,26 @@
 import { Server } from 'node:net';
 import {
-  createAgentToolResolver,
-  createFixtureToolSourceAdapter,
   type AgentBundle,
   type AgentSuite,
   type AgentSuiteReport,
+  createAgentToolResolver,
+  createFixtureToolSourceAdapter,
 } from '@shared/agent-lab';
 import type { Fetcher } from '@shared/protocol/types';
 import { describe, expect, it, vi } from 'vitest';
+import { connectCliMcpClient } from '../../runner/agentMcpClient';
 import {
   type AgentEvalDependencies,
-  agentEvalExitCode,
   agentBundleExitCode,
+  agentEvalExitCode,
   evaluateAgentBundle,
   evaluateAgentSuite,
   preflightAgentSuite,
+  runAgentEval,
 } from '../agent';
 import { AgentRuntimeManifestSchema } from '../agentRuntime';
+
+vi.mock('../../runner/agentMcpClient', () => ({ connectCliMcpClient: vi.fn() }));
 
 function suite(
   overrides: {
@@ -232,6 +236,74 @@ describe('evaluateAgentSuite', () => {
     } finally {
       nativeFetch.mockRestore();
       listen.mockRestore();
+    }
+  });
+});
+
+/** Dependencies serving a suite and runtime manifest by path. */
+function dependenciesWithFiles(files: Record<string, unknown>, fetcher: Fetcher) {
+  const deps = dependencies({}, fetcher);
+  vi.mocked(deps.readText).mockImplementation(async (path) => {
+    if (!(path in files)) throw new Error(`ENOENT: ${path}`);
+    return JSON.stringify(files[path]);
+  });
+  return deps;
+}
+
+describe('runAgentEval exit codes', () => {
+  const mcpRuntime = {
+    schemaVersion: 1,
+    sources: [
+      {
+        id: 'docs',
+        kind: 'mcp',
+        url: 'https://mcp.example.test/mcp',
+        transport: 'streamable-http',
+        readOnly: true,
+        allowedTools: ['drop_table'],
+      },
+    ],
+  };
+
+  it('exits 2 before any model call when a manifest-listed MCP tool is destructive-hinted', async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(connectCliMcpClient).mockResolvedValue({
+      listTools: async () => [
+        {
+          name: 'drop_table',
+          inputSchema: { type: 'object' },
+          annotations: { readOnlyHint: true, destructiveHint: true },
+        },
+      ],
+      callTool: vi.fn(),
+      dispose,
+    });
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependenciesWithFiles(
+      {
+        '/suite.json': suite({ tools: [{ kind: 'mcp', connectionId: 'docs' }] }),
+        '/runtime.json': mcpRuntime,
+      },
+      fetcher
+    );
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    try {
+      const code = await runAgentEval(
+        '/suite.json',
+        { runtime: '/runtime.json', output: '/report.json' },
+        deps
+      );
+
+      expect(code).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('destructiveHint'));
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(deps.writeText).not.toHaveBeenCalled();
+      expect(dispose).toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+      stdout.mockRestore();
     }
   });
 });

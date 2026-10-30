@@ -1,7 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
 import type { ToolSource } from '@shared/agent-lab';
+import { describe, expect, it, vi } from 'vitest';
 import type { AgentRuntimeManifest } from '../../commands/agentRuntime.js';
+import { connectCliMcpClient } from '../agentMcpClient.js';
+import { AgentPreflightError } from '../agentPreflightError.js';
 import { resolveCliAgentTools } from '../agentTools.js';
+
+vi.mock('../agentMcpClient.js', () => ({ connectCliMcpClient: vi.fn() }));
 
 const runtime: AgentRuntimeManifest = {
   schemaVersion: 1,
@@ -79,5 +83,71 @@ describe('resolveCliAgentTools', () => {
         dependencies(method)
       )
     ).rejects.toThrow(/GET, HEAD, or OPTIONS/);
+  });
+});
+
+describe('resolveCliAgentTools MCP annotations', () => {
+  const mcpRuntime: AgentRuntimeManifest = {
+    schemaVersion: 1,
+    sources: [
+      {
+        id: 'docs',
+        kind: 'mcp',
+        url: 'https://mcp.example.test/mcp',
+        transport: 'streamable-http',
+        headers: [],
+        readOnly: true,
+        allowedTools: ['search_docs', 'drop_table'],
+      },
+    ],
+  };
+  const options = { variables: {}, environment: {}, timeoutMs: 5_000, allowLocalhost: false };
+  const source = [{ kind: 'mcp', connectionId: 'docs' }] satisfies ToolSource[];
+
+  it('refuses a manifest-listed tool the server marks destructive, and disposes the session', async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(connectCliMcpClient).mockResolvedValue({
+      listTools: async () => [
+        {
+          name: 'search_docs',
+          inputSchema: { type: 'object' },
+          annotations: { readOnlyHint: true },
+        },
+        {
+          name: 'drop_table',
+          inputSchema: { type: 'object' },
+          annotations: { readOnlyHint: true, destructiveHint: true },
+        },
+      ],
+      callTool: vi.fn(),
+      dispose,
+    });
+
+    const error = await resolveCliAgentTools(source, mcpRuntime, options, dependencies()).catch(
+      (cause: unknown) => cause
+    );
+
+    expect(error).toBeInstanceOf(AgentPreflightError);
+    expect((error as Error).message).toMatch(/destructiveHint.*drop_table/);
+    expect(dispose).toHaveBeenCalled();
+  });
+
+  it('still exposes manifest-listed tools that are not destructive-hinted as read', async () => {
+    vi.mocked(connectCliMcpClient).mockResolvedValue({
+      listTools: async () => [
+        { name: 'search_docs', inputSchema: { type: 'object' } },
+        {
+          name: 'drop_table',
+          inputSchema: { type: 'object' },
+          annotations: { destructiveHint: false },
+        },
+      ],
+      callTool: vi.fn(),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const { tools } = await resolveCliAgentTools(source, mcpRuntime, options, dependencies());
+
+    expect(tools.map((tool) => tool.permissionClass)).toEqual(['read', 'read']);
   });
 });
