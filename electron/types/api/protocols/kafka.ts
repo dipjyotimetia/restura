@@ -10,11 +10,21 @@ export type KafkaSaslMechanism =
   | 'GSSAPI'
   | 'AWS_MSK_IAM';
 
+/**
+ * TLS material for a Kafka connection. The renderer sends file PATHS; main
+ * reads them (allowlisted, size-capped) so PEM / key material never transits
+ * the renderer (SEC-K3). Inline `ca`/`cert`/`key` stay accepted for
+ * programmatic callers.
+ */
 export interface KafkaTlsIpc {
   ca?: string;
   cert?: string;
   key?: string;
-  passphrase?: string;
+  caPath?: string;
+  certPath?: string;
+  keyPath?: string;
+  /** SecretValue — the connection's broker-secret handle, resolved in main. */
+  passphrase?: ProtocolSecretValue;
   rejectUnauthorized?: boolean;
 }
 
@@ -22,12 +32,14 @@ export type KafkaSaslIpc =
   | {
       mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
       username: string;
-      password: string;
+      /** SecretValue — the connection's broker-secret handle, resolved in main. */
+      password: ProtocolSecretValue;
     }
   | {
       mechanism: 'OAUTHBEARER';
       mode?: 'static';
-      token: string;
+      /** SecretValue — the connection's broker-secret handle, resolved in main. */
+      token: ProtocolSecretValue;
       extensions?: Record<string, string>;
     }
   | {
@@ -72,13 +84,13 @@ export type KafkaAuthIpc =
   | { securityProtocol: 'SSL'; tls: KafkaTlsIpc };
 
 /**
- * Confluent Schema Registry config. Basic auth arrives as resolved plaintext
- * (kafkaManager resolves secureStorage sentinels); a bearer token is a
- * SecretValue — keychain handles / external refs are resolved only in main.
+ * Confluent Schema Registry config. The Basic password and a bearer token are
+ * SecretValues — stored credentials cross IPC as the connection's broker-secret
+ * handle and keychain handles / external refs are resolved only in main.
  * Registry HTTPS uses the execution policy's TLS selection (CA, mTLS, verify).
  */
 export type KafkaRegistryAuthIpc =
-  | { type?: 'basic'; username?: string; password?: string }
+  | { type?: 'basic'; username?: string; password?: ProtocolSecretValue }
   | { type: 'bearer'; token: ProtocolSecretValue };
 
 export interface KafkaRegistryIpc {

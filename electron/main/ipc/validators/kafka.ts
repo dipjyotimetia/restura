@@ -9,6 +9,14 @@ import {
 import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
 import { z } from 'zod';
 import { ConnectionIdSchema } from './core';
+import {
+  KafkaOptionalStoredSecretSchema,
+  KafkaSecretValueSchema,
+  KafkaTlsSchema,
+  kafkaStoredSecretSchema,
+} from './kafka-secrets';
+
+export type { KafkaTlsConfig } from './kafka-secrets';
 
 // ===========================
 // Kafka Schemas
@@ -66,23 +74,6 @@ const KafkaOAuthExtensionsSchema = z
   )
   .optional();
 
-// Secret-bearing fields added for #918 accept plain string | inline | handle.
-// The renderer sends `kafka`-scoped handles, so plaintext is resolved in main
-// only (ADR-0007).
-// External secret-manager references are refused for Kafka (no opt-in path).
-const KafkaSecretValueSchema = protocolSecretValueSchema
-  .refine(
-    (value) =>
-      typeof value === 'string'
-        ? value.length > 0
-        : value.kind !== 'inline' || value.value.length > 0,
-    'Secret is required'
-  )
-  .refine(
-    (value) => typeof value === 'string' || value.kind !== 'external',
-    'External secret references are not supported for Kafka SASL credentials'
-  );
-
 const KafkaTokenEndpointSchema = z
   .url('Invalid OAuth token endpoint')
   .max(2048)
@@ -112,17 +103,17 @@ const KafkaSaslSchema = z.discriminatedUnion('mechanism', [
   z.object({
     mechanism: z.literal('PLAIN'),
     username: z.string().min(1).max(256),
-    password: z.string().min(1).max(1024),
+    password: kafkaStoredSecretSchema(1024),
   }),
   z.object({
     mechanism: z.literal('SCRAM-SHA-256'),
     username: z.string().min(1).max(256),
-    password: z.string().min(1).max(1024),
+    password: kafkaStoredSecretSchema(1024),
   }),
   z.object({
     mechanism: z.literal('SCRAM-SHA-512'),
     username: z.string().min(1).max(256),
-    password: z.string().min(1).max(1024),
+    password: kafkaStoredSecretSchema(1024),
   }),
   // Nested on `mode`; `mode` is optional on the static variant so pre-#918
   // configs keep parsing.
@@ -131,10 +122,7 @@ const KafkaSaslSchema = z.discriminatedUnion('mechanism', [
     z.object({
       mechanism: z.literal('OAUTHBEARER'),
       mode: z.literal('static').optional(),
-      token: z
-        .string()
-        .min(1)
-        .max(16 * 1024),
+      token: kafkaStoredSecretSchema(16 * 1024),
       extensions: KafkaOAuthExtensionsSchema,
     }),
     // OAuth 2.0 client-credentials: main fetches + refreshes the token.
@@ -190,23 +178,6 @@ const KafkaSaslSchema = z.discriminatedUnion('mechanism', [
 
 export type KafkaSaslConfig = z.infer<typeof KafkaSaslSchema>;
 
-const KafkaTlsSchema = z.object({
-  ca: z
-    .string()
-    .max(64 * 1024)
-    .optional(),
-  cert: z
-    .string()
-    .max(64 * 1024)
-    .optional(),
-  key: z
-    .string()
-    .max(64 * 1024)
-    .optional(),
-  passphrase: z.string().max(1024).optional(),
-  rejectUnauthorized: z.boolean().optional(),
-});
-
 const KafkaAuthSchema = z.discriminatedUnion('securityProtocol', [
   z.object({ securityProtocol: z.literal('PLAINTEXT') }),
   z.object({
@@ -228,12 +199,12 @@ export const KafkaCompressionSchema = z.enum(['none', 'gzip', 'snappy', 'lz4', '
 export const KafkaAcksSchema = z.union([z.literal(0), z.literal(1), z.literal(-1)]);
 
 // Confluent Schema Registry. `url` is SSRF-guarded (string + DNS) at connect.
-// Basic auth holds already-resolved plaintext (kafkaManager resolves secret
-// sentinels first); a bearer token is a SecretValue so a keychain handle or
+// The Basic password is plaintext or the connection's broker-secret handle
+// (resolved in main, SEC-K3); a bearer token is a SecretValue so a keychain handle or
 // external reference is resolved only in main (ADR-0007).
 const KafkaRegistryBasicFields = {
   username: z.string().max(256).optional(),
-  password: z.string().max(1024).optional(),
+  password: KafkaOptionalStoredSecretSchema.optional(),
 };
 const KafkaRegistryAuthSchema = z.union([
   z.discriminatedUnion('type', [

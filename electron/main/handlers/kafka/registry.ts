@@ -32,7 +32,7 @@ import { desktopExternalSecretResolver } from '../../security/external-secret-pr
 import { assertRegistryUrlSafe } from '../../security/kafka-broker-guard';
 import type { BrokerSecurityPolicy } from '../../security/mqtt-broker-guard';
 import { describeSecretHandle, unwrapSecretValueMain } from '../../security/secret-handle-store';
-import { KAFKA_SECRET_SCOPE } from './sasl';
+import { KAFKA_SECRET_SCOPE, plaintextKafkaSecret } from './sasl';
 
 export { KAFKA_SECRET_SCOPE };
 
@@ -227,7 +227,8 @@ export async function registryAuthorization(
     return `Bearer ${await resolveBearerToken(auth.token as ProtocolSecretValue)}`;
   }
   if (!auth.username) return undefined;
-  return `Basic ${Buffer.from(`${auth.username}:${auth.password ?? ''}`).toString('base64')}`;
+  const password = auth.password !== undefined ? plaintextKafkaSecret(auth.password) : '';
+  return `Basic ${Buffer.from(`${auth.username}:${password}`).toString('base64')}`;
 }
 
 function headerMiddleware(headers: Record<string, string>, timeout: number): RegistryMiddleware {
@@ -458,7 +459,13 @@ export async function createKafkaRegistryClient(
     // Basic keeps the library's own auth path (unchanged behaviour); bearer
     // and the policy timeout go in via middleware.
     ...(cfg.auth?.type === 'basic' && cfg.auth.username
-      ? { auth: { username: cfg.auth.username, password: cfg.auth.password ?? '' } }
+      ? {
+          auth: {
+            username: cfg.auth.username,
+            password:
+              cfg.auth.password !== undefined ? plaintextKafkaSecret(cfg.auth.password) : '',
+          },
+        }
       : {}),
     middlewares: [
       headerMiddleware(

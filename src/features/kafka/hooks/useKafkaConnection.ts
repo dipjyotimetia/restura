@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
+import {
+  type KafkaSecretField,
+  kafkaManager,
+  kafkaSecretKey,
+} from '@/features/kafka/lib/kafkaManager';
 import {
   type KafkaHandleSecretDrafts,
   type KafkaHandleSecretField,
@@ -21,8 +25,8 @@ import {
   KAFKA_SECRET_SENTINEL,
   useKafkaStore,
 } from '@/features/kafka/store/useKafkaStore';
+import { putBrokerSecret } from '@/lib/shared/broker-secrets';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import { secureStorage } from '@/lib/shared/secure-storage';
 import { clearPendingSecrets, setPendingSecret } from '@/lib/shared/streaming/composerDrafts';
 import { useActiveTabId } from '@/store/selectors';
 
@@ -145,14 +149,33 @@ export function useKafkaConnection() {
       reportSystemError(connection.id, preflight);
       return;
     }
+    // Typed credentials go into main-process handles (SEC-K3) and every write
+    // is awaited, so the connect below always finds them.
+    const label = (what: string) => `Kafka ${connection.name} / ${what}`;
+    const store = async (
+      field: KafkaSecretField,
+      value: string,
+      what: string
+    ): Promise<boolean> => {
+      try {
+        await putBrokerSecret(kafkaSecretKey(connection.id, field), value, label(what));
+        return true;
+      } catch (err) {
+        reportSystemError(
+          connection.id,
+          err instanceof Error ? err.message : 'Failed to store Kafka credentials'
+        );
+        return false;
+      }
+    };
     let nextAuth = connection.auth;
     const currentSasl = nextAuth.sasl;
     if (saslPasswordDraft && isKafkaStaticOAuthSasl(currentSasl)) {
-      secureStorage.set(kafkaSecretKey(connection.id, 'oauth-token'), saslPasswordDraft);
+      if (!(await store('oauth-token', saslPasswordDraft, 'OAuth token'))) return;
       nextAuth = { ...nextAuth, sasl: { ...currentSasl, token: KAFKA_SECRET_SENTINEL } };
       setSaslPasswordDraft('');
     } else if (saslPasswordDraft && isKafkaPasswordSasl(currentSasl)) {
-      secureStorage.set(kafkaSecretKey(connection.id, 'sasl-password'), saslPasswordDraft);
+      if (!(await store('sasl-password', saslPasswordDraft, 'SASL password'))) return;
       nextAuth = { ...nextAuth, sasl: { ...currentSasl, password: KAFKA_SECRET_SENTINEL } };
       setSaslPasswordDraft('');
     }
@@ -177,7 +200,10 @@ export function useKafkaConnection() {
       }
     }
     if (tlsPassphraseDraft) {
-      secureStorage.set(kafkaSecretKey(connection.id, 'tls-passphrase'), tlsPassphraseDraft);
+      if (!(await store('tls-passphrase', tlsPassphraseDraft, 'TLS key passphrase'))) {
+        if (nextAuth !== connection.auth) updateAuth(connection.id, nextAuth);
+        return;
+      }
       nextAuth = {
         ...nextAuth,
         tls: { ...(nextAuth.tls ?? {}), passphrase: KAFKA_SECRET_SENTINEL },
@@ -188,7 +214,9 @@ export function useKafkaConnection() {
 
     let nextRegistry = connection.registry;
     if (nextRegistry && registryPasswordDraft) {
-      secureStorage.set(kafkaSecretKey(connection.id, 'registry-password'), registryPasswordDraft);
+      if (!(await store('registry-password', registryPasswordDraft, 'Schema Registry password'))) {
+        return;
+      }
       nextRegistry = {
         ...nextRegistry,
         auth: { ...(nextRegistry.auth ?? {}), password: KAFKA_SECRET_SENTINEL },
@@ -197,8 +225,8 @@ export function useKafkaConnection() {
       updateConnection(connection.id, { registry: nextRegistry });
     }
     if (nextRegistry && registryTokenDraft) {
-      // Inline bearer tokens follow the same secureStorage + sentinel path.
-      secureStorage.set(kafkaSecretKey(connection.id, 'registry-token'), registryTokenDraft);
+      // Typed bearer tokens follow the same handle + sentinel path.
+      if (!(await store('registry-token', registryTokenDraft, 'Schema Registry token'))) return;
       nextRegistry = { ...nextRegistry, bearerToken: KAFKA_SECRET_SENTINEL };
       setRegistryTokenDraft('');
       updateConnection(connection.id, { registry: nextRegistry });

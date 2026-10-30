@@ -331,6 +331,94 @@ describe('Kafka IPC validators', () => {
       });
     });
 
+    describe('stored credentials as handles and TLS by path (SEC-K3)', () => {
+      const handle = { kind: 'handle' as const, id: '6b1d4b8e-0000-5000-8000-000000000001' };
+      const external = {
+        kind: 'external' as const,
+        provider: 'aws-secrets-manager' as const,
+        profileId: 'p',
+        secretId: 's',
+      };
+      const connect = (auth: unknown, registry?: unknown) =>
+        KafkaConnectSchema.safeParse({
+          connectionId: 'abc',
+          clientId: 'r',
+          bootstrapBrokers: ['b:9093'],
+          auth,
+          ...(registry ? { registry } : {}),
+        }).success;
+
+      it('accepts handle SecretValues for SASL password, static token, passphrase and registry secrets', () => {
+        expect(
+          connect({
+            securityProtocol: 'SASL_SSL',
+            sasl: { mechanism: 'SCRAM-SHA-512', username: 'u', password: handle },
+            tls: { passphrase: handle, caPath: '/home/u/ca.pem' },
+          })
+        ).toBe(true);
+        expect(
+          connect(
+            {
+              securityProtocol: 'SASL_PLAINTEXT',
+              sasl: { mechanism: 'OAUTHBEARER', token: handle },
+            },
+            { url: 'https://sr.example.com', auth: { username: 'r', password: handle } }
+          )
+        ).toBe(true);
+        expect(
+          connect(
+            { securityProtocol: 'PLAINTEXT' },
+            { url: 'https://sr.example.com', auth: { type: 'bearer', token: handle } }
+          )
+        ).toBe(true);
+      });
+
+      it('refuses external references and empty secrets', () => {
+        expect(
+          connect({
+            securityProtocol: 'SASL_PLAINTEXT',
+            sasl: { mechanism: 'PLAIN', username: 'u', password: external },
+          })
+        ).toBe(false);
+        expect(connect({ securityProtocol: 'SSL', tls: { passphrase: external } })).toBe(false);
+        expect(
+          connect(
+            { securityProtocol: 'PLAINTEXT' },
+            { url: 'https://sr.example.com', auth: { username: 'r', password: external } }
+          )
+        ).toBe(false);
+        expect(
+          connect({
+            securityProtocol: 'SASL_PLAINTEXT',
+            sasl: { mechanism: 'PLAIN', username: 'u', password: '' },
+          })
+        ).toBe(false);
+        expect(
+          connect({
+            securityProtocol: 'SASL_PLAINTEXT',
+            sasl: { mechanism: 'PLAIN', username: 'u', password: 'x'.repeat(1025) },
+          })
+        ).toBe(false);
+      });
+
+      it('accepts TLS file paths up to 4096 characters', () => {
+        expect(
+          connect({
+            securityProtocol: 'SSL',
+            tls: { caPath: '/a/ca.pem', certPath: '/a/c.pem', keyPath: '/a/k.pem' },
+          })
+        ).toBe(true);
+        expect(connect({ securityProtocol: 'SSL', tls: { caPath: `/${'a'.repeat(4096)}` } })).toBe(
+          false
+        );
+        expect(connect({ securityProtocol: 'SSL', tls: { keyPath: '' } })).toBe(false);
+        // Inline PEM stays accepted for programmatic callers.
+        expect(
+          connect({ securityProtocol: 'SSL', tls: { ca: '-----BEGIN CERTIFICATE-----' } })
+        ).toBe(true);
+      });
+    });
+
     it('rejects bad broker syntax', () => {
       const result = KafkaConnectSchema.safeParse({
         connectionId: 'abc',

@@ -7,6 +7,7 @@ const mockHandle = vi.hoisted(() => vi.fn());
 const mockEmitTo = vi.hoisted(() => vi.fn());
 const mockBrokersSafe = vi.hoisted(() => vi.fn());
 const mockRegistryUrlSafe = vi.hoisted(() => vi.fn());
+const mockBrokerHostsResolveSafe = vi.hoisted(() => vi.fn(async () => undefined));
 const mockOnComplete = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
@@ -26,6 +27,11 @@ vi.mock('../ipc/ipc-utils', () => ({
 vi.mock('../security/kafka-broker-guard', () => ({
   assertKafkaBrokersSafe: mockBrokersSafe,
   assertRegistryUrlSafe: mockRegistryUrlSafe,
+}));
+// DNS-time broker guard (SEC-K1): resolution itself is covered by
+// tests/security/broker-dns-guard.test.ts; here only the wiring is asserted.
+vi.mock('../security/broker-dns-guard', () => ({
+  assertKafkaBrokerHostsResolveSafe: mockBrokerHostsResolveSafe,
 }));
 
 import type * as KafkaLib from '@platformatic/kafka';
@@ -338,6 +344,10 @@ describe('kafka-handler', () => {
       allowLocalhost: true,
       allowPrivateIPs: true,
     });
+    expect(mockBrokerHostsResolveSafe).toHaveBeenCalledWith(['broker.example.com:9092'], {
+      allowLocalhost: true,
+      allowPrivateIPs: true,
+    });
     expect(FakeProducer.instances).toHaveLength(1);
     expect(FakeProducer.instances[0]!.metadata).toHaveBeenCalledWith({
       autocreateTopics: false,
@@ -347,6 +357,22 @@ describe('kafka-handler', () => {
       senderId,
       'kafka:connected:c1',
       expect.objectContaining({ timestamp: expect.any(Number) })
+    );
+  });
+
+  it('rejects a broker whose hostname resolves into a refused range before any client is built (SEC-K1)', async () => {
+    mockBrokerHostsResolveSafe.mockRejectedValueOnce(
+      new Error('Hostname broker.example.com resolves to a private address')
+    );
+    const { event } = makeEvent();
+    const res = await handlerFor(IPC.kafka.connect)(event, validConnect('c-dns'));
+    expect(res).toEqual({
+      success: false,
+      error: 'Hostname broker.example.com resolves to a private address',
+    });
+    expect(FakeProducer.instances).toHaveLength(0);
+    expect(mockOnComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'CONNECT', status: 400 })
     );
   });
 
