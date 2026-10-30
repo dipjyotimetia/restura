@@ -16,7 +16,8 @@ export function findRequestInItems(
 ): Request | undefined {
   for (const item of items) {
     if (item.type === 'request' && item.request?.id === requestId) {
-      // Kafka / MQTT presets (#984) cannot be bound to a workflow request node.
+      // Connection presets (Kafka / MQTT #984, WebSocket / Socket.IO #1209)
+      // cannot be bound to a workflow request node.
       return isConnectionPresetRequest(item.request) ? undefined : item.request;
     }
     if (item.items) {
@@ -43,6 +44,7 @@ export function findRequestByReference(
     const segment = encodeURIComponent(item.name);
     const logicalPath = parentPath ? `${parentPath}/${segment}` : segment;
     if (item.type === 'request' && item.request && logicalPath === reference) {
+      // Connection presets (Kafka / MQTT / WebSocket / Socket.IO) are not requests.
       return isConnectionPresetRequest(item.request) ? undefined : item.request;
     }
     if (item.items) {

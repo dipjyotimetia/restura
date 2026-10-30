@@ -472,8 +472,10 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                       Save to Collection…
                     </ContextMenuItem>
                   )}
-                  {/* Connection-preset edits (Kafka / MQTT / WebSocket / Socket.IO) live in the connection store and never mark
-                      the tab dirty, so a preset-linked tab can always save (#984). */}
+                  {/* Connection-preset edits (Kafka / MQTT / WebSocket /
+                      Socket.IO) live in the connection store and never mark
+                      the tab dirty, so a preset-linked tab can always save
+                      (#984, #1209). */}
                   {(tab.isDirty || isConnectionPresetTab(tab)) && tab.savedRequestId && (
                     <ContextMenuItem onClick={() => handleSaveBack(tab.id, tab.savedRequestId!)}>
                       Save changes

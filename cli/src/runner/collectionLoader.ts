@@ -260,8 +260,10 @@ function walkItems(
     if (item.type === 'folder') {
       const placeholder = getPostmanSidecar(item)?.item;
       if (placeholder !== undefined && (item.items ?? []).length === 0) {
-        // A Postman v3 item kind with no Restura equivalent (WebSocket,
-        // Socket.IO, LLM, data …) imports as an empty placeholder folder.
+        // A Postman v3 item kind with no Restura equivalent (LLM, data,
+        // MCP stdio …) imports as an empty placeholder folder. WebSocket /
+        // Socket.IO import as native items since #1209 (skipped below);
+        // only collections saved before that may still hold placeholders.
         reportSkippedPlaceholder([...folderPath, item.name].join('/'));
         continue;
       }
@@ -292,9 +294,9 @@ function walkItems(
       continue;
     }
     if (t !== 'http' && t !== 'grpc' && t !== 'sse' && t !== 'mcp') {
-      // GraphQL/WebSocket are not in the internal Request union; ocToInternal
-      // already converted GraphQL → http-body=graphql and surfaced WebSocket
-      // as a folder, so anything else here is genuinely unrunnable.
+      // GraphQL is not in the internal Request union (ocToInternal converts
+      // it to http with a graphql body) and the connection presets were
+      // handled above, so anything else here is genuinely unrunnable.
       continue;
     }
     // Bake effective auth + combined scripts into the request so the executor
