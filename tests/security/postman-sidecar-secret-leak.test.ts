@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { importPostmanCollection } from '../../shared/collections/postman';
+import {
+  exportPostmanV3,
+  importPostmanCollection,
+  upgradeStreamPlaceholders,
+} from '../../shared/collections/postman';
 import {
   countPostmanBagInlineSecrets,
   redactPostmanBag,
@@ -10,6 +14,8 @@ import {
   redactTextCredentials,
   walkCommandLine,
 } from '../../shared/collections/postman/text-redaction';
+import { internalToOC } from '../../shared/opencollection/from-internal';
+import { ocToInternal } from '../../shared/opencollection/to-internal';
 import {
   countCollectionInlineSecrets,
   redactCollectionSecrets,
@@ -410,20 +416,59 @@ describe('Postman v3 (#1200): sidecars use the v2 bag shape, so every guard cove
   });
 
   it('a v3 import with secrets in a raw item counts zero (scrubbed at import)', () => {
+    // A placeholder kind (LLM): the raw item is kept, scrubbed, in the sidecar.
     const { collection } = importPostmanCollection({
       $kind: 'collection',
       name: 'Raw',
       items: [
         {
-          $kind: 'websocket-request',
-          name: 'WS',
-          url: 'wss://x',
-          headers: [{ key: 'X-Api-Key', value: 'WS_KEY' }],
+          $kind: 'llm-request',
+          name: 'LLM',
+          url: 'https://x',
+          headers: [{ key: 'X-Api-Key', value: 'LLM_KEY' }],
         },
       ],
     });
-    expect(JSON.stringify(collection)).not.toContain('WS_KEY');
+    expect(JSON.stringify(collection)).not.toContain('LLM_KEY');
     expect(countCollectionInlineSecrets(collection)).toBe(0);
+  });
+
+  it('a v3 WebSocket / Socket.IO item is typed (#1209): every secret is counted and redacted on export', () => {
+    const { collection } = importPostmanCollection({
+      $kind: 'collection',
+      name: 'Typed',
+      items: [
+        {
+          $kind: 'websocket-request',
+          name: 'WS',
+          url: 'wss://user:WS_URLPW@x.example.com/?access_token=WS_QTOKEN&page=2',
+          headers: [{ key: 'X-Api-Key', value: 'WS_KEY' }],
+          auth: { type: 'bearer', credentials: [{ key: 'token', value: 'WS_BEARER' }] },
+        },
+        {
+          $kind: 'socket.io-request',
+          name: 'SIO',
+          url: 'https://sio.example.com/?token=SIO_QTOKEN',
+          headers: [{ key: 'Authorization', value: 'Bearer SIO_HDR' }],
+          queryParams: [{ key: 'api_key', value: 'SIO_KEY' }],
+        },
+      ],
+    });
+    const secrets = [
+      'WS_URLPW',
+      'WS_QTOKEN',
+      'WS_KEY',
+      'WS_BEARER',
+      'SIO_QTOKEN',
+      'SIO_HDR',
+      'SIO_KEY',
+    ];
+    // The typed rows / URLs hold what the connection needs; the export prompt sees all of it.
+    expect(countCollectionInlineSecrets(collection)).toBe(secrets.length);
+    const text = JSON.stringify(redactCollectionSecrets(collection));
+    for (const s of secrets) expect(text).not.toContain(s);
+    expect(text).toContain('page=2');
+    expect(countCollectionInlineSecrets(redactCollectionSecrets(collection))).toBe(0);
   });
 });
 
@@ -433,7 +478,9 @@ describe('Postman v3 review (#1200): nested / numeric / array / userinfo secrets
     name: 'Probe',
     items: [
       {
-        $kind: 'websocket-request',
+        // A placeholder kind (raw item kept, scrubbed, in the sidecar). Typed
+        // WebSocket items (#1209) are covered above.
+        $kind: 'llm-request',
         name: 'WS',
         url: 'wss://user:URLPW@ws.example.com/?access_token=URLQTOKEN',
         auth: { type: 'bearer', credentials: [{ key: 'token', value: 'WS_BEARER' }] },
@@ -1091,5 +1138,126 @@ describe('Postman v3 fail-closed launch commands (#1210): argument values are no
     expect(countPostmanBagInlineSecrets(bag)).toBe(2);
     expect(redacted).toEqual({ item: { argv: ['', ''] } });
     expect(countPostmanBagInlineSecrets(redacted)).toBe(0);
+  });
+});
+
+describe('WebSocket / Socket.IO items (#1209): examples, leftovers, OC URLs, legacy placeholders', () => {
+  const WS_EXAMPLES = {
+    $kind: 'collection',
+    name: 'Ex',
+    items: [
+      {
+        $kind: 'websocket-request',
+        name: 'WS',
+        url: 'wss://ws.example.com',
+        settings: { apiKey: 'SETTINGS_KEY', maxPayload: 10 },
+        examples: [
+          {
+            $kind: 'websocket-example',
+            name: 'Session',
+            request: {
+              url: 'wss://ws.example.com',
+              headers: [{ key: 'Authorization', value: 'Bearer EXREQHDR' }],
+            },
+            response: {
+              disconnectStatus: '1000',
+              events: [{ id: 'e1', type: 'incoming', content: 'EXRESPBODY_SECRET' }],
+            },
+          },
+        ],
+      },
+      {
+        $kind: 'socket.io-request',
+        name: 'SIO',
+        url: 'https://sio.example.com',
+        events: [{ name: 'message', description: 'note' }],
+        examples: [
+          {
+            $kind: 'socket.io-example',
+            name: 'Chat',
+            response: { events: [{ id: 'e1', type: 'incoming', content: 'SIOEXBODY' }] },
+          },
+        ],
+      },
+    ],
+  };
+  const EX_SECRETS = ['EXREQHDR', 'EXRESPBODY_SECRET', 'SIOEXBODY', 'SETTINGS_KEY'];
+
+  it('examples ride in the saved-response bag: counted, and absent from the redacted v3 export', () => {
+    const { collection } = importPostmanCollection(WS_EXAMPLES);
+    // Example header + two example bodies (settings secrets are scrubbed at import).
+    expect(countCollectionInlineSecrets(collection)).toBe(3);
+    expect(JSON.stringify(collection)).not.toContain('SETTINGS_KEY');
+    const redacted = redactCollectionSecrets(collection);
+    expect(countCollectionInlineSecrets(redacted)).toBe(0);
+    const { tree, files } = exportPostmanV3(redacted);
+    const text = JSON.stringify(tree) + JSON.stringify(files);
+    for (const s of EX_SECRETS) expect(text).not.toContain(s);
+    // The examples themselves still round-trip (shape, not secrets).
+    const items = tree.items as Array<{ examples?: Array<{ $kind: string; name: string }> }>;
+    expect(items[0]?.examples?.[0]).toMatchObject({ $kind: 'websocket-example', name: 'Session' });
+    expect(items[1]?.examples?.[0]).toMatchObject({ $kind: 'socket.io-example', name: 'Chat' });
+  });
+
+  it('an unredacted export keeps the example frames', () => {
+    const { collection } = importPostmanCollection(WS_EXAMPLES);
+    const text = JSON.stringify(exportPostmanV3(collection).tree);
+    expect(text).toContain('EXRESPBODY_SECRET');
+    expect(text).toContain('SIOEXBODY');
+  });
+
+  it('an unedited OC WebSocket / HTTP item bag has its URL credentials redacted and counted', () => {
+    const imported = ocToInternal({
+      opencollection: '1.0.0',
+      info: { name: 'Urls' },
+      items: [
+        {
+          info: { type: 'websocket', name: 'Live' },
+          websocket: { url: 'wss://u:OC_WS_PW@ws.example.com/?access_token=OC_WS_TOK&page=1' },
+        },
+        {
+          info: { type: 'http', name: 'Api' },
+          http: { method: 'GET', url: 'https://u:OC_HTTP_PW@x.example.com/?api_key=OC_HTTP_KEY' },
+        },
+      ],
+    } as never);
+    expect(countCollectionInlineSecrets(imported)).toBeGreaterThanOrEqual(4);
+    const redacted = redactCollectionSecrets(imported);
+    const text = JSON.stringify(internalToOC(redacted));
+    for (const s of ['OC_WS_PW', 'OC_WS_TOK', 'OC_HTTP_PW', 'OC_HTTP_KEY']) {
+      expect(text).not.toContain(s);
+    }
+    expect(text).toContain('page=1');
+    expect(countCollectionInlineSecrets(redacted)).toBe(0);
+  });
+
+  it('a pre-#1209 placeholder upgraded to a native item leaves no plaintext after redaction', () => {
+    const placeholder = {
+      id: 'p',
+      name: 'Feed (WebSocket)',
+      type: 'folder' as const,
+      items: [],
+      _postman: {
+        auth: { type: 'bearer', bearer: [{ key: 'token', value: 'LEGACY_BEARER' }] },
+        authBagOnly: true,
+        item: {
+          $kind: 'websocket-request',
+          name: 'Feed',
+          url: 'wss://u:LEGACY_URLPW@ws.example.com/?access_token=LEGACY_QTOK',
+          headers: [{ key: 'Authorization', value: 'Bearer LEGACY_HDR' }],
+        },
+      },
+    };
+    const collection = {
+      id: 'c',
+      name: 'Legacy',
+      items: upgradeStreamPlaceholders([placeholder as never]),
+    };
+    expect(collection.items[0]?.type).toBe('request');
+    expect(countCollectionInlineSecrets(collection)).toBe(4);
+    const text = JSON.stringify(redactCollectionSecrets(collection));
+    for (const s of ['LEGACY_BEARER', 'LEGACY_URLPW', 'LEGACY_QTOK', 'LEGACY_HDR']) {
+      expect(text).not.toContain(s);
+    }
   });
 });

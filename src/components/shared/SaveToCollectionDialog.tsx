@@ -26,10 +26,11 @@ import {
 } from '@/features/collections/lib/brokerPresets';
 import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
 import { isNameTaken, siblingNamesForParent } from '@/features/collections/lib/names';
+import { snapshotStreamTab } from '@/features/collections/lib/streamPresets';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { CollectionItem } from '@/types';
-import { isBrokerMode } from '@/types';
+import { isBrokerMode, isStreamPresetMode } from '@/types';
 
 interface FolderEntry {
   id: string;
@@ -128,6 +129,13 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
       toast.error('Open the connection panel once before saving it to a collection');
       return;
     }
+    // WebSocket / Socket.IO tabs save their live connection settings,
+    // composer draft and saved messages (#1209).
+    const stream = tab.modeOverride ? snapshotStreamTab(tab, effectiveRequestName) : null;
+    if (isStreamPresetMode(tab.modeOverride) && !stream) {
+      toast.error('Open the connection panel once before saving it to a collection');
+      return;
+    }
     let collectionId: string;
 
     if (effectiveMode === 'new') {
@@ -151,7 +159,9 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
         id: itemId,
         name: effectiveRequestName,
         type: 'request',
-        request: broker ? broker.request : { ...tab.request, name: effectiveRequestName },
+        request: broker
+          ? broker.request
+          : (stream ?? { ...tab.request, name: effectiveRequestName }),
       },
       safeFolderId
     );

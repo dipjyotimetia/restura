@@ -267,8 +267,10 @@ export function convertMcp(raw: Raw, name: string, sidecar: PostmanSidecar, ctx:
     transport: 'streamable-http',
     headers: [],
     auth: authOut.auth ?? { type: 'none' },
-    preRequestScript: scripts.preRequestScript,
-    testScript: scripts.testScript,
+    ...({
+      preRequestScript: scripts.preRequestScript,
+      testScript: scripts.testScript,
+    } as Pick<McpRequest, 'preRequestScript' | 'testScript'>),
   };
   req.url = str(raw.url);
   req.headers = rows(raw.headers);

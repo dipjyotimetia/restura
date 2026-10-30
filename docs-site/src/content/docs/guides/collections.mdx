@@ -17,7 +17,7 @@ New to Restura? With no collections yet, choose **Try sample collection** (in th
 
 **Save to Collection** stores the request exactly as configured in its tab: HTTP, GraphQL, and gRPC requests (gRPC with its schema snapshot and timeout), SSE requests with their URL, headers, query params, auth, event filter, and reconnect setting, and MCP requests as one operation — the method (for example `tools/call`, `resources/read`, `prompts/get`) plus its parameters. Opening a saved item restores that configuration in the builder.
 
-WebSocket and Socket.IO sessions can't be saved to a collection yet — Save to Collection is disabled for them with an explanation ([#886](https://github.com/dipjyotimetia/restura/issues/886)).
+WebSocket and Socket.IO tabs save as native collection items — see [WebSocket and Socket.IO connections](#websocket-and-socketio-connections) below.
 
 ### Kafka and MQTT connection presets
 
@@ -29,6 +29,15 @@ On desktop, **Save to Collection** on a Kafka or MQTT tab stores a *connection p
 - **Per-environment presets.** Brokers, topics, keys, payloads and headers can hold `{{variables}}`; they're resolved from the active environment when you connect, produce, subscribe or publish (unresolved ones are sent as typed and flagged in the message log).
 - Presets export through OpenCollection (`x-restura-kafka` / `x-restura-mqtt`, see the [reference](/reference/opencollection/#restura-extensions)) and git-native collections. Postman v3 export carries Kafka / MQTT items but reports broker-only options (SASL, TLS paths, schema registry, …) as not exported; Insomnia and Bruno exports write a named "not supported" stub instead.
 - On the web build, imported presets are listed but open the desktop-only panel.
+
+### WebSocket and Socket.IO connections
+
+On web and desktop, **Save to Collection** on a WebSocket or Socket.IO tab stores the connection ([#1209](https://github.com/dipjyotimetia/restura/issues/1209)): the URL, handshake headers and the protocol settings (WebSocket subprotocols, reconnect, heartbeat, permessage-deflate and frame assertion; Socket.IO namespace, path, transports, query and handshake `auth` rows, reconnect and timeout, subscribed events), the message you were composing and your saved messages / emits. Values are stored as typed — `{{variables}}` stay unresolved and are resolved when you connect or send.
+
+- Opening the item from the sidebar (it shows a **WS** / **SIO** badge), the command palette or a deep link opens a connection tab prefilled; it doesn't connect until you press **Connect**. **Save changes** (tab menu or <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>S</kbd>) on that tab updates the item in place.
+- They are connections, not requests: the collection runner and the CLI skip them with a notice (the runner counts them as skipped presets).
+- They round-trip through OpenCollection and git-native collections — WebSocket as a native `websocket` item, Socket.IO in `x-restura-socketio` (see the [reference](/reference/opencollection/#restura-extensions)) — and through Postman v3 (`websocket-request` / `socket.io-request`). Postman v2.1 cannot hold them (reported), and Insomnia / Bruno exports write a named "not supported" stub.
+- **Secrets.** Handshake headers, query rows and Socket.IO `auth` rows are stored like the live connection keeps them — in the collection, not converted to keychain handles. On export (with secrets excluded) credential-named header and query values, URL credentials (`user:password@` and `?access_token=`-style query values) and **every** Socket.IO handshake `auth` value are blanked (`{{variable}}` references are kept). Message payloads and subprotocols are not redacted, like HTTP bodies — keep secrets in variables.
 
 ## Inheritance
 

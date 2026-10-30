@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { SaveToCollectionDialog } from './SaveToCollectionDialog';
@@ -25,16 +26,36 @@ describe('SaveToCollectionDialog', () => {
     useCollectionStore.setState({ collections: [] });
   });
 
-  it('refuses to store the HTTP placeholder of a WebSocket tab', async () => {
+  it('saves a WebSocket tab as a WebSocket collection item, not its HTTP placeholder (#1209)', async () => {
     const user = userEvent.setup();
     const tabId = useRequestStore.getState().openTabWithMode('websocket');
+    const connectionId = useWebSocketStore
+      .getState()
+      .ensureConnectionForTab(tabId, 'wss://{{host}}/feed');
+    useWebSocketStore.getState().setProtocols(connectionId, ['json']);
     render(<SaveToCollectionDialog tabId={tabId} open onOpenChange={() => {}} />);
 
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      "WebSocket sessions can't be saved to a collection yet"
-    );
+    expect(screen.queryByRole('alert')).toBeNull();
+    await user.clear(screen.getByPlaceholderText('Request name'));
+    await user.type(screen.getByPlaceholderText('Request name'), 'Feed');
     await user.type(screen.getByPlaceholderText('New collection name'), 'Sockets');
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    const saved = useCollectionStore.getState().collections[0]?.items[0];
+    expect(saved).toMatchObject({
+      name: 'Feed',
+      type: 'request',
+      request: { type: 'websocket', name: 'Feed', url: 'wss://{{host}}/feed', protocols: ['json'] },
+    });
+    expect(useRequestStore.getState().tabs[0]?.savedRequestId).toBe(saved?.id);
+  });
+
+  it('refuses a Socket.IO tab whose panel never created a connection', async () => {
+    const user = userEvent.setup();
+    const tabId = useRequestStore.getState().openTabWithMode('socketio');
+    render(<SaveToCollectionDialog tabId={tabId} open onOpenChange={() => {}} />);
+    await user.type(screen.getByPlaceholderText('New collection name'), 'Sockets');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(useCollectionStore.getState().collections).toHaveLength(0);
   });
 

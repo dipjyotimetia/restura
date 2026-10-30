@@ -31,6 +31,8 @@ export type PostmanExportConstruct =
   | 'mqtt-extras'
   | 'kafka-extras'
   | 'kafka-mode'
+  | 'websocket-extras'
+  | 'socketio-extras'
   | 'description'
   | 'examples'
   | 'multi-auth'
@@ -86,6 +88,10 @@ const DETAIL: Record<PostmanExportConstruct, string> = {
     'Some Kafka preset options (client id, SASL, schema registry, TLS paths, idempotence, transactions, group id) are Restura-only; not exported',
   'kafka-mode':
     'Postman Kafka requests are either producer or consumer; the consumer settings were not exported',
+  'websocket-extras':
+    'Some WebSocket options (subprotocols, heartbeat, permessage-deflate, frame assertion, an unsaved composer draft) are Restura-only; not exported',
+  'socketio-extras':
+    'Some Socket.IO options (namespace, handshake auth payload, transports, forceNew) are Restura-only; not exported',
   description: 'Postman v3 has no description for this kind; not exported',
   examples: 'Saved examples for this request kind cannot be restored; not exported',
   'multi-auth': 'Only the first credential set of a multi-set Postman auth is exported',

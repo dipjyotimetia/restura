@@ -5,6 +5,10 @@ import {
 } from '../collections/passthrough-bags';
 import { countPostmanBagInlineSecrets, redactPostmanBag } from '../collections/postman/redaction';
 import { getPostmanSidecar } from '../collections/postman/sidecar';
+import {
+  countUrlStringSecrets,
+  redactUrlCredentialsForStorage,
+} from '../collections/postman/text-redaction';
 import type { AuthConfig, Collection, CollectionItem } from '../types';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from './auth-fields';
 import { countBrokerPresetSecrets, redactBrokerPreset } from './broker-preset-redaction';
@@ -21,6 +25,7 @@ import {
   redactStdioEnvRows,
   stdioEnvOf,
 } from './stdio-env-redaction';
+import { countStreamPresetSecrets, redactStreamPreset } from './stream-preset-redaction';
 
 /**
  * Redacts secret-bearing auth fields from a collection before it goes through
@@ -218,6 +223,10 @@ export function redactOcBag(node: unknown): unknown {
       output[key] = redactOcAuthBlock(value as Record<string, unknown>);
     } else if (key === 'passphrase' && typeof value === 'string') {
       output[key] = '';
+    } else if (key === 'url' && typeof value === 'string') {
+      // URL userinfo + credential-named query values (`?access_token=`): an
+      // unedited item re-exports verbatim from its bag (#1209).
+      output[key] = redactUrlCredentialsForStorage(value);
     } else if (key === 'value' && input.secret === true) {
       output[key] = '';
     } else if (key === 'stdio' && isPlainObject(value) && Array.isArray(value.env)) {
@@ -261,7 +270,19 @@ function countNonEmptyStrings(obj: Record<string, unknown>, fields: Set<string>)
  * double-counted; a type listed here but no longer modelled is UNDER-counted
  * (export plaintext warning suppressed).
  */
+// `websocket` stays opaque even though a WebSocket item is typed since #1209:
+// pre-#1209 placeholder folders still hold the whole item only in their bag.
+// For a typed WebSocket item its header rows are therefore counted twice
+// (typed + bag) — an over-count, the safe direction for the export warning.
 const MODELLED_OC_ITEM_TYPES = new Set(['http', 'graphql', 'grpc']);
+
+/**
+ * Modelled item types whose `auth` block is NOT modelled: a WebSocket item
+ * (#1209) becomes a typed request (url / headers / messages) but Restura has
+ * no WebSocket auth, so its OC `auth` lives only in the `_oc` bag and every
+ * credential in it is bag-only.
+ */
+const AUTH_OPAQUE_OC_ITEM_TYPES = new Set(['websocket']);
 
 /** OC extension lists whose entries `placeExtensionItems` imports as typed requests. */
 const MODELLED_OC_EXTENSION_LISTS = new Set([
@@ -269,7 +290,15 @@ const MODELLED_OC_EXTENSION_LISTS = new Set([
   'x-restura-mcp',
   'x-restura-kafka',
   'x-restura-mqtt',
+  'x-restura-socketio',
 ]);
+
+function isAuthOpaqueOcItem(obj: Record<string, unknown>): boolean {
+  const info = obj.info;
+  return (
+    isPlainObject(info) && typeof info.type === 'string' && AUTH_OPAQUE_OC_ITEM_TYPES.has(info.type)
+  );
+}
 
 /** True for an OC item node that `itemToInternal` keeps only as an opaque `_oc` bag. */
 function isOpaqueOcItem(obj: Record<string, unknown>): boolean {
@@ -336,18 +365,30 @@ function countAuthBlockSecrets(a: Record<string, unknown>, opaque: boolean): num
  * @param modelled - `node` is known to be a typed node (an SSE/MCP extension
  *   entry, or the bag of an internal `request` item) — skip the opacity probe.
  */
-function countOcBagInlineSecrets(node: unknown, opaque = false, modelled = false): number {
+function countOcBagInlineSecrets(
+  node: unknown,
+  opaque = false,
+  modelled = false,
+  authOpaque = false
+): number {
   if (!node || typeof node !== 'object') return 0;
   if (Array.isArray(node)) {
-    return node.reduce<number>((n, v) => n + countOcBagInlineSecrets(v, opaque, modelled), 0);
+    return node.reduce<number>(
+      (n, v) => n + countOcBagInlineSecrets(v, opaque, modelled, authOpaque),
+      0
+    );
   }
   const obj = node as Record<string, unknown>;
   const inOpaque = opaque || (!modelled && isOpaqueOcItem(obj));
+  const inAuthOpaque = inOpaque || authOpaque || isAuthOpaqueOcItem(obj);
   let count = 0;
-  if (isPlainObject(obj.auth)) count += countAuthBlockSecrets(obj.auth, inOpaque);
+  if (isPlainObject(obj.auth)) count += countAuthBlockSecrets(obj.auth, inAuthOpaque);
   // Cert / private-key passphrase (root `config.clientCertificates[].passphrase`
   // and per-environment certs) — a string field the internal model never sees.
   if (typeof obj.passphrase === 'string' && obj.passphrase.length > 0) count += 1;
+  // URL userinfo / credential-named query values in a bag URL (a typed
+  // request's copy may be counted too — an over-count, the safe direction).
+  if (typeof obj.url === 'string') count += countUrlStringSecrets(obj.url);
   for (const [key, value] of Object.entries(obj)) {
     // `auth` is handled above; `passphrase` is a scalar already counted. Recurse
     // everything else (incl. `proxy` → `proxy.config.auth`) so nested config
@@ -360,7 +401,12 @@ function countOcBagInlineSecrets(node: unknown, opaque = false, modelled = false
       count += countOcRowSecrets(value);
       continue;
     }
-    count += countOcBagInlineSecrets(value, inOpaque, MODELLED_OC_EXTENSION_LISTS.has(key));
+    count += countOcBagInlineSecrets(
+      value,
+      inOpaque,
+      MODELLED_OC_EXTENSION_LISTS.has(key),
+      inAuthOpaque
+    );
   }
   return count;
 }
@@ -442,7 +488,10 @@ function redactItem(item: CollectionItem, depth = 0): CollectionItem {
       req.stdio = { ...(req.stdio as object), env: redactStdioEnvRows(stdioEnv) };
     }
     // Kafka / MQTT presets (#984): URL userinfo, record headers, user properties.
-    next.request = redactBrokerPreset(req as unknown as NonNullable<typeof next.request>);
+    // WebSocket / Socket.IO (#1209): URL userinfo, handshake auth, query rows.
+    next.request = redactStreamPreset(
+      redactBrokerPreset(req as unknown as NonNullable<typeof next.request>)
+    );
   }
   return next;
 }
@@ -511,6 +560,7 @@ export function countCollectionInlineSecrets(collection: Collection): number {
         count += countSecretKeyValues(formBodyTextRows(req));
         count += countStdioEnvInlineSecrets(stdioEnvOf(req));
         count += countBrokerPresetSecrets(item.request);
+        count += countStreamPresetSecrets(item.request);
       }
       if (item.items) walk(item.items, depth + 1);
     }

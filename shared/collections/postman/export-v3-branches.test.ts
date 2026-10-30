@@ -611,7 +611,8 @@ describe('containers, placeholders, scripts, variables', () => {
           auth: { type: 'none' },
         }),
         { id: 'n', name: 'no request', type: 'request' },
-        item('weird', { id: 'w', name: 'w', type: 'websocket' }),
+        // An unknown request kind (WebSocket is a real kind since #1209) is skipped.
+        item('weird', { id: 'w', name: 'w', type: 'unknown-kind' }),
       ],
       {
         contractSpec: { source: 'url', url: 'x' },

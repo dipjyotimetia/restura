@@ -49,7 +49,7 @@ describe('ocToInternal', () => {
     expect((item.request as any).method).toBe('GET');
   });
 
-  it('maps multi-protocol fixture: http, graphql (as http), grpc, websocket (as folder), and SSE via extensions', async () => {
+  it('maps multi-protocol fixture: http, graphql (as http), grpc, websocket, socket.io and SSE via extensions', async () => {
     const oc = await loadCollectionFromFile('tests/fixtures/opencollection/multi-protocol.yaml');
     const collection = ocToInternal(oc);
     const types = collection.items.map((i) => i.request?.type ?? `folder:${i.name}`);
@@ -60,11 +60,14 @@ describe('ocToInternal', () => {
     // GraphQL was mapped to HttpRequest, so 2 'http' entries are valid
     const httpCount = types.filter((t) => t === 'http').length;
     expect(httpCount).toBeGreaterThanOrEqual(2);
-    // WebSocket placeholder folder
-    const wsItems = collection.items.filter(
-      (i) => i.type === 'folder' && /websocket/i.test(i.name)
-    );
-    expect(wsItems.length).toBe(1);
+    // WebSocket / Socket.IO are native connection items since #1209.
+    const ws = collection.items.find((i) => i.name === 'Stock Ticker');
+    expect(ws?.request).toMatchObject({ type: 'websocket', url: 'ws://{{API_HOST}}/stream' });
+    // The legacy `{ key: value }` map shape of x-restura-socketio still imports.
+    const sio = collection.items.find((i) => i.name === 'Chat Room');
+    expect(sio?.request).toMatchObject({ type: 'socketio', namespace: '/chat' });
+    const r = sio?.request as { handshakeAuth: { key: string; value: string }[] };
+    expect(r.handshakeAuth.map((a) => [a.key, a.value])).toEqual([['token', 'demo-token']]);
   });
 
   it('preserves OpenCollection passthrough on each item via _oc bag', async () => {

@@ -8,7 +8,7 @@
  * and no untrusted-HTML surface.
  */
 import type { Collection, CollectionItem, KeyValue, Request } from '@/types';
-import { isBrokerRequest } from '@/types';
+import { isConnectionPresetRequest } from '@/types';
 
 export interface DocParam {
   name: string;
@@ -93,8 +93,12 @@ export function buildDocModel(collection: Collection): DocModel {
     for (const item of items) {
       if (item.type === 'folder') {
         walk(item.items, path ? `${path} / ${item.name}` : item.name);
-      } else if (item.type === 'request' && item.request && !isBrokerRequest(item.request)) {
-        // Kafka / MQTT presets (#984) are connection presets, not API operations.
+      } else if (
+        item.type === 'request' &&
+        item.request &&
+        !isConnectionPresetRequest(item.request)
+      ) {
+        // Connection presets (Kafka / MQTT #984, WebSocket / Socket.IO #1209) are not API operations.
         operations.push(operationFromRequest(item.request, path));
       }
     }

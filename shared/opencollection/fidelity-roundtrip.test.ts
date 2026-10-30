@@ -7,6 +7,7 @@ import type {
   AuthConfig,
   Collection,
   CollectionItem,
+  CollectionRequest,
   GrpcRequest,
   HttpRequest,
   KafkaRequest,
@@ -14,9 +15,11 @@ import type {
   McpRequest,
   MqttRequest,
   Request,
+  SocketIoRequest,
   SseRequest,
+  WebSocketRequest,
 } from '../types';
-import { isBrokerRequest } from '../types';
+import { isConnectionPresetRequest } from '../types';
 import { internalToOC } from './from-internal';
 import { grpcSchemaHash } from './grpc-schema-extension';
 import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
@@ -346,9 +349,92 @@ const MQTT_FIXTURE: Required<MqttRequest> = {
   ],
 };
 
+// WebSocket / Socket.IO connections (#1209). WebSocket is a native OC item
+// (+ `x-restura-websocket` for Restura-only fields); Socket.IO rides in the
+// `x-restura-socketio` root list like Kafka / MQTT.
+const WEBSOCKET_FIELDS = {
+  id: 'regenerated',
+  name: 'roundtrip',
+  type: 'roundtrip',
+  description: 'roundtrip',
+  url: 'roundtrip',
+  protocols: 'roundtrip',
+  headers: 'roundtrip',
+  message: 'roundtrip',
+  templates: 'roundtrip',
+  options: 'roundtrip',
+  frameAssertion: 'roundtrip',
+} as const satisfies Record<keyof WebSocketRequest, FieldPolicy>;
+
+const WEBSOCKET_FIXTURE: Required<WebSocketRequest> = {
+  id: 'ws-1',
+  name: 'Echo socket',
+  type: 'websocket',
+  description: 'Echo server',
+  url: 'wss://{{wsHost}}/echo?room=1',
+  protocols: ['graphql-ws', 'json'],
+  headers: [kv('X-Trace', '{{traceId}}'), kv('X-Off', 'v', { enabled: false, description: 'off' })],
+  message: { body: '{"hello":"{{name}}"}', format: 'json' },
+  templates: [
+    { name: 'Ping', body: 'ping', format: 'text' },
+    { name: 'Bytes', body: 'de ad be ef', format: 'hex' },
+  ],
+  options: {
+    autoReconnect: false,
+    maxReconnectAttempts: 3,
+    reconnectDelay: 2500,
+    heartbeatInterval: 30_000,
+    heartbeatMessage: 'hb',
+    perMessageDeflate: false,
+  },
+  frameAssertion: { enabled: true, script: 'rs.test("ok", () => {});' },
+};
+
+const SOCKETIO_FIELDS = {
+  id: 'regenerated',
+  name: 'roundtrip',
+  type: 'roundtrip',
+  description: 'roundtrip',
+  url: 'roundtrip',
+  namespace: 'roundtrip',
+  path: 'roundtrip',
+  handshakeAuth: 'roundtrip',
+  query: 'roundtrip',
+  headers: 'roundtrip',
+  transports: 'roundtrip',
+  subscribedEvents: 'roundtrip',
+  emit: 'roundtrip',
+  templates: 'roundtrip',
+  options: 'roundtrip',
+} as const satisfies Record<keyof SocketIoRequest, FieldPolicy>;
+
+const SOCKETIO_FIXTURE: Required<SocketIoRequest> = {
+  id: 'sio-1',
+  name: 'Chat',
+  type: 'socketio',
+  description: 'Chat server',
+  url: 'https://{{chatHost}}',
+  namespace: '/chat',
+  path: '/io',
+  handshakeAuth: [kv('room', '{{room}}')],
+  query: [kv('v', '2'), kv('debug', '1', { enabled: false })],
+  headers: [kv('X-Client', 'restura')],
+  transports: ['websocket'],
+  subscribedEvents: ['message', 'typing'],
+  emit: { eventName: 'message', args: '["hi", {"to":"{{user}}"}]', ack: true },
+  templates: [{ name: 'Join', eventName: 'join', args: '"{{room}}"', ack: false }],
+  options: {
+    autoReconnect: true,
+    reconnectionAttempts: 9,
+    reconnectionDelay: 750,
+    timeout: 5000,
+    forceNew: true,
+  },
+};
+
 interface Case {
   label: string;
-  fixture: Request | KafkaRequest | MqttRequest;
+  fixture: CollectionRequest;
   policy: Record<string, FieldPolicy>;
 }
 
@@ -359,6 +445,8 @@ const CASES: Case[] = [
   { label: 'mcp', fixture: MCP_FIXTURE, policy: MCP_FIELDS },
   { label: 'kafka', fixture: KAFKA_FIXTURE, policy: KAFKA_FIELDS },
   { label: 'mqtt', fixture: MQTT_FIXTURE, policy: MQTT_FIELDS },
+  { label: 'websocket', fixture: WEBSOCKET_FIXTURE, policy: WEBSOCKET_FIELDS },
+  { label: 'socketio', fixture: SOCKETIO_FIXTURE, policy: SOCKETIO_FIELDS },
 ];
 
 // ---------------------------------------------------------------------------
@@ -380,7 +468,7 @@ function stripIds(value: unknown): unknown {
 }
 
 function pickRoundtrip(
-  r: Request | KafkaRequest | MqttRequest,
+  r: CollectionRequest,
   policy: Record<string, FieldPolicy>
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -391,7 +479,7 @@ function pickRoundtrip(
   return stripIds(out) as Record<string, unknown>;
 }
 
-const reqItem = (r: Request | KafkaRequest | MqttRequest, idSuffix: string): CollectionItem => ({
+const reqItem = (r: CollectionRequest, idSuffix: string): CollectionItem => ({
   id: `item-${r.id}-${idSuffix}`,
   name: r.name,
   type: 'request',
@@ -410,10 +498,7 @@ function findFolder(items: CollectionItem[], name: string): CollectionItem {
   return f;
 }
 
-function findAnyRequest(
-  items: CollectionItem[] | undefined,
-  name: string
-): Request | KafkaRequest | MqttRequest {
+function findAnyRequest(items: CollectionItem[] | undefined, name: string): CollectionRequest {
   const it = (items ?? []).find((i) => i.type === 'request' && i.name === name);
   if (!it?.request) {
     throw new Error(
@@ -425,7 +510,7 @@ function findAnyRequest(
 
 function findRequest(items: CollectionItem[] | undefined, name: string): Request {
   const it = (items ?? []).find((i) => i.type === 'request' && i.name === name);
-  if (!it?.request || isBrokerRequest(it.request)) {
+  if (!it?.request || isConnectionPresetRequest(it.request)) {
     throw new Error(
       `request ${name} not found in [${(items ?? []).map((i) => i.name).join(', ')}]`
     );

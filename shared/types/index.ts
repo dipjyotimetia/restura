@@ -18,4 +18,5 @@ export * from './request';
 export * from './scripts';
 export * from './security';
 export * from './settings';
+export * from './stream-preset';
 export * from './streaming';

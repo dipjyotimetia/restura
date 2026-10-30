@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
+import { clearComposerDrafts } from '@/lib/shared/streaming/composerDrafts';
 import {
   migrateConnectionTemplates,
   type WebSocketMessageTemplate,
@@ -198,7 +199,8 @@ export const useWebSocketStore = create<WebSocketState>()(
         return id;
       },
 
-      removeConnection: (id) =>
+      removeConnection: (id) => {
+        clearComposerDrafts(id);
         set((state) => {
           const { [id]: _, ...rest } = state.connections;
           const nextMap = Object.fromEntries(
@@ -209,7 +211,8 @@ export const useWebSocketStore = create<WebSocketState>()(
             connectionByTabId: nextMap,
             activeConnectionId: state.activeConnectionId === id ? null : state.activeConnectionId,
           };
-        }),
+        });
+      },
 
       setActiveConnection: (id) => set({ activeConnectionId: id }),
 
@@ -230,6 +233,7 @@ export const useWebSocketStore = create<WebSocketState>()(
       cleanupConnectionForTab: (tabId) => {
         const connectionId = get().connectionByTabId[tabId];
         if (!connectionId) return;
+        clearComposerDrafts(connectionId);
         set((state) => {
           const { [connectionId]: _drop, ...restConns } = state.connections;
           const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;

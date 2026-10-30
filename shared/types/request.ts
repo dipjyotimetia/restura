@@ -1,7 +1,12 @@
-import { type BrokerRequest, isBrokerRequest } from './broker';
+import { type BrokerRequest, isBrokerMode, isBrokerRequest } from './broker';
 import type { GrpcRequest } from './grpc';
 import type { HttpRequest, Response } from './http';
 import type { ScriptResult } from './scripts';
+import {
+  isStreamPresetMode,
+  isStreamPresetRequest,
+  type StreamPresetRequest,
+} from './stream-preset';
 import type { McpRequest, SseRequest, StreamEventLike } from './streaming';
 
 // Request Types
@@ -26,11 +31,29 @@ export type RequestMode =
 export type Request = HttpRequest | GrpcRequest | SseRequest | McpRequest;
 
 /**
- * Every kind a collection item can save: tab requests plus the Kafka / MQTT
- * connection presets (#984). Presets are collection-only — opening one seeds a
- * connection-mode tab (`modeOverride`) instead of becoming a tab request.
+ * Collection-only connection kinds: Kafka / MQTT presets (#984) and saved
+ * WebSocket / Socket.IO connections (#1209). Opening one seeds a
+ * connection-mode tab (`modeOverride`) instead of becoming a tab request, and
+ * none of them is runnable by the collection runner or the CLI.
  */
-export type CollectionRequest = Request | BrokerRequest;
+export type ConnectionPresetRequest = BrokerRequest | StreamPresetRequest;
+
+/** Every kind a collection item can save: tab requests plus the connection presets. */
+export type CollectionRequest = Request | ConnectionPresetRequest;
+
+/** True for a saved connection preset (Kafka, MQTT, WebSocket, Socket.IO). */
+export function isConnectionPresetRequest(
+  request: { type: string } | undefined
+): request is ConnectionPresetRequest {
+  return isBrokerRequest(request) || isStreamPresetRequest(request);
+}
+
+/** Connection-mode tab kinds that save as a connection preset. */
+export function isConnectionPresetMode(
+  mode: string | undefined
+): mode is ConnectionPresetRequest['type'] {
+  return isBrokerMode(mode) || isStreamPresetMode(mode);
+}
 
 // Multi-tab request tab
 /**
@@ -89,7 +112,7 @@ export interface RequestTab {
   streamingEvents?: AsyncIterable<StreamEventLike>;
 }
 
-/** Narrow a saved collection request to one a workspace tab can hold (not a broker preset). */
+/** Narrow a saved collection request to one a workspace tab can hold (not a connection preset). */
 export function isTabRequest(request: CollectionRequest | undefined): request is Request {
-  return request !== undefined && !isBrokerRequest(request);
+  return request !== undefined && !isConnectionPresetRequest(request);
 }

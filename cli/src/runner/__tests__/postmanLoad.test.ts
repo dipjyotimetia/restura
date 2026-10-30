@@ -123,7 +123,8 @@ describe('loadCollection — Postman', () => {
     expect(names.some((n) => n.includes('Echo socket'))).toBe(false);
     const out = stderr.mock.calls.map((c) => String(c[0])).join('');
     expect(out).toMatch(/Local MCP/);
-    expect(out).toMatch(/skipping .*Echo socket/);
+    expect(out).toMatch(/skipping WebSocket preset "Echo socket"/);
+    expect(out).toMatch(/skipping Socket.IO preset "Chat"/);
     expect(out).toMatch(/skipping Kafka preset/);
     // Secret variable: value-less, never folded in as an empty value.
     expect(loaded.meta.privateVariableNames).toContain('apiToken');
