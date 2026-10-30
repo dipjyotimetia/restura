@@ -113,11 +113,19 @@ if (expected === 0 || rendered.length !== expected) {
   );
 }
 
+// The docs site renders this through Astro's Markdown pipeline, which keeps raw
+// HTML: a note such as "<name>" would be parsed as an unknown element and vanish.
+const escapeHtml = (text) => text.replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+const siteRows = rows.map(
+  (r) =>
+    `| ${escapeHtml(r.label)} | ${yesNo(r.web)} | ${yesNo(r.desktop)} | ${escapeHtml(r.notes)} |`
+);
+
 const sitePartial = `<!-- Generated from src/lib/shared/capabilities.ts by \`npm run capabilities:matrix\`. Do not edit by hand. -->
 
 | Capability | Web | Desktop | Notes |
 | --- | :-: | :-: | --- |
-${tableRows.join('\n')}
+${siteRows.join('\n')}
 `;
 
 const outputs = [
