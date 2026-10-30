@@ -74,4 +74,14 @@ describe('payloadByteSize', () => {
     expect(payloadByteSize([new Uint8Array(10)])).toBe(10 + '[null]'.length);
     expect(payloadByteSize(['é'])).toBe(new TextEncoder().encode('["é"]').length);
   });
+
+  it('counts a Node Buffer by byte length, not its toJSON() expansion', () => {
+    // Buffer#toJSON runs before a JSON.stringify replacer; non-zero bytes expand ~4x.
+    const buf = Buffer.alloc(400 * 1024, 0xff);
+    expect(payloadByteSize([buf])).toBe(buf.byteLength + '[null]'.length);
+    expect(payloadByteSize([{ nested: [buf] }])).toBe(
+      buf.byteLength + '[{"nested":[null]}]'.length
+    );
+    expect(prepareIncomingArgs([buf]).oversizeBytes).toBeUndefined();
+  });
 });

@@ -110,10 +110,14 @@ export function payloadByteSize(args: unknown[]): number {
   let binaryBytes = 0;
   let json = '';
   try {
+    // Non-arrow replacer: `this[key]` is the value *before* `toJSON()`. Node
+    // `Buffer#toJSON` turns a Buffer into `{ type, data: [...] }` before the
+    // replacer sees `v`, which would count it at ~4x its byte length.
     json =
-      JSON.stringify(args, (_key, v: unknown) => {
-        if (isBinary(v)) {
-          binaryBytes += v.byteLength;
+      JSON.stringify(args, function (this: Record<string, unknown>, key, v: unknown) {
+        const raw = this[key];
+        if (isBinary(raw)) {
+          binaryBytes += raw.byteLength;
           return null;
         }
         return v;
