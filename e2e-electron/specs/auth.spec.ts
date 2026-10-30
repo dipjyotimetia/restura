@@ -1,7 +1,7 @@
-import { test, expect } from '../fixtures/echoLocal';
 import type { Page } from '@playwright/test';
-import { switchMode, setUrl, sendButton } from '../../e2e/utils/selectors';
 import { TEST_AUTH_FIXTURES } from '../../e2e/mocks/authRoutes';
+import { sendButton, setUrl, switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/echoLocal';
 
 /**
  * Desktop wire-level auth signing. The renderer configures auth; the actual
@@ -126,5 +126,21 @@ test.describe('Desktop HTTP auth signing (echo-local)', () => {
     await expectAuthenticated(page);
     // The consumer key is echoed back only when the signature verifies.
     await expect(page.getByText(new RegExp(OAUTH1.consumerKey)).first()).toBeVisible();
+  });
+
+  // NTLM (#1069) — desktop-only. The type 1 → 2 → 3 handshake runs in Electron
+  // main on one pinned connection; /ntlm/protected verifies the NTLMv2 proof
+  // with an independent verifier and rejects a type 3 sent on any socket other
+  // than the challenged one, so a 200 proves both the proof and the affinity.
+  test('NTLM handshake authenticates on one connection', async ({ app: page, echo }) => {
+    await switchMode(page, 'http');
+    await setUrl(page, `${echo.httpUrl}/ntlm/protected`);
+    await chooseAuth(page, 'NTLM');
+    await expect(page.getByTestId('ntlm-unimplemented-warning')).toHaveCount(0);
+    await page.getByPlaceholder('Enter username').fill(USER.username);
+    await page.getByPlaceholder('Enter password').fill(USER.password);
+    await page.getByPlaceholder('e.g., CORP').fill('RESTURA');
+    await sendButton(page).click();
+    await expectAuthenticated(page);
   });
 });

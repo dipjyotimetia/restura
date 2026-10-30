@@ -45,6 +45,7 @@ timeline
   2026-10-25 : 0033 — Evals gate harness changes
   2026-10-26 : 0034 — Shared Postman parser and _postman sidecar
   2026-10-30 : 0035 — Review depth tiers, verification vote and REVIEW.md
+             : 0036 — NTLM as a desktop-only fetcher handshake
 ```
 
 <CardGrid>
@@ -222,6 +223,11 @@ timeline
     title="0035 — Review depth tiers, verification vote and REVIEW.md"
     description="The code-review skill picks Quick/Standard/Deep from the diff, verifies Important findings with independent voters before posting, tags findings Important / Nit / Pre-existing, caps nits and rounds, and loads a code-owner REVIEW.md; sub-agents read briefs from disk instead of receiving pasted context."
     href="/architecture/adrs/0035-review-depth-tiers-verification-and-review-md/"
+  />
+  <LinkCard
+    title="0036 — NTLM as a desktop-only fetcher handshake"
+    description="NTLM authenticates a connection, so the type 1 → 2 → 3 handshake runs inside one Electron fetcher call on a single pinned HTTP/1.1 socket, origin-bound and credential-free until the challenge; web and self-host don't send it and the CLI refuses it."
+    href="/architecture/adrs/0036-ntlm-desktop-fetcher-handshake/"
   />
 </CardGrid>
 

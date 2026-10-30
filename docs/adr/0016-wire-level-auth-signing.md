@@ -30,7 +30,7 @@ The renderer still applies the schemes that are just static headers (Bearer, Bas
 
 ## Addendum (2026-10-13): Digest
 
-Digest auth also runs in the backend that sends the bytes, but it is challenge/response, not up-front signing: nothing is added to the first request, and a same-origin `401` Digest challenge is answered with exactly one retry inside the shared redirect follower. Its redirect, same-origin, and secret-resolution rules are recorded separately in [ADR 0029](./0029-digest-auth-challenge-retry.md). NTLM remains unsent ([#1069](https://github.com/dipjyotimetia/restura/issues/1069)).
+Digest auth also runs in the backend that sends the bytes, but it is challenge/response, not up-front signing: nothing is added to the first request, and a same-origin `401` Digest challenge is answered with exactly one retry inside the shared redirect follower. Its redirect, same-origin, and secret-resolution rules are recorded separately in [ADR 0029](./0029-digest-auth-challenge-retry.md). NTLM authenticates a connection, so it runs desktop-only inside the Electron fetcher instead ([ADR 0036](./0036-ntlm-desktop-fetcher-handshake.md)).
 
 ## References
 
