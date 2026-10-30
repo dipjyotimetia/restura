@@ -5,6 +5,7 @@ export const SOCKETIO_IPC = {
   socketio: {
     connect: 'socketio:connect',
     emit: 'socketio:emit',
+    replyAck: 'socketio:reply-ack',
     disconnect: 'socketio:disconnect',
   },
 } as const;

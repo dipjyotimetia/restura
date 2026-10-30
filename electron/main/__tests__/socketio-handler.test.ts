@@ -37,6 +37,16 @@ const sioMock = vi.hoisted(() => {
     url: string;
     opts: unknown;
     emit = vi.fn();
+    /** Emit modifiers applied via `.volatile` / `.compress()`. */
+    flags: string[] = [];
+    get volatile(): this {
+      this.flags.push('volatile');
+      return this;
+    }
+    compress = vi.fn((v: boolean) => {
+      this.flags.push(`compress:${v}`);
+      return this;
+    });
     disconnect = vi.fn(() => {
       this.connected = false;
     });
@@ -523,5 +533,131 @@ describe('socketio-handler', () => {
     });
     expect(mockResolveSafe).not.toHaveBeenCalled();
     expect(sioMock.io).not.toHaveBeenCalled();
+  });
+
+  it('passes reconnection tuning and the websocket maxPayload cap to socket.io-client', async () => {
+    const { event } = makeEvent();
+    await handlerFor(IPC.socketio.connect)(event, {
+      ...validConnect('c-opts'),
+      reconnectionDelayMax: 9_000,
+      randomizationFactor: 0.2,
+      auth: { token: 't', user: { id: 1, roles: ['a'] }, admin: true },
+    });
+    const opts = sioMock.FakeSocket.instances[0]!.opts as Record<string, unknown>;
+    expect(opts).toMatchObject({
+      reconnectionDelayMax: 9_000,
+      randomizationFactor: 0.2,
+      auth: { token: 't', user: { id: 1, roles: ['a'] }, admin: true },
+      transportOptions: { websocket: { maxPayload: 1024 * 1024 } },
+    });
+  });
+
+  it('strips a server ack callback from IPC and answers it via socketio:reply-ack', async () => {
+    const { event, senderId } = makeEvent();
+    await handlerFor(IPC.socketio.connect)(event, validConnect('c-ack'));
+    const socket = sioMock.FakeSocket.instances[0]!;
+    const ack = vi.fn();
+    socket.fireAny('question', { q: 1 }, ack);
+
+    const call = mockEmitTo.mock.calls.find((c) => c[1] === socketioChannels.event('c-ack'));
+    const payload = call?.[2] as { eventName: string; args: unknown[]; serverAckId?: string };
+    expect(payload.args).toEqual([{ q: 1 }]);
+    expect(payload.serverAckId).toEqual(expect.any(String));
+    // Structured clone throws on functions — nothing callable may reach IPC.
+    expect(() => structuredClone(payload)).not.toThrow();
+    expect(senderId).toBe(call?.[0]);
+
+    const reply = handlerFor(IPC.socketio.replyAck);
+    expect(
+      await reply(event, { connectionId: 'c-ack', serverAckId: payload.serverAckId, args: ['ok'] })
+    ).toEqual({ success: true });
+    expect(ack).toHaveBeenCalledWith('ok');
+
+    // Single-use: a second reply is refused.
+    const again = await reply(event, {
+      connectionId: 'c-ack',
+      serverAckId: payload.serverAckId,
+      args: ['x'],
+    });
+    expect(again.success).toBe(false);
+    expect(ack).toHaveBeenCalledTimes(1);
+
+    // Another renderer cannot answer this connection's acks.
+    const other = makeEvent();
+    expect(
+      await reply(other.event, {
+        connectionId: 'c-ack',
+        serverAckId: payload.serverAckId,
+        args: [],
+      })
+    ).toEqual({ success: false, error: 'Not connected' });
+  });
+
+  it('forwards application events named reconnect* (only Socket-level names are reserved)', async () => {
+    const { event, senderId } = makeEvent();
+    await handlerFor(IPC.socketio.connect)(event, validConnect('c-rc'));
+    sioMock.FakeSocket.instances[0]!.fireAny('reconnect', 'app');
+    expect(mockEmitTo).toHaveBeenCalledWith(senderId, socketioChannels.event('c-rc'), {
+      eventName: 'reconnect',
+      args: ['app'],
+    });
+  });
+
+  it('replaces oversize payloads and encodes binary before IPC', async () => {
+    const { event, senderId } = makeEvent();
+    await handlerFor(IPC.socketio.connect)(event, validConnect('c-big'));
+    const socket = sioMock.FakeSocket.instances[0]!;
+
+    socket.fireAny('blob', new Uint8Array(2 * 1024 * 1024));
+    const big = mockEmitTo.mock.calls.find((c) => c[1] === socketioChannels.event('c-big'));
+    expect((big?.[2] as { args: unknown[] }).args).toEqual([
+      expect.stringMatching(/payload omitted: 2\.0 MB exceeds the 1\.0 MB limit/),
+    ]);
+
+    mockEmitTo.mockClear();
+    socket.fireAny('small', Buffer.from([1, 2, 3]));
+    expect(mockEmitTo).toHaveBeenCalledWith(senderId, socketioChannels.event('c-big'), {
+      eventName: 'small',
+      args: [{ $binary: 'AQID' }],
+    });
+  });
+
+  it('applies volatile / compress modifiers and a per-emit ack timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const { event, senderId } = makeEvent();
+      await handlerFor(IPC.socketio.connect)(event, validConnect('c-mod'));
+      const socket = sioMock.FakeSocket.instances[0]!;
+      const res = await handlerFor(IPC.socketio.emit)(event, {
+        connectionId: 'c-mod',
+        eventName: 'tick',
+        args: [new Uint8Array([9])],
+        volatile: true,
+        compress: false,
+        ackId: 'a1',
+        ackTimeoutMs: 250,
+      });
+      expect(res).toEqual({ success: true });
+      expect(socket.flags).toEqual(['volatile', 'compress:false']);
+      expect(socket.emit).toHaveBeenCalledWith('tick', new Uint8Array([9]), expect.any(Function));
+
+      vi.advanceTimersByTime(250);
+      expect(mockEmitTo).toHaveBeenCalledWith(senderId, socketioChannels.ack('c-mod'), {
+        ackId: 'a1',
+        error: 'timeout',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects an oversized handshake auth payload', async () => {
+    const { event } = makeEvent();
+    await expect(
+      handlerFor(IPC.socketio.connect)(event, {
+        ...validConnect('c-auth'),
+        auth: { blob: 'x'.repeat(70 * 1024) },
+      })
+    ).rejects.toThrow(/Invalid IPC payload/);
   });
 });

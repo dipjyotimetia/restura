@@ -228,6 +228,7 @@ describe('IPC channel registry shape', () => {
         "IPC.socketio.connect": "socketio:connect",
         "IPC.socketio.disconnect": "socketio:disconnect",
         "IPC.socketio.emit": "socketio:emit",
+        "IPC.socketio.replyAck": "socketio:reply-ack",
         "IPC.sse.connect": "sse:connect",
         "IPC.sse.disconnect": "sse:disconnect",
         "IPC.store.clear": "store:clear",
