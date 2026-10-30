@@ -58,6 +58,11 @@ updates:
       - 'npm'
     open-pull-requests-limit: 15
     versioning-strategy: 'increase'
+    ignore:
+      # Must not exceed engines.vscode in extension/vscode/package.json: `vsce
+      # package` refuses to build otherwise. Raise both together, deliberately.
+      - dependency-name: '@types/vscode'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
     # Grouping keeps the weekly run to ~2 PRs instead of one per package.
     # Groups are matched in order, first match wins:
     #   1. every patch/minor bump → ONE PR, auto-approved + auto-merged on
