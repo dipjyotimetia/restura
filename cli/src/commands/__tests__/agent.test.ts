@@ -349,6 +349,77 @@ describe('scripted saved-request preflight', () => {
   });
 });
 
+describe('runAgentEval interruption', () => {
+  it.each(['SIGINT', 'SIGTERM'] as const)(
+    'aborts the run on %s, closes MCP sessions, writes a partial report and exits 1',
+    async (signalName) => {
+      const dispose = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(connectCliMcpClient).mockResolvedValue({
+        listTools: async () => [{ name: 'search_docs', inputSchema: { type: 'object' } }],
+        callTool: vi.fn(),
+        dispose,
+      });
+      let modelCallStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        modelCallStarted = resolve;
+      });
+      const fetcher = vi.fn<Fetcher>().mockImplementation(
+        (request) =>
+          new Promise((_resolve, reject) => {
+            modelCallStarted();
+            request.signal.addEventListener('abort', () => reject(new Error('aborted')), {
+              once: true,
+            });
+          })
+      );
+      const deps = dependenciesWithFiles(
+        {
+          '/suite.json': suite({ tools: [{ kind: 'mcp', connectionId: 'docs' }] }),
+          '/runtime.json': {
+            schemaVersion: 1,
+            sources: [
+              {
+                id: 'docs',
+                kind: 'mcp',
+                url: 'https://mcp.example.test/mcp',
+                transport: 'streamable-http',
+                readOnly: true,
+                allowedTools: ['search_docs'],
+              },
+            ],
+          },
+        },
+        fetcher
+      );
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      const before = [process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')];
+
+      try {
+        const pending = runAgentEval(
+          '/suite.json',
+          { runtime: '/runtime.json', output: '/report.json' },
+          deps
+        );
+        await started;
+        expect(process.listenerCount(signalName)).toBe(
+          before[signalName === 'SIGINT' ? 0 : 1]! + 1
+        );
+        process.emit(signalName, signalName);
+
+        expect(await pending).toBe(1);
+        expect(dispose).toHaveBeenCalledTimes(1);
+        expect(deps.writeText).toHaveBeenCalledWith(
+          '/report.json',
+          expect.stringContaining('"cancelled"')
+        );
+        expect([process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')]).toEqual(before);
+      } finally {
+        stdout.mockRestore();
+      }
+    }
+  );
+});
+
 describe('runAgentEval exit codes', () => {
   const mcpRuntime = {
     schemaVersion: 1,

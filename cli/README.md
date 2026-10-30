@@ -311,7 +311,7 @@ The headless runner is deliberately narrower than the desktop AI Lab and fails c
 
 A suite's policy profile (`agents[].policyId` → `policies[]`) is refused with exit 2 unless it is CI-safe: `ciEligible: true` (default `false`) and `autoApprove` containing only `read`. Suites that reference no profile are unaffected; a desktop profile that auto-approves writes must be edited (or dropped) before it can run in CI.
 
-A Bundle may also use deterministic, read-only fixture tools; its baseline gates turn a regressed report into a failing result. Exit codes: `0` when every trial (and every bundle gate) passes, `1` for an evaluated failure, error, or cancellation, `2` for invalid input, unsupported configuration, or I/O failure. Step, time, tool, token, cost, and output budgets still apply.
+A Bundle may also use deterministic, read-only fixture tools; its baseline gates turn a regressed report into a failing result. Exit codes: `0` when every trial (and every bundle gate) passes, `1` for an evaluated failure, error, or cancellation (SIGINT/SIGTERM cancel cooperatively: MCP sessions are closed and a partial `--output` report is still written; a second signal force-quits), `2` for invalid input, unsupported configuration, or I/O failure. Step, time, tool, token, cost, and output budgets still apply.
 
 > `--output` writes the complete local trace, which can include task inputs and model/tool outputs. Protect and expire that CI artifact according to your data policy.
 

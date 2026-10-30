@@ -323,7 +323,15 @@ export async function runAgentEval(
   options: AgentEvalOptions = {},
   dependencies: AgentEvalDependencies = defaultDependencies
 ): Promise<0 | 1 | 2> {
+  // Ctrl-C / SIGTERM cancel the run cooperatively so the runner can close MCP
+  // sessions and the partial report is still written (exit 1: cancelled).
+  const interrupt = new AbortController();
+  const onSignal = (signal: NodeJS.Signals): void =>
+    interrupt.abort(new Error(`${signal} received`));
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
   try {
+    options = { ...options, signal: interrupt.signal };
     const input = JSON.parse(await dependencies.readText(suitePath)) as Record<string, unknown>;
     if ('suite' in input && 'fixtures' in input) {
       const result = await evaluateAgentBundle(suitePath, options, dependencies);
@@ -338,6 +346,9 @@ export async function runAgentEval(
   } catch (error) {
     console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
     return agentEvalExitCode(error instanceof Error ? error : new Error(String(error)));
+  } finally {
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
   }
 }
 
