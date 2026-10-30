@@ -1,4 +1,5 @@
 import { listModels, testConnection } from '@shared/protocol/ai/model-discovery';
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/proxy-limits';
 import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/types';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -179,6 +180,27 @@ describe('listModels', () => {
     await expect(
       listModels({ provider: 'ollama', baseUrl: 'http://localhost:11434', fetcher })
     ).rejects.toThrow(/discovery failed/i);
+  });
+
+  it('rejects an oversized discovery response', async () => {
+    const fetcher = vi.fn(
+      async (): Promise<FetcherResponse> => ({
+        status: 200,
+        statusText: '200',
+        headers: new Headers(),
+        contentLengthHeader: null,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(MAX_RESPONSE_SIZE));
+            controller.enqueue(new Uint8Array(1));
+          },
+        }),
+        text: async () => '',
+      })
+    );
+    await expect(
+      listModels({ provider: 'openai', baseUrl: 'https://api.openai.com', fetcher })
+    ).rejects.toThrow(/response too large/i);
   });
 
   it('discovers OpenAI models and captures `created` (epoch s) + `owned_by` (vendor)', async () => {

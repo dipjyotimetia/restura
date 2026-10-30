@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import type { ChatRequestSpec, ChatStreamEvent } from '@shared/protocol/ai/types';
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/proxy-limits';
 import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/types';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -126,5 +127,30 @@ describe('executeAiChat', () => {
       (e): e is Extract<ChatStreamEvent, { type: 'error' }> => e.type === 'error'
     );
     expect(err?.code).toBe('provider');
+  });
+
+  it('rejects an oversized streamed response before buffering it', async () => {
+    let cancelled = false;
+    let chunks = 0;
+    const event = `data: ${JSON.stringify({ choices: [{ delta: { content: 'x'.repeat(1024) } }] })}\n\n`;
+    const chunk = new TextEncoder().encode(event.repeat(1024));
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (chunks++ < Math.ceil(MAX_RESPONSE_SIZE / chunk.byteLength) + 1) {
+          controller.enqueue(chunk);
+        } else {
+          controller.close();
+        }
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const events = await collect(makeSpec(), fakeFetcher(body));
+    expect(events.find((e) => e.type === 'error')).toMatchObject({
+      code: 'provider',
+      message: expect.stringContaining('Response too large'),
+    });
+    expect(cancelled).toBe(true);
   });
 });

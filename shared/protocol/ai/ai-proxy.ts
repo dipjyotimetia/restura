@@ -1,3 +1,5 @@
+import { readBoundedText } from '@shared/protocol/binary';
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/proxy-limits';
 import { SseParser } from '@shared/protocol/sse-parser';
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 import { PROVIDER_ROUTES } from './provider-routes';
@@ -91,7 +93,8 @@ export async function* executeAiChat(
   if (!ok) {
     let detail = '';
     try {
-      detail = await response.text();
+      const bounded = await readBoundedText(response, MAX_RESPONSE_SIZE);
+      detail = bounded?.text ?? `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`;
     } catch {
       detail = '';
     }
@@ -110,15 +113,37 @@ export async function* executeAiChat(
     return;
   }
 
+  if (response.contentLengthHeader && Number(response.contentLengthHeader) > MAX_RESPONSE_SIZE) {
+    yield {
+      type: 'error',
+      code: 'provider',
+      message: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`,
+    };
+    yield { type: 'done' };
+    return;
+  }
+
   // 5. Decode stream.
   const decoder = getProviderModule(spec.provider).createDecoder(spec.model);
   const parser = new SseParser();
   const reader = response.body.getReader();
+  let totalBytes = 0;
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       if (!value) continue;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_RESPONSE_SIZE) {
+        await reader.cancel();
+        yield {
+          type: 'error',
+          code: 'provider',
+          message: `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`,
+        };
+        yield { type: 'done' };
+        return;
+      }
       for (const sse of parser.feed(value)) {
         for (const ev of decoder.feed(sse.data, sse.event)) yield ev;
       }
@@ -134,5 +159,7 @@ export async function* executeAiChat(
       yield { type: 'error', code: 'network', message: e instanceof Error ? e.message : String(e) };
     }
     yield { type: 'done' };
+  } finally {
+    reader.releaseLock();
   }
 }

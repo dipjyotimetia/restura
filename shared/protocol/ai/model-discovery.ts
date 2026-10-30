@@ -1,3 +1,5 @@
+import { readBoundedText } from '@shared/protocol/binary';
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/proxy-limits';
 import type { Fetcher } from '@shared/protocol/types';
 import { isLocalProvider, type Provider } from './types';
 
@@ -136,13 +138,25 @@ async function fetchJson(url: string, args: DiscoverArgs): Promise<unknown> {
   if (res.status < 200 || res.status >= 300) {
     let detail = '';
     try {
-      detail = await res.text();
+      const bounded = await readBoundedText(res, MAX_RESPONSE_SIZE);
+      detail = bounded?.text ?? `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`;
     } catch {
       detail = '';
     }
     throw new Error(`Model discovery failed (${res.status}): ${detail.slice(0, 300)}`);
   }
-  const raw = await res.text();
+  if (res.contentLengthHeader && Number(res.contentLengthHeader) > MAX_RESPONSE_SIZE) {
+    throw new Error(
+      `Model discovery response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB).`
+    );
+  }
+  const bounded = await readBoundedText(res, MAX_RESPONSE_SIZE);
+  if (!bounded) {
+    throw new Error(
+      `Model discovery response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB).`
+    );
+  }
+  const raw = bounded.text;
   try {
     return JSON.parse(raw);
   } catch {
