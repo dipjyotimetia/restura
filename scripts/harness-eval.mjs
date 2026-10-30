@@ -85,7 +85,11 @@ export const HARNESS_SCRIPT_KEYS = [
   'worktree:setup',
   'worktree:prune',
 ];
-export const DEFAULT_JUDGE_MODEL = 'sonnet';
+/**
+ * Opus: the strongest grader, and never the Sonnet the CI review jobs (and the documented
+ * baseline commands) use as the reviewer. Judge calls are small (no tools, one short prompt).
+ */
+export const DEFAULT_JUDGE_MODEL = 'claude-opus-5-5';
 
 /** Branch namespace every run creates; `--cleanup` touches nothing else. */
 export const BRANCH_PREFIX = 'harness-eval/';
@@ -324,10 +328,43 @@ export function claudeVersionWarning(previous, current) {
   return `warning: the compared run used Claude Code ${previous}; this run used ${current}. Results depend on the CLI version, so flips may be version noise.`;
 }
 
-/** A judge grading its own model's review inflates agreement; warn when they match. */
+/**
+ * The model family an id or alias names: `sonnet`, `claude-sonnet-5-5` and
+ * `claude-sonnet-5-5-20261001` are all `sonnet`. null when no family is recognisable.
+ */
+export function modelFamily(id) {
+  const m = /(opus|sonnet|haiku)/i.exec(String(id ?? ''));
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * Are these the same model, allowing for aliases? Exact ids match exactly; otherwise two ids
+ * of the same recognisable family count as the same (an alias such as `sonnet` resolves to
+ * whichever Sonnet the CLI ships, which is the one a pinned `claude-sonnet-5-5` names).
+ */
+export function sameModel(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const fa = modelFamily(a);
+  return fa !== null && fa === modelFamily(b);
+}
+
+/** A judge grading its own model's review inflates agreement; warn when they match (aliases included). */
 export function judgeModelWarning({ model, judgeModel }) {
-  if (!model || !judgeModel || model !== judgeModel) return null;
-  return `warning: the judge model (${judgeModel}) is the model under test; grades may be biased. Pass a different --judge-model.`;
+  if (!model || !judgeModel || !sameModel(model, judgeModel)) return null;
+  return `warning: the judge model (${judgeModel}) is the model under test (${model}); grades may be biased. Pass a different --judge-model.`;
+}
+
+/**
+ * After the run: the ids the sessions actually used settle what the aliases meant. Warn when
+ * any judge id matches any reviewer id (`resolvedModels` from `resolvedModels(runs)`).
+ */
+export function resolvedSelfJudgeWarning(resolved) {
+  const reviewer = resolved?.reviewer ?? [];
+  const judge = resolved?.judge ?? [];
+  const clash = judge.find((j) => reviewer.some((r) => sameModel(r, j)));
+  if (!clash) return null;
+  return `warning: the judge resolved to ${clash}, which is the reviewer model under test (${reviewer.join(', ')}); grades may be biased. Pass a different --judge-model.`;
 }
 
 // ---------------------------------------------------------------- case schema
@@ -1500,6 +1537,12 @@ export function formatSummaryMarkdown(
   ];
   const harness = harnessLine(result);
   if (harness) lines.push(harness);
+  if (!result.dryRun) {
+    const selfJudge = resolvedSelfJudgeWarning(
+      result.resolvedModels ?? resolvedModels(result.runs ?? [])
+    );
+    if (selfJudge) lines.push('', selfJudge);
+  }
   lines.push('');
   if (result.dryRun) {
     lines.push('| case | patches apply | combined merge | error |', '|---|---|---|---|');
@@ -2532,6 +2575,8 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   let previousModels = null;
   if (!options.dryRun) {
     result.resolvedModels = resolvedModels(result.runs);
+    const selfJudge = resolvedSelfJudgeWarning(result.resolvedModels);
+    if (selfJudge) log(selfJudge);
     // Either a full result or a committed baseline (diffFlips accepts both).
     const previousFile = options.compare ?? latestResult(outDir, options.config, `${base}.json`);
     if (previousFile && fs.existsSync(previousFile)) {

@@ -28,8 +28,8 @@ check it is larger than the recall CI half-width.
 
 ## How a baseline gets here
 
-Locally: `npm run eval:harness -- --split test --model claude-sonnet-5-5 --save-baseline` (3 runs
-and the judge x3 by default; `--model` is required because the CLI default varies per machine
+Locally: `npm run eval:harness -- --split test --model claude-sonnet-5-5 --save-baseline` (3 runs,
+the judge `claude-opus-5-5` x3 by default, never the model under test; `--model` is required because the CLI default varies per machine
 and release, and the noise pre-flight refuses a plan whose worst-case recall CI half-width is
 wider than `--max-noise`, 25 points). In CI: dispatch the `Eval harness` workflow with
 `save-baseline` ticked (its `model` input is pinned to the same Sonnet the CI review jobs use and

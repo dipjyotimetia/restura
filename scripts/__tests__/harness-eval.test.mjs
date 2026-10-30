@@ -32,6 +32,7 @@ import {
   loadCases,
   majorityVerdict,
   mergePackageScripts,
+  modelFamily,
   modelMismatchWarning,
   nodeExec,
   nodeModulesFingerprint,
@@ -49,8 +50,10 @@ import {
   readOverlayFiles,
   redactSecrets,
   resolvedModels,
+  resolvedSelfJudgeWarning,
   runCase,
   runEval,
+  sameModel,
   selectLeftovers,
   summarise,
   syncExec,
@@ -517,7 +520,7 @@ test('formatSummaryMarkdown reports recall, control precision, errors and flips'
 test('parseEvalArgs applies defaults, flags and validation', () => {
   const defaults = parseEvalArgs([]);
   assert.equal(defaults.harnessRef, 'HEAD');
-  assert.equal(defaults.judgeModel, 'sonnet');
+  assert.equal(defaults.judgeModel, 'claude-opus-5-5');
   assert.equal(defaults.model, undefined);
   assert.equal(defaults.judgeRepeat, 1);
   assert.equal(defaults.split, 'all');
@@ -580,6 +583,37 @@ test('judgeModelWarning fires only when the judge is the model under test', () =
   assert.match(judgeModelWarning({ model: 'sonnet', judgeModel: 'sonnet' }), /judge/i);
   assert.equal(judgeModelWarning({ model: 'opus', judgeModel: 'sonnet' }), null);
   assert.equal(judgeModelWarning({ model: undefined, judgeModel: 'sonnet' }), null);
+  // Aliases: a pinned reviewer id and the alias of the same family are the same model.
+  assert.match(judgeModelWarning({ model: 'claude-sonnet-5-5', judgeModel: 'sonnet' }), /judge/i);
+  assert.match(
+    judgeModelWarning({ model: 'claude-opus-5-5', judgeModel: 'claude-opus-5-5-20261001' }),
+    /judge/i
+  );
+  assert.equal(
+    judgeModelWarning({ model: 'claude-sonnet-5-5', judgeModel: 'claude-opus-5-5' }),
+    null
+  );
+  assert.equal(modelFamily('claude-haiku-5-5'), 'haiku');
+  assert.equal(modelFamily('gpt-5'), null);
+  assert.equal(sameModel('gpt-5', 'gpt-5'), true);
+  assert.equal(sameModel('gpt-5', 'gpt-4'), false);
+  assert.equal(sameModel(null, 'sonnet'), false);
+  assert.match(
+    resolvedSelfJudgeWarning({
+      reviewer: ['claude-sonnet-5-5-20261001'],
+      judge: ['claude-sonnet-5-5-20261001'],
+    }),
+    /judge resolved to claude-sonnet-5-5-20261001/
+  );
+  assert.equal(
+    resolvedSelfJudgeWarning({
+      reviewer: ['claude-sonnet-5-5-20261001'],
+      judge: ['claude-opus-5-5'],
+    }),
+    null
+  );
+  assert.equal(resolvedSelfJudgeWarning({ reviewer: [], judge: ['x'] }), null);
+  assert.equal(resolvedSelfJudgeWarning(undefined), null);
 });
 
 // ---------------------------------------------------------------- leftovers
@@ -815,7 +849,7 @@ test('runCase review mode: caught needs judge AND an anchor pattern, and records
   assert.ok(claudeCalls[0].args.includes('--max-budget-usd'));
   assert.match(claudeCalls[0].args.join(' '), /--output-format stream-json --verbose/);
   assert.match(claudeCalls[1].args.join(' '), /--output-format json/);
-  assert.match(claudeCalls[1].args.join(' '), /--model sonnet/);
+  assert.match(claudeCalls[1].args.join(' '), /--model claude-opus-5-5/);
   assert.doesNotMatch(claudeCalls[0].args.join(' '), /--model/);
   assert.match(claudeCalls[1].input, /RUBRIC/);
   assert.equal(result.status, 'ok');

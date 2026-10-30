@@ -186,8 +186,11 @@ their `gh` config, SSH keys and home directory. Prefer CI or a container for unt
 - **Control** (`expectClean: true`): `caught` means the review reported no high or medium
   defect in the fixture's files, according to the judge's control rubric. Controls need the
   judge.
-- **The judge is not the model under test.** It defaults to `--judge-model sonnet`; set the
-  reviewer with `--model`. When both are the same model the runner prints a warning.
+- **The judge is not the model under test.** It defaults to `--judge-model claude-opus-5-5`,
+  which is never the Sonnet the CI review jobs and the documented baseline commands use as the
+  reviewer; set the reviewer with `--model`. When both name the same model, aliases included
+  (`sonnet` is `claude-sonnet-5-5`), the runner warns before the run, and again after it from
+  the ids the sessions actually used.
 - **Judge consistency.** `--judge-repeat N` (1 or 3: odd, so the vote never ties) grades the
   same review N times. All verdicts are kept (`judge.verdicts`); the judge's `caught` is the
   strict majority and its score the mean. A run where the verdicts differ counts as a **judge disagreement**,
@@ -390,7 +393,8 @@ Options:
 - `--harness-ref <ref>` (default `HEAD` of the checkout running the script): the harness commit
   overlaid on every case base, resolved once per invocation.
 - `--model <model>` (reviewer; default: the `claude` CLI default, which varies per machine and
-  release, so `--save-baseline` requires it), `--judge-model <model>` (default `sonnet`),
+  release, so `--save-baseline` requires it), `--judge-model <model>` (default
+  `claude-opus-5-5`),
   `--judge-repeat 1|3` (default 1; 3 when `--save-baseline` is set), `--no-judge`. Every result
   also records the model ids the sessions actually used (`resolvedModels`, from the stream's
   init event and the result's `modelUsage`), and a comparison across different resolved models
