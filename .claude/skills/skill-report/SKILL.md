@@ -23,8 +23,11 @@ edits after presenting the report.
 
 ## Steps
 
-1. Run `node scripts/skill-usage-report.mjs --json` (`npm run skills:report`
-   for the human tables) and parse the result. Top-level fields are the skill
+1. Run `node scripts/skill-usage-report.mjs --json --merged` (`npm run
+   skills:report -- --merged` for the human tables) and parse the result.
+   `--merged` adds the latest committed snapshot of every other machine under
+   `evals/metrics/` (`sources` lists the labels); without it the report is
+   this clone only. Top-level fields are the skill
    section; `subagents` and `stopOutcomes` are their own sections, each with a
    `status` of `ok` or `no-data` (a missing log is never an error).
    - If the top-level `status` is `no-data`: report that no skills have fired on

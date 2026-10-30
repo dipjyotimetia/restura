@@ -23,11 +23,20 @@
  *
  * Privacy: session ids are used only to count distinct sessions, never printed.
  *
+ * The logs are per clone, so one machine's report never sees another machine's
+ * (or a cloud session's) usage. `--snapshot` writes this machine's cumulative
+ * summary (counts only, no ids) to evals/metrics/<date>--<label>.json, which IS
+ * committed; `--merged` adds the latest snapshot of every other label to the
+ * local report. See docs/agents/delivery.md "Measurement".
+ *
  * Usage:
- *   node scripts/skill-usage-report.mjs          # human-readable tables
- *   node scripts/skill-usage-report.mjs --json    # machine JSON for /skill-report
+ *   node scripts/skill-usage-report.mjs                      # human-readable tables
+ *   node scripts/skill-usage-report.mjs --json               # machine JSON for /skill-report
+ *   node scripts/skill-usage-report.mjs --snapshot [--label x]   # write evals/metrics/<date>--<x>.json
+ *   node scripts/skill-usage-report.mjs --json --merged      # local + committed snapshots
  */
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -38,7 +47,22 @@ const root = process.env.CLAUDE_PROJECT_DIR || repoRoot;
 const metricsDir = path.join(root, '.claude', 'metrics');
 const logPath = path.join(metricsDir, 'skill-usage.log');
 const skillsDir = path.join(root, '.claude', 'skills');
-const asJson = process.argv.includes('--json');
+const snapshotsDir = path.join(root, 'evals', 'metrics');
+const argv = process.argv.slice(2);
+const asJson = argv.includes('--json');
+const asSnapshot = argv.includes('--snapshot');
+const merged = argv.includes('--merged');
+const labelIdx = argv.indexOf('--label');
+const label = sanitizeLabel(labelIdx !== -1 ? argv[labelIdx + 1] : os.hostname());
+
+/** A snapshot label is a file-name-safe token (host name or CI name). */
+export function sanitizeLabel(value) {
+  const s = String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return s || 'local';
+}
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -198,18 +222,195 @@ function stopSection() {
   };
 }
 
-const skillReport = skillSection();
-const subagents = subagentSection();
-const stopOutcomes = stopSection();
+// --- snapshots: cumulative per-label summaries committed under evals/metrics ---
+/**
+ * Latest snapshot per label (a snapshot is cumulative for its machine, so newer supersedes older).
+ * @param {string} dir
+ * @param {{ exclude?: string }} [options]
+ */
+export function latestSnapshots(dir, { exclude } = {}) {
+  if (!fs.existsSync(dir)) return [];
+  const byLabel = new Map();
+  for (const file of fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .sort()) {
+    let snap;
+    try {
+      snap = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+    } catch {
+      continue;
+    }
+    if (snap?.kind !== 'metrics-snapshot' || typeof snap.label !== 'string') continue;
+    if (snap.label === exclude) continue;
+    const prev = byLabel.get(snap.label);
+    if (!prev || String(snap.writtenAt) > String(prev.writtenAt)) byLabel.set(snap.label, snap);
+  }
+  return [...byLabel.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+const sum = (xs) => xs.reduce((n, x) => n + (Number(x) || 0), 0);
+
+/** Add the skill/subagent/stop sections of `snapshots` to `local`. Counts and timestamps only. */
+export function mergeReports(local, snapshots) {
+  const reports = [local, ...snapshots];
+  // skills
+  const skills = new Map();
+  for (const r of reports) {
+    for (const s of r.skills ?? []) {
+      const cur = skills.get(s.name) ?? {
+        name: s.name,
+        total: 0,
+        distinctSessions: 0,
+        firstSeen: s.firstSeen,
+        lastSeen: s.lastSeen,
+        defined: defined.has(s.name),
+      };
+      cur.total += s.total;
+      cur.distinctSessions += s.distinctSessions;
+      if (s.firstSeen < cur.firstSeen) cur.firstSeen = s.firstSeen;
+      if (s.lastSeen > cur.lastSeen) cur.lastSeen = s.lastSeen;
+      skills.set(s.name, cur);
+    }
+  }
+  const skillList = [...skills.values()]
+    .map((s) => ({
+      ...s,
+      invocationsPerSession: s.distinctSessions ? round2(s.total / s.distinctSessions) : 0,
+    }))
+    .sort((x, y) => y.total - x.total);
+  const sessions = sum(reports.map((r) => r.totals?.sessions));
+  const skillReport = skillList.length
+    ? {
+        status: 'ok',
+        totals: {
+          invocations: sum(skillList.map((s) => s.total)),
+          sessions,
+          definedSkills: defined.size,
+          loggedSkills: skillList.length,
+          malformedLines: sum(reports.map((r) => r.totals?.malformedLines)),
+        },
+        skills: skillList,
+        neverFired: [...defined].filter((n) => !skills.has(n)),
+        ghosts: skillList.filter((s) => !s.defined).map((s) => ({ name: s.name, total: s.total })),
+      }
+    : { status: 'no-data', skills: [], neverFired: [...defined], ghosts: [] };
+  // subagents
+  const byType = new Map();
+  let subTotal = 0;
+  let subSessions = 0;
+  const perSession = [];
+  for (const r of reports) {
+    const s = r.subagents;
+    if (!s || s.status !== 'ok') continue;
+    subTotal += s.total;
+    subSessions += s.sessions;
+    perSession.push(...(s.perSession ?? []));
+    for (const t of s.byType ?? []) {
+      const cur = byType.get(t.type) ?? { type: t.type, total: 0, sessions: 0 };
+      cur.total += t.total;
+      cur.sessions += t.sessions;
+      byType.set(t.type, cur);
+    }
+  }
+  const subagents = subTotal
+    ? {
+        status: 'ok',
+        total: subTotal,
+        sessions: subSessions,
+        meanPerSession: subSessions ? round2(subTotal / subSessions) : 0,
+        malformedLines: sum(reports.map((r) => r.subagents?.malformedLines)),
+        byType: [...byType.values()].sort(
+          (a, b) => b.total - a.total || a.type.localeCompare(b.type)
+        ),
+        perSession: perSession.sort((a, b) => b - a),
+      }
+    : { status: 'no-data' };
+  // stop outcomes
+  const checks = new Map();
+  let blocked = 0;
+  let allowed = 0;
+  let reentrant = 0;
+  for (const r of reports) {
+    const s = r.stopOutcomes;
+    if (!s || s.status !== 'ok') continue;
+    blocked += s.blocked;
+    allowed += s.allowed;
+    reentrant += s.reentrant ?? 0;
+    for (const c of s.checks ?? []) checks.set(c.name, (checks.get(c.name) ?? 0) + c.fired);
+  }
+  const stopTotal = blocked + allowed;
+  const stopOutcomes =
+    stopTotal || reentrant
+      ? {
+          status: 'ok',
+          total: stopTotal,
+          blocked,
+          allowed,
+          reentrant,
+          blockRate: stopTotal ? round2(blocked / stopTotal) : 0,
+          malformedLines: sum(reports.map((r) => r.stopOutcomes?.malformedLines)),
+          checks: [...checks.entries()]
+            .map(([name, n]) => ({
+              name,
+              fired: n,
+              fireRate: stopTotal ? round2(n / stopTotal) : 0,
+            }))
+            .sort((a, b) => b.fired - a.fired || a.name.localeCompare(b.name)),
+        }
+      : { status: 'no-data' };
+  return {
+    ...skillReport,
+    subagents,
+    stopOutcomes,
+    sources: [local.label ?? 'local', ...snapshots.map((s) => s.label)],
+  };
+}
+
+export function snapshotPath(dir, label, date = new Date()) {
+  return path.join(dir, `${date.toISOString().slice(0, 10)}--${label}.json`);
+}
+
+const localReport = {
+  ...skillSection(),
+  subagents: subagentSection(),
+  stopOutcomes: stopSection(),
+  label,
+};
+
+if (asSnapshot) {
+  // Cumulative summary for this machine. Same-day re-runs overwrite (newer is a superset);
+  // the merge keeps only the latest file per label, so older dated files are inert.
+  const snapshot = {
+    kind: 'metrics-snapshot',
+    label,
+    writtenAt: new Date().toISOString(),
+    ...localReport,
+  };
+  fs.mkdirSync(snapshotsDir, { recursive: true });
+  const file = snapshotPath(snapshotsDir, label);
+  fs.writeFileSync(file, `${JSON.stringify(snapshot, null, 2)}\n`);
+  console.log(
+    `Wrote ${path.relative(root, file)} (counts only; commit it so other machines' reports can merge it).`
+  );
+  process.exit(0);
+}
+
+const report = merged
+  ? mergeReports(localReport, latestSnapshots(snapshotsDir, { exclude: label }))
+  : localReport;
+const { subagents, stopOutcomes } = report;
+const skillReport = report;
 
 if (asJson) {
-  console.log(JSON.stringify({ ...skillReport, subagents, stopOutcomes }, null, 2));
+  console.log(JSON.stringify(report, null, 2));
   process.exit(0);
 }
 
 // --- human-readable -------------------------------------------------------
 const pad = (s, n) => String(s).padEnd(n);
 
+if (merged && 'sources' in report) console.log(`Merged sources: ${report.sources.join(', ')}\n`);
 if (skillReport.status === 'no-data') {
   console.log(
     `No skill-usage data yet. The PreToolUse(Skill) hook writes ${path.relative(
