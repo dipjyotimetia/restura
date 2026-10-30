@@ -63,10 +63,12 @@ async function secretField(
   return (await ensureBrokerSecret(key, MQTT_SECRET_LABELS[field])) ? brokerSecretRef(key) : null;
 }
 
-function defined<T extends Record<string, unknown>>(obj: T): Partial<T> {
-  return Object.fromEntries(
-    Object.entries(obj).filter(([, v]) => v !== undefined && v !== '')
-  ) as Partial<T>;
+function defined<T extends Record<string, unknown>>(
+  obj: T
+): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== '')) as {
+    [K in keyof T]?: Exclude<T[K], undefined>;
+  };
 }
 
 /**
@@ -475,10 +477,11 @@ class MqttManager {
       const p = payload as MqttConnectedEvent;
       const store = useMqttStore.getState();
       store.updateStatus(connectionId, 'connected');
+      // Runtime CONNACK facts — explicitly cleared when the broker omits them.
       store.updateConnection(connectionId, {
         assignedClientId: p.assignedClientIdentifier,
         serverTopicAliasMaximum: p.topicAliasMaximum,
-      });
+      } as Partial<MqttConnection>);
       const notes = [
         p.sessionPresent ? 'session present' : '',
         p.assignedClientIdentifier ? `assigned client ID ${p.assignedClientIdentifier}` : '',
