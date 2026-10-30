@@ -28,8 +28,10 @@ runs. Verify the way a reviewer would:
    protocols) and confirm the response renders. Gotcha: a **localhost**
    upstream goes through the Worker proxy's SSRF guard — it is only allowed
    when `.dev.vars` sets `ENVIRONMENT=development`. If the request fails with
-   a blocked/refused-URL error, check `.dev.vars` before debugging your
-   change.
+   a blocked/refused-URL error, confirm that flag before debugging your change:
+   `grep -c '^ENVIRONMENT=development' .dev.vars` (the file holds the Worker's
+   local secrets, so the file tools are deny-listed from reading it; grep only
+   the one flag, never print the file).
 4. **Check the browser console** (`browser_console_messages`): zero NEW errors
    or warnings versus a pre-change baseline. Pre-existing noise is not yours;
    anything your change introduced is.

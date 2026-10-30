@@ -1,5 +1,56 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(npm run type-check)",
+      "Bash(npm run type-check:all)",
+      "Bash(npm run type-check:tooling)",
+      "Bash(npm run type-check:related)",
+      "Bash(npm run lint)",
+      "Bash(npm run format:check)",
+      "Bash(npm run test:run *)",
+      "Bash(npm run test:tooling)",
+      "Bash(npm run architecture:check)",
+      "Bash(npm run capabilities:check)",
+      "Bash(npm run verify:opencollection-types)",
+      "Bash(npm run validate:static)",
+      "Bash(npm run skills:report)",
+      "Bash(npm run metrics:snapshot *)",
+      "Bash(npx vitest run *)",
+      "Bash(npx tsc --noEmit *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git branch *)",
+      "Bash(git worktree list *)",
+      "Bash(rg *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./.env.*.local)",
+      "Read(./.env.development)",
+      "Read(./.env.production)",
+      "Read(./.dev.vars)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/gh/**)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(~/.netrc)",
+      "Read(~/.npmrc)"
+    ]
+  },
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.mjs\""
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Skill",
