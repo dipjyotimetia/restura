@@ -132,6 +132,12 @@ export function md4(input: Uint8Array): Buffer {
 // NTLMv2 primitives (MS-NLMP §3.3.2)
 // ---------------------------------------------------------------------------
 
+// HMAC-MD5 (and MD4 above) are mandated by MS-NLMP: the server recomputes
+// exactly these bytes, so no stronger algorithm can be substituted without
+// breaking NTLM. MD5 is used as a keyed MAC over a fresh server challenge,
+// not to store or protect the password at rest. The protocol's real weakness
+// (offline cracking of a captured NTLMv2 response) is documented in ADR 0036
+// and the auth guide recommends https: for NTLM upstreams.
 function hmacMd5(key: Uint8Array, ...data: Uint8Array[]): Buffer {
   const h = createHmac('md5', key);
   for (const d of data) h.update(d);
