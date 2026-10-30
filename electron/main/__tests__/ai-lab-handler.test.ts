@@ -218,6 +218,7 @@ describe('ai-lab-handler', () => {
       });
       expect(mockResolveSafe).toHaveBeenCalledWith('http://localhost:11434', {
         allowLocalhost: true,
+        localRuntime: true,
       });
       expect(res.ok).toBe(true);
       expect(mockRunToCompletion).toHaveBeenCalledOnce();
@@ -246,6 +247,7 @@ describe('ai-lab-handler', () => {
       expect(res.ok).toBe(true);
       expect(mockResolveSafe).toHaveBeenCalledWith('http://localhost:11434', {
         allowLocalhost: true,
+        localRuntime: true,
       });
       expect(mockListModels).toHaveBeenCalledOnce();
     });

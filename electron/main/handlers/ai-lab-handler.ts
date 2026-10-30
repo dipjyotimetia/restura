@@ -39,8 +39,9 @@ import {
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import { createAgentTelemetryService } from '../lifecycle/agent-telemetry';
+import { createPinnedFetch, resolveSafeAddress } from '../security/safe-connect';
 import { resolveSecretHandle } from '../security/secret-handle-store';
-import { makePinnedFetcher } from './fetch-fetcher';
+import { makeFetchFetcher } from './fetch-fetcher';
 
 const log = createLogger('ai-lab');
 
@@ -164,8 +165,17 @@ function completionRegistryKey(webContentsId: number, operationId: string): stri
  * (Ollama, openai-compatible), never for cloud providers.
  */
 async function buildSafeFetcher(provider: Provider, baseUrlOverride?: string): Promise<Fetcher> {
-  return makePinnedFetcher(resolveBaseUrl(provider, baseUrlOverride), {
-    allowLocalhost: isLocalProvider(provider),
+  const local = isLocalProvider(provider);
+  // Local kinds use the local-runtime address policy (loopback + RFC1918, no
+  // link-local/metadata, same for literals and resolved hostnames), independent
+  // of the Settings -> Security toggles; cloud kinds keep the strict guard.
+  const pinned = await resolveSafeAddress(resolveBaseUrl(provider, baseUrlOverride), {
+    allowLocalhost: local,
+    ...(local ? { localRuntime: true } : {}),
+  });
+  return makeFetchFetcher({
+    redirect: 'manual',
+    fetchImpl: createPinnedFetch(pinned.host, pinned.ip),
   });
 }
 

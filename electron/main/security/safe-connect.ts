@@ -70,6 +70,16 @@ export async function resolveSafeAddress(
     throw new Error(`Refusing to connect to cloud metadata endpoint: ${host}`);
   }
 
+  if (options.localRuntime) {
+    // Local-runtime kinds: literals and resolved hostnames share one address
+    // policy (assertHostnameSafe). URL.hostname brackets IPv6 literals; isIP
+    // needs them bare. Scoped to this opt-in so other callers are unchanged.
+    const bare = host.replace(/^\[(.*)\]$/, '$1');
+    const records = await assertHostnameSafe(bare, options);
+    const chosen = records[0];
+    if (!chosen) throw new Error(`DNS resolution returned no records for ${host}`);
+    return { host: bare, ip: chosen.address, port, family: chosen.family === 6 ? 6 : 4 };
+  }
   // Literal IPs short-circuit DNS entirely. Validate per the shared policy
   // (the same call assertHostnameSafe makes internally). The literal-host
   // carve-out for private addresses applies when the caller permits localhost

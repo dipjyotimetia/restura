@@ -202,6 +202,40 @@ function embeddedV4FromGroups(groups: number[]): string | null {
   return null;
 }
 
+/** Dotted-quad for an IPv4 or IPv4-embedded-IPv6 (mapped/6to4/NAT64) address, else null. */
+function effectiveIPv4(address: string): string | null {
+  const stripped = stripBrackets(address);
+  const v4 = stripV4MappedPrefix(stripped);
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(v4)) return v4;
+  if (stripped.includes(':')) {
+    const groups = expandIPv6(stripped);
+    if (groups) return embeddedV4FromGroups(groups);
+  }
+  return null;
+}
+
+/**
+ * True for the whole link-local space: `169.254.0.0/16` (which carries cloud
+ * metadata AND container credential endpoints such as ECS `169.254.170.2`) and
+ * IPv6 `fe80::/10`, including IPv4-mapped/6to4/NAT64 wrappers of the former.
+ */
+export function isLinkLocalAddress(address: string): boolean {
+  const v4 = effectiveIPv4(address);
+  if (v4) return /^169\.254\./.test(v4);
+  const stripped = stripBrackets(address);
+  if (stripped.includes(':')) {
+    const groups = expandIPv6(stripped);
+    if (groups) return (groups[0]! & 0xffc0) === 0xfe80;
+  }
+  return false;
+}
+
+/** True for RFC1918 space (10/8, 172.16/12, 192.168/16), including IPv4-wrapped IPv6 forms. */
+export function isRfc1918Address(address: string): boolean {
+  const v4 = effectiveIPv4(address);
+  return v4 !== null && /^(?:10\.|172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.)/.test(v4);
+}
+
 const CLOUD_METADATA_IPV4 = '169.254.169.254';
 // AWS (fd00:ec2::254) and GCE (fd20:ce::254) IPv6 metadata endpoints, compared
 // as expanded groups so every textual form matches.

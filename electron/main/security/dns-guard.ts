@@ -3,7 +3,11 @@ import * as dns from 'node:dns/promises';
 import * as net from 'node:net';
 import {
   assertResolvedAddressAllowed,
+  isCloudMetadataHost,
+  isLinkLocalAddress,
+  isLoopbackAddress,
   isPrivateAddress,
+  isRfc1918Address,
   validateURL,
 } from '@shared/protocol/url-validation';
 
@@ -26,6 +30,33 @@ export interface DnsGuardOptions {
    * the "wrong" scheme up front.
    */
   allowedSchemes?: string[];
+  /**
+   * AI Lab local-runtime policy (Ollama, OpenAI-compatible servers): permit
+   * loopback + RFC1918, identically for literal IPs and DNS-resolved
+   * hostnames, and refuse ALL link-local (169.254.0.0/16, fe80::/10) plus
+   * cloud metadata. Set by the AI Lab handler from the provider kind and
+   * deliberately independent of the Settings -> Security toggles
+   * (`allowLocalhost` / `allowPrivateIPs`); cloud kinds never set it.
+   */
+  localRuntime?: boolean;
+}
+
+/**
+ * Address policy for local AI runtimes: public addresses pass; loopback and
+ * RFC1918 pass; link-local, metadata and every other private range (CGNAT,
+ * ULA, this-network) are refused.
+ */
+export function assertLocalRuntimeAddressAllowed(hostname: string, address: string): void {
+  if (isCloudMetadataHost(address) || isLinkLocalAddress(address)) {
+    throw new Error(
+      `Refusing to connect to link-local/metadata address ${address} for ${hostname}`
+    );
+  }
+  if (!isPrivateAddress(address)) return;
+  if (isLoopbackAddress(address) || isRfc1918Address(address)) return;
+  throw new Error(
+    `Local AI runtimes may only target loopback or RFC1918 addresses; ${hostname} resolved to ${address}`
+  );
 }
 
 export async function assertHostnameSafe(
@@ -33,6 +64,10 @@ export async function assertHostnameSafe(
   options: DnsGuardOptions
 ): Promise<LookupAddress[]> {
   if (net.isIP(hostname) !== 0) {
+    if (options.localRuntime) {
+      assertLocalRuntimeAddressAllowed(hostname, hostname);
+      return [{ address: hostname, family: net.isIP(hostname) === 6 ? 6 : 4 }];
+    }
     assertResolvedAddressAllowed(hostname, hostname, {
       allowLocalhost: options.allowLocalhost,
       allowPrivateLiteralHost: isPrivateAddress(hostname),
@@ -53,6 +88,10 @@ export async function assertHostnameSafe(
   }
 
   for (const r of records) {
+    if (options.localRuntime) {
+      assertLocalRuntimeAddressAllowed(hostname, r.address);
+      continue;
+    }
     assertResolvedAddressAllowed(hostname, r.address, {
       allowLocalhost: options.allowLocalhost,
       // Honour the private-IP opt-in for DNS-resolved addresses too, so a
