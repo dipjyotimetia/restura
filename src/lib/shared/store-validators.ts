@@ -464,6 +464,7 @@ const DatasetCaseSchema = z.object({
   reference: z.string().optional(),
   expected: z.string().optional(),
   turns: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string() })).optional(),
+  split: z.enum(['train', 'test']).optional(),
 });
 
 const DatasetSchema = z.object({

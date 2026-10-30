@@ -1,10 +1,10 @@
 // Dataset import/export to/from CSV and JSONL. Pure string<->case conversion so
 // the editor (and tests) can round-trip a dataset without touching the store.
 //
-// JSONL: one JSON object per line, each `{ vars, expected?, reference?, turns? }`.
-// CSV: a header row; an `expected`/`reference` column maps to those fields, every
-// other column becomes a `vars.<column>` entry. (Multi-turn isn't expressible in
-// flat CSV — use JSONL for that.)
+// JSONL: one JSON object per line, each `{ vars, expected?, reference?, turns?, split? }`.
+// CSV: a header row; an `expected`/`reference`/`split` column maps to those fields,
+// every other column becomes a `vars.<column>` entry. (Multi-turn isn't expressible
+// in flat CSV — use JSONL for that.)
 import Papa from 'papaparse';
 import type { DatasetCase } from '../types';
 
@@ -40,11 +40,12 @@ export function casesFromJsonl(text: string): DatasetCaseInput[] {
 export function casesToCsv(cases: DatasetCaseInput[]): string {
   const varKeys = new Set<string>();
   for (const c of cases) for (const k of Object.keys(c.vars ?? {})) varKeys.add(k);
-  const cols = [...varKeys, 'expected', 'reference'];
+  const cols = [...varKeys, 'expected', 'reference', 'split'];
   const rows = cases.map((c) =>
     cols.map((col) => {
       if (col === 'expected') return c.expected ?? '';
       if (col === 'reference') return c.reference ?? '';
+      if (col === 'split') return c.split ?? '';
       return c.vars?.[col] ?? '';
     })
   );
@@ -62,22 +63,32 @@ export function casesFromCsv(text: string): DatasetCaseInput[] {
     const vars: Record<string, string> = {};
     let expected: string | undefined;
     let reference: string | undefined;
+    let split: DatasetCase['split'];
     header.forEach((col, idx) => {
       const val = row[idx] ?? '';
       if (col === 'expected') expected = val;
       else if (col === 'reference') reference = val;
+      else if (col === 'split') split = coerceSplit(val);
       else vars[col] = val;
     });
     out.push({
       vars,
       ...(expected !== undefined && expected !== '' ? { expected } : {}),
       ...(reference !== undefined && reference !== '' ? { reference } : {}),
+      ...(split !== undefined ? { split } : {}),
     });
   }
   return out;
 }
 
 // --- helpers ----------------------------------------------------------------
+
+/** `train` / `test` (case-insensitive, trimmed); anything else is "untagged". */
+export function coerceSplit(v: unknown): DatasetCase['split'] {
+  if (typeof v !== 'string') return undefined;
+  const norm = v.trim().toLowerCase();
+  return norm === 'train' || norm === 'test' ? norm : undefined;
+}
 
 function coerceCase(v: unknown): DatasetCaseInput {
   const obj = (v ?? {}) as Record<string, unknown>;
@@ -90,6 +101,8 @@ function coerceCase(v: unknown): DatasetCaseInput {
   const out: DatasetCaseInput = { vars };
   if (typeof obj.expected === 'string') out.expected = obj.expected;
   if (typeof obj.reference === 'string') out.reference = obj.reference;
+  const split = coerceSplit(obj.split);
+  if (split) out.split = split;
   if (Array.isArray(obj.turns)) {
     const turns = obj.turns
       .filter((t): t is { role: string; content: string } => !!t && typeof t === 'object')

@@ -143,6 +143,13 @@ export interface DatasetCase {
    * `system` message is still prepended.
    */
   turns?: ConversationTurn[];
+  /**
+   * Optional held-out marker. Cases tagged `test` are the held-out set: hillclimb a
+   * prompt against the `train` cases and read the `test` cases only to confirm, so a
+   * prompt tuned to the cases you looked at cannot masquerade as a better prompt
+   * (train up, test flat is overfitting). Untagged cases count as train.
+   */
+  split?: 'train' | 'test';
 }
 
 export interface Dataset {

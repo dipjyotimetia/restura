@@ -755,6 +755,9 @@ export async function runTask(task, ctx) {
     }
     if (classified.parsed?.permissionDenials?.length > 0)
       outcome.permissionDenials = classified.parsed.permissionDenials.length;
+    // The model id the session actually used (an alias or an unset --model resolves here).
+    if (typeof classified.parsed?.resolvedModel === 'string')
+      outcome.resolvedModel = classified.parsed.resolvedModel;
     const zero = () =>
       Object.assign(outcome, { outcome: 'fail', failToPassFraction: 0, passToPassBroken: null });
     if (ctx.forbiddenRoots?.length) {
@@ -914,12 +917,20 @@ const cell = (v) =>
     .replace(/\|/g, '\\|')
     .replace(/\n/g, ' ');
 
+/** " (resolved: <ids>)" from the model ids the agent sessions actually used, or ''. */
+function formatResolvedModels(runs) {
+  const ids = [
+    ...new Set((runs ?? []).map((r) => r.resolvedModel).filter((m) => typeof m === 'string')),
+  ].sort();
+  return ids.length > 0 ? ` (resolved: ${ids.join(', ')})` : '';
+}
+
 export function formatBuildMarkdown(result) {
   const s = result.summary;
   const lines = [
     `# Build eval ${result.dryRun ? '(dry run) ' : ''}— config \`${result.config}\``,
     '',
-    `Harness ${String(result.harnessSha ?? '').slice(0, 12)}; Claude Code ${result.claudeVersion ?? '?'}; model ${result.model ?? 'default'}; ${result.runsPerTask ?? '?'} run(s) per task.`,
+    `Harness ${String(result.harnessSha ?? '').slice(0, 12)}; Claude Code ${result.claudeVersion ?? '?'}; model ${result.model ?? 'default'}${formatResolvedModels(result.runs)}; ${result.runsPerTask ?? '?'} run(s) per task.`,
     '',
   ];
   if (!result.dryRun && s?.totals)

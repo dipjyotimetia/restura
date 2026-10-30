@@ -55,7 +55,7 @@ const defaultExpandedKeys = (cases: EditableCase[]): Set<string> =>
 
 /**
  * Cases are edited either as structured rows (vars/expected/reference) or as a
- * raw JSON array of { vars, expected?, reference?, turns? } — the JSON view is
+ * raw JSON array of { vars, expected?, reference?, turns?, split? } — the JSON view is
  * the escape hatch for multi-turn / advanced shapes. The draft's `cases` array
  * is the single source of truth (so structured edits don't re-serialise the
  * whole dataset on every keystroke); the JSON tab edits `jsonText` and syncs
@@ -232,6 +232,7 @@ export function DatasetEditor() {
       ...(c.expected !== undefined ? { expected: c.expected } : {}),
       ...(c.reference !== undefined ? { reference: c.reference } : {}),
       ...(c.turns !== undefined ? { turns: c.turns } : {}),
+      ...(c.split !== undefined ? { split: c.split } : {}),
     }));
     upsertDataset({ id: activeId, name: draft.name.trim() || 'Untitled', cases: out });
     patchDraft({ dirty: false });
@@ -613,6 +614,26 @@ const CaseRow = memo(function CaseRow({
           value={c.reference ?? ''}
           onChange={(e) => onUpdate(c._key, { reference: e.target.value || undefined })}
         />
+      </div>
+      <div className="space-y-1.5">
+        <span className="sp-label">Split</span>
+        <Segmented<'train' | 'test' | 'untagged'>
+          size="sm"
+          ariaLabel={`Case ${index + 1} split`}
+          value={c.split ?? 'untagged'}
+          onChange={(value) =>
+            onUpdate(c._key, { split: value === 'untagged' ? undefined : value })
+          }
+          options={[
+            { value: 'untagged', label: 'Untagged' },
+            { value: 'train', label: 'Train' },
+            { value: 'test', label: 'Test (held out)' },
+          ]}
+        />
+        <p className="text-sp-11 text-sp-muted">
+          Tune a prompt against train cases and read the held-out test cases only to confirm; train
+          up with test flat means the prompt overfit. Untagged counts as train.
+        </p>
       </div>
       {c.turns !== undefined && (
         <p className="text-sp-11 text-sp-muted">

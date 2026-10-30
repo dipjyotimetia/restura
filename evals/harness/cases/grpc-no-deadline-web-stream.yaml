@@ -1,7 +1,7 @@
 id: grpc-no-deadline-web-stream
 title: '"No deadline" (timeout 0) is honoured on desktop but aborts web streams immediately'
 origin: real
-split: train
+split: test
 sourcePRs: ['#1089']
 fixPRs: ['#1152']
 base: 987721e3c25eda0e547b0ac1708cd71e40dc839b

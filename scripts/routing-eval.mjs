@@ -394,14 +394,19 @@ export function formatRoutingMarkdown({
   harnessSha,
   model,
   claudeVersion,
+  resolvedModels,
 }) {
   const n = runsPerCase;
   const t = summary.totals;
   const ci = t.passRateCi ? ` (95% CI ${pct(t.passRateCi.low)}-${pct(t.passRateCi.high)})` : '';
+  const resolved =
+    Array.isArray(resolvedModels) && resolvedModels.length > 0
+      ? ` (resolved: ${resolvedModels.join(', ')})`
+      : '';
   const lines = [
     `# Routing eval: ${config}`,
     '',
-    `Harness ${harnessSha ?? '?'}; Claude Code ${claudeVersion ?? '?'}; model ${model ?? 'CLI default'}; ${n} run(s) per case.`,
+    `Harness ${harnessSha ?? '?'}; Claude Code ${claudeVersion ?? '?'}; model ${model ?? 'CLI default'}${resolved}; ${n} run(s) per case.`,
     '',
     `Run pass rate ${pct(t.passRate)}${ci} over ${t.scored} scored runs; ${t.errors} error(s). ` +
       `Mean pass@1: positive ${pct(t.positivePassAt1)}, negative ${pct(t.negativePassAt1)}. ` +
@@ -640,6 +645,8 @@ export async function runRoutingEval(
           grade: verdict.status === 'ok' ? gradeRoutingRun(c, toolStats) : null,
           costUsd: verdict.parsed?.costUsd ?? null,
           durationMs: verdict.parsed?.durationMs ?? null,
+          // The model id the session actually used (an alias or an unset --model resolves here).
+          resolvedModel: verdict.parsed?.resolvedModel ?? null,
           transcript: path.relative(outDir, transcript),
         });
       }
@@ -657,6 +664,9 @@ export async function runRoutingEval(
     harnessSha: snapshot?.sha ?? null,
     claudeVersion,
     model: options.model,
+    resolvedModels: [
+      ...new Set(runs.map((r) => r.resolvedModel).filter((m) => typeof m === 'string')),
+    ].sort(),
     split: options.split,
     runsPerCase: options.runs,
     maxBudgetUsd: options.maxBudgetUsd,
