@@ -69,7 +69,9 @@ describe('git-native collections with WebSocket / Socket.IO items', () => {
     const root = await readFile(join(dir, 'opencollection.yml'), 'utf8');
     expect(root).toContain('x-restura-socketio');
     expect(root).toContain('x-restura-websocket');
-    expect((await readdir(join(dir, 'Feeds'))).length).toBeGreaterThan(0);
+    // The writer slugs folder names to lowercase; Linux CI is case-sensitive.
+    expect(await readdir(dir)).toContain('feeds');
+    expect((await readdir(join(dir, 'feeds'))).length).toBeGreaterThan(0);
 
     const back = ocToInternal(await loadCollectionFromDir(dir));
     const chat = back.items.find((i) => i.name === 'Chat')?.request;
