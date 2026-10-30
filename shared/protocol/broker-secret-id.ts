@@ -10,8 +10,8 @@ import { v5 as uuidv5 } from 'uuid';
  * to THAT connection's field — a crafted connect payload cannot point a broker
  * at an arbitrary stored secret.
  *
- * Must match `BROKER_SECRET_NAMESPACE` in `src/lib/shared/broker-secrets.ts`
- * (a parity test pins it). Changing it orphans every stored broker credential.
+ * `src/lib/shared/broker-secrets.ts` re-uses this module, so renderer and main
+ * derive the same id. Changing the namespace orphans every stored broker credential.
  */
 export const BROKER_SECRET_NAMESPACE = '6b1d4b8e-3f7a-5c62-9a0e-6f2d1c7e9b44';
 
@@ -38,4 +38,16 @@ export function kafkaSecretStorageKey(connectionId: string, field: KafkaSecretFi
 /** The handle id a Kafka connection's stored credential field is bound to. */
 export function kafkaBoundSecretHandleId(connectionId: string, field: KafkaSecretField): string {
   return brokerSecretHandleId(kafkaSecretStorageKey(connectionId, field));
+}
+
+export type MqttSecretField = 'password' | 'tls-passphrase' | 'auth-data';
+
+/** Storage key for one MQTT connection credential. */
+export function mqttSecretStorageKey(connectionId: string, field: MqttSecretField): string {
+  return `mqtt:${connectionId}:${field}`;
+}
+
+/** The handle id an MQTT connection's stored credential field is bound to. */
+export function mqttBoundSecretHandleId(connectionId: string, field: MqttSecretField): string {
+  return brokerSecretHandleId(mqttSecretStorageKey(connectionId, field));
 }

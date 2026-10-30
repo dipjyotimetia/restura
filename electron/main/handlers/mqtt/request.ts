@@ -91,7 +91,12 @@ export async function runMqttRequest(
       ? decodeBinary(cfg.correlationData, cfg.correlationDataEncoding)
       : randomBytes(16);
   const base = { responseTopic, correlationData: correlation.toString('base64') };
-  const ownsSubscription = !entry.subscriptions.has(responseTopic);
+  const topicInUse = (): boolean =>
+    [...entry.pendingRequests.values()].some((p) => p.responseTopic === responseTopic);
+  // Another in-flight request on the same (explicit) response topic already
+  // holds the temporary subscription; the last one to settle removes it.
+  const ownsSubscription = !entry.subscriptions.has(responseTopic) && !topicInUse();
+  const subscribedHere = !entry.subscriptions.has(responseTopic);
 
   let settle!: (outcome: MqttRequestOutcome) => void;
   const outcome = new Promise<MqttRequestOutcome>((resolve) => {
@@ -116,38 +121,44 @@ export async function runMqttRequest(
       finish({ success: false, error, ...(cancelled ? { cancelled: true } : {}) }),
   });
 
+  // The timeout covers the whole exchange, SUBACK included: a broker that never
+  // acknowledges the subscription must not hold the slot past `timeoutMs`.
+  startedAt = Date.now();
+  timer = setTimeout(
+    () =>
+      finish({
+        success: false,
+        timedOut: true,
+        error: `No response on ${responseTopic} within ${cfg.timeoutMs} ms`,
+      }),
+    cfg.timeoutMs
+  );
+
   try {
     if (ownsSubscription) {
       await subscribeOnce(entry.client, responseTopic, { qos: 1, nl: true });
     }
-    if (settled) return outcome;
-    const properties = publishProperties({ ...cfg, topicAlias: undefined });
-    properties.responseTopic = responseTopic;
-    properties.correlationData = correlation;
-    startedAt = Date.now();
-    timer = setTimeout(
-      () =>
-        finish({
-          success: false,
-          timedOut: true,
-          error: `No response on ${responseTopic} within ${cfg.timeoutMs} ms`,
-        }),
-      cfg.timeoutMs
-    );
-    entry.client.publish(
-      cfg.topic,
-      decodeBinary(cfg.payload, cfg.payloadEncoding),
-      { qos: cfg.qos, retain: cfg.retain, properties },
-      (err) => {
-        if (err) finish({ success: false, error: errorMessage(err) });
-      }
-    );
+    // Settled during SUBACK (timeout / cancel / close): skip the publish but
+    // still fall through to the subscription cleanup below.
+    if (!settled) {
+      const properties = publishProperties({ ...cfg, topicAlias: undefined });
+      properties.responseTopic = responseTopic;
+      properties.correlationData = correlation;
+      entry.client.publish(
+        cfg.topic,
+        decodeBinary(cfg.payload, cfg.payloadEncoding),
+        { qos: cfg.qos, retain: cfg.retain, properties },
+        (err) => {
+          if (err) finish({ success: false, error: errorMessage(err) });
+        }
+      );
+    }
   } catch (err) {
     finish({ success: false, error: errorMessage(err) });
   }
 
   const result = await outcome;
-  if (ownsSubscription && isCurrent() && !entry.subscriptions.has(responseTopic)) {
+  if (subscribedHere && isCurrent() && !entry.subscriptions.has(responseTopic) && !topicInUse()) {
     entry.client.unsubscribe(responseTopic, () => {});
   }
   return result;

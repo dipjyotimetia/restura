@@ -32,13 +32,16 @@ const FLUSH_INTERVAL_MS = 100;
 
 type ReceivedInput = Omit<MqttMessage, 'id' | 'timestamp'> & { timestamp?: number };
 
-export type MqttSecretField = 'password' | 'tls-passphrase' | 'auth-data';
+import { type MqttSecretField, mqttSecretStorageKey } from '@shared/protocol/broker-secret-id';
+
+export type { MqttSecretField };
 
 export function mqttSecretKey(connectionId: string, field: MqttSecretField): string {
-  // Storage key of the main-process secret handle (`broker-secrets.ts`); older
+  // Storage key of the main-process secret handle (`broker-secrets.ts`); main
+  // derives the same key to bind the handle to this connection + field. Older
   // builds used the same key in secureStorage, which `ensureBrokerSecret`
   // migrates on first use.
-  return `mqtt:${connectionId}:${field}`;
+  return mqttSecretStorageKey(connectionId, field);
 }
 
 export const MQTT_SECRET_LABELS: Record<MqttSecretField, string> = {

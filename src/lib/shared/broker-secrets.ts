@@ -13,17 +13,11 @@
  * migrates such a value into a handle once, then deletes the legacy copy.
  */
 
-import { v5 as uuidv5 } from 'uuid';
+import { brokerSecretHandleId } from '@shared/protocol/broker-secret-id';
 import { handleSecret, type SecretRef } from './secretRef';
 import { secureStorage } from './secure-storage';
 
-// Fixed namespace for broker secret handle ids. Changing it orphans every
-// stored broker credential — never edit.
-const BROKER_SECRET_NAMESPACE = '6b1d4b8e-3f7a-5c62-9a0e-6f2d1c7e9b44';
-
-export function brokerSecretHandleId(storageKey: string): string {
-  return uuidv5(storageKey, BROKER_SECRET_NAMESPACE);
-}
+export { brokerSecretHandleId };
 
 /** The `SecretRef` sent over IPC in place of the plaintext. */
 export function brokerSecretRef(storageKey: string): SecretRef {

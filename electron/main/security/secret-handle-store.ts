@@ -22,7 +22,13 @@
  *    Only main-process modules can resolve handles. Adding it to the preload
  *    bridge would defeat the entire purpose of the pattern.
  *  - Handle ids are version-4 UUIDs, so guessing one is computationally
- *    infeasible. They're not secrets themselves but they shouldn't be logged
+ *    infeasible — EXCEPT broker (Kafka / MQTT) credential handles, which are
+ *    UUIDv5s of `<protocol>:<connectionId>:<field>`
+ *    (`shared/protocol/broker-secret-id.ts`). Their predictability is safe
+ *    only because main binds each to its own connection + field at resolve
+ *    time (a broker handle is never resolved for another connection or
+ *    feature) and connection / preset ids are renderer-local, never imported
+ *    from shared collections. Ids are not secrets but shouldn't be logged
  *    either (the request-logger redacts them).
  *  - The encryption key lives in OS keychain via safeStorage; if the key
  *    cannot be retrieved, the store falls back to a 0o600 plaintext key file

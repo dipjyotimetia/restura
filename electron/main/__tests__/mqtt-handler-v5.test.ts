@@ -34,6 +34,7 @@ vi.mock('../ipc/ipc-utils', () => ({
 vi.mock('../security/broker-dns-guard', () => ({ resolveMqttBrokerAddress: mockResolveBroker }));
 vi.mock('../security/broker-tls-files', () => ({ loadBrokerTlsFiles: mockLoadTls }));
 
+import { mqttBoundSecretHandleId } from '@shared/protocol/broker-secret-id';
 import type * as MqttLib from 'mqtt';
 import { IPC } from '../../shared/channels';
 import {
@@ -202,6 +203,28 @@ describe('mqtt-handler — MQTT gap epic (#850)', () => {
       lookup('evil.example.com', {}, cb);
       expect(cb.mock.calls[1]![0]).toBeInstanceOf(Error);
       expect(client.options.rejectUnauthorized).toBe(true);
+    });
+
+    it('passes the full Settings TLS policy (min version, ciphers) to the wss socket', async () => {
+      setExecutionPolicy({
+        security: { allowLocalhost: true, allowPrivateIPs: false },
+        proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+        timeout: 30_000,
+        tls: {
+          verifySsl: true,
+          serverCipherOrder: true,
+          minTlsVersion: 'TLSv1.3',
+          cipherSuites: 'TLS_AES_256_GCM_SHA384',
+        },
+        certificates: { clientCertificates: [], caCertificates: [] },
+      });
+      const { client } = await connected({ brokerUrl: 'wss://broker.example.com/mqtt' });
+      expect(client.options.wsOptions).toMatchObject({
+        minVersion: 'TLSv1.3',
+        ciphers: 'TLS_AES_256_GCM_SHA384',
+        honorCipherOrder: true,
+        rejectUnauthorized: true,
+      });
     });
 
     it('refuses the connection when the DNS guard rejects the resolved address', async () => {
@@ -570,17 +593,19 @@ describe('mqtt-handler — MQTT gap epic (#850)', () => {
 
   describe('SEC-K3 secrets and TLS files resolve in main', () => {
     it('resolves password / passphrase handles and reads TLS paths in main', async () => {
-      secrets.set('00000000-0000-4000-8000-000000000001', { value: 'hunter2', createdAt: 0 });
-      secrets.set('00000000-0000-4000-8000-000000000002', { value: 'keypass', createdAt: 0 });
+      const pwId = mqttBoundSecretHandleId('c1', 'password');
+      const ppId = mqttBoundSecretHandleId('c1', 'tls-passphrase');
+      secrets.set(pwId, { value: 'hunter2', createdAt: 0 });
+      secrets.set(ppId, { value: 'keypass', createdAt: 0 });
       const { client } = await connected({
         brokerUrl: 'mqtts://broker.example.com:8883',
         username: 'u',
-        password: { kind: 'handle', id: '00000000-0000-4000-8000-000000000001' },
+        password: { kind: 'handle', id: pwId },
         tls: {
           caPath: '/home/me/ca.pem',
           certPath: '/home/me/client.pem',
           keyPath: '/home/me/client.key',
-          passphrase: { kind: 'handle', id: '00000000-0000-4000-8000-000000000002' },
+          passphrase: { kind: 'handle', id: ppId },
         },
       });
       expect(client.options.password).toBe('hunter2');
@@ -596,11 +621,27 @@ describe('mqtt-handler — MQTT gap epic (#850)', () => {
       const { event } = makeEvent();
       const res = await handlerFor(IPC.mqtt.connect)(
         event,
-        connect({ password: { kind: 'handle', id: '00000000-0000-4000-8000-00000000dead' } })
+        connect({ password: { kind: 'handle', id: mqttBoundSecretHandleId('c1', 'password') } })
       );
       expect(res).toEqual({
         success: false,
         error: 'Stored MQTT password is missing — re-enter it.',
+      });
+      expect(FakeMqttClient.instances).toHaveLength(0);
+    });
+
+    it("refuses a handle that is not bound to this connection's field", async () => {
+      // e.g. an HTTP bearer token's handle spliced into the broker password.
+      const foreign = '00000000-0000-4000-8000-0000000000aa';
+      secrets.set(foreign, { value: 'someone-elses-token', createdAt: 0 });
+      const { event } = makeEvent();
+      const res = await handlerFor(IPC.mqtt.connect)(
+        event,
+        connect({ password: { kind: 'handle', id: foreign } })
+      );
+      expect(res).toEqual({
+        success: false,
+        error: 'This stored secret is not available to this MQTT connection.',
       });
       expect(FakeMqttClient.instances).toHaveLength(0);
     });

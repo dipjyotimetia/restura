@@ -7,9 +7,11 @@
  * Strategy:
  *  - Inline plaintext (`string` or `{ kind: 'inline', value }`) → empty.
  *  - Handle references (`{ kind: 'handle', id }`) → preserved. The handle id
- *    is opaque on its own; same-machine re-import resolves it back to the
- *    correct secret, while a different machine just sees an unresolvable
- *    handle and prompts the user to re-enter (failing closed, not open).
+ *    is opaque on its own (broker credential handles are deterministic but
+ *    bound to a renderer-local connection id in main); same-machine re-import
+ *    resolves it back to the correct secret, while a different machine just
+ *    sees an unresolvable handle and prompts the user to re-enter (failing
+ *    closed, not open).
  *
  * Works on `unknown` because the collection-manager stores auth as `unknown`
  * — it doesn't depend on the renderer's `AuthConfig` type at compile time.

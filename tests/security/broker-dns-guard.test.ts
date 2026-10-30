@@ -136,5 +136,19 @@ describe('broker DNS guard (SEC-K1)', () => {
       await expect(resolveMqttBrokerAddress('mqtt://meta.attacker.test', ALL_OK)).rejects.toThrow();
       await expect(resolveMqttBrokerAddress('mqtt://169.254.169.254', ALL_OK)).rejects.toThrow();
     });
+
+    it('validates IPv6 literals as addresses (no DNS) under the same policy', async () => {
+      dnsAnswers({});
+      await expect(resolveMqttBrokerAddress('mqtt://[::1]:1883', ALL_OK)).resolves.toEqual({
+        host: '::1',
+        ip: '::1',
+        port: 1883,
+        family: 6,
+      });
+      await expect(resolveMqttBrokerAddress('mqtt://[::1]:1883', STRICT)).rejects.toThrow();
+      await expect(
+        resolveMqttBrokerAddress('wss://[2001:db8::5]/mqtt', STRICT)
+      ).resolves.toMatchObject({ ip: '2001:db8::5', port: 443, family: 6 });
+    });
   });
 });

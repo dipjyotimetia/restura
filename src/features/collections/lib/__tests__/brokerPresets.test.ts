@@ -52,7 +52,8 @@ vi.mock('@/lib/shared/secure-storage', () => ({
 }));
 
 // Kafka credentials live in main-process handles (SEC-K3), behind
-// `window.electron.secrets`; MQTT still uses the secureStorage vault above.
+// `window.electron.secrets`, as do MQTT's; the secureStorage vault above now
+// only backs preset bindings and the legacy pre-handle slots.
 let secrets = createFakeSecretsApi();
 const stash = (key: string, value: string) =>
   secrets.records.set(brokerSecretHandleId(key), { value });
@@ -182,11 +183,11 @@ describe('opening and saving Kafka / MQTT presets (#984)', () => {
   });
 
   it('does not attach MQTT credentials after the broker URL is repointed, nor for unbound legacy secrets', async () => {
-    vault.set(`mqtt:preset-${MQTT.id}:password`, 'mpw');
+    stash(`mqtt:preset-${MQTT.id}:password`, 'mpw');
     // Legacy: secrets exist but no binding was ever recorded.
     let tabId = await openBrokerPreset('item-legacy', MQTT);
     let connectionId = useMqttStore.getState().connectionByTabId[tabId]!;
-    expect(vault.get(`mqtt:${connectionId}:password`)).toBeUndefined();
+    expect(held(`mqtt:${connectionId}:password`)).toBeUndefined();
 
     bindBrokerPresetCredentials(MQTT);
     const repointed: MqttRequest = {
@@ -195,11 +196,11 @@ describe('opening and saving Kafka / MQTT presets (#984)', () => {
     };
     tabId = await openBrokerPreset('item-evil-mqtt', repointed);
     connectionId = useMqttStore.getState().connectionByTabId[tabId]!;
-    expect(vault.get(`mqtt:${connectionId}:password`)).toBeUndefined();
+    expect(held(`mqtt:${connectionId}:password`)).toBeUndefined();
 
     tabId = await openBrokerPreset('item-good-mqtt', MQTT);
     connectionId = useMqttStore.getState().connectionByTabId[tabId]!;
-    expect(vault.get(`mqtt:${connectionId}:password`)).toBe('mpw');
+    expect(held(`mqtt:${connectionId}:password`)).toBe('mpw');
   });
 
   it('opens an MQTT preset with the composer seeded', async () => {
@@ -396,18 +397,18 @@ describe('preset save-back, credential lifecycle and runner reporting (#984 revi
     const dupCollection = duplicateCollection(collection, []);
     await copyBrokerPresetSecrets(collection.items, dupCollection.items);
     const dupMqtt = dupCollection.items[1]!.request!;
-    expect(vault.get(`mqtt:preset-${dupMqtt.id}:password`)).toBe('mpw');
+    expect(held(`mqtt:preset-${dupMqtt.id}:password`)).toBe('mpw');
     await copyBrokerPresetSecrets([item(KAFKA)], [item(KAFKA)]);
 
     reapBrokerPresetSecretsForItem([folder], 'f');
     expect(isHeld(kScope)).toBe(false);
     reapBrokerPresetSecretsForItem([folder], 'missing');
     reapBrokerPresetSecrets([item(MQTT)]);
-    expect(vault.has(`mqtt:preset-${MQTT.id}:password`)).toBe(false);
+    expect(isHeld(`mqtt:preset-${MQTT.id}:password`)).toBe(false);
   });
 
   it('keeps copying after a failed preset and reports the failure (#1130 review)', async () => {
-    vault.set(`mqtt:preset-${MQTT.id}:password`, 'mpw');
+    stash(`mqtt:preset-${MQTT.id}:password`, 'mpw');
     const source = [item(KAFKA), item(MQTT)];
     const clone = [duplicateRequestItem(item(KAFKA), []), duplicateRequestItem(item(MQTT), [])];
     let reads = 0;
@@ -419,7 +420,7 @@ describe('preset save-back, credential lifecycle and runner reporting (#984 revi
     });
     await expect(copyBrokerPresetSecrets(source, clone)).rejects.toThrow('1 preset');
     spy.mockRestore();
-    expect(vault.get(`mqtt:preset-${clone[1]!.request!.id}:password`)).toBe('mpw');
+    expect(held(`mqtt:preset-${clone[1]!.request!.id}:password`)).toBe('mpw');
   });
 
   it('lists presets skipped by a collection or folder run', () => {

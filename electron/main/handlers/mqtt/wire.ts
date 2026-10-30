@@ -76,7 +76,12 @@ export function buildClientOptions(
     if (protocol === 'ws:' || protocol === 'wss:') {
       // The ws URL keeps the hostname (Host header, SNI, certificate check);
       // the socket resolves it through the pinned lookup only.
-      opts.wsOptions = { lookup: createPinnedLookup(pinned.host, pinned.ip) };
+      // mqtt.js copies only ca/cert/key/pfx/passphrase/rejectUnauthorized into
+      // wsOptions, so pass the whole policy TLS (minVersion, ciphers, …) here.
+      opts.wsOptions = {
+        ...(policyConfig.tls ?? {}),
+        lookup: createPinnedLookup(pinned.host, pinned.ip),
+      };
     } else {
       opts.host = pinned.ip;
       opts.hostname = pinned.ip;

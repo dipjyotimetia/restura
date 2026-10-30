@@ -1,5 +1,6 @@
 import { promises as fsp } from 'node:fs';
-import { isPathSafe } from '../storage/file-operations';
+
+import { isPathRealSafe, isPathSafe } from '../storage/file-operations';
 
 // PEM bundles are small; anything bigger is not a certificate/key file.
 const MAX_TLS_FILE_BYTES = 256 * 1024;
@@ -11,20 +12,32 @@ const MAX_TLS_FILE_BYTES = 256 * 1024;
  * as `fs:readFile`.
  */
 export async function readBrokerTlsFile(filePath: string, label: string): Promise<string> {
-  if (!isPathSafe(filePath)) {
+  // Lexical allowlist first, then the symlink-resolved one: a link inside an
+  // allowed folder must not reach a denylisted credential directory.
+  const real = await fsp.realpath(filePath).catch(() => filePath);
+  if (!isPathSafe(filePath) || !isPathSafe(real) || !(await isPathRealSafe(filePath))) {
     throw new Error(`TLS ${label} file is outside the allowed directories`);
   }
-  let stats: Awaited<ReturnType<typeof fsp.stat>>;
+  let handle: Awaited<ReturnType<typeof fsp.open>>;
   try {
-    stats = await fsp.stat(filePath);
+    handle = await fsp.open(filePath, 'r');
   } catch {
     throw new Error(`TLS ${label} file not found: ${filePath}`);
   }
-  if (!stats.isFile()) throw new Error(`TLS ${label} path is not a file: ${filePath}`);
-  if (stats.size > MAX_TLS_FILE_BYTES) throw new Error(`TLS ${label} file is too large`);
-  const content = await fsp.readFile(filePath, 'utf-8');
-  if (!content.trim()) throw new Error(`TLS ${label} file is empty: ${filePath}`);
-  return content;
+  try {
+    // fstat + bounded read on the same descriptor: no stat/read swap window.
+    const stats = await handle.stat();
+    if (!stats.isFile()) throw new Error(`TLS ${label} path is not a file: ${filePath}`);
+    if (stats.size > MAX_TLS_FILE_BYTES) throw new Error(`TLS ${label} file is too large`);
+    const buf = Buffer.alloc(MAX_TLS_FILE_BYTES + 1);
+    const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+    if (bytesRead > MAX_TLS_FILE_BYTES) throw new Error(`TLS ${label} file is too large`);
+    const content = buf.subarray(0, bytesRead).toString('utf-8');
+    if (!content.trim()) throw new Error(`TLS ${label} file is empty: ${filePath}`);
+    return content;
+  } finally {
+    await handle.close();
+  }
 }
 
 /**

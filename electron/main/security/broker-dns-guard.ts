@@ -1,3 +1,4 @@
+import * as net from 'node:net';
 import { assertHostnameSafe } from './dns-guard';
 import type { BrokerSecurityPolicy } from './mqtt-broker-guard';
 import { resolveSafeAddress, type SafeAddress } from './safe-connect';
@@ -23,11 +24,27 @@ const MQTT_DEFAULT_PORTS: Record<string, number> = {
  * Resolve + validate an MQTT broker URL and return the address to pin the
  * dial to (closes the TTL=0 rebind window — mqtt.js reconnects reuse it).
  */
-export function resolveMqttBrokerAddress(
+export async function resolveMqttBrokerAddress(
   brokerUrl: string,
   policy: BrokerSecurityPolicy
 ): Promise<SafeAddress> {
-  const protocol = new URL(brokerUrl).protocol;
+  const url = new URL(brokerUrl);
+  const protocol = url.protocol;
+  // WHATWG URL keeps IPv6 literals bracketed (`[::1]`); unbracket so the
+  // literal is validated as an address rather than sent to DNS.
+  const v6 = url.hostname.replace(/^\[(.*)\]$/, '$1');
+  if (v6 !== url.hostname && net.isIP(v6) === 6) {
+    await assertHostnameSafe(v6, {
+      allowLocalhost: policy.allowLocalhost,
+      allowPrivateIPs: policy.allowPrivateIPs,
+    });
+    return {
+      host: v6,
+      ip: v6,
+      port: url.port ? Number(url.port) : (MQTT_DEFAULT_PORTS[protocol] ?? 1883),
+      family: 6,
+    };
+  }
   return resolveSafeAddress(brokerUrl, {
     allowLocalhost: policy.allowLocalhost,
     allowPrivateIPs: policy.allowPrivateIPs,
