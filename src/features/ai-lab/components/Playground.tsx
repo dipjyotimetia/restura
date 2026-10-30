@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -206,19 +207,17 @@ export function Playground() {
             ]
           : [{ role: 'user' as const, content: usr }];
         return streamLlm(
-          specFor(
-            m.cfg,
-            m.model,
-            messages,
-            maxTokens
+          specFor(m.cfg, m.model, messages, {
+            ...(maxTokens
               ? {
                   maxOutputTokens: clampOutputTokens(
                     maxTokens,
                     capabilitiesForDesktopModel(m.cfg, m.model).capabilities.maxOutputTokens
                   ),
                 }
-              : {}
-          ),
+              : {}),
+            ...(draft.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
+          }),
           {
             onChunk: (ev) => {
               if (ev.type === 'delta') {
@@ -365,6 +364,25 @@ export function Playground() {
                 value={draft.maxTokensText}
                 onChange={(e) => patchDraft({ maxTokensText: e.target.value })}
               />
+            </div>
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="playground-send-unredacted"
+                data-testid="playground-send-unredacted"
+                checked={draft.sendUnredactedToCloud === true}
+                onCheckedChange={(checked) =>
+                  patchDraft({ sendUnredactedToCloud: checked === true })
+                }
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="playground-send-unredacted" className="text-sp-12 text-sp-text">
+                  Send unredacted to cloud providers
+                </Label>
+                <p className="text-sp-11 text-sp-dim">
+                  Off by default and not saved: cloud calls are refused if the prompt contains a
+                  secret. Local providers are never checked.
+                </p>
+              </div>
             </div>
             <div className="space-y-1.5">
               <span className="sp-label">Models</span>

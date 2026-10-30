@@ -22,6 +22,13 @@ describe('useAiLabUiStore', () => {
     expect(d.selected).toEqual(['p:m']);
   });
 
+  it('keeps the unredacted-cloud override off by default in every draft (#1040)', () => {
+    const s = useAiLabUiStore.getState();
+    expect(s.playgroundDraft.sendUnredactedToCloud).toBe(false);
+    expect(s.arenaDraft.sendUnredactedToCloud).toBe(false);
+    expect(s.evalDraft.sendUnredactedToCloud).toBe(false);
+  });
+
   it('openReport selects the run, clears the drill-down, and switches tabs', () => {
     useAiLabUiStore.getState().setReportDrillCaseId('case-1');
     useAiLabUiStore.getState().openReport('run-1');

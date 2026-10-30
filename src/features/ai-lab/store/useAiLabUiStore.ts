@@ -37,6 +37,8 @@ export interface PlaygroundDraft {
   selected: string[];
   /** Raw input for the optional max-output-tokens cap ('' = provider default). */
   maxTokensText: string;
+  /** Session-only override: skip the secret check for cloud providers (default off). */
+  sendUnredactedToCloud?: boolean;
 }
 
 export interface EvalDraft {
@@ -72,6 +74,7 @@ const defaultPlaygroundDraft = (): PlaygroundDraft => ({
   varsText: '{\n  "topic": "HTTP caching"\n}',
   selected: [],
   maxTokensText: '',
+  sendUnredactedToCloud: false,
 });
 
 const defaultEvalDraft = (): EvalDraft => ({
