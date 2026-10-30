@@ -11,7 +11,7 @@ allowed-tools: Bash, Read, Grep, Glob, Agent, Task
 
 Three-axis review of the diff between `HEAD` and a fixed point: **Correctness** (does it work, including at the seams where Restura's harnesses meet), **Standards** (does it follow the repo's documented standards) and **Spec** (does it do what was asked). Axes run as parallel sub-agents so they do not pollute each other; this skill scopes the diff, picks the depth, verifies, and aggregates.
 
-**Never ask the user questions.** This runs inside `/ship-check`, `/batch-ship` and CI (`claude-skill-review`), where nobody answers. Every step has a default; take it and name it in the report.
+**Never ask the user questions.** This runs inside the ship-check and batch-ship flows and CI (`claude-skill-review`), where nobody answers. Every step has a default; take it and name it in the report.
 
 **Token discipline.** The parent reads nothing but `REVIEW.md` and the diff stat. Sub-agents receive a header (fixed point, diff command, brief name, prior findings) and read their own brief from `references/briefs.md`, `REVIEW.md` and the code themselves. Never paste the diff, the briefs or `references/smells.md` into a prompt.
 
@@ -70,4 +70,4 @@ Collect the Important findings from **every** sub-agent (Correctness, Standards 
 Defaults taken: fixed point <ref>, spec <source|none>, depth <tier> (<why>), <k> findings rejected by verification.
 ```
 
-Keep the sub-agents' lines verbatim or lightly cleaned. Do **not** merge or rerank across axes, and do not pick a single winner across them: a change can pass one axis and fail another (works on web and silently breaks on desktop → Standards and Spec pass, Correctness fails), and reporting them separately stops one axis from masking another. Within Correctness keep severity order and the `Important (blocking)` wording: `/ship-check` and CI treat those as merge blockers, and the eval harness grades on them. Enforce the `REVIEW.md` caps (5 Nits grouped by class, 3 Pre-existing) when a sub-agent exceeds them.
+Keep the sub-agents' lines verbatim or lightly cleaned. Do **not** merge or rerank across axes, and do not pick a single winner across them: a change can pass one axis and fail another (works on web and silently breaks on desktop → Standards and Spec pass, Correctness fails), and reporting them separately stops one axis from masking another. Within Correctness keep severity order and the `Important (blocking)` wording: ship-check and CI treat those as merge blockers, and the eval harness grades on them. Enforce the `REVIEW.md` caps (5 Nits grouped by class, 3 Pre-existing) when a sub-agent exceeds them.
