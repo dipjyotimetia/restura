@@ -61,13 +61,12 @@ feature links, keyboard focus, themes, and the no-JavaScript fallback in a brows
 The site runs on **Astro 7** (Rust `.astro` compiler, Vite 8 + Rolldown, Sätteri Markdown
 processor) and follows its recommended practices.
 
-- **`@astrojs/mdx@7`, `@astrojs/markdown-satteri@0.3.1`, `vite@8`** — upgraded alongside
-  Astro 7.
-- **Starlight peer override (read before bumping).** `@astrojs/starlight@0.40.0` (latest)
-  still declares `astro@^6.4.5` and `@astrojs/markdown-satteri@^0.2.0`. Astro 7 is verified
-  working with it (`npm run check` clean, `npm run build` renders every page incl. Mermaid
-  diagrams), but Starlight runs **outside its declared peer range** via the `overrides` block
-  in `package.json`. Remove those overrides once Starlight publishes Astro 7 support.
+- **`@astrojs/mdx@8`, `@astrojs/starlight@0.42`, `vite@8`** — Starlight now declares
+  Astro 7 support, so the old `overrides` workaround (pinning `markdown-satteri@0.3.1` and
+  forcing Starlight onto Astro 7) is gone; only the `postcss-nested`, `katex` and `sharp`
+  overrides remain.
+- **`typescript` stays on 6.x.** `@astrojs/check` peers `typescript@^5 || ^6`; move to 7
+  once it widens.
 - **Mermaid needs the `unified` Markdown processor.** Astro 7 defaults to the Rust-based
   Sätteri processor, which does **not** run remark/rehype plugins. `astro-mermaid` turns
   ```mermaid code fences into diagrams via a rehype plugin, so `astro.config.mjs`sets`markdown.processor: unified()` to opt back into the plugin pipeline. Without it, diagrams

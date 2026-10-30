@@ -11,7 +11,8 @@
  * its events here over IPC — no direct DSN network call from the sandbox.
  *
  * Privacy:
- *  - `sendDefaultPii: false`.
+ *  - `dataCollection` opts out of every category (SDK 11 replaced `sendDefaultPii`;
+ *    its defaults are permissive, so each is switched off explicitly).
  *  - We only `Sentry.init()` when the user has opted in, so an opted-out user's
  *    native minidumps are never uploaded. In-session opt-in lazily inits (so JS
  *    capture works immediately); in-session opt-out closes the `beforeSend` gate
@@ -26,8 +27,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as Sentry from '@sentry/electron/main';
 import { redactBody } from '@shared/protocol/ai/redaction';
-import { app } from 'electron';
 import { createLogger } from '@shared/runtime/logger';
+import { app } from 'electron';
 
 const log = createLogger('sentry');
 
@@ -84,7 +85,7 @@ export function scrubEvent<T extends Sentry.Event>(event: T): T {
   delete event.request;
   // Hostname can identify the user's machine.
   delete event.server_name;
-  // No user identity is ever set (sendDefaultPii: false, no Sentry.setUser call),
+  // No user identity is ever set (dataCollection.userInfo: false, no Sentry.setUser call),
   // but drop it defensively so a future integration or regression can't ship one.
   delete event.user;
 
@@ -119,14 +120,27 @@ function doInit(): void {
     dsn,
     release: `restura@${app.getVersion()}`,
     environment: isDev ? 'development' : 'production',
-    sendDefaultPii: false,
+    // Equivalent of the pre-v8 `sendDefaultPii: false`, made explicit because the
+    // new defaults collect user info, cookies, headers, bodies and frame vars.
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      httpHeaders: false,
+      httpBodies: [],
+      urlQueryParams: false,
+      graphQL: { document: false, variables: false },
+      genAI: { inputs: false, outputs: false },
+      databaseQueryData: false,
+      queues: false,
+      stackFrameVariables: false,
+    },
     // Release Health: track one anonymous session per main-process run (session
     // start/end, crash-free rate, version adoption) — the single aggregate
     // usage signal we collect on desktop, and how we gauge active users without
     // any device or user identifier. `@sentry/electron` enables this by default;
     // we list it explicitly so an SDK default change can't silently flip our one
     // usage signal on or off. Gated by the same opt-out as errors (we only
-    // init() when opted in); sessions carry no IP (sendDefaultPii: false) and no
+    // init() when opted in); sessions carry no IP (dataCollection.userInfo: false) and no
     // user id. Like native crash capture, a mid-session opt-out fully stops
     // sessions on next launch. See ADR-0027.
     integrations: [Sentry.mainProcessSessionIntegration()],
