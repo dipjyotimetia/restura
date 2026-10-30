@@ -68,7 +68,7 @@ export const AI_LAB_CAPABILITIES = {
     web: false,
     desktop: true,
     notes:
-      'Uses saved encrypted MCP profiles with fresh desktop-owned sessions, existing SSRF/DNS pinning and execution policy, allowlists, cancellation, and per-call approval. CLI supports manifest-listed MCP tools when CI explicitly asserts readOnly:true (operator-asserted); tools the server marks destructiveHint:true are still refused with exit 2.',
+      'Uses saved encrypted MCP profiles with fresh desktop-owned sessions, existing SSRF/DNS pinning and execution policy, allowlists, cancellation, and per-call approval. CLI supports manifest-listed MCP tools when CI explicitly asserts readOnly:true (operator-asserted); tools the server marks destructiveHint:true or readOnlyHint:false are still refused with exit 2 (unannotated tools pass on the operator assertion).',
   },
   'aiLab.agentSandboxes': {
     label: 'AI Lab pluggable code sandboxes',

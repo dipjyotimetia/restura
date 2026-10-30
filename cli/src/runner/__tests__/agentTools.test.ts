@@ -192,6 +192,30 @@ describe('resolveCliAgentTools MCP annotations', () => {
     expect(dispose).toHaveBeenCalled();
   });
 
+  it('refuses a manifest-listed tool the server explicitly marks not read-only (#1026)', async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(connectCliMcpClient).mockResolvedValue({
+      listTools: async () => [
+        { name: 'search_docs', inputSchema: { type: 'object' } },
+        {
+          name: 'drop_table',
+          inputSchema: { type: 'object' },
+          annotations: { readOnlyHint: false },
+        },
+      ],
+      callTool: vi.fn(),
+      dispose,
+    });
+
+    const error = await resolveCliAgentTools(source, mcpRuntime, options, dependencies()).catch(
+      (cause: unknown) => cause
+    );
+
+    expect(error).toBeInstanceOf(AgentPreflightError);
+    expect((error as Error).message).toMatch(/readOnlyHint: false.*drop_table/);
+    expect(dispose).toHaveBeenCalled();
+  });
+
   it('still exposes manifest-listed tools that are not destructive-hinted as read', async () => {
     vi.mocked(connectCliMcpClient).mockResolvedValue({
       listTools: async () => [
