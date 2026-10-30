@@ -91,6 +91,7 @@ The legacy format prints a stderr deprecation warning the first time it's loaded
 | **MCP** | Runs the saved operation (`defaultMethod` + `defaultParams`, e.g. `tools/call` with `{"name":"…","arguments":{…}}`, `{{var}}`s resolved) over one initialized session per server per run, over `streamable-http` or `http-sse`. Test scripts get the JSON-RPC reply: `rs.response.json().result` (incl. `isError`) or `rs.response.json().error`. Without assertions, a tool error or JSON-RPC error fails the item; with assertions, the assertions decide. An MCP item with no method **fails** with an actionable error instead of sending a `ping`. See [MCP](/protocols/mcp/#testing-mcp-servers-in-collections-and-ci). |
 | **WebSocket** | Not run in collection batches (matches the desktop collection runner, which skips streaming protocols) |
 | **Kafka / MQTT presets** | Skipped with a notice on stderr — connection presets open in the desktop app; the CLI has no broker transport |
+| **WebSocket / Socket.IO collection items** | Skipped with a `[restura] skipping WebSocket preset "…"` (or `Socket.IO preset`) notice on stderr, like Kafka / MQTT — they open in the app |
 
 <Aside type="caution" title="gRPC wire format">
 The CLI uses **Connect-over-HTTP**, not gRPC-over-HTTP/2 binary framing. If your server only speaks classic gRPC, requests come back `UNKNOWN`.
