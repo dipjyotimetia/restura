@@ -89,9 +89,36 @@ export const mqttRequestSchema = z.object({
     username: z.string().optional(),
     tls: tlsSchema.optional(),
     lwt: z
-      .object({ topic: z.string(), payload: z.string(), qos: qosSchema, retain: z.boolean() })
+      .object({
+        topic: z.string(),
+        payload: z.string(),
+        qos: qosSchema,
+        retain: z.boolean(),
+        properties: z
+          .object({
+            willDelayInterval: z.number().int().nonnegative().optional(),
+            messageExpiryInterval: z.number().int().nonnegative().optional(),
+            contentType: z.string().optional(),
+            responseTopic: z.string().optional(),
+            correlationData: z.string().optional(),
+            payloadFormatIndicator: z.boolean().optional(),
+            userProperties: z.record(z.string(), z.string()).optional(),
+          })
+          .optional(),
+      })
       .optional(),
     sessionExpiryInterval: z.number().int().nonnegative().optional(),
+    connectProperties: z
+      .object({
+        receiveMaximum: z.number().int().positive().optional(),
+        maximumPacketSize: z.number().int().positive().optional(),
+        topicAliasMaximum: z.number().int().nonnegative().optional(),
+        requestResponseInformation: z.boolean().optional(),
+        requestProblemInformation: z.boolean().optional(),
+        userProperties: z.record(z.string(), z.string()).optional(),
+        authenticationMethod: z.string().optional(),
+      })
+      .optional(),
   }),
   publish: mqttPublishSchema,
   subscribe: z.object({ topicFilter: z.string(), qos: qosSchema }),

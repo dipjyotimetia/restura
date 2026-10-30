@@ -40,10 +40,15 @@ describe('assertMqttBrokerSafe', () => {
     );
   });
 
-  it('rejects non-mqtt schemes (ws/http/tcp)', () => {
-    expect(() => assertMqttBrokerSafe('ws://broker.example.com:8080')).toThrow(
+  it('accepts MQTT-over-WebSocket brokers (ws/wss) under the same policy (MQTT-1)', () => {
+    expect(() => assertMqttBrokerSafe('ws://broker.example.com:8083/mqtt')).not.toThrow();
+    expect(() => assertMqttBrokerSafe('wss://broker.example.com/mqtt')).not.toThrow();
+    expect(() => assertMqttBrokerSafe('ws://169.254.169.254/mqtt')).toThrow(
       /MQTT broker .* rejected/
     );
+  });
+
+  it('rejects non-mqtt schemes (http/tcp)', () => {
     expect(() => assertMqttBrokerSafe('http://broker.example.com:1883')).toThrow(
       /MQTT broker .* rejected/
     );

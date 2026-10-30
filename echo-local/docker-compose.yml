@@ -124,7 +124,8 @@ services:
           --topic-config cleanup.policy=compact --brokers kafka:29092 || true
 
   # Full MQTT 5 broker (also speaks 3.1.1). Anonymous connections are allowed on
-  # both listeners so the desktop client connects with no credentials. Dashboard
+  # every listener (TCP, TLS, WS, WSS) so the desktop client connects with no
+  # credentials. Dashboard
   # on :18083 (admin / public).
   emqx:
     # Pinned (not :latest) for reproducible e2e — a moving tag can shift broker
@@ -136,12 +137,16 @@ services:
       EMQX_NODE__COOKIE: 'restura-echo'
       EMQX_DASHBOARD__DEFAULT_USERNAME: 'admin'
       EMQX_DASHBOARD__DEFAULT_PASSWORD: 'public'
-      # Allow anonymous connect on the plaintext + TLS listeners (test broker).
+      # Allow anonymous connect on every listener (test broker).
       EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN: 'false'
       EMQX_LISTENERS__SSL__DEFAULT__ENABLE_AUTHN: 'false'
+      EMQX_LISTENERS__WS__DEFAULT__ENABLE_AUTHN: 'false'
+      EMQX_LISTENERS__WSS__DEFAULT__ENABLE_AUTHN: 'false'
     ports:
       - '1883:1883' # MQTT
       - '8883:8883' # MQTTS (EMQX built-in self-signed cert)
+      - '8083:8083' # MQTT over WebSocket (ws://localhost:8083/mqtt)
+      - '8084:8084' # MQTT over secure WebSocket (wss://localhost:8084/mqtt)
       - '18083:18083' # dashboard
     healthcheck:
       test: ['CMD', 'emqx', 'ctl', 'status']

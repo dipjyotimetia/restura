@@ -50,7 +50,11 @@ rather than discover it experimentally.
 | Kafka SASL/OAUTHBEARER client-credentials (auto-refresh) | ❌ | ✅ | Token fetched in main through the SSRF-guarded, DNS-pinned fetch; https is required except for loopback hosts and private IP literals (private addresses still need the "allow private IPs" setting); refreshed once < max(30s, 25% of lifetime) remains; client secret is a kafka-scoped SecretRef handle |
 | Kafka AWS MSK IAM | ❌ | ✅ | SigV4-presigned OAUTHBEARER token; access keys (SecretRef handles) or a named AWS profile; SASL_SSL only; brokers must be MSK hosts in the region unless explicitly opted out |
 | Kafka SASL/GSSAPI (Kerberos) | ❌ | ❌ | Authenticator is implemented, but the native kerberos module is not bundled; the option is disabled in the form |
-| MQTT publish / subscribe | ❌ | ✅ | Native broker protocol over raw TCP/TLS; no browser TCP |
+| MQTT publish / subscribe | ❌ | ✅ | Native broker protocol (MQTT 3.1.1 / 5.0) over raw TCP/TLS or WebSocket; broker hostnames are DNS-checked against the private-IP / localhost policy and the dial is pinned; password and TLS passphrase are SecretRef handles resolved in main, TLS files are read in main; no browser TCP |
+| MQTT over WebSocket (ws:// / wss://) | ❌ | ✅ | Same broker guard, DNS pinning and Settings TLS policy as mqtt:// / mqtts://; any configured proxy fails closed for WebSocket transports (SOCKS is honoured for mqtt:// / mqtts:// only) |
+| MQTT binary payloads (Text / JSON / Hex / Base64) | ❌ | ✅ | Payloads and correlation data cross IPC as UTF-8 or base64 — non-UTF-8 bytes are shown as hex/base64, never lossy-decoded |
+| MQTT 5 properties (CONNECT, Will, publish, subscription options) | ❌ | ✅ | CONNECT properties incl. initial enhanced-auth method/data (multi-step AUTH challenges are reported as errors), server-assigned client IDs, Will properties, payload format indicator, topic alias (bounded by CONNACK maximum), No Local / Retain As Published / Retain Handling / subscription identifier, server DISCONNECT reason codes |
+| MQTT 5 request/response with round-trip latency | ❌ | ✅ | Publishes with a generated response topic + correlation data, waits in main for the reply matched on raw correlation bytes; timeout and cancel supported |
 | Socket.IO client | ✅ | ✅ |  |
 | AI assistant (streaming chat) | ❌ | ✅ | Electron-only; tokens stream over IPC (ai:chat:chunk/end). No Worker /api/ai route |
 | AI assistant tool calls | ❌ | ✅ | Provider tool-call decoding (OpenAI / Anthropic / OpenRouter) in the chat path |

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
 import {
   applyMqttPreset,
@@ -17,7 +17,12 @@ import {
   setPendingSecret,
 } from '@/lib/shared/streaming/composerDrafts';
 import { mqttRequestSchema } from '@/lib/shared/validations';
+import {
+  type FakeSecretHandles,
+  installFakeSecretHandles,
+} from '../../../../../tests/helpers/fakeSecretHandles';
 
+// Legacy secureStorage slot — only read for the one-time migration into handles.
 const vault = vi.hoisted(() => new Map<string, string>());
 vi.mock('@/lib/shared/secure-storage', () => ({
   secureStorage: {
@@ -27,6 +32,12 @@ vi.mock('@/lib/shared/secure-storage', () => ({
     remove: (key: string) => vault.delete(key),
   },
 }));
+
+let secrets: FakeSecretHandles;
+beforeEach(() => {
+  secrets = installFakeSecretHandles();
+});
+afterEach(() => secrets.uninstall());
 
 function makeConnection(): string {
   const store = useMqttStore.getState();
@@ -103,12 +114,15 @@ describe('mqtt collection presets (#984)', () => {
 
   it('applies a preset to a fresh connection and round-trips stored credentials', async () => {
     const source = makeConnection();
-    vault.set(mqttSecretKey(source, 'password'), 'pw');
+    secrets.seed(mqttSecretKey(source, 'password'), 'pw');
+    // A value still in the legacy secureStorage slot is migrated into a handle.
     vault.set(mqttSecretKey(source, 'tls-passphrase'), 'pp');
     const conn = useMqttStore.getState().connections[source]!;
     const preset = mqttPresetFromConnection(conn, 'P', 'req-2');
     await storeMqttPresetSecrets(conn, preset.id);
-    expect(vault.get(mqttSecretKey(mqttPresetSecretScope('req-2'), 'password'))).toBe('pw');
+    expect(secrets.valueFor(mqttSecretKey(mqttPresetSecretScope('req-2'), 'password'))).toBe('pw');
+    expect(vault.has(mqttSecretKey(source, 'tls-passphrase'))).toBe(false);
+    expect(secrets.valueFor(mqttSecretKey(source, 'tls-passphrase'))).toBe('pp');
 
     const target = useMqttStore.getState().createConnection();
     applyMqttPreset(target, preset);
@@ -129,14 +143,14 @@ describe('mqtt collection presets (#984)', () => {
     opened = useMqttStore.getState().connections[target]!;
     expect(opened.password).toBe(MQTT_SECRET_SENTINEL);
     expect(opened.tls?.passphrase).toBe(MQTT_SECRET_SENTINEL);
-    expect(vault.get(mqttSecretKey(target, 'tls-passphrase'))).toBe('pp');
+    expect(secrets.valueFor(mqttSecretKey(target, 'tls-passphrase'))).toBe('pp');
   });
 
   it('clears a stale preset secret on re-save when the connection no longer holds one', async () => {
     const id = useMqttStore.getState().createConnection();
-    vault.set(mqttSecretKey(mqttPresetSecretScope('r'), 'password'), 'stale');
+    secrets.seed(mqttSecretKey(mqttPresetSecretScope('r'), 'password'), 'stale');
     await storeMqttPresetSecrets(useMqttStore.getState().connections[id]!, 'r');
-    expect(vault.has(mqttSecretKey(mqttPresetSecretScope('r'), 'password'))).toBe(false);
+    expect(secrets.valueFor(mqttSecretKey(mqttPresetSecretScope('r'), 'password'))).toBeUndefined();
     await restoreMqttPresetSecrets('r', 'missing-connection');
     expect(useMqttStore.getState().connections['missing-connection']).toBeUndefined();
   });
@@ -155,16 +169,18 @@ describe('mqtt preset credential lifecycle (#984 review)', () => {
     setPendingSecret(mqttSecretKey(id, 'tls-passphrase'), 'typed-pp');
     await storeMqttPresetSecrets(useMqttStore.getState().connections[id]!, 'req-m');
     const scope = mqttPresetSecretScope('req-m');
-    expect(vault.get(mqttSecretKey(scope, 'password'))).toBe('plain-pw');
-    expect(vault.get(mqttSecretKey(scope, 'tls-passphrase'))).toBe('typed-pp');
+    expect(secrets.valueFor(mqttSecretKey(scope, 'password'))).toBe('plain-pw');
+    expect(secrets.valueFor(mqttSecretKey(scope, 'tls-passphrase'))).toBe('typed-pp');
   });
 
   it('reaps and copies a preset scope, and drops drafts with the connection', async () => {
-    vault.set(mqttSecretKey(mqttPresetSecretScope('a'), 'password'), 'pw');
+    secrets.seed(mqttSecretKey(mqttPresetSecretScope('a'), 'password'), 'pw');
     await copyMqttPresetSecrets('a', 'b');
-    expect(await readMqttPresetSecrets('b')).toEqual({ password: 'pw' });
+    // Presence only — the renderer never reads the value back.
+    expect(await readMqttPresetSecrets('b')).toEqual({ password: true });
+    expect(secrets.valueFor(mqttSecretKey(mqttPresetSecretScope('b'), 'password'))).toBe('pw');
     reapMqttPresetSecrets('a');
-    expect(await readMqttPresetSecrets('a')).toEqual({});
+    await vi.waitFor(async () => expect(await readMqttPresetSecrets('a')).toEqual({}));
 
     const tabId = 'tab-x';
     const id = useMqttStore.getState().ensureConnectionForTab(tabId);

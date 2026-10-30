@@ -108,6 +108,31 @@ limitations and are the next candidates for the same treatment.
 - A unified "destination policy" that takes both the URL-string check and the resolved-address check into one decision point shared with the renderer (currently the renderer has its own less-strict policy because it doesn't have `dns.lookup`).
 - Metrics on DNS-guard rejections — observability for "how often does this fire in production" is unwritten.
 
+## Addendum (2026-10): broker DNS-time guard (SEC-K1, #970)
+
+The Kafka and MQTT broker guards used to check only the host **string**, so a
+public hostname resolving to loopback / RFC 1918 / link-local space (e.g.
+`localtest.me`) passed under `allowPrivateIPs: false`. Brokers now also go
+through `electron/main/security/broker-dns-guard.ts`, which resolves the host
+and runs every A/AAAA record through `assertHostnameSafe` with the execution
+policy's `allowLocalhost` / `allowPrivateIPs`:
+
+- **MQTT** — `resolveMqttBrokerAddress` returns the checked address and the
+  dial is **pinned**: `mqtt://` / `mqtts://` dial the IP literal (SNI stays on
+  the hostname); `ws://` / `wss://` pass `createPinnedLookup` to the `ws`
+  socket. mqtt.js reconnects reuse the pinned options, so the rebind window is
+  closed for MQTT. Behind a SOCKS proxy (`socks5h` / `socks4a`) the proxy
+  resolves the target and only the string guard applies; WebSocket transports
+  fail closed for any proxy.
+- **Kafka** — `assertKafkaBrokerHostsResolveSafe` checks every bootstrap broker
+  immediately before connect. `@platformatic/kafka` still resolves again inside
+  its own socket code (no lookup hook), so the TTL=0 residual and the
+  metadata-discovered (advertised) broker residual above remain.
+
+`resolveKafkaExecutionPolicy` now evaluates **every** bootstrap broker (SEC-K2):
+an active proxy for any of them fails closed, and brokers whose host-matched
+TLS material differs are rejected because the client uses one TLS context.
+
 ## References
 
 - Module: `electron/main/connection-cleanup.ts`

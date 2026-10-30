@@ -1,4 +1,4 @@
-import { Pause, Play, Plug, PlugZap, Send, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, Pause, Play, Plug, PlugZap, Send, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
@@ -24,13 +24,17 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { mqttManager, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
+import { MQTT_SECRET_LABELS, mqttManager, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
 import { resolveMqttText } from '@/features/mqtt/lib/mqttVariables';
 import { type PublishInput, publishWithVariables } from '@/features/mqtt/lib/publishWithVariables';
-import type { MqttMessage, MqttQoS } from '@/features/mqtt/store/useMqttStore';
+import type {
+  MqttMessage,
+  MqttQoS,
+  MqttSubscriptionOptions,
+} from '@/features/mqtt/store/useMqttStore';
 import { MQTT_SECRET_SENTINEL, useMqttStore } from '@/features/mqtt/store/useMqttStore';
+import { putBrokerSecret, removeBrokerSecret } from '@/lib/shared/broker-secrets';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import { secureStorage } from '@/lib/shared/secure-storage';
 import {
   type MqttPublishTemplate,
   newTemplateId,
@@ -41,6 +45,11 @@ import { useActiveTabId } from '@/store/selectors';
 import { useMqttComposer } from '../hooks/useMqttComposer';
 import { MqttConnectionForm } from './MqttConnectionForm';
 import { MqttMessagesPanel } from './MqttMessagesPanel';
+import {
+  DEFAULT_PUBLISH_SETTINGS,
+  MqttPublishOptions,
+  type MqttPublishSettings,
+} from './MqttPublishOptions';
 import { MqttSubscriptionsPanel } from './MqttSubscriptionsPanel';
 import { MQTT_GREEN } from './mqttUi';
 
@@ -131,6 +140,12 @@ function MqttClient() {
     subQos,
     setSubQos,
   } = useMqttComposer(activeConnectionId);
+  const [publishSettings, setPublishSettings] =
+    useState<MqttPublishSettings>(DEFAULT_PUBLISH_SETTINGS);
+  const [subOptions, setSubOptions] = useState<MqttSubscriptionOptions>({});
+  const [subIdentifier, setSubIdentifier] = useState<number | undefined>(undefined);
+  /** requestId of the in-flight MQTT 5 request, if any. */
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('messages');
   const [paused, setPaused] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
@@ -138,6 +153,7 @@ function MqttClient() {
   useEffect(() => {
     setSelectedMessageId(null);
     setPaused(false);
+    setPendingRequestId(null);
   }, [activeConnectionId]);
 
   const connectionId = connection?.id;
@@ -172,18 +188,41 @@ function MqttClient() {
   const handleConnect = async (): Promise<void> => {
     if (!connection) return;
     let next = connection;
-    if (passwordDraft) {
-      secureStorage.set(mqttSecretKey(connection.id, 'password'), passwordDraft);
-      updateConnection(connection.id, { password: MQTT_SECRET_SENTINEL });
-      next = { ...next, password: MQTT_SECRET_SENTINEL };
-      setPasswordDraft('');
-    }
-    if (passphraseDraft) {
-      secureStorage.set(mqttSecretKey(connection.id, 'tls-passphrase'), passphraseDraft);
-      const tls = { ...(connection.tls ?? {}), passphrase: MQTT_SECRET_SENTINEL };
-      updateTls(connection.id, tls);
-      next = { ...next, tls };
-      setPassphraseDraft('');
+    // Typed secrets become main-process handles; the connect IPC then carries
+    // only the handle reference (ADR-0007).
+    try {
+      if (passwordDraft) {
+        await putBrokerSecret(
+          mqttSecretKey(connection.id, 'password'),
+          passwordDraft,
+          MQTT_SECRET_LABELS.password
+        );
+        updateConnection(connection.id, { password: MQTT_SECRET_SENTINEL });
+        next = { ...next, password: MQTT_SECRET_SENTINEL };
+        setPasswordDraft('');
+      }
+      if (passphraseDraft) {
+        await putBrokerSecret(
+          mqttSecretKey(connection.id, 'tls-passphrase'),
+          passphraseDraft,
+          MQTT_SECRET_LABELS['tls-passphrase']
+        );
+        const tls = { ...(connection.tls ?? {}), passphrase: MQTT_SECRET_SENTINEL };
+        updateTls(connection.id, tls);
+        next = { ...next, tls };
+        setPassphraseDraft('');
+      }
+    } catch (err) {
+      const msg = `Could not store credentials securely: ${err instanceof Error ? err.message : err}`;
+      useMqttStore.getState().addMessage(connection.id, {
+        direction: 'system',
+        topic: '',
+        payload: msg,
+        qos: 0,
+        retain: false,
+        error: msg,
+      });
+      return;
     }
     // The broker URL may hold {{var}} tokens (e.g. from a collection preset, #984).
     await mqttManager.connect({ ...next, brokerUrl: resolveMqttText(next.id, next.brokerUrl) });
@@ -196,9 +235,51 @@ function MqttClient() {
   const publishInput = async (input: PublishInput): Promise<void> => {
     if (connection && input.topic) await publishWithVariables(connection.id, input);
   };
+  const isV5 = connection?.protocolVersion === 5;
+  const composerInput = (): PublishInput => ({
+    topic: pubTopic,
+    payload: pubPayload,
+    qos: pubQos,
+    retain: pubRetain,
+    ...(isV5 && publishSettings.contentType ? { contentType: publishSettings.contentType } : {}),
+    ...(isV5 && publishSettings.responseTopic
+      ? { responseTopic: publishSettings.responseTopic }
+      : {}),
+  });
+  const composerOptions = () => ({
+    format: publishSettings.format,
+    ...(isV5
+      ? {
+          messageExpiryInterval: publishSettings.messageExpiryInterval,
+          payloadFormatIndicator: publishSettings.payloadFormatIndicator,
+          topicAlias: publishSettings.topicAlias,
+          correlationData: publishSettings.correlationData,
+        }
+      : {}),
+  });
   const handlePublish = async (): Promise<void> => {
     if (!connection || !pubTopic) return;
-    await publishInput({ topic: pubTopic, payload: pubPayload, qos: pubQos, retain: pubRetain });
+    await publishWithVariables(connection.id, composerInput(), undefined, composerOptions());
+  };
+  // MQTT 5 request/response (O-10): publish, then wait for the correlated reply.
+  const handleRequest = async (): Promise<void> => {
+    if (!connection || !pubTopic || pendingRequestId) return;
+    const requestId = crypto.randomUUID();
+    setPendingRequestId(requestId);
+    try {
+      const { topicAlias: _alias, ...options } = composerOptions();
+      await publishWithVariables(connection.id, composerInput(), undefined, {
+        ...options,
+        request: { requestId, timeoutMs: publishSettings.requestTimeoutMs },
+      });
+    } finally {
+      setPendingRequestId((current) => (current === requestId ? null : current));
+    }
+  };
+  const handleCancelRequest = async (): Promise<void> => {
+    if (connection && pendingRequestId) {
+      await mqttManager.cancelRequest(connection.id, pendingRequestId);
+    }
   };
   const templates = connection?.templates ?? [];
   const createTemplate = (): MqttPublishTemplate | null =>
@@ -214,10 +295,15 @@ function MqttClient() {
       : null;
   const handleSubscribe = async (): Promise<void> => {
     if (!connection || !subTopic.trim()) return;
+    const options = Object.fromEntries(
+      Object.entries(subOptions).filter(([, v]) => v !== undefined)
+    ) as MqttSubscriptionOptions;
     await mqttManager.subscribe({
       connectionId: connection.id,
       topicFilter: resolveMqttText(connection.id, subTopic.trim()),
       qos: subQos,
+      ...(isV5 && Object.keys(options).length > 0 ? { options } : {}),
+      ...(isV5 && subIdentifier !== undefined ? { subscriptionIdentifier: subIdentifier } : {}),
     });
   };
   const handleUnsubscribe = async (topicFilter: string): Promise<void> => {
@@ -235,6 +321,33 @@ function MqttClient() {
     });
     if (result.canceled || !result.filePaths[0]) return;
     updateTls(connection.id, { ...(connection.tls ?? {}), [field]: result.filePaths[0] });
+  };
+
+  const handleAuthDataCommit = async (value: string): Promise<void> => {
+    if (!connection) return;
+    const key = mqttSecretKey(connection.id, 'auth-data');
+    try {
+      if (value) await putBrokerSecret(key, value, MQTT_SECRET_LABELS['auth-data']);
+      else await removeBrokerSecret(key);
+    } catch (err) {
+      const msg = `Could not store auth data securely: ${err instanceof Error ? err.message : err}`;
+      useMqttStore.getState().addMessage(connection.id, {
+        direction: 'system',
+        topic: '',
+        payload: msg,
+        qos: 0,
+        retain: false,
+        error: msg,
+      });
+      return;
+    }
+    const current = useMqttStore.getState().connections[connection.id]?.connectProperties ?? {};
+    updateConnection(connection.id, {
+      connectProperties: {
+        ...current,
+        authenticationData: value ? MQTT_SECRET_SENTINEL : undefined,
+      },
+    });
   };
 
   const isConnected = connection?.status === 'connected';
@@ -407,15 +520,50 @@ function MqttClient() {
                   onChange={(event) => setPubPayload(event.target.value)}
                   className="font-mono text-xs"
                   rows={8}
+                  placeholder={
+                    publishSettings.format === 'hex'
+                      ? 'de ad be ef'
+                      : publishSettings.format === 'base64'
+                        ? '3q2+7w=='
+                        : undefined
+                  }
                 />
               </div>
-              <Button onClick={handlePublish} disabled={!isConnected || !pubTopic}>
-                <Send className="h-3.5 w-3.5 mr-1.5" /> Publish
-              </Button>
+              <MqttPublishOptions
+                settings={publishSettings}
+                onChange={setPublishSettings}
+                isV5={isV5}
+                serverTopicAliasMaximum={connection.serverTopicAliasMaximum}
+              />
+              <div className="flex items-center gap-2">
+                <Button onClick={handlePublish} disabled={!isConnected || !pubTopic}>
+                  <Send className="h-3.5 w-3.5 mr-1.5" /> Publish
+                </Button>
+                {isV5 &&
+                  (pendingRequestId ? (
+                    <Button variant="outline" onClick={handleCancelRequest}>
+                      <X className="h-3.5 w-3.5 mr-1.5" /> Cancel request
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      onClick={handleRequest}
+                      disabled={!isConnected || !pubTopic}
+                      title="Publish with a response topic + correlation data and wait for the reply"
+                    >
+                      <ArrowLeftRight className="h-3.5 w-3.5 mr-1.5" /> Request
+                    </Button>
+                  ))}
+              </div>
             </Floater>
           </TabsContent>
 
           <MqttSubscriptionsPanel
+            isV5={isV5}
+            subOptions={subOptions}
+            onSubOptionsChange={setSubOptions}
+            subIdentifier={subIdentifier}
+            onSubIdentifierChange={setSubIdentifier}
             isConnected={isConnected}
             onSubscribe={handleSubscribe}
             onUnsubscribe={handleUnsubscribe}
@@ -435,6 +583,7 @@ function MqttClient() {
             onUpdateConnection={(patch) => updateConnection(connection.id, patch)}
             onUpdateLwt={(lwt) => updateLwt(connection.id, lwt)}
             onUpdateTls={(tls) => updateTls(connection.id, tls)}
+            onAuthDataCommit={(value) => void handleAuthDataCommit(value)}
           />
         </Tabs>
       )}

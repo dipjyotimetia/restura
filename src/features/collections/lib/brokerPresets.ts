@@ -113,7 +113,7 @@ export async function openBrokerPreset(itemId: string, preset: BrokerRequest): P
   } else {
     const connectionId = useMqttStore.getState().ensureConnectionForTab(tabId);
     applyMqttPreset(connectionId, preset);
-    applyMqttPresetSecrets(connectionId, secrets);
+    await applyMqttPresetSecrets(connectionId, preset.id, secrets);
   }
   return tabId;
 }

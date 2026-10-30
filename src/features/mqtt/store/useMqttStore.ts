@@ -19,8 +19,9 @@ export type MqttMessageDirection = 'sent' | 'received' | 'system';
 
 /**
  * Sentinel marker for secrets the store must never serialize in clear.
- * The real value lives in secureStorage (electron-store + safeStorage) and
- * is resolved by `mqttManager` just before the IPC call.
+ * The real value lives in a main-process secret handle keyed by the
+ * connection + field (`src/lib/shared/broker-secrets.ts`); `mqttManager` sends
+ * the handle reference and main resolves it at wire time (ADR-0007).
  */
 export const MQTT_SECRET_SENTINEL = '__restura_secret__';
 export const DEFAULT_MQTT_CONNECT_TIMEOUT = 30_000;
@@ -34,11 +35,44 @@ export interface MqttTls {
   rejectUnauthorized?: boolean;
 }
 
+/** MQTT 5.0 Will Properties (§3.1.3.2) — sent only on a v5 connection. */
+export interface MqttWillProperties {
+  willDelayInterval?: number;
+  messageExpiryInterval?: number;
+  contentType?: string;
+  responseTopic?: string;
+  /** UTF-8 correlation token. */
+  correlationData?: string;
+  payloadFormatIndicator?: boolean;
+  userProperties?: Record<string, string>;
+}
+
 export interface MqttLwt {
   topic: string;
   payload: string;
   qos: MqttQoS;
   retain: boolean;
+  properties?: MqttWillProperties;
+}
+
+/** MQTT 5.0 CONNECT Properties (§3.1.2.11) beyond Session Expiry. */
+export interface MqttConnectProperties {
+  receiveMaximum?: number;
+  maximumPacketSize?: number;
+  topicAliasMaximum?: number;
+  requestResponseInformation?: boolean;
+  requestProblemInformation?: boolean;
+  userProperties?: Record<string, string>;
+  authenticationMethod?: string;
+  /** UTF-8 initial authentication data — persisted as the sentinel (secret handle). */
+  authenticationData?: string;
+}
+
+/** MQTT 5.0 Subscription Options (§3.8.3.1). */
+export interface MqttSubscriptionOptions {
+  noLocal?: boolean;
+  retainAsPublished?: boolean;
+  retainHandling?: 0 | 1 | 2;
 }
 
 export interface MqttSubscription {
@@ -46,6 +80,8 @@ export interface MqttSubscription {
   requestedQos: MqttQoS;
   grantedQos?: MqttQoS;
   status: 'subscribing' | 'subscribed' | 'error';
+  options?: MqttSubscriptionOptions;
+  subscriptionIdentifier?: number;
 }
 
 export interface MqttMessage {
@@ -55,7 +91,9 @@ export interface MqttMessage {
   qos: MqttQoS;
   retain: boolean;
   dup?: boolean;
+  /** UTF-8 text, or base64 when `payloadEncoding === 'base64'` (non-UTF-8 bytes). */
   payload: string;
+  payloadEncoding?: 'utf8' | 'base64';
   // MQTT 5.0 metadata (undefined on a v3.1.1 connection)
   userProperties?: Record<string, string | string[]>;
   messageExpiryInterval?: number;
@@ -63,6 +101,10 @@ export interface MqttMessage {
   responseTopic?: string;
   // MQTT 5 request/response correlation token (received messages).
   correlationData?: string;
+  correlationDataEncoding?: 'utf8' | 'base64';
+  payloadFormatIndicator?: boolean;
+  /** Request/response round-trip time, on the matched reply. */
+  latencyMs?: number;
   // MQTT 5 subscription identifier(s) — which subscription matched this message.
   subscriptionIdentifier?: number | number[];
   reasonCode?: number;
@@ -88,7 +130,13 @@ export interface MqttConnection {
   lwt?: MqttLwt;
   /** MQTT 5.0 only */
   sessionExpiryInterval?: number;
+  /** MQTT 5.0 only */
+  connectProperties?: MqttConnectProperties;
   status: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+  /** Runtime (not persisted): client id assigned by the broker for an empty one. */
+  assignedClientId?: string;
+  /** Runtime (not persisted): broker's CONNACK Topic Alias Maximum. */
+  serverTopicAliasMaximum?: number;
   // Active subscriptions
   subscriptions: MqttSubscription[];
   messages: MqttMessage[];
@@ -456,6 +504,16 @@ export const useMqttStore = create<MqttState>()(
               status: 'disconnected' as const,
               messages: [] as MqttMessage[],
               subscriptions: [] as MqttSubscription[],
+              assignedClientId: undefined,
+              serverTopicAliasMaximum: undefined,
+              ...(conn.connectProperties?.authenticationData
+                ? {
+                    connectProperties: {
+                      ...conn.connectProperties,
+                      authenticationData: MQTT_SECRET_SENTINEL,
+                    },
+                  }
+                : {}),
               password: conn.password ? MQTT_SECRET_SENTINEL : undefined,
               ...(conn.tls
                 ? {

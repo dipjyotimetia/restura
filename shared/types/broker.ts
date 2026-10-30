@@ -94,8 +94,33 @@ export interface MqttPresetConnection {
   /** Username only — the password is a local secret. */
   username?: string;
   tls?: BrokerPresetTls;
-  lwt?: { topic: string; payload: string; qos: MqttPresetQoS; retain: boolean };
+  lwt?: {
+    topic: string;
+    payload: string;
+    qos: MqttPresetQoS;
+    retain: boolean;
+    /** MQTT 5 Will Properties. */
+    properties?: {
+      willDelayInterval?: number;
+      messageExpiryInterval?: number;
+      contentType?: string;
+      responseTopic?: string;
+      correlationData?: string;
+      payloadFormatIndicator?: boolean;
+      userProperties?: Record<string, string>;
+    };
+  };
   sessionExpiryInterval?: number;
+  /** MQTT 5 CONNECT properties — authentication data is a local secret, never saved here. */
+  connectProperties?: {
+    receiveMaximum?: number;
+    maximumPacketSize?: number;
+    topicAliasMaximum?: number;
+    requestResponseInformation?: boolean;
+    requestProblemInformation?: boolean;
+    userProperties?: Record<string, string>;
+    authenticationMethod?: string;
+  };
 }
 
 /** A saved MQTT publish (mirrors the connection's message templates). */

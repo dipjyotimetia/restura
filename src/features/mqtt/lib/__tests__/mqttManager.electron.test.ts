@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mqttManager } from '@/features/mqtt/lib/mqttManager';
-import { useMqttStore } from '@/features/mqtt/store/useMqttStore';
+import { mqttManager, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
+import { MQTT_SECRET_SENTINEL, useMqttStore } from '@/features/mqtt/store/useMqttStore';
+import { brokerSecretHandleId, putBrokerSecret } from '@/lib/shared/broker-secrets';
 import type { MqttConnectIpc } from '../../../../../electron/types/electron-api';
 
 // Minimal fake of the Electron IPC bridge. Captures per-channel listeners so a
@@ -174,5 +175,134 @@ describe('mqttManager (Electron path)', () => {
     const sub = useMqttStore.getState().connections[id]!.subscriptions[0]!;
     expect(sub.status).toBe('subscribed');
     expect(sub.grantedQos).toBe(1);
+  });
+});
+
+describe('mqttManager — secrets, binary and MQTT 5 events (#850)', () => {
+  beforeEach(() => resetStore());
+  afterEach(() => {
+    delete (window as unknown as { electron?: unknown }).electron;
+  });
+
+  /** Electron mock plus the in-memory secret-handle API. */
+  function install() {
+    const env = installElectronMock();
+    const handles = new Map<string, string>();
+    const w = window as unknown as { electron: Record<string, unknown> };
+    // Legacy secureStorage backend (electron-store) — empty.
+    w.electron.store = { get: vi.fn(async () => null), set: vi.fn(), delete: vi.fn() };
+    w.electron.secrets = {
+      store: vi.fn(async ({ id, value }: { id: string; value: string }) => {
+        handles.set(id, value);
+        return { ok: true, id };
+      }),
+      delete: vi.fn(async (id: string) => {
+        handles.delete(id);
+        return { ok: true };
+      }),
+      describe: vi.fn(async (id: string) => ({
+        ok: true,
+        handle: handles.has(id) ? { id, createdAt: 0 } : null,
+      })),
+      copy: vi.fn(),
+    };
+    return { ...env, handles };
+  }
+
+  it('sends only handle references and TLS paths on connect — no plaintext, no PEM (SEC-K3)', async () => {
+    const { mqtt } = install();
+    const id = useMqttStore.getState().createConnection({ brokerUrl: 'mqtts://b:8883' });
+    await putBrokerSecret(mqttSecretKey(id, 'password'), 'hunter2');
+    await putBrokerSecret(mqttSecretKey(id, 'tls-passphrase'), 'keypass');
+    useMqttStore.getState().updateConnection(id, { password: MQTT_SECRET_SENTINEL });
+    useMqttStore.getState().updateTls(id, {
+      caPath: '/certs/ca.pem',
+      certPath: '/certs/c.pem',
+      keyPath: '/certs/c.key',
+      passphrase: MQTT_SECRET_SENTINEL,
+    });
+
+    await mqttManager.connect(useMqttStore.getState().connections[id]!);
+
+    const ipc = mqtt.connect.mock.calls[0]![0];
+    expect(ipc.password).toEqual({
+      kind: 'handle',
+      id: brokerSecretHandleId(mqttSecretKey(id, 'password')),
+    });
+    expect(ipc.tls).toEqual({
+      caPath: '/certs/ca.pem',
+      certPath: '/certs/c.pem',
+      keyPath: '/certs/c.key',
+      passphrase: {
+        kind: 'handle',
+        id: brokerSecretHandleId(mqttSecretKey(id, 'tls-passphrase')),
+      },
+    });
+    const wire = JSON.stringify(ipc);
+    expect(wire).not.toContain('hunter2');
+    expect(wire).not.toContain('keypass');
+    // TLS files are never read in the renderer.
+    const fs = (window as unknown as { electron: { fs: { readFile: ReturnType<typeof vi.fn> } } })
+      .electron.fs;
+    expect(fs.readFile).not.toHaveBeenCalled();
+  });
+
+  it('refuses to connect when a sentinel-marked secret has no stored handle', async () => {
+    const { mqtt } = install();
+    const id = useMqttStore.getState().createConnection();
+    useMqttStore.getState().updateConnection(id, { password: MQTT_SECRET_SENTINEL });
+    const res = await mqttManager.connect(useMqttStore.getState().connections[id]!);
+    expect(res.ok).toBe(false);
+    expect(mqtt.connect).not.toHaveBeenCalled();
+  });
+
+  it('stores a binary payload as base64 and logs a server DISCONNECT reason', async () => {
+    const { emit } = install();
+    const id = useMqttStore.getState().createConnection();
+    await mqttManager.connect(useMqttStore.getState().connections[id]!);
+    emit(`mqtt:connected:${id}`, {
+      sessionPresent: false,
+      assignedClientIdentifier: 'auto-1',
+      topicAliasMaximum: 4,
+    });
+    expect(useMqttStore.getState().connections[id]).toMatchObject({
+      assignedClientId: 'auto-1',
+      serverTopicAliasMaximum: 4,
+    });
+
+    emit(`mqtt:message:${id}`, {
+      topic: 'bin',
+      payload: '/wA=',
+      payloadEncoding: 'base64',
+      qos: 0,
+      retain: false,
+      dup: false,
+      timestamp: 1,
+    });
+    emit(`mqtt:disconnected:${id}`, { timestamp: 2, reasonCode: 0x8e, reasonString: 'taken' });
+    const messages = useMqttStore.getState().connections[id]!.messages;
+    expect(messages.find((m) => m.topic === 'bin')).toMatchObject({
+      payload: '/wA=',
+      payloadEncoding: 'base64',
+    });
+    expect(messages.at(-1)!.payload).toBe(
+      'Disconnected by server: Session taken over (0x8E) — taken'
+    );
+  });
+
+  it('drives connected → reconnecting from main offline/reconnect events', async () => {
+    const { emit } = install();
+    const id = useMqttStore.getState().createConnection();
+    await mqttManager.connect(useMqttStore.getState().connections[id]!);
+    emit(`mqtt:connected:${id}`, { sessionPresent: false });
+    emit(`mqtt:offline:${id}`, { timestamp: 1 });
+    expect(useMqttStore.getState().connections[id]!.status).toBe('reconnecting');
+    emit(`mqtt:reconnect:${id}`, { timestamp: 2 });
+    emit(`mqtt:connected:${id}`, { sessionPresent: true });
+    expect(useMqttStore.getState().connections[id]!.status).toBe('connected');
+    const lost = useMqttStore
+      .getState()
+      .connections[id]!.messages.filter((m) => m.payload.startsWith('Connection lost'));
+    expect(lost).toHaveLength(1);
   });
 });

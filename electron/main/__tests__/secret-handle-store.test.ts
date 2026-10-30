@@ -196,6 +196,39 @@ describe('secret-handle-store', () => {
       expect(resolveInternalSecretHandle(id, 'internal:mcp-oauth')).toBeUndefined();
     });
 
+    it('copies a handle in main without returning plaintext, and never from/to internal records', async () => {
+      const event = trustedEvent(108);
+      const stored = await handlers.get('secret:store')!(event, {
+        value: 'broker-pw',
+        label: 'MQTT',
+      });
+      const to = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+      const copied = await handlers.get('secret:copy')!(event, { from: stored.id, to });
+      expect(copied).toEqual({ ok: true, copied: true });
+      expect(JSON.stringify(copied)).not.toContain('broker-pw');
+      expect(unwrapSecretValueMain({ kind: 'handle', id: to })).toBe('broker-pw');
+
+      const missing = '1a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+      expect(await handlers.get('secret:copy')!(event, { from: missing, to })).toEqual({
+        ok: true,
+        copied: false,
+      });
+
+      const internal = '2a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+      storeInternalSecretHandle({ id: internal, value: 'oauth', scope: 'internal:mcp-oauth' });
+      // An internal record can be neither the source …
+      expect(await handlers.get('secret:copy')!(event, { from: internal, to })).toEqual({
+        ok: true,
+        copied: false,
+      });
+      expect(unwrapSecretValueMain({ kind: 'handle', id: to })).toBe('broker-pw');
+      // … nor the target.
+      expect(
+        await handlers.get('secret:copy')!(event, { from: stored.id, to: internal })
+      ).toMatchObject({ ok: false, error: expect.stringMatching(/managed by Restura/) });
+      expect(resolveInternalSecretHandle(internal, 'internal:mcp-oauth')).toBe('oauth');
+    });
+
     it('clears every handle without exposing plaintext', async () => {
       const event = trustedEvent(106);
       await handlers.get('secret:store')!(event, { value: 'one' });
