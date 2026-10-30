@@ -89,7 +89,6 @@ yarn-error.log*
 Thumbs.db
 
 # configs (legacy)
-.claude/settings.local.json
 ./configs/**/**
 cache/**/*
 .playwright-mcp/

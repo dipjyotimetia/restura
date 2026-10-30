@@ -33,6 +33,33 @@ The vendored `code-review` skill also reviewed on two axes (Standards, Spec) and
 - CI and local review are not identical, and the READY marker accounts for that. The automatic `claude-review` job in `claude-code-review.yml` runs the `code-review@claude-code-plugins` plugin; the label-triggered `claude-skill-review` job runs the repo's three-axis `code-review` skill, which is what `/ship-check` runs locally. The automatic job is skipped only when a `/ship-check` READY marker is bound to the head sha, i.e. when the repo skill (Correctness included) already reviewed that exact commit; the `claude-review` label always forces both.
 - Cases must be maintained: escaped defects add cases, and saturated cases are retired in `/triage-maintenance`.
 
+### Amendment 2026-10-30
+
+A review of the harness found the gate in rule 1 had never been applied: no baseline was committed
+under `evals/harness/baselines/`, so "at or above the baseline" had nothing to compare against,
+and results did not record the Claude Code CLI version although the CI workflow pins one because
+results depend on it. Changes:
+
+- Every harness, routing and build-eval result (and every baseline) records `claudeVersion` from
+  `claude --version`; a flip report across two versions prints a warning, because such flips may be
+  version noise rather than harness change.
+- The `Eval harness` workflow has a `save-baseline` input that writes and uploads a summary-only
+  baseline to commit, so the first baseline (and each re-baseline after an accepted change or a CLI
+  bump) does not depend on one developer's machine. A committed baseline is a prerequisite for a
+  reviewer, routing or vendored-skill change, not an optional extra.
+- The workflow runs the reviewer inside the Claude Code sandbox with a strict egress allowlist
+  (Claude API and OAuth hosts, npm registry; never github.com), because `--disallowedTools` is
+  not a sandbox and the job holds a Claude token.
+- Routing cases now exist for every model-invocable skill (the eight that had none were added, with
+  matching negatives), so a description edit that stops any skill from loading is measurable.
+- Noted for future "why did CI miss this" questions: the CI review jobs pass `--model
+  claude-sonnet-5-5`, so the `model: inherit` reviewer agents (security auditor, parity checker)
+  also run on Sonnet in CI, while a local `/ship-check` inherits the developer's model. The evals
+  measure whichever `--model` they are given; compare like with like.
+
+Still open: the loops themselves (`/fix-until-green`, `/verify-ui-change`, `/batch-ship`
+orchestration) have routing cases but no outcome eval; the build eval covers the main loop only.
+
 ## References
 
 - Code: `scripts/harness-eval.mjs`, `scripts/routing-eval.mjs`, `scripts/eval-new-case.mjs`, `scripts/build-eval.mjs`, `evals/`, `.github/workflows/eval-harness.yml`, `.claude/skills/code-review/SKILL.md`, `skills-lock.json`

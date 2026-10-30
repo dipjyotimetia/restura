@@ -39,6 +39,7 @@ import {
   parseClaudeStream,
   passAtK,
   passHatK,
+  readClaudeVersion,
   readOverlayFiles,
   redactSecrets,
   SEEN_TEST_WARNING,
@@ -918,7 +919,7 @@ export function formatBuildMarkdown(result) {
   const lines = [
     `# Build eval ${result.dryRun ? '(dry run) ' : ''}— config \`${result.config}\``,
     '',
-    `Harness ${String(result.harnessSha ?? '').slice(0, 12)}; model ${result.model ?? 'default'}; ${result.runsPerTask ?? '?'} run(s) per task.`,
+    `Harness ${String(result.harnessSha ?? '').slice(0, 12)}; Claude Code ${result.claudeVersion ?? '?'}; model ${result.model ?? 'default'}; ${result.runsPerTask ?? '?'} run(s) per task.`,
     '',
   ];
   if (!result.dryRun && s?.totals)
@@ -1091,6 +1092,7 @@ export async function runBuildEval(options, { exec = evalExec, log = console.log
     dryRun: options.dryRun,
     harnessRef: options.harnessRef,
     harnessSha,
+    claudeVersion: options.dryRun ? null : await readClaudeVersion(exec),
     model: options.model ?? null,
     maxBudgetUsd: options.maxBudgetUsd,
     split: options.split,

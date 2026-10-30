@@ -285,12 +285,21 @@ Hillclimbing rules, when you change skills, agents or CLAUDE.md to raise these n
 `--save-baseline` additionally writes a **summary-only** JSON to
 `evals/harness/baselines/<YYYY-MM-DD>T<HHMM>--<config>.json` (UTC start time, so same-day runs
 never collide; the runner refuses to overwrite an existing file and checks before the run
-starts): config, `harnessSha`, start time, runs per case, models, split, and per case caught /
+starts): config, `harnessSha`, `claudeVersion` (from `claude --version`: results depend on the
+CLI version, and a flip report across versions prints a warning), start time, runs per case,
+models, split, and per case caught /
 runs / pass@1 / pass@n / pass^n / mean score / mean cost, plus recall and precision with CIs, the
 pass@1 totals and the routing counts. It contains no review text, judge reasons
 or transcripts, so it is safe to commit, and it is how an A/B result outlives the gitignored
 `.claude/metrics/`. `--compare` and the automatic flip report accept a full result or a baseline
 file. See `baselines/README.md`.
+
+ADR 0033 gates reviewer, routing and vendored-skill changes on "test split at or above the
+baseline", so a committed baseline must exist before that rule can be applied. The cheapest way
+to produce one is the `Eval harness` workflow: dispatch it with `save-baseline` ticked (test
+split, 2 runs, default config `ci-<sha>`), download the `eval-baseline-<run id>` artifact and
+commit the file in a chore PR. Re-baseline after every accepted harness change, and whenever the
+pinned CLI version in `eval-harness.yml` is bumped.
 
 ## Running
 

@@ -193,6 +193,31 @@ export function parseEvalArgs(argv) {
   return options;
 }
 
+/**
+ * The Claude Code CLI version the run used ("2.1.310"), parsed from `claude --version`.
+ * Results depend on it (the CI workflow pins one), so every result and baseline records it
+ * and a comparison across versions is flagged. null when the CLI cannot be asked.
+ */
+export function parseClaudeVersion(stdout) {
+  const m = String(stdout ?? '').match(/\d+\.\d+\.\d+(?:[-+][\w.]+)?/);
+  return m ? m[0] : null;
+}
+
+export async function readClaudeVersion(exec) {
+  try {
+    const res = await exec.run('claude', ['--version'], { timeout: 15000 });
+    return res?.status === 0 ? parseClaudeVersion(res.stdout) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Warning text when two results were produced by different Claude Code versions. */
+export function claudeVersionWarning(previous, current) {
+  if (!previous || !current || previous === current) return null;
+  return `warning: the compared run used Claude Code ${previous}; this run used ${current}. Results depend on the CLI version, so flips may be version noise.`;
+}
+
 /** A judge grading its own model's review inflates agreement; warn when they match. */
 export function judgeModelWarning({ model, judgeModel }) {
   if (!model || !judgeModel || model !== judgeModel) return null;
@@ -1154,6 +1179,7 @@ export function buildBaseline(result) {
     kind: 'harness-eval-baseline',
     config: result.config,
     harnessSha: result.harnessSha ?? null,
+    claudeVersion: result.claudeVersion ?? null,
     startedAt: result.startedAt,
     runsPerCase: result.runsPerCase,
     model: result.model ?? null,
@@ -1224,6 +1250,7 @@ function harnessLine(result) {
     parts.push(
       `Harness ${result.harnessSha.slice(0, 12)}${result.harnessRef ? ` (${result.harnessRef})` : ''}, overlaid on every case base`
     );
+  if (result.claudeVersion) parts.push(`Claude Code ${result.claudeVersion}`);
   if (!result.dryRun) {
     parts.push(`reviewer model ${result.model ?? 'CLI default'}`);
     parts.push(
@@ -1258,7 +1285,13 @@ function seenSection(result) {
   return lines;
 }
 
-export function formatSummaryMarkdown(result, flips, comparedTo) {
+/**
+ * @param {any} result
+ * @param {any[]} [flips]
+ * @param {string} [comparedTo]
+ * @param {{ previousClaudeVersion?: string | null }} [options]
+ */
+export function formatSummaryMarkdown(result, flips, comparedTo, { previousClaudeVersion } = {}) {
   const lines = [
     `# Harness eval: ${result.config}`,
     '',
@@ -1365,6 +1398,8 @@ export function formatSummaryMarkdown(result, flips, comparedTo) {
   }
   if (flips) {
     lines.push('', `## Flips${comparedTo ? ` vs ${comparedTo}` : ''}`);
+    const versionWarning = claudeVersionWarning(previousClaudeVersion, result.claudeVersion);
+    if (versionWarning) lines.push('', versionWarning);
     if (flips.length === 0) lines.push('', 'No case changed its caught rate.');
     else {
       lines.push('', '| case | type | before | after | kind |', '|---|---|---|---|---|');
@@ -2163,6 +2198,7 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
     dryRun: options.dryRun,
     harnessRef,
     harnessSha,
+    claudeVersion: options.dryRun ? null : await readClaudeVersion(exec),
     model: options.model ?? null,
     judgeModel: options.judge === false ? null : judgeModel,
     judgeRepeat,
@@ -2259,16 +2295,23 @@ export async function runEval(options, { exec = nodeExec, log = console.log } = 
   fs.mkdirSync(outDir, { recursive: true });
   let flips;
   let comparedTo;
+  let previousClaudeVersion = null;
   if (!options.dryRun) {
     // Either a full result or a committed baseline (diffFlips accepts both).
     const previousFile = options.compare ?? latestResult(outDir, options.config, `${base}.json`);
     if (previousFile && fs.existsSync(previousFile)) {
-      flips = diffFlips(JSON.parse(fs.readFileSync(previousFile, 'utf8')), result);
+      const previous = JSON.parse(fs.readFileSync(previousFile, 'utf8'));
+      flips = diffFlips(previous, result);
       comparedTo = path.basename(previousFile);
+      previousClaudeVersion = previous.claudeVersion ?? null;
+      const versionWarning = claudeVersionWarning(previousClaudeVersion, result.claudeVersion);
+      if (versionWarning) log(versionWarning);
     }
   }
   fs.writeFileSync(`${base}.json`, redactSecrets(`${JSON.stringify(result, null, 2)}\n`));
-  const markdown = redactSecrets(formatSummaryMarkdown(result, flips, comparedTo));
+  const markdown = redactSecrets(
+    formatSummaryMarkdown(result, flips, comparedTo, { previousClaudeVersion })
+  );
   fs.writeFileSync(`${base}.md`, markdown);
   log(`\n${markdown}`);
   log(`Wrote ${base}.json and ${base}.md`);

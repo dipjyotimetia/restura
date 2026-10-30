@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
@@ -113,4 +120,86 @@ test('human-readable output includes all three sections', () => {
   assert.match(out, /Explore/);
   assert.match(out, /Stop-hook outcomes/);
   assert.match(out, /lint/);
+});
+
+test('--snapshot writes a counts-only cumulative summary under evals/metrics; --merged sums labels', () => {
+  const root = fixture({
+    skillLog: `${T}\talpha\ts1\n${T}\talpha\ts2\n`,
+    subagentLog: `${T}\ts1\tExplore\ta1\t-\t-\n`,
+    stopLog: `${T}\ts1\tlint\tblocked\n`,
+  });
+  const out = run(root, ['--snapshot', '--label', 'Laptop One']);
+  assert.match(out, /evals\/metrics\/\d{4}-\d{2}-\d{2}--laptop-one\.json/);
+  const dir = join(root, 'evals', 'metrics');
+  const files = readdirSync(dir);
+  assert.equal(files.length, 1);
+  const snap = JSON.parse(readFileSync(join(dir, files[0]), 'utf8'));
+  assert.equal(snap.kind, 'metrics-snapshot');
+  assert.equal(snap.label, 'laptop-one');
+  assert.equal(snap.skills[0].total, 2);
+  assert.doesNotMatch(JSON.stringify(snap), /"s1"|"s2"/, 'session ids never leave the machine');
+
+  // A second machine's snapshot (older and newer for the same label: only the newest counts).
+  writeFileSync(
+    join(dir, '2026-01-01--ci.json'),
+    JSON.stringify({
+      kind: 'metrics-snapshot',
+      label: 'ci',
+      writtenAt: '2026-01-01T00:00:00Z',
+      status: 'ok',
+      totals: { sessions: 9 },
+      skills: [{ name: 'alpha', total: 99, distinctSessions: 9, firstSeen: T, lastSeen: T }],
+      subagents: { status: 'no-data' },
+      stopOutcomes: { status: 'no-data' },
+    })
+  );
+  writeFileSync(
+    join(dir, '2026-02-01--ci.json'),
+    JSON.stringify({
+      kind: 'metrics-snapshot',
+      label: 'ci',
+      writtenAt: '2026-02-01T00:00:00Z',
+      status: 'ok',
+      totals: { sessions: 3, invocations: 4 },
+      skills: [
+        {
+          name: 'alpha',
+          total: 3,
+          distinctSessions: 3,
+          firstSeen: '2026-01-30T00:00:00.000Z',
+          lastSeen: T,
+        },
+        { name: 'beta', total: 1, distinctSessions: 1, firstSeen: T, lastSeen: T },
+      ],
+      subagents: {
+        status: 'ok',
+        total: 2,
+        sessions: 1,
+        byType: [{ type: 'Explore', total: 2, sessions: 1 }],
+        perSession: [2],
+      },
+      stopOutcomes: {
+        status: 'ok',
+        total: 1,
+        blocked: 0,
+        allowed: 1,
+        reentrant: 0,
+        checks: [{ name: 'lint', fired: 1, fireRate: 1 }],
+      },
+    })
+  );
+  const mergedOut = JSON.parse(run(root, ['--json', '--merged', '--label', 'laptop-one']));
+  assert.deepEqual(mergedOut.sources, ['laptop-one', 'ci']);
+  const alpha = mergedOut.skills.find((s) => s.name === 'alpha');
+  assert.equal(alpha.total, 5, 'local 2 + latest ci 3, never the superseded 99');
+  assert.equal(alpha.distinctSessions, 5);
+  assert.equal(alpha.firstSeen, '2026-01-30T00:00:00.000Z');
+  assert.deepEqual(mergedOut.neverFired, ['gamma']);
+  assert.equal(mergedOut.subagents.total, 3);
+  assert.equal(mergedOut.stopOutcomes.total, 2);
+  assert.equal(mergedOut.stopOutcomes.checks[0].fired, 2);
+  // Without --merged the local report is unchanged.
+  const local = JSON.parse(run(root, ['--json', '--label', 'laptop-one']));
+  assert.equal(local.skills.find((s) => s.name === 'alpha').total, 2);
+  assert.equal(local.sources, undefined);
 });

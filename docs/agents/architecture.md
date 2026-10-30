@@ -78,7 +78,9 @@ npm run eval:harness           # seam-bug review eval (--split train|test|all, -
 npm run eval:routing           # does a realistic prompt load the right skill/agent? (evals/routing)
 npm run eval:new-case -- --from <fixPR#>   # scaffold a harness eval case from the PR that fixed a seam bug
 node scripts/build-eval.mjs    # build-loop eval: real fix-PR tasks, hidden tests; --dry-run validates tasks (evals/build/README.md)
-npm run skills:report          # skill usage, subagent and stop outcomes from .claude/metrics
+npm run skills:report          # skill usage, subagent and stop outcomes from .claude/metrics (-- --merged adds committed evals/metrics snapshots)
+npm run metrics:snapshot       # write this machine's counts-only metrics summary to evals/metrics/ (commit it)
+npm run type-check:related     # tsc for the projects the branch touched (what pre-push runs; shared/ or root config → type-check:all)
 npm run verify:agent-report -- <report.json> --owned <paths> --red-first
 npm run worktree:prune         # dry run by default; removes clean, merged worktrees
 ```

@@ -40,19 +40,24 @@ rebase` instead of pushing. If the repo needs a mechanical adaptation
 
 ## Stream 3 — Skill metrics (`--skills`)
 
-**Local-only stream.** `.claude/metrics/skill-usage.log` is written by the
+**Local-first stream.** `.claude/metrics/skill-usage.log` is written by the
 PreToolUse hook on the machine where sessions run and is never committed — a
-cloud-scheduled routine starts from a fresh clone and will always find it
-missing. Skip silently in that case; run this stream on the machine where the
-metrics accumulate.
+cloud-scheduled routine starts from a fresh clone and will find it missing.
+What IS committed are per-machine snapshots under `evals/metrics/`
+(`npm run metrics:snapshot`, counts only, no session ids); `npm run
+skills:report -- --merged` folds the latest snapshot of every other label
+into the local report. On a machine with no local log, run the merged report
+over the committed snapshots; skip only when there are no snapshots either.
 
 1. Check growth against the watermark: compare the log's line count to the
    count recorded in `.git/restura-skill-report-watermark` (same
    marker-in-`.git` pattern as the repo's hooks; missing marker = never run).
    If unchanged, skip.
-2. If grown: run `/skill-report`, apply its low-risk description tweaks
-   directly, queue anything judgment-heavy for the user, then write the new
-   line count to the watermark file.
+2. If grown: run `npm run metrics:snapshot` and include the new
+   `evals/metrics/<date>--<host>.json` in this sweep's chore PR, then run
+   `/skill-report` (it reads the merged view), apply its low-risk description
+   tweaks directly, queue anything judgment-heavy for the user, and write the
+   new line count to the watermark file.
 3. This closes the instrumentation loop — logging usage without ever reading
    it is dead weight.
 
@@ -102,9 +107,15 @@ metrics accumulate.
 
 Only when `.claude/`, `CLAUDE.md`, `AGENTS.md` or `docs/agents/` changed
 since the last run (watermark: `.git/restura-harness-eval-watermark`, a
-commit sha). Run `npm run eval:harness -- --config current` and report the
-**flip report** (cases whose caught/missed changed), not just the score. A
-newly missed seam case is a harness regression: queue it for the human.
+commit sha). Run `npm run eval:harness -- --split test --runs 2
+--save-baseline --compare evals/harness/baselines/<latest>.json` and report
+the **flip report** (cases whose caught/missed changed), not just the score;
+commit the new baseline in the sweep's chore PR. If no baseline is committed
+yet, say so first: ADR 0033 cannot gate anything until one exists (the `Eval
+harness` workflow with `save-baseline` produces one without local model
+usage). A newly missed seam case is a harness regression: queue it for the
+human. A flip report that warns the compared run used a different Claude Code
+version is version noise until re-run on the same version.
 
 ## Discipline
 

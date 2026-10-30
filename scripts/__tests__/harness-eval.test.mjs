@@ -10,6 +10,7 @@ import {
   buildReviewPrompt,
   caseLeakTerms,
   classifyClaudeRun,
+  claudeVersionWarning,
   cleanupTracked,
   cleanupTrackedAsync,
   createIsolatedRepo,
@@ -33,6 +34,7 @@ import {
   overlayHarness,
   parseClaudeJson,
   parseClaudeStream,
+  parseClaudeVersion,
   parseEvalArgs,
   parseJudgeVerdict,
   parseWorktreePorcelain,
@@ -1440,11 +1442,12 @@ test('buildBaseline is summary-only and diffFlips accepts it on either side', ()
     split: 'all',
     runs: [fullRun(1), fullRun(2)],
   };
-  const baseline = buildBaseline(result);
+  const baseline = buildBaseline({ ...result, claudeVersion: '2.1.310' });
   const text = JSON.stringify(baseline);
   assert.doesNotMatch(text, /SECRET REVIEW TEXT|JUDGE REASON|transcripts/);
   assert.equal(baseline.config, 'A');
   assert.equal(baseline.harnessSha, HARNESS);
+  assert.equal(baseline.claudeVersion, '2.1.310');
   assert.equal(baseline.runsPerCase, 2);
   assert.equal(baseline.cases.a.caught, 2);
   assert.equal(baseline.cases.a.passAtK, 1);
@@ -2291,4 +2294,13 @@ test('runCase fails the run when the reviewer modified shared node_modules', asy
   );
   assert.equal(result.nodeModulesModified, true);
   assert.equal(exec.calls.filter((c) => c.command === 'claude').length, 1, 'no judge call');
+});
+
+test('parseClaudeVersion reads the CLI version; claudeVersionWarning fires only across versions', () => {
+  assert.equal(parseClaudeVersion('2.1.310 (Claude Code)\n'), '2.1.310');
+  assert.equal(parseClaudeVersion('claude 2.2.0-beta.1'), '2.2.0-beta.1');
+  assert.equal(parseClaudeVersion(''), null);
+  assert.equal(claudeVersionWarning('2.1.310', '2.1.310'), null);
+  assert.equal(claudeVersionWarning(null, '2.1.310'), null);
+  assert.match(claudeVersionWarning('2.1.300', '2.1.310'), /2\.1\.300.*2\.1\.310/);
 });
