@@ -19,6 +19,7 @@ import {
   migrateAgentSuite,
   OpenAiResponsesAdapter,
   ProviderRegistry,
+  resolveModelPrice,
 } from '@shared/agent-lab';
 import type { Fetcher } from '@shared/protocol/types';
 import type { Command } from 'commander';
@@ -99,6 +100,22 @@ export function preflightAgentSuite(
     }
   }
 
+  // Cost budgets and cost graders need a known price; otherwise every trial
+  // would fail at run time (cost unknown) instead of being refused up front.
+  const hasCostGrader = suite.graders.some((grader) => grader.kind === 'cost');
+  for (const agent of suite.agents) {
+    if (
+      (hasCostGrader || agent.limits.maxCostUSD !== undefined) &&
+      !resolveModelPrice(agent.model.providerId, agent.model.model, runtime?.modelPrices)
+    ) {
+      throw new Error(
+        `cost budgets and cost graders need a known price, but ${agent.model.providerId} model ` +
+          `${agent.model.model} (agent ${agent.id}) is unpriced; add it under modelPrices in the ` +
+          'runtime manifest, or remove maxCostUSD and cost graders'
+      );
+    }
+  }
+
   const modelCredentials = [
     ...suite.agents.map((agent) => agent.model.credential),
     ...suite.graders.flatMap((grader) =>
@@ -168,8 +185,14 @@ async function runAgentSuite(
   const variables = options.env ? await dependencies.loadEnvironment(options.env) : {};
   const timeoutMs = numericFlag('--timeout', options.timeout ?? '30000');
   const providers = new ProviderRegistry([
-    new OpenAiResponsesAdapter({ fetcher: dependencies.fetcher }),
-    new AnthropicMessagesAdapter({ fetcher: dependencies.fetcher }),
+    new OpenAiResponsesAdapter({
+      fetcher: dependencies.fetcher,
+      ...(runtime?.modelPrices ? { priceOverrides: runtime.modelPrices } : {}),
+    }),
+    new AnthropicMessagesAdapter({
+      fetcher: dependencies.fetcher,
+      ...(runtime?.modelPrices ? { priceOverrides: runtime.modelPrices } : {}),
+    }),
   ]);
   // Tool-resolution refusals are invalid input (exit 2), but the runner records
   // a resolve error as a failed trial. Capture them and stop the suite so the

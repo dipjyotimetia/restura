@@ -309,6 +309,18 @@ The headless runner is deliberately narrower than the desktop AI Lab and fails c
 }
 ```
 
+Cost budgets (`limits.maxCostUSD`) and `cost` graders need a known price. OpenAI and Anthropic models in Restura's shared price table are costed from the provider's reported usage (cached tokens are billed at the cache rate; if cached tokens appear but no cache rate is known, cost is treated as unknown rather than guessed). A suite that uses a budget or cost grader on an unpriced model is refused with exit 2; price it with per-model overrides (USD per million tokens, keyed by model id) in the runtime manifest:
+
+```json
+{
+  "schemaVersion": 1,
+  "sources": [],
+  "modelPrices": {
+    "my-finetune": { "inputUSDPerMTok": 2, "outputUSDPerMTok": 8, "cacheReadUSDPerMTok": 0.5 }
+  }
+}
+```
+
 A suite's policy profile (`agents[].policyId` → `policies[]`) is refused with exit 2 unless it is CI-safe: `ciEligible: true` (default `false`) and `autoApprove` containing only `read`. Suites that reference no profile are unaffected; a desktop profile that auto-approves writes must be edited (or dropped) before it can run in CI.
 
 A Bundle may also use deterministic, read-only fixture tools; its baseline gates turn a regressed report into a failing result. Exit codes: `0` when every trial (and every bundle gate) passes, `1` for an evaluated failure, error, or cancellation (SIGINT/SIGTERM cancel cooperatively: MCP sessions are closed and a partial `--output` report is still written; a second signal force-quits), `2` for invalid input, unsupported configuration, or I/O failure. Step, time, tool, token, cost, and output budgets still apply.

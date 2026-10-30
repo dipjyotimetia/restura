@@ -25,6 +25,8 @@ vi.mock('../../runner/agentMcpClient', () => ({ connectCliMcpClient: vi.fn() }))
 function suite(
   overrides: {
     providerId?: string;
+    model?: string;
+    maxCostUSD?: number;
     baseUrl?: string;
     tools?: AgentSuite['agents'][number]['tools'];
     credential?: AgentSuite['agents'][number]['model']['credential'];
@@ -41,13 +43,17 @@ function suite(
         id: 'agent-1',
         model: {
           providerId: overrides.providerId ?? 'openai.responses',
-          model: 'gpt-5-mini',
+          model: overrides.model ?? 'gpt-5-mini',
           ...(overrides.baseUrl ? { baseUrl: overrides.baseUrl } : {}),
           ...(overrides.credential ? { credential: overrides.credential } : {}),
         },
         instructions: 'Answer succinctly.',
         tools: overrides.tools ?? [],
-        limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        limits: {
+          maxSteps: 1,
+          maxWallTimeMs: 1_000,
+          ...(overrides.maxCostUSD !== undefined ? { maxCostUSD: overrides.maxCostUSD } : {}),
+        },
       },
     ],
     tasks: [
@@ -284,6 +290,87 @@ describe('policy profile CI gating', () => {
       preflightAgentSuite(suiteWithPolicy({ autoApprove: ['read'], ciEligible: true }))
     ).not.toThrow();
     expect(() => preflightAgentSuite(suite())).not.toThrow();
+  });
+});
+
+const costGrader: AgentSuite['graders'] = [{ id: 'cost-1', kind: 'cost', maxUSD: 1 }];
+
+describe('cost preflight', () => {
+  it.each([
+    ['a maxCostUSD budget', suite({ maxCostUSD: 1 })],
+    ['a cost grader', suite({ graders: costGrader })],
+  ])('exits 2 for %s on an unpriced model', async (_name, input) => {
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependenciesWithFiles({ '/suite.json': input }, fetcher);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      expect(await runAgentEval('/suite.json', {}, deps)).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('gpt-5-mini'));
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('modelPrices'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it('admits priced models and manifest price overrides', () => {
+    expect(() =>
+      preflightAgentSuite(suite({ model: 'gpt-5.4-mini', maxCostUSD: 1, graders: costGrader }))
+    ).not.toThrow();
+    const runtime = AgentRuntimeManifestSchema.parse({
+      schemaVersion: 1,
+      sources: [],
+      modelPrices: { 'gpt-5-mini': { inputUSDPerMTok: 0.25, outputUSDPerMTok: 2 } },
+    });
+    expect(() =>
+      preflightAgentSuite(suite({ maxCostUSD: 1, graders: costGrader }), undefined, runtime)
+    ).not.toThrow();
+  });
+
+  it('rejects invalid manifest prices', () => {
+    expect(() =>
+      AgentRuntimeManifestSchema.parse({
+        schemaVersion: 1,
+        sources: [],
+        modelPrices: { m: { inputUSDPerMTok: -1, outputUSDPerMTok: 2 } },
+      })
+    ).toThrow();
+  });
+
+  it('enforces the budget and grades cost end to end for a priced model', async () => {
+    const body = JSON.stringify({
+      id: 'response-1',
+      status: 'completed',
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'hello' }] }],
+      usage: { input_tokens: 1_000_000, output_tokens: 100_000 },
+    });
+    const fetcher = vi.fn<Fetcher>().mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      contentLengthHeader: null,
+      text: async () => body,
+    });
+    const priced = (maxUSD: number) =>
+      suite({
+        model: 'gpt-5.4-mini',
+        maxCostUSD: 5,
+        graders: [
+          { id: 'exact-1', kind: 'exact' },
+          { id: 'cost-1', kind: 'cost', maxUSD },
+        ],
+      });
+
+    // 1M in * 0.75 + 100k out * 4.5 = $1.20
+    const within = await evaluateAgentSuite('/suite.json', {}, dependencies(priced(2), fetcher));
+    const over = await evaluateAgentSuite('/suite.json', {}, dependencies(priced(1), fetcher));
+
+    expect(within.status).toBe('passed');
+    expect(over.status).toBe('failed');
+    expect(over.results[0]?.scores.find((item) => item.graderId === 'cost-1')?.detail).toContain(
+      '$1.200000'
+    );
   });
 });
 

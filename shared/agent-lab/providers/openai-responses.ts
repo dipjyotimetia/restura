@@ -10,6 +10,7 @@ import type {
   ProviderExecutionContext,
 } from '../provider';
 import type { ContentBlock, CredentialRef } from '../types';
+import { type AgentModelPriceOverrides, knownCostUSD, resolveModelPrice } from './pricing';
 
 const OPENAI_RESPONSES_CAPABILITIES: ModelCapabilities = {
   inputModalities: ['text', 'image', 'document'],
@@ -126,11 +127,19 @@ function parseArguments(value: unknown): unknown {
   }
 }
 
-function parseResponse(value: unknown): GenerationResponse {
+function parseResponse(
+  value: unknown,
+  model: string,
+  priceOverrides?: AgentModelPriceOverrides
+): GenerationResponse {
   const body = value as {
     id?: unknown;
     output?: unknown;
-    usage?: { input_tokens?: unknown; output_tokens?: unknown };
+    usage?: {
+      input_tokens?: unknown;
+      output_tokens?: unknown;
+      input_tokens_details?: { cached_tokens?: unknown };
+    };
     status?: unknown;
   };
   if (typeof body.id !== 'string' || !Array.isArray(body.output)) {
@@ -168,12 +177,24 @@ function parseResponse(value: unknown): GenerationResponse {
   const inputTokens = body.usage?.input_tokens;
   const outputTokens = body.usage?.output_tokens;
   const hasUsage = typeof inputTokens === 'number' && typeof outputTokens === 'number';
+  // `input_tokens` includes cached tokens, which bill at the cache-read rate.
+  const cachedTokens = body.usage?.input_tokens_details?.cached_tokens;
+  const cacheRead =
+    typeof cachedTokens === 'number' ? Math.min(cachedTokens, inputTokens as number) : 0;
+  const costUSD = hasUsage
+    ? knownCostUSD(resolveModelPrice('openai.responses', model, priceOverrides), {
+        input: inputTokens - cacheRead,
+        cacheRead,
+        output: outputTokens,
+      })
+    : undefined;
   return {
     id: body.id,
     output,
     toolCalls,
     continuationId: body.id,
     ...(hasUsage ? { usage: { inputTokens, outputTokens } } : {}),
+    ...(costUSD !== undefined ? { costUSD } : {}),
     stopReason:
       toolCalls.length > 0
         ? 'tool-calls'
@@ -188,6 +209,8 @@ export interface OpenAiResponsesAdapterOptions {
   fetcher: Fetcher;
   baseUrl?: string;
   discoveryCredential?: CredentialRef;
+  /** Per-model prices that take precedence over the shared table (CLI runtime manifest). */
+  priceOverrides?: AgentModelPriceOverrides;
 }
 
 export class OpenAiResponsesAdapter implements ProviderAdapter {
@@ -195,11 +218,13 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
   private readonly fetcher: Fetcher;
   private readonly baseUrl: string;
   private readonly discoveryCredential: CredentialRef | undefined;
+  private readonly priceOverrides: AgentModelPriceOverrides | undefined;
 
   constructor(options: OpenAiResponsesAdapterOptions) {
     this.fetcher = options.fetcher;
     this.baseUrl = (options.baseUrl ?? 'https://api.openai.com').replace(/\/+$/, '');
     this.discoveryCredential = options.discoveryCredential;
+    this.priceOverrides = options.priceOverrides;
   }
 
   async discoverModels(context: ProviderDiscoveryContext = {}): Promise<DiscoveredAgentModel[]> {
@@ -283,7 +308,7 @@ export class OpenAiResponsesAdapter implements ProviderAdapter {
     if (response.status < 200 || response.status >= 300) {
       throw new Error(`OpenAI Responses ${response.status}: ${text.slice(0, 500)}`);
     }
-    return parseResponse(JSON.parse(text));
+    return parseResponse(JSON.parse(text), request.model.model, this.priceOverrides);
   }
 
   private async resolveCredential(
