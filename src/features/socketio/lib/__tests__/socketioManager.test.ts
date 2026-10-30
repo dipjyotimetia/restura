@@ -182,4 +182,34 @@ describe('socketioManager (browser)', () => {
       vi.useRealTimers();
     }
   });
+
+  it('sends a desktop ack reply once even when clicked twice while in flight', async () => {
+    const platform = await import('@/lib/shared/platform');
+    let resolveReply!: (v: { success: boolean }) => void;
+    const replyAck = vi.fn(
+      () =>
+        new Promise<{ success: boolean }>((r) => {
+          resolveReply = r;
+        })
+    );
+    const spy = vi
+      .spyOn(platform, 'getElectronAPI')
+      .mockReturnValue({ socketio: { replyAck } } as never);
+    const electron = (socketioManager as unknown as { electronConnections: Set<string> })
+      .electronConnections;
+    electron.add(id);
+    try {
+      socketioManager.replyServerAck(id, 'srv-1', ['a']);
+      socketioManager.replyServerAck(id, 'srv-1', ['a']);
+      expect(replyAck).toHaveBeenCalledTimes(1);
+      resolveReply({ success: true });
+      await vi.waitFor(() =>
+        expect(conn().events.at(-1)).toMatchObject({ eventName: '<ack reply>' })
+      );
+      expect(conn().events.filter((e) => /Ack reply failed/.test(String(e.args[0])))).toEqual([]);
+    } finally {
+      electron.delete(id);
+      spy.mockRestore();
+    }
+  });
 });

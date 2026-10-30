@@ -71,6 +71,8 @@ class SocketIOManager {
   private browserAcks = new Map<string, Map<string, PendingAck>>(); // connectionId → ackId → pending
   // connectionId → serverAckId → server-requested ack callback (web only; desktop keeps them in main)
   private browserServerAcks = new Map<string, Map<string, (...args: unknown[]) => void>>();
+  // serverAckIds with a desktop reply-ack IPC in flight — a double click must not send twice.
+  private inFlightServerAckReplies = new Set<string>();
 
   /**
    * `overrides` carries the `{{var}}`-resolved URL / auth for this live
@@ -271,10 +273,13 @@ class SocketIOManager {
     if (this.electronConnections.has(connectionId)) {
       const api = getElectronAPI();
       if (!api?.socketio) return;
+      if (this.inFlightServerAckReplies.has(serverAckId)) return;
+      this.inFlightServerAckReplies.add(serverAckId);
       void api.socketio
         .replyAck({ connectionId, serverAckId, args })
         .then((res) => (res?.success ? logReply() : logFailure(res?.error ?? 'unknown error')))
-        .catch((err: unknown) => logFailure(err instanceof Error ? err.message : 'IPC error'));
+        .catch((err: unknown) => logFailure(err instanceof Error ? err.message : 'IPC error'))
+        .finally(() => this.inFlightServerAckReplies.delete(serverAckId));
       return;
     }
 
