@@ -29,8 +29,8 @@ A provider config is one row per endpoint you add. AI Lab splits them into two k
 
 API keys are stored as a [`SecretRef`](/architecture/adrs/0007-secret-ref-pattern/) handle, never in plaintext in the renderer; the main process resolves the key only at the moment it signs the outbound request. The **Providers** tab also lets you **test the connection** and **discover models** (`/api/tags` for Ollama, `/v1/models` for OpenAI-compatible).
 
-<Aside type="caution" title="Local endpoints only reach loopback">
-The localhost SSRF carve-out is **loopback-only** (`127.0.0.1` / `::1`). LAN, private (RFC 1918 / CGNAT), link-local, and cloud-metadata addresses stay blocked for every provider — see [Security](#security--ssrf) below.
+<Aside type="caution" title="Local endpoints reach loopback and your LAN only">
+Local providers (Ollama, OpenAI-compatible) may reach loopback and RFC 1918 LAN addresses. Link-local, CGNAT, IPv6 unique-local, and cloud-metadata addresses stay blocked for every provider, and cloud providers get no carve-out — see [Security](#security--ssrf) below.
 </Aside>
 
 ## Playground
@@ -55,7 +55,7 @@ The **Datasets** tab can seed a dataset from an OpenAPI 3 / Swagger 2 document. 
 
 ### Import from request history / collections
 
-Turn real traffic into eval cases: **From history** lists your saved HTTP requests (request history and saved collection requests), and each selected request becomes a case — its method, URL, headers, and body become `vars`, and the captured response body becomes the `reference`. Secrets are **redacted** (credential headers, `Bearer`/JWT/`key=value` tokens, recognizable provider keys) by the same redactor the AI assistant uses before anything reaches a model.
+Turn real traffic into eval cases: **From history** lists your saved HTTP requests (request history and saved collection requests), and each selected request becomes a case — its method, URL, headers, and body become `vars`, and the captured response body becomes the `reference`. Secrets are **redacted** (credential headers, `Bearer`/JWT/`key=value` tokens, recognizable provider keys, URL userinfo and query values, and the values of your environment, collection, and folder variables) before anything reaches a model. **Review redactions** shows what changed before you save.
 
 ### Generate adversarial / red-team cases
 
@@ -116,11 +116,17 @@ The model — not you — chooses the URL, method, and body. Within the SSRF bou
 
 The **Reports** tab shows a **leaderboard** across a run (pass rate, p50/p95 latency, cost per model) and a **regression compare** against an earlier run of the same eval config. Eval-run ids are stable per config so re-running and comparing works across sessions. Pass rate excludes "not evaluated" cells (a run with no scorers), so a misconfigured eval reads as neither 0% nor 100%.
 
+Each eval has a **pass threshold**, 100% of scored cells by default. A run below it reads `failed`; errored cells count as not passed, and a run with nothing scored reads `error`. Reports saved before thresholds existed keep their stored status. A run interrupted by quitting the app reads `interrupted`.
+
+AI Lab keeps the newest 50 eval reports, within a 50 MiB total. If a saved record fails validation on load, only that record is dropped: its raw data is backed up locally and you're offered an export. A failed report save can be retried or discarded, so it no longer blocks new runs.
+
 Each run can be **exported** as CSV, JSON, or Markdown. A **per-case drill-down** opens any case to see every model's full output, per-scorer detail, and judge per-criterion reasoning side by side — a **cross-model diff** for that case.
 
 ## Arena
 
 The **Arena** ranks models head-to-head. Pick a dataset and **two or more contestant models** plus a **judge model**; the Arena runs every model pair against every case as a **round-robin pairwise** comparison (with position-bias swap) and folds the results into an **Elo leaderboard** and a **win-rate matrix**. It's the model-vs-model counterpart to the per-cell `pairwise` scorer, and the right tool when you want a ranking across many models rather than a pass/fail per cell. Runs are bounded-concurrency and cancellable, and persist to their own history (the `arenaRuns` store).
+
+A match where a contestant or the judge errors shows as an error and is left out of the Elo and win-rate results, never counted as a tie. A run with some errored matches ends `partial` and keeps its results; one where every match failed ends `error`. **Stop** cancels in-flight calls and is not an error.
 
 ## Agent suites
 

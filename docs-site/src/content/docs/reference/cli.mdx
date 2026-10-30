@@ -245,7 +245,7 @@ Combine with a comma: `--reporter live,junit --reporter-output junit=results.xml
 
 ## Agent eval
 
-`restura agent eval <suite-or-bundle.json>` runs a versioned Agent Suite or portable Agent Bundle in CI and prints a compact JSON summary. It exits `0` only when every trial and every configured baseline gate passes; evaluated failures, errors, and cancellations exit `1`; invalid input or unsupported configuration exits `2`.
+`restura agent eval <suite-or-bundle.json>` runs a versioned Agent Suite or portable Agent Bundle in CI and prints a compact JSON summary. It exits `0` only when every trial and every configured baseline gate passes; evaluated failures, errors, and cancellations exit `1`; invalid input or unsupported configuration exits `2`. SIGINT and SIGTERM cancel cooperatively: MCP sessions are closed and a partial `--output` report is still written; a second signal force-quits.
 
 ```bash
 restura agent eval ./orders.agent-bundle.json --output agent-report.json
@@ -258,9 +258,23 @@ restura agent eval ./orders.agent-bundle.json --output agent-report.json
 | `--env <file>` | | JSON or YAML env file used by saved requests: a flat `{ "key": "value" }` object (string values only). Postman and Hoppscotch environment exports are not read. |
 | `--timeout <ms>` | `30000` | Per saved-HTTP-request timeout. |
 | `--allow-localhost` | `false` | Permit localhost saved-request targets. |
-| `--telemetry-config <file>` | | Metadata-only Langfuse or OTLP export; credentials must be environment references. |
+| `--telemetry-config <file>` | | Metadata-only Langfuse or OTLP export; credentials must be environment references. The collector hostname is resolved once and every address validated: private, link-local, metadata, and loopback-via-hostname results exit `2` before the run. |
 
 The CLI is intentionally narrower than the desktop AI Lab: it supports stateless OpenAI Responses and Anthropic Messages with environment credentials, deterministic fixtures, and an optional runtime manifest for selected saved HTTP and MCP tools. It refuses desktop secret handles, arbitrary base URLs, judge graders, and sandbox providers. A runtime manifest can only expose explicitly listed read-only HTTP requests and read-only MCP tools with an allowlist; `--allow-localhost` remains off by default.
+
+Cost budgets (`limits.maxCostUSD`) and `cost` graders need a known price. OpenAI and Anthropic models in Restura's shared price table are costed from reported usage; cached tokens with no known cache rate make the cost unknown rather than guessed. A suite using a budget or cost grader on an unpriced model exits `2` unless the runtime manifest prices it:
+
+```json
+{
+  "schemaVersion": 1,
+  "sources": [],
+  "modelPrices": {
+    "my-finetune": { "inputUSDPerMTok": 2, "outputUSDPerMTok": 8, "cacheReadUSDPerMTok": 0.5 }
+  }
+}
+```
+
+A policy profile (`agents[].policyId`) exits `2` unless it has `ciEligible: true` (default `false`) and `autoApprove` contains only `read`. Suites that reference no profile are unaffected. See the [CLI README](https://github.com/dipjyotimetia/restura/blob/main/cli/README.md) for the other refusals.
 
 <Aside type="caution" title="Treat trace reports as sensitive">
 `--output` writes the full local trace report, which can contain task inputs and model or tool outputs. Store and expire it according to your CI artifact policy.
