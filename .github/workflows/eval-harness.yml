@@ -34,6 +34,15 @@ on:
         description: Max USD per model run; blank = 10 (harness review) or 1 (routing session)
         type: string
         default: ''
+      save-baseline:
+        description: Harness suite only. Also write evals/harness/baselines/<stamp>--<config>.json (summary only) and upload it as the eval-baseline artifact to commit (ADR 0033 needs a committed baseline to gate against)
+        type: boolean
+        default: false
+      sandbox:
+        description: Run the reviewer's Bash in the Claude Code sandbox with network egress limited to the Claude API (strict) or unsandboxed (off)
+        type: choice
+        options: [strict, 'off']
+        default: strict
   pull_request:
     types: [labeled]
 
@@ -75,7 +84,52 @@ jobs:
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install Claude Code CLI
-        run: npm install --global @anthropic-ai/claude-code@2.1.310 # pinned; bump deliberately (eval results depend on it)
+        run: npm install --global @anthropic-ai/claude-code@2.1.310 # pinned; bump deliberately (eval results depend on it; every result records `claude --version`)
+
+      # The reviewer gets Bash with CLAUDE_CODE_OAUTH_TOKEN in its environment. `--disallowedTools`
+      # denies curl/wget/gh/WebFetch but is not a sandbox (node -e "fetch(...)" is one line away), so
+      # on this runner the Claude Code sandbox (bubblewrap + socat) wraps every Bash command:
+      # network egress is denied except the hosts Claude Code itself needs (api.anthropic.com for the
+      # model, platform.claude.com / claude.ai for OAuth token refresh; registry.npmjs.org because
+      # `npx` in the repo's gates may resolve a bin). github.com is deliberately NOT allowed: the fix
+      # to every case lives there. `strictAllowlist` is user-or-managed scope, so it goes in the
+      # runner's ~/.claude/settings.json, not the repo's. `failIfUnavailable` + `allowUnsandboxedCommands:
+      # false` fail closed: a review that cannot be sandboxed is a harness error, never a quiet
+      # unsandboxed run. `sandbox: off` is for diagnosing a sandbox regression, not for routine runs.
+      - name: Enable the Claude Code sandbox (egress allowlist)
+        if: ${{ (inputs.sandbox || 'strict') == 'strict' }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap socat
+          mkdir -p ~/.claude
+          cat > ~/.claude/settings.json <<'JSON'
+          {
+            "sandbox": {
+              "enabled": true,
+              "failIfUnavailable": true,
+              "allowUnsandboxedCommands": false,
+              "autoAllowBashIfSandboxed": true,
+              "network": {
+                "strictAllowlist": true,
+                "allowedDomains": [
+                  "api.anthropic.com",
+                  "platform.claude.com",
+                  "claude.ai",
+                  "registry.npmjs.org"
+                ]
+              }
+            }
+          }
+          JSON
+          # Prove the allowlist holds before spending money: a non-allowlisted host must be unreachable.
+          if claude -p --permission-mode dontAsk --max-turns 2 --allowedTools Bash \
+               'Run exactly: node -e "fetch(\"https://example.com\").then(()=>console.log(\"REACHED\"),e=>console.log(\"BLOCKED\"))" and reply with the single word it printed.' \
+             | grep -q REACHED; then
+            echo "::error::sandbox egress check failed: example.com was reachable"; exit 1
+          fi
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
       - name: Run eval
         env:
@@ -84,6 +138,7 @@ jobs:
           SPLIT: ${{ inputs.split || 'test' }}
           RUNS: ${{ inputs.runs || '2' }}
           BUDGET: ${{ inputs.max-budget || '' }}
+          SAVE_BASELINE: ${{ inputs.save-baseline && 'true' || 'false' }}
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -96,8 +151,10 @@ jobs:
           git config --global user.email "eval-harness@users.noreply.github.com"
           case "$SUITE" in
             harness)
+              extra=()
+              [[ "$SAVE_BASELINE" == true ]] && extra+=(--save-baseline)
               npm run eval:harness -- --split "$SPLIT" --runs "$RUNS" --max-budget-usd "$BUDGET" \
-                --harness-ref HEAD --config "ci-${SHA::12}"
+                --harness-ref HEAD --config "ci-${SHA::12}" "${extra[@]}"
               ;;
             routing)
               npm run eval:routing -- --split "$SPLIT" --runs "$RUNS" --max-budget-usd "$BUDGET" \
@@ -109,6 +166,17 @@ jobs:
       - name: Clean up harness worktrees
         if: always() && (inputs.suite || 'harness') == 'harness'
         run: npm run eval:harness -- --cleanup
+
+      # The baseline is summary-only (no review text), so it is safe to commit: download it and
+      # open a chore PR adding it under evals/harness/baselines/.
+      - name: Upload baseline
+        if: ${{ always() && inputs.save-baseline && (inputs.suite || 'harness') == 'harness' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eval-baseline-${{ github.run_id }}
+          path: evals/harness/baselines/*.json
+          if-no-files-found: warn
+          retention-days: 90
 
       # Summaries only. Transcripts are left out on purpose: a model with Read/Bash may have
       # dumped environment or file contents into them, and artifacts are readable by anyone

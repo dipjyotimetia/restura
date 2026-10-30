@@ -136,3 +136,77 @@ cases:
     prompt: In one paragraph, what is src/lib/shared/capabilities.ts for?
     forbidSkills: [ship-check, code-review, fix-until-green, batch-ship, docs-sync]
     forbidAgents: [restura-docs-steward, restura-parity-checker]
+
+  # ---------------------------------------------------------------- loops and vendored skills
+  - id: babysit-open-prs
+    split: train
+    prompt: Keep an eye on my open PRs on this repo, fix any red CI and deal with the review comments.
+    expectSkills: [babysit-prs]
+    forbidSkills: [batch-ship, new-protocol]
+
+  - id: weekly-maintenance-sweep
+    split: test
+    prompt: Do the weekly maintenance sweep for the repo.
+    expectSkills: [triage-maintenance]
+    forbidSkills: [batch-ship, new-protocol, restura-feature-dev]
+
+  - id: tdd-bug-fix
+    split: train
+    prompt: >-
+      The MQTT panel drops the last retained message when the topic filter has a trailing slash.
+      Fix it test-first: write the failing test, then make it pass.
+    expectSkills: [tdd]
+    forbidSkills: [batch-ship, new-protocol]
+
+  - id: skill-metrics-report
+    split: train
+    prompt: Which of our Claude skills never get used, and which ones fire too often?
+    expectSkills: [skill-report]
+    forbidSkills: [batch-ship, ship-check, restura-feature-dev]
+
+  - id: research-primary-sources
+    split: train
+    prompt: >-
+      Find out how the MCP spec defines elicitation, from the spec itself, and write the
+      findings up as a note in the repo.
+    expectSkills: [research]
+    forbidSkills: [batch-ship, new-protocol, restura-feature-dev]
+
+  - id: grill-the-plan
+    split: test
+    prompt: >-
+      I want to move auth signing out of shared/protocol into each backend. Grill me on this plan
+      before I start.
+    expectSkills: [grilling]
+    forbidSkills: [batch-ship, new-protocol, restura-feature-dev, fix-until-green]
+
+  - id: adr-for-decision
+    split: train
+    prompt: >-
+      We decided the CLI will refuse stdio MCP servers instead of silently skipping them. Record
+      that as an ADR.
+    expectSkills: [domain-modeling]
+    forbidSkills: [batch-ship, new-protocol]
+
+  - id: module-interface-design
+    split: train
+    prompt: >-
+      The Kafka handler in electron/main exposes a dozen small functions. Help me design a deeper
+      interface for it that is easier to test.
+    expectSkills: [codebase-design]
+    forbidSkills: [batch-ship, new-protocol]
+
+  - id: rename-variable-not-loops
+    split: train
+    prompt: Rename the variable `retries` to `maxRetries` in cli/src/runner/executors/grpc.ts.
+    forbidSkills: [batch-ship, grilling, research, triage-maintenance, babysit-prs]
+
+  - id: summarize-commits-not-maintenance
+    split: test
+    prompt: Summarize the last five commits on main in two sentences.
+    forbidSkills: [babysit-prs, triage-maintenance, batch-ship, skill-report, ship-check]
+
+  - id: license-year-not-maintenance
+    split: train
+    prompt: Bump the copyright year in LICENSE to 2026.
+    forbidSkills: [triage-maintenance, dependabot-remediate, batch-ship, babysit-prs, docs-sync]

@@ -32,6 +32,7 @@ import {
   parseClaudeStream,
   passAtK,
   passHatK,
+  readClaudeVersion,
   redactSecrets,
   wilsonInterval,
 } from './harness-eval.mjs';
@@ -386,14 +387,21 @@ export function summariseRouting(cases, runs) {
   };
 }
 
-export function formatRoutingMarkdown({ config, runsPerCase, summary, harnessSha, model }) {
+export function formatRoutingMarkdown({
+  config,
+  runsPerCase,
+  summary,
+  harnessSha,
+  model,
+  claudeVersion,
+}) {
   const n = runsPerCase;
   const t = summary.totals;
   const ci = t.passRateCi ? ` (95% CI ${pct(t.passRateCi.low)}-${pct(t.passRateCi.high)})` : '';
   const lines = [
     `# Routing eval: ${config}`,
     '',
-    `Harness ${harnessSha ?? '?'}; model ${model ?? 'CLI default'}; ${n} run(s) per case.`,
+    `Harness ${harnessSha ?? '?'}; Claude Code ${claudeVersion ?? '?'}; model ${model ?? 'CLI default'}; ${n} run(s) per case.`,
     '',
     `Run pass rate ${pct(t.passRate)}${ci} over ${t.scored} scored runs; ${t.errors} error(s). ` +
       `Mean pass@1: positive ${pct(t.positivePassAt1)}, negative ${pct(t.negativePassAt1)}. ` +
@@ -593,6 +601,7 @@ export async function runRoutingEval(
   fs.mkdirSync(transcripts, { recursive: true });
 
   let snapshot;
+  let claudeVersion = null;
   const cleanup = () => {
     if (snapshot) fs.rmSync(snapshot.parent, { recursive: true, force: true });
   };
@@ -602,6 +611,7 @@ export async function runRoutingEval(
   const runs = [];
   try {
     snapshot = await createSnapshot(exec, options.ref);
+    claudeVersion = await readClaudeVersion(exec);
     for (const c of cases) {
       for (let k = 1; k <= options.runs; k += 1) {
         process.stdout.write(`${c.id} run ${k}/${options.runs}...\n`);
@@ -645,6 +655,7 @@ export async function runRoutingEval(
     kind: 'routing-eval',
     config: options.config,
     harnessSha: snapshot?.sha ?? null,
+    claudeVersion,
     model: options.model,
     split: options.split,
     runsPerCase: options.runs,
