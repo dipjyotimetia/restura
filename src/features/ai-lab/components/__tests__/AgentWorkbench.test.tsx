@@ -15,7 +15,11 @@ import { AgentWorkbench } from '../AgentWorkbench';
 
 const runDesktopAgentSuite = vi.hoisted(() => vi.fn());
 const runDesktopAgentBundle = vi.hoisted(() => vi.fn());
-vi.mock('../../lib/agentRuntime', () => ({ runDesktopAgentBundle, runDesktopAgentSuite }));
+vi.mock('../../lib/agentRuntime', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/agentRuntime')>()),
+  runDesktopAgentBundle,
+  runDesktopAgentSuite,
+}));
 
 const REPORT = {
   suiteId: 'suite-1',
@@ -153,6 +157,21 @@ describe('AgentWorkbench runs', () => {
       agents: [expect.objectContaining({ policyId: 'desktop-approval' })],
     });
     expect(draft.policies).toHaveLength(1);
+  });
+
+  it('toggles the unredacted-cloud override in suite metadata from the checks step (#1028)', async () => {
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    const metadata = () =>
+      JSON.parse((screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value).metadata;
+
+    await user.click(screen.getByRole('tab', { name: 'Checks & budgets' }));
+    const box = screen.getByRole('checkbox', { name: /send unredacted to cloud providers/i });
+    expect(box).not.toBeChecked();
+    await user.click(box);
+    expect(metadata()).toMatchObject({ sendUnredactedToCloud: true });
+    await user.click(box);
+    expect(metadata()?.sendUnredactedToCloud).toBeUndefined();
   });
 
   it('renders each guided builder step and edits bundle-contained suites', async () => {

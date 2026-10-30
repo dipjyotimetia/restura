@@ -169,6 +169,17 @@ export function suiteSendsUnredactedToCloud(suite: AgentSuite): boolean {
   return suite.metadata?.sendUnredactedToCloud === true;
 }
 
+/** Set or clear the override in `suite.metadata`, leaving other metadata untouched. */
+export function withSendUnredactedToCloud<S extends Pick<AgentSuite, 'metadata'>>(
+  suite: S,
+  enabled: boolean
+): S {
+  const { sendUnredactedToCloud: _drop, ...rest } = suite.metadata ?? {};
+  const metadata = enabled ? { ...rest, sendUnredactedToCloud: true } : rest;
+  const { metadata: _old, ...others } = suite;
+  return (Object.keys(metadata).length > 0 ? { ...others, metadata } : others) as S;
+}
+
 export function createDesktopAgentProviders(
   configs: Record<string, AiLabProviderConfig>,
   complete: Complete = completeLlm,

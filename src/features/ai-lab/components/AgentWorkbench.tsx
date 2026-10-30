@@ -10,9 +10,11 @@ import {
 import { Bot, Download, Play, Plus, Save, Square, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { downloadBlob } from '@/lib/shared/file-utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
+import { suiteSendsUnredactedToCloud, withSendUnredactedToCloud } from '../lib/agentRuntime';
 import {
   cancelAgentRun,
   dismissAgentReport,
@@ -581,10 +583,32 @@ function GuidedStep({
   if (step === 'checks') {
     return (
       <div className="mt-3 flex items-center justify-between gap-3 text-sp-10 text-sp-muted">
-        <span>
-          Current limits: {agent.limits.maxSteps} steps · {agent.limits.maxWallTimeMs}ms wall time ·{' '}
-          {suite.graders.length} graders.
-        </span>
+        <div className="space-y-2">
+          <span>
+            Current limits: {agent.limits.maxSteps} steps · {agent.limits.maxWallTimeMs}ms wall time
+            · {suite.graders.length} graders.
+          </span>
+          <label
+            htmlFor="agent-send-unredacted"
+            className="flex items-start gap-2 text-sp-11 text-sp-text"
+          >
+            <Checkbox
+              id="agent-send-unredacted"
+              data-testid="agent-send-unredacted"
+              checked={suiteSendsUnredactedToCloud(suite)}
+              onCheckedChange={(checked) =>
+                onChange((current) => withSendUnredactedToCloud(current, checked === true))
+              }
+            />
+            <span>
+              Send unredacted to cloud providers
+              <span className="block text-sp-11 text-sp-muted">
+                Off by default: cloud calls are refused if the prompt still contains a secret.
+                Stored in the suite metadata. Local providers are never checked.
+              </span>
+            </span>
+          </label>
+        </div>
         <Button
           size="sm"
           variant="outline"

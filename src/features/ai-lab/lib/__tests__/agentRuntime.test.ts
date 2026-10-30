@@ -10,6 +10,8 @@ import {
   createDesktopAgentProviders,
   runDesktopAgentBundle,
   runDesktopAgentSuite,
+  suiteSendsUnredactedToCloud,
+  withSendUnredactedToCloud,
 } from '../agentRuntime';
 
 const completeLlm = vi.fn();
@@ -1177,5 +1179,24 @@ describe('desktop agent loop stays within the IPC message limits (#1035)', () =>
       expect(messages[0]?.role).toBe('system');
       expect(messages[1]?.role).toBe('user');
     }
+  });
+});
+
+describe('suite unredacted-cloud override (#1028)', () => {
+  const suite = (metadata?: Record<string, unknown>) =>
+    ({ id: 's', ...(metadata ? { metadata } : {}) }) as unknown as AgentSuite;
+
+  it('sets the flag in metadata and keeps other metadata keys', () => {
+    const next = withSendUnredactedToCloud(suite({ owner: 'me' }), true);
+    expect(next.metadata).toEqual({ owner: 'me', sendUnredactedToCloud: true });
+    expect(suiteSendsUnredactedToCloud(next)).toBe(true);
+  });
+
+  it('clears the flag and drops empty metadata when turned off', () => {
+    const off = withSendUnredactedToCloud(suite({ sendUnredactedToCloud: true }), false);
+    expect(suiteSendsUnredactedToCloud(off)).toBe(false);
+    expect('metadata' in off).toBe(false);
+    const kept = withSendUnredactedToCloud(suite({ a: 1, sendUnredactedToCloud: true }), false);
+    expect(kept.metadata).toEqual({ a: 1 });
   });
 });
