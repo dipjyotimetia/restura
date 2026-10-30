@@ -32,6 +32,12 @@ cases:
     expectSkills: [ship-check]
     forbidSkills: [batch-ship]
 
+  - id: code-review-since-main
+    split: train
+    prompt: Look over what I changed on this branch since main for bugs and whether it still matches issue #2100. Don't run the full build gates.
+    expectSkills: [code-review, ship-check]
+    forbidSkills: [batch-ship, fix-until-green]
+
   - id: batch-ship-three-issues
     split: train
     prompt: Fix issues #2001, #2002 and #2003 in parallel and ship each one as its own PR.
