@@ -64,7 +64,11 @@ npm run echo:local -- manifest                # write + print the manifest, exit
 | WebSocket        | `ws://localhost:8085/echo`                         | also `/chat` `/graphql` `/ping` `/close`                                       |
 | Secure WebSocket | `wss://localhost:8543/echo`                        | same paths over TLS (CA-signed); the packaged desktop CSP allows `wss:` only   |
 | Socket.IO        | `http://localhost:8086`                            | namespaces `/` `/chat` `/admin`                                                |
-| MCP              | `http://localhost:8087/mcp`                        | streamable-http                                                                |
+| MCP              | `http://localhost:8087/mcp`                        | streamable-http (2025-era SDK, stateless)                                      |
+| MCP v2           | `http://localhost:8088/mcp`                        | v2 SDK: modern `server/discover` era + legacy fallback, subscriptions, pushes   |
+| MCP OAuth        | `http://localhost:8093/mcp`                        | OAuth-protected resource; AS on `:8089` (RFC 8414 + 7591 DCR, PKCE, auto-approve) |
+| graphql-sse      | `http://localhost:8091/graphql/stream`             | graphql-sse distinct-connections mode (`subscription { tick(count: 3) { n } }`) |
+| Legacy graphql-ws| `ws://localhost:8092/graphql`                      | Apollo `subscriptions-transport-ws`; graphql-transport-ws stays on `:8085/graphql` |
 | MQTT             | `mqtt://localhost:1883` / `mqtts://localhost:8883` / `ws://localhost:8083/mqtt` / `wss://localhost:8084/mqtt` | EMQX MQTT 5 (Docker); dashboard `:18083` (admin/public) |
 | Kafka            | `localhost:9092`                                   | Redpanda PLAINTEXT (Docker)                                                    |
 | Kafka SSL        | `localhost:9093`                                   | TLS, no SASL; self-signed broker cert (verify-SSL off)                         |
@@ -122,6 +126,16 @@ These are connection-based or lossy on OpenCollection import — use the manifes
   `http://localhost:8080/oauth/token`, client `restura-client`/`restura-secret`,
   scope `read`; call `GET /oauth/protected`. (OpenCollection import drops the grant
   type, so this one can't be a click-Send collection entry.)
+- **MCP OAuth** (#856) — point an MCP connection at `http://localhost:8093/mcp` with
+  OAuth auth and no credentials: the 401 + `resource_metadata` challenge leads the
+  client to the authorization server on `:8089`, which accepts dynamic registration,
+  auto-approves the PKCE S256 `/authorize` in the browser, and issues the token the
+  resource then accepts. `http://localhost:8088/mcp` is the v2-SDK server (echo tool
+  reports `modern:`/`legacy:` era; resource subscriptions and `list_changed` pushes).
+- **GraphQL subscriptions** (#889) — all three protocols: graphql-transport-ws on
+  `ws://localhost:8085/graphql`, Apollo legacy `graphql-ws` on `ws://localhost:8092/graphql`,
+  graphql-sse on `http://localhost:8091/graphql/stream`. Query:
+  `subscription { tick(count: 3) { n timestamp } }`.
 - **WSSE** — OpenCollection import is lossy, so configure manually (UsernameToken /
   PasswordDigest). `GET /wsse/protected` verifies the `X-WSSE` digest end-to-end.
 - **OAuth1** — signed at the wire, but import is lossy, so configure manually.

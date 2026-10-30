@@ -27,11 +27,21 @@
  * without uploading a .proto.
  *
  * Behaviour mirrors the echo Worker (`echo/handlers/connect.ts`) so web and
- * desktop give identical results for the same input, with two additive testing
- * aids the Worker lacks:
- *   - error injection: send `message: "FAIL_NOT_FOUND"` (etc.) to get that code
+ * desktop give identical results for the same input, plus the same testing
+ * aids as the Connect mock the web e2e uses (`e2e/mocks/grpcServer.ts`), so a
+ * desktop test can reach every error / metadata path the web suite reaches:
+ *   - error injection: send `message: "FAIL_NOT_FOUND"` (etc.) to get that code;
+ *                      `FAIL_WITH_DETAILS` returns FAILED_PRECONDITION with a
+ *                      `google.rpc.Status` in `grpc-status-details-bin` whose
+ *                      single detail is an `echo.v1.EchoReply` (#883)
  *   - metadata echo:   inbound `x-echo-*` request metadata is mirrored back as
- *                      response header metadata
+ *                      response header metadata; every successful call ends
+ *                      with an `x-echo-count` trailer (message count)
+ *   - slow streams:    `message: "SLOW_<ms>:<body>"` on ServerStreamingEcho
+ *                      waits <ms> before each reply so deadline / cancel paths
+ *                      can be exercised
+ *
+ * `GRPC_PORT=0` binds an ephemeral port; the "Listening" line prints the real one.
  */
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
@@ -44,7 +54,10 @@ const { ReflectionService } = require('@grpc/reflection');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROTO_PATH = path.resolve(__dirname, '../e2e/mocks/proto/echo.proto');
-const PORT = Number(process.env.GRPC_PORT) || 50051;
+// `GRPC_PORT=0` asks for an ephemeral port; unset, empty or non-numeric falls
+// back to the documented default.
+const requestedPort = Number(process.env.GRPC_PORT ?? '');
+const PORT = process.env.GRPC_PORT && !Number.isNaN(requestedPort) ? requestedPort : 50051;
 const HOST = process.env.GRPC_HOST || '127.0.0.1';
 
 const COUNT_MIN = 1;
@@ -65,12 +78,75 @@ const FAIL_TRIGGERS = {
   FAIL_UNIMPLEMENTED: grpc.status.UNIMPLEMENTED,
 };
 
+// --- minimal protobuf wire encoding for the `grpc-status-details-bin` trailer.
+// Hand-rolled on purpose: the server is a plain .mjs with no generated code,
+// and `google.rpc.Status` + `google.protobuf.Any` are three fields each.
+function varint(n) {
+  const out = [];
+  let v = n >>> 0;
+  while (v >= 0x80) {
+    out.push((v & 0x7f) | 0x80);
+    v >>>= 7;
+  }
+  out.push(v);
+  return Buffer.from(out);
+}
+function lengthDelimited(fieldNo, bytes) {
+  const b = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes, 'utf8');
+  return Buffer.concat([varint((fieldNo << 3) | 2), varint(b.length), b]);
+}
+function varintField(fieldNo, n) {
+  return Buffer.concat([varint(fieldNo << 3), varint(n)]);
+}
+
+/** `google.rpc.Status{code, message, details:[Any{echo.v1.EchoReply}]}` — the
+ *  same detail the Connect mock attaches for FAIL_WITH_DETAILS. */
+function statusDetailsBin(code, message) {
+  const echoReply = Buffer.concat([lengthDelimited(1, 'detail'), varintField(2, 7)]);
+  const any = Buffer.concat([
+    lengthDelimited(1, 'type.googleapis.com/echo.v1.EchoReply'),
+    lengthDelimited(2, echoReply),
+  ]);
+  return Buffer.concat([
+    varintField(1, code),
+    lengthDelimited(2, message),
+    lengthDelimited(3, any),
+  ]);
+}
+
+const FAIL_WITH_DETAILS = 'FAIL_WITH_DETAILS';
+
 /** Return a grpc error object when `message` is a FAIL_* trigger, else null. */
 function triggeredError(message) {
+  if (message === FAIL_WITH_DETAILS) {
+    const details = `mock-server triggered ${FAIL_WITH_DETAILS}`;
+    const metadata = new grpc.Metadata();
+    metadata.set(
+      'grpc-status-details-bin',
+      statusDetailsBin(grpc.status.FAILED_PRECONDITION, details)
+    );
+    return { code: grpc.status.FAILED_PRECONDITION, details, metadata };
+  }
   const code = FAIL_TRIGGERS[message];
   if (code === undefined) return null;
   return { code, details: `mock-server triggered ${message}` };
 }
+
+/** Trailer carrying the number of messages the call produced. */
+function countTrailer(count) {
+  const trailer = new grpc.Metadata();
+  trailer.set('x-echo-count', String(count));
+  return trailer;
+}
+
+/** `SLOW_<ms>:<body>` → { delayMs, body }; anything else → { delayMs: 0, body }. */
+function slowSpec(message) {
+  const m = /^SLOW_(\d+):(.*)$/s.exec(message);
+  if (!m) return { delayMs: 0, body: message };
+  return { delayMs: Math.min(Number(m[1]), 5_000), body: m[2] };
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Mirror inbound `x-echo-*` request metadata onto the response header metadata. */
 function echoHeaderMetadata(call) {
@@ -91,21 +167,25 @@ const impl = {
     echoHeaderMetadata(call);
     const err = triggeredError(call.request.message);
     if (err) return callback(err);
-    callback(null, { message: `echo: ${call.request.message}`, index: 0 });
+    callback(null, { message: `echo: ${call.request.message}`, index: 0 }, countTrailer(1));
   },
 
-  ServerStreamingEcho(call) {
+  async ServerStreamingEcho(call) {
     echoHeaderMetadata(call);
     const err = triggeredError(call.request.message);
     if (err) {
       call.emit('error', err);
       return;
     }
+    const { delayMs, body } = slowSpec(call.request.message);
     const count = Math.min(Math.max(call.request.count || COUNT_MIN, COUNT_MIN), COUNT_MAX);
     for (let i = 0; i < count; i++) {
-      call.write({ message: `echo: ${call.request.message}`, index: i });
+      if (delayMs > 0) await sleep(delayMs);
+      // Client went away (deadline / cancel) — stop producing.
+      if (call.cancelled) return;
+      call.write({ message: `echo: ${body}`, index: i });
     }
-    call.end();
+    call.end(countTrailer(count));
   },
 
   ClientStreamingEcho(call, callback) {
@@ -119,7 +199,11 @@ const impl = {
     call.on('end', () => {
       if (failed) return callback(failed);
       echoHeaderMetadata(call);
-      callback(null, { message_count: parts.length, concatenated: parts.join('|') });
+      callback(
+        null,
+        { message_count: parts.length, concatenated: parts.join('|') },
+        countTrailer(parts.length)
+      );
     });
   },
 
@@ -134,7 +218,7 @@ const impl = {
       }
       call.write({ message: `echo: ${req.message}`, index: index++ });
     });
-    call.on('end', () => call.end());
+    call.on('end', () => call.end(countTrailer(index)));
   },
 };
 
@@ -171,6 +255,9 @@ function main() {
     console.log('');
     console.log('  Point the DESKTOP app here (echo.restura.dev is web-only for gRPC).');
     console.log('  Error codes: send message "FAIL_NOT_FOUND", "FAIL_UNAUTHENTICATED", etc.');
+    console.log(
+      '  Details:     "FAIL_WITH_DETAILS" → grpc-status-details-bin; "SLOW_<ms>:<body>" delays streams'
+    );
     console.log('  Press Ctrl+C to stop.');
     console.log('');
   });

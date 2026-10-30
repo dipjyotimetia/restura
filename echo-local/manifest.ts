@@ -48,9 +48,16 @@ export function buildManifest(opts: { host: string; certs?: EchoCerts | undefine
       ws: `ws://${host}:${PORTS.ws}/echo  (also /chat /graphql sub /ping /close)`,
       wss: `wss://${host}:${PORTS.wss}/echo  (same paths over TLS — what the packaged desktop CSP allows)`,
       socketio: `http://${host}:${PORTS.socketio}  (namespaces / /chat /admin)`,
-      mcp: `http://${host}:${PORTS.mcp}/mcp  (streamable-http)`,
+      mcp: `http://${host}:${PORTS.mcp}/mcp  (streamable-http, 2025-era SDK — tools echo/add/fail, resources, prompt greet)`,
+      mcpV2: `http://${host}:${PORTS.mcpV2}/mcp  (v2 SDK — modern server/discover era with legacy fallback; resource subscriptions + list_changed pushes)`,
+      mcpOAuth: `http://${host}:${PORTS.mcpOAuthResource}/mcp  (OAuth-protected resource — 401 + WWW-Authenticate resource_metadata until a token from :${PORTS.mcpOAuthAs} is presented)`,
+      'mcpOAuth.authorizationServer': `http://${host}:${PORTS.mcpOAuthAs}  (RFC 8414 metadata, RFC 7591 /register, auto-approving PKCE S256 /authorize, /token)`,
+      graphqlSse: `http://${host}:${PORTS.graphqlSse}/graphql/stream  (graphql-sse distinct-connections mode — POST + Accept: text/event-stream)`,
+      graphqlWsLegacy: `ws://${host}:${PORTS.graphqlWsLegacy}/graphql  (Apollo subscriptions-transport-ws — subprotocol graphql-ws only; graphql-transport-ws is on the WS server's /graphql)`,
       mqtt: `mqtt://${host}:${PORTS.mqtt}  (EMQX MQTT 5 — start via docker compose)`,
       mqtts: `mqtts://${host}:${PORTS.mqtts}  (EMQX self-signed cert — verify-SSL off)`,
+      mqttWs: `ws://${host}:${PORTS.mqttWs}/mqtt  (MQTT over WebSocket — EMQX)`,
+      mqttWss: `wss://${host}:${PORTS.mqttWss}/mqtt  (MQTT over secure WebSocket — EMQX self-signed cert, verify-SSL off)`,
       mqttDashboard: `http://${host}:${PORTS.mqttDashboard}  (EMQX dashboard — admin / public)`,
       kafka: `${host}:${PORTS.kafka}  (Redpanda PLAINTEXT — also SSL :${PORTS.kafkaSsl}, SASL_PLAINTEXT :${PORTS.kafkaSasl}, SASL_SSL :${PORTS.kafkaSaslSsl}; start via docker compose)`,
       schemaRegistry: `http://${host}:${PORTS.schemaRegistry}  (Confluent-compatible, bundled with Redpanda)`,
@@ -59,6 +66,7 @@ export function buildManifest(opts: { host: string; certs?: EchoCerts | undefine
       'oauth.authorize': `${http}/oauth/authorize`,
       'auth.awsProtected': `${http}/aws/protected`,
       'auth.wsseProtected': `${http}/wsse/protected  (verifies the X-WSSE UsernameToken digest)`,
+      'auth.oauth1Protected': `${http}/oauth1/protected  (verifies the HMAC-SHA1 signature with an independent RFC 5849 verifier)`,
       'auth.digest': `${http}/digest-auth/${TEST_AUTH_FIXTURES.user.username}/${TEST_AUTH_FIXTURES.user.password}`,
       'auth.ntlm': `${http}/ntlm/protected  (NTLMv2, desktop only — rejects a type 3 sent on another connection)`,
     },
@@ -135,13 +143,29 @@ export function buildManifest(opts: { host: string; certs?: EchoCerts | undefine
           `5. Schema Registry http://${host}:${PORTS.schemaRegistry} — produce/consume an Avro or JSON-schema message and confirm decode.`,
         ],
       },
+      mcp: {
+        plain: `http://${host}:${PORTS.mcp}/mcp`,
+        v2: `http://${host}:${PORTS.mcpV2}/mcp`,
+        oauth: `http://${host}:${PORTS.mcpOAuthResource}/mcp`,
+        note:
+          'Connect to the OAuth resource with no credentials: the first request gets a 401 with resource_metadata, the client discovers the authorization server on :' +
+          PORTS.mcpOAuthAs +
+          ', registers itself (DCR), opens the auto-approving /authorize in the browser (PKCE S256, RFC 8707 resource), exchanges the code, then retries with the Bearer token. Refresh is exercised once the first token expires (3600s) — or restart the stack to invalidate every token.',
+        v2Note:
+          'The v2 server reports the negotiated protocol era in its echo tool ("modern:<text>" vs "legacy:<text>"), advertises resource subscriptions, and pushes list_changed / resources/updated notifications over the subscription stream.',
+      },
+      graphqlSubscriptions: {
+        graphqlTransportWs: `ws://${host}:${PORTS.ws}/graphql  (default protocol — graphql-transport-ws)`,
+        graphqlWsLegacy: `ws://${host}:${PORTS.graphqlWsLegacy}/graphql  (Apollo subscriptions-transport-ws; select the legacy protocol in the UI)`,
+        graphqlSse: `http://${host}:${PORTS.graphqlSse}/graphql/stream  (graphql-sse; select the SSE protocol in the UI)`,
+        query: 'subscription { tick(count: 3) { n timestamp } }',
+      },
       multipartAndBinary: {
         upload: `${http}/upload  (POST multipart/form-data — echoes back the parsed fields)`,
         note: 'form-data (text + file fields) and binary request bodies are sendable from the desktop UI — pick the body type, add fields / choose a file, Send.',
       },
       lossyAuth: {
-        oauth1:
-          'Imports as no-auth (OpenCollection lossy) — configure manually. The client signs it at the wire; no server endpoint verifies the signature (the HMAC-SHA1 base string lives inside the oauth-1.0a package, so a faithful verifier can’t share the signer’s logic).',
+        oauth1: `Imports as no-auth (OpenCollection lossy) — configure manually (HMAC-SHA1; consumer ${TEST_AUTH_FIXTURES.oauth1.consumerKey} / ${TEST_AUTH_FIXTURES.oauth1.consumerSecret}, token ${TEST_AUTH_FIXTURES.oauth1.accessToken} / ${TEST_AUTH_FIXTURES.oauth1.accessTokenSecret}). GET /oauth1/protected verifies the signature end-to-end with an independent RFC 5849 verifier (e2e/mocks/oauth1Verify.ts) that shares no code with the client signer.`,
         wsse: 'Imports as no-auth (OpenCollection lossy) — configure manually (PasswordDigest). GET /wsse/protected verifies the X-WSSE UsernameToken digest end-to-end.',
         oauth2:
           'Token fetch uses a renderer fetch() blocked by the packaged-build CSP for http://. Use the dev build (npm run electron:dev) for OAuth2 against :8080, or it only works unpackaged.',

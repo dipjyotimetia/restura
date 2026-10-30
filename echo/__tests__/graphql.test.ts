@@ -143,3 +143,73 @@ describe('graphqlEcho handler', () => {
     expect(json.errors[0]?.message).toMatch(/Syntax Error/);
   });
 });
+
+describe('graphqlEcho handler — GraphQL-over-HTTP GET', () => {
+  it('executes a query from URL params with variables and operationName', async () => {
+    const params = new URLSearchParams({
+      query: 'query Echo($m: String!) { echo(message: $m) { message operation variables } }',
+      variables: JSON.stringify({ m: 'via-get' }),
+      operationName: 'Echo',
+    });
+    const res = await app.request(`http://localhost/graphql?${params.toString()}`);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as EchoResponse;
+    expect(json.data.echo.message).toBe('via-get');
+    expect(json.data.echo.operation).toBe('query');
+    expect(JSON.parse(json.data.echo.variables ?? '{}')).toEqual({ m: 'via-get' });
+  });
+
+  it('GET without a query → 400', async () => {
+    const res = await app.request('http://localhost/graphql');
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as ErrorResponse;
+    expect(json.errors[0]?.message).toBe('query field is required');
+  });
+
+  it('GET with malformed variables JSON → 400', async () => {
+    const res = await app.request(
+      'http://localhost/graphql?query=%7B__typename%7D&variables=%7Bnope'
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as ErrorResponse;
+    expect(json.errors[0]?.message).toBe('Invalid JSON in variables');
+  });
+
+  it('GET refuses a mutation (405)', async () => {
+    const params = new URLSearchParams({
+      query: 'mutation { echo(input: { message: "x" }) { message } }',
+    });
+    const res = await app.request(`http://localhost/graphql?${params.toString()}`);
+    expect(res.status).toBe(405);
+  });
+
+  it('GET refuses a mutation hidden behind a leading comment', async () => {
+    const params = new URLSearchParams({
+      query: '# c\nmutation { echo(input: { message: "x" }) { message } }',
+    });
+    const res = await app.request(`http://localhost/graphql?${params.toString()}`);
+    expect(res.status).toBe(405);
+  });
+
+  it('GET refuses a multi-operation document whose operationName selects the mutation', async () => {
+    const document =
+      'query Q { echo(message: "q") { message } } mutation M { echo(input: { message: "m" }) { message } }';
+    const refused = await app.request(
+      `http://localhost/graphql?${new URLSearchParams({ query: document, operationName: 'M' })}`
+    );
+    expect(refused.status).toBe(405);
+    const allowed = await app.request(
+      `http://localhost/graphql?${new URLSearchParams({ query: document, operationName: 'Q' })}`
+    );
+    expect(allowed.status).toBe(200);
+    expect(((await allowed.json()) as EchoResponse).data.echo.message).toBe('q');
+  });
+
+  it('GET with a syntax error reports it as a GraphQL error, not a 405', async () => {
+    const res = await app.request(
+      `http://localhost/graphql?${new URLSearchParams({ query: '{ echo(' })}`
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as ErrorResponse).errors[0]?.message).toContain('Syntax Error');
+  });
+});

@@ -12,6 +12,8 @@ import { bindLocalhost, closeServer, readBody } from '../utils/serverHelpers';
  */
 
 export interface MockOAuthServerOptions {
+  /** Bind a fixed port (echo-local); default 0 = ephemeral. */
+  port?: number;
   /** Access-token lifetime in seconds (default 3600). */
   expiresIn?: number;
   /** Pre-registered clients: id → secret (null = public client). */
@@ -237,7 +239,7 @@ export async function startMockOAuthServer(
     });
   });
 
-  const port = await bindLocalhost(server);
+  const port = await bindLocalhost(server, opts.port);
   handle.url = `http://127.0.0.1:${port}`;
   handle.issuer = opts.issuerOverride ?? handle.url;
   handle.close = () => closeServer(server);

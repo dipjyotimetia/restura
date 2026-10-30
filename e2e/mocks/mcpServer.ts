@@ -181,11 +181,17 @@ export async function startMockMcpServer(
       res.setHeader('mcp-session-id', advertisedSessionId);
       if (handlePreflight(req, res)) return;
 
+      // The protected-resource identifier and the resource_metadata URL follow
+      // the host the client dialled (like a real server behind a hostname):
+      // the SDK's auth flow checks that the PRM `resource` matches the server
+      // URL, and echo-local advertises `localhost` while the listener binds
+      // 127.0.0.1 — a hard-coded 127.0.0.1 would fail that check.
+      const origin = `http://${req.headers.host ?? `127.0.0.1:${port}`}`;
       if (opts.oauth && req.url?.startsWith('/.well-known/oauth-protected-resource')) {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(
           JSON.stringify({
-            resource: `http://127.0.0.1:${port}/mcp`,
+            resource: `${origin}/mcp`,
             authorization_servers: opts.oauth.authorizationServers,
             ...(opts.oauth.scopesSupported ? { scopes_supported: opts.oauth.scopesSupported } : {}),
             bearer_methods_supported: ['header'],
@@ -197,8 +203,7 @@ export async function startMockMcpServer(
       authorizationsReceived.push(req.headers.authorization ?? '');
       if (opts.oauth && !opts.oauth.isAuthorized(req.headers.authorization ?? '')) {
         const metadataUrl =
-          opts.oauth.resourceMetadataUrl ??
-          `http://127.0.0.1:${port}/.well-known/oauth-protected-resource/mcp`;
+          opts.oauth.resourceMetadataUrl ?? `${origin}/.well-known/oauth-protected-resource/mcp`;
         res.writeHead(401, {
           'content-type': 'application/json',
           'www-authenticate': `Bearer resource_metadata="${metadataUrl}"`,

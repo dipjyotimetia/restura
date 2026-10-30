@@ -42,6 +42,9 @@ e2e/
 │   ├── authRoutes.ts         # OAuth2/JWT/SigV4/Digest/WSSE/OAuth1 verification routes
 │   ├── oauth1Verify.ts       # Independent RFC 5849 verifier (shares no code with the signer)
 │   ├── graphqlSchema.ts      # Schema served by the HTTP mock's /graphql route
+│   ├── graphqlSubscriptionServers.ts # Apollo legacy graphql-ws + graphql-sse fixtures (#889)
+│   ├── http2Server.ts        # h2c (prior knowledge) + h2-over-TLS echo for the HTTP version setting
+│   ├── ntlmRoute.ts          # Independent NTLMv2 verifier behind /ntlm/protected (desktop only)
 │   ├── proxyServer.ts        # CONNECT-tunneling HTTP proxy server
 │   ├── socksProxyServer.ts   # SOCKS5 proxy (desktop + echo-local)
 │   ├── grpcServer.ts         # Connect-RPC JSON server (echo + reflection)
@@ -49,6 +52,8 @@ e2e/
 │   ├── socketioServer.ts     # Socket.IO server (namespaces /, /chat, /admin)
 │   ├── mcpServer.ts          # Streamable-HTTP MCP server
 │   ├── mcpV2Server.ts        # MCP server on the v2 SDK (used by the e2e-electron suite)
+│   ├── mcpOAuthServer.ts     # OAuth 2.1 AS for the MCP auth flow (#856); pairs with mcpServer's oauth mode
+│   ├── mcpLegacySessionServer.ts # Sessionful 2025-era MCP that pushes resources/updated + list_changed
 │   └── proto/echo.proto      # Reference IDL for the mock gRPC service
 ├── utils/
 │   ├── selectors.ts          # Stable role/label selectors for common controls
@@ -123,7 +128,8 @@ Counters and request recordings are exposed for assertions:
 | GraphQL   | Mutation            | yes                                             | yes                                           |
 | GraphQL   | Subscription        | UI hook only                                    | covered by WS `/graphql` graphql-transport-ws |
 | SSE       | unnamed `message`   | yes                                             | yes                                           |
-| SSE       | named events        | wire only                                       | yes (`/stream/sse-named`)                     |
+| SSE       | named events        | yes                                             | yes (`/stream/sse-named`)                     |
+| SSE       | resume / comments   | yes                                             | yes (`/stream/sse-resume`, `/stream/sse-comments`) |
 | WebSocket | text                | yes                                             | yes                                           |
 | WebSocket | binary (hex)        | yes                                             | yes                                           |
 | WebSocket | broadcast/multiplex | n/a                                             | yes (`/chat`)                                 |

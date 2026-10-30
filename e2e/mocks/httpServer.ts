@@ -812,5 +812,5 @@ export function startMockHttpsServer(opts: StartHttpsOptions = {}): Promise<Mock
   }
   if (opts.maxVersion) serverOpts.maxVersion = opts.maxVersion;
   if (opts.ciphers) serverOpts.ciphers = opts.ciphers;
-  return startServer(createHttpsServer(serverOpts), 'https', opts.port);
+  return startServer(createHttpsServer(serverOpts), 'https', opts.port, opts.host);
 }
