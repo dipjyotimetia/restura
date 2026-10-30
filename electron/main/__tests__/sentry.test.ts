@@ -97,7 +97,7 @@ describe('opt-in gate', () => {
 
     const opts = initMock.mock.calls[0]![0] as {
       integrations: { name: string }[];
-      sendDefaultPii: boolean;
+      dataCollection: Record<string, unknown>;
       beforeSend: (e: unknown) => unknown;
       beforeBreadcrumb: (crumb: unknown) => unknown;
     };
@@ -105,7 +105,14 @@ describe('opt-in gate', () => {
     // Release Health session tracking is explicit, and no PII is sent — the
     // documented desktop usage signal.
     expect(opts.integrations.some((i) => i.name === 'MainProcessSession')).toBe(true);
-    expect(opts.sendDefaultPii).toBe(false);
+    expect(opts.dataCollection).toMatchObject({
+      userInfo: false,
+      cookies: false,
+      httpHeaders: false,
+      httpBodies: [],
+      urlQueryParams: false,
+      stackFrameVariables: false,
+    });
 
     const crumb = { type: 'navigation', message: 'click' };
 

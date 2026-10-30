@@ -47,7 +47,9 @@ import {
   unregisterExternalSecretProfileIPC,
 } from './security/external-secret-profile-store';
 import { registerKeychainStatusIPC } from './security/keychain-status-handler';
+import { primeStdioConsentMacKey } from './security/mcp-stdio-consent';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
+import { primeStoreKeys } from './security/store-keys';
 import {
   disposeBrunoExportHandlerIPC,
   registerBrunoExportHandlerIPC,
@@ -327,6 +329,16 @@ function setupSecurityMeasures(): void {
 
 // Initialize the application
 app.whenReady().then(async () => {
+  // Derive every store key (async safeStorage) before anything can open a store —
+  // including the headless MCP branch below, which reads secret handles.
+  try {
+    await Promise.all([primeStoreKeys(), primeStdioConsentMacKey()]);
+  } catch (err) {
+    log.error('failed to prime store keys', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   if (isMcpServerMode) {
     // Headless: no window, no tray, no auto-updater. The MCP SDK owns stdio.
     // Anything that would log to stdout (`console.log`, banners) corrupts the

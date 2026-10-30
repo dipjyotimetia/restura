@@ -44,9 +44,9 @@ vi.mock('electron', () => {
       openExternal: vi.fn().mockResolvedValue(undefined),
     },
     safeStorage: {
-      isEncryptionAvailable: vi.fn(),
-      encryptString: vi.fn(),
-      decryptString: vi.fn(),
+      isAsyncEncryptionAvailable: vi.fn().mockResolvedValue(false),
+      encryptStringAsync: vi.fn(),
+      decryptStringAsync: vi.fn(),
     },
   };
 });

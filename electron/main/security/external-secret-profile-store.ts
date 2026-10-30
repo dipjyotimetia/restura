@@ -18,6 +18,7 @@ import {
 import { createResilientStore } from '../storage/resilient-store';
 import { getOrCreateEncryptedKey } from './encrypted-key';
 import { replaceExternalSecretProfiles } from './external-secret-providers';
+import { EXTERNAL_SECRET_PROFILE_STORE_KEY } from './store-keys';
 
 interface ProfileStoreShape {
   get: (key: string) => unknown;
@@ -36,10 +37,7 @@ function getStore(): ProfileStoreShape {
   if (storeInstance) return storeInstance;
   storeInstance = createResilientStore<ProfileStoreShape>({
     name: 'restura-external-secret-profiles',
-    encryptionKey: getOrCreateEncryptedKey({
-      fileName: '.external-secret-profiles-key',
-      storeLabel: 'external secret profile store',
-    }),
+    encryptionKey: getOrCreateEncryptedKey(EXTERNAL_SECRET_PROFILE_STORE_KEY),
   });
   return storeInstance;
 }

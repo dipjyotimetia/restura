@@ -14,7 +14,8 @@ The existing telemetry surface (unchanged in intent by this ADR):
 - **Desktop (Electron)** — `electron/main/lifecycle/sentry.ts`. Errors + native
   crashes via `@sentry/electron`. Tracing is deliberately **off**
   (`tracesSampleRate` unset) because a span could carry the user's proxied
-  request URL. `sendDefaultPii: false` plus an aggressive `scrubEvent` drops the
+  request URL. `dataCollection` with every category off (SDK 11's replacement for
+  `sendDefaultPii: false`) plus an aggressive `scrubEvent` drops the
   request context, hostname, user, stack-frame locals, and breadcrumb data, and
   redacts secrets/file-paths from all free text. Opt-out, on by default, gated on
   `settings.telemetry.errorsEnabled` (mirrored to the main process via
@@ -43,7 +44,7 @@ default change can't silently flip this signal, and we disclose it.
 
 Release Health emits anonymous session envelopes (session start/end, crash-free
 rate, version adoption) — enough to gauge active users **without any device or
-user identifier**. Sessions carry no IP (`sendDefaultPii: false`) and no user id,
+user identifier**. Sessions carry no IP (`dataCollection.userInfo: false`) and no user id,
 and are gated by the same opt-out as errors (we only `init()` when opted in).
 Like native crash capture, a mid-session opt-out fully stops sessions on the next
 launch.
