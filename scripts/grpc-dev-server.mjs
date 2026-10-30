@@ -54,10 +54,10 @@ const { ReflectionService } = require('@grpc/reflection');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROTO_PATH = path.resolve(__dirname, '../e2e/mocks/proto/echo.proto');
-const PORT =
-  process.env.GRPC_PORT === undefined || process.env.GRPC_PORT === ''
-    ? 50051
-    : Number(process.env.GRPC_PORT);
+// `GRPC_PORT=0` asks for an ephemeral port; unset, empty or non-numeric falls
+// back to the documented default.
+const requestedPort = Number(process.env.GRPC_PORT ?? '');
+const PORT = process.env.GRPC_PORT && !Number.isNaN(requestedPort) ? requestedPort : 50051;
 const HOST = process.env.GRPC_HOST || '127.0.0.1';
 
 const COUNT_MIN = 1;

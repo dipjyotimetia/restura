@@ -1,4 +1,4 @@
-import { buildSchema, type GraphQLResolveInfo, graphql } from 'graphql';
+import { buildSchema, type GraphQLResolveInfo, getOperationAST, graphql, parse } from 'graphql';
 import type { Context } from 'hono';
 import type { EchoEnv } from '../index';
 
@@ -54,6 +54,18 @@ const rootValue = {
   }),
 };
 
+function selectsMutation(query: string, operationName: unknown): boolean {
+  try {
+    const op = getOperationAST(
+      parse(query),
+      typeof operationName === 'string' ? operationName : undefined
+    );
+    return op?.operation === 'mutation';
+  } catch {
+    return false;
+  }
+}
+
 export async function graphqlEcho(c: Context<{ Bindings: EchoEnv }>): Promise<Response> {
   if (c.req.method === 'OPTIONS') {
     return new Response(null, { status: 204 });
@@ -63,8 +75,11 @@ export async function graphqlEcho(c: Context<{ Bindings: EchoEnv }>): Promise<Re
   if (c.req.method === 'GET') {
     // GraphQL-over-HTTP GET (query / variables / operationName as URL params),
     // mirroring the e2e mock so a request built for one upstream works on the
-    // other. Mutations over GET are refused by the spec; graphql-js enforces
-    // that below only for explicitly named operations, so check it here.
+    // other. Mutations over GET are refused by the spec; graphql-js doesn't
+    // enforce that, so resolve the operation the request actually selects
+    // (leading comments, multi-operation documents + operationName) and refuse
+    // it here. A document that fails to parse falls through to execution,
+    // which reports the syntax error the normal way.
     const url = new URL(c.req.url);
     const rawVariables = url.searchParams.get('variables');
     let variables: unknown;
@@ -80,7 +95,7 @@ export async function graphqlEcho(c: Context<{ Bindings: EchoEnv }>): Promise<Re
       variables,
       operationName: url.searchParams.get('operationName') ?? undefined,
     };
-    if (typeof body.query === 'string' && /^\s*mutation\b/.test(body.query)) {
+    if (typeof body.query === 'string' && selectsMutation(body.query, body.operationName)) {
       return c.json({ errors: [{ message: 'Mutations are not allowed over GET' }] }, 405);
     }
   } else {
