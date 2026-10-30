@@ -129,6 +129,13 @@ async function createNativeTelemetryPipeline(
  */
 export async function pinTelemetryEndpoint(endpoint: string): Promise<SafeAddress> {
   const { hostname } = new URL(endpoint);
+  // resolveSafeAddress cannot take a bracketed IPv6 literal outside `localRuntime`
+  // (net.isIP rejects the brackets), and widening that for every caller would
+  // loosen other transports. Only the exact `[::1]` collector is routed through
+  // the localRuntime branch, which validates it as loopback.
+  if (hostname === '[::1]') {
+    return resolveSafeAddress(endpoint, { allowLocalhost: true, localRuntime: true });
+  }
   return resolveSafeAddress(endpoint, { allowLocalhost: isLoopbackAddress(hostname) });
 }
 

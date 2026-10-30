@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pinTelemetryEndpoint } from '../../electron/main/lifecycle/agent-telemetry';
+import { resolveSafeAddress } from '../../electron/main/security/safe-connect';
 
 const mockLookup = vi.hoisted(() => vi.fn());
 vi.mock('node:dns/promises', () => ({ lookup: mockLookup }));
@@ -48,6 +49,17 @@ describe('AI Lab telemetry export endpoint guard (#1034)', () => {
     });
     expect(mockLookup).not.toHaveBeenCalled();
   });
+
+  it.each(['[fd00::1]', '[fe80::1]', '[::]', '[::ffff:169.254.170.2]'])(
+    'resolveSafeAddress still refuses %s outside localRuntime, with allowLocalhost on or off',
+    async (literal) => {
+      for (const allowLocalhost of [true, false]) {
+        await expect(
+          resolveSafeAddress(`http://${literal}:4318/`, { allowLocalhost })
+        ).rejects.toThrow();
+      }
+    }
+  );
 
   it('still refuses a bracketed non-loopback private literal', async () => {
     await expect(pinTelemetryEndpoint('http://[fd00::5]:4318/')).rejects.toThrow();
