@@ -648,6 +648,17 @@ describe('useAiLabStore — local unredacted override (#1028)', () => {
   });
 });
 
+describe('migrateAiLabState override pruning (#1028)', () => {
+  it('drops overrides for suites that no longer exist', () => {
+    const migrated = migrateAiLabState({
+      agentSuites: {},
+      agentUnredactedSuites: { ghost: true },
+    });
+    expect(migrated.agentUnredactedSuites).toEqual({});
+    expect('agentUnredactedSuites' in migrateAiLabState({ runReports: {} })).toBe(false);
+  });
+});
+
 describe('useAiLabStore — datasets', () => {
   beforeEach(reset);
 

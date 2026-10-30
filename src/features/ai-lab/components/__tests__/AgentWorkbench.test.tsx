@@ -167,6 +167,10 @@ describe('AgentWorkbench runs', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Checks & budgets' }));
     const box = screen.getByRole('checkbox', { name: /send unredacted to cloud providers/i });
+    // Unsaved suite: the override cannot be set until the suite exists locally.
+    expect(box).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /save suite/i }));
+    expect(box).toBeEnabled();
     expect(box).not.toBeChecked();
     expect(screen.queryByTestId('agent-unredacted-badge')).toBeNull();
     await user.click(box);
@@ -176,6 +180,35 @@ describe('AgentWorkbench runs', () => {
     expect(screen.getByTestId('agent-unredacted-badge')).toBeInTheDocument();
     await user.click(box);
     expect(useAiLabStore.getState().agentUnredactedSuites).toEqual({});
+  });
+
+  it('clears the override when a same-id suite or bundle is imported (ADR 0020 (c))', async () => {
+    const user = userEvent.setup();
+    useAiLabStore.getState().upsertAgentSuite(SUITE);
+    useAiLabStore.getState().setAgentSuiteUnredacted(SUITE.id, true);
+    render(<AgentWorkbench />);
+    const input = screen.getByLabelText('Import agent suite');
+    await user.upload(input, new File([JSON.stringify(SUITE)], 'suite.json'));
+    await waitFor(() => expect(useAiLabStore.getState().agentUnredactedSuites).toEqual({}));
+
+    useAiLabStore.getState().setAgentSuiteUnredacted(SUITE.id, true);
+    const bundle = { schemaVersion: 1, id: 'b', name: 'b', suite: SUITE, fixtures: [] };
+    await user.upload(input, new File([JSON.stringify(bundle)], 'bundle.json'));
+    await waitFor(() => expect(useAiLabStore.getState().agentUnredactedSuites).toEqual({}));
+  });
+
+  it('clears the override and says so when Save lands on a different suite id', async () => {
+    const user = userEvent.setup();
+    useAiLabStore.getState().upsertAgentSuite(SUITE);
+    useAiLabStore.getState().setAgentSuiteUnredacted(SUITE.id, true);
+    render(<AgentWorkbench />);
+    // A new draft (activeId null) whose JSON reuses the saved suite's id.
+    await user.click(screen.getByRole('button', { name: 'New suite' }));
+    const editor = screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: JSON.stringify(SUITE) } });
+    await user.click(screen.getByRole('button', { name: /save suite/i }));
+    expect(useAiLabStore.getState().agentUnredactedSuites).toEqual({});
+    expect(screen.getByText(/override was turned off/i)).toBeInTheDocument();
   });
 
   it('renders each guided builder step and edits bundle-contained suites', async () => {

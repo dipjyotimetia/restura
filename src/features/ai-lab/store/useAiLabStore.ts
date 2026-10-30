@@ -212,6 +212,15 @@ export function migrateAiLabState(
       })
     ),
     agentSuites,
+    // Overrides for suites that no longer exist must not survive to be inherited
+    // by a later suite that reuses the id.
+    ...(previous.agentUnredactedSuites
+      ? {
+          agentUnredactedSuites: Object.fromEntries(
+            Object.entries(previous.agentUnredactedSuites).filter(([id]) => id in agentSuites)
+          ),
+        }
+      : {}),
     runReports,
     reportQuarantineCount: quarantineCount,
   };

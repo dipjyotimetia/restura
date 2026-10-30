@@ -142,6 +142,14 @@ export function AgentWorkbench() {
       value: { ...bundle.data, suite: migrateAgentSuite(bundle.data.suite) },
     };
   };
+  // The override belongs to the saved suite the user opened. If JSON lands on a
+  // different id (a pasted or edited id), the override is not inherited.
+  const releaseForeignOverride = (id: string): boolean => {
+    if (id === activeId || unredactedSuites?.[id] !== true) return false;
+    setSuiteUnredacted(id, false);
+    return true;
+  };
+  const OVERRIDE_CLEARED = 'The unredacted-cloud override was turned off for this suite id.';
   const save = () => {
     try {
       const parsed = parseDraftPayload();
@@ -151,10 +159,11 @@ export function AgentWorkbench() {
         setMessage('Bundle schema-validated; export it to commit with your project');
       } else {
         const suite = parsed.value;
+        const cleared = releaseForeignOverride(suite.id);
         upsert(suite);
         setActiveId(suite.id);
         setDraft(JSON.stringify(suite, null, 2));
-        setMessage('Saved and schema-validated');
+        setMessage(cleared ? `Saved. ${OVERRIDE_CLEARED}` : 'Saved and schema-validated');
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -181,11 +190,13 @@ export function AgentWorkbench() {
       const bundle = AgentBundleSchema.safeParse(raw);
       if (bundle.success) {
         const parsed = { ...bundle.data, suite: migrateAgentSuite(bundle.data.suite) };
+        setSuiteUnredacted(parsed.suite.id, false);
         setActiveId(null);
         setDraft(JSON.stringify(parsed, null, 2));
         setMessage('Bundle imported and schema-validated');
       } else {
         const parsed = migrateAgentSuite(AgentSuiteSchema.parse(raw));
+        setSuiteUnredacted(parsed.id, false);
         upsert(parsed);
         setActiveId(parsed.id);
         setDraft(JSON.stringify(parsed, null, 2));
@@ -198,6 +209,9 @@ export function AgentWorkbench() {
   const run = () => {
     try {
       const parsed = parseDraftPayload();
+      const cleared = releaseForeignOverride(
+        parsed.bundle ? parsed.value.suite.id : parsed.value.id
+      );
       if (!parsed.bundle) upsert(parsed.value);
       const started = startAgentRun(
         parsed.value,
@@ -211,6 +225,7 @@ export function AgentWorkbench() {
       );
       if (!started)
         setMessage('An agent run is already active. Cancel it before starting another.');
+      else if (cleared) setMessage(`Running. ${OVERRIDE_CLEARED}`);
       else if (parsed.bundle) setMessage('Running deterministic fixture bundle');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -391,6 +406,9 @@ export function AgentWorkbench() {
               step={builderStep}
               suite={guidedSuite}
               sendUnredacted={unredactedSuites?.[guidedSuite.id] === true}
+              canSetUnredacted={
+                activeId !== null && activeId === guidedSuite.id && !!suites[activeId]
+              }
               onSendUnredactedChange={(enabled) => setSuiteUnredacted(guidedSuite.id, enabled)}
               onChange={(update) => updateGuidedSuite(guidedPayload, update)}
               onExport={exportSuite}
@@ -538,6 +556,7 @@ function GuidedStep({
   step,
   suite,
   sendUnredacted,
+  canSetUnredacted,
   onSendUnredactedChange,
   onChange,
   onExport,
@@ -545,6 +564,8 @@ function GuidedStep({
   step: BuilderStep;
   suite: AgentSuite;
   sendUnredacted: boolean;
+  /** Only a saved suite can carry the override; an unsaved one has no local identity yet. */
+  canSetUnredacted: boolean;
   onSendUnredactedChange: (enabled: boolean) => void;
   onChange: (update: (suite: NormalizedAgentSuite) => NormalizedAgentSuite) => void;
   onExport: () => void;
@@ -614,6 +635,7 @@ function GuidedStep({
               id="agent-send-unredacted"
               data-testid="agent-send-unredacted"
               checked={sendUnredacted}
+              disabled={!canSetUnredacted}
               onCheckedChange={(checked) => onSendUnredactedChange(checked === true)}
             />
             <span>
