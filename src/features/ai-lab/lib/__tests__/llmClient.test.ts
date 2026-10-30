@@ -38,7 +38,8 @@ describe('specFor', () => {
 
   it('includes baseUrlOverride and omits the key for a keyless local provider', () => {
     const spec = specFor(LOCAL, 'llama3.2', MSGS);
-    expect(spec.rawMode).toBe(true);
+    // Locality is decided in Electron main from the pinned address, not here.
+    expect(spec.rawMode).toBe(false);
     expect(spec.baseUrlOverride).toBe('http://localhost:11434');
     expect(spec.apiKeyHandleId).toBeUndefined();
   });

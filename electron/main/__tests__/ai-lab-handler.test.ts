@@ -188,6 +188,39 @@ describe('ai-lab-handler', () => {
     await expect(handlerFor('ai-lab:complete')(untrusted, {})).rejects.toThrow(/untrusted frame/);
   });
 
+  describe('complete: secret check follows the pinned address (#1028)', () => {
+    const base = {
+      operationId: OPERATION_ID,
+      model: 'm',
+      messages: [{ role: 'user', content: 'hi' }],
+      rawMode: false,
+    };
+    const run = async (provider: string, ip: string, rawMode = false) => {
+      mockResolveSafe.mockResolvedValueOnce({ host: 'h', ip, port: 443, family: 4 as const });
+      await handlerFor('ai-lab:complete')(TRUSTED, {
+        ...base,
+        rawMode,
+        provider,
+        baseUrlOverride: 'http://h.example:8080',
+      });
+      const call = mockRunToCompletion.mock.calls.at(-1) as unknown as [{ rawMode: boolean }];
+      return call[0].rawMode;
+    };
+
+    it('skips the check for a local kind on loopback or RFC1918', async () => {
+      expect(await run('openai-compatible', '127.0.0.1')).toBe(true);
+      expect(await run('ollama', '192.168.1.20')).toBe(true);
+    });
+
+    it('keeps the check for a local kind that resolves to a public host', async () => {
+      expect(await run('openai-compatible', '104.18.2.1')).toBe(false);
+    });
+
+    it('honours the explicit renderer override for any address', async () => {
+      expect(await run('openai-compatible', '104.18.2.1', true)).toBe(true);
+    });
+  });
+
   describe('complete: SSRF carve-out', () => {
     const base = {
       operationId: OPERATION_ID,

@@ -1,7 +1,12 @@
 // tests/security/ai-redaction.test.ts
 
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
-import { detectUnredactedSecrets, redactBody, redactHeaders } from '@shared/protocol/ai/redaction';
+import {
+  detectUnredactedSecrets,
+  effectiveRawMode,
+  redactBody,
+  redactHeaders,
+} from '@shared/protocol/ai/redaction';
 import { describe, expect, it } from 'vitest';
 import { specFor } from '@/features/ai-lab/lib/llmClient';
 import type { AiLabProviderConfig } from '@/features/ai-lab/types';
@@ -148,12 +153,41 @@ describe('AI Lab secret check follows provider kind (#1028)', () => {
     expect(await firstEvent(spec)).toMatchObject({ type: 'error', code: 'guard' });
   });
 
-  it('local kinds (incl. LAN openai-compatible) keep the check off', async () => {
-    for (const cfg of [ollama, compat]) {
-      const spec = specFor(cfg, 'm', msgs);
-      expect(spec.rawMode).toBe(true);
-      expect(await firstEvent(spec)).toMatchObject({ type: 'error', code: 'network' });
+  it('the renderer never decides locality: rawMode is the explicit override only', () => {
+    for (const cfg of [cloud, ollama, compat]) {
+      expect(specFor(cfg, 'm', msgs).rawMode).toBe(false);
     }
+  });
+
+  it('local kinds skip the check only when the pinned address is loopback or RFC1918', () => {
+    for (const kind of ['ollama', 'openai-compatible'] as const) {
+      for (const ip of ['127.0.0.1', '::1', '10.0.0.5', '172.16.4.2', '192.168.1.9']) {
+        expect(effectiveRawMode(false, kind, ip)).toBe(true);
+      }
+      // A "local" kind pointed at a public host (e.g. api.groq.com) is a cloud call.
+      for (const ip of ['104.18.2.1', '8.8.8.8', '2606:4700::1']) {
+        expect(effectiveRawMode(false, kind, ip)).toBe(false);
+      }
+    }
+  });
+
+  it('cloud kinds and the explicit override ignore the address', () => {
+    expect(effectiveRawMode(false, 'openai', '127.0.0.1')).toBe(false);
+    expect(effectiveRawMode(true, 'openai-compatible', '8.8.8.8')).toBe(true);
+  });
+
+  it('a local kind at a public address refuses captured secrets unless overridden', async () => {
+    const spec = specFor(compat, 'm', msgs);
+    const publicSpec = {
+      ...spec,
+      rawMode: effectiveRawMode(spec.rawMode === true, spec.provider, '104.18.2.1'),
+    };
+    expect(await firstEvent(publicSpec)).toMatchObject({ type: 'error', code: 'guard' });
+    const lanSpec = {
+      ...spec,
+      rawMode: effectiveRawMode(spec.rawMode === true, spec.provider, '192.168.1.9'),
+    };
+    expect(await firstEvent(lanSpec)).toMatchObject({ type: 'error', code: 'network' });
   });
 
   it('the visible per-suite override sends unredacted to cloud', async () => {

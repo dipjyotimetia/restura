@@ -379,8 +379,9 @@ export function Playground() {
                   Send unredacted to cloud providers
                 </Label>
                 <p className="text-sp-11 text-sp-dim">
-                  Off by default and not saved: cloud calls are refused if the prompt contains a
-                  secret. Local providers are never checked.
+                  Off by default and not saved: calls are refused if the prompt contains a secret.
+                  Providers on this machine or your LAN are not checked; a local-kind provider at a
+                  public host is.
                 </p>
               </div>
             </div>

@@ -238,8 +238,8 @@ export function EvalDraftEditor({
             Send unredacted to cloud providers
           </Label>
           <p className="text-sp-11 text-sp-dim">
-            Off by default: cloud calls are refused if the prompt still contains a secret. Local
-            providers are never checked.
+            Off by default: calls are refused if the prompt still contains a secret. Providers on
+            this machine or your LAN are not checked; a local-kind provider at a public host is.
           </p>
         </div>
       </div>

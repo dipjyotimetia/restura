@@ -619,8 +619,9 @@ function GuidedStep({
             <span>
               Send unredacted to cloud providers
               <span className="block text-sp-11 text-sp-muted">
-                Off by default: cloud calls are refused if the prompt still contains a secret. Kept
-                on this machine only, never in the suite JSON. Local providers are never checked.
+                Off by default: calls are refused if the prompt still contains a secret. Kept on
+                this machine only, never in the suite JSON. Providers on this machine or your LAN
+                are not checked; a local-kind provider at a public host is.
               </span>
             </span>
           </label>

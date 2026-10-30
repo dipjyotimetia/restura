@@ -2,12 +2,7 @@
 // the rest of the feature (runner, scorers, Playground) never touches the raw
 // bridge. Electron-only — throws a clear error on web.
 import { MAX_PER_CALL_OUTPUT_TOKENS } from '@shared/agent-lab';
-import {
-  type ChatStreamEvent,
-  type CompletionResult,
-  isLocalProvider,
-  type Provider,
-} from '@shared/protocol/ai/types';
+import type { ChatStreamEvent, CompletionResult, Provider } from '@shared/protocol/ai/types';
 import { getElectronAPI } from '@/lib/shared/platform';
 import type { AiLabProviderConfig } from '../types';
 
@@ -51,12 +46,13 @@ export function specFor(
     provider: cfg.provider,
     model,
     messages,
-    // Cloud kinds keep the main-process secret check ON: eval datasets imported
-    // from history and agent saved-request tool results can carry captured data.
-    // Local runtimes (Ollama, openai-compatible, incl. LAN) never leave the
-    // user's network, so the check is off there. `sendUnredactedToCloud` is the
-    // explicit, visible per-suite override.
-    rawMode: isLocalProvider(cfg.provider) || opts.sendUnredactedToCloud === true,
+    // `rawMode` is the explicit, visible override only. Eval datasets imported
+    // from history and agent saved-request tool results can carry captured
+    // data, so the main-process secret check stays ON unless Electron main
+    // finds a local kind (Ollama, openai-compatible) at a loopback/RFC1918
+    // address. A local kind can point at a public host, so locality is decided
+    // there from the pinned address, not here.
+    rawMode: opts.sendUnredactedToCloud === true,
     ...(cfg.apiKeyHandleId ? { apiKeyHandleId: cfg.apiKeyHandleId } : {}),
     ...(cfg.baseUrl ? { baseUrlOverride: cfg.baseUrl } : {}),
     // The IPC schema caps one call's output; clamp so no caller can fail validation.
@@ -81,7 +77,7 @@ export async function completeLlm(
     const res = await a.complete({
       ...spec,
       operationId,
-      rawMode: spec.rawMode ?? true,
+      rawMode: spec.rawMode ?? false,
     });
     options.signal?.throwIfAborted();
     if (!res.ok) throw new Error(res.error);
@@ -116,7 +112,7 @@ export async function streamLlm(
     offChunk();
     offEnd();
   });
-  const res = await a.stream({ ...spec, rawMode: spec.rawMode ?? true, streamId });
+  const res = await a.stream({ ...spec, rawMode: spec.rawMode ?? false, streamId });
   if (!res.ok) {
     offChunk();
     offEnd();

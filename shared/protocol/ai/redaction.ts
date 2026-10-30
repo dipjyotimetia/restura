@@ -22,6 +22,8 @@
 
 import { CREDENTIAL_HEADER_NAMES } from '../credential-header-names';
 import { bodyTokenPatterns, headerDenylistRegex } from '../secret-patterns';
+import { isLoopbackAddress, isRfc1918Address } from '../url-validation';
+import { isLocalProvider, type Provider } from './types';
 
 export type RedactionMode = 'default' | 'raw';
 
@@ -88,4 +90,25 @@ export function detectUnredactedSecrets(text: string): boolean {
     if (re.test(text)) return true;
   }
   return false;
+}
+
+/**
+ * Whether the outgoing-secret check is skipped for one call. `explicit` is the
+ * user's visible override (per-suite "Send unredacted", assistant "Send raw").
+ * Otherwise only a local-runtime kind whose pinned, validated address is
+ * loopback or RFC1918 skips it (a LAN host counts as local). A local kind
+ * pointed at a public host (`openai-compatible` -> api.groq.com) is a cloud
+ * call and keeps the check. Decide this in the process that resolved the
+ * address, never from renderer-supplied flags.
+ */
+export function effectiveRawMode(
+  explicit: boolean,
+  provider: Provider,
+  resolvedAddress: string
+): boolean {
+  if (explicit) return true;
+  return (
+    isLocalProvider(provider) &&
+    (isLoopbackAddress(resolvedAddress) || isRfc1918Address(resolvedAddress))
+  );
 }

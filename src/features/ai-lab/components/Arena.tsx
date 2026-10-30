@@ -243,8 +243,9 @@ export function Arena() {
                 Send unredacted to cloud providers
               </Label>
               <p className="text-sp-11 text-sp-dim">
-                Off by default: cloud calls (contestants and judge) are refused if a case still
-                contains a secret. Local providers are never checked.
+                Off by default: calls (contestants and judge) are refused if a case still contains a
+                secret. Providers on this machine or your LAN are not checked; a local-kind provider
+                at a public host is.
               </p>
             </div>
           </div>
