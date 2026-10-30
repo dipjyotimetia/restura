@@ -506,8 +506,11 @@ jobs:
     if: ${{ needs.changes.outputs.app == 'true' && (github.actor != 'dependabot[bot]' && github.head_ref != 'deps/dependabot-remediate') }}
     # Desktop e2e: launches the compiled, unpacked app via Playwright's
     # `_electron` API (no electron-builder packaging, no Vite dev server). The
-    # specs spin up in-process mock upstreams + a spawned native gRPC server,
-    # so no docker/brokers are needed. Kept off the web `e2e` job because it
+    # specs spin up in-process mock upstreams + a spawned native gRPC server.
+    # The Kafka/MQTT specs bring up the Dockerised Redpanda + EMQX brokers from
+    # echo-local/docker-compose.yml via the `brokers` fixture (Docker is present
+    # on ubuntu-latest, so they run here; they skip where Docker is absent).
+    # Kept off the web `e2e` job because it
     # builds a different target (electron:compile, not the SPA + Worker) and
     # needs a virtual display.
     name: Electron desktop E2E

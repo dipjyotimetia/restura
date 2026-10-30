@@ -55,6 +55,8 @@ export interface LegacyGraphqlWsServerHandle {
 
 export async function startLegacyGraphqlWsServer(
   opts: {
+    /** Bind a fixed port (echo-local); default 0 = ephemeral. */
+    port?: number;
     rejectInit?: boolean;
     /**
      * Mimic the real `subscriptions-transport-ws` server: no `handleProtocols`,
@@ -136,7 +138,7 @@ export async function startLegacyGraphqlWsServer(
     });
   });
 
-  const port = await bindLocalhost(http);
+  const port = await bindLocalhost(http, opts.port);
   return {
     url: `ws://127.0.0.1:${port}/graphql`,
     received: () => received.slice(),
@@ -159,7 +161,9 @@ export interface GraphqlSseServerHandle {
   close: () => Promise<void>;
 }
 
-export async function startGraphqlSseServer(): Promise<GraphqlSseServerHandle> {
+export async function startGraphqlSseServer(
+  opts: { port?: number } = {}
+): Promise<GraphqlSseServerHandle> {
   const requests: Array<{
     method: string;
     headers: IncomingMessage['headers'];
@@ -196,7 +200,7 @@ export async function startGraphqlSseServer(): Promise<GraphqlSseServerHandle> {
       })();
     });
   });
-  const port = await bindLocalhost(http);
+  const port = await bindLocalhost(http, opts.port);
   return {
     url: `http://127.0.0.1:${port}/graphql/stream`,
     requests: () => requests.slice(),

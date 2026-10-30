@@ -9,13 +9,19 @@
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { resolve } from 'node:path';
+import {
+  startGraphqlSseServer,
+  startLegacyGraphqlWsServer,
+} from '../e2e/mocks/graphqlSubscriptionServers';
 import { startMockHttp2Server } from '../e2e/mocks/http2Server';
 import {
   type MockHttpServerHandle,
   startMockHttpServer,
   startMockHttpsServer,
 } from '../e2e/mocks/httpServer';
+import { startMockOAuthServer } from '../e2e/mocks/mcpOAuthServer';
 import { startMockMcpServer } from '../e2e/mocks/mcpServer';
+import { startMockMcpV2Server } from '../e2e/mocks/mcpV2Server';
 import { startMockProxyServer } from '../e2e/mocks/proxyServer';
 import { startMockSocketIOServer } from '../e2e/mocks/socketioServer';
 import { startMockSocksProxyServer } from '../e2e/mocks/socksProxyServer';
@@ -149,6 +155,43 @@ export async function launch(opts: LaunchOptions): Promise<LaunchResult> {
   if (wanted('mcp')) {
     const h = await startMockMcpServer({ port: PORTS.mcp });
     services.push({ id: 'mcp', close: h.close });
+  }
+  if (wanted('mcpV2')) {
+    const h = await startMockMcpV2Server({ port: PORTS.mcpV2 });
+    services.push({ id: 'mcpV2', close: h.close });
+  }
+  if (wanted('mcpOAuth')) {
+    // Authorization server first: the protected resource advertises its URL in
+    // the RFC 9728 document and validates the tokens it issued.
+    const as = await startMockOAuthServer({
+      port: PORTS.mcpOAuthAs,
+      scopesSupported: ['mcp:tools'],
+    });
+    const resource = await startMockMcpServer({
+      port: PORTS.mcpOAuthResource,
+      oauth: {
+        isAuthorized: (authorization) => {
+          const m = /^Bearer\s+(.+)$/.exec(authorization);
+          return m !== null && as.isValidAccessToken(m[1]!);
+        },
+        authorizationServers: [as.url],
+        scopesSupported: ['mcp:tools'],
+      },
+    });
+    services.push({
+      id: 'mcpOAuth',
+      close: async () => {
+        await Promise.allSettled([resource.close(), as.close()]);
+      },
+    });
+  }
+  if (wanted('graphqlSse')) {
+    const h = await startGraphqlSseServer({ port: PORTS.graphqlSse });
+    services.push({ id: 'graphqlSse', close: h.close });
+  }
+  if (wanted('graphqlWsLegacy')) {
+    const h = await startLegacyGraphqlWsServer({ port: PORTS.graphqlWsLegacy });
+    services.push({ id: 'graphqlWsLegacy', close: h.close });
   }
   if (wanted('grpc')) {
     services.push(await startNativeGrpc(PORTS.grpc));

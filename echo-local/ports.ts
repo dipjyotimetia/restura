@@ -30,12 +30,30 @@ export const PORTS = {
   wss: 8543,
   /** Socket.IO (/ /chat /admin). */
   socketio: 8086,
-  /** MCP streamable-http. */
+  /** MCP streamable-http (2025-era SDK, stateless — one server per request). */
   mcp: 8087,
+  /** MCP on the v2 SDK: modern `server/discover` era with legacy fallback,
+   *  resource subscriptions + list_changed pushes (#858, #872). */
+  mcpV2: 8088,
+  /** OAuth 2.1 authorization server for the MCP auth flow (#856): RFC 8414
+   *  metadata, RFC 7591 dynamic registration, auto-approving PKCE S256
+   *  /authorize, /token (authorization_code + refresh_token). */
+  mcpOAuthAs: 8089,
+  /** OAuth-protected MCP resource paired with :8089 — answers 401 +
+   *  `WWW-Authenticate: Bearer resource_metadata=…` until a valid token arrives. */
+  mcpOAuthResource: 8093,
+  /** graphql-sse (distinct-connections mode) subscription endpoint (#889). */
+  graphqlSse: 8091,
+  /** Apollo `subscriptions-transport-ws` (legacy `graphql-ws` subprotocol) (#889). */
+  graphqlWsLegacy: 8092,
   /** MQTT over TCP (EMQX via docker-compose — not started in-process). */
   mqtt: 1883,
   /** MQTT over TLS (EMQX built-in self-signed cert). */
   mqtts: 8883,
+  /** MQTT over WebSocket (EMQX, path /mqtt). */
+  mqttWs: 8083,
+  /** MQTT over secure WebSocket (EMQX self-signed cert, path /mqtt). */
+  mqttWss: 8084,
   /** EMQX dashboard (admin / public). */
   mqttDashboard: 18083,
   /** Kafka PLAINTEXT (Redpanda via docker-compose — not started in-process). */
@@ -64,6 +82,10 @@ export const IN_PROCESS_SERVICES = [
   'wss',
   'socketio',
   'mcp',
+  'mcpV2',
+  'mcpOAuth',
+  'graphqlSse',
+  'graphqlWsLegacy',
 ] as const;
 
 export type ServiceId = (typeof IN_PROCESS_SERVICES)[number];

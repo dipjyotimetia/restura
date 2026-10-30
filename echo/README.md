@@ -12,7 +12,7 @@ The automated suites do **not** depend on it: the `real-*` Playwright specs run 
 | --------------------------- | --------------------- | ----------------------------------------------------------- |
 | `GET /ws`                   | WebSocket             | Plain WebSocket echo (`hono/cloudflare-workers` upgrade).   |
 | `GET /sse`                  | Server-Sent Events    | Streams a sequence of SSE events.                           |
-| `ALL /graphql`              | GraphQL               | Minimal GraphQL echo.                                       |
+| `ALL /graphql`              | GraphQL               | Executable echo schema; POST JSON or GraphQL-over-HTTP GET. |
 | `/*` (Connect)              | gRPC-Web / Connect    | Connect-protocol echo, matched before the HTTP fallthrough. |
 | `POST /v1/chat/completions` | AI (OpenAI-shaped)    | For AI assistant / AI Lab tests.                            |
 | `POST /v1/messages`         | AI (Anthropic-shaped) | For AI assistant / AI Lab tests.                            |
