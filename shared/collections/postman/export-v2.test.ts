@@ -372,10 +372,10 @@ describe('Postman v2.1 export — report and kinds', () => {
       graphql: { query: 'query { me { id } }', variables: '{"a":1}' },
     });
     const body = (again.items[0]?.request as HttpRequest).body;
-    expect(body.type).toBe('graphql');
-    expect(JSON.parse(body.raw ?? '')).toEqual({
-      query: 'query { me { id } }',
-      variables: { a: 1 },
+    expect(body).toEqual({
+      type: 'graphql',
+      raw: 'query { me { id } }',
+      graphqlVariables: '{"a":1}',
     });
     // …and the imported shape exports the same graphql body again.
     expect(requestNamed(exportPostmanV21(again).collection.item, 'Q').body).toEqual({

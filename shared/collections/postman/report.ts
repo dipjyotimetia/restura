@@ -23,6 +23,7 @@ export type PostmanUnmodelledConstruct =
   | 'file-body'
   | 'oauth2-grant'
   | 'oauth1-options'
+  | 'awsv4-options'
   | 'form-file'
   | 'explicit-noauth'
   // v3 (#1200)
@@ -65,10 +66,12 @@ const CONSTRUCT_DETAIL: Record<PostmanUnmodelledConstruct, string> = {
     'protocolProfileBehavior settings are not applied; kept for reference only',
   'item-variables': 'Item-level variables are not modelled; kept for reference only',
   'extra-events':
-    'Multiple scripts of the same kind; only the last one was imported, the others were kept for reference',
+    'Multiple or disabled scripts of the same kind; only the last enabled one was imported, the others were kept for reference',
   'file-body': 'Binary file body imported without its file; the original path was kept',
   'oauth2-grant': 'OAuth 2.0 grant type approximated (implicit / PKCE details not modelled)',
   'oauth1-options': 'OAuth 1.0 options approximated (unsupported signature method or placement)',
+  'awsv4-options':
+    'AWS Signature options approximated: a session token (temporary credentials) or query-string signing is not applied; kept for export',
   'form-file': 'Form-data file fields imported without their files; the original paths were kept',
   'explicit-noauth':
     'Explicit "No Auth" below a configured auth: Restura treats no auth as inherit, so the affected requests are NOT sent (no ancestor credential is substituted) until their auth is configured',

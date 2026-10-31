@@ -100,7 +100,11 @@ describe('v3 HTTP edges', () => {
     });
     const req = first(r).request as HttpRequest;
     expect([req.preRequestScript, req.testScript]).toEqual(['b', 'd']);
-    expect(getPostmanSidecar(first(r))?.event).toHaveLength(2);
+    // The LOSING scripts are kept (not the winners twice), so export restores a.
+    expect(getPostmanSidecar(first(r))?.event).toEqual([
+      { type: 'beforeRequest', code: 'a' },
+      { type: 'afterResponse', code: 'c' },
+    ]);
     expect(getPostmanSidecar(first(r))?.scripts).toHaveLength(1);
     expect(constructs(r.report.warnings)).toEqual(
       expect.arrayContaining(['script-packages', 'extra-events', 'protocol-scripts'])
