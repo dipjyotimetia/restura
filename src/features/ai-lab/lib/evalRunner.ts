@@ -9,7 +9,7 @@ import {
   type RunRequestFn,
   runEvalCore,
 } from '@shared/ai-lab/evalCore';
-import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
+import { runScriptScorer } from '@shared/scripts/eval-script-scorer';
 import type {
   AiLabProviderConfig,
   AiToolDef,
@@ -23,6 +23,7 @@ import type {
 import { completeLlm, specFor } from './llmClient';
 
 export type { EvalProgress, RunRequestFn };
+export { runScriptScorer };
 
 export interface EvalRunInput {
   prompt: PromptTemplate;
@@ -52,28 +53,6 @@ function computeCost(
   // missing estimate to $0 (which would let a cost-threshold scorer pass).
   if (cfg.pricingKnown) return estimatedCostUSD ?? null;
   return null;
-}
-
-/** Wrap the QuickJS ScriptExecutor as a script-scorer runner (synthetic response). */
-export async function runScriptScorer(args: { code: string; output: string; latencyMs: number }) {
-  const executor = new ScriptExecutor();
-  const result = await executor.executeScript(args.code, {
-    response: {
-      status: 200,
-      statusText: 'OK',
-      headers: { 'content-type': 'text/plain' },
-      body: args.output,
-      time: args.latencyMs,
-      size: args.output.length,
-    },
-  });
-  const tests = result.tests ?? [];
-  const failures = tests
-    .filter((t) => !t.passed)
-    .map((t) => (t.error ? `${t.name}: ${t.error}` : t.name));
-  failures.push(...result.errors);
-  const passed = result.errors.length === 0 && tests.every((t) => t.passed) && tests.length > 0;
-  return { passed, failures };
 }
 
 /** The desktop model port: provider configs resolved in the renderer, calls over IPC. */
