@@ -74,7 +74,12 @@ export function buildScopedVariableResolution(inputs: ScopeInputs): ScopedVariab
   const values: Record<string, string> = {};
   const provenance: Record<string, VariableProvenance> = {};
   const assign = (entries: Iterable<[string, string]>, source: VariableProvenance) => {
-    for (const [key, value] of entries) {
+    for (const [rawKey, value] of entries) {
+      // Trimmed like a token name, so `' k '` and `k` are one slot. Assigning keeps
+      // a key's first position when a later scope overrides it, and the send path
+      // walks this map in insertion order, so that order must not shift.
+      const key = rawKey.trim();
+      if (!key) continue;
       values[key] = value;
       provenance[key] = source;
     }
@@ -130,7 +135,7 @@ export function describeVariables(inputs: ScopeInputs): VariableDetail[] {
   const { values, provenance } = buildScopedVariableResolution(inputs);
   const secret: Record<string, boolean> = {};
   const handleOnly = new Set<string>();
-  for (const key of Object.keys(inputs.globals ?? {})) secret[key] = false;
+  for (const key of Object.keys(inputs.globals ?? {})) secret[key.trim()] = false;
   const scopes = [
     inputs.baseEnvironment ?? inputs.env,
     inputs.subEnvironment,
@@ -139,14 +144,16 @@ export function describeVariables(inputs: ScopeInputs): VariableDetail[] {
   ];
   for (const scope of scopes) {
     for (const variable of scope ?? []) {
-      if (!variable.enabled || !variable.key) continue;
+      const key = variable.key?.trim();
+      if (!variable.enabled || !key) continue;
       const hasHandle = 'secretRef' in variable && variable.secretRef !== undefined;
-      secret[variable.key] = variable.secret === true || hasHandle;
-      if (hasHandle) handleOnly.add(variable.key);
-      else handleOnly.delete(variable.key);
+      secret[key] = variable.secret === true || hasHandle;
+      if (hasHandle) handleOnly.add(key);
+      else handleOnly.delete(key);
     }
   }
-  for (const key of Object.keys(inputs.dataRow ?? {})) {
+  for (const rawKey of Object.keys(inputs.dataRow ?? {})) {
+    const key = rawKey.trim();
     secret[key] = false;
     handleOnly.delete(key);
   }

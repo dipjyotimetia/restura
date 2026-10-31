@@ -62,6 +62,48 @@ describe('buildValueMap', () => {
   });
 });
 
+describe('padded keys', () => {
+  const row = (key: string, value: string, extra: Partial<KeyValue> = {}): KeyValue => ({
+    id: key,
+    key,
+    value,
+    enabled: true,
+    ...extra,
+  });
+
+  it('share one slot at the first-seen position, in every scope', () => {
+    expect(
+      Object.entries(
+        buildValueMap({
+          globals: { ' a ': 'g', b: 'g' },
+          env: [row('a', 'e'), row(' c ', 'e')],
+          collection: [row(' b ', 'c')],
+          dataRow: { ' c ': 'd' },
+        })
+      )
+    ).toEqual([
+      ['a', 'e'],
+      ['b', 'c'],
+      ['c', 'd'],
+    ]);
+  });
+
+  it('drops a blank key', () => {
+    expect(buildValueMap({ globals: { '  ': 'g' }, env: [row(' ', 'e')] })).toEqual({});
+  });
+
+  it('keep the winning provenance and the secret flag under the trimmed name', () => {
+    const details = describeVariables({
+      globals: { ' g ': 'v' },
+      env: [row(' s ', 'hidden', { secret: true })],
+    });
+    expect(details).toEqual([
+      { name: 'g', value: 'v', source: 'global', secret: false },
+      { name: 's', value: 'hidden', source: 'base-environment', secret: true },
+    ]);
+  });
+});
+
 describe('buildScopedVariableResolution', () => {
   it('reports the winning value and provenance without exposing a losing secret', () => {
     const result = buildScopedVariableResolution({

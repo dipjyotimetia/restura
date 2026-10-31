@@ -83,10 +83,9 @@ export function buildActiveRequestVariableResolution(): {
   const secretNames = new Set<string>();
   for (const scope of scopes) {
     for (const variable of scope ?? []) {
-      // Trimmed like a token name, so a `' k '` row answers to `{{k}}` here too.
+      // Trimmed as `buildValueMap` trims, so a `' k '` row is the slot `{{k}}` reads.
       const key = variable.key?.trim();
       if (!variable.enabled || !key) continue;
-      delete values[variable.key];
       if (variable.secretRef !== undefined) {
         delete values[key];
         secretNames.delete(key);

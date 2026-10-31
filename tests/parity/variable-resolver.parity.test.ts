@@ -10,9 +10,13 @@ vi.mock('@/lib/shared/transport', () => ({
 
 import { resolveVarsDeep } from '../../cli/src/runner/varResolver';
 import { executeRequest } from '../../src/features/http/lib/requestExecutor';
+import { buildActiveRequestVariableResolution } from '../../src/lib/shared/activeRequestScopes';
+import { resolveRequestScopeText } from '../../src/lib/shared/resolveRequestScope';
 import { resolveStreamingText } from '../../src/lib/shared/streaming/messageVariables';
+import { useCollectionStore } from '../../src/store/useCollectionStore';
 import { useEnvironmentStore } from '../../src/store/useEnvironmentStore';
 import { useGlobalsStore } from '../../src/store/useGlobalsStore';
+import { useRequestStore } from '../../src/store/useRequestStore';
 import { useSettingsStore } from '../../src/store/useSettingsStore';
 
 /**
@@ -400,5 +404,239 @@ describe('same reach as the sequential loops, for every definition order', () =>
     for (const text of ['{{ a }}', '{{\ta\n}}', '{{ my key }}']) {
       expect(viaStore(text, Object.fromEntries(env))).toBe(mainStoreLoop(text, env, {}));
     }
+  });
+});
+
+/**
+ * The map the send path really walks, built from real stores. `mainBuilder` and
+ * `mainResolve` are transcribed from main (`buildValueMap` plus the loop in
+ * `buildActiveRequestVariableResolution`, then the executor's `resolveLocal`). An
+ * override keeps a key's first position, so insertion order, and so reach, is the
+ * same for every scope mix and order.
+ */
+describe('same reach through the active request scopes', () => {
+  const HANDLE = { kind: 'handle', id: 'h' } as const;
+  const MASK = 'MASK';
+  type Row = { key: string; value: string; secretRef?: typeof HANDLE };
+  interface Scopes {
+    globals?: Vars;
+    base?: Row[];
+    sub?: Row[];
+    collection?: Row[];
+    folder?: Row[];
+  }
+  const row = (key: string, value: string): Row => ({ key, value });
+  const secret = (key: string): Row => ({ key, value: MASK, secretRef: HANDLE });
+  const toVars = (rows: Row[] | undefined) =>
+    (rows ?? []).map((r, index) => ({ id: `${r.key}-${index}`, enabled: true, ...r }));
+
+  function install(scopes: Scopes) {
+    useGlobalsStore.setState({ vars: scopes.globals ?? {} });
+    useEnvironmentStore.setState({
+      activeEnvironmentId: scopes.sub ? 'sub' : 'base',
+      environments: [
+        { id: 'base', name: 'base', variables: toVars(scopes.base) },
+        ...(scopes.sub
+          ? [{ id: 'sub', name: 'sub', parentId: 'base', variables: toVars(scopes.sub) }]
+          : []),
+      ],
+    });
+    const leaf = { id: 'req', name: 'r', type: 'request', request: { id: 'req' } };
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c',
+          name: 'c',
+          variables: toVars(scopes.collection),
+          items: [
+            { id: 'f', name: 'f', type: 'folder', variables: toVars(scopes.folder), items: [leaf] },
+          ],
+        },
+      ],
+    } as never);
+    useRequestStore.setState({
+      tabs: [{ id: 't', request: { id: 'req' }, isDirty: false, savedRequestId: 'req' }],
+      activeTabId: 't',
+    } as never);
+  }
+
+  function mainBuilder(scopes: Scopes) {
+    const values: Vars = {};
+    const secretVariables: Record<string, unknown> = {};
+    Object.assign(values, scopes.globals ?? {});
+    const ordered = [scopes.base, scopes.sub, scopes.collection, scopes.folder];
+    for (const rows of ordered) for (const r of rows ?? []) values[r.key] = r.value;
+    for (const rows of ordered) {
+      for (const r of rows ?? []) {
+        if (r.secretRef !== undefined) {
+          delete values[r.key];
+          secretVariables[r.key] = r.secretRef;
+        } else {
+          delete secretVariables[r.key];
+          values[r.key] = r.value;
+        }
+      }
+    }
+    return { values, secretVariables };
+  }
+
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  function mainResolve(text: string, scopes: Scopes) {
+    const { values, secretVariables } = mainBuilder(scopes);
+    let result = text;
+    for (const [key, value] of Object.entries(values)) {
+      result = result.replace(new RegExp(`{{${escapeRegExp(key)}}}`, 'g'), () => value);
+    }
+    const shielded = new Map<string, string>();
+    result = result.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (token, name: string) => {
+      if (!Object.hasOwn(secretVariables, name)) return token;
+      const marker = `__m${shielded.size}__`;
+      shielded.set(marker, token);
+      return marker;
+    });
+    const env = (scopes.sub ?? scopes.base ?? []).map((r): [string, string] => [r.key, r.value]);
+    for (const [key, value] of [...env, ...Object.entries(scopes.globals ?? {})]) {
+      const regex = new RegExp(`{{\\s*${escapeRegExp(key)}\\s*}}`, 'g');
+      result = result.replace(regex, () => value);
+    }
+    for (const [marker, token] of shielded) result = result.replaceAll(marker, token);
+    return result;
+  }
+
+  function current(text: string) {
+    const { values, secretVariables } = buildActiveRequestVariableResolution();
+    return {
+      order: Object.keys(values),
+      out: resolveRequestScopeText(text, {
+        values,
+        secretVariables,
+        resolveVariables: (t) => useEnvironmentStore.getState().resolveVariables(t),
+      }),
+    };
+  }
+
+  function orders<T>(items: readonly T[]): T[][] {
+    if (items.length <= 1) return [[...items]];
+    return items.flatMap((item, index) =>
+      orders([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [item, ...rest])
+    );
+  }
+
+  const TEXTS = ['{{next}}', '{{token}}', '{{a}}', '{{next}} {{a}} {{token}}'];
+  const token = row('token', 'lower');
+  const next = row('next', '{{token}}');
+  const over = row('token', 'over');
+  const a = row('a', '{{next}}');
+
+  const CASES: ReadonlyArray<{ name: string; build: (o: Row[]) => Scopes; rows: Row[] }> = [
+    {
+      name: 'collection overridden by a folder',
+      rows: [token, next, a],
+      build: (o) => ({ collection: o, folder: [over] }),
+    },
+    {
+      name: 'base overridden by the collection',
+      rows: [token, next, a],
+      build: (o) => ({ base: o, collection: [over] }),
+    },
+    {
+      name: 'base overridden by a sub-environment',
+      rows: [token, next, a],
+      build: (o) => ({ base: o, sub: [over] }),
+    },
+    {
+      name: 'sub-environment overridden by a folder',
+      rows: [token, next, a],
+      build: (o) => ({ base: [], sub: o, folder: [over] }),
+    },
+    {
+      name: 'global overridden by the collection',
+      rows: [token, next, a],
+      build: (o) => ({
+        globals: Object.fromEntries(o.map((r) => [r.key, r.value])),
+        collection: [over],
+      }),
+    },
+    {
+      name: 'a scope mix',
+      rows: [token, next],
+      build: (o) => ({
+        globals: { a: '{{next}}' },
+        base: o,
+        collection: [a],
+        folder: [over, row('next', '{{a}}')],
+      }),
+    },
+    {
+      name: 'a secret row overriding a plain one',
+      rows: [token, next, a],
+      build: (o) => ({ collection: o, folder: [secret('token')] }),
+    },
+    {
+      name: 'a plain row overriding a secret one',
+      rows: [secret('token'), next, a],
+      build: (o) => ({ collection: o, folder: [over] }),
+    },
+    {
+      name: 'a secret in the environment store',
+      rows: [secret('token'), next, a],
+      build: (o) => ({ base: o }),
+    },
+  ];
+
+  for (const { name, rows, build } of CASES) {
+    for (const order of orders(rows)) {
+      it(`${name}, order ${order.map((r) => r.key).join(',')}`, () => {
+        const scopes = build(order);
+        install(scopes);
+        expect(Object.keys(buildActiveRequestVariableResolution().values)).toEqual(
+          Object.keys(mainBuilder(scopes).values)
+        );
+        for (const text of TEXTS) expect(current(text).out).toBe(mainResolve(text, scopes));
+      });
+    }
+  }
+
+  it('pins the reported shape: an override does not move a key later in the walk', () => {
+    install({ collection: [token, next], folder: [over] });
+    const { order, out } = current('{{next}}');
+    expect(order).toEqual(['token', 'next']);
+    expect(out).toBe('{{token}}');
+  });
+
+  describe('padded keys share one slot, at the first-seen position', () => {
+    it('across rows of different scopes', () => {
+      install({ collection: [row(' token ', 'lower'), next], folder: [over] });
+      const { order, out } = current('{{next}} {{token}}');
+      expect(order).toEqual(['token', 'next']);
+      expect(out).toBe('{{token}} over');
+    });
+
+    it('a padded global cannot answer ahead of the real row', () => {
+      install({
+        globals: { ' token ': 'global', next: '{{token}}' },
+        collection: [over],
+      });
+      const { order, out } = current('{{token}} {{next}}');
+      expect(order).toEqual(['token', 'next']);
+      // The real row answers the written token. The one `next` brings in arrives
+      // after the walk, so the store's globals pass fills it, as for `token` unpadded.
+      expect(out).toBe('over global');
+    });
+
+    it('a padded global cannot answer ahead of the shield', () => {
+      install({ globals: { ' sec ': 'global' }, base: [secret('sec')] });
+      const { values, secretVariables } = buildActiveRequestVariableResolution();
+      expect(values).toEqual({});
+      expect(Object.keys(secretVariables)).toEqual(['sec']);
+      expect(current('{{sec}}').out).toBe('{{sec}}');
+    });
+
+    it('a padded secret row and a plain row share the slot', () => {
+      install({ collection: [row(' sec ', 'plain')], folder: [secret('sec')] });
+      expect(buildActiveRequestVariableResolution().values).toEqual({});
+      expect(current('{{sec}}').out).toBe('{{sec}}');
+    });
   });
 });
