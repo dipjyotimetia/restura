@@ -13,7 +13,7 @@ import {
   SET_COOKIE_SIDE_CHANNEL_HEADER,
   type SetCookieSource,
 } from '@shared/protocol/set-cookie';
-import { createVariableScope, expandChainedVariables } from '@shared/variables/resolver';
+import { expandVariablesInOrder } from '@shared/variables/resolver';
 import {
   basicAuthReferencesSecretVariable,
   replaceSecretVariableTokenMatches,
@@ -227,14 +227,11 @@ export function buildDesktopTransportConfig(
 async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<BuiltSpec> {
   const { request, envVars, globalSettings, resolveVariables, secretVariables } = options;
 
-  // Request scope (collection / folder / script values the store cannot see) uses
-  // the same grammar and chain rule as the store, including `{{ padded }}` tokens.
-  // envVars never holds a SecretRef variable, so a chain ending in one leaves its
-  // token for the shield below. Dynamics stay literal here and expand once, in
-  // the store pass.
-  const requestScope = createVariableScope(Object.entries(envVars));
+  // Request scope (collection / folder / script values the store cannot see) walks
+  // in insertion order with the store's grammar, including `{{ padded }}` tokens.
+  // Dynamics stay literal here and expand once, in the store pass.
   const resolveLocal = (text: string) => {
-    let result = expandChainedVariables(text, [requestScope]);
+    let result = expandVariablesInOrder(text, Object.entries(envVars));
     // Keep SecretRef tokens opaque in the renderer. The store-level resolver
     // otherwise sees the variable's placeholder value and would consume the
     // token before Electron main can materialize its handle at the wire edge.

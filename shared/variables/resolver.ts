@@ -1,26 +1,22 @@
 /**
- * The Variable resolver core. Callers supply scopes (highest precedence first)
- * and policy; lookups are own-property only, unknown tokens stay literal, and
- * `{{$helper}}` goes through `applyDynamicVariables`.
+ * The Variable resolver core. Callers supply scopes and policy; lookups are
+ * own-property only, unknown tokens stay literal, and `{{$helper}}` goes through
+ * `applyDynamicVariables`.
  *
  * Two modes, deliberately:
- *  - `resolveVariableText` (CLI): one pass. A user value is never re-expanded,
- *    so a script- or response-set value cannot pull in another variable. The one
- *    exception is documented CLI behaviour: a value of `{{$randomFirstName}}`
- *    still expands, because dynamics run over the substituted result.
- *  - `resolveChainedVariableText` (Environment store): saved environments may
- *    chain values, so tokens inside a value are followed, in a way that does not
- *    depend on definition order.
+ *  - `resolveVariableText` (CLI, and streaming's equivalent): one pass. A user
+ *    value is never re-expanded. The one exception is documented CLI behaviour: a
+ *    value of `{{$randomFirstName}}` still expands, because dynamics run over the
+ *    substituted result.
+ *  - `expandVariablesInOrder` (the app's HTTP request scope and the Environment
+ *    store): one pass per variable, in definition order, as the app has always
+ *    done. A value can only pull in a variable defined after it, so the result
+ *    depends on the order, and a cycle ends when the walk does.
  */
 import { applyDynamicVariables } from './dynamic';
 import { replaceVariableTokens } from './tokens';
 
 export type VariableScope = Readonly<Record<string, string>>;
-
-/** How many levels of value-inside-a-value a chain may follow. */
-export const MAX_CHAIN_DEPTH = 10;
-/** Characters of chained values one expansion may emit, so fan-out cannot hang the app. */
-const MAX_CHAINED_CHARS = 16 * 1024 * 1024;
 
 /** The value of `name` in the first scope that owns it. Inherited members never match. */
 export function lookupVariable(scopes: readonly VariableScope[], name: string): string | undefined {
@@ -31,20 +27,6 @@ export function lookupVariable(scopes: readonly VariableScope[], name: string): 
     return value === undefined || value === null ? undefined : String(value);
   }
   return undefined;
-}
-
-/**
- * A scope built from key/value rows: the first definition of a name wins, keys
- * are trimmed the way token names are, blank keys are dropped, and `__proto__`
- * is plain data.
- */
-export function createVariableScope(entries: Iterable<readonly [string, string]>): VariableScope {
-  const scope: Record<string, string> = Object.create(null);
-  for (const [key, value] of entries) {
-    const name = key.trim();
-    if (name && !Object.hasOwn(scope, name)) scope[name] = value;
-  }
-  return scope;
 }
 
 export interface SubstituteOptions {
@@ -78,51 +60,28 @@ export function resolveVariableText(
   return applyDynamicVariables(substituteVariables(text, scopes, options));
 }
 
-export interface ChainOptions {
-  /**
-   * Names a chain must not follow into. They still resolve when written directly
-   * in the text. The store uses this for SecretRef-backed variables, whose value
-   * is a masked placeholder: a token reached through a chain has to survive so
-   * Electron main can materialize it (ADR-0007).
-   */
-  isOpaque?: (name: string) => boolean;
-}
-
 /**
- * Expand tokens, following tokens inside values. The result does not depend on
- * definition order. A cycle stops on the token that closes it, which stays
- * literal, as does anything deeper than {@link MAX_CHAIN_DEPTH} or past the
- * output budget. A scope may own a `$` name; otherwise those tokens are left for
- * the dynamic stage, so a helper in a value is generated exactly once.
+ * Walk `entries` in the order given, replacing the tokens named by each key once
+ * over the text so far. A later key sees what an earlier value brought in; an
+ * earlier key never does. Keys match the way token names do (trimmed), so a blank
+ * key is inert; values are literal, and dynamics are left for the caller to run
+ * once at the end.
+ *
+ * Growth is unbudgeted, as it always was: a fan-out across many variables hits the
+ * engine's string length limit and throws, which fails that one send.
  */
-export function expandChainedVariables(
+export function expandVariablesInOrder(
   text: string,
-  scopes: readonly VariableScope[],
-  options: ChainOptions = {}
+  entries: Iterable<readonly [string, string]>
 ): string {
-  let budget = MAX_CHAINED_CHARS;
-  const expand = (input: string, ancestors: readonly string[]): string =>
-    replaceVariableTokens(input, (name, raw) => {
-      const nested = ancestors.length > 0;
-      if (ancestors.includes(name) || ancestors.length >= MAX_CHAIN_DEPTH) return raw;
-      if (nested && options.isOpaque?.(name)) return raw;
-      const value = lookupVariable(scopes, name);
-      if (value === undefined) return raw;
-      if (nested) {
-        // +1 so a fan-out of empty values still spends budget.
-        if (budget <= 0) return raw;
-        budget -= value.length + 1;
-      }
-      return value.includes('{{') ? expand(value, [...ancestors, name]) : value;
-    });
-  return expand(text, []);
-}
-
-/** Chained expansion, then the dynamic helpers exactly once over the result. */
-export function resolveChainedVariableText(
-  text: string,
-  scopes: readonly VariableScope[],
-  options: ChainOptions = {}
-): string {
-  return applyDynamicVariables(expandChainedVariables(text, scopes, options));
+  let result = text;
+  for (const [key, value] of entries) {
+    if (!result.includes('{{')) return result;
+    const name = key.trim();
+    // Collections loaded from YAML can carry numbers and booleans.
+    if (!name || value === undefined || value === null) continue;
+    const literal = String(value);
+    result = replaceVariableTokens(result, (token, raw) => (token === name ? literal : raw));
+  }
+  return result;
 }

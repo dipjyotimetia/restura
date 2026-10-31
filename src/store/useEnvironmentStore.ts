@@ -1,8 +1,9 @@
-import { createVariableScope, resolveChainedVariableText } from '@shared/variables/resolver';
+import { expandVariablesInOrder } from '@shared/variables/resolver';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { Environment, KeyValue, ScopedVariable } from '@/types';
 
@@ -112,20 +113,20 @@ export const useEnvironmentStore = create<EnvironmentState>()(
         // common case for most fields on the per-field send hot path.
         if (!text.includes('{{')) return text;
 
+        // Environment variables in definition order, then workspace globals for
+        // whatever tokens are still present, so an env var with the same name wins.
+        // Going through here gives every caller of resolveVariables — SSE / WebSocket
+        // / Socket.IO / MCP / gRPC / workflows / the HTTP second pass — globals parity
+        // for free. Built-in dynamics (Postman-name compatible) expand once at the
+        // very end, so a helper in a value is never generated twice.
         const enabled = (get().getActiveEnvironment()?.variables ?? []).filter((v) => v.enabled);
-        const env = createVariableScope(enabled.map((v) => [v.key, v.value]));
-
-        // Env wins over workspace globals of the same name, at every level of a
-        // chain. Going through here gives every caller of resolveVariables — SSE /
-        // WebSocket / Socket.IO / MCP / gRPC / workflows / the HTTP second pass —
-        // globals parity for free. Saved chained values expand regardless of
-        // definition order; built-in dynamics (Postman-name compatible) expand once
-        // at the very end, so a helper in a value is never generated twice.
-        return resolveChainedVariableText(text, [env, useGlobalsStore.getState().vars], {
-          // A chain must not reach through to a SecretRef variable's masked
-          // placeholder: its token has to survive for main to materialize (ADR-0007).
-          isOpaque: (name) => enabled.find((v) => v.key.trim() === name)?.secretRef !== undefined,
-        });
+        const afterEnv = expandVariablesInOrder(
+          text,
+          enabled.map((v) => [v.key, v.value] as const)
+        );
+        return applyDynamicVariables(
+          expandVariablesInOrder(afterEnv, Object.entries(useGlobalsStore.getState().vars))
+        );
       },
 
       createNewEnvironment: (name, scope) => ({

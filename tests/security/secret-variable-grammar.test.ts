@@ -208,12 +208,32 @@ describe('a secret-backed variable with a space stays opaque on the HTTP send pa
     }
   }
 
-  it('does not reveal the placeholder through a chain the request scope does not hold', () => {
+  it('keeps the store walk as it has always been when the request scope does not hold an alias', () => {
+    // Definition order decides, as it always has; neither order produces plaintext.
     useEnvironment([
       { key: 'alias', value: '{{my secret}}' },
       { key: NAME, value: SECRET_HANDLE_PLACEHOLDER, secretRef: HANDLE },
     ]);
+    expect(useEnvironmentStore.getState().resolveVariables('{{alias}}')).toBe(
+      SECRET_HANDLE_PLACEHOLDER
+    );
+    useEnvironment([
+      { key: NAME, value: SECRET_HANDLE_PLACEHOLDER, secretRef: HANDLE },
+      { key: 'alias', value: '{{my secret}}' },
+    ]);
     expect(useEnvironmentStore.getState().resolveVariables('{{alias}}')).toBe('{{my secret}}');
+  });
+
+  it('does not let the store pass hand main a token main would not have received', async () => {
+    useEnvironment([
+      { key: 'alias', value: '{{my secret}}' },
+      { key: NAME, value: SECRET_HANDLE_PLACEHOLDER, secretRef: HANDLE },
+    ]);
+    const spec = await send(
+      request({ headers: [{ id: 'h', key: 'X-Key', value: '{{next}}', enabled: true }] }),
+      { alias: '{{my secret}}', next: '{{alias}}' }
+    );
+    expect(spec.headers['X-Key']).toBe(SECRET_HANDLE_PLACEHOLDER);
   });
 });
 

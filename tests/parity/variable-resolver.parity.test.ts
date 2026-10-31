@@ -18,8 +18,9 @@ import { useSettingsStore } from '../../src/store/useSettingsStore';
 /**
  * One table, three real entry points. The grammar is the same everywhere; the
  * only intended difference is `store` vs `singlePass`: the Environment store
- * expands saved chained values, while streaming and the CLI never re-expand a
- * user value.
+ * walks its variables in definition order, so a chain only follows forward and
+ * the result deliberately depends on that order, while streaming and the CLI
+ * never re-expand a user value.
  */
 type Vars = Record<string, string>;
 
@@ -52,8 +53,12 @@ const viaStreaming = (text: string, vars: Vars) =>
 const viaCli = (text: string, vars: Vars) => resolveVarsDeep(text, vars);
 
 /** The store holds `shared`; `envVars` is the request scope layered over it. */
-async function sendViaExecutor(raw: string, envVars: Vars): Promise<{ data?: string }> {
-  viaStore('', { shared: 'store-value' });
+async function sendViaExecutor(
+  raw: string,
+  envVars: Vars,
+  storeVars: Vars = { shared: 'store-value' }
+): Promise<{ data?: string }> {
+  viaStore('', storeVars);
   proxied.mockReset();
   proxied.mockResolvedValue({ status: 200, statusText: 'OK', headers: {}, data: '', size: 0 });
   await executeRequest({
@@ -106,7 +111,7 @@ const CASES: ReadonlyArray<{
     name: 'chained value, reversed definition order',
     text: '{{a}}',
     vars: { b: 'v', a: '{{b}}' },
-    store: 'v',
+    store: '{{b}}',
     singlePass: '{{b}}',
   },
   {
@@ -120,7 +125,7 @@ const CASES: ReadonlyArray<{
     name: 'cycle, reversed definition order',
     text: '{{a}}',
     vars: { b: '{{a}}', a: '{{b}}' },
-    store: '{{a}}',
+    store: '{{b}}',
     singlePass: '{{b}}',
   },
   {
@@ -174,9 +179,9 @@ describe('HTTP send path: request scope, then the store', () => {
     expect(spec.data).toBe('c collection-wins');
   });
 
-  it('expands a chain in the request scope regardless of definition order', async () => {
+  it('walks the request scope in insertion order, so a chain only follows forward', async () => {
     expect((await sendViaExecutor('{{a}}', { a: '{{b}}', b: 'v' })).data).toBe('v');
-    expect((await sendViaExecutor('{{a}}', { b: 'v', a: '{{b}}' })).data).toBe('v');
+    expect((await sendViaExecutor('{{a}}', { b: 'v', a: '{{b}}' })).data).toBe('{{b}}');
   });
 
   it('terminates a request-scope cycle with a literal token', async () => {
@@ -223,11 +228,16 @@ describe('Variable resolver parity across entry points', () => {
     expect(first).not.toBe(second);
   });
 
-  it('lets the environment win over globals through a chain, in either direction', () => {
+  it('applies globals after the environment, only to tokens still present', () => {
     useGlobalsStore.setState({ vars: { host: 'global', g: '{{host}}' } });
     expect(viaStore('{{host}}', { host: 'env' })).toBe('env');
-    // A global value is expanded with the same precedence as the text itself.
-    expect(viaStore('{{g}}', { host: 'env' })).toBe('env');
+    // The environment pass is over by the time a global's value arrives, and
+    // `host` comes before `g` in the globals walk, so the token stays.
+    expect(viaStore('{{g}}', { host: 'env' })).toBe('{{host}}');
+    useGlobalsStore.setState({ vars: { g: '{{host}}', host: 'global' } });
+    expect(viaStore('{{g}}', { host: 'env' })).toBe('global');
+    // An environment value reaches globals, whatever the order.
+    expect(viaStore('{{a}}', { a: '{{host}}' })).toBe('global');
   });
 
   it('keeps a value set by a script from pulling in another variable (streaming, CLI)', () => {
@@ -257,5 +267,137 @@ describe('Variable resolver parity across entry points', () => {
       { json: true }
     );
     expect(JSON.parse(resolved.wire)).toEqual({ a: '1', b: 'p"q' });
+  });
+});
+
+/**
+ * Reach parity with the sequential loops the app has always shipped. These two
+ * functions are transcribed from main (`useEnvironmentStore.resolveVariables`
+ * and the executor's `resolveLocal`); the new code must give the same bytes for
+ * every definition order, chain and cycle. Dynamics are left out so the output
+ * is deterministic.
+ */
+describe('same reach as the sequential loops, for every definition order', () => {
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  function mainStoreLoop(text: string, env: ReadonlyArray<[string, string]>, globals: Vars) {
+    if (!text.includes('{{')) return text;
+    let resolved = text;
+    for (const [key, value] of env) {
+      const regex = new RegExp(`{{\\s*${escapeRegExp(key)}\\s*}}`, 'g');
+      resolved = resolved.replace(regex, () => value);
+    }
+    if (resolved.includes('{{')) {
+      for (const [key, value] of Object.entries(globals)) {
+        const regex = new RegExp(`{{\\s*${escapeRegExp(key)}\\s*}}`, 'g');
+        resolved = resolved.replace(regex, () => value);
+      }
+    }
+    return resolved;
+  }
+
+  function mainRequestLoop(text: string, envVars: Vars, env: ReadonlyArray<[string, string]>) {
+    let result = text;
+    for (const [key, value] of Object.entries(envVars)) {
+      result = result.replace(new RegExp(`{{${escapeRegExp(key)}}}`, 'g'), () => value);
+    }
+    return mainStoreLoop(result, env, useGlobalsStore.getState().vars);
+  }
+
+  function permutations<T>(items: readonly T[]): T[][] {
+    if (items.length <= 1) return [[...items]];
+    return items.flatMap((item, index) =>
+      permutations([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [
+        item,
+        ...rest,
+      ])
+    );
+  }
+
+  const SETS: ReadonlyArray<{ name: string; vars: Vars }> = [
+    { name: 'chain of three', vars: { a: '{{b}}', b: '{{c}}', c: 'v' } },
+    { name: 'two-cycle', vars: { a: '{{b}}', b: '{{a}}' } },
+    { name: 'three-cycle', vars: { a: '{{b}}', b: '{{c}}', c: '{{a}}' } },
+    { name: 'self reference', vars: { a: 'x{{a}}y', b: '{{a}}' } },
+    { name: 'stored value naming a sibling', vars: { apiKey: 'k', next: '{{apiKey}}' } },
+    { name: 'fan-out', vars: { a: '{{b}}-{{b}}', b: '{{c}}{{c}}', c: 'v' } },
+    { name: 'a token split across a value', vars: { a: '{{', b: 'c}}', c: 'v' } },
+    {
+      name: 'spaced and punctuated names',
+      vars: { 'my key': '{{a:b}}', 'a:b': '{{x.y}}', 'x.y': 'v' },
+    },
+    { name: '$ patterns stay literal', vars: { a: "$&{{b}}$1$`$'", b: '$$' } },
+  ];
+  const TEXTS = [
+    '{{a}}',
+    'p{{a}}q{{b}}r',
+    '{{next}}',
+    '{{my key}}',
+    '{{unknown}}',
+    '{{{a}}}',
+    'plain',
+  ];
+
+  for (const set of SETS) {
+    for (const order of permutations(Object.keys(set.vars))) {
+      const env = order.map((key): [string, string] => [key, set.vars[key] as string]);
+
+      it(`store: ${set.name}, order ${order.join(',')}`, () => {
+        useGlobalsStore.setState({ vars: {} });
+        for (const text of TEXTS) {
+          expect(viaStore(text, Object.fromEntries(env))).toBe(mainStoreLoop(text, env, {}));
+        }
+      });
+
+      it(`store then globals: ${set.name}, order ${order.join(',')}`, () => {
+        const split = Math.ceil(env.length / 2);
+        const globals = Object.fromEntries(env.slice(split));
+        useGlobalsStore.setState({ vars: globals });
+        for (const text of TEXTS) {
+          expect(viaStore(text, Object.fromEntries(env.slice(0, split)))).toBe(
+            mainStoreLoop(text, env.slice(0, split), globals)
+          );
+        }
+      });
+
+      it(`executor: ${set.name}, order ${order.join(',')}`, async () => {
+        useGlobalsStore.setState({ vars: {} });
+        for (const text of TEXTS) {
+          const envVars = Object.fromEntries(env);
+          const sent = await sendViaExecutor(text, envVars);
+          expect(sent.data).toBe(mainRequestLoop(text, envVars, [['shared', 'store-value']]));
+        }
+      });
+
+      it(`request scope stops short, store continues: ${set.name}, order ${order.join(',')}`, async () => {
+        useGlobalsStore.setState({ vars: {} });
+        // Half the keys in the request scope, the other half only in the store.
+        const split = Math.ceil(env.length / 2);
+        const envVars = Object.fromEntries(env.slice(0, split));
+        const storeEnv = env.slice(split);
+        for (const text of TEXTS) {
+          const sent = await sendViaExecutor(text, envVars, Object.fromEntries(storeEnv));
+          expect(sent.data).toBe(mainRequestLoop(text, envVars, storeEnv));
+        }
+      });
+    }
+  }
+
+  it('pins the order the app has always had: an earlier key is out of reach', () => {
+    useGlobalsStore.setState({ vars: {} });
+    expect(viaStore('{{next}}', { apiKey: 'k', next: '{{apiKey}}' })).toBe('{{apiKey}}');
+    expect(viaStore('{{next}}', { next: '{{apiKey}}', apiKey: 'k' })).toBe('k');
+  });
+
+  it('keeps padded tokens and spaced names, which the sequential store loop also matched', () => {
+    useGlobalsStore.setState({ vars: {} });
+    const env: Array<[string, string]> = [
+      ['a', '{{ b }}'],
+      ['b', 'v'],
+      ['my key', 'w'],
+    ];
+    for (const text of ['{{ a }}', '{{\ta\n}}', '{{ my key }}']) {
+      expect(viaStore(text, Object.fromEntries(env))).toBe(mainStoreLoop(text, env, {}));
+    }
   });
 });

@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  createVariableScope,
-  expandChainedVariables,
+  expandVariablesInOrder,
   lookupVariable,
-  MAX_CHAIN_DEPTH,
-  resolveChainedVariableText,
   resolveVariableText,
   substituteVariables,
 } from './resolver';
@@ -150,96 +147,67 @@ describe('core resolver', () => {
   });
 });
 
-describe('chained expansion', () => {
-  const scope = (vars: Record<string, string>) => [vars];
+describe('in-order expansion', () => {
+  const walk = (text: string, vars: Record<string, string>) =>
+    expandVariablesInOrder(text, Object.entries(vars));
 
-  it('expands chains regardless of definition order', () => {
-    expect(expandChainedVariables('{{a}}', scope({ a: '{{b}}', b: '{{c}}', c: 'v' }))).toBe('v');
-    expect(expandChainedVariables('{{a}}', scope({ c: 'v', b: '{{c}}', a: '{{b}}' }))).toBe('v');
+  it('follows a value forward, never back', () => {
+    expect(walk('{{a}}', { a: '{{b}}', b: '{{c}}', c: 'v' })).toBe('v');
+    expect(walk('{{a}}', { c: 'v', b: '{{c}}', a: '{{b}}' })).toBe('{{b}}');
+    expect(walk('{{next}}', { apiKey: 'k', next: '{{apiKey}}' })).toBe('{{apiKey}}');
   });
 
-  it('terminates a cycle on the token that closes it, whatever its length', () => {
-    expect(expandChainedVariables('{{a}}', scope({ a: '{{a}}' }))).toBe('{{a}}');
-    expect(expandChainedVariables('{{a}}', scope({ a: '{{b}}', b: '{{a}}' }))).toBe('{{a}}');
-    expect(expandChainedVariables('{{a}}', scope({ a: '{{b}}', b: '{{c}}', c: '{{a}}' }))).toBe(
-      '{{a}}'
+  it('ends a cycle when the walk ends', () => {
+    expect(walk('{{a}}', { a: '{{a}}' })).toBe('{{a}}');
+    expect(walk('{{a}}', { a: '{{b}}', b: '{{a}}' })).toBe('{{a}}');
+    expect(walk('{{a}}', { a: '{{b}}', b: '{{c}}', c: '{{a}}' })).toBe('{{a}}');
+  });
+
+  it('matches padded tokens and spaced names, keeping unknown text as written', () => {
+    expect(walk('{{ a }} {{my key}} {{  nope }}', { a: '1', 'my key': '2' })).toBe(
+      '1 2 {{  nope }}'
     );
-    expect(expandChainedVariables('{{a}}', scope({ a: '{{b}}-{{b}}', b: '[{{a}}]' }))).toBe(
-      '[{{a}}]-[{{a}}]'
+    expect(walk('{{k}}', { ' k ': 'v' })).toBe('v');
+  });
+
+  it('takes values literally and treats inherited and blank names as nothing', () => {
+    expect(walk('{{a}}', { a: '$&$1$$' })).toBe('$&$1$$');
+    expect(walk('{{constructor}} {{__proto__}} {{toString}}', {})).toBe(
+      '{{constructor}} {{__proto__}} {{toString}}'
     );
+    expect(walk('{{__proto__}}', JSON.parse('{"__proto__":"v"}'))).toBe('v');
+    expect(walk('{{ }}', { '': 'v', '  ': 'w' })).toBe('{{ }}');
   });
 
-  it('does not mistake a repeated sibling for a cycle', () => {
-    expect(expandChainedVariables('{{a}}{{a}}', scope({ a: '{{b}}{{b}}', b: 'v' }))).toBe('vvvv');
-  });
-
-  it(`stops following a chain after ${MAX_CHAIN_DEPTH} levels and keeps the literal token`, () => {
-    const vars: Record<string, string> = {};
-    for (let i = 0; i < MAX_CHAIN_DEPTH; i++) vars[`v${i}`] = `{{v${i + 1}}}`;
-    vars[`v${MAX_CHAIN_DEPTH}`] = 'end';
-    expect(expandChainedVariables('{{v0}}', scope(vars))).toBe(`{{v${MAX_CHAIN_DEPTH}}}`);
-    expect(expandChainedVariables('{{v1}}', scope(vars))).toBe('end');
-  });
-
-  it('stays bounded on a fan-out that would otherwise grow exponentially', () => {
-    const vars: Record<string, string> = {};
-    for (let i = 0; i < MAX_CHAIN_DEPTH; i++) {
-      vars[`v${i}`] = `{{v${i + 1}}}`.repeat(50);
-    }
-    vars[`v${MAX_CHAIN_DEPTH}`] = 'leaf';
-    const start = performance.now();
-    const out = expandChainedVariables('{{v0}}', scope(vars));
-    expect(performance.now() - start).toBeLessThan(5_000);
-    expect(out).toContain('{{');
-  });
-
-  it('never counts a large value used directly against the chain budget', () => {
-    const big = 'x'.repeat(50_000_000);
-    expect(expandChainedVariables('{{big}}', scope({ big }))).toHaveLength(big.length);
-  });
-
-  it('honours scope precedence at every level', () => {
+  it('honours every row of a repeated key in turn', () => {
     expect(
-      expandChainedVariables('{{g}}', [{ host: 'env' }, { g: '{{host}}', host: 'global' }])
-    ).toBe('env');
+      expandVariablesInOrder('{{a}}', [
+        ['a', '{{a}}!'],
+        ['a', 'v'],
+      ])
+    ).toBe('v!');
   });
 
-  it('does not follow a chain into an opaque name, but still resolves it directly', () => {
-    const isOpaque = (name: string) => name === 'sec';
-    const vars = scope({ a: '{{sec}}', sec: 'placeholder' });
-    expect(expandChainedVariables('{{a}}', vars, { isOpaque })).toBe('{{sec}}');
-    expect(expandChainedVariables('{{sec}}', vars, { isOpaque })).toBe('placeholder');
+  it('leaves dynamics alone and treats non-string values as text', () => {
+    expect(walk('{{$randomUUID}}', {})).toBe('{{$randomUUID}}');
+    expect(walk('{{$mine}}', { $mine: 'v' })).toBe('v');
+    expect(walk('{{port}}', { port: 8080 } as unknown as Record<string, string>)).toBe('8080');
+    expect(walk('{{a}}', { a: null } as unknown as Record<string, string>)).toBe('{{a}}');
   });
 
-  it('lets a scope own a $ name in chained mode, leaving other dynamics untouched', () => {
-    expect(expandChainedVariables('{{$mine}} {{$randomUUID}}', scope({ $mine: 'v' }))).toBe(
-      'v {{$randomUUID}}'
-    );
+  it('skips the scan when there is no token, and passes a large value through', () => {
+    const text = 'x'.repeat(1_000_000);
+    expect(walk(text, { a: 'v' })).toBe(text);
+    const big = 'x'.repeat(50_000_000);
+    expect(walk('{{big}}', { big })).toHaveLength(big.length);
   });
 
-  it('expands a dynamic exactly once, after the chain', () => {
-    const out = resolveChainedVariableText('{{a}}', scope({ a: '{{b}}', b: '{{$randomUUID}}' }));
-    expect(out).toMatch(/^[0-9a-f-]{36}$/);
-  });
-});
-
-describe('createVariableScope', () => {
-  it('keeps the first definition, normalises padded keys, skips empty ones', () => {
-    const scope = createVariableScope([
-      ['a', '1'],
-      ['a', '2'],
-      [' b ', '3'],
-      ['', '4'],
-      ['  ', '5'],
-    ]);
-    expect(lookupVariable([scope], 'a')).toBe('1');
-    expect(lookupVariable([scope], 'b')).toBe('3');
-    expect(Object.keys(scope)).toEqual(['a', 'b']);
-  });
-
-  it('treats __proto__ as plain data', () => {
-    const scope = createVariableScope([['__proto__', 'v']]);
-    expect(lookupVariable([scope], '__proto__')).toBe('v');
-    expect(lookupVariable([scope], 'constructor')).toBeUndefined();
-  });
+  it('fails a fan-out across many variables at the string length limit, in bounded time', () => {
+    const vars: Record<string, string> = {};
+    for (let i = 0; i < 10; i++) vars[`v${i}`] = `{{v${i + 1}}}`.repeat(50);
+    vars['v10'] = 'leaf';
+    const start = performance.now();
+    expect(() => walk('{{v0}}', vars)).toThrow(RangeError);
+    expect(performance.now() - start).toBeLessThan(30_000);
+  }, 60_000);
 });
