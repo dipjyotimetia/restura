@@ -81,10 +81,10 @@ const totals = Object.keys(statuses).map((status) => ({
         <div id="empty-state" hidden><p>No matching features in this view.</p><button id="clear-filters">Clear filters and search</button></div>
         <div class="map-stage enhanced">
         <div id="tree-controls" class="tree-controls enhanced">
-          <div class="map-caption"><span>Scroll to pan · <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + scroll to zoom · Click a node for details</span></div>
+          <div class="map-caption"><span>Scroll to zoom · Drag or <kbd>Shift</kbd> + scroll to pan · Click a node for details</span></div>
           <div class="zoom-controls" role="group" aria-label="Map controls"><button id="zoom-out" aria-label="Zoom out">−</button><output id="zoom-level" aria-label="Zoom level">100%</output><button id="zoom-in" aria-label="Zoom in">+</button><button id="reset-map">Fit tree</button></div>
         </div>
-        <div id="tree-viewport" class="tree-viewport enhanced" role="region" aria-label="Interactive feature tree. Drag the background to pan. Use the zoom controls or switch to List for keyboard browsing." tabindex="0">
+        <div id="tree-viewport" class="tree-viewport enhanced" role="region" aria-label="Interactive feature tree. Drag the background to pan. Scroll or use the zoom controls to zoom or switch to List for keyboard browsing." tabindex="0">
           <div id="tree-canvas" class="tree-canvas" style={`width:${mapWidth}px;height:${mapHeight}px`}>
             <svg class="connections" width={mapWidth} height={mapHeight} viewBox={`0 0 ${mapWidth} ${mapHeight}`} aria-hidden="true">
               <path class="trunk" pathLength="1" d={`M${rootX} ${layout.trunkTop} V${layout.trunkY}`} />

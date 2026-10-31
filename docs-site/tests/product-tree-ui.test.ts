@@ -141,15 +141,34 @@ it('still opens a card on a tap that does not move', () => {
   expect(document.getElementById('detail-title')!.textContent).toBe('HTTP / REST');
 });
 
-it('lets the wheel scroll the page once the map reaches its edge', () => {
+it('zooms on the wheel and lets the page scroll once zoom hits its limit', () => {
   const viewport = document.getElementById('tree-viewport')!;
-  const wheel = () => {
-    const event = new WheelEvent('wheel', { deltaY: 4000, bubbles: true, cancelable: true });
+  const canvas = document.getElementById('tree-canvas')!;
+  const wheel = (init: WheelEventInit) => {
+    const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, ...init });
     viewport.dispatchEvent(event);
     return event.defaultPrevented;
   };
-  expect(wheel()).toBe(true);
-  expect(wheel()).toBe(false);
+  const before = canvas.style.transform;
+  expect(wheel({ deltaY: -100 })).toBe(true);
+  expect(canvas.style.transform).not.toBe(before);
+  expect(canvas.style.transform).toMatch(/scale\(/);
+  for (let i = 0; i < 40; i++) wheel({ deltaY: -100 });
+  expect(wheel({ deltaY: -100 })).toBe(false);
+});
+
+it('pans sideways on Shift + wheel instead of zooming', () => {
+  const viewport = document.getElementById('tree-viewport')!;
+  const level = document.getElementById('zoom-level') as HTMLOutputElement;
+  const zoomBefore = level.value;
+  const event = new WheelEvent('wheel', {
+    deltaY: 100,
+    shiftKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
+  viewport.dispatchEvent(event);
+  expect(level.value).toBe(zoomBefore);
 });
 
 it('frames one readable column on phones but fits the whole map on desktop', () => {
