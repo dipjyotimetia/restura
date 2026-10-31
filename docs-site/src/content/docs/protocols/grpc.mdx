@@ -84,7 +84,7 @@ Two more settings live elsewhere:
 
 ## Authentication
 
-**Bearer**, **Basic**, **API Key** (header placement) and **OAuth 2.0** are sent as lowercase metadata. Keychain-stored secrets are resolved in the main process on desktop.
+**Bearer**, **Basic**, **API Key** (header placement) and **OAuth 2.0** are sent as lowercase metadata. Keychain-stored secrets are resolved in the main process on desktop. The app's gRPC rule for Basic requires both a username and a password. In the CLI, external secret references on gRPC items resolve like HTTP and fail the item explicitly when no resolver is available.
 
 - **Not supported for gRPC yet:** AWS SigV4, OAuth 1.0, WSSE, Digest and NTLM. These need the exact wire bytes or a challenge round-trip that the gRPC transports don't do. The auth tab shows a warning, and Send is blocked with an error rather than sending the call without credentials. As a workaround, set Auth to **No Auth** (on the request and on any folder or collection it inherits from) and put a pre-computed credential in a metadata entry. Inherited folder/collection auth is checked the same way as the request's own, for unary and streaming calls.
 - **Custom metadata** — gRPC uses metadata in place of HTTP headers; edit it in the same table as HTTP headers, with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row. Values resolve `{{variables}}`. There is no per-entry size limit (multi-KB bearer JWTs are fine); total metadata, including auth, is capped at 16 KiB.

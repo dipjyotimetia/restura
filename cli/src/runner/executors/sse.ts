@@ -6,6 +6,7 @@ import { request as undiciRequest } from 'undici';
 import type { LoadedRequest } from '../collectionLoader';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, resolveOAuth2Token } from './auth';
+import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import type { ExecuteOptions, ExecuteOutcome, StreamEvent } from './types';
 
 const DEFAULT_DURATION_MS = 5000;
@@ -70,7 +71,8 @@ export async function executeSse(
   let errorMessage: string | undefined;
   let responseHeaders: Record<string, string> | undefined;
 
-  const timer = setTimeout(() => controller.abort(), durationMs);
+  // Started once auth is ready: slow secret or token fetches are not stream time.
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
   try {
     // Header-based auth (Bearer / Basic / API-key / OAuth2). Applied here so an
@@ -80,11 +82,16 @@ export async function executeSse(
     const varResolvedAuth = req.auth
       ? resolveAuthVariables(req.auth, (text) => resolveVarsDeep(text, opts.vars))
       : req.auth;
-    const resolvedAuth = await resolveOAuth2Token(varResolvedAuth, opts.vars, {
+    const externalMaterializedAuth = await materializeExternalSecretsInAuth(
+      varResolvedAuth,
+      opts.externalSecretResolver
+    );
+    const resolvedAuth = await resolveOAuth2Token(externalMaterializedAuth, opts.vars, {
       allowLocalhost: opts.allowLocalhost,
     });
     applyAuthHeaders(resolvedAuth, headers, params);
     const finalUrl = appendQuery(url, params);
+    timer = setTimeout(() => controller.abort(), durationMs);
     const response = await undiciRequest(finalUrl, {
       method: 'GET',
       headers,

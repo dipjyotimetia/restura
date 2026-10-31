@@ -1,5 +1,5 @@
 /**
- * MQTT protocol module — metadata-only registration.
+ * MQTT protocol module — metadata and the tab connection binding.
  *
  * MQTT is connection-based (a long-lived pub/sub client over a raw TCP/TLS
  * socket). There is no `Request` shape for it in the type system — connections
@@ -11,6 +11,8 @@
  * API (`MqttClient` + `mqttManager`). Mirrors the kafka stub.
  */
 import type { ProtocolModule } from '@/features/registry/types';
+import { mqttManager } from './lib/mqttManager';
+import { useMqttStore } from './store/useMqttStore';
 
 export const mqttProtocol: ProtocolModule = {
   id: 'mqtt',
@@ -23,5 +25,10 @@ export const mqttProtocol: ProtocolModule = {
     throw new Error(
       'MQTT is connection-based; use MqttClient + mqttManager, not the registry runner.'
     );
+  },
+  connectionLifecycle: {
+    connectionIdForTab: (tabId) => useMqttStore.getState().connectionByTabId[tabId],
+    disconnect: (connectionId) => mqttManager.disconnect(connectionId),
+    removeConnectionForTab: (tabId) => useMqttStore.getState().cleanupConnectionForTab(tabId),
   },
 };

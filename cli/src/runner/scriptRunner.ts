@@ -1,6 +1,7 @@
 import { applyScriptMetadata, grpcMetadataForScript } from '@shared/scripts/grpc-script-metadata';
 import ScriptExecutor, { type ScriptResult } from '@shared/scripts/script-executor';
 import type { GrpcRequest, HttpRequest, McpRequest } from '@shared/types';
+import { substituteVariables } from '@shared/variables/resolver';
 import type { LoadedRequest } from './collectionLoader.js';
 import type { ExecuteOutcome } from './executors/types.js';
 
@@ -178,9 +179,7 @@ function buildRequestContext(
 }
 
 function resolveVars(text: string, vars: Record<string, string>): string {
-  return text.replace(/\{\{\s*([A-Za-z0-9_$.]+)\s*\}\}/g, (_match, key: string) => {
-    return vars[key] ?? `{{${key}}}`;
-  });
+  return substituteVariables(text, [vars]);
 }
 
 function toRunScriptResult(

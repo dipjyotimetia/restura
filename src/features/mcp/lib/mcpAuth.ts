@@ -145,7 +145,11 @@ function missingCredential(auth: AuthConfig, desktop: boolean): string | undefin
     return 'API Key auth needs a header name.';
   }
   if (auth.type === 'basic') {
-    return auth.basic?.username ? undefined : `Basic auth needs a username.${reentry}`;
+    // Same rule as the other hosts: an empty username with a password is `:password`.
+    const password = auth.basic?.password;
+    return auth.basic?.username || isOpaqueRef(password) || unwrapSecret(password) !== ''
+      ? undefined
+      : `Basic auth needs a username or a password.${reentry}`;
   }
   const field = credentialField(auth);
   if (isOpaqueRef(field) || unwrapSecret(field) !== '') return undefined;

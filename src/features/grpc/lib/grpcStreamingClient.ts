@@ -30,6 +30,7 @@ import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInherite
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import type { GrpcRequest } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
+import { EVENT_PREFIX, eventChannel } from '../../../../electron/shared/channels';
 import {
   buildAuthMetadata,
   desktopWireProtocol,
@@ -580,15 +581,19 @@ function startElectronInteractiveStream<TIn, TOut>(
     cleanup();
   };
 
+  const dataChannel = eventChannel(EVENT_PREFIX.grpc.data, requestId);
+  const errorChannel = eventChannel(EVENT_PREFIX.grpc.error, requestId);
+  const statusChannel = eventChannel(EVENT_PREFIX.grpc.status, requestId);
+
   const cleanup = () => {
-    api.grpc.removeListener(`grpc:data:${requestId}`, onData);
-    api.grpc.removeListener(`grpc:error:${requestId}`, onError);
-    api.grpc.removeListener(`grpc:status:${requestId}`, onStatus);
+    api.grpc.removeListener(dataChannel, onData);
+    api.grpc.removeListener(errorChannel, onError);
+    api.grpc.removeListener(statusChannel, onStatus);
   };
 
-  api.grpc.on(`grpc:data:${requestId}`, onData);
-  api.grpc.on(`grpc:error:${requestId}`, onError);
-  api.grpc.on(`grpc:status:${requestId}`, onStatus);
+  api.grpc.on(dataChannel, onData);
+  api.grpc.on(errorChannel, onError);
+  api.grpc.on(statusChannel, onStatus);
 
   // Per-host TLS trust / mTLS material so a self-signed / private-CA / mTLS
   // gRPC server connects instead of failing the handshake.

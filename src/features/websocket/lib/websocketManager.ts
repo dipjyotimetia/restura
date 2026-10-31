@@ -6,6 +6,7 @@ import {
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { checkBrowserSocketTargetFromSettings } from '@/lib/shared/browserSocketPolicy';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { EVENT_PREFIX, eventChannel } from '../../../../electron/shared/channels';
 import {
   attachControlFrameListeners,
   clearPingRtt,
@@ -18,20 +19,18 @@ import {
 } from './wsControlFrames';
 
 /**
- * Remove all `ws:{open,message,error,close}:<connectionId>` IPC listeners.
- * Standalone (not a class method) so both this store-coupled manager and
- * the store-free `websocketStartStream`'s Electron path
- * (`src/features/websocket/protocol.ts`, used by the DAG executor's
- * wsExchange node) share one definition of the channel set.
+ * Remove all `ws:{open,message,error,close}:<connectionId>` IPC listeners and
+ * the control-frame ones, by connection id so a reconnect or `disconnect()`
+ * clears whatever an earlier attempt left on the same id.
  */
 export function cleanupWebSocketElectronListeners(
   connectionId: string,
   api: ReturnType<typeof getElectronAPI>
 ): void {
-  api?.websocket?.removeAllListeners(`ws:open:${connectionId}`);
-  api?.websocket?.removeAllListeners(`ws:message:${connectionId}`);
-  api?.websocket?.removeAllListeners(`ws:error:${connectionId}`);
-  api?.websocket?.removeAllListeners(`ws:close:${connectionId}`);
+  api?.websocket?.removeAllListeners(eventChannel(EVENT_PREFIX.ws.open, connectionId));
+  api?.websocket?.removeAllListeners(eventChannel(EVENT_PREFIX.ws.message, connectionId));
+  api?.websocket?.removeAllListeners(eventChannel(EVENT_PREFIX.ws.error, connectionId));
+  api?.websocket?.removeAllListeners(eventChannel(EVENT_PREFIX.ws.close, connectionId));
   for (const channel of controlFrameChannels(connectionId)) {
     api?.websocket?.removeAllListeners(channel);
   }
@@ -377,7 +376,7 @@ class WebSocketManager {
     this.electronAttempts.set(connectionId, attempt);
     const isLive = () => this.electronAttempts.get(connectionId) === attempt;
 
-    api.websocket.on(`ws:open:${connectionId}`, (payload: unknown) => {
+    api.websocket.on(eventChannel(EVENT_PREFIX.ws.open, connectionId), (payload: unknown) => {
       // #923: main forwards the negotiated subprotocol + extensions.
       const open = (payload ?? {}) as { protocol?: string; extensions?: string };
       if (isLive()) this.handleOpen(connectionId, url, open.protocol, open.extensions);
@@ -385,7 +384,7 @@ class WebSocketManager {
 
     attachControlFrameListeners(connectionId, api);
 
-    api.websocket.on(`ws:message:${connectionId}`, (payload: unknown) => {
+    api.websocket.on(eventChannel(EVENT_PREFIX.ws.message, connectionId), (payload: unknown) => {
       const msg = payload as { type: 'text' | 'binary'; data: string };
       const s = useWebSocketStore.getState();
       if (msg.type === 'binary') {
@@ -402,12 +401,12 @@ class WebSocketManager {
       }
     });
 
-    api.websocket.on(`ws:error:${connectionId}`, (payload: unknown) => {
+    api.websocket.on(eventChannel(EVENT_PREFIX.ws.error, connectionId), (payload: unknown) => {
       const err = payload as { message: string };
       useWebSocketStore.getState().addMessage(connectionId, 'system', `Error: ${err.message}`);
     });
 
-    api.websocket.on(`ws:close:${connectionId}`, (payload: unknown) => {
+    api.websocket.on(eventChannel(EVENT_PREFIX.ws.close, connectionId), (payload: unknown) => {
       if (!isLive()) return;
       const ev = payload as { code: number; reason: string };
       this.releaseElectron(connectionId, api);

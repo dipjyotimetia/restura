@@ -57,7 +57,9 @@ src/features/sse/
 
 The executor is the centerpiece. It branches on `isElectron()` and `shouldUseCorsProxy()` (or the protocol's equivalent). See `references/layer-renderer.md` for the pattern.
 
-For streaming protocols, the executor returns subscription handles, not promises of responses. Components subscribe via the hook and unsubscribe on unmount.
+For streaming protocols, the executor returns subscription handles, not promises of responses. Components subscribe via the hook and unsubscribe on unmount. Build the desktop connection on `src/lib/shared/streaming/streamSession.ts` (`openStreamSession`) with an adapter from `src/lib/shared/streaming/desktopStreamAdapter.ts` (`createIpcStreamAdapter`, `connectionChannels`) instead of hand-rolling the IPC subscribe/teardown.
+
+If the protocol keeps a long-lived connection per tab, declare `connectionLifecycle` (`connectionIdForTab`, `disconnect`, `removeConnectionForTab`) on the `ProtocolModule` in `src/features/<name>/protocol.ts`. Closing a tab runs it through `cleanupConnectionLifecycle`, so `useRequestStore` tears the connection down without importing your store or manager. Do not add a per-protocol lifecycle file or import your store from the request store. See `src/features/mqtt/protocol.ts` for an example.
 
 ## Step 3 — Add the Worker handler (if web is supported)
 
@@ -104,6 +106,8 @@ export type SseConfig = z.infer<typeof SseConfigSchema>;
 
 ```ts
 const sseRateLimiter = createRateLimiter(20, 60_000);
+// Illustrative only: real handlers keep connections in a StreamRegistry
+// (see layer-electron.md, "Long-lived connections").
 const connections = new Map<string, EventSource>();
 
 export function registerSseHandlerIPC(): void {
@@ -128,7 +132,7 @@ export function registerSseHandlerIPC(): void {
 }
 ```
 
-Streaming protocols **must** track open connections in a map and provide a close channel. Otherwise sockets leak when the user navigates away.
+Streaming protocols **must** track open connections and provide a close channel, or sockets leak when the user navigates away. Use a `StreamRegistry` (`electron/main/ipc/stream-registry.ts`) rather than a bare `Map`: it also owns the connect claim across the awaited dial (`reserveClaim`, then `commitClaim` or `releaseClaim`) and renderer-destroyed cleanup. The pattern is in `references/layer-electron.md`; `sse-handler.ts` is the working example.
 
 Call `registerSseHandlerIPC()` from `electron/main/main.ts`.
 
@@ -194,6 +198,8 @@ export function connectSse(config: SseRequest, onEvent: (e: SseEvent) => void): 
 ```
 
 The function shape is the same in both branches; the implementation differs. Components shouldn't know which branch they're on.
+
+For a streaming protocol, the desktop branch is normally `openStreamSession` over a `desktopStreamAdapter` adapter (`src/lib/shared/streaming/`), and tab-close teardown comes from the module's `connectionLifecycle` (Step 2), not from code in the executor.
 
 ## Step 6 — Add UI
 

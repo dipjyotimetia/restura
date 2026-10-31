@@ -2,10 +2,8 @@ import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { cleanupKafkaConnectionForTab } from '@/features/kafka/lib/connectionLifecycle';
-import { cleanupMqttConnectionForTab } from '@/features/mqtt/lib/connectionLifecycle';
-import { cleanupSocketIOConnectionForTab } from '@/features/socketio/lib/connectionLifecycle';
-import { cleanupWebSocketConnectionForTab } from '@/features/websocket/lib/connectionLifecycle';
+import { protocolRegistry } from '@/features/registry/registry';
+import { cleanupConnectionLifecycle } from '@/lib/shared/connection-lifecycle';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { redactMcpRequestForWebPersistence } from '@/lib/shared/mcpWebPersistence';
@@ -196,10 +194,6 @@ function patchTab(
   return tabs.map((tab) => (tab.id === tabId ? patch(tab) : tab));
 }
 
-/**
- * Dispatches per-tab connection cleanup through explicit lifecycle
- * coordinators. Stores stay pure while managers retain runtime ownership.
- */
 const MAX_CLOSED_TABS = 20;
 
 /** Push closed tabs onto the reopen stack without live response/stream state. */
@@ -210,14 +204,18 @@ function rememberClosed(stack: RequestTab[], closed: RequestTab[]): RequestTab[]
   return [...stack, ...snapshots].slice(-MAX_CLOSED_TABS);
 }
 
+/**
+ * Dispatches per-tab connection cleanup through the lifecycle each protocol
+ * declares in its registration (`registry/bootstrap`, imported by the app
+ * entry). This store depends on neither the other stores nor their managers.
+ */
 function dispatchTabCleanup(closedTabIds: string[]): void {
   if (closedTabIds.length === 0) return;
   for (const id of closedTabIds) {
     disposeRetainedMonacoModelsForOwner(id);
-    cleanupWebSocketConnectionForTab(id);
-    cleanupSocketIOConnectionForTab(id);
-    cleanupKafkaConnectionForTab(id);
-    cleanupMqttConnectionForTab(id);
+    for (const { connectionLifecycle } of protocolRegistry.list()) {
+      if (connectionLifecycle) cleanupConnectionLifecycle(id, connectionLifecycle);
+    }
   }
 }
 

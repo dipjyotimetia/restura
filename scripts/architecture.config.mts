@@ -102,6 +102,17 @@ export const architecturePolicy: ArchitecturePolicy = {
       max: 22,
       hint: 'wrap the handler in createValidatedHandler/createValidatedListener with a Zod schema from electron/main/ipc/validators/',
     },
+    // Per-connection IPC event channels are named once, in electron/shared/channels.
+    // A hand-typed `sse:event:${id}` in the renderer silently stops matching when a
+    // channel is renamed. May only go down.
+    {
+      name: 'hand-typed IPC event channels in the renderer',
+      pathPrefix: 'src/',
+      extension: ['.ts', '.tsx'],
+      pattern: String.raw`\x60(?:sse|ws|grpc|mcp|socketio|kafka|mqtt):(?:[a-z-]+:)?\$\{`,
+      max: 1,
+      hint: 'use eventChannel(EVENT_PREFIX.<protocol>.<kind>, id) from electron/shared/channels',
+    },
   ],
 };
 

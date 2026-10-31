@@ -24,7 +24,7 @@ import { formatJsonBody } from '@/features/http/lib/formatJsonBody';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { cn } from '@/lib/shared/utils';
-import { findVariableTokens } from '@/lib/shared/variableTokens';
+import { findVariableTokens, tokenDisplayStatus } from '@/lib/shared/variableTokens';
 import type { AppSettings, AuthType, BodyType, HttpRequest } from '@/types';
 
 type Handlers = ReturnType<typeof useHttpRequestPage>['handlers'];
@@ -175,14 +175,16 @@ export function RequestBuilderTabs({
     const matches = new Set<string>();
     const collect = (s?: string) => {
       if (!s) return;
-      for (const token of findVariableTokens(s)) matches.add(token.name);
+      for (const token of findVariableTokens(s)) {
+        if (tokenDisplayStatus(token.name, getVarStatus) !== 'plain') matches.add(token.name);
+      }
     };
     collect(request.url);
     collect(request.body.raw);
     request.params.forEach((p) => collect(p.value));
     request.headers.forEach((h) => collect(h.value));
     return Array.from(matches);
-  }, [request.url, request.body.raw, request.params, request.headers]);
+  }, [request.url, request.body.raw, request.params, request.headers, getVarStatus]);
 
   const bodyFills = bodyEditorFills(request.body.type);
 

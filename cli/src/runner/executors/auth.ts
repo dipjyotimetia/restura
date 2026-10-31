@@ -1,4 +1,5 @@
 import { fetchClientCredentialsToken, tokenExpiresAt } from '@shared/auth/oauth2';
+import { buildAuthCredential, type CredentialHost } from '@shared/protocol/request-spec';
 import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/types';
 import { validateURL } from '@shared/protocol/url-validation';
 import type { AuthConfig } from '@shared/types';
@@ -20,66 +21,56 @@ import type { AuthConfig } from '@shared/types';
  * app can decrypt — it is unresolvable in the CLI. We THROW rather than return
  * undefined so the request fails loudly (errored → exit 1) instead of silently
  * going out unauthenticated and passing against a permissive endpoint.
+ *
+ * The same goes for an `external` ref still here (materialized ones are already
+ * strings, see `materializeExternalSecretsInAuth`) and for an object of no known
+ * shape: dropping either would send the request unauthenticated, or sign it with
+ * an empty secret. Errors never name the secret's identifiers.
  */
 export function secretString(v: unknown): string | undefined {
   if (typeof v === 'string') return v;
   if (v && typeof v === 'object') {
     const r = v as { kind?: string; value?: string };
-    if (r.kind === 'inline' && typeof r.value === 'string') return r.value;
+    if (r.kind === 'inline') return typeof r.value === 'string' ? r.value : undefined;
     if (r.kind === 'handle') {
       throw new Error(
         'auth uses a desktop-only secret handle that cannot be resolved in the CLI; ' +
           're-export the collection with inline secret values for CI use'
       );
     }
+    if (r.kind === 'external') {
+      throw new Error(
+        'auth uses an external secret reference that was not resolved for this request; ' +
+          'HTTP, MCP, SSE and gRPC requests resolve one through an explicit external-secret ' +
+          'profile, so configure one for this run or use an inline value'
+      );
+    }
+    throw new Error('auth uses an unrecognised secret value; the request was not sent');
   }
   return undefined;
 }
 
+const CLI_CREDENTIAL_HOST: CredentialHost = {
+  // The CLI has nothing to defer to: `secretString` reads the value or throws.
+  readSecret: secretString,
+  encodeBasic: (credentials) => Buffer.from(credentials).toString('base64'),
+};
+
 /**
- * Apply header/query-based auth into the given maps. `params` is mutated only
- * for `api-key` with `in: query`; protocols without a query channel (gRPC, MCP)
- * may pass a throwaway object. Wire-signed schemes are intentionally ignored
- * here — see `toProtocolAuth`.
+ * Apply header/query-based auth into the given maps, by the rule the app uses
+ * (`shared/protocol/request-spec.ts`). `params` is mutated only for `api-key`
+ * with `in: query`; protocols without a query channel (gRPC, MCP) may pass a
+ * throwaway object. Wire-signed schemes are intentionally ignored here — see
+ * `toProtocolAuth`.
  */
 export function applyAuthHeaders(
   auth: AuthConfig | undefined,
   headers: Record<string, string>,
   params: Record<string, string>
 ): void {
-  if (!auth || auth.type === 'none') return;
-  switch (auth.type) {
-    case 'bearer': {
-      const token = secretString(auth.bearer?.token);
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      return;
-    }
-    case 'basic': {
-      const username = auth.basic?.username ?? '';
-      const password = secretString(auth.basic?.password) ?? '';
-      const encoded = Buffer.from(`${username}:${password}`).toString('base64');
-      headers['Authorization'] = `Basic ${encoded}`;
-      return;
-    }
-    case 'api-key': {
-      const key = auth.apiKey?.key;
-      const value = secretString(auth.apiKey?.value);
-      if (!key || !value) return;
-      if (auth.apiKey?.in === 'query') params[key] = value;
-      else headers[key] = value;
-      return;
-    }
-    case 'oauth2': {
-      const token = secretString(auth.oauth2?.accessToken);
-      if (token) {
-        const tokenType = auth.oauth2?.tokenType ?? 'Bearer';
-        headers['Authorization'] = `${tokenType} ${token}`;
-      }
-      return;
-    }
-    // aws-signature, oauth1, ntlm, wsse are sign-at-wire and digest is answered
-    // after the 401 challenge — all handled by toProtocolAuth.
-  }
+  const credential = buildAuthCredential(auth, CLI_CREDENTIAL_HOST);
+  Object.assign(headers, credential.headers);
+  Object.assign(params, credential.params);
 }
 
 interface CachedToken {

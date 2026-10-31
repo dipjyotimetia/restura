@@ -4,11 +4,10 @@ import { Agent as HttpsAgent } from 'node:https';
 import { createLogger } from '@shared/runtime/logger';
 import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
 import { prepareIncomingArgs, SOCKETIO_MAX_INCOMING_BYTES } from '@shared/socketio-payload';
-import { ipcMain, type WebContents } from 'electron';
+import { ipcMain } from 'electron';
 import type * as SocketIoClient from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import { IPC } from '../../shared/channels';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
 import {
@@ -20,7 +19,7 @@ import {
   SocketIoReplyAckSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
-import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
@@ -96,42 +95,6 @@ function disposeSocketIo(entry: ActiveSocketIO): void {
 // registry is used purely for bookkeeping here.
 const activeConnections = new StreamRegistry<ActiveSocketIO>({ dispose: disposeSocketIo });
 
-interface PendingSocketIoClaim {
-  webContentsId: number;
-  token: symbol;
-  ownerEntry?: ActiveSocketIO;
-}
-
-const pendingConnections = new Map<string, PendingSocketIoClaim>();
-
-function reserveSocketIoClaim(
-  connectionId: string,
-  webContents: WebContents
-): PendingSocketIoClaim | undefined {
-  const key = ownerScopedKey(connectionId, webContents.id);
-  if (pendingConnections.has(key)) return undefined;
-
-  const ownerEntry = activeConnections.getForOwner(connectionId, webContents.id);
-
-  const claim: PendingSocketIoClaim = {
-    webContentsId: webContents.id,
-    token: Symbol(connectionId),
-    ownerEntry,
-  };
-  pendingConnections.set(key, claim);
-  bindRendererCleanup(pendingConnections, webContents, (deadId) =>
-    disposeByOwner(pendingConnections, deadId, () => {})
-  );
-  return pendingConnections.get(key) === claim ? claim : undefined;
-}
-
-function releaseSocketIoClaim(connectionId: string, claim: PendingSocketIoClaim): void {
-  const key = ownerScopedKey(connectionId, claim.webContentsId);
-  if (pendingConnections.get(key)?.token === claim.token) {
-    pendingConnections.delete(key);
-  }
-}
-
 function buildConnectUrl(rawUrl: string, namespace: string | undefined): string {
   // Socket.IO joins the namespace by appending it to the URL's pathname.
   // The io() client accepts either url + { path } or url-with-namespace-suffix.
@@ -175,13 +138,16 @@ export function registerSocketIoHandlerIPC(): void {
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 
-    if (activeConnections.size() + pendingConnections.size >= MAX_CONCURRENT_SOCKETIO_CONNECTIONS) {
+    if (
+      activeConnections.size() + activeConnections.pendingCount() >=
+      MAX_CONCURRENT_SOCKETIO_CONNECTIONS
+    ) {
       return { success: false, error: 'Too many open Socket.IO connections.' };
     }
 
     // Reserve this renderer's id synchronously before DNS or transport
     // construction. Another renderer may independently use the same external id.
-    const claim = reserveSocketIoClaim(connectionId, event.sender);
+    const claim = activeConnections.reserveClaim(connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
 
     try {
@@ -207,8 +173,7 @@ export function registerSocketIoHandlerIPC(): void {
 
       // Renderer destruction/module teardown may invalidate the reservation
       // while DNS is pending. Never load/start a transport for a stale claim.
-      const key = ownerScopedKey(connectionId, webContentsId);
-      if (pendingConnections.get(key)?.token !== claim.token) {
+      if (!activeConnections.isClaimLive(claim)) {
         return { success: false, error: 'Not connected' };
       }
 
@@ -217,7 +182,7 @@ export function registerSocketIoHandlerIPC(): void {
         const secure = /^(https|wss):/i.test(config.url);
         const lookup = createPinnedLookup(pinned.host, pinned.ip);
         const io = await getIo();
-        if (pendingConnections.get(key)?.token !== claim.token) {
+        if (!activeConnections.isClaimLive(claim)) {
           return { success: false, error: 'Not connected' };
         }
         const agent = secure ? new HttpsAgent({ lookup }) : new HttpAgent({ lookup });
@@ -320,13 +285,7 @@ export function registerSocketIoHandlerIPC(): void {
         // Commit only the exact live reservation. For reconnects, also require
         // the original owner entry to still be current so stale work cannot
         // replace a newer connection.
-        const claimed =
-          pendingConnections.get(key)?.token === claim.token &&
-          (claim.ownerEntry
-            ? activeConnections.get(connectionId, webContentsId) === claim.ownerEntry &&
-              activeConnections.replaceForOwner(connectionId, webContentsId, entry)
-            : activeConnections.tryAdd(connectionId, event.sender, entry));
-        if (!claimed) {
+        if (!activeConnections.commitClaim(claim, event.sender, entry)) {
           disposeSocketIo(entry);
           return { success: false, error: 'Not connected' };
         }
@@ -341,7 +300,7 @@ export function registerSocketIoHandlerIPC(): void {
         };
       }
     } finally {
-      releaseSocketIoClaim(connectionId, claim);
+      activeConnections.releaseClaim(claim);
     }
   });
 
@@ -438,6 +397,6 @@ export function registerSocketIoHandlerIPC(): void {
 }
 
 export function stopSocketIoCleanup(): void {
-  pendingConnections.clear();
+  activeConnections.clearClaims();
   activeConnections.disposeAll();
 }

@@ -87,6 +87,87 @@ describe('useHttpRequestPage — resolved URL persistence', () => {
     expect(lastConsoleEntry?.request.url).toBe('{{baseUrl}}/anything');
   });
 
+  describe('records the URL that was sent', () => {
+    async function sendWith(url: string) {
+      const { useCollectionStore } = await import('@/store/useCollectionStore');
+      const { useEnvironmentStore } = await import('@/store/useEnvironmentStore');
+      const { useRequestStore } = await import('@/store/useRequestStore');
+      const { useHistoryStore } = await import('@/store/useHistoryStore');
+      const { useConsoleStore } = await import('@/store/useConsoleStore');
+      const axios = (await import('axios')).default as unknown as {
+        post: ReturnType<typeof vi.fn>;
+      };
+      axios.post.mockClear();
+
+      useEnvironmentStore.setState({
+        environments: [
+          {
+            id: 'env1',
+            name: 'Env',
+            variables: [{ id: 'v1', key: 'base', value: 'https://env.example.com', enabled: true }],
+          },
+        ],
+        activeEnvironmentId: 'env1',
+      });
+      const httpRequest = {
+        id: 'req-1',
+        name: 'r',
+        type: 'http' as const,
+        method: 'GET' as const,
+        url,
+        headers: [],
+        params: [],
+        body: { type: 'none' as const },
+        auth: { type: 'none' as const },
+      };
+      useCollectionStore.setState({
+        collections: [
+          {
+            id: 'c1',
+            name: 'c',
+            items: [{ id: 'req-1', name: 'r', type: 'request', request: httpRequest }],
+            variables: [
+              { id: 'cv', key: 'base', value: 'https://collection.example.com', enabled: true },
+            ],
+          },
+        ],
+      } as never);
+      useRequestStore.setState({
+        tabs: [{ id: 'tab1', request: httpRequest, isDirty: false, savedRequestId: 'req-1' }],
+        activeTabId: 'tab1',
+        isLoading: false,
+      } as never);
+      useHistoryStore.setState({ history: [] });
+      useConsoleStore.setState({ entries: [] });
+
+      const { useHttpRequestPage } = await import('../useHttpRequestPage');
+      const { result } = renderHook(() => useHttpRequestPage());
+      await act(async () => {
+        await result.current.handlers.sendRequest();
+      });
+      const wire = (axios.post.mock.calls[0]?.[1] as { url: string }).url;
+      return {
+        wire,
+        history: useHistoryStore.getState().history[0]?.resolvedUrl,
+        console: useConsoleStore.getState().entries[0]?.resolvedUrl,
+      };
+    }
+
+    it('for a padded token whose key is in both the environment and the collection', async () => {
+      const { wire, history, console } = await sendWith('{{ base }}/x');
+      expect(wire).toBe('https://collection.example.com/x');
+      expect(history).toBe(wire);
+      expect(console).toBe(wire);
+    });
+
+    it('for a dynamic in the URL, recording the generated value', async () => {
+      const { wire, history, console } = await sendWith('{{base}}/{{$randomUUID}}');
+      expect(wire).toMatch(/^https:\/\/collection\.example\.com\/[0-9a-f-]{36}$/);
+      expect(history).toBe(wire);
+      expect(console).toBe(wire);
+    });
+  });
+
   it('persists the resolved URL on a failed send too', async () => {
     vi.doMock('axios', () => {
       const post = vi.fn().mockRejectedValue(new Error('Network Error'));
@@ -329,6 +410,7 @@ describe('useHttpRequestPage — resolved URL persistence', () => {
       resolveExecution?.({
         response,
         transportOk: true,
+        sentUrl: 'https://example.com',
         sentHeaders: {},
         scriptResult,
         refreshedAuth: {

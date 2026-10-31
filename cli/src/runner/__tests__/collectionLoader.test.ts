@@ -1,10 +1,108 @@
-import { dirname, resolve } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
-import { loadCollection } from '../collectionLoader';
+import type { HttpRequest } from '@shared/types';
+import { afterAll, describe, expect, it } from 'vitest';
+import { type LoadedRequest, loadCollection } from '../collectionLoader';
+import { executeHttp } from '../executors/http';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixtureDir = resolve(__dirname, '../../../fixtures/sample-collection');
+
+describe('form rows saved without an enabled flag still send', () => {
+  const dirs: string[] = [];
+  afterAll(async () => {
+    await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+  const tempDir = async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'restura-form-rows-'));
+    dirs.push(dir);
+    return dir;
+  };
+
+  async function sentBody(item: LoadedRequest): Promise<unknown> {
+    let body: unknown;
+    await executeHttp(item, {
+      vars: {},
+      timeoutMs: 1000,
+      allowLocalhost: true,
+      fetcher: async (req) => {
+        body = req.body;
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          text: async () => '',
+          contentLengthHeader: '0',
+        };
+      },
+    });
+    return body;
+  }
+
+  const rowFlags = (item: LoadedRequest | undefined) =>
+    (item?.request as HttpRequest).body.formData?.map((row) => [row.key, row.enabled]);
+
+  it('OpenCollection: a part with no flag is enabled; an explicit false stays off', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'collection.yaml');
+    await writeFile(
+      file,
+      `opencollection: "1.0.0"
+info:
+  name: Rows
+  version: "0.1.0"
+bundled: true
+items:
+  - info:
+      type: http
+      name: Form
+      seq: 1
+    http:
+      method: POST
+      url: https://api.example.com/a
+      body:
+        formUrlEncoded:
+          parts:
+            - { key: plain, value: "1", type: text }
+            - { key: on, value: "2", type: text, enabled: true }
+            - { key: off, value: "3", type: text, enabled: false }
+`
+    );
+    const { requests } = await loadCollection(file);
+    expect(rowFlags(requests[0])).toEqual([
+      ['plain', true],
+      ['on', true],
+      ['off', false],
+    ]);
+    expect(await sentBody(requests[0] as LoadedRequest)).toBe('plain=1&on=2');
+  });
+
+  it('legacy layout: the same rule, multipart included', async () => {
+    const dir = await tempDir();
+    await writeFile(join(dir, '_collection.yaml'), 'name: Rows\n');
+    await writeFile(
+      join(dir, 'a.http.yaml'),
+      `name: Form
+method: POST
+url: https://api.example.com/a
+body:
+  type: form-data
+  formData:
+    - { key: plain, value: "1", type: text }
+    - { key: off, value: "3", type: text, enabled: false }
+`
+    );
+    const { requests } = await loadCollection(dir);
+    expect(rowFlags(requests[0])).toEqual([
+      ['plain', true],
+      ['off', false],
+    ]);
+    const sent = (await sentBody(requests[0] as LoadedRequest)) as FormData;
+    expect([...sent.keys()]).toEqual(['plain']);
+  });
+});
 
 describe('loadCollection', () => {
   it('reads _collection.yaml metadata', async () => {
@@ -60,5 +158,39 @@ describe('loadCollection', () => {
 
   it('throws for missing _collection.yaml', async () => {
     await expect(loadCollection('/nonexistent/path/does/not/exist')).rejects.toThrow();
+  });
+});
+
+describe('hand-edited form rows', () => {
+  it.each([
+    ['a string', "'oops'"],
+    ['an object', '{ a: 1 }'],
+    ['a number', '3'],
+  ])('does not fail an OpenCollection load when the rows are %s', async (_label, rows) => {
+    const dir = await mkdtemp(join(tmpdir(), 'restura-formrows-'));
+    const file = join(dir, 'collection.yaml');
+    await writeFile(
+      file,
+      `opencollection: "1.0.0"
+info:
+  name: Rows
+  version: "0.1.0"
+bundled: true
+items:
+  - info:
+      type: http
+      name: Form
+      seq: 1
+    http:
+      method: POST
+      url: https://api.example.com/a
+      body:
+        formUrlEncoded:
+          parts: ${rows}
+`
+    );
+    const { requests } = await loadCollection(file);
+    expect(requests).toHaveLength(1);
+    await rm(dir, { recursive: true, force: true });
   });
 });

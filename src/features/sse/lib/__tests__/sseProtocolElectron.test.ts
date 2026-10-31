@@ -116,6 +116,37 @@ describe('sseProtocol.startStream on Electron', () => {
     ).rejects.toThrow('blocked by SSRF policy');
   });
 
+  it('does not open the stream when the signal is already aborted', async () => {
+    const api = installFakeSseApi();
+    const controller = new AbortController();
+    controller.abort();
+
+    const handle = await sseProtocol.startStream!(baseRequest(), {
+      signal: controller.signal,
+      variables: {},
+    });
+
+    // A connect after the one-shot disconnect would leave a live main-process
+    // stream that nothing can close.
+    expect(api.connect).not.toHaveBeenCalled();
+    expect(api.sse.removeAllListeners).toHaveBeenCalled();
+    expect((await handle.events[Symbol.asyncIterator]().next()).done).toBe(true);
+  });
+
+  it('removes its listeners when the IPC connect call rejects', async () => {
+    const api = installFakeSseApi();
+    api.connect.mockRejectedValueOnce(new Error('ipc down'));
+
+    await expect(
+      sseProtocol.startStream!(baseRequest(), {
+        signal: new AbortController().signal,
+        variables: {},
+      })
+    ).rejects.toThrow('ipc down');
+
+    expect(api.sse.removeAllListeners).toHaveBeenCalled();
+  });
+
   it('disconnects when the caller aborts mid-stream', async () => {
     const api = installFakeSseApi();
     const controller = new AbortController();

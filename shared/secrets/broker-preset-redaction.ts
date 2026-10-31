@@ -4,6 +4,7 @@ import {
   isSecretFieldName,
   redactSecretKeyValues,
 } from './key-value-redaction';
+import { blankSecretSlots, countSecretSlots, type SecretSlot, slotsForKind } from './secret-slot';
 
 /**
  * Export-time redaction for Kafka / MQTT connection presets (#984).
@@ -51,49 +52,73 @@ function redactPublish<T extends Omit<MqttPresetPublish, 'name'>>(p: T): T {
   return p.userProperties ? { ...p, userProperties: redactProperties(p.userProperties) } : p;
 }
 
+export const BROKER_PRESET_SLOTS: readonly SecretSlot[] = [
+  ...slotsForKind('kafka', [
+    {
+      name: 'bootstrapBrokers',
+      blank: (r: KafkaRequest) => ({
+        ...r,
+        connection: {
+          ...r.connection,
+          bootstrapBrokers: r.connection.bootstrapBrokers.map(stripUrlUserinfo),
+        },
+      }),
+      count: (r: KafkaRequest) => r.connection.bootstrapBrokers.filter(hasUrlUserinfo).length,
+    },
+    {
+      name: 'registry',
+      blank(r: KafkaRequest) {
+        const registry = r.connection.registry;
+        if (!registry) return r;
+        return {
+          ...r,
+          connection: {
+            ...r.connection,
+            registry: { ...registry, url: stripUrlUserinfo(registry.url) },
+          },
+        };
+      },
+      count: (r: KafkaRequest) =>
+        r.connection.registry && hasUrlUserinfo(r.connection.registry.url) ? 1 : 0,
+    },
+    {
+      name: 'produceHeaders',
+      blank: (r: KafkaRequest) => ({
+        ...r,
+        produce: { ...r.produce, headers: redactSecretKeyValues(r.produce.headers) ?? [] },
+      }),
+      count: (r: KafkaRequest) => countSecretKeyValues(r.produce.headers),
+    },
+  ]),
+  ...slotsForKind('mqtt', [
+    {
+      name: 'brokerUrl',
+      blank: (r: MqttRequest) => ({
+        ...r,
+        connection: { ...r.connection, brokerUrl: stripUrlUserinfo(r.connection.brokerUrl) },
+      }),
+      count: (r: MqttRequest) => (hasUrlUserinfo(r.connection.brokerUrl) ? 1 : 0),
+    },
+    {
+      name: 'publish',
+      blank: (r: MqttRequest) => ({ ...r, publish: redactPublish(r.publish) }),
+      count: (r: MqttRequest) => countProperties(r.publish.userProperties),
+    },
+    {
+      name: 'templates',
+      blank: (r: MqttRequest) => ({ ...r, templates: r.templates.map(redactPublish) }),
+      count: (r: MqttRequest) =>
+        r.templates.reduce((n, t) => n + countProperties(t.userProperties), 0),
+    },
+  ]),
+];
+
 /** Copy of a Kafka / MQTT preset with free-text credentials removed; other kinds unchanged. */
 export function redactBrokerPreset<T extends CollectionRequest>(request: T): T {
-  if (request.type === 'kafka') {
-    const r = request as KafkaRequest;
-    const registry = r.connection.registry;
-    return {
-      ...r,
-      connection: {
-        ...r.connection,
-        bootstrapBrokers: r.connection.bootstrapBrokers.map(stripUrlUserinfo),
-        ...(registry ? { registry: { ...registry, url: stripUrlUserinfo(registry.url) } } : {}),
-      },
-      produce: { ...r.produce, headers: redactSecretKeyValues(r.produce.headers) ?? [] },
-    } as T;
-  }
-  if (request.type === 'mqtt') {
-    const r = request as MqttRequest;
-    return {
-      ...r,
-      connection: { ...r.connection, brokerUrl: stripUrlUserinfo(r.connection.brokerUrl) },
-      publish: redactPublish(r.publish),
-      templates: r.templates.map(redactPublish),
-    } as T;
-  }
-  return request;
+  return blankSecretSlots(BROKER_PRESET_SLOTS, request);
 }
 
 /** Plaintext credentials {@link redactBrokerPreset} would remove. */
 export function countBrokerPresetSecrets(request: CollectionRequest): number {
-  if (request.type === 'kafka') {
-    const c = request.connection;
-    return (
-      c.bootstrapBrokers.filter(hasUrlUserinfo).length +
-      (c.registry && hasUrlUserinfo(c.registry.url) ? 1 : 0) +
-      countSecretKeyValues(request.produce.headers)
-    );
-  }
-  if (request.type === 'mqtt') {
-    return (
-      (hasUrlUserinfo(request.connection.brokerUrl) ? 1 : 0) +
-      countProperties(request.publish.userProperties) +
-      request.templates.reduce((n, t) => n + countProperties(t.userProperties), 0)
-    );
-  }
-  return 0;
+  return countSecretSlots(BROKER_PRESET_SLOTS, request);
 }

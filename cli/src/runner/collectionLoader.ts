@@ -307,6 +307,7 @@ function walkItems(
         t === 'mcp'
           ? (resolveMcpEffectiveAuth(req.auth, inheritedAuth).auth ?? req.auth)
           : resolveEffectiveAuth(req.auth, inheritedAuth),
+      ...(t === 'http' ? { body: withEnabledFormRows((req as HttpRequest).body) } : {}),
       ...(pre !== undefined ? { preRequestScript: pre } : {}),
       ...(test !== undefined ? { testScript: test } : {}),
     } as HttpRequest | GrpcRequest | SseRequest | McpRequest;
@@ -320,6 +321,23 @@ function walkItems(
       ...(Object.keys(folderVars).length > 0 ? { folderVariables: { ...folderVars } } : {}),
     });
   }
+}
+
+/**
+ * The send rule for form rows is a truthy `enabled`, but neither on-disk format
+ * guarantees the flag: OpenCollection parts and legacy `formData` are carried
+ * through as written. A row saved without one has always been sent by the CLI, so
+ * it means enabled. Normalised at load so every CLI entry point (runner, OWS
+ * workflows, agent tools) sees the same rows.
+ */
+function withEnabledFormRows(body: HttpRequest['body']): HttpRequest['body'] {
+  if (!Array.isArray(body?.formData)) return body;
+  return {
+    ...body,
+    formData: body.formData.map((row) =>
+      row.enabled === undefined ? { ...row, enabled: true } : row
+    ),
+  };
 }
 
 /**
@@ -459,7 +477,7 @@ function parseLegacyRequest(
           enabled: p.enabled,
           ...(p.description !== undefined ? { description: p.description } : {}),
         })),
-        body: (parsed.body as HttpRequest['body']) ?? { type: 'none' },
+        body: withEnabledFormRows((parsed.body as HttpRequest['body']) ?? { type: 'none' }),
         auth: (parsed.auth as HttpRequest['auth']) ?? { type: 'none' },
       };
       if (parsed.preRequestScript !== undefined) out.preRequestScript = parsed.preRequestScript;

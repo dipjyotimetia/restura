@@ -74,7 +74,12 @@ export function buildScopedVariableResolution(inputs: ScopeInputs): ScopedVariab
   const values: Record<string, string> = {};
   const provenance: Record<string, VariableProvenance> = {};
   const assign = (entries: Iterable<[string, string]>, source: VariableProvenance) => {
-    for (const [key, value] of entries) {
+    for (const [rawKey, value] of entries) {
+      // Trimmed like a token name, so `' k '` and `k` are one slot. Assigning keeps
+      // a key's first position when a later scope overrides it, and the send path
+      // walks this map in insertion order, so that order must not shift.
+      const key = rawKey.trim();
+      if (!key) continue;
       values[key] = value;
       provenance[key] = source;
     }
@@ -98,15 +103,17 @@ export function buildScopedVariableResolution(inputs: ScopeInputs): ScopedVariab
  */
 export function buildKnownNames(inputs: ScopeInputs): Set<string> {
   const names = new Set<string>();
-  for (const [k] of enabledEntries(inputs.baseEnvironment ?? inputs.env)) names.add(k);
-  for (const [k] of enabledEntries(inputs.subEnvironment)) names.add(k);
-  for (const [k] of enabledEntries(inputs.collection)) names.add(k);
+  // Trimmed like a token name: a `' k '` row answers to `{{k}}`.
+  const add = (name: string) => names.add(name.trim());
+  for (const [k] of enabledEntries(inputs.baseEnvironment ?? inputs.env)) add(k);
+  for (const [k] of enabledEntries(inputs.subEnvironment)) add(k);
+  for (const [k] of enabledEntries(inputs.collection)) add(k);
   for (const folder of inputs.folders ?? []) {
-    for (const [k] of enabledEntries(folder)) names.add(k);
+    for (const [k] of enabledEntries(folder)) add(k);
   }
-  for (const k of Object.keys(inputs.globals ?? {})) names.add(k);
-  for (const k of Object.keys(inputs.dataRow ?? {})) names.add(k);
-  for (const k of inputs.scriptSetKeys ?? []) names.add(k);
+  for (const k of Object.keys(inputs.globals ?? {})) add(k);
+  for (const k of Object.keys(inputs.dataRow ?? {})) add(k);
+  for (const k of inputs.scriptSetKeys ?? []) add(k);
   return names;
 }
 
@@ -128,7 +135,7 @@ export function describeVariables(inputs: ScopeInputs): VariableDetail[] {
   const { values, provenance } = buildScopedVariableResolution(inputs);
   const secret: Record<string, boolean> = {};
   const handleOnly = new Set<string>();
-  for (const key of Object.keys(inputs.globals ?? {})) secret[key] = false;
+  for (const key of Object.keys(inputs.globals ?? {})) secret[key.trim()] = false;
   const scopes = [
     inputs.baseEnvironment ?? inputs.env,
     inputs.subEnvironment,
@@ -137,14 +144,16 @@ export function describeVariables(inputs: ScopeInputs): VariableDetail[] {
   ];
   for (const scope of scopes) {
     for (const variable of scope ?? []) {
-      if (!variable.enabled || !variable.key) continue;
+      const key = variable.key?.trim();
+      if (!variable.enabled || !key) continue;
       const hasHandle = 'secretRef' in variable && variable.secretRef !== undefined;
-      secret[variable.key] = variable.secret === true || hasHandle;
-      if (hasHandle) handleOnly.add(variable.key);
-      else handleOnly.delete(variable.key);
+      secret[key] = variable.secret === true || hasHandle;
+      if (hasHandle) handleOnly.add(key);
+      else handleOnly.delete(key);
     }
   }
-  for (const key of Object.keys(inputs.dataRow ?? {})) {
+  for (const rawKey of Object.keys(inputs.dataRow ?? {})) {
+    const key = rawKey.trim();
     secret[key] = false;
     handleOnly.delete(key);
   }

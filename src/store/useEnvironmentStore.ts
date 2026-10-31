@@ -1,9 +1,9 @@
+import { expandVariablesInOrder } from '@shared/variables/resolver';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
-import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { Environment, KeyValue, ScopedVariable } from '@/types';
 
@@ -109,40 +109,24 @@ export const useEnvironmentStore = create<EnvironmentState>()(
 
       resolveVariables: (text: string) => {
         // No `{{token}}` anywhere — nothing to substitute (env, globals, or
-        // dynamics all require braces), so skip the regex work entirely. This
-        // is the common case for most fields on the per-field send hot path.
+        // dynamics all require braces), so skip the scan entirely. This is the
+        // common case for most fields on the per-field send hot path.
         if (!text.includes('{{')) return text;
 
-        const activeEnv = get().getActiveEnvironment();
-        let resolved = text;
-
-        // Resolve environment variables first
-        if (activeEnv) {
-          activeEnv.variables.forEach((variable) => {
-            if (variable.enabled) {
-              // escapeRegExp: a key with regex metachars would crash the RegExp
-              // ctor; the function replacer keeps a value with $ patterns literal.
-              const regex = new RegExp(`{{\\s*${escapeRegExp(variable.key)}\\s*}}`, 'g');
-              resolved = resolved.replace(regex, () => variable.value);
-            }
-          });
-        }
-
-        // Then workspace globals fill any still-unresolved tokens. Env is applied
-        // first, so an env var with the same name wins (its token is already gone).
-        // This gives every caller of resolveVariables — SSE / WebSocket / Socket.IO /
-        // MCP / gRPC / workflows / the HTTP second pass — globals parity for free.
-        // Only compile the globals regexes if env didn't already resolve every token.
-        if (resolved.includes('{{')) {
-          const globals = useGlobalsStore.getState().vars;
-          for (const [key, value] of Object.entries(globals)) {
-            const regex = new RegExp(`{{\\s*${escapeRegExp(key)}\\s*}}`, 'g');
-            resolved = resolved.replace(regex, () => value);
-          }
-        }
-
-        // Resolve built-in dynamic variables (Postman-name compatible)
-        return applyDynamicVariables(resolved);
+        // Environment variables in definition order, then workspace globals for
+        // whatever tokens are still present, so an env var with the same name wins.
+        // Going through here gives every caller of resolveVariables — SSE / WebSocket
+        // / Socket.IO / MCP / gRPC / workflows / the HTTP second pass — globals parity
+        // for free. Built-in dynamics (Postman-name compatible) expand once at the
+        // very end, so a helper in a value is never generated twice.
+        const enabled = (get().getActiveEnvironment()?.variables ?? []).filter((v) => v.enabled);
+        const afterEnv = expandVariablesInOrder(
+          text,
+          enabled.map((v) => [v.key, v.value] as const)
+        );
+        return applyDynamicVariables(
+          expandVariablesInOrder(afterEnv, Object.entries(useGlobalsStore.getState().vars))
+        );
       },
 
       createNewEnvironment: (name, scope) => ({

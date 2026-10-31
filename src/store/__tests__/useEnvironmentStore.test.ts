@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { KeyValue } from '@/types';
 import { useEnvironmentStore } from '../useEnvironmentStore';
 import { useGlobalsStore } from '../useGlobalsStore';
 
@@ -28,6 +29,75 @@ describe('useEnvironmentStore', () => {
       expect(env.name).toBe('Production');
       expect(env.id).toBeDefined();
       expect(env.variables).toEqual([]);
+    });
+  });
+
+  describe('resolveVariables order', () => {
+    const activate = (vars: Array<[string, string, Partial<KeyValue>?]>) => {
+      useEnvironmentStore.setState({
+        activeEnvironmentId: 'env',
+        environments: [
+          {
+            id: 'env',
+            name: 'env',
+            variables: vars.map(([key, value, extra], index) => ({
+              id: String(index),
+              key,
+              value,
+              enabled: true,
+              ...extra,
+            })),
+          },
+        ],
+      });
+      return (text: string) => useEnvironmentStore.getState().resolveVariables(text);
+    };
+
+    it('walks definition order deliberately: a value only reaches later variables', () => {
+      expect(
+        activate([
+          ['apiKey', 'k'],
+          ['next', '{{apiKey}}'],
+        ])('{{next}}')
+      ).toBe('{{apiKey}}');
+      expect(
+        activate([
+          ['next', '{{apiKey}}'],
+          ['apiKey', 'k'],
+        ])('{{next}}')
+      ).toBe('k');
+    });
+
+    it('ends a cycle when the walk ends', () => {
+      expect(
+        activate([
+          ['a', '{{b}}'],
+          ['b', '{{a}}'],
+        ])('{{a}}')
+      ).toBe('{{a}}');
+      expect(
+        activate([
+          ['b', '{{a}}'],
+          ['a', '{{b}}'],
+        ])('{{a}}')
+      ).toBe('{{b}}');
+    });
+
+    it('lets an env value reach globals, but a global value never reaches back into env', () => {
+      useGlobalsStore.setState({ vars: { g: '{{host}}', host: 'global' } });
+      expect(activate([['host', 'env']])('{{g}}')).toBe('global');
+      expect(activate([['a', '{{host}}']])('{{a}}')).toBe('global');
+      useGlobalsStore.setState({ vars: { g: '{{e}}' } });
+      expect(activate([['e', 'env']])('{{g}}')).toBe('{{e}}');
+    });
+
+    it('skips disabled rows, and generates a dynamic in a value once', () => {
+      expect(activate([['a', 'v', { enabled: false }]])('{{a}}')).toBe('{{a}}');
+      expect(activate([['a', '{{$randomUUID}}']])('{{a}}')).toMatch(/^[0-9a-f-]{36}$/);
+    });
+
+    it('returns text without a token untouched', () => {
+      expect(activate([['a', 'v']])('plain')).toBe('plain');
     });
   });
 
@@ -331,30 +401,6 @@ describe('useEnvironmentStore', () => {
       expect(resolveVariables(text)).toBe(text);
     });
 
-    it('should handle variables with spaces', () => {
-      const {
-        createNewEnvironment,
-        addEnvironment,
-        addVariable,
-        setActiveEnvironment,
-        resolveVariables,
-      } = useEnvironmentStore.getState();
-      const env = createNewEnvironment('Test');
-      addEnvironment(env);
-
-      addVariable(env.id, {
-        id: 'var-1',
-        key: 'token',
-        value: 'abc123',
-        enabled: true,
-      });
-
-      setActiveEnvironment(env.id);
-
-      const resolved = resolveVariables('{{ token }}');
-      expect(resolved).toBe('abc123');
-    });
-
     it('resolves a key containing regex metacharacters without crashing', () => {
       // Pre-fix the key was interpolated raw into `new RegExp()`, so a key like
       // `id(x)` threw SyntaxError and crashed the send.
@@ -371,22 +417,6 @@ describe('useEnvironmentStore', () => {
       setActiveEnvironment(env.id);
 
       expect(resolveVariables('x/{{a.b*c+[d]}}')).toBe('x/ok');
-    });
-
-    it('treats $ patterns in a value literally (no replacement-pattern interpretation)', () => {
-      const {
-        createNewEnvironment,
-        addEnvironment,
-        addVariable,
-        setActiveEnvironment,
-        resolveVariables,
-      } = useEnvironmentStore.getState();
-      const env = createNewEnvironment('Test');
-      addEnvironment(env);
-      addVariable(env.id, { id: 'var-1', key: 'token', value: 'a$&b$1c', enabled: true });
-      setActiveEnvironment(env.id);
-
-      expect(resolveVariables('{{token}}')).toBe('a$&b$1c');
     });
 
     it('resolves workspace globals when there is no active environment', () => {

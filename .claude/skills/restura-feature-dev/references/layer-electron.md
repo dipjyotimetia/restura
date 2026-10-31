@@ -132,35 +132,50 @@ See `electron/main/handlers/websocket-handler.ts` for the canonical streaming ex
 
 ## Long-lived connections — required pattern
 
-Any handler that holds connections per renderer (gRPC streaming, MCP, SSE, WebSocket, Socket.IO) MUST use `electron/main/ipc/connection-cleanup.ts`. The pattern:
+Any handler that holds connections per renderer (gRPC streaming, MCP, SSE, WebSocket, Socket.IO, Kafka, MQTT) MUST keep them in a `StreamRegistry` (`electron/main/ipc/stream-registry.ts`) rather than a hand-rolled `Map`. The registry owns the connection map, same-id replace, renderer-destroyed cleanup, templated events, `disposeAll`, and the connect claim that spans the awaited dial. Protocol policy (rate limits, concurrency caps, the transport itself, teardown mechanics) stays in the handler.
 
 ```ts
-import { bindRendererCleanup, disposeByOwner } from './connection-cleanup';
+import { EVENT_PREFIX } from '../../shared/channels';
+import { StreamRegistry } from '../ipc/stream-registry';
 
 interface ActiveConn {
   webContentsId: number;
   close: () => void; /* ... */
 }
-const active = new Map<string, ActiveConn>();
+
+const connections = new StreamRegistry<ActiveConn>({
+  prefixes: EVENT_PREFIX.myproto,
+  dispose: (entry) => entry.close(), // idempotent: cancel, replace and renderer death can all fire
+});
 
 ipcMain.handle(
   'myproto:open',
   createValidatedHandler('myproto:open', Schema, async (cfg, event) => {
-    const wc = event.sender;
-    const conn = openTransport(cfg);
-    active.set(conn.id, { webContentsId: wc.id, close: () => conn.terminate() });
-
-    // ↓ Idempotent: dedupes per-(handlerKey, webContents.id). Use the map as handlerKey.
-    bindRendererCleanup(active, wc, (deadId) => {
-      disposeByOwner(active, deadId, (entry) => entry.close());
-    });
-
-    return { id: conn.id };
+    // After the handler's own rate-limit / concurrency checks. Synchronous, before the first await.
+    const claim = connections.reserveClaim(cfg.connectionId, event.sender);
+    if (!claim) return { error: 'Connection already in progress' };
+    try {
+      const conn = await openTransport(cfg); // DNS, keychain, handshake
+      const entry = { webContentsId: event.sender.id, close: () => conn.terminate() };
+      if (!connections.commitClaim(claim, event.sender, entry)) {
+        entry.close(); // claim was cancelled, or a newer connection took the id
+        return { error: 'Connection cancelled' };
+      }
+      return { id: cfg.connectionId };
+    } finally {
+      connections.releaseClaim(claim);
+    }
   })
 );
 ```
 
-Why: without `bindRendererCleanup`, every reconnect from the same renderer stacks a fresh `destroyed` listener (Node warns at 10; the real cost is N teardowns per close). The `WeakMap`-backed dedupe table inside `connection-cleanup.ts` makes the binding idempotent per `(handler, webContents)` pair.
+- `reserveClaim` returns `undefined` when this owner and id already has a live claim, or the sender is already destroyed. `commitClaim` registers the entry only through a live claim and returns `false` otherwise, in which case the caller tears the unregistered entry down. `releaseClaim` drops the claim without running `disposeClaim`.
+- Whether an explicit disconnect cancels an in-flight claim is handler policy: call `connections.cancelClaim(connectionId, event.sender.id)` to cancel, or don't. Give the registry a `disposeClaim` option when a claim holds something to abort (an `AbortController`, an in-flight transport).
+- Emit per-connection events with `connections.emit(connectionId, webContentsId, eventName, payload)` (needs the `prefixes` option, from `EVENT_PREFIX`), or build the channel yourself with `eventChannel(prefix, id)` from `electron/shared/channels.ts`. Never hand-write `'myproto:event:' + id` strings.
+- Call `connections.disposeAll()` and `connections.disposeAllClaims()` from the handler's `stop*Cleanup()` (the `IPC_MODULES` dispose half).
+- See `electron/main/handlers/sse-handler.ts` for a complete example.
+
+`bindRendererCleanup` and `disposeByOwner` in `electron/main/ipc/connection-cleanup.ts` remain the lower-level primitives the registry is built on. Reach for them directly only for a resource that is not a stream connection (a map the registry doesn't fit). `bindRendererCleanup(map, wc, onDeath)` is idempotent per `(map, webContents)` pair, so reconnects do not stack `destroyed` listeners; `disposeByOwner(map, deadId, fn)` disposes exactly that renderer's entries.
 
 ## Pre-flight DNS guard — required for non-HTTP transports
 

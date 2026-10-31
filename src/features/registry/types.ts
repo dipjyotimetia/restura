@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import type { ConnectionLifecycle } from '@/lib/shared/connection-lifecycle';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import type { AuthConfig, Request, RequestType, Response, ScriptResult } from '@/types';
 
@@ -125,6 +126,12 @@ export interface ProtocolModule {
    * the MCP module specifically) rather than `startStream`.
    */
   startStream?: (request: unknown, ctx: RunContext) => Promise<ProtocolStreamHandle>;
+  /**
+   * Optional: how a tab owns a long-lived connection of this protocol. Closing
+   * a tab runs it through `cleanupConnectionLifecycle`, so the request store
+   * tears connections down without importing their stores or managers.
+   */
+  connectionLifecycle?: ConnectionLifecycle;
 }
 
 /**

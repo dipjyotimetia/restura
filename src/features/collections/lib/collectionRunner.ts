@@ -3,6 +3,13 @@ import {
   type ResponseEvidence,
   type ResponseRetentionMode,
 } from '@shared/collection-run/evidence';
+import {
+  type IterationHost,
+  pickNextRequest,
+  resolveIterationRows,
+  type StepOutcome,
+  sequenceCollectionRun,
+} from '@shared/collection-run/sequencer';
 import { v4 as uuidv4 } from 'uuid';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { grpcRunOptionsFromRequest } from '@/features/grpc/lib/grpcSchemaSnapshot';
@@ -19,10 +26,11 @@ import type { IterationRow } from './dataLoader';
 import type { RunnableRequest } from './flattenRunnables';
 
 /**
- * Postman-style collection / folder runner. Mirrors the CLI's orchestration
- * (`cli/src/runner/runner.ts`) but dispatches through the in-app protocol
- * registry instead of the CLI's executor, so HTTP/gRPC run through the
- * exact same wire path (and SSRF/secret resolution) as a normal send.
+ * Postman-style collection / folder runner. Shares its sequencing with the CLI
+ * (`cli/src/runner/runner.ts`) through `shared/collection-run/sequencer.ts` but
+ * dispatches through the in-app protocol registry instead of the CLI's
+ * executor, so HTTP/gRPC run through the exact same wire path (and SSRF/secret
+ * resolution) as a normal send.
  *
  * Dispatch is imperative — `protocol.injectVariables` then `runRequest(ctx)` —
  * the same pattern the DAG executor uses. The React `useRequestRunner` hook is
@@ -146,21 +154,6 @@ function isProtocolOk(response: ApiResponse): boolean {
   return response.status >= 200 && response.status < 300;
 }
 
-function delay(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (ms <= 0 || signal.aborted) return resolve();
-    const t = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(t);
-      resolve();
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
 export async function runCollection(
   options: CollectionRunOptions,
   onProgress: (p: RunProgress) => void,
@@ -206,12 +199,7 @@ async function runCollectionWithPool(
   const startedAt = Date.now();
   const results: CollectionRequestResult[] = [];
 
-  // Data-driven: one iteration per row. Otherwise N empty-row iterations.
-  // Guard against a non-finite count (NaN/Infinity) silently producing zero
-  // iterations — a malformed caller should still run at least once.
-  const iterCount = Number.isFinite(iterations) ? Math.max(1, Math.floor(iterations)) : 1;
-  const rows: IterationRow[] =
-    dataRows.length > 0 ? dataRows : Array.from({ length: iterCount }, () => ({}));
+  const rows = resolveIterationRows({ dataRows, repeat: iterations });
   const total = rows.length * runnables.length;
 
   const emit = (done: boolean, current?: { itemName: string; iteration: number }) =>
@@ -222,22 +210,6 @@ async function runCollectionWithPool(
       results: [...results],
       done,
     });
-
-  let bailed = false;
-
-  // Build a name → index map so `pm.execution.setNextRequest('Login')`
-  // can jump anywhere in the runnable list. Postman matches by name; first
-  // match wins (later duplicates are unreachable). The map is iteration-
-  // stable since the runnable order doesn't change inside a run.
-  const indexByName: Record<string, number> = {};
-  for (let i = 0; i < runnables.length; i++) {
-    const n = runnables[i]?.name;
-    if (n && !(n in indexByName)) indexByName[n] = i;
-  }
-  // Guard against `setNextRequest` infinite loops by capping per-iteration
-  // jumps; the user's script is buggy if it triggers this. Matches Newman's
-  // behaviour (Newman emits an error at ~1000).
-  const MAX_NEXT_REQUEST_JUMPS = 1000;
 
   // `pm.collectionVariables` backing map — separate from `allVars` (which
   // folds env/globals/collection/data together for `{{var}}` substitution
@@ -270,30 +242,22 @@ async function runCollectionWithPool(
     useCollectionStore.getState().applyCollectionVarMutations(collection.id, mutations);
   };
 
-  outer: for (let iter = 0; iter < rows.length; iter++) {
+  const beginIteration = (iter: number, row: IterationRow): IterationHost<RunnableRequest> => {
     const environmentOverrides: Record<string, string> = {};
     // Scope precedence: globals < environment < collection < data < script-local.
     const allVars: Record<string, string> = {
       ...runGlobals,
       ...runEnvironment,
       ...collectionVars,
-      ...rows[iter],
+      ...row,
     };
-    let jumps = 0;
 
-    for (let idx = 0; idx < runnables.length; ) {
-      const runnable = runnables[idx];
-      if (!runnable) break;
-      if (signal.aborted || bailed) break outer;
-
-      emit(false, { itemName: runnable.name, iteration: iter });
-
+    const step = async (runnable: RunnableRequest): Promise<StepOutcome> => {
       const protocolId = runnable.request.type;
       const protocol = protocolRegistry.get(protocolId);
 
-      // Postman send guard (#1232): never sent, for every protocol (the CLI
-      // reports the same reason as a "not sent" result).
-      if (runnable.blocked) {
+      // Never sent, never fails the run, ignores delay and `setNextRequest`.
+      const skip = (skippedReason: string): StepOutcome => {
         results.push({
           itemId: runnable.itemId,
           itemName: runnable.name,
@@ -301,29 +265,23 @@ async function runCollectionWithPool(
           iteration: iter,
           status: 'skipped',
           assertions: [],
-          skippedReason: runnable.blocked,
+          skippedReason,
         });
         emit(false);
-        idx++;
-        continue;
-      }
+        return { failed: false, sent: false };
+      };
+
+      // Postman send guard (#1232): never sent, for every protocol (the CLI
+      // reports the same reason as a "not sent" result).
+      if (runnable.blocked) return skip(runnable.blocked);
 
       // Skip protocols without a usable single-shot runner.
       if (!protocol || STREAMING_PROTOCOLS.has(protocolId)) {
-        results.push({
-          itemId: runnable.itemId,
-          itemName: runnable.name,
-          protocol: protocolId,
-          iteration: iter,
-          status: 'skipped',
-          assertions: [],
-          skippedReason: protocol
+        return skip(
+          protocol
             ? `${protocolId} is not supported in the runner`
-            : `Unknown protocol: ${protocolId}`,
-        });
-        emit(false);
-        idx++;
-        continue;
+            : `Unknown protocol: ${protocolId}`
+        );
       }
       // gRPC streams run through the protocol runner (#917): server streams on
       // every platform; client / bidi send the request's message(s) and
@@ -334,18 +292,7 @@ async function runCollectionWithPool(
         (grpcMethodType === 'client-streaming' || grpcMethodType === 'bidirectional-streaming') &&
         !isElectron()
       ) {
-        results.push({
-          itemId: runnable.itemId,
-          itemName: runnable.name,
-          protocol: protocolId,
-          iteration: iter,
-          status: 'skipped',
-          assertions: [],
-          skippedReason: `gRPC ${grpcMethodType} runs in the desktop app only`,
-        });
-        emit(false);
-        idx++;
-        continue;
+        return skip(`gRPC ${grpcMethodType} runs in the desktop app only`);
       }
 
       // Auth inheritance: nearest ancestor folder's auth (threaded by
@@ -354,7 +301,7 @@ async function runCollectionWithPool(
       const requestVars = {
         ...allVars,
         ...buildValueMap({ folders: runnable.folderVariables }),
-        ...rows[iter],
+        ...row,
         ...environmentOverrides,
       };
 
@@ -367,7 +314,7 @@ async function runCollectionWithPool(
         },
         protocolOptions: {
           collectionVars: { ...collectionVars },
-          iterationData: { ...rows[iter] },
+          iterationData: { ...row },
           info: { iteration: iter, iterationCount: rows.length },
           location: {
             currentRequestName: runnable.name,
@@ -439,18 +386,13 @@ async function runCollectionWithPool(
           runGlobals,
           runEnvironment,
           collectionVars,
-          rows[iter],
+          row,
           environmentOverrides
         );
         result.assertions = assertions;
         // Persist merged pm.collectionVariables mutations — later requests
         // in this run (and future runs) see the updated value.
-        persistCollectionMutations(
-          collectionMutations,
-          allVars,
-          rows[iter] ?? {},
-          environmentOverrides
-        );
+        persistCollectionMutations(collectionMutations, allVars, row, environmentOverrides);
 
         const scriptError = [scripts?.preRequest, scripts?.test]
           .flatMap((p) => p?.errors ?? [])
@@ -488,63 +430,42 @@ async function runCollectionWithPool(
       });
       emit(false);
 
-      if (result.status === 'failed' && stopOnFailure) {
-        bailed = true;
-        break outer;
-      }
+      return {
+        failed: result.status === 'failed',
+        sent: true,
+        next: pickNextRequest(scripts?.test?.execution, scripts?.preRequest?.execution),
+      };
+    };
 
-      if (delayMs > 0) await delay(delayMs, signal);
+    return {
+      onStart: (runnable) => emit(false, { itemName: runnable.name, iteration: iter }),
+      step,
+      onFlowError: (runnable, error) => {
+        results.push({
+          itemId: runnable.itemId,
+          itemName: runnable.name,
+          protocol: runnable.request.type,
+          iteration: iter,
+          status: 'failed',
+          assertions: [],
+          error,
+        });
+      },
+    };
+  };
 
-      // pm.execution.setNextRequest from EITHER phase wins; the test phase
-      // has the last word when both set a value. Use the test phase if its
-      // `nextRequest` is *present* (even when explicitly null — null ends
-      // the iteration), else the preRequest phase, else undefined for the
-      // default linear advance. `??` would mask `null` as nullish, so check
-      // with `nextRequest in execution` semantics via Reflect-style detection.
-      const testExec = scripts?.test?.execution;
-      const preExec = scripts?.preRequest?.execution;
-      const execNext =
-        testExec && 'nextRequest' in testExec
-          ? testExec.nextRequest
-          : preExec && 'nextRequest' in preExec
-            ? preExec.nextRequest
-            : undefined;
-      if (execNext === null) {
-        break;
-      }
-      if (typeof execNext === 'string') {
-        const target = indexByName[execNext];
-        if (target === undefined) {
-          // Unknown target name — surface as a script error and stop the iteration.
-          results.push({
-            itemId: runnable.itemId,
-            itemName: runnable.name,
-            protocol: protocolId,
-            iteration: iter,
-            status: 'failed',
-            assertions: [],
-            error: `pm.execution.setNextRequest("${execNext}"): no runnable with that name`,
-          });
-          break;
-        }
-        if (++jumps > MAX_NEXT_REQUEST_JUMPS) {
-          results.push({
-            itemId: runnable.itemId,
-            itemName: runnable.name,
-            protocol: protocolId,
-            iteration: iter,
-            status: 'failed',
-            assertions: [],
-            error: `pm.execution.setNextRequest jump limit (${MAX_NEXT_REQUEST_JUMPS}) exceeded`,
-          });
-          break;
-        }
-        idx = target;
-        continue;
-      }
-      idx++;
-    }
-  }
+  const { bailed } = await sequenceCollectionRun(
+    {
+      items: runnables,
+      nameOf: (runnable) => runnable.name,
+      rows,
+      stopOnFailure,
+      delayMs,
+      delayPlacement: 'after-sent',
+      signal,
+    },
+    beginIteration
+  );
 
   const summary = {
     total: results.length,

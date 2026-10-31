@@ -78,9 +78,29 @@ describe('buildAuthCredential', () => {
       });
     });
 
-    it('returns empty when username missing', () => {
+    it('encodes an empty username when a password is present (the `:token` shape)', () => {
       const auth: AuthConfig = { type: 'basic', basic: { username: '', password: 'pw' } };
-      expect(buildAuthCredential(auth)).toEqual({ headers: {}, params: {} });
+      expect(buildAuthCredential(auth).headers).toEqual({ Authorization: `Basic ${btoa(':pw')}` });
+    });
+
+    it('with no username and no password sends nothing', () => {
+      for (const password of ['', undefined]) {
+        const auth = { type: 'basic', basic: { username: '', password } } as AuthConfig;
+        expect(buildAuthCredential(auth).headers).toEqual({});
+      }
+    });
+
+    it('with basicRequiresPassword, still sends nothing without a username', () => {
+      const auth: AuthConfig = { type: 'basic', basic: { username: '', password: 'pw' } };
+      expect(buildAuthCredential(auth, { basicRequiresPassword: true }).headers).toEqual({});
+    });
+
+    it('defers a handle whatever the username', () => {
+      const auth: AuthConfig = {
+        type: 'basic',
+        basic: { username: '', password: { kind: 'handle', id: 'h' } },
+      };
+      expect(buildAuthCredential(auth).requiresMainSideApply).toBe(true);
     });
 
     it('with basicRequiresPassword, requires both username and password (gRPC semantics)', () => {

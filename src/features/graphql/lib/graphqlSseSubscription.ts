@@ -1,5 +1,7 @@
 import { type ParsedSseEvent, SseStreamReader } from '@shared/protocol/sse-stream-reader';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { createSseDesktopAdapter } from '@/lib/shared/streaming/desktopStreamAdapter';
+import { openStreamSession } from '@/lib/shared/streaming/streamSession';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
 import type { MainSideHandshakeAuth } from './electronGraphQLSocket';
 import {
@@ -140,42 +142,18 @@ function viaElectron(
     return () => {};
   }
   const connectionId = `gql-sse-${crypto.randomUUID()}`;
-  const channels = ['open', 'event', 'error', 'close'].map((k) => `sse:${k}:${connectionId}`);
   let done = false;
   let lastError: string | undefined;
 
-  const cleanup = (): void => {
-    for (const ch of channels) api.removeAllListeners(ch);
-  };
   const settle = (fn: () => void): void => {
     if (done) return;
     done = true;
-    cleanup();
+    session.dispose();
     fn();
   };
-  const stop = (): void => {
-    void api.disconnect({ connectionId }).catch(() => {});
-  };
 
-  api.on(`sse:open:${connectionId}`, () => {
-    if (!done) sink.connected(GRAPHQL_SSE_PROTOCOL);
-  });
-  api.on(`sse:event:${connectionId}`, (payload: unknown) => {
-    if (done) return;
-    if (handleEvent(payload as ParsedSseEvent, sink) === 'complete') {
-      settle(() => sink.complete());
-      stop();
-    }
-  });
-  api.on(`sse:error:${connectionId}`, (payload: unknown) => {
-    lastError = (payload as { message?: string } | undefined)?.message ?? 'SSE error';
-  });
-  api.on(`sse:close:${connectionId}`, () => {
-    settle(() => (lastError ? sink.error(new Error(lastError)) : sink.complete()));
-  });
-
-  api
-    .connect({
+  const session = openStreamSession(
+    createSseDesktopAdapter(api, {
       connectionId,
       url,
       headers,
@@ -184,7 +162,31 @@ function viaElectron(
       ...(mainSide?.secretVariables && Object.keys(mainSide.secretVariables).length > 0
         ? { secretVariables: mainSide.secretVariables }
         : {}),
-    })
+    }),
+    {
+      listeners: {
+        open: () => {
+          if (!done) sink.connected(GRAPHQL_SSE_PROTOCOL);
+        },
+        event: (payload) => {
+          if (done) return;
+          if (handleEvent(payload as ParsedSseEvent, sink) === 'complete') {
+            settle(() => sink.complete());
+            session.disconnect();
+          }
+        },
+        error: (payload) => {
+          lastError = (payload as { message?: string } | undefined)?.message ?? 'SSE error';
+        },
+        close: () => {
+          settle(() => (lastError ? sink.error(new Error(lastError)) : sink.complete()));
+        },
+      },
+    }
+  );
+
+  session
+    .connect()
     .then((res) => {
       if (!res.success) settle(() => sink.error(new Error(res.error ?? 'Connection failed')));
     })
@@ -193,7 +195,6 @@ function viaElectron(
   return () => {
     if (done) return;
     done = true;
-    cleanup();
-    stop();
+    session.close();
   };
 }

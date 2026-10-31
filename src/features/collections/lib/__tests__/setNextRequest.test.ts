@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Collection, HttpRequest } from '@/types';
+import type { RunnableRequest } from '../flattenRunnables';
 
 /**
  * Phase C runner test — `pm.execution.setNextRequest('B')` causes the
@@ -15,6 +16,8 @@ import type { Collection, HttpRequest } from '@/types';
 interface FakeBehavior {
   /** Sentinel surfaced via onScriptResult.test.execution.nextRequest. */
   nextRequest?: string | null | undefined;
+  /** Sentinel surfaced via onScriptResult.preRequest.execution.skipRequested. */
+  skipRequested?: boolean;
 }
 
 const ran: string[] = [];
@@ -33,6 +36,18 @@ const runRequestMock = vi.fn(async (req: HttpRequest, ctx: any) => {
         variables: {},
         tests: [],
         execution: { nextRequest: b.nextRequest },
+      },
+    });
+  }
+  if (b?.skipRequested) {
+    ctx.onScriptResult?.({
+      preRequest: {
+        success: true,
+        logs: [],
+        errors: [],
+        variables: {},
+        tests: [],
+        execution: { skipRequested: true },
       },
     });
   }
@@ -81,12 +96,25 @@ function httpReq(id: string, name: string): HttpRequest {
   } as unknown as HttpRequest;
 }
 
-function runnable(id: string, name: string) {
+function runnable(id: string, name: string): RunnableRequest {
   return { itemId: id, name, request: httpReq(id, name) };
 }
 
 const collection: Collection = { id: 'c', name: 'C', items: [] } as Collection;
 const noop = () => undefined;
+
+function baseOptions(runnables: RunnableRequest[]) {
+  return {
+    collection,
+    scopeName: 'C',
+    runnables,
+    baseVars: {},
+    iterations: 1,
+    dataRows: [],
+    delayMs: 0,
+    stopOnFailure: false,
+  };
+}
 
 beforeEach(() => {
   ran.length = 0;
@@ -180,5 +208,105 @@ describe('runCollection — pm.execution.setNextRequest', () => {
     expect(ran.length).toBe(1001);
     const last = result.requests[result.requests.length - 1];
     expect(last?.error).toMatch(/jump limit/);
+  });
+
+  // `indexByName` was a plain object: inherited names resolved to functions,
+  // and requests with those names could never be jump targets.
+  it.each(['constructor', 'toString', 'hasOwnProperty', '__proto__'])(
+    'reports setNextRequest(%j) as an unknown target when nothing has that name',
+    async (target) => {
+      behaviors.set('A', { nextRequest: target });
+      const result = await runCollection(
+        baseOptions([runnable('1', 'A'), runnable('2', 'B')]),
+        noop,
+        new AbortController().signal
+      );
+      expect(ran).toEqual(['A']);
+      const last = result.requests[result.requests.length - 1];
+      expect(last?.status).toBe('failed');
+      expect(last?.error).toBe(
+        `pm.execution.setNextRequest("${target}"): no runnable with that name`
+      );
+    }
+  );
+
+  it.each(['constructor', 'toString', '__proto__'])(
+    'jumps to a runnable actually named %j',
+    async (name) => {
+      behaviors.set('A', { nextRequest: name });
+      const result = await runCollection(
+        baseOptions([runnable('1', 'A'), runnable('2', 'B'), runnable('3', name)]),
+        noop,
+        new AbortController().signal
+      );
+      expect(ran).toEqual(['A', name]);
+      expect(result.requests.map((r) => r.status)).toEqual(['success', 'success']);
+    }
+  );
+});
+
+// Host wiring the sequencer table test cannot see. Each pins today's app
+// behaviour; the CLI's differing behaviour is pinned in its flowControl.test.ts.
+describe('runCollection — app sequencing pins', () => {
+  it('stopOnFailure does not stop on an unknown target; the next row still runs', async () => {
+    behaviors.set('A', { nextRequest: 'Nope' });
+    const result = await runCollection(
+      { ...baseOptions([runnable('1', 'A')]), stopOnFailure: true, dataRows: [{}, {}] },
+      noop,
+      new AbortController().signal
+    );
+    expect(result.requests.map((r) => [r.iteration, r.status])).toEqual([
+      [0, 'success'],
+      [0, 'failed'],
+      [1, 'success'],
+      [1, 'failed'],
+    ]);
+    expect(result.outcome).toBe('completed');
+  });
+
+  it('stopOnFailure does not stop on a blocked runnable', async () => {
+    const result = await runCollection(
+      {
+        ...baseOptions([{ ...runnable('1', 'Blocked'), blocked: 'not sent' }, runnable('2', 'B')]),
+        stopOnFailure: true,
+      },
+      noop,
+      new AbortController().signal
+    );
+    expect(result.requests.map((r) => r.status)).toEqual(['skipped', 'success']);
+    expect(ran).toEqual(['B']);
+  });
+
+  // Pinned parity gap: the CLI honours pm.execution.skipRequest(); the app's
+  // Collection run ignores the sentinel, so the request counts as sent.
+  it('ignores pm.execution.skipRequest()', async () => {
+    behaviors.set('A', { skipRequested: true });
+    const result = await runCollection(
+      baseOptions([runnable('1', 'A')]),
+      noop,
+      new AbortController().signal
+    );
+    expect(ran).toEqual(['A']);
+    expect(result.requests[0]?.status).toBe('success');
+  });
+
+  it('waits delayMs after every sent request, including the last', async () => {
+    const started = Date.now();
+    await runCollection(
+      { ...baseOptions([runnable('1', 'A')]), delayMs: 150 },
+      noop,
+      new AbortController().signal
+    );
+    expect(Date.now() - started).toBeGreaterThanOrEqual(140);
+  });
+
+  it('does not wait delayMs after a skipped runnable', async () => {
+    const started = Date.now();
+    await runCollection(
+      { ...baseOptions([{ ...runnable('1', 'Blocked'), blocked: 'not sent' }]), delayMs: 2000 },
+      noop,
+      new AbortController().signal
+    );
+    expect(Date.now() - started).toBeLessThan(1500);
   });
 });

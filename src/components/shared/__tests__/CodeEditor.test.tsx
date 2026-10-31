@@ -19,7 +19,10 @@ vi.mock('@monaco-editor/react', () => ({
 
 vi.mock('next-themes', () => ({ useTheme: () => ({ theme: 'dark' }) }));
 vi.mock('@/lib/shared/monaco-setup', () => ({ jsonDefaults: {} }));
-vi.mock('@/lib/shared/variableTokens', () => ({ findVariableTokens: mocks.findVariableTokens }));
+vi.mock('@/lib/shared/variableTokens', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/shared/variableTokens')>()),
+  findVariableTokens: mocks.findVariableTokens,
+}));
 vi.mock('@/features/graphql/lib/monacoGraphql', () => ({
   registerGraphQLLanguage: mocks.registerGraphQLLanguage,
 }));
@@ -119,5 +122,54 @@ describe('CodeEditor Monaco lifecycle', () => {
     act(() => mocks.editorProps?.onMount(editor, monaco));
 
     expect(mocks.findVariableTokens).not.toHaveBeenCalled();
+  });
+
+  it('decorates known variables and plain-grammar unknowns, and leaves other text alone', async () => {
+    const { scanVariableTokens } = await import('@shared/variables/tokens');
+    mocks.findVariableTokens.mockImplementation(((text: string) =>
+      scanVariableTokens(text)) as never);
+    const text = '{{known key}} {{missing}} {{#if a}} {{/if}} {{ u | upper }} {{"k":1}}';
+    const model = {
+      uri: { toString: () => 'inmemory://m' },
+      getValue: () => text,
+      getPositionAt: (offset: number) => ({ lineNumber: 1, column: offset + 1 }),
+    };
+    const set = vi.fn();
+    const editor = {
+      getModel: () => model,
+      updateOptions: vi.fn(),
+      layout: vi.fn(),
+      createDecorationsCollection: vi.fn((initial: unknown) => {
+        set(initial);
+        return { clear: vi.fn(), set };
+      }),
+      onDidChangeModelContent: () => ({ dispose: vi.fn() }),
+      onDidChangeModel: () => ({ dispose: vi.fn() }),
+      getAction: () => undefined,
+    };
+    const monaco = {
+      Range: class {
+        constructor(
+          public startLine: number,
+          public startColumn: number
+        ) {}
+      },
+    };
+
+    render(
+      <CodeEditor
+        value={text}
+        getVariableStatus={(name) => (name === 'known key' ? 'resolved' : 'unresolved')}
+      />
+    );
+    act(() => mocks.editorProps?.onMount(editor, monaco));
+
+    const decorations = set.mock.calls.at(-1)?.[0] as Array<{
+      options: { inlineClassName: string };
+    }>;
+    expect(decorations.map((d) => d.options.inlineClassName)).toEqual([
+      'monaco-var-resolved',
+      'monaco-var-unresolved',
+    ]);
   });
 });

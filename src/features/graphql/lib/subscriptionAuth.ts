@@ -21,6 +21,7 @@ import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInherite
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { isElectron } from '@/lib/shared/platform';
+import { resolveRequestScopeText } from '@/lib/shared/resolveRequestScope';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { AuthConfig, AuthType, HttpRequest } from '@/types';
@@ -149,28 +150,12 @@ export function buildSubscriptionHandshake(
   const { request, values, secretVariables, desktop } = input;
   const unapplied: string[] = [];
 
-  // Same resolution as the HTTP executor's resolveLocal: request-scope values
-  // first, then the store resolver — with SecretRef-variable tokens shielded so
-  // the store resolver can't consume them before Electron main materializes them.
-  const resolve = (text: string): string => {
-    let result = text;
-    for (const [key, value] of Object.entries(values)) {
-      result = result.replace(new RegExp(`{{${escapeRegExp(key)}}}`, 'g'), () => value);
-    }
-    const shielded = new Map<string, string>();
-    for (const key of Object.keys(secretVariables)) {
-      const pattern = secretTokenPattern(key, 'g');
-      if (secretTokenPattern(key).test(result)) {
-        const marker = `__restura_secret_${shielded.size}__`;
-        result = result.replace(pattern, marker);
-        // Restore the canonical token (main resolves either form).
-        shielded.set(marker, `{{${key}}}`);
-      }
-    }
-    result = input.resolveVariables(result);
-    for (const [marker, token] of shielded) result = result.replaceAll(marker, token);
-    return result;
-  };
+  const resolve = (text: string): string =>
+    resolveRequestScopeText(text, {
+      values,
+      secretVariables,
+      resolveVariables: input.resolveVariables,
+    });
 
   let url = resolve(request.url);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };

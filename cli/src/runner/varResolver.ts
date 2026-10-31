@@ -1,15 +1,20 @@
-import { applyDynamicVariables } from '@shared/variables/dynamic';
+import { resolveVariableText } from '@shared/variables/resolver';
 
 /**
  * Replace `{{KEY}}` placeholders against the provided variable map, then
- * expand any `{{$randomUuid}}` / `{{$timestamp}}` / etc. dynamic helpers via
- * `applyDynamicVariables`. Unknown user vars are left in place (as `{{KEY}}`)
- * so the upstream sees them and a human notices the gap. Unknown dynamic
- * helpers (`{{$nopeNotReal}}`) are likewise preserved.
+ * expand any `{{$randomUuid}}` / `{{$timestamp}}` / etc. dynamic helpers.
+ * Unknown user vars are left in place so the upstream sees them and a human
+ * notices the gap. Unknown dynamic helpers (`{{$nopeNotReal}}`) are likewise
+ * preserved.
  *
- * Order matters: user vars resolve first so that a value like
+ * Single pass (shared core): a substituted value is not re-expanded, so a
+ * script- or response-set value cannot pull in another variable. The dynamic
+ * stage does run over the result, so a value like
  *   USER_NAME: "{{$randomFirstName}}"
- * still works — the substituted dynamic placeholder is then expanded.
+ * still works.
+ *
+ * CLI policy lives here: handles and unavailable private names refuse the
+ * request rather than sending it with a literal token.
  */
 export function resolveVarsDeep(
   text: string,
@@ -17,20 +22,18 @@ export function resolveVarsDeep(
   unavailablePrivateNames: ReadonlySet<string> = new Set()
 ): string {
   if (typeof text !== 'string') return text;
-  const userResolved = text.replace(/\{\{\s*([A-Za-z0-9_$.:/-]+)\s*\}\}/g, (match, key: string) => {
-    // Leave $-prefixed (dynamic) placeholders for the next stage.
-    if (key.startsWith('$')) return match;
-    if (key.startsWith('handle:')) {
-      throw new Error(
-        'SecretRef handles are unavailable in the CLI; provide the value with --env.'
-      );
-    }
-    if (unavailablePrivateNames.has(key) && vars[key] === undefined) {
-      throw new Error(
-        `Private variable "${key}" is unavailable in the CLI; provide it with --env.`
-      );
-    }
-    return vars[key] ?? `{{${key}}}`;
+  return resolveVariableText(text, [vars], {
+    onToken: (name, found) => {
+      if (name.startsWith('handle:')) {
+        throw new Error(
+          'SecretRef handles are unavailable in the CLI; provide the value with --env.'
+        );
+      }
+      if (!found && unavailablePrivateNames.has(name)) {
+        throw new Error(
+          `Private variable "${name}" is unavailable in the CLI; provide it with --env.`
+        );
+      }
+    },
   });
-  return applyDynamicVariables(userResolved);
 }

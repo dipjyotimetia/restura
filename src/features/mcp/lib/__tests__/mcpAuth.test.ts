@@ -67,13 +67,35 @@ describe('buildMcpConnectAuth — web harness (#896)', () => {
     expect(!out.ok && out.error).toMatch(/re-enter/);
   });
 
-  it('fails closed for a missing API key header name or basic username', () => {
+  it('sends basic with an empty username when a password is present, as the CLI does', () => {
+    expect(build({ type: 'basic', basic: { username: '', password: 'p' } })).toMatchObject({
+      ok: true,
+      headers: { Authorization: `Basic ${btoa(':p')}` },
+    });
+  });
+
+  it('forwards an empty-username basic to main on desktop, handle or inline', () => {
+    for (const password of ['p', { kind: 'handle', id: 'h' } as const]) {
+      const auth: AuthConfig = { type: 'basic', basic: { username: '', password } };
+      expect(build(auth, { desktop: true })).toMatchObject({ ok: true, mainSideAuth: auth });
+    }
+  });
+
+  it('refuses a handle password with no username on the web, as any other opaque secret', () => {
+    const out = build({
+      type: 'basic',
+      basic: { username: '', password: { kind: 'handle', id: 'h' } },
+    });
+    expect(!out.ok && out.error).toMatch(/desktop app/);
+  });
+
+  it('fails closed for a missing API key header name or empty basic credentials', () => {
     expect(build({ type: 'api-key', apiKey: { key: ' ', value: 'v', in: 'header' } })).toEqual({
       ok: false,
       error: 'API Key auth needs a header name.',
     });
-    const basic = build({ type: 'basic', basic: { username: '', password: 'p' } });
-    expect(!basic.ok && basic.error).toMatch(/username/);
+    const basic = build({ type: 'basic', basic: { username: '', password: '' } });
+    expect(!basic.ok && basic.error).toMatch(/username or a password/);
   });
 
   it('fails closed for its own unsupported auth and for a query-string API key', () => {

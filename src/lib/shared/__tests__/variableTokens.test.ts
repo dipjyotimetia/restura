@@ -1,59 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import { findVariableTokens, hasVariableToken } from '../variableTokens';
+import { buildKnownNames } from '../variableScopes';
+import { tokenDisplayStatus } from '../variableTokens';
 
-describe('findVariableTokens', () => {
-  it('returns no tokens for plain text', () => {
-    expect(findVariableTokens('https://example.com/users')).toEqual([]);
+describe('tokenDisplayStatus', () => {
+  const unknown = () => 'unresolved' as const;
+  const known = () => 'resolved' as const;
+
+  it('a known variable is known, whatever its name', () => {
+    expect(tokenDisplayStatus('my key', known)).toBe('resolved');
+    expect(tokenDisplayStatus('#if a', known)).toBe('resolved');
   });
 
-  it('locates a single token with correct offsets and name', () => {
-    const tokens = findVariableTokens('{{baseUrl}}/json');
-    expect(tokens).toHaveLength(1);
-    expect(tokens[0]).toEqual({ start: 0, end: 11, name: 'baseUrl' });
-  });
-
-  it('locates multiple tokens in order with literals between', () => {
-    const text = 'pre-{{a}}-{{b}}-post';
-    const tokens = findVariableTokens(text);
-    expect(tokens.map((t) => t.name)).toEqual(['a', 'b']);
-    // Offsets must slice back to the exact token text.
-    for (const t of tokens) {
-      expect(text.slice(t.start, t.end)).toBe(`{{${t.name}}}`);
+  it('an unknown name is unresolved only in the plain grammar', () => {
+    expect(tokenDisplayStatus('missing', unknown)).toBe('unresolved');
+    expect(tokenDisplayStatus('$nope', unknown)).toBe('unresolved');
+    for (const name of ['#if a', '/if', 'u | upper', '"k":1', 'my key']) {
+      expect(tokenDisplayStatus(name, unknown)).toBe('plain');
     }
   });
 
-  it('trims whitespace and supports dynamic `$` names', () => {
-    const tokens = findVariableTokens('{{ $randomUUID }}');
-    expect(tokens).toHaveLength(1);
-    expect(tokens[0]?.name).toBe('$randomUUID');
-    // The reported span still covers the braces and inner spaces.
-    expect(tokens[0]).toMatchObject({ start: 0, end: 17 });
-  });
-
-  it('accepts dots and dashes in names', () => {
-    expect(findVariableTokens('{{user.id}}-{{x-y}}').map((t) => t.name)).toEqual([
-      'user.id',
-      'x-y',
-    ]);
-  });
-
-  it('ignores partial / empty braces', () => {
-    expect(findVariableTokens('a{{b')).toEqual([]);
-    expect(findVariableTokens('{{ }}')).toEqual([]);
+  it('with no classifier, only plain-grammar names are variables', () => {
+    expect(tokenDisplayStatus('baseUrl')).toBe('resolved');
+    expect(tokenDisplayStatus('#if a')).toBe('plain');
   });
 });
 
-describe('hasVariableToken', () => {
-  it('is true only for a complete token', () => {
-    expect(hasVariableToken('{{baseUrl}}/x')).toBe(true);
-    expect(hasVariableToken('{{ $randomUUID }}')).toBe(true);
-    expect(hasVariableToken('no vars here')).toBe(false);
-    expect(hasVariableToken('half {{')).toBe(false);
-    expect(hasVariableToken('{{ }}')).toBe(false);
-  });
-
-  it('does not carry regex state across calls', () => {
-    // A shared /g regex would alternate true/false via lastIndex; guard that.
-    for (let i = 0; i < 4; i++) expect(hasVariableToken('{{x}}')).toBe(true);
+describe('buildKnownNames', () => {
+  it('knows a row by the trimmed name its token uses', () => {
+    const names = buildKnownNames({
+      env: [{ id: '1', key: ' my key ', value: 'v', enabled: true }],
+    });
+    expect(names.has('my key')).toBe(true);
   });
 });

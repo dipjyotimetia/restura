@@ -2,10 +2,9 @@ import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
 import { isReconnectableSseResponse } from '@shared/protocol/sse-parser';
 import { createLogger } from '@shared/runtime/logger';
-import { ipcMain, type WebContents } from 'electron';
+import { ipcMain } from 'electron';
 import { EVENT_PREFIX, IPC } from '../../shared/channels';
 import type { SseClosePayload } from '../../types/api/protocols';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import {
   assertTrustedSender,
@@ -14,7 +13,7 @@ import {
   SseDisconnectSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
-import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
@@ -62,18 +61,7 @@ interface ActiveSse {
 // cleanup + per-connection event emit + disposeAll). dispose() encapsulates the
 // SSE-specific teardown: flag the connection as explicitly closed (so the read
 // loop suppresses the trailing error/close events) and abort the fetch.
-const connections = new StreamRegistry<ActiveSse>({
-  prefixes: EVENT_PREFIX.sse,
-  dispose: (e) => {
-    e.explicitlyClosed = true;
-    e.abortController.abort();
-  },
-});
-
-interface PendingSseClaim {
-  webContentsId: number;
-  token: symbol;
-  ownerEntry?: ActiveSse;
+interface SseClaimFields {
   /**
    * Present only for connects resolving opaque credentials main-side
    * (graphql-sse, #878/#882): aborted when the claim is cancelled
@@ -82,43 +70,14 @@ interface PendingSseClaim {
   abort?: AbortController;
 }
 
-const pendingConnections = new Map<string, PendingSseClaim>();
-
-function reserveSseClaim(
-  connectionId: string,
-  webContents: WebContents,
-  cancellable = false
-): PendingSseClaim | undefined {
-  const key = ownerScopedKey(connectionId, webContents.id);
-  if (pendingConnections.has(key)) return undefined;
-
-  const ownerEntry = connections.getForOwner(connectionId, webContents.id);
-
-  const claim: PendingSseClaim = {
-    webContentsId: webContents.id,
-    token: Symbol(connectionId),
-    ownerEntry,
-    ...(cancellable ? { abort: new AbortController() } : {}),
-  };
-  pendingConnections.set(key, claim);
-  bindRendererCleanup(pendingConnections, webContents, (deadId) =>
-    disposeByOwner(pendingConnections, deadId, (pending) => pending.abort?.abort())
-  );
-  return pendingConnections.get(key) === claim ? claim : undefined;
-}
-
-function isSseClaimLive(connectionId: string, claim: PendingSseClaim): boolean {
-  return (
-    pendingConnections.get(ownerScopedKey(connectionId, claim.webContentsId))?.token === claim.token
-  );
-}
-
-function releaseSseClaim(connectionId: string, claim: PendingSseClaim): void {
-  const key = ownerScopedKey(connectionId, claim.webContentsId);
-  if (pendingConnections.get(key)?.token === claim.token) {
-    pendingConnections.delete(key);
-  }
-}
+const connections = new StreamRegistry<ActiveSse, SseClaimFields>({
+  prefixes: EVENT_PREFIX.sse,
+  dispose: (e) => {
+    e.explicitlyClosed = true;
+    e.abortController.abort();
+  },
+  disposeClaim: (claim) => claim.abort?.abort(),
+});
 
 function redactSseEvent(e: ParsedSseEvent, redact: SecretRedactor): ParsedSseEvent {
   // Every string field (data, event, lastEventId, …) — not a fixed list, so a
@@ -226,13 +185,17 @@ export function registerSseHandlerIPC(): void {
     if (!sseRateLimiter.check(webContentsId)) {
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
-    if (connections.size() + pendingConnections.size >= MAX_CONCURRENT_SSE_CONNECTIONS) {
+    if (connections.size() + connections.pendingCount() >= MAX_CONCURRENT_SSE_CONNECTIONS) {
       return { success: false, error: 'Too many open connections.' };
     }
 
     // Reserve this renderer's id synchronously before DNS or transport
     // construction. Another renderer may independently use the same external id.
-    const claim = reserveSseClaim(connectionId, event.sender, materialize);
+    const claim = connections.reserveClaim(
+      connectionId,
+      event.sender,
+      materialize ? { abort: new AbortController() } : {}
+    );
     if (!claim) return { success: false, error: 'Not connected' };
 
     let claimedEntry: ActiveSse | undefined;
@@ -256,7 +219,7 @@ export function registerSseHandlerIPC(): void {
           config = { ...validated, url: materialized.url, headers: materialized.headers };
           redact = materialized.redact;
         } catch (err) {
-          if (!isSseClaimLive(connectionId, claim)) {
+          if (!connections.isClaimLive(claim)) {
             return { success: false, error: 'Not connected' };
           }
           // Materializer errors are plaintext-free by construction.
@@ -265,7 +228,7 @@ export function registerSseHandlerIPC(): void {
             error: `SSE auth setup failed: ${err instanceof Error ? err.message : 'unknown error'}`,
           };
         }
-        if (!isSseClaimLive(connectionId, claim)) return { success: false, error: 'Not connected' };
+        if (!connections.isClaimLive(claim)) return { success: false, error: 'Not connected' };
         try {
           policyConfig = resolveSseExecutionPolicy(config);
           assertPinnedFetchCanHonorPolicy(policyConfig);
@@ -292,8 +255,7 @@ export function registerSseHandlerIPC(): void {
 
       // Renderer destruction/module teardown may invalidate the reservation
       // while DNS is pending. Never construct a transport for a stale claim.
-      const key = ownerScopedKey(connectionId, webContentsId);
-      if (pendingConnections.get(key)?.token !== claim.token) {
+      if (!connections.isClaimLive(claim)) {
         return { success: false, error: 'Not connected' };
       }
 
@@ -312,13 +274,7 @@ export function registerSseHandlerIPC(): void {
 
       // Commit only the exact live reservation. A reconnect may replace only
       // the same renderer's still-current entry.
-      const claimed =
-        pendingConnections.get(key)?.token === claim.token &&
-        (claim.ownerEntry
-          ? connections.get(connectionId, webContentsId) === claim.ownerEntry &&
-            connections.replaceForOwner(connectionId, webContentsId, entry)
-          : connections.tryAdd(connectionId, event.sender, entry));
-      if (!claimed) {
+      if (!connections.commitClaim(claim, event.sender, entry)) {
         entry.explicitlyClosed = true;
         abortController.abort();
         return { success: false, error: 'Not connected' };
@@ -413,7 +369,7 @@ export function registerSseHandlerIPC(): void {
       log.warn('connect failed', { connectionId, error: message });
       return { success: false, error: message };
     } finally {
-      releaseSseClaim(connectionId, claim);
+      connections.releaseClaim(claim);
     }
   });
 
@@ -422,11 +378,8 @@ export function registerSseHandlerIPC(): void {
     createValidatedEventHandler(IPC.sse.disconnect, SseDisconnectSchema, async (config, event) => {
       // A graphql-sse connect still resolving main-side credentials is
       // cancelled outright (plain connects keep their existing semantics).
-      const pendingKey = ownerScopedKey(config.connectionId, event.sender.id);
-      const pending = pendingConnections.get(pendingKey);
-      if (pending?.abort) {
-        pending.abort.abort();
-        pendingConnections.delete(pendingKey);
+      if (connections.claimFor(config.connectionId, event.sender.id)?.abort) {
+        connections.cancelClaim(config.connectionId, event.sender.id);
       }
       // Missing and wrong-owner ids are deliberately indistinguishable.
       connections.cancelForOwner(config.connectionId, event.sender.id);
@@ -436,7 +389,6 @@ export function registerSseHandlerIPC(): void {
 }
 
 export function stopSseCleanup(): void {
-  for (const pending of pendingConnections.values()) pending.abort?.abort();
-  pendingConnections.clear();
+  connections.disposeAllClaims();
   connections.disposeAll();
 }

@@ -46,6 +46,9 @@ timeline
   2026-10-26 : 0034 — Shared Postman parser and _postman sidecar
   2026-10-30 : 0035 — Review depth tiers, verification vote and REVIEW.md
              : 0036 — NTLM as a desktop-only fetcher handshake
+  2026-10-31 : 0037 — Agent Lab: suites, runtime and telemetry
+             : 0038 — CLI judges and dataset evals
+             : 0039 — One variable token grammar
 ```
 
 <CardGrid>
@@ -238,6 +241,11 @@ timeline
     title="0038 — CLI judges and dataset evals"
     description="Reverses the CLI judge refusal for dataset evals: restura eval run executes exported restura.eval files on the shared eval core with env credentials, cost budgets across model and judge calls, and a per-eval pass threshold as the exit code; http-exec and Arena stay desktop-only."
     href="/architecture/adrs/0038-cli-judges-and-dataset-evals/"
+  />
+  <LinkCard
+    title="0039 — One variable token grammar"
+    description="One {{name}} grammar in shared/variables/tokens.ts read by every resolver, the highlighter and both secret matchers; unknown non-plain text is not reported as unresolved; the app keeps its definition-order chaining while the CLI and streaming sends stay single pass."
+    href="/architecture/adrs/0039-variable-token-grammar/"
   />
 </CardGrid>
 

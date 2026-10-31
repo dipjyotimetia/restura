@@ -12,14 +12,16 @@
  *                variables marked secret are replaced with `SECRET_MASK`.
  *
  * Desktop secret *handles* never reach the renderer, so tokens that only
- * resolve to a handle stay literal and are reported as unresolved. Resolution
+ * resolve to a handle stay literal and are reported as unresolved. So are unknown
+ * names that read as variables; other unknown tokens (`{{#if a}}`, `{{"k":1}}`)
+ * are plain text, sent as written with no warning. Resolution
  * is single-pass over the original text — a substituted value is never itself
  * re-expanded — and nothing here writes back to any store.
  */
 
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
-import { findVariableTokens } from '@/lib/shared/variableTokens';
+import { findVariableTokens, isPlainVariableName } from '@/lib/shared/variableTokens';
 
 export const SECRET_MASK = '••••••';
 
@@ -85,8 +87,20 @@ export function resolveStreamingText(
   let usedSecret = false;
   const unresolved: string[] = [];
   const json = { inString: false, escaped: false };
-  // Token text (`{{name}}`) holds no quotes or backslashes, so the string
-  // state only needs advancing across the literal text between tokens.
+  // A substituted value is encoded for its context, so it leaves the string
+  // state alone. A token left literal stays on the wire, and the grammar lets it
+  // hold quotes (`{{a"b}}`), so its text advances the state like any other.
+  const keepLiteral = (raw: string) => {
+    wire += raw;
+    display += raw;
+    if (options.json) scanJsonString(raw, json);
+  };
+  const report = (name: string) => {
+    const reportable =
+      isPlainVariableName(name) || scope.handleNames.has(name) || name.startsWith('handle:');
+    if (!reportable) return;
+    if (!unresolved.includes(name)) unresolved.push(name);
+  };
   const encode = (value: string) =>
     options.json && json.inString ? JSON.stringify(value).slice(1, -1) : value;
 
@@ -102,9 +116,8 @@ export function resolveStreamingText(
     if (name.startsWith('$')) {
       const generated = applyDynamicVariables(`{{${name}}}`);
       if (generated === `{{${name}}}`) {
-        if (!unresolved.includes(name)) unresolved.push(name);
-        wire += raw;
-        display += raw;
+        report(name);
+        keepLiteral(raw);
       } else {
         wire += encode(generated);
         display += encode(generated);
@@ -124,9 +137,8 @@ export function resolveStreamingText(
       continue;
     }
 
-    if (!unresolved.includes(name)) unresolved.push(name);
-    wire += raw;
-    display += raw;
+    report(name);
+    keepLiteral(raw);
   }
 
   const rest = text.slice(cursor);

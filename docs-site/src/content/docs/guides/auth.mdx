@@ -15,7 +15,7 @@ The simplest case: `Authorization: Bearer <token>`. Reads variables: `{{token}}`
 
 ### Basic
 
-Username + password, base64-encoded. Stored as a `SecretRef` (handle, never plaintext in the renderer) on desktop.
+Username + password, base64-encoded. An empty username with a password is sent as `:password` (the common `:token` shape) in the app and the CLI; with neither, no header is sent. Stored as a `SecretRef` (handle, never plaintext in the renderer) on desktop.
 
 ### API Key
 

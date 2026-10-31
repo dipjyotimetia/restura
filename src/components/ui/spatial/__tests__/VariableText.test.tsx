@@ -30,6 +30,35 @@ describe('VariableText', () => {
     expect(container.querySelectorAll('.sp-variable')).toHaveLength(0);
   });
 
+  describe('template and JSON-ish text', () => {
+    const allUnknown = (): VariableStatus => 'unresolved';
+    for (const text of ['{{#if a}}', '{{/if}}', '{{ u | upper }}', '{{"k":1}}', '{{a\nb}}']) {
+      it(`leaves ${JSON.stringify(text)} as plain text`, () => {
+        for (const getStatus of [allUnknown, undefined]) {
+          const { container, unmount } = render(
+            <VariableText text={text} {...(getStatus ? { getStatus } : {})} />
+          );
+          expect(container.querySelectorAll('.sp-variable')).toHaveLength(0);
+          expect(container.querySelectorAll('.sp-variable-unresolved')).toHaveLength(0);
+          expect(container.textContent).toBe(text);
+          unmount();
+        }
+      });
+    }
+
+    it('highlights a known variable whatever its name', () => {
+      const getStatus = (name: string): VariableStatus =>
+        name === 'my key' ? 'resolved' : 'unresolved';
+      const { container } = render(<VariableText text="{{my key}}" getStatus={getStatus} />);
+      expect(container.querySelector('.sp-variable')?.textContent).toBe('{{my key}}');
+    });
+
+    it('still flags an unknown name in the plain grammar', () => {
+      const { container } = render(<VariableText text="{{a.b-c}}" getStatus={allUnknown} />);
+      expect(container.querySelector('.sp-variable-unresolved')?.textContent).toBe('{{a.b-c}}');
+    });
+  });
+
   it('classifies each token independently (regression: stateful /g regex)', () => {
     // `{{a}}` resolved, `{{b}}` unresolved. An earlier implementation reused a
     // global regex whose lastIndex advanced between calls, which could

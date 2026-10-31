@@ -5,9 +5,8 @@ import type { WebContents } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import { IPC } from '../../shared/channels';
 import { KAFKA_CHANNEL, type KafkaChannelPrefix, kafkaChannel } from '../../shared/kafka-channels';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
-import { emitTo, errorMessage } from '../ipc/ipc-utils';
+import { errorMessage } from '../ipc/ipc-utils';
 import {
   assertTrustedSender,
   createValidatedEventHandler,
@@ -19,7 +18,7 @@ import {
   KafkaUnsubscribeSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
-import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
+import { emitToEntry, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { getExecutionPolicy } from '../security/execution-policy';
 import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
@@ -93,20 +92,17 @@ interface ActiveKafka extends KafkaProducerEntry {
   createdAt: number;
 }
 
+interface KafkaClaimFields {
+  pendingProducer?: AppProducer;
+}
+
 // Awaited teardown stays in this handler; registry disposal covers renderer death.
-const activeConnections = new StreamRegistry<ActiveKafka>({
+const activeConnections = new StreamRegistry<ActiveKafka, KafkaClaimFields>({
   dispose: (e) => {
     void closeConnection(e);
   },
+  disposeClaim: disposePendingKafkaClaim,
 });
-
-interface PendingKafkaClaim {
-  webContentsId: number;
-  token: symbol;
-  ownerEntry?: ActiveKafka;
-  pendingProducer?: AppProducer;
-}
-const pendingConnections = new Map<string, PendingKafkaClaim>();
 
 async function closeProducerQuietly(producer: AppProducer): Promise<void> {
   try {
@@ -116,45 +112,10 @@ async function closeProducerQuietly(producer: AppProducer): Promise<void> {
   }
 }
 
-function disposePendingKafkaClaim(claim: PendingKafkaClaim): void {
+function disposePendingKafkaClaim(claim: KafkaClaimFields): void {
   if (!claim.pendingProducer) return;
   void closeProducerQuietly(claim.pendingProducer);
   claim.pendingProducer = undefined;
-}
-
-function reserveKafkaClaim(
-  connectionId: string,
-  sender: WebContents
-): PendingKafkaClaim | undefined {
-  const key = ownerScopedKey(connectionId, sender.id);
-  if (pendingConnections.has(key)) return undefined;
-  const ownerEntry = activeConnections.getForOwner(connectionId, sender.id);
-  const claim: PendingKafkaClaim = {
-    webContentsId: sender.id,
-    token: Symbol(connectionId),
-    ownerEntry,
-  };
-  pendingConnections.set(key, claim);
-  bindRendererCleanup(pendingConnections, sender, (deadId) =>
-    disposeByOwner(pendingConnections, deadId, disposePendingKafkaClaim)
-  );
-  return pendingConnections.get(key) === claim ? claim : undefined;
-}
-
-function releaseKafkaClaim(connectionId: string, claim: PendingKafkaClaim): void {
-  const key = ownerScopedKey(connectionId, claim.webContentsId);
-  if (pendingConnections.get(key)?.token === claim.token) {
-    pendingConnections.delete(key);
-  }
-}
-
-function emitToEntry(entry: ActiveKafka, channel: string, ...args: unknown[]): void {
-  // Prefer the cached renderer for high-throughput message delivery.
-  if (entry.wc && !entry.wc.isDestroyed()) {
-    entry.wc.send(channel, ...args);
-    return;
-  }
-  emitTo(entry.webContentsId, channel, ...args);
 }
 
 /**
@@ -289,15 +250,17 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 
-    if (activeConnections.size() + pendingConnections.size >= MAX_CONCURRENT_KAFKA_CONNECTIONS) {
+    if (
+      activeConnections.size() + activeConnections.pendingCount() >=
+      MAX_CONCURRENT_KAFKA_CONNECTIONS
+    ) {
       logEntry(503, 'Too many open connections');
       return { success: false, error: 'Too many open Kafka connections.' };
     }
 
     // Reserve this renderer's id; other renderers may independently use the same external id.
-    const claim = reserveKafkaClaim(connectionId, event.sender);
+    const claim = activeConnections.reserveClaim(connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
-    const key = ownerScopedKey(connectionId, webContentsId);
     let registry: KafkaRegistryClient | undefined; // closed in finally unless an entry owns it
     try {
       if (claim.ownerEntry) {
@@ -315,7 +278,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         }
         await closeConnection(existing);
         if (
-          pendingConnections.get(key)?.token !== claim.token ||
+          !activeConnections.isClaimLive(claim) ||
           activeConnections.get(connectionId, webContentsId) !== existing
         ) {
           return { success: false, error: 'Not connected' };
@@ -360,7 +323,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
 
         // Probe metadata before reporting connected; this stays read-only.
         await producer.metadata({ autocreateTopics: false, forceUpdate: true });
-        if (pendingConnections.get(key)?.token !== claim.token) {
+        if (!activeConnections.isClaimLive(claim)) {
           if (claim.pendingProducer === producer) {
             claim.pendingProducer = undefined;
             await closeProducerQuietly(producer);
@@ -414,7 +377,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       }
     } finally {
       registry?.close();
-      releaseKafkaClaim(connectionId, claim);
+      activeConnections.releaseClaim(claim);
     }
   });
 
@@ -655,8 +618,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
 }
 
 export async function stopKafkaCleanup(): Promise<void> {
-  const pending = Array.from(pendingConnections.values());
-  pendingConnections.clear();
+  const pending = Array.from(activeConnections.pendingClaims());
+  activeConnections.clearClaims();
   for (const claim of pending) {
     if (!claim.pendingProducer) continue;
     const producer = claim.pendingProducer;

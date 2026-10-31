@@ -1,17 +1,12 @@
 /**
- * The one `{{name}}` token grammar for SecretRef-backed (desktop secret)
- * variables, shared by the renderer — which must keep these tokens opaque and
- * detect them (e.g. to defer Basic encoding to main) — and Electron main,
- * which substitutes them at the wire edge. Using one pattern on both sides
- * keeps `{{ name }}` (whitespace-padded) from being treated as opaque by one
- * side and as a plain variable by the other.
+ * Token handling for SecretRef-backed (desktop secret) variables, shared by the
+ * renderer — which must keep these tokens opaque and detect them (e.g. to defer
+ * Basic encoding to main) — and Electron main, which substitutes them at the
+ * wire edge. Both read the core grammar in `./tokens`, so a token the resolver
+ * would consume (`{{my secret}}`, `{{ name }}`) can never be opaque on one side
+ * and a plain variable on the other.
  */
-const SECRET_VARIABLE_TOKEN_SOURCE = String.raw`\{\{\s*([^{}\s]+)\s*\}\}`;
-
-/** A fresh global matcher (callers must not share `lastIndex` state). */
-export function secretVariableTokenPattern(): RegExp {
-  return new RegExp(SECRET_VARIABLE_TOKEN_SOURCE, 'g');
-}
+import { replaceVariableTokens, scanVariableTokens } from './tokens';
 
 /**
  * Replace every token whose name passes `isSecret` with `replacer(name, token)`;
@@ -23,7 +18,7 @@ export function replaceSecretVariableTokenMatches(
   isSecret: (name: string) => boolean,
   replacer: (name: string, token: string) => string
 ): string {
-  return text.replace(secretVariableTokenPattern(), (token, name: string) =>
+  return replaceVariableTokens(text, (name, token) =>
     isSecret(name) ? replacer(name, token) : token
   );
 }
@@ -55,8 +50,5 @@ export function referencesSecretVariable(
   text: string,
   isSecret: (name: string) => boolean
 ): boolean {
-  for (const match of text.matchAll(secretVariableTokenPattern())) {
-    if (match[1] !== undefined && isSecret(match[1])) return true;
-  }
-  return false;
+  return scanVariableTokens(text).some((token) => isSecret(token.name));
 }

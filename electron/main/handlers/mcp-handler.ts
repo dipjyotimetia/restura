@@ -1,9 +1,8 @@
 import { isMcpOAuthFlow } from '@shared/protocol/mcp-auth';
 import { createLogger } from '@shared/runtime/logger';
-import { type IpcMainInvokeEvent, ipcMain, type WebContents } from 'electron';
+import { type IpcMainInvokeEvent, ipcMain } from 'electron';
 import { z } from 'zod';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
@@ -118,65 +117,19 @@ function disposeSession(s: McpSession): void {
 // registry — i.e. during connect), so the registry is used only for the map,
 // same-id replace, renderer-destroyed cleanup, and disposeAll. dispose() runs
 // disposeSession (DELETE the session + close the client/transport).
-const sessions = new StreamRegistry<McpSession>({ dispose: disposeSession });
-
-interface PendingMcpClaim {
-  webContentsId: number;
-  token: symbol;
-  ownerEntry?: McpSession;
+interface McpClaimFields {
   pendingSession?: McpSession;
 }
 
-const pendingSessions = new Map<string, PendingMcpClaim>();
+const sessions = new StreamRegistry<McpSession, McpClaimFields>({
+  dispose: disposeSession,
+  disposeClaim: disposePendingMcpClaim,
+});
 
-function disposePendingMcpClaim(claim: PendingMcpClaim): void {
+function disposePendingMcpClaim(claim: McpClaimFields): void {
   if (!claim.pendingSession) return;
   disposeSession(claim.pendingSession);
   claim.pendingSession = undefined;
-}
-
-function reserveMcpClaim(
-  connectionId: string,
-  webContents: WebContents
-): PendingMcpClaim | undefined {
-  const key = ownerScopedKey(connectionId, webContents.id);
-  if (pendingSessions.has(key)) return undefined;
-
-  const ownerEntry = sessions.getForOwner(connectionId, webContents.id);
-
-  const claim: PendingMcpClaim = {
-    webContentsId: webContents.id,
-    token: Symbol(connectionId),
-    ownerEntry,
-  };
-  pendingSessions.set(key, claim);
-  bindRendererCleanup(pendingSessions, webContents, (deadId) =>
-    disposeByOwner(pendingSessions, deadId, disposePendingMcpClaim)
-  );
-  return pendingSessions.get(key) === claim ? claim : undefined;
-}
-
-function releaseMcpClaim(connectionId: string, claim: PendingMcpClaim): void {
-  const key = ownerScopedKey(connectionId, claim.webContentsId);
-  if (pendingSessions.get(key)?.token === claim.token) {
-    pendingSessions.delete(key);
-  }
-}
-
-function cancelPendingMcpClaimForOwner(connectionId: string, webContentsId: number): boolean {
-  const key = ownerScopedKey(connectionId, webContentsId);
-  const claim = pendingSessions.get(key);
-  if (!claim) return false;
-
-  // Invalidate the claim before closing its in-flight transport. If the close
-  // settles connect synchronously, the stale attempt still cannot commit.
-  pendingSessions.delete(key);
-  try {
-    disposePendingMcpClaim(claim);
-  } catch {
-    // Match StreamRegistry cancellation: teardown is best-effort and idempotent.
-  }
-  return true;
 }
 
 /**
@@ -232,15 +185,14 @@ export function registerMcpHandlerIPC(): void {
     if (!mcpRateLimiter.check(webContentsId)) {
       return { success: false, error: 'Rate limit exceeded.' };
     }
-    if (sessions.size() + pendingSessions.size >= MAX_CONCURRENT_MCP) {
+    if (sessions.size() + sessions.pendingCount() >= MAX_CONCURRENT_MCP) {
       return { success: false, error: 'Too many open MCP connections.' };
     }
 
     // Reserve this renderer's id synchronously before DNS or client construction.
     // Another renderer may independently use the same external id.
-    const claim = reserveMcpClaim(config.connectionId, event.sender);
+    const claim = sessions.reserveClaim(config.connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
-    const key = ownerScopedKey(config.connectionId, webContentsId);
     // Scrubs main-resolved credential plaintext from everything this
     // connection sends back to the renderer (replies, error events) and logs.
     let redact = (text: string) => text;
@@ -266,7 +218,7 @@ export function registerMcpHandlerIPC(): void {
 
       // Renderer destruction/module teardown may invalidate the reservation
       // while DNS is pending. Never construct a transport for a stale claim.
-      if (pendingSessions.get(key)?.token !== claim.token) {
+      if (!sessions.isClaimLive(claim)) {
         return { success: false, error: 'Not connected' };
       }
 
@@ -308,7 +260,7 @@ export function registerMcpHandlerIPC(): void {
           // Materializer errors are plaintext-free by construction.
           return { success: false, error: `MCP auth setup failed: ${errorMessage(err)}` };
         }
-        if (pendingSessions.get(key)?.token !== claim.token) {
+        if (!sessions.isClaimLive(claim)) {
           deadline.clear();
           return { success: false, error: 'Not connected' };
         }
@@ -368,7 +320,7 @@ export function registerMcpHandlerIPC(): void {
         },
       };
 
-      if (pendingSessions.get(key)?.token !== claim.token) {
+      if (!sessions.isClaimLive(claim)) {
         deadline.clear();
         disposeSession(session);
         return { success: false, error: 'Not connected' };
@@ -409,7 +361,7 @@ export function registerMcpHandlerIPC(): void {
         // the renderer a dead connection is live (every later request fails, with
         // no close ever sent). Treat it as a failed connect instead.
         if (session.disposed) {
-          if (pendingSessions.get(key)?.token === claim.token) {
+          if (sessions.isClaimLive(claim)) {
             void session.client?.close().catch(() => {});
           }
           oauth?.dispose();
@@ -421,13 +373,7 @@ export function registerMcpHandlerIPC(): void {
 
         // Commit only the exact live reservation. A reconnect may replace only
         // the same renderer's still-current session.
-        const claimed =
-          pendingSessions.get(key)?.token === claim.token &&
-          (claim.ownerEntry
-            ? sessions.get(config.connectionId, webContentsId) === claim.ownerEntry &&
-              sessions.replaceForOwner(config.connectionId, webContentsId, session)
-            : sessions.tryAdd(config.connectionId, event.sender, session));
-        if (!claimed) {
+        if (!sessions.commitClaim(claim, event.sender, session)) {
           disposeSession(session);
           return { success: false, error: 'Not connected' };
         }
@@ -451,7 +397,7 @@ export function registerMcpHandlerIPC(): void {
         };
       }
     } finally {
-      releaseMcpClaim(config.connectionId, claim);
+      sessions.releaseClaim(claim);
     }
   });
 
@@ -567,7 +513,9 @@ export function registerMcpHandlerIPC(): void {
     IPC.mcp.disconnect,
     createValidatedEventHandler(IPC.mcp.disconnect, McpDisconnectSchema, async (config, event) => {
       // Missing and wrong-owner ids are deliberately indistinguishable.
-      cancelPendingMcpClaimForOwner(config.connectionId, event.sender.id);
+      // The claim is invalidated before its in-flight transport closes: if the close
+      // settles connect synchronously, the stale attempt still cannot commit.
+      sessions.cancelClaim(config.connectionId, event.sender.id);
       sessions.cancelForOwner(config.connectionId, event.sender.id);
       return { success: true };
     })
@@ -601,13 +549,12 @@ async function connectStdio(
   if (!mcpRateLimiter.check(webContentsId)) {
     return { success: false, error: 'Rate limit exceeded.' };
   }
-  if (sessions.size() + pendingSessions.size >= MAX_CONCURRENT_MCP) {
+  if (sessions.size() + sessions.pendingCount() >= MAX_CONCURRENT_MCP) {
     return { success: false, error: 'Too many open MCP connections.' };
   }
-  const claim = reserveMcpClaim(config.connectionId, event.sender);
+  const claim = sessions.reserveClaim(config.connectionId, event.sender);
   if (!claim) return { success: false, error: 'Not connected' };
-  const key = ownerScopedKey(config.connectionId, webContentsId);
-  const isCurrentClaim = () => pendingSessions.get(key)?.token === claim.token;
+  const isCurrentClaim = () => sessions.isClaimLive(claim);
 
   try {
     const session: McpSession = {
@@ -627,7 +574,7 @@ async function connectStdio(
     const result = await connectStdioSdkClient({
       config,
       owner: event.sender,
-      requester: key,
+      requester: ownerScopedKey(config.connectionId, webContentsId),
       maxConcurrentChildren: MAX_CONCURRENT_STDIO,
       isCurrent: isCurrentClaim,
       session,
@@ -646,20 +593,14 @@ async function connectStdio(
       return { success: false, error: result.error };
     }
 
-    const claimed =
-      isCurrentClaim() &&
-      (claim.ownerEntry
-        ? sessions.get(config.connectionId, webContentsId) === claim.ownerEntry &&
-          sessions.replaceForOwner(config.connectionId, webContentsId, session)
-        : sessions.tryAdd(config.connectionId, event.sender, session));
-    if (!claimed) {
+    if (!sessions.commitClaim(claim, event.sender, session)) {
       disposeSession(session);
       return { success: false, error: 'Not connected' };
     }
     emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.open, config.connectionId));
     return { success: true };
   } finally {
-    releaseMcpClaim(config.connectionId, claim);
+    sessions.releaseClaim(claim);
   }
 }
 
@@ -669,10 +610,7 @@ async function connectStdio(
  * own quit timeout; the main-process `exit` hook SIGKILLs any straggler.
  */
 export function stopMcpCleanup(): Promise<void> {
-  for (const claim of pendingSessions.values()) {
-    disposePendingMcpClaim(claim);
-  }
-  pendingSessions.clear();
+  sessions.disposeAllClaims();
   sessions.disposeAll();
   // Before the (async) child termination: reject parked prompts and forget
   // stored roots synchronously, so nothing survives a module stop.

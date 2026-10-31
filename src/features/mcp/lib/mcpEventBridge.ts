@@ -1,4 +1,5 @@
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { EVENT_PREFIX, eventChannel } from '../../../../electron/shared/channels';
 
 export interface McpServerEventHandlers {
   onNotification: (notification: unknown) => void;
@@ -35,9 +36,9 @@ export function subscribeMcpEvents(
   if (!api?.on) return () => {};
 
   const channels = {
-    notification: `mcp:notification:${connectionId}`,
-    error: `mcp:error:${connectionId}`,
-    close: `mcp:close:${connectionId}`,
+    notification: eventChannel(EVENT_PREFIX.mcp.notification, connectionId),
+    error: eventChannel(EVENT_PREFIX.mcp.error, connectionId),
+    close: eventChannel(EVENT_PREFIX.mcp.close, connectionId),
   };
   const onNotification = (payload: unknown) => handlers.onNotification(payload);
   const onError = (payload: unknown) =>

@@ -3,7 +3,6 @@ import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { createLogger } from '@shared/runtime/logger';
 import { ipcMain, type WebContents } from 'electron';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import type { GrpcRequestConfig } from '../ipc/ipc-validators';
 import {
@@ -13,7 +12,7 @@ import {
   GrpcSendMessageSchema,
   GrpcStreamRequestIdSchema,
 } from '../ipc/ipc-validators';
-import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
+import { type StreamClaim, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import { materializeExternalProtocolAuth } from '../security/external-secret-materializer';
@@ -68,9 +67,9 @@ interface ActiveCall {
 // cleanup (dispose = terminate the call with a final CANCELLED event; a destroyed
 // renderer simply doesn't receive it). gRPC keeps its own bespoke bits — the
 // idle-stream sweeper (lastActivityAt), the duplicate-id rejection (tryAdd, not
-// the replacing add), and the pendingStreamMessages race buffer — as custom
-// logic over get()/values()/tryAdd().
-const activeCalls = new StreamRegistry<ActiveCall>({
+// the replacing add), and the pending-stream write buffer — as custom logic over
+// get()/values()/tryAdd() and the claims' fields.
+const activeCalls = new StreamRegistry<ActiveCall, PendingStreamFields>({
   dispose: (c) => c.terminate(GRPC_CANCELLED, 'Stream cancelled'),
 });
 
@@ -78,18 +77,14 @@ const activeCalls = new StreamRegistry<ActiveCall>({
 // register the ActiveCall). A `grpc:send-message` / `grpc:end-stream` that races
 // ahead of that registration would otherwise be dropped silently — losing the
 // first client/bidi message or a premature half-close. Buffer those per
-// requestId and flush them in addActiveCall. Bounded (per-id + map size) so a
+// requestId and flush them in addActiveCall. Bounded (per-id + claim count) so a
 // renderer that starts streams which never finish DNS can't grow this unbounded.
-interface PendingStreamClaim {
-  requestId: string;
-  webContentsId: number;
-  token: symbol;
+interface PendingStreamFields {
   writes: unknown[];
   end: boolean;
   createdAt: number;
 }
 
-const pendingStreamMessages = new Map<string, PendingStreamClaim>();
 const MAX_PENDING_WRITES = 256;
 const MAX_PENDING_STREAMS = 100;
 // A pending buffer only bridges the start-stream DNS pre-flight (seconds); one
@@ -100,39 +95,17 @@ const PENDING_TTL_MS = 60 * 1000;
 // Reserve a stream id synchronously before start-stream awaits DNS. Controls
 // may buffer only against this creator-owned claim; an unknown or wrong-owner
 // id is indistinguishable and remains a no-op.
-const reservePendingStream = (id: string, sender: WebContents): PendingStreamClaim | undefined => {
-  const key = ownerScopedKey(id, sender.id);
-  if (
-    pendingStreamMessages.has(key) ||
-    activeCalls.has(id, sender.id) ||
-    pendingStreamMessages.size >= MAX_PENDING_STREAMS
-  ) {
+// gRPC's extras stay here: a stream id is refused while its call is live (no
+// reconnect semantics, unlike the other protocols) and pending claims have their
+// own cap and TTL sweep.
+const reservePendingStream = (
+  id: string,
+  sender: WebContents
+): StreamClaim<ActiveCall, PendingStreamFields> | undefined => {
+  if (activeCalls.has(id, sender.id) || activeCalls.pendingCount() >= MAX_PENDING_STREAMS) {
     return undefined;
   }
-  const claim: PendingStreamClaim = {
-    requestId: id,
-    webContentsId: sender.id,
-    token: Symbol(id),
-    writes: [],
-    end: false,
-    createdAt: Date.now(),
-  };
-  pendingStreamMessages.set(key, claim);
-  bindRendererCleanup(pendingStreamMessages, sender, (deadId) =>
-    disposeByOwner(pendingStreamMessages, deadId, () => {})
-  );
-  return pendingStreamMessages.get(key) === claim ? claim : undefined;
-};
-
-const pendingForOwner = (id: string, webContentsId: number): PendingStreamClaim | undefined => {
-  return pendingStreamMessages.get(ownerScopedKey(id, webContentsId));
-};
-
-const releasePendingStream = (id: string, claim: PendingStreamClaim): void => {
-  const key = ownerScopedKey(id, claim.webContentsId);
-  if (pendingStreamMessages.get(key)?.token === claim.token) {
-    pendingStreamMessages.delete(key);
-  }
+  return activeCalls.reserveClaim(id, sender, { writes: [], end: false, createdAt: Date.now() });
 };
 
 const GRPC_CANCELLED = 1;
@@ -215,10 +188,10 @@ export function sweepIdleStreams(now: number = Date.now()): void {
   // Evict pending buffers whose stream never registered — without this they
   // survive renderer death and park up to MAX_PENDING_STREAMS × MAX_PENDING_WRITES
   // payloads until quit.
-  for (const [key, pending] of pendingStreamMessages) {
+  for (const pending of activeCalls.pendingClaims()) {
     if (now - pending.createdAt > PENDING_TTL_MS) {
-      pendingStreamMessages.delete(key);
-      log.info('evicted stale pending stream buffer', { streamId: pending.requestId });
+      activeCalls.releaseClaim(pending);
+      log.info('evicted stale pending stream buffer', { streamId: pending.connectionId });
     }
   }
 }
@@ -238,7 +211,7 @@ export function stopStreamCleanup(): void {
   }
   // Cancel all active streams so we don't block process exit (dispose = cancel).
   activeCalls.disposeAll();
-  pendingStreamMessages.clear();
+  activeCalls.clearClaims();
 }
 
 // Safe method to add a stream with collision detection. `sender` is threaded to
@@ -248,24 +221,24 @@ const addActiveCall = (
   id: string,
   sender: Electron.WebContents,
   call: Omit<ActiveCall, 'createdAt' | 'lastActivityAt' | 'requestId'>,
-  claim: PendingStreamClaim
+  claim: StreamClaim<ActiveCall, PendingStreamFields>
 ): boolean => {
-  if (pendingForOwner(id, sender.id)?.token !== claim.token) return false;
+  if (!activeCalls.isClaimLive(claim)) return false;
   const now = Date.now();
   const entry: ActiveCall = { ...call, createdAt: now, lastActivityAt: now, requestId: id };
   // tryAdd rejects a duplicate id (a renderer bug) rather than replacing.
   if (!activeCalls.tryAdd(id, sender, entry)) {
     log.warn('duplicate stream rejected', { streamId: id });
     // Drop any writes/half-close that raced in under this id — the stream was
-    // rejected, so they'd otherwise orphan in pendingStreamMessages until the
-    // size cap or stopStreamCleanup evicts them.
-    releasePendingStream(id, claim);
+    // rejected, so they'd otherwise orphan in the pending claim until the size cap
+    // or stopStreamCleanup evicts them.
+    activeCalls.releaseClaim(claim);
     return false;
   }
   // Flush any writes / half-close that raced ahead of registration (see
-  // pendingStreamMessages). For server-streaming write/end are no-ops, so this
+  // PendingStreamFields). For server-streaming write/end are no-ops, so this
   // is harmless there.
-  releasePendingStream(id, claim);
+  activeCalls.releaseClaim(claim);
   for (const msg of claim.writes) call.write(msg);
   if (claim.end) call.end();
   return true;
@@ -300,7 +273,9 @@ export function mergeMainSideAuth(
   auth: GrpcRequestConfig['auth']
 ): Record<string, string> {
   if (!auth) return metadata;
-  const { headers } = applyNonSignAtWireAuth(auth as Parameters<typeof applyNonSignAtWireAuth>[0]);
+  const { headers } = applyNonSignAtWireAuth(auth as Parameters<typeof applyNonSignAtWireAuth>[0], {
+    basicRequiresUsername: true,
+  });
   if (Object.keys(headers).length === 0) return metadata;
   const merged = { ...metadata };
   for (const [k, v] of Object.entries(headers)) merged[k.toLowerCase()] = v;
@@ -510,7 +485,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         // Claim this renderer's id synchronously before the first await. Another
         // renderer may independently use the same external id, while a same-owner
         // duplicate retains the existing duplicate-stream error contract.
-        const ownedPending = pendingForOwner(requestId, event.sender.id);
+        const ownedPending = activeCalls.claimFor(requestId, event.sender.id);
         const ownedActive = activeCalls.getForOwner(requestId, event.sender.id);
         const claim = reservePendingStream(requestId, event.sender);
         if (!claim) {
@@ -529,7 +504,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         try {
           grpcDial = await resolveGrpcDialAddress(policyConfig.url);
         } catch (err) {
-          releasePendingStream(requestId, claim);
+          activeCalls.releaseClaim(claim);
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 3,
             details:
@@ -541,11 +516,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
         // Renderer may have been destroyed during the DNS lookup; bail out
         // before allocating cleanup listeners and temp directories.
-        if (
-          event.sender.isDestroyed() ||
-          pendingForOwner(requestId, event.sender.id)?.token !== claim.token
-        ) {
-          releasePendingStream(requestId, claim);
+        if (event.sender.isDestroyed() || !activeCalls.isClaimLive(claim)) {
+          activeCalls.releaseClaim(claim);
           return;
         }
 
@@ -558,7 +530,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             auth: await materializeExternalProtocolAuth(policyConfig.auth),
           };
         } catch (err) {
-          releasePendingStream(requestId, claim);
+          activeCalls.releaseClaim(claim);
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 2,
             details: `gRPC setup failed: ${sanitizeErrorMessage(
@@ -710,7 +682,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             });
           }
         } catch (err: unknown) {
-          releasePendingStream(requestId, claim);
+          activeCalls.releaseClaim(claim);
           const error = err instanceof Error ? err : new Error(String(err));
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 2,
@@ -735,7 +707,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         }
         // Stream not registered yet — start-stream is still resolving DNS.
         // Buffer only for the renderer that reserved the stream id.
-        const pending = pendingForOwner(requestId, event.sender.id);
+        const pending = activeCalls.claimFor(requestId, event.sender.id);
         if (pending && pending.writes.length < MAX_PENDING_WRITES) pending.writes.push(message);
       }
     )
@@ -753,7 +725,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           return;
         }
         // Half-close raced ahead of registration — record it for the flush.
-        const pending = pendingForOwner(requestId, event.sender.id);
+        const pending = activeCalls.claimFor(requestId, event.sender.id);
         if (pending) pending.end = true;
       }
     )
@@ -765,8 +737,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       IPC.grpc.cancelStream,
       GrpcStreamRequestIdSchema,
       (event, requestId: string) => {
-        const pending = pendingForOwner(requestId, event.sender.id);
-        if (pending) releasePendingStream(requestId, pending);
+        activeCalls.cancelClaim(requestId, event.sender.id);
         activeCalls.cancelForOwner(requestId, event.sender.id);
       }
     )

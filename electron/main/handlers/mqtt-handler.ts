@@ -7,7 +7,6 @@ import type * as MqttLib from 'mqtt';
 import type { IConnackPacket, IDisconnectPacket, IPublishPacket, MqttClient } from 'mqtt';
 import { IPC } from '../../shared/channels';
 import { MQTT_CHANNEL, mqttChannel } from '../../shared/mqtt-channels';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
@@ -22,7 +21,7 @@ import {
   MqttUnsubscribeSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
-import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
+import { emitToEntry, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { resolveMqttBrokerAddress } from '../security/broker-dns-guard';
 import {
@@ -127,47 +126,6 @@ const activeConnections = new StreamRegistry<ActiveMqtt>({
     void endClient(e);
   },
 });
-
-interface PendingMqttClaim {
-  webContentsId: number;
-  token: symbol;
-  ownerEntry?: ActiveMqtt;
-}
-
-const pendingConnections = new Map<string, PendingMqttClaim>();
-
-function reserveMqttClaim(connectionId: string, sender: WebContents): PendingMqttClaim | undefined {
-  const key = ownerScopedKey(connectionId, sender.id);
-  if (pendingConnections.has(key)) return undefined;
-
-  const ownerEntry = activeConnections.getForOwner(connectionId, sender.id);
-
-  const claim: PendingMqttClaim = {
-    webContentsId: sender.id,
-    token: Symbol(connectionId),
-    ownerEntry,
-  };
-  pendingConnections.set(key, claim);
-  bindRendererCleanup(pendingConnections, sender, (deadId) =>
-    disposeByOwner(pendingConnections, deadId, () => {})
-  );
-  return pendingConnections.get(key) === claim ? claim : undefined;
-}
-
-function releaseMqttClaim(connectionId: string, claim: PendingMqttClaim): void {
-  const key = ownerScopedKey(connectionId, claim.webContentsId);
-  if (pendingConnections.get(key)?.token === claim.token) {
-    pendingConnections.delete(key);
-  }
-}
-
-function emitToEntry(entry: ActiveMqtt, channel: string, ...args: unknown[]): void {
-  if (entry.wc && !entry.wc.isDestroyed()) {
-    entry.wc.send(channel, ...args);
-    return;
-  }
-  emitTo(entry.webContentsId, channel, ...args);
-}
 
 function bindClientListeners(entry: ActiveMqtt): void {
   const { client } = entry;
@@ -313,16 +271,18 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 
-    if (activeConnections.size() + pendingConnections.size >= MAX_CONCURRENT_MQTT_CONNECTIONS) {
+    if (
+      activeConnections.size() + activeConnections.pendingCount() >=
+      MAX_CONCURRENT_MQTT_CONNECTIONS
+    ) {
       logEntry(503, 'Too many open connections');
       return { success: false, error: 'Too many open MQTT connections.' };
     }
 
     // Reserve synchronously before closing an owner reconnect, inspecting broker
     // credentials, running the guard, or constructing a client.
-    const claim = reserveMqttClaim(connectionId, event.sender);
+    const claim = activeConnections.reserveClaim(connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
-    const key = ownerScopedKey(connectionId, webContentsId);
     try {
       if (claim.ownerEntry) {
         const existing = claim.ownerEntry;
@@ -339,7 +299,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         }
         await endClient(existing);
         if (
-          pendingConnections.get(key)?.token !== claim.token ||
+          !activeConnections.isClaimLive(claim) ||
           activeConnections.get(connectionId, webContentsId) !== existing
         ) {
           return { success: false, error: 'Not connected' };
@@ -388,7 +348,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       }
 
       try {
-        if (pendingConnections.get(key)?.token !== claim.token) {
+        if (!activeConnections.isClaimLive(claim)) {
           return { success: false, error: 'Not connected' };
         }
 
@@ -424,7 +384,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         return { success: false, error: msg };
       }
     } finally {
-      releaseMqttClaim(connectionId, claim);
+      activeConnections.releaseClaim(claim);
     }
   });
 
@@ -650,7 +610,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 }
 
 export async function stopMqttCleanup(): Promise<void> {
-  pendingConnections.clear();
+  activeConnections.clearClaims();
   for (const entry of activeConnections.values()) {
     await endClient(entry);
   }

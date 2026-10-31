@@ -12,6 +12,7 @@ import type {
   McpToolDescriptor,
   McpTransportType,
 } from '@/types';
+import { EVENT_PREFIX, eventChannel } from '../../../../electron/shared/channels';
 import { MCP_STDIO_WEB_ERROR } from './mcpStdioLaunch';
 import { buildMcpInitializeParams, McpWebSession } from './mcpWebSession';
 
@@ -240,7 +241,7 @@ export class McpClient {
     this.unsubscribeStderr();
     const onStderr = this.opts.onStderr;
     if (!onStderr) return;
-    const channel = `mcp:stderr:${this.opts.connectionId}`;
+    const channel = eventChannel(EVENT_PREFIX.mcp.stderr, this.opts.connectionId);
     const listener = (payload: unknown) => {
       const text = (payload as { text?: unknown } | undefined)?.text;
       if (typeof text === 'string') onStderr(text);
