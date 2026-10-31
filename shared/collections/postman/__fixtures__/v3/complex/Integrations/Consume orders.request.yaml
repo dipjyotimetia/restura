@@ -1,0 +1,9 @@
+$kind: kafka-request
+mode: consumer
+url:
+- kafka-1:9092
+topics:
+- name: orders
+startPosition:
+  type: beginning
+order: 2000

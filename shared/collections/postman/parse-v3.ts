@@ -19,6 +19,7 @@ import {
   isObj,
   keyValue,
   MAX_POSTMAN_NESTING_DEPTH,
+  mapPostmanSettings,
   type ParseContext,
   type Raw,
   reportExplicitNoauth,
@@ -82,6 +83,9 @@ function convertBody(
             key: str(part.key),
             enabled: part.disabled !== true,
             description: description(part.description),
+            ...(typeof part.contentType === 'string' && part.contentType !== ''
+              ? { contentType: part.contentType }
+              : {}),
           };
           if (part.type !== 'file') return { ...common, value: str(part.value), type: 'text' };
           // Same as the v2 parser: a file row's value holds the picked file's
@@ -136,53 +140,9 @@ function applySettings(
   sidecar: PostmanSidecar,
   ctx: ParseContext
 ): RequestSettingsOverride | undefined {
-  if (!isObj(raw)) return undefined;
-  const s: RequestSettingsOverride = {};
-  const rest: Raw = {};
-  for (const [k, v] of Object.entries(raw)) {
-    if (k === 'followRedirects' && typeof v === 'boolean') s.followRedirects = v;
-    else if (k === 'maxRedirects' && typeof v === 'number') s.maxRedirects = v;
-    else if (k === 'strictSSL' && typeof v === 'boolean') {
-      s.verifySsl = v;
-      if (!v)
-        ctx.report.securityDowngrade('strictSSL', name, 'TLS certificate verification is off');
-    } else if (k === 'followOriginalHttpMethod' && typeof v === 'boolean') {
-      s.followOriginalMethod = v;
-    } else if (k === 'followAuthorizationHeader' && typeof v === 'boolean') {
-      s.followAuthHeader = v;
-      if (v) {
-        ctx.report.securityDowngrade(
-          'followAuthorizationHeader',
-          name,
-          'the Authorization header is sent on cross-origin redirects'
-        );
-      }
-    } else if (k === 'removeRefererHeaderOnRedirect' && typeof v === 'boolean') {
-      s.stripReferer = v;
-    } else if (k === 'disableUrlEncoding' && typeof v === 'boolean') {
-      s.encodeUrlAutomatically = !v;
-    } else if (k === 'disableCookies' && typeof v === 'boolean') {
-      s.disableCookieJar = v;
-    } else if (k === 'tlsPreferServerCiphers' && typeof v === 'boolean') {
-      s.serverCipherOrder = v;
-    } else if (
-      k === 'tlsCipherSelection' &&
-      Array.isArray(v) &&
-      v.every((c) => typeof c === 'string')
-    ) {
-      s.cipherSuites = v.join(':');
-      ctx.report.securityDowngrade(
-        'tlsCipherSelection',
-        name,
-        'a custom TLS cipher list replaces the defaults'
-      );
-    } else if (k === 'protocolVersion' && (v === 'auto' || v === 'http1' || v === 'http2')) {
-      if (v === 'http1') s.httpVersion = 'http1.1';
-      else if (v === 'http2') s.httpVersion = 'http2';
-    } else rest[k] = v;
-  }
-  keepSettingsRest(Object.keys(rest).length > 0 ? rest : undefined, name, sidecar, ctx);
-  return Object.keys(s).length > 0 ? s : undefined;
+  const mapped = mapPostmanSettings(raw, name, ctx);
+  keepSettingsRest(mapped?.rest, name, sidecar, ctx);
+  return mapped?.settings;
 }
 
 function convertHttp(raw: Raw, name: string, sidecar: PostmanSidecar, ctx: ParseContext) {
@@ -259,6 +219,9 @@ function convertGrpc(raw: Raw, name: string, sidecar: PostmanSidecar, ctx: Parse
   }
   keepSchema(raw, name, sidecar, ctx);
   keepExamples(raw, name, sidecar, ctx);
+  // GrpcRequest has no description field: kept for export, like a folder's.
+  const desc = description(raw.description);
+  if (desc) sidecar.description = desc;
   const req: GrpcRequest = {
     id: uuid(),
     name,

@@ -100,6 +100,10 @@ export function extractScripts(
 ): Scripts {
   let pre: string | undefined;
   let test: string | undefined;
+  // The raw script each phase currently holds: it is what gets shadowed
+  // when a later same-phase script replaces it.
+  let preRaw: unknown;
+  let testRaw: unknown;
   const shadowed: unknown[] = [];
   const unmapped: unknown[] = [];
   let usesPackages = false;
@@ -111,11 +115,13 @@ export function extractScripts(
       (isObj(s.requests) && Object.keys(s.requests).length > 0);
     if (hasRefs) usesPackages = true;
     if (PRE_PHASES.has(type)) {
-      if (pre !== undefined) shadowed.push(s);
+      if (pre !== undefined) shadowed.push(preRaw);
       pre = ctx.transformScript(s.code);
+      preRaw = s;
     } else if (TEST_PHASES.has(type)) {
-      if (test !== undefined) shadowed.push(s);
+      if (test !== undefined) shadowed.push(testRaw);
       test = ctx.transformScript(s.code);
+      testRaw = s;
     } else {
       unmapped.push(s);
     }

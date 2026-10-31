@@ -1,0 +1,24 @@
+$kind: websocket-request
+description: Live ticker
+url: wss://stream.example.com/ticker
+headers:
+- key: X-Api-Key
+  value: '{{apiKey}}'
+queryParams:
+- key: symbols
+  value: ACME,FOO
+settings:
+  handshakeTimeout: 5000
+  retryCount: 3
+  retryDelay: 1000
+  maxPayload: 1048576
+messages:
+- $kind: websocket-message
+  name: subscribe
+  content: '{"op":"sub"}'
+  contentType: json
+- $kind: websocket-message
+  name: ping
+  content: ping
+  contentType: text
+order: 1000

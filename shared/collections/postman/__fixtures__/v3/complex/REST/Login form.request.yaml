@@ -1,0 +1,21 @@
+$kind: http-request
+url: '{{baseUrl}}/login'
+method: POST
+body:
+  type: urlencoded
+  content:
+  - key: user
+    value: ada
+  - key: password
+    value: pw
+  - key: remember
+    value: '1'
+    disabled: true
+auth:
+  type: basic
+  credentials:
+  - key: username
+    value: ada
+  - key: password
+    value: pw
+order: 4000

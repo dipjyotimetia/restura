@@ -1,0 +1,14 @@
+$kind: http-request
+url: '{{baseUrl}}/soap'
+method: POST
+body:
+  type: xml
+  content: <Envelope><Body/></Envelope>
+auth:
+  type: digest
+  credentials:
+  - key: username
+    value: d
+  - key: password
+    value: dp
+order: 5000

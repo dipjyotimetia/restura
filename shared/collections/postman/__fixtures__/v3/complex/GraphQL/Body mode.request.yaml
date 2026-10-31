@@ -1,0 +1,9 @@
+$kind: http-request
+url: '{{baseUrl}}/graphql'
+method: POST
+body:
+  type: graphql
+  content:
+    query: mutation { touch }
+    variables: '{}'
+order: 2000

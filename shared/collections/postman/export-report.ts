@@ -36,6 +36,7 @@ export type PostmanExportConstruct =
   | 'description'
   | 'examples'
   | 'multi-auth'
+  | 'disabled-script'
   // v2.1 only (#1229)
   | 'non-http-request'
   | 'placeholder-item'
@@ -69,6 +70,8 @@ const DETAIL: Record<PostmanExportConstruct, string> = {
   'secret-handle': 'Keychain-stored secret exported with an EMPTY value; re-enter it in Postman',
   'folder-variables': 'Postman v3 folders have no variables; folder variables were not exported',
   'restura-settings': 'Restura-only request settings were not exported',
+  'disabled-script':
+    'A disabled Postman v2 script has no v3 equivalent (v3 scripts are always active); not exported',
   'contract-spec': 'Attached contract spec is Restura-only; not exported',
   'body-unsupported': 'This body type has no Postman equivalent; exported without a body',
   'form-file': 'Form-data file fields exported without a file path; re-pick the files in Postman',

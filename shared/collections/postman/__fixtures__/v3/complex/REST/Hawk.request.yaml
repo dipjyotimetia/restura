@@ -1,0 +1,11 @@
+$kind: http-request
+url: '{{baseUrl}}/hawk'
+method: GET
+auth:
+  type: hawk
+  credentials:
+  - key: authId
+    value: id
+  - key: authKey
+    value: HAWK-KEY
+order: 8000

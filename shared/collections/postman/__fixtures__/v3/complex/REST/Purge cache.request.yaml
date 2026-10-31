@@ -1,0 +1,4 @@
+$kind: http-request
+url: '{{baseUrl}}/cache'
+method: PURGE
+order: 10000

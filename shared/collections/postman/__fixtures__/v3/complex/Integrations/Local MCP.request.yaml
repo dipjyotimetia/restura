@@ -1,0 +1,7 @@
+$kind: mcp-request
+transport: stdio
+command: npx -y @modelcontextprotocol/server-everything --token SECRET-ARG
+env:
+- key: API_KEY
+  value: MCP-ENV-SECRET
+order: 4000

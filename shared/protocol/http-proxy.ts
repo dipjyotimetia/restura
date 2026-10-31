@@ -47,11 +47,16 @@ function buildTargetUrl(spec: RequestSpec): string {
   if (spec.encodeUrl === false) {
     const params = spec.params;
     if (!params || Object.keys(params).length === 0) return spec.url;
-    const joiner = spec.url.includes('?') ? '&' : '?';
+    // The query goes before any `#fragment`: appended after it, it would be
+    // part of the fragment and never reach the server.
+    const hash = spec.url.indexOf('#');
+    const base = hash === -1 ? spec.url : spec.url.slice(0, hash);
+    const fragment = hash === -1 ? '' : spec.url.slice(hash);
+    const joiner = base.includes('?') ? '&' : '?';
     const tail = Object.entries(params)
       .map(([k, v]) => `${k}=${v}`)
       .join('&');
-    return `${spec.url}${joiner}${tail}`;
+    return `${base}${joiner}${tail}${fragment}`;
   }
   const u = new URL(spec.url);
   if (spec.params) {

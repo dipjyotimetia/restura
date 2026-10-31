@@ -1,0 +1,15 @@
+$kind: graphql-request
+description: Native GraphQL item
+url: '{{baseUrl}}/graphql'
+query: |-
+  query Viewer($id: ID!) { user(id: $id) { id name } }
+  query Other { ping }
+variables: '{"id": {{userId}}}'
+operationName: Viewer
+headers:
+- key: X-Client
+  value: restura
+scripts:
+- type: afterResponse
+  code: pm.test('gql ok', () => {});
+order: 1000

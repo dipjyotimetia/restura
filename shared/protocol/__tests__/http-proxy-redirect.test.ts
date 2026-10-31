@@ -349,6 +349,31 @@ describe('executeHttpProxy URL encoding (encodeUrl flag)', () => {
     expect(call.url).toBe('https://api.example/search?q=hello world');
   });
 
+  it('encodeUrl=false puts the params before a #fragment (and after an existing query)', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => 'ok',
+      contentLengthHeader: '2',
+      body: null,
+    });
+    const send = (url: string) =>
+      executeHttpProxy(
+        { method: 'GET', url, params: { expand: 'roles' }, encodeUrl: false },
+        fetcher as Fetcher,
+        { allowLocalhost: false }
+      );
+
+    await send('https://api.example/users/42#profile');
+    await send('https://api.example/users?a=1#top');
+    // Appending after the fragment would drop the whole query from the wire.
+    expect(fetcher.mock.calls.map((c) => c[0].url)).toEqual([
+      'https://api.example/users/42?expand=roles#profile',
+      'https://api.example/users?a=1&expand=roles#top',
+    ]);
+  });
+
   it('encodeUrl=false with no params leaves the URL untouched', async () => {
     const fetcher = vi.fn().mockResolvedValueOnce({
       status: 200,

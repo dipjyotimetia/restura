@@ -1,0 +1,8 @@
+$kind: http-request
+url: '{{baseUrl}}/blob'
+method: POST
+body:
+  type: file
+  content:
+    src: /home/me/blob.bin
+order: 6000

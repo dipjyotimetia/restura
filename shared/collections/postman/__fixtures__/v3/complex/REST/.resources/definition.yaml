@@ -1,0 +1,17 @@
+$kind: collection
+description: REST endpoints; folder API key auth
+auth:
+  type: apikey
+  credentials:
+  - key: key
+    value: X-Api-Key
+  - key: value
+    value: folder-key
+  - key: in
+    value: header
+scripts:
+- type: http:beforeRequest
+  code: |-
+    const stamp = 'folder';
+    pm.variables.set('folderSeen', stamp);
+order: 1000

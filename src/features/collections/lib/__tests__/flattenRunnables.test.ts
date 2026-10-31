@@ -57,7 +57,9 @@ describe('flattenRunnables — effective script combining', () => {
     ];
     const runnables = flattenRunnables(items, undefined, { preRequestScript: 'COLLECTION_PRE' });
     expect(runnables).toHaveLength(1);
-    expect(runnables[0]!.request.preRequestScript).toBe('COLLECTION_PRE\nFOLDER_PRE\nREQUEST_PRE');
+    expect(runnables[0]!.request.preRequestScript).toBe(
+      '{\nCOLLECTION_PRE\n}\n{\nFOLDER_PRE\n}\n{\nREQUEST_PRE\n}'
+    );
   });
 
   it('combines test scripts parent-to-child as well', () => {
@@ -71,7 +73,9 @@ describe('flattenRunnables — effective script combining', () => {
       },
     ];
     const runnables = flattenRunnables(items, undefined, { testScript: 'COLLECTION_TEST' });
-    expect(runnables[0]!.request.testScript).toBe('COLLECTION_TEST\nFOLDER_TEST\nREQ_TEST');
+    expect(runnables[0]!.request.testScript).toBe(
+      '{\nCOLLECTION_TEST\n}\n{\nFOLDER_TEST\n}\n{\nREQ_TEST\n}'
+    );
   });
 
   it('leaves a request script untouched when there are no ancestor scripts', () => {
@@ -103,7 +107,7 @@ describe('flattenRunnables — effective script combining', () => {
     const runnables = flattenRunnables(items, 'inner', { preRequestScript: 'COLLECTION_PRE' });
     expect(runnables).toHaveLength(1);
     expect(runnables[0]!.request.preRequestScript).toBe(
-      'COLLECTION_PRE\nOUTER_PRE\nINNER_PRE\nREQ_PRE'
+      '{\nCOLLECTION_PRE\n}\n{\nOUTER_PRE\n}\n{\nINNER_PRE\n}\n{\nREQ_PRE\n}'
     );
     expect(runnables[0]!.folderPath).toEqual(['Outer', 'Inner']);
     expect(runnables[0]!.folderVariables).toEqual([

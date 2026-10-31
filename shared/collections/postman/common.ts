@@ -1,7 +1,7 @@
 import { v4 as uuid } from 'uuid';
 import { isConfiguredAuth } from '../../auth/inheritance';
 import { checkHttpMethod } from '../../protocol/http-method';
-import type { AuthConfig, HttpMethod, KeyValue } from '../../types';
+import type { AuthConfig, HttpMethod, KeyValue, RequestSettingsOverride } from '../../types';
 import { activeAuthBlock, authParamsV2, convertPostmanAuth, unmappedAuthRemainder } from './auth';
 import { hasUnsupportedPostmanAuth } from './auth-guard';
 import type { PostmanReportBuilder } from './report';
@@ -287,4 +287,66 @@ export function substitutePathVariables(
     ctx.report.unmodelled('path-variables', requestName);
   }
   return out;
+}
+
+/**
+ * Postman request settings → Restura override. v3 `settings` and v2.x
+ * `protocolProfileBehavior` use the same keys. Mapped settings are applied,
+ * so weakening ones are reported as `security-downgrade`; `rest` holds the
+ * keys with no Restura equivalent (undefined when none).
+ */
+export function mapPostmanSettings(
+  raw: unknown,
+  name: string,
+  ctx: ParseContext
+): { settings: RequestSettingsOverride | undefined; rest: Raw | undefined } | undefined {
+  if (!isObj(raw)) return undefined;
+  const s: RequestSettingsOverride = {};
+  const rest: Raw = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (k === 'followRedirects' && typeof v === 'boolean') s.followRedirects = v;
+    else if (k === 'maxRedirects' && typeof v === 'number') s.maxRedirects = v;
+    else if (k === 'strictSSL' && typeof v === 'boolean') {
+      s.verifySsl = v;
+      if (!v)
+        ctx.report.securityDowngrade('strictSSL', name, 'TLS certificate verification is off');
+    } else if (k === 'followOriginalHttpMethod' && typeof v === 'boolean') {
+      s.followOriginalMethod = v;
+    } else if (k === 'followAuthorizationHeader' && typeof v === 'boolean') {
+      s.followAuthHeader = v;
+      if (v) {
+        ctx.report.securityDowngrade(
+          'followAuthorizationHeader',
+          name,
+          'the Authorization header is sent on cross-origin redirects'
+        );
+      }
+    } else if (k === 'removeRefererHeaderOnRedirect' && typeof v === 'boolean') {
+      s.stripReferer = v;
+    } else if (k === 'disableUrlEncoding' && typeof v === 'boolean') {
+      s.encodeUrlAutomatically = !v;
+    } else if (k === 'disableCookies' && typeof v === 'boolean') {
+      s.disableCookieJar = v;
+    } else if (k === 'tlsPreferServerCiphers' && typeof v === 'boolean') {
+      s.serverCipherOrder = v;
+    } else if (
+      k === 'tlsCipherSelection' &&
+      Array.isArray(v) &&
+      v.every((c) => typeof c === 'string')
+    ) {
+      s.cipherSuites = v.join(':');
+      ctx.report.securityDowngrade(
+        'tlsCipherSelection',
+        name,
+        'a custom TLS cipher list replaces the defaults'
+      );
+    } else if (k === 'protocolVersion' && (v === 'auto' || v === 'http1' || v === 'http2')) {
+      if (v === 'http1') s.httpVersion = 'http1.1';
+      else if (v === 'http2') s.httpVersion = 'http2';
+    } else rest[k] = v;
+  }
+  return {
+    settings: Object.keys(s).length > 0 ? s : undefined,
+    rest: Object.keys(rest).length > 0 ? rest : undefined,
+  };
 }

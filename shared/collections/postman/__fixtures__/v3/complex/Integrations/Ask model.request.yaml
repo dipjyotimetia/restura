@@ -1,0 +1,7 @@
+$kind: llm-request
+url: https://llm.example.com/v1
+userPrompts:
+- value: hi
+  active: true
+  contentType: text
+order: 5000
