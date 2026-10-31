@@ -25,6 +25,14 @@ When `{{base_url}}` is encountered, the most specific scope that defines it wins
 
 Pre-request scripts can set environment, collection and global values before the request is sent. If nothing matches, the placeholder is left as-is so you can spot the typo.
 
+A variable name is any text without `{`, `}` or a line break, trimmed of surrounding whitespace, so `{{my key}}` and `{{ a:b }}` both work. An unknown placeholder is left as written. It is only flagged as unresolved when it reads as a plain name; text such as `{{#if a}}` is treated as ordinary text and not flagged.
+
+### Variables that refer to other variables
+
+In the app, a value that contains `{{other}}` resolves when `other` comes later in the variable order. The app walks the variables once, in definition order: request-level values first (in the order they were set), then the active environment's variables in the order they are listed, then globals. Each variable is substituted over the text so far, so a variable only sees values brought in by variables before it, never the reverse. Reordering the rows can therefore change the result, and a reference cycle simply ends when the walk does.
+
+The [CLI](/reference/cli/) and the message bodies of WebSocket, Socket.IO and MQTT sends substitute in a single pass and do not expand a substituted value again. The exception is the CLI's `{{$randomFirstName}}`-style helpers: a value of `{{$randomFirstName}}` still generates there. Streaming sends do not generate helpers that appear inside a variable value. The same collection can therefore resolve a chained value in the app and leave it literal in the CLI; write values that must work in both as complete strings.
+
 To see what a tab actually resolves, open **Environments → Variables in scope**: it lists every name with its winning value (secrets masked) and the scope it came from.
 
 <Aside>

@@ -192,7 +192,11 @@ Layered sources, in order of precedence (later wins):
 6. Iteration row (when `--data` is set)
 7. Values a script set earlier in this iteration
 
-Substitutions use `{{NAME}}`. Unknown vars are left in place so the upstream sees them and you notice the gap.
+Substitutions use `{{NAME}}`. A name is any text without braces, trimmed of surrounding whitespace, so `{{my key}}` and `{{ a:b }}` both work. Unknown vars are left in place so the upstream sees them and you notice the gap. A substituted value is not expanded again, except that a value of `{{$randomFirstName}}` still generates.
+
+### Auth
+
+Header-based auth (Bearer, Basic, API-key, OAuth2) follows the app's rule: Basic with an empty username and a password sends `Basic base64(":password")`, and with neither sends no header. HTTP, MCP, SSE and gRPC items resolve external secret references through the profile given with `--external-secrets-config`; with no resolver for a reference the item fails explicitly instead of being sent without credentials.
 
 ### Dynamic helpers
 

@@ -70,6 +70,7 @@ shared/protocol/
   ├── url-validation.ts     ── SSRF guard (single source of truth)
   ├── header-policy.ts      ── Hop-by-hop deny lists + sanitisers
   ├── body-builder.ts       ── JSON / text / form-urlencoded / form-data / binary
+  ├── request-spec.ts       ── sendable rows, stored body → proxy body, header/query credential (renderer + CLI)
   ├── http-proxy.ts         ── executeHttpProxy(spec, fetcher, options)
   ├── grpc-proxy.ts         ── executeGrpcProxy(spec, fetcher, options)
   ├── grpc-status.ts        ── gRPC status code enum + reverse map
@@ -86,6 +87,12 @@ shared/protocol/
   └── ai/                   ── provider-agnostic AI chat orchestrator (ADR 0010)
 ```
 
+Three sibling directories hold logic every harness shares but that is not a protocol:
+
+- `shared/variables/` — `tokens.ts` is the one `{{name}}` grammar (a name is any text without `{`, `}` or a line break, trimmed), read by the resolvers, the highlighter and the secret matcher. `resolver.ts` holds the resolver core: `resolveVariableText` (single pass, used by the CLI and streaming sends) and `expandVariablesInOrder` (the app's definition-order walk). See ADR 0039.
+- `shared/secrets/` — `secret-slot.ts` defines a `SecretSlot` (one place a saved request can hold a Secret, with both its blanking and its counting); `request-secret-slots.ts` lists them all in `REQUEST_SECRET_SLOTS`, which export blanking and the export warning both read.
+- `shared/collection-run/sequencer.ts` — decides what a Collection run executes next: iterations, data rows, bail, delay and `pm.execution.setNextRequest` jumps (capped per iteration by `MAX_NEXT_REQUEST_JUMPS`). How one Request is sent stays with the host (the app's `collectionRunner.ts`, the CLI's `runner.ts`).
+
 The browser-capture extension's pipeline lives in a sibling module, `shared/capture/` (normalizer, classifier, secret-extractor, HAR / OpenCollection exporters — ADR 0024).
 
 | Module                              | Responsibility                                                                                                      |
@@ -93,6 +100,7 @@ The browser-capture extension's pipeline lives in a sibling module, `shared/capt
 | `shared/protocol/url-validation.ts` | SSRF guard: blocks RFC 1918, RFC 6598 (CGNAT), link-local, loopback, and cloud-metadata endpoints; DNS-rebind check |
 | `shared/protocol/header-policy.ts`  | Hop-by-hop deny lists + header sanitisers                                                                           |
 | `shared/protocol/body-builder.ts`   | JSON / text / form-urlencoded / form-data / binary body construction                                                |
+| `shared/protocol/request-spec.ts`   | Host-independent step before `executeHttpProxy`: which rows are sent, stored body → proxy body, and the bearer / basic / api-key / oauth2 credential. The renderer and the CLI both build their spec from it |
 | `shared/protocol/types.ts`          | `RequestSpec`, `Fetcher`, `ExecuteResult` discriminated union                                                       |
 | `shared/protocol/http-proxy.ts`     | `executeHttpProxy(spec, fetcher, options)` — HTTP orchestrator + `MAX_RESPONSE_SIZE` cap                            |
 | `shared/protocol/grpc-proxy.ts`     | `executeGrpcProxy(spec, fetcher, options)` — Connect-protocol orchestrator                                          |
@@ -120,7 +128,7 @@ Each backend supplies a `Fetcher` — `(req: FetcherRequest) => Promise<FetcherR
 
 - **Cloudflare Worker** — `worker/handlers/*.ts` wrap `globalThis.fetch`. The Hono app itself is built by `createApp(deps)` in `worker/app.ts`; `worker/index.ts` composes it with Cloudflare adapters. Worker-only feature: upstream-proxy via the Cloudflare Sockets API in `worker/shared/tcp-proxy.ts`.
 - **Self-hosted Node/Docker server** — `worker/node-entry.ts` runs the same `createApp` in a single Node process that serves both the SPA and `/api/*`. Node-native adapters live in `worker/shared/tcp-proxy-node.ts`, `worker/shared/dns-guard-node.ts`, and `worker/handlers/websocket-node.ts` (see ADR 0009 and `docs/SELF_HOSTING.md`).
-- **Electron main process** — `electron/main/handlers/http-handler.ts` wraps Node's `http`/`https` (via undici). Electron-only features (PAC resolution, SOCKS4/5 tunnel, mTLS, CA cert, interceptor registry, manual redirect handling, connect-time DNS-rebind pinning for HTTP/gRPC/WebSocket/SSE via `Agent.connect.lookup` + `electron/main/security/safe-connect.ts`, and a pre-flight DNS guard via `electron/main/security/dns-guard.ts` for the remaining transports) live inside the Electron fetcher closures — **not** in shared. The shared core stays backend-agnostic. Long-lived streaming handlers (`grpc-handler.ts`, `mcp-handler.ts`, `sse-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `kafka-handler.ts`, `mqtt-handler.ts`) share connection bookkeeping via `electron/main/ipc/stream-registry.ts` and `electron/main/ipc/connection-cleanup.ts` (`bindRendererCleanup`, `disposeByOwner`) — see ADR-0006.
+- **Electron main process** — `electron/main/handlers/http-handler.ts` wraps Node's `http`/`https` (via undici). Electron-only features (PAC resolution, SOCKS4/5 tunnel, mTLS, CA cert, interceptor registry, manual redirect handling, connect-time DNS-rebind pinning for HTTP/gRPC/WebSocket/SSE via `Agent.connect.lookup` + `electron/main/security/safe-connect.ts`, and a pre-flight DNS guard via `electron/main/security/dns-guard.ts` for the remaining transports) live inside the Electron fetcher closures — **not** in shared. The shared core stays backend-agnostic. Long-lived streaming handlers (`grpc-handler.ts`, `mcp-handler.ts`, `sse-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `kafka-handler.ts`, `mqtt-handler.ts`) share connection bookkeeping via `electron/main/ipc/stream-registry.ts` and `electron/main/ipc/connection-cleanup.ts` (`bindRendererCleanup`, `disposeByOwner`) — see ADR-0006. `StreamRegistry` also owns the connect claim: reserved before the awaited dial, then committed or released after it. Whether an explicit disconnect cancels a claim stays handler policy.
 
 ### Adding a new protocol
 
@@ -195,6 +203,7 @@ restura/
 ├── shared/                       # Backend-agnostic cores (used by Worker + Node + Electron)
 │   ├── protocol/                 # Protocol orchestrators (see Layout above for the full module list)
 │   │   ├── url-validation.ts     # SSRF guards (single source of truth)
+│   │   ├── request-spec.ts       # sendable rows, body mapping, header/query credential (renderer + CLI)
 │   │   ├── http-proxy.ts         # executeHttpProxy(spec, fetcher, options)
 │   │   ├── grpc-proxy.ts         # executeGrpcProxy + grpc-registry, grpc-status
 │   │   ├── websocket-proxy.ts    # executeWebSocketProxy
@@ -202,6 +211,9 @@ restura/
 │   │   ├── sse-parser.ts         # SSE / ndjson stream parsers
 │   │   ├── auth-signer.ts        # wire-level auth (SigV4, OAuth1, WSSE)
 │   │   └── ai/                   # provider-agnostic AI chat orchestrator
+│   ├── variables/                # tokens.ts ({{name}} grammar) + resolver.ts (ADR 0039)
+│   ├── secrets/                  # secret-slot.ts + request-secret-slots.ts (export blank/count)
+│   ├── collection-run/           # sequencer.ts: run ordering + setNextRequest
 │   └── capture/                  # Browser-capture pipeline (ADR 0024): normalizer, classifier,
 │                                 #   secret-extractor, to-har, to-opencollection
 │
@@ -224,7 +236,7 @@ restura/
 │       │                         #   sse, mcp, kafka, mqtt, ai, ai-lab, mcp-server,
 │       │                         #   mock-server, git, capture-bridge
 │       ├── ipc/                  # IPC boundary: ipc-validators, ipc-rate-limiter,
-│       │                         #   stream-registry, connection-cleanup
+│       │                         #   stream-registry (connections + connect claims), connection-cleanup
 │       ├── security/             # dns-guard, safe-connect, broker guards, secret-handle-store
 │       ├── storage/              # store-handler, collection-manager, vault, file-operations
 │       ├── lifecycle/            # request-logger, auto-updater, menu, system-tray, deep-link, sentry
@@ -443,7 +455,7 @@ main.ts (entry — owns the IPC_MODULES register/dispose registry)
   │     ├── ipc-validators.ts    # stable compatibility barrel
   │     ├── validators/          # domain-owned Zod schemas + trusted-sender boundary
   │     ├── ipc-rate-limiter.ts  # Rate limiting for IPC calls
-  │     ├── stream-registry.ts   # Shared streaming-connection bookkeeping
+  │     ├── stream-registry.ts   # Shared streaming-connection bookkeeping + connect claims
   │     └── connection-cleanup.ts# Idempotent renderer-destroyed cleanup
   ├── security/                  # dns-guard, safe-connect, broker guards, secret-handle-store
   ├── storage/                   # store-handler, collection-manager, vault, file-operations
@@ -535,7 +547,7 @@ All stores are validated with Zod schemas on hydration from persisted storage �
 - Production CSP pins `object-src 'none'` and `worker-src 'self' file:` in addition to the script/style/connect policy; the header CSP in `electron/main/main.ts` and the `<meta>` fallback in `vite.config.mts` are kept identical, enforced by `electron/main/__tests__/security-hardening.test.ts`
 - Removed unnecessary `com.apple.security.network.server` entitlement from `electron/resources/entitlements.mac.plist` (the app is a client only)
 - Encryption key for persisted store fetched from OS keychain via `safeStorage`; if unavailable, a startup warning is surfaced and the user is told plaintext fallback is active
-- Renderer-cleanup deduplication via `electron/main/ipc/connection-cleanup.ts` prevents `destroyed` listener stacking across reconnects in streaming handlers
+- Renderer-cleanup deduplication via `electron/main/ipc/connection-cleanup.ts` prevents `destroyed` listener stacking across reconnects in streaming handlers; `StreamRegistry` also holds the connect claim across the awaited dial (reserve, then commit or release), and a claim is dropped when its renderer is destroyed
 - Connect-time DNS-rebind pinning for HTTP, gRPC, WebSocket, and SSE (undici `Agent.connect.lookup`, `connect-node`'s `nodeOptions.lookup`, and `electron/main/security/safe-connect.ts`'s `createPinnedLookup` / `createPinnedFetch`); pre-flight DNS guard via `electron/main/security/dns-guard.ts` covers the rest (Socket.IO, MCP, gRPC reflection, Kafka, MQTT)
 
 See `docs/adr/0004-security-hardening.md` and `docs/adr/0006-electron-connection-and-dns-hardening.md` for design rationale.
@@ -550,7 +562,7 @@ Components:
 
 - `cli/src/runner/collectionLoader.ts` — walks a directory and parses every `_collection.yaml` + `*.{http,grpc,sse,mcp}.yaml` using `shared/collections/legacy-file-schema.ts`
 - `cli/src/runner/envLoader.ts` — loads env vars from JSON or YAML, with `${VAR}` expansion from `process.env`
-- `cli/src/runner/runner.ts` — orchestrator: per-request, builds `RequestSpec` (resolving `{{KEY}}` against env + collection vars), calls `executeHttpProxy(spec, undiciFetcher, options)`, tallies results
+- `cli/src/runner/runner.ts` — orchestrator: per-request, builds `RequestSpec` (resolving `{{KEY}}` through `shared/variables/resolver.ts`, taking the spec pieces from `shared/protocol/request-spec.ts` and the ordering and `setNextRequest` from `shared/collection-run/sequencer.ts`), calls `executeHttpProxy(spec, undiciFetcher, options)`, tallies results
 - `cli/src/reporters/{json,junit,html,live}.ts` — implementations of the `Reporter` interface
 - `cli/src/commands/run.ts` — Commander wire-up
 

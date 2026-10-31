@@ -1,0 +1,57 @@
+# ADR 0039: One variable token grammar
+
+**Status:** Accepted, 2026-10-31.
+
+## Context
+
+`{{name}}` placeholders were recognised by several separate patterns: the app's resolvers, the editor highlighter, the Monaco scanner, the secret-variable matcher in the renderer and the one in Electron main, and the CLI. Each pattern accepted a slightly different set of names, so a name could be highlighted but not substituted, substituted in the app but left literal in the CLI, or recognised as a secret by one matcher and not the other. Separately, unknown placeholders that were never meant as variables (template or JSON-like text such as `{{#if a}}`) were reported as unresolved.
+
+The app also expands a variable whose value contains another placeholder (a "chain"), and has done so for as long as environments have existed. The CLI and streaming sends never did.
+
+## Decision
+
+### 1. One grammar, one module
+
+`shared/variables/tokens.ts` owns the token grammar. A name is one or more characters excluding `{` and `}`, trimmed of surrounding whitespace, and holds no line break. So `{{my key}}`, `{{a:b}}` and `{{ $helper }}` are tokens, while `{{ }}` and a multi-line block are not. The resolvers (`shared/variables/resolver.ts`), the highlighter, the Monaco scanner and the secret matcher (renderer and Electron main) all read tokens through this module, so what is highlighted, what is sent and what is treated as a secret reference cannot disagree. The module stays free of the faker-backed dynamic helpers so Electron main can import it, and it is linear on long input.
+
+### 2. Unknown text that is not a plain name is not reported
+
+Any name is a valid token, so an unknown token is only reported as unresolved when its name is also a plain variable name (word characters, `.` and `-`, with an optional leading `$`). Unknown template or JSON-like text is sent as written and produces no warning. Reporting is display only; what is sent does not depend on it.
+
+### 3. Own-property lookups
+
+Variable lookups read own properties of a scope only. A name that matches an inherited object member is treated as unknown.
+
+### 4. Two expansion modes, kept deliberately
+
+- **App** (`expandVariablesInOrder`): the existing definition-order walk. Request-scope values run first, in insertion order, then the active environment's variables in definition order, then globals, then dynamic helpers once at the end. Each variable is substituted once over the text so far, so a value can reference only variables that come after it in that order.
+- **CLI and streaming sends** (`resolveVariableText` and its streaming equivalent): a single pass over the original text. A substituted value is not expanded again. The CLI still generates a value of `{{$randomFirstName}}`, because dynamics run over the substituted result.
+
+## Alternatives considered
+
+- **Order-independent chaining everywhere.** Rejected: it changes which variables a stored value can reference, so it is not a safe default for existing environments or for the CLI.
+- **Removing chains from the app.** Rejected: it would break saved environments that rely on them.
+
+## Consequences
+
+**Positive**
+
+- Highlighting, substitution and secret matching share one definition of a token.
+- Names with spaces, colons and other punctuation work in every harness.
+- Template-like text no longer produces spurious unresolved warnings.
+
+**Negative / residual**
+
+- The same collection can resolve a chained value in the app and leave it literal in the CLI. This is the documented difference between the two modes, not a bug to fix in one harness.
+- The app's chain result depends on definition order, so reordering variables can change it.
+
+## Tests that pin it
+
+- `tests/parity/variable-resolver.parity.test.ts`
+- `tests/security/secret-variable-grammar.test.ts`
+- Unit tests beside the modules: `shared/variables/resolver.test.ts`, `shared/variables/secret-variable-token.test.ts`
+
+## References
+
+- Code: `shared/variables/tokens.ts`, `shared/variables/resolver.ts`, `shared/variables/secret-variable-token.ts`, `src/lib/shared/resolveRequestScope.ts`, `src/store/useEnvironmentStore.ts`, `src/lib/shared/streaming/messageVariables.ts`
+- Related: [ADR 0007 (SecretRef)](./0007-secret-ref-pattern.md), [ADR 0005 (CLI runner)](./0005-cli-runner.md)
