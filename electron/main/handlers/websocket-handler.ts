@@ -1,9 +1,8 @@
 import { decodeWsBinaryFrame, encodeWsBinaryFrame } from '@shared/protocol/ws-binary-codec';
 import { createLogger } from '@shared/runtime/logger';
-import { ipcMain, type WebContents } from 'electron';
+import { ipcMain } from 'electron';
 import WebSocket from 'ws';
 import { EVENT_PREFIX, IPC } from '../../shared/channels';
-import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import {
   assertTrustedSender,
@@ -14,7 +13,7 @@ import {
   WsPingSchema,
   WsSendSchema,
 } from '../ipc/ipc-validators';
-import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
+import { StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
@@ -99,15 +98,7 @@ function disposeWebSocket(entry: ActiveWebSocket): void {
   }
 }
 
-const connections = new StreamRegistry<ActiveWebSocket>({
-  prefixes: EVENT_PREFIX.ws,
-  dispose: disposeWebSocket,
-});
-
-interface PendingWebSocketClaim {
-  webContentsId: number;
-  token: symbol;
-  ownerEntry?: ActiveWebSocket;
+interface WebSocketClaimFields {
   /**
    * Present only for connects that resolve opaque credentials main-side
    * (#878/#882): aborted when the claim is cancelled (ws:disconnect, renderer
@@ -116,43 +107,11 @@ interface PendingWebSocketClaim {
   abort?: AbortController;
 }
 
-const pendingConnections = new Map<string, PendingWebSocketClaim>();
-
-function reserveWebSocketClaim(
-  connectionId: string,
-  webContents: WebContents,
-  cancellable = false
-): PendingWebSocketClaim | undefined {
-  const key = ownerScopedKey(connectionId, webContents.id);
-  if (pendingConnections.has(key)) return undefined;
-
-  const ownerEntry = connections.getForOwner(connectionId, webContents.id);
-
-  const claim: PendingWebSocketClaim = {
-    webContentsId: webContents.id,
-    token: Symbol(connectionId),
-    ownerEntry,
-    ...(cancellable ? { abort: new AbortController() } : {}),
-  };
-  pendingConnections.set(key, claim);
-  bindRendererCleanup(pendingConnections, webContents, (deadId) =>
-    disposeByOwner(pendingConnections, deadId, (pending) => pending.abort?.abort())
-  );
-  return pendingConnections.get(key) === claim ? claim : undefined;
-}
-
-function isClaimLive(connectionId: string, claim: PendingWebSocketClaim): boolean {
-  return (
-    pendingConnections.get(ownerScopedKey(connectionId, claim.webContentsId))?.token === claim.token
-  );
-}
-
-function releaseWebSocketClaim(connectionId: string, claim: PendingWebSocketClaim): void {
-  const key = ownerScopedKey(connectionId, claim.webContentsId);
-  if (pendingConnections.get(key)?.token === claim.token) {
-    pendingConnections.delete(key);
-  }
-}
+const connections = new StreamRegistry<ActiveWebSocket, WebSocketClaimFields>({
+  prefixes: EVENT_PREFIX.ws,
+  dispose: disposeWebSocket,
+  disposeClaim: (claim) => claim.abort?.abort(),
+});
 
 // Maximum message size (1MB)
 const MAX_MESSAGE_SIZE = 1024 * 1024;
@@ -197,14 +156,18 @@ export function registerWebSocketHandlerIPC(): void {
     // Capacity check and reservation are synchronous together, so concurrent
     // connects (including ones about to await credential resolution) can't
     // overshoot the cap.
-    if (connections.size() + pendingConnections.size >= MAX_CONCURRENT_WS_CONNECTIONS) {
+    if (connections.size() + connections.pendingCount() >= MAX_CONCURRENT_WS_CONNECTIONS) {
       return { success: false, error: 'Too many open connections.' };
     }
 
     // Reserve this renderer's id synchronously before credential resolution, DNS
     // or transport construction. Another renderer may independently use the
     // same external id. Plain connects stay fully synchronous up to the DNS await.
-    const claim = reserveWebSocketClaim(connectionId, event.sender, materialize);
+    const claim = connections.reserveClaim(
+      connectionId,
+      event.sender,
+      materialize ? { abort: new AbortController() } : {}
+    );
     if (!claim) return { success: false, error: 'Not connected' };
 
     // Scrubs resolved plaintext from everything this connection sends back to
@@ -230,14 +193,14 @@ export function registerWebSocketHandlerIPC(): void {
           config = { ...validated, url: materialized.url, headers: materialized.headers };
           redact = materialized.redact;
         } catch (err) {
-          if (!isClaimLive(connectionId, claim)) return { success: false, error: 'Not connected' };
+          if (!connections.isClaimLive(claim)) return { success: false, error: 'Not connected' };
           // Materializer errors are plaintext-free by construction.
           return {
             success: false,
             error: `WebSocket auth setup failed: ${err instanceof Error ? err.message : 'unknown error'}`,
           };
         }
-        if (!isClaimLive(connectionId, claim)) return { success: false, error: 'Not connected' };
+        if (!connections.isClaimLive(claim)) return { success: false, error: 'Not connected' };
         // Re-evaluate policy against the final (secret-resolved) URL.
         try {
           policyConfig = applyWebSocketPolicyConfig(config.url);
@@ -268,8 +231,7 @@ export function registerWebSocketHandlerIPC(): void {
 
       // Renderer destruction/module teardown may invalidate the reservation
       // while DNS is pending. Never construct a transport for a stale claim.
-      const key = ownerScopedKey(connectionId, webContentsId);
-      if (pendingConnections.get(key)?.token !== claim.token) {
+      if (!connections.isClaimLive(claim)) {
         return { success: false, error: 'Not connected' };
       }
 
@@ -398,13 +360,7 @@ export function registerWebSocketHandlerIPC(): void {
         // Commit only the exact live reservation. For reconnects, also require
         // the original owner entry to still be current so stale work cannot
         // replace a newer connection.
-        const claimed =
-          pendingConnections.get(key)?.token === claim.token &&
-          (claim.ownerEntry
-            ? connections.get(connectionId, webContentsId) === claim.ownerEntry &&
-              connections.replaceForOwner(connectionId, webContentsId, entry)
-            : connections.tryAdd(connectionId, event.sender, entry));
-        if (!claimed) {
+        if (!connections.commitClaim(claim, event.sender, entry)) {
           disposeWebSocket(entry);
           return { success: false, error: 'Not connected' };
         }
@@ -419,7 +375,7 @@ export function registerWebSocketHandlerIPC(): void {
         };
       }
     } finally {
-      releaseWebSocketClaim(connectionId, claim);
+      connections.releaseClaim(claim);
     }
   });
 
@@ -492,12 +448,7 @@ export function registerWebSocketHandlerIPC(): void {
       // cancelled outright — it must not open a socket after the renderer asked
       // to disconnect (#908). Dropping the claim makes its post-await liveness
       // check fail, so no transport is ever constructed.
-      const pendingKey = ownerScopedKey(connectionId, event.sender.id);
-      const pending = pendingConnections.get(pendingKey);
-      if (pending) {
-        pending.abort?.abort();
-        pendingConnections.delete(pendingKey);
-      }
+      connections.cancelClaim(connectionId, event.sender.id);
       const entry = connections.getForOwner(connectionId, event.sender.id);
       if (entry) {
         // Graceful close for an explicit disconnect — distinct from the
@@ -516,7 +467,6 @@ export function registerWebSocketHandlerIPC(): void {
 }
 
 export function stopWebSocketCleanup(): void {
-  for (const pending of pendingConnections.values()) pending.abort?.abort();
-  pendingConnections.clear();
+  connections.disposeAllClaims();
   connections.disposeAll();
 }

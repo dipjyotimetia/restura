@@ -5,8 +5,9 @@ import { emitTo } from './ipc-utils';
 
 /**
  * Shared bookkeeping for the per-connection streaming handlers (SSE, WebSocket,
- * Socket.IO, Kafka, MQTT, gRPC streams, MCP). Before this, each handler hand-rolled
- * the same five things and they drifted:
+ * Socket.IO, Kafka, MQTT, gRPC streams, MCP), from the moment a connect is
+ * reserved to teardown. Before this, each handler hand-rolled the same six things
+ * and they drifted:
  *
  *   1. a `Map<owner+connectionId, Entry>` of live connections (every Entry carrying
  *      a `webContentsId` so it can be torn down when its renderer dies),
@@ -15,14 +16,20 @@ import { emitTo } from './ipc-utils';
  *   3. one `bindRendererCleanup` + `disposeByOwner` wiring so a destroyed renderer
  *      kills exactly its own connections (not another window's),
  *   4. templated per-connection event emission (`emitTo(id, eventChannel(prefix, id), …)`),
- *   5. a `disposeAll()` for the handler's `stop*Cleanup()` IPC_MODULES teardown.
+ *   5. a `disposeAll()` for the handler's `stop*Cleanup()` IPC_MODULES teardown,
+ *   6. the claim that spans the awaited dial (DNS, keychain, handshake) before an
+ *      entry exists: reserved synchronously per owner + id, invalidated by cancel,
+ *      renderer death or module teardown, and required live to register the entry.
  *
- * This owns all five. It deliberately does NOT own protocol policy — rate limiting,
+ * This owns all six. It deliberately does NOT own protocol policy — rate limiting,
  * concurrency caps, the connect/transport itself, and the per-protocol teardown
  * mechanics (abort vs ws.terminate() vs producer.close(), explicitlyClosed flags,
  * emitChain ordering, flush buffering) stay in the handler. `dispose(entry)` is the
  * single seam through which a handler plugs its teardown in; it must be idempotent
  * (a renderer-destroyed teardown and an explicit cancel can both fire).
+ * `disposeClaim(claim)` is the same seam for a claim's protocol-specific fields.
+ * Whether an explicit disconnect cancels a claim is protocol policy too: the handler
+ * decides by calling {@link StreamRegistry.cancelClaim} or not.
  */
 
 /** Every registry entry must carry the owning renderer's id so cleanup can target it. */
@@ -30,7 +37,20 @@ export interface StreamEntryBase {
   webContentsId: number;
 }
 
-export interface StreamRegistryOptions<E extends StreamEntryBase> {
+/**
+ * A live reservation for one owner + id. `X` carries the protocol's own fields
+ * (abort controller, gRPC write buffer, in-flight producer or session), which the
+ * handler may mutate while it dials. The claim object is its own token: once dropped
+ * it can never become live again or disturb a newer claim for the same id.
+ */
+export type StreamClaim<E extends StreamEntryBase, X extends object = object> = X & {
+  readonly connectionId: string;
+  readonly webContentsId: number;
+  /** The owner's entry at reserve time, if any: the only entry a commit may replace. */
+  readonly ownerEntry?: E;
+};
+
+export interface StreamRegistryOptions<E extends StreamEntryBase, X extends object = object> {
   /**
    * The `EVENT_PREFIX` group for this protocol, e.g. `EVENT_PREFIX.sse`. Used by
    * {@link StreamRegistry.emit} to build `eventChannel(prefixes[name], id)`.
@@ -44,6 +64,13 @@ export interface StreamRegistryOptions<E extends StreamEntryBase> {
    * renderer-destroyed cleanup, and on {@link StreamRegistry.disposeAll}.
    */
   dispose: (entry: E) => void;
+  /**
+   * Release whatever a dropped claim's protocol fields hold (abort its signal,
+   * close its in-flight transport). Invoked on renderer death, on
+   * {@link StreamRegistry.cancelClaim} and on {@link StreamRegistry.disposeAllClaims};
+   * NOT on {@link StreamRegistry.releaseClaim}. Omit it when a claim holds nothing.
+   */
+  disposeClaim?: (claim: StreamClaim<E, X>) => void;
 }
 
 /** Scope a renderer-provided resource id to the renderer that owns it. */
@@ -51,14 +78,134 @@ export function ownerScopedKey(externalId: string, webContentsId: number): strin
   return `${webContentsId}:${externalId}`;
 }
 
-export class StreamRegistry<E extends StreamEntryBase> {
+/**
+ * Send to an entry's renderer through its cached `WebContents` when it has one
+ * (no `fromId` lookup per message on high-throughput streams), falling back to the
+ * id-based {@link emitTo} when the cache is absent or destroyed.
+ */
+export function emitToEntry(
+  entry: StreamEntryBase & { wc?: WebContents },
+  channel: string,
+  ...args: unknown[]
+): void {
+  if (entry.wc && !entry.wc.isDestroyed()) {
+    entry.wc.send(channel, ...args);
+    return;
+  }
+  emitTo(entry.webContentsId, channel, ...args);
+}
+
+export class StreamRegistry<E extends StreamEntryBase, X extends object = object> {
   private readonly map = new Map<string, E>();
+  private readonly claims = new Map<string, StreamClaim<E, X>>();
   private readonly prefixes?: Record<string, string>;
   private readonly disposeEntry: (entry: E) => void;
+  private readonly disposeClaim: (claim: StreamClaim<E, X>) => void;
 
-  constructor(options: StreamRegistryOptions<E>) {
+  constructor(options: StreamRegistryOptions<E, X>) {
     this.prefixes = options.prefixes;
     this.disposeEntry = options.dispose;
+    this.disposeClaim = options.disposeClaim ?? (() => {});
+  }
+
+  /**
+   * Reserve `connectionId` for this renderer, synchronously, before the first await
+   * of a connect. Returns undefined when this owner + id already has a live claim,
+   * or when the sender is already destroyed. Another renderer may hold a claim on
+   * the same external id. The owner's current entry is captured as `ownerEntry`.
+   *
+   * Call AFTER the handler's rate-limit / concurrency checks, and release in a
+   * `finally`.
+   */
+  reserveClaim(
+    connectionId: string,
+    webContents: WebContents,
+    ...fields: object extends X ? [fields?: X] : [fields: X]
+  ): StreamClaim<E, X> | undefined {
+    const key = ownerScopedKey(connectionId, webContents.id);
+    if (this.claims.has(key)) return undefined;
+    const claim = {
+      ...fields[0],
+      connectionId,
+      webContentsId: webContents.id,
+      ownerEntry: this.getForOwner(connectionId, webContents.id),
+    } as StreamClaim<E, X>;
+    this.claims.set(key, claim);
+    // Keyed apart from the entries' binding: claims and entries tear down
+    // independently, each with one listener per sender.
+    bindRendererCleanup(this.claims, webContents, (deadId) =>
+      disposeByOwner(this.claims, deadId, this.disposeClaim)
+    );
+    // A sender that is already destroyed tore the claim down inside the bind.
+    return this.claims.get(key) === claim ? claim : undefined;
+  }
+
+  /** The live claim for this owner + id. Wrong-owner ids look missing. */
+  claimFor(connectionId: string, webContentsId: number): StreamClaim<E, X> | undefined {
+    return this.claims.get(ownerScopedKey(connectionId, webContentsId));
+  }
+
+  /** False once the claim was cancelled, released, or dropped by renderer death or teardown. */
+  isClaimLive(claim: StreamClaim<E, X>): boolean {
+    return this.claimFor(claim.connectionId, claim.webContentsId) === claim;
+  }
+
+  /**
+   * Register the dialed entry, only through a live claim. A first connect may not
+   * displace an entry that appeared meanwhile; a reconnect may replace only the exact
+   * entry captured at reserve time, so stale work cannot replace a newer connection.
+   * On false nothing was stored and the caller must tear the unregistered entry down.
+   */
+  commitClaim(claim: StreamClaim<E, X>, webContents: WebContents, entry: E): boolean {
+    if (!this.isClaimLive(claim)) return false;
+    const { connectionId, webContentsId, ownerEntry } = claim;
+    if (!ownerEntry) return this.tryAdd(connectionId, webContents, entry);
+    return (
+      this.get(connectionId, webContentsId) === ownerEntry &&
+      this.replaceForOwner(connectionId, webContentsId, entry)
+    );
+  }
+
+  /** Drop the claim WITHOUT `disposeClaim`. A stale claim cannot drop a newer one. */
+  releaseClaim(claim: StreamClaim<E, X>): void {
+    if (this.isClaimLive(claim)) {
+      this.claims.delete(ownerScopedKey(claim.connectionId, claim.webContentsId));
+    }
+  }
+
+  /**
+   * Invalidate this owner's claim, then run `disposeClaim` — in that order, so a
+   * dial that settles synchronously during disposal still cannot commit. Missing and
+   * wrong-owner ids both return false.
+   */
+  cancelClaim(connectionId: string, webContentsId: number): boolean {
+    const key = ownerScopedKey(connectionId, webContentsId);
+    const claim = this.claims.get(key);
+    if (!claim) return false;
+    this.claims.delete(key);
+    this.safeDisposeClaim(claim);
+    return true;
+  }
+
+  /** Live claims, including those mid-dial — count them against concurrency caps. */
+  pendingCount(): number {
+    return this.claims.size;
+  }
+
+  /** Iterate live claims, for bespoke sweeps and awaited teardown. */
+  pendingClaims(): IterableIterator<StreamClaim<E, X>> {
+    return this.claims.values();
+  }
+
+  /** Drop every claim WITHOUT `disposeClaim` — the claim equivalent of {@link clear}. */
+  clearClaims(): void {
+    this.claims.clear();
+  }
+
+  /** Run `disposeClaim` on every claim, then drop them — for `stop*Cleanup()`. */
+  disposeAllClaims(): void {
+    for (const claim of this.claims.values()) this.safeDisposeClaim(claim);
+    this.claims.clear();
   }
 
   /**
@@ -227,6 +374,14 @@ export class StreamRegistry<E extends StreamEntryBase> {
   private safeDispose(entry: E): void {
     try {
       this.disposeEntry(entry);
+    } catch {
+      /* best-effort — teardown must never throw out of cleanup */
+    }
+  }
+
+  private safeDisposeClaim(claim: StreamClaim<E, X>): void {
+    try {
+      this.disposeClaim(claim);
     } catch {
       /* best-effort — teardown must never throw out of cleanup */
     }
