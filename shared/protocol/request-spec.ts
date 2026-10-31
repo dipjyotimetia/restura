@@ -197,8 +197,9 @@ export interface AuthCredentialOptions {
   /**
    * If true, Basic requires BOTH username AND password. Defaults to false (HTTP
    * semantics: RFC 7617 permits an empty password and several APIs use the
-   * username slot for an opaque token). A Basic credential with no username is
-   * never sent.
+   * username slot for an opaque token). Outside this mode an empty username with
+   * a password is sent as `:password` (the `:token` shape); a Basic credential
+   * with neither is never sent. In this mode a username is required too.
    */
   basicRequiresPassword?: boolean;
 }
@@ -227,7 +228,9 @@ export function buildAuthCredential(
       const password = host.readSecret(auth.basic?.password);
       if (password === DEFERRED_SECRET) return deferred;
       const username = auth.basic?.username ?? '';
-      if (!username || (options.basicRequiresPassword && !password)) return empty;
+      if (options.basicRequiresPassword ? !username || !password : !username && !password) {
+        return empty;
+      }
       const encoded = host.encodeBasic(`${username}:${password ?? ''}`);
       return { headers: { [authzKey]: `Basic ${encoded}` }, params: {} };
     }

@@ -132,7 +132,16 @@ const AUTH: ReadonlyArray<[string, HttpRequest['auth'], Record<string, string>, 
     { type: 'basic', basic: { username: 'u', password: '' } },
     { authorization: `Basic ${b64('u:')}` },
   ],
-  ['basic, empty username', { type: 'basic', basic: { username: '', password: 'p' } }, {}],
+  [
+    'basic, empty username with a password',
+    { type: 'basic', basic: { username: '', password: 'p' } },
+    { authorization: `Basic ${b64(':p')}` },
+  ],
+  [
+    'basic, empty username and password',
+    { type: 'basic', basic: { username: '', password: '' } },
+    {},
+  ],
   [
     'api-key in a header',
     { type: 'api-key', apiKey: { key: 'X-Key', value: 'v', in: 'header' } },

@@ -273,7 +273,9 @@ export function mergeMainSideAuth(
   auth: GrpcRequestConfig['auth']
 ): Record<string, string> {
   if (!auth) return metadata;
-  const { headers } = applyNonSignAtWireAuth(auth as Parameters<typeof applyNonSignAtWireAuth>[0]);
+  const { headers } = applyNonSignAtWireAuth(auth as Parameters<typeof applyNonSignAtWireAuth>[0], {
+    basicRequiresUsername: true,
+  });
   if (Object.keys(headers).length === 0) return metadata;
   const merged = { ...metadata };
   for (const [k, v] of Object.entries(headers)) merged[k.toLowerCase()] = v;

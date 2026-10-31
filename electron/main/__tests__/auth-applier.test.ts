@@ -48,11 +48,26 @@ describe('applyNonSignAtWireAuth', () => {
     expect(res.headers.Authorization).toBe(`Basic ${Buffer.from('user:').toString('base64')}`);
   });
 
-  it('returns empty Basic when username is missing', () => {
-    expect(apply({ type: 'basic', basic: { username: '', password: 'p' } })).toEqual({
+  it('emits Basic with an empty username when a password is present', () => {
+    expect(apply({ type: 'basic', basic: { username: '', password: 'p' } }).headers).toEqual({
+      Authorization: `Basic ${Buffer.from(':p').toString('base64')}`,
+    });
+  });
+
+  it('returns empty Basic with neither username nor password', () => {
+    expect(apply({ type: 'basic', basic: { username: '', password: '' } })).toEqual({
       headers: {},
       params: {},
     });
+  });
+
+  it('keeps gRPC semantics: Basic needs a username there', () => {
+    const auth = { type: 'basic', basic: { username: '', password: 'p' } };
+    expect(
+      applyNonSignAtWireAuth(auth as Parameters<typeof applyNonSignAtWireAuth>[0], {
+        basicRequiresUsername: true,
+      }).headers
+    ).toEqual({});
   });
 
   it('places an api-key in the header by default', () => {

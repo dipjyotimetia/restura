@@ -29,12 +29,24 @@ export interface AppliedCredentials {
   params: Record<string, string>;
 }
 
+export interface ApplyAuthOptions {
+  /**
+   * gRPC metadata needs a username for Basic. Everywhere else an empty username
+   * with a password is sent as `:password`, the rule the renderer and CLI apply
+   * (`shared/protocol/request-spec.ts`).
+   */
+  basicRequiresUsername?: boolean;
+}
+
 /**
  * Build header/query contributions for the non-sign-at-wire auth descriptors.
  * Returns empty collections for `none` and for sign-at-wire types (those are
  * applied later by `applyAuth` inside `executeHttpProxy`).
  */
-export function applyNonSignAtWireAuth(auth: AnyAuth | undefined): AppliedCredentials {
+export function applyNonSignAtWireAuth(
+  auth: AnyAuth | undefined,
+  options: ApplyAuthOptions = {}
+): AppliedCredentials {
   const empty: AppliedCredentials = { headers: {}, params: {} };
   if (!auth || auth.type === 'none') return empty;
 
@@ -47,7 +59,7 @@ export function applyNonSignAtWireAuth(auth: AnyAuth | undefined): AppliedCreden
     case 'basic': {
       const username = auth.basic?.username ?? '';
       const password = unwrapSecretValueMain(auth.basic?.password) ?? '';
-      if (!username) return empty;
+      if (options.basicRequiresUsername ? !username : !username && !password) return empty;
       const credentials = Buffer.from(`${username}:${password}`, 'utf8').toString('base64');
       return { headers: { Authorization: `Basic ${credentials}` }, params: {} };
     }
