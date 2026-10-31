@@ -42,9 +42,7 @@ export function GrpcReflectionStatus({
           </div>
           {selectedMethod && (
             <div className="mt-1">
-              <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest">
-                Selected Method
-              </div>
+              <div className="font-mono text-[10px] text-muted-foreground">Selected Method</div>
               <div className="font-mono text-xs">
                 In: {selectedMethod.inputType.split('.').pop()} · Out:{' '}
                 {selectedMethod.outputType.split('.').pop()}

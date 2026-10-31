@@ -161,10 +161,7 @@ export function ParamHeaderTable({
       >
         <span aria-hidden="true" />
         {COLUMN_LABELS.map((col) => (
-          <span
-            key={col}
-            className="sp-label uppercase tracking-wider text-[10px] px-2 py-2 border-l border-sp-line/40"
-          >
+          <span key={col} className="sp-label text-[10px] px-2 py-2 border-l border-sp-line/40">
             {col}
           </span>
         ))}

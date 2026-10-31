@@ -108,7 +108,7 @@ export function McpNotificationsPanel({ entries, onClear }: McpNotificationsPane
               >
                 <div className="flex items-center justify-between gap-2">
                   <span
-                    className="font-mono text-sp-11 font-bold tracking-wider shrink-0"
+                    className="font-mono text-sp-11 font-bold shrink-0"
                     style={{ color: kindColor(entry) }}
                   >
                     {entry.kind === 'log' && entry.level

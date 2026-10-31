@@ -170,7 +170,7 @@ export default function WelcomeOnboarding() {
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader icon={Rocket}>
-          <DialogTitle>WELCOME TO RESTURA</DialogTitle>
+          <DialogTitle>Welcome to Restura</DialogTitle>
           <DialogDescription className="font-mono text-xs">
             Your modern API testing companion. Let&apos;s get you started.
           </DialogDescription>
@@ -200,15 +200,15 @@ export default function WelcomeOnboarding() {
             <div className="flex justify-center p-3 rounded-lg bg-sp-surface-hi border border-sp-line w-16 h-16 items-center mx-auto">
               {currentStepData.icon}
             </div>
-            <h3 className="text-sm font-mono font-medium">{currentStepData.title}</h3>
-            <p className="text-xs text-muted-foreground font-mono leading-relaxed">
+            <h3 className="text-sm font-medium">{currentStepData.title}</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
               {currentStepData.description}
             </p>
 
             {/* Inline telemetry opt-out (privacy step only) */}
             {currentStepData.kind === 'privacy' && (
               <div className="flex items-center justify-between gap-3 rounded border border-border bg-muted/30 p-3 mt-3 text-left">
-                <span className="text-xs font-mono">Send crash &amp; error reports</span>
+                <span className="text-xs">Send crash &amp; error reports</span>
                 <ToggleField
                   checked={telemetryEnabled}
                   onChange={(v) => updateSettings({ telemetry: { errorsEnabled: v } })}
@@ -219,7 +219,7 @@ export default function WelcomeOnboarding() {
 
             {/* Tip box */}
             <div className="bg-primary/5 border border-primary/20 rounded p-3 mt-3 text-left">
-              <p className="text-xs text-primary font-mono flex items-start gap-2">
+              <p className="text-xs text-primary flex items-start gap-2">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                 {currentStepData.tip}
               </p>
@@ -235,13 +235,13 @@ export default function WelcomeOnboarding() {
               variant="ghost"
               size="sm"
               onClick={handleSkip}
-              className="text-muted-foreground font-mono text-xs"
+              className="text-muted-foreground text-xs"
             >
               Skip Tour
             </Button>
           )}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono text-muted-foreground">
+            <span className="text-[10px] text-muted-foreground">
               {currentStep + 1}/{steps.length}
             </span>
             {currentStep > 0 && (

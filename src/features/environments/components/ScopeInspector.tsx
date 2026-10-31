@@ -37,7 +37,7 @@ export function ScopeInspector() {
       ) : (
         <table className="w-full table-fixed border-collapse font-mono text-sp-12">
           <thead>
-            <tr className="border-b border-sp-line text-left text-sp-11 uppercase tracking-wider text-sp-dim">
+            <tr className="border-b border-sp-line text-left text-sp-11 text-sp-dim">
               <th scope="col" className="w-1/3 py-1.5 pr-2 font-medium">
                 Name
               </th>

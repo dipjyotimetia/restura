@@ -193,7 +193,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
         {/* pr-14 reserves the top-right corner for DialogContent's absolute close button */}
         <DialogHeader className="py-3 pl-4 pr-14 border-b border-sp-line flex-row items-center justify-between space-y-0">
           <div>
-            <DialogTitle className="font-mono text-sm tracking-wide flex items-center gap-2">
+            <DialogTitle className="font-mono text-sm flex items-center gap-2">
               <GitBranchIcon className="h-4 w-4" /> {collectionName}
               {status?.branch && <span className="text-sp-accent">· {status.branch}</span>}
             </DialogTitle>
