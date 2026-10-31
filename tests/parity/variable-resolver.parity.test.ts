@@ -254,7 +254,8 @@ describe('Variable resolver parity across entry points', () => {
     );
     // `{{x"y}}` stays literal, so its quote really is on the wire and flips the
     // string state: `{{v}}` is then outside a string and substitutes raw.
-    expect(out.unresolved).toEqual(['x"y']);
+    // Its name is not in the plain grammar, so it is text, not an unresolved variable.
+    expect(out.unresolved).toEqual([]);
     expect(out.wire).toBe('{"a":"{{x"y}}","b":"p"q"}');
     // A resolved token with a quote in its name leaves nothing behind to scan.
     const resolved = resolveStreamingText(

@@ -81,6 +81,61 @@ describe('resolveStreamingText', () => {
     expect(out.unresolved).toEqual([]);
   });
 
+  describe('template and JSON-ish text', () => {
+    const empty = { values: {}, secretNames: new Set<string>(), handleNames: new Set<string>() };
+
+    for (const text of [
+      '{{#if a}}x{{/if}}',
+      '{{ u | upper }}',
+      '{{"k":1}}',
+      '{{$a b}}',
+      '{{\n  "k": 1\n}}',
+    ]) {
+      it(`sends ${JSON.stringify(text)} as written, with no warning`, () => {
+        const out = resolveStreamingText(text, empty);
+        expect(out.wire).toBe(text);
+        expect(out.display).toBe(text);
+        expect(out.unresolved).toEqual([]);
+      });
+    }
+
+    it('still reports an unknown plain name, and resolves a known spaced one', () => {
+      const out = resolveStreamingText('{{nope}} {{my key}}', {
+        ...empty,
+        values: { 'my key': 'v' },
+      });
+      expect(out.wire).toBe('{{nope}} v');
+      expect(out.unresolved).toEqual(['nope']);
+    });
+
+    it('still reports a spaced name that is defined only as a handle', () => {
+      const out = resolveStreamingText('{{my secret}}', {
+        ...empty,
+        handleNames: new Set(['my secret']),
+      });
+      expect(out.wire).toBe('{{my secret}}');
+      expect(out.unresolved).toEqual(['my secret']);
+    });
+
+    it('keeps JSON string state across text that is not a variable', () => {
+      const scope = { ...empty, values: { v: 'p"q' } };
+      // A quote in `{{"k":1}}` is on the wire and is counted like any other.
+      expect(
+        JSON.parse(
+          resolveStreamingText('{"a":{"b":"{{v}}"},"c":"{{#if x}}","d":"{{v}}"}', scope, {
+            json: true,
+          }).wire
+        )
+      ).toEqual({ a: { b: 'p"q' }, c: '{{#if x}}', d: 'p"q' });
+      expect(resolveStreamingText('{{"k":1}} "{{v}}"', scope, { json: true }).wire).toBe(
+        '{{"k":1}} "p\\"q"'
+      );
+      expect(resolveStreamingText('{{\n"k"\n}} "{{v}}"', scope, { json: true }).wire).toBe(
+        '{{\n"k"\n}} "p\\"q"'
+      );
+    });
+  });
+
   it('treats unknown dynamic helpers as unresolved', () => {
     const out = resolveStreamingText('{{$notAHelper}}', scope({}));
     expect(out.wire).toBe('{{$notAHelper}}');

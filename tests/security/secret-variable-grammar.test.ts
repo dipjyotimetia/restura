@@ -291,6 +291,8 @@ describe('the shared token scanner stays linear on adversarial input', () => {
     'single close after text': `{{${'a'.repeat(SIZE)}}`,
     'blank tokens': '{{ }}'.repeat(SIZE / 5),
     'close braces': '}'.repeat(SIZE),
+    'tokens with a newline': '{{a\nb}}'.repeat(SIZE / 7),
+    'open pair then newlines': `{{${'\n'.repeat(SIZE)}}}`,
   };
   for (const [name, input] of Object.entries(SHAPES)) {
     it(name, () => {

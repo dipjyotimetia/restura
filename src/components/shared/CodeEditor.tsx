@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { registerGraphQLLanguage } from '@/features/graphql/lib/monacoGraphql';
 import { jsonDefaults } from '@/lib/shared/monaco-setup';
 import { retainMonacoModel } from '@/lib/shared/monacoModelLifecycle';
-import { findVariableTokens } from '@/lib/shared/variableTokens';
+import { findVariableTokens, tokenDisplayStatus } from '@/lib/shared/variableTokens';
 
 interface CodeEditorProps {
   value: string;
@@ -105,25 +105,29 @@ export default function CodeEditor({
       decorationsRef.current?.clear();
       return;
     }
-    const decorations: Monaco.editor.IModelDeltaDecoration[] = findVariableTokens(text).map(
+    const decorations: Monaco.editor.IModelDeltaDecoration[] = findVariableTokens(text).flatMap(
       (token) => {
+        const status = tokenDisplayStatus(token.name, classify);
+        if (status === 'plain') return [];
         const startPos = model.getPositionAt(token.start);
         const endPos = model.getPositionAt(token.end);
-        const unresolved = classify(token.name) === 'unresolved';
-        return {
-          range: new monaco.Range(
-            startPos.lineNumber,
-            startPos.column,
-            endPos.lineNumber,
-            endPos.column
-          ),
-          options: {
-            inlineClassName: unresolved ? 'monaco-var-unresolved' : 'monaco-var-resolved',
-            ...(unresolved
-              ? { hoverMessage: { value: `Unresolved variable: \`${token.name}\`` } }
-              : {}),
+        const unresolved = status === 'unresolved';
+        return [
+          {
+            range: new monaco.Range(
+              startPos.lineNumber,
+              startPos.column,
+              endPos.lineNumber,
+              endPos.column
+            ),
+            options: {
+              inlineClassName: unresolved ? 'monaco-var-unresolved' : 'monaco-var-resolved',
+              ...(unresolved
+                ? { hoverMessage: { value: `Unresolved variable: \`${token.name}\`` } }
+                : {}),
+            },
           },
-        };
+        ];
       }
     );
     if (decorationsRef.current) {

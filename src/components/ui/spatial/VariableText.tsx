@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { cn } from '@/lib/shared/utils';
-import { findVariableTokens } from '@/lib/shared/variableTokens';
+import { findVariableTokens, tokenDisplayStatus } from '@/lib/shared/variableTokens';
 
 // Re-exported so existing consumers can keep importing the predicate from the
 // spatial barrel; the grammar itself lives in lib/shared/variableTokens.
@@ -15,7 +15,8 @@ export interface VariableTextProps extends React.HTMLAttributes<HTMLSpanElement>
    * Optional classifier for `{{var}}` tokens. Receives the inner variable name
    * (braces stripped, trimmed) and decides how it renders: 'resolved' keeps the
    * default amber token, 'unresolved' gets a distinct warning style. When
-   * omitted, every token renders amber (status is not evaluated).
+   * omitted, every token that reads as a variable renders amber. An unknown token
+   * that does not read as one (`{{#if a}}`) renders as plain text.
    */
   getStatus?: (varName: string) => VariableStatus;
   ref?: React.Ref<HTMLSpanElement>;
@@ -45,11 +46,17 @@ export function VariableText({
   // Split into literal/token segments using the shared scanner so the rendered
   // tokens match exactly what the gate (`hasVariableToken`) and the Monaco
   // decorator recognise.
-  const segments: Array<{ text: string; name?: string }> = [];
+  const segments: Array<{ text: string; name?: string; unresolved?: boolean }> = [];
   let cursor = 0;
   for (const token of findVariableTokens(text)) {
+    const status = tokenDisplayStatus(token.name, getStatus);
+    if (status === 'plain') continue;
     if (token.start > cursor) segments.push({ text: text.slice(cursor, token.start) });
-    segments.push({ text: text.slice(token.start, token.end), name: token.name });
+    segments.push({
+      text: text.slice(token.start, token.end),
+      name: token.name,
+      unresolved: status === 'unresolved',
+    });
     cursor = token.end;
   }
   if (cursor < text.length) segments.push({ text: text.slice(cursor) });
@@ -58,7 +65,7 @@ export function VariableText({
     <span ref={ref} className={cn('whitespace-pre-wrap break-all', className)} {...props}>
       {segments.map((seg, i) => {
         if (seg.name === undefined) return <React.Fragment key={i}>{seg.text}</React.Fragment>;
-        const unresolved = getStatus?.(seg.name) === 'unresolved';
+        const { unresolved } = seg;
         return (
           <span
             key={i}

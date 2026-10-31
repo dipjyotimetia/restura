@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { RequestErrorInfo } from '@/features/http/lib/classifyRequestError';
 import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { formatBytes } from '@/lib/shared/utils';
-import { findVariableTokens } from '@/lib/shared/variableTokens';
+import { findVariableTokens, tokenDisplayStatus } from '@/lib/shared/variableTokens';
 
 /**
  * Body-pane card for a transport-level failure: what happened, what to try, and
@@ -15,7 +15,7 @@ export function RequestErrorCard({ info, url }: { info: RequestErrorInfo; url: s
     () => [
       ...new Set(
         findVariableTokens(url)
-          .filter((t) => getVarStatus(t.name) === 'unresolved')
+          .filter((t) => tokenDisplayStatus(t.name, getVarStatus) === 'unresolved')
           .map((t) => t.name)
       ),
     ],

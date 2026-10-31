@@ -98,15 +98,17 @@ export function buildScopedVariableResolution(inputs: ScopeInputs): ScopedVariab
  */
 export function buildKnownNames(inputs: ScopeInputs): Set<string> {
   const names = new Set<string>();
-  for (const [k] of enabledEntries(inputs.baseEnvironment ?? inputs.env)) names.add(k);
-  for (const [k] of enabledEntries(inputs.subEnvironment)) names.add(k);
-  for (const [k] of enabledEntries(inputs.collection)) names.add(k);
+  // Trimmed like a token name: a `' k '` row answers to `{{k}}`.
+  const add = (name: string) => names.add(name.trim());
+  for (const [k] of enabledEntries(inputs.baseEnvironment ?? inputs.env)) add(k);
+  for (const [k] of enabledEntries(inputs.subEnvironment)) add(k);
+  for (const [k] of enabledEntries(inputs.collection)) add(k);
   for (const folder of inputs.folders ?? []) {
-    for (const [k] of enabledEntries(folder)) names.add(k);
+    for (const [k] of enabledEntries(folder)) add(k);
   }
-  for (const k of Object.keys(inputs.globals ?? {})) names.add(k);
-  for (const k of Object.keys(inputs.dataRow ?? {})) names.add(k);
-  for (const k of inputs.scriptSetKeys ?? []) names.add(k);
+  for (const k of Object.keys(inputs.globals ?? {})) add(k);
+  for (const k of Object.keys(inputs.dataRow ?? {})) add(k);
+  for (const k of inputs.scriptSetKeys ?? []) add(k);
   return names;
 }
 

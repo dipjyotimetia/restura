@@ -1,7 +1,8 @@
 /**
  * The one `{{name}}` token grammar. A name is one or more characters excluding
- * `{` and `}`, trimmed of surrounding whitespace, so `{{my key}}`, `{{a:b}}` and
- * `{{ $helper }}` are all tokens and `{{ }}` is not. Resolvers, the highlighter,
+ * `{` and `}`, trimmed of surrounding whitespace, and holds no line break, so
+ * `{{my key}}`, `{{a:b}}` and `{{ $helper }}` are all tokens while `{{ }}` and a
+ * multi-line block are not. Resolvers, the highlighter,
  * the Monaco scanner and the secret matcher (renderer and Electron main) all
  * read tokens through this module, so what is highlighted, what is sent and what
  * stays opaque cannot disagree.
@@ -13,6 +14,19 @@
  * which backtracks quadratically on a long whitespace run; trim in code instead.
  */
 const TOKEN_SOURCE = String.raw`\{\{([^{}]+)\}\}`;
+const LINE_BREAK = /[\r\n\u2028\u2029]/;
+const PLAIN_NAME = /^\$?[\w.-]+$/;
+
+/**
+ * True for a name that reads as a variable reference rather than template or
+ * JSON-ish text (`{{#if a}}`, `{{ u | upper }}`, `{{"k":1}}`). The grammar accepts
+ * those so a variable may be named anything; an UNKNOWN token is only worth
+ * reporting as unresolved when its name also passes here. Display only: what is
+ * sent does not depend on it.
+ */
+export function isPlainVariableName(name: string): boolean {
+  return PLAIN_NAME.test(name);
+}
 
 export interface VariableToken {
   /** Offset of the opening `{{` in the source text. */
@@ -27,7 +41,9 @@ function* iterateTokens(text: string): Generator<VariableToken> {
   // A fresh matcher per scan: callers never share `lastIndex` state.
   for (const match of text.matchAll(new RegExp(TOKEN_SOURCE, 'g'))) {
     const name = (match[1] as string).trim();
-    if (name) yield { start: match.index, end: match.index + match[0].length, name };
+    // Checked after the match rather than in the pattern, which stays linear.
+    if (name && !LINE_BREAK.test(name))
+      yield { start: match.index, end: match.index + match[0].length, name };
   }
 }
 

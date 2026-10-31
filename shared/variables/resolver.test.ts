@@ -5,7 +5,12 @@ import {
   resolveVariableText,
   substituteVariables,
 } from './resolver';
-import { hasVariableToken, replaceVariableTokens, scanVariableTokens } from './tokens';
+import {
+  hasVariableToken,
+  isPlainVariableName,
+  replaceVariableTokens,
+  scanVariableTokens,
+} from './tokens';
 
 describe('variable token grammar', () => {
   const ACCEPTED: ReadonlyArray<[text: string, name: string]> = [
@@ -41,6 +46,9 @@ describe('variable token grammar', () => {
     '{a}',
     '{{a}',
     '{{a{b}}',
+    '{{a\nb}}',
+    '{{a\r\nb}}',
+    '{{\n  "a": 1,\n  "b": 2\n}}',
   ];
   for (const text of REJECTED) {
     it(`rejects ${JSON.stringify(text)}`, () => {
@@ -78,6 +86,19 @@ describe('variable token grammar', () => {
       'a={{ a }}$&|b={{b}}$&'
     );
   });
+});
+
+describe('isPlainVariableName', () => {
+  for (const name of ['a', 'baseUrl', 'user.id', 'x-y', 'a_1', '$randomUUID', '$not.a-helper']) {
+    it(`accepts ${JSON.stringify(name)}`, () => {
+      expect(isPlainVariableName(name)).toBe(true);
+    });
+  }
+  for (const name of ['#if a', '/if', 'u | upper', '"k":1', 'my key', 'a:b', '$a b', '', '$']) {
+    it(`rejects ${JSON.stringify(name)}`, () => {
+      expect(isPlainVariableName(name)).toBe(false);
+    });
+  }
 });
 
 describe('core resolver', () => {
