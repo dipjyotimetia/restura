@@ -71,7 +71,8 @@ export async function executeSse(
   let errorMessage: string | undefined;
   let responseHeaders: Record<string, string> | undefined;
 
-  const timer = setTimeout(() => controller.abort(), durationMs);
+  // Started once auth is ready: slow secret or token fetches are not stream time.
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
   try {
     // Header-based auth (Bearer / Basic / API-key / OAuth2). Applied here so an
@@ -90,6 +91,7 @@ export async function executeSse(
     });
     applyAuthHeaders(resolvedAuth, headers, params);
     const finalUrl = appendQuery(url, params);
+    timer = setTimeout(() => controller.abort(), durationMs);
     const response = await undiciRequest(finalUrl, {
       method: 'GET',
       headers,

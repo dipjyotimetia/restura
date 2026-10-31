@@ -24,6 +24,12 @@ beforeAll(async () => {
         return;
       }
       seenAuth.push(req.headers.authorization ?? '');
+      if ((req.url ?? '').startsWith('/held')) {
+        // One event, then the stream stays open until the client's duration ends.
+        res.setHeader('content-type', 'text/event-stream');
+        res.write('data: hi\n\n');
+        return;
+      }
       if ((req.url ?? '').startsWith('/sse')) {
         res.setHeader('content-type', 'text/event-stream');
         res.end('data: hi\n\n');
@@ -102,6 +108,62 @@ const oauth2 = (scope: string, extra: Partial<NonNullable<AuthConfig['oauth2']>>
     scope,
     ...extra,
   },
+});
+
+describe('SSE duration starts once auth is ready', () => {
+  const slow = (ms: number, value: string): ExternalSecretResolver => ({
+    resolve: () => new Promise((resolve) => setTimeout(() => resolve(value), ms)),
+  });
+  const bearer = { type: 'bearer', bearer: { token: external } } as AuthConfig;
+
+  it('connects and reports events when the provider is slower than the duration', async () => {
+    const outcome = await executeSse(sse(bearer), {
+      ...opts,
+      sseDurationMs: 50,
+      externalSecretResolver: slow(150, 'SLOW'),
+    });
+    expect(seenAuth).toEqual(['Bearer SLOW']);
+    expect(outcome.streamEvents).toHaveLength(1);
+    expect(outcome.passed).toBe(true);
+  });
+
+  it('does not count a slow client_credentials fetch against the duration', async () => {
+    const outcome = await executeSse(sse(oauth2('slow-oauth', { clientSecret: external })), {
+      ...opts,
+      sseDurationMs: 50,
+      externalSecretResolver: slow(150, 'S'),
+    });
+    expect(seenAuth).toEqual(['Bearer MINTED']);
+    expect(outcome.streamEvents).toHaveLength(1);
+  });
+
+  it('fails a provider that rejects, however slowly, without connecting', async () => {
+    const outcome = await executeSse(sse(bearer), {
+      ...opts,
+      sseDurationMs: 50,
+      externalSecretResolver: {
+        resolve: () =>
+          new Promise((_resolve, reject) => setTimeout(() => reject(new Error('vault down')), 150)),
+      },
+    });
+    expect(outcome.passed).toBe(false);
+    expect(outcome.errorMessage).toContain('vault down');
+    expect(seenAuth).toEqual([]);
+  });
+
+  it('ends a held-open stream on the duration, as a pass, once connected', async () => {
+    const item = sse(bearer);
+    (item.request as unknown as { url: string }).url = `${baseUrl}/held`;
+    const outcome = await executeSse(item, {
+      ...opts,
+      sseDurationMs: 100,
+      externalSecretResolver: slow(10, 'T'),
+    });
+    expect(outcome.passed).toBe(true);
+    expect(outcome.errorMessage).toBeUndefined();
+    expect(outcome.status).toBe(200);
+    expect(outcome.streamEvents).toHaveLength(1);
+  });
 });
 
 const RUNS = [
