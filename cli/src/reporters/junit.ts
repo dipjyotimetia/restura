@@ -17,17 +17,22 @@ export class JUnitReporter implements Reporter {
   }
 }
 
+/**
+ * Strip XML-1.0-illegal control chars (upstream error bodies can carry them and
+ * make the document non-well-formed), then entity-escape.
+ */
+export function escapeXml(s: string): string {
+  return s
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 export function renderJUnitXml(result: RunResult): string {
   const ms = (n: number) => (n / 1000).toFixed(3);
-  // Strip XML-1.0-illegal control chars (upstream error bodies can carry them
-  // and make the document non-well-formed) before entity-escaping.
-  const escape = (s: string) =>
-    s
-      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  const escape = escapeXml;
 
   const failureDetail = (r: RunResult['requests'][number]): string => {
     const failed = (r.assertions ?? []).filter((a) => !a.passed);

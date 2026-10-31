@@ -8,6 +8,9 @@ export const PROVIDER_DEFAULT_BASE: Record<Provider, string> = {
   ollama: 'http://localhost:11434',
   huggingface: 'https://router.huggingface.co',
   'openai-compatible': '',
+  'azure-openai': '',
+  gemini: 'https://generativelanguage.googleapis.com',
+  bedrock: 'https://bedrock-runtime.us-east-1.amazonaws.com',
 };
 
 export function effectiveProviderBaseUrl(config: AiLabProviderConfig): string {
@@ -19,6 +22,9 @@ export function providerRequiresApiKey(provider: Provider): boolean {
     provider === 'openai' ||
     provider === 'anthropic' ||
     provider === 'openrouter' ||
-    provider === 'huggingface'
+    provider === 'huggingface' ||
+    provider === 'azure-openai' ||
+    provider === 'gemini' ||
+    provider === 'bedrock'
   );
 }

@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
 import { version } from '../package.json';
 import { registerAgentCommand } from './commands/agent.js';
+import { registerEvalCommand } from './commands/eval.js';
 import { registerMcpCommand } from './commands/mcp.js';
 import { registerRunCommand } from './commands/run.js';
 import { registerWorkflowCommand } from './commands/workflow.js';
@@ -28,6 +29,7 @@ program.name('restura').description('Restura CLI — run API collections in CI')
 
 registerRunCommand(program);
 registerAgentCommand(program);
+registerEvalCommand(program);
 registerMcpCommand(program);
 registerWorkflowCommand(program);
 

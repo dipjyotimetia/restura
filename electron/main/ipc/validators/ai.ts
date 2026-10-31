@@ -1,5 +1,5 @@
-import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { AgentTelemetryConfigSchema } from '@shared/agent-lab/telemetry-config';
+import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { z } from 'zod';
 
 // ===========================
@@ -52,7 +52,7 @@ export const AiChatRequestSchema = z
   })
   // openai-compatible has no default endpoint — it must carry a base URL.
   .refine((v) => v.provider !== 'openai-compatible' || !!v.baseUrlOverride, {
-    message: 'openai-compatible provider requires a base URL.',
+    message: 'This provider requires a base URL.',
     path: ['baseUrlOverride'],
   })
   // Cloud providers (openai / anthropic / openrouter) REQUIRE an API key handle —
@@ -80,6 +80,9 @@ const AiLabProviderSchema = z.enum([
   'ollama',
   'huggingface',
   'openai-compatible',
+  'azure-openai',
+  'gemini',
+  'bedrock',
 ]);
 
 const AiLabCompleteBase = z.object({
@@ -93,8 +96,9 @@ const AiLabCompleteBase = z.object({
   tools: z.array(AiChatToolSchema).max(32).optional(),
 });
 
+/** Providers with no usable default endpoint: the user's resource URL is required. */
 const requireBaseForCompat = (v: { provider: string; baseUrlOverride?: string }) =>
-  v.provider !== 'openai-compatible' || !!v.baseUrlOverride;
+  (v.provider !== 'openai-compatible' && v.provider !== 'azure-openai') || !!v.baseUrlOverride;
 
 /**
  * Discovery: OpenAI / Anthropic / HuggingFace require a key (the stored handle
@@ -114,7 +118,7 @@ export const AiLabCompleteSchema = AiLabCompleteBase.extend({
   operationId: z.uuid(),
 })
   .refine(requireBaseForCompat, {
-    message: 'openai-compatible provider requires a base URL.',
+    message: 'This provider requires a base URL.',
     path: ['baseUrlOverride'],
   })
   .refine(requireInferenceKey, {
@@ -132,7 +136,7 @@ export const AiLabStreamSchema = AiLabCompleteBase.extend({
   streamId: z.uuid(),
 })
   .refine(requireBaseForCompat, {
-    message: 'openai-compatible provider requires a base URL.',
+    message: 'This provider requires a base URL.',
     path: ['baseUrlOverride'],
   })
   .refine(requireInferenceKey, {

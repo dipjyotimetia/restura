@@ -248,6 +248,144 @@ describe('evaluateAgentSuite', () => {
   });
 });
 
+describe('QuickJS sandbox tool source (#1042)', () => {
+  it('offers run_code_quickjs to the model with no runtime manifest', async () => {
+    const responseBody = JSON.stringify({
+      id: 'response-1',
+      status: 'completed',
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'hello' }] }],
+      usage: { input_tokens: 4, output_tokens: 1 },
+    });
+    const fetcher = vi.fn<Fetcher>().mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      contentLengthHeader: null,
+      text: async () => responseBody,
+    });
+    const deps = dependencies(
+      suite({ tools: [{ kind: 'sandbox', sandboxId: 'quickjs' }] }),
+      fetcher
+    );
+
+    const result = await evaluateAgentSuite('/suite.json', {}, deps);
+
+    expect(result.status).toBe('passed');
+    const body = JSON.parse(String(fetcher.mock.calls[0]?.[0].body)) as {
+      tools?: Array<{ name: string }>;
+    };
+    expect(body.tools?.map((tool) => tool.name)).toContain('run_code_quickjs');
+  });
+
+  it('exits 2 before any model call for an unregistered sandbox', async () => {
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependencies(
+      suite({ tools: [{ kind: 'sandbox', sandboxId: 'docker' }] }),
+      fetcher
+    );
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      expect(await runAgentEval('/suite.json', {}, deps)).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('unknown sandbox provider'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+});
+
+describe('A2A tool source in CI (#1043)', () => {
+  const endpoint = 'https://agent.example';
+
+  it('exits 2 before any call when the endpoint is not in the runtime manifest', async () => {
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependencies(suite({ tools: [{ kind: 'a2a', endpoint }] }), fetcher);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      expect(await runAgentEval('/suite.json', {}, deps)).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('A2A tool source is not listed'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it('admits a manifest-listed endpoint and requires the readOnly assertion', () => {
+    const manifest = AgentRuntimeManifestSchema.parse({
+      schemaVersion: 1,
+      sources: [{ id: 'planner', kind: 'a2a', endpoint, readOnly: true }],
+    });
+    expect(() =>
+      preflightAgentSuite(suite({ tools: [{ kind: 'a2a', endpoint }] }), undefined, manifest)
+    ).not.toThrow();
+    expect(
+      AgentRuntimeManifestSchema.safeParse({
+        schemaVersion: 1,
+        sources: [{ id: 'planner', kind: 'a2a', endpoint }],
+      }).success
+    ).toBe(false);
+  });
+});
+
+describe('enterprise provider transports in CI (#1044)', () => {
+  it('admits Gemini and Bedrock, and refuses Azure without a manifest endpoint', () => {
+    expect(() =>
+      preflightAgentSuite(suite({ providerId: 'google.generateContent' }))
+    ).not.toThrow();
+    expect(() => preflightAgentSuite(suite({ providerId: 'aws.bedrock.converse' }))).not.toThrow();
+    expect(() => preflightAgentSuite(suite({ providerId: 'azure.openai' }))).toThrow(
+      /providerEndpoints/
+    );
+    const manifest = AgentRuntimeManifestSchema.parse({
+      schemaVersion: 1,
+      sources: [],
+      providerEndpoints: { 'azure.openai': 'https://acme.openai.azure.com' },
+    });
+    expect(() =>
+      preflightAgentSuite(suite({ providerId: 'azure.openai' }), undefined, manifest)
+    ).not.toThrow();
+    expect(
+      AgentRuntimeManifestSchema.safeParse({
+        schemaVersion: 1,
+        sources: [],
+        providerEndpoints: { 'azure.openai': 'http://acme.openai.azure.com' },
+      }).success
+    ).toBe(false);
+  });
+
+  it('runs a Bedrock suite end to end over the shared Converse route', async () => {
+    const converse = JSON.stringify({
+      output: { message: { content: [{ text: 'hello' }] } },
+      usage: { inputTokens: 3, outputTokens: 1 },
+    });
+    const fetcher = vi.fn<Fetcher>().mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      contentLengthHeader: null,
+      text: async () => converse,
+    });
+    const deps = {
+      ...dependencies(
+        suite({
+          providerId: 'aws.bedrock.converse',
+          model: 'amazon.nova-x-v1:0',
+          credential: { source: 'env', name: 'AWS_BEARER_TOKEN_BEDROCK' },
+        }),
+        fetcher
+      ),
+      environment: { AWS_BEARER_TOKEN_BEDROCK: 'bedrock-key' },
+    };
+    const report = await evaluateAgentSuite('/suite.json', {}, deps);
+    expect(report.status).toBe('passed');
+    const sent = fetcher.mock.calls[0]![0];
+    expect(sent.url).toBe(
+      'https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.nova-x-v1%3A0/converse'
+    );
+    expect((sent.headers as Record<string, string>).Authorization).toBe('Bearer bedrock-key');
+  });
+});
+
 /** Dependencies serving a suite and runtime manifest by path. */
 function dependenciesWithFiles(files: Record<string, unknown>, fetcher: Fetcher) {
   const deps = dependencies({}, fetcher);

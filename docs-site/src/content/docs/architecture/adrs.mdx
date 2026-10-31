@@ -229,6 +229,16 @@ timeline
     description="NTLM authenticates a connection, so the type 1 → 2 → 3 handshake runs inside one Electron fetcher call on a single pinned HTTP/1.1 socket, origin-bound and credential-free until the challenge; web and self-host don't send it and the CLI refuses it."
     href="/architecture/adrs/0036-ntlm-desktop-fetcher-handshake/"
   />
+  <LinkCard
+    title="0037 — Agent Lab: suites, runtime and telemetry"
+    description="Suites are portable data and runtimes own every network and credential binding; one shared runner with provider and tool-source adapters; only read tools run unattended, CI needs operator assertions; QuickJS sandbox and A2A tool sources; one RunEngine lifecycle for evals, agents and Arena; metadata-only telemetry."
+    href="/architecture/adrs/0037-agent-lab-suites-runtime-telemetry/"
+  />
+  <LinkCard
+    title="0038 — CLI judges and dataset evals"
+    description="Reverses the CLI judge refusal for dataset evals: restura eval run executes exported restura.eval files on the shared eval core with env credentials, cost budgets across model and judge calls, and a per-eval pass threshold as the exit code; http-exec and Arena stay desktop-only."
+    href="/architecture/adrs/0038-cli-judges-and-dataset-evals/"
+  />
 </CardGrid>
 
 ## Related

@@ -1,0 +1,87 @@
+---
+title: "ADR 0037 — Agent Lab: suites, runtime and telemetry"
+description: "Portable agent suites with runtime-owned bindings; one shared runner with thin provider and tool-source adapters; permission classes and CI-safe approvals; QuickJS sandboxes and A2A tools; one run lifecycle and bounded reports; Arena; metadata-only telemetry."
+sidebar:
+  order: 37
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-10-31" variant="success" />
+
+## Context
+
+[ADR 0020](/architecture/adrs/0020-ai-lab-eval-workbench/) set up the AI Lab as a dataset-eval workbench, and [ADR 0023](/architecture/adrs/0023-ai-lab-http-exec/) added the `http-exec` target. Since then the AI Lab has grown a second workbench, agent suites: multi-step agents that call tools, are graded on outcome and trajectory, and run in CI through `restura agent eval`. The Arena (pairwise Elo) and metadata-only telemetry export were added alongside. No ADR covers any of these, so decisions that matter for security and parity (where tools run, who may approve a call, what CI may do unattended, what telemetry may contain) were spread across code comments and capability notes. The 2026-10-12 AI Lab review ([audit](https://github.com/dipjyotimetia/restura/blob/main/docs/audits/ai-lab-review-2026-10-12.md), epic [#1057](https://github.com/dipjyotimetia/restura/issues/1057)) asked for one record.
+
+## Decision
+
+### 1. Suites are portable data; runtimes are not
+
+An agent suite (`shared/agent-lab/schema.ts`, schema v3, migrated from v2 on read) is portable: agents (model ref, instructions, tool sources, limits, optional policy profile), tasks (input and reference content), graders and trial count. It never contains a credential value. A model credential is a reference (`env` name, or a `secret-handle` id that only the desktop keychain can resolve), and endpoint overrides (`baseUrl`, `parameters`) are refused by both runtimes: the endpoint belongs to the runtime, not the suite.
+
+Anything that can reach a network or a credential is bound outside the suite:
+
+- **Desktop:** AI Lab provider configs (keys as `SecretRef` handles, [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/)), saved collections and encrypted MCP profiles.
+- **CLI:** a runtime manifest (`cli/src/commands/agentRuntime.ts`) that lists collections and request ids, MCP servers and allowlists, A2A endpoints, provider endpoints and model prices. Header credentials are env names. A suite tool source the manifest does not list is refused with exit 2.
+
+An **agent bundle** packages a suite with recorded fixtures and a baseline, so a regression can be replayed in CI with no live tools at all. Baseline gates fail closed.
+
+### 2. One runner, thin platform adapters
+
+`AgentRunner` and `AgentSuiteRunner` (`shared/agent-lab/runner.ts`, `suite-runner.ts`) own the loop on both harnesses: step and wall-time limits, the run-wide token budget (each call is capped at `min(remaining, model cap, 32768)`), cost budgets (refused up front when a model is unpriced), cancellation, tool dispatch, trace events, grading, pass@k / pass^k and Wilson intervals. Platforms supply only:
+
+- **Provider adapters** (`ProviderRegistry`). Desktop wraps the AI Lab IPC completion. The CLI ships OpenAI Responses, Anthropic Messages, and `ChatWireProviderAdapter` for Azure OpenAI, Gemini and Bedrock over the same shared wire routes the desktop uses.
+- **Tool source adapters** (`createAgentToolResolver`), one per `ToolSource.kind`. An unknown kind or an unregistered id fails preflight; it is never silently dropped.
+
+| Source | Desktop | CLI |
+|---|---|---|
+| `restura-request` | real request executor; non-GET or scripted = `mutation` | manifest-listed, unscripted GET/HEAD/OPTIONS only |
+| `mcp` | fresh desktop-owned session, SSRF/DNS pinning; annotations never grant `read` | manifest `readOnly: true` + allowlist; server `destructiveHint`/`readOnlyHint:false` refused |
+| `fixture` | bundle replay | bundle replay |
+| `sandbox` | QuickJS provider | QuickJS provider |
+| `a2a` | request executor; `network` class | manifest `readOnly: true`, DNS-pinned transport, env headers |
+
+### 3. Permission classes, approvals and CI
+
+Every tool has a permission class (`read`, `network`, `mutation`, `credential`, `filesystem`, `process`, `destructive`). Only `read` runs without asking. Everything else needs per-call approval on desktop unless the agent's policy profile auto-approves that class. CI cannot approve, so a policy profile used headless must be `ciEligible` and auto-approve `read` only (`isCiSafePolicy`). Unattended non-read access in CI comes only from an operator assertion in the runtime manifest (`readOnly: true`), never from the suite or from a server's own annotations.
+
+### 4. Sandboxes
+
+`SandboxProvider` / `SandboxRegistry` (`shared/agent-lab/tools.ts`) are the contract. Each `sandbox` source becomes one `run_code_<id>` tool. A provider declares its permission class, and the default is `process` (approval required). The first provider is QuickJS (`shared/agent-lab/sandbox-quickjs.ts`, id `quickjs`). It creates a fresh WASM runtime per call with the same memory, stack and time caps as request scripts (`shared/scripts/sandbox-limits.ts`) and no host bridges: no network, filesystem, timers or `pm`. Its output is bounded. Because it cannot touch the host, it declares `read`. Docker/Podman providers are a follow-on and must declare a non-read class.
+
+### 5. A2A as a tool source only
+
+A remote Agent2Agent agent is a tool, not a protocol tab. `A2aClient` (`shared/agent-lab/a2a.ts`) fetches the agent card, sends `message/send` (blocking), polls `tasks/get` until the task settles, and sends `tasks/cancel` on abort. The card's RPC URL must stay on the suite endpoint's origin. Each harness supplies the transport through its SSRF-guarded path, so the client opens no new outbound route. Streaming is not used, because a tool call needs the settled result.
+
+### 6. One run lifecycle and bounded reports
+
+Evals, agent suites and Arena runs all start through the renderer `RunEngine` (`src/features/ai-lab/run-engine/`). It gives them one cancellation lifecycle (Stop aborts through the engine signal, and a late success after Stop stays cancelled), one report envelope with an honest status (an eval below its pass threshold is `failed`, an Arena run with failed matches is `failed` with a reason), and one sanitizer and retention policy for the persisted `runReports` blob. Agent reports are redacted and capped at 2 MiB each, 20 reports and 20 MiB. The limits for eval reports are 50 reports and 50 MiB, and for Arena reports 30 reports and 10 MiB. Persistence is validated per record: one bad record is quarantined, the rest load, and a failed report save never blocks the next run.
+
+### 7. Arena
+
+The Arena runs N contestants over a dataset and judges every pair per case with a position swap. The matches fold into Elo, in task order so that a run is reproducible. A contestant or judge failure is a `winner: 'error'` match, which is excluded from Elo and listed. It never counts as a tie. The Arena stays desktop-only. It is not part of `restura eval run`, because a leaderboard is exploration, not a regression gate.
+
+### 8. Telemetry
+
+Export is opt-in, OTLP or Langfuse, and projects traces through an allowlist (`projectTraceForTelemetry`). It sends identifiers, timing, model and provider names, token and cost totals, tool names and outcomes, and evaluation state. It never sends prompts, outputs, tool arguments, URLs, headers or error text. Collector credentials are `SecretRef` handles on desktop and env references in the CLI. Desktop validates the endpoint, resolves DNS and pins the OTLP connection, and rate-limits the export IPC. Delivery is best-effort and never changes a pass/fail result ([docs/AGENT_TELEMETRY.md](https://github.com/dipjyotimetia/restura/blob/main/docs/AGENT_TELEMETRY.md)).
+
+## Consequences
+
+**Positive**
+
+- One place to check before changing who may run a tool unattended, what a suite may carry, or what telemetry may contain.
+- Desktop and CLI share the runner, graders, statistics, sandbox and A2A client, so a parity bug has one fix site.
+- New tool sources and providers are adapters, not runner changes.
+
+**Negative / residual risk**
+
+- A desktop user who auto-approves `network` or `mutation` in a policy profile hands that authority to the model for the whole run. This is the user's choice, but it is a real grant.
+- The CLI's `readOnly: true` assertions are operator trust. Restura checks the hints it can see (MCP annotations), but it cannot prove that a remote MCP tool or A2A agent has no side effects.
+- QuickJS is a language sandbox, not a process boundary. A QuickJS escape would run in the host process (the renderer on desktop, Node in the CLI). The caps bound runaway code, not a VM escape.
+
+## References
+
+- Code: `shared/agent-lab/`, `src/features/ai-lab/lib/agentRuntime.ts`, `src/features/ai-lab/run-engine/`, `cli/src/commands/agent.ts`, `cli/src/runner/agentTools.ts`
+- Capabilities: `aiLab.agentSuites`, `aiLab.agentProviders`, `aiLab.agentRequestTools`, `aiLab.agentMcpTools`, `aiLab.agentA2aTools`, `aiLab.agentSandboxes`, `aiLab.arena` (`src/lib/shared/capabilities/ai-lab.ts`)
+- Related: [ADR 0020](/architecture/adrs/0020-ai-lab-eval-workbench/), [ADR 0023](/architecture/adrs/0023-ai-lab-http-exec/), [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/), [ADR 0038](/architecture/adrs/0038-cli-judges-and-dataset-evals/)
+- Source: [`docs/adr/0037-agent-lab-suites-runtime-telemetry.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0037-agent-lab-suites-runtime-telemetry.md)

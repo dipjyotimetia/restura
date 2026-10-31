@@ -13,15 +13,21 @@ import {
   type AgentToolResolver,
   AnthropicMessagesAdapter,
   applyAgentBundleBaseline,
+  CHAT_WIRE_PROVIDERS,
+  ChatWireProviderAdapter,
+  type ChatWireProviderId,
   createAgentToolResolver,
   createFixtureToolSourceAdapter,
+  createSandboxToolSourceAdapter,
   evaluateAgentBundleBaseline,
   isCiSafePolicy,
   migrateAgentSuite,
   OpenAiResponsesAdapter,
   ProviderRegistry,
   resolveModelPrice,
+  type ToolSource,
 } from '@shared/agent-lab';
+import { createDefaultSandboxRegistry } from '@shared/agent-lab/sandbox-quickjs';
 import type { Fetcher } from '@shared/protocol/types';
 import type { Command } from 'commander';
 import { resolveCliGrounding } from '../runner/agentGrounding.js';
@@ -67,14 +73,28 @@ const defaultDependencies: AgentEvalDependencies = {
   executeHttp,
 };
 
+const HEADLESS_PROVIDER_IDS = new Set<string>([
+  'openai.responses',
+  'anthropic.messages',
+  ...Object.keys(CHAT_WIRE_PROVIDERS),
+]);
+
 export function preflightAgentSuite(
   suite: AgentSuite,
   toolResolver: AgentToolResolver = createAgentToolResolver(),
   runtime?: AgentRuntimeManifest
 ): void {
   for (const agent of suite.agents) {
-    if (!['openai.responses', 'anthropic.messages'].includes(agent.model.providerId)) {
+    if (!HEADLESS_PROVIDER_IDS.has(agent.model.providerId)) {
       throw new Error(`headless provider adapter not registered: ${agent.model.providerId}`);
+    }
+    if (
+      agent.model.providerId === 'azure.openai' &&
+      !runtime?.providerEndpoints?.['azure.openai']
+    ) {
+      throw new Error(
+        'azure.openai needs the Azure resource endpoint under providerEndpoints in the runtime manifest'
+      );
     }
     if (agent.handoffs?.length) {
       throw new Error(
@@ -153,6 +173,15 @@ export function preflightAgentSuite(
             `MCP tool source exceeds the runtime manifest allowlist: ${source.connectionId}`
           );
         }
+      } else if (source.kind === 'a2a') {
+        const listed = runtime?.sources.some(
+          (candidate) => candidate.kind === 'a2a' && candidate.endpoint === source.endpoint
+        );
+        if (!listed) {
+          throw new Error(
+            `A2A tool source is not listed in the runtime manifest: ${source.endpoint}`
+          );
+        }
       } else toolResolver.assertSupported([source]);
     }
   }
@@ -185,14 +214,19 @@ async function runAgentSuite(
 ): Promise<AgentSuiteReport> {
   const variables = options.env ? await dependencies.loadEnvironment(options.env) : {};
   const timeoutMs = numericFlag('--timeout', options.timeout ?? '30000');
+  const priceOverrides = runtime?.modelPrices ? { priceOverrides: runtime.modelPrices } : {};
   const providers = new ProviderRegistry([
-    new OpenAiResponsesAdapter({
-      fetcher: dependencies.fetcher,
-      ...(runtime?.modelPrices ? { priceOverrides: runtime.modelPrices } : {}),
-    }),
-    new AnthropicMessagesAdapter({
-      fetcher: dependencies.fetcher,
-      ...(runtime?.modelPrices ? { priceOverrides: runtime.modelPrices } : {}),
+    new OpenAiResponsesAdapter({ fetcher: dependencies.fetcher, ...priceOverrides }),
+    new AnthropicMessagesAdapter({ fetcher: dependencies.fetcher, ...priceOverrides }),
+    // Azure OpenAI, Gemini and Bedrock run over the same shared wire routes as desktop.
+    ...(Object.keys(CHAT_WIRE_PROVIDERS) as ChatWireProviderId[]).map((id) => {
+      const baseUrl = runtime?.providerEndpoints?.[id];
+      return new ChatWireProviderAdapter({
+        id,
+        fetcher: dependencies.fetcher,
+        ...(baseUrl ? { baseUrl } : {}),
+        ...priceOverrides,
+      });
     }),
   ]);
   // Tool-resolution refusals are invalid input (exit 2), but the runner records
@@ -205,12 +239,10 @@ async function runAgentSuite(
   let preflightFailure: AgentPreflightError | undefined;
 
   const resolveSourceTools: AgentRunnerDependencies['resolveTools'] = async (sources, signal) => {
-    const runtimeSources = sources.filter(
-      (source) => source.kind === 'restura-request' || source.kind === 'mcp'
-    );
-    const adapterSources = sources.filter(
-      (source) => source.kind !== 'restura-request' && source.kind !== 'mcp'
-    );
+    const isRuntimeSource = (source: ToolSource): boolean =>
+      source.kind === 'restura-request' || source.kind === 'mcp' || source.kind === 'a2a';
+    const runtimeSources = sources.filter(isRuntimeSource);
+    const adapterSources = sources.filter((source) => !isRuntimeSource(source));
     const adapterTools = await toolResolver.resolve(adapterSources, signal);
     if (runtimeSources.length === 0) return adapterTools;
     if (!runtime) throw new Error('headless tool sources require a runtime manifest');
@@ -289,7 +321,9 @@ export async function evaluateAgentSuite(
   const runtime = options.runtime
     ? AgentRuntimeManifestSchema.parse(JSON.parse(await dependencies.readText(options.runtime)))
     : undefined;
-  const toolResolver = createAgentToolResolver();
+  const toolResolver = createAgentToolResolver([
+    createSandboxToolSourceAdapter(createDefaultSandboxRegistry()),
+  ]);
   preflightAgentSuite(suite, toolResolver, runtime);
   await preflightTelemetryEndpoint(options, dependencies);
   const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);
@@ -311,7 +345,10 @@ export async function evaluateAgentBundle(
   const runtime = options.runtime
     ? AgentRuntimeManifestSchema.parse(JSON.parse(await dependencies.readText(options.runtime)))
     : undefined;
-  const toolResolver = createAgentToolResolver([createFixtureToolSourceAdapter(bundle.fixtures)]);
+  const toolResolver = createAgentToolResolver([
+    createFixtureToolSourceAdapter(bundle.fixtures),
+    createSandboxToolSourceAdapter(createDefaultSandboxRegistry()),
+  ]);
   preflightAgentSuite(suite, toolResolver, runtime);
   await preflightTelemetryEndpoint(options, dependencies);
   const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);

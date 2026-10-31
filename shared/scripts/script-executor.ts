@@ -12,6 +12,12 @@ import type { QuickJSContext, QuickJSHandle, QuickJSRuntime } from 'quickjs-emsc
 import { getQuickJS } from 'quickjs-emscripten';
 import { PM_EXPECT_BOOTSTRAP } from './expect-bootstrap';
 import { buildRequireShimSource, loadSandboxLibraries } from './sandbox-libraries';
+import {
+  QUICKJS_MAX_EXECUTION_TIME_MS,
+  QUICKJS_MAX_EXECUTION_TIME_MS_ASYNC,
+  QUICKJS_MAX_MEMORY_BYTES,
+  QUICKJS_MAX_STACK_BYTES,
+} from './sandbox-limits';
 import { bindPmCookies, buildKvNamespace } from './script-executor-namespaces';
 import { bindRequestGlobal, readRequestMetadata } from './script-executor-request';
 import type {
@@ -39,20 +45,11 @@ export type {
   ScriptResult,
 } from './script-executor-types';
 
-// Security constants
-const MAX_EXECUTION_TIME_MS = 5000; // 5s for sync-only scripts
-// Async scripts (those using `pm.sendRequest` / `pm.vault.*` — anything
-// that returns a host-resolved promise) need a longer ceiling because a
-// sub-request itself takes seconds. Selected when any host bridge is bound.
-const MAX_EXECUTION_TIME_MS_ASYNC = 30000;
-// 64MB — the Phase-B library bundle (~600KB raw) plus a cheerio DOM tree
-// for a moderate HTML page comfortably exceeds the legacy 10MB ceiling.
-// Per-runtime allocator, freed on dispose().
-const MAX_MEMORY_BYTES = 64 * 1024 * 1024;
-// Native (WASM) stack ceiling for sandboxed recursion — QuickJS's built-in
-// default bounds it, but pin it explicitly so a build/default change can't
-// silently remove the cap. 1MB ≈ a few thousand frames, ample for user scripts.
-const MAX_STACK_BYTES = 1024 * 1024;
+// Security constants — shared with the other QuickJS sandboxes.
+const MAX_EXECUTION_TIME_MS = QUICKJS_MAX_EXECUTION_TIME_MS;
+const MAX_EXECUTION_TIME_MS_ASYNC = QUICKJS_MAX_EXECUTION_TIME_MS_ASYNC;
+const MAX_MEMORY_BYTES = QUICKJS_MAX_MEMORY_BYTES;
+const MAX_STACK_BYTES = QUICKJS_MAX_STACK_BYTES;
 
 class ScriptExecutor {
   private envVars: Record<string, string>;

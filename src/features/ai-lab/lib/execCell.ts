@@ -3,22 +3,16 @@
 // free). Kept separate from evalRunner so the runner stays pure/unit-testable:
 // the runner receives `runRequest` injected, and only this module pulls in the
 // renderer-heavy executor + stores.
+
+import type { ExecResult } from '@shared/ai-lab/evalCore';
+import type { ExtractedRequest } from '@shared/ai-lab/requestExtractor';
 import { v4 as uuidv4 } from 'uuid';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { KeyValue } from '@/types/common';
 import type { BodyType, HttpMethod, HttpRequest } from '@/types/http';
-import type { ExtractedRequest } from './requestExtractor';
 
-/** Normalized result of executing an extracted request, fed back to scorers. */
-export interface ExecResult {
-  status: number;
-  statusText: string;
-  /** Response body text (becomes the scoring `output`). */
-  body: string;
-  latencyMs: number;
-  ok: boolean;
-}
+export type { ExecResult };
 
 function toKeyValues(headers: Record<string, string>): KeyValue[] {
   return Object.entries(headers).map(([key, value]) => ({

@@ -1,7 +1,10 @@
 import { AgentSuiteSchema } from '@shared/agent-lab';
 import { AgentTelemetryConfigSchema } from '@shared/agent-lab/telemetry-config';
 import { z } from 'zod';
-import { AiLabReportEnvelopeSchema } from '@/features/ai-lab/run-engine/reportEnvelope';
+import {
+  AiLabReportEnvelopeSchema,
+  ArenaRunReportSchema,
+} from '@/features/ai-lab/run-engine/reportEnvelope';
 import { ConsoleNativeDraftSchema } from '@/lib/shared/console-store-schemas';
 import type { Collection, Environment, Request, SpatialAccent } from '@/types';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
@@ -311,6 +314,9 @@ const AiLabProviderEnumSchema = z.enum([
   'ollama',
   'huggingface',
   'openai-compatible',
+  'azure-openai',
+  'gemini',
+  'bedrock',
 ]);
 
 const ModelRefSchema = z.object({
@@ -601,28 +607,8 @@ export const EvalRunStateSchema = z.object({
 
 export type PersistedEvalRunState = z.infer<typeof EvalRunStateSchema>;
 
-const ArenaMatchSchema = z.object({
-  a: z.string(),
-  b: z.string(),
-  winner: z.enum(['a', 'b', 'tie', 'error']),
-  error: z.string().optional(),
-});
-
-const ArenaRunSchema = z.object({
-  id: z.string(),
-  datasetId: z.string(),
-  datasetName: z.string(),
-  modelKeys: z.array(z.string()),
-  modelLabels: z.record(z.string(), z.string()),
-  matches: z.array(ArenaMatchSchema),
-  startedAt: z.number(),
-  finishedAt: z.number().optional(),
-  status: z.enum(['running', 'done', 'cancelled', 'error', 'partial']),
-  interrupted: z.boolean().optional(),
-});
-
 export const ArenaStateSchema = z.object({
-  runs: z.record(z.string(), ArenaRunSchema),
+  runs: z.record(z.string(), ArenaRunReportSchema),
 });
 
 export type PersistedArenaRunState = z.infer<typeof ArenaStateSchema>;

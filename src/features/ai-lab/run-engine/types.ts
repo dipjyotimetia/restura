@@ -1,4 +1,4 @@
-export type RunKind = 'eval' | 'agent-suite';
+export type RunKind = 'eval' | 'agent-suite' | 'arena';
 
 export type RunStatus =
   | 'queued'

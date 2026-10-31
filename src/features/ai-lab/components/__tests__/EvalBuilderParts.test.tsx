@@ -373,4 +373,34 @@ describe('EvalBuilder parts', () => {
     expect(onStop).toHaveBeenCalledOnce();
     expect(onRun).not.toHaveBeenCalled();
   });
+
+  it('offers Export for CLI when idle and enabled, and hides it while running (#1045)', () => {
+    const onExportForCli = vi.fn();
+    const props = {
+      progress: null,
+      error: null,
+      persistenceError: null,
+      lastRunId: null,
+      hasPendingReport: false,
+      passCount: 0,
+      onRun: vi.fn(),
+      onStop: vi.fn(),
+      onRetrySave: vi.fn(),
+      onOpenReport: vi.fn(),
+      onExportForCli,
+    };
+    const { rerender } = render(
+      <EvalRunControls {...props} running={false} runDisabledReason={null} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Export for CLI' }));
+    expect(onExportForCli).toHaveBeenCalledOnce();
+
+    rerender(
+      <EvalRunControls {...props} running={false} runDisabledReason="Pick a dataset to run." />
+    );
+    expect(screen.getByRole('button', { name: 'Export for CLI' })).toBeDisabled();
+
+    rerender(<EvalRunControls {...props} running runDisabledReason={null} />);
+    expect(screen.queryByRole('button', { name: 'Export for CLI' })).toBeNull();
+  });
 });

@@ -57,6 +57,9 @@ describe('provider registry', () => {
       'ollama',
       'openai-compatible',
       'huggingface',
+      'azure-openai',
+      'gemini',
+      'bedrock',
     ]);
   });
 });

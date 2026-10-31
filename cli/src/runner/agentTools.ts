@@ -1,10 +1,14 @@
 import {
+  A2aClient,
+  type A2aTransport,
   type AgentTool,
   type ContentBlock,
+  createA2aTool,
   createMcpTools,
   type ResolvedAgentTools,
   type ToolSource,
 } from '@shared/agent-lab';
+import { readBoundedText } from '@shared/protocol/ai/bounded-read';
 import type { HttpRequest } from '@shared/types';
 import type { AgentRuntimeManifest } from '../commands/agentRuntime.js';
 import { connectCliMcpClient } from './agentMcpClient.js';
@@ -69,8 +73,11 @@ export async function resolveCliAgentTools(
   // The pinned transport deliberately rejects process-wide proxy settings: a
   // normal CONNECT proxy resolves the final host itself and would defeat the
   // DNS-pinning invariant. Do not create it for suites with no network tools.
+  const a2aSources = sources.filter(
+    (source): source is Extract<ToolSource, { kind: 'a2a' }> => source.kind === 'a2a'
+  );
   const pinnedHttpSession =
-    requestedIds.size > 0 || mcpSources.length > 0
+    requestedIds.size > 0 || mcpSources.length > 0 || a2aSources.length > 0
       ? createPinnedMcpFetchSession(options.allowLocalhost)
       : undefined;
 
@@ -184,6 +191,30 @@ export async function resolveCliAgentTools(
       });
       tools.push(...mcpTools.map((tool) => ({ ...tool, permissionClass: 'read' as const })));
     }
+    for (const source of a2aSources) {
+      const runtimeSource = runtime.sources.find(
+        (candidate) => candidate.kind === 'a2a' && candidate.endpoint === source.endpoint
+      );
+      if (!runtimeSource || runtimeSource.kind !== 'a2a' || runtimeSource.readOnly !== true) {
+        throw new Error(`A2A tool source is not a read-only runtime binding: ${source.endpoint}`);
+      }
+      const client = new A2aClient(
+        source.endpoint,
+        pinnedA2aTransport(pinnedHttpSession!.fetch, options.timeoutMs),
+        {
+          headers: environmentHeaders(runtimeSource.headers, options.environment, runtimeSource.id),
+        }
+      );
+      // Like MCP, the manifest's readOnly: true is the operator's authorization to run unattended.
+      const tool = await createA2aTool(client, 'read', options.signal);
+      tools.push({
+        ...tool,
+        definition: {
+          ...tool.definition,
+          name: claimName(tool.definition.name, `A2A agent ${runtimeSource.id}`),
+        },
+      });
+    }
   } catch (error) {
     await Promise.allSettled(clients.map((client) => client.dispose()));
     await pinnedHttpSession?.dispose();
@@ -218,4 +249,44 @@ function outcomeToContent(
     ...(outcome.errorMessage ? { error: outcome.errorMessage } : {}),
   };
   return [{ type: 'json', value: envelope }];
+}
+
+/** A2A over the DNS-pinned session: redirects refused, bodies capped while streaming. */
+function pinnedA2aTransport(fetch: typeof globalThis.fetch, timeoutMs: number): A2aTransport {
+  return async (request, signal) => {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const response = await fetch(request.url, {
+      method: request.method,
+      headers: request.headers,
+      ...(request.body !== undefined ? { body: request.body } : {}),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    const body = await readBoundedText({
+      status: response.status,
+      statusText: response.statusText,
+      headers: {},
+      contentLengthHeader: response.headers.get('content-length'),
+      text: () => response.text(),
+      body: response.body,
+    });
+    return { status: response.status, body };
+  };
+}
+
+function environmentHeaders(
+  headers: Array<{ name: string; env: string }>,
+  environment: Readonly<Record<string, string | undefined>>,
+  sourceId: string
+): Record<string, string> {
+  const resolved: Record<string, string> = {};
+  for (const header of headers) {
+    const value = environment[header.env];
+    if (value === undefined || value === '') {
+      throw new AgentPreflightError(
+        `A2A source ${sourceId} header ${header.name} needs environment variable ${header.env}`
+      );
+    }
+    resolved[header.name] = value;
+  }
+  return resolved;
 }

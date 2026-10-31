@@ -1,8 +1,8 @@
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/proxy-limits';
 import { SseParser } from '@shared/protocol/sse-parser';
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
-import { ResponseTooLargeError, readErrorPreview } from './bounded-read';
-import { PROVIDER_ROUTES } from './provider-routes';
+import { ResponseTooLargeError, readBoundedText, readErrorPreview } from './bounded-read';
+import { PROVIDER_ROUTES, type ProviderRouteContext } from './provider-routes';
 import { getProviderModule } from './providers';
 import { detectUnredactedSecrets, scrubProviderError, scrubSecretText } from './redaction';
 import type { ChatRequestSpec, ChatStreamEvent } from './types';
@@ -37,7 +37,8 @@ function scrubEvent(ev: ChatStreamEvent, apiKey: string): ChatStreamEvent {
 export async function* executeAiChat(
   spec: ChatRequestSpec,
   fetcher: Fetcher,
-  secretResolver: SecretResolver
+  secretResolver: SecretResolver,
+  routeContext: ProviderRouteContext = {}
 ): AsyncGenerator<ChatStreamEvent, void, unknown> {
   // 1. Paranoia pass on outgoing messages.
   if (!spec.rawMode) {
@@ -75,9 +76,22 @@ export async function* executeAiChat(
     apiKey = resolved;
   }
 
-  // 3. Build provider request.
+  // 3. Build (and, for SigV4 providers, sign) the provider request.
   const route = PROVIDER_ROUTES[spec.provider];
-  const { url, headers, body } = route.buildRequest(spec, apiKey);
+  let built: ReturnType<typeof route.buildRequest>;
+  try {
+    built = route.buildRequest(spec, apiKey);
+    if (route.sign) built = await route.sign(built, apiKey, routeContext);
+  } catch (e) {
+    yield {
+      type: 'error',
+      code: 'guard',
+      message: scrubSecretText(e instanceof Error ? e.message : String(e), apiKey),
+    };
+    yield { type: 'done' };
+    return;
+  }
+  const { url, headers, body } = built;
 
   // 4. Fetch.
   let response: FetcherResponse;
@@ -120,6 +134,26 @@ export async function* executeAiChat(
     return;
   }
 
+  const decoder = getProviderModule(spec.provider).createDecoder(spec.model);
+  if (route.responseMode === 'json') {
+    // One JSON document (Bedrock Converse), capped while it streams in.
+    try {
+      const text = await readBoundedText(response);
+      for (const ev of decoder.feed(text)) yield scrubEvent(ev, apiKey);
+      for (const ev of decoder.flush()) yield scrubEvent(ev, apiKey);
+    } catch (e) {
+      yield {
+        type: 'error',
+        code: isAbortError(e, spec.signal) ? 'aborted' : 'network',
+        message: isAbortError(e, spec.signal)
+          ? 'Stream aborted.'
+          : scrubSecretText(e instanceof Error ? e.message : String(e), apiKey),
+      };
+      yield { type: 'done' };
+    }
+    return;
+  }
+
   if (!response.body) {
     yield { type: 'error', code: 'provider', message: 'No response body from provider.' };
     yield { type: 'done' };
@@ -127,7 +161,6 @@ export async function* executeAiChat(
   }
 
   // 5. Decode stream.
-  const decoder = getProviderModule(spec.provider).createDecoder(spec.model);
   const parser = new SseParser();
   const reader = response.body.getReader();
   let received = 0;
