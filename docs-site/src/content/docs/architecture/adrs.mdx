@@ -49,6 +49,7 @@ timeline
   2026-10-31 : 0037 — Agent Lab: suites, runtime and telemetry
              : 0038 — CLI judges and dataset evals
              : 0039 — One variable token grammar
+             : 0040 — Random install ID for Release Health
 ```
 
 <CardGrid>
@@ -246,6 +247,11 @@ timeline
     title="0039 — One variable token grammar"
     description="One {{name}} grammar in shared/variables/tokens.ts read by every resolver, the highlighter and both secret matchers; unknown non-plain text is not reported as unresolved; the app keeps its definition-order chaining while the CLI and streaming sends stay single pass."
     href="/architecture/adrs/0039-variable-token-grammar/"
+  />
+  <LinkCard
+    title="0040 — Random install ID for Release Health"
+    description="Desktop Release Health sessions carry a random, non-derived install ID so Sentry can count installs. Errors never carry it, the same opt-out deletes it, and the release smoke test reports as its own environment."
+    href="/architecture/adrs/0040-random-install-id-for-release-health/"
   />
 </CardGrid>
 

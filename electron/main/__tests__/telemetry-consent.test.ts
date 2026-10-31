@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
@@ -20,7 +20,11 @@ vi.mock('../lifecycle/sentry', () => ({ setSentryEnabled: vi.fn() }));
 
 import { ipcMain } from 'electron';
 import { setSentryEnabled } from '../lifecycle/sentry';
-import { readConsentSync, registerTelemetryConsentIPC } from '../lifecycle/telemetry-consent';
+import {
+  hasRecordedConsentSync,
+  readConsentSync,
+  registerTelemetryConsentIPC,
+} from '../lifecycle/telemetry-consent';
 
 const handleMock = ipcMain.handle as unknown as Mock;
 const setEnabledMock = setSentryEnabled as unknown as Mock;
@@ -39,6 +43,19 @@ describe('telemetry-consent', () => {
     mkdirSync(tmpDir, { recursive: true });
     handleMock.mockClear();
     setEnabledMock.mockClear();
+  });
+
+  it('hasRecordedConsentSync is true only for a saved boolean choice', () => {
+    const file = path.join(tmpDir, 'telemetry-consent.json');
+    expect(hasRecordedConsentSync()).toBe(false);
+    writeFileSync(file, 'not json');
+    expect(hasRecordedConsentSync()).toBe(false);
+    writeFileSync(file, JSON.stringify({}));
+    expect(hasRecordedConsentSync()).toBe(false);
+    writeFileSync(file, JSON.stringify({ errorsEnabled: true }));
+    expect(hasRecordedConsentSync()).toBe(true);
+    writeFileSync(file, JSON.stringify({ errorsEnabled: false }));
+    expect(hasRecordedConsentSync()).toBe(true);
   });
 
   it('readConsentSync defaults to true (opt-out) when no file exists', () => {

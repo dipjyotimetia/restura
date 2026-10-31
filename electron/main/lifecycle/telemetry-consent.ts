@@ -12,9 +12,9 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createLogger } from '@shared/runtime/logger';
 import { app, ipcMain } from 'electron';
 import { z } from 'zod';
-import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../../shared/channels';
 import { createValidatedHandler } from '../ipc/ipc-validators';
 import { setSentryEnabled } from './sentry';
@@ -37,6 +37,20 @@ export function readConsentSync(): boolean {
     // Missing / unreadable / corrupt → on by default. Absence is the normal
     // first-run case (no consent file yet), so this is not logged.
     return true;
+  }
+}
+
+/**
+ * Whether a choice has been saved. The renderer only saves one after loading the
+ * user's settings, so this is false on a first launch and for installs that only
+ * ever run as a headless MCP server, which have never shown the opt-out.
+ */
+export function hasRecordedConsentSync(): boolean {
+  try {
+    const raw = readFileSync(consentFilePath(), 'utf8');
+    return typeof (JSON.parse(raw) as { errorsEnabled?: unknown }).errorsEnabled === 'boolean';
+  } catch {
+    return false;
   }
 }
 

@@ -11,10 +11,13 @@ beforeEach(() => {
 async function load(
   isElectronValue: boolean,
   errorsEnabled: boolean,
-  options: { sentryImportFails?: boolean } = {}
+  options: { sentryImportFails?: boolean; hydrated?: boolean } = {}
 ) {
   let subscriber: ((s: { settings: { telemetry?: { errorsEnabled?: boolean } } }) => void) | null =
     null;
+  let hydrated = options.hydrated ?? true;
+  let finishHydration: (() => void) | null = null;
+  let currentEnabled = errorsEnabled;
   const logWarnMock = vi.fn();
 
   vi.doMock('@/lib/shared/platform', () => ({
@@ -34,10 +37,17 @@ async function load(
   const setConsentMock = vi.fn().mockResolvedValue({ ok: true });
   vi.doMock('@/store/useSettingsStore', () => ({
     useSettingsStore: {
-      getState: () => ({ settings: { telemetry: { errorsEnabled } } }),
+      getState: () => ({ settings: { telemetry: { errorsEnabled: currentEnabled } } }),
       subscribe: (cb: typeof subscriber) => {
         subscriber = cb;
         return () => {};
+      },
+      persist: {
+        hasHydrated: () => hydrated,
+        onFinishHydration: (cb: () => void) => {
+          finishHydration = cb;
+          return () => {};
+        },
       },
     },
   }));
@@ -71,6 +81,15 @@ async function load(
     get triggerStoreChange() {
       return subscriber;
     },
+    /** Mimics zustand persist: store update (subscribers), then the finish listeners. */
+    finishHydration(persistedEnabled: boolean) {
+      if (persistedEnabled !== currentEnabled) {
+        currentEnabled = persistedEnabled;
+        subscriber?.({ settings: { telemetry: { errorsEnabled: persistedEnabled } } });
+      }
+      hydrated = true;
+      finishHydration?.();
+    },
   };
 }
 
@@ -91,6 +110,46 @@ describe('initElectronSentry', () => {
     const { initElectronSentry, setConsentMock } = await load(true, false);
     await initElectronSentry();
     expect(setConsentMock).toHaveBeenCalledWith(false);
+  });
+
+  // The pre-hydration value is the default (true), not the user's choice. Pushing
+  // it would make main init Sentry and create an install id for someone opted out.
+  it('does not push the default before the settings store has hydrated', async () => {
+    const result = await load(true, true, { hydrated: false });
+    await result.initElectronSentry();
+    expect(result.setConsentMock).not.toHaveBeenCalled();
+  });
+
+  it('never pushes true for an opted-out user whose settings hydrate late', async () => {
+    const result = await load(true, true, { hydrated: false });
+    await result.initElectronSentry();
+    result.finishHydration(false);
+    expect(result.setConsentMock).toHaveBeenCalledTimes(1);
+    expect(result.setConsentMock).toHaveBeenCalledWith(false);
+  });
+
+  it('pushes true once hydration confirms the user is opted in', async () => {
+    const result = await load(true, true, { hydrated: false });
+    await result.initElectronSentry();
+    result.finishHydration(true);
+    expect(result.setConsentMock).toHaveBeenCalledTimes(1);
+    expect(result.setConsentMock).toHaveBeenCalledWith(true);
+  });
+
+  // Hydration can fail, leaving hasHydrated() false for good. Opting out must
+  // still work; opting in stays blocked because that is the safe direction.
+  it('honours an opt-out even if hydration never finishes', async () => {
+    const result = await load(true, true, { hydrated: false });
+    await result.initElectronSentry();
+    const cb = result.triggerStoreChange as (s: {
+      settings: { telemetry?: { errorsEnabled?: boolean } };
+    }) => void;
+    cb({ settings: { telemetry: { errorsEnabled: false } } });
+    expect(result.setConsentMock).toHaveBeenCalledWith(false);
+
+    result.setConsentMock.mockClear();
+    cb({ settings: { telemetry: { errorsEnabled: true } } });
+    expect(result.setConsentMock).not.toHaveBeenCalled();
   });
 
   it('pushes updated consent when the store changes mid-session', async () => {

@@ -9,6 +9,8 @@ import { Badge } from '@astrojs/starlight/components';
 
 <Badge text="Accepted · 2026-07-03" variant="success" />
 
+Amended by [ADR 0040](/architecture/adrs/0040-random-install-id-for-release-health/): Release Health sessions now carry a random per-install ID, which replaces this ADR's position on identifiers and unique-user counts.
+
 ## Context
 
 Restura needs enough operational signal to detect crashes and understand release health without compromising its promise of local-first, account-free API testing. Request URLs, headers, bodies, secrets, user identifiers, and behavioural profiles are out of scope.

@@ -38,22 +38,28 @@ function pushConsent(enabled: boolean): void {
 }
 
 /**
- * Push the current opt-in flag to main, then forward every change. The store
- * rehydrates from Dexie asynchronously, so the initial push may carry the
- * default (true); the subscription then catches the rehydrated value if it differs.
+ * Mirror the opt-in flag to main: once the store has rehydrated, then on every
+ * change. The store rehydrates from Dexie asynchronously and starts on the default
+ * (true), and a `true` push makes main init Sentry and create an install ID, so an
+ * opted-out user must never see one. An opt-out is always safe, so it goes through
+ * even if hydration never finishes (it can fail, leaving hasHydrated() false).
  */
 function subscribeConsent(): void {
   if (consentSubscribed) return;
   consentSubscribed = true;
-  let last = readConsent();
-  pushConsent(last);
+  const { persist } = useSettingsStore;
+  let last: boolean | undefined;
+  const push = (next: boolean): void => {
+    if (next === last) return;
+    last = next;
+    pushConsent(next);
+  };
   useSettingsStore.subscribe((state) => {
     const next = state.settings.telemetry?.errorsEnabled === true;
-    if (next !== last) {
-      last = next;
-      pushConsent(next);
-    }
+    if (!next || persist.hasHydrated()) push(next);
   });
+  if (persist.hasHydrated()) push(readConsent());
+  else persist.onFinishHydration(() => push(readConsent()));
 }
 
 export async function initElectronSentry(): Promise<void> {

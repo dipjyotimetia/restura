@@ -93,7 +93,7 @@ const onboardingSteps: OnboardingStep[] = [
     icon: <ShieldCheck className="h-7 w-7 text-emerald-400" />,
     title: 'Help Improve Restura',
     description:
-      'Anonymous crash & error reports help us fix bugs. Only the error message, stack, app version, and browser/OS info are sent — never your requests, URLs, headers, or response bodies.',
+      'Crash & error reports help us fix bugs. Only the error message, stack, app version, and browser/OS info are sent — never your requests, URLs, headers, or response bodies. On desktop this also sends session health with a random install ID, so we can count active installs.',
     tip: 'Change this anytime in Settings → Privacy.',
   },
 ];

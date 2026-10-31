@@ -192,7 +192,7 @@ Restura aims to follow security best practices:
 
 - **OWASP Top 10**: Protection against common vulnerabilities
 - **WCAG 2.1**: Accessibility compliance
-- **GDPR**: No personal data collected — crash reporting is opt-out and its anonymous session-health counts carry no identifier, IP, or URL
+- **GDPR**: Crash reporting is opt-out and carries no request data or URLs. Desktop session health carries a random install ID (not derived from the device or user, never attached to error reports, deleted on opt-out) and no IP; see [ADR 0040](docs/adr/0040-random-install-id-for-release-health.md)
 - **SOC 2**: Security controls in development
 
 ## Security-Related Configuration

@@ -120,7 +120,7 @@ The request URL itself is **not** redacted: the host and path reach the provider
 
 ## Telemetry and privacy
 
-Error reporting is **on by default and can be disabled in Settings → Privacy**. Desktop errors and native crashes go to Sentry only while that preference is enabled; tracing is disabled, `sendDefaultPii` is false, and the scrubber removes request context, hostnames, users, breadcrumb data, stack-frame locals, secrets, and file paths. The same opt-out also controls Sentry Release Health's anonymous desktop session counts (crash-free rate and version adoption); Restura does not create a per-user or device identifier.
+Error reporting is **on by default and can be disabled in Settings → Privacy**. Desktop errors and native crashes go to Sentry only while that preference is enabled; tracing is disabled, `sendDefaultPii` is false, and the scrubber removes request context, hostnames, users, breadcrumb data, stack-frame locals, secrets, and file paths. The same opt-out also controls Sentry Release Health's desktop session data (active installs, crash-free rate and version adoption). Sessions carry a random install ID that isn't derived from the device or user, is never attached to error reports, and is deleted on opt-out ([ADR 0040](/architecture/adrs/0040-random-install-id-for-release-health/)).
 
 For the hosted web app, `/api/telemetry/error` is a redacted, rate-limited, allowlist-only log sink and is never stored or forwarded to a third party. Self-hosted deployments collect no server-side usage telemetry. See [ADR 0027 — Telemetry and privacy-preserving usage signal](/architecture/adrs/0027-telemetry-and-privacy-preserving-usage-analytics/) for the full decision.
 
