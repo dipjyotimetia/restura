@@ -96,7 +96,9 @@ export function resolveStreamingText(
     if (options.json) scanJsonString(raw, json);
   };
   const report = (name: string) => {
-    if (!isPlainVariableName(name) && !scope.handleNames.has(name)) return;
+    const reportable =
+      isPlainVariableName(name) || scope.handleNames.has(name) || name.startsWith('handle:');
+    if (!reportable) return;
     if (!unresolved.includes(name)) unresolved.push(name);
   };
   const encode = (value: string) =>

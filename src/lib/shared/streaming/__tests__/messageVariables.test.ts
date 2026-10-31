@@ -108,6 +108,14 @@ describe('resolveStreamingText', () => {
       expect(out.unresolved).toEqual(['nope']);
     });
 
+    for (const name of ['handle:x', 'handle:a b']) {
+      it(`still reports {{${name}}}, which is sent literally`, () => {
+        const out = resolveStreamingText(`{{${name}}}`, empty);
+        expect(out.wire).toBe(`{{${name}}}`);
+        expect(out.unresolved).toEqual([name]);
+      });
+    }
+
     it('still reports a spaced name that is defined only as a handle', () => {
       const out = resolveStreamingText('{{my secret}}', {
         ...empty,
