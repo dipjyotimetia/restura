@@ -1,0 +1,86 @@
+name: Claude Security Review
+
+# Security review of each PR's diff on the Claude subscription
+# (CLAUDE_CODE_OAUTH_TOKEN), not a metered API key. This exists instead of
+# anthropics/claude-code-security-review, whose action only accepts an API key
+# (`claude-api-key`, exported as ANTHROPIC_API_KEY, plus direct Anthropic SDK
+# calls for its false-positive filter).
+#
+# Uses the repo's restura-security-auditor agent (SSRF guard, IPC validators,
+# SecretRef handles, sandboxes, ...) plus a general vulnerability pass. Cost
+# controls mirror claude-code-review.yml:
+#   - Runs once when a PR is opened / marked ready / reopened, NOT on every push.
+#     Re-run on demand with the `claude-security-review` label.
+#   - Skips drafts, bots (Dependabot included), forks (no secrets there), and
+#     markdown/lockfile-only changes.
+#   - Skips PRs whose body carries a `/ship-check` READY marker for the exact
+#     head sha (the local security auditor already ran). Only skips a review,
+#     never grants anything; the label always forces a run.
+#   - Cancels a superseded run for the same PR, caps turns and wall-clock time,
+#     and uses Sonnet.
+#   - Project hooks (.claude/settings.json) are disabled for the headless run.
+#
+# Findings are posted with the Claude GitHub App token obtained via OIDC
+# (`id-token: write`), so the workflow's own GITHUB_TOKEN stays read-only.
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened, labeled]
+    paths-ignore:
+      - '**/*.md'
+      - 'openwiki/**'
+      - '**/package-lock.json'
+
+permissions: {}
+
+jobs:
+  claude-security-review:
+    if: |
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.user.type != 'Bot' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action != 'labeled' || github.event.label.name == 'claude-security-review') &&
+      (github.event.action == 'labeled' || !contains(github.event.pull_request.body, format('restura:ship-check verdict=READY sha={0}', github.event.pull_request.head.sha)))
+    # Job-level so an unrelated `labeled` event (skipped by the `if`) can't
+    # cancel an in-flight review.
+    concurrency:
+      group: claude-security-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2 # HEAD is the PR merge ref; HEAD^1 is the base tip
+          persist-credentials: false
+
+      - name: Run Claude security review
+        uses: anthropics/claude-code-action@925afb53776cf1a2b738c6bdbed37b4d4000ef13 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          settings: '{"disableAllHooks": true}'
+          prompt: |
+            Security-review PR #${{ github.event.pull_request.number }}. You are running non-interactively in CI: never ask questions.
+
+            Scope: only the changes in `git diff HEAD^1...HEAD` (HEAD is the PR merge ref, HEAD^1 the base tip; there is no local `main`). Read touched files in full where context matters, but report only issues the PR introduces or makes reachable.
+
+            1. Delegate to the `restura-security-auditor` agent (Agent tool) for Restura's own invariants: SSRF guard, DNS/broker guards, Electron IPC validation, SecretRef handles, wire-time auth signing, header policy, sandboxes. Tell it the diff is `git diff HEAD^1...HEAD`.
+            2. Yourself, review the same diff for general vulnerabilities: injection (command, SQL, path traversal, template), authn/authz bypass, unsafe deserialization, XSS / unsafe HTML, secrets or tokens committed or logged, insecure crypto, and GitHub Actions risks (untrusted input in `run:`, `pull_request_target` misuse, over-broad permissions, unpinned third-party actions).
+            3. Filter hard. Keep a finding only if you are confident it is exploitable, with a concrete attack path. Drop: denial of service / resource exhaustion, missing rate limits, theoretical race conditions, outdated dependencies (Dependabot covers those), issues confined to test files or docs, missing hardening with no concrete exploit, and anything that is pre-existing and not touched by this PR.
+
+            Output:
+            - If nothing survives the filter, post nothing and stop.
+            - Otherwise write the report to `security-review.md` and post it as ONE comment with `gh pr comment ${{ github.event.pull_request.number }} --body-file security-review.md`. Start it with `# Security review` and a one-line count, then one entry per finding ranked by severity: severity (High / Medium), `file:line`, what is wrong, the attack path, and the minimal fix. Mark Restura residual risks the auditor says must be acknowledged (not fixed) as "Residual risk".
+            ${{ github.event.action == 'labeled' && format('- Re-run requested via the claude-security-review label: read earlier `# Security review` comments (`gh pr view {0} --comments`) and only report findings not already raised there.', github.event.pull_request.number) || '' }}
+          claude_args: >-
+            --model claude-sonnet-5-5
+            --max-turns 40
+            --allowedTools "Agent,Read,Glob,Grep,Write,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*)"
