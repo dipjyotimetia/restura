@@ -285,7 +285,7 @@ describe('runCollection — app sequencing pins', () => {
     expect(result.outcome).toBe('completed');
   });
 
-  it('stopOnFailure stops the run at a blocked runnable (row stays skipped, outcome failed)', async () => {
+  it('stopOnFailure stops the run at a blocked runnable and reports it as a failure', async () => {
     const result = await runCollection(
       {
         ...baseOptions([{ ...runnable('1', 'Blocked'), blocked: 'not sent' }, runnable('2', 'B')]),
@@ -294,7 +294,10 @@ describe('runCollection — app sequencing pins', () => {
       noop,
       new AbortController().signal
     );
-    expect(result.requests.map((r) => r.status)).toEqual(['skipped']);
+    expect(result.requests.map((r) => r.status)).toEqual(['failed']);
+    expect(result.requests[0]?.error).toBe('not sent');
+    // Run lists read summary.failed, so a stopped run must not look successful.
+    expect(result.summary.failed).toBe(1);
     expect(ran).toEqual([]);
     expect(result.outcome).toBe('failed');
   });

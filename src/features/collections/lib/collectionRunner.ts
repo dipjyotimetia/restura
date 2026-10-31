@@ -260,25 +260,26 @@ async function runCollectionWithPool(
       const protocol = protocolRegistry.get(protocolId);
 
       // Never sent, ignores delay and `setNextRequest`. Fails the run only when
-      // asked to (a blocked request under stopOnFailure, like the CLI's --bail).
-      const skip = (skippedReason: string, failed = false): StepOutcome => {
+      // asked to (a blocked request under stopOnFailure, like the CLI's --bail),
+      // and the row then says so: run lists read summary.failed.
+      const skip = (reason: string, failed = false): StepOutcome => {
         results.push({
           itemId: runnable.itemId,
           itemName: runnable.name,
           protocol: protocolId,
           iteration: iter,
-          status: 'skipped',
+          status: failed ? 'failed' : 'skipped',
           assertions: [],
-          skippedReason,
+          ...(failed ? { error: reason } : { skippedReason: reason }),
         });
         emit(false);
         return { failed, sent: false };
       };
 
       // Postman send guard (#1232): never sent, for every protocol. The CLI
-      // reports the same reason as a failed "not sent" result, so it counts
-      // toward stopOnFailure here too (the row itself stays `skipped`).
-      if (runnable.blocked) return skip(runnable.blocked, true);
+      // reports the same reason as a failed "not sent" result, so it counts as a
+      // failure under stopOnFailure here too. Otherwise the row is just skipped.
+      if (runnable.blocked) return skip(runnable.blocked, stopOnFailure);
 
       // Skip protocols without a usable single-shot runner.
       if (!protocol || STREAMING_PROTOCOLS.has(protocolId)) {
