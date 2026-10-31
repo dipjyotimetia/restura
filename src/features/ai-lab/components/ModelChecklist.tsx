@@ -131,7 +131,7 @@ export const ModelChecklist = memo(function ModelChecklist({
         {groups.map((group) => (
           <div key={group.name || '__ungrouped'}>
             {group.name && (
-              <div className="sticky top-0 z-10 -mx-1.5 bg-sp-surface-2/95 px-3 py-1 text-sp-10 font-semibold uppercase tracking-wide text-sp-muted backdrop-blur-sm">
+              <div className="sticky top-0 z-10 -mx-1.5 bg-sp-surface-hi px-3 py-1 text-sp-10 font-semibold text-sp-muted">
                 {group.name}
               </div>
             )}

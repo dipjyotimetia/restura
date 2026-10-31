@@ -90,7 +90,7 @@ export default function RequestLine({
         <Select value={method} onValueChange={(value) => onMethodChange(value as HttpMethod)}>
           <SelectTrigger
             className={cn(
-              'w-20 h-7 font-mono text-[11px] tracking-wider justify-between',
+              'w-20 h-7 font-mono text-[11px] justify-between',
               badgeVariants({ variant: METHOD_BADGE[method] }),
               'rounded-md px-2'
             )}

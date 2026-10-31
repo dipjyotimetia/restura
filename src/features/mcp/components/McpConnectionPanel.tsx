@@ -359,7 +359,7 @@ function ConnectionPill({ status }: { status: McpConnection['status'] }) {
 
   return (
     <span
-      className="inline-flex items-center gap-1.5 h-6 px-2 rounded-sp-btn font-mono font-bold text-sp-10 tracking-wider"
+      className="inline-flex items-center gap-1.5 h-6 px-2 rounded-sp-btn font-mono font-bold text-sp-10"
       style={{
         color: style.color,
         background: style.bg,

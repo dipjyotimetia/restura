@@ -254,7 +254,7 @@ export function SseEventTimeline({
                   <div className="min-w-0 flex items-center gap-2 flex-wrap">
                     <span
                       className={cn(
-                        'inline-flex items-center h-5 px-2 rounded-sp-chip font-mono font-bold text-sp-9 uppercase tracking-wide'
+                        'inline-flex items-center h-5 px-2 rounded-sp-chip font-mono font-bold text-sp-9'
                       )}
                       style={{
                         color: s.color,

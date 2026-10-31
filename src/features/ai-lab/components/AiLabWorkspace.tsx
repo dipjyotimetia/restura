@@ -148,7 +148,7 @@ export default function AiLabWorkspace() {
             aria-label="AI Lab sections"
             className="flex w-44 shrink-0 flex-col border-r border-sp-line bg-sp-surface-lo p-2 max-[1000px]:w-14"
           >
-            <div className="mb-2 px-2 pt-1 text-sp-9 font-semibold uppercase tracking-sp-label text-sp-dim max-[1000px]:sr-only">
+            <div className="mb-2 px-2 pt-1 text-sp-9 font-semibold text-sp-dim max-[1000px]:sr-only">
               Workbench
             </div>
             <div className="space-y-1">
@@ -199,9 +199,7 @@ export default function AiLabWorkspace() {
             </div>
 
             <div className="mt-auto border-t border-sp-line px-2 pt-2 max-[1000px]:hidden">
-              <div className="text-sp-9 font-semibold uppercase tracking-sp-label text-sp-dim">
-                Now viewing
-              </div>
+              <div className="text-sp-9 font-semibold text-sp-dim">Now viewing</div>
               <div className="mt-1 text-sp-11 font-medium text-sp-text">{current.label}</div>
               <div className="text-sp-9 text-sp-muted">{current.description}</div>
             </div>

@@ -48,7 +48,7 @@ function McpResult({ entry }: { entry: McpInvocationLog }) {
         <div className="flex items-center gap-2 min-w-0">
           <span className="sp-label">Result</span>
           <span
-            className="inline-flex items-center gap-1 px-1.5 h-5 rounded-[5px] font-mono font-bold text-sp-9 tracking-wider"
+            className="inline-flex items-center gap-1 px-1.5 h-5 rounded-[5px] font-mono font-bold text-sp-9"
             style={{
               color: isCancelled
                 ? 'var(--color-warning)'

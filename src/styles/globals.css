@@ -1,3 +1,6 @@
+/* Hallmark · checked: 2026-10-31 · genre: modern-minimal (inferred)
+ * floor: 0 FAIL · fixed: 31 (10a, 20, 29, 48, 67, 74, 26b, F24) · structural: none, layout kept
+ * built: the project · redesign: restyle · v2.0.0 */
 @import "@fontsource-variable/geist/index.css";
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
@@ -95,8 +98,8 @@
   --color-info: #2ba9c2;
   --color-neutral: #95a0ab;
 
-  /* slate-blue (custom) — override v4 defaults for violet/indigo with the
-     existing hex so this pass is zero-color-change (re-skin is a later phase). */
+  /* slate-blue (custom) neutrals, then violet/indigo as tuned OKLCH ramps
+     (chroma capped, shared lightness steps) instead of the stock Tailwind swatches. */
   --color-slate-blue-50: #f6f8fa;
   --color-slate-blue-100: #eaeef2;
   --color-slate-blue-200: #d0d7de;
@@ -108,28 +111,28 @@
   --color-slate-blue-800: #32383f;
   --color-slate-blue-900: #24292f;
   --color-slate-blue-950: #0a0c10;
-  --color-violet-50: #f5f3ff;
-  --color-violet-100: #ede9fe;
-  --color-violet-200: #ddd6fe;
-  --color-violet-300: #c4b5fd;
-  --color-violet-400: #a78bfa;
-  --color-violet-500: #8b5cf6;
-  --color-violet-600: #7c3aed;
-  --color-violet-700: #6d28d9;
-  --color-violet-800: #5b21b6;
-  --color-violet-900: #4c1d95;
-  --color-violet-950: #2e1065;
-  --color-indigo-50: #eef2ff;
-  --color-indigo-100: #e0e7ff;
-  --color-indigo-200: #c7d2fe;
-  --color-indigo-300: #a5b4fc;
-  --color-indigo-400: #818cf8;
-  --color-indigo-500: #6366f1;
-  --color-indigo-600: #4f46e5;
-  --color-indigo-700: #4338ca;
-  --color-indigo-800: #3730a3;
-  --color-indigo-900: #312e81;
-  --color-indigo-950: #1e1b4b;
+  --color-violet-50: oklch(97% 0.011 295);
+  --color-violet-100: oklch(94% 0.027 295);
+  --color-violet-200: oklch(88% 0.053 295);
+  --color-violet-300: oklch(80% 0.089 295);
+  --color-violet-400: oklch(72% 0.124 295);
+  --color-violet-500: oklch(63% 0.151 295);
+  --color-violet-600: oklch(55% 0.16 295);
+  --color-violet-700: oklch(47% 0.151 295);
+  --color-violet-800: oklch(39% 0.124 295);
+  --color-violet-900: oklch(32% 0.089 295);
+  --color-violet-950: oklch(22% 0.062 295);
+  --color-indigo-50: oklch(97% 0.011 268);
+  --color-indigo-100: oklch(94% 0.027 268);
+  --color-indigo-200: oklch(88% 0.053 268);
+  --color-indigo-300: oklch(80% 0.089 268);
+  --color-indigo-400: oklch(72% 0.124 268);
+  --color-indigo-500: oklch(63% 0.151 268);
+  --color-indigo-600: oklch(55% 0.16 268);
+  --color-indigo-700: oklch(47% 0.151 268);
+  --color-indigo-800: oklch(39% 0.124 268);
+  --color-indigo-900: oklch(32% 0.089 268);
+  --color-indigo-950: oklch(22% 0.062 268);
 
   /* Radius — override v4 defaults to the existing scale */
   --radius-lg: var(--radius);
@@ -146,7 +149,6 @@
   /* Letter spacing — override v4 defaults for tighter/tight */
   --tracking-tighter: -0.025em;
   --tracking-tight: -0.015em;
-  --tracking-sp-label: 0.06em;
 
   /* Font weight */
   --font-weight-medium-plus: 450;
@@ -188,16 +190,8 @@
   /* Animations + keyframes (emitted on use) */
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
-  --animate-glow-pulse: glow-pulse 4s ease-in-out infinite;
   --animate-shimmer: shimmer 2s infinite;
-  --animate-fade-in-up: fade-in-up 0.3s ease-out;
-  --animate-slide-in-right: slide-in-right 0.3s ease-out;
-  --animate-success-pulse: success-pulse 1s ease-in-out;
-  --animate-error-shake: error-shake 0.4s ease-in-out;
-  --animate-gradient-border: gradient-border 3s ease infinite;
   --animate-scale-in: scale-in 0.2s ease-out;
-  --animate-glow-border: glow-border 2s ease-in-out infinite;
-  --animate-status-appear: status-appear 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   --animate-sp-blink: sp-blink 1s steps(2, start) infinite;
   --animate-sp-slide-in-right: sp-slide-in-right 0.25s cubic-bezier(0.2, 0.7, 0.3, 1);
   --animate-sp-fade-in: sp-fade-in 0.18s ease-out;
@@ -206,27 +200,18 @@
 
   @keyframes accordion-down {
     from {
-      height: 0;
+      opacity: 0;
     }
     to {
-      height: var(--radix-accordion-content-height);
+      opacity: 1;
     }
   }
   @keyframes accordion-up {
     from {
-      height: var(--radix-accordion-content-height);
+      opacity: 1;
     }
     to {
-      height: 0;
-    }
-  }
-  @keyframes glow-pulse {
-    0%,
-    100% {
-      opacity: 0.5;
-    }
-    50% {
-      opacity: 0.8;
+      opacity: 0;
     }
   }
   @keyframes shimmer {
@@ -237,63 +222,6 @@
       transform: translateX(100%);
     }
   }
-  @keyframes fade-in-up {
-    0% {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  @keyframes slide-in-right {
-    0% {
-      transform: translateX(-10px);
-      opacity: 0;
-    }
-    100% {
-      transform: translateX(0);
-      opacity: 1;
-    }
-  }
-  @keyframes success-pulse {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 rgba(57, 178, 111, 0);
-    }
-    50% {
-      box-shadow: 0 0 0 8px rgba(57, 178, 111, 0.1);
-    }
-  }
-  @keyframes error-shake {
-    0%,
-    100% {
-      transform: translateX(0);
-    }
-    10%,
-    30%,
-    50%,
-    70%,
-    90% {
-      transform: translateX(-2px);
-    }
-    20%,
-    40%,
-    60%,
-    80% {
-      transform: translateX(2px);
-    }
-  }
-  @keyframes gradient-border {
-    0%,
-    100% {
-      background-position: 0% 50%;
-    }
-    50% {
-      background-position: 100% 50%;
-    }
-  }
   @keyframes scale-in {
     0% {
       transform: scale(0.95);
@@ -302,25 +230,6 @@
     100% {
       transform: scale(1);
       opacity: 1;
-    }
-  }
-  @keyframes glow-border {
-    0%,
-    100% {
-      opacity: 0.5;
-    }
-    50% {
-      opacity: 1;
-    }
-  }
-  @keyframes status-appear {
-    from {
-      opacity: 0;
-      transform: scale(0.8) translateY(-4px);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1) translateY(0);
     }
   }
   @keyframes sp-blink {
@@ -418,27 +327,15 @@
     --sp-accent-glow-26: color-mix(in oklch, var(--sp-accent) 15%, transparent);
     --sp-accent-glow-15: color-mix(in oklch, var(--sp-accent) 8%, transparent);
 
-    /* Subtle backdrop so frosted glass has depth to refract. light-dark() can't
-       wrap a gradient, so the dark variant is set via the .dark class below. */
-    --sp-bg-glow:
-      radial-gradient(
-        at 0% 0%,
-        color-mix(in oklch, var(--sp-accent) 6%, transparent),
-        transparent 45%
-      ),
-      radial-gradient(at 100% 100%, oklch(55% 0.06 262 / 0.05), transparent 45%), var(--sp-bg);
+    /* Chrome (top bar, sidebar, tab strip, status bar): a solid second neutral,
+       one step off the canvas, separated by hairlines. No blur, no translucency. */
+    --sp-chrome: light-dark(var(--sp-surface-hi), var(--sp-surface-lo));
+    --sp-bg-glow: var(--sp-bg);
   }
 
   .dark {
     /* Drives light-dark() to its dark branch (paired with :root color-scheme). */
     color-scheme: dark;
-    --sp-bg-glow:
-      radial-gradient(
-        at 0% 0%,
-        color-mix(in oklch, var(--sp-accent) 10%, transparent),
-        transparent 50%
-      ),
-      radial-gradient(at 100% 100%, oklch(60% 0.06 262 / 0.07), transparent 50%), var(--sp-bg);
   }
 }
 
@@ -449,7 +346,7 @@
   body {
     background: var(--sp-bg-glow);
     color: var(--sp-text);
-    font-family: "Geist Variable", "Geist", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-feature-settings:
@@ -487,26 +384,12 @@
     border: 1px solid var(--sp-line);
   }
 
-  /* Overlays only (dialogs, command palette, popovers) — these float ABOVE
-     content over a dimmed backdrop, so frosted glass + a restrained shadow are
-     correct here, unlike the solid inline data panels. */
+  /* Overlays (dialogs, command palette, popovers): a solid surface, a defined
+     edge and one tight shadow. No blur. */
   .sp-floater-lg {
-    background: rgba(255, 255, 255, 0.82);
-    backdrop-filter: blur(20px) saturate(150%);
-    -webkit-backdrop-filter: blur(20px) saturate(150%);
-    box-shadow:
-      0 10px 30px rgba(20, 30, 60, 0.12),
-      0 2px 8px rgba(20, 30, 60, 0.08);
+    background: var(--sp-surface);
     border: 1px solid var(--sp-line-strong);
-  }
-  .dark .sp-floater-lg {
-    background: rgba(26, 31, 42, 0.82);
-    backdrop-filter: blur(20px) saturate(160%);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    box-shadow:
-      0 16px 48px rgba(0, 0, 0, 0.6),
-      0 4px 12px rgba(0, 0, 0, 0.45);
-    border: 1px solid var(--sp-line-strong);
+    box-shadow: var(--shadow-elevation-2);
   }
 
   .sp-inset {
@@ -559,13 +442,12 @@
     animation-duration: 0.01ms;
   }
 
+  /* Selection/state marks: a hairline accent ring. No blur halo. */
   .sp-accent-glow {
-    box-shadow: 0 0 8px var(--sp-accent-glow-88);
+    box-shadow: 0 0 0 1px var(--sp-accent-glow-88);
   }
   .sp-accent-ring {
-    box-shadow:
-      0 0 0 1px var(--sp-accent-glow-33),
-      0 0 16px var(--sp-accent-glow-26);
+    box-shadow: 0 0 0 1px var(--sp-accent-glow-33);
   }
 
   /* Primary action CTA fill — the canonical Send/Invoke/Connect/Stream button.
@@ -577,8 +459,8 @@
 
   /* Variable highlight ({{varName}}) used across inputs/editors */
   .sp-variable {
-    background: rgba(216, 149, 61, 0.18);
-    color: #d8953d;
+    background: color-mix(in oklch, var(--color-warning) 18%, transparent);
+    color: var(--color-warning);
     padding: 0 4px;
     border-radius: 4px;
   }
@@ -587,11 +469,11 @@
      helper. Rendered in a warning red with a wavy underline so it reads as a
      problem before the request fires, distinct from the amber resolved token. */
   .sp-variable-unresolved {
-    background: rgba(213, 87, 83, 0.16);
-    color: #d55753;
+    background: color-mix(in oklch, var(--color-danger) 16%, transparent);
+    color: var(--color-danger);
     padding: 0 4px;
     border-radius: 4px;
-    text-decoration: underline wavy rgba(213, 87, 83, 0.7);
+    text-decoration: underline wavy color-mix(in oklch, var(--color-danger) 70%, transparent);
     text-underline-offset: 2px;
   }
 
@@ -599,23 +481,21 @@
      `!important` overrides the syntax-token color Monaco sets on the same span.
      Mirrors the .sp-variable / .sp-variable-unresolved palette above. */
   .monaco-var-resolved {
-    color: #d8953d !important;
+    color: var(--color-warning) !important;
     font-weight: 600;
   }
   .monaco-var-unresolved {
-    color: #d55753 !important;
+    color: var(--color-danger) !important;
     font-weight: 600;
-    text-decoration: underline wavy rgba(213, 87, 83, 0.7);
+    text-decoration: underline wavy color-mix(in oklch, var(--color-danger) 70%, transparent);
     text-underline-offset: 2px;
   }
 
-  /* Section labels (e.g. HEADERS, TIMING, STREAMING) */
+  /* Section labels (Headers, Timing, Streaming): body face, sentence case, untracked */
   .sp-label {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--sp-text-dim);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--sp-text-muted);
   }
 
   .contain-layout {
@@ -628,32 +508,15 @@
     contain: strict;
   }
 
-  /* Interactive floating menus — dropdowns, selects, context menus, the command
-     palette and selection popovers. These are surfaces you READ and PICK FROM
-     over arbitrary (often busy) page content, so legibility wins over the frost:
-     the surface is near-opaque (the old glass-2 at 66% let the page bleed
-     through and made highlighted items unreadable). A light blur is kept so the
-     family identity still reads at the edges, and the reduced-transparency block
-     below drops it to a fully solid surface. */
+  /* Interactive floating menus (dropdowns, selects, context menus, command
+     palette, popovers): solid, so highlighted items stay legible over busy content. */
   .sp-menu {
-    background: rgba(255, 255, 255, 0.97);
-    backdrop-filter: blur(16px) saturate(150%);
-    -webkit-backdrop-filter: blur(16px) saturate(150%);
-  }
-  .dark .sp-menu {
-    background: rgba(23, 27, 37, 0.97);
+    background: var(--sp-surface);
   }
 
-  /* Chrome material — top bar, sidebar, tab strip, status bar. Subtly frosted
-     over the backdrop so the glass identity reads at the window edges, while
-     the data panels stay solid for legibility. */
+  /* Chrome material: top bar, sidebar, tab strip, status bar. */
   .sp-chrome {
-    background: rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(20px) saturate(150%);
-    -webkit-backdrop-filter: blur(20px) saturate(150%);
-  }
-  .dark .sp-chrome {
-    background: rgba(18, 21, 28, 0.72);
+    background: var(--sp-chrome);
   }
 }
 
@@ -727,7 +590,15 @@ a,
 input,
 select,
 textarea {
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transition-property: color, background-color, border-color, box-shadow, opacity, translate;
+  transition-duration: 0.15s;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Pressed state: a 1px settle, so every button answers the click. */
+button:not(:disabled):active,
+[role="button"]:not([aria-disabled="true"]):active {
+  translate: 0 1px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -744,37 +615,14 @@ textarea {
   }
 }
 
-/* Reduced transparency (OS accessibility setting) — drop the frosted glass on
-   overlays + chrome to solid, legible surfaces. Mirrors prefers-reduced-motion.
-   Also removes the always-on backdrop-filter GPU cost for these users. */
-@media (prefers-reduced-transparency: reduce) {
-  .sp-menu,
-  .sp-chrome,
-  .sp-floater-lg {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    background: var(--sp-surface);
-  }
-  .dark .sp-chrome,
-  .dark .sp-floater-lg {
-    background: var(--sp-surface);
-  }
-}
-
 /* High contrast (OS accessibility setting) — strengthen hairlines and muted
    text so structure and de-emphasized copy stay legible. */
 @media (prefers-contrast: more) {
   :root {
-    --sp-line: rgba(14, 19, 32, 0.24);
-    --sp-line-strong: rgba(14, 19, 32, 0.42);
-    --sp-text-dim: rgba(14, 19, 32, 0.78);
-    --sp-text-muted: rgba(14, 19, 32, 0.88);
-  }
-  .dark {
-    --sp-line: rgba(255, 255, 255, 0.24);
-    --sp-line-strong: rgba(255, 255, 255, 0.42);
-    --sp-text-dim: rgba(238, 241, 249, 0.8);
-    --sp-text-muted: rgba(238, 241, 249, 0.9);
+    --sp-line: color-mix(in oklch, var(--sp-text) 30%, transparent);
+    --sp-line-strong: color-mix(in oklch, var(--sp-text) 50%, transparent);
+    --sp-text-dim: color-mix(in oklch, var(--sp-text) 80%, transparent);
+    --sp-text-muted: color-mix(in oklch, var(--sp-text) 90%, transparent);
   }
 }
 

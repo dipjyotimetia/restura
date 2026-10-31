@@ -441,9 +441,7 @@ export function ChatPanel({ onClose }: Props) {
       <MessageList messages={messages} />
       {toolCalls.length > 0 && (
         <div className="border-t border-border/40 p-2 space-y-2 max-h-60 overflow-auto">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground px-0.5">
-            Proposed actions
-          </div>
+          <div className="text-[10px] text-muted-foreground px-0.5">Proposed actions</div>
           {toolCalls.map((tc) => (
             <div key={tc.id} className="rounded-md border border-border/40 bg-muted/30 p-2">
               <div className="flex items-center gap-1.5 text-xs font-medium">

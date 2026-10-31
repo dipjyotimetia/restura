@@ -261,7 +261,7 @@ export default function FramesTab() {
                 <div
                   role="heading"
                   aria-level={3}
-                  className="sticky top-0 z-[1] flex items-center gap-2 px-3 py-1 bg-muted/80 backdrop-blur-sm border-y border-border/60 text-sp-11 font-mono uppercase tracking-wider text-muted-foreground"
+                  className="sticky top-0 z-[1] flex items-center gap-2 px-3 py-1 bg-muted border-y border-border/60 text-sp-11 font-mono uppercase text-muted-foreground"
                 >
                   <Cable className="h-3 w-3" aria-hidden="true" />
                   <span className="truncate max-w-[200px]">{group.id}</span>

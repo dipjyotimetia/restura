@@ -32,7 +32,7 @@ export function McpLogLevelPicker({
 
   return (
     <label className="inline-flex items-center gap-1.5 text-sp-11 text-sp-muted">
-      <span className="sp-label">LOG LEVEL</span>
+      <span className="sp-label">Log level</span>
       <select
         aria-label="Log level"
         value={level}

@@ -87,7 +87,7 @@ export function WindowFileDrop({ onFile }: { onFile: (file: File) => void }) {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center bg-sp-bg/60 backdrop-blur-[1px]"
+      className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center bg-sp-bg/60"
     >
       <div className="flex items-center gap-2 rounded-sp-panel border border-dashed border-sp-accent bg-sp-surface px-5 py-4 text-sp-13 text-sp-text shadow-lg">
         <FileDown className="h-4 w-4 text-sp-accent" />

@@ -103,7 +103,7 @@ export function SubTabBar<T extends string>({
               {t.badge && (
                 <span
                   className={cn(
-                    'inline-flex items-center h-4 px-1.5 rounded-[5px] text-sp-9 font-mono font-semibold uppercase tracking-wider transition-colors',
+                    'inline-flex items-center h-4 px-1.5 rounded-[5px] text-sp-9 font-mono font-semibold transition-colors',
                     selected
                       ? 'bg-[var(--sp-accent-glow-15)] text-sp-accent/90'
                       : 'bg-sp-surface-lo text-sp-dim group-hover:text-sp-muted'

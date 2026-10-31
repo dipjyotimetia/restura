@@ -73,7 +73,7 @@ export function MethodChip({
     <span
       ref={ref}
       className={cn(
-        'inline-flex items-center font-mono font-bold tabular-nums tracking-wide',
+        'inline-flex items-center font-mono font-bold tabular-nums',
         key && 'uppercase',
         size === 'sm'
           ? 'h-5 px-1.5 text-sp-9 rounded-sp-chip'
