@@ -54,7 +54,7 @@ export const AI_LAB_CAPABILITIES = {
     web: false,
     desktop: true,
     notes:
-      'Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible through cancellable keychain-backed IPC with conservative per-model capabilities and explicit user overrides. Headless CLI wires stateless OpenAI Responses and native Anthropic Messages. Gemini, Azure OpenAI, and Bedrock are adapter profiles only, not shipped transports.',
+      'Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, generic OpenAI-compatible, Azure OpenAI (v1 API, api-key), Google Gemini (streamGenerateContent) and Amazon Bedrock (Converse; Bedrock API key or IAM credentials signed with SigV4) through cancellable keychain-backed IPC with conservative per-model capabilities and explicit user overrides. Headless CLI wires stateless OpenAI Responses, native Anthropic Messages, and azure.openai / google.generateContent / aws.bedrock.converse over the same shared wire routes as desktop (env credentials; Azure and Bedrock endpoints from the runtime manifest). Azure, Gemini and Bedrock have no static price table: cost is unknown unless the manifest prices the model.',
   },
   'aiLab.agentRequestTools': {
     label: 'AI Lab agents using saved Restura HTTP requests as tools',

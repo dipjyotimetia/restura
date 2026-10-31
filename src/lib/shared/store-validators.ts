@@ -314,6 +314,9 @@ const AiLabProviderEnumSchema = z.enum([
   'ollama',
   'huggingface',
   'openai-compatible',
+  'azure-openai',
+  'gemini',
+  'bedrock',
 ]);
 
 const ModelRefSchema = z.object({

@@ -13,6 +13,9 @@ import {
   type AgentToolResolver,
   AnthropicMessagesAdapter,
   applyAgentBundleBaseline,
+  CHAT_WIRE_PROVIDERS,
+  ChatWireProviderAdapter,
+  type ChatWireProviderId,
   createAgentToolResolver,
   createFixtureToolSourceAdapter,
   createSandboxToolSourceAdapter,
@@ -70,14 +73,28 @@ const defaultDependencies: AgentEvalDependencies = {
   executeHttp,
 };
 
+const HEADLESS_PROVIDER_IDS = new Set<string>([
+  'openai.responses',
+  'anthropic.messages',
+  ...Object.keys(CHAT_WIRE_PROVIDERS),
+]);
+
 export function preflightAgentSuite(
   suite: AgentSuite,
   toolResolver: AgentToolResolver = createAgentToolResolver(),
   runtime?: AgentRuntimeManifest
 ): void {
   for (const agent of suite.agents) {
-    if (!['openai.responses', 'anthropic.messages'].includes(agent.model.providerId)) {
+    if (!HEADLESS_PROVIDER_IDS.has(agent.model.providerId)) {
       throw new Error(`headless provider adapter not registered: ${agent.model.providerId}`);
+    }
+    if (
+      agent.model.providerId === 'azure.openai' &&
+      !runtime?.providerEndpoints?.['azure.openai']
+    ) {
+      throw new Error(
+        'azure.openai needs the Azure resource endpoint under providerEndpoints in the runtime manifest'
+      );
     }
     if (agent.handoffs?.length) {
       throw new Error(
@@ -197,14 +214,19 @@ async function runAgentSuite(
 ): Promise<AgentSuiteReport> {
   const variables = options.env ? await dependencies.loadEnvironment(options.env) : {};
   const timeoutMs = numericFlag('--timeout', options.timeout ?? '30000');
+  const priceOverrides = runtime?.modelPrices ? { priceOverrides: runtime.modelPrices } : {};
   const providers = new ProviderRegistry([
-    new OpenAiResponsesAdapter({
-      fetcher: dependencies.fetcher,
-      ...(runtime?.modelPrices ? { priceOverrides: runtime.modelPrices } : {}),
-    }),
-    new AnthropicMessagesAdapter({
-      fetcher: dependencies.fetcher,
-      ...(runtime?.modelPrices ? { priceOverrides: runtime.modelPrices } : {}),
+    new OpenAiResponsesAdapter({ fetcher: dependencies.fetcher, ...priceOverrides }),
+    new AnthropicMessagesAdapter({ fetcher: dependencies.fetcher, ...priceOverrides }),
+    // Azure OpenAI, Gemini and Bedrock run over the same shared wire routes as desktop.
+    ...(Object.keys(CHAT_WIRE_PROVIDERS) as ChatWireProviderId[]).map((id) => {
+      const baseUrl = runtime?.providerEndpoints?.[id];
+      return new ChatWireProviderAdapter({
+        id,
+        fetcher: dependencies.fetcher,
+        ...(baseUrl ? { baseUrl } : {}),
+        ...priceOverrides,
+      });
     }),
   ]);
   // Tool-resolution refusals are invalid input (exit 2), but the runner records

@@ -40,6 +40,7 @@ import {
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import { createAgentTelemetryService } from '../lifecycle/agent-telemetry';
+import { smithyAwsRequestSigner } from '../security/aws-sigv4-smithy';
 import { createPinnedFetch, resolveSafeAddress } from '../security/safe-connect';
 import { resolveSecretHandle } from '../security/secret-handle-store';
 import { makeFetchFetcher } from './fetch-fetcher';
@@ -232,7 +233,8 @@ async function runStream(
     for await (const ev of executeAiChat(
       { ...spec, signal: activeStream.abort.signal },
       fetcher,
-      resolveSecretFn
+      resolveSecretFn,
+      { awsSigner: smithyAwsRequestSigner }
     )) {
       if (!isCurrent()) return;
       emitTo(activeStream.webContentsId, chunkChannel, ev);
@@ -330,7 +332,8 @@ export function registerAiLabHandlers(): void {
       const result = await runToCompletion(
         { ...buildSpec(data, resolvedAddress), signal: abort.signal },
         fetcher,
-        resolveSecretFn
+        resolveSecretFn,
+        { awsSigner: smithyAwsRequestSigner }
       );
       return { ok: true as const, result };
     } catch (e) {

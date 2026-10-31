@@ -4,7 +4,7 @@ import {
   type ModelCapabilities,
   migrateAgentSuite,
 } from '@shared/agent-lab';
-import { isHuggingFaceProvider, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
+import { hasStaticPricing, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -278,9 +278,8 @@ export const useAiLabStore = create<AiLabState>()(
           // openai-compatible) and HuggingFace (per-upstream pricing with no
           // static table) default to false — the AI Lab shows "cost unknown"
           // rather than a misleading $0.00 for paid-but-untabled models.
-          pricingKnown:
-            init.pricingKnown ??
-            (!isLocalProvider(init.provider) && !isHuggingFaceProvider(init.provider)),
+          // Enterprise platforms (Azure, Gemini, Bedrock) price per deployment/tier.
+          pricingKnown: init.pricingKnown ?? hasStaticPricing(init.provider),
           costPolicy: init.costPolicy ?? 'unknown',
           isLocal: isLocalProvider(init.provider),
           models: init.models ?? [],

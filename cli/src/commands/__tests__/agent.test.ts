@@ -327,6 +327,65 @@ describe('A2A tool source in CI (#1043)', () => {
   });
 });
 
+describe('enterprise provider transports in CI (#1044)', () => {
+  it('admits Gemini and Bedrock, and refuses Azure without a manifest endpoint', () => {
+    expect(() =>
+      preflightAgentSuite(suite({ providerId: 'google.generateContent' }))
+    ).not.toThrow();
+    expect(() => preflightAgentSuite(suite({ providerId: 'aws.bedrock.converse' }))).not.toThrow();
+    expect(() => preflightAgentSuite(suite({ providerId: 'azure.openai' }))).toThrow(
+      /providerEndpoints/
+    );
+    const manifest = AgentRuntimeManifestSchema.parse({
+      schemaVersion: 1,
+      sources: [],
+      providerEndpoints: { 'azure.openai': 'https://acme.openai.azure.com' },
+    });
+    expect(() =>
+      preflightAgentSuite(suite({ providerId: 'azure.openai' }), undefined, manifest)
+    ).not.toThrow();
+    expect(
+      AgentRuntimeManifestSchema.safeParse({
+        schemaVersion: 1,
+        sources: [],
+        providerEndpoints: { 'azure.openai': 'http://acme.openai.azure.com' },
+      }).success
+    ).toBe(false);
+  });
+
+  it('runs a Bedrock suite end to end over the shared Converse route', async () => {
+    const converse = JSON.stringify({
+      output: { message: { content: [{ text: 'hello' }] } },
+      usage: { inputTokens: 3, outputTokens: 1 },
+    });
+    const fetcher = vi.fn<Fetcher>().mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      contentLengthHeader: null,
+      text: async () => converse,
+    });
+    const deps = {
+      ...dependencies(
+        suite({
+          providerId: 'aws.bedrock.converse',
+          model: 'amazon.nova-x-v1:0',
+          credential: { source: 'env', name: 'AWS_BEARER_TOKEN_BEDROCK' },
+        }),
+        fetcher
+      ),
+      environment: { AWS_BEARER_TOKEN_BEDROCK: 'bedrock-key' },
+    };
+    const report = await evaluateAgentSuite('/suite.json', {}, deps);
+    expect(report.status).toBe('passed');
+    const sent = fetcher.mock.calls[0]![0];
+    expect(sent.url).toBe(
+      'https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.nova-x-v1%3A0/converse'
+    );
+    expect((sent.headers as Record<string, string>).Authorization).toBe('Bearer bedrock-key');
+  });
+});
+
 /** Dependencies serving a suite and runtime manifest by path. */
 function dependenciesWithFiles(files: Record<string, unknown>, fetcher: Fetcher) {
   const deps = dependencies({}, fetcher);
