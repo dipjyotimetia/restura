@@ -15,9 +15,9 @@ name: Claude Security Review
 #     Re-run on demand with the `claude-security-review` label.
 #   - Skips drafts, bots (Dependabot included), forks (no secrets there), and
 #     markdown/lockfile-only changes.
-#   - Skips PRs whose body carries a `/ship-check` READY marker for the exact
-#     head sha (the local security auditor already ran). Only skips a review,
-#     never grants anything; the label always forces a run.
+#   - Unlike claude-code-review.yml, a `/ship-check` READY marker does NOT
+#     skip this job: ship-check only runs the security auditor when the diff
+#     touches boundary paths, so READY is no proof a security review ran.
 #   - Cancels a superseded run for the same PR, caps turns and wall-clock time,
 #     and uses Sonnet.
 #   - Project hooks (.claude/settings.json) are disabled for the headless run.
@@ -42,8 +42,7 @@ jobs:
       github.event.pull_request.user.login != 'dependabot[bot]' &&
       github.event.pull_request.user.type != 'Bot' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (github.event.action != 'labeled' || github.event.label.name == 'claude-security-review') &&
-      (github.event.action == 'labeled' || !contains(github.event.pull_request.body, format('restura:ship-check verdict=READY sha={0}', github.event.pull_request.head.sha)))
+      (github.event.action != 'labeled' || github.event.label.name == 'claude-security-review')
     # Job-level so an unrelated `labeled` event (skipped by the `if`) can't
     # cancel an in-flight review.
     concurrency:
