@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   decodeMqttBinary,
   displayMqttBinary,
@@ -66,5 +66,33 @@ describe('mqttReasonCodes (MQTT-6)', () => {
     ).toBe(
       'Disconnected by server: Use another server (0x9C) — maintenance (server reference: b2)'
     );
+  });
+});
+
+describe('mqttPayload — remaining branches', () => {
+  it('decodes utf8 (default) binary fields as text bytes', () => {
+    expect(Array.from(decodeMqttBinary('hi', undefined))).toEqual([104, 105]);
+    expect(Array.from(decodeMqttBinary('hi', 'utf8'))).toEqual([104, 105]);
+    expect(mqttBinaryLength('é', 'utf8')).toBe(2);
+  });
+
+  it('stringifies a non-Error thrown by JSON.parse', () => {
+    const spy = vi.spyOn(JSON, 'parse').mockImplementation(() => {
+      throw 'plain string failure';
+    });
+    try {
+      expect(() => encodeMqttPayload('{}', 'json')).toThrow(
+        'Payload is not valid JSON: plain string failure'
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('describes a server disconnect with a code that is not in the table', () => {
+    expect(describeServerDisconnect({ reasonCode: 0xff })).toBe(
+      'Disconnected by server: Reason code 0xFF'
+    );
+    expect(mqttReasonCodeName(0x05)).toBe('Reason code 0x05');
   });
 });

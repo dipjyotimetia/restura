@@ -1,0 +1,55 @@
+---
+title: Debugging tools
+description: The console's network log, response comparison, the response visualizer, and restura:// deep links.
+---
+
+import { Aside, Badge } from '@astrojs/starlight/components';
+
+## Console
+
+Expand the console at the bottom of the window (<kbd>⌘⇧C</kbd> / <kbd>Ctrl+Shift+C</kbd>). It has these tabs:
+
+- **Network** — every request Restura sends, with method, status, timing and the request and response details. Credentials are redacted in what the console shows (cookie values appear as `[REDACTED]`).
+- **Frames** — messages from streaming connections, filterable by protocol and searchable, optionally grouped by connection.
+- **Timeline** — the same traffic across WebSocket, Socket.IO, SSE, Kafka and MQTT in one arrival-ordered view. See [Streaming timeline](/guides/streaming-timeline/).
+- **Disk** <Badge text="desktop only" variant="caution" /> — the persistent request log kept on disk (HTTP and gRPC, newest first), so you can look back at requests from earlier sessions and reopen one as a request.
+- **Scripts** — script output and test results for the runs in this session.
+
+You can pause the log, clear it, and export it from the console toolbar.
+
+## Comparing responses
+
+There are two ways to diff responses:
+
+- **Compare with previous** — once a request has an earlier response in history, the response toolbar's compare button diffs the two side by side. See [HTTP / REST](/protocols/http/#history--timing).
+- **Compare two console entries** — in the **Network** tab, tick the compare checkboxes on two entries, then use **Compare** in the entry detail pane to see a line-by-line diff of their responses.
+
+## Response visualizer
+
+A script can replace the response view with your own HTML. In a test (or pre-request) script, call `rs.visualizer.set(template, data)` (`pm.visualizer.set` also works); the response panel then offers a **Visualize** view that renders the template with your data.
+
+The template runs in a sandboxed iframe with scripts allowed, but with no same-origin access and a Content-Security-Policy that blocks every network request, so a template can't read Restura's state or call out. Only inline styles and scripts and `data:` images work, and the rendered document is capped at 1 MB. Inside the template, `pm.getData()` returns the data you passed. See [Scripts](/guides/scripts/).
+
+## Deep links <Badge text="desktop only" variant="caution" />
+
+The desktop app registers the `restura://` scheme. A deep link only opens an existing, reviewed UI action — it never sends a request or imports data without your confirmation.
+
+| Link | Opens |
+|---|---|
+| `restura://import?url=<encoded URL>&format=postman` | The import review for a collection fetched from a public HTTP(S) URL |
+| `restura://environment?id=<environment-id>` | An environment |
+| `restura://collection?id=<collection-id>` | A collection |
+| `restura://request?id=<saved-request-id>` | A saved request |
+| `restura://settings?section=security` | A Settings section |
+
+For `import`, `format` is optional and may be `postman`, `insomnia`, `openapi`, `opencollection`, `hoppscotch`, `bruno` or `http`. The source must be a public HTTP(S) URL without embedded credentials. Nothing is downloaded until you choose **Download and import**, and every redirect and target passes the normal URL, DNS and response-size checks.
+
+<Aside type="note">
+The canonical reference is [`docs/DEEP_LINKS.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/DEEP_LINKS.md).
+</Aside>
+
+## Related
+
+- [Streaming timeline](/guides/streaming-timeline/)
+- [Scripts](/guides/scripts/)
+- [Import & export](/guides/import-export/#desktop-deep-link-imports)

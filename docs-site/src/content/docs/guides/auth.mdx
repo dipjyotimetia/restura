@@ -56,9 +56,9 @@ HTTP Digest (RFC 7616) works on web, self-hosted, desktop, and the CLI. The firs
 - Desktop keychain passwords are resolved in the main process at send time. Web can't use keychain-stored passwords.
 - Digest applies to HTTP (and GraphQL over HTTP) requests. It isn’t used for SSE, WebSocket, gRPC, or GraphQL subscriptions.
 
-### NTLM <Badge text="desktop only" variant="caution" />
+### NTLM
 
-Enter a username and password, plus an optional domain and workstation. `DOMAIN\user` in the username field also works when the domain field is empty. The desktop app performs the NTLMv2 handshake when sending: a negotiate message, the server's `401` challenge, then the authenticate message. All three happen on the same connection.
+<Badge text="desktop only" variant="caution" /> Enter a username and password, plus an optional domain and workstation. `DOMAIN\user` in the username field also works when the domain field is empty. The desktop app performs the NTLMv2 handshake when sending: a negotiate message, the server's `401` challenge, then the authenticate message. All three happen on the same connection.
 
 - The first request carries no credentials. Only an HMAC proof is sent after the challenge; the password never goes on the wire.
 - The handshake stays on one HTTP/1.1 connection. If the server closes it after the challenge, the request fails with an error instead of retrying on a new connection. A request set to HTTP/2 fails, because NTLM can't run over HTTP/2.

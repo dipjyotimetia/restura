@@ -11,7 +11,7 @@ Restura ships from a **single React renderer** to web, desktop, and self-hosted 
 
 <CardGrid>
   <Card title="Web — Cloudflare" icon="rocket">
-    SPA on Cloudflare Pages → `fetch('/api/*')` → Cloudflare Worker (Hono) on `api.restura.dev` → upstream. Same-origin, no CORS friction.
+    SPA on Cloudflare Pages → `fetch('/api/*')` → Cloudflare Worker (Hono) on `api.restura.dev` → upstream. The Worker is cross-origin to the SPA and allows it through a CORS allowlist (`ALLOWED_ORIGIN`); the self-hosted Node server serves SPA and API on one origin.
   </Card>
   <Card title="Self-hosted — Node + Docker" icon="seti:docker">
     One Node process running the same Hono app that runs in the Worker. Serves both the SPA and `/api/*` on one port. Native WebSocket and CONNECT proxy adapters.
@@ -75,7 +75,7 @@ All global state lives in **Zustand** stores with the `persist` middleware. Stor
 - **Web** — `src/lib/shared/dexie-storage.ts` (IndexedDB via Dexie).
 - **Desktop** — `src/lib/shared/secure-storage.ts` (encrypted electron-store via IPC; key wrapped by Electron `safeStorage` → OS keychain).
 
-Secret-bearing fields use the **`SecretRef` handle pattern** — see [ADR 0007](/architecture/adrs/) — so plaintext never enters the Zustand store, the persistence layer, or exported collections.
+Secret-bearing fields use the **`SecretRef` handle pattern** — see [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/) — so plaintext never enters the Zustand store, the persistence layer, or exported collections.
 
 ## Capability parity is data-driven
 

@@ -176,3 +176,175 @@ describe('useMqttStore', () => {
     });
   });
 });
+
+describe('useMqttStore — missing connections and edge branches', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  const snapshot = () => useMqttStore.getState().connections;
+
+  it('ignores every per-connection mutation for an unknown id', () => {
+    const s = useMqttStore.getState();
+    const before = snapshot();
+    s.updateConnection('nope', { name: 'x' });
+    s.updateTls('nope', { caPath: '/a' });
+    s.updateLwt('nope', { topic: 't', payload: '', qos: 0, retain: false });
+    s.updateStatus('nope', 'connected');
+    s.upsertSubscription('nope', { topicFilter: 'a', requestedQos: 0, status: 'subscribing' });
+    s.patchSubscription('nope', 'a', { status: 'subscribed' });
+    s.removeSubscription('nope', 'a');
+    s.addMessage('nope', { direction: 'sent', topic: 't', payload: 'p', qos: 0, retain: false });
+    s.addMessages('nope', [{ direction: 'sent', topic: 't', payload: 'p', qos: 0, retain: false }]);
+    s.clearMessages('nope');
+    expect(useMqttStore.getState().connections).toBe(before);
+  });
+
+  it('addMessages with an empty batch leaves state untouched', () => {
+    const id = useMqttStore.getState().createConnection();
+    const before = snapshot();
+    useMqttStore.getState().addMessages(id, []);
+    expect(snapshot()).toBe(before);
+  });
+
+  it('updateTls / updateLwt set and then clear their blocks', () => {
+    const s = useMqttStore.getState();
+    const id = s.createConnection();
+    s.updateTls(id, { caPath: '/ca' });
+    s.updateLwt(id, { topic: 't', payload: 'p', qos: 1, retain: true });
+    expect(snapshot()[id]).toMatchObject({ tls: { caPath: '/ca' }, lwt: { topic: 't' } });
+    s.updateTls(id, undefined);
+    s.updateLwt(id, undefined);
+    expect(snapshot()[id]).not.toHaveProperty('tls');
+    expect(snapshot()[id]).not.toHaveProperty('lwt');
+  });
+
+  it('clearMessages empties the log', () => {
+    const s = useMqttStore.getState();
+    const id = s.createConnection();
+    s.addMessage(id, { direction: 'sent', topic: 't', payload: 'p', qos: 0, retain: false });
+    s.clearMessages(id);
+    expect(snapshot()[id]?.messages).toEqual([]);
+  });
+
+  it('keeps an explicit message timestamp and stamps one otherwise', () => {
+    const s = useMqttStore.getState();
+    const id = s.createConnection();
+    s.addMessage(id, {
+      direction: 'received',
+      topic: 't',
+      payload: 'p',
+      qos: 0,
+      retain: false,
+      timestamp: 42,
+    });
+    s.addMessages(id, [
+      { direction: 'received', topic: 't', payload: 'q', qos: 0, retain: false, timestamp: 43 },
+      { direction: 'received', topic: 't', payload: 'r', qos: 0, retain: false },
+    ]);
+    const [a, b, c] = snapshot()[id]!.messages;
+    expect(a?.timestamp).toBe(42);
+    expect(b?.timestamp).toBe(43);
+    expect(c?.timestamp).toBeGreaterThan(43);
+  });
+
+  it('maps directions to console frames and flags errors on the timeline', () => {
+    const frames = vi.spyOn(useConsoleStore.getState(), 'addFrame');
+    const s = useMqttStore.getState();
+    const id = s.createConnection();
+    s.addMessage(id, { direction: 'sent', topic: 'o', payload: '1', qos: 0, retain: false });
+    s.addMessage(id, {
+      direction: 'system',
+      topic: 's',
+      payload: 'oops',
+      qos: 0,
+      retain: false,
+      error: 'oops',
+    });
+    expect(frames.mock.calls.map((c) => c[0].direction)).toEqual(['out', 'system']);
+    frames.mockRestore();
+  });
+
+  it('removeConnection clears the tab mapping and only resets active when it matches', () => {
+    const s = useMqttStore.getState();
+    const a = s.ensureConnectionForTab('tab-A');
+    const b = s.ensureConnectionForTab('tab-B');
+    expect(useMqttStore.getState().activeConnectionId).toBe(b);
+    useMqttStore.getState().removeConnection(a);
+    expect(useMqttStore.getState().connectionByTabId).toEqual({ 'tab-B': b });
+    expect(useMqttStore.getState().activeConnectionId).toBe(b);
+    useMqttStore.getState().removeConnection(b);
+    expect(useMqttStore.getState().activeConnectionId).toBeNull();
+  });
+
+  it('cleanupConnectionForTab keeps active when another connection is active, ignores unknown tabs', () => {
+    const s = useMqttStore.getState();
+    const a = s.ensureConnectionForTab('tab-A');
+    const b = s.ensureConnectionForTab('tab-B');
+    useMqttStore.getState().cleanupConnectionForTab('tab-A');
+    expect(useMqttStore.getState().activeConnectionId).toBe(b);
+    const before = snapshot();
+    useMqttStore.getState().cleanupConnectionForTab('never-bound');
+    expect(snapshot()).toBe(before);
+    expect(snapshot()[a]).toBeUndefined();
+    useMqttStore.getState().cleanupConnectionForTab('tab-B');
+    expect(useMqttStore.getState().activeConnectionId).toBeNull();
+  });
+
+  it('ensureConnectionForTab re-activates a tab connection and recreates a stale mapping', () => {
+    const s = useMqttStore.getState();
+    const a = s.ensureConnectionForTab('tab-A');
+    s.ensureConnectionForTab('tab-B');
+    expect(useMqttStore.getState().ensureConnectionForTab('tab-A')).toBe(a);
+    expect(useMqttStore.getState().activeConnectionId).toBe(a);
+
+    useMqttStore.setState({ connections: {} });
+    const fresh = useMqttStore.getState().ensureConnectionForTab('tab-A');
+    expect(fresh).not.toBe(a);
+    expect(useMqttStore.getState().connectionByTabId['tab-A']).toBe(fresh);
+  });
+
+  it('getActiveConnection resolves the active connection or null', () => {
+    const s = useMqttStore.getState();
+    expect(s.getActiveConnection()).toBeNull();
+    const id = s.createConnection();
+    expect(useMqttStore.getState().getActiveConnection()?.id).toBe(id);
+    useMqttStore.getState().setActiveConnection('ghost');
+    expect(useMqttStore.getState().getActiveConnection()).toBeNull();
+    useMqttStore.getState().setActiveConnection(null);
+    expect(useMqttStore.getState().getActiveConnection()).toBeNull();
+  });
+
+  it('getFilteredMessages returns [] for unknown ids and ignores whitespace-only queries', () => {
+    const s = useMqttStore.getState();
+    expect(s.getFilteredMessages('ghost')).toEqual([]);
+    const id = s.createConnection();
+    s.addMessage(id, { direction: 'sent', topic: 'T', payload: 'P', qos: 0, retain: false });
+    useMqttStore.getState().setSearchQuery('   ');
+    expect(useMqttStore.getState().getFilteredMessages(id)).toHaveLength(1);
+    useMqttStore.getState().setSearchQuery('t');
+    expect(useMqttStore.getState().getFilteredMessages(id)).toHaveLength(1);
+    useMqttStore.getState().setSearchQuery('zzz');
+    expect(useMqttStore.getState().getFilteredMessages(id)).toHaveLength(0);
+  });
+
+  it('createConnection accepts name, broker url and client id overrides', () => {
+    const id = useMqttStore
+      .getState()
+      .createConnection({ name: 'N', brokerUrl: 'mqtts://b', clientId: 'cid' });
+    expect(snapshot()[id]).toMatchObject({ name: 'N', brokerUrl: 'mqtts://b', clientId: 'cid' });
+  });
+
+  it('tolerates a message whose payload is missing when building console frames', () => {
+    const frames = vi.spyOn(useConsoleStore.getState(), 'addFrame');
+    const id = useMqttStore.getState().createConnection();
+    useMqttStore.getState().addMessage(id, {
+      direction: 'received',
+      topic: 't',
+      qos: 0,
+      retain: false,
+    } as never);
+    expect(frames.mock.calls.at(-1)?.[0].payload).toBe('');
+    frames.mockRestore();
+  });
+});

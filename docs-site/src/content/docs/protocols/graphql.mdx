@@ -1,6 +1,6 @@
 ---
 title: GraphQL
-description: Query builder with schema introspection, variables, subscriptions, and persisted documents.
+description: Query builder with schema introspection, schema import, multi-operation documents, variables, and subscriptions.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
@@ -18,7 +18,6 @@ GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can int
 - **`@defer` / `@stream` (incremental delivery)** — `multipart/mixed` responses are parsed and their parts merged into a single `{ data, errors, extensions }` result. Both the `deferSpec=20220824` format (Apollo, graphql-yoga) and the newer `pending`/`completed` format are supported. A notice above the body shows how many parts were merged. Test scripts and history see the merged JSON rather than the raw multipart body.
 - **Variables** — separate JSON editor; resolves environment placeholders (`{{userId}}`).
 - **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at send time.
-- **Persisted queries** — send by hash if the server supports it.
 - **Authentication** — the same auth schemes as HTTP. Most teams ship a Bearer token here.
 - **Headers** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; header values resolve `{{variables}}`.
 - **Subscriptions** — over WebSocket (`graphql-transport-ws`, or Apollo's legacy `subscriptions-transport-ws`) or `graphql-sse`, picked per request with the **Protocol** selector in the **Messages** tab (default **Auto**). Live events stream into the response panel. On desktop the socket is tunnelled over the WebSocket IPC bridge and graphql-sse over the SSE IPC handler (the packaged CSP blocks renderer `ws:`/`wss:`/`http:`), with header auth carried on the handshake.
@@ -53,7 +52,10 @@ Only header-shaped auth applies to a subscription handshake: Bearer, Basic, API 
 ## Editor features
 
 - Syntax highlighting + bracket matching.
-- Auto-format (`Cmd+Shift+F` / `Ctrl+Shift+F`).
+- **Prettify** — the button in the editor toolbar reformats the document (there is no keyboard shortcut for it).
+- **Download SDL** — the toolbar button saves the loaded schema as an `.graphql` SDL file.
+- **Click-to-insert** — selecting a field in the schema explorer appends it to the end of the query.
+- **Errors on a 200** — a response whose body contains a GraphQL `errors` array raises an error toast, and every entry is listed in the response panel's **Errors** tab (with locations marked in the editor).
 - Inline error markers when the document doesn't validate against the schema.
 - Operation chips to switch between operations when the document defines several.
 - `Cmd+Enter` / `Ctrl+Enter` inside the query editor runs the operation under the cursor (selecting it); elsewhere it runs the selected operation.

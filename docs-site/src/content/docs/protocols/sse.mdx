@@ -1,11 +1,11 @@
 ---
 title: Server-Sent Events (SSE)
-description: Live event stream viewer with reconnection, event-type filtering, and history.
+description: Live event stream viewer with reconnection, event-type filtering, and log export.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-A purpose-built viewer for `text/event-stream` endpoints. Connect, watch events flow in, filter by event type, and replay later.
+A purpose-built viewer for `text/event-stream` endpoints. Connect, watch events flow in, filter by event type, and export the log.
 
 ## What works
 
@@ -54,7 +54,7 @@ Reconnection is **automatic** (WHATWG §9.2.3) while **Auto-reconnect** is on (t
 ## Tips
 
 - Many AI providers (OpenAI, Anthropic, OpenRouter) stream completions over SSE. Restura's [AI assistant](/guides/ai-assistant/) does this internally.
-- Use [scripts](/guides/scripts/) to assert on event payloads — `pm.test("got a hello event", () => ...)` style.
+- Stream assertions are not available in the app yet (SSE writes no request history and has no script hook). In the [CLI](/reference/cli/), SSE requests in a collection can assert on the captured stream from test scripts via `streamEvents`.
 
 ## Test it locally
 
