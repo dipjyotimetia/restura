@@ -9,10 +9,13 @@ import {
 import { applyVarMutations } from '@shared/collections/variable-mutations';
 import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
 import type { HttpRequest } from '@shared/types';
+import { lookupVariable } from '@shared/variables/resolver';
+import { scanVariableTokens } from '@shared/variables/tokens';
 import type { Reporter, RequestRunResult, RunMeta, RunResult } from '../reporters/types.js';
 import { type LoadedRequest, loadCollection } from './collectionLoader.js';
 import type { CliIterationRow } from './dataLoader.js';
 import { executeRequest } from './executors/dispatch.js';
+import type { ExecuteOutcome } from './executors/types.js';
 import { applyFilters, type FilterOptions } from './filter.js';
 import { CliMcpSessionPool } from './mcpSession.js';
 import { formatImportReport, importReportSize } from './postmanImport.js';
@@ -306,6 +309,8 @@ async function runCollectionWithSessions(
         };
       }
 
+      // A refusal thrown while resolving a value written at run time fails this
+      // item; the rest of the run and its report carry on.
       const outcome = await withRetry(
         () =>
           executeRequest(sendItem, {
@@ -325,6 +330,14 @@ async function runCollectionWithSessions(
               : {}),
           }),
         retry
+      ).catch(
+        (err: unknown): ExecuteOutcome => ({
+          status: 0,
+          passed: false,
+          durationMs: 0,
+          bodyBytes: 0,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        })
       );
 
       if (testScript) {
@@ -446,25 +459,46 @@ async function runCollectionWithSessions(
   return final;
 }
 
+/** Every string in a request, object keys included: a header map can hold a token as a key. */
+function* stringLeaves(value: unknown): Generator<string> {
+  if (typeof value === 'string') {
+    yield value;
+  } else if (Array.isArray(value)) {
+    for (const entry of value) yield* stringLeaves(entry);
+  } else if (value && typeof value === 'object') {
+    for (const [key, entry] of Object.entries(value)) {
+      yield key;
+      yield* stringLeaves(entry);
+    }
+  }
+}
+
+/**
+ * The run's only enforcement of the private-name refusal (executors do not pass
+ * `resolveVarsDeep` its third argument), so it refuses before anything is sent. It
+ * reads a request's own fields; a value a script writes at run time is not on disk
+ * and fails that one item instead (see the `executeRequest` call above).
+ */
 function assertCliSecretsAvailable(
   requests: readonly { request: unknown }[],
   vars: Record<string, string>,
   privateNames: ReadonlySet<string>
 ): void {
   for (const { request } of requests) {
-    const text = JSON.stringify(request);
-    for (const match of text.matchAll(/\{\{\s*([^{}\s]+)\s*\}\}/g)) {
-      const name = match[1];
-      if (!name || name.startsWith('$')) continue;
-      if (name.startsWith('handle:')) {
-        throw new Error(
-          'SecretRef handles are unavailable in the CLI; provide the value with --env.'
-        );
-      }
-      if (privateNames.has(name) && vars[name] === undefined) {
-        throw new Error(
-          `Private variable "${name}" is unavailable in the CLI; provide it with --env.`
-        );
+    for (const text of stringLeaves(request)) {
+      if (!text.includes('{{')) continue;
+      for (const { name } of scanVariableTokens(text)) {
+        if (name.startsWith('$')) continue;
+        if (name.startsWith('handle:')) {
+          throw new Error(
+            'SecretRef handles are unavailable in the CLI; provide the value with --env.'
+          );
+        }
+        if (privateNames.has(name) && lookupVariable([vars], name) === undefined) {
+          throw new Error(
+            `Private variable "${name}" is unavailable in the CLI; provide it with --env.`
+          );
+        }
       }
     }
   }
