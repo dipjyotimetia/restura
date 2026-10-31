@@ -1,6 +1,12 @@
-import type { ProxyBodyType } from '@shared/protocol/body-builder';
 import { PROXY_STREAM_MARKER_HEADER } from '@shared/protocol/proxy-limits';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
+import {
+  applyBodyDefaultHeaders,
+  buildProxyBody,
+  buildProxyFormFields,
+  collectEnabledRows,
+  mapProxyBodyType,
+} from '@shared/protocol/request-spec';
 import {
   decodeSetCookieSideChannel,
   responseSetCookies,
@@ -51,14 +57,7 @@ import {
 import { makeVaultAdapter } from '@/lib/shared/vaultClient';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type {
-  Response as ApiResponse,
-  AppSettings,
-  FormDataItem,
-  HttpRequest,
-  BodyType as RendererBodyType,
-  RequestSettings,
-} from '@/types';
+import type { Response as ApiResponse, AppSettings, HttpRequest, RequestSettings } from '@/types';
 
 export interface RequestExecutionResult {
   response: ApiResponse;
@@ -148,7 +147,12 @@ interface BuiltSpec {
 // (`@/features/http/lib/requestExecutor`) keep working. The fold itself lives in
 // effectiveSettings.ts so the per-request editor can share it without pulling
 // this module's heavy deps. See globalSettingsToRequestSettings.
-export { resolveEffectiveSettings };
+// Same treatment: the shared request-to-spec step, under the names existing sites use.
+export {
+  buildProxyFormFields as buildFormFields,
+  mapProxyBodyType as mapBodyType,
+  resolveEffectiveSettings,
+};
 
 /**
  * Assemble the desktop-only transport config from per-request settings,
@@ -262,34 +266,17 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     throw new Error(`Invalid URL: ${urlValidation.error}`);
   }
 
-  const params: Record<string, string> = {};
-  request.params
-    .filter((p) => p.enabled && p.key)
-    .forEach((p) => {
-      params[p.key] = resolveLocal(p.value);
-    });
+  const params = collectEnabledRows(request.params, (p) => resolveLocal(p.value));
+  const headers = applyBodyDefaultHeaders(
+    request.body.type,
+    collectEnabledRows(request.headers, (h) => resolveLocal(h.value))
+  );
 
-  const headers: Record<string, string> = {};
-  request.headers
-    .filter((h) => h.enabled && h.key)
-    .forEach((h) => {
-      headers[h.key] = resolveLocal(h.value);
-    });
-  // XML travels as a 'raw' proxy body, which sets no Content-Type of its own.
-  if (
-    request.body.type === 'xml' &&
-    !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')
-  ) {
-    headers['Content-Type'] = 'application/xml';
-  }
-
-  // {{vars}} in the body resolve like the URL/params/headers do (the CLI
-  // already does this). Binary bodies hold base64 bytes and are never touched;
-  // desktop secret handles stay opaque via resolveLocal.
-  const resolvedRaw =
-    request.body.raw !== undefined && request.body.type !== 'binary'
-      ? resolveLocal(request.body.raw)
-      : request.body.raw;
+  // {{vars}} in the body resolve like the URL/params/headers do. Binary bodies
+  // hold base64 bytes and are never touched; file parts likewise; desktop secret
+  // handles stay opaque via resolveLocal. Built once, so a dynamic in the body is
+  // the same value here and on the wire.
+  const builtBody = buildProxyBody(request.body, { resolve: resolveLocal });
 
   // Resolve {{vars}} in every auth type with the same scope as the URL/headers/
   // body (secret-variable tokens and handle SecretRefs stay opaque for main).
@@ -316,13 +303,7 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     );
   const headersWithAuth = deferBasic
     ? { headers, requiresMainSideApply: true }
-    : await applyAuthHeaders(
-        effectiveAuth,
-        headers,
-        resolvedUrl,
-        request.method,
-        request.body.type !== 'none' ? resolvedRaw : undefined
-      );
+    : await applyAuthHeaders(effectiveAuth, headers, resolvedUrl, request.method, builtBody.data);
   assertHandleSupported(headersWithAuth);
   Object.assign(headers, headersWithAuth.headers);
 
@@ -366,39 +347,12 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     redirectPolicy.maxRedirects = effectiveSettings.maxRedirects;
   }
 
-  const proxyBodyType = mapBodyType(request.body.type);
-  // form-data carries structured fields (with base64 file content) instead of a
-  // raw string; everything else (incl. binary, whose base64 lives in `raw`) uses `data`.
-  // Text fields resolve {{vars}} like the rest of the request; file parts
-  // carry base64 bytes and are never touched. Imported collections
-  // (OpenCollection, Bruno, Insomnia, …) carry urlencoded bodies as
-  // structured text fields rather than a raw string, as the CLI already
-  // honours; send those fields, falling back to `raw`.
-  const resolveTextFields = (items: FormDataItem[] | undefined) =>
-    items?.map((item) =>
-      item.type === 'file' ? item : { ...item, value: resolveLocal(item.value) }
-    );
-  const formFields =
-    proxyBodyType === 'form-data'
-      ? buildFormFields(resolveTextFields(request.body.formData))
-      : proxyBodyType === 'form-urlencoded'
-        ? buildFormFields(
-            resolveTextFields(request.body.formData?.filter((f) => f.type !== 'file'))
-          )
-        : [];
   const spec: ProxyRequestBody = {
     method: request.method,
     url: resolvedUrl,
     headers,
     params,
-    bodyType: proxyBodyType,
-    ...(proxyBodyType !== 'none' &&
-    proxyBodyType !== 'form-data' &&
-    formFields.length === 0 &&
-    request.body.raw !== undefined
-      ? { data: resolvedRaw }
-      : {}),
-    ...(formFields.length > 0 ? { formData: formFields } : {}),
+    ...builtBody,
     ...(effectiveSettings.timeout !== undefined ? { timeout: effectiveSettings.timeout } : {}),
     ...(effectiveAuth && effectiveAuth.type !== 'none' ? { auth: effectiveAuth } : {}),
     ...(Object.keys(redirectPolicy).length > 0 ? { redirectPolicy } : {}),
@@ -439,56 +393,6 @@ function persistResponseCookies(response: SetCookieSource, resolvedUrl: string):
       httpOnly: parsed.httpOnly,
       lastAccessed: new Date().toISOString(),
     });
-  }
-}
-
-// Renderer's BodyType is wider than the proxy's (xml/protobuf/graphql/
-// multipart-mixed). Renderer-only types fall back to 'raw' so the
-// user-supplied Content-Type header is preserved verbatim.
-type ProxyFormField = NonNullable<ProxyRequestBody['formData']>[number];
-
-/**
- * Map the renderer's FormDataItem[] to the proxy FormField[] the shared
- * body-builder consumes. File rows carry the base64 bytes in `value` plus the
- * multipart filename + MIME; text rows are plain name/value pairs.
- */
-export function buildFormFields(items?: FormDataItem[]): ProxyFormField[] {
-  if (!items) return [];
-  return items
-    .filter((it) => it.enabled && it.key)
-    .map(
-      (it): ProxyFormField =>
-        it.type === 'file'
-          ? {
-              name: it.key,
-              value: it.value,
-              filename: it.fileName ?? 'file',
-              contentType: it.contentType ?? 'application/octet-stream',
-            }
-          : { name: it.key, value: it.value }
-    );
-}
-
-export function mapBodyType(rendererType: RendererBodyType): ProxyBodyType {
-  switch (rendererType) {
-    case 'none':
-    case 'json':
-    case 'text':
-    case 'form-data':
-    case 'binary':
-      return rendererType;
-    case 'x-www-form-urlencoded':
-      return 'form-urlencoded';
-    case 'graphql':
-      return 'json';
-    case 'xml':
-    case 'protobuf':
-    case 'multipart-mixed':
-      return 'raw';
-    default: {
-      const exhaustive: never = rendererType;
-      throw new Error(`Unmapped renderer body type: ${exhaustive as string}`);
-    }
   }
 }
 

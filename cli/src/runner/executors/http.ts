@@ -1,9 +1,14 @@
 import { resolveAuthVariables } from '@shared/auth/resolve-variables';
 import { buildGraphQLWireRequest, graphqlEnvelopeFromBody } from '@shared/graphql/wire';
-import type { FormField, ProxyBodyType as ProtocolBodyType } from '@shared/protocol/body-builder';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
+import {
+  applyBodyDefaultHeaders,
+  buildProxyBody,
+  collectEnabledRows,
+  type ProxyBody,
+} from '@shared/protocol/request-spec';
 import type { RedirectPolicy } from '@shared/protocol/types';
-import type { BodyType, FormDataItem, HttpRequest, KeyValue } from '@shared/types';
+import type { HttpRequest, KeyValue } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
 import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
@@ -34,7 +39,7 @@ export async function executeHttp(
   // GraphQL: shape the wire request exactly as the app does (shared
   // `buildGraphQLWireRequest`) — spec Accept header, and for GET the query /
   // variables / operationName / extensions move into URL params (#1109).
-  let graphqlBuilt: BuiltBody | undefined;
+  let graphqlBuilt: ProxyBody | undefined;
   const preResolvedParams = new Set<KeyValue>();
   if (req.body.type === 'graphql') {
     const shaped = shapeGraphQL(req, opts.vars);
@@ -45,27 +50,22 @@ export async function executeHttp(
   }
 
   const url = resolveVarsDeep(req.url, opts.vars);
-  const headers: Record<string, string> = {};
-  for (const h of req.headers) {
-    if (h.enabled && h.key) headers[h.key] = resolveVarsDeep(h.value, opts.vars);
-  }
-  // Match the app: XML is sent as a 'raw' body (no Content-Type of its own),
-  // so default it unless the request sets one.
-  if (
-    req.body.type === 'xml' &&
-    !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')
-  ) {
-    headers['Content-Type'] = 'application/xml';
-  }
-  const params: Record<string, string> = {};
-  for (const p of req.params) {
-    if (!p.enabled || !p.key) continue;
-    // GraphQL GET params were built from already-resolved values; resolving
-    // them again would re-expand `{{…}}` text inside the resolved document.
-    params[p.key] = preResolvedParams.has(p) ? p.value : resolveVarsDeep(p.value, opts.vars);
-  }
+  const resolve = (text: string) => resolveVarsDeep(text, opts.vars);
+  const headers = applyBodyDefaultHeaders(
+    req.body.type,
+    collectEnabledRows(req.headers, (h) => resolve(h.value))
+  );
+  // GraphQL GET params were built from already-resolved values; resolving
+  // them again would re-expand `{{…}}` text inside the resolved document.
+  const params = collectEnabledRows(req.params, (p) =>
+    preResolvedParams.has(p) ? p.value : resolve(p.value)
+  );
 
-  const built = graphqlBuilt ?? buildBody(req.body, opts.vars);
+  // CLI-only, kept deliberately: a form field name and a binary body may hold a
+  // `{{var}}` (the app sends the name as written and treats binary as bytes).
+  const built =
+    graphqlBuilt ??
+    buildProxyBody(req.body, { resolve, resolveFieldName: resolve, resolveBinary: resolve });
 
   const start = Date.now();
   try {
@@ -184,7 +184,7 @@ function errorOutcome(msg: string): ExecuteOutcome {
 }
 
 type ShapedGraphQL =
-  | { ok: true; request: HttpRequest; built: BuiltBody; addedParams: KeyValue[] }
+  | { ok: true; request: HttpRequest; built: ProxyBody; addedParams: KeyValue[] }
   | { ok: false; error: string };
 
 /**
@@ -206,7 +206,7 @@ function shapeGraphQL(req: HttpRequest, vars: Record<string, string>): ShapedGra
   if (!wire.ok) return wire;
   const existing = new Set(req.params);
   const addedParams = wire.request.params.filter((p) => !existing.has(p));
-  const built: BuiltBody =
+  const built: ProxyBody =
     wire.method === 'GET'
       ? { bodyType: 'none' }
       : {
@@ -214,101 +214,4 @@ function shapeGraphQL(req: HttpRequest, vars: Record<string, string>): ShapedGra
           ...(wire.request.body.raw !== undefined ? { data: wire.request.body.raw } : {}),
         };
   return { ok: true, request: wire.request, built, addedParams };
-}
-
-interface BuiltBody {
-  bodyType: ProtocolBodyType | 'none';
-  data?: string;
-  formData?: FormField[];
-}
-
-function buildBody(body: HttpRequest['body'] | undefined, vars: Record<string, string>): BuiltBody {
-  if (!body || body.type === 'none') return { bodyType: 'none' };
-  const raw = body.raw !== undefined ? resolveVarsDeep(body.raw, vars) : undefined;
-
-  // Map internal BodyType → shared/protocol BodyType. The shared union is
-  // narrower; anything outside it is encoded as 'raw' with a content-type
-  // hint set in headers separately if needed.
-  const t: BodyType = body.type;
-  switch (t) {
-    case 'json':
-      return { bodyType: 'json', ...(raw !== undefined ? { data: raw } : {}) };
-    case 'text':
-      return { bodyType: 'text', ...(raw !== undefined ? { data: raw } : {}) };
-    case 'graphql':
-      // Shaped up front by `shapeGraphQL`; reached only if a caller bypasses it.
-      return { bodyType: 'json', ...(raw !== undefined ? { data: raw } : {}) };
-    case 'xml':
-      // 'raw' bodyType emits with no content-type; executeHttp defaults the
-      // header to application/xml (as the app does).
-      return { bodyType: 'raw', ...(raw !== undefined ? { data: raw } : {}) };
-    case 'x-www-form-urlencoded': {
-      // OpenCollection exports carry urlencoded forms as a structured field
-      // array (no `raw`); legacy collections may carry a pre-encoded `raw`.
-      const fields = mapFormFields(body.formData, vars);
-      if (fields.length > 0) return { bodyType: 'form-urlencoded', formData: fields };
-      return { bodyType: 'form-urlencoded', ...(raw !== undefined ? { data: raw } : {}) };
-    }
-    case 'binary':
-      // body.raw is expected to be base64-encoded payload.
-      return { bodyType: 'binary', ...(raw !== undefined ? { data: raw } : {}) };
-    case 'form-data':
-      // Structured multipart: text fields + file parts (base64 content). The
-      // shared body-builder turns these into a FormData; the CLI fetcher
-      // serialises that to multipart bytes.
-      return { bodyType: 'form-data', formData: mapMultipartFields(body.formData, vars) };
-    case 'multipart-mixed':
-    case 'protobuf':
-      // multipart-mixed / protobuf bodies aren't supported by the CLI fetcher —
-      // fall back to raw if present, otherwise none.
-      return raw !== undefined ? { bodyType: 'raw', data: raw } : { bodyType: 'none' };
-  }
-}
-
-/**
- * Map internal multipart fields → shared `FormField[]`. Text fields are
- * var-resolved; file parts carry base64 content (left as-is) plus filename +
- * content-type so the shared builder/fetcher emit a correct multipart part.
- */
-function mapMultipartFields(
-  items: FormDataItem[] | undefined,
-  vars: Record<string, string>
-): FormField[] {
-  if (!items) return [];
-  const out: FormField[] = [];
-  for (const item of items) {
-    if (item.enabled === false || !item.key) continue;
-    if (item.type === 'file') {
-      out.push({
-        name: resolveVarsDeep(item.key, vars),
-        value: item.value,
-        filename: item.fileName ?? 'file',
-        ...(item.contentType ? { contentType: item.contentType } : {}),
-      });
-    } else {
-      out.push({
-        name: resolveVarsDeep(item.key, vars),
-        value: resolveVarsDeep(item.value, vars),
-      });
-    }
-  }
-  return out;
-}
-
-/** Map internal text form fields → shared `FormField[]`, resolving vars and
- *  dropping disabled / file parts (the CLI fetcher can't read files). */
-function mapFormFields(
-  items: FormDataItem[] | undefined,
-  vars: Record<string, string>
-): FormField[] {
-  if (!items) return [];
-  const out: FormField[] = [];
-  for (const item of items) {
-    if (item.enabled === false || !item.key || item.type === 'file') continue;
-    out.push({
-      name: resolveVarsDeep(item.key, vars),
-      value: resolveVarsDeep(item.value, vars),
-    });
-  }
-  return out;
 }
