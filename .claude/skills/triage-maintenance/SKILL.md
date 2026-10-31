@@ -103,8 +103,7 @@ over the committed snapshots; skip only when there are no snapshots either.
    (fixture does not type-check on its own, severity the rubric cannot credit)
    and fix or drop the case, saying why in its `notes`.
 4. **Breadth of cases.** When adding a case, prefer a seam, protocol or
-   harness pair the suite does not cover (today every defect comes from PRs
-   #1088 to #1165 and a third are MCP) over another variant of one it does.
+   harness pair the suite does not cover over another variant of one it does.
 5. **No overfitting.** Never edit skills, agents or `CLAUDE.md` to fit a
    specific eval case. One root-cause change per hillclimb round, large enough
    to clear the pre-flight half-width; keep it only if train improves and test

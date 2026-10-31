@@ -46,9 +46,7 @@ Each entry is `entry(branch, id, title, description, status, platforms, href?, p
   entries have no plan. Tests enforce all of this.
 - **Future ideas** (illustrative, not committed) use `exploring`, not `planned`.
   Before adding one, grep `src/ shared/ electron/main cli/` to make sure it isn't
-  already built — several "ideas" in past audits (OAuth PKCE/device flow, gRPC-Web,
-  OpenAPI import, response diff, doc generation, cloud secret providers) already
-  shipped. If part of it ships, add the shipped part and make the idea its child.
+  already built. If part of it ships, add the shipped part and make the idea its child.
 - **Tree parents** (`parents` map, after the `features` array) mean "builds on",
   same branch only. Only name a parent the feature genuinely extends; unrelated
   siblings (NATS under Kafka, command palette under Web app) stay at the hub.
