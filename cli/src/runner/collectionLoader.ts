@@ -16,6 +16,7 @@ import {
 } from '@shared/opencollection/node/fs-reader';
 import { ocToInternal } from '@shared/opencollection/to-internal';
 import { resolveMcpEffectiveAuth } from '@shared/protocol/mcp-auth';
+import { combineScripts } from '@shared/scripts/combine-scripts';
 import type {
   AuthConfig,
   Collection,
@@ -238,12 +239,6 @@ function flattenInternal(c: Collection): LoadedRequest[] {
     out
   );
   return out;
-}
-
-/** Join non-empty script fragments in order; undefined when nothing applies. */
-function combineScripts(parts: Array<string | undefined>): string | undefined {
-  const nonEmpty = parts.filter((p): p is string => typeof p === 'string' && p.trim() !== '');
-  return nonEmpty.length > 0 ? nonEmpty.join('\n') : undefined;
 }
 
 function walkItems(
