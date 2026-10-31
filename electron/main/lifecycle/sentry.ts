@@ -16,19 +16,23 @@
  *  - We only `Sentry.init()` when the user has opted in, so an opted-out user's
  *    native minidumps are never uploaded. In-session opt-in lazily inits (so JS
  *    capture works immediately); in-session opt-out closes the `beforeSend` gate
- *    for JS events — native capture stops on next launch (crashReporter can't be
- *    un-started mid-session).
+ *    for JS events and drops the live session — native capture stops on next
+ *    launch (crashReporter can't be un-started mid-session).
  *  - `beforeSend`/`beforeBreadcrumb` run an aggressive scrubber that drops the
  *    request context, local frame variables, and breadcrumb data, and redacts
  *    secrets/file-paths from free-text strings (reusing the AI redaction core).
+ *  - Release Health sessions carry a random per-install ID so installs can be
+ *    counted (ADR-0040). The scrubber strips it from error events, so an error
+ *    can't be tied to an install.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as Sentry from '@sentry/electron/main';
 import { redactBody } from '@shared/protocol/ai/redaction';
 import { createLogger } from '@shared/runtime/logger';
 import { app } from 'electron';
+import { deleteInstallId, getOrCreateInstallId } from './telemetry-install-id';
 
 const log = createLogger('sentry');
 
@@ -85,8 +89,8 @@ export function scrubEvent<T extends Sentry.Event>(event: T): T {
   delete event.request;
   // Hostname can identify the user's machine.
   delete event.server_name;
-  // No user identity is ever set (dataCollection.userInfo: false, no Sentry.setUser call),
-  // but drop it defensively so a future integration or regression can't ship one.
+  // The scope's user holds the install ID, which is for sessions only. This delete
+  // is what keeps it off error events, so an error can't be tied to an install.
   delete event.user;
 
   if (event.message) event.message = scrubString(event.message);
@@ -108,7 +112,7 @@ export function scrubEvent<T extends Sentry.Event>(event: T): T {
   return event;
 }
 
-function doInit(): void {
+function doInit(countSessions: boolean): void {
   if (initialized) return;
   const dsn = resolveDsn();
   if (!dsn) {
@@ -116,10 +120,14 @@ function doInit(): void {
     return;
   }
   const isDev = process.env['NODE_ENV'] === 'development';
+  const installId = countSessions ? getOrCreateInstallId() : undefined;
   Sentry.init({
     dsn,
     release: `restura@${app.getVersion()}`,
     environment: isDev ? 'development' : 'production',
+    // Must be initialScope, not setUser after init: the session integration starts
+    // the session during init and copies the user from scope at that moment.
+    initialScope: installId ? { user: { id: installId } } : {},
     // Equivalent of the pre-v8 `sendDefaultPii: false`, made explicit because the
     // new defaults collect user info, cookies, headers, bodies and frame vars.
     dataCollection: {
@@ -134,16 +142,21 @@ function doInit(): void {
       queues: false,
       stackFrameVariables: false,
     },
-    // Release Health: track one anonymous session per main-process run (session
-    // start/end, crash-free rate, version adoption) — the single aggregate
-    // usage signal we collect on desktop, and how we gauge active users without
-    // any device or user identifier. `@sentry/electron` enables this by default;
-    // we list it explicitly so an SDK default change can't silently flip our one
-    // usage signal on or off. Gated by the same opt-out as errors (we only
-    // init() when opted in); sessions carry no IP (dataCollection.userInfo: false) and no
-    // user id. Like native crash capture, a mid-session opt-out fully stops
-    // sessions on next launch. See ADR-0027.
-    integrations: [Sentry.mainProcessSessionIntegration()],
+    // Release Health: track one session per main-process run (session start/end,
+    // crash-free rate, version adoption), tagged with the random install ID so
+    // Sentry can count installs — our single usage signal on desktop.
+    // `@sentry/electron` enables this by default; we list it explicitly so an SDK
+    // default change can't silently flip it. `sendOnCreate` reports the session at
+    // launch, because the default only sends it at quit, which undercounts apps that
+    // stay open or get killed. Gated by the same opt-out as errors; sessions carry no
+    // IP (dataCollection.userInfo: false). See ADR-0027 and ADR-0040.
+    //
+    // Holding the session until quit isn't enough to protect a first launch, because
+    // the SDK also sends it on the first error. So until the user has had a chance to
+    // opt out there is no session at all, which means removing the SDK's default one.
+    integrations: countSessions
+      ? [Sentry.mainProcessSessionIntegration({ sendOnCreate: true })]
+      : (defaults) => defaults.filter((integration) => integration.name !== 'MainProcessSession'),
     // Crash/error reporting only — no performance tracing. We leave
     // `tracesSampleRate` unset so the SDK creates no spans or transactions: a
     // span could carry the user's proxied request URL, the exact data the error
@@ -166,17 +179,77 @@ function doInit(): void {
  * opted-out user's native crashes are never uploaded. Call as early as possible
  * in main (before `crashReporter`/window creation) so native capture is armed.
  */
-export function initSentry(opts: { enabled: boolean }): void {
+export function initSentry(opts: { enabled: boolean; countSessions: boolean }): void {
   telemetryEnabled = opts.enabled;
-  if (opts.enabled) doInit();
+  if (opts.enabled) doInit(opts.countSessions);
+  else forgetInstall();
+}
+
+/**
+ * Delete the install ID and the SDK's cache. The cache holds copies of the ID (saved
+ * scope, unfinished session, queued envelopes) that would otherwise link the periods
+ * before and after an opt-out, and queued reports shouldn't upload after one.
+ */
+function forgetInstall(): void {
+  deleteInstallId();
+  try {
+    rmSync(join(app.getPath('userData'), 'sentry'), { recursive: true, force: true });
+  } catch (error) {
+    log.warn('failed to delete Sentry cache', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+const QUIT_FLUSH_TIMEOUT_MS = 2000;
+
+/**
+ * End the session on a clean quit. Call just before `app.exit()`, and await it.
+ *
+ * The SDK has its own will-quit handler for this, but it skips prevented events,
+ * and main.ts prevents will-quit to await its async cleanup (a second `app.quit()`
+ * from there hangs instead of re-firing the event). This does the same work: without
+ * it, every clean quit reports as abnormal on the next launch.
+ *
+ * Never throws, and the flush is time-limited, so it can't stop the app quitting.
+ */
+export async function endSentrySessionForQuit(): Promise<void> {
+  if (!initialized) return;
+  try {
+    if (Sentry.getIsolationScope().getSession()?.status === 'ok') Sentry.endSession();
+    // The SDK's "still running" marker. Left in place, the next launch reports this
+    // session as abnormal. The SDK doesn't export its own way of clearing it.
+    rmSync(join(app.getPath('userData'), 'sentry', 'session.json'), { force: true });
+    await Sentry.flush(QUIT_FLUSH_TIMEOUT_MS);
+  } catch (error) {
+    log.warn('failed to end Sentry session', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**
  * Flip the runtime gate from the consent IPC handler. Enabling lazily inits
  * Sentry if it wasn't started at launch, so JS-event capture works immediately
  * (native minidump capture follows on next launch).
+ *
+ * Enabling here is an explicit choice, so a lazy init does count sessions.
+ *
+ * Disabling drops the live session, since `beforeSend` doesn't gate sessions and it
+ * would otherwise still ship with the ID at quit, then deletes every copy of the ID.
+ * If the user re-enables in the same run, sessions resume on next launch with a new ID.
  */
 export function setSentryEnabled(enabled: boolean): void {
   telemetryEnabled = enabled;
-  if (enabled) doInit();
+  if (enabled) {
+    doInit(true);
+    return;
+  }
+  if (initialized) {
+    Sentry.getIsolationScope().setSession(undefined);
+    // initialScope set the user on the current scope. Clear it or the SDK would
+    // write it back into the cache deleted below.
+    Sentry.getCurrentScope().setUser(null);
+  }
+  forgetInstall();
 }

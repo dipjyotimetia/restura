@@ -1,0 +1,40 @@
+---
+title: "ADR 0040 — Random install ID for Release Health"
+description: "Desktop Release Health sessions carry a random, non-derived install ID so Sentry can count installs. Errors never carry it, the same opt-out deletes it, and the release smoke test reports as its own environment."
+sidebar:
+  order: 40
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-10-31" variant="success" />
+
+Amends the "no identifier" part of [ADR 0027](/architecture/adrs/0027-telemetry-and-privacy-preserving-usage-analytics/). The rest of ADR 0027 stands.
+
+## Context
+
+Sessions with no identifier measure launches, so they can't tell one person opening the app ten times from ten people opening it once. They were also only sent when the app quit, so an app left open or force-killed was reported late. Separately, the release smoke test reported as `production`, adding its events to production numbers on every stable release.
+
+## Decision
+
+- **Sessions carry a random per-install ID**: a UUID generated on first use and saved in `userData`, not derived from hardware, the OS, or the user.
+- **Sessions only.** The scrubber removes it from every error and crash event, so an error can't be tied to an install.
+- **No IP.** Sentry is not asked to infer one for sessions.
+- **Same opt-out as errors.** Opting out drops the live session and deletes the ID along with the SDK cache that holds copies of it. Opting back in creates a new ID, so the two periods can't be linked.
+- **No ID or session until a choice is recorded.** A first launch, or an install that only ever runs as a headless MCP server, has neither, so nobody gets an ID before they can opt out. Errors still report as before.
+- **Later launches send their session at launch**, so they count on the day they run.
+- **The renderer waits for saved settings before sending consent**, so an opted-out user never starts Sentry or gets an ID.
+- **The smoke test reports as `ci-smoke`.**
+
+Web and self-hosted deployments are unchanged: no ID and no sessions.
+
+## Consequences
+
+The count is of installs, not people. An install is first counted on its second launch. A person with two machines counts twice, a reinstall that clears app data counts as new, and anyone who opts out isn't counted.
+
+This ID is pseudonymous, not anonymous: it is a stable identifier for one install, so disclosures say "random install ID". It ships under the existing default-on opt-out. Any richer signal still has to clear ADR 0027's bar or move behind an explicit opt-in.
+
+## Related
+
+- [ADR 0027 — Telemetry and privacy-preserving usage signal](/architecture/adrs/0027-telemetry-and-privacy-preserving-usage-analytics/)
+- [Security model](/architecture/security/)

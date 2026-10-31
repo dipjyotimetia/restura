@@ -193,7 +193,7 @@ The main process is organised into purpose-based subfolders. Files that compute 
 
 - **`storage/`** — persistence bridge: `store-handler.ts`, `collection-manager.ts` (encryption key fetched from OS keychain via `safeStorage`; warns at startup if unavailable), `vault-handler.ts`, `file-operations.ts` (async fs helpers).
 
-- **`lifecycle/`** — app lifecycle and ops: `request-logger.ts`, `logging.ts`, `deep-link-handler.ts`, `auto-updater.ts`, `menu.ts`, `system-tray.ts`, `window-controls.ts`, `sentry.ts` + `telemetry-consent.ts` (opt-out error reporting — on by default, disabled in Settings).
+- **`lifecycle/`** — app lifecycle and ops: `request-logger.ts`, `logging.ts`, `deep-link-handler.ts`, `auto-updater.ts`, `menu.ts`, `system-tray.ts`, `window-controls.ts`, `sentry.ts` + `telemetry-consent.ts` + `telemetry-install-id.ts` (opt-out error reporting and Release Health — on by default, disabled in Settings).
 
 - **`util/`** — small shared helpers (e.g. `debounce.ts`).
 

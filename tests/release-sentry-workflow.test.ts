@@ -69,6 +69,13 @@ describe('release workflow Sentry guardrails', () => {
     expect(smokeBlock).toContain('npm run sentry:smoke');
   });
 
+  it('keeps the smoke event out of the production environment', () => {
+    const script = readFileSync(resolve(process.cwd(), 'scripts/sentry-smoke.mjs'), 'utf8');
+
+    expect(script).toContain("environment: 'ci-smoke'");
+    expect(script).not.toContain("environment: 'production'");
+  });
+
   it('permits Electron publishing only for the trusted merged release candidate', () => {
     const desktopPublishBlock = workflow.slice(
       workflow.indexOf('- name: Build + publish installers'),
