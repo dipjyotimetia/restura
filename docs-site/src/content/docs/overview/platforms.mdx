@@ -49,6 +49,8 @@ On **web**, the SPA on Cloudflare Pages `fetch`es `/api/*` on the Worker at `api
 
 WebSocket, Socket.IO and GraphQL WebSocket subscriptions are the exception: on web they connect **browser-direct**, so the Worker's SSRF guard never sees them. Restura applies an in-app check instead — loopback (`localhost`, `127.0.0.1`, `::1`), private-network (RFC 1918, link-local, CGNAT) and cloud-metadata targets are refused unless you turn on **Settings → Security → Allow private / internal IPs** (cloud metadata stays blocked regardless), and Restura asks for confirmation before sending credentials over unencrypted `ws://` / `http://`.
 
+gRPC server streaming over the Connect wire protocol also connects browser-direct on web (that is why it needs upstream CORS). It does not get the in-app check; only the browser's own rules apply. gRPC unary calls and gRPC-Web server streaming go through the Worker.
+
 On **desktop**, the renderer talks to the Electron main process over a context-isolated IPC bridge (`window.electron`), and the main process executes the request directly with Node's `http` / `https` / `net` / `tls` — so all the capabilities above are available.
 
 On **self-hosted**, the same Hono app that runs in the Worker runs in a Node process via `worker/node-entry.ts`. One process serves both the SPA and `/api/*` on one port.

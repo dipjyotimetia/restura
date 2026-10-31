@@ -22,6 +22,17 @@ Make the AI path **Electron-first and provider-agnostic**, with the orchestrator
 - **Redaction** — the renderer captures context via `lib/contextSnapshot.ts` (method, path, protocol, redacted headers/body, response, active env name) and `redaction.ts` scrubs secrets (sensitive headers, body tokens, environment-variable values) before anything leaves the machine. The request URL is included as written; host redaction was part of the original design but was never implemented.
 - **No `/api/ai` Worker route exists yet.** The web build is not wired through the proxy. Platform parity must be confirmed, not assumed — the main reason this feature is marked "active development."
 
+## Amendment (2026-10-31): URL host redaction was never implemented
+
+The original Decision and Consequences said the context snapshot's URLs are redacted. That was the design intent, but it was never built, and the user docs repeated the claim (issue #977); the Redaction bullet above and the matching Consequences bullet were corrected in place. What the code does:
+
+- `contextSnapshot.ts` captures the **full request URL** (scheme, host, path, query) and `promptBuilder.ts` sends it as written. Nothing replaces the host.
+- In default mode, `promptBuilder.ts` replaces environment-variable **values of 8+ characters** with `[REDACTED]` wherever they appear in the URL, headers or bodies. The ENVIRONMENT block masks every value.
+- `shared/protocol/ai/redaction.ts` masks sensitive header names and token-shaped body values.
+- The composer's **Send raw (skip redaction)** switch turns all of this off for one message.
+
+So internal hostnames and URL paths reach the provider. The decision is otherwise unchanged.
+
 ## Consequences
 
 **Positive**

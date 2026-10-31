@@ -111,12 +111,12 @@ This matters because shared collections might carry scripts from anywhere; the s
 
 ## AI assistant — prompt redaction
 
-Before any prompt goes to a provider, `shared/protocol/ai/redaction.ts` scrubs sensitive material from the context snapshot:
+Before any prompt goes to a provider, the renderer's prompt builder (`src/features/ai/lib/promptBuilder.ts`, using `shared/protocol/ai/redaction.ts`) scrubs sensitive material from the context snapshot:
 
 - Sensitive header names (`Authorization`, `Cookie`, `X-Api-Key`).
-- Inline secret values where they're identifiable, and environment-variable values (8+ characters) wherever they appear in the URL, headers or body.
+- Token-shaped secret values in bodies, and environment-variable values (8+ characters) wherever they appear in the URL, headers or body.
 
-The request URL itself is **not** redacted: the host and path reach the provider as written.
+The request URL itself is **not** redacted: the host and path reach the provider as written ([ADR 0010 amendment](/architecture/adrs/0010-ai-assistant-architecture/#amendment-2026-10-31-url-host-redaction-was-never-implemented)). The composer's **Send raw (skip redaction)** switch turns redaction off for a single message.
 
 ## Telemetry and privacy
 

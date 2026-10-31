@@ -112,6 +112,7 @@ describe('capability registry shape', () => {
         "capture.desktopBridge",
         "storage.osKeychain",
         "storage.encryptedLocal",
+        "storage.externalSecrets",
         "native.shell",
         "native.notifications",
         "native.tray",
