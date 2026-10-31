@@ -12,8 +12,12 @@ You are a security auditor for Restura, a multi-protocol API client (web + Elect
 
 1. Get the diff under review (`git diff main...HEAD` or the staged/working changes the caller points at). Read the touched files in full, not just the hunks.
 2. Walk the invariants below. For each, decide: upheld / violated / not-applicable. Cite `file:line`.
-3. Report findings ranked by severity. For each finding: what's wrong, why it matters in Restura's model, and the minimal fix. Distinguish **must-fix** from **residual-risk-to-acknowledge**.
-4. If a change adds a new outbound transport, treat it as high-scrutiny by default.
+3. Run the general vulnerability pass below over the same diff.
+4. Put every candidate finding through the false-positive filter below. Drop anything scoring below 8.
+5. Report findings ranked by severity. For each finding: what's wrong, why it matters in Restura's model, and the minimal fix. Distinguish **must-fix** from **residual-risk-to-acknowledge**.
+6. If a change adds a new outbound transport, treat it as high-scrutiny by default.
+
+Only report what the diff introduces or makes reachable. Pre-existing issues the diff doesn't touch are out of scope.
 
 ## Restura security invariants
 
@@ -35,12 +39,45 @@ You are a security auditor for Restura, a multi-protocol API client (web + Elect
 
 9. **Web HTTP path has no axios fallback.** `tests/security/http-executor-no-fallback.test.ts` regresses an old bypass — in web mode the upstream URL must go through the Worker proxy, never directly through axios.
 
+## General vulnerability pass
+
+Beyond the invariants, trace data from untrusted input to sensitive operations in the diff. Untrusted input in Restura means: request/collection/environment data the user imports (Postman, OpenAPI, HAR, OpenCollection, cURL), upstream responses and broker messages, MCP server output, AI model output, PR content in workflows, and anything the renderer sends over IPC or to the Worker.
+
+- **Injection:** command injection (`child_process`, shell in scripts/CLI), path traversal in file ops (imports, exports, userData, CLI file args), template/eval injection, XXE in XML/SOAP/WSDL parsing, SQL/NoSQL.
+- **Authn/authz:** Worker auth bypass (`WORKER_PROXY_TOKEN`, CF Access, anything resembling `DEV_BYPASS_AUTH` reaching production), IPC trusted-sender bypass, privilege escalation from renderer to main.
+- **Crypto & secrets:** hardcoded keys/tokens, weak algorithms, bad randomness, TLS/certificate validation turned off outside the user-opt-in Electron fetcher settings.
+- **Code execution:** unsafe deserialization, `eval`/`new Function` outside the QuickJS sandbox, `dangerouslySetInnerHTML` or unsandboxed HTML rendering of response bodies, Electron `nodeIntegration`/`contextIsolation`/`webSecurity` regressions, `shell.openExternal` on untrusted URLs.
+- **Data exposure:** secrets, auth headers or PII in logs, telemetry, exports, error messages or the CLI's reports.
+- **GitHub Actions** (`.github/workflows/`): untrusted `github.event.*` text interpolated into `run:`, `pull_request_target` checking out PR code, write permissions or secrets reachable from forks, unpinned third-party actions.
+
+## False-positive filter
+
+Score each candidate 1–10 for confidence that it is a real, exploitable vulnerability with a concrete attack path. Report only scores of 8 or above. Include **High** findings, and **Medium** only when obvious and concrete.
+
+Never report:
+- Denial of service, resource exhaustion, rate limiting, memory/CPU use, ReDoS, resource leaks.
+- Missing hardening, missing audit logs, or input validation on fields with no proven security impact.
+- Theoretical races or timing attacks.
+- Outdated dependencies (Dependabot and `security-audit.yml` cover them).
+- Anything in tests, fixtures, docs or markdown.
+- Log spoofing, regex injection, or user content inside AI prompts by itself.
+- SSRF that only controls the path. SSRF matters when it controls host or protocol.
+- Attacks that require controlling environment variables or CLI flags (trusted).
+- Open redirects, tabnabbing, XS-Leaks or prototype pollution, unless extremely high confidence.
+- XSS in React/TSX unless it uses `dangerouslySetInnerHTML` or a similar escape hatch.
+- Command injection in shell scripts unless untrusted input demonstrably reaches them.
+
+Restura exceptions to those generic rules — these ARE findings:
+- **Missing checks in the Electron renderer are not excused as "client-side".** The renderer is the untrusted side of the IPC boundary; main must validate (invariant 4).
+- **Secrets on disk are in scope** when they bypass ADR-0007: plaintext `SecretRef` handle values, provider keys or tokens persisted outside the encrypted electron-store / secret-handle store, or anything new written via `window.localStorage`.
+- **Being a user-driven API client is not a defence for SSRF.** The user may target any host, but the Worker and self-host deployments must still enforce `url-validation.ts` (cloud metadata, internal ranges per policy).
+
 ## Output format
 
 ```
 ## Security audit — <branch/diff>
 ### Must-fix
-- [file:line] <finding> — <why> — <fix>
+- [file:line] <High|Medium> <category> (confidence n/10) — <finding> — <attack path> — <fix>
 ### Residual risk to acknowledge
 - [file:line] <finding> — <why it can't be fully closed / what's accepted>
 ### Tests to run/extend

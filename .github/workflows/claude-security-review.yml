@@ -6,9 +6,11 @@ name: Claude Security Review
 # (`claude-api-key`, exported as ANTHROPIC_API_KEY, plus direct Anthropic SDK
 # calls for its false-positive filter).
 #
-# Uses the repo's restura-security-auditor agent (SSRF guard, IPC validators,
-# SecretRef handles, sandboxes, ...) plus a general vulnerability pass. Cost
-# controls mirror claude-code-review.yml:
+# Review logic (Restura invariants, general vulnerability pass, false-positive
+# filter adapted from that action's /security-review prompt) lives in
+# .claude/agents/restura-security-auditor.md, shared with local reviews. Each
+# finding is re-verified by a fresh agent. Cost controls mirror
+# claude-code-review.yml:
 #   - Runs once when a PR is opened / marked ready / reopened, NOT on every push.
 #     Re-run on demand with the `claude-security-review` label.
 #   - Skips drafts, bots (Dependabot included), forks (no secrets there), and
@@ -72,9 +74,9 @@ jobs:
 
             Scope: only the changes in `git diff HEAD^1...HEAD` (HEAD is the PR merge ref, HEAD^1 the base tip; there is no local `main`). Read touched files in full where context matters, but report only issues the PR introduces or makes reachable.
 
-            1. Delegate to the `restura-security-auditor` agent (Agent tool) for Restura's own invariants: SSRF guard, DNS/broker guards, Electron IPC validation, SecretRef handles, wire-time auth signing, header policy, sandboxes. Tell it the diff is `git diff HEAD^1...HEAD`.
-            2. Yourself, review the same diff for general vulnerabilities: injection (command, SQL, path traversal, template), authn/authz bypass, unsafe deserialization, XSS / unsafe HTML, secrets or tokens committed or logged, insecure crypto, and GitHub Actions risks (untrusted input in `run:`, `pull_request_target` misuse, over-broad permissions, unpinned third-party actions).
-            3. Filter hard. Keep a finding only if you are confident it is exploitable, with a concrete attack path. Drop: denial of service / resource exhaustion, missing rate limits, theoretical race conditions, outdated dependencies (Dependabot covers those), issues confined to test files or docs, missing hardening with no concrete exploit, and anything that is pre-existing and not touched by this PR.
+            1. Run the `restura-security-auditor` agent (Agent tool) on the diff `git diff HEAD^1...HEAD`. Its definition (.claude/agents/restura-security-auditor.md) holds the Restura invariants, the general vulnerability pass and the false-positive filter; tell it to apply all three.
+            2. For each Must-fix finding it returns, launch a separate `restura-security-auditor` agent in parallel to verify that one finding independently: give it the finding and `file:line`, and ask it to re-read the code and re-score confidence 1-10 using the false-positive filter in its definition. Keep only findings re-scored 8 or higher.
+            3. Residual-risk items need no verification; keep them only if the diff introduces them.
 
             Output:
             - If nothing survives the filter, post nothing and stop.
