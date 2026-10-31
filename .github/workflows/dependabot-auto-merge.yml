@@ -32,13 +32,15 @@ name: Dependabot auto-merge
 on: pull_request_target
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   auto-merge:
     name: Auto-merge Dependabot PR
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     # Only ever act on Dependabot's own PRs, in runs Dependabot triggered.
     if: ${{ github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]' }}
     timeout-minutes: 5

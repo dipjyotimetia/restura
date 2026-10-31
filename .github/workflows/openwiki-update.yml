@@ -18,13 +18,15 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   update:
     name: Generate OpenWiki update PR
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -36,7 +38,11 @@ jobs:
           node-version-file: '.nvmrc'
 
       - name: Install OpenWiki
-        run: npm install --global openwiki@0.7.0
+        # Lockfile-pinned (.github/tools/openwiki) so every transitive dep is
+        # hash-verified — Scorecard Pinned-Dependencies. Bump the version there.
+        run: |
+          npm ci --prefix .github/tools/openwiki --no-audit --no-fund
+          echo "$GITHUB_WORKSPACE/.github/tools/openwiki/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Run OpenWiki
         run: openwiki --update --print

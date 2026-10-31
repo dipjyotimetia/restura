@@ -1,0 +1,8 @@
+{
+  "name": "restura-ci-tool-openwiki",
+  "private": true,
+  "description": "Lockfile-pinned CI tool install (OpenSSF Scorecard Pinned-Dependencies). Bump the version here and regenerate package-lock.json with: npm install --package-lock-only --engine-strict=false",
+  "dependencies": {
+    "openwiki": "0.7.0"
+  }
+}

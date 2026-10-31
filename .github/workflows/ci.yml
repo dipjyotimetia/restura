@@ -18,6 +18,13 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Dependabot / dependabot-remediate branches install without lifecycle scripts
+  # (supply-chain hardening). Computed once here and read as an env var in
+  # `run:` so no expression is interpolated into shell (Scorecard
+  # Dangerous-Workflow). Intentionally unquoted at use: empty -> no argument.
+  NPM_INSTALL_SCRIPT_FLAG: ${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && '--ignore-scripts' || '' }}
+
 jobs:
   # Gate for the heavy browser/desktop jobs (web e2e, Electron e2e, pack smoke).
   # They run for PRs and main pushes only when app paths changed, and always for
@@ -80,11 +87,11 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
 
       - name: Install docs-site test dependencies
         if: matrix.shard == 1
-        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && ' --ignore-scripts' || '' }}
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
 
       - name: Test docs-site interactions
         if: matrix.shard == 1
@@ -138,7 +145,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
 
       - name: Download Vitest blob reports
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -268,7 +275,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
 
       - name: Static validation
         # Shared with local `npm run validate`: all product/tooling tsconfigs,
@@ -307,7 +314,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
 
       - name: Verify Electron IPC and transport coverage
         run: npm run test:electron:critical-coverage
@@ -335,7 +342,8 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && ' --ignore-scripts' || '' }}
+        shell: bash # matrix includes windows; the env var is read with bash syntax
+        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
 
       - name: Generate icons
         # Produces icon.ico (Windows) / icon.icns / PNGs from icon.svg. The .ico
@@ -395,7 +403,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
 
       # Pin the Playwright browser cache to the package-lock so a version bump
       # invalidates it automatically and we don't run on stale binaries.
@@ -464,7 +472,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
 
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -526,7 +534,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
 
       # Electron bundles Chromium, so it needs the same shared system libs
       # (libnss3, libgbm, libatk, GTK, …). `playwright install-deps chromium`
@@ -640,7 +648,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
 
       - name: Build
         env:
@@ -699,7 +707,7 @@ jobs:
           command: pages deploy dist/web/client --project-name=restura --branch=${{ steps.branch.outputs.slug }}
 
       - name: Install docs-site dependencies
-        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && ' --ignore-scripts' || '' }}
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
 
       - name: Build docs site
         run: npm --prefix docs-site run build
@@ -809,7 +817,7 @@ jobs:
           cache-dependency-path: docs-site/package-lock.json
 
       - name: Install docs-site dependencies
-        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && ' --ignore-scripts' || '' }}
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
 
       - name: Type-check docs (astro check)
         run: npm --prefix docs-site run check
