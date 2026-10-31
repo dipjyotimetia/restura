@@ -6,8 +6,9 @@
 export interface PairwiseMatch {
   a: string;
   b: string;
-  /** 'a' = a won, 'b' = b won, 'tie'. */
-  winner: 'a' | 'b' | 'tie';
+  /** 'a' = a won, 'b' = b won, 'tie'. 'error' = the match failed and is not scored. */
+  winner: 'a' | 'b' | 'tie' | 'error';
+  error?: string;
 }
 
 export interface EloEntry {
@@ -52,6 +53,7 @@ export function computeElo(keys: string[], matches: PairwiseMatch[]): EloEntry[]
   };
 
   for (const m of matches) {
+    if (m.winner === 'error') continue;
     ensure(m.a);
     ensure(m.b);
     const ra = rating.get(m.a)!;
@@ -103,6 +105,7 @@ export function winRateMatrix(
     matrix[r]![c]![kind]++;
   };
   for (const m of matches) {
+    if (m.winner === 'error') continue;
     if (m.winner === 'a') {
       bump(m.a, m.b, 'wins');
       bump(m.b, m.a, 'losses');

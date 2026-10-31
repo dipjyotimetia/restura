@@ -4,7 +4,7 @@ Agent telemetry is optional and disabled by default. It is available only for th
 
 Restura exports only allowlisted metadata: suite/task/agent identifiers, timing, model/provider names, token and cost totals, tool names/outcomes, and aggregate evaluation state. It never exports prompts, model responses, tool arguments or output, URLs, request bodies, headers, credentials, or error text.
 
-The desktop AI Lab stores Langfuse and OTLP credentials as SecretRef handles. They are resolved only in Electron main. The telemetry panel accepts HTTPS destinations and local loopback HTTP collectors; endpoints with query strings, fragments, or embedded credentials are rejected.
+The desktop AI Lab stores Langfuse and OTLP credentials as SecretRef handles. They are resolved only in Electron main. The telemetry panel accepts HTTPS destinations and local loopback HTTP collectors; endpoints with query strings, fragments, or embedded credentials are rejected. Before the first export the desktop app resolves the endpoint hostname, rejects loopback/private/link-local/metadata results (loopback only for the explicit loopback collector), and, for OTLP, pins the connection to the validated address; Langfuse gets the DNS validation but not the connect pin. The export IPC is rate-limited per window.
 
 For CI, pass `--telemetry-config telemetry.json`. Credentials must be environment references, never inline values:
 

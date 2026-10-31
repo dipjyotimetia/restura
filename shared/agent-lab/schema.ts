@@ -335,9 +335,13 @@ export const AgentSuiteSchema = z
 
 /** Normalize legacy v2 input to the v3 portable representation. */
 export function migrateAgentSuite(input: unknown) {
-  const suite = AgentSuiteSchema.parse(input);
+  const { metadata, ...suite } = AgentSuiteSchema.parse(input);
+  // The cloud secret-check override is local, per-install state (#1028); a
+  // flag carried by an imported suite must never enable it.
+  const { sendUnredactedToCloud: _local, ...portableMetadata } = metadata ?? {};
   return {
     ...suite,
+    ...(Object.keys(portableMetadata).length > 0 ? { metadata: portableMetadata } : {}),
     schemaVersion: AGENT_SUITE_SCHEMA_VERSION,
     grounding: suite.grounding ?? { sourceIds: [], maxBytes: DEFAULT_GROUNDING_MAX_BYTES },
   };

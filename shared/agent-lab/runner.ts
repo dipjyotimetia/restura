@@ -22,6 +22,56 @@ import type {
 
 export type { PermissionClass } from './policy';
 
+/** Per-call output ceiling: the desktop IPC schema (`AiLabCompleteBase`) rejects larger values. */
+export const MAX_PER_CALL_OUTPUT_TOKENS = 32_768;
+
+/**
+ * `maxTokens` is a run-wide budget; a single call may ask for at most the
+ * remaining budget, the model's known output cap, and the transport ceiling.
+ */
+export function clampOutputTokens(remaining: number, modelCap?: number): number {
+  return Math.max(
+    1,
+    Math.min(remaining, modelCap && modelCap > 0 ? modelCap : Infinity, MAX_PER_CALL_OUTPUT_TOKENS)
+  );
+}
+
+/**
+ * Tool output fed back to the model is capped well under the desktop IPC
+ * per-message ceiling (200k chars) so a large response cannot break the next turn.
+ */
+export const MAX_TOOL_OUTPUT_CHARS = 100_000;
+
+function textOfBlock(block: ContentBlock): string {
+  if (block.type === 'text' || block.type === 'reasoning-summary') return block.text;
+  if (block.type === 'json') return JSON.stringify(block.value) ?? '';
+  return '';
+}
+
+/** Cap a tool result for the next model turn, replacing the excess with a visible marker. */
+export function truncateToolOutputForModel(
+  blocks: ContentBlock[],
+  maxChars = MAX_TOOL_OUTPUT_CHARS
+): ContentBlock[] {
+  const total = blocks.reduce((sum, block) => sum + textOfBlock(block).length, 0);
+  if (total <= maxChars) return blocks;
+  const text = blocks.map(textOfBlock).filter(Boolean).join('\n');
+  // Never cut between the halves of a surrogate pair.
+  let end = maxChars;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  // Blocks that carry no text (images, documents, artifacts) are not what
+  // overflowed; keep them rather than silently dropping the evidence.
+  const kept = blocks.filter((block) => textOfBlock(block) === '' && block.type !== 'text');
+  return [
+    {
+      type: 'text',
+      text: `${text.slice(0, end)}\n[truncated: tool output was ${total} characters; only the first ${end} are shown]`,
+    },
+    ...kept,
+  ];
+}
+
 export interface AgentTool {
   definition: AgentToolDefinition;
   permissionClass: PermissionClass;
@@ -211,11 +261,17 @@ export class AgentRunner {
       );
       const tools = Array.isArray(resolvedTools) ? resolvedTools : resolvedTools.tools;
       disposeTools = Array.isArray(resolvedTools) ? undefined : resolvedTools.dispose;
-      const duplicateToolNames = tools
-        .map((tool) => tool.definition.name)
-        .filter((name, index, names) => names.indexOf(name) !== index);
-      if (duplicateToolNames.length) {
-        throw new Error(`duplicate resolved tool name: ${duplicateToolNames[0]}`);
+      const firstByName = new Map<string, AgentTool>();
+      for (const tool of tools) {
+        const first = firstByName.get(tool.definition.name);
+        if (first) {
+          // Names are truncated/sanitized upstream, so identical names often
+          // come from different sources: name both so the author can tell.
+          throw new Error(
+            `duplicate resolved tool name: ${tool.definition.name} (${JSON.stringify(first.definition.description)} and ${JSON.stringify(tool.definition.description)})`
+          );
+        }
+        firstByName.set(tool.definition.name, tool);
       }
       if (agent.handoffs?.length) {
         throw new Error('agent handoffs require a registered handoff runtime');
@@ -289,7 +345,11 @@ export class AgentRunner {
           messages,
           tools: tools.map((tool) => tool.definition),
           ...(continuationId ? { continuationId } : {}),
-          ...(remainingTokens === undefined ? {} : { maxOutputTokens: remainingTokens }),
+          ...(remainingTokens === undefined
+            ? {}
+            : {
+                maxOutputTokens: clampOutputTokens(remainingTokens, capabilities.maxOutputTokens),
+              }),
         };
         const requestErrors = validateGenerationRequest(generationRequest, capabilities);
         if (requestErrors.length > 0) throw new Error(requestErrors.join('; '));
@@ -497,7 +557,11 @@ export class AgentRunner {
               output: toolOutput,
               durationMs: this.now() - toolStartedAt,
             });
-            messages.push({ role: 'tool', toolCallId: toolCall.id, content: toolOutput });
+            messages.push({
+              role: 'tool',
+              toolCallId: toolCall.id,
+              content: truncateToolOutputForModel(toolOutput),
+            });
           } catch (cause) {
             const toolError = cause instanceof Error ? cause.message : String(cause);
             emit({

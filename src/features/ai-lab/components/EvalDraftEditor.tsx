@@ -1,5 +1,7 @@
 import { AlertTriangle, FilePlus2, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -30,6 +32,48 @@ interface EvalDraftEditorProps {
   onToggleModel: (key: string) => void;
   onChangeSelectedModels: (selected: Set<string>) => void;
   onOpenModels: () => void;
+}
+
+/**
+ * Whole-percent input that tolerates an empty or partial value while typing
+ * (clearing the field to type a new number must not snap back) and clamps to
+ * 1-100 on blur. Only valid in-range values reach the draft while typing.
+ */
+export function PassThresholdInput({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (pct: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  return (
+    <Input
+      id="eval-pass-threshold"
+      data-testid="eval-pass-threshold"
+      className="w-20"
+      type="number"
+      min={1}
+      max={100}
+      value={text}
+      onChange={(event) => {
+        setText(event.target.value);
+        const n = Math.round(Number(event.target.value));
+        if (event.target.value !== '' && Number.isFinite(n) && n >= 1 && n <= 100) onChange(n);
+      }}
+      onBlur={() => {
+        const n = Math.round(Number(text));
+        if (text === '' || !Number.isFinite(n)) {
+          setText(String(value));
+          return;
+        }
+        const clamped = Math.max(1, Math.min(100, n));
+        setText(String(clamped));
+        onChange(clamped);
+      }}
+    />
+  );
 }
 
 /**
@@ -180,6 +224,20 @@ export function EvalDraftEditor({
           Parallel model calls — lower it if your provider rate-limits.
         </p>
       </div>
+      <div className="space-y-1">
+        <div className="flex items-center gap-3">
+          <Label htmlFor="eval-pass-threshold" className="sp-label">
+            Pass threshold (%)
+          </Label>
+          <PassThresholdInput
+            value={draft.passThresholdPct}
+            onChange={(passThresholdPct) => onPatchDraft({ passThresholdPct })}
+          />
+        </div>
+        <p className="text-sp-11 text-sp-dim">
+          Share of scored cells that must pass for the run to read passed. 100 = every scored cell.
+        </p>
+      </div>
       <div className="space-y-1.5">
         <Label htmlFor="eval-score-target" className="sp-label">
           Score target
@@ -198,6 +256,22 @@ export function EvalDraftEditor({
           </SelectContent>
         </Select>
         {draft.targetMode !== 'text' && <HttpExecutionWarning />}
+      </div>
+      <div className="flex items-start gap-2">
+        <Checkbox
+          id="eval-send-unredacted"
+          checked={draft.sendUnredactedToCloud === true}
+          onCheckedChange={(checked) => onPatchDraft({ sendUnredactedToCloud: checked === true })}
+        />
+        <div className="space-y-0.5">
+          <Label htmlFor="eval-send-unredacted" className="text-sp-12 text-sp-text">
+            Send unredacted to cloud providers
+          </Label>
+          <p className="text-sp-11 text-sp-dim">
+            Off by default: calls are refused if the prompt still contains a secret. Providers on
+            this machine or your LAN are not checked; a local-kind provider at a public host is.
+          </p>
+        </div>
       </div>
     </div>
   );

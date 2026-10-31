@@ -94,6 +94,19 @@ describe('executeAiChat', () => {
     expect(guardError).toBeDefined();
   });
 
+  it('names the override control of both the assistant and AI Lab in the guard error', async () => {
+    const spec = makeSpec({
+      messages: [{ role: 'user', content: 'Authorization: Bearer sk-totallyrealtoken1234' }],
+    });
+    const events = await collect(spec, fakeFetcher(fixtureStream('openai-explain.sse.txt')));
+    const guardError = events.find(
+      (e): e is Extract<ChatStreamEvent, { type: 'error' }> =>
+        e.type === 'error' && e.code === 'guard'
+    );
+    expect(guardError?.message).toContain('"Send raw" in the assistant');
+    expect(guardError?.message).toContain('"Send unredacted to cloud providers" in AI Lab');
+  });
+
   it('allows unredacted content when rawMode is true', async () => {
     const spec = makeSpec({
       rawMode: true,

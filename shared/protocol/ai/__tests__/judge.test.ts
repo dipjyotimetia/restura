@@ -204,6 +204,25 @@ describe('buildJudgeMessages (multi-criteria)', () => {
     expect(user?.content).toContain('Calibration examples');
     expect(user?.content).toContain('score 0.2: bad answer — too short');
   });
+
+  it('drops blank-output anchors, and the whole block when none are left', () => {
+    const blank = { output: '  \n', score: 0.5 };
+    const [, mixed] = buildJudgeMessages({
+      criteria,
+      output: 'o',
+      passThreshold: 0.6,
+      anchors: [blank, { output: 'good answer', score: 0.9 }],
+    });
+    expect(mixed?.content).toContain('score 0.9: good answer');
+    expect(mixed?.content).not.toContain('score 0.5');
+    const [, onlyBlank] = buildJudgeMessages({
+      criteria,
+      output: 'o',
+      passThreshold: 0.6,
+      anchors: [blank],
+    });
+    expect(onlyBlank?.content).not.toContain('Calibration examples');
+  });
 });
 
 describe('buildJudgeTool', () => {

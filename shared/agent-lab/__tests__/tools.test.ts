@@ -31,6 +31,36 @@ describe('MCP agent tools', () => {
     expect(tools[0]?.permissionClass).toBe('mutation');
   });
 
+  it('classifies destructive, open-world and unannotated tools and lets callers inspect them', async () => {
+    const inspected: string[][] = [];
+    const tools = await createMcpTools(
+      { kind: 'mcp', connectionId: 'server' },
+      {
+        async listTools() {
+          return [
+            { name: 'drop', inputSchema: {}, annotations: { destructiveHint: true } },
+            { name: 'fetch', inputSchema: {}, annotations: { openWorldHint: true } },
+            { name: 'plain', inputSchema: {} },
+          ];
+        },
+        async callTool(name) {
+          return [{ type: 'text', text: name }];
+        },
+      },
+      undefined,
+      {
+        nameForTool: (name) => `mcp_${name}`,
+        inspectDescriptors: (descriptors) => inspected.push(descriptors.map((d) => d.name)),
+      }
+    );
+    expect(tools.map((tool) => [tool.definition.name, tool.permissionClass])).toEqual([
+      ['mcp_drop', 'destructive'],
+      ['mcp_fetch', 'network'],
+      ['mcp_plain', 'mutation'],
+    ]);
+    expect(inspected).toEqual([['drop', 'fetch', 'plain']]);
+  });
+
   it('fails closed when an explicitly allowed remote tool is unavailable', async () => {
     await expect(
       createMcpTools(

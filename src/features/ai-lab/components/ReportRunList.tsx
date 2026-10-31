@@ -1,6 +1,6 @@
 import { formatRelativeTime } from '@/lib/shared/console-format';
 import { cn } from '@/lib/shared/utils';
-import type { AiLabReportEnvelope } from '../run-engine/reportEnvelope';
+import { type AiLabReportEnvelope, reportChipState } from '../run-engine/reportEnvelope';
 import { StatusChip } from './StatusChip';
 
 interface ReportRunListProps {
@@ -34,7 +34,12 @@ export function ReportRunList({ reports, selectedId, onSelect }: ReportRunListPr
                 : ''}
           </div>
           <div className="mt-1 flex items-center justify-between">
-            <StatusChip state={report.status} />
+            <StatusChip
+              state={reportChipState(report)}
+              {...(report.statusReason
+                ? { label: `${report.status}: ${report.statusReason}` }
+                : {})}
+            />
             <span className="text-sp-11 text-sp-muted tabular-nums">
               {report.kind === 'eval'
                 ? `${report.payload.cells.length}/${report.payload.totalCells}`

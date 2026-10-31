@@ -1,8 +1,10 @@
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/proxy-limits';
 import { SseParser } from '@shared/protocol/sse-parser';
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
+import { ResponseTooLargeError, readErrorPreview } from './bounded-read';
 import { PROVIDER_ROUTES } from './provider-routes';
 import { getProviderModule } from './providers';
-import { detectUnredactedSecrets } from './redaction';
+import { detectUnredactedSecrets, scrubProviderError, scrubSecretText } from './redaction';
 import type { ChatRequestSpec, ChatStreamEvent } from './types';
 
 type SecretResolver = (handleId: string) => Promise<string | undefined>;
@@ -27,6 +29,11 @@ function isAbortError(e: unknown, signal: AbortSignal | undefined): boolean {
  * secretResolver reading from the encrypted handle store. Same orchestrator
  * runs regardless of backend.
  */
+/** Provider-supplied error text can echo the auth header, even inside a 200 stream. */
+function scrubEvent(ev: ChatStreamEvent, apiKey: string): ChatStreamEvent {
+  return ev.type === 'error' ? { ...ev, message: scrubSecretText(ev.message, apiKey) } : ev;
+}
+
 export async function* executeAiChat(
   spec: ChatRequestSpec,
   fetcher: Fetcher,
@@ -34,14 +41,19 @@ export async function* executeAiChat(
 ): AsyncGenerator<ChatStreamEvent, void, unknown> {
   // 1. Paranoia pass on outgoing messages.
   if (!spec.rawMode) {
-    const blob = spec.messages.map((m) => m.content).join('\n');
+    // Replayed assistant tool calls carry arguments the model (or a tool result
+    // it echoed) produced, so scan those too, not just `content`.
+    const blob = spec.messages
+      .flatMap((m) => [m.content, ...(m.toolCalls ?? []).map((call) => call.input)])
+      .join('\n');
     if (detectUnredactedSecrets(blob)) {
       yield {
         type: 'error',
         code: 'guard',
         message:
           'Refused to send: messages still contain raw secrets after redaction. ' +
-          'Toggle "Send raw" if this is intentional.',
+          'If sending them is intentional, enable the unredacted-send override: ' +
+          '"Send raw" in the assistant, or "Send unredacted to cloud providers" in AI Lab.',
       };
       yield { type: 'done' };
       return;
@@ -81,7 +93,11 @@ export async function* executeAiChat(
     if (isAbortError(e, spec.signal)) {
       yield { type: 'error', code: 'aborted', message: 'Stream aborted.' };
     } else {
-      yield { type: 'error', code: 'network', message: e instanceof Error ? e.message : String(e) };
+      yield {
+        type: 'error',
+        code: 'network',
+        message: scrubSecretText(e instanceof Error ? e.message : String(e), apiKey),
+      };
     }
     yield { type: 'done' };
     return;
@@ -91,14 +107,14 @@ export async function* executeAiChat(
   if (!ok) {
     let detail = '';
     try {
-      detail = await response.text();
+      detail = await readErrorPreview(response);
     } catch {
       detail = '';
     }
     yield {
       type: 'error',
       code: 'provider',
-      message: `Provider ${response.status}: ${detail.slice(0, 500)}`,
+      message: `Provider ${response.status}: ${scrubProviderError(detail, apiKey, 500)}`,
     };
     yield { type: 'done' };
     return;
@@ -114,24 +130,34 @@ export async function* executeAiChat(
   const decoder = getProviderModule(spec.provider).createDecoder(spec.model);
   const parser = new SseParser();
   const reader = response.body.getReader();
+  let received = 0;
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       if (!value) continue;
+      received += value.length;
+      if (received > MAX_RESPONSE_SIZE) {
+        await reader.cancel();
+        throw new ResponseTooLargeError();
+      }
       for (const sse of parser.feed(value)) {
-        for (const ev of decoder.feed(sse.data, sse.event)) yield ev;
+        for (const ev of decoder.feed(sse.data, sse.event)) yield scrubEvent(ev, apiKey);
       }
     }
     for (const sse of parser.flush()) {
-      for (const ev of decoder.feed(sse.data, sse.event)) yield ev;
+      for (const ev of decoder.feed(sse.data, sse.event)) yield scrubEvent(ev, apiKey);
     }
-    for (const ev of decoder.flush()) yield ev;
+    for (const ev of decoder.flush()) yield scrubEvent(ev, apiKey);
   } catch (e) {
     if (isAbortError(e, spec.signal)) {
       yield { type: 'error', code: 'aborted', message: 'Stream aborted.' };
     } else {
-      yield { type: 'error', code: 'network', message: e instanceof Error ? e.message : String(e) };
+      yield {
+        type: 'error',
+        code: 'network',
+        message: scrubSecretText(e instanceof Error ? e.message : String(e), apiKey),
+      };
     }
     yield { type: 'done' };
   }

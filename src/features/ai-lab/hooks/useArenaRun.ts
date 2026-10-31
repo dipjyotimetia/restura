@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import { type ArenaProgress, modelKeyOf, runArena } from '../lib/arenaRunner';
+import {
+  type ArenaProgress,
+  ArenaRunError,
+  arenaRunStatus,
+  modelKeyOf,
+  runArena,
+} from '../lib/arenaRunner';
 import { modelKey } from '../lib/modelOptions';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useArenaStore } from '../store/useArenaStore';
@@ -13,6 +19,7 @@ export interface ArenaRunConfig {
   judgeModel: ModelRef;
   concurrency: number;
   system?: string;
+  sendUnredactedToCloud?: boolean;
 }
 
 /**
@@ -73,16 +80,29 @@ function start(config: ArenaRunConfig): void {
           providers: lab.providers,
           concurrency: config.concurrency,
           ...(config.system ? { system: config.system } : {}),
+          ...(config.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
         },
         (p) => useArenaLiveStore.setState({ progress: p }),
         ac.signal
       );
-      useArenaStore
-        .getState()
-        .finishRun(runId, result.matches, ac.signal.aborted ? 'cancelled' : 'done');
+      const status = arenaRunStatus(result.matches, ac.signal.aborted);
+      useArenaStore.getState().finishRun(runId, result.matches, status);
+      const errored = result.matches.filter((m) => m.winner === 'error');
+      if (errored.length > 0 && status !== 'cancelled') {
+        useArenaLiveStore.setState({
+          error:
+            status === 'error'
+              ? `Every match failed, so there is no ranking. ${errored[0]?.error ?? ''}`.trim()
+              : `${errored.length} of ${result.matches.length} matches failed and were left out of the ratings.`,
+        });
+      }
     } catch (e: unknown) {
       useArenaLiveStore.setState({ error: e instanceof Error ? e.message : String(e) });
-      useArenaStore.getState().finishRun(runId, [], 'error');
+      // Keep whatever was judged before the failure instead of discarding it.
+      const matches = e instanceof ArenaRunError ? e.matches : [];
+      useArenaStore
+        .getState()
+        .finishRun(runId, matches, matches.some((m) => m.winner !== 'error') ? 'partial' : 'error');
     } finally {
       abortController = null;
       useArenaLiveStore.setState({ running: false });

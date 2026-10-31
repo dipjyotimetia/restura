@@ -5,7 +5,7 @@
 // algorithm lives in the shared runPairwiseJudge.
 import { type JudgeComplete, runPairwiseJudge } from '@shared/protocol/ai/judge';
 import { completeWithRetry } from '@/lib/shared/completeRetry';
-import type { AiLabProviderConfig, Dataset, ModelRef } from '../types';
+import type { AiLabProviderConfig, ArenaRunStatus, Dataset, ModelRef } from '../types';
 import { runPool } from './concurrencyPool';
 import type { PairwiseMatch } from './elo';
 import { completeLlm, type LlmCallSpec, type LlmChatMessage, specFor } from './llmClient';
@@ -20,6 +20,8 @@ export interface ArenaInput {
   concurrency: number;
   /** System prompt sent to every contestant (optional). */
   system?: string;
+  /** Visible per-run override: skip the secret check for cloud providers (default off). */
+  sendUnredactedToCloud?: boolean;
 }
 
 export interface ArenaProgress {
@@ -32,6 +34,32 @@ export interface ArenaResult {
   matches: PairwiseMatch[];
   /** Model keys (providerConfigId:model) of the contestants, in input order. */
   modelKeys: string[];
+}
+
+/**
+ * A run that failed after producing some matches. Carries them so the caller
+ * can keep the partial results instead of discarding them.
+ */
+export class ArenaRunError extends Error {
+  readonly matches: PairwiseMatch[];
+  constructor(cause: unknown, matches: PairwiseMatch[]) {
+    super(errorText(cause));
+    this.name = 'ArenaRunError';
+    this.cause = cause;
+    this.matches = matches;
+  }
+}
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** Run status from the collected matches: errored matches never read as a clean `done`. */
+export function arenaRunStatus(matches: PairwiseMatch[], aborted: boolean): ArenaRunStatus {
+  if (aborted) return 'cancelled';
+  const errored = matches.filter((m) => m.winner === 'error').length;
+  if (errored === 0) return 'done';
+  return errored === matches.length ? 'error' : 'partial';
 }
 
 export function modelKeyOf(m: ModelRef): string {
@@ -72,25 +100,59 @@ export async function runArena(
   }
 
   const modelKeys = input.models.map(modelKeyOf);
+  // Place each result at its task index, NOT in completion order: Elo is
+  // path-dependent, so folding matches in a stable order is what makes a run
+  // reproducible for identical inputs (computeElo's contract).
+  const slots: Array<PairwiseMatch | undefined> = [];
+  const collected = () => slots.filter((m): m is PairwiseMatch => m !== undefined);
+  try {
+    return await runArenaPhases(input, onProgress, signal, modelKeys, slots, collected);
+  } catch (e) {
+    throw new ArenaRunError(e, collected());
+  }
+}
+
+async function runArenaPhases(
+  input: ArenaInput,
+  onProgress: (p: ArenaProgress) => void,
+  signal: AbortSignal,
+  modelKeys: string[],
+  slots: Array<PairwiseMatch | undefined>,
+  collected: () => PairwiseMatch[]
+): Promise<ArenaResult> {
   // Phase A: generate every contestant's output per case → outputs[caseId][modelKey].
   const outputs: Record<string, Record<string, string>> = {};
+  // Contestant calls that failed (provider error / thrown) — a match involving
+  // one is an error, never a tie.
+  const failures: Record<string, Record<string, string>> = {};
   const genTasks: Array<{ caseId: string; userText: string; model: ModelRef }> = [];
   for (const c of input.dataset.cases) {
     outputs[c.id] = {};
+    failures[c.id] = {};
     const userText = caseUserText(c.vars);
     for (const m of input.models) genTasks.push({ caseId: c.id, userText, model: m });
   }
+  const overrideOpts = input.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {};
   let genDone = 0;
   await runPool(genTasks, input.concurrency, signal, async (t) => {
     const cfg = input.providers[t.model.providerConfigId];
     if (cfg) {
+      const key = modelKeyOf(t.model);
       try {
-        const completion = await completeWithRetry(() =>
-          completeLlm(specFor(cfg, t.model.model, buildMessages(input.system, t.userText)))
+        const completion = await completeWithRetry(
+          () =>
+            completeLlm(
+              specFor(cfg, t.model.model, buildMessages(input.system, t.userText), overrideOpts),
+              { signal }
+            ),
+          { signal }
         );
-        outputs[t.caseId]![modelKeyOf(t.model)] = completion.ok ? completion.text : '';
-      } catch {
-        outputs[t.caseId]![modelKeyOf(t.model)] = '';
+        if (completion.ok) outputs[t.caseId]![key] = completion.text;
+        else failures[t.caseId]![key] = completion.error?.message ?? 'completion failed';
+      } catch (e) {
+        // A call aborted by Stop is a cancellation, not a failed contestant.
+        if (signal.aborted) return;
+        failures[t.caseId]![key] = errorText(e);
       }
     }
     genDone++;
@@ -101,12 +163,16 @@ export async function runArena(
   // Phase B: judge every unordered model pair per case.
   const judgeCfg = input.providers[input.judgeModel.providerConfigId];
   const complete: JudgeComplete = (messages, tools) =>
-    completeWithRetry(() =>
-      completeLlm(
-        specFor(judgeCfg!, input.judgeModel.model, messages as LlmChatMessage[], {
-          tools: tools as LlmCallSpec['tools'],
-        })
-      )
+    completeWithRetry(
+      () =>
+        completeLlm(
+          specFor(judgeCfg!, input.judgeModel.model, messages as LlmChatMessage[], {
+            tools: tools as LlmCallSpec['tools'],
+            ...overrideOpts,
+          }),
+          { signal }
+        ),
+      { signal }
     );
 
   const judgeTasks: Array<{ caseId: string; aKey: string; bKey: string }> = [];
@@ -118,35 +184,44 @@ export async function runArena(
     }
   }
 
-  // Place each result at its task index, NOT in completion order: Elo is
-  // path-dependent, so folding matches in a stable order is what makes a run
-  // reproducible for identical inputs (computeElo's contract).
-  const slots: Array<PairwiseMatch | undefined> = new Array(judgeTasks.length);
   let judgeDone = 0;
   if (judgeCfg) {
     await runPool(judgeTasks, input.concurrency, signal, async (t, idx) => {
       const outA = outputs[t.caseId]?.[t.aKey] ?? '';
       const outB = outputs[t.caseId]?.[t.bKey] ?? '';
-      let winner: PairwiseMatch['winner'] = 'tie';
-      if (outA || outB) {
+      const failed = [
+        failures[t.caseId]?.[t.aKey] && `${t.aKey}: ${failures[t.caseId]![t.aKey]}`,
+        failures[t.caseId]?.[t.bKey] && `${t.bKey}: ${failures[t.caseId]![t.bKey]}`,
+      ].filter(Boolean);
+      let match: PairwiseMatch;
+      if (failed.length > 0) {
+        // A contestant call failed: there is nothing fair to judge, and calling
+        // it a tie would hide a bad key / outage behind a plausible leaderboard.
+        match = { a: t.aKey, b: t.bKey, winner: 'error', error: failed.join('; ') };
+      } else if (!outA && !outB) {
+        match = { a: t.aKey, b: t.bKey, winner: 'tie' }; // both models genuinely answered ''
+      } else {
         try {
           const v = await runPairwiseJudge(
             { outputA: outA, outputB: outB, swapPositions: true },
             complete
           );
-          winner = v.winner === 'A' ? 'a' : v.winner === 'B' ? 'b' : 'tie';
-        } catch {
-          winner = 'tie';
+          const winner = v.winner === 'A' ? 'a' : v.winner === 'B' ? 'b' : 'tie';
+          match = { a: t.aKey, b: t.bKey, winner };
+        } catch (e) {
+          // Stop aborts in-flight judge calls; that match is cancelled, not errored.
+          if (signal.aborted) return;
+          match = { a: t.aKey, b: t.bKey, winner: 'error', error: `judge: ${errorText(e)}` };
         }
       }
-      slots[idx] = { a: t.aKey, b: t.bKey, winner };
+      slots[idx] = match;
       judgeDone++;
       onProgress({ phase: 'judging', completed: judgeDone, total: judgeTasks.length });
     });
   }
 
   onProgress({ phase: 'done', completed: judgeDone, total: judgeTasks.length });
-  // filter(Boolean) drops holes left by an aborted run; a completed run is dense
+  // collected() drops holes left by an aborted run; a completed run is dense
   // and in judgeTasks (round-robin) order.
-  return { matches: slots.filter((m): m is PairwiseMatch => m !== undefined), modelKeys };
+  return { matches: collected(), modelKeys };
 }

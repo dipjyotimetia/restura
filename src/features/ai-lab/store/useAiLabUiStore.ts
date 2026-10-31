@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import type { DatasetDraft, EditableCase } from '../lib/datasetDraft';
-import type { ScorerConfig } from '../types';
+import type { AiToolDef, ScorerConfig } from '../types';
 
 /**
  * Session-scoped AI Lab UI state. Deliberately NOT persisted: a module-level
@@ -37,6 +37,8 @@ export interface PlaygroundDraft {
   selected: string[];
   /** Raw input for the optional max-output-tokens cap ('' = provider default). */
   maxTokensText: string;
+  /** Session-only override: skip the secret check for cloud providers (default off). */
+  sendUnredactedToCloud?: boolean;
 }
 
 export interface EvalDraft {
@@ -50,6 +52,11 @@ export interface EvalDraft {
   scorers: ScorerConfig[];
   concurrency: number;
   targetMode: EvalTargetMode;
+  sendUnredactedToCloud?: boolean;
+  /** Pass threshold as a whole percent (1-100) of scored cells. */
+  passThresholdPct: number;
+  /** Tool definitions offered to the model (needed by the tool-call scorer). */
+  tools: AiToolDef[];
 }
 
 export interface ArenaDraft {
@@ -58,6 +65,7 @@ export interface ArenaDraft {
   judgeKey: string;
   system: string;
   concurrency: number;
+  sendUnredactedToCloud?: boolean;
 }
 
 const defaultPlaygroundDraft = (): PlaygroundDraft => ({
@@ -66,6 +74,7 @@ const defaultPlaygroundDraft = (): PlaygroundDraft => ({
   varsText: '{\n  "topic": "HTTP caching"\n}',
   selected: [],
   maxTokensText: '',
+  sendUnredactedToCloud: false,
 });
 
 const defaultEvalDraft = (): EvalDraft => ({
@@ -78,6 +87,9 @@ const defaultEvalDraft = (): EvalDraft => ({
   scorers: [],
   concurrency: 4,
   targetMode: 'text',
+  sendUnredactedToCloud: false,
+  passThresholdPct: 100,
+  tools: [],
 });
 
 const defaultArenaDraft = (): ArenaDraft => ({
@@ -86,6 +98,7 @@ const defaultArenaDraft = (): ArenaDraft => ({
   judgeKey: '',
   system: '',
   concurrency: 4,
+  sendUnredactedToCloud: false,
 });
 
 interface AiLabUiState {

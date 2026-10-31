@@ -16,8 +16,12 @@ const STATE_TONE: Record<string, Tone> = {
   streaming: 'active',
   running: 'active',
   done: 'ok',
+  passed: 'ok',
+  failed: 'error',
   error: 'error',
   cancelled: 'muted',
+  interrupted: 'muted',
+  partial: 'active',
 };
 
 export function StatusChip({

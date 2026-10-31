@@ -3,6 +3,7 @@ import { useCallback, useMemo } from 'react';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -80,6 +81,7 @@ export function Arena() {
       judgeModel: { providerConfigId: judge.cfg.id, model: judge.model },
       concurrency: draft.concurrency,
       ...(draft.system.trim() ? { system: draft.system.trim() } : {}),
+      ...(draft.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
     });
   };
 
@@ -107,6 +109,13 @@ export function Arena() {
     deleteRun(activeRun.id);
     setArenaRunId(null);
   };
+
+  // Errored matches are listed, not scored: they never reach the leaderboard.
+  const erroredMatches = useMemo(
+    () => activeRun?.matches.filter((m) => m.winner === 'error') ?? [],
+    [activeRun]
+  );
+  const scoredMatchCount = (activeRun?.matches.length ?? 0) - erroredMatches.length;
 
   const leaderboard = useMemo(() => {
     if (!activeRun) return [];
@@ -222,6 +231,24 @@ export function Arena() {
               Parallel model calls — lower it if your provider rate-limits.
             </p>
           </div>
+          <div className="flex items-start gap-2">
+            <Checkbox
+              id="arena-send-unredacted"
+              data-testid="arena-send-unredacted"
+              checked={draft.sendUnredactedToCloud === true}
+              onCheckedChange={(checked) => patchDraft({ sendUnredactedToCloud: checked === true })}
+            />
+            <div className="space-y-0.5">
+              <Label htmlFor="arena-send-unredacted" className="text-sp-12 text-sp-text">
+                Send unredacted to cloud providers
+              </Label>
+              <p className="text-sp-11 text-sp-dim">
+                Off by default: calls (contestants and judge) are refused if a case still contains a
+                secret. Providers on this machine or your LAN are not checked; a local-kind provider
+                at a public host is.
+              </p>
+            </div>
+          </div>
           {estimatedMatches > 0 && (
             <div className="flex items-center justify-between rounded-sp-btn border border-sp-line bg-sp-surface-lo px-3 py-2 text-sp-11">
               <span className="text-sp-muted">Planned round robin</span>
@@ -271,7 +298,7 @@ export function Arena() {
                     <SelectItem key={r.id} value={r.id}>
                       {r.datasetName} · {plural(r.modelKeys.length, 'model')} ·{' '}
                       {formatRelativeTime(r.startedAt)}
-                      {r.status !== 'done' ? ` · ${r.status}` : ''}
+                      {r.status !== 'done' ? ` · ${r.interrupted ? 'interrupted' : r.status}` : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -294,8 +321,29 @@ export function Arena() {
               <div>
                 <h3 className="sp-label mb-2">
                   Leaderboard — {activeRun.datasetName} (
-                  {plural(activeRun.matches.length, 'match', 'matches')})
+                  {plural(scoredMatchCount, 'scored match', 'scored matches')})
                 </h3>
+                {erroredMatches.length > 0 && (
+                  <div
+                    role="alert"
+                    className="mb-3 rounded-sp-btn border border-destructive/40 bg-sp-surface-lo px-3 py-2 text-sp-12"
+                  >
+                    <p className="flex items-center gap-1.5 font-medium text-destructive">
+                      <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                      {plural(erroredMatches.length, 'match', 'matches')} errored and{' '}
+                      {erroredMatches.length === 1 ? 'is' : 'are'} excluded from the ratings
+                    </p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sp-11 text-sp-muted">
+                      {[...new Set(erroredMatches.map((m) => m.error ?? 'unknown error'))]
+                        .slice(0, 3)
+                        .map((message) => (
+                          <li key={message} className="break-words">
+                            {message}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
                 <table className="w-full text-sp-12">
                   <thead>
                     <tr className="border-b border-sp-line text-left text-sp-11 uppercase tracking-wide text-sp-muted">

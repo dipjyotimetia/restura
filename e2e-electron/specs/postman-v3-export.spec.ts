@@ -34,9 +34,13 @@ async function importFolder(page: Page, folder: string) {
 }
 
 async function exportV3(page: Page) {
-  const row = page.getByText('Kitchen Sink', { exact: true }).first();
+  // Collections accumulate in the shared desktop window — target this one's row.
+  const row = page
+    .getByText('Kitchen Sink', { exact: true })
+    .first()
+    .locator('xpath=ancestor::*[.//button[@aria-label="Collection options"]][1]');
   await row.hover();
-  await page.getByRole('button', { name: 'Collection options' }).first().click();
+  await row.getByRole('button', { name: 'Collection options' }).click();
   await page.getByRole('menuitem', { name: 'Export' }).hover();
   await page.getByRole('menuitem', { name: 'Postman v3 (folder / zip)' }).hover();
   await page.getByRole('menuitem', { name: 'Postman v3 (folder / zip)' }).click();

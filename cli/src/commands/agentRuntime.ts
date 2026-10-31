@@ -35,6 +35,18 @@ const McpSourceSchema = z
   })
   .strict();
 
+const PriceSchema = z.number().finite().min(0);
+
+/** USD per million tokens; cache rates are optional and only needed when the provider reports cached tokens. */
+const ModelPriceSchema = z
+  .object({
+    inputUSDPerMTok: PriceSchema,
+    outputUSDPerMTok: PriceSchema,
+    cacheReadUSDPerMTok: PriceSchema.optional(),
+    cacheWriteUSDPerMTok: PriceSchema.optional(),
+  })
+  .strict();
+
 /**
  * Non-portable runtime bindings for a portable agent suite. Values that can
  * carry credentials are environment variable names, never inline secrets.
@@ -45,6 +57,8 @@ export const AgentRuntimeManifestSchema = z
     sources: z
       .array(z.discriminatedUnion('kind', [CollectionSourceSchema, McpSourceSchema]))
       .max(100),
+    /** Per-model price overrides (keyed by model id) for cost budgets and cost graders. */
+    modelPrices: z.record(z.string().min(1).max(200), ModelPriceSchema).optional(),
   })
   .superRefine((manifest, context) => {
     const seen = new Set<string>();

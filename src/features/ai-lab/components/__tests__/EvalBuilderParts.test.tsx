@@ -45,6 +45,8 @@ const DRAFT: EvalDraft = {
   datasetId: '',
   selected: [],
   scorers: [],
+  passThresholdPct: 100,
+  tools: [],
   concurrency: 4,
   targetMode: 'http',
 };

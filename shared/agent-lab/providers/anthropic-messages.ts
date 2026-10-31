@@ -10,6 +10,7 @@ import type {
   ProviderExecutionContext,
 } from '../provider';
 import type { ContentBlock, CredentialRef } from '../types';
+import { type AgentModelPriceOverrides, knownCostUSD, resolveModelPrice } from './pricing';
 
 const CAPABILITIES: ModelCapabilities = {
   inputModalities: ['text', 'image'],
@@ -69,7 +70,11 @@ function messageContent(message: GenerationMessage): Array<Record<string, unknow
   return blocks;
 }
 
-function parseResponse(value: unknown): GenerationResponse {
+function parseResponse(
+  value: unknown,
+  model: string,
+  priceOverrides?: AgentModelPriceOverrides
+): GenerationResponse {
   const response = value as {
     id?: unknown;
     content?: unknown;
@@ -113,6 +118,23 @@ function parseResponse(value: unknown): GenerationResponse {
       ? response.usage.input_tokens + cachedTokens
       : undefined;
   const outputTokens = response.usage?.output_tokens;
+  const cacheRead =
+    typeof response.usage?.cache_read_input_tokens === 'number'
+      ? response.usage.cache_read_input_tokens
+      : 0;
+  const cacheWrite =
+    typeof response.usage?.cache_creation_input_tokens === 'number'
+      ? response.usage.cache_creation_input_tokens
+      : 0;
+  const costUSD =
+    typeof response.usage?.input_tokens === 'number' && typeof outputTokens === 'number'
+      ? knownCostUSD(resolveModelPrice('anthropic.messages', model, priceOverrides), {
+          input: response.usage.input_tokens,
+          cacheRead,
+          cacheWrite,
+          output: outputTokens,
+        })
+      : undefined;
   return {
     id: response.id,
     output,
@@ -120,6 +142,7 @@ function parseResponse(value: unknown): GenerationResponse {
     ...(typeof inputTokens === 'number' && typeof outputTokens === 'number'
       ? { usage: { inputTokens, outputTokens } }
       : {}),
+    ...(costUSD !== undefined ? { costUSD } : {}),
     stopReason:
       toolCalls.length > 0 || response.stop_reason === 'tool_use'
         ? 'tool-calls'
@@ -132,6 +155,8 @@ function parseResponse(value: unknown): GenerationResponse {
 export interface AnthropicMessagesAdapterOptions {
   fetcher: Fetcher;
   discoveryCredential?: CredentialRef;
+  /** Per-model prices that take precedence over the shared table (CLI runtime manifest). */
+  priceOverrides?: AgentModelPriceOverrides;
 }
 
 /** Native, stateless Anthropic Messages adapter for portable agent suites. */
@@ -205,7 +230,7 @@ export class AnthropicMessagesAdapter implements ProviderAdapter {
     if (response.status < 200 || response.status >= 300) {
       throw new Error(`Anthropic Messages ${response.status}: ${text.slice(0, 500)}`);
     }
-    return parseResponse(JSON.parse(text));
+    return parseResponse(JSON.parse(text), request.model.model, this.options.priceOverrides);
   }
 
   private async resolveCredential(

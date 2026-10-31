@@ -294,11 +294,11 @@ OPENAI_API_KEY=... restura agent eval ./checkout.agent-suite.json --output agent
 | `--env <file>`              |         | JSON or YAML env file used by saved requests: a flat `{ "key": "value" }` object (string values only) or a Postman environment export. Hoppscotch environment exports are not read. |
 | `--timeout <ms>`            | `30000` | Per saved-HTTP-request timeout.                                                                          |
 | `--allow-localhost`         | `false` | Permit localhost saved-request targets.                                                                  |
-| `--telemetry-config <file>` |         | Metadata-only Langfuse or OTLP export; credentials must be environment references. See [Agent telemetry](https://github.com/dipjyotimetia/restura/blob/main/docs/AGENT_TELEMETRY.md). |
+| `--telemetry-config <file>` |         | Metadata-only Langfuse or OTLP export; credentials must be environment references; the collector hostname is resolved once and every address validated (private, link-local, metadata and loopback-via-hostname results are refused with exit 2 before the run), and OTLP connects only to that validated address (Langfuse gets the DNS validation but no connect pin). See [Agent telemetry](https://github.com/dipjyotimetia/restura/blob/main/docs/AGENT_TELEMETRY.md). |
 
 Agents use `providerId: "openai.responses"` or `"anthropic.messages"` with an environment credential such as `{ "source": "env", "name": "OPENAI_API_KEY" }`. The OpenAI adapter is stateless (`store: false`, no `previous_response_id` continuation).
 
-The headless runner is deliberately narrower than the desktop AI Lab and fails closed before any model call: suite `baseUrl` overrides, desktop secret-handle credentials, judge graders, and sandbox sources are refused. Saved HTTP requests and MCP tools are only exposed when listed in a `--runtime` manifest — HTTP tools are limited to read-only requests, and MCP sources must be `readOnly: true` with an explicit tool allowlist and headers that name environment variables instead of holding values:
+The headless runner is deliberately narrower than the desktop AI Lab. Unsupported suite configuration is refused at preflight, before any model call: suite `baseUrl` overrides, desktop secret-handle credentials, judge graders, and sandbox sources. Saved HTTP requests and MCP tools are only exposed when listed in a `--runtime` manifest — HTTP tools are limited to read-only requests without pre-request or test scripts (own or inherited from a folder or collection; scripts do not run for agent tools, so scripted requests are refused with exit 2), and MCP sources must be `readOnly: true` with an explicit tool allowlist and headers that name environment variables instead of holding values. `readOnly: true` is the operator's assertion, not a server guarantee: server annotations are never trusted to grant access, but a listed tool the server marks `destructiveHint: true` or `readOnlyHint: false` is refused with exit 2 (there is no opt-out; remove it from `allowedTools`; tools with no annotations pass on your assertion). These tool-level refusals are raised when a trial first resolves its tools, not at preflight, so they can come after earlier trials have already called the model:
 
 ```json
 {
@@ -318,7 +318,21 @@ The headless runner is deliberately narrower than the desktop AI Lab and fails c
 }
 ```
 
-A Bundle may also use deterministic, read-only fixture tools; its baseline gates turn a regressed report into a failing result. Exit codes: `0` when every trial (and every bundle gate) passes, `1` for an evaluated failure, error, or cancellation, `2` for invalid input, unsupported configuration, or I/O failure. Step, time, tool, token, cost, and output budgets still apply.
+Cost budgets (`limits.maxCostUSD`) and `cost` graders need a known price. OpenAI and Anthropic models in Restura's shared price table are costed from the provider's reported usage (cached tokens are billed at the cache rate; if cached tokens appear but no cache rate is known, cost is treated as unknown rather than guessed). A suite that uses a budget or cost grader on an unpriced model is refused with exit 2; price it with per-model overrides (USD per million tokens, keyed by model id) in the runtime manifest:
+
+```json
+{
+  "schemaVersion": 1,
+  "sources": [],
+  "modelPrices": {
+    "my-finetune": { "inputUSDPerMTok": 2, "outputUSDPerMTok": 8, "cacheReadUSDPerMTok": 0.5 }
+  }
+}
+```
+
+A suite's policy profile (`agents[].policyId` → `policies[]`) is refused with exit 2 unless it is CI-safe: `ciEligible: true` (default `false`) and `autoApprove` containing only `read`. Suites that reference no profile are unaffected; a desktop profile that auto-approves writes must be edited (or dropped) before it can run in CI.
+
+A Bundle may also use deterministic, read-only fixture tools; its baseline gates turn a regressed report into a failing result. Exit codes: `0` when every trial (and every bundle gate) passes, `1` for an evaluated failure, error, or cancellation (SIGINT/SIGTERM cancel cooperatively: MCP sessions are closed and a partial `--output` report is still written; a second signal force-quits), `2` for invalid input, unsupported configuration, or I/O failure. Step, time, tool, token, cost, and output budgets still apply.
 
 > `--output` writes the complete local trace, which can include task inputs and model/tool outputs. Protect and expire that CI artifact according to your data policy.
 

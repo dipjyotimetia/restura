@@ -67,6 +67,32 @@ describe('redactBody', () => {
     expect(out).not.toContain('ZGVhZGJlZWZkZWFkYmVlZg');
   });
 
+  it('masks Authorization: Basic credentials but not prose', () => {
+    const out = redactBody('Authorization: Basic dXNlcjpwYXNzd29yZDEyMw==', 'default');
+    expect(out).not.toContain('dXNlcjpwYXNzd29yZDEyMw');
+    expect(redactBody('Use Basic authentication here', 'default')).toBe(
+      'Use Basic authentication here'
+    );
+  });
+
+  it('masks whole PEM private key blocks, including a truncated one', () => {
+    const block =
+      '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAabc123\nzzzz9999\n-----END RSA PRIVATE KEY-----';
+    const out = redactBody(`before ${block} after`, 'default');
+    expect(out).toBe('before [REDACTED] after');
+    const cut = redactBody('x -----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkq', 'default');
+    expect(cut).not.toContain('MIIEvQ');
+  });
+
+  it('masks presigned-URL signatures and session tokens', () => {
+    const out = redactBody(
+      'https://b.s3.amazonaws.com/o?X-Amz-Credential=AKIDEXAMPLE%2F2026&X-Amz-Signature=0123456789abcdef0123&X-Amz-Security-Token=FwoGZXIvYXdz%2Babc',
+      'default'
+    );
+    expect(out).not.toContain('0123456789abcdef0123');
+    expect(out).not.toContain('FwoGZXIvYXdz');
+  });
+
   it('raw mode is passthrough', () => {
     const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.sig';
     const out = redactBody(jwt, 'raw');

@@ -6,6 +6,7 @@ import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { EvalRunStateSchema } from '@/lib/shared/store-validators';
 import { newestFirst } from '../lib/newestFirst';
 import type { EvalCellResult, EvalRun, EvalRunStatus } from '../types';
+import { partitionRecords, quarantineInvalid } from './quarantine';
 
 /** Keep run history bounded — evals can be large and we re-encrypt the lot on write. */
 const MAX_RUNS = 50;
@@ -22,6 +23,7 @@ interface EvalRunState extends PersistedEvalRunState {
     datasetId?: string;
     datasetName?: string;
     modelLabels?: Record<string, string>;
+    passThreshold?: number;
   }) => string;
   /** Single-cell convenience over addCells. */
   addCell: (runId: string, cell: EvalCellResult) => void;
@@ -60,6 +62,7 @@ export const useEvalRunStore = create<EvalRunState>()(
           ...(init.datasetId ? { datasetId: init.datasetId } : {}),
           ...(init.datasetName ? { datasetName: init.datasetName } : {}),
           ...(init.modelLabels ? { modelLabels: init.modelLabels } : {}),
+          ...(init.passThreshold !== undefined ? { passThreshold: init.passThreshold } : {}),
           startedAt: Date.now(),
           status: 'running',
           cells: [],
@@ -100,17 +103,22 @@ export const useEvalRunStore = create<EvalRunState>()(
       partialize: (state) => ({ runs: state.runs }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
-        const parsed = EvalRunStateSchema.safeParse(state);
-        if (!parsed.success) {
-          useEvalRunStore.setState({ ...DEFAULT_STATE });
-          return;
+        // Validate per run: one corrupt run must not wipe the whole history.
+        const { valid, invalid } = partitionRecords(
+          state.runs,
+          EvalRunStateSchema.shape.runs.valueType
+        );
+        const dropped = Object.keys(invalid).length > 0;
+        if (dropped) {
+          void quarantineInvalid('evalRuns', 'eval-runs-store', 'eval run', { runs: invalid });
+          useEvalRunStore.setState({ runs: valid as Record<string, EvalRun> });
         }
         // A run still 'running' at hydrate time was interrupted by a reload.
-        const runs = { ...state.runs };
+        const runs = { ...(valid as Record<string, EvalRun>) };
         let touched = false;
         for (const [id, run] of Object.entries(runs)) {
           if (run.status === 'running') {
-            runs[id] = { ...run, status: 'error', finishedAt: Date.now() };
+            runs[id] = { ...run, status: 'cancelled', interrupted: true, finishedAt: Date.now() };
             touched = true;
           }
         }

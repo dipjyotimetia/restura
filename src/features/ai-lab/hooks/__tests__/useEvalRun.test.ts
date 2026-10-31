@@ -8,7 +8,7 @@ vi.mock('@/features/ai-lab/lib/evalRunner', () => ({ runEval: mockRunEval }));
 import { setAiLabReportRepositoryForTests } from '../../run-engine/reportRepository';
 import { useAiLabStore } from '../../store/useAiLabStore';
 import { useEvalRunStore } from '../../store/useEvalRunStore';
-import { useEvalRun } from '../useEvalRun';
+import { dismissPendingReport, useEvalRun } from '../useEvalRun';
 
 const CELL: EvalCellResult = {
   caseId: 'c1',
@@ -111,6 +111,35 @@ describe('useEvalRun', () => {
     await act(async () => {
       await result.current.retrySave();
     });
+  });
+
+  it('dismissing a failed report save discards it and unblocks the next eval', async () => {
+    const save = vi.fn().mockRejectedValueOnce(new Error('quota')).mockResolvedValue(undefined);
+    setAiLabReportRepositoryForTests({ load: async () => ({}), save });
+    mockRunEval.mockImplementation(async (_input, onProgress: (p: unknown) => void) => {
+      onProgress({ completed: 1, total: 1, cells: [CELL], done: true });
+      return [CELL];
+    });
+    const config = seedConfig();
+    const { result } = renderHook(() => useEvalRun());
+
+    await act(async () => {
+      result.current.start(config);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.pendingReport).not.toBeNull();
+
+    act(() => dismissPendingReport());
+    expect(result.current.pendingReport).toBeNull();
+    expect(result.current.persistenceError).toBeNull();
+
+    await act(async () => {
+      result.current.start(config);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockRunEval).toHaveBeenCalledTimes(2);
   });
 
   it('starts a run, persists cells + a done status, and surfaces progress', async () => {

@@ -255,6 +255,10 @@ export interface EvalConfig {
   target?: EvalTarget;
   /** Tool definitions exposed to the model (enables the tool-call scorer). */
   tools?: AiToolDef[];
+  /** Visible per-suite override: skip the secret check for cloud providers (default off). */
+  sendUnredactedToCloud?: boolean;
+  /** Fraction (0-1) of scored cells that must pass for the run to read `passed`. Default 1. */
+  passThreshold?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -323,6 +327,10 @@ export interface EvalRun {
   startedAt: number;
   finishedAt?: number;
   status: EvalRunStatus;
+  /** Set when the app closed mid-run; restored as `cancelled` and labelled 'interrupted'. */
+  interrupted?: boolean;
+  /** Pass threshold in force when the run started; absent on runs that predate it. */
+  passThreshold?: number;
   cells: EvalCellResult[];
   totalCells: number;
 }
@@ -332,8 +340,13 @@ export interface EvalRun {
 export interface ArenaMatch {
   a: string;
   b: string;
-  winner: 'a' | 'b' | 'tie';
+  /** 'error' = a contestant or the judge failed; excluded from Elo, shown as an error. */
+  winner: 'a' | 'b' | 'tie' | 'error';
+  error?: string;
 }
+
+/** Arena adds `partial` (some matches errored) to the shared run statuses. */
+export type ArenaRunStatus = EvalRunStatus | 'partial';
 
 export interface ArenaRun {
   id: string;
@@ -346,5 +359,7 @@ export interface ArenaRun {
   matches: ArenaMatch[];
   startedAt: number;
   finishedAt?: number;
-  status: EvalRunStatus;
+  status: ArenaRunStatus;
+  /** Set when the app closed mid-run; restored as `cancelled` and labelled 'interrupted'. */
+  interrupted?: boolean;
 }

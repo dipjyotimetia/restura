@@ -1,4 +1,6 @@
 import type { Fetcher } from '@shared/protocol/types';
+import { readBoundedText, readErrorPreview } from './bounded-read';
+import { scrubProviderError, scrubSecretText } from './redaction';
 import { isLocalProvider, type Provider } from './types';
 
 export interface DiscoveredModel {
@@ -66,7 +68,12 @@ export interface DiscoverArgs {
   apiKey?: string;
   fetcher: Fetcher;
   signal?: AbortSignal;
+  /** Per-request deadline; defaults to {@link MODEL_DISCOVERY_TIMEOUT_MS}. */
+  timeoutMs?: number;
 }
+
+/** A discovery GET against a hung or blackholed host must not wait forever. */
+export const MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
 
 /**
  * Ollama lists models at `GET /api/tags` → `{ models: [{ name, details, ... }] }`.
@@ -126,23 +133,37 @@ async function fetchJson(url: string, args: DiscoverArgs): Promise<unknown> {
       headers.Authorization = `Bearer ${args.apiKey}`;
     }
   }
-  const res = await args.fetcher({
-    url,
-    method: 'GET',
-    headers,
-    body: undefined,
-    signal: args.signal ?? new AbortController().signal,
-  });
+  const timeoutMs = args.timeoutMs ?? MODEL_DISCOVERY_TIMEOUT_MS;
+  const timeout = AbortSignal.timeout(timeoutMs);
+  let res: Awaited<ReturnType<Fetcher>>;
+  try {
+    res = await args.fetcher({
+      url,
+      method: 'GET',
+      headers,
+      body: undefined,
+      signal: args.signal ? AbortSignal.any([args.signal, timeout]) : timeout,
+    });
+  } catch (e) {
+    if (timeout.aborted && !args.signal?.aborted) {
+      throw new Error(`Model discovery timed out after ${timeoutMs}ms`);
+    }
+    if (e instanceof Error && e.name === 'AbortError') throw e;
+    // Transport errors can quote the request headers, key included.
+    throw new Error(scrubSecretText(e instanceof Error ? e.message : String(e), args.apiKey));
+  }
   if (res.status < 200 || res.status >= 300) {
     let detail = '';
     try {
-      detail = await res.text();
+      detail = await readErrorPreview(res);
     } catch {
       detail = '';
     }
-    throw new Error(`Model discovery failed (${res.status}): ${detail.slice(0, 300)}`);
+    throw new Error(
+      `Model discovery failed (${res.status}): ${scrubProviderError(detail, args.apiKey, 300)}`
+    );
   }
-  const raw = await res.text();
+  const raw = await readBoundedText(res);
   try {
     return JSON.parse(raw);
   } catch {

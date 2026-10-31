@@ -1,16 +1,48 @@
-import { context, SpanKind, trace as otelTrace } from '@opentelemetry/api';
+import { LangfuseSpanProcessor } from '@langfuse/otel';
+import { context, trace as otelTrace, SpanKind } from '@opentelemetry/api';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
-import { LangfuseSpanProcessor } from '@langfuse/otel';
 import {
-  projectTraceForTelemetry,
   type AgentSuiteReport,
   type AgentTelemetryConfig,
+  projectTraceForTelemetry,
   type TelemetryTrace,
 } from '@shared/agent-lab';
 
+import { createPinnedLookup, resolvePinnedMcpAddress } from './pinnedMcpFetch.js';
+
 const SCOPE = 'restura.agent-lab';
+
+export interface PinnedTelemetryEndpoint {
+  host: string;
+  ip: string;
+}
+
+/**
+ * Resolve the collector once and validate every record (same guard and pin
+ * helpers as the MCP transport). Loopback is allowed only for an explicit
+ * loopback collector (`localhost` / `127.0.0.1` / `[::1]`), never for a
+ * hostname that merely resolves there.
+ */
+export async function pinCliTelemetryEndpoint(endpoint: string): Promise<PinnedTelemetryEndpoint> {
+  const { hostname } = new URL(endpoint);
+  const loopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+  if (hostname === '[::1]') return { host: '::1', ip: '::1' };
+  try {
+    return await resolvePinnedMcpAddress(endpoint, loopback);
+  } catch (error) {
+    throw new Error(
+      `telemetry endpoint ${hostname} refused: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+/** Fail before the run when an enabled telemetry endpoint would be refused. */
+export async function preflightCliTelemetry(config: AgentTelemetryConfig): Promise<void> {
+  if (!config.enabled) return;
+  await pinCliTelemetryEndpoint(config.target === 'langfuse' ? config.baseUrl : config.endpoint);
+}
 
 export async function exportCliAgentTelemetry(
   report: AgentSuiteReport,
@@ -28,9 +60,17 @@ export async function exportCliAgentTelemetry(
       throw new Error(`Telemetry credential environment variable is not set: ${ref.name}`);
     return value;
   };
+  // Guard + pin before anything can connect.
+  const pinned = await pinCliTelemetryEndpoint(
+    config.target === 'langfuse' ? config.baseUrl : config.endpoint
+  );
   const processor =
     config.target === 'langfuse'
-      ? new LangfuseSpanProcessor({
+      ? // This target gets the DNS validation above but not the connect pin. A
+        // pinned exporter can be passed via LangfuseSpanProcessor's `exporter`
+        // param, but a custom exporter bypasses Langfuse's OTLP batch byte
+        // limit and would have to enforce it itself, so it is not wired.
+        new LangfuseSpanProcessor({
           publicKey: resolve(config.publicKey),
           secretKey: resolve(config.secretKey),
           baseUrl: config.baseUrl,
@@ -41,6 +81,7 @@ export async function exportCliAgentTelemetry(
       : new BatchSpanProcessor(
           new OTLPTraceExporter({
             url: config.endpoint,
+            httpAgentOptions: { lookup: createPinnedLookup(pinned.host, pinned.ip) },
             ...(config.auth.mode === 'bearer'
               ? { headers: { Authorization: `Bearer ${resolve(config.auth.token)}` } }
               : {}),

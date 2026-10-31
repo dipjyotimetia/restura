@@ -621,6 +621,44 @@ describe('useAiLabStore — prompts', () => {
   });
 });
 
+describe('useAiLabStore — local unredacted override (#1028)', () => {
+  beforeEach(reset);
+
+  it('sets, clears and drops the override with its suite, and validates', () => {
+    const s = useAiLabStore.getState();
+    s.setAgentSuiteUnredacted('a', true);
+    s.setAgentSuiteUnredacted('b', true);
+    expect(useAiLabStore.getState().agentUnredactedSuites).toEqual({ a: true, b: true });
+    useAiLabStore.getState().setAgentSuiteUnredacted('a', false);
+    useAiLabStore.getState().removeAgentSuite('b');
+    expect(useAiLabStore.getState().agentUnredactedSuites).toEqual({});
+    expect(
+      AiLabStateSchema.safeParse({ providers: {}, prompts: {}, datasets: {}, evalConfigs: {} })
+        .success
+    ).toBe(true);
+    expect(
+      AiLabStateSchema.safeParse({
+        providers: {},
+        prompts: {},
+        datasets: {},
+        evalConfigs: {},
+        agentUnredactedSuites: { a: true },
+      }).success
+    ).toBe(true);
+  });
+});
+
+describe('migrateAiLabState override pruning (#1028)', () => {
+  it('drops overrides for suites that no longer exist', () => {
+    const migrated = migrateAiLabState({
+      agentSuites: {},
+      agentUnredactedSuites: { ghost: true },
+    });
+    expect(migrated.agentUnredactedSuites).toEqual({});
+    expect('agentUnredactedSuites' in migrateAiLabState({ runReports: {} })).toBe(false);
+  });
+});
+
 describe('useAiLabStore — datasets', () => {
   beforeEach(reset);
 
@@ -660,5 +698,22 @@ describe('useAiLabStore — eval configs', () => {
     expect(useAiLabStore.getState().evalConfigs[id]?.name).toBe('e');
     useAiLabStore.getState().removeEvalConfig(id);
     expect(useAiLabStore.getState().evalConfigs[id]).toBeUndefined();
+  });
+
+  it('persists the pass threshold and the unredacted-cloud override (#1024)', () => {
+    const id = useAiLabStore.getState().upsertEvalConfig({
+      name: 'e',
+      promptId: 'p',
+      datasetId: 'd',
+      models: [],
+      scorers: [],
+      concurrency: 4,
+      passThreshold: 0.8,
+      sendUnredactedToCloud: true,
+    });
+    expect(useAiLabStore.getState().evalConfigs[id]).toMatchObject({
+      passThreshold: 0.8,
+      sendUnredactedToCloud: true,
+    });
   });
 });

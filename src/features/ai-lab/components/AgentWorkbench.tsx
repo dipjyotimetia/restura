@@ -10,10 +10,13 @@ import {
 import { Bot, Download, Play, Plus, Save, Square, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import { downloadBlob } from '@/lib/shared/file-utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import {
   cancelAgentRun,
+  dismissAgentReport,
   registerAgentRunOwner,
   retryAgentReportPersistence,
   startAgentRun,
@@ -74,6 +77,8 @@ export function AgentWorkbench() {
   const suites = useAiLabStore((state) => state.agentSuites);
   const upsert = useAiLabStore((state) => state.upsertAgentSuite);
   const remove = useAiLabStore((state) => state.removeAgentSuite);
+  const unredactedSuites = useAiLabStore((state) => state.agentUnredactedSuites);
+  const setSuiteUnredacted = useAiLabStore((state) => state.setAgentSuiteUnredacted);
   const providers = useAiLabStore((state) => state.providers);
   const collections = useCollectionStore((state) => state.collections);
   const mcpConnections = useMcpStore((state) => state.connections);
@@ -137,6 +142,14 @@ export function AgentWorkbench() {
       value: { ...bundle.data, suite: migrateAgentSuite(bundle.data.suite) },
     };
   };
+  // The override belongs to the saved suite the user opened. If JSON lands on a
+  // different id (a pasted or edited id), the override is not inherited.
+  const releaseForeignOverride = (id: string): boolean => {
+    if (id === activeId || unredactedSuites?.[id] !== true) return false;
+    setSuiteUnredacted(id, false);
+    return true;
+  };
+  const OVERRIDE_CLEARED = 'The unredacted-cloud override was turned off for this suite id.';
   const save = () => {
     try {
       const parsed = parseDraftPayload();
@@ -146,10 +159,11 @@ export function AgentWorkbench() {
         setMessage('Bundle schema-validated; export it to commit with your project');
       } else {
         const suite = parsed.value;
+        const cleared = releaseForeignOverride(suite.id);
         upsert(suite);
         setActiveId(suite.id);
         setDraft(JSON.stringify(suite, null, 2));
-        setMessage('Saved and schema-validated');
+        setMessage(cleared ? `Saved. ${OVERRIDE_CLEARED}` : 'Saved and schema-validated');
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -176,11 +190,13 @@ export function AgentWorkbench() {
       const bundle = AgentBundleSchema.safeParse(raw);
       if (bundle.success) {
         const parsed = { ...bundle.data, suite: migrateAgentSuite(bundle.data.suite) };
+        setSuiteUnredacted(parsed.suite.id, false);
         setActiveId(null);
         setDraft(JSON.stringify(parsed, null, 2));
         setMessage('Bundle imported and schema-validated');
       } else {
         const parsed = migrateAgentSuite(AgentSuiteSchema.parse(raw));
+        setSuiteUnredacted(parsed.id, false);
         upsert(parsed);
         setActiveId(parsed.id);
         setDraft(JSON.stringify(parsed, null, 2));
@@ -193,6 +209,9 @@ export function AgentWorkbench() {
   const run = () => {
     try {
       const parsed = parseDraftPayload();
+      const cleared = releaseForeignOverride(
+        parsed.bundle ? parsed.value.suite.id : parsed.value.id
+      );
       if (!parsed.bundle) upsert(parsed.value);
       const started = startAgentRun(
         parsed.value,
@@ -206,6 +225,7 @@ export function AgentWorkbench() {
       );
       if (!started)
         setMessage('An agent run is already active. Cancel it before starting another.');
+      else if (cleared) setMessage(`Running. ${OVERRIDE_CLEARED}`);
       else if (parsed.bundle) setMessage('Running deterministic fixture bundle');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -345,10 +365,21 @@ export function AgentWorkbench() {
               Cancel
             </Button>
           ) : (
-            <Button size="sm" variant="outline" onClick={run}>
-              <Play className="mr-1.5 h-3.5 w-3.5" />
-              Run
-            </Button>
+            <>
+              {guidedSuite && unredactedSuites?.[guidedSuite.id] === true && (
+                <span
+                  data-testid="agent-unredacted-badge"
+                  className="rounded-sp-btn border border-sp-line px-1.5 py-0.5 text-sp-11 text-sp-text"
+                  title="Secret check is off for cloud providers on this machine. Change it under Checks & budgets."
+                >
+                  Sending unredacted to cloud
+                </span>
+              )}
+              <Button size="sm" variant="outline" onClick={run}>
+                <Play className="mr-1.5 h-3.5 w-3.5" />
+                Run
+              </Button>
+            </>
           )}
           <Button size="sm" onClick={save}>
             <Save className="mr-1.5 h-3.5 w-3.5" />
@@ -374,6 +405,11 @@ export function AgentWorkbench() {
             <GuidedStep
               step={builderStep}
               suite={guidedSuite}
+              sendUnredacted={unredactedSuites?.[guidedSuite.id] === true}
+              canSetUnredacted={
+                activeId !== null && activeId === guidedSuite.id && !!suites[activeId]
+              }
+              onSendUnredactedChange={(enabled) => setSuiteUnredacted(guidedSuite.id, enabled)}
               onChange={(update) => updateGuidedSuite(guidedPayload, update)}
               onExport={exportSuite}
             />
@@ -444,6 +480,25 @@ export function AgentWorkbench() {
               Retry save
             </Button>
           )}
+          {persistenceError && completedReport && (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  downloadBlob(
+                    JSON.stringify(completedReport, null, 2),
+                    `${completedReport.id}.agent-report.json`
+                  )
+                }
+              >
+                Export report
+              </Button>
+              <Button size="sm" variant="ghost" onClick={dismissAgentReport}>
+                Dismiss
+              </Button>
+            </>
+          )}
           {completedReport && (
             <Button size="sm" variant="ghost" onClick={() => openReport(completedReport.id)}>
               View report
@@ -500,11 +555,18 @@ function ToolApprovalDialog({
 function GuidedStep({
   step,
   suite,
+  sendUnredacted,
+  canSetUnredacted,
+  onSendUnredactedChange,
   onChange,
   onExport,
 }: {
   step: BuilderStep;
   suite: AgentSuite;
+  sendUnredacted: boolean;
+  /** Only a saved suite can carry the override; an unsaved one has no local identity yet. */
+  canSetUnredacted: boolean;
+  onSendUnredactedChange: (enabled: boolean) => void;
   onChange: (update: (suite: NormalizedAgentSuite) => NormalizedAgentSuite) => void;
   onExport: () => void;
 }) {
@@ -560,10 +622,32 @@ function GuidedStep({
   if (step === 'checks') {
     return (
       <div className="mt-3 flex items-center justify-between gap-3 text-sp-10 text-sp-muted">
-        <span>
-          Current limits: {agent.limits.maxSteps} steps · {agent.limits.maxWallTimeMs}ms wall time ·{' '}
-          {suite.graders.length} graders.
-        </span>
+        <div className="space-y-2">
+          <span>
+            Current limits: {agent.limits.maxSteps} steps · {agent.limits.maxWallTimeMs}ms wall time
+            · {suite.graders.length} graders.
+          </span>
+          <label
+            htmlFor="agent-send-unredacted"
+            className="flex items-start gap-2 text-sp-11 text-sp-text"
+          >
+            <Checkbox
+              id="agent-send-unredacted"
+              data-testid="agent-send-unredacted"
+              checked={sendUnredacted}
+              disabled={!canSetUnredacted}
+              onCheckedChange={(checked) => onSendUnredactedChange(checked === true)}
+            />
+            <span>
+              Send unredacted to cloud providers
+              <span className="block text-sp-11 text-sp-muted">
+                Off by default: calls are refused if the prompt still contains a secret. Kept on
+                this machine only, never in the suite JSON. Providers on this machine or your LAN
+                are not checked; a local-kind provider at a public host is.
+              </span>
+            </span>
+          </label>
+        </div>
         <Button
           size="sm"
           variant="outline"

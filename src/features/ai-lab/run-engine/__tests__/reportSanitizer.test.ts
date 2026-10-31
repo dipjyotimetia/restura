@@ -52,6 +52,41 @@ function agentEnvelope(text: string): Extract<AiLabReportEnvelope, { kind: 'agen
   };
 }
 
+function evalEnvelope(
+  id: string,
+  startedAt: number,
+  output = 'ok'
+): Extract<AiLabReportEnvelope, { kind: 'eval' }> {
+  return {
+    id,
+    kind: 'eval',
+    name: id,
+    startedAt,
+    finishedAt: startedAt + 1,
+    status: 'passed',
+    payload: {
+      id,
+      evalConfigId: 'cfg',
+      configName: id,
+      startedAt,
+      status: 'done',
+      totalCells: 1,
+      cells: [
+        {
+          caseId: 'c',
+          modelRef: { providerConfigId: 'p', model: 'm' },
+          output,
+          ok: true,
+          latencyMs: 1,
+          cost: 0,
+          scores: [],
+          passed: true,
+        },
+      ],
+    },
+  };
+}
+
 describe('agent report persistence sanitization', () => {
   it('redacts recursive secrets, credential headers, query values, and token-shaped bodies', () => {
     const envelope = agentEnvelope('Bearer sk-supersecret https://x.test/a?token=secret');
@@ -320,5 +355,33 @@ describe('agent report persistence sanitization', () => {
     expect(Object.keys(retained)).toHaveLength(20);
     expect(retained['r-24']).toBeDefined();
     expect(retained['r-00']).toBeUndefined();
+  });
+
+  it('caps eval reports at the newest 50 without touching agent reports', () => {
+    const reports: Record<string, AiLabReportEnvelope> = {};
+    for (let index = 0; index < 60; index++) {
+      const id = `e-${String(index).padStart(2, '0')}`;
+      reports[id] = evalEnvelope(id, index);
+    }
+    const agent = agentEnvelope('safe');
+    reports[agent.id] = agent;
+    const retained = retainAgentReports(reports);
+    expect(Object.keys(retained).filter((id) => id.startsWith('e-'))).toHaveLength(50);
+    expect(retained['e-59']).toBeDefined();
+    expect(retained['e-10']).toBeDefined();
+    expect(retained['e-09']).toBeUndefined();
+    expect(retained[agent.id]).toBeDefined();
+  });
+
+  it('enforces the eval byte budget, keeping the newest reports that fit', () => {
+    const reports = Object.fromEntries(
+      [0, 1, 2, 3].map((index) => [
+        `e-${index}`,
+        evalEnvelope(`e-${index}`, index, 'x'.repeat(1000)),
+      ])
+    );
+    const one = new TextEncoder().encode(JSON.stringify(reports['e-0'])).byteLength;
+    const retained = retainAgentReports(reports, { evalBytes: one * 2 + 1 });
+    expect(Object.keys(retained).sort()).toEqual(['e-2', 'e-3']);
   });
 });

@@ -47,3 +47,20 @@ describe('winRateMatrix', () => {
     expect(m.A!.A!.rate).toBeNull();
   });
 });
+
+describe('errored matches (#1023)', () => {
+  const errored = { a: 'x', b: 'y', winner: 'error' as const, error: 'boom' };
+
+  it('excludes errored matches from Elo ratings and game counts', () => {
+    const elo = computeElo(['x', 'y'], [errored, errored]);
+    expect(elo.map((e) => [e.rating, e.games])).toEqual([
+      [1000, 0],
+      [1000, 0],
+    ]);
+  });
+
+  it('excludes errored matches from the win-rate matrix', () => {
+    const matrix = winRateMatrix(['x', 'y'], [errored, { a: 'x', b: 'y', winner: 'a' }]);
+    expect(matrix.x?.y).toEqual({ rate: 1, wins: 1, losses: 0, ties: 0 });
+  });
+});

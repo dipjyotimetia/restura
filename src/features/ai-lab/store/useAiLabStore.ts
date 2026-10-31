@@ -1,8 +1,8 @@
 import {
   type AgentSuite,
   type AgentTelemetryConfig,
-  migrateAgentSuite,
   type ModelCapabilities,
+  migrateAgentSuite,
 } from '@shared/agent-lab';
 import { isHuggingFaceProvider, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -25,6 +25,7 @@ import type {
   EvalConfig,
   PromptTemplate,
 } from '../types';
+import { partitionRecords, quarantineInvalid } from './quarantine';
 
 interface PersistedAiLabState {
   providers: Record<string, AiLabProviderConfig>;
@@ -37,6 +38,12 @@ interface PersistedAiLabState {
   runReports: Record<string, AiLabReportEnvelope>;
   reportQuarantineCount: number;
   agentTelemetry?: AgentTelemetryConfig;
+  /**
+   * Suites the user allowed to send unredacted prompts to cloud providers.
+   * Local-only (never in portable suite JSON) and keyed by suite id, so an
+   * imported suite cannot switch the secret check off (#1028).
+   */
+  agentUnredactedSuites?: Record<string, boolean>;
 }
 
 interface AiLabState extends PersistedAiLabState {
@@ -88,6 +95,7 @@ interface AiLabState extends PersistedAiLabState {
   upsertAgentSuite: (suite: unknown) => string;
   removeAgentSuite: (id: string) => void;
   setAgentTelemetryConfig: (config?: AgentTelemetryConfig) => void;
+  setAgentSuiteUnredacted: (suiteId: string, enabled: boolean) => void;
   hydrateRunReports: () => Promise<void>;
   saveRunReport: (report: AiLabReportEnvelope) => Promise<void>;
   removeRunReport: (id: string) => Promise<void>;
@@ -103,6 +111,7 @@ const DEFAULT_STATE: PersistedAiLabState = {
   agentSuites: {},
   runReports: {},
   reportQuarantineCount: 0,
+  agentUnredactedSuites: {},
 };
 
 const RECENT_MODEL_LIMIT = 20;
@@ -177,6 +186,9 @@ export function migrateAiLabState(
     ...previous,
     providers: Object.fromEntries(
       Object.entries(previous.providers ?? {}).map(([id, config]) => {
+        // A malformed record is passed through untouched; per-record validation
+        // (recoverAiLabRecords) quarantines it instead of crashing the migration.
+        if (!config || typeof config !== 'object') return [id, config];
         const modelDetails = config.modelDetails
           ? Object.fromEntries(
               Object.entries(config.modelDetails).map(([model, detail]) => {
@@ -200,9 +212,51 @@ export function migrateAiLabState(
       })
     ),
     agentSuites,
+    // Overrides for suites that no longer exist must not survive to be inherited
+    // by a later suite that reuses the id.
+    ...(previous.agentUnredactedSuites
+      ? {
+          agentUnredactedSuites: Object.fromEntries(
+            Object.entries(previous.agentUnredactedSuites).filter(([id]) => id in agentSuites)
+          ),
+        }
+      : {}),
     runReports,
     reportQuarantineCount: quarantineCount,
   };
+}
+
+function persistedSlice(state: PersistedAiLabState): Partial<PersistedAiLabState> {
+  const { runReports: _reports, ...rest } = state;
+  return Object.fromEntries(
+    Object.entries(rest).filter(([, value]) => typeof value !== 'function')
+  ) as Partial<PersistedAiLabState>;
+}
+
+const RECORD_SCHEMAS = {
+  providers: AiLabStateSchema.shape.providers.valueType,
+  prompts: AiLabStateSchema.shape.prompts.valueType,
+  datasets: AiLabStateSchema.shape.datasets.valueType,
+  evalConfigs: AiLabStateSchema.shape.evalConfigs.valueType,
+} as const;
+
+/**
+ * Drop only the records that fail validation (providers, prompts, datasets,
+ * eval configs) so one corrupt entry can't take the rest of the store with it.
+ * `invalid` holds the raw offenders, keyed by collection, for the quarantine backup.
+ */
+export function recoverAiLabRecords(state: Partial<PersistedAiLabState>): {
+  state: Partial<PersistedAiLabState>;
+  invalid: Record<string, Record<string, unknown>>;
+} {
+  const next: Record<string, unknown> = { ...state };
+  const invalid: Record<string, Record<string, unknown>> = {};
+  for (const [key, schema] of Object.entries(RECORD_SCHEMAS)) {
+    const partition = partitionRecords((state as Record<string, unknown>)[key], schema);
+    if (Object.keys(partition.invalid).length > 0) invalid[key] = partition.invalid;
+    next[key] = partition.valid;
+  }
+  return { state: next as Partial<PersistedAiLabState>, invalid };
 }
 
 export const useAiLabStore = create<AiLabState>()(
@@ -399,6 +453,8 @@ export const useAiLabStore = create<AiLabState>()(
                 // reloaded http-exec eval silently score text again.
                 ...(cfg.target ? { target: cfg.target } : {}),
                 ...(cfg.tools ? { tools: cfg.tools } : {}),
+                ...(cfg.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
+                ...(cfg.passThreshold !== undefined ? { passThreshold: cfg.passThreshold } : {}),
                 createdAt: prev?.createdAt ?? now,
                 updatedAt: now,
               },
@@ -423,9 +479,15 @@ export const useAiLabStore = create<AiLabState>()(
         set((state) => {
           const next = { ...state.agentSuites };
           delete next[id];
-          return { agentSuites: next };
+          const { [id]: _override, ...overrides } = state.agentUnredactedSuites ?? {};
+          return { agentSuites: next, agentUnredactedSuites: overrides };
         }),
       setAgentTelemetryConfig: (agentTelemetry) => set({ agentTelemetry }),
+      setAgentSuiteUnredacted: (suiteId, enabled) =>
+        set((state) => {
+          const { [suiteId]: _old, ...rest } = state.agentUnredactedSuites ?? {};
+          return { agentUnredactedSuites: enabled ? { ...rest, [suiteId]: true } : rest };
+        }),
       hydrateRunReports: () =>
         enqueueReportMutation(async () => {
           const loaded = await getAiLabReportRepository().load();
@@ -474,12 +536,22 @@ export const useAiLabStore = create<AiLabState>()(
         agentSuites: state.agentSuites,
         reportQuarantineCount: state.reportQuarantineCount,
         ...(state.agentTelemetry ? { agentTelemetry: state.agentTelemetry } : {}),
+        agentUnredactedSuites: state.agentUnredactedSuites ?? {},
       }),
-      merge: (persisted, current) => ({ ...current, ...migrateAiLabState(persisted) }),
+      merge: (persisted, current) => {
+        const { state, invalid } = recoverAiLabRecords(migrateAiLabState(persisted ?? {}));
+        void quarantineInvalid('aiLab', 'ai-lab-store', 'AI Lab', invalid);
+        return { ...current, ...state };
+      },
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         const parsed = AiLabStateSchema.safeParse(state);
         if (!parsed.success) {
+          // Per-record recovery already ran in `merge`; what is left is a
+          // store-level problem. Back up what we have before resetting.
+          void quarantineInvalid('aiLab', 'ai-lab-store', 'AI Lab', {
+            storeState: persistedSlice(state),
+          });
           // Merge defaults (keep action methods) rather than replace.
           useAiLabStore.setState({ ...DEFAULT_STATE });
         }

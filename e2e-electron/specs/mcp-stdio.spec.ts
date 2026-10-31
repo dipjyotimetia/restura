@@ -26,6 +26,19 @@ function fixturePids(): number[] | null {
  * UI, and Disconnect kills the child process.
  */
 test.describe('Desktop MCP stdio transport', () => {
+  // The app is shared across specs and Electron answers renderer window.confirm
+  // through dialog.showMessageBox, so a leftover stub auto-accepts later specs'
+  // confirms before Playwright sees them. Put the original back.
+  test.afterEach(async ({ _electronApp }) => {
+    await _electronApp.electronApp.evaluate(({ dialog }) => {
+      const g = globalThis as unknown as {
+        __originalShowMessageBox?: typeof dialog.showMessageBox;
+      };
+      if (g.__originalShowMessageBox) dialog.showMessageBox = g.__originalShowMessageBox;
+      delete g.__originalShowMessageBox;
+    });
+  });
+
   test('consent, discovery, stderr, and kill-on-disconnect', async ({
     app: page,
     _electronApp,
@@ -36,8 +49,12 @@ test.describe('Desktop MCP stdio transport', () => {
     // otherwise "Allow once" (Linux CI without a keyring: safeStorage is
     // unavailable, so main deliberately offers only Cancel / Allow once).
     await electronApp.evaluate(({ dialog }) => {
-      const g = globalThis as unknown as { __stdioPrompts: string[][] };
+      const g = globalThis as unknown as {
+        __stdioPrompts: string[][];
+        __originalShowMessageBox?: typeof dialog.showMessageBox;
+      };
       g.__stdioPrompts = [];
+      g.__originalShowMessageBox ??= dialog.showMessageBox;
       dialog.showMessageBox = (async (...args: unknown[]) => {
         const options = args.at(-1) as { buttons?: string[] };
         const buttons = options.buttons ?? [];

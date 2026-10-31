@@ -1,13 +1,15 @@
-import { context, SpanKind, trace as otelTrace, type Span, type Tracer } from '@opentelemetry/api';
+import { LangfuseSpanProcessor } from '@langfuse/otel';
+import { context, trace as otelTrace, type Span, SpanKind, type Tracer } from '@opentelemetry/api';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
-import { LangfuseSpanProcessor } from '@langfuse/otel';
+import type { TelemetryTrace, TelemetryTraceEvent } from '@shared/agent-lab/telemetry';
 import type {
   AgentTelemetryConfig,
   TelemetryCredentialRef,
 } from '@shared/agent-lab/telemetry-config';
-import type { TelemetryTrace, TelemetryTraceEvent } from '@shared/agent-lab/telemetry';
+import { isLoopbackAddress } from '@shared/protocol/url-validation';
+import { createPinnedLookup, resolveSafeAddress, type SafeAddress } from '../security/safe-connect';
 
 const INSTRUMENTATION_SCOPE = 'restura.agent-lab';
 const MAX_PENDING_DELIVERIES = 50;
@@ -117,11 +119,46 @@ async function createNativeTelemetryPipeline(
   };
 }
 
+/**
+ * Resolve a telemetry endpoint once, validate every record through the shared
+ * SSRF guard (the config schema only checks the URL string, so a public-looking
+ * hostname could resolve to an internal address), and return the pinned IP.
+ * Loopback is allowed only for the explicit loopback collector the schema
+ * permits (`localhost` / `127.0.0.1` / `[::1]`), never via a hostname that
+ * merely resolves there.
+ */
+export async function pinTelemetryEndpoint(endpoint: string): Promise<SafeAddress> {
+  const { hostname } = new URL(endpoint);
+  // resolveSafeAddress cannot take a bracketed IPv6 literal outside `localRuntime`
+  // (net.isIP rejects the brackets), and widening that for every caller would
+  // loosen other transports. Only the exact `[::1]` collector is routed through
+  // the localRuntime branch, which validates it as loopback.
+  if (hostname === '[::1]') {
+    return resolveSafeAddress(endpoint, { allowLocalhost: true, localRuntime: true });
+  }
+  // `localhost` often resolves ::1 first while collectors commonly bind only
+  // 127.0.0.1; the pin removes Node's dual-stack fallback, so prefer IPv4.
+  const loopback = isLoopbackAddress(hostname);
+  return resolveSafeAddress(endpoint, {
+    allowLocalhost: loopback,
+    ...(loopback ? { preferFamily: 4 } : {}),
+  });
+}
+
 async function createSpanProcessor(
   config: AgentTelemetryConfig,
   credentialResolver: (ref: TelemetryCredentialRef) => Promise<string>
 ) {
+  // Guard + pin before anything can connect. The pipeline is cached per config,
+  // so the pinned address lives as long as the pipeline.
+  const pinned = await pinTelemetryEndpoint(
+    config.target === 'langfuse' ? config.baseUrl : config.endpoint
+  );
   if (config.target === 'langfuse') {
+    // This target gets the pre-flight DNS validation but not the connect pin. A
+    // pinned exporter can be passed via LangfuseSpanProcessor's `exporter`
+    // param, but a custom exporter bypasses Langfuse's OTLP batch byte limit
+    // and would have to enforce it itself, so it is not wired.
     const [publicKey, secretKey] = await Promise.all([
       credentialResolver(config.publicKey),
       credentialResolver(config.secretKey),
@@ -140,7 +177,13 @@ async function createSpanProcessor(
     config.auth.mode === 'bearer'
       ? { Authorization: `Bearer ${await credentialResolver(config.auth.token)}` }
       : undefined;
-  return new BatchSpanProcessor(new OTLPTraceExporter({ url: config.endpoint, headers }));
+  return new BatchSpanProcessor(
+    new OTLPTraceExporter({
+      url: config.endpoint,
+      headers,
+      httpAgentOptions: { lookup: createPinnedLookup(pinned.host, pinned.ip) },
+    })
+  );
 }
 
 async function resolveEnvironmentCredential(ref: TelemetryCredentialRef): Promise<string> {

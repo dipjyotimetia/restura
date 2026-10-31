@@ -16,6 +16,8 @@ export interface AgentMcpClient {
 export interface CreateMcpToolsOptions {
   /** Namespacing prevents collisions between independent local MCP sessions. */
   nameForTool?(remoteName: string): string;
+  /** Sees the allowed server descriptors (annotations included) before tools are built. */
+  inspectDescriptors?(descriptors: McpToolDescriptor[]): void;
 }
 
 function permissionForMcpTool(tool: McpToolDescriptor): PermissionClass {
@@ -40,17 +42,17 @@ export async function createMcpTools(
     if (missing.length > 0)
       throw new Error(`MCP server did not expose allowed tools: ${missing.join(', ')}`);
   }
-  return descriptors
-    .filter((tool) => !allowed || allowed.has(tool.name))
-    .map((tool) => ({
-      definition: {
-        name: options.nameForTool?.(tool.name) ?? tool.name,
-        description: tool.description ?? tool.name,
-        inputSchema: tool.inputSchema,
-      },
-      permissionClass: permissionForMcpTool(tool),
-      execute: (arguments_, context) => client.callTool(tool.name, arguments_, context.signal),
-    }));
+  const exposed = descriptors.filter((tool) => !allowed || allowed.has(tool.name));
+  options.inspectDescriptors?.(exposed);
+  return exposed.map((tool) => ({
+    definition: {
+      name: options.nameForTool?.(tool.name) ?? tool.name,
+      description: tool.description ?? tool.name,
+      inputSchema: tool.inputSchema,
+    },
+    permissionClass: permissionForMcpTool(tool),
+    execute: (arguments_, context) => client.callTool(tool.name, arguments_, context.signal),
+  }));
 }
 
 export interface SandboxExecutionRequest {
