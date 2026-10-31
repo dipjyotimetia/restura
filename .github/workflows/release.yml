@@ -88,8 +88,9 @@ concurrency:
   group: release-main
   cancel-in-progress: false
 
+# Top-level read-only; each job declares exactly the scopes it needs.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   preflight:
@@ -353,6 +354,9 @@ jobs:
     needs: [preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      # Pushes the release tag and creates the GitHub release.
+      contents: write
     outputs:
       # The actual published tag — includes prerelease suffix when applicable.
       # Consumed by downstream jobs so they check out the right commit.

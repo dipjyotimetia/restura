@@ -290,6 +290,12 @@ reviewers**, then add `environment: production` to the `deploy-web` job in
 weekly to keep `openwiki/` — the machine-readable docs coding agents reference —
 in sync with recent commits. It opens a PR rather than pushing directly.
 
+CI-only tools installed outside the root lockfile (OpenWiki here, the Claude Code
+CLI in `eval-harness.yml`) are pinned by lockfile under `.github/tools/<tool>/`
+and installed with `npm ci --prefix`, so every transitive package is
+integrity-checked (OpenSSF Scorecard *Pinned-Dependencies*). To bump one, edit
+its `package.json` and run `npm install --package-lock-only` in that folder.
+
 - ✅ Set **`OPENROUTER_API_KEY`** in **Settings → Secrets and variables →
   Actions**. This is the only required secret; the workflow defaults
   `OPENWIKI_MODEL_ID` to `deepseek/deepseek-v4-pro` (1M context, cheaper on

@@ -106,7 +106,11 @@ jobs:
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install Claude Code CLI
-        run: npm install --global @anthropic-ai/claude-code@2.1.310 # pinned; bump deliberately (eval results depend on it; every result records `claude --version`)
+        # Lockfile-pinned in .github/tools/claude-code (Scorecard Pinned-Dependencies);
+        # bump deliberately there (eval results depend on it; every result records `claude --version`).
+        run: |
+          npm ci --prefix .github/tools/claude-code --no-audit --no-fund
+          echo "$GITHUB_WORKSPACE/.github/tools/claude-code/node_modules/.bin" >> "$GITHUB_PATH"
 
       # The reviewer gets Bash with CLAUDE_CODE_OAUTH_TOKEN in its environment. `--disallowedTools`
       # denies curl/wget/gh/WebFetch but is not a sandbox (node -e "fetch(...)" is one line away), so
