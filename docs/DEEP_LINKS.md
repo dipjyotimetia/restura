@@ -14,6 +14,9 @@ Supported routes:
 
 `format` is optional and may be `postman`, `insomnia`, `openapi`,
 `opencollection`, `hoppscotch`, `bruno`, or `http`. Import sources must be
-public HTTP(S) URLs without embedded credentials. The user must choose
-**Download and import** in Restura before any source is fetched; redirects and
-every target pass Restura's normal URL, DNS, and response-size policy.
+public URLs without embedded credentials. The link parser accepts `http:` and
+`https:`, but the download itself is HTTPS-only, so an `http:` source is
+refused when fetched. The user must choose **Download preview** in Restura
+before any source is fetched; redirects and every target pass Restura's normal
+URL, DNS, and response-size policy, and the downloaded file still goes through
+the normal import review before anything is saved.

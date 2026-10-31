@@ -1,0 +1,44 @@
+{
+  "opencollection": "1.0.0",
+  "info": {
+    "name": "Restura echo — HTTP",
+    "version": "1.0.0"
+  },
+  "bundled": true,
+  "items": [
+    {
+      "info": {
+        "type": "http",
+        "name": "GET with a query parameter",
+        "seq": 1
+      },
+      "http": {
+        "method": "GET",
+        "url": "https://echo.restura.dev/get?hello=world"
+      }
+    },
+    {
+      "info": {
+        "type": "http",
+        "name": "POST a JSON body",
+        "seq": 2
+      },
+      "http": {
+        "method": "POST",
+        "url": "https://echo.restura.dev/anything",
+        "headers": [
+          {
+            "name": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "raw": {
+            "format": "json",
+            "value": "{\n  \"hello\": \"world\"\n}"
+          }
+        }
+      }
+    }
+  ]
+}

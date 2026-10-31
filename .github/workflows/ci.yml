@@ -825,6 +825,9 @@ jobs:
       - name: Check docs claims (repo paths and npm scripts named in the docs exist)
         run: npm run docs:claims
 
+      - name: Check docs Try-it sample collections are up to date
+        run: npm run docs:samples:check
+
       # starlight-links-validator runs as part of this build and fails it on a
       # broken internal link or anchor.
       - name: Build docs

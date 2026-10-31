@@ -76,6 +76,7 @@
 | Browser capture desktop bridge | ❌ | ✅ | Loopback receiver for the Restura capture extension; no browser TCP listener |
 | OS keychain (safeStorage) for secrets | ❌ | ✅ | Web has no OS keychain; its default IndexedDB persistence is plaintext |
 | Encrypted local storage | ❌ | ✅ | Desktop persistence uses safeStorage; web currently uses plaintext IndexedDB because the optional session-passphrase UI has not shipped |
+| External cloud secret references (AWS Secrets Manager, Google Secret Manager, Azure Key Vault) | ❌ | ✅ | Desktop resolves references in the main process from profiles under Settings → Secrets (identity locations only; provider credentials stay with the provider SDK). The CLI resolves them with --external-secrets-config; web has no resolver |
 | Native shell.openExternal | ❌ | ✅ |  |
 | Native OS notifications | ❌ | ✅ |  |
 | System tray icon | ❌ | ✅ |  |

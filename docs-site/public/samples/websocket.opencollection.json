@@ -1,0 +1,23 @@
+{
+  "opencollection": "1.0.0",
+  "info": {
+    "name": "Restura echo — WebSocket",
+    "version": "1.0.0"
+  },
+  "bundled": true,
+  "items": [
+    {
+      "info": {
+        "type": "websocket",
+        "name": "Echo socket"
+      },
+      "websocket": {
+        "url": "wss://echo.restura.dev/ws",
+        "message": {
+          "type": "json",
+          "data": "{\"hello\":\"world\"}"
+        }
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 ---
 title: Quick start
-description: Send your first request, save it to a collection, and chain a workflow — in under five minutes.
+description: Send your first request, save it to a collection, add an environment, and try other protocols — in under five minutes.
 ---
 
 import { Steps, Aside } from '@astrojs/starlight/components';
@@ -52,13 +52,15 @@ The placeholder resolves at send time. Switch environments → same request, dif
 
 Click the protocol picker (left of the URL, says `HTTP`) and pick a different one:
 
-- **GraphQL** — try `https://echo.restura.dev/graphql` with the query `{ hello }`.
-- **gRPC** — needs a service supporting reflection or a `.proto` file. Try `https://echo.restura.dev` if your build includes Connect support.
+- **GraphQL** — try `https://echo.restura.dev/graphql` with the query `{ echo(message: "hello") { message timestamp } }`.
+- **gRPC** — point at `https://echo.restura.dev`, load the schema with server reflection, and call `echo.v1.EchoService` → `UnaryEcho` (or `ServerStreamingEcho`). The echo server speaks the Connect protocol. For other servers you need reflection or a `.proto` file.
 - **WebSocket** — connect to `wss://echo.restura.dev/ws`, send a frame, watch it echo back.
 - **SSE** — connect to `https://echo.restura.dev/sse` and watch the live stream.
 - **MCP** — point at any HTTP-based MCP server.
 
 Each protocol has its own guide with the full feature list — start with [HTTP](/protocols/http/), [GraphQL](/protocols/graphql/), or [gRPC](/protocols/grpc/), and check the [capability matrix](/reference/capability-matrix/) for what differs between web and desktop.
+
+Prefer not to type? Each protocol page has a **Try it** panel with a ready-made sample collection for the echo server — [HTTP](/samples/http.opencollection.json), [GraphQL](/samples/graphql.opencollection.json), [gRPC](/samples/grpc.opencollection.json), [WebSocket](/samples/websocket.opencollection.json) and [SSE](/samples/sse.opencollection.json). In the web app, download one and import it with **Import → OpenCollection**; on desktop, **Open in Restura desktop** on the protocol page hands the sample to the import dialog, which shows the source and only downloads it after you choose **Download preview**.
 
 ## Next
 

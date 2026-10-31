@@ -4,8 +4,11 @@ description: All HTTP methods, body types, headers, cookies, query parameters, c
 ---
 
 import { Badge } from '@astrojs/starlight/components';
+import TryIt from '../../../components/TryIt.astro';
 
 The bread and butter. Restura's HTTP client supports every method, every body shape, and gives you the full request/response timeline with timing breakdown.
+
+<TryIt protocol="http" />
 
 ## Methods
 
@@ -19,16 +22,16 @@ Custom methods must be a valid HTTP method token (RFC 9110: letters, digits and 
 
 ## Body types
 
-- **None**
+- **none**
 - **JSON** — the **Beautify** button formats the body and keeps `{{variable}}` references exactly as written, including bare ones like `"id": {{id}}`.
-- **Text** — plain text, UTF-8.
+- **raw** — plain text (UTF-8), sent with `Content-Type: text/plain` unless you set your own.
 - **XML** — syntax highlighted; sent with `Content-Type: application/xml` unless you set your own.
-- **Form data (`multipart/form-data`)** — supports file inputs. Text fields resolve `{{variables}}`; file fields are sent as picked.
-- **Form URL-encoded (`application/x-www-form-urlencoded`)** — edit as a key/value table, or switch to **Text** to edit the encoded string directly. Keys and values resolve `{{variables}}`.
+- **form-data (`multipart/form-data`)** — supports file inputs. Text field values resolve `{{variables}}`; field names are sent as typed (`restura run` resolves them too) and file fields as picked.
+- **x-www-form-urlencoded** — edit as a key/value table, or switch to **Text** to edit the encoded string directly. Values resolve `{{variables}}`; keys are sent as typed (`restura run` resolves them too).
 - **GraphQL** — query and variables editors that send a standard GraphQL JSON body (the dedicated [GraphQL](/protocols/graphql/) request type adds schema tooling).
-- **Binary** — drag in any file; Restura sends its bytes as the body.
+- **binary** — pick any file with **Choose file**; Restura sends its bytes as the body (`{{variables}}` are never substituted).
 
-There is no Protobuf body type: to send protobuf over HTTP use **Binary**, or use the [gRPC](/protocols/grpc/) client.
+There is no Protobuf body type: to send protobuf over HTTP use **binary**, or use the [gRPC](/protocols/grpc/) client.
 
 ## Headers, params, cookies
 
@@ -62,7 +65,7 @@ Available languages:
 
 ## Streaming responses
 
-<Badge text="web only" variant="caution" /> When you send a request whose `Accept` header asks for `text/event-stream`, `application/x-ndjson` or `application/jsonl`, the response panel switches to a streaming viewer instead of waiting for the whole body. SSE events and NDJSON lines are listed as they arrive, with a running event and byte count; pause the view to read without it scrolling (a pill shows how many events are buffered). The viewer keeps the most recent 5,000 events. On desktop the HTTP client buffers the full response; use the dedicated [SSE](/protocols/sse/) client there, which also handles reconnect and filtering.
+<Badge text="web and self-hosted" variant="caution" /> When you send a request whose `Accept` header asks for `text/event-stream`, `application/x-ndjson` or `application/jsonl`, the response panel switches to a streaming viewer instead of waiting for the whole body. SSE events and NDJSON lines are listed as they arrive (a response with another content type is shown as raw text chunks), with a running event and byte count; pause the view to read without it scrolling (a pill shows how many events are buffered). The viewer keeps the most recent 5,000 events. A streamed request has no client-side timeout, and its pre-request and test scripts don't run and it isn't added to history. On desktop the HTTP client buffers the full response; use the dedicated [SSE](/protocols/sse/) client there, which also handles reconnect and filtering.
 
 ## History & timing
 
@@ -73,6 +76,7 @@ Every send is recorded to history with status, timing, request hash, and a quick
   - Everywhere: *Waiting* (time to response headers, including any redirects), *Download* (the body), and the remaining overhead. On the web this is the round trip to the Restura *Proxy*; on desktop it's *App* time such as scripts and IPC.
   - Desktop only: *DNS* and *Connect + TLS* are also measured for direct connections. They're left out when a proxy is used, because they would describe the connection to the proxy.
 - **Size**: the decoded body size.
+- **HTTP** <Badge text="desktop only" variant="caution" />: the protocol the connection actually negotiated (*HTTP/2* or *HTTP/1.1*, from TLS ALPN, or HTTP/2 for h2c). It's shown when known, so it's absent on the web and for plain `http://` HTTP/1.1. See **HTTP version** below.
 - **Compression**: compressed bodies are decoded before display. On desktop this covers `gzip`, `br`, `deflate` and `zstd`, including stacked codings such as `Content-Encoding: gzip, br`. If a response uses a coding the app can't decode, the raw bytes are shown with a notice above the body, and the `Content-Encoding` header is kept. The same happens when a response stacks more than three codings. The 10 MB response size limit applies to the decoded body and is checked after every decoding step. zstd bodies that need more than an 8 MB window are refused. HEAD, 204 and 304 responses and empty bodies are never decoded.
 - **Headers**: filter by name or value; *Copy all* copies one `Name: value` line per value.
 - **Body**:

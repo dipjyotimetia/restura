@@ -1,0 +1,23 @@
+{
+  "opencollection": "1.0.0",
+  "info": {
+    "name": "Restura echo — gRPC",
+    "version": "1.0.0"
+  },
+  "bundled": true,
+  "items": [
+    {
+      "info": {
+        "type": "grpc",
+        "name": "EchoService/UnaryEcho"
+      },
+      "grpc": {
+        "url": "https://echo.restura.dev",
+        "service": "echo.v1.EchoService",
+        "method": "UnaryEcho",
+        "methodType": "unary",
+        "message": "{\n  \"message\": \"hello\",\n  \"count\": 3\n}"
+      }
+    }
+  ]
+}

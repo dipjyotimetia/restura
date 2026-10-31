@@ -1,11 +1,12 @@
 import { validateURL } from '@shared/protocol/url-validation';
 
 /**
- * Pre-flight SSRF guard for an MQTT broker URL. Like Kafka, MQTT brokers
- * routinely live on RFC1918 / IoT / LAN addresses (Mosquitto on a Pi, an
- * EMQX cluster behind VPC peering, a local broker on `localhost:1883`), so
- * blocking all private IPs would break the protocol's primary use case. We
- * only reject:
+ * Pre-flight SSRF guard for an MQTT broker URL. Literal addresses follow the
+ * caller's execution policy (the Settings → Security "Allow localhost" and
+ * "Allow private / internal IPs" toggles; the handler passes
+ * `getExecutionPolicy().security`), so a LAN / IoT broker needs private IPs
+ * allowed. The default parameter below is permissive only for direct callers
+ * such as unit tests. Always rejected:
  *   - cloud metadata literal IPs (169.254.169.254 and friends)
  *   - cloud metadata hostnames (metadata.google.internal, etc.)
  *   - schemes other than mqtt / mqtts / ws / wss, and malformed URLs

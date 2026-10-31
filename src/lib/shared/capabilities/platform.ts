@@ -16,6 +16,14 @@ export const PLATFORM_CAPABILITIES = {
     notes:
       'Desktop persistence uses safeStorage; web currently uses plaintext IndexedDB because the optional session-passphrase UI has not shipped',
   },
+  'storage.externalSecrets': {
+    label:
+      'External cloud secret references (AWS Secrets Manager, Google Secret Manager, Azure Key Vault)',
+    web: false,
+    desktop: true,
+    notes:
+      'Desktop resolves references in the main process from profiles under Settings → Secrets (identity locations only; provider credentials stay with the provider SDK). The CLI resolves them with --external-secrets-config; web has no resolver',
+  },
   'native.shell': { label: 'Native shell.openExternal', web: false, desktop: true },
   'native.notifications': { label: 'Native OS notifications', web: false, desktop: true },
   'native.tray': { label: 'System tray icon', web: false, desktop: true },

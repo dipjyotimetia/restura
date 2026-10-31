@@ -4,8 +4,11 @@ description: Live event stream viewer with reconnection, event-type filtering, a
 ---
 
 import { Aside } from '@astrojs/starlight/components';
+import TryIt from '../../../components/TryIt.astro';
 
 A purpose-built viewer for `text/event-stream` endpoints. Connect, watch events flow in, filter by event type, and export the log.
+
+<TryIt protocol="sse" />
 
 ## What works
 
@@ -54,7 +57,7 @@ Reconnection is **automatic** (WHATWG §9.2.3) while **Auto-reconnect** is on (t
 ## Tips
 
 - Many AI providers (OpenAI, Anthropic, OpenRouter) stream completions over SSE. Restura's [AI assistant](/guides/ai-assistant/) does this internally.
-- Stream assertions are not available in the app yet (SSE writes no request history and has no script hook). In the [CLI](/reference/cli/), SSE requests in a collection can assert on the captured stream from test scripts via `streamEvents`.
+- Stream assertions are not available yet. In the app, SSE writes no request history and has no script hook, and the desktop collection runner skips SSE requests. The [CLI](/reference/cli/) runs SSE requests in a collection (capturing events for `--sse-duration` ms or until `--sse-events N`) and writes the captured events to the JSON report as `streamEvents`, but a test script only sees the status, headers, timing and byte count — not the events.
 
 ## Test it locally
 

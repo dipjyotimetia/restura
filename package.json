@@ -98,6 +98,8 @@
     "docs:build": "npm --prefix docs-site run build",
     "docs:check": "npm --prefix docs-site run check",
     "docs:claims": "node scripts/docs-claims-check.mts",
+    "docs:samples": "node scripts/docs-samples.mts",
+    "docs:samples:check": "node scripts/docs-samples.mts --check",
     "docs:test": "vitest run --config vitest.docs.config.mts",
     "deploy:docs": "npm run docs:build && wrangler pages deploy docs-site/dist --project-name=restura-docs --branch=main",
     "deploy:docs:preview": "npm run docs:build && wrangler pages deploy docs-site/dist --project-name=restura-docs",

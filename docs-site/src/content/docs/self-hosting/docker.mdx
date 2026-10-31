@@ -45,11 +45,11 @@ The repo ships a [`docker-compose.yml`](https://github.com/dipjyotimetia/restura
 | `HOST` | Bind address | `0.0.0.0` |
 | `WORKER_PROXY_TOKEN` | Shared token for `X-Restura-Proxy-Token` header from the client | **required in prod** |
 | `REQUIRE_CF_ACCESS` | If `true` (and `WORKER_PROXY_TOKEN` is unset), accept requests carrying the `Cf-Access-Authenticated-User-Email` header from your reverse proxy | `false` |
-| `ENVIRONMENT` | `development` allows localhost upstream; anything else enforces SSRF guard | `production` |
+| `ENVIRONMENT` | `development` allows localhost upstream; anything else enforces SSRF guard | unset (treated as production) |
 | `ALLOW_PRIVATE_IPS` | Allow RFC 1918 / link-local upstreams (still blocks cloud-metadata) | `false` |
 | `ALLOWED_ORIGIN` | Comma-separated `Origin` allowlist (supports `*` wildcards) | unset = no cross-origin access (same-origin only) |
 | `RESTURA_STATIC_ROOT` | Path to the SPA bundle | `/app/dist/web` |
-| `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | Outbound proxy for upstream requests (lowercase variants also work); `NO_PROXY` hosts bypass it | unset = direct |
+| `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | Outbound proxy for upstream requests (lowercase variants also work); `NO_PROXY` hosts bypass it. A per-request upstream proxy set in the app takes precedence | unset = direct |
 | `RATE_LIMITER` | Rate-limiter backend. Use `map` (the Node default) or omit it. `binding` and `binding-shadow` need Cloudflare's Rate Limiting binding, so the Node server **exits at startup** if you set them | `map` |
 | `DEV_BYPASS_AUTH` | Local development only — skips auth when `ENVIRONMENT=development`. **Never set this in production** | unset |
 

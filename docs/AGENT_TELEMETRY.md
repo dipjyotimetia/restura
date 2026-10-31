@@ -20,4 +20,21 @@ For CI, pass `--telemetry-config telemetry.json`. Credentials must be environmen
 }
 ```
 
+A generic OTLP/HTTP collector uses `target: "otlp"` with an `endpoint` and an `auth` block of `{ "mode": "none" }` or `{ "mode": "bearer", "token": <credential ref> }`:
+
+```json
+{
+  "enabled": true,
+  "target": "otlp",
+  "endpoint": "https://otel.example.com/v1/traces",
+  "auth": { "mode": "bearer", "token": { "source": "env", "name": "OTEL_TOKEN" } },
+  "environment": "ci",
+  "sampleRate": 1
+}
+```
+
+`sampleRate` (0–1) samples whole traces in the desktop app. The CLI currently ignores it and exports every trace.
+
+Spans follow the OpenInference and OpenTelemetry GenAI conventions. Each trace has a root `openinference.span.kind = AGENT` span (`agent.id`, `eval.suite.id`, `eval.task.id`, `eval.trial`). Model calls are `LLM` child spans with `gen_ai.system`, `gen_ai.request.model` and `gen_ai.usage.{input,output}_tokens`; tool calls are `TOOL` child spans with `tool.name`. The desktop exporter also marks failed calls with `error.type` (`model.failure` / `tool.failure`); neither exporter sends error text. Sources: `electron/main/lifecycle/agent-telemetry.ts`, `cli/src/runner/agentTelemetry.ts`.
+
 Langfuse uses its native OpenTelemetry processor. Generic collectors use the OpenTelemetry OTLP/HTTP exporter. Telemetry delivery is best-effort: a failed export is reported locally but never changes an agent suite's pass/fail exit code.

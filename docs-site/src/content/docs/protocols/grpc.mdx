@@ -4,8 +4,11 @@ description: Unary and streaming RPCs over the Connect protocol (web) and native
 ---
 
 import { Badge } from '@astrojs/starlight/components';
+import TryIt from '../../../components/TryIt.astro';
 
-Restura speaks the **Connect protocol** on the web target and **native gRPC** over HTTP/2 (with automatic Connect-protocol fallback) on desktop — no local toolchain either way. On the web the request is always JSON over Connect (there is no binary toggle); binary protobuf goes over the wire on desktop gRPC and with the gRPC-Web wire protocol.
+Restura speaks the **Connect protocol** on the web target and **native gRPC** over HTTP/2 (with automatic Connect-protocol fallback) on desktop — no local toolchain either way. On the web, **Auto** and **Connect** send JSON over Connect; for binary protobuf on the web pick the **gRPC-Web** wire protocol. On desktop, native gRPC and gRPC-Web are binary.
+
+<TryIt protocol="grpc" />
 
 ## Discovering the service
 
@@ -51,7 +54,7 @@ Each snapshot records a content hash and the time it was captured. When you refl
 - **Bidirectional streaming** — <Badge text="desktop only" variant="caution" /> — not available on the web target.
 - **Web Stream tab** — for any non-unary method the request builder adds a **Web Stream** tab with a message composer for streaming calls (send messages, end the client side, watch the log).
 - **Collection runs** — the collection runner runs streaming requests to completion. Server streams run on web and desktop. Client and bidirectional streams run on desktop only: the runner sends the request message (a top-level JSON array sends one message per element), then closes the client side. On the web they're skipped.
-- **Retries** — the request's retry policy also applies to server streams: a stream that ends with a non-OK status runs again.
+- **Retries** — the **Settings** tab retry policy also applies to server streams: a stream that ends with a non-OK status (other than a cancel) runs again. Client and bidirectional streams aren't retried.
 - **Stream log** — streamed messages can be searched, filtered by direction, frozen, cleared, and exported as JSON or NDJSON.
 - **Long streams** — a stream keeps its most recent 1,000 inbound messages (up to 10 MB of JSON). Older ones are dropped from the Stream tab, the response body and `pm.response.messages`, and a **N earlier messages dropped** notice shows how many.
 - **Response** — the **Body** tab offers Pretty / Raw / Tree views, a JSONPath query, find, copy, and download (a streamed response's frames appear as one JSON array, indexed by frame). **Headers** shows the server's leading metadata and **Trailers** the `grpc-status` / `grpc-message` and any trailing metadata.
@@ -67,12 +70,17 @@ On desktop, a stream with no messages in either direction for 15 minutes is clos
 
 ## Request settings
 
-The **Settings** tab holds per-request options beyond the wire protocol:
+The request's **Settings** tab holds, besides the wire protocol:
 
-- **Retry policy** — max attempts and delay between attempts; a call that ends with a non-OK status runs again (also for server streams).
+- **Retry policy** — max attempts (1 = no retry) and delay between attempts; a unary call or server stream that ends with a non-OK status runs again.
 - **Compression** — *Send gzip-compressed requests* wraps outbound frames in gzip. <Badge text="desktop only" variant="caution" /> — the web build warns and ignores it.
-- **Timeout** — the per-call deadline described above (30 s by default).
-- **TLS** — server certificate verification, custom CAs and client certificates (mTLS) follow **Settings → Certificates**, which can be scoped per host and port. <Badge text="desktop only" variant="caution" /> — browsers can't present client certificates or change the trust store.
+
+Retry policy and compression apply to sends from the request builder only. They aren't saved with the request or exported, and the collection runner doesn't use them.
+
+Two more settings live elsewhere:
+
+- **Timeout** — the **Timeout (ms)** field next to the request tabs (see above): 30 s by default, at least 1 s. Desktop accepts up to 600 s; through the web proxy the limit is 300 s, and a longer deadline is refused before sending.
+- **TLS** <Badge text="desktop only" variant="caution" /> — server certificate verification, custom CAs and client certificates (mTLS) come from the app's **Settings → Certificates**, the same store HTTP uses, with per-host (and optionally per-port) entries taking precedence over the global certificate. Browsers can't present client certificates or change the trust store.
 
 ## Authentication
 

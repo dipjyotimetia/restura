@@ -71,9 +71,9 @@ export function SecuritySection() {
           directly: there, loopback and private targets are refused unless &ldquo;Allow private /
           internal IPs&rdquo; is on. Cloud-metadata endpoints (e.g.{' '}
           <span className="font-mono">169.254.169.254</span>) are blocked on every platform,
-          regardless of these settings. Kafka and MQTT brokers follow protocol-appropriate rules —
-          private/LAN broker addresses stay reachable (cloud-metadata is still blocked) — so these
-          two toggles don&rsquo;t restrict them.
+          regardless of these settings. Kafka and MQTT brokers follow these toggles too: a broker on
+          a private/LAN address (a literal IP, or a host that resolves to one) needs &ldquo;Allow
+          private / internal IPs&rdquo;, and a loopback broker needs &ldquo;Allow localhost&rdquo;.
         </span>
       </p>
     </>
