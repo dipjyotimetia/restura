@@ -58,6 +58,25 @@ describe('materializeMcpConnectAuth (#896)', () => {
     expect(out.redact('server said keychain-token is bad')).toBe('server said [redacted] is bad');
   });
 
+  it('sends Basic with an empty username when a password resolves, and refuses with neither', async () => {
+    for (const password of ['pw', handle('h-key')]) {
+      const out = await materializeMcpConnectAuth({
+        url: URL_,
+        auth: { type: 'basic', basic: { username: '', password } } as Auth,
+      });
+      const plain = password === 'pw' ? 'pw' : HANDLES['h-key'];
+      expect(out.headers['Authorization']).toBe(
+        `Basic ${Buffer.from(`:${plain}`).toString('base64')}`
+      );
+    }
+    await expect(
+      materializeMcpConnectAuth({
+        url: URL_,
+        auth: { type: 'basic', basic: { username: '', password: '' } } as Auth,
+      })
+    ).rejects.toThrow('Auth credential is unavailable on this device');
+  });
+
   it('resolves a handle-backed API key header and an inline bearer', async () => {
     const key = await materializeMcpConnectAuth({
       url: URL_,

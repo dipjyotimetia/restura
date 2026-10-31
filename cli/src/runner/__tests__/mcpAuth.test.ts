@@ -119,6 +119,15 @@ describe('CLI MCP auth (#896)', () => {
     expect(received[0]?.authorization).toBe(`Basic ${Buffer.from('alice:pw').toString('base64')}`);
   });
 
+  it('sends Basic with an empty username when a password is present', async () => {
+    const dir = mcpCollection(
+      `${base}auth:\n  type: basic\n  basic:\n    username: ''\n    password: '{{P}}'\n`
+    );
+    const result = await run(dir, { P: 'pw' });
+    expect(result.requests[0]?.passed).toBe(true);
+    expect(received[0]?.authorization).toBe(`Basic ${Buffer.from(':pw').toString('base64')}`);
+  });
+
   it('applies an API key as a header', async () => {
     const dir = mcpCollection(
       `${base}auth:\n  type: api-key\n  apiKey:\n    key: X-API-Key\n    value: k-1\n    in: header\n`
