@@ -11,7 +11,7 @@
  * its key name matches a credential pattern. Redaction blanks the value and
  * keeps the row so the export still round-trips the request shape — the
  * recipient re-enters the credential. The same rule applies to the text rows
- * of a structured urlencoded / form-data body (`collection-redaction.ts`,
+ * of a structured urlencoded / form-data body (`request-secret-slots.ts`,
  * Q29). Secret material inside a free-form *request body* (e.g. a JSON
  * `{"api_key":"…"}`) is intentionally out of scope: auto-rewriting arbitrary
  * bodies risks corrupting them; that residual is documented in the export flow.

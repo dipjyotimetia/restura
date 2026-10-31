@@ -9,27 +9,26 @@ import {
   countUrlStringSecrets,
   redactUrlCredentialsForStorage,
 } from '../collections/postman/text-redaction';
-import type { AuthConfig, Collection, CollectionItem } from '../types';
-import { SECRET_FIELDS_BY_AUTH_BLOCK } from './auth-fields';
-import { countBrokerPresetSecrets, redactBrokerPreset } from './broker-preset-redaction';
+import type { Collection, CollectionItem } from '../types';
+import { isSecretFieldName } from './key-value-redaction';
 import {
-  countSecretKeyValues,
-  isSecretFieldName,
-  redactSecretKeyValues,
-  type SecretableRow,
-} from './key-value-redaction';
-import { isSecretHandle, redactSecret, type SecretValue, unwrapSecret } from './secret-ref';
-import {
-  countStdioEnvInlineSecrets,
-  redactOcStdioEnv,
-  redactStdioEnvRows,
-  stdioEnvOf,
-} from './stdio-env-redaction';
-import { countStreamPresetSecrets, redactStreamPreset } from './stream-preset-redaction';
+  blankRequestSecrets,
+  countAuthInlineSecrets,
+  countRequestSecrets,
+  redactAuthConfigSecrets,
+} from './request-secret-slots';
+import { redactOcStdioEnv } from './stdio-env-redaction';
+
+export { redactAuthConfigSecrets };
 
 /**
- * Redacts secret-bearing auth fields from a collection before it goes through
+ * Redacts secret-bearing fields from a collection before it goes through
  * a renderer-side exporter (Postman / Insomnia / OpenCollection / Bruno).
+ *
+ * This module owns the tree and the passthrough bags, which are not mirrors of
+ * each other (see the walks below). A request's own fields are one list, in
+ * `request-secret-slots.ts`: a new saved Protocol shape goes there, not here.
+ *
  * Without this, a plaintext bearer token / API key / AWS secret key lands in
  * the file the user shares with a teammate, commits to git, or pastes into a
  * chat tool.
@@ -46,41 +45,6 @@ import { countStreamPresetSecrets, redactStreamPreset } from './stream-preset-re
  * (`electron/main/security/collection-export-redactor.ts`) implements the same policy
  * for untyped auth blobs; both consume `SECRET_FIELDS_BY_AUTH_BLOCK`.
  */
-
-/** True for a non-empty plaintext secret (inline or bare string) — handles never count. */
-function isInlineWithValue(value: SecretValue | undefined): boolean {
-  return !isSecretHandle(value) && unwrapSecret(value) !== '';
-}
-
-/** Returns a copy of `auth` with every known secret-bearing field redacted. */
-export function redactAuthConfigSecrets(auth: AuthConfig): AuthConfig {
-  const next: AuthConfig = { ...auth };
-  for (const [block, fields] of Object.entries(SECRET_FIELDS_BY_AUTH_BLOCK)) {
-    const current = next[block as keyof AuthConfig];
-    if (!current || typeof current !== 'object') continue;
-    const copy = { ...current } as Record<string, unknown>;
-    for (const field of fields) {
-      if (field in copy) {
-        copy[field] = redactSecret(copy[field] as SecretValue | undefined);
-      }
-    }
-    (next as unknown as Record<string, unknown>)[block] = copy;
-  }
-  return next;
-}
-
-function countAuthInlineSecrets(auth: AuthConfig | undefined): number {
-  if (!auth) return 0;
-  let count = 0;
-  for (const [block, fields] of Object.entries(SECRET_FIELDS_BY_AUTH_BLOCK)) {
-    const current = auth[block as keyof AuthConfig] as Record<string, unknown> | undefined;
-    if (!current || typeof current !== 'object') continue;
-    for (const field of fields) {
-      if (isInlineWithValue(current[field] as SecretValue | undefined)) count++;
-    }
-  }
-  return count;
-}
 
 /**
  * OpenCollection auth `type`s whose string credentials ARE captured by the
@@ -433,36 +397,6 @@ function redactBags<T extends object>(node: T): T {
 // bound is replaced by an empty stub on redaction (nothing below it can leak)
 // and counted as one secret (the export warning fires).
 
-/**
- * Structured urlencoded / form-data body rows (Q29): the text rows of the
- * body that is actually sent, under the same credential-name rule as headers
- * and query params (and as `_postman` sidecar bodies). File rows hold file
- * bytes / names, never typed credentials, and are left alone; rows left over
- * on a non-form body are not exported, so they are neither counted nor touched.
- */
-const FORM_BODY_TYPES = new Set(['form-data', 'x-www-form-urlencoded']);
-
-function formBodyTextRows(req: Record<string, unknown>): SecretableRow[] | undefined {
-  const body = req.body as { type?: unknown; formData?: unknown } | undefined;
-  if (!body || !FORM_BODY_TYPES.has(String(body.type)) || !Array.isArray(body.formData)) {
-    return undefined;
-  }
-  return (body.formData as Array<SecretableRow & { type?: unknown }>).filter(
-    (row) => row.type !== 'file'
-  );
-}
-
-function redactFormBody(req: Record<string, unknown>): void {
-  if (!formBodyTextRows(req)) return;
-  const body = req.body as { formData: Array<SecretableRow & { type?: unknown }> };
-  req.body = {
-    ...body,
-    formData: body.formData.map((row) =>
-      row.type === 'file' ? row : (redactSecretKeyValues([row])?.[0] ?? row)
-    ),
-  };
-}
-
 function redactItem(item: CollectionItem, depth = 0): CollectionItem {
   if (depth > MAX_COLLECTION_TREE_DEPTH) {
     return { id: item.id, name: item.name, type: item.type, ...(item.items ? { items: [] } : {}) };
@@ -470,29 +404,7 @@ function redactItem(item: CollectionItem, depth = 0): CollectionItem {
   const next: CollectionItem = redactBags(item);
   if (next.auth) next.auth = redactAuthConfigSecrets(next.auth);
   if (next.items) next.items = next.items.map((child) => redactItem(child, depth + 1));
-  if (next.request) {
-    // Redact the typed auth block AND any secret-bearing header / query-param /
-    // metadata row (a token typed into a header is just as exfiltrable).
-    const req = { ...next.request } as unknown as Record<string, unknown>;
-    if (Array.isArray(req.headers))
-      req.headers = redactSecretKeyValues(req.headers as SecretableRow[]);
-    if (Array.isArray(req.params))
-      req.params = redactSecretKeyValues(req.params as SecretableRow[]);
-    if (Array.isArray(req.metadata))
-      req.metadata = redactSecretKeyValues(req.metadata as SecretableRow[]);
-    redactFormBody(req);
-    if ('auth' in req) req.auth = redactAuthConfigSecrets(req.auth as AuthConfig);
-    // MCP stdio launch env (credential-named values, inline SecretRefs).
-    const stdioEnv = stdioEnvOf(req);
-    if (stdioEnv) {
-      req.stdio = { ...(req.stdio as object), env: redactStdioEnvRows(stdioEnv) };
-    }
-    // Kafka / MQTT presets (#984): URL userinfo, record headers, user properties.
-    // WebSocket / Socket.IO (#1209): URL userinfo, handshake auth, query rows.
-    next.request = redactStreamPreset(
-      redactBrokerPreset(req as unknown as NonNullable<typeof next.request>)
-    );
-  }
+  if (next.request) next.request = blankRequestSecrets(next.request);
   return next;
 }
 
@@ -551,17 +463,7 @@ export function countCollectionInlineSecrets(collection: Collection): number {
           item.type === 'request'
         );
       }
-      if (item.request) {
-        const req = item.request as unknown as Record<string, unknown>;
-        if ('auth' in req) count += countAuthInlineSecrets(req.auth as AuthConfig | undefined);
-        count += countSecretKeyValues(req.headers as SecretableRow[] | undefined);
-        count += countSecretKeyValues(req.params as SecretableRow[] | undefined);
-        count += countSecretKeyValues(req.metadata as SecretableRow[] | undefined);
-        count += countSecretKeyValues(formBodyTextRows(req));
-        count += countStdioEnvInlineSecrets(stdioEnvOf(req));
-        count += countBrokerPresetSecrets(item.request);
-        count += countStreamPresetSecrets(item.request);
-      }
+      if (item.request) count += countRequestSecrets(item.request);
       if (item.items) walk(item.items, depth + 1);
     }
   };
