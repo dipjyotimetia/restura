@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export const TOOLCHAIN = {
-  nodeVersion: '24.18.0',
+  nodeVersion: '26.13.0',
   npmVersion: '12.1.0',
 };
 
