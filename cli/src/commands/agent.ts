@@ -22,6 +22,7 @@ import {
   OpenAiResponsesAdapter,
   ProviderRegistry,
   resolveModelPrice,
+  type ToolSource,
 } from '@shared/agent-lab';
 import { createDefaultSandboxRegistry } from '@shared/agent-lab/sandbox-quickjs';
 import type { Fetcher } from '@shared/protocol/types';
@@ -155,6 +156,15 @@ export function preflightAgentSuite(
             `MCP tool source exceeds the runtime manifest allowlist: ${source.connectionId}`
           );
         }
+      } else if (source.kind === 'a2a') {
+        const listed = runtime?.sources.some(
+          (candidate) => candidate.kind === 'a2a' && candidate.endpoint === source.endpoint
+        );
+        if (!listed) {
+          throw new Error(
+            `A2A tool source is not listed in the runtime manifest: ${source.endpoint}`
+          );
+        }
       } else toolResolver.assertSupported([source]);
     }
   }
@@ -207,12 +217,10 @@ async function runAgentSuite(
   let preflightFailure: AgentPreflightError | undefined;
 
   const resolveSourceTools: AgentRunnerDependencies['resolveTools'] = async (sources, signal) => {
-    const runtimeSources = sources.filter(
-      (source) => source.kind === 'restura-request' || source.kind === 'mcp'
-    );
-    const adapterSources = sources.filter(
-      (source) => source.kind !== 'restura-request' && source.kind !== 'mcp'
-    );
+    const isRuntimeSource = (source: ToolSource): boolean =>
+      source.kind === 'restura-request' || source.kind === 'mcp' || source.kind === 'a2a';
+    const runtimeSources = sources.filter(isRuntimeSource);
+    const adapterSources = sources.filter((source) => !isRuntimeSource(source));
     const adapterTools = await toolResolver.resolve(adapterSources, signal);
     if (runtimeSources.length === 0) return adapterTools;
     if (!runtime) throw new Error('headless tool sources require a runtime manifest');

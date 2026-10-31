@@ -35,6 +35,21 @@ const McpSourceSchema = z
   })
   .strict();
 
+const A2aSourceSchema = z
+  .object({
+    id: SourceIdSchema,
+    kind: z.literal('a2a'),
+    /** Must equal the suite's `a2a` tool source endpoint exactly. */
+    endpoint: z.url(),
+    headers: z.array(EnvironmentHeaderSchema).max(100).default([]),
+    /**
+     * A human-controlled CI assertion that calling this agent is safe
+     * unattended. Without it A2A calls are approval-required, which CI cannot give.
+     */
+    readOnly: z.literal(true),
+  })
+  .strict();
+
 const PriceSchema = z.number().finite().min(0);
 
 /** USD per million tokens; cache rates are optional and only needed when the provider reports cached tokens. */
@@ -55,7 +70,9 @@ export const AgentRuntimeManifestSchema = z
   .object({
     schemaVersion: z.literal(1),
     sources: z
-      .array(z.discriminatedUnion('kind', [CollectionSourceSchema, McpSourceSchema]))
+      .array(
+        z.discriminatedUnion('kind', [CollectionSourceSchema, McpSourceSchema, A2aSourceSchema])
+      )
       .max(100),
     /** Per-model price overrides (keyed by model id) for cost budgets and cost graders. */
     modelPrices: z.record(z.string().min(1).max(200), ModelPriceSchema).optional(),

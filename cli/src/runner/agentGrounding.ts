@@ -4,9 +4,9 @@ import {
   type GroundingSelection,
 } from '@shared/agent-lab';
 import type { HttpRequest } from '@shared/types';
-import type { LoadedCollection } from './collectionLoader.js';
 import type { AgentRuntimeManifest } from '../commands/agentRuntime.js';
 import { connectCliMcpClient } from './agentMcpClient.js';
+import type { LoadedCollection } from './collectionLoader.js';
 
 export interface CliGroundingDependencies {
   loadCollection(path: string): Promise<LoadedCollection>;
@@ -71,6 +71,9 @@ export async function resolveCliGrounding(
         content: collectionSummary(collection),
       });
       continue;
+    }
+    if (source.kind === 'a2a') {
+      throw new Error(`A2A sources cannot be used for grounding: ${source.id}`);
     }
     if (source.readOnly !== true)
       throw new Error(`MCP grounding source is not read-only: ${source.id}`);

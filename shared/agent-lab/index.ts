@@ -1,3 +1,4 @@
+export * from './a2a';
 export * from './bundle';
 export * from './evaluation';
 export * from './grounding';

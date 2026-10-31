@@ -99,6 +99,7 @@ describe('capability registry shape', () => {
         "aiLab.agentProviders",
         "aiLab.agentRequestTools",
         "aiLab.agentMcpTools",
+        "aiLab.agentA2aTools",
         "aiLab.agentSandboxes",
         "collections.file",
         "collections.git",

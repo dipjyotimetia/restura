@@ -22,6 +22,7 @@ import {
 import { createDefaultSandboxRegistry } from '@shared/agent-lab/sandbox-quickjs';
 import type { CompletionResult } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
+import { createDesktopA2aToolSourceAdapter } from './agentA2aTools';
 import { resolveDesktopGrounding } from './agentGrounding';
 import { createMcpAgentToolSourceAdapter } from './agentMcpTools';
 import { capabilitiesForDesktopModel, knownCostForCompletion } from './agentModelCapabilities';
@@ -261,6 +262,7 @@ export async function runDesktopAgentSuite(
       createResturaRequestToolSourceAdapter(),
       createMcpAgentToolSourceAdapter(),
       createSandboxToolSourceAdapter(createDefaultSandboxRegistry()),
+      createDesktopA2aToolSourceAdapter(),
     ]);
   for (const agent of suite.agents) toolResolver.assertSupported(agent.tools);
   const execution = capabilityExecutionMetadata(suite, configs);
@@ -532,6 +534,7 @@ export async function runDesktopAgentBundle(
     createResturaRequestToolSourceAdapter(),
     createMcpAgentToolSourceAdapter(),
     createSandboxToolSourceAdapter(createDefaultSandboxRegistry()),
+    createDesktopA2aToolSourceAdapter(),
   ]);
   const report = await runDesktopAgentSuite(bundle.suite, configs, {
     ...options,

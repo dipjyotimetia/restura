@@ -294,6 +294,39 @@ describe('QuickJS sandbox tool source (#1042)', () => {
   });
 });
 
+describe('A2A tool source in CI (#1043)', () => {
+  const endpoint = 'https://agent.example';
+
+  it('exits 2 before any call when the endpoint is not in the runtime manifest', async () => {
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependencies(suite({ tools: [{ kind: 'a2a', endpoint }] }), fetcher);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      expect(await runAgentEval('/suite.json', {}, deps)).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('A2A tool source is not listed'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it('admits a manifest-listed endpoint and requires the readOnly assertion', () => {
+    const manifest = AgentRuntimeManifestSchema.parse({
+      schemaVersion: 1,
+      sources: [{ id: 'planner', kind: 'a2a', endpoint, readOnly: true }],
+    });
+    expect(() =>
+      preflightAgentSuite(suite({ tools: [{ kind: 'a2a', endpoint }] }), undefined, manifest)
+    ).not.toThrow();
+    expect(
+      AgentRuntimeManifestSchema.safeParse({
+        schemaVersion: 1,
+        sources: [{ id: 'planner', kind: 'a2a', endpoint }],
+      }).success
+    ).toBe(false);
+  });
+});
+
 /** Dependencies serving a suite and runtime manifest by path. */
 function dependenciesWithFiles(files: Record<string, unknown>, fetcher: Fetcher) {
   const deps = dependencies({}, fetcher);
