@@ -73,8 +73,8 @@ export const AI_LAB_CAPABILITIES = {
   'aiLab.agentSandboxes': {
     label: 'AI Lab pluggable code sandboxes',
     web: false,
-    desktop: false,
+    desktop: true,
     notes:
-      'Unsupported: the provider contract and registry are implemented, but no Docker or hosted sandbox provider ships yet',
+      'QuickJS provider (`sandboxId: "quickjs"`) on desktop and in `restura agent eval`: JavaScript only, a fresh WASM runtime per call with the request-script memory/stack/time caps, no network, filesystem, timers or host bridges, bounded stdout/stderr. Docker/Podman providers are a follow-on',
   },
 } as const satisfies Record<string, CapabilityRow>;

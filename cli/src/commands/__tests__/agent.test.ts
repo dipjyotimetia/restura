@@ -248,6 +248,52 @@ describe('evaluateAgentSuite', () => {
   });
 });
 
+describe('QuickJS sandbox tool source (#1042)', () => {
+  it('offers run_code_quickjs to the model with no runtime manifest', async () => {
+    const responseBody = JSON.stringify({
+      id: 'response-1',
+      status: 'completed',
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'hello' }] }],
+      usage: { input_tokens: 4, output_tokens: 1 },
+    });
+    const fetcher = vi.fn<Fetcher>().mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      contentLengthHeader: null,
+      text: async () => responseBody,
+    });
+    const deps = dependencies(
+      suite({ tools: [{ kind: 'sandbox', sandboxId: 'quickjs' }] }),
+      fetcher
+    );
+
+    const result = await evaluateAgentSuite('/suite.json', {}, deps);
+
+    expect(result.status).toBe('passed');
+    const body = JSON.parse(String(fetcher.mock.calls[0]?.[0].body)) as {
+      tools?: Array<{ name: string }>;
+    };
+    expect(body.tools?.map((tool) => tool.name)).toContain('run_code_quickjs');
+  });
+
+  it('exits 2 before any model call for an unregistered sandbox', async () => {
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependencies(
+      suite({ tools: [{ kind: 'sandbox', sandboxId: 'docker' }] }),
+      fetcher
+    );
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      expect(await runAgentEval('/suite.json', {}, deps)).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('unknown sandbox provider'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+});
+
 /** Dependencies serving a suite and runtime manifest by path. */
 function dependenciesWithFiles(files: Record<string, unknown>, fetcher: Fetcher) {
   const deps = dependencies({}, fetcher);

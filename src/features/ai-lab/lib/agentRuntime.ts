@@ -10,6 +10,7 @@ import {
   CallbackProviderAdapter,
   createAgentToolResolver,
   createFixtureToolSourceAdapter,
+  createSandboxToolSourceAdapter,
   evaluateAgentBundleBaseline,
   type GenerationMessage,
   type JudgeFailure,
@@ -18,6 +19,7 @@ import {
   ProviderRegistry,
   validateGenerationRequest,
 } from '@shared/agent-lab';
+import { createDefaultSandboxRegistry } from '@shared/agent-lab/sandbox-quickjs';
 import type { CompletionResult } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
 import { resolveDesktopGrounding } from './agentGrounding';
@@ -258,6 +260,7 @@ export async function runDesktopAgentSuite(
     createAgentToolResolver([
       createResturaRequestToolSourceAdapter(),
       createMcpAgentToolSourceAdapter(),
+      createSandboxToolSourceAdapter(createDefaultSandboxRegistry()),
     ]);
   for (const agent of suite.agents) toolResolver.assertSupported(agent.tools);
   const execution = capabilityExecutionMetadata(suite, configs);
@@ -528,6 +531,7 @@ export async function runDesktopAgentBundle(
     createFixtureToolSourceAdapter(bundle.fixtures),
     createResturaRequestToolSourceAdapter(),
     createMcpAgentToolSourceAdapter(),
+    createSandboxToolSourceAdapter(createDefaultSandboxRegistry()),
   ]);
   const report = await runDesktopAgentSuite(bundle.suite, configs, {
     ...options,

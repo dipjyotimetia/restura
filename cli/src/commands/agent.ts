@@ -15,6 +15,7 @@ import {
   applyAgentBundleBaseline,
   createAgentToolResolver,
   createFixtureToolSourceAdapter,
+  createSandboxToolSourceAdapter,
   evaluateAgentBundleBaseline,
   isCiSafePolicy,
   migrateAgentSuite,
@@ -22,6 +23,7 @@ import {
   ProviderRegistry,
   resolveModelPrice,
 } from '@shared/agent-lab';
+import { createDefaultSandboxRegistry } from '@shared/agent-lab/sandbox-quickjs';
 import type { Fetcher } from '@shared/protocol/types';
 import type { Command } from 'commander';
 import { resolveCliGrounding } from '../runner/agentGrounding.js';
@@ -289,7 +291,9 @@ export async function evaluateAgentSuite(
   const runtime = options.runtime
     ? AgentRuntimeManifestSchema.parse(JSON.parse(await dependencies.readText(options.runtime)))
     : undefined;
-  const toolResolver = createAgentToolResolver();
+  const toolResolver = createAgentToolResolver([
+    createSandboxToolSourceAdapter(createDefaultSandboxRegistry()),
+  ]);
   preflightAgentSuite(suite, toolResolver, runtime);
   await preflightTelemetryEndpoint(options, dependencies);
   const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);
@@ -311,7 +315,10 @@ export async function evaluateAgentBundle(
   const runtime = options.runtime
     ? AgentRuntimeManifestSchema.parse(JSON.parse(await dependencies.readText(options.runtime)))
     : undefined;
-  const toolResolver = createAgentToolResolver([createFixtureToolSourceAdapter(bundle.fixtures)]);
+  const toolResolver = createAgentToolResolver([
+    createFixtureToolSourceAdapter(bundle.fixtures),
+    createSandboxToolSourceAdapter(createDefaultSandboxRegistry()),
+  ]);
   preflightAgentSuite(suite, toolResolver, runtime);
   await preflightTelemetryEndpoint(options, dependencies);
   const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);
