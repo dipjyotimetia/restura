@@ -197,3 +197,31 @@ describe('runMcpRequest — abort (pooled calls)', () => {
     await expect(runMcpRequest(req(), ctx(), runJsonRpc)).rejects.toThrow('kaboom');
   });
 });
+
+describe('runMcpRequest — pm.execution.skipRequest()', () => {
+  const skipping = () =>
+    req({
+      preRequestScript: 'pm.execution.skipRequest();',
+      testScript: "rs.test('never', () => {});",
+    });
+
+  it('sends nothing and runs no test script when the run opts in', async () => {
+    const runJsonRpc = vi.fn<McpRunJsonRpc>().mockResolvedValue({ ok: true, result: {} });
+    const onScriptResult = vi.fn();
+    await runMcpRequest(
+      skipping(),
+      { ...ctx({ protocolOptions: { honorSkipRequest: true } }), onScriptResult },
+      runJsonRpc
+    );
+    expect(runJsonRpc).not.toHaveBeenCalled();
+    const reported = onScriptResult.mock.calls[0]![0];
+    expect(reported.test).toBeUndefined();
+    expect(reported.preRequest.execution.skipRequested).toBe(true);
+  });
+
+  it('still sends by default', async () => {
+    const runJsonRpc = vi.fn<McpRunJsonRpc>().mockResolvedValue({ ok: true, result: {} });
+    await runMcpRequest(skipping(), ctx(), runJsonRpc);
+    expect(runJsonRpc).toHaveBeenCalledTimes(1);
+  });
+});

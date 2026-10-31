@@ -122,3 +122,40 @@ describe.each([
     expect((call().mock.calls[0]![0] as GrpcRequest).metadata).toBe(req.metadata);
   });
 });
+
+describe('gRPC pm.execution.skipRequest()', () => {
+  const skipping = () =>
+    grpcReq({
+      preRequestScript: 'pm.execution.skipRequest();',
+      testScript: "rs.test('never', () => {});",
+    });
+  const runWith = async (honorSkipRequest: boolean) => {
+    let scripts: ProtocolScriptResult | undefined;
+    await grpcProtocol.runRequest(skipping(), {
+      signal: new AbortController().signal,
+      variables: {},
+      onScriptResult: (r) => {
+        scripts = r;
+      },
+      protocolOptions: { descriptors: ['AAA='], ...(honorSkipRequest ? { honorSkipRequest } : {}) },
+    });
+    return scripts;
+  };
+
+  it.each([
+    ['web', false],
+    ['desktop', true],
+  ])('sends nothing and runs no test script when the run opts in (%s)', async (_n, desktop) => {
+    electron.on = desktop;
+    const scripts = await runWith(true);
+    expect(proxyCall).not.toHaveBeenCalled();
+    expect(electronCall).not.toHaveBeenCalled();
+    expect(scripts?.test).toBeUndefined();
+    expect(scripts?.preRequest?.execution?.skipRequested).toBe(true);
+  });
+
+  it('still sends by default', async () => {
+    await runWith(false);
+    expect(proxyCall).toHaveBeenCalledTimes(1);
+  });
+});
