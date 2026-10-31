@@ -1,3 +1,11 @@
+import {
+  type IterationHost,
+  type IterationRow,
+  pickNextRequest,
+  resolveIterationRows,
+  type StepOutcome,
+  sequenceCollectionRun,
+} from '@shared/collection-run/sequencer';
 import { applyVarMutations } from '@shared/collections/variable-mutations';
 import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
 import type { HttpRequest } from '@shared/types';
@@ -147,10 +155,10 @@ async function runCollectionWithSessions(
   if (versionWarning) process.stderr.write(versionWarning);
 
   // One iteration (with empty row vars) by default; multiple when --data is set.
-  let iterations = options.iterations && options.iterations.length > 0 ? options.iterations : [{}];
-  if (options.maxIterations !== undefined && options.maxIterations >= 0) {
-    iterations = iterations.slice(0, options.maxIterations);
-  }
+  const iterations = resolveIterationRows({
+    dataRows: options.iterations,
+    maxIterations: options.maxIterations,
+  });
   const isDataDriven = iterations.length > 1 || (options.iterations?.length ?? 0) > 0;
 
   const meta: RunMeta = {
@@ -170,19 +178,6 @@ async function runCollectionWithSessions(
   const dispatcher = buildDispatcher(options.tls, options.proxy);
 
   const results: RequestRunResult[] = [];
-  let bailed = false;
-
-  // Build a name → index map so `pm.execution.setNextRequest('Login')` can jump
-  // anywhere in the filtered list (Postman matches by name; first match wins).
-  // Mirrors the desktop runner's `collectionRunner.ts`.
-  const indexByName: Record<string, number> = {};
-  for (let i = 0; i < filtered.length; i++) {
-    const n = filtered[i]?.request.name;
-    if (n && !(n in indexByName)) indexByName[n] = i;
-  }
-  // Cap per-iteration jumps so a buggy `setNextRequest` loop can't hang the run
-  // (Newman errors at ~1000).
-  const MAX_NEXT_REQUEST_JUMPS = 1000;
 
   // Run-wide variable map (env + collection), mutated by scripts. It outlives
   // each iteration, as in Newman and the app's runner: a token fetched in
@@ -191,24 +186,14 @@ async function runCollectionWithSessions(
   // Script writes from EARLIER iterations: above folder defaults (so they are
   // not undone), below the next iteration's data row.
   const carriedOverrides: Record<string, string> = {};
-  let sentAny = false;
 
-  iterationLoop: for (let iter = 0; iter < iterations.length; iter++) {
-    const row = iterations[iter] ?? {};
+  const beginIteration = (iter: number, row: IterationRow): IterationHost<LoadedRequest> => {
     // Values a script changed this iteration. Layered on top of folder vars and
     // the row, as the app's runner does (`environmentOverrides`), so a script
     // write is not undone by a static folder default on the next request.
     const scriptOverrides: Record<string, string> = {};
-    let jumps = 0;
 
-    for (let idx = 0; idx < filtered.length; ) {
-      if (bailed) break iterationLoop;
-      const item = filtered[idx];
-      if (!item) break;
-      await reporter.onRequestStart?.(item);
-
-      if (sentAny && options.delayRequestMs) await sleep(options.delayRequestMs);
-
+    const step = async (item: LoadedRequest): Promise<StepOutcome> => {
       if (item.blocked) {
         // Never executed (no scripts, no network): e.g. a Postman auth type
         // the CLI cannot sign. Reported as a failed "not sent" result.
@@ -224,12 +209,7 @@ async function runCollectionWithSessions(
         };
         results.push(result);
         await reporter.onRequestComplete?.(result);
-        if (options.bail) {
-          bailed = true;
-          break iterationLoop;
-        }
-        idx++;
-        continue;
+        return { failed: true, sent: false };
       }
 
       const preScript = item.request.preRequestScript;
@@ -316,22 +296,16 @@ async function runCollectionWithSessions(
         };
         results.push(result);
         await reporter.onRequestComplete?.(result);
-        if (!result.passed && options.bail) {
-          bailed = true;
-          break iterationLoop;
-        }
-        const skipNext = preResult.execution.nextRequest;
-        if (skipNext === null) break;
-        if (typeof skipNext === 'string' && indexByName[skipNext] !== undefined) {
-          if (++jumps > MAX_NEXT_REQUEST_JUMPS) break;
-          idx = indexByName[skipNext]!;
-          continue;
-        }
-        idx++;
-        continue;
+        // Unlike the sent path below, a bad jump from a skipped request is
+        // silent: an unknown name advances linearly.
+        return {
+          failed: !result.passed,
+          sent: false,
+          next: preResult.execution.nextRequest,
+          badJump: 'ignore',
+        };
       }
 
-      sentAny = true;
       const outcome = await withRetry(
         () =>
           executeRequest(sendItem, {
@@ -405,57 +379,47 @@ async function runCollectionWithSessions(
 
       results.push(result);
       await reporter.onRequestComplete?.(result);
-      if (!result.passed && options.bail) {
-        bailed = true;
-        break iterationLoop;
-      }
 
-      // Flow control: `pm.execution.setNextRequest` from the test phase wins;
-      // the pre-request phase is the fallback. A *present* nextRequest (even
-      // explicit null) overrides the default linear advance — null ends the
-      // iteration, a string jumps to that request by name.
-      const testExec = testResult?.execution;
-      const preExec = preResult?.execution;
-      const execNext =
-        testExec && 'nextRequest' in testExec
-          ? testExec.nextRequest
-          : preExec && 'nextRequest' in preExec
-            ? preExec.nextRequest
-            : undefined;
-      if (execNext === null) break;
-      if (typeof execNext === 'string') {
-        const target = indexByName[execNext];
-        if (target === undefined) {
-          results.push({
-            request: item,
-            status: 0,
-            passed: false,
-            durationMs: 0,
-            bodyBytes: 0,
-            errorMessage: `pm.execution.setNextRequest("${execNext}"): no runnable with that name`,
-            ...(isDataDriven ? { iteration: iter } : {}),
-          });
-          break;
-        }
-        if (++jumps > MAX_NEXT_REQUEST_JUMPS) {
-          results.push({
-            request: item,
-            status: 0,
-            passed: false,
-            durationMs: 0,
-            bodyBytes: 0,
-            errorMessage: `pm.execution.setNextRequest jump limit (${MAX_NEXT_REQUEST_JUMPS}) exceeded`,
-            ...(isDataDriven ? { iteration: iter } : {}),
-          });
-          break;
-        }
-        idx = target;
-        continue;
-      }
-      idx++;
-    }
-    Object.assign(carriedOverrides, scriptOverrides);
-  }
+      return {
+        failed: !result.passed,
+        sent: true,
+        next: pickNextRequest(testResult?.execution, preResult?.execution),
+      };
+    };
+
+    return {
+      onStart: async (item) => {
+        await reporter.onRequestStart?.(item);
+      },
+      step,
+      onFlowError: (item, errorMessage) => {
+        results.push({
+          request: item,
+          status: 0,
+          passed: false,
+          durationMs: 0,
+          bodyBytes: 0,
+          errorMessage,
+          ...(isDataDriven ? { iteration: iter } : {}),
+        });
+      },
+      onEnd: () => {
+        Object.assign(carriedOverrides, scriptOverrides);
+      },
+    };
+  };
+
+  await sequenceCollectionRun(
+    {
+      items: filtered,
+      nameOf: (item) => item.request.name,
+      rows: iterations,
+      stopOnFailure: options.bail,
+      delayMs: options.delayRequestMs,
+      delayPlacement: 'before-step-once-sent',
+    },
+    beginIteration
+  );
 
   const notSent = results.filter((r) => r.notSent).length;
   const skipped = results.filter((r) => r.skipped).length;
@@ -504,8 +468,4 @@ function assertCliSecretsAvailable(
       }
     }
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
