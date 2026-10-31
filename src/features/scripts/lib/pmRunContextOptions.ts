@@ -13,6 +13,12 @@ export interface PmRunContextOptions {
   iterationData?: Record<string, string>;
   info?: Pick<PmRequestInfo, 'iteration' | 'iterationCount'>;
   location?: PmExecutionLocation;
+  /**
+   * The Collection run sets this where the protocol can stop before sending:
+   * a pre-request `pm.execution.skipRequest()` then sends nothing and runs no
+   * test script. Interactive Send leaves it unset.
+   */
+  honorSkipRequest?: boolean;
 }
 
 export function readPmRunContextOptions(
@@ -32,5 +38,6 @@ export function readPmRunContextOptions(
   if (raw.location && typeof raw.location === 'object') {
     out.location = raw.location as PmExecutionLocation;
   }
+  if (raw.honorSkipRequest === true) out.honorSkipRequest = true;
   return out;
 }

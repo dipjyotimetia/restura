@@ -131,7 +131,7 @@ restura run [collection] [options]
 | `--reporter <list>`         | _auto_        | Comma-separated: `tui`, `live`, `json`, `junit`, `html`, `stats`. Defaults to `tui` in a terminal, `live` otherwise (piped / CI). |
 | `--output <file>`           |               | Shorthand for single file reporter.                                                                                               |
 | `--reporter-output <kv...>` |               | Per-reporter output: `--reporter-output junit=results.xml html=report.html`.                                                      |
-| `--bail`                    | `false`       | Stop on first failure.                                                                                                            |
+| `--bail`                    | `false`       | Stop on first failure (a blocked request or unknown `setNextRequest` name counts).                                                                                                            |
 | `--timeout <ms>`            | `30000`       | Per-request timeout.                                                                                                              |
 | `--allow-localhost`         | `false`       | Permit requests to `localhost` / `127.0.0.1`. Off by default (SSRF guard).                                                        |
 | `--folder <path>`           |               | Only run requests under this folder path (slash-joined).                                                                          |

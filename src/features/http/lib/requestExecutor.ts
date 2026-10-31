@@ -93,6 +93,11 @@ export interface RequestExecutionResult {
 
 export interface RequestExecutorOptions {
   request: HttpRequest;
+  /**
+   * Collection run only: a pre-request `pm.execution.skipRequest()` returns
+   * before anything is sent, with a placeholder response and no test script.
+   */
+  honorSkipRequest?: boolean;
   envVars: Record<string, string>;
   /** Opaque SecretRef values that may cross only to Electron main for wire substitution. */
   secretVariables?: Record<string, SecretValue>;
@@ -456,6 +461,31 @@ export async function executeRequest(
       // later requests in a collection run.
       applyVarMutations(envVars, preRequestResult.collectionMutations);
     }
+  }
+
+  if (options.honorSkipRequest && preRequestResult?.execution?.skipRequested) {
+    // Postman sends nothing and runs no test script. The caller reads the
+    // sentinel from `scriptResult.preRequest` and discards this response.
+    signal?.throwIfAborted();
+    return {
+      response: {
+        id: uuidv4(),
+        requestId: request.id,
+        status: 0,
+        statusText: 'Skipped',
+        headers: {},
+        body: '',
+        size: 0,
+        time: 0,
+        timestamp: Date.now(),
+      },
+      transportOk: false,
+      scriptResult: { preRequest: preRequestResult },
+      envVars,
+      sentUrl: request.url,
+      sentHeaders: {},
+      ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
+    };
   }
 
   const { spec, effectiveSettings, sentHeaders, refreshedAuth, desktop } =

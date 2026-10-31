@@ -129,6 +129,9 @@ export interface RunProgress {
 /** Protocols that have no usable single-shot `runRequest` (their impl throws). */
 const STREAMING_PROTOCOLS = new Set(['sse', 'websocket', 'socketio', 'kafka']);
 
+/** Protocols that stop before sending when a pre-request script calls `skipRequest()`. */
+const HONORS_SKIP_REQUEST = new Set(['http']);
+
 /**
  * Fired after each executed request so callers can mirror the request into the
  * Console (tagged by run). Carries the resolved request and — when the request
@@ -256,8 +259,9 @@ async function runCollectionWithPool(
       const protocolId = runnable.request.type;
       const protocol = protocolRegistry.get(protocolId);
 
-      // Never sent, never fails the run, ignores delay and `setNextRequest`.
-      const skip = (skippedReason: string): StepOutcome => {
+      // Never sent, ignores delay and `setNextRequest`. Fails the run only when
+      // asked to (a blocked request under stopOnFailure, like the CLI's --bail).
+      const skip = (skippedReason: string, failed = false): StepOutcome => {
         results.push({
           itemId: runnable.itemId,
           itemName: runnable.name,
@@ -268,12 +272,13 @@ async function runCollectionWithPool(
           skippedReason,
         });
         emit(false);
-        return { failed: false, sent: false };
+        return { failed, sent: false };
       };
 
-      // Postman send guard (#1232): never sent, for every protocol (the CLI
-      // reports the same reason as a "not sent" result).
-      if (runnable.blocked) return skip(runnable.blocked);
+      // Postman send guard (#1232): never sent, for every protocol. The CLI
+      // reports the same reason as a failed "not sent" result, so it counts
+      // toward stopOnFailure here too (the row itself stays `skipped`).
+      if (runnable.blocked) return skip(runnable.blocked, true);
 
       // Skip protocols without a usable single-shot runner.
       if (!protocol || STREAMING_PROTOCOLS.has(protocolId)) {
@@ -316,6 +321,7 @@ async function runCollectionWithPool(
           collectionVars: { ...collectionVars },
           iterationData: { ...row },
           info: { iteration: iter, iterationCount: rows.length },
+          ...(HONORS_SKIP_REQUEST.has(protocolId) ? { honorSkipRequest: true } : {}),
           location: {
             currentRequestName: runnable.name,
             folderPath: runnable.folderPath ?? [],
@@ -397,6 +403,31 @@ async function runCollectionWithPool(
         const scriptError = [scripts?.preRequest, scripts?.test]
           .flatMap((p) => p?.errors ?? [])
           .filter(Boolean);
+
+        // `pm.execution.skipRequest()`: nothing was sent and no test script ran.
+        // A skipped row passes unless its pre-request script failed or asserted
+        // false; a bad jump from it is silent (the CLI's `badJump: 'ignore'`).
+        const preExecution = scripts?.preRequest?.execution;
+        if (HONORS_SKIP_REQUEST.has(protocolId) && preExecution?.skipRequested) {
+          const failed = scriptError.length > 0 || assertions.some((a) => !a.passed);
+          results.push({
+            itemId: runnable.itemId,
+            itemName: runnable.name,
+            protocol: protocolId,
+            iteration: iter,
+            status: failed ? 'failed' : 'skipped',
+            assertions,
+            skippedReason: 'Skipped by pm.execution.skipRequest()',
+            ...(scriptError.length > 0 ? { error: scriptError.join('; ') } : {}),
+          });
+          emit(false);
+          return {
+            failed,
+            sent: false,
+            next: preExecution.nextRequest,
+            badJump: 'ignore',
+          };
+        }
 
         let passed = isProtocolOk(response);
         // Without assertions, say why an MCP item failed (JSON-RPC error / isError).

@@ -83,7 +83,7 @@
 | Pre-request / test scripts (rs.* sandbox) | ✅ | ✅ |  |
 | rs.sendRequest sub-requests inside scripts | ✅ | ✅ | Routes through the same SSRF-guarded proxy as a top-level send |
 | rs.cookies read/write against the cookie jar | ✅ | ✅ |  |
-| rs.execution.setNextRequest / skipRequest runner flow control | ✅ | ✅ |  |
+| rs.execution.setNextRequest / skipRequest runner flow control | ✅ | ✅ | skipRequest in the app Collection run covers HTTP; gRPC and MCP items still send |
 | rs.visualizer.set rendered in a sandboxed iframe tab | ✅ | ✅ |  |
 | rs.vault encrypted key-value secret store | ❌ | ✅ | Backed by OS keychain via electron safeStorage; no equivalent in browser |
 | rs.judge LLM-as-judge semantic assertions | ❌ | ✅ | Routes through the AI Lab complete IPC; no Worker /api/ai route yet |
