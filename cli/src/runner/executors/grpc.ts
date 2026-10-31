@@ -22,6 +22,7 @@ import type { LoadedRequest } from '../collectionLoader';
 import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, resolveOAuth2Token } from './auth';
+import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 
 /**
@@ -109,7 +110,11 @@ export async function executeGrpc(
     const varResolvedAuth = req.auth
       ? resolveAuthVariables(req.auth, (text) => resolveVarsDeep(text, opts.vars))
       : req.auth;
-    const resolvedAuth = await resolveOAuth2Token(varResolvedAuth, opts.vars, {
+    const externalMaterializedAuth = await materializeExternalSecretsInAuth(
+      varResolvedAuth,
+      opts.externalSecretResolver
+    );
+    const resolvedAuth = await resolveOAuth2Token(externalMaterializedAuth, opts.vars, {
       allowLocalhost: opts.allowLocalhost,
     });
     applyAuthHeaders(resolvedAuth, metadata, {});

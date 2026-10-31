@@ -41,8 +41,8 @@ export function secretString(v: unknown): string | undefined {
     if (r.kind === 'external') {
       throw new Error(
         'auth uses an external secret reference that was not resolved for this request; ' +
-          'HTTP and MCP requests resolve one through an explicit external-secret profile, ' +
-          'other protocols need an inline value'
+          'HTTP, MCP, SSE and gRPC requests resolve one through an explicit external-secret ' +
+          'profile, so configure one for this run or use an inline value'
       );
     }
     throw new Error('auth uses an unrecognised secret value; the request was not sent');
