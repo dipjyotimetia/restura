@@ -118,7 +118,7 @@ Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, pre-fligh
 Redirects are the counter-example: every backend's fetcher sends with `redirect: 'manual'` and the shared `followRedirects` (`redirect-follower.ts`) follows 301/302/303/307/308, re-validating each hop against the SSRF guard and stripping credentials across origins. Electron used to wrap this in its own outer loop; that loop was removed because it re-sent credentials for the 300/304/305/306 responses the follower deliberately returns, so desktop now returns those as-is, like the web.
 
 <Aside title="Deep dive">
-See [`docs/ARCHITECTURE.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/ARCHITECTURE.md) and [ADR 0001](/architecture/adrs/) for the full design rationale.
+See [`docs/ARCHITECTURE.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/ARCHITECTURE.md) and [ADR 0001](/architecture/adrs/0001-shared-protocol-layer/) for the full design rationale.
 </Aside>
 
 ## Related

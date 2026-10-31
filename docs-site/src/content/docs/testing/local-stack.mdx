@@ -56,6 +56,8 @@ npm run echo:local -- manifest              # write + print the manifest, then e
 | HTTP | `http://localhost:8080` | Echo + all OAuth/JWT/SigV4/Digest/API-key routes |
 | HTTPS | `https://localhost:8443` | CA-signed server cert |
 | HTTPS mTLS | `https://localhost:8444` | Requires a client cert; `GET /mtls/whoami` confirms it |
+| HTTP/2 cleartext (h2c) | `http://localhost:8090` | Prior knowledge only; pair with a request's HTTP version set to *HTTP/2 cleartext (h2c)* |
+| HTTP/2 over TLS | `https://localhost:8446` | ALPN `h2` + `http/1.1`; try forcing HTTP/1.1 against it |
 | HTTP proxy | `http://localhost:8888` | Forward + CONNECT |
 | SOCKS proxy | `socks5://localhost:1080` | SOCKS5 CONNECT; MQTT global-proxy verification |
 | gRPC | `grpc://localhost:50051` | `echo.v1.EchoService`, reflection on |

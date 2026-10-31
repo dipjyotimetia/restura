@@ -34,7 +34,7 @@ Production requires one of:
 
 With neither configured, `/api/*` fails closed with `503`. `/health`, `/ready`, `/api/feature-flags`, and `/api/telemetry/error` need no token.
 
-Local dev bypasses auth when running under Miniflare or when `DEV_BYPASS_AUTH=true` is set in `.dev.vars`.
+Local dev bypasses auth only when `ENVIRONMENT=development` **and** either Miniflare is detected or `DEV_BYPASS_AUTH=true` is set in `.dev.vars`.
 
 ## Rate limiting
 

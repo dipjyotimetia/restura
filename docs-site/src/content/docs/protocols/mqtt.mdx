@@ -68,7 +68,7 @@ MQTT brokers often run on LAN / IoT networks (a Mosquitto box on a Raspberry Pi,
 ## Tips
 
 - The message log is capped per connection to keep memory bounded on chatty topics — older messages roll off.
-- For schema-encoded payloads, decode in a [test script](/guides/scripts/).
+- MQTT has no script hook. For schema-encoded payloads, export the message log and decode it outside Restura.
 - Set a recognizable **client ID** to make your session easy to spot in broker logs.
 
 ## Related

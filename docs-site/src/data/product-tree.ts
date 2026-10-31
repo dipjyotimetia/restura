@@ -971,7 +971,7 @@ export const features: Feature[] = [
     'Inspect every exchange, frame, and script log, and compare a response with the previous one.',
     'shipped',
     all,
-    '/protocols/http/'
+    '/guides/debugging-tools/'
   ),
   entry(
     'protocols',

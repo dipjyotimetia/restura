@@ -23,10 +23,12 @@ Custom methods must be a valid HTTP method token (RFC 9110: letters, digits and 
 - **JSON** — the **Beautify** button formats the body and keeps `{{variable}}` references exactly as written, including bare ones like `"id": {{id}}`.
 - **Text** — plain text, UTF-8.
 - **XML** — syntax highlighted; sent with `Content-Type: application/xml` unless you set your own.
-- **Form data (`multipart/form-data`)** — supports file inputs.
-- **Form URL-encoded (`application/x-www-form-urlencoded`)** — edit as a key/value table, or switch to **Text** to edit the encoded string directly.
-- **Binary** — drag in any file; Restura reads it as a stream.
-- **Protobuf** — paste base64 or upload a binary; helpful for testing gRPC-style endpoints behind a JSON adapter.
+- **Form data (`multipart/form-data`)** — supports file inputs. Text fields resolve `{{variables}}`; file fields are sent as picked.
+- **Form URL-encoded (`application/x-www-form-urlencoded`)** — edit as a key/value table, or switch to **Text** to edit the encoded string directly. Keys and values resolve `{{variables}}`.
+- **GraphQL** — query and variables editors that send a standard GraphQL JSON body (the dedicated [GraphQL](/protocols/graphql/) request type adds schema tooling).
+- **Binary** — drag in any file; Restura sends its bytes as the body.
+
+There is no Protobuf body type: to send protobuf over HTTP use **Binary**, or use the [gRPC](/protocols/grpc/) client.
 
 ## Headers, params, cookies
 
@@ -57,6 +59,10 @@ Available languages:
 - Ruby.
 - PHP.
 - More languages added in releases — open an issue if your stack is missing.
+
+## Streaming responses
+
+<Badge text="web only" variant="caution" /> When you send a request whose `Accept` header asks for `text/event-stream`, `application/x-ndjson` or `application/jsonl`, the response panel switches to a streaming viewer instead of waiting for the whole body. SSE events and NDJSON lines are listed as they arrive, with a running event and byte count; pause the view to read without it scrolling (a pill shows how many events are buffered). The viewer keeps the most recent 5,000 events. On desktop the HTTP client buffers the full response; use the dedicated [SSE](/protocols/sse/) client there, which also handles reconnect and filtering.
 
 ## History & timing
 

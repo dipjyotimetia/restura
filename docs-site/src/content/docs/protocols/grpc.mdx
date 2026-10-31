@@ -5,7 +5,7 @@ description: Unary and streaming RPCs over the Connect protocol (web) and native
 
 import { Badge } from '@astrojs/starlight/components';
 
-Restura speaks the **Connect protocol** on the web target and **native gRPC** over HTTP/2 (with automatic Connect-protocol fallback) on desktop — no local toolchain either way. JSON encoding is the default; binary protobuf is supported where the server allows.
+Restura speaks the **Connect protocol** on the web target and **native gRPC** over HTTP/2 (with automatic Connect-protocol fallback) on desktop — no local toolchain either way. On the web the request is always JSON over Connect (there is no binary toggle); binary protobuf goes over the wire on desktop gRPC and with the gRPC-Web wire protocol.
 
 ## Discovering the service
 
@@ -47,8 +47,9 @@ Each snapshot records a content hash and the time it was captured. When you refl
 
 - **Unary** — request-response.
 - **Server streaming** — single request, streamed responses. Live updates land in the response panel.
-- **Client streaming** — multiple requests, single response. <Badge text="desktop" variant="caution" /> for full HTTP/2 streaming; browser fetch limits client streaming on the web target.
-- **Bidirectional streaming** — same caveat as client streaming.
+- **Client streaming** — multiple requests, single response. <Badge text="desktop only" variant="caution" /> — not available on the web target.
+- **Bidirectional streaming** — <Badge text="desktop only" variant="caution" /> — not available on the web target.
+- **Web Stream tab** — for any non-unary method the request builder adds a **Web Stream** tab with a message composer for streaming calls (send messages, end the client side, watch the log).
 - **Collection runs** — the collection runner runs streaming requests to completion. Server streams run on web and desktop. Client and bidirectional streams run on desktop only: the runner sends the request message (a top-level JSON array sends one message per element), then closes the client side. On the web they're skipped.
 - **Retries** — the request's retry policy also applies to server streams: a stream that ends with a non-OK status runs again.
 - **Stream log** — streamed messages can be searched, filtered by direction, frozen, cleared, and exported as JSON or NDJSON.
@@ -63,6 +64,15 @@ Each snapshot records a content hash and the time it was captured. When you refl
 Each call has a deadline, set in the **Timeout (ms)** field next to the request tabs. The default is 30 seconds. Streaming methods also have a **No deadline** checkbox, so watch or subscribe streams can stay open until you cancel them. Unary calls and collection runs always have a deadline.
 
 On desktop, a stream with no messages in either direction for 15 minutes is closed. Its activity resets that timer, so a stream that keeps sending messages stays open. Every way a stream can end sends a final status, so the request leaves the streaming state. That includes a deadline, an idle close, and a cancel. Each message can be up to 10 MB; a bigger one ends the call with `RESOURCE_EXHAUSTED`.
+
+## Request settings
+
+The **Settings** tab holds per-request options beyond the wire protocol:
+
+- **Retry policy** — max attempts and delay between attempts; a call that ends with a non-OK status runs again (also for server streams).
+- **Compression** — *Send gzip-compressed requests* wraps outbound frames in gzip. <Badge text="desktop only" variant="caution" /> — the web build warns and ignores it.
+- **Timeout** — the per-call deadline described above (30 s by default).
+- **TLS** — server certificate verification, custom CAs and client certificates (mTLS) follow **Settings → Certificates**, which can be scoped per host and port. <Badge text="desktop only" variant="caution" /> — browsers can't present client certificates or change the trust store.
 
 ## Authentication
 
@@ -95,7 +105,7 @@ rs.test('three updates', () => rs.expect(rs.response.messages.count()).to.equal(
 
 ## Tracing
 
-Restura **auto-injects a W3C `traceparent`** header on every gRPC request by default — useful when your services participate in distributed tracing. Override or disable in the request settings.
+Restura **auto-injects a W3C `traceparent`** header on every gRPC request by default — useful when your services participate in distributed tracing. Override it by setting your own `traceparent` metadata entry — there is no setting to turn the auto-injection off.
 
 ## Reflection over the web
 
