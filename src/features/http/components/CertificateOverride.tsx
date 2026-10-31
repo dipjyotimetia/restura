@@ -22,21 +22,35 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
   const pfxRef = useRef<HTMLInputElement>(null);
   const pemCertRef = useRef<HTMLInputElement>(null);
   const pemKeyRef = useRef<HTMLInputElement>(null);
+  // File reads are async and can overlap, so a handler merges into the latest
+  // cert rather than the one it closed over. A read that started before a clear
+  // is dropped, so it cannot bring a cleared key back.
+  const latestCert = useRef(clientCert);
+  latestCert.current = clientCert;
+  const clearGeneration = useRef(0);
+
+  const commitCert = (next: ClientCert | undefined) => {
+    latestCert.current = next;
+    onCertChange(next);
+  };
 
   const handlePfxSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    const generation = clearGeneration.current;
     const base64 = await readFileAsBase64(file);
+    if (generation !== clearGeneration.current) return;
     if (!base64) {
       toast.error('That file appears to be empty — choose a valid .p12 / .pfx bundle.');
       return;
     }
     setPfxFileName(file.name);
-    onCertChange({
+    const current = latestCert.current;
+    commitCert({
       format: 'pfx',
       pfx: base64,
-      ...(clientCert?.passphrase !== undefined && { passphrase: clientCert.passphrase }),
+      ...(current?.passphrase !== undefined && { passphrase: current.passphrase }),
     });
   };
 
@@ -44,17 +58,20 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    const generation = clearGeneration.current;
     const text = await readFileAsText(file);
+    if (generation !== clearGeneration.current) return;
     if (!looksLikePemCertificate(text)) {
       toast.error('That file does not look like a PEM certificate (missing BEGIN CERTIFICATE).');
       return;
     }
     setPemCertFileName(file.name);
-    onCertChange({
+    const current = latestCert.current;
+    commitCert({
       format: 'pem',
       cert: text,
-      ...(clientCert?.key !== undefined && { key: clientCert.key }),
-      ...(clientCert?.passphrase !== undefined && { passphrase: clientCert.passphrase }),
+      ...(current?.key !== undefined && { key: current.key }),
+      ...(current?.passphrase !== undefined && { passphrase: current.passphrase }),
     });
   };
 
@@ -62,36 +79,40 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    const generation = clearGeneration.current;
     const text = await readFileAsText(file);
+    if (generation !== clearGeneration.current) return;
     if (!looksLikePemPrivateKey(text)) {
       toast.error('That file does not look like a PEM private key (missing BEGIN PRIVATE KEY).');
       return;
     }
     setPemKeyFileName(file.name);
-    onCertChange({
+    const current = latestCert.current;
+    commitCert({
       format: 'pem',
       key: text,
-      ...(clientCert?.cert !== undefined && { cert: clientCert.cert }),
-      ...(clientCert?.passphrase !== undefined && { passphrase: clientCert.passphrase }),
+      ...(current?.cert !== undefined && { cert: current.cert }),
+      ...(current?.passphrase !== undefined && { passphrase: current.passphrase }),
     });
   };
 
   const handlePassphraseChange = (passphrase: SecretValue) => {
-    const current = clientCert ?? { format: certFormat };
+    const current = latestCert.current ?? { format: certFormat };
     // A handle resolves to the masked placeholder (non-empty), so it's kept;
     // only a genuinely empty inline value clears the passphrase.
     if (unwrapSecret(passphrase)) {
-      onCertChange({ ...current, passphrase });
+      commitCert({ ...current, passphrase });
     } else {
       // Clear passphrase by omitting the key (EOPT-friendly)
       const { passphrase: _omit, ...rest } = current;
       void _omit;
-      onCertChange(rest);
+      commitCert(rest);
     }
   };
 
   const handleClearCert = () => {
-    onCertChange(undefined);
+    clearGeneration.current += 1;
+    commitCert(undefined);
     setPfxFileName('');
     setPemCertFileName('');
     setPemKeyFileName('');
