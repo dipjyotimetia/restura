@@ -3,8 +3,8 @@
 // emit a request, we parse it out, execute it through the real request
 // executor, and score the upstream response. No renderer/IPC deps — unit-tested
 // against raw strings.
-import { extractFirstJsonObject } from '@shared/protocol/ai/json-extract';
-import { checkHttpMethod } from '@shared/protocol/http-method';
+import { extractFirstJsonObject } from '../protocol/ai/json-extract';
+import { checkHttpMethod } from '../protocol/http-method';
 
 /** How to pull the request JSON out of the model output. */
 export type ParseMode = 'json' | 'fenced';

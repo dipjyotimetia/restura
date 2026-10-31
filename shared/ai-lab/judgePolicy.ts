@@ -3,7 +3,7 @@
 // under test grades its own output, which inflates agreement and hides the
 // failure modes both share; Anthropic's eval guidance is that the judge model
 // should never be the model under test.
-import type { ModelRef, ScorerConfig } from '../types';
+import type { ModelRef, ScorerConfig } from './types';
 
 export function sameModelRef(a: ModelRef, b: ModelRef): boolean {
   return a.providerConfigId === b.providerConfigId && a.model === b.model;

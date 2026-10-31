@@ -1,4 +1,4 @@
-import type { EvalCellResult } from '../types';
+import type { EvalCellResult } from './types';
 
 /** Default: every scored cell must pass. */
 export const DEFAULT_PASS_THRESHOLD = 1;

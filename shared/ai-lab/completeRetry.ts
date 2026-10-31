@@ -6,7 +6,7 @@
 // `completeLlm` has two failure shapes: it THROWS on an IPC-envelope failure,
 // and RETURNS a `CompletionResult` with `ok:false` on a provider error. This
 // helper handles both.
-import type { CompletionResult } from '@shared/protocol/ai/types';
+import type { CompletionResult } from '../protocol/ai/types';
 
 export interface RetryOpts {
   /** Extra attempts after the first. Default 2 (3 calls total). */
