@@ -3,6 +3,7 @@ import {
   type PostmanAuthGuard,
   postmanBlockedReason,
 } from '@shared/collections/postman/auth-guard';
+import { combineScripts } from '@shared/scripts/combine-scripts';
 import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
 import type { AuthConfig, CollectionItem, Request, ScopedVariable } from '@/types';
 import { isConnectionPresetRequest } from '@/types';
@@ -52,12 +53,6 @@ function effectiveFolderAuth(
   current: AuthConfig | undefined
 ): AuthConfig | undefined {
   return isConfiguredAuth(item.auth) ? item.auth : current;
-}
-
-/** Join non-empty script fragments in order; undefined when nothing applies. */
-function combineScripts(parts: Array<string | undefined>): string | undefined {
-  const nonEmpty = parts.filter((p): p is string => typeof p === 'string' && p.trim() !== '');
-  return nonEmpty.length > 0 ? nonEmpty.join('\n') : undefined;
 }
 
 /** Bake the inherited (ancestor) scripts plus the request's own into a copy. */

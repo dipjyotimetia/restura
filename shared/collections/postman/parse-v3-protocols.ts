@@ -50,18 +50,33 @@ export const MQTT_MAPPED_SETTINGS = new Set([
   'connectionTimeout',
 ]);
 
+const MQTT_MAPPED_MESSAGE_PROPERTIES = new Set(['contentType', 'responseTopic', 'userProperties']);
+
 export function convertMqtt(raw: Raw, name: string, sidecar: PostmanSidecar, ctx: ParseContext) {
   const settings = isObj(raw.settings) ? raw.settings : {};
   const messages = arr(raw.messages).filter(isObj);
   const topics = arr(raw.topics).filter(isObj);
   const subscribe = topics.find((t) => t.subscribe !== false) ?? topics[0];
   const lastWill = isObj(raw.lastWill) ? raw.lastWill : undefined;
-  const publish = (m: Raw) => ({
-    topic: m.topic,
-    payload: m.content,
-    qos: m.qos,
-    retain: m.retain,
-  });
+  const publish = (m: Raw) => {
+    // MQTT 5 message properties Restura models; the others are kept.
+    const props = isObj(m.properties) ? m.properties : {};
+    const userProperties = Object.fromEntries(
+      arr(props.userProperties)
+        .filter(isObj)
+        .filter((p) => typeof p.key === 'string' && p.key !== '')
+        .map((p) => [str(p.key), str(p.value)])
+    );
+    return {
+      topic: m.topic,
+      payload: m.content,
+      qos: m.qos,
+      retain: m.retain,
+      contentType: props.contentType,
+      responseTopic: props.responseTopic,
+      ...(Object.keys(userProperties).length > 0 ? { userProperties } : {}),
+    };
+  };
   keepBrokerAuth(raw, name, sidecar, ctx);
   keepExamples(raw, name, sidecar, ctx);
   const leftovers: Raw = {};
@@ -72,6 +87,16 @@ export function convertMqtt(raw: Raw, name: string, sidecar: PostmanSidecar, ctx
   );
   if (Object.keys(unmappedSettings).length > 0) leftovers.settings = unmappedSettings;
   if (raw.properties !== undefined) leftovers.properties = raw.properties;
+  const otherProps = messages
+    .map((m) => {
+      const props = isObj(m.properties) ? m.properties : {};
+      const rest = Object.fromEntries(
+        Object.entries(props).filter(([k]) => !MQTT_MAPPED_MESSAGE_PROPERTIES.has(k))
+      );
+      return Object.keys(rest).length > 0 ? { message: str(m.name), properties: rest } : undefined;
+    })
+    .filter((p) => p !== undefined);
+  if (otherProps.length > 0) leftovers.messageProperties = otherProps;
   // Hex / base64 payloads would be published as their text: keep the payload
   // visible but record (and warn about) the encoding the bytes need.
   const payloadEncodings = [
@@ -259,6 +284,9 @@ export function convertMcp(raw: Raw, name: string, sidecar: PostmanSidecar, ctx:
   const authOut = convertAuth(raw.auth, name, sidecar, ctx);
   const scripts = extractScripts(raw.scripts, name, sidecar, ctx);
   const settings = isObj(raw.settings) ? raw.settings : {};
+  // McpRequest has no description field: kept for export, like a folder's.
+  const desc = description(raw.description);
+  if (desc) sidecar.description = desc;
   const req: McpRequest = {
     id: uuid(),
     name,

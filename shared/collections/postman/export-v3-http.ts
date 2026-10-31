@@ -304,6 +304,9 @@ export function exportHttp(
     ctx.report.dropped('graphql-extras', name);
   }
   if (isNativeGraphql(req)) {
+    // Kept examples are v2 HTTP responses; a graphql-request holds only
+    // graphql-examples, so they are reported instead of silently lost.
+    if (arr(sidecar?.response).length > 0) ctx.report.dropped('examples', name);
     const settings = pick(sidecar?.settings, new Set(['disabledSystemHeaders']));
     return {
       item: defined({
@@ -318,7 +321,14 @@ export function exportHttp(
         settings: Object.keys(settings).length > 0 ? settings : undefined,
         auth: requestAuth(req.auth, inherited, sidecar, AUTH_TYPES.graphql, name, ctx),
         schema: isObj(sidecar?.schema) ? sidecar.schema : undefined,
-        scripts: exportScripts(req.preRequestScript, req.testScript, sidecar, GRAPHQL_PHASES, ctx),
+        scripts: exportScripts(
+          req.preRequestScript,
+          req.testScript,
+          sidecar,
+          GRAPHQL_PHASES,
+          ctx,
+          name
+        ),
       }),
     };
   }
@@ -355,7 +365,8 @@ export function exportHttp(
         req.testScript,
         sidecar,
         HTTP_REQUEST_PHASES,
-        ctx
+        ctx,
+        name
       ),
       examples: restoreHttpExamples(sidecar),
     }),
@@ -398,6 +409,7 @@ export function exportGrpc(
     item: defined({
       name,
       $kind: 'grpc-request',
+      description: typeof sidecar?.description === 'string' ? sidecar.description : undefined,
       url: req.url,
       methodPath: methodPath || undefined,
       message: { content: req.message },
@@ -405,7 +417,7 @@ export function exportGrpc(
       settings: Object.keys(settings).length > 0 ? settings : undefined,
       auth: requestAuth(req.auth, inherited, sidecar, AUTH_TYPES.grpc, name, ctx),
       schema: isObj(sidecar?.schema) ? sidecar.schema : undefined,
-      scripts: exportScripts(req.preRequestScript, req.testScript, sidecar, GRPC_PHASES, ctx),
+      scripts: exportScripts(req.preRequestScript, req.testScript, sidecar, GRPC_PHASES, ctx, name),
     }),
   };
 }

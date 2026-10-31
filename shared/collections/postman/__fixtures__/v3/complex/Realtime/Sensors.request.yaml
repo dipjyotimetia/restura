@@ -1,0 +1,38 @@
+$kind: mqtt-request
+url: mqtts://broker.example.com:8883
+clientId: restura-{{$randomInt}}
+version: 5
+topics:
+- name: sensors/#
+  qos: 1
+  subscribe: true
+- name: alerts
+  qos: 0
+  subscribe: true
+settings:
+  keepAlive: 60
+  cleanSession: true
+  autoReconnect: true
+  connectionTimeout: 8000
+auth:
+  type: basic
+  credentials:
+  - key: username
+    value: mq
+  - key: password
+    value: MQ-PASS
+messages:
+- $kind: mqtt-message
+  name: Temp
+  topic: sensors/temp
+  content: '{"c":21}'
+  contentType: json
+  qos: 1
+  retain: true
+  properties:
+    contentType: application/json
+    responseTopic: sensors/ack
+    userProperties:
+    - key: unit
+      value: celsius
+order: 3000

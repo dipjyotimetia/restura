@@ -257,18 +257,21 @@ describe('parsePostmanV2 — request shapes', () => {
     expect(ue.formData?.map((f) => [f.key, f.value])).toEqual([['a', 'b']]);
   });
 
-  it('collapses graphql bodies, tolerating string and malformed variables', () => {
+  it('maps graphql bodies to query + variables text, keeping templated variables', () => {
     const gql = (variables: unknown) =>
       req(
         withRequest({
           url: 'https://x.example.com',
           body: { mode: 'graphql', graphql: { query: '{ a }', variables } },
         }).collection.items[0]
-      ).body.raw;
-    expect(gql(undefined)).toBe('{ a }');
-    expect(JSON.parse(gql('{"x":1}')!)).toEqual({ query: '{ a }', variables: { x: 1 } });
-    expect(JSON.parse(gql({ y: 2 })!)).toEqual({ query: '{ a }', variables: { y: 2 } });
-    expect(JSON.parse(gql('{not json')!)).toEqual({ query: '{ a }', variables: {} });
+      ).body;
+    expect(gql(undefined)).toEqual({ type: 'graphql', raw: '{ a }' });
+    expect(gql('  ')).toEqual({ type: 'graphql', raw: '{ a }' });
+    expect(gql('{"x":1}')).toEqual({ type: 'graphql', raw: '{ a }', graphqlVariables: '{"x":1}' });
+    expect(JSON.parse(gql({ y: 2 }).graphqlVariables!)).toEqual({ y: 2 });
+    // Unquoted `{{var}}` only parses after substitution, so it is kept verbatim
+    // (it used to be replaced by `{}`).
+    expect(gql('{"id": {{userId}}}').graphqlVariables).toBe('{"id": {{userId}}}');
   });
 
   it('unknown body modes become none', () => {

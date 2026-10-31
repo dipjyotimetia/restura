@@ -1,0 +1,21 @@
+$kind: socket.io-request
+url: https://chat.example.com
+events:
+- name: message
+  subscribeOnConnect: true
+- name: typing
+settings:
+  version: '4'
+  path: /socket.io
+  handshakeTimeout: 3000
+messages:
+- $kind: socket.io-message
+  name: hello
+  eventName: join
+  acknowledgement: true
+  args:
+  - content: room-1
+    contentType: text
+  - content: '{"nick":"ada"}'
+    contentType: json
+order: 2000

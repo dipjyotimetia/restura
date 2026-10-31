@@ -1,0 +1,837 @@
+{
+  "info": {
+    "_postman_id": "7f1c2d4e-0000-4000-8000-000000000001",
+    "name": "Complex v2.1",
+    "description": "Every v2.1 construct the importer handles: auth zoo, body modes, nested folders, scripts, settings, examples.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{rootToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://api.example.com"
+    },
+    {
+      "key": "rootToken",
+      "value": "root-token"
+    },
+    {
+      "key": "retired",
+      "value": "x",
+      "disabled": true
+    },
+    {
+      "key": "vaulted",
+      "value": "SECRET-VAR-VALUE",
+      "type": "secret"
+    },
+    {
+      "id": "legacyId",
+      "value": 3
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": ["const stamp = 'collection';", "pm.environment.set('collectionPre', stamp);"]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test('collection: has a status', () => pm.expect(pm.response.code).to.be.a('number'));"
+        ]
+      }
+    }
+  ],
+  "protocolProfileBehavior": {
+    "disableBodyPruning": true
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "HEAD",
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "Users",
+      "description": {
+        "content": "User management",
+        "type": "text/markdown"
+      },
+      "auth": {
+        "type": "basic",
+        "basic": [
+          {
+            "key": "username",
+            "value": "admin",
+            "type": "string"
+          },
+          {
+            "key": "password",
+            "value": "admin-pw",
+            "type": "string"
+          }
+        ]
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": ["const stamp = 'folder';", "pm.environment.set('folderPre', stamp);"]
+          }
+        }
+      ],
+      "variable": [
+        {
+          "key": "folderVar",
+          "value": "f"
+        }
+      ],
+      "item": [
+        {
+          "name": "Get user",
+          "description": "Fetch one user by id.",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.environment.set('shadow', 'first');"]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["const stamp = 'request';", "pm.environment.set('requestPre', stamp);"]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('disabled test must not run', () => pm.expect.fail());"]
+              },
+              "disabled": true
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('status 200', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "OK",
+              "originalRequest": {
+                "method": "GET",
+                "url": "{{baseUrl}}/users/42"
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\"id\":42}"
+            }
+          ],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "maxRedirects": 3,
+            "strictSSL": false,
+            "disableUrlEncoding": true,
+            "disableBodyPruning": true
+          },
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/users/:id?expand=roles&debug=1#profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", ":id"],
+              "query": [
+                {
+                  "key": "expand",
+                  "value": "roles",
+                  "description": "Embed roles"
+                },
+                {
+                  "key": "debug",
+                  "value": "1",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "42"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "description": "JSON only"
+              },
+              {
+                "key": "X-Off",
+                "value": "1",
+                "disabled": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "Create user",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/users",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{name}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Avatar upload",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/users/42/avatar",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "meta",
+                  "value": "{\"crop\":true}",
+                  "type": "text",
+                  "contentType": "application/json",
+                  "description": "crop options"
+                },
+                {
+                  "key": "skip",
+                  "value": "x",
+                  "type": "text",
+                  "disabled": true
+                },
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": ["/home/me/a.png", "/home/me/b.png"]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Legacy login",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/login",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "user",
+                  "value": "ada"
+                },
+                {
+                  "key": "password",
+                  "value": "pw"
+                },
+                {
+                  "key": "otp",
+                  "value": "1",
+                  "disabled": true
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Admin",
+          "auth": {
+            "type": "oauth2",
+            "oauth2": [
+              {
+                "key": "grant_type",
+                "value": "client_credentials",
+                "type": "string"
+              },
+              {
+                "key": "accessTokenUrl",
+                "value": "https://auth.example.com/token",
+                "type": "string"
+              },
+              {
+                "key": "clientId",
+                "value": "cid",
+                "type": "string"
+              },
+              {
+                "key": "clientSecret",
+                "value": "CLIENT-SECRET",
+                "type": "string"
+              },
+              {
+                "key": "scope",
+                "value": "admin users",
+                "type": "string"
+              },
+              {
+                "key": "addTokenTo",
+                "value": "header",
+                "type": "string"
+              }
+            ]
+          },
+          "item": [
+            {
+              "name": "Audit log",
+              "description": "Inherits OAuth2 from Admin",
+              "request": {
+                "method": "GET",
+                "url": "{{baseUrl}}/admin/audit"
+              }
+            },
+            {
+              "name": "Deep",
+              "item": [
+                {
+                  "name": "Deepest",
+                  "request": {
+                    "method": "DELETE",
+                    "url": "{{baseUrl}}/admin/deep/1",
+                    "auth": {
+                      "type": "inherit"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Bodies",
+      "item": [
+        {
+          "name": "XML",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/xml",
+            "body": {
+              "mode": "raw",
+              "raw": "<a/>",
+              "options": {
+                "raw": {
+                  "language": "xml"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "HTML",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/html",
+            "body": {
+              "mode": "raw",
+              "raw": "<b>x</b>",
+              "options": {
+                "raw": {
+                  "language": "html"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Plain",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/text",
+            "body": {
+              "mode": "raw",
+              "raw": "hello"
+            }
+          }
+        },
+        {
+          "name": "Binary",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/blob",
+            "body": {
+              "mode": "file",
+              "file": {
+                "src": "/home/me/blob.bin"
+              }
+            }
+          }
+        },
+        {
+          "name": "GraphQL templated",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/graphql",
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query($id: Int) { u(id: $id) { n } }",
+                "variables": "{\"id\": {{userId}}}"
+              }
+            }
+          }
+        },
+        {
+          "name": "GraphQL object vars",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/graphql",
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{ ping }",
+                "variables": {
+                  "a": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Bare string URL",
+          "request": "{{baseUrl}}/bare?x=1"
+        },
+        {
+          "name": "Purge",
+          "request": {
+            "method": "PURGE",
+            "url": "{{baseUrl}}/cache"
+          }
+        },
+        {
+          "name": "Raw header block",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/headers",
+            "header": "X-One: 1\nX-Two: two"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth zoo",
+      "item": [
+        {
+          "name": "API key query",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/k",
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "api_key",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "K",
+                  "type": "string"
+                },
+                {
+                  "key": "in",
+                  "value": "query",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "API key header",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/k",
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                {
+                  "key": "key",
+                  "value": "X-Key",
+                  "type": "string"
+                },
+                {
+                  "key": "value",
+                  "value": "K",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Digest",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/d",
+            "auth": {
+              "type": "digest",
+              "digest": [
+                {
+                  "key": "username",
+                  "value": "d",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "dp",
+                  "type": "string"
+                },
+                {
+                  "key": "realm",
+                  "value": "r",
+                  "type": "string"
+                },
+                {
+                  "key": "algorithm",
+                  "value": "MD5",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "OAuth1",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/o1",
+            "auth": {
+              "type": "oauth1",
+              "oauth1": [
+                {
+                  "key": "consumerKey",
+                  "value": "ck",
+                  "type": "string"
+                },
+                {
+                  "key": "consumerSecret",
+                  "value": "cs",
+                  "type": "string"
+                },
+                {
+                  "key": "token",
+                  "value": "t",
+                  "type": "string"
+                },
+                {
+                  "key": "tokenSecret",
+                  "value": "ts",
+                  "type": "string"
+                },
+                {
+                  "key": "signatureMethod",
+                  "value": "HMAC-SHA256",
+                  "type": "string"
+                },
+                {
+                  "key": "realm",
+                  "value": "photos",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "OAuth1 RSA",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/o1rsa",
+            "auth": {
+              "type": "oauth1",
+              "oauth1": [
+                {
+                  "key": "consumerKey",
+                  "value": "ck",
+                  "type": "string"
+                },
+                {
+                  "key": "signatureMethod",
+                  "value": "RSA-SHA1",
+                  "type": "string"
+                },
+                {
+                  "key": "privateKey",
+                  "value": "RSA-PRIVATE",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "OAuth2 password",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/o2",
+            "auth": {
+              "type": "oauth2",
+              "oauth2": [
+                {
+                  "key": "grant_type",
+                  "value": "password_credentials",
+                  "type": "string"
+                },
+                {
+                  "key": "accessTokenUrl",
+                  "value": "https://a/t",
+                  "type": "string"
+                },
+                {
+                  "key": "username",
+                  "value": "u",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "p",
+                  "type": "string"
+                },
+                {
+                  "key": "clientId",
+                  "value": "c",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "OAuth2 PKCE",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/o2pkce",
+            "auth": {
+              "type": "oauth2",
+              "oauth2": [
+                {
+                  "key": "grant_type",
+                  "value": "authorization_code_with_pkce",
+                  "type": "string"
+                },
+                {
+                  "key": "authUrl",
+                  "value": "https://a/auth",
+                  "type": "string"
+                },
+                {
+                  "key": "accessTokenUrl",
+                  "value": "https://a/t",
+                  "type": "string"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "https://app/cb",
+                  "type": "string"
+                },
+                {
+                  "key": "clientId",
+                  "value": "c",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "AWS STS",
+          "request": {
+            "method": "GET",
+            "url": "https://s3.amazonaws.com/b/k",
+            "auth": {
+              "type": "awsv4",
+              "awsv4": [
+                {
+                  "key": "accessKey",
+                  "value": "AKIA",
+                  "type": "string"
+                },
+                {
+                  "key": "secretKey",
+                  "value": "AWS-SECRET",
+                  "type": "string"
+                },
+                {
+                  "key": "region",
+                  "value": "us-east-1",
+                  "type": "string"
+                },
+                {
+                  "key": "service",
+                  "value": "s3",
+                  "type": "string"
+                },
+                {
+                  "key": "sessionToken",
+                  "value": "STS-SESSION-TOKEN",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "NTLM",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/ntlm",
+            "auth": {
+              "type": "ntlm",
+              "ntlm": [
+                {
+                  "key": "username",
+                  "value": "n",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "np",
+                  "type": "string"
+                },
+                {
+                  "key": "domain",
+                  "value": "CORP",
+                  "type": "string"
+                },
+                {
+                  "key": "workstation",
+                  "value": "WS1",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Hawk",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/hawk",
+            "auth": {
+              "type": "hawk",
+              "hawk": [
+                {
+                  "key": "authId",
+                  "value": "id",
+                  "type": "string"
+                },
+                {
+                  "key": "authKey",
+                  "value": "HAWK-KEY",
+                  "type": "string"
+                },
+                {
+                  "key": "algorithm",
+                  "value": "sha256",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "JWT",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/jwt",
+            "auth": {
+              "type": "jwt",
+              "jwt": [
+                {
+                  "key": "secret",
+                  "value": "JWT-SECRET",
+                  "type": "string"
+                },
+                {
+                  "key": "algorithm",
+                  "value": "HS256",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Hawk folder",
+      "auth": {
+        "type": "hawk",
+        "hawk": [
+          {
+            "key": "authId",
+            "value": "fid",
+            "type": "string"
+          },
+          {
+            "key": "authKey",
+            "value": "FOLDER-HAWK-KEY",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Under hawk",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/under-hawk"
+          }
+        }
+      ]
+    }
+  ]
+}

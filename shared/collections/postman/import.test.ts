@@ -197,19 +197,16 @@ describe('importPostmanCollection (shared, SDK-free)', () => {
     );
     const item = collection.items[0]!;
     const sidecar = getPostmanSidecar(item);
-    expect(sidecar?.protocolProfileBehavior).toEqual({ followRedirects: false });
+    // A mapped setting is applied, not kept for reference.
+    expect(req(item).settings).toEqual({ followRedirects: false });
+    expect(sidecar?.protocolProfileBehavior).toBeUndefined();
     expect(sidecar?.variable).toEqual([{ key: 'v', value: '1' }]);
     expect(sidecar?.event).toEqual([{ listen: 'test', script: { exec: ['pm.test("a")'] } }]);
     expect(sidecar?.body).toEqual({ mode: 'file', file: { src: '/tmp/a.bin' } });
     // Last same-kind event still wins (pre-existing behaviour).
     expect(req(item).testScript).toBe('rs.test("b")');
     expect(req(item).body).toEqual({ type: 'binary' });
-    expect(constructs(report.warnings)).toEqual([
-      'extra-events',
-      'file-body',
-      'item-variables',
-      'protocol-profile-behavior',
-    ]);
+    expect(constructs(report.warnings)).toEqual(['extra-events', 'file-body', 'item-variables']);
   });
 
   it('collection-level protocolProfileBehavior lands on the root sidecar', () => {
@@ -321,5 +318,109 @@ describe('URL path variables and fragments (SDK parity)', () => {
     const withQuery = url('https://x.example.com/p?a=1#frag');
     expect(withQuery.url).toBe('https://x.example.com/p#frag');
     expect(withQuery.params.map((p) => [p.key, p.value])).toEqual([['a', '1']]);
+  });
+
+  describe('v2 gaps closed (descriptions, settings, events, form parts, aws)', () => {
+    it('keeps request descriptions (item first, then request) and folder descriptions', () => {
+      const { collection } = importPostmanCollection({
+        info: { name: 'C', schema: V21 },
+        item: [
+          {
+            name: 'F',
+            description: 'folder doc',
+            item: [
+              {
+                name: 'A',
+                description: 'item doc',
+                request: { url: 'https://x', description: 'r' },
+              },
+              { name: 'B', request: { url: 'https://x', description: { content: 'req doc' } } },
+            ],
+          },
+        ],
+      });
+      const folder = collection.items[0]!;
+      expect(getPostmanSidecar(folder)?.description).toBe('folder doc');
+      expect(req(folder.items?.[0]).description).toBe('item doc');
+      expect(req(folder.items?.[1]).description).toBe('req doc');
+    });
+
+    it('applies protocolProfileBehavior as request settings and keeps the unmapped rest', () => {
+      const { collection, report } = importPostmanCollection(
+        one(
+          {},
+          {
+            protocolProfileBehavior: {
+              strictSSL: false,
+              maxRedirects: 3,
+              disableUrlEncoding: true,
+              disableBodyPruning: true,
+            },
+          }
+        )
+      );
+      const item = collection.items[0]!;
+      expect(req(item).settings).toEqual({
+        verifySsl: false,
+        maxRedirects: 3,
+        encodeUrlAutomatically: false,
+      });
+      expect(getPostmanSidecar(item)?.protocolProfileBehavior).toEqual({
+        disableBodyPruning: true,
+      });
+      expect(report.warnings).toContainEqual(
+        expect.objectContaining({ kind: 'security-downgrade', setting: 'strictSSL' })
+      );
+      expect(constructs(report.warnings)).toContain('protocol-profile-behavior');
+    });
+
+    it('never runs a disabled event; it is kept for reference', () => {
+      const disabled = { listen: 'test', disabled: true, script: { exec: ['pm.test("off")'] } };
+      const { collection, report } = importPostmanCollection(one({}, { event: [disabled] }));
+      const item = collection.items[0]!;
+      expect(req(item).testScript).toBeUndefined();
+      expect(getPostmanSidecar(item)?.event).toEqual([disabled]);
+      expect(constructs(report.warnings)).toEqual(['extra-events']);
+    });
+
+    it('keeps form-data part content types', () => {
+      const { collection } = importPostmanCollection(
+        one({
+          method: 'POST',
+          body: {
+            mode: 'formdata',
+            formdata: [{ key: 'meta', value: '{}', type: 'text', contentType: 'application/json' }],
+          },
+        })
+      );
+      expect(req(collection.items[0]).body.formData?.[0]).toMatchObject({
+        key: 'meta',
+        contentType: 'application/json',
+      });
+    });
+
+    it('reports an AWS session token instead of dropping it, and keeps it for export', () => {
+      const { collection, report } = importPostmanCollection(
+        one({
+          auth: {
+            type: 'awsv4',
+            awsv4: [
+              { key: 'accessKey', value: 'AK' },
+              { key: 'secretKey', value: 'SK' },
+              { key: 'region', value: 'us-east-1' },
+              { key: 'service', value: 's3' },
+              { key: 'sessionToken', value: 'ST' },
+            ],
+          },
+        })
+      );
+      const item = collection.items[0]!;
+      expect(req(item).auth.type).toBe('aws-signature');
+      expect(constructs(report.warnings)).toEqual(['awsv4-options']);
+      expect(getPostmanSidecar(item)?.auth).toEqual({
+        type: 'awsv4',
+        awsv4: [{ key: 'sessionToken', value: 'ST' }],
+      });
+    });
   });
 });

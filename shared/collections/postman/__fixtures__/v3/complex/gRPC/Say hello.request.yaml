@@ -1,0 +1,26 @@
+$kind: grpc-request
+description: Unary Greeter call
+url: '{{grpcHost}}'
+methodPath: helloworld.Greeter/SayHello
+message:
+  content: |-
+    {
+      "name": "{{user}}"
+    }
+metadata:
+- key: x-tenant
+  value: '{{tenant}}'
+- key: x-off
+  value: '1'
+  disabled: true
+settings:
+  secureConnection: true
+  strictSSL: false
+  maxResponseMessageSize: 4194304
+  connectionTimeout: 5000
+scripts:
+- type: beforeInvoke
+  code: pm.request.metadata['x-from-script'] = 'yes';
+- type: afterResponse
+  code: pm.test('grpc ok', () => {});
+order: 1000

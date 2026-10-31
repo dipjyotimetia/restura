@@ -1,0 +1,4 @@
+$kind: http-request
+url: '{{baseUrl}}/health'
+method: HEAD
+order: 500

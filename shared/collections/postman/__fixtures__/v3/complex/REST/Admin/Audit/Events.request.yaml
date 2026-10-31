@@ -1,0 +1,5 @@
+$kind: http-request
+url: '{{baseUrl}}/admin/audit'
+method: GET
+description: Inherits OAuth2 from Admin
+order: 1000

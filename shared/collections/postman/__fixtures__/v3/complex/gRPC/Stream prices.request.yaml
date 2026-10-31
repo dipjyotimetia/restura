@@ -1,0 +1,10 @@
+$kind: grpc-request
+url: grpc.example.com:50051
+methodPath: market.Prices/Stream
+message:
+  content: '{"symbol":"ACME"}'
+auth:
+  type: noauth
+settings:
+  secureConnection: false
+order: 2000

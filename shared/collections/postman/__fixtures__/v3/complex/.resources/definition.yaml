@@ -1,0 +1,36 @@
+$kind: collection
+name: Complex Protocols
+description: Every v3 item kind, nested folder auth/scripts, settings, examples and edge cases.
+variables:
+- key: baseUrl
+  value: https://api.example.com
+- key: grpcHost
+  value: grpc.example.com:443
+- key: tenant
+  value: acme
+  description: Tenant slug
+- key: legacy
+  value: 'off'
+  disabled: true
+- key: apiToken
+  secret: true
+  source:
+    provider: postman
+    postman:
+      type: local
+      secretId: apiToken
+scripts:
+- type: http:beforeRequest
+  code: |-
+    const stamp = Date.now();
+    pm.variables.set('stamp', String(stamp));
+  language: text/javascript
+- type: http:afterResponse
+  code: 'pm.test(''collection: not 5xx'', () => pm.expect(pm.response.code).to.be.below(500));'
+- type: grpc:beforeInvoke
+  code: console.log('collection grpc hook');
+auth:
+  type: bearer
+  credentials:
+  - key: token
+    value: '{{apiToken}}'

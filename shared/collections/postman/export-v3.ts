@@ -186,7 +186,14 @@ function exportItem(
     $kind: 'collection',
     description: typeof sidecar?.description === 'string' ? sidecar.description : undefined,
     auth: containerAuth(item.auth, sidecar, name, ctx, false),
-    scripts: exportScripts(item.preRequestScript, item.testScript, sidecar, COLLECTION_PHASES, ctx),
+    scripts: exportScripts(
+      item.preRequestScript,
+      item.testScript,
+      sidecar,
+      COLLECTION_PHASES,
+      ctx,
+      name
+    ),
     items,
   });
 }
@@ -218,7 +225,8 @@ export function exportPostmanV3Tree(
       collection.testScript,
       sidecar,
       COLLECTION_PHASES,
-      ctx
+      ctx,
+      name
     ),
     auth: containerAuth(collection.auth, sidecar, name, ctx, true),
     uses,

@@ -1,0 +1,66 @@
+{
+  "info": {
+    "name": "Legacy v2.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.0.0/collection.json"
+  },
+  "auth": {
+    "type": "basic",
+    "basic": {
+      "username": "legacy",
+      "password": "legacy-pw"
+    }
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://legacy.example.com"
+    }
+  ],
+  "item": [
+    {
+      "name": "Folder",
+      "auth": {
+        "type": "bearer",
+        "bearer": {
+          "token": "folder-tok"
+        }
+      },
+      "item": [
+        {
+          "name": "Inherits",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/a"
+          }
+        },
+        {
+          "name": "AWS",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/b",
+            "auth": {
+              "type": "awsv4",
+              "awsv4": {
+                "accessKey": "A",
+                "secretKey": "S",
+                "region": "r",
+                "service": "s"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Top",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/top",
+        "body": {
+          "mode": "raw",
+          "raw": "x"
+        }
+      }
+    }
+  ]
+}

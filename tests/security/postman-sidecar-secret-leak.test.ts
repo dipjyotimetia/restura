@@ -82,6 +82,27 @@ describe('approximated typed auth keeps only unmapped keys in the sidecar (ADR-0
     expect(bag).toContain('BAG_ONLY_REFRESH');
   });
 
+  it('awsv4 sessionToken: kept for export, counted, and blanked when secrets are excluded', () => {
+    const { collection } = importPostmanCollection(
+      withAuth({
+        type: 'awsv4',
+        awsv4: [
+          { key: 'accessKey', value: 'AK' },
+          { key: 'secretKey', value: 'MAPPED_SECRET_KEY' },
+          { key: 'sessionToken', value: 'BAG_ONLY_SESSION_TOKEN' },
+        ],
+      })
+    );
+    const bag = JSON.stringify((collection.items[0] as { _postman?: unknown })._postman);
+    expect(bag).not.toContain('MAPPED_SECRET_KEY');
+    expect(bag).toContain('BAG_ONLY_SESSION_TOKEN');
+    // secretKey (typed) + sessionToken (bag)
+    expect(countCollectionInlineSecrets(collection)).toBeGreaterThanOrEqual(2);
+    const redacted = JSON.stringify(redactCollectionSecrets(collection));
+    expect(redacted).not.toContain('BAG_ONLY_SESSION_TOKEN');
+    expect(redacted).not.toContain('MAPPED_SECRET_KEY');
+  });
+
   it('a bag-only oauth1 privateKey is counted as an inline secret', () => {
     const { collection } = importPostmanCollection(
       withAuth({

@@ -1,6 +1,13 @@
 import { v4 as uuid } from 'uuid';
 import { isConfiguredAuth } from '../../auth/inheritance';
-import type { Collection, CollectionItem, FormDataItem, HttpRequest, KeyValue } from '../../types';
+import type {
+  Collection,
+  CollectionItem,
+  FormDataItem,
+  HttpRequest,
+  KeyValue,
+  RequestSettingsOverride,
+} from '../../types';
 import {
   type AuthOutcome,
   arr,
@@ -13,6 +20,7 @@ import {
   isObj,
   keyValue,
   MAX_POSTMAN_NESTING_DEPTH,
+  mapPostmanSettings,
   markExplicitNoauth,
   type ParseContext,
   parseQueryString,
@@ -117,7 +125,7 @@ function convertAuth(raw: unknown, ownerName: string, ctx: ParseContext): AuthOu
 interface Scripts {
   preRequestScript: string | undefined;
   testScript: string | undefined;
-  /** Same-kind events that lost to a later one. */
+  /** Same-kind events that lost to a later one, and disabled events. */
   shadowed: unknown[];
 }
 
@@ -136,6 +144,12 @@ function extractScripts(events: unknown, ctx: ParseContext): Scripts {
     if (!isEvent(event)) continue;
     const text = execText(event.script);
     if (text === undefined) continue;
+    // Postman never runs a disabled event: keep it for reference (and
+    // export), never as the live script.
+    if (event.disabled === true) {
+      shadowed.push(event);
+      continue;
+    }
     const prev = last.get(event.listen);
     if (prev) shadowed.push(prev.event);
     last.set(event.listen, { event, text });
@@ -257,6 +271,9 @@ function convertBodyObject(
             key: str(param.key),
             enabled: param.disabled !== true,
             description: description(param.description),
+            ...(typeof param.contentType === 'string' && param.contentType !== ''
+              ? { contentType: param.contentType }
+              : {}),
           };
           if (param.type !== 'file') return { ...common, value: str(param.value), type: 'text' };
           // A file row's `value` holds the picked file's base64 bytes at
@@ -289,18 +306,16 @@ function convertBodyObject(
     }
     case 'graphql': {
       const graphql = isObj(body.graphql) ? body.graphql : {};
-      const query = str(graphql.query);
+      const out: HttpRequest['body'] = { type: 'graphql', raw: str(graphql.query) };
+      // Kept as text, like the v3 parser: Postman variables often hold
+      // unquoted `{{var}}` templates that only parse after substitution.
       const variables = graphql.variables;
-      let raw = query;
-      if (variables) {
-        try {
-          const parsed = typeof variables === 'string' ? JSON.parse(variables) : variables;
-          raw = JSON.stringify({ query, variables: parsed }, null, 2);
-        } catch {
-          raw = JSON.stringify({ query, variables: {} }, null, 2);
-        }
+      if (typeof variables === 'string') {
+        if (variables.trim() !== '') out.graphqlVariables = variables;
+      } else if (isObj(variables) || Array.isArray(variables)) {
+        out.graphqlVariables = JSON.stringify(variables, null, 2);
       }
-      return { type: 'graphql', raw };
+      return out;
     }
     case 'file':
       sidecar.body = body;
@@ -321,7 +336,8 @@ function collectItemExtras(
   sidecar: PostmanSidecar,
   ctx: ParseContext
 ): void {
-  if (item.protocolProfileBehavior !== undefined) {
+  if (item.protocolProfileBehavior !== undefined && isItemGroup(item)) {
+    // Restura folders hold no settings: kept for reference (and export).
     sidecar.protocolProfileBehavior = item.protocolProfileBehavior;
     ctx.report.unmodelled('protocol-profile-behavior', name);
   }
@@ -346,6 +362,27 @@ function collectItemExtras(
     sidecar.event = scripts.shadowed;
     ctx.report.unmodelled('extra-events', name);
   }
+}
+
+/**
+ * A request's `protocolProfileBehavior` → Restura settings (the keys it
+ * shares with v3 `settings`); the unmapped rest is kept in the sidecar,
+ * where the v2.1 export overlays the live settings back onto it.
+ */
+function requestSettings(
+  ppb: unknown,
+  name: string,
+  sidecar: PostmanSidecar,
+  ctx: ParseContext
+): RequestSettingsOverride | undefined {
+  if (ppb === undefined) return undefined;
+  const mapped = mapPostmanSettings(ppb, name, ctx);
+  const rest = mapped ? mapped.rest : ppb;
+  if (rest !== undefined) {
+    sidecar.protocolProfileBehavior = rest;
+    ctx.report.unmodelled('protocol-profile-behavior', name);
+  }
+  return mapped?.settings;
 }
 
 function convertItem(
@@ -381,6 +418,10 @@ function convertFolder(
   const folderAuth = isConfiguredAuth(authOut.auth) ? authOut.auth : undefined;
   const scripts = extractScripts(raw.event, ctx);
   collectItemExtras(raw, name, scripts, sidecar, ctx);
+  // Restura folders have no description field: kept for reference and
+  // restored on export (the v3 parser's rule).
+  const desc = description(raw.description);
+  if (desc) sidecar.description = desc;
   const items: CollectionItem[] = [];
   for (const child of raw.item) {
     // An unsupported folder auth cuts the chain: its inheriting
@@ -423,6 +464,7 @@ function convertRequestItem(
   const { url, params } = convertUrl(request.url, name, sidecar, ctx);
   const method = coerceMethod(request.method, name, sidecar, ctx);
   const body = convertBody(request.body, name, sidecar, ctx);
+  const settings = requestSettings(raw.protocolProfileBehavior, name, sidecar, ctx);
   collectItemExtras(raw, name, scripts, sidecar, ctx);
   if (Array.isArray(raw.response) && raw.response.length > 0) {
     sidecar.response = raw.response;
@@ -442,6 +484,11 @@ function convertRequestItem(
     preRequestScript: scripts.preRequestScript,
     testScript: scripts.testScript,
   };
+  if (settings) httpRequest.settings = settings;
+  // v2.1 allows a description on the item and on the request; the item's is
+  // what the Postman app shows and writes.
+  const desc = description(raw.description) ?? description(request.description);
+  if (desc) httpRequest.description = desc;
   return attachPostmanSidecar<CollectionItem>(
     { id: uuid(), name, type: 'request', request: httpRequest },
     sidecar

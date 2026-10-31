@@ -2,7 +2,12 @@ import { isConfiguredAuth } from '../../auth/inheritance';
 import type { AuthConfig } from '../../types';
 import { arr, isObj, type Raw, str } from './common';
 import { requestAuth } from './export-v3-http';
-import { type ExportContext, exportAuth, isExplicitNoauth } from './export-v3-shared';
+import {
+  type ExportContext,
+  exportAuth,
+  GRANT_APPROXIMATION,
+  isExplicitNoauth,
+} from './export-v3-shared';
 import type { PostmanSidecar } from './sidecar';
 import type { PostmanV21Auth, PostmanV21AuthAttribute } from './v21-types';
 
@@ -59,15 +64,6 @@ function sidecarAttributeTypes(
   }
   return out;
 }
-
-/**
- * Grants the importer approximates (`mapPostmanGrantType` in auth.ts) → the
- * typed grant they import as. While the typed grant is still that value the
- * user has not changed it, so the original Postman grant is restored.
- */
-const GRANT_APPROXIMATION: Readonly<Record<string, string>> = {
-  authorization_code_with_pkce: 'authorization_code',
-};
 
 function sidecarGrant(sidecar: PostmanSidecar | undefined): string | undefined {
   const raw = sidecar?.authBagOnly ? undefined : sidecar?.auth;

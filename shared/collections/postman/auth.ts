@@ -237,19 +237,23 @@ export function convertPostmanAuth(type: string, params: PostmanAuthParams): Aut
         status: 'ok',
         auth: { type: 'digest', digest: { username: get('username'), password: get('password') } },
       };
-    case 'awsv4':
-      return {
-        status: 'ok',
-        auth: {
-          type: 'aws-signature',
-          awsSignature: {
-            accessKey: get('accessKey'),
-            secretKey: get('secretKey'),
-            region: get('region'),
-            service: get('service'),
-          },
+    case 'awsv4': {
+      const auth: AuthConfig = {
+        type: 'aws-signature',
+        awsSignature: {
+          accessKey: get('accessKey'),
+          secretKey: get('secretKey'),
+          region: get('region'),
+          service: get('service'),
         },
       };
+      // Temporary (STS) credentials need X-Amz-Security-Token, which the
+      // Restura signer does not send: report it instead of dropping it, and
+      // the remainder (with the token) stays in the sidecar for export.
+      return opt('sessionToken') !== undefined || get('addAuthDataToQuery') === 'true'
+        ? { status: 'approximated', auth, construct: 'awsv4-options' }
+        : { status: 'ok', auth };
+    }
     case 'ntlm':
       return {
         status: 'ok',

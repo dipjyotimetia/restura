@@ -34,7 +34,7 @@ restura workflow run ./my-workspace billing --env ./ci.env
 
 | Flag                | Default | Description                                                    |
 | ------------------- | ------- | -------------------------------------------------------------- |
-| `--env <file>`      |         | JSON or YAML env file holding a flat `{ "key": "value" }` object (string values only). Postman and Hoppscotch environment exports are not read; import those in the app. |
+| `--env <file>`      |         | JSON or YAML env file: a flat `{ "key": "value" }` object (string values only) or a Postman environment export. Hoppscotch environment exports are not read; import those in the app. |
 | `--timeout <ms>`    | `30000` | Workflow timeout cap.                                          |
 | `--allow-localhost` | `false` | Permit `localhost` / `127.0.0.1` targets (SSRF guard).         |
 | `--allow-mutations` | `false` | Permit saved GraphQL mutation calls.                           |
@@ -123,7 +123,11 @@ restura run [collection] [options]
 
 | Flag                        | Default       | Description                                                                                                                       |
 | --------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `--env <file>`              |               | JSON or YAML env file holding a flat `{ "key": "value" }` object (string values only). `${VAR}` placeholders are expanded from `process.env`. Postman and Hoppscotch environment exports are not read; import those in the app. |
+| `-e, --env <file>`          |               | JSON or YAML env file: a flat `{ "key": "value" }` object (string values only) or a Postman environment export (`*.postman_environment.json`; disabled rows skipped). `${VAR}` placeholders are expanded from `process.env`. Hoppscotch environment exports are not read; import those in the app. |
+| `-g, --globals <file>`      |               | Postman globals export (or a flat key/value file). Lowest precedence: below `--env`.                                              |
+| `--env-var <kv...>`         |               | Set variables, Newman style: `--env-var token=abc base=https://x`. Wins over `--env` and collection / folder variables.           |
+| `-n, --iteration-count <n>` |               | Number of iterations. Without `--data`, runs the collection `n` times; with `--data`, the last row repeats past the end.          |
+| `--delay-request <ms>`      |               | Pause between requests.                                                                                                           |
 | `--reporter <list>`         | _auto_        | Comma-separated: `tui`, `live`, `json`, `junit`, `html`, `stats`. Defaults to `tui` in a terminal, `live` otherwise (piped / CI). |
 | `--output <file>`           |               | Shorthand for single file reporter.                                                                                               |
 | `--reporter-output <kv...>` |               | Per-reporter output: `--reporter-output junit=results.xml html=report.html`.                                                      |
@@ -194,16 +198,21 @@ testScript: |
 
 When a test script runs and defines any `pm.test(...)` assertion, those drive pass/fail. Otherwise pass/fail falls back to the transport outcome (HTTP 2xx, gRPC OK, etc.).
 
-Variables set inside a script (`pm.environment.set('K', 'v')`) propagate to subsequent requests in the same run.
+Variables set inside a script (`pm.environment.set('K', 'v')`) propagate to subsequent requests in the same run, including later iterations (a token fetched in iteration 1 is still set in iteration 2). A pre-request `pm.execution.skipRequest()` sends nothing and skips the test script; the request counts as passed and as `skipped` in the summary.
+
+Collection, folder and request scripts of one phase run in order, each in its own block scope, so the same `const` / `let` at two levels is not a redeclaration error (`var` and function declarations are still shared, as before).
 
 ## Variables
 
-Four layered sources, in order of precedence (later wins), the same order the app's collection runner uses:
+Layered sources, in order of precedence (later wins), the same order the app's collection runner uses:
 
-1. `--env` file
+1. `--globals` file, then the `--env` file
 2. Collection variables (declared in `opencollection.yml` or `_collection.yaml`, or the Postman collection's variables)
 3. Folder variables of the folders above the request, outer → inner (inner wins). Secret, private and handle-backed folder variables are not resolved by the CLI.
-4. Iteration row (when `--data` is set)
+4. `--env-var` values
+5. Values a script set in an earlier iteration
+6. Iteration row (when `--data` is set)
+7. Values a script set earlier in this iteration
 
 Substitutions are `{{NAME}}`. Unknown vars are left in place so the upstream sees them and you notice the gap.
 
@@ -282,7 +291,7 @@ OPENAI_API_KEY=... restura agent eval ./checkout.agent-suite.json --output agent
 | --------------------------- | ------- | -------------------------------------------------------------------------------------------------------- |
 | `--output <file>`           |         | Write the full JSON trace report.                                                                        |
 | `--runtime <file>`          |         | Runtime manifest binding selected saved HTTP requests and MCP servers as tools.                          |
-| `--env <file>`              |         | JSON or YAML env file used by saved requests: a flat `{ "key": "value" }` object (string values only). Postman and Hoppscotch environment exports are not read. |
+| `--env <file>`              |         | JSON or YAML env file used by saved requests: a flat `{ "key": "value" }` object (string values only) or a Postman environment export. Hoppscotch environment exports are not read. |
 | `--timeout <ms>`            | `30000` | Per saved-HTTP-request timeout.                                                                          |
 | `--allow-localhost`         | `false` | Permit localhost saved-request targets.                                                                  |
 | `--telemetry-config <file>` |         | Metadata-only Langfuse or OTLP export; credentials must be environment references; the collector hostname is resolved once and every address validated (private, link-local, metadata and loopback-via-hostname results are refused with exit 2 before the run), and OTLP connects only to that validated address (Langfuse gets the DNS validation but no connect pin). See [Agent telemetry](https://github.com/dipjyotimetia/restura/blob/main/docs/AGENT_TELEMETRY.md). |
