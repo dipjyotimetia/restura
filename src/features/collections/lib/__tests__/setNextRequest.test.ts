@@ -18,6 +18,10 @@ interface FakeBehavior {
   nextRequest?: string | null | undefined;
   /** Sentinel surfaced via onScriptResult.preRequest.execution.skipRequested. */
   skipRequested?: boolean;
+  /** setNextRequest issued from the skipped pre-request script. */
+  skipNext?: string | null;
+  /** A pre-request script error. */
+  preError?: string;
 }
 
 const ran: string[] = [];
@@ -44,10 +48,13 @@ const runRequestMock = vi.fn(async (req: HttpRequest, ctx: any) => {
       preRequest: {
         success: true,
         logs: [],
-        errors: [],
+        errors: b.preError ? [b.preError] : [],
         variables: {},
         tests: [],
-        execution: { skipRequested: true },
+        execution: {
+          skipRequested: true,
+          ...(b.skipNext !== undefined ? { nextRequest: b.skipNext } : {}),
+        },
       },
     });
   }
@@ -245,13 +252,27 @@ describe('runCollection — pm.execution.setNextRequest', () => {
   );
 });
 
-// Host wiring the sequencer table test cannot see. Each pins today's app
-// behaviour; the CLI's differing behaviour is pinned in its flowControl.test.ts.
+// Host wiring the sequencer table test cannot see. The CLI twin is in its
+// flowControl.test.ts.
 describe('runCollection — app sequencing pins', () => {
-  it('stopOnFailure does not stop on an unknown target; the next row still runs', async () => {
+  it('stopOnFailure stops the run on an unknown target (outcome failed)', async () => {
     behaviors.set('A', { nextRequest: 'Nope' });
     const result = await runCollection(
       { ...baseOptions([runnable('1', 'A')]), stopOnFailure: true, dataRows: [{}, {}] },
+      noop,
+      new AbortController().signal
+    );
+    expect(result.requests.map((r) => [r.iteration, r.status])).toEqual([
+      [0, 'success'],
+      [0, 'failed'],
+    ]);
+    expect(result.outcome).toBe('failed');
+  });
+
+  it('without stopOnFailure an unknown target fails the row and the next row still runs', async () => {
+    behaviors.set('A', { nextRequest: 'Nope' });
+    const result = await runCollection(
+      { ...baseOptions([runnable('1', 'A')]), dataRows: [{}, {}] },
       noop,
       new AbortController().signal
     );
@@ -264,7 +285,7 @@ describe('runCollection — app sequencing pins', () => {
     expect(result.outcome).toBe('completed');
   });
 
-  it('stopOnFailure does not stop on a blocked runnable', async () => {
+  it('stopOnFailure stops the run at a blocked runnable and reports it as a failure', async () => {
     const result = await runCollection(
       {
         ...baseOptions([{ ...runnable('1', 'Blocked'), blocked: 'not sent' }, runnable('2', 'B')]),
@@ -273,21 +294,91 @@ describe('runCollection — app sequencing pins', () => {
       noop,
       new AbortController().signal
     );
-    expect(result.requests.map((r) => r.status)).toEqual(['skipped', 'success']);
-    expect(ran).toEqual(['B']);
+    expect(result.requests.map((r) => r.status)).toEqual(['failed']);
+    expect(result.requests[0]?.error).toBe('not sent');
+    // Run lists read summary.failed, so a stopped run must not look successful.
+    expect(result.summary.failed).toBe(1);
+    expect(ran).toEqual([]);
+    expect(result.outcome).toBe('failed');
   });
 
-  // Pinned parity gap: the CLI honours pm.execution.skipRequest(); the app's
-  // Collection run ignores the sentinel, so the request counts as sent.
-  it('ignores pm.execution.skipRequest()', async () => {
-    behaviors.set('A', { skipRequested: true });
+  it('without stopOnFailure a blocked runnable is skipped and the run continues', async () => {
     const result = await runCollection(
-      baseOptions([runnable('1', 'A')]),
+      baseOptions([{ ...runnable('1', 'Blocked'), blocked: 'not sent' }, runnable('2', 'B')]),
       noop,
       new AbortController().signal
     );
-    expect(ran).toEqual(['A']);
-    expect(result.requests[0]?.status).toBe('success');
+    expect(result.requests.map((r) => r.status)).toEqual(['skipped', 'success']);
+    expect(ran).toEqual(['B']);
+    expect(result.outcome).toBe('completed');
+  });
+
+  it('honours pm.execution.skipRequest(): recorded as skipped, not counted as sent', async () => {
+    behaviors.set('A', { skipRequested: true });
+    const events: unknown[] = [];
+    const result = await runCollection(
+      baseOptions([runnable('1', 'A'), runnable('2', 'B')]),
+      noop,
+      new AbortController().signal,
+      (info) => events.push(info)
+    );
+    expect(result.requests.map((r) => [r.itemName, r.status])).toEqual([
+      ['A', 'skipped'],
+      ['B', 'success'],
+    ]);
+    expect(result.requests[0]?.skippedReason).toMatch(/skipRequest/);
+    expect(result.requests[0]?.httpStatus).toBeUndefined();
+    expect(result.summary.skipped).toBe(1);
+  });
+
+  it('a skipped request does not wait delayMs', async () => {
+    behaviors.set('A', { skipRequested: true });
+    const started = Date.now();
+    await runCollection(
+      { ...baseOptions([runnable('1', 'A')]), delayMs: 2000 },
+      noop,
+      new AbortController().signal
+    );
+    expect(Date.now() - started).toBeLessThan(1500);
+  });
+
+  it('setNextRequest from a skipped request jumps by name', async () => {
+    behaviors.set('A', { skipRequested: true, skipNext: 'C' });
+    const result = await runCollection(
+      baseOptions([runnable('1', 'A'), runnable('2', 'B'), runnable('3', 'C')]),
+      noop,
+      new AbortController().signal
+    );
+    expect(result.requests.map((r) => [r.itemName, r.status])).toEqual([
+      ['A', 'skipped'],
+      ['C', 'success'],
+    ]);
+  });
+
+  it('an unknown setNextRequest target from a skipped request advances linearly, silently', async () => {
+    behaviors.set('A', { skipRequested: true, skipNext: 'Nope' });
+    const result = await runCollection(
+      { ...baseOptions([runnable('1', 'A'), runnable('2', 'B')]), stopOnFailure: true },
+      noop,
+      new AbortController().signal
+    );
+    expect(result.requests.map((r) => [r.itemName, r.status])).toEqual([
+      ['A', 'skipped'],
+      ['B', 'success'],
+    ]);
+    expect(result.outcome).toBe('completed');
+  });
+
+  it('a skipped request whose pre-request script errored fails and bails under stopOnFailure', async () => {
+    behaviors.set('A', { skipRequested: true, preError: 'boom' });
+    const result = await runCollection(
+      { ...baseOptions([runnable('1', 'A'), runnable('2', 'B')]), stopOnFailure: true },
+      noop,
+      new AbortController().signal
+    );
+    expect(result.requests.map((r) => r.status)).toEqual(['failed']);
+    expect(result.requests[0]?.error).toMatch(/boom/);
+    expect(result.outcome).toBe('failed');
   });
 
   it('waits delayMs after every sent request, including the last', async () => {

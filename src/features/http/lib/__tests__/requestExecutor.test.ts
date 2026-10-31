@@ -228,6 +228,50 @@ describe('executeRequest — cookie settings inheritance', () => {
   });
 });
 
+describe('executeRequest — honorSkipRequest', () => {
+  const settings = useSettingsStore.getState().settings;
+  const skipping = () =>
+    makeRequest({
+      preRequestScript: 'pm.execution.skipRequest(); pm.variables.set("k", "v");',
+      testScript: 'pm.test("never", () => {});',
+    });
+
+  beforeEach(() => {
+    executeProxiedRequestMock.mockReset();
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: '',
+      size: 0,
+    });
+  });
+
+  it('sends nothing and runs no test script when the run opts in', async () => {
+    const result = await executeRequest({
+      request: skipping(),
+      envVars: {},
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+      honorSkipRequest: true,
+    });
+    expect(executeProxiedRequestMock).not.toHaveBeenCalled();
+    expect(result.scriptResult?.test).toBeUndefined();
+    expect(result.scriptResult?.preRequest?.execution?.skipRequested).toBe(true);
+    expect(result.envVars?.k).toBe('v');
+  });
+
+  it('still sends by default (interactive Send)', async () => {
+    await executeRequest({
+      request: skipping(),
+      envVars: {},
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+    });
+    expect(executeProxiedRequestMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('executeRequest — body variables', () => {
   const settings = useSettingsStore.getState().settings;
   beforeEach(() => {

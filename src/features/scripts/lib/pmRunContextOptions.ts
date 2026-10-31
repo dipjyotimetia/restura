@@ -1,3 +1,4 @@
+import type { Response as ApiResponse } from '@/types';
 import type { PmExecutionLocation, PmRequestInfo } from './scriptExecutor';
 
 /**
@@ -13,6 +14,12 @@ export interface PmRunContextOptions {
   iterationData?: Record<string, string>;
   info?: Pick<PmRequestInfo, 'iteration' | 'iterationCount'>;
   location?: PmExecutionLocation;
+  /**
+   * The Collection run sets this where the protocol can stop before sending:
+   * a pre-request `pm.execution.skipRequest()` then sends nothing and runs no
+   * test script. Interactive Send leaves it unset.
+   */
+  honorSkipRequest?: boolean;
 }
 
 export function readPmRunContextOptions(
@@ -32,5 +39,25 @@ export function readPmRunContextOptions(
   if (raw.location && typeof raw.location === 'object') {
     out.location = raw.location as PmExecutionLocation;
   }
+  if (raw.honorSkipRequest === true) out.honorSkipRequest = true;
   return out;
+}
+
+/**
+ * Placeholder returned by a protocol that stopped before sending because of
+ * `skipRequest()`. The Collection run reads the sentinel from the script
+ * result and discards this response.
+ */
+export function skippedPlaceholderResponse(requestId: string): ApiResponse {
+  return {
+    id: `skipped-${requestId}`,
+    requestId,
+    status: 0,
+    statusText: 'Skipped',
+    headers: {},
+    body: '',
+    size: 0,
+    time: 0,
+    timestamp: Date.now(),
+  };
 }

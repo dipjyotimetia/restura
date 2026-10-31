@@ -73,7 +73,7 @@ export interface IterationHost<Item> {
   /** Before the step, and before a `before-step` delay. */
   onStart(item: Item): void | Promise<void>;
   step(item: Item): Promise<StepOutcome>;
-  /** A reported bad jump: `item` is the Request that asked for it. Never counts toward bail. */
+  /** A reported bad jump: `item` is the Request that asked for it. Under `stopOnFailure` the run bails right after. */
   onFlowError(item: Item, message: string): void;
   /** The iteration ran to its end. Not called when the run bails or aborts. */
   onEnd?(): void;
@@ -100,7 +100,7 @@ export interface SequencePlan<Item> {
 }
 
 export interface SequenceResult {
-  /** A failed step stopped the run under `stopOnFailure`. */
+  /** A failed step or a reported bad jump stopped the run under `stopOnFailure`. */
   bailed: boolean;
 }
 
@@ -171,6 +171,7 @@ export async function sequenceCollectionRun<Item>(
             item,
             `pm.execution.setNextRequest("${next}"): no runnable with that name`
           );
+          if (stopOnFailure) return { bailed: true };
           break;
         }
         index++;
@@ -182,6 +183,7 @@ export async function sequenceCollectionRun<Item>(
             item,
             `pm.execution.setNextRequest jump limit (${MAX_NEXT_REQUEST_JUMPS}) exceeded`
           );
+          if (stopOnFailure) return { bailed: true };
         }
         break;
       }

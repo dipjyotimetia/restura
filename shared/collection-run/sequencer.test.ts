@@ -117,15 +117,34 @@ describe('sequenceCollectionRun: order of steps', () => {
       ends: 2,
     },
     {
-      name: 'a reported bad jump does not count toward bail',
+      name: 'a reported bad jump under stopOnFailure reports it, then bails the whole run',
       input: {
         items: ['A', 'B'],
         rows: [{}, {}],
         stopOnFailure: true,
         script: { A: { next: 'Nope' } },
       },
+      steps: ['A@0'],
+      errors: [`error A@0: ${missing('Nope')}`],
+      bailed: true,
+      ends: 0,
+    },
+    {
+      name: 'a reported bad jump without stopOnFailure does not bail',
+      input: { items: ['A', 'B'], rows: [{}, {}], script: { A: { next: 'Nope' } } },
       steps: ['A@0', 'A@1'],
       errors: [`error A@0: ${missing('Nope')}`, `error A@1: ${missing('Nope')}`],
+      bailed: false,
+    },
+    {
+      name: 'an ignored bad jump under stopOnFailure stays silent and does not bail',
+      input: {
+        items: ['A', 'B'],
+        stopOnFailure: true,
+        script: { A: { ...SKIP, next: 'Nope', badJump: 'ignore' } },
+      },
+      steps: ['A@0', 'B@0'],
+      errors: [],
       bailed: false,
     },
     {
@@ -240,6 +259,27 @@ describe('sequenceCollectionRun: names inherited from Object.prototype', () => {
 });
 
 describe('sequenceCollectionRun: jump cap', () => {
+  it('under stopOnFailure the cap error bails the run', async () => {
+    const { trace, result } = await run({
+      items: ['A'],
+      rows: [{}, {}],
+      stopOnFailure: true,
+      script: { A: { next: 'A' } },
+    });
+    expect(stepsOf(trace)).toHaveLength(1 + MAX_NEXT_REQUEST_JUMPS);
+    expect(errorsOf(trace)).toEqual([`error A@0: ${CAP_ERROR}`]);
+    expect(result.bailed).toBe(true);
+  });
+
+  it('an ignored cap under stopOnFailure does not bail', async () => {
+    const { result } = await run({
+      items: ['A'],
+      stopOnFailure: true,
+      script: { A: { ...SKIP, next: 'A', badJump: 'ignore' } },
+    });
+    expect(result.bailed).toBe(false);
+  });
+
   it('a self-loop runs the first step plus the cap, then reports, per iteration', async () => {
     const { trace } = await run({ items: ['A', 'B'], script: { A: { next: 'A' } } });
     expect(stepsOf(trace)).toHaveLength(1 + MAX_NEXT_REQUEST_JUMPS);

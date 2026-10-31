@@ -97,6 +97,7 @@ export const httpProtocol: ProtocolModule = {
       // executeRequest's own `baseInfo` — no need to repeat that here.
       ...(opts.info ? { info: opts.info } : {}),
       ...(opts.location ? { location: opts.location } : {}),
+      ...(opts.honorSkipRequest ? { honorSkipRequest: true } : {}),
       // Mid-flight cancellation (runner abort, Cancel in the response panel).
       signal: ctx.signal,
     });

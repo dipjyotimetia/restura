@@ -169,7 +169,7 @@ describe('runCollection — setNextRequest during pm.execution.skipRequest', () 
 // Host wiring the sequencer table test cannot see. Each pins today's CLI
 // behaviour; the app's differing behaviour is pinned in setNextRequest.test.ts.
 describe('runCollection — CLI sequencing pins', () => {
-  it('--bail does not stop on an unknown setNextRequest target; the next row still runs', async () => {
+  it('--bail stops the run on an unknown setNextRequest target', async () => {
     const dir = makeCollection([
       { file: 'a.http.yaml', name: 'A', testScript: `pm.execution.setNextRequest('Nope');` },
     ]);
@@ -181,9 +181,37 @@ describe('runCollection — CLI sequencing pins', () => {
     expect(result.requests.map((r) => [r.iteration, r.passed])).toEqual([
       [0, true],
       [0, false],
+    ]);
+  });
+
+  it('without --bail an unknown setNextRequest target fails a row and the next row still runs', async () => {
+    const dir = makeCollection([
+      { file: 'a.http.yaml', name: 'A', testScript: `pm.execution.setNextRequest('Nope');` },
+    ]);
+    const result = await runCollection(
+      dir,
+      { ...RUN_OPTS, iterations: [{ row: '1' }, { row: '2' }] },
+      new NoopReporter()
+    );
+    expect(result.requests.map((r) => [r.iteration, r.passed])).toEqual([
+      [0, true],
+      [0, false],
       [1, true],
       [1, false],
     ]);
+  });
+
+  it('--bail stays silent on an unknown target from a skipped request', async () => {
+    const dir = makeCollection([
+      {
+        file: 'a.http.yaml',
+        name: 'A',
+        preRequestScript: `pm.execution.skipRequest();\npm.execution.setNextRequest('Nope');`,
+      },
+      { file: 'b.http.yaml', name: 'B' },
+    ]);
+    const result = await runCollection(dir, { ...RUN_OPTS, bail: true }, new NoopReporter());
+    expect(names(result)).toEqual(['A', 'B']);
   });
 
   it('--bail stops on a blocked request', async () => {
