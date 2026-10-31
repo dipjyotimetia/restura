@@ -1,0 +1,21 @@
+{
+  "opencollection": "1.0.0",
+  "info": {
+    "name": "Restura echo — GraphQL",
+    "version": "1.0.0"
+  },
+  "bundled": true,
+  "items": [
+    {
+      "info": {
+        "type": "graphql",
+        "name": "Echo query"
+      },
+      "graphql": {
+        "url": "https://echo.restura.dev/graphql",
+        "query": "query Echo($message: String!) {\n  echo(message: $message) {\n    message\n    operation\n    timestamp\n  }\n}",
+        "variables": "{\n  \"message\": \"hello\"\n}"
+      }
+    }
+  ]
+}

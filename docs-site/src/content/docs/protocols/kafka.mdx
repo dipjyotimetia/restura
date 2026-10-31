@@ -4,8 +4,11 @@ description: Produce and consume Kafka topics with SASL authentication, TLS, and
 ---
 
 import { Badge } from '@astrojs/starlight/components';
+import TryIt from '../../../components/TryIt.astro';
 
 <Badge text="desktop only" variant="caution" /> The browser sandbox doesn't allow raw TCP connections, so Kafka — which requires a long-lived TCP session — is available only in the [desktop app](/overview/install/).
+
+<TryIt protocol="kafka" />
 
 ## What works
 
@@ -46,27 +49,31 @@ import { Badge } from '@astrojs/starlight/components';
 
 **Producer** (produce tab)
 
-- **Modes** — **Single** record, **Batch** (a JSON array of typed records sent together), **Stream** (open a stream and keep sending) and **Transaction** (records sent atomically in a transaction).
-- **Acks** — pick `0`, `1` or `-1` (all). **Idempotent producer** turns on exactly-once-per-partition de-duplication and locks acks to `-1`; reconnect to apply it.
+- **Modes** — **Single** record, **Batch** (a JSON array of typed records sent together), **Stream** (open a stream, write batches to it, close it) and **Transaction**.
+- **Transactions** — set a **Transactional ID** (this also turns on the idempotent producer; reconnect to apply), then **Begin transaction**, **Send batch in transaction** as often as you like, and **Commit** or **Abort**.
+- **Acks** — pick `0`, `1` or `-1` (all in-sync replicas). **Idempotent producer** turns on exactly-once-per-partition de-duplication and locks acks to `-1`; reconnect to apply it.
 - **Compression** — per produce, as above.
+- **Tombstone** — in Single mode, send the record with a Kafka `null` value (compacted topics treat it as a delete marker).
 
 **Consumer** (consume tab)
 
 - **Commit** — automatic, or **Manual per message** (a commit button on each delivered record).
 - **Isolation** — read uncommitted or **Read committed**.
-- **Group protocol** — **Classic**, or **Consumer** (the KIP-848 protocol; needs a broker that supports it).
+- **Group protocol** — **Classic**, or **Consumer** (the KIP-848 protocol; needs a broker that supports it, and adds an optional **Remote assignor**).
+- **Missing commit fallback** — when starting from the committed offset: **Latest**, **Earliest** or **Fail**.
+- **Performance tuning** (collapsed) — static member ID, session / rebalance / heartbeat timeouts, auto-commit interval, fetch min / max bytes (total and per partition), max wait and stream high-water mark. Blank fields use the client library's defaults.
 - **Pause / resume and seek** — see [What works](#what-works). Lag and rebalance events are shown for consumer-group mode.
 
 **Admin** (desktop only, per connection)
 
-- **Topics** — create and delete topics, and the topic inspector's partition watermarks and broker config.
+- **Topics** — create (name, partitions, replication factor) and delete topics (confirm-gated), plus the topic inspector's partition watermarks and broker config.
 - **Advanced admin** (collapsed sections under the admin panel):
   - **Cluster metadata** — describe the cluster (brokers, controller, ID).
-  - **Advanced topic operations** — increase a topic's partition count and alter topic configs (both with a *Validate* dry run before *Apply*), and delete records before an offset on a partition.
+  - **Advanced topic operations** — increase a topic's partition count and alter a topic config (both with a *Validate* dry run before applying), and delete records before an offset on one partition.
   - **ACLs** — describe, create and delete ACLs from typed ACL/filter JSON.
-  - **Client quotas** — describe, validate and apply quotas for an entity.
+  - **Client quotas** — describe, validate and apply the producer byte-rate quota (`producer_byte_rate`) for a user entity.
 
-Admin actions run with the connection's own credentials, so the broker's ACLs decide what succeeds.
+Writes in the advanced sections need a typed confirmation phrase — `ALTER <topic>`, `DELETE RECORDS <topic>`, `CREATE ACL`, `DELETE ACLS` or `ALTER QUOTAS` — which the desktop main process checks again before calling the broker. Admin actions run with the connection's own credentials, so the broker's ACLs decide what succeeds.
 
 ## Schema Registry
 
@@ -110,6 +117,8 @@ Saved connections from before Browse mode existed keep **Consumer group** mode i
 ## Broker guard
 
 Every broker address and Schema Registry URL runs through a pre-flight [SSRF check](/architecture/security/) (`electron/main/security/kafka-broker-guard.ts`) before the connection opens, using the **Settings → Security** localhost / private-network policy. Cloud-metadata endpoints (`169.254.169.254` and friends, `metadata.google.internal`, …) and malformed addresses are always rejected, so a malicious or misconfigured `bootstrap.servers` can't aim traffic at your machine's metadata endpoint.
+
+With the default settings (**Allow localhost** on, **Allow private / internal IPs** off), a broker on `localhost` / `127.0.0.1` works, but a LAN, VPC or Docker-network broker — a private IP literal, or a hostname that resolves to one — is refused until you turn on **Allow private / internal IPs** in **Settings → Security**.
 
 Broker **hostnames** are then resolved and **every** A/AAAA answer of **every** bootstrap broker is checked against the same policy (`electron/main/security/broker-dns-guard.ts`): an answer in loopback space needs **Allow localhost**, an answer in private / link-local space (RFC 1918, CGNAT, …) needs **Allow private / internal IPs**, and cloud-metadata answers are always refused. A broker name that only resolves on a Docker or VPC network (for example `kafka:9092` in Docker Compose) therefore needs **Allow private / internal IPs** turned on. The Kafka client resolves the name again when it dials, so this narrows but does not close a DNS-rebind window. **Advertised brokers** that the cluster returns in its metadata (the addresses the client actually talks to after bootstrap) are not re-checked — the residual gap in [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/). Schema Registry connections additionally re-check every DNS answer per connection for cloud-metadata and (when localhost is disabled) loopback addresses (see above).
 

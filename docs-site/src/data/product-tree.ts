@@ -1,6 +1,6 @@
 /** Public editorial roadmap. Verify availability against capabilities.ts and source
  * before changing a status; planned/exploring entries carry no delivery dates. */
-export const reviewedOn = '2026-10-30';
+export const reviewedOn = '2026-10-31';
 export const statuses = {
   shipped: 'Shipped',
   'in-progress': 'In progress',
@@ -203,7 +203,7 @@ export const features: Feature[] = [
     'protocols',
     'mcp',
     'MCP client',
-    'Connect to MCP servers and inspect their tools, resources, and messages. The legacy HTTP+SSE transport and local stdio servers, started after a consent prompt, are desktop-only.',
+    'Connect to MCP servers and inspect their tools, resources, and messages. Web uses streamable HTTP only; the legacy HTTP+SSE transport, local stdio servers (started after a consent prompt), OAuth sign-in, server notifications, resource subscriptions, and elicitation/sampling are desktop-only.',
     'shipped',
     all,
     '/protocols/mcp/'
@@ -933,7 +933,7 @@ export const features: Feature[] = [
     'protocols',
     'code-generation',
     'Code generation',
-    'Turn a request into curl, JavaScript, Node.js, Python, Go, PHP, or Ruby, with generators for GraphQL, WebSocket, SSE, and MCP too.',
+    'Turn an HTTP request into curl, JavaScript, Node.js, Python, Go, PHP, or Ruby. Generators for GraphQL, WebSocket, SSE, and MCP exist but are not in the interface yet.',
     'shipped',
     all,
     '/protocols/http/'
@@ -1583,17 +1583,18 @@ export const features: Feature[] = [
     'docs-try-it',
     'Try it from the docs',
     'Open each protocol example from the docs straight into Restura against the public echo server.',
-    'exploring',
+    'in-progress',
     ['Web', 'Desktop', 'Self-hosted'],
     undefined,
     [],
     {
       today:
-        'The echo server serves HTTP, GraphQL, WebSocket, and SSE endpoints; docs examples are typed by hand.',
+        'Each protocol page offers a sample collection for the public echo server and an Open in Restura desktop link; the web app imports the downloaded file by hand.',
       milestones: [
         done('Public echo server'),
-        todo('Per-protocol sample collections'),
-        todo('Open-in-Restura links'),
+        done('Per-protocol sample collections'),
+        done('Open-in-Restura links on desktop'),
+        todo('One-click open in the web app'),
       ],
     }
   ),
@@ -1602,37 +1603,16 @@ export const features: Feature[] = [
     'docs-from-source',
     'Docs generated from source',
     'Build the docs capability summary and local port tables from the same source as the app.',
-    'exploring',
-    ['Web', 'Desktop', 'Self-hosted'],
-    undefined,
-    [],
-    {
-      today:
-        'The capability matrix is generated for the repository docs; the docs site keeps a hand-written summary.',
-      milestones: [
-        done('Generated capability matrix'),
-        todo('Docs-site summary from capabilities', 981),
-        todo('Port table from the local stack'),
-      ],
-    }
+    'shipped',
+    ['Web', 'Desktop', 'Self-hosted']
   ),
   entry(
     'platforms',
     'docs-link-checks',
     'Docs link and claim checks',
     'Fail the docs build on broken links and on claims that drift from the code.',
-    'exploring',
-    ['Web', 'Desktop', 'Self-hosted'],
-    undefined,
-    [],
-    {
-      today: 'The docs build and type check run in CI; links are not validated.',
-      milestones: [
-        todo('Link validator in the docs build'),
-        todo('Anchor checks'),
-        todo('Claim-to-source checks'),
-      ],
-    }
+    'shipped',
+    ['Web', 'Desktop', 'Self-hosted']
   ),
 ];
 
