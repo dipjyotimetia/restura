@@ -39,6 +39,9 @@ secret scanning, required reviewers, secrets).
 
 ## Supply-chain security layers
 
+Gaps, the hardening plan and the incident runbook live in
+[`SUPPLY_CHAIN_HARDENING.md`](./SUPPLY_CHAIN_HARDENING.md).
+
 | Layer                          | Where                                  | What it gives you                                                                    |
 | ------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------ |
 | **SAST**                       | CodeQL (default setup)                 | Code-scanning alerts on the app source.                                              |
