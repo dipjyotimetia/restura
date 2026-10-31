@@ -63,7 +63,7 @@ export function GrpcSchemaDriftBanner({ drift: state }: { drift: UseGrpcSchemaDr
             <li key={`${c.rule}:${c.path}`} className="flex gap-2">
               <span
                 className={cn(
-                  'shrink-0 uppercase',
+                  'shrink-0',
                   c.severity === 'breaking' ? 'text-destructive' : 'text-sp-muted'
                 )}
               >

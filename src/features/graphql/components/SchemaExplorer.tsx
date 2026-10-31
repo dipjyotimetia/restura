@@ -83,7 +83,7 @@ function KindBadge({ kind }: { kind: Kind }) {
   const color = KIND_COLOR[kind];
   return (
     <span
-      className="inline-flex items-center justify-center px-1.5 h-[16px] rounded-[4px] font-mono font-bold tracking-wider"
+      className="inline-flex items-center justify-center px-1.5 h-[16px] rounded-[4px] font-mono font-bold"
       style={{
         color,
         background: `color-mix(in srgb, ${color} 13%, transparent)`,

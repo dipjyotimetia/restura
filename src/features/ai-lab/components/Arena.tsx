@@ -346,7 +346,7 @@ export function Arena() {
                 )}
                 <table className="w-full text-sp-12">
                   <thead>
-                    <tr className="border-b border-sp-line text-left text-sp-11 uppercase tracking-wide text-sp-muted">
+                    <tr className="border-b border-sp-line text-left text-sp-11 text-sp-muted">
                       <th className="py-2 pr-3 font-medium">#</th>
                       <th className="py-2 pr-3 font-medium">Model</th>
                       <th className="py-2 pr-3 text-right font-medium">Elo</th>

@@ -24,7 +24,7 @@ export const buttonVariants = cva(
         glow: 'bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20',
         // Canonical primary action (Send / Invoke / Connect / Stream) — flat
         // solid accent, white label, the one saturated element. Pair size="cta".
-        cta: 'sp-cta text-white tracking-wide hover:brightness-110 disabled:opacity-50',
+        cta: 'sp-cta text-white hover:brightness-110 disabled:opacity-50',
       },
       size: {
         default: 'h-8 px-3 py-2 text-[13px] rounded-md [&_svg]:size-4',

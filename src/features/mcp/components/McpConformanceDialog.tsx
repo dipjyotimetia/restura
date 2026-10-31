@@ -120,9 +120,7 @@ function ReportView({ report }: { report: McpConformanceReport }) {
         <ul className="flex flex-col gap-1 max-h-60 overflow-auto" aria-label="Findings">
           {report.findings.map((f, i) => (
             <li key={`${f.era}-${f.code}-${f.subject ?? ''}-${i}`} className="font-mono">
-              <span className={cn('uppercase mr-1.5', SEVERITY_STYLE[f.severity])}>
-                {f.severity}
-              </span>
+              <span className={cn(' mr-1.5', SEVERITY_STYLE[f.severity])}>{f.severity}</span>
               <span className="text-sp-dim mr-1.5">[{f.era}]</span>
               {f.subject && <span className="mr-1.5">{f.subject}:</span>}
               {f.message}

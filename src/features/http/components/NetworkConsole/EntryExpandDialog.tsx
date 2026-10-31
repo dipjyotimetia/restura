@@ -90,9 +90,7 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-border">
             {/* Request column */}
             <div className="bg-background p-5 space-y-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Request
-              </h3>
+              <h3 className="text-xs font-semibold text-muted-foreground">Request</h3>
               <HeaderBlock
                 title="Headers"
                 headers={entry.request.headers as Record<string, string | string[]>}
@@ -117,13 +115,11 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
 
             {/* Response column */}
             <div className="bg-background p-5 space-y-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Response
-              </h3>
+              <h3 className="text-xs font-semibold text-muted-foreground">Response</h3>
               <HeaderBlock title="Headers" headers={entry.response.headers} />
               {resCookies.length > 0 && (
                 <div className="space-y-1.5">
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                  <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
                     <CookieIcon className="h-3 w-3" />
                     Set-Cookie
                     <Badge variant="secondary" className="ml-1 text-sp-11">
@@ -203,7 +199,7 @@ function HeaderBlock({
   const entries = Object.entries(headers);
   return (
     <div className="space-y-1.5">
-      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+      <h4 className="text-xs font-semibold text-muted-foreground">
         {title}
         <Badge variant="secondary" className="ml-2 text-sp-11">
           {entries.length}
@@ -236,7 +232,7 @@ function CookieList({
 }) {
   return (
     <div className="space-y-1.5">
-      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+      <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
         <CookieIcon className="h-3 w-3" />
         {title}
         <Badge variant="secondary" className="ml-1 text-sp-11">
@@ -268,9 +264,7 @@ function BodyBlock({
 }) {
   return (
     <div className="space-y-1.5">
-      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-        {label}
-      </h4>
+      <h4 className="text-xs font-semibold text-muted-foreground">{label}</h4>
       <div className="rounded-lg overflow-hidden border border-border">
         <CodeEditor
           value={value.substring(0, 100_000)}

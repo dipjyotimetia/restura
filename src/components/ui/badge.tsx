@@ -10,26 +10,26 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: 'border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/80',
+        default: 'border-transparent bg-primary text-primary-foreground hover:bg-primary/85',
         secondary:
           'border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80',
         destructive:
-          'border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive/80',
+          'border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/85',
         outline: 'text-foreground',
-        success: 'border-transparent bg-green-600 text-white shadow hover:bg-green-700',
-        warning: 'border-transparent bg-amber-500 text-white shadow hover:bg-amber-600',
-        info: 'border-transparent bg-blue-500 text-white shadow hover:bg-blue-600',
-        get: 'border-transparent bg-emerald-500/15 text-emerald-400 font-mono text-[10px] font-bold tracking-wider uppercase',
-        post: 'border-transparent bg-amber-500/15 text-amber-400 font-mono text-[10px] font-bold tracking-wider uppercase',
-        put: 'border-transparent bg-blue-500/15 text-blue-400 font-mono text-[10px] font-bold tracking-wider uppercase',
+        success: 'border-transparent bg-success text-white hover:bg-success/85',
+        warning: 'border-transparent bg-warning text-white hover:bg-warning/85',
+        info: 'border-transparent bg-info text-white hover:bg-info/85',
+        get: 'border-transparent bg-method-get/15 text-method-get font-mono text-[10px] font-bold uppercase',
+        post: 'border-transparent bg-method-post/15 text-method-post font-mono text-[10px] font-bold uppercase',
+        put: 'border-transparent bg-method-put/15 text-method-put font-mono text-[10px] font-bold uppercase',
         delete:
-          'border-transparent bg-red-500/15 text-red-400 font-mono text-[10px] font-bold tracking-wider uppercase',
+          'border-transparent bg-method-delete/15 text-method-delete font-mono text-[10px] font-bold uppercase',
         patch:
-          'border-transparent bg-violet-500/15 text-violet-400 font-mono text-[10px] font-bold tracking-wider uppercase',
+          'border-transparent bg-method-patch/15 text-method-patch font-mono text-[10px] font-bold uppercase',
         options:
-          'border-transparent bg-muted text-muted-foreground font-mono text-[10px] font-bold tracking-wider uppercase',
-        head: 'border-transparent bg-muted text-muted-foreground font-mono text-[10px] font-bold tracking-wider uppercase',
-        mono: 'border border-sp-line bg-sp-surface-hi text-foreground font-mono text-[10px] tracking-wider',
+          'border-transparent bg-muted text-muted-foreground font-mono text-[10px] font-bold uppercase',
+        head: 'border-transparent bg-muted text-muted-foreground font-mono text-[10px] font-bold uppercase',
+        mono: 'border border-sp-line bg-sp-surface-hi text-foreground font-mono text-[10px]',
       },
     },
     defaultVariants: {

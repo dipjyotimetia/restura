@@ -113,9 +113,7 @@ export function GrpcUrlBar({
 
       {streamControl && (
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-sp-line bg-sp-surface-hi">
-          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest shrink-0">
-            Stream
-          </span>
+          <span className="text-[10px] font-mono text-muted-foreground shrink-0">Stream</span>
           <GrpcStreamingControls
             streamControl={streamControl}
             methodType={methodType}

@@ -21,7 +21,7 @@ export function CapabilityBadge({ feature, className }: Props): ReactElement | n
   const title = row.notes ? `${row.label} — ${row.notes}` : row.label;
   return (
     <span
-      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground ring-1 ring-inset ring-border ${className ?? ''}`}
+      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-inset ring-border ${className ?? ''}`}
       title={title}
       aria-label={`Feature unavailable: ${other}`}
     >

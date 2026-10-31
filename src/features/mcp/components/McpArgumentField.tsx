@@ -36,7 +36,7 @@ export function McpArgumentField({
         <span className="font-mono text-sp-11 text-sp-dim">{field.type}</span>
         {field.required && (
           <span
-            className="inline-flex items-center px-1.5 h-4 rounded-[5px] font-mono font-bold text-sp-9 tracking-wider"
+            className="inline-flex items-center px-1.5 h-4 rounded-[5px] font-mono font-bold text-sp-9"
             style={{
               color: 'var(--color-danger)',
               background: 'color-mix(in srgb, var(--color-danger) 14%, transparent)',

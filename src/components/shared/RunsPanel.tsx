@@ -26,7 +26,7 @@ function SectionHeader({
 }) {
   return (
     <div className="flex items-center justify-between mb-2">
-      <div className="flex items-center gap-1.5 text-[11px] font-mono font-semibold uppercase tracking-wider text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-[11px] font-mono font-semibold text-muted-foreground">
         {icon}
         {title}
       </div>

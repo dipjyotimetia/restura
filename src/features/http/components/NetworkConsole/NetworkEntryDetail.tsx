@@ -246,9 +246,7 @@ export default function NetworkEntryDetail({
           <div className="px-4 pt-2 pb-4 space-y-3">
             {/* General info */}
             <div className="space-y-1.5">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                General
-              </h4>
+              <h4 className="text-xs font-semibold text-muted-foreground">General</h4>
               <div className="bg-muted/50 rounded-lg p-3 space-y-2 text-xs">
                 <div className="flex justify-between items-center group">
                   <span className="text-muted-foreground">URL</span>
@@ -273,7 +271,7 @@ export default function NetworkEntryDetail({
             {/* Request headers */}
             <div className="space-y-2">
               <div className="flex items-center justify-between group">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                <h4 className="text-xs font-semibold text-muted-foreground">
                   Request Headers
                   <Badge variant="secondary" className="ml-2 text-sp-11">
                     {Object.keys(entry.request.headers).length}
@@ -300,7 +298,7 @@ export default function NetworkEntryDetail({
             {/* Cookies sent — parsed from the Cookie request header. */}
             {requestCookies.length > 0 && (
               <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
                   <CookieIcon className="h-3 w-3" />
                   Cookies
                   <Badge variant="secondary" className="ml-1 text-sp-11">
@@ -321,9 +319,7 @@ export default function NetworkEntryDetail({
             {/* Request body */}
             {entry.request.body && (
               <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Request Body
-                </h4>
+                <h4 className="text-xs font-semibold text-muted-foreground">Request Body</h4>
                 <div className="rounded-lg overflow-hidden border border-border">
                   <CodeEditor
                     value={entry.request.body}
@@ -350,7 +346,7 @@ export default function NetworkEntryDetail({
 
             {/* Timing breakdown */}
             <div className="space-y-1.5">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+              <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 Timing
               </h4>
@@ -399,7 +395,7 @@ export default function NetworkEntryDetail({
             {/* Response headers */}
             <div className="space-y-2">
               <div className="flex items-center justify-between group">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                <h4 className="text-xs font-semibold text-muted-foreground">
                   Response Headers
                   <Badge variant="secondary" className="ml-2 text-sp-11">
                     {Object.keys(entry.response.headers).length}
@@ -431,7 +427,7 @@ export default function NetworkEntryDetail({
             {/* Cookies set — parsed from response Set-Cookie. */}
             {responseCookies.length > 0 && (
               <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                <h4 className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
                   <CookieIcon className="h-3 w-3" />
                   Set-Cookie
                   <Badge variant="secondary" className="ml-1 text-sp-11">
@@ -489,9 +485,7 @@ export default function NetworkEntryDetail({
             {/* Response body preview */}
             {entry.response.body && (
               <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Response Body
-                </h4>
+                <h4 className="text-xs font-semibold text-muted-foreground">Response Body</h4>
                 <div className="rounded-lg overflow-hidden border border-border">
                   <CodeEditor
                     value={entry.response.body.substring(0, 10000)}

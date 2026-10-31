@@ -3,7 +3,7 @@ import { cn } from '@/lib/shared/utils';
 import type { McpToolDescriptor } from '@/types';
 
 const HINT_BADGE_CLASS =
-  'inline-flex items-center px-1.5 h-4 rounded-[5px] font-mono font-bold text-sp-11 tracking-wider';
+  'inline-flex items-center px-1.5 h-4 rounded-[5px] font-mono font-bold text-sp-11';
 
 /**
  * Behaviour hints from the server. Untrusted: they describe what the server

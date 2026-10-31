@@ -47,7 +47,7 @@ export function ProtoChip({ protocol, className, style, ref, ...props }: ProtoCh
     <span
       ref={ref}
       className={cn(
-        'inline-flex items-center h-5 px-1.5 font-mono font-bold uppercase tracking-wide text-sp-9 rounded-sp-chip',
+        'inline-flex items-center h-5 px-1.5 font-mono font-bold uppercase text-sp-9 rounded-sp-chip',
         className
       )}
       style={{

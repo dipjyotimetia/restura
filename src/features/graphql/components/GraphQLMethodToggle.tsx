@@ -26,7 +26,7 @@ export function GraphQLMethodToggle({
   onChange,
 }: GraphQLMethodToggleProps) {
   const base =
-    'flex items-center justify-center px-2 h-7 w-20 font-mono text-sp-11 font-bold tracking-wider rounded shrink-0 border';
+    'flex items-center justify-center px-2 h-7 w-20 font-mono text-sp-11 font-bold rounded shrink-0 border';
   if (isSubscription) {
     return (
       <div
