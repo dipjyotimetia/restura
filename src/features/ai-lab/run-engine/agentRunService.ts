@@ -1,8 +1,8 @@
 import {
-  projectTraceForTelemetry,
   type AgentBundle,
   type AgentSuite,
   type AgentSuiteReport,
+  projectTraceForTelemetry,
 } from '@shared/agent-lab';
 import { create } from 'zustand';
 import { runDesktopAgentBundle, runDesktopAgentSuite } from '../lib/agentRuntime';
@@ -14,7 +14,11 @@ import {
   resetAiLabReportRepositoryForTests,
   setAiLabReportRepositoryForTests,
 } from './reportRepository';
-import { sanitizeAgentSuiteReportForPersistence } from './reportSanitizer';
+import {
+  AgentReportTooLargeError,
+  sanitizeAgentSuiteReportForExport,
+  sanitizeAgentSuiteReportForPersistence,
+} from './reportSanitizer';
 import { isRunCancelledWithResult, RunEngine } from './runEngine';
 
 type AgentEnvelope = Extract<AiLabReportEnvelope, { kind: 'agent-suite' }>;
@@ -85,6 +89,7 @@ export function startAgentRun(
     (live.completedReport !== null && live.completedReport.id !== live.persistedReportId)
   )
     return false;
+  const sendUnredactedToCloud = useAiLabStore.getState().agentUnredactedSuites?.[suite.id] === true;
   const started = engine.start(
     'agent-suite',
     (context) =>
@@ -97,6 +102,7 @@ export function startAgentRun(
                 useAgentRunLiveStore.setState({ progress });
             },
             ...(requestApproval ? { requestApproval } : {}),
+            ...(sendUnredactedToCloud ? { sendUnredactedToCloud } : {}),
           }).then((result) => result.report)
         : runDesktopAgentSuite(suite, providers, {
             signal: context.signal,
@@ -106,6 +112,7 @@ export function startAgentRun(
                 useAgentRunLiveStore.setState({ progress });
             },
             ...(requestApproval ? { requestApproval } : {}),
+            ...(sendUnredactedToCloud ? { sendUnredactedToCloud } : {}),
           }),
     {
       classifyResult: (report) => report.status,
@@ -131,6 +138,19 @@ export function cancelAgentRun(): boolean {
   const cancelled = engine.cancel(jobId);
   if (cancelled) useAgentRunLiveStore.setState({ status: 'CANCELLING…' });
   return cancelled;
+}
+
+/**
+ * Discard a completed report that could not be saved so it stops blocking new
+ * runs. The report is gone afterwards, so export it first if it matters.
+ */
+export function dismissAgentReport(): void {
+  if (useAgentRunLiveStore.getState().running) return;
+  useAgentRunLiveStore.setState({
+    completedReport: null,
+    persistenceError: null,
+    navigationReportId: null,
+  });
 }
 
 export async function retryAgentReportPersistence(): Promise<boolean> {
@@ -179,13 +199,22 @@ async function completeAgentRun(
   navigate: boolean
 ): Promise<void> {
   const snapshot = engine.get(jobId);
-  const sanitized = sanitizeAgentSuiteReportForPersistence(
-    createAgentSuiteReportEnvelope(suite, report, {
-      id: jobId,
-      startedAt: snapshot?.startedAt ?? Date.now(),
-      finishedAt: snapshot?.finishedAt ?? Date.now(),
-    }) as AgentEnvelope
-  );
+  const envelope = createAgentSuiteReportEnvelope(suite, report, {
+    id: jobId,
+    startedAt: snapshot?.startedAt ?? Date.now(),
+    finishedAt: snapshot?.finishedAt ?? Date.now(),
+  }) as AgentEnvelope;
+  let sanitized: AgentEnvelope;
+  let tooLarge = false;
+  try {
+    sanitized = sanitizeAgentSuiteReportForPersistence(envelope);
+  } catch (cause) {
+    if (!(cause instanceof AgentReportTooLargeError)) throw cause;
+    // Don't drop the result: keep the redacted report live so it can be viewed
+    // and exported, even though it can never be stored.
+    sanitized = sanitizeAgentSuiteReportForExport(envelope);
+    tooLarge = true;
+  }
   // The sanitized envelope owns everything needed below; release the raw
   // runner result/controller before an IndexedDB write can stall or fail.
   engine.release(jobId);
@@ -196,6 +225,13 @@ async function completeAgentRun(
   void queueTelemetry(report).catch(() => {
     useAgentRunLiveStore.setState({ telemetryStatus: 'Telemetry export failed locally.' });
   });
+  if (tooLarge) {
+    useAgentRunLiveStore.setState({
+      persistenceError:
+        'Report is too large to save (over the 2 MiB limit). Export it, then dismiss it to start another run.',
+    });
+    return;
+  }
   const persisted = await persistReport(sanitized);
   if (navigate && persisted && owner !== null && mountedOwners.has(owner)) {
     useAgentRunLiveStore.setState({ navigationReportId: sanitized.id });

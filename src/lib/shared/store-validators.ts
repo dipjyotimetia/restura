@@ -515,6 +515,8 @@ const EvalConfigSchema = z.object({
       })
     )
     .optional(),
+  sendUnredactedToCloud: z.boolean().optional(),
+  passThreshold: z.number().min(0).max(1).optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -530,6 +532,7 @@ export const AiLabStateSchema = z.object({
   runReports: z.record(z.string(), AiLabReportEnvelopeSchema).default({}),
   reportQuarantineCount: z.number().int().nonnegative().default(0),
   agentTelemetry: AgentTelemetryConfigSchema.optional(),
+  agentUnredactedSuites: z.record(z.string(), z.boolean()).optional(),
 });
 
 export type PersistedAiLabState = z.infer<typeof AiLabStateSchema>;
@@ -586,6 +589,8 @@ const EvalRunSchema = z.object({
   startedAt: z.number(),
   finishedAt: z.number().optional(),
   status: z.enum(['running', 'done', 'cancelled', 'error']),
+  interrupted: z.boolean().optional(),
+  passThreshold: z.number().min(0).max(1).optional(),
   cells: z.array(EvalCellResultSchema),
   totalCells: z.number(),
 });
@@ -599,7 +604,8 @@ export type PersistedEvalRunState = z.infer<typeof EvalRunStateSchema>;
 const ArenaMatchSchema = z.object({
   a: z.string(),
   b: z.string(),
-  winner: z.enum(['a', 'b', 'tie']),
+  winner: z.enum(['a', 'b', 'tie', 'error']),
+  error: z.string().optional(),
 });
 
 const ArenaRunSchema = z.object({
@@ -611,7 +617,8 @@ const ArenaRunSchema = z.object({
   matches: z.array(ArenaMatchSchema),
   startedAt: z.number(),
   finishedAt: z.number().optional(),
-  status: z.enum(['running', 'done', 'cancelled', 'error']),
+  status: z.enum(['running', 'done', 'cancelled', 'error', 'partial']),
+  interrupted: z.boolean().optional(),
 });
 
 export const ArenaStateSchema = z.object({

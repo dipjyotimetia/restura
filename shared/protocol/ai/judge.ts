@@ -193,9 +193,12 @@ export function buildJudgeMessages(args: {
     })
     .join('\n');
 
-  const anchorsBlock = args.anchors?.length
+  // The editor lets a blank anchor sit in the draft; an example with no output
+  // teaches the judge nothing, so it never reaches the model.
+  const anchors = args.anchors?.filter((a) => a.output.trim() !== '');
+  const anchorsBlock = anchors?.length
     ? `\n\nCalibration examples (for scale reference only):\n` +
-      args.anchors
+      anchors
         .map((a) => `- score ${a.score}: ${a.output}${a.note ? ` — ${a.note}` : ''}`)
         .join('\n')
     : '';

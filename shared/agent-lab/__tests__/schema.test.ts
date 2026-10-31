@@ -166,6 +166,34 @@ describe('AgentSuiteSchema', () => {
     expect(migrated.grounding).toEqual({ sourceIds: [], maxBytes: 16_384 });
   });
 
+  it('drops the legacy sendUnredactedToCloud flag from portable metadata (#1028)', () => {
+    const base = {
+      schemaVersion: 3,
+      id: 'imported',
+      name: 'Imported',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'primary',
+          model: { providerId: 'fake', model: 'model' },
+          instructions: 'Run.',
+          tools: [],
+          limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        },
+      ],
+      tasks: [{ id: 'case', input: [{ type: 'text', text: 'hello' }] }],
+      graders: [],
+      trials: 1,
+    };
+    expect(
+      migrateAgentSuite({ ...base, metadata: { owner: 'me', sendUnredactedToCloud: true } })
+        .metadata
+    ).toEqual({ owner: 'me' });
+    expect(
+      'metadata' in migrateAgentSuite({ ...base, metadata: { sendUnredactedToCloud: true } })
+    ).toBe(false);
+  });
+
   it('rejects duplicate grounding source ids', () => {
     const result = AgentSuiteSchema.safeParse({
       schemaVersion: 3,

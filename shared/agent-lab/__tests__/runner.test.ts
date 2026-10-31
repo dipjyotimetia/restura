@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GenerationRequest, GenerationResponse, ProviderAdapter } from '../provider';
 import { ProviderRegistry } from '../provider';
-import { AgentRunner, type AgentTool } from '../runner';
+import { AgentRunner, type AgentTool, truncateToolOutputForModel } from '../runner';
 import type { AgentSuite } from '../types';
 
 const capabilities = {
@@ -794,5 +794,81 @@ describe('AgentRunner', () => {
     expect(executed).toBe(false);
     expect(result.error).toContain('invalid arguments for tool typed');
     expect(result.trace.events.map((event) => event.type)).toContain('tool.failed');
+  });
+});
+
+describe('AgentRunner per-call maxOutputTokens clamp (#1021)', () => {
+  async function firstCallMaxOutput(maxTokens: number | undefined, modelCap?: number) {
+    const configured = suite();
+    if (maxTokens !== undefined) configured.agents[0]!.limits.maxTokens = maxTokens;
+    const requests: GenerationRequest[] = [];
+    const adapter = fakeAdapter([
+      { id: 'r', output: [{ type: 'text', text: 'done' }], toolCalls: [] },
+    ]);
+    const generate = adapter.generate.bind(adapter);
+    adapter.generate = async (request, context) => {
+      requests.push(request);
+      return generate(request, context);
+    };
+    if (modelCap !== undefined) {
+      adapter.getCapabilities = async () => ({ ...capabilities, maxOutputTokens: modelCap });
+    }
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([adapter]),
+      async resolveCredential() {
+        return undefined;
+      },
+      async resolveTools() {
+        return [lookupTool];
+      },
+    });
+    await runner.run({ suite: configured, taskId: 'task', agentId: 'agent', trial: 1 });
+    return requests[0]?.maxOutputTokens;
+  }
+
+  it('caps a run budget above the IPC limit at 32768', async () => {
+    expect(await firstCallMaxOutput(100_000)).toBe(32_768);
+  });
+
+  it('caps at the known model output limit', async () => {
+    expect(await firstCallMaxOutput(100_000, 4_096)).toBe(4_096);
+  });
+
+  it('uses the remaining budget when it is the smallest', async () => {
+    expect(await firstCallMaxOutput(1_000, 4_096)).toBe(1_000);
+  });
+
+  it('leaves the provider default when there is no run budget', async () => {
+    expect(await firstCallMaxOutput(undefined, 4_096)).toBeUndefined();
+  });
+});
+
+describe('truncateToolOutputForModel', () => {
+  it('keeps image and document blocks when truncating text', () => {
+    const image = { type: 'image' as const, mimeType: 'image/png', data: 'AAAA' };
+    const doc = { type: 'document' as const, mimeType: 'application/pdf', uri: 'file:///a.pdf' };
+    const out = truncateToolOutputForModel(
+      [{ type: 'text', text: 'x'.repeat(50) }, image, doc],
+      10
+    );
+    expect(out).toHaveLength(3);
+    expect(out[0]).toMatchObject({ type: 'text' });
+    expect(out.slice(1)).toEqual([image, doc]);
+  });
+
+  it('does not split a surrogate pair at the cut', () => {
+    // The 10th UTF-16 unit is the high half of the emoji.
+    const out = truncateToolOutputForModel(
+      [{ type: 'text', text: `${'a'.repeat(9)}\u{1F600}tail` }],
+      10
+    );
+    const text = (out[0] as { text: string }).text;
+    expect(text.startsWith(`${'a'.repeat(9)}\n[truncated`)).toBe(true);
+    expect(text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  });
+
+  it('passes small outputs through untouched', () => {
+    const blocks = [{ type: 'text' as const, text: 'ok' }];
+    expect(truncateToolOutputForModel(blocks, 10)).toBe(blocks);
   });
 });

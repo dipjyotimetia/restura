@@ -8,6 +8,7 @@ import {
 import type { HttpRequest } from '@shared/types';
 import type { AgentRuntimeManifest } from '../commands/agentRuntime.js';
 import { connectCliMcpClient } from './agentMcpClient.js';
+import { AgentPreflightError } from './agentPreflightError.js';
 import type { LoadedRequest } from './collectionLoader.js';
 import type { ExecuteOptions, ExecuteOutcome } from './executors/types.js';
 import { createPinnedMcpFetchSession } from './pinnedMcpFetch.js';
@@ -48,6 +49,20 @@ export async function resolveCliAgentTools(
       .map((source) => source.requestId)
   );
   const tools: AgentTool[] = [];
+  // Tool names are sanitized and cut to 64 chars, so distinct saved requests or
+  // MCP tools can collapse to one name. Fail naming both rather than let the
+  // runner reject an anonymous duplicate (or, worse, misroute a call).
+  const claimedNames = new Map<string, string>();
+  const claimName = (name: string, origin: string): string => {
+    const existing = claimedNames.get(name);
+    if (existing !== undefined) {
+      throw new AgentPreflightError(
+        `agent tool name collision: ${existing} and ${origin} both map to "${name}"`
+      );
+    }
+    claimedNames.set(name, origin);
+    return name;
+  };
   const mcpSources = sources.filter(
     (source): source is Extract<ToolSource, { kind: 'mcp' }> => source.kind === 'mcp'
   );
@@ -82,9 +97,21 @@ export async function resolveCliAgentTools(
         throw new Error(`agent request tool must use GET, HEAD, or OPTIONS: ${requestId}`);
       }
 
+      // Desktop classes a scripted request as a mutation and runs its scripts;
+      // the CLI never runs them, so the two harnesses would diverge silently.
+      if (request.preRequestScript?.trim() || request.testScript?.trim()) {
+        throw new AgentPreflightError(
+          `agent request tool ${requestId} has pre-request or test scripts (own or inherited); ` +
+            'the CLI does not run scripts for agent tools, so use an unscripted request'
+        );
+      }
+
       tools.push({
         definition: {
-          name: `request_${requestId.replace(/[^a-zA-Z0-9_-]/g, '_')}`.slice(0, 64),
+          name: claimName(
+            `request_${requestId.replace(/[^a-zA-Z0-9_-]/g, '_')}`.slice(0, 64),
+            `request ${requestId}`
+          ),
           description: `Run saved read-only request: ${item.relativePath}`,
           inputSchema: {
             type: 'object',
@@ -135,8 +162,25 @@ export async function resolveCliAgentTools(
       const allowedTools = source.allowedTools
         ? source.allowedTools.filter((tool) => runtimeSource.allowedTools.includes(tool))
         : runtimeSource.allowedTools;
+      // Annotations are never trusted to *grant* access, but a server that
+      // flags a tool destructive or explicitly not read-only is a strong signal
+      // the operator's readOnly assertion is wrong. Refuse rather than run it
+      // unattended in CI. (Unannotated tools pass on the manifest's assertion.)
       const mcpTools = await createMcpTools({ ...source, allowedTools }, client, options.signal, {
-        nameForTool: (name) => cliMcpToolName(runtimeSource.id, name),
+        nameForTool: (name) =>
+          claimName(cliMcpToolName(runtimeSource.id, name), `MCP tool ${runtimeSource.id}/${name}`),
+        inspectDescriptors: (descriptors) => {
+          const refused = descriptors.filter(
+            (tool) =>
+              tool.annotations?.destructiveHint === true || tool.annotations?.readOnlyHint === false
+          );
+          if (refused.length > 0) {
+            throw new AgentPreflightError(
+              `MCP source ${runtimeSource.id} lists tools the server marks destructiveHint: true ` +
+                `or readOnlyHint: false; remove them from allowedTools: ${refused.map((tool) => tool.name).join(', ')}`
+            );
+          }
+        },
       });
       tools.push(...mcpTools.map((tool) => ({ ...tool, permissionClass: 'read' as const })));
     }

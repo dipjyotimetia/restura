@@ -247,6 +247,21 @@ to the renderer.
 > surfaces an explicit warning on this target. See
 > `docs/adr/0023-ai-lab-http-exec.md`.
 
+> **AI Lab secret check and telemetry.** AI Lab model calls refuse a prompt that
+> still contains a secret (`detectUnredactedSecrets`) unless the user turns on the
+> visible, install-local "Send unredacted" override. The decision is made in
+> Electron main from the pinned address: a local kind (Ollama, OpenAI-compatible)
+> on loopback or RFC 1918 skips the check, and a local kind at a public host
+> does not. Cloud kinds are always checked unless the override is on, with one
+> exception: the `rs.judge` script assertion (`src/lib/shared/judgeBridge.ts`)
+> always sends with `rawMode: true` and does its own redaction, controlled by the
+> `redactBeforeJudge` judge setting (with it off, the candidate output reaches
+> the judge unredacted). The override is not part of portable suite
+> JSON. Provider error bodies have the resolved key and secret patterns removed
+> before they are surfaced. The telemetry export IPC is rate-limited per window
+> (120/min) and its collector host is DNS-validated and, for OTLP, pinned. See
+> `docs/adr/0020-ai-lab-eval-workbench.md` (Amendments 2026-10-31).
+
 ## Renderer lockdown (Electron)
 
 The desktop renderer is sandboxed (`sandbox: true`, `contextIsolation: true`,

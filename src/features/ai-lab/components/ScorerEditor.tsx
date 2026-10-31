@@ -15,6 +15,7 @@ import { Floater } from '@/components/ui/spatial';
 import { Textarea } from '@/components/ui/textarea';
 import { type ModelOption, modelKey, parseModelKey } from '../lib/modelOptions';
 import type { ModelRef, ScorerConfig, ScorerKind } from '../types';
+import { JudgeAnchorsEditor } from './JudgeAnchorsEditor';
 
 const SCORER_KINDS: Array<{ kind: ScorerKind; label: string }> = [
   { kind: 'contains', label: 'Contains text' },
@@ -258,6 +259,24 @@ function ScorerRow({
             value={scorer.argsSchema ?? ''}
             onChange={(event) => onChange({ argsSchema: event.target.value })}
           />
+          <Select
+            value={scorer.expectedArgsFrom ?? 'none'}
+            onValueChange={(value) =>
+              onChange({
+                expectedArgsFrom:
+                  value === 'none' ? undefined : (value as 'expected' | 'reference'),
+              })
+            }
+          >
+            <SelectTrigger aria-label="Match call args against">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Don&apos;t compare args to a case value</SelectItem>
+              <SelectItem value="expected">Args must equal case.expected (JSON)</SelectItem>
+              <SelectItem value="reference">Args must equal case.reference (JSON)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       )}
       {scorer.kind === 'pairwise' && (
@@ -406,6 +425,7 @@ function JudgeScorerEditor({
       <Button variant="ghost" size="sm" onClick={addCriterion}>
         <Plus className="h-3.5 w-3.5" /> Add criterion
       </Button>
+      <JudgeAnchorsEditor anchors={scorer.anchors} onChange={(anchors) => onChange({ anchors })} />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <label
           htmlFor="eval-judge-pass-threshold"

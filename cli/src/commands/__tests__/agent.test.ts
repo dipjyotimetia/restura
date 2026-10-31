@@ -1,26 +1,34 @@
 import { Server } from 'node:net';
 import {
-  createAgentToolResolver,
-  createFixtureToolSourceAdapter,
   type AgentBundle,
   type AgentSuite,
   type AgentSuiteReport,
+  createAgentToolResolver,
+  createFixtureToolSourceAdapter,
 } from '@shared/agent-lab';
 import type { Fetcher } from '@shared/protocol/types';
 import { describe, expect, it, vi } from 'vitest';
+import { connectCliMcpClient } from '../../runner/agentMcpClient';
 import {
   type AgentEvalDependencies,
-  agentEvalExitCode,
   agentBundleExitCode,
+  agentEvalExitCode,
   evaluateAgentBundle,
   evaluateAgentSuite,
   preflightAgentSuite,
+  runAgentEval,
 } from '../agent';
 import { AgentRuntimeManifestSchema } from '../agentRuntime';
+
+const lookupMock = vi.hoisted(() => vi.fn());
+vi.mock('node:dns/promises', () => ({ lookup: lookupMock }));
+vi.mock('../../runner/agentMcpClient', () => ({ connectCliMcpClient: vi.fn() }));
 
 function suite(
   overrides: {
     providerId?: string;
+    model?: string;
+    maxCostUSD?: number;
     baseUrl?: string;
     tools?: AgentSuite['agents'][number]['tools'];
     credential?: AgentSuite['agents'][number]['model']['credential'];
@@ -37,13 +45,17 @@ function suite(
         id: 'agent-1',
         model: {
           providerId: overrides.providerId ?? 'openai.responses',
-          model: 'gpt-5-mini',
+          model: overrides.model ?? 'gpt-5-mini',
           ...(overrides.baseUrl ? { baseUrl: overrides.baseUrl } : {}),
           ...(overrides.credential ? { credential: overrides.credential } : {}),
         },
         instructions: 'Answer succinctly.',
         tools: overrides.tools ?? [],
-        limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        limits: {
+          maxSteps: 1,
+          maxWallTimeMs: 1_000,
+          ...(overrides.maxCostUSD !== undefined ? { maxCostUSD: overrides.maxCostUSD } : {}),
+        },
       },
     ],
     tasks: [
@@ -232,6 +244,357 @@ describe('evaluateAgentSuite', () => {
     } finally {
       nativeFetch.mockRestore();
       listen.mockRestore();
+    }
+  });
+});
+
+/** Dependencies serving a suite and runtime manifest by path. */
+function dependenciesWithFiles(files: Record<string, unknown>, fetcher: Fetcher) {
+  const deps = dependencies({}, fetcher);
+  vi.mocked(deps.readText).mockImplementation(async (path) => {
+    if (!(path in files)) throw new Error(`ENOENT: ${path}`);
+    return JSON.stringify(files[path]);
+  });
+  return deps;
+}
+
+type PolicyProfile = NonNullable<AgentSuite['policies']>[number];
+
+function suiteWithPolicy(policy: Pick<PolicyProfile, 'autoApprove' | 'ciEligible'>): AgentSuite {
+  const base = suite();
+  return {
+    ...base,
+    policies: [{ id: 'policy-1', name: 'Policy', version: 1, ...policy }],
+    agents: base.agents.map((agent) => ({ ...agent, policyId: 'policy-1' })),
+  };
+}
+
+describe('policy profile CI gating', () => {
+  it.each([
+    ['not ciEligible', { autoApprove: [], ciEligible: false }],
+    ['auto-approving mutations', { autoApprove: ['mutation'], ciEligible: true }],
+  ])('exits 2 for a %s profile before any model call', async (_name, policy) => {
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependenciesWithFiles({ '/suite.json': suiteWithPolicy(policy) }, fetcher);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      expect(await runAgentEval('/suite.json', {}, deps)).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('ciEligible'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it('admits a ciEligible read-only profile and suites with no profile', () => {
+    expect(() =>
+      preflightAgentSuite(suiteWithPolicy({ autoApprove: ['read'], ciEligible: true }))
+    ).not.toThrow();
+    expect(() => preflightAgentSuite(suite())).not.toThrow();
+  });
+});
+
+const costGrader: AgentSuite['graders'] = [{ id: 'cost-1', kind: 'cost', maxUSD: 1 }];
+
+describe('cost preflight', () => {
+  it.each([
+    ['a maxCostUSD budget', suite({ maxCostUSD: 1 })],
+    ['a cost grader', suite({ graders: costGrader })],
+  ])('exits 2 for %s on an unpriced model', async (_name, input) => {
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependenciesWithFiles({ '/suite.json': input }, fetcher);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      expect(await runAgentEval('/suite.json', {}, deps)).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('gpt-5-mini'));
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('modelPrices'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it('admits priced models and manifest price overrides', () => {
+    expect(() =>
+      preflightAgentSuite(suite({ model: 'gpt-5.4-mini', maxCostUSD: 1, graders: costGrader }))
+    ).not.toThrow();
+    const runtime = AgentRuntimeManifestSchema.parse({
+      schemaVersion: 1,
+      sources: [],
+      modelPrices: { 'gpt-5-mini': { inputUSDPerMTok: 0.25, outputUSDPerMTok: 2 } },
+    });
+    expect(() =>
+      preflightAgentSuite(suite({ maxCostUSD: 1, graders: costGrader }), undefined, runtime)
+    ).not.toThrow();
+  });
+
+  it('rejects invalid manifest prices', () => {
+    expect(() =>
+      AgentRuntimeManifestSchema.parse({
+        schemaVersion: 1,
+        sources: [],
+        modelPrices: { m: { inputUSDPerMTok: -1, outputUSDPerMTok: 2 } },
+      })
+    ).toThrow();
+  });
+
+  it('enforces the budget and grades cost end to end for a priced model', async () => {
+    const body = JSON.stringify({
+      id: 'response-1',
+      status: 'completed',
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'hello' }] }],
+      usage: { input_tokens: 1_000_000, output_tokens: 100_000 },
+    });
+    const fetcher = vi.fn<Fetcher>().mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      contentLengthHeader: null,
+      text: async () => body,
+    });
+    const priced = (maxUSD: number) =>
+      suite({
+        model: 'gpt-5.4-mini',
+        maxCostUSD: 5,
+        graders: [
+          { id: 'exact-1', kind: 'exact' },
+          { id: 'cost-1', kind: 'cost', maxUSD },
+        ],
+      });
+
+    // 1M in * 0.75 + 100k out * 4.5 = $1.20
+    const within = await evaluateAgentSuite('/suite.json', {}, dependencies(priced(2), fetcher));
+    const over = await evaluateAgentSuite('/suite.json', {}, dependencies(priced(1), fetcher));
+
+    expect(within.status).toBe('passed');
+    expect(over.status).toBe('failed');
+    expect(over.results[0]?.scores.find((item) => item.graderId === 'cost-1')?.detail).toContain(
+      '$1.200000'
+    );
+  });
+});
+
+describe('telemetry endpoint preflight', () => {
+  it('exits 2 before any model call when the collector hostname resolves to a private address', async () => {
+    lookupMock.mockResolvedValue([{ address: '10.0.0.5', family: 4 }]);
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependenciesWithFiles(
+      {
+        '/suite.json': suite(),
+        '/telemetry.json': {
+          enabled: true,
+          target: 'otlp',
+          endpoint: 'https://collector.example.test/v1/traces',
+          environment: 'ci',
+          sampleRate: 1,
+          auth: { mode: 'none' },
+        },
+      },
+      fetcher
+    );
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      expect(await runAgentEval('/suite.json', { telemetryConfig: '/telemetry.json' }, deps)).toBe(
+        2
+      );
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('collector.example.test'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+});
+
+describe('handoff preflight', () => {
+  it('exits 2 before any model call when an agent declares handoffs', async () => {
+    const base = suite();
+    const agent = base.agents[0]!;
+    const withHandoffs: AgentSuite = {
+      ...base,
+      agents: [
+        { ...agent, handoffs: ['agent-2'] },
+        { ...agent, id: 'agent-2' },
+      ],
+    };
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependenciesWithFiles({ '/suite.json': withHandoffs }, fetcher);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      expect(await runAgentEval('/suite.json', {}, deps)).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('handoffs'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+});
+
+describe('scripted saved-request preflight', () => {
+  it('exits 2 before any model call when a listed request has scripts', async () => {
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependenciesWithFiles(
+      {
+        '/suite.json': suite({ tools: [{ kind: 'restura-request', requestId: 'get-orders' }] }),
+        '/runtime.json': {
+          schemaVersion: 1,
+          sources: [
+            { id: 'orders', kind: 'collection', path: './orders', requestIds: ['get-orders'] },
+          ],
+        },
+      },
+      fetcher
+    );
+    vi.mocked(deps.loadCollection).mockResolvedValue({
+      requests: [
+        {
+          relativePath: 'get-orders',
+          folderPath: [],
+          type: 'http',
+          request: { id: 'get-orders', method: 'GET', testScript: 'pm.test("x", () => {})' },
+        },
+      ],
+    } as Awaited<ReturnType<AgentEvalDependencies['loadCollection']>>);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      expect(await runAgentEval('/suite.json', { runtime: '/runtime.json' }, deps)).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('script'));
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+});
+
+describe('runAgentEval interruption', () => {
+  it.each(['SIGINT', 'SIGTERM'] as const)(
+    'aborts the run on %s, closes MCP sessions, writes a partial report and exits 1',
+    async (signalName) => {
+      const dispose = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(connectCliMcpClient).mockResolvedValue({
+        listTools: async () => [{ name: 'search_docs', inputSchema: { type: 'object' } }],
+        callTool: vi.fn(),
+        dispose,
+      });
+      let modelCallStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        modelCallStarted = resolve;
+      });
+      const fetcher = vi.fn<Fetcher>().mockImplementation(
+        (request) =>
+          new Promise((_resolve, reject) => {
+            modelCallStarted();
+            request.signal.addEventListener('abort', () => reject(new Error('aborted')), {
+              once: true,
+            });
+          })
+      );
+      const deps = dependenciesWithFiles(
+        {
+          '/suite.json': suite({ tools: [{ kind: 'mcp', connectionId: 'docs' }] }),
+          '/runtime.json': {
+            schemaVersion: 1,
+            sources: [
+              {
+                id: 'docs',
+                kind: 'mcp',
+                url: 'https://mcp.example.test/mcp',
+                transport: 'streamable-http',
+                readOnly: true,
+                allowedTools: ['search_docs'],
+              },
+            ],
+          },
+        },
+        fetcher
+      );
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      const before = [process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')];
+
+      try {
+        const pending = runAgentEval(
+          '/suite.json',
+          { runtime: '/runtime.json', output: '/report.json' },
+          deps
+        );
+        await started;
+        expect(process.listenerCount(signalName)).toBe(
+          before[signalName === 'SIGINT' ? 0 : 1]! + 1
+        );
+        process.emit(signalName, signalName);
+
+        expect(await pending).toBe(1);
+        expect(dispose).toHaveBeenCalledTimes(1);
+        expect(deps.writeText).toHaveBeenCalledWith(
+          '/report.json',
+          expect.stringContaining('"cancelled"')
+        );
+        expect([process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')]).toEqual(before);
+      } finally {
+        stdout.mockRestore();
+      }
+    }
+  );
+});
+
+describe('runAgentEval exit codes', () => {
+  const mcpRuntime = {
+    schemaVersion: 1,
+    sources: [
+      {
+        id: 'docs',
+        kind: 'mcp',
+        url: 'https://mcp.example.test/mcp',
+        transport: 'streamable-http',
+        readOnly: true,
+        allowedTools: ['drop_table'],
+      },
+    ],
+  };
+
+  it('exits 2 before any model call when a manifest-listed MCP tool is destructive-hinted', async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(connectCliMcpClient).mockResolvedValue({
+      listTools: async () => [
+        {
+          name: 'drop_table',
+          inputSchema: { type: 'object' },
+          annotations: { readOnlyHint: true, destructiveHint: true },
+        },
+      ],
+      callTool: vi.fn(),
+      dispose,
+    });
+    const fetcher = vi.fn<Fetcher>();
+    const deps = dependenciesWithFiles(
+      {
+        '/suite.json': suite({ tools: [{ kind: 'mcp', connectionId: 'docs' }] }),
+        '/runtime.json': mcpRuntime,
+      },
+      fetcher
+    );
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    try {
+      const code = await runAgentEval(
+        '/suite.json',
+        { runtime: '/runtime.json', output: '/report.json' },
+        deps
+      );
+
+      expect(code).toBe(2);
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('destructiveHint'));
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(deps.writeText).not.toHaveBeenCalled();
+      expect(dispose).toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+      stdout.mockRestore();
     }
   });
 });

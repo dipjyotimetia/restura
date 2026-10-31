@@ -20,6 +20,7 @@ import { runToCompletion } from '@shared/protocol/ai/ai-complete';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { listModels, testConnection } from '@shared/protocol/ai/model-discovery';
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
+import { effectiveRawMode, scrubSecretText } from '@shared/protocol/ai/redaction';
 import { type ChatRequestSpec, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
 import { createLogger } from '@shared/runtime/logger';
@@ -39,8 +40,9 @@ import {
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import { createAgentTelemetryService } from '../lifecycle/agent-telemetry';
+import { createPinnedFetch, resolveSafeAddress } from '../security/safe-connect';
 import { resolveSecretHandle } from '../security/secret-handle-store';
-import { makePinnedFetcher } from './fetch-fetcher';
+import { makeFetchFetcher } from './fetch-fetcher';
 
 const log = createLogger('ai-lab');
 
@@ -54,6 +56,9 @@ const completeRateLimiter = createKeyedRateLimiter(1200, 60_000);
 // Discovery is user-initiated (click "test connection" / "refresh models"); a modest
 // cap is plenty and bounds a renderer probing arbitrary hosts in a tight loop.
 const discoveryRateLimiter = createKeyedRateLimiter(60, 60_000);
+// Telemetry export fans out to a user-configured collector; a modest ceiling is
+// ample for one export per finished trace.
+const telemetryRateLimiter = createKeyedRateLimiter(120, 60_000);
 const MAX_CONCURRENT_STREAMS = 6; // Playground compares a handful of models at once.
 const COMPLETE_CONCURRENCY = 8; // Hard ceiling on simultaneous upstream model calls.
 
@@ -163,28 +168,49 @@ function completionRegistryKey(webContentsId: number, operationId: string): stri
  * `allowLocalhost` is gated by provider kind — true only for local runtimes
  * (Ollama, openai-compatible), never for cloud providers.
  */
-async function buildSafeFetcher(provider: Provider, baseUrlOverride?: string): Promise<Fetcher> {
-  return makePinnedFetcher(resolveBaseUrl(provider, baseUrlOverride), {
-    allowLocalhost: isLocalProvider(provider),
+async function buildSafeFetcher(
+  provider: Provider,
+  baseUrlOverride?: string
+): Promise<{ fetcher: Fetcher; resolvedAddress: string }> {
+  const local = isLocalProvider(provider);
+  // Local kinds use the local-runtime address policy (loopback + RFC1918, no
+  // link-local/metadata, same for literals and resolved hostnames), independent
+  // of the Settings -> Security toggles; cloud kinds keep the strict guard.
+  const pinned = await resolveSafeAddress(resolveBaseUrl(provider, baseUrlOverride), {
+    allowLocalhost: local,
+    ...(local ? { localRuntime: true } : {}),
   });
+  return {
+    fetcher: makeFetchFetcher({
+      redirect: 'manual',
+      fetchImpl: createPinnedFetch(pinned.host, pinned.ip),
+    }),
+    // The address actually dialled: the secret check keys off this, so there is
+    // no second lookup between the decision and the connection.
+    resolvedAddress: pinned.ip,
+  };
 }
 
-function buildSpec(data: {
-  provider: Provider;
-  model: string;
-  messages: ChatRequestSpec['messages'];
-  apiKeyHandleId?: string;
-  baseUrlOverride?: string;
-  rawMode: boolean;
-  maxOutputTokens?: number;
-  tools?: ChatRequestSpec['tools'];
-}): ChatRequestSpec {
+function buildSpec(
+  data: {
+    provider: Provider;
+    model: string;
+    messages: ChatRequestSpec['messages'];
+    apiKeyHandleId?: string;
+    baseUrlOverride?: string;
+    /** The renderer's explicit override; locality is decided here from the address. */
+    rawMode: boolean;
+    maxOutputTokens?: number;
+    tools?: ChatRequestSpec['tools'];
+  },
+  resolvedAddress: string
+): ChatRequestSpec {
   return {
     provider: data.provider,
     model: data.model,
     messages: data.messages,
     apiKeyHandleId: data.apiKeyHandleId ?? '',
-    rawMode: data.rawMode,
+    rawMode: effectiveRawMode(data.rawMode, data.provider, resolvedAddress),
     ...(data.baseUrlOverride ? { baseUrlOverride: data.baseUrlOverride } : {}),
     ...(data.maxOutputTokens ? { maxOutputTokens: data.maxOutputTokens } : {}),
     ...(data.tools ? { tools: data.tools } : {}),
@@ -250,6 +276,9 @@ export function registerAiLabHandlers(): void {
     assertTrustedSender(IPC.aiLab.exportTelemetry, event);
     const parsed = AiLabTelemetryExportSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
+    if (!telemetryRateLimiter.check(event.sender.id)) {
+      return { ok: false as const, error: 'Rate limited. Slow down.' };
+    }
     const delivery = agentTelemetry.enqueue(parsed.data.trace, parsed.data.config);
     await agentTelemetry.flush();
     return { ok: true as const, delivery };
@@ -290,13 +319,16 @@ export function registerAiLabHandlers(): void {
 
     let slotAcquired = false;
     try {
-      const fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
+      const { fetcher, resolvedAddress } = await buildSafeFetcher(
+        data.provider,
+        data.baseUrlOverride
+      );
       if (abort.signal.aborted) return { ok: false as const, error: 'Operation cancelled.' };
       await completeSlots.acquire(abort.signal);
       slotAcquired = true;
       if (abort.signal.aborted) return { ok: false as const, error: 'Operation cancelled.' };
       const result = await runToCompletion(
-        { ...buildSpec(data), signal: abort.signal },
+        { ...buildSpec(data, resolvedAddress), signal: abort.signal },
         fetcher,
         resolveSecretFn
       );
@@ -350,8 +382,9 @@ export function registerAiLabHandlers(): void {
     };
     activeStreams.add(registryKey, event.sender, activeStream);
     let fetcher: Fetcher;
+    let resolvedAddress: string;
     try {
-      fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
+      ({ fetcher, resolvedAddress } = await buildSafeFetcher(data.provider, data.baseUrlOverride));
     } catch (e) {
       if (activeStreams.getForOwner(registryKey, senderId) === activeStream) {
         activeStreams.remove(registryKey, senderId);
@@ -361,7 +394,7 @@ export function registerAiLabHandlers(): void {
     if (activeStreams.getForOwner(registryKey, senderId) !== activeStream) {
       return { ok: false as const, error: 'Renderer closed before stream started.' };
     }
-    void runStream(buildSpec(data), fetcher, data.streamId, activeStream);
+    void runStream(buildSpec(data, resolvedAddress), fetcher, data.streamId, activeStream);
     return { ok: true as const, streamId: data.streamId };
   });
 
@@ -394,7 +427,7 @@ export function registerAiLabHandlers(): void {
     }
     const { provider, baseUrl, apiKeyHandleId } = parsed.data;
     try {
-      const fetcher = await buildSafeFetcher(provider, baseUrl);
+      const { fetcher } = await buildSafeFetcher(provider, baseUrl);
       const apiKey = apiKeyHandleId ? await resolveSecretFn(apiKeyHandleId) : parsed.data.apiKey;
       const models = await listModels({
         provider,
@@ -404,7 +437,8 @@ export function registerAiLabHandlers(): void {
       });
       return { ok: true as const, models };
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      // The shared layer already removed the key; redact patterns before logging too.
+      const msg = scrubSecretText(e instanceof Error ? e.message : String(e), undefined);
       log.warn('listModels failed', { provider, error: msg });
       return { ok: false as const, error: msg };
     }
@@ -420,7 +454,7 @@ export function registerAiLabHandlers(): void {
     const { provider, baseUrl, apiKeyHandleId } = parsed.data;
     let fetcher: Fetcher;
     try {
-      fetcher = await buildSafeFetcher(provider, baseUrl);
+      ({ fetcher } = await buildSafeFetcher(provider, baseUrl));
     } catch (e) {
       return { ok: false as const, error: (e as Error).message };
     }
@@ -434,7 +468,8 @@ export function registerAiLabHandlers(): void {
       });
       return result;
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      // The shared layer already removed the key; redact patterns before logging too.
+      const msg = scrubSecretText(e instanceof Error ? e.message : String(e), undefined);
       log.warn('testConnection failed', { provider, error: msg });
       return { ok: false as const, error: msg };
     }

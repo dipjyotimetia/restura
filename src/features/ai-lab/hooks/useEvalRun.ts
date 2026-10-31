@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { DEFAULT_PASS_THRESHOLD } from '../lib/evalPassThreshold';
 import { type EvalProgress, runEval } from '../lib/evalRunner';
 import { executeExtractedRequest } from '../lib/execCell';
 import { modelKey, modelLabelFor } from '../lib/modelOptions';
@@ -78,6 +79,7 @@ function start(config: EvalConfig): void {
     datasetId: dataset.id,
     datasetName: dataset.name,
     modelLabels,
+    passThreshold: config.passThreshold ?? DEFAULT_PASS_THRESHOLD,
   });
   useEvalLiveStore.setState({ lastRunId: runId });
 
@@ -141,6 +143,7 @@ function start(config: EvalConfig): void {
         concurrency: config.concurrency,
         target,
         ...(config.tools ? { tools: config.tools } : {}),
+        ...(config.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
         ...(target.kind === 'http-exec' ? { runRequest: executeExtractedRequest } : {}),
       },
       onProgress,
@@ -196,6 +199,14 @@ async function retrySave(): Promise<boolean> {
 }
 
 /**
+ * Give up on an unsaved report so it stops blocking new runs. The report is
+ * discarded; the run and its cells remain in the eval-run history.
+ */
+export function dismissPendingReport(): void {
+  useEvalLiveStore.setState({ pendingReport: null, persistenceError: null });
+}
+
+/**
  * Drives an eval run: resolves the config's prompt/dataset/providers from the
  * store, streams progress to the UI (throttled ~10 fps), persists the run +
  * cells to the eval-run store, and supports cancellation. Mirrors useLoadTest.
@@ -218,5 +229,6 @@ export function useEvalRun() {
     start,
     stop,
     retrySave,
+    dismissPendingReport,
   };
 }

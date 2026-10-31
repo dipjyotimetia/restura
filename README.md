@@ -23,7 +23,7 @@
 
 Restura lets you debug an HTTP API, inspect a gRPC service, keep a WebSocket transcript, and work with Kafka or MQTT without switching tools—or surrendering your collections to a hosted account. Run it in your browser, as a native desktop app for macOS, Windows, and Linux, or self-host it in Docker behind your firewall.
 
-No account. No cloud sync. Your collections, history, and environments stay in local browser storage or encrypted desktop storage; optional crash reporting is scrubbed and can be disabled. Native networking and AI features are deliberately desktop-only where browser security boundaries make them impossible.
+No account. No cloud sync. Your collections, history, and environments stay on your machine, in browser storage or encrypted desktop storage. Crash reporting is scrubbed and can be turned off. Native networking and AI features are deliberately desktop-only where browser security boundaries make them impossible.
 
 > **Try it your way:** [open the web app](https://restura.dev/) for HTTP-first workflows, [download desktop](https://github.com/dipjyotimetia/restura/releases/latest) for native protocols and OS-backed secrets, or [self-host with Docker](docs/SELF_HOSTING.md) for a controlled deployment.
 
@@ -47,10 +47,10 @@ No account. No cloud sync. Your collections, history, and environments stay in l
 
 | | |
 | --- | --- |
-| **Bring your existing work** | Import Postman (v2.x and v3), Insomnia, OpenAPI 3.x / Swagger 2.0, Hoppscotch, and Bruno collections. Export when you need to move on. |
+| **Bring your existing work** | Import Postman (v2.x and v3), Insomnia (v4 and v5), OpenAPI 3.x / Swagger 2.0, OpenCollection, Hoppscotch, Bruno, `.http` files, HAR captures, and cURL commands. Export when you need to move on. |
 | **Reuse requests safely** | Organise collections and environments; inherit auth; switch `{{base_url}}` between staging and production without copying requests. |
 | **Automate without a fragile script runner** | Run pre-request and test scripts in a bounded QuickJS WASM sandbox with no DOM, filesystem, or network access. Build portable workflows from saved HTTP and GraphQL requests. |
-| **Keep authentication close to the wire** | Send with Basic, Bearer, API Key, OAuth 2.0 (with PKCE and token refresh), OAuth 1.0a, WSSE, Digest, and AWS SigV4. Desktop also supports mTLS, custom CAs, and SOCKS. NTLM can be selected and saved, but is not yet applied when sending. |
+| **Keep authentication close to the wire** | Send with Basic, Bearer, API Key, OAuth 2.0 (with PKCE and token refresh), OAuth 1.0a, WSSE, Digest, and AWS SigV4. Desktop adds NTLM, mTLS, custom CAs, and SOCKS proxies. |
 | **Work with AI on sensitive requests** | Desktop AI chat and AI Lab use request context with secrets and internal URLs redacted before provider calls. Evaluate prompts, models, and bounded agent suites locally. |
 | **Use MCP in both directions** | Inspect MCP server traffic as a client, or expose permitted Restura collections through Restura’s MCP server mode. |
 
@@ -62,7 +62,7 @@ Open [restura.dev](https://restura.dev/) to send HTTP, GraphQL, WebSocket, SSE, 
 
 ### Develop locally
 
-**Prerequisites:** Node.js 24+ and npm.
+**Prerequisites:** Node.js 24 (see `.nvmrc`) and npm 12.1.0. Both are enforced, so `npm ci` refuses older versions.
 
 ```bash
 git clone https://github.com/dipjyotimetia/restura.git
@@ -86,6 +86,14 @@ npm run electron:dist:linux       # Linux: AppImage + deb + rpm
 
 Desktop is the right target for Kafka, MQTT, native gRPC streaming, filesystem/Git collections, OS-keychain secret handles, mTLS, custom CAs, SOCKS, and all AI surfaces.
 
+### Run collections in CI
+
+The [`restura-cli`](cli/README.md) package runs exported collections and workflows headlessly, with script assertions and JUnit, HTML, or JSON reports.
+
+```bash
+npx restura-cli run ./my-collection --reporter junit --reporter-output junit=results.xml
+```
+
 ### Self-host with Docker
 
 Run the web application in one Node container; no Cloudflare account is required.
@@ -100,7 +108,7 @@ Read [Self-hosting](docs/SELF_HOSTING.md) before deploying: it covers authentica
 
 ## Built to keep request data under your control
 
-- **Local persistence with clear boundaries.** Browser data lives in local IndexedDB. On desktop, encrypted storage is backed by Electron `safeStorage` and the OS keychain; secret handles keep plaintext out of the renderer where supported.
+- **Local persistence with clear boundaries.** Browser data lives in local IndexedDB and is not encrypted. On desktop, storage is encrypted with Electron `safeStorage` and the OS keychain, and secret handles keep plaintext out of the renderer where supported.
 - **Outbound-request protection.** Shared SSRF validation blocks private, link-local, and cloud-metadata targets by default. Desktop adds DNS-rebind protection; self-hosted deployments can explicitly enable private-network access when needed.
 - **Wire-accurate signing.** AWS SigV4 is signed in the Worker or Electron handler, not the renderer, so the upstream receives the exact signed bytes.
 - **Sandboxed user code.** Pre-request and test scripts run with time and memory limits and have no host bridge.
@@ -148,7 +156,9 @@ npm run lint             # Biome lint
 npm run format:check     # formatting check
 ```
 
-Contributions across protocol support, bugs, security, docs, and UX are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions; use a [good first issue](https://github.com/dipjyotimetia/restura/labels/good%20first%20issue) to get started. For a new protocol or a larger change, open an issue first so the design can be discussed.
+Contributions to protocol support, bug fixes, docs, and UX are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions, and look for a [good first issue](https://github.com/dipjyotimetia/restura/labels/good%20first%20issue) to get started. For a new protocol or a larger change, [open an issue](https://github.com/dipjyotimetia/restura/issues/new/choose) first so the design can be discussed.
+
+Please report security vulnerabilities privately as described in [SECURITY.md](SECURITY.md), not in public issues. Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Explore further
 
@@ -158,13 +168,13 @@ Contributions across protocol support, bugs, security, docs, and UX are welcome.
 - [Architecture](docs/ARCHITECTURE.md) — shared protocol core, transport boundaries, and security model
 - [Self-hosting](docs/SELF_HOSTING.md) — Docker, auth, reverse proxies, and operations
 - [Roadmap](docs/ROADMAP.md) and [changelog](docs/CHANGELOG.md) — planned and shipped work
-- [Security policy](SECURITY.md) — responsible disclosure
+- [CLI](cli/README.md) — run collections and workflows in CI
 - [Browser extension](extension/chrome/README.md) — capture browser traffic into a collection
 - [VS Code extension](extension/vscode/README.md) — OpenCollection validation, Test Explorer, and inline send
 
 <div align="center">
 
-**MIT License** · Hosted on Cloudflare Pages · Made by [dipjyotimetia](https://github.com/dipjyotimetia)
+Released under the [MIT License](LICENSE) · Made by [dipjyotimetia](https://github.com/dipjyotimetia)
 
 <sub>If Restura saves you a context-switch, a ⭐ helps other developers find it.</sub>
 

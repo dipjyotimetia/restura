@@ -16,6 +16,38 @@ function jsonFetcher(byUrl: Record<string, { status?: number; json: unknown }>):
   });
 }
 
+describe('listModels timeout', () => {
+  // A server that accepts the connection and never answers.
+  const hangingFetcher: Fetcher = (req: FetcherRequest) =>
+    new Promise<FetcherResponse>((_resolve, reject) => {
+      req.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    });
+
+  it('gives up on a hung server instead of waiting forever', async () => {
+    await expect(
+      listModels({
+        provider: 'ollama',
+        baseUrl: 'http://localhost:11434',
+        fetcher: hangingFetcher,
+        timeoutMs: 20,
+      })
+    ).rejects.toThrow(/timed out after 20ms/);
+  });
+
+  it('reports a caller abort as an abort, not a timeout', async () => {
+    const controller = new AbortController();
+    const pending = listModels({
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434',
+      fetcher: hangingFetcher,
+      signal: controller.signal,
+      timeoutMs: 5_000,
+    });
+    controller.abort();
+    await expect(pending).rejects.toThrow(/aborted/);
+  });
+});
+
 describe('listModels', () => {
   it('discovers Ollama models via GET /api/tags', async () => {
     const fetcher = jsonFetcher({

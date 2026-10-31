@@ -1,8 +1,10 @@
+import { clampOutputTokens, MAX_PER_CALL_OUTPUT_TOKENS } from '@shared/agent-lab';
 import { Check, Copy, Maximize2, Minimize2, Play, Save, Sparkles, Square } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { formatLongTimestamp } from '@/lib/shared/console-format';
 import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
 import { useModelSelection } from '../hooks/useModelSelection';
+import { capabilitiesForDesktopModel } from '../lib/agentModelCapabilities';
 import { type StreamHandle, specFor, streamLlm } from '../lib/llmClient';
 import { toggleSetKey } from '../lib/modelOptions';
 import { plural } from '../lib/plural';
@@ -121,7 +124,9 @@ export function Playground() {
 
   const maxTokens = useMemo(() => {
     const n = Number(draft.maxTokensText);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+    return Number.isFinite(n) && n > 0
+      ? Math.min(Math.floor(n), MAX_PER_CALL_OUTPUT_TOKENS)
+      : undefined;
   }, [draft.maxTokensText]);
 
   // Cancel any in-flight streams when this tab unmounts (AI Lab sub-tabs unmount
@@ -202,7 +207,17 @@ export function Playground() {
             ]
           : [{ role: 'user' as const, content: usr }];
         return streamLlm(
-          specFor(m.cfg, m.model, messages, maxTokens ? { maxOutputTokens: maxTokens } : {}),
+          specFor(m.cfg, m.model, messages, {
+            ...(maxTokens
+              ? {
+                  maxOutputTokens: clampOutputTokens(
+                    maxTokens,
+                    capabilitiesForDesktopModel(m.cfg, m.model).capabilities.maxOutputTokens
+                  ),
+                }
+              : {}),
+            ...(draft.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
+          }),
           {
             onChunk: (ev) => {
               if (ev.type === 'delta') {
@@ -343,11 +358,32 @@ export function Playground() {
                 id="playground-max-tokens"
                 type="number"
                 min={1}
+                max={MAX_PER_CALL_OUTPUT_TOKENS}
                 className="w-40"
                 placeholder="provider default"
                 value={draft.maxTokensText}
                 onChange={(e) => patchDraft({ maxTokensText: e.target.value })}
               />
+            </div>
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="playground-send-unredacted"
+                data-testid="playground-send-unredacted"
+                checked={draft.sendUnredactedToCloud === true}
+                onCheckedChange={(checked) =>
+                  patchDraft({ sendUnredactedToCloud: checked === true })
+                }
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="playground-send-unredacted" className="text-sp-12 text-sp-text">
+                  Send unredacted to cloud providers
+                </Label>
+                <p className="text-sp-11 text-sp-dim">
+                  Off by default and not saved: calls are refused if the prompt contains a secret.
+                  Providers on this machine or your LAN are not checked; a local-kind provider at a
+                  public host is.
+                </p>
+              </div>
             </div>
             <div className="space-y-1.5">
               <span className="sp-label">Models</span>

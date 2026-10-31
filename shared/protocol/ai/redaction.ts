@@ -22,6 +22,8 @@
 
 import { CREDENTIAL_HEADER_NAMES } from '../credential-header-names';
 import { bodyTokenPatterns, headerDenylistRegex } from '../secret-patterns';
+import { isLoopbackAddress, isRfc1918Address } from '../url-validation';
+import { isLocalProvider, type Provider } from './types';
 
 export type RedactionMode = 'default' | 'raw';
 
@@ -88,4 +90,54 @@ export function detectUnredactedSecrets(text: string): boolean {
     if (re.test(text)) return true;
   }
   return false;
+}
+
+/**
+ * Make an upstream error body safe to surface: remove the literal resolved key
+ * (a 401 that echoes the auth header would otherwise carry it into error
+ * events, eval results and persisted arena matches; ADR-0007), then pattern
+ * redact, and only then clip. Order matters: clipping first could cut a key in
+ * half so neither step matches it.
+ */
+export function scrubProviderError(body: string, apiKey: string | undefined, max: number): string {
+  return scrubSecretText(body, apiKey).slice(0, max);
+}
+
+/** Shorter literals are structural noise ("a", "8080"); removing them would mangle text. */
+export const MIN_SECRET_LITERAL_LENGTH = 8;
+
+/**
+ * Remove the literal key (and each line of a key with embedded CR/LF, which
+ * undici quotes line by line in header errors), then pattern-redact. No clipping.
+ */
+export function scrubSecretText(text: string, apiKey: string | undefined): string {
+  let out = text;
+  if (apiKey) {
+    const literals = [apiKey, ...apiKey.split(/[\r\n]+/)]
+      .filter((l) => l.length >= MIN_SECRET_LITERAL_LENGTH)
+      .sort((x, y) => y.length - x.length);
+    for (const literal of literals) out = out.split(literal).join('[REDACTED]');
+  }
+  return redactBody(out, 'default');
+}
+
+/**
+ * Whether the outgoing-secret check is skipped for one call. `explicit` is the
+ * user's visible override (per-suite "Send unredacted", assistant "Send raw").
+ * Otherwise only a local-runtime kind whose pinned, validated address is
+ * loopback or RFC1918 skips it (a LAN host counts as local). A local kind
+ * pointed at a public host (`openai-compatible` -> api.groq.com) is a cloud
+ * call and keeps the check. Decide this in the process that resolved the
+ * address, never from renderer-supplied flags.
+ */
+export function effectiveRawMode(
+  explicit: boolean,
+  provider: Provider,
+  resolvedAddress: string
+): boolean {
+  if (explicit) return true;
+  return (
+    isLocalProvider(provider) &&
+    (isLoopbackAddress(resolvedAddress) || isRfc1918Address(resolvedAddress))
+  );
 }

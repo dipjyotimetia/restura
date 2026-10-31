@@ -92,6 +92,28 @@ describe('runEval', () => {
     expect(progress.at(-1)).toBe(2);
   });
 
+  it('threads the per-suite sendUnredactedToCloud override to every model call', async () => {
+    mockComplete.mockResolvedValue(result('x'));
+    const run = (sendUnredactedToCloud?: boolean) =>
+      runEval(
+        {
+          prompt: PROMPT,
+          dataset: { ...DATASET, cases: [DATASET.cases[0]!] },
+          models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
+          scorers: [],
+          providers: { p1: PROVIDER },
+          concurrency: 1,
+          ...(sendUnredactedToCloud ? { sendUnredactedToCloud } : {}),
+        },
+        () => {},
+        new AbortController().signal
+      );
+    await run();
+    expect(mockComplete.mock.calls[0]?.[0]).not.toHaveProperty('sendUnredactedToCloud');
+    await run(true);
+    expect(mockComplete.mock.calls[1]?.[0]).toMatchObject({ sendUnredactedToCloud: true });
+  });
+
   it('reports cost as unknown (null) for a priced model that returns no usage estimate', async () => {
     mockComplete.mockResolvedValue({ ok: true, text: 'x', toolCalls: [] }); // no usage
     const cells = await runEval(

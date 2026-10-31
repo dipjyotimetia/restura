@@ -20,7 +20,9 @@ export function headerDenylistRegex(): RegExp[] {
 /** JWTs, Bearer tokens, `key=value` secrets, and prefixed provider/cloud tokens. */
 export function bodyTokenPatterns(): RegExp[] {
   return [
-    /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, // JWT
+    // JWT. The lookbehind anchors the start so a dotless `eyJeyJ…` run cannot
+    // retry from every `eyJ` (quadratic) while a real token after a space, quote or `=` matches.
+    /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
     /Bearer\s+[A-Za-z0-9._\-+/=]{8,}/g,
     /(api[_-]?key|secret|password|token)["']?\s*[:=]\s*["']?[A-Za-z0-9._\-+/=]{8,}/gi,
     /\bsk-(?:ant-|or-v1-|proj-)?[A-Za-z0-9_-]{16,}/g, // OpenAI / Anthropic / OpenRouter keys
@@ -29,5 +31,12 @@ export function bodyTokenPatterns(): RegExp[] {
     /\bgithub_pat_[A-Za-z0-9_]{22,}\b/g, // GitHub fine-grained PAT
     /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, // Slack tokens
     /\bAIza[0-9A-Za-z_-]{35}\b/g, // Google API key
+    // `Authorization: Basic <base64>`; anchored on the header name so prose like
+    // "Basic authentication" survives.
+    /Authorization["']?\s*[:=]\s*["']?Basic\s+[A-Za-z0-9+/]{8,}={0,2}/gi,
+    // PEM private-key block; a truncated block (no END line) masks to end of text.
+    /-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|$)/g,
+    // AWS presigned-URL signature / session token query params.
+    /X-Amz-(?:Signature|Security-Token)=[A-Za-z0-9%/+=_-]{8,}/gi,
   ];
 }

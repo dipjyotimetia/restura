@@ -27,9 +27,10 @@ const LOCAL: AiLabProviderConfig = {
 const MSGS = [{ role: 'user' as const, content: 'hi' }];
 
 describe('specFor', () => {
-  it('always sets rawMode true and includes the api key handle for cloud providers', () => {
+  it('keeps the secret check on for cloud providers unless overridden', () => {
     const spec = specFor(CLOUD, 'gpt-4o', MSGS);
-    expect(spec.rawMode).toBe(true);
+    expect(spec.rawMode).toBe(false);
+    expect(specFor(CLOUD, 'gpt-4o', MSGS, { sendUnredactedToCloud: true }).rawMode).toBe(true);
     expect(spec.apiKeyHandleId).toBe('handle-1');
     expect(spec.baseUrlOverride).toBeUndefined();
     expect(spec.model).toBe('gpt-4o');
@@ -37,6 +38,8 @@ describe('specFor', () => {
 
   it('includes baseUrlOverride and omits the key for a keyless local provider', () => {
     const spec = specFor(LOCAL, 'llama3.2', MSGS);
+    // Locality is decided in Electron main from the pinned address, not here.
+    expect(spec.rawMode).toBe(false);
     expect(spec.baseUrlOverride).toBe('http://localhost:11434');
     expect(spec.apiKeyHandleId).toBeUndefined();
   });
@@ -46,6 +49,15 @@ describe('specFor', () => {
     const spec = specFor(CLOUD, 'gpt-4o', MSGS, { tools, maxOutputTokens: 512 });
     expect(spec.tools).toBe(tools);
     expect(spec.maxOutputTokens).toBe(512);
+  });
+});
+
+describe('specFor maxOutputTokens clamp (#1021)', () => {
+  it('never exceeds the 32768 IPC ceiling', () => {
+    expect(specFor(CLOUD, 'gpt-4o', MSGS, { maxOutputTokens: 100_000 }).maxOutputTokens).toBe(
+      32_768
+    );
+    expect(specFor(CLOUD, 'gpt-4o', MSGS, { maxOutputTokens: 512 }).maxOutputTokens).toBe(512);
   });
 });
 

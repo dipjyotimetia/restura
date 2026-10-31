@@ -21,7 +21,7 @@ vi.mock('@/features/ai-lab/lib/llmClient', () => ({
   testConnection: vi.fn(),
 }));
 
-import { runArena } from '../arenaRunner';
+import { ArenaRunError, arenaRunStatus, runArena } from '../arenaRunner';
 
 const PROVIDER_A: AiLabProviderConfig = {
   id: 'p1',
@@ -184,7 +184,7 @@ describe('runArena', () => {
     ]);
   });
 
-  it('records a tie when the pairwise judge fails', async () => {
+  it('records an errored match, not a tie, when the pairwise judge fails', async () => {
     mockComplete.mockImplementation(async (spec: { tools?: unknown[] }) => {
       if (spec.tools) throw new Error('invalid judge response');
       return { ok: true, text: 'answer', toolCalls: [] };
@@ -205,7 +205,9 @@ describe('runArena', () => {
       new AbortController().signal
     );
 
-    expect(result.matches).toEqual([{ a: 'p1:gpt-4o', b: 'p2:claude', winner: 'tie' }]);
+    expect(result.matches).toEqual([
+      { a: 'p1:gpt-4o', b: 'p2:claude', winner: 'error', error: 'judge: invalid judge response' },
+    ]);
   });
 
   it('does not call the judge when both contestant generations fail', async () => {
@@ -232,6 +234,168 @@ describe('runArena', () => {
     );
 
     expect(mockComplete).toHaveBeenCalledTimes(2);
-    expect(result.matches[0]?.winner).toBe('tie');
+    expect(result.matches[0]).toMatchObject({ winner: 'error' });
+    expect(result.matches[0]?.error).toMatch(/bad key/);
+  });
+
+  it('marks a match errored when only one contestant call fails', async () => {
+    mockComplete.mockImplementation(async (spec: { model: string }) =>
+      spec.model === 'claude'
+        ? { ok: false, text: '', toolCalls: [], error: { code: 'auth', message: 'bad key' } }
+        : { ok: true, text: 'answer', toolCalls: [] }
+    );
+
+    const result = await runArena(
+      {
+        dataset: DATASET,
+        models: [
+          { providerConfigId: 'p1', model: 'gpt-4o' },
+          { providerConfigId: 'p2', model: 'claude' },
+        ],
+        judgeModel: { providerConfigId: 'p1', model: 'gpt-4o' },
+        providers: { p1: PROVIDER_A, p2: PROVIDER_B },
+        concurrency: 2,
+      },
+      () => {},
+      new AbortController().signal
+    );
+
+    expect(mockComplete).toHaveBeenCalledTimes(2); // no judge call on a failed contestant
+    expect(result.matches).toEqual([
+      { a: 'p1:gpt-4o', b: 'p2:claude', winner: 'error', error: 'p2:claude: bad key' },
+    ]);
+  });
+
+  it('keeps already-collected matches on the error thrown by a failing run', async () => {
+    mockComplete.mockResolvedValue({ ok: true, text: 'answer', toolCalls: [] });
+    const onProgress = (p: { phase: string }) => {
+      if (p.phase === 'judging') throw new Error('progress sink exploded');
+    };
+    const run = runArena(
+      {
+        dataset: DATASET,
+        models: [
+          { providerConfigId: 'p1', model: 'gpt-4o' },
+          { providerConfigId: 'p2', model: 'claude' },
+        ],
+        judgeModel: { providerConfigId: 'p1', model: 'gpt-4o' },
+        providers: { p1: PROVIDER_A, p2: PROVIDER_B },
+        concurrency: 1,
+      },
+      onProgress,
+      new AbortController().signal
+    );
+    await expect(run).rejects.toBeInstanceOf(ArenaRunError);
+    await run.catch((e: ArenaRunError) => {
+      expect(e.message).toBe('progress sink exploded');
+      expect(e.matches).toHaveLength(1);
+    });
+  });
+});
+
+describe('runArena cancellation (#1020)', () => {
+  const MODELS = [
+    { providerConfigId: 'p1', model: 'gpt-4o' },
+    { providerConfigId: 'p2', model: 'claude' },
+  ];
+  const abortError = () => new DOMException('Operation cancelled', 'AbortError');
+  const base = (signal: AbortSignal) => ({
+    input: {
+      dataset: DATASET,
+      models: MODELS,
+      judgeModel: { providerConfigId: 'p1', model: 'gpt-4o' },
+      providers: { p1: PROVIDER_A, p2: PROVIDER_B },
+      concurrency: 2,
+    },
+    signal,
+  });
+
+  beforeEach(() => {
+    mockComplete.mockReset();
+  });
+
+  it('passes the abort signal to every contestant and judge completeLlm call', async () => {
+    const controller = new AbortController();
+    mockComplete.mockImplementation(async (spec: { tools?: unknown[] }) =>
+      spec.tools
+        ? {
+            ok: true,
+            text: '',
+            toolCalls: [{ id: 'j', name: 'submit_comparison', input: '{"winner":"A"}' }],
+          }
+        : { ok: true, text: 'answer', toolCalls: [] }
+    );
+    const { input, signal } = base(controller.signal);
+    await runArena(input, () => {}, signal);
+
+    expect(mockComplete.mock.calls.length).toBeGreaterThanOrEqual(4);
+    for (const call of mockComplete.mock.calls) expect(call[1]).toEqual({ signal });
+  });
+
+  it('threads the unredacted-cloud override to contestant and judge calls only when set (#1040)', async () => {
+    mockComplete.mockImplementation(async (spec: { tools?: unknown[] }) =>
+      spec.tools
+        ? {
+            ok: true,
+            text: '',
+            toolCalls: [{ id: 'j', name: 'submit_comparison', input: '{"winner":"A"}' }],
+          }
+        : { ok: true, text: 'answer', toolCalls: [] }
+    );
+    const { input, signal } = base(new AbortController().signal);
+    await runArena(input, () => {}, signal);
+    for (const call of mockComplete.mock.calls) {
+      expect(call[0]).not.toHaveProperty('sendUnredactedToCloud');
+    }
+
+    mockComplete.mockClear();
+    await runArena({ ...input, sendUnredactedToCloud: true }, () => {}, signal);
+    const specs = mockComplete.mock.calls.map((call) => call[0]);
+    expect(specs.some((spec) => spec.tools)).toBe(true); // judge calls
+    expect(specs.some((spec) => !spec.tools)).toBe(true); // contestant calls
+    for (const spec of specs) expect(spec).toMatchObject({ sendUnredactedToCloud: true });
+  });
+
+  it('does not record a contestant call aborted by Stop as an errored match', async () => {
+    const controller = new AbortController();
+    mockComplete.mockImplementation(async () => {
+      controller.abort();
+      throw abortError();
+    });
+    const { input, signal } = base(controller.signal);
+    const result = await runArena(input, () => {}, signal);
+    expect(result.matches).toEqual([]);
+  });
+
+  it('does not record a judge call aborted by Stop as an errored match', async () => {
+    const controller = new AbortController();
+    mockComplete.mockImplementation(async (spec: { tools?: unknown[] }) => {
+      if (spec.tools) {
+        controller.abort();
+        throw abortError();
+      }
+      return { ok: true, text: 'answer', toolCalls: [] };
+    });
+    const { input, signal } = base(controller.signal);
+    const result = await runArena(input, () => {}, signal);
+    expect(result.matches).toEqual([]);
+    expect(arenaRunStatus(result.matches, signal.aborted)).toBe('cancelled');
+  });
+});
+
+describe('arenaRunStatus', () => {
+  const ok = { a: 'x', b: 'y', winner: 'a' as const };
+  const bad = { a: 'x', b: 'y', winner: 'error' as const, error: 'boom' };
+
+  it('is done when every match succeeded or there were none', () => {
+    expect(arenaRunStatus([ok, { ...ok, winner: 'tie' }], false)).toBe('done');
+    expect(arenaRunStatus([], false)).toBe('done');
+  });
+  it('is partial when some matches errored and error when all did', () => {
+    expect(arenaRunStatus([ok, bad], false)).toBe('partial');
+    expect(arenaRunStatus([bad, bad], false)).toBe('error');
+  });
+  it('is cancelled when aborted regardless of errored matches', () => {
+    expect(arenaRunStatus([ok, bad], true)).toBe('cancelled');
   });
 });

@@ -1,29 +1,29 @@
 import {
-  AgentRunner,
-  applyAgentBundleBaseline,
-  createAgentToolResolver,
-  createFixtureToolSourceAdapter,
   type AgentBundle,
+  AgentRunner,
   type AgentSuite,
   type AgentSuiteReport,
   AgentSuiteRunner,
   type AgentToolResolver,
   aggregateJudgeVotes,
+  applyAgentBundleBaseline,
   CallbackProviderAdapter,
+  createAgentToolResolver,
+  createFixtureToolSourceAdapter,
+  evaluateAgentBundleBaseline,
   type GenerationMessage,
   type JudgeFailure,
   type JudgeModelVote,
   type ModelRef,
   ProviderRegistry,
-  evaluateAgentBundleBaseline,
   validateGenerationRequest,
 } from '@shared/agent-lab';
 import type { CompletionResult } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
+import { resolveDesktopGrounding } from './agentGrounding';
+import { createMcpAgentToolSourceAdapter } from './agentMcpTools';
 import { capabilitiesForDesktopModel, knownCostForCompletion } from './agentModelCapabilities';
 import { createResturaRequestToolSourceAdapter } from './agentTools';
-import { createMcpAgentToolSourceAdapter } from './agentMcpTools';
-import { resolveDesktopGrounding } from './agentGrounding';
 import { completeLlm, type LlmCallSpec, specFor } from './llmClient';
 
 type Complete = (
@@ -32,6 +32,50 @@ type Complete = (
 ) => Promise<CompletionResult>;
 
 const DEFAULT_JUDGE_MAX_OUTPUT_TOKENS = 512;
+
+// Desktop IPC limits for one AI Lab call (electron/main/ipc/validators/ai.ts).
+const IPC_MAX_MESSAGES = 200;
+const IPC_MAX_CONTENT_CHARS = 200_000;
+// A single assistant turn may carry up to 64 parallel tool calls (IPC schema).
+const MAX_PAIRED_TOOL_RESULTS = 64;
+const OMITTED_NOTE = '\n\n[Earlier conversation turns were omitted to fit the request size limit.]';
+
+type IpcMessage = ReturnType<typeof text>[number];
+
+/**
+ * Fit a long agent history inside the IPC message limits. Keeps the leading
+ * system/task messages and the most recent turns; a window never starts on a
+ * tool result (it is pulled back to its owning assistant message) so the
+ * provider never sees an orphaned tool call or result.
+ */
+export function windowMessagesForIpc(messages: IpcMessage[]): IpcMessage[] {
+  const clipContent = (content: string, max: number): string =>
+    content.length > max
+      ? `${content.slice(0, max - 200)}\n[truncated: ${content.length} characters exceeded the request size limit]`
+      : content;
+  const clipped = messages.map((m) =>
+    m.content.length > IPC_MAX_CONTENT_CHARS
+      ? { ...m, content: clipContent(m.content, IPC_MAX_CONTENT_CHARS) }
+      : m
+  );
+  if (clipped.length <= IPC_MAX_MESSAGES) return clipped;
+  const firstUser = clipped.findIndex((m) => m.role === 'user');
+  const headEnd = firstUser < 0 ? 0 : firstUser + 1;
+  const budget = IPC_MAX_MESSAGES - headEnd - MAX_PAIRED_TOOL_RESULTS;
+  let start = Math.max(headEnd, clipped.length - budget);
+  while (start > headEnd && clipped[start]?.role === 'tool') start -= 1;
+  const head = clipped.slice(0, headEnd);
+  const first = head[0];
+  if (first?.role === 'system') {
+    // Clip to leave room for the note, so appending it cannot exceed the limit.
+    head[0] = {
+      ...first,
+      content:
+        clipContent(first.content, IPC_MAX_CONTENT_CHARS - OMITTED_NOTE.length) + OMITTED_NOTE,
+    };
+  }
+  return [...head, ...clipped.slice(start)];
+}
 
 function suiteModelRefs(suite: AgentSuite): Array<{ ref: ModelRef; path: string }> {
   return [
@@ -130,7 +174,8 @@ function text(messages: GenerationMessage[]): Array<{
 
 export function createDesktopAgentProviders(
   configs: Record<string, AiLabProviderConfig>,
-  complete: Complete = completeLlm
+  complete: Complete = completeLlm,
+  sendUnredactedToCloud = false
 ): ProviderRegistry {
   return new ProviderRegistry(
     Object.values(configs).map(
@@ -152,11 +197,12 @@ export function createDesktopAgentProviders(
             const unsupported = validateGenerationRequest(request, capabilities);
             if (unsupported.length > 0) throw new Error(unsupported.join('; '));
             const completion = await complete(
-              specFor(config, request.model.model, text(request.messages), {
+              specFor(config, request.model.model, windowMessagesForIpc(text(request.messages)), {
                 ...(request.maxOutputTokens !== undefined
                   ? { maxOutputTokens: request.maxOutputTokens }
                   : {}),
                 ...(request.tools ? { tools: request.tools } : {}),
+                ...(sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
               }),
               context.signal ? { signal: context.signal } : {}
             );
@@ -202,6 +248,8 @@ export async function runDesktopAgentSuite(
     signal?: AbortSignal;
     reportProgress?: (progress: number) => void;
     toolResolver?: AgentToolResolver;
+    /** Local per-suite override (AI Lab store), never read from portable suite data. */
+    sendUnredactedToCloud?: boolean;
   } = {}
 ): Promise<AgentSuiteReport> {
   preflightDesktopAgentSuite(suite);
@@ -213,7 +261,11 @@ export async function runDesktopAgentSuite(
     ]);
   for (const agent of suite.agents) toolResolver.assertSupported(agent.tools);
   const execution = capabilityExecutionMetadata(suite, configs);
-  const providers = createDesktopAgentProviders(configs, options.complete ?? completeLlm);
+  const providers = createDesktopAgentProviders(
+    configs,
+    options.complete ?? completeLlm,
+    options.sendUnredactedToCloud === true
+  );
   const runner = new AgentRunner({
     providers,
     async resolveCredential() {

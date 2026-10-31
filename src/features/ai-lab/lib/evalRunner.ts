@@ -52,6 +52,8 @@ export interface EvalRunInput {
   target?: EvalTarget;
   /** Executor for the `http-exec` target. Required when target is http-exec. */
   runRequest?: RunRequestFn;
+  /** Per-suite override: skip the main-process secret check for cloud providers. */
+  sendUnredactedToCloud?: boolean;
 }
 
 export interface EvalProgress {
@@ -116,7 +118,8 @@ async function scoreCell(
   ctx: Omit<ScorerContext, 'judge' | 'runScript' | 'pairwise'>,
   providers: Record<string, AiLabProviderConfig>,
   modelUnderTest: ModelRef,
-  signal: AbortSignal
+  signal: AbortSignal,
+  sendUnredactedToCloud = false
 ): Promise<EvalCellResult['scores']> {
   const completeFor = (model: ModelRef): JudgeComplete => {
     // Fail closed: a judge that is the model under test grades its own output. The
@@ -132,6 +135,7 @@ async function scoreCell(
           completeLlm(
             specFor(cfg, model.model, messages as LlmChatMessage[], {
               tools: tools as LlmCallSpec['tools'],
+              ...(sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
             }),
             { signal }
           ),
@@ -166,6 +170,7 @@ interface RunCellOptions {
   tools?: AiToolDef[];
   target?: EvalTarget;
   runRequest?: RunRequestFn;
+  sendUnredactedToCloud?: boolean;
   signal: AbortSignal;
 }
 
@@ -197,12 +202,10 @@ async function runCell(
     completion = await completeWithRetry(
       () =>
         completeLlm(
-          specFor(
-            cfg,
-            modelRef.model,
-            buildMessages(prompt, c),
-            opts.tools ? { tools: opts.tools } : {}
-          ),
+          specFor(cfg, modelRef.model, buildMessages(prompt, c), {
+            ...(opts.tools ? { tools: opts.tools } : {}),
+            ...(opts.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
+          }),
           { signal: opts.signal }
         ),
       { signal: opts.signal }
@@ -314,7 +317,8 @@ async function runCell(
       },
       providers,
       modelRef,
-      opts.signal
+      opts.signal,
+      opts.sendUnredactedToCloud
     );
   } catch (e) {
     return {
@@ -378,6 +382,7 @@ export async function runEval(
         ...(input.tools ? { tools: input.tools } : {}),
         ...(input.target ? { target: input.target } : {}),
         ...(input.runRequest ? { runRequest: input.runRequest } : {}),
+        ...(input.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
         signal,
       }
     );

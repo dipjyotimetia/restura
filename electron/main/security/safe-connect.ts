@@ -44,11 +44,17 @@ export interface SafeAddress {
 export interface ResolveOptions extends DnsGuardOptions {
   /** Default port for the scheme (80 / 443) when the URL omits it. */
   defaultPort?: number;
+  /**
+   * Pick the first record of this family when the name resolves to both. Every
+   * record is still validated first, so this only chooses among allowed ones.
+   */
+  preferFamily?: 4 | 6;
 }
 
 /**
  * Resolve a URL once, validate every returned record via the shared SSRF
- * policy (any disallowed record throws), then return the first record.
+ * policy (any disallowed record throws), then return the first record (of
+ * `preferFamily`, when set).
  * Fails closed: a single bad record rejects the whole resolution rather
  * than silently picking a passing sibling.
  */
@@ -70,6 +76,16 @@ export async function resolveSafeAddress(
     throw new Error(`Refusing to connect to cloud metadata endpoint: ${host}`);
   }
 
+  if (options.localRuntime) {
+    // Local-runtime kinds: literals and resolved hostnames share one address
+    // policy (assertHostnameSafe). URL.hostname brackets IPv6 literals; isIP
+    // needs them bare. Scoped to this opt-in so other callers are unchanged.
+    const bare = host.replace(/^\[(.*)\]$/, '$1');
+    const records = await assertHostnameSafe(bare, options);
+    const chosen = records[0];
+    if (!chosen) throw new Error(`DNS resolution returned no records for ${host}`);
+    return { host: bare, ip: chosen.address, port, family: chosen.family === 6 ? 6 : 4 };
+  }
   // Literal IPs short-circuit DNS entirely. Validate per the shared policy
   // (the same call assertHostnameSafe makes internally). The literal-host
   // carve-out for private addresses applies when the caller permits localhost
@@ -93,7 +109,7 @@ export async function resolveSafeAddress(
   if (records.length === 0) {
     throw new Error(`DNS resolution returned no records for ${host}`);
   }
-  const chosen = records[0]!;
+  const chosen = records.find((record) => record.family === options.preferFamily) ?? records[0]!;
   return {
     host,
     ip: chosen.address,

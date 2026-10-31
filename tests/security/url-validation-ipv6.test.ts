@@ -1,9 +1,57 @@
 import {
   isCloudMetadataHost,
+  isLinkLocalAddress,
   isLoopbackAddress,
+  isRfc1918Address,
   validateURL,
 } from '@shared/protocol/url-validation';
 import { describe, expect, it } from 'vitest';
+
+describe('link-local and RFC1918 classification (#1033)', () => {
+  it.each([
+    '169.254.169.254',
+    '169.254.170.2',
+    'fe80::1',
+    '[FE80::abcd]',
+    'febf::1',
+    '::ffff:169.254.169.254',
+    '2002:a9fe:a9fe::',
+    '64:ff9b::a9fe:a9fe',
+  ])('treats %s as link-local', (address) => {
+    expect(isLinkLocalAddress(address)).toBe(true);
+  });
+
+  it.each(['8.8.8.8', '10.0.0.1', '::1', '2001:db8::1', 'fec0::1', 'not-an-ip', '::ffff:10.0.0.1'])(
+    'does not treat %s as link-local',
+    (address) => {
+      expect(isLinkLocalAddress(address)).toBe(false);
+    }
+  );
+
+  it.each([
+    '10.1.2.3',
+    '172.16.0.1',
+    '172.31.255.255',
+    '192.168.0.1',
+    '::ffff:10.0.0.1',
+    '[::ffff:c0a8:1]',
+    '2002:c0a8:101::',
+  ])('treats %s as RFC1918', (address) => {
+    expect(isRfc1918Address(address)).toBe(true);
+  });
+
+  it.each([
+    '172.15.0.1',
+    '172.32.0.1',
+    '192.169.0.1',
+    '8.8.8.8',
+    '127.0.0.1',
+    'fd00::1',
+    'host.example',
+  ])('does not treat %s as RFC1918', (address) => {
+    expect(isRfc1918Address(address)).toBe(false);
+  });
+});
 
 const check = (host: string, opts: Parameters<typeof validateURL>[1]) =>
   validateURL(`kafka://${host}:9092`, { allowedSchemes: ['kafka:'], ...opts }).valid;
