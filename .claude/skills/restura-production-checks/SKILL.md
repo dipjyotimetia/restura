@@ -17,7 +17,7 @@ Run `npm run validate` — `validate:static` (toolchain, tooling tests, `type-ch
 
 ## Top gotchas (the reason this skill exists)
 
-1. **`npm run type-check` only covers the renderer.** The root `tsconfig.json` runs bare `tsc --noEmit` and **excludes `worker`, `electron/main`, and `cli`**. A clean `type-check` says nothing about whether the Electron main process, the Worker, the CLI, the echo server, or the http feature compiles. **Always use `npm run type-check:all`** — it runs every checked tsconfig project (renderer, tooling, electron, http feature, worker, echo, echo-local, cli, extension, vscode) the way CI does. This is now chained into `validate`. If you see someone run plain `type-check` to "confirm it compiles," that's the trap.
+1. **`npm run type-check` only covers the renderer.** The root `tsconfig.json` runs bare `tsc --noEmit` and **excludes `worker`, `electron/main`, and `cli`**. A clean `type-check` says nothing about whether the Electron main process, the Worker, the CLI, the echo server, or the http feature compiles. **Always use `npm run type-check:all`** — it runs every checked tsconfig project (renderer, tooling, electron, http feature, worker, echo, echo-local, cli, extension, vscode) the way CI does. This is chained into `validate`. If you see someone run plain `type-check` to "confirm it compiles," that's the trap.
 
 2. **Commits are not type-checked.** `.husky/pre-commit` runs `guard-staged.mjs` and `lint-staged` (Biome on _staged_ files only). Only `.husky/pre-push` runs `type-check:related` (touched projects) and `architecture:check`. Type errors can land in commits; never treat "it committed cleanly" as "it type-checks." Run `type-check:all` yourself.
 
