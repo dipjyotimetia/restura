@@ -134,18 +134,29 @@ An **agent suite** evaluates a multi-step agent against repeatable tasks rather 
 
 ### Providers and capabilities
 
-Desktop suites use OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible providers through the encrypted Electron bridge. Model capabilities start conservative; Restura uses trusted catalog data where available and otherwise requires an explicit user assertion before it enables a capability such as tool calling. Gemini, Azure OpenAI, and Bedrock profiles are not shipped agent transports.
+Desktop suites use OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, generic OpenAI-compatible, Azure OpenAI, Google Gemini, and Amazon Bedrock providers through the encrypted Electron bridge. Model capabilities start conservative; Restura uses trusted catalog data where available and otherwise requires an explicit user assertion before it enables a capability such as tool calling.
+
+- **Azure OpenAI** uses the v1 API at your resource URL (`https://{resource}.openai.azure.com`) with an `api-key`; the model is your deployment name.
+- **Google Gemini** uses the Gemini API with an API key sent as a header, never in the URL. **Fetch models** lists the chat-capable models.
+- **Amazon Bedrock** uses the Converse API. Store either a Bedrock API key, or IAM credentials as JSON (`{"accessKeyId":…,"secretAccessKey":…,"sessionToken":…}`), which are signed with SigV4 in the main process. Pick a region by setting the base URL to `https://bedrock-runtime.{region}.amazonaws.com`. Enter model ids by hand; the runtime endpoint has no model list.
+
+These three have no static price table, so their cost shows as unknown.
 
 ### Tools, grounding, and approval
 
 - **Saved HTTP requests** run through Restura's normal request executor and its SSRF, auth, and cancellation boundaries. Only unscripted `GET`, `HEAD`, and `OPTIONS` requests are read-only; all other requests, and any request with executable scripts, require explicit per-call approval.
 - **MCP tools** reuse a saved MCP profile with fresh desktop-owned sessions, existing SSRF/DNS protections, tool allowlists, cancellation, and approval.
 - **Grounding** is selected explicitly and recorded with provenance in the trace. Saved reports are bounded and sanitized before persistence or export.
-- The sandbox contract is present for future providers, but **no Docker or hosted sandbox provider ships today**.
+- **Code sandbox.** Add `{ "kind": "sandbox", "sandboxId": "quickjs" }` to give the agent a `run_code_quickjs` tool. It runs JavaScript in a fresh QuickJS WASM runtime per call with the script memory and time caps, and no network, filesystem, timers or `pm`. Output is bounded. Because it cannot reach the host, calls need no approval. A Docker/Podman provider is planned.
+- **Remote agents (A2A).** `{ "kind": "a2a", "endpoint": "https://…" }` exposes a remote Agent2Agent agent as one tool, described from its agent card. Calls go through the request executor and its SSRF guard, and each call needs approval. The card's RPC URL must stay on the endpoint's origin.
 
 ### CI boundary
 
-`restura agent eval` runs versioned suites and portable Agent Bundles in CI. It supports stateless OpenAI Responses and Anthropic Messages, environment credentials, deterministic fixture tools, and fail-closed baseline gates. Live tools must be explicitly listed in a runtime manifest; HTTP is limited to manifest-listed `GET` / `HEAD` / `OPTIONS` requests and MCP sources must be declared read-only with a tool allowlist. The CLI refuses desktop secret handles, suite base-URL overrides, judge graders, and sandbox providers. See [CLI — Agent eval](/reference/cli/#agent-eval) for the command contract.
+`restura agent eval` runs versioned suites and portable Agent Bundles in CI. It supports stateless OpenAI Responses, Anthropic Messages, Azure OpenAI, Gemini and Bedrock with environment credentials, deterministic fixture tools, the QuickJS sandbox, and fail-closed baseline gates. Live tools must be explicitly listed in a runtime manifest: HTTP is limited to manifest-listed `GET` / `HEAD` / `OPTIONS` requests, and MCP and A2A sources must be declared read-only (MCP also needs a tool allowlist). The CLI refuses desktop secret handles, suite base-URL overrides and agent judge graders. See [CLI — Agent eval](/reference/cli/#agent-eval) for the command contract.
+
+### Dataset evals in CI
+
+**Evals → Export for CLI** downloads the current eval as a `.eval.json` file for [`restura eval run`](/reference/cli/#dataset-eval). The file holds the prompt, dataset, scorers and models, but no API keys: each endpoint names the environment variable the CLI reads its key from. The CLI scores with the same code as the desktop, judges included, and exits `0` only when the share of passing cells meets the eval's pass threshold. The `http-exec` target and the Arena stay desktop-only.
 
 ### Agent telemetry export
 

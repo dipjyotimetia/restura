@@ -39,10 +39,7 @@ describe('public product tree', () => {
     ]);
     expect(findFeatures('', 'planned', 'ai').map((feature) => feature.id)).toEqual([
       'ai-web',
-      'agent-providers',
-      'a2a-tools',
       'decision-models',
-      'cli-evals',
     ]);
     expect(findFeatures('')).toEqual(features);
   });

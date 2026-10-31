@@ -682,37 +682,28 @@ export const features: Feature[] = [
     'ai',
     'agent-providers',
     'More agent model providers',
-    'Run agent suites and evals against Azure OpenAI, Amazon Bedrock, and Gemini.',
-    'planned',
+    'Run agent suites and evals against Azure OpenAI, Amazon Bedrock (API key or SigV4-signed IAM credentials), and Gemini.',
+    'shipped',
     ['Desktop', 'CLI'],
     '/guides/ai-lab/',
-    ['agent-suites'],
-    {
-      today: 'Adapter profiles describe all three providers, but none has a shipped transport yet.',
-      milestones: [
-        done('Adapter profiles for Gemini, Azure OpenAI, and Bedrock'),
-        todo('Azure OpenAI transport on desktop and CLI', 1044),
-        todo('Bedrock with request signing on desktop and CLI', 1044),
-        todo('Gemini transport on desktop and CLI', 1044),
-      ],
-    }
+    ['agent-suites']
   ),
   entry(
     'ai',
     'agent-sandboxes',
     'Agent code sandboxes',
-    'Explore letting evaluated agents run code in an isolated sandbox, starting with the built-in script sandbox.',
-    'exploring',
-    desktop,
+    'Let evaluated agents run code in an isolated sandbox: the built-in script sandbox today, an opt-in container next.',
+    'in-progress',
+    ['Desktop', 'CLI'],
     '/guides/ai-lab/',
     ['agent-suites'],
     {
       today:
-        'The sandbox provider contract and registry are implemented; no provider ships, and the CLI refuses sandbox sources.',
+        'The QuickJS provider runs agent JavaScript on desktop and in the CLI, with no network, filesystem or timers.',
       milestones: [
         done('Sandbox provider contract and registry'),
-        todo('Script sandbox provider on desktop and CLI', 1042),
-        todo('Threat model and design record'),
+        done('Script sandbox provider on desktop and CLI'),
+        done('Threat model and design record'),
         todo('Opt-in local container provider on desktop', 1055),
       ],
     }
@@ -722,19 +713,10 @@ export const features: Feature[] = [
     'a2a-tools',
     'Remote agents as tools',
     'Let agent suites call remote agents over the Agent2Agent (A2A) protocol as tools.',
-    'planned',
+    'shipped',
     ['Desktop', 'CLI'],
     '/guides/ai-lab/',
-    ['agent-suites'],
-    {
-      today: 'Suites can declare an A2A tool source, but no client is wired on desktop or the CLI.',
-      milestones: [
-        done('A2A tool source in the suite schema'),
-        todo('Shared A2A client behind the outbound address guard', 1043),
-        todo('Desktop adapter with approval for remote calls', 1043),
-        todo('CLI adapter', 1043),
-      ],
-    }
+    ['agent-suites']
   ),
   entry(
     'ai',
@@ -778,18 +760,10 @@ export const features: Feature[] = [
     'cli-evals',
     'Dataset evals in CI',
     'Run AI Lab dataset evals, including judge scorers, from the CLI with a pass threshold as the exit code.',
-    'planned',
+    'shipped',
     ['CLI'],
     undefined,
-    ['ai-lab', 'cli'],
-    {
-      today: 'The CLI runs agent suites only and refuses judge scorers.',
-      milestones: [
-        todo('Design record for judges in the CLI', 1048),
-        todo('Eval run command with desktop provider parity', 1045),
-        todo('Per-eval pass threshold as the exit code', 1024),
-      ],
-    }
+    ['ai-lab', 'cli']
   ),
   entry(
     'ai',

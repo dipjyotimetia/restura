@@ -282,7 +282,7 @@ restura agent eval ./orders.agent-bundle.json --output agent-report.json
 | `--allow-localhost` | `false` | Permit localhost saved-request targets. |
 | `--telemetry-config <file>` | | Metadata-only Langfuse or OTLP export; credentials must be environment references. The collector hostname is resolved once and every address validated: private, link-local, metadata, and loopback-via-hostname results exit `2` before the run. |
 
-The CLI is intentionally narrower than the desktop AI Lab: it supports stateless OpenAI Responses and Anthropic Messages with environment credentials, deterministic fixtures, and an optional runtime manifest for selected saved HTTP and MCP tools. It refuses desktop secret handles, arbitrary base URLs, judge graders, and sandbox providers. A runtime manifest can only expose explicitly listed read-only HTTP requests and read-only MCP tools with an allowlist; `--allow-localhost` remains off by default.
+The CLI is intentionally narrower than the desktop AI Lab. It supports stateless OpenAI Responses, Anthropic Messages, Azure OpenAI (`azure.openai`), Gemini (`google.generateContent`) and Bedrock (`aws.bedrock.converse`) with environment credentials, deterministic fixtures, the QuickJS code sandbox (`sandboxId: "quickjs"`), and an optional runtime manifest for selected saved HTTP, MCP and A2A tools. Azure and Bedrock endpoints come from the manifest's `providerEndpoints`, never from the suite. It refuses desktop secret handles, suite base URLs and agent judge graders. A runtime manifest can only expose explicitly listed read-only HTTP requests, read-only MCP tools with an allowlist, and A2A endpoints marked `readOnly: true`. `--allow-localhost` stays off by default.
 
 Cost budgets (`limits.maxCostUSD`) and `cost` graders need a known price. OpenAI and Anthropic models in Restura's shared price table are costed from reported usage; cached tokens with no known cache rate make the cost unknown rather than guessed. A suite using a budget or cost grader on an unpriced model exits `2` unless the runtime manifest prices it:
 
@@ -297,6 +297,25 @@ Cost budgets (`limits.maxCostUSD`) and `cost` graders need a known price. OpenAI
 ```
 
 A policy profile (`agents[].policyId`) exits `2` unless it has `ciEligible: true` (default `false`) and `autoApprove` contains only `read`. Suites that reference no profile are unaffected. See the [CLI README](https://github.com/dipjyotimetia/restura/blob/main/cli/README.md) for the other refusals.
+
+## Dataset eval
+
+`restura eval run <file.eval.json>` runs an AI Lab dataset eval exported with **Evals → Export for CLI**. Judge and pairwise scorers are allowed ([ADR 0038](/architecture/adrs/0038-cli-judges-and-dataset-evals/)). Keys come from the environment variables the file names per endpoint.
+
+```bash
+OPENAI_API_KEY=... ANTHROPIC_API_KEY=... restura eval run ./support.eval.json --junit eval.xml --max-cost 2
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--output <file>` | | Write the full JSON report: every cell, output and score. |
+| `--junit <file>` | | Write JUnit XML, one test case per case × model. |
+| `--max-cost <usd>` | | Stop once model + judge spend reaches this amount. Unpriced models are refused up front. |
+| `--split <split>` | | Run only the `train` or `test` cases. |
+| `--concurrency <n>` | file | Override the file's concurrency (1-32). |
+| `--allow-localhost` | `false` | Permit local runtime endpoints (Ollama, OpenAI-compatible). |
+
+Exit codes: `0` when the share of passing scored cells meets the eval's pass threshold (default 100%), `1` below it, on Ctrl-C, or when `--max-cost` is reached (a partial report is still written), and `2` for invalid input before any model call (a malformed file, a missing key, an unsafe endpoint, self-judging, no scorers, or `--max-cost` on an unpriced model). With judge scorers, set a pass threshold below 100%: judges are stochastic. The `http-exec` target is desktop-only.
 
 <Aside type="caution" title="Treat trace reports as sensitive">
 `--output` writes the full local trace report, which can contain task inputs and model or tool outputs. Store and expire it according to your CI artifact policy.

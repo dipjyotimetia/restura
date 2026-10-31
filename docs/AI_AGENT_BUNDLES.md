@@ -40,5 +40,6 @@ regresses. Full reports include the sanitized agent trace and bundle gate
 results. Bundles reject `secret-handle` credentials; use environment credential
 references instead. Controlled live checks require an explicit runtime manifest:
 saved HTTP requests and MCP tools must be read-only and explicitly allowlisted.
-The CLI still refuses write-capable tools, base-URL overrides, judge graders,
-and sandbox providers.
+The CLI still refuses write-capable tools, base-URL overrides and judge
+graders. The QuickJS sandbox (`sandboxId: "quickjs"`) is allowed: it has no
+host I/O. A2A tool sources need a runtime-manifest entry with `readOnly: true`.
