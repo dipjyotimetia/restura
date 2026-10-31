@@ -44,11 +44,17 @@ export interface SafeAddress {
 export interface ResolveOptions extends DnsGuardOptions {
   /** Default port for the scheme (80 / 443) when the URL omits it. */
   defaultPort?: number;
+  /**
+   * Pick the first record of this family when the name resolves to both. Every
+   * record is still validated first, so this only chooses among allowed ones.
+   */
+  preferFamily?: 4 | 6;
 }
 
 /**
  * Resolve a URL once, validate every returned record via the shared SSRF
- * policy (any disallowed record throws), then return the first record.
+ * policy (any disallowed record throws), then return the first record (of
+ * `preferFamily`, when set).
  * Fails closed: a single bad record rejects the whole resolution rather
  * than silently picking a passing sibling.
  */
@@ -103,7 +109,7 @@ export async function resolveSafeAddress(
   if (records.length === 0) {
     throw new Error(`DNS resolution returned no records for ${host}`);
   }
-  const chosen = records[0]!;
+  const chosen = records.find((record) => record.family === options.preferFamily) ?? records[0]!;
   return {
     host,
     ip: chosen.address,

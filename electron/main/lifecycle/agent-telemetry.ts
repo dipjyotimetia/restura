@@ -136,7 +136,13 @@ export async function pinTelemetryEndpoint(endpoint: string): Promise<SafeAddres
   if (hostname === '[::1]') {
     return resolveSafeAddress(endpoint, { allowLocalhost: true, localRuntime: true });
   }
-  return resolveSafeAddress(endpoint, { allowLocalhost: isLoopbackAddress(hostname) });
+  // `localhost` often resolves ::1 first while collectors commonly bind only
+  // 127.0.0.1; the pin removes Node's dual-stack fallback, so prefer IPv4.
+  const loopback = isLoopbackAddress(hostname);
+  return resolveSafeAddress(endpoint, {
+    allowLocalhost: loopback,
+    ...(loopback ? { preferFamily: 4 } : {}),
+  });
 }
 
 async function createSpanProcessor(

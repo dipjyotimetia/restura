@@ -65,6 +65,25 @@ describe('AI Lab telemetry export endpoint guard (#1034)', () => {
     await expect(pinTelemetryEndpoint('http://[fd00::5]:4318/')).rejects.toThrow();
   });
 
+  it('pins localhost to its IPv4 record when it resolves ::1 first', async () => {
+    // A collector bound to 127.0.0.1 is unreachable over ::1, and the pin
+    // removes Node's happy-eyeballs fallback to the other family.
+    resolvesTo('::1', '127.0.0.1');
+    await expect(pinTelemetryEndpoint('http://localhost:4318/v1/traces')).resolves.toMatchObject({
+      host: 'localhost',
+      ip: '127.0.0.1',
+      family: 4,
+    });
+  });
+
+  it('still pins localhost to ::1 when that is its only record', async () => {
+    resolvesTo('::1');
+    await expect(pinTelemetryEndpoint('http://localhost:4318/')).resolves.toMatchObject({
+      ip: '::1',
+      family: 6,
+    });
+  });
+
   it('still allows the explicit loopback HTTP collector', async () => {
     await expect(pinTelemetryEndpoint('http://127.0.0.1:4318/v1/traces')).resolves.toMatchObject({
       ip: '127.0.0.1',
