@@ -21,7 +21,6 @@ export const SCRIPTS_CAPABILITIES = {
   },
   'scripts.setNextRequest': {
     label: 'rs.execution.setNextRequest / skipRequest runner flow control',
-    notes: 'skipRequest in the app Collection run covers HTTP; gRPC and MCP items still send',
     web: true,
     desktop: true,
   },

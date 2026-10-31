@@ -130,7 +130,7 @@ export interface RunProgress {
 const STREAMING_PROTOCOLS = new Set(['sse', 'websocket', 'socketio', 'kafka']);
 
 /** Protocols that stop before sending when a pre-request script calls `skipRequest()`. */
-const HONORS_SKIP_REQUEST = new Set(['http']);
+const HONORS_SKIP_REQUEST = new Set(['http', 'grpc', 'mcp']);
 
 /**
  * Fired after each executed request so callers can mirror the request into the

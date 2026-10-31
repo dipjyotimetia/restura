@@ -29,7 +29,10 @@ import {
 } from '@/features/auth/lib/resolveInheritedAuthFor';
 import type { RunContext } from '@/features/registry/types';
 import type { PmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
-import { readPmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
+import {
+  readPmRunContextOptions,
+  skippedPlaceholderResponse,
+} from '@/features/scripts/lib/pmRunContextOptions';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
@@ -303,6 +306,12 @@ export async function runMcpRequest(
       request: scriptRequestContext(injectMcpVariables(rawRequest, scriptEnvVars) as McpRequest),
     });
     absorbScriptMutations(preRequestResult, scriptEnvVars);
+    // `pm.execution.skipRequest()` in a Collection run: nothing is sent and no
+    // test script runs.
+    if (opts.honorSkipRequest && preRequestResult.execution?.skipRequested) {
+      report();
+      return skippedPlaceholderResponse(rawRequest.id);
+    }
   }
 
   // Resolve with the post-pre-request variables so a script can set the

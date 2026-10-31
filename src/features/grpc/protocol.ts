@@ -31,7 +31,10 @@ import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule } from '@/features/registry/types';
 import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
 import type { PmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
-import { readPmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
+import {
+  readPmRunContextOptions,
+  skippedPlaceholderResponse,
+} from '@/features/scripts/lib/pmRunContextOptions';
 import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHost';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
@@ -295,6 +298,13 @@ export const grpcProtocol: ProtocolModule = {
     const pre = await runGrpcPreRequestScript(request, variables, opts);
     const { scriptEnvVars, scriptInfo, preRequestResult } = pre;
     request = pre.request;
+
+    // `pm.execution.skipRequest()` in a Collection run: nothing is sent and no
+    // test script runs.
+    if (opts.honorSkipRequest && preRequestResult?.execution?.skipRequested) {
+      ctx.onScriptResult?.({ preRequest: preRequestResult });
+      return skippedPlaceholderResponse(request.id);
+    }
 
     let response: GrpcResponse;
     let streamMessages: unknown[] | undefined;
