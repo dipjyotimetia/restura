@@ -16,13 +16,13 @@ Point Restura at any MCP server and explore it like any other request target.
 - **`stdio`** transport <Badge text="desktop only" variant="caution" /> — start a local MCP server (`npx`, `uvx`, `docker run`, a binary) and talk to it over stdin/stdout. See [Local servers over stdio](#local-servers-over-stdio).
 - **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at connect time.
 - **List tools** — see the server's exposed tool catalogue with schemas.
-- **Invoke a tool** — fill in the JSON schema, send, watch the streamed result.
+- **Invoke a tool** — fill in the JSON schema (the form validates arguments before sending), send, and inspect the result. A tool call returns one result; on desktop, progress and log messages for an in-flight call show in the [Events tab](#server-notifications-and-resource-subscriptions).
 - **Result view** — Pretty / Raw / Tree, a JSONPath query, find, copy, and download for every tool result or error payload.
 - **Tool titles and hints** — discovery shows each tool's display `title` and its `annotations` as badges (read-only, destructive, idempotent, open-world). Hints are declared by the server and are not verified; invoking a tool marked `destructiveHint: true` (and not read-only) asks for confirmation first.
 - **Tool errors vs protocol errors** — a tool that fails reports `isError: true` inside a successful response; the result panel and call log show it as a red **TOOL ERROR**, distinct from a **PROTOCOL ERROR** (JSON-RPC or transport failure). `restura run` also fails the item for a tool error and words the message differently from a JSON-RPC error.
 - **Structured output** — when a tool declares an `outputSchema`, the result panel validates `structuredContent` against it and flags mismatches (or a missing `structuredContent`); you can view `structuredContent` on its own.
 - **Connection headers** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; values resolve `{{variables}}`.
-- **List prompts / list resources** — for servers that expose them.
+- **List prompts / list resources** — for servers that expose them. Lists follow `nextCursor` pagination automatically. **Read** a resource to see its contents, or **Get** a prompt (filling in its arguments) to see the messages it returns; each call appears in the Log tab.
 - **Resource templates** — when the server advertises `resources`, a Templates tab lists `resources/templates/list`. Selecting one opens a form with a field per RFC 6570 URI-template variable (levels 1–3, values percent-encoded), a live preview of the expanded URI, and Read.
 - **Argument completion** — when the server advertises `completions`, prompt arguments and template parameters suggest values via `completion/complete` (debounced, previously entered arguments sent as context).
 - **Log level and ping** — a Ping action shows the round-trip time; when the server advertises `logging`, a picker sends `logging/setLevel`. Both calls appear in the Log tab. These work on web, self-hosted, and desktop.
@@ -200,7 +200,7 @@ Restura opens and closes `subscriptions/listen` streams itself, so you can't sen
 
 The web and self-hosted builds don't have these features. Their Worker proxy handles only one response per request, so the server has no channel to push events to the browser.
 
-The same URL validation, DNS pinning, header policy, and Electron IPC validation apply before the SDK is allowed to connect.
+The same URL validation, pre-flight DNS check, header policy, and Electron IPC validation apply before the SDK is allowed to connect. MCP connections are not pinned to the address that was checked; see [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/) for the residual risk.
 
 ### Cancelling a call
 

@@ -1,6 +1,6 @@
 ---
 title: AI assistant
-description: Chat with OpenAI, Anthropic, or OpenRouter — with the current request and response as context. Secrets and URLs redacted at the wire.
+description: Chat with OpenAI, Anthropic, or OpenRouter — with the current request and response as context. Secrets in headers, bodies and environment values are redacted before anything is sent.
 ---
 
 import { Badge, Aside } from '@astrojs/starlight/components';
@@ -19,14 +19,14 @@ For each provider, paste your **own API key** (stored as a `SecretRef`, never pl
 
 When you invoke a chat that references the current request, Restura builds a **context snapshot**:
 
-- The request URL (path only — host is redacted).
+- The request URL, **as written** — the host and path are sent to the provider. Environment-variable values of 8+ characters that appear in it are replaced with `[REDACTED]`.
 - The request method and selected protocol.
 - Headers (sensitive ones — `Authorization`, `Cookie`, `X-Api-Key` — redacted).
 - The request body (JSON pretty-printed, large blobs truncated).
 - The response status, headers, and body (with the same redaction rules).
 - The active environment name (variables not exposed).
 
-The snapshot is what goes to the provider. Secrets and absolute URLs are stripped before the prompt is sent.
+The snapshot is what goes to the provider. Secrets in headers and bodies and environment-variable values are redacted before the prompt is sent, but **hostnames and URLs are not**: don't ask the assistant about requests whose internal hostnames you don't want a third-party model provider to see.
 
 ## Where it runs
 

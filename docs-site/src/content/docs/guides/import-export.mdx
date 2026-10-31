@@ -27,10 +27,33 @@ Restura imports from the major API client formats and exports to **OpenCollectio
   <Card title="Bruno" icon="seti:folder">
     Both legacy `.bru` files in a directory (read as a whole tree) and Bruno 3.1+ collections, the latter via Bruno's OpenCollection export.
   </Card>
+  <Card title=".http / .rest files" icon="seti:json">
+    VS Code REST Client and JetBrains HTTP Client files: `###`-separated requests, `@name` annotations and file-level `@var = value` become requests and environment variables. JetBrains `< {% %}` / `> {% %}` script blocks are kept as pre-request and test scripts, with a warning in the import report because the JetBrains script API differs from `rs.*`.
+  </Card>
+  <Card title="HAR" icon="seti:json">
+    Browser or proxy captures. You choose which entries to import in the review step (state-changing methods are flagged), and credentials in captured headers and bodies are redacted before they reach the review.
+  </Card>
+  <Card title="cURL" icon="seti:shell">
+    Paste a cURL command into a request's URL bar to fill in method, URL, headers, body and settings such as `-L`, `-k` and `--max-time`. Shell expansions, substitutions and local-file reads are never evaluated.
+  </Card>
+  <Card title="Postman environments" icon="seti:json">
+    `*.postman_environment.json` files import as environments. Secret variables keep their value on desktop; in the browser the value is dropped and the import warnings list the keys to re-enter.
+  </Card>
   <Card title="OpenCollection" icon="open-book">
     Native format — both the bundled YAML file and the directory layout. Round-trips HTTP, GraphQL, gRPC, SSE, and MCP requests with their auth, scripts, and folders — see the [round-trip guarantees and known gaps](/reference/opencollection/#round-trip-guarantees).
   </Card>
 </CardGrid>
+
+### What doesn't survive an import
+
+Everything dropped or approximated is reported where the importer can see it, but a few cases are lossy:
+
+| Source | What happens |
+|---|---|
+| Insomnia v4 | Only HTTP/GraphQL `request` resources are read. gRPC and WebSocket requests in the export are ignored. |
+| Insomnia v5 | A node without children is treated as a request, so gRPC and WebSocket requests are imported as plain HTTP requests and won't work as such. |
+| Bruno `.bru` | `grpc` and `ws` request types import as HTTP requests, with a `platform-unsupported` warning naming each one. |
+| Postman | Unsupported auth (hawk, jwt, edgegrid, asap, azure, sasl, akamai) becomes no auth — see [Postman import](#postman-import). |
 
 ### Desktop deep-link imports
 
@@ -53,6 +76,8 @@ From the collection menu:
 - **Postman v2.1 (single file · Newman)** — one JSON file for Newman and other v2.1 tooling. See [Postman v2.1 export](#postman-v21-export).
 - **Insomnia** — for sharing with Insomnia users.
 - **Bruno** (`.bru` archive) — for sharing with Bruno users.
+
+Exporting to a format that can't hold some of your requests (Postman v2.1 has no item kind for gRPC, SSE, MCP, Kafka, MQTT or WebSocket, for instance) lists what was left out in an export report, so nothing disappears silently.
 
 On desktop you can also **Save to Files / Sync to Disk** to write the collection as an OpenCollection **directory layout** — one file per request, friendly for `git`.
 

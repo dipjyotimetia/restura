@@ -37,10 +37,36 @@ import { Badge } from '@astrojs/starlight/components';
 
   The OAuth client secret and AWS keys are stored as OS-keychain handles scoped to Kafka; the UI never reads them back. SASL passwords, static OAuth tokens, TLS key passphrases and Schema Registry passwords / tokens are stored the same way — as main-process secret handles bound to the connection — and the connect request carries only the handle; the desktop main process resolves it just before dialling. If a stored credential is gone, connect fails with *Stored Kafka credential is missing — re-enter it* rather than sending an empty value. Values saved by older versions move into a handle the first time the connection is used.
 - **TLS** — pick `SSL` for TLS without SASL (encryption plus optional client-certificate mTLS), or layer it under `SASL_SSL`; server certificate validation either way. The CA, certificate and key files you pick are read by the desktop main process at connect (only from your home, documents or app-data folders, and never from credential directories such as `~/.ssh`), so key material never passes through the UI.
-- **Compression** — gzip / snappy / lz4 / zstd negotiated automatically.
+- **Compression** — choose `none`, gzip, snappy, lz4 or zstd in the producer; it isn't negotiated automatically.
 - **Save to a collection** — **Save to Collection** on a Kafka tab stores a shareable *connection preset* (brokers, auth mode, TLS paths, client id, produce topic / key / payload template / headers, consumer group and topics). Opening it from the sidebar opens this panel prefilled. Passwords, OAuth tokens and key passphrases stay in the encrypted secret-handle store — copied between the connection and the preset inside the main process — and are never exported. See [Kafka and MQTT connection presets](/guides/collections/#kafka-and-mqtt-connection-presets).
 - **`{{variables}}`** — bootstrap brokers (at connect), consumer group and topics (at subscribe), and the produced topic, key, value and header names/values (at send) are resolved with the same scopes as HTTP. In **JSON** mode a value substituted inside a string literal is JSON-escaped. Unresolved names are sent literally and flagged in the message log; secret values are masked in the logged copy.
 - **Confluent Schema Registry** — point a connection at a registry URL (HTTP Basic or Bearer auth, HTTPS with your custom CA / mTLS); produce schema-encoded **keys and values** by **subject + version** (or `latest`) or by raw schema ID, browse subjects and view schemas, and consume with automatic Avro / Protobuf / JSON decode of both. Powered by `@kafkajs/confluent-schema-registry`. See [Schema Registry](#schema-registry).
+
+## Producing, consuming and administering
+
+**Producer** (produce tab)
+
+- **Modes** — **Single** record, **Batch** (a JSON array of typed records sent together), **Stream** (open a stream and keep sending) and **Transaction** (records sent atomically in a transaction).
+- **Acks** — pick `0`, `1` or `-1` (all). **Idempotent producer** turns on exactly-once-per-partition de-duplication and locks acks to `-1`; reconnect to apply it.
+- **Compression** — per produce, as above.
+
+**Consumer** (consume tab)
+
+- **Commit** — automatic, or **Manual per message** (a commit button on each delivered record).
+- **Isolation** — read uncommitted or **Read committed**.
+- **Group protocol** — **Classic**, or **Consumer** (the KIP-848 protocol; needs a broker that supports it).
+- **Pause / resume and seek** — see [What works](#what-works). Lag and rebalance events are shown for consumer-group mode.
+
+**Admin** (desktop only, per connection)
+
+- **Topics** — create and delete topics, and the topic inspector's partition watermarks and broker config.
+- **Advanced admin** (collapsed sections under the admin panel):
+  - **Cluster metadata** — describe the cluster (brokers, controller, ID).
+  - **Advanced topic operations** — increase a topic's partition count and alter topic configs (both with a *Validate* dry run before *Apply*), and delete records before an offset on a partition.
+  - **ACLs** — describe, create and delete ACLs from typed ACL/filter JSON.
+  - **Client quotas** — describe, validate and apply quotas for an entity.
+
+Admin actions run with the connection's own credentials, so the broker's ACLs decide what succeeds.
 
 ## Schema Registry
 
@@ -91,7 +117,7 @@ The global connection policy is applied to **every** bootstrap broker, not just 
 
 ## Tips
 
-- Set the **client ID** (defaults to `restura`) to make your activity easy to spot in broker logs.
+- Set the **client ID** (defaults to `restura-<first 8 characters of the connection id>`) to make your activity easy to spot in broker logs.
 - For schema-encoded payloads, set the connection's **Schema Registry URL**, then pick a **value** and/or **key** subject (or schema ID) when producing — the field is parsed as JSON, Confluent-encoded, and decoded again automatically on consume. Schema encoding and raw Base64 are intentionally mutually exclusive for the same field.
 - Partition pause and live seek are emulated on top of the client library, which has no native per-partition pause or mid-stream seek: a paused partition is still fetched, but its records are discarded before decoding, and a seek or partition resume briefly swaps the consumer's fetch stream (it stays in its group — no rebalance). After a seek, partitions newly assigned by a later rebalance start from the group's committed offset (or the missing-commit fallback).
 - **Automatic commit** commits only records that were actually delivered to the message view — every second by default, or at the configured auto-commit interval, and on unsubscribe/disconnect. Records withheld from a paused partition, or still waiting to be decoded, are never committed.

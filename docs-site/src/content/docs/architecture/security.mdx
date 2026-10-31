@@ -114,8 +114,9 @@ This matters because shared collections might carry scripts from anywhere; the s
 Before any prompt goes to a provider, `shared/protocol/ai/redaction.ts` scrubs sensitive material from the context snapshot:
 
 - Sensitive header names (`Authorization`, `Cookie`, `X-Api-Key`).
-- Absolute URLs (host replaced with `[REDACTED_HOST]`; path retained).
-- Inline secret values where they're identifiable.
+- Inline secret values where they're identifiable, and environment-variable values (8+ characters) wherever they appear in the URL, headers or body.
+
+The request URL itself is **not** redacted: the host and path reach the provider as written.
 
 ## Telemetry and privacy
 
@@ -125,7 +126,7 @@ For the hosted web app, `/api/telemetry/error` is a redacted, rate-limited, allo
 
 ## MCP server mode
 
-When Restura acts as an MCP server, every tool response is run through a redactor (`electron/main/security/collection-export-redactor.ts`) that strips secrets by name. `SecretRef` handles are never resolved for the MCP surface — agents see metadata, not plaintext.
+When Restura acts as an MCP server, every tool response is run through a redactor (`shared/mcp-server/redaction.ts` (applied by `postProcessResult` in `electron/main/handlers/mcp-server-handler.ts`)) that strips secrets by name. `SecretRef` handles are never resolved for the MCP surface — agents see metadata, not plaintext.
 
 ## Worker auth gate
 
@@ -134,13 +135,13 @@ The deployed Cloudflare Worker requires one of:
 - `WORKER_PROXY_TOKEN` set as a secret, sent by the client as `X-Restura-Proxy-Token`.
 - `REQUIRE_CF_ACCESS=true` and a Cloudflare Access policy in front of the Worker.
 
-Local dev bypasses auth only when Miniflare is detected or `DEV_BYPASS_AUTH=true` is set in `.dev.vars`. **Never put `DEV_BYPASS_AUTH` in `wrangler.jsonc`** (the deployed config).
+Local dev bypasses auth only when `ENVIRONMENT=development` **and** either Miniflare is detected or `DEV_BYPASS_AUTH=true` is set in `.dev.vars`. **Never put `DEV_BYPASS_AUTH` in `wrangler.jsonc`** (the deployed config).
 
 <Aside title="Read the source">
 - [`docs/security.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/security.md) — at-rest encryption details.
-- [ADR 0004 — Security hardening](/architecture/adrs/)
-- [ADR 0006 — Electron connection + DNS hardening](/architecture/adrs/)
-- [ADR 0007 — SecretRef pattern](/architecture/adrs/)
+- [ADR 0004 — Security hardening](/architecture/adrs/0004-security-hardening/)
+- [ADR 0006 — Electron connection + DNS hardening](/architecture/adrs/0006-connection-and-dns-hardening/)
+- [ADR 0007 — SecretRef pattern](/architecture/adrs/0007-secret-ref-pattern/)
 - [ADR 0027 — Telemetry and privacy-preserving usage signal](/architecture/adrs/0027-telemetry-and-privacy-preserving-usage-analytics/)
 - [ADR 0029 — Digest auth via challenge-retry](/architecture/adrs/0029-digest-auth-challenge-retry/)
 - [ADR 0036 — NTLM as a desktop-only fetcher handshake](/architecture/adrs/0036-ntlm-desktop-fetcher-handshake/)

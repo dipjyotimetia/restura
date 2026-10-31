@@ -141,6 +141,17 @@ Desktop suites use OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging 
 
 `restura agent eval` runs versioned suites and portable Agent Bundles in CI. It supports stateless OpenAI Responses and Anthropic Messages, environment credentials, deterministic fixture tools, and fail-closed baseline gates. Live tools must be explicitly listed in a runtime manifest; HTTP is limited to manifest-listed `GET` / `HEAD` / `OPTIONS` requests and MCP sources must be declared read-only with a tool allowlist. The CLI refuses desktop secret handles, suite base-URL overrides, judge graders, and sandbox providers. See [CLI — Agent eval](/reference/cli/#agent-eval) for the command contract.
 
+### Agent telemetry export
+
+Agent telemetry is optional and **off by default**. It is available only in the desktop AI Lab and the `restura agent eval` CLI; the web app and Worker never export it. When you turn it on, Restura sends traces to **Langfuse** (via its OpenTelemetry processor) or to any **OTLP/HTTP** collector.
+
+- **Metadata only.** Exported spans carry allowlisted fields: suite, task and agent identifiers, timing, model and provider names, token and cost totals, tool names and outcomes, and aggregate evaluation state. Prompts, model responses, tool arguments and output, URLs, request bodies, headers, credentials and error text are never exported.
+- **Desktop.** Configure the destination in the AI Lab telemetry panel. It accepts HTTPS endpoints and local loopback HTTP collectors, and rejects endpoints with query strings, fragments or embedded credentials. Langfuse and OTLP credentials are stored as keychain handles and resolved only in the Electron main process.
+- **CI.** Pass `--telemetry-config telemetry.json`; credentials must be environment references (`{ "source": "env", "name": "LANGFUSE_SECRET_KEY" }`), never inline values. See the [CLI reference](/reference/cli/).
+- **Best-effort.** A failed export is reported locally and never changes a suite's pass/fail exit code.
+
+The full contract is in [`docs/AGENT_TELEMETRY.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/AGENT_TELEMETRY.md).
+
 ## Security & SSRF
 
 Every outbound model call goes through the Electron AI Lab handler, which applies the **same shared SSRF guard** as the rest of Restura, with one provider-kind-aware twist: `allowLocalhost` is enabled **only** for local providers (Ollama, OpenAI-compatible).

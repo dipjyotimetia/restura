@@ -55,16 +55,16 @@ I got tired of opening a different tool for every protocol. Postman for HTTP, a 
     Pre-request and test scripts run in a QuickJS WASM sandbox. No DOM, no filesystem, no network. Memory and execution time are capped. If someone sends you a collection with a dodgy pre-request script, it doesn't get far. Fully `pm.*` compatible if you're coming from Postman.
   </Card>
   <Card title="Chain requests together" icon="seti:plan">
-    Sequence saved HTTP requests as portable OWS workflows with typed bindings, `set`/`wait`, and cancellation. Run them in the app or in CI with `restura workflow run`.
+    Sequence saved HTTP and GraphQL requests as portable OWS workflows with typed bindings, guards, loops, `try`/`catch` recovery, and cancellation. Run them in the app or in CI with `restura workflow run`.
   </Card>
   <Card title="Ask an AI about your request" icon="seti:notebook">
-    In the desktop app, the AI assistant can see the current request and response — useful for explaining errors, writing test assertions, or generating follow-up requests. Secrets and internal URLs are stripped before anything reaches the model. [Web support is planned](/overview/delivery-plan/#plan-ai-web).
+    In the desktop app, the AI assistant can see the current request and response — useful for explaining errors, writing test assertions, or generating follow-up requests. Secrets in headers and bodies are redacted before anything reaches the model; the request URL is sent as written. [Web support is planned](/overview/delivery-plan/#plan-ai-web).
   </Card>
   <Card title="Debug MCP servers" icon="puzzle">
     Connect to any MCP server as a client to inspect what's being sent and returned. Restura can also run as a local MCP server for agents like Claude — the server ships today, and [collection sharing is being built](/overview/delivery-plan/#plan-mcp-server) with consent controls first.
   </Card>
   <Card title="Tested like it matters" icon="approve-check">
-    A layered suite of unit, integration, security, and end-to-end tests — plus API-contract checks on the Worker and desktop IPC boundaries — runs against every change, across the web, desktop, and self-hosted builds. [See how it's tested](/testing/overview/).
+    A layered suite of unit, integration, security, and end-to-end tests — plus API-contract checks that run the shared protocol core against Worker-style and Node-style fetchers — runs against every change, across the web, desktop, and self-hosted builds. [See how it's tested](/testing/overview/).
   </Card>
 </CardGrid>
 
