@@ -1,0 +1,19 @@
+$kind: collection
+description: 'Admin APIs: OAuth2 client credentials'
+auth:
+  type: oauth2
+  credentials:
+  - key: grant_type
+    value: client_credentials
+  - key: accessTokenUrl
+    value: https://auth.example.com/token
+  - key: clientId
+    value: cid
+  - key: clientSecret
+    value: CLIENT-SECRET
+  - key: scope
+    value: admin
+scripts:
+- type: http:afterResponse
+  code: pm.test('admin folder test', () => {});
+order: 11000

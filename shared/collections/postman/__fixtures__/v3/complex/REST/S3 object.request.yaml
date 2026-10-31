@@ -1,0 +1,17 @@
+$kind: http-request
+url: https://bucket.s3.amazonaws.com/key
+method: GET
+auth:
+  type: awsv4
+  credentials:
+  - key: accessKey
+    value: AKIA
+  - key: secretKey
+    value: SECRET
+  - key: region
+    value: eu-west-1
+  - key: service
+    value: s3
+  - key: sessionToken
+    value: STS-TOKEN
+order: 7000

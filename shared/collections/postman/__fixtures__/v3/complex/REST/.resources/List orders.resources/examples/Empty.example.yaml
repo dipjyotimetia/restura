@@ -1,0 +1,8 @@
+$kind: http-example
+response:
+  statusCode: 204
+  statusText: No Content
+  body:
+    type: text
+    content: ''
+order: 2000

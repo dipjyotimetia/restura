@@ -71,6 +71,7 @@ Pick a Postman v2.0 / v2.1 JSON file, a v3 **folder** (**Import folder**), a `.z
 - **Request settings.** v2.x `protocolProfileBehavior` and v3 `settings` are applied as Restura request settings: `followRedirects`, `maxRedirects`, `strictSSL`, `followOriginalHttpMethod`, `followAuthorizationHeader`, `removeRefererHeaderOnRedirect`, `disableUrlEncoding`, `disableCookies`, `protocolVersion` and TLS cipher options. Keys without a Restura equivalent (such as `disableBodyPruning`) are kept in the sidecar and reported.
 - **Security downgrades** such as `strictSSL: false` are called out as warnings.
 - **Descriptions and scripts.** Request and folder descriptions are kept (folder descriptions in the sidecar, for export). A disabled v2.x event is never run; it is kept for reference and exported again as disabled.
+- **Other kinds, details.** gRPC and MCP descriptions are kept for export (those Restura items have no description field). MQTT 5 message properties `contentType`, `responseTopic` and `userProperties` are imported and exported; other message properties are kept and reported. Form-data part content types are kept in v2.x and v3.
 - **AWS Signature.** A `sessionToken` (temporary STS credentials) is not applied by the Restura signer: the import report gets an `awsv4-options` entry, and both exports restore the token from the sidecar.
 - **Limits.** Archives up to 50 MB, with per-file, total, file-count and folder-depth limits; path traversal in archives is refused.
 
@@ -86,7 +87,7 @@ The guard holds while the collection stays in Restura's own store (and in Postma
 
 - **Web and self-hosted:** downloads `<name>.postman-v3.zip`.
 - **Desktop:** writes `<picked folder>/<name>/`. If that folder is not empty Restura asks before replacing it, and replacing removes only Postman layout files, never other files you keep there.
-- **Export report.** Items v3 cannot hold are listed after export: SSE requests are dropped, WSSE auth becomes no auth, secret variables are written with an empty value, Restura-only HTTP settings, GraphQL / gRPC extras, attached contract specs and folder variables are not exported, MCP Streamable HTTP is written as SSE, and some Kafka / MQTT broker options are left out.
+- **Export report.** Items v3 cannot hold are listed after export: a disabled v2.x script (v3 scripts are always active) is left out and reported as `disabled-script`; SSE requests are dropped, WSSE auth becomes no auth, secret variables are written with an empty value, Restura-only HTTP settings, GraphQL / gRPC extras, attached contract specs and folder variables are not exported, MCP Streamable HTTP is written as SSE, and some Kafka / MQTT broker options are left out.
 - **Secrets** follow the include-secrets prompt below.
 - **Inherited auth.** Requests that inherit their auth are exported as `inherit`, including after an import with "store secrets as handles" turned on.
 - **WebSocket / Socket.IO.** Native items are exported as v3 `websocket-request` / `socket.io-request`. Restura-only options (such as subprotocols, heartbeat, namespace and transports) are listed as `websocket-extras` / `socketio-extras` in the report. Credentials in the URL, query, headers and Socket.IO handshake auth are redacted.

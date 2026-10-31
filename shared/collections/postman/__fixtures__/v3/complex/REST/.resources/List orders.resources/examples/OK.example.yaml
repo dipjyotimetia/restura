@@ -1,0 +1,14 @@
+$kind: http-example
+request:
+  url: '{{baseUrl}}/tenants/acme/orders'
+  method: GET
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+  - key: Content-Type
+    value: application/json
+  body:
+    type: json
+    content: '[{"id":1}]'
+order: 1000

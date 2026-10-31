@@ -83,6 +83,9 @@ function convertBody(
             key: str(part.key),
             enabled: part.disabled !== true,
             description: description(part.description),
+            ...(typeof part.contentType === 'string' && part.contentType !== ''
+              ? { contentType: part.contentType }
+              : {}),
           };
           if (part.type !== 'file') return { ...common, value: str(part.value), type: 'text' };
           // Same as the v2 parser: a file row's value holds the picked file's
@@ -216,6 +219,9 @@ function convertGrpc(raw: Raw, name: string, sidecar: PostmanSidecar, ctx: Parse
   }
   keepSchema(raw, name, sidecar, ctx);
   keepExamples(raw, name, sidecar, ctx);
+  // GrpcRequest has no description field: kept for export, like a folder's.
+  const desc = description(raw.description);
+  if (desc) sidecar.description = desc;
   const req: GrpcRequest = {
     id: uuid(),
     name,

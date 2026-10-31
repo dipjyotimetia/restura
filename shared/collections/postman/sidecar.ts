@@ -60,7 +60,7 @@ export interface PostmanSidecar {
   noauth?: true;
   /** v3 broker options with no preset equivalent (extra topics / messages, stopAfter). */
   leftovers?: unknown;
-  /** v3 folder description (Restura folders have none). */
+  /** Folder / gRPC / MCP description (those Restura models have none). */
   description?: string;
   /** v3 multi-entry auth: shape of every credential set (keys only, never values). */
   authSets?: unknown[];

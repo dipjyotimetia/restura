@@ -132,6 +132,15 @@ function cleanScript(s: unknown, allowed: ReadonlySet<string>): Raw | undefined 
   return out;
 }
 
+/** The script text of a kept v2 event (`exec` array or string). */
+function v2EventCode(event: Raw): string | undefined {
+  const script = event.script;
+  if (typeof script === 'string') return script;
+  if (!isObj(script)) return undefined;
+  if (Array.isArray(script.exec)) return script.exec.map(str).join('\n');
+  return typeof script.exec === 'string' ? script.exec : undefined;
+}
+
 export interface ScriptPhases {
   pre: string;
   test: string;
@@ -191,12 +200,27 @@ export function exportScripts(
   test: string | undefined,
   sidecar: PostmanSidecar | undefined,
   phases: ScriptPhases,
-  ctx: ExportContext
+  ctx: ExportContext,
+  owner = ''
 ): Raw[] | undefined {
   const out: Raw[] = [];
-  const shadowed = arr(sidecar?.event)
-    .map((s) => cleanScript(s, phases.allowed))
-    .filter((s): s is Raw => s !== undefined);
+  const shadowed: Raw[] = [];
+  for (const s of arr(sidecar?.event)) {
+    // A collection imported from v2.x keeps its shadowed / disabled events in
+    // the v2 `{ listen, script }` shape.
+    if (isObj(s) && typeof s.listen === 'string') {
+      if (s.disabled === true) {
+        ctx.report.dropped('disabled-script', owner, s.listen);
+        continue;
+      }
+      const code = v2EventCode(s);
+      const type = s.listen === 'prerequest' ? phases.pre : s.listen === 'test' ? phases.test : '';
+      if (code !== undefined && type !== '') shadowed.push({ type, code });
+      continue;
+    }
+    const clean = cleanScript(s, phases.allowed);
+    if (clean) shadowed.push(clean);
+  }
   for (const s of shadowed) if (s.type === phases.pre) out.push(s);
   if (pre) out.push({ type: phases.pre, code: ctx.transformScript(pre) });
   for (const s of shadowed) if (s.type === phases.test) out.push(s);
@@ -385,6 +409,16 @@ function sidecarCreds(
  *  - `allowed` is the auth-type enum of the target v3 kind: anything else is
  *    exported as `noauth` and reported.
  */
+/**
+ * Grants the importer approximates (`mapPostmanGrantType` in auth.ts) → the
+ * typed grant they import as. While the typed grant is still that value the
+ * user has not changed it, so the original Postman grant is restored (v2.1
+ * and v3 export alike).
+ */
+export const GRANT_APPROXIMATION: Readonly<Record<string, string>> = {
+  authorization_code_with_pkce: 'authorization_code',
+};
+
 export function exportAuth(
   auth: AuthConfig,
   sidecar: PostmanSidecar | undefined,
@@ -399,8 +433,15 @@ export function exportAuth(
   } else {
     set = typedAuthToV3(auth, owner, ctx);
     if (set && bag && bag.type === set.type && Array.isArray(set.credentials)) {
-      const have = new Set((set.credentials as Cred[]).map((c) => c.key));
-      for (const c of bag.creds) if (!have.has(c.key)) (set.credentials as Cred[]).push(c);
+      const creds = set.credentials as Cred[];
+      const have = new Set(creds.map((c) => c.key));
+      for (const c of bag.creds) {
+        if (!have.has(c.key)) creds.push(c);
+        else if (c.key === 'grant_type' && typeof c.value === 'string') {
+          const typed = creds.find((t) => t.key === 'grant_type');
+          if (typed && GRANT_APPROXIMATION[c.value] === typed.value) typed.value = c.value;
+        }
+      }
     }
   }
   if (!set) return undefined;

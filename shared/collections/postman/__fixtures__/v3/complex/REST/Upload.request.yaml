@@ -1,0 +1,19 @@
+$kind: http-request
+url: '{{baseUrl}}/upload'
+method: PUT
+body:
+  type: formdata
+  content:
+  - key: meta
+    value: '{"a":1}'
+    type: text
+    contentType: application/json
+    description: metadata
+  - key: note
+    value: skip
+    type: text
+    disabled: true
+  - key: file
+    type: file
+    src: /home/me/report.pdf
+order: 3000

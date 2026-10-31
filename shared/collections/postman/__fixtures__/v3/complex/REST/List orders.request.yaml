@@ -1,0 +1,43 @@
+$kind: http-request
+description: Lists orders for a tenant. Supports paging.
+url: '{{baseUrl}}/tenants/:tenant/orders?page=1&status=open#top'
+method: GET
+pathVariables:
+- key: tenant
+  value: '{{tenant}}'
+queryParams:
+- key: page
+  value: '1'
+  description: Page number
+- key: status
+  value: open
+- key: debug
+  value: 'true'
+  disabled: true
+headers:
+- key: Accept
+  value: application/json
+- key: X-Trace
+  value: '{{$guid}}'
+  description: Correlation id
+- key: X-Off
+  value: '1'
+  disabled: true
+settings:
+  followRedirects: false
+  maxRedirects: 2
+  strictSSL: false
+  disableCookies: true
+  protocolVersion: http2
+  maxResponseSize: 1000000
+scripts:
+- type: beforeRequest
+  code: pm.variables.set('order', 'first');
+- type: beforeRequest
+  code: |-
+    const stamp = 'request';
+    pm.variables.set('order', 'second');
+- type: afterResponse
+  code: pm.test('200', () => pm.response.to.have.status(200));
+examples: ./.resources/List orders.resources/examples
+order: 1000

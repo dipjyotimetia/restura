@@ -1,0 +1,6 @@
+$kind: http-request
+url: '{{baseUrl}}/public'
+method: GET
+auth:
+  type: noauth
+order: 9000

@@ -1,0 +1,20 @@
+$kind: kafka-request
+mode: producer
+url:
+- kafka-1:9092
+- kafka-2:9092
+acknowledgements: all
+messages:
+- $kind: kafka-message
+  name: order
+  topic: orders
+  key:
+    contentType: text
+    content: o-1
+  value:
+    contentType: json
+    content: '{"id":1}'
+  headers:
+  - key: source
+    value: restura
+order: 1000

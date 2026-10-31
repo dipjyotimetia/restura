@@ -1,0 +1,8 @@
+$kind: collection
+description: gRPC services
+auth:
+  type: bearer
+  credentials:
+  - key: token
+    value: grpc-folder-token
+order: 3000

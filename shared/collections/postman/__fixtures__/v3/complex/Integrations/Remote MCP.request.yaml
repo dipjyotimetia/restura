@@ -1,0 +1,8 @@
+$kind: mcp-request
+transport: sse
+url: https://mcp.example.com/mcp
+headers:
+- key: X-Team
+  value: core
+message: '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+order: 3000

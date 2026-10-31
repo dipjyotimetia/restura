@@ -25,6 +25,20 @@ function leftovers(sidecar: PostmanSidecar | undefined): Raw {
 
 const MQTT_SETTINGS_REST = new Set(['strictSSL']);
 
+/** MQTT 5 message properties Restura models → v3 `properties`. */
+function messageProperties(p: MqttRequest['publish']): Raw | undefined {
+  const userProperties = Object.entries(p.userProperties ?? {}).map(([key, value]) => ({
+    key,
+    value,
+  }));
+  const out = defined({
+    contentType: p.contentType || undefined,
+    responseTopic: p.responseTopic || undefined,
+    userProperties: userProperties.length > 0 ? userProperties : undefined,
+  });
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function exportMqtt(
   req: MqttRequest,
   name: string,
@@ -37,14 +51,6 @@ export function exportMqtt(
     c.username ? 'username' : '',
     c.tls ? 'TLS' : '',
     c.sessionExpiryInterval !== undefined ? 'session expiry' : '',
-    [req.publish, ...req.templates].some(
-      (p) =>
-        p.contentType ||
-        p.responseTopic ||
-        (p.userProperties && Object.keys(p.userProperties).length)
-    )
-      ? 'message properties'
-      : '',
   ].filter(Boolean);
   if (extras.length > 0) ctx.report.dropped('mqtt-extras', name, extras.join(', '));
   if (arr(sidecar?.response).length > 0) ctx.report.dropped('examples', name);
@@ -57,6 +63,7 @@ export function exportMqtt(
       qos: p.qos,
       retain: p.retain ? true : undefined,
       contentType: 'text',
+      properties: messageProperties(p),
     });
   const messages: Raw[] = [];
   const hasPublish = req.publish.topic !== '' || req.publish.payload !== '';
@@ -229,6 +236,7 @@ export function exportMcp(
   const common = {
     name,
     $kind: 'mcp-request',
+    description: typeof sidecar?.description === 'string' ? sidecar.description : undefined,
     message: mcpMessage(req, name, ctx),
     auth: requestAuth(req.auth, inherited, sidecar, AUTH_TYPES.mcp, name, ctx),
   };
