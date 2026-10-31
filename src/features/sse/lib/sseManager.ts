@@ -3,7 +3,13 @@ import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import { isReconnectableSseResponse } from '@shared/protocol/sse-parser';
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import {
+  connectionChannels,
+  createSseDesktopAdapter,
+} from '@/lib/shared/streaming/desktopStreamAdapter';
+import { openStreamSession } from '@/lib/shared/streaming/streamSession';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
+import { EVENT_PREFIX } from '../../../../electron/shared/channels';
 import type { SseClosePayload } from '../../../../electron/types/api/protocols';
 import { type ParsedSseEvent, SseParser } from './sseParser';
 
@@ -18,20 +24,17 @@ export function buildSseStreamSpec(url: string, headers: Record<string, string>)
 }
 
 /**
- * Remove all `sse:{open,event,error,close}:<connectionId>` IPC listeners.
- * Standalone (not a class method) so both this store-coupled manager and
- * the store-free `sseStartStream`'s Electron path (`src/features/sse/protocol.ts`,
- * used by the DAG executor's sseSubscribe node) share one definition of the
- * channel set instead of each re-listing all four channel names.
+ * Remove all `sse:{open,event,error,close}:<connectionId>` IPC listeners, by
+ * connection id rather than by session: a retry or `disconnect()` has to clear
+ * whatever an earlier attempt left on the same id.
  */
 export function cleanupSseElectronListeners(
   connectionId: string,
   api: ReturnType<typeof getElectronAPI>
 ): void {
-  api?.sse?.removeAllListeners(`sse:open:${connectionId}`);
-  api?.sse?.removeAllListeners(`sse:event:${connectionId}`);
-  api?.sse?.removeAllListeners(`sse:error:${connectionId}`);
-  api?.sse?.removeAllListeners(`sse:close:${connectionId}`);
+  for (const channel of Object.values(connectionChannels(EVENT_PREFIX.sse, connectionId))) {
+    api?.sse?.removeAllListeners(channel);
+  }
 }
 
 /**
@@ -410,38 +413,42 @@ class SseManager {
     const finish = (end: AttemptEnd) => {
       if (!this.isCurrent(connectionId, attempt)) return;
       this.electronConnections.delete(connectionId);
-      cleanupSseElectronListeners(connectionId, api);
+      session.dispose();
       this.endAttempt(connectionId, attempt, end);
     };
 
-    api.sse.on(`sse:open:${connectionId}`, () => {
-      this.onOpened(connectionId, attempt, url);
-    });
-
-    api.sse.on(`sse:event:${connectionId}`, (payload: unknown) => {
-      this.onEvent(connectionId, attempt, payload as ParsedSseEvent);
-    });
-
-    api.sse.on(`sse:error:${connectionId}`, (payload: unknown) => {
-      if (!this.isCurrent(connectionId, attempt)) return;
-      const err = payload as { message: string };
-      useSseStore.getState().appendSystem(connectionId, `Error: ${err.message}`);
-    });
-
-    api.sse.on(`sse:close:${connectionId}`, (payload: unknown) => {
-      const ev = payload as Partial<SseClosePayload>;
-      this.syncStreamState(connectionId, attempt, ev.lastEventId, ev.retry);
-      finish({
-        message: `Stream closed${ev.reason ? `: ${ev.reason}` : ''}`,
-        fatal: ev.fatal === true,
-      });
-    });
+    const session = openStreamSession(
+      createSseDesktopAdapter(api.sse, { connectionId, url, headers }),
+      {
+        listeners: {
+          open: () => {
+            this.onOpened(connectionId, attempt, url);
+          },
+          event: (payload) => {
+            this.onEvent(connectionId, attempt, payload as ParsedSseEvent);
+          },
+          error: (payload) => {
+            if (!this.isCurrent(connectionId, attempt)) return;
+            const err = payload as { message: string };
+            useSseStore.getState().appendSystem(connectionId, `Error: ${err.message}`);
+          },
+          close: (payload) => {
+            const ev = payload as Partial<SseClosePayload>;
+            this.syncStreamState(connectionId, attempt, ev.lastEventId, ev.retry);
+            finish({
+              message: `Stream closed${ev.reason ? `: ${ev.reason}` : ''}`,
+              fatal: ev.fatal === true,
+            });
+          },
+        },
+      }
+    );
 
     // Main emits `sse:close` before replying for failures it reports both ways,
     // so a failed reply only lands here when nothing else ended the attempt
     // (policy / rate-limit / SSRF rejections) — none of which a retry fixes.
-    api.sse
-      .connect({ connectionId, url, headers })
+    session
+      .connect()
       .then((res) => {
         if (!res.success) {
           finish({ message: `Failed to connect: ${res.error ?? 'unknown error'}`, fatal: true });

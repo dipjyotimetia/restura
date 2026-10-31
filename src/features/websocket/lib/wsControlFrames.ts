@@ -7,6 +7,7 @@
 import { pingPayloadError } from '@shared/protocol/websocket-control';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import type { getElectronAPI } from '@/lib/shared/platform';
+import { EVENT_PREFIX, eventChannel } from '../../../../electron/shared/channels';
 
 type ElectronApi = ReturnType<typeof getElectronAPI>;
 
@@ -21,7 +22,10 @@ export const WEB_PING_UNSUPPORTED =
 
 /** Per-connection IPC event channels added for control frames (#919). */
 export function controlFrameChannels(connectionId: string): string[] {
-  return [`ws:pong:${connectionId}`, `ws:ping-received:${connectionId}`];
+  return [
+    eventChannel(EVENT_PREFIX.ws.pong, connectionId),
+    eventChannel(EVENT_PREFIX.ws.pingReceived, connectionId),
+  ];
 }
 
 /** `"Closing (code: 4000, reason: bye)"` — logged when a custom close frame is sent. */
@@ -67,7 +71,7 @@ const payloadSuffix = (data: string) => (data ? ` (payload: ${data})` : '');
 export function attachControlFrameListeners(connectionId: string, api: ElectronApi): void {
   const ws = api?.websocket;
   if (!ws) return;
-  ws.on(`ws:pong:${connectionId}`, (payload: unknown) => {
+  ws.on(eventChannel(EVENT_PREFIX.ws.pong, connectionId), (payload: unknown) => {
     const { data, rttMs } = payload as { data: string; rttMs?: number };
     const s = useWebSocketStore.getState();
     if (rttMs === undefined) {
@@ -77,7 +81,7 @@ export function attachControlFrameListeners(connectionId: string, api: ElectronA
     s.patchControlState(connectionId, { lastPingRttMs: rttMs });
     s.addMessage(connectionId, 'system', `Pong received · RTT ${rttMs} ms${payloadSuffix(data)}`);
   });
-  ws.on(`ws:ping-received:${connectionId}`, (payload: unknown) => {
+  ws.on(eventChannel(EVENT_PREFIX.ws.pingReceived, connectionId), (payload: unknown) => {
     const { data } = payload as { data: string };
     useWebSocketStore
       .getState()

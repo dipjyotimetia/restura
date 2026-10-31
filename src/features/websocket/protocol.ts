@@ -16,7 +16,12 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import { cleanupWebSocketElectronListeners } from './lib/websocketManager';
+import {
+  connectionChannels,
+  createIpcStreamAdapter,
+} from '@/lib/shared/streaming/desktopStreamAdapter';
+import { createStreamSequence, openStreamSession } from '@/lib/shared/streaming/streamSession';
+import { EVENT_PREFIX } from '../../../electron/shared/channels';
 
 interface InlineWsRequestShape {
   type: 'websocket';
@@ -53,19 +58,8 @@ async function websocketStartStream(
 
   const socket = new WebSocket(request.url);
 
-  // Event queue + waiter, mirroring sseProtocol's pattern.
-  const queue: unknown[] = [];
-  let resolveWaiter: (() => void) | null = null;
-  let closed = false;
+  const sequence = createStreamSequence<unknown>();
   let openError: Error | null = null;
-
-  const wakeup = () => {
-    if (resolveWaiter) {
-      const r = resolveWaiter;
-      resolveWaiter = null;
-      r();
-    }
-  };
 
   socket.onmessage = (e) => {
     let parsed: unknown = e.data;
@@ -76,21 +70,18 @@ async function websocketStartStream(
         parsed = e.data;
       }
     }
-    queue.push(parsed);
-    wakeup();
+    sequence.push(parsed);
   };
 
   socket.onerror = () => {
     if (socket.readyState !== WebSocket.OPEN) {
       openError = new Error('WebSocket connection failed');
     }
-    closed = true;
-    wakeup();
+    sequence.end();
   };
 
   socket.onclose = () => {
-    closed = true;
-    wakeup();
+    sequence.end();
   };
 
   const linkAbort = () => {
@@ -99,8 +90,7 @@ async function websocketStartStream(
     } catch {
       /* ignore */
     }
-    closed = true;
-    wakeup();
+    sequence.end();
   };
   if (ctx.signal.aborted) linkAbort();
   else ctx.signal.addEventListener('abort', linkAbort, { once: true });
@@ -141,46 +131,30 @@ async function websocketStartStream(
     ctx.signal.addEventListener('abort', onAbort, { once: true });
   });
 
-  async function* iterate(): AsyncGenerator<unknown, void, unknown> {
-    try {
-      while (true) {
-        if (queue.length > 0) {
-          yield queue.shift()!;
-          continue;
-        }
-        if (closed) return;
-        await new Promise<void>((res) => {
-          resolveWaiter = res;
-        });
-      }
-    } finally {
-      if (!closed) {
+  const handle: ProtocolStreamHandle & { send: (frame: string) => void } = {
+    events: sequence.iterate(() => {
+      if (!sequence.ended) {
         try {
           socket.close(1000, 'iterator-done');
         } catch {
           /* ignore */
         }
       }
-    }
-  }
-
-  const handle: ProtocolStreamHandle & { send: (frame: string) => void } = {
-    events: iterate(),
+    }),
     send: (frame: string) => {
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(frame);
       }
     },
     close: async () => {
-      if (closed) return;
+      if (sequence.ended) return;
       try {
         socket.close(1000, 'caller-close');
       } catch {
         /* ignore */
       }
-      closed = true;
       ctx.signal.removeEventListener('abort', linkAbort);
-      wakeup();
+      sequence.end();
     },
   };
   return handle;
@@ -213,24 +187,8 @@ async function websocketStartStreamElectron(
   const ws = api.websocket;
   const connectionId = `flow-ws-${uuidv4()}`;
 
-  const queue: unknown[] = [];
-  let resolveWaiter: (() => void) | null = null;
-  let closed = false;
+  const sequence = createStreamSequence<unknown>();
   let openError: string | null = null;
-  const wakeup = () => {
-    if (resolveWaiter) {
-      const r = resolveWaiter;
-      resolveWaiter = null;
-      r();
-    }
-  };
-
-  let disconnected = false;
-  const disconnectOnce = () => {
-    if (disconnected) return;
-    disconnected = true;
-    ws.disconnect({ connectionId }).catch(() => undefined);
-  };
 
   // Settled by the "wait for open" promise below — also used by the
   // `ws:close` handler so a connection that closes/errors *before* ever
@@ -239,52 +197,55 @@ async function websocketStartStreamElectron(
   // leaving it hanging forever.
   let openSettle: { resolve: () => void; reject: (err: Error) => void } | null = null;
 
-  ws.on(`ws:open:${connectionId}`, () => {
-    openSettle?.resolve();
-    openSettle = null;
-  });
-  ws.on(`ws:message:${connectionId}`, (payload: unknown) => {
-    const msg = payload as { type: 'text' | 'binary'; data: string };
-    let parsed: unknown = msg.data;
-    if (msg.type === 'text') {
-      try {
-        parsed = JSON.parse(msg.data);
-      } catch {
-        parsed = msg.data;
-      }
+  const session = openStreamSession(
+    // Every `ws:*` channel for this id, so disposal also covers the control frames.
+    createIpcStreamAdapter(ws, connectionChannels(EVENT_PREFIX.ws, connectionId), {
+      connect: () => ws.connect({ connectionId, url }),
+      disconnect: () => ws.disconnect({ connectionId }),
+    }),
+    {
+      signal,
+      onAbort: () => {
+        openSettle?.reject(new DOMException('Aborted', 'AbortError'));
+        openSettle = null;
+      },
+      listeners: {
+        open: () => {
+          openSettle?.resolve();
+          openSettle = null;
+        },
+        message: (payload) => {
+          const msg = payload as { type: 'text' | 'binary'; data: string };
+          let parsed: unknown = msg.data;
+          if (msg.type === 'text') {
+            try {
+              parsed = JSON.parse(msg.data);
+            } catch {
+              parsed = msg.data;
+            }
+          }
+          sequence.push(parsed);
+        },
+        error: (payload) => {
+          const err = payload as { message?: string };
+          openError = err?.message ?? 'WebSocket connection failed';
+          sequence.fail(new Error(openError));
+        },
+        close: () => {
+          sequence.end();
+          openSettle?.reject(new Error(openError ?? 'WebSocket connection failed'));
+          openSettle = null;
+        },
+      },
     }
-    queue.push(parsed);
-    wakeup();
-  });
-  ws.on(`ws:error:${connectionId}`, (payload: unknown) => {
-    const err = payload as { message?: string };
-    openError = err?.message ?? 'WebSocket connection failed';
-  });
-  ws.on(`ws:close:${connectionId}`, () => {
-    closed = true;
-    openSettle?.reject(new Error(openError ?? 'WebSocket connection failed'));
-    openSettle = null;
-    wakeup();
-  });
-
-  const onAbort = () => {
-    openSettle?.reject(new DOMException('Aborted', 'AbortError'));
-    openSettle = null;
-    disconnectOnce();
-  };
-  if (signal.aborted) onAbort();
-  else signal.addEventListener('abort', onAbort, { once: true });
+  );
 
   // Wait for open BEFORE returning — matches the web path so the
   // caller's first `send()` isn't racing a still-connecting socket.
   try {
     await new Promise<void>((resolve, reject) => {
-      if (signal.aborted) {
-        reject(new DOMException('Aborted', 'AbortError'));
-        return;
-      }
       openSettle = { resolve, reject };
-      ws.connect({ connectionId, url }).then((result) => {
+      session.connect().then((result) => {
         if (!result.success && openSettle) {
           openSettle = null;
           reject(new Error(result.error || 'WebSocket connection failed'));
@@ -292,44 +253,16 @@ async function websocketStartStreamElectron(
       }, reject);
     });
   } catch (err) {
-    cleanupWebSocketElectronListeners(connectionId, api);
-    disconnectOnce();
-    signal.removeEventListener('abort', onAbort);
+    session.close();
     throw err;
   }
 
-  async function* iterate(): AsyncGenerator<unknown, void, unknown> {
-    try {
-      while (true) {
-        if (queue.length > 0) {
-          yield queue.shift()!;
-          continue;
-        }
-        if (closed) {
-          if (openError) throw new Error(openError);
-          return;
-        }
-        await new Promise<void>((res) => {
-          resolveWaiter = res;
-        });
-      }
-    } finally {
-      disconnectOnce();
-      cleanupWebSocketElectronListeners(connectionId, api);
-      signal.removeEventListener('abort', onAbort);
-    }
-  }
-
   return {
-    events: iterate(),
+    events: sequence.iterate(session.close),
     send: (frame: string) => {
       ws.send({ connectionId, message: frame }).catch(() => undefined);
     },
-    close: async () => {
-      disconnectOnce();
-      cleanupWebSocketElectronListeners(connectionId, api);
-      signal.removeEventListener('abort', onAbort);
-    },
+    close: async () => session.close(),
   };
 }
 

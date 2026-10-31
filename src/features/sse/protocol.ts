@@ -15,8 +15,8 @@
  *
  * The two paths intentionally don't share sseManager's store-coupled
  * connection bookkeeping (webConnections/electronConnections, reconnect,
- * useSseStore writes). They do share its store-free
- * `cleanupSseElectronListeners` helper, and both end up wrapping the same
+ * useSseStore writes). They do share the desktop stream session
+ * (`@/lib/shared/streaming/streamSession`), and both end up wrapping the same
  * shared parser and routing through `executeProxiedStreamingRequest` (web)
  * / the same `sse:connect` IPC channel (desktop) so the SSRF/header/auth
  * pipeline applies uniformly either way.
@@ -26,9 +26,15 @@ import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { createSseDesktopAdapter } from '@/lib/shared/streaming/desktopStreamAdapter';
+import {
+  createStreamSequence,
+  openStreamSession,
+  type StreamConnectResult,
+} from '@/lib/shared/streaming/streamSession';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
 import type { Request, SseRequest } from '@/types';
-import { buildSseStreamSpec, cleanupSseElectronListeners } from './lib/sseManager';
+import { buildSseStreamSpec } from './lib/sseManager';
 import { type ParsedSseEvent, SseParser } from './lib/sseParser';
 
 function createDefaultSseRequest(): SseRequest {
@@ -156,27 +162,11 @@ async function sseStartStream(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const parser = new SseParser();
-  let closed = false;
+  const sequence = createStreamSequence<ParsedSseEvent>();
+  const onEvent = (e: ParsedSseEvent) => sequence.push(e);
 
-  // A tiny event queue + waiter so we can hand out async-iterable
-  // semantics without buffering the entire stream.
-  const queue: ParsedSseEvent[] = [];
-  let resolveWaiter: (() => void) | null = null;
-  const wakeup = () => {
-    if (resolveWaiter) {
-      const r = resolveWaiter;
-      resolveWaiter = null;
-      r();
-    }
-  };
-
-  const onEvent = (e: ParsedSseEvent) => {
-    queue.push(e);
-    wakeup();
-  };
-
-  // Drain the reader in the background — fills `queue` as events arrive.
-  // Errors / EOF / abort each set `closed` and wake any pending waiter.
+  // Drain the reader in the background — fills the sequence as events arrive.
+  // Errors / EOF / abort each end it, waking any pending waiter.
   const drain = (async () => {
     try {
       while (true) {
@@ -189,27 +179,15 @@ async function sseStartStream(
     } catch {
       // swallow — closing is the only outcome we care about here
     } finally {
-      closed = true;
-      wakeup();
+      sequence.end();
     }
   })();
 
-  async function* iterate(): AsyncGenerator<unknown, void, unknown> {
-    try {
-      while (true) {
-        if (queue.length > 0) {
-          yield queue.shift()!;
-          continue;
-        }
-        if (closed) return;
-        await new Promise<void>((res) => {
-          resolveWaiter = res;
-        });
-      }
-    } finally {
+  return {
+    events: sequence.iterate(async () => {
       // The consumer broke out of the loop (executor's completion policy
       // matched, ctx.signal fired, etc.). Make sure the reader is gone.
-      if (!closed) {
+      if (!sequence.ended) {
         try {
           await reader.cancel();
         } catch {
@@ -217,13 +195,9 @@ async function sseStartStream(
         }
         ourCtrl.abort();
       }
-    }
-  }
-
-  return {
-    events: iterate(),
+    }),
     close: async () => {
-      if (closed) return;
+      if (sequence.ended) return;
       try {
         await reader.cancel();
       } catch {
@@ -263,80 +237,47 @@ async function sseStartStreamElectron(
   if (!api?.sse) {
     throw new Error('Electron SSE API is not available in this context.');
   }
-  const sse = api.sse;
   const connectionId = `flow-sse-${uuidv4()}`;
 
-  const queue: ParsedSseEvent[] = [];
-  let resolveWaiter: (() => void) | null = null;
-  let closed = false;
-  let closeError: string | null = null;
-  const wakeup = () => {
-    if (resolveWaiter) {
-      const r = resolveWaiter;
-      resolveWaiter = null;
-      r();
+  const sequence = createStreamSequence<ParsedSseEvent>();
+  const session = openStreamSession(
+    createSseDesktopAdapter(api.sse, { connectionId, url, headers }),
+    {
+      signal,
+      listeners: {
+        event: (payload) => sequence.push(payload as ParsedSseEvent),
+        error: (payload) => {
+          const err = payload as { message?: string };
+          sequence.fail(new Error(err?.message ?? 'SSE stream error'));
+        },
+        close: () => sequence.end(),
+      },
     }
-  };
+  );
 
-  sse.on(`sse:event:${connectionId}`, (payload: unknown) => {
-    queue.push(payload as ParsedSseEvent);
-    wakeup();
-  });
-  sse.on(`sse:error:${connectionId}`, (payload: unknown) => {
-    const err = payload as { message?: string };
-    closeError = err?.message ?? 'SSE stream error';
-  });
-  sse.on(`sse:close:${connectionId}`, () => {
-    closed = true;
-    wakeup();
-  });
-
-  let disconnected = false;
-  const disconnectOnce = () => {
-    if (disconnected) return;
-    disconnected = true;
-    sse.disconnect({ connectionId }).catch(() => undefined);
-  };
-  const onAbort = () => disconnectOnce();
-  if (signal.aborted) onAbort();
-  else signal.addEventListener('abort', onAbort, { once: true });
-
-  const connectResult = await sse.connect({ connectionId, url, headers });
-  if (!connectResult.success) {
-    cleanupSseElectronListeners(connectionId, api);
-    signal.removeEventListener('abort', onAbort);
-    throw new Error(connectResult.error || 'SSE connect failed');
-  }
-
-  async function* iterate(): AsyncGenerator<unknown, void, unknown> {
+  if (signal.aborted) {
+    // Never opened: a handle whose events end at once. Connecting now would
+    // leave a main-process stream nothing can close — the one disconnect has
+    // already been sent.
+    session.dispose();
+    sequence.end();
+  } else {
+    let connectResult: StreamConnectResult;
     try {
-      while (true) {
-        if (queue.length > 0) {
-          yield queue.shift()!;
-          continue;
-        }
-        if (closed) {
-          if (closeError) throw new Error(closeError);
-          return;
-        }
-        await new Promise<void>((res) => {
-          resolveWaiter = res;
-        });
-      }
-    } finally {
-      disconnectOnce();
-      cleanupSseElectronListeners(connectionId, api);
-      signal.removeEventListener('abort', onAbort);
+      connectResult = await session.connect();
+    } catch (err) {
+      session.dispose();
+      throw err;
+    }
+    if (!connectResult.success) {
+      session.dispose();
+      throw new Error(connectResult.error || 'SSE connect failed');
     }
   }
 
   return {
-    events: iterate(),
-    close: async () => {
-      disconnectOnce();
-      cleanupSseElectronListeners(connectionId, api);
-      signal.removeEventListener('abort', onAbort);
-    },
+    events: sequence.iterate(session.close),
+    close: async () => session.close(),
   };
 }
 
