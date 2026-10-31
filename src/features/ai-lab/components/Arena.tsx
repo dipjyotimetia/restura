@@ -45,7 +45,8 @@ export function Arena() {
   const datasets = useAiLabStore((s) => s.datasets);
   const runs = useArenaStore((s) => s.runs);
   const deleteRun = useArenaStore((s) => s.deleteRun);
-  const { running, progress, error, lastRunId, start, stop } = useArenaRun();
+  const { running, progress, error, persistenceError, lastRunId, start, stop } = useArenaRun();
+  const removeRunReport = useAiLabStore((s) => s.removeRunReport);
 
   // Config draft + viewed-run selection live in the session UI store so tab
   // switches don't reset them.
@@ -107,6 +108,8 @@ export function Arena() {
     if (!activeRun) return;
     if (!(await confirmDeleteRun())) return;
     deleteRun(activeRun.id);
+    // The Reports tab holds a copy of the same run; delete both together.
+    if (useAiLabStore.getState().runReports[activeRun.id]) await removeRunReport(activeRun.id);
     setArenaRunId(null);
   };
 
@@ -283,6 +286,7 @@ export function Arena() {
             </div>
           )}
           {error && <p className="text-sp-12 text-destructive">{error}</p>}
+          {persistenceError && <p className="text-sp-12 text-sp-muted">{persistenceError}</p>}
         </div>
 
         {/* Leaderboard + matrix. */}

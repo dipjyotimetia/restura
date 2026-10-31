@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { evalPassOutcome } from '../../lib/evalPassThreshold';
-import type { EvalCellResult, EvalRun } from '../../types';
-import { adaptEvalRunReport, reportChipState } from '../reportEnvelope';
+import type { ArenaMatch, ArenaRun, EvalCellResult, EvalRun } from '../../types';
+import {
+  AiLabReportEnvelopeSchema,
+  adaptArenaRunReport,
+  adaptEvalRunReport,
+  reportChipState,
+} from '../reportEnvelope';
 
 const LEGACY_RUN: EvalRun = {
   id: 'legacy',
@@ -119,5 +124,38 @@ describe('eval pass threshold (#1024)', () => {
       expect(evalPassOutcome([cell(true), cell(false)]).status).toBe('failed');
       expect(evalPassOutcome([cell(true), cell(true), cell(false)], 2 / 3).status).toBe('passed');
     });
+  });
+});
+
+describe('arena report envelopes (#1046)', () => {
+  const run = (status: ArenaRun['status'], winners: ArenaMatch['winner'][]): ArenaRun => ({
+    id: 'arena-1',
+    datasetId: 'ds',
+    datasetName: 'Dataset',
+    modelKeys: ['p:a', 'p:b'],
+    modelLabels: {},
+    matches: winners.map((winner) => ({ a: 'p:a', b: 'p:b', winner })),
+    startedAt: 1,
+    finishedAt: 2,
+    status,
+  });
+
+  it('maps arena statuses onto the shared report statuses', () => {
+    expect(adaptArenaRunReport(run('done', ['a'])).status).toBe('passed');
+    expect(adaptArenaRunReport(run('error', ['error'])).status).toBe('error');
+    expect(adaptArenaRunReport(run('cancelled', [])).status).toBe('cancelled');
+    const partial = adaptArenaRunReport(run('partial', ['a', 'error']));
+    expect(partial.status).toBe('failed');
+    expect(partial.statusReason).toBe('1 of 2 matches failed');
+  });
+
+  it('round-trips through the persisted envelope schema', () => {
+    const envelope = adaptArenaRunReport(run('done', ['a', 'tie']));
+    expect(AiLabReportEnvelopeSchema.safeParse(envelope).success).toBe(true);
+  });
+
+  it('labels an interrupted arena run as interrupted', () => {
+    const envelope = adaptArenaRunReport({ ...run('cancelled', []), interrupted: true });
+    expect(reportChipState(envelope)).toBe('interrupted');
   });
 });

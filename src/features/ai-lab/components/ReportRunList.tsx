@@ -9,6 +9,19 @@ interface ReportRunListProps {
   onSelect: (reportId: string) => void;
 }
 
+function reportCount(report: AiLabReportEnvelope): string {
+  switch (report.kind) {
+    case 'eval':
+      return `${report.payload.cells.length}/${report.payload.totalCells}`;
+    case 'agent-suite':
+      return `${report.payload.summary.passed}/${report.payload.summary.total}`;
+    case 'arena': {
+      const scored = report.payload.matches.filter((m) => m.winner !== 'error').length;
+      return `${scored}/${report.payload.matches.length}`;
+    }
+  }
+}
+
 /** Master pane for the persisted and in-memory evaluation reports. */
 export function ReportRunList({ reports, selectedId, onSelect }: ReportRunListProps) {
   return (
@@ -31,7 +44,9 @@ export function ReportRunList({ reports, selectedId, onSelect }: ReportRunListPr
               ? ` · ${report.payload.datasetName}`
               : report.kind === 'agent-suite'
                 ? ' · Agent suite'
-                : ''}
+                : report.kind === 'arena'
+                  ? ` · ${report.payload.modelKeys.length} models`
+                  : ''}
           </div>
           <div className="mt-1 flex items-center justify-between">
             <StatusChip
@@ -40,11 +55,7 @@ export function ReportRunList({ reports, selectedId, onSelect }: ReportRunListPr
                 ? { label: `${report.status}: ${report.statusReason}` }
                 : {})}
             />
-            <span className="text-sp-11 text-sp-muted tabular-nums">
-              {report.kind === 'eval'
-                ? `${report.payload.cells.length}/${report.payload.totalCells}`
-                : `${report.payload.summary.passed}/${report.payload.summary.total}`}
-            </span>
+            <span className="text-sp-11 text-sp-muted tabular-nums">{reportCount(report)}</span>
           </div>
         </button>
       ))}

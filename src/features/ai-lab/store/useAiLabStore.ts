@@ -16,6 +16,7 @@ import { getAiLabReportRepository } from '../run-engine/reportRepository';
 import {
   retainAgentReports,
   sanitizeAgentSuiteReportForPersistence,
+  sanitizeArenaReportForPersistence,
 } from '../run-engine/reportSanitizer';
 import type {
   AiLabModelDetail,
@@ -508,7 +509,11 @@ export const useAiLabStore = create<AiLabState>()(
       saveRunReport: (report) =>
         enqueueReportMutation(async () => {
           const safe =
-            report.kind === 'agent-suite' ? sanitizeAgentSuiteReportForPersistence(report) : report;
+            report.kind === 'agent-suite'
+              ? sanitizeAgentSuiteReportForPersistence(report)
+              : report.kind === 'arena'
+                ? sanitizeArenaReportForPersistence(report)
+                : report;
           const reports = retainAgentReports({ ...get().runReports, [safe.id]: safe });
           await getAiLabReportRepository().save(reports);
           set({ runReports: reports });

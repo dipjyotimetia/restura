@@ -6,12 +6,14 @@ import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
 import { Floater, Stat } from '@/components/ui/spatial';
 import { downloadBlob } from '@/lib/shared/file-utils';
+import { computeElo } from '../lib/elo';
 import { newestFirst } from '../lib/newestFirst';
 import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
 import { useAgentRunLiveStore } from '../run-engine/agentRunService';
 import { type AiLabReportEnvelope, adaptEvalRunReport } from '../run-engine/reportEnvelope';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
+import { useArenaStore } from '../store/useArenaStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
 import { EmptyState } from './EmptyState';
 import { ReportMatrix } from './ReportMatrix';
@@ -243,9 +245,83 @@ function AgentReportDetail({
   );
 }
 
+function ArenaReportDetail({
+  report,
+  onDelete,
+}: {
+  report: Extract<AiLabReportEnvelope, { kind: 'arena' }>;
+  onDelete: () => void;
+}) {
+  const run = report.payload;
+  const leaderboard = useMemo(() => computeElo(run.modelKeys, run.matches), [run]);
+  const errored = run.matches.filter((m) => m.winner === 'error');
+  const exportJson = () => {
+    const safe = report.name.replace(/[^a-z0-9-_]+/gi, '_') || 'arena';
+    downloadBlob(JSON.stringify(report, null, 2), `${safe}.json`, 'application/json');
+  };
+
+  return (
+    <Floater radius="panel" elevation="float" className="space-y-4 bg-sp-surface p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="truncate text-sp-13 font-semibold text-sp-text">{report.name}</h2>
+          <p className="text-sp-11 text-sp-muted">
+            {run.matches.length - errored.length}/{run.matches.length} matches scored ·{' '}
+            {run.modelKeys.length} models
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button variant="outline" size="sm" onClick={exportJson}>
+            JSON
+          </Button>
+          <Button variant="ghost" size="icon-sm" aria-label="Delete run" onClick={onDelete}>
+            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+          </Button>
+        </div>
+      </div>
+      <table className="w-full text-sp-12">
+        <thead className="text-sp-11 text-sp-muted">
+          <tr>
+            <th className="py-1 text-left font-medium">#</th>
+            <th className="py-1 text-left font-medium">Model</th>
+            <th className="py-1 text-right font-medium">Elo</th>
+            <th className="py-1 text-right font-medium">W / L / T</th>
+          </tr>
+        </thead>
+        <tbody>
+          {leaderboard.map((entry, index) => (
+            <tr key={entry.key} className="border-t border-sp-line">
+              <td className="py-1 text-sp-muted tabular-nums">{index + 1}</td>
+              <td className="truncate py-1 text-sp-text">
+                {run.modelLabels[entry.key] ?? entry.key}
+              </td>
+              <td className="py-1 text-right tabular-nums">{Math.round(entry.rating)}</td>
+              <td className="py-1 text-right text-sp-muted tabular-nums">
+                {entry.wins} / {entry.losses} / {entry.ties}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {errored.length > 0 && (
+        <div className="space-y-1 border-t border-sp-line pt-3 text-sp-11">
+          <div className="text-sp-muted">Failed matches (left out of the ratings)</div>
+          {errored.map((m, index) => (
+            <div key={`${m.a}-${m.b}-${index}`} className="text-destructive">
+              {run.modelLabels[m.a] ?? m.a} vs {run.modelLabels[m.b] ?? m.b}
+              {m.error ? ` · ${m.error}` : ''}
+            </div>
+          ))}
+        </div>
+      )}
+    </Floater>
+  );
+}
+
 export function ReportView() {
   const runs = useEvalRunStore((s) => s.runs);
   const deleteRun = useEvalRunStore((s) => s.deleteRun);
+  const deleteArenaRun = useArenaStore((s) => s.deleteRun);
   const datasets = useAiLabStore((s) => s.datasets);
   const runReports = useAiLabStore((s) => s.runReports);
   const liveAgentReport = useAgentRunLiveStore((s) => s.completedReport);
@@ -317,6 +393,7 @@ export function ReportView() {
     if (!selected) return;
     if (!(await confirmDelete())) return;
     if (selected.kind === 'eval') deleteRun(selected.id);
+    if (selected.kind === 'arena') deleteArenaRun(selected.id);
     if (runReports[selected.id]) await removeRunReport(selected.id);
     setActiveId(null); // also clears the drill-down (store invariant)
   };
@@ -345,6 +422,8 @@ export function ReportView() {
         <div className="flex-1 overflow-auto p-4">
           {selected?.kind === 'agent-suite' ? (
             <AgentReportDetail report={selected} onDelete={() => void handleDeleteClick()} />
+          ) : selected?.kind === 'arena' ? (
+            <ArenaReportDetail report={selected} onDelete={() => void handleDeleteClick()} />
           ) : active ? (
             <ReportSummary
               run={active}

@@ -6,6 +6,9 @@ export const MAX_AGENT_REPORT_COUNT = 20;
 export const MAX_AGENT_REPORT_TOTAL_BYTES = 20 * 1024 * 1024;
 export const MAX_EVAL_REPORT_COUNT = 50;
 export const MAX_EVAL_REPORT_TOTAL_BYTES = 50 * 1024 * 1024;
+/** Matches the Arena history cap in useArenaStore. */
+export const MAX_ARENA_REPORT_COUNT = 30;
+export const MAX_ARENA_REPORT_TOTAL_BYTES = 10 * 1024 * 1024;
 const MAX_CONTENT_CHARS = 64 * 1024;
 const AGGRESSIVE_CONTENT_CHARS = 4 * 1024;
 const SENSITIVE_KEY = new Set([
@@ -52,11 +55,24 @@ export function sanitizeAgentSuiteReportForExport(
   return sanitized;
 }
 
+/**
+ * Arena payloads are model keys and match outcomes; only the per-match error
+ * text can carry provider detail (URLs, echoed keys), so it goes through the
+ * same redaction as agent reports.
+ */
+export function sanitizeArenaReportForPersistence(
+  envelope: Extract<AiLabReportEnvelope, { kind: 'arena' }>
+): Extract<AiLabReportEnvelope, { kind: 'arena' }> {
+  return sanitizeValue(envelope, AGGRESSIVE_CONTENT_CHARS) as typeof envelope;
+}
+
 export interface ReportRetentionLimits {
   agentCount: number;
   agentBytes: number;
   evalCount: number;
   evalBytes: number;
+  arenaCount: number;
+  arenaBytes: number;
 }
 
 const DEFAULT_RETENTION: ReportRetentionLimits = {
@@ -64,6 +80,8 @@ const DEFAULT_RETENTION: ReportRetentionLimits = {
   agentBytes: MAX_AGENT_REPORT_TOTAL_BYTES,
   evalCount: MAX_EVAL_REPORT_COUNT,
   evalBytes: MAX_EVAL_REPORT_TOTAL_BYTES,
+  arenaCount: MAX_ARENA_REPORT_COUNT,
+  arenaBytes: MAX_ARENA_REPORT_TOTAL_BYTES,
 };
 
 /** Newest-first within a count and byte budget; evicts older reports deterministically. */
@@ -88,7 +106,7 @@ function retainNewest(
 
 /**
  * Bound the persisted `runReports` blob (rewritten in full on every save) by
- * count and size, separately for agent and eval reports. Eviction is permanent;
+ * count and size, separately for agent, eval and arena reports. Eviction is permanent;
  * eval runs also live in useEvalRunStore until its own cap prunes them.
  */
 export function retainAgentReports(
@@ -107,7 +125,14 @@ export function retainAgentReports(
     cap.agentCount,
     cap.agentBytes
   );
-  return Object.fromEntries([...evalReports, ...agentReports].map((report) => [report.id, report]));
+  const arenaReports = retainNewest(
+    all.filter((report) => report.kind === 'arena'),
+    cap.arenaCount,
+    cap.arenaBytes
+  );
+  return Object.fromEntries(
+    [...evalReports, ...agentReports, ...arenaReports].map((report) => [report.id, report])
+  );
 }
 
 function sanitizeValue(value: unknown, maxChars: number, key = ''): unknown {

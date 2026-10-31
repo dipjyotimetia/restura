@@ -1,15 +1,18 @@
 import { create } from 'zustand';
 import {
   type ArenaProgress,
+  type ArenaResult,
   ArenaRunError,
   arenaRunStatus,
   modelKeyOf,
   runArena,
 } from '../lib/arenaRunner';
 import { modelKey } from '../lib/modelOptions';
+import { adaptArenaRunReport } from '../run-engine/reportEnvelope';
+import { isRunCancelledWithResult, RunEngine } from '../run-engine/runEngine';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useArenaStore } from '../store/useArenaStore';
-import type { ModelRef } from '../types';
+import type { ArenaMatch, ModelRef } from '../types';
 
 export interface ArenaRunConfig {
   datasetId: string;
@@ -31,6 +34,8 @@ interface ArenaLiveState {
   running: boolean;
   progress: ArenaProgress | null;
   error: string | null;
+  /** The run finished but its Reports-tab copy failed to save; never blocks new runs. */
+  persistenceError: string | null;
   lastRunId: string | null;
 }
 
@@ -38,13 +43,40 @@ const useArenaLiveStore = create<ArenaLiveState>()(() => ({
   running: false,
   progress: null,
   error: null,
+  persistenceError: null,
   lastRunId: null,
 }));
 
-let abortController: AbortController | null = null;
+// Module-scoped so Stop keeps working after the Arena tab remounts.
+const runEngine = new RunEngine<ArenaResult>();
+let activeJobId: string | null = null;
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** Matches judged before a stop or failure, kept instead of discarded. */
+function matchesFrom(cause: unknown): ArenaMatch[] {
+  if (isRunCancelledWithResult<ArenaResult>(cause)) return cause.result.matches;
+  if (cause instanceof ArenaRunError) return cause.matches;
+  return [];
+}
+
+async function persistReport(runId: string): Promise<void> {
+  const run = useArenaStore.getState().runs[runId];
+  if (!run) return;
+  try {
+    await useAiLabStore.getState().saveRunReport(adaptArenaRunReport(run));
+  } catch (cause) {
+    // The run itself is safe in the arena history; only the Reports-tab copy failed.
+    useArenaLiveStore.setState({
+      persistenceError: `Report persistence failed: ${errorText(cause)}`,
+    });
+  }
+}
 
 function start(config: ArenaRunConfig): void {
-  if (abortController) return; // a run is already in flight
+  if (activeJobId) return; // a run is already in flight
   const lab = useAiLabStore.getState();
   const dataset = lab.datasets[config.datasetId];
   if (!dataset) {
@@ -55,7 +87,12 @@ function start(config: ArenaRunConfig): void {
     useArenaLiveStore.setState({ error: 'Pick at least two models.' });
     return;
   }
-  useArenaLiveStore.setState({ error: null, progress: null, running: true });
+  useArenaLiveStore.setState({
+    error: null,
+    persistenceError: null,
+    progress: null,
+    running: true,
+  });
   lab.recordRecentModels([...config.models.map(modelKey), modelKey(config.judgeModel)]);
 
   const modelKeys = config.models.map(modelKeyOf);
@@ -67,12 +104,10 @@ function start(config: ArenaRunConfig): void {
   });
   useArenaLiveStore.setState({ lastRunId: runId });
 
-  const ac = new AbortController();
-  abortController = ac;
-
-  void (async () => {
-    try {
-      const result = await runArena(
+  const execution = runEngine.start(
+    'arena',
+    (context) =>
+      runArena(
         {
           dataset,
           models: config.models,
@@ -82,13 +117,35 @@ function start(config: ArenaRunConfig): void {
           ...(config.system ? { system: config.system } : {}),
           ...(config.sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
         },
-        (p) => useArenaLiveStore.setState({ progress: p }),
-        ac.signal
-      );
-      const status = arenaRunStatus(result.matches, ac.signal.aborted);
+        (p) => {
+          useArenaLiveStore.setState({ progress: p });
+          if (p.phase === 'done') context.reportProgress(1);
+          else if (p.total > 0) {
+            // Generation and judging each take half of the bar.
+            const half = p.completed / p.total / 2;
+            context.reportProgress(p.phase === 'generating' ? half : 0.5 + half);
+          }
+        },
+        context.signal
+      ),
+    {
+      classifyResult: (result) => {
+        const status = arenaRunStatus(result.matches, false);
+        return status === 'done' ? 'passed' : status === 'partial' ? 'failed' : 'error';
+      },
+      // Keep the matches judged before Stop.
+      cancellationResult: (result) => result,
+    }
+  );
+  activeJobId = execution.jobId;
+
+  void (async () => {
+    try {
+      const result = await execution.result;
+      const status = arenaRunStatus(result.matches, false);
       useArenaStore.getState().finishRun(runId, result.matches, status);
       const errored = result.matches.filter((m) => m.winner === 'error');
-      if (errored.length > 0 && status !== 'cancelled') {
+      if (errored.length > 0) {
         useArenaLiveStore.setState({
           error:
             status === 'error'
@@ -97,28 +154,42 @@ function start(config: ArenaRunConfig): void {
         });
       }
     } catch (e: unknown) {
-      useArenaLiveStore.setState({ error: e instanceof Error ? e.message : String(e) });
-      // Keep whatever was judged before the failure instead of discarding it.
-      const matches = e instanceof ArenaRunError ? e.matches : [];
-      useArenaStore
-        .getState()
-        .finishRun(runId, matches, matches.some((m) => m.winner !== 'error') ? 'partial' : 'error');
+      const matches = matchesFrom(e);
+      if (runEngine.get(execution.jobId)?.status === 'cancelled') {
+        useArenaStore.getState().finishRun(runId, matches, 'cancelled');
+      } else {
+        useArenaLiveStore.setState({ error: errorText(e) });
+        // Keep whatever was judged before the failure instead of discarding it.
+        useArenaStore
+          .getState()
+          .finishRun(
+            runId,
+            matches,
+            matches.some((m) => m.winner !== 'error') ? 'partial' : 'error'
+          );
+      }
     } finally {
-      abortController = null;
+      runEngine.release(execution.jobId);
+      activeJobId = null;
       useArenaLiveStore.setState({ running: false });
     }
+    await persistReport(runId);
   })();
 }
 
 function stop(): void {
-  abortController?.abort();
+  if (activeJobId) runEngine.cancel(activeJobId);
 }
 
-/** Drives an Arena run: round-robin pairwise judging → Elo, persisted + cancellable. */
+/**
+ * Drives an Arena run on the shared RunEngine: round-robin pairwise judging →
+ * Elo, cancellable, persisted to the arena history and the Reports tab.
+ */
 export function useArenaRun() {
   const running = useArenaLiveStore((s) => s.running);
   const progress = useArenaLiveStore((s) => s.progress);
   const error = useArenaLiveStore((s) => s.error);
+  const persistenceError = useArenaLiveStore((s) => s.persistenceError);
   const lastRunId = useArenaLiveStore((s) => s.lastRunId);
-  return { running, progress, error, lastRunId, start, stop };
+  return { running, progress, error, persistenceError, lastRunId, start, stop };
 }
