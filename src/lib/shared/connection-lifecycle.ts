@@ -1,4 +1,4 @@
-interface ConnectionLifecycle {
+export interface ConnectionLifecycle {
   connectionIdForTab: (tabId: string) => string | undefined;
   disconnect: (connectionId: string) => void | Promise<void>;
   removeConnectionForTab: (tabId: string) => void;

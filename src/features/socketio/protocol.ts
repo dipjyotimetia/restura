@@ -1,5 +1,5 @@
 /**
- * Socket.IO protocol module — metadata-only registration.
+ * Socket.IO protocol module — metadata and the tab connection binding.
  *
  * Socket.IO is a stateful, long-lived, event-driven connection. Like
  * WebSocket, it has no `Request` shape in the type system: connection state
@@ -13,6 +13,8 @@
  * this stub gets replaced.
  */
 import type { ProtocolModule } from '@/features/registry/types';
+import { socketioManager } from './lib/socketioManager';
+import { useSocketIOStore } from './store/useSocketIOStore';
 
 export const socketioProtocol: ProtocolModule = {
   id: 'socketio',
@@ -25,5 +27,10 @@ export const socketioProtocol: ProtocolModule = {
     throw new Error(
       'Socket.IO is event-driven and stateful; use SocketIOClient + socketioManager, not the registry runner.'
     );
+  },
+  connectionLifecycle: {
+    connectionIdForTab: (tabId) => useSocketIOStore.getState().connectionByTabId[tabId],
+    disconnect: (connectionId) => socketioManager.disconnect(connectionId),
+    removeConnectionForTab: (tabId) => useSocketIOStore.getState().cleanupConnectionForTab(tabId),
   },
 };

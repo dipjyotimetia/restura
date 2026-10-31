@@ -1,5 +1,5 @@
 /**
- * Kafka protocol module — metadata-only registration.
+ * Kafka protocol module — metadata and the tab connection binding.
  *
  * Kafka is connection-based (long-lived producer + optional consumer over a
  * binary TCP wire). There is no `Request` shape for it in the type system —
@@ -11,6 +11,8 @@
  * proper API (`KafkaClient` + `kafkaManager`). Mirrors the websocket stub.
  */
 import type { ProtocolModule } from '@/features/registry/types';
+import { kafkaManager } from './lib/kafkaManager';
+import { useKafkaStore } from './store/useKafkaStore';
 
 export const kafkaProtocol: ProtocolModule = {
   id: 'kafka',
@@ -23,5 +25,10 @@ export const kafkaProtocol: ProtocolModule = {
     throw new Error(
       'Kafka is connection-based; use KafkaClient + kafkaManager, not the registry runner.'
     );
+  },
+  connectionLifecycle: {
+    connectionIdForTab: (tabId) => useKafkaStore.getState().connectionByTabId[tabId],
+    disconnect: (connectionId) => kafkaManager.disconnect(connectionId),
+    removeConnectionForTab: (tabId) => useKafkaStore.getState().cleanupConnectionForTab(tabId),
   },
 };

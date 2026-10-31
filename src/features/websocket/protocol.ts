@@ -22,6 +22,8 @@ import {
 } from '@/lib/shared/streaming/desktopStreamAdapter';
 import { createStreamSequence, openStreamSession } from '@/lib/shared/streaming/streamSession';
 import { EVENT_PREFIX } from '../../../electron/shared/channels';
+import { websocketManager } from './lib/websocketManager';
+import { useWebSocketStore } from './store/useWebSocketStore';
 
 interface InlineWsRequestShape {
   type: 'websocket';
@@ -279,4 +281,9 @@ export const websocketProtocol: ProtocolModule = {
     );
   },
   startStream: websocketStartStream,
+  connectionLifecycle: {
+    connectionIdForTab: (tabId) => useWebSocketStore.getState().connectionByTabId[tabId],
+    disconnect: (connectionId) => websocketManager.disconnect(connectionId, true),
+    removeConnectionForTab: (tabId) => useWebSocketStore.getState().cleanupConnectionForTab(tabId),
+  },
 };
