@@ -87,6 +87,15 @@ describe('buildConnectTransport', () => {
     expect(nodeOptions.rejectUnauthorized).toBe(false);
   });
 
+  // RFC 6066 forbids IP SNI and Node 26 throws ERR_INVALID_ARG_VALUE on it.
+  it.each([['grpcs://10.0.0.5:50051'], ['grpcs://[2001:db8::1]:50051']])(
+    'omits SNI for an IP-literal TLS target (%s)',
+    (url) => {
+      buildConnectTransport(url, DIAL);
+      expect(lastOptions().nodeOptions.servername).toBeUndefined();
+    }
+  );
+
   it('maps a PEM client cert + key + passphrase for mTLS', () => {
     buildConnectTransport('grpcs://api.example.com:50051', DIAL, {
       clientCert: { cert: 'CERT-PEM', key: 'KEY-PEM', passphrase: 'hunter2' },

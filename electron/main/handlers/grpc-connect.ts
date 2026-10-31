@@ -30,6 +30,7 @@ import { GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import { connectErrorDetails, type GrpcStatusDetail } from '@shared/protocol/grpc-status-details';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
+import { tlsIdentity } from '@shared/protocol/tls-sni';
 import { resolveUrlHostnameSafe } from '../security/dns-guard';
 import { getExecutionPolicy } from '../security/execution-policy';
 import { buildTlsClientMaterial } from '../security/tls-material';
@@ -104,13 +105,12 @@ function transportBaseUrl(url: string, dial: PinnedDial): string {
 // connect's ~4 GiB default: checked per message on the envelope length prefix BEFORE
 // buffering, and handed to gzip/brotli as maxOutputLength (bombs) → RESOURCE_EXHAUSTED.
 function buildNodeTransportBase(url: string, dial: PinnedDial, tls?: GrpcTlsConfig) {
-  const host = new URL(url).hostname;
   const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
   const baseUrl = transportBaseUrl(url, dial);
 
   const nodeOptions: Record<string, unknown> = { lookup: pinnedLookup(dial) };
   if (useTls) {
-    nodeOptions.servername = host; // SNI + cert hostname check stay on the hostname
+    nodeOptions.servername = tlsIdentity(new URL(url).hostname).servername; // none for IP literals
     if (tls?.verifySsl === false) nodeOptions.rejectUnauthorized = false;
     // mTLS client cert (PKCS#12 or cert+key, with a main-resolved passphrase) +
     // custom CA. Shared with the HTTP handler so cert/CA handling can't drift.

@@ -95,6 +95,36 @@ describe('httpsViaConnectProxy — CONNECT response handling (Fix #2)', () => {
     expect(res.status).toBe(200);
   });
 
+  // RFC 6066 forbids IP SNI; Node 26 throws ERR_INVALID_ARG_VALUE on it.
+  it('omits SNI when the CONNECT target is an IP literal', async () => {
+    const proxySock = new FakeSocket();
+    const tlsSock = new FakeSocket();
+    state.nextNetSocket = proxySock;
+    state.nextTlsSocket = tlsSock;
+    proxySock.onWrite = (s) => {
+      s.emit('data', Buffer.from('HTTP/1.1 200 Connection established\r\n\r\n'));
+    };
+    tlsSock.onWrite = (s) => {
+      s.emit('data', Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n'));
+    };
+
+    const tls = await import('node:tls');
+    const tlsConnect = vi.mocked(tls.connect);
+    tlsConnect.mockClear();
+    const httpsViaConnectProxy = createHttpsViaConnectProxy({ allowPrivateIPs: false });
+    const res = await httpsViaConnectProxy(
+      new URL('https://93.184.216.34/'),
+      { host: 'proxy.example', port: 8080 },
+      { method: 'GET' },
+      new AbortController().signal
+    );
+    expect(res.status).toBe(200);
+    const opts = tlsConnect.mock.calls[0]?.[0];
+    expect(opts).not.toHaveProperty('servername');
+    // Without host, the cert identity falls back to the proxy socket's dial host.
+    expect(opts).toMatchObject({ host: '93.184.216.34' });
+  });
+
   it('rejects a non-200 CONNECT response (exact status-code match, not substring)', async () => {
     const proxySock = new FakeSocket();
     state.nextNetSocket = proxySock;

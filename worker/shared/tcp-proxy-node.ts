@@ -29,6 +29,7 @@ import { Buffer } from 'node:buffer';
 import net from 'node:net';
 import tls from 'node:tls';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
+import { tlsIdentity } from '@shared/protocol/tls-sni';
 import { assertNodeHostnameSafe, type NodeDnsGuardOptions } from './dns-guard-node';
 import type { UpstreamProxy } from './tcp-proxy';
 
@@ -356,7 +357,7 @@ function upgradeToTls(
     if (signal.aborted) return reject(new Error('Aborted'));
     const tlsSocket = tls.connect({
       socket,
-      servername: expectedServerHostname,
+      ...tlsIdentity(expectedServerHostname),
       // Trust the system CA bundle by default. Enterprises with internal CAs
       // can supply NODE_EXTRA_CA_CERTS at process startup.
     });

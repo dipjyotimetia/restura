@@ -1,5 +1,6 @@
 import type * as net from 'node:net';
 import * as tls from 'node:tls';
+import { tlsIdentity } from '@shared/protocol/tls-sni';
 import { Agent, type buildConnector } from 'undici';
 import { type HttpVersionPlan, h2NotNegotiatedError } from './http-version';
 
@@ -46,7 +47,7 @@ export function createSocksDispatcher(
           // protocol, server cipher order) plus mTLS client cert + custom CA.
           const tlsSocket = tls.connect({
             socket: socksSocket,
-            servername: targetUrl.hostname,
+            ...tlsIdentity(targetUrl.hostname),
             rejectUnauthorized: verifySsl,
             ALPNProtocols: allowH2 ? ['h2', 'http/1.1'] : ['http/1.1'],
             ...(tlsKnobs?.serverCipherOrder && { honorCipherOrder: true }),
