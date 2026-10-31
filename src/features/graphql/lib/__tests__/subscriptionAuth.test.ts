@@ -97,6 +97,40 @@ describe('buildSubscriptionHandshake — {{vars}} and inheritance (#878)', () =>
   });
 });
 
+describe('buildSubscriptionHandshake — request-scope grammar matches the HTTP executor', () => {
+  it('resolves a padded and a spaced request-scope token before the store resolver', () => {
+    const hs = buildSubscriptionHandshake(
+      input({
+        request: request({
+          url: 'https://{{ host }}/graphql',
+          headers: [{ id: 'h', key: 'X-Tenant', value: '{{ my tenant }}', enabled: true }],
+        }),
+        values: { host: 'scope.example.com', 'my tenant': 'acme' },
+        resolveVariables: (text) => text.replace(/\{\{\s*host\s*\}\}/, 'store.example.com'),
+      })
+    );
+    expect(hs.url).toBe('https://scope.example.com/graphql');
+    expect(hs.headers['X-Tenant']).toBe('acme');
+  });
+
+  it('keeps a spaced secret-variable token away from the store resolver', () => {
+    const hs = buildSubscriptionHandshake(
+      input({
+        request: request({
+          url: 'https://api.example.com/graphql',
+          headers: [{ id: 'h', key: 'X-Key', value: '{{ my secret }}', enabled: true }],
+        }),
+        values: {},
+        secretVariables: { 'my secret': handle },
+        resolveVariables: (text) => text.replaceAll('my secret', 'consumed'),
+        desktop: true,
+      })
+    );
+    expect(hs.headers['X-Key']).toBe('{{ my secret }}');
+    expect(hs.mainSide?.secretVariables).toEqual({ 'my secret': handle });
+  });
+});
+
 describe('buildSubscriptionHandshake — API key in query (#882)', () => {
   it('appends a query API key to the socket URL, not the headers', () => {
     const hs = buildSubscriptionHandshake(
@@ -236,12 +270,12 @@ describe('buildSubscriptionHandshake — secret variables', () => {
         }),
       })
     );
-    // Canonicalised token, never resolved in the renderer, forwarded main-side.
-    expect(desktop.headers['X-Secret']).toBe('a {{apiSecret}} b');
+    // Token kept as written, never resolved in the renderer, forwarded main-side.
+    expect(desktop.headers['X-Secret']).toBe('a {{ apiSecret }} b');
     expect(desktop.connectionParams['X-Secret']).toBeUndefined();
     expect(desktop.headers.Authorization).toBeUndefined();
     expect(desktop.mainSide).toEqual({
-      auth: { type: 'bearer', bearer: { token: { kind: 'inline', value: '{{apiSecret}}' } } },
+      auth: { type: 'bearer', bearer: { token: { kind: 'inline', value: '{{  apiSecret}}' } } },
       secretVariables,
     });
     expect(JSON.stringify(desktop)).not.toContain('LEAKED');

@@ -9,7 +9,6 @@ import { executeRequest, resolveEffectiveSettings } from '@/features/http/lib/re
 import { applyUrlInput } from '@/features/http/lib/urlQuery';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
-import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { urlEncodedRaw } from '@/lib/shared/urlEncodedBody';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useActiveRequest } from '@/store/selectors';
@@ -176,19 +175,8 @@ export function useHttpRequestPage() {
         signal: controller.signal,
       });
 
-      // Recompute the resolved URL for history/console display with the
-      // post-script variable map (executeRequest mutates `envVars` in place) —
-      // mirrors the executor's own resolveLocal.
-      const resolveLocal = (text: string): string => {
-        let out = text;
-        Object.entries(envVars).forEach(([key, value]) => {
-          // escapeRegExp: a key with regex metachars would otherwise crash the
-          // RegExp ctor; () => value: a value with $ patterns is taken literally.
-          out = out.replace(new RegExp(`{{${escapeRegExp(key)}}}`, 'g'), () => value);
-        });
-        return resolveVariables(out);
-      };
-      resolvedUrl = resolveLocal(httpRequest.url);
+      // History, console and HAR record what the executor sent.
+      resolvedUrl = result.sentUrl;
 
       const { scriptResult } = result;
       if (scriptResult && (scriptResult.preRequest || scriptResult.test)) {

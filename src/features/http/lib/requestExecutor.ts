@@ -13,11 +13,7 @@ import {
   SET_COOKIE_SIDE_CHANNEL_HEADER,
   type SetCookieSource,
 } from '@shared/protocol/set-cookie';
-import { expandVariablesInOrder } from '@shared/variables/resolver';
-import {
-  basicAuthReferencesSecretVariable,
-  replaceSecretVariableTokenMatches,
-} from '@shared/variables/secret-variable-token';
+import { basicAuthReferencesSecretVariable } from '@shared/variables/secret-variable-token';
 import { Cookie } from 'tough-cookie';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -47,6 +43,7 @@ import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { selectCertForUrl } from '@/lib/shared/certMatcher';
 import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { makeRendererJudge } from '@/lib/shared/judgeBridge';
+import { resolveRequestScopeText } from '@/lib/shared/resolveRequestScope';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import {
   type DesktopTransportConfig,
@@ -68,6 +65,12 @@ export interface RequestExecutionResult {
     test?: ScriptResult;
   };
   envVars?: Record<string, string>;
+  /**
+   * The URL handed to the transport, after `{{var}}` substitution (desktop secret
+   * tokens stay opaque, and a dynamic is the value actually generated). Query
+   * params are carried separately in `sentParams`.
+   */
+  sentUrl: string;
   sentHeaders: Record<string, string>;
   /**
    * The raw-text body as sent, after `{{var}}` substitution (desktop secret
@@ -227,31 +230,9 @@ export function buildDesktopTransportConfig(
 async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<BuiltSpec> {
   const { request, envVars, globalSettings, resolveVariables, secretVariables } = options;
 
-  // Request scope (collection / folder / script values the store cannot see) walks
-  // in insertion order with the store's grammar, including `{{ padded }}` tokens.
-  // Dynamics stay literal here and expand once, in the store pass.
-  const resolveLocal = (text: string) => {
-    let result = expandVariablesInOrder(text, Object.entries(envVars));
-    // Keep SecretRef tokens opaque in the renderer. The store-level resolver
-    // otherwise sees the variable's placeholder value and would consume the
-    // token before Electron main can materialize its handle at the wire edge.
-    // Same token grammar as main's materializer, so `{{ name }}` is opaque too.
-    const protectedSecrets = new Map<string, string>();
-    if (secretVariables) {
-      result = replaceSecretVariableTokenMatches(
-        result,
-        (name) => Object.hasOwn(secretVariables, name),
-        (_name, token) => {
-          const marker = `__restura_secret_${protectedSecrets.size}__`;
-          protectedSecrets.set(marker, token);
-          return marker;
-        }
-      );
-    }
-    result = resolveVariables(result);
-    for (const [marker, token] of protectedSecrets) result = result.replaceAll(marker, token);
-    return result;
-  };
+  // envVars is read per call: scripts have already written to it by this point.
+  const resolveLocal = (text: string) =>
+    resolveRequestScopeText(text, { values: envVars, secretVariables, resolveVariables });
 
   const resolvedUrl = resolveLocal(request.url);
 
@@ -607,6 +588,7 @@ export async function executeRequest(
       ...(testResult !== undefined && { test: testResult }),
     },
     envVars,
+    sentUrl: spec.url,
     sentHeaders,
     ...(spec.data !== undefined ? { sentBody: spec.data } : {}),
     ...(spec.params && Object.keys(spec.params).length > 0 ? { sentParams: spec.params } : {}),
