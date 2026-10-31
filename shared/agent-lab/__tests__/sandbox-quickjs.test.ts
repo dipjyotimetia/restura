@@ -6,7 +6,7 @@ import {
   SANDBOX_TIMEOUT_EXIT_CODE,
 } from '../sandbox-quickjs';
 import { createAgentToolResolver } from '../tool-resolver';
-import { createSandboxToolSourceAdapter, sandboxToolName } from '../tools';
+import { createSandboxToolSourceAdapter, SandboxRegistry, sandboxToolName } from '../tools';
 
 const provider = new QuickJsSandboxProvider();
 const base = {
@@ -107,7 +107,7 @@ describe('sandbox tool source adapter (#1042)', () => {
 
   it('defaults providers without a declared permission to process (approval required)', async () => {
     const adapter = createSandboxToolSourceAdapter(
-      new (await import('../tools')).SandboxRegistry([
+      new SandboxRegistry([
         { id: 'custom', execute: async () => ({ exitCode: 0, stdout: '', stderr: '' }) },
       ])
     );
