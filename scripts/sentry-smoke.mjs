@@ -53,7 +53,8 @@ const envelope = [
     logger: 'release-smoke',
     message: 'Restura desktop Sentry release smoke test',
     release,
-    environment: 'production',
+    // Its own environment, so filtering to `production` shows real installs only.
+    environment: 'ci-smoke',
     tags: {
       app: 'restura',
       target: 'desktop',

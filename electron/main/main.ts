@@ -36,9 +36,13 @@ import { registerAutoUpdaterIPC, setupAutoUpdater } from './lifecycle/auto-updat
 import { registerDeepLinkHandler } from './lifecycle/deep-link-handler';
 import { initLogging } from './lifecycle/logging';
 import { logRequest, registerRequestLoggerIPC } from './lifecycle/request-logger';
-import { initSentry } from './lifecycle/sentry';
+import { endSentrySessionForQuit, initSentry } from './lifecycle/sentry';
 import { createSystemTray, destroyTray } from './lifecycle/system-tray';
-import { readConsentSync, registerTelemetryConsentIPC } from './lifecycle/telemetry-consent';
+import {
+  hasRecordedConsentSync,
+  readConsentSync,
+  registerTelemetryConsentIPC,
+} from './lifecycle/telemetry-consent';
 import { registerWindowControlsIPC } from './lifecycle/window-controls';
 import { registerNotificationIPC } from './notifications';
 import { registerExecutionPolicyIPC } from './security/execution-policy';
@@ -91,7 +95,7 @@ const log = createLogger('main');
 // owns the native crashReporter (minidumps); it only inits when the user has
 // opted in (read synchronously from the plain consent mirror), so opted-out
 // users upload nothing. See electron/main/lifecycle/sentry.ts.
-initSentry({ enabled: readConsentSync() });
+initSentry({ enabled: readConsentSync(), countSessions: hasRecordedConsentSync() });
 
 // Sentry's default integrations already capture main-process uncaught
 // exceptions/rejections; these handlers add structured local logging on top so
@@ -363,8 +367,9 @@ app.whenReady().then(async () => {
             });
           }),
           new Promise((resolve) => setTimeout(resolve, MCP_STOP_TIMEOUT_MS)),
-        ]).then(() => {
+        ]).then(async () => {
           mcpStopped = true;
+          await endSentrySessionForQuit();
           app.exit(0);
         });
       });
@@ -442,9 +447,10 @@ if (!isMcpServerMode) {
     void Promise.race([
       Promise.allSettled(disposals),
       new Promise((resolve) => setTimeout(resolve, QUIT_DISPOSE_TIMEOUT_MS)),
-    ]).then(() => {
+    ]).then(async () => {
       quitCleanupDone = true;
       destroyTray();
+      await endSentrySessionForQuit();
       app.exit(0);
     });
   });

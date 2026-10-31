@@ -70,7 +70,7 @@ export function GeneralSection() {
       <FieldGroup label="Privacy">
         <FieldRow
           label="Send crash & error reports"
-          hint="Helps fix bugs. Only the error message, stack, app version, and browser/OS info are sent — never request payloads, URLs, headers, or response bodies."
+          hint="Helps fix bugs. Only the error message, stack, app version, and browser/OS info are sent — never request payloads, URLs, headers, or response bodies. On desktop this also sends session health with a random install ID, so we can count active installs. Turning this off deletes the ID."
           control={
             <ToggleField
               checked={settings.telemetry?.errorsEnabled ?? true}

@@ -1,6 +1,6 @@
 # ADR 0027: Telemetry and Privacy-Preserving Usage Signal
 
-**Status:** Accepted, 2026-07-03
+**Status:** Accepted, 2026-07-03. Amended by [ADR 0040](./0040-random-install-id-for-release-health.md): Release Health sessions now carry a random per-install ID, which replaces this ADR's "no identifier" position and its "no precise unique-user count" limitation.
 
 ## Context
 

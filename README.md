@@ -112,7 +112,7 @@ Read [Self-hosting](docs/SELF_HOSTING.md) before deploying: it covers authentica
 - **Outbound-request protection.** Shared SSRF validation blocks private, link-local, and cloud-metadata targets by default. Desktop adds DNS-rebind protection; self-hosted deployments can explicitly enable private-network access when needed.
 - **Wire-accurate signing.** AWS SigV4 is signed in the Worker or Electron handler, not the renderer, so the upstream receives the exact signed bytes.
 - **Sandboxed user code.** Pre-request and test scripts run with time and memory limits and have no host bridge.
-- **Transparent telemetry.** Error reporting is opt-out and can be disabled in **Settings → Privacy**. It excludes request URLs, headers, bodies, secrets, and identity. Self-hosted deployments collect no usage analytics.
+- **Transparent telemetry.** Error reporting is opt-out and can be disabled in **Settings → Privacy**. It excludes request URLs, headers, bodies, secrets, and identity. On desktop, the same setting controls session health with a random install ID, used to count active installs. Self-hosted deployments collect no usage analytics.
 
 Read the [security architecture](docs/adr/0004-security-hardening.md), [privacy and telemetry decision](docs/adr/0027-telemetry-and-privacy-preserving-usage-analytics.md), and [capability matrix](docs/CAPABILITY_MATRIX.md) for the full model and platform caveats.
 
