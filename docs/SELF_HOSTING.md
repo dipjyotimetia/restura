@@ -55,7 +55,7 @@ production or exposed beyond your local machine.
                 ▼                  │ wss /api/ws
        ┌──────────────────────────────────────┐
        │  Docker container :3000              │
-       │  Node 24 + @hono/node-server         │
+       │  Node 26 + @hono/node-server         │
        │                                      │
        │  /                  → SPA (static)   │
        │  /api/proxy         → HTTP/REST      │
