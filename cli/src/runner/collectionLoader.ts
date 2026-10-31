@@ -331,7 +331,7 @@ function walkItems(
  * workflows, agent tools) sees the same rows.
  */
 function withEnabledFormRows(body: HttpRequest['body']): HttpRequest['body'] {
-  if (!body?.formData) return body;
+  if (!Array.isArray(body?.formData)) return body;
   return {
     ...body,
     formData: body.formData.map((row) =>

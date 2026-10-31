@@ -38,6 +38,7 @@ import {
   replaceSecretVariableTokens,
 } from '../../electron/main/security/secret-variable-materializer';
 import { executeRequest } from '../../src/features/http/lib/requestExecutor';
+import { buildActiveRequestVariableResolution } from '../../src/lib/shared/activeRequestScopes';
 import { findVariableTokens } from '../../src/lib/shared/variableTokens';
 import { useEnvironmentStore } from '../../src/store/useEnvironmentStore';
 import { useGlobalsStore } from '../../src/store/useGlobalsStore';
@@ -234,6 +235,47 @@ describe('a secret-backed variable with a space stays opaque on the HTTP send pa
       { alias: '{{my secret}}', next: '{{alias}}' }
     );
     expect(spec.headers['X-Key']).toBe(SECRET_HANDLE_PLACEHOLDER);
+  });
+});
+
+describe('a secret-backed row whose key has surrounding whitespace', () => {
+  beforeEach(() => {
+    platform.electron = true;
+    useGlobalsStore.setState({ vars: {} });
+    proxied.mockResolvedValue({ status: 200, statusText: 'OK', headers: {}, data: '', size: 0 });
+  });
+
+  it('matches the trimmed token, so the shield and the materializer never send the mask', async () => {
+    useEnvironment([{ key: ' k ', value: SECRET_HANDLE_PLACEHOLDER, secretRef: HANDLE }]);
+    const { values, secretVariables } = buildActiveRequestVariableResolution();
+    expect(Object.keys(secretVariables)).toEqual(['k']);
+    expect(Object.keys(values)).toEqual([]);
+
+    proxied.mockClear();
+    await executeRequest({
+      request: request({
+        headers: [{ id: 'h', key: 'X-Key', value: '{{k}}', enabled: true }],
+      }),
+      envVars: values,
+      secretVariables,
+      globalSettings: useSettingsStore.getState().settings,
+      resolveVariables: (text) => useEnvironmentStore.getState().resolveVariables(text),
+    });
+    const spec = proxied.mock.calls[0]?.[0] as { url: string; headers: Record<string, string> };
+    expect(spec.headers['X-Key']).toBe('{{k}}');
+    const out = await materializeSecretVariables({
+      url: spec.url,
+      headers: spec.headers,
+      secretVariables,
+    });
+    expect(out.headers?.['X-Key']).toBe('S3CRET');
+  });
+
+  it('lets a later plain row of the same trimmed name win, with no stale key behind it', () => {
+    useEnvironment([{ key: ' k ', value: 'plain' }]);
+    const { values, secretVariables } = buildActiveRequestVariableResolution();
+    expect(values).toEqual({ k: 'plain' });
+    expect(secretVariables).toEqual({});
   });
 });
 

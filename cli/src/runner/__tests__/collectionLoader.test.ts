@@ -160,3 +160,37 @@ describe('loadCollection', () => {
     await expect(loadCollection('/nonexistent/path/does/not/exist')).rejects.toThrow();
   });
 });
+
+describe('hand-edited form rows', () => {
+  it.each([
+    ['a string', "'oops'"],
+    ['an object', '{ a: 1 }'],
+    ['a number', '3'],
+  ])('does not fail an OpenCollection load when the rows are %s', async (_label, rows) => {
+    const dir = await mkdtemp(join(tmpdir(), 'restura-formrows-'));
+    const file = join(dir, 'collection.yaml');
+    await writeFile(
+      file,
+      `opencollection: "1.0.0"
+info:
+  name: Rows
+  version: "0.1.0"
+bundled: true
+items:
+  - info:
+      type: http
+      name: Form
+      seq: 1
+    http:
+      method: POST
+      url: https://api.example.com/a
+      body:
+        formUrlEncoded:
+          parts: ${rows}
+`
+    );
+    const { requests } = await loadCollection(file);
+    expect(requests).toHaveLength(1);
+    await rm(dir, { recursive: true, force: true });
+  });
+});

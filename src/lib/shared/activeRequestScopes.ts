@@ -83,16 +83,19 @@ export function buildActiveRequestVariableResolution(): {
   const secretNames = new Set<string>();
   for (const scope of scopes) {
     for (const variable of scope ?? []) {
-      if (!variable.enabled || !variable.key) continue;
+      // Trimmed like a token name, so a `' k '` row answers to `{{k}}` here too.
+      const key = variable.key?.trim();
+      if (!variable.enabled || !key) continue;
+      delete values[variable.key];
       if (variable.secretRef !== undefined) {
-        delete values[variable.key];
-        secretNames.delete(variable.key);
-        secretVariables[variable.key] = variable.secretRef;
+        delete values[key];
+        secretNames.delete(key);
+        secretVariables[key] = variable.secretRef;
       } else {
-        delete secretVariables[variable.key];
-        values[variable.key] = variable.value;
-        if (variable.secret === true) secretNames.add(variable.key);
-        else secretNames.delete(variable.key);
+        delete secretVariables[key];
+        values[key] = variable.value;
+        if (variable.secret === true) secretNames.add(key);
+        else secretNames.delete(key);
       }
     }
   }
