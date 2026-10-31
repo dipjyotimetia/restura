@@ -18,6 +18,10 @@ import { runWizard } from '../ui/wizard.js';
 
 export interface RunOpts {
   env?: string;
+  globals?: string;
+  envVar?: string[];
+  iterationCount?: string;
+  delayRequest?: string;
   reporter?: string;
   output?: string;
   reporterOutput?: string[];
@@ -77,7 +81,18 @@ export function registerRunCommand(program: Command): void {
       '[collection]',
       'Path to a collection: OpenCollection directory or bundled YAML, legacy `_collection.yaml` directory, or a Postman collection (v2.x .json; v3 folder, .zip or .json/.yaml). Omit in a TTY to pick one interactively.'
     )
-    .option('--env <file>', 'Path to env file (json or yaml)')
+    .option(
+      '-e, --env <file>',
+      'Path to env file: flat key/value json or yaml, or a Postman environment export'
+    )
+    .option(
+      '-g, --globals <file>',
+      'Postman globals export (or flat key/value file); lowest-precedence variables'
+    )
+    .option(
+      '--env-var <kv...>',
+      'Set variables: --env-var token=abc base=https://x (wins over --env)'
+    )
     .option(
       '--reporter <list>',
       'Reporter(s), comma-separated: tui | live | json | junit | html | stats (default: tui in a terminal, live otherwise)'
@@ -94,6 +109,11 @@ export function registerRunCommand(program: Command): void {
     .option('--include <pattern...>', 'Include requests matching pattern (repeatable)')
     .option('--exclude <pattern...>', 'Exclude requests matching pattern (repeatable)')
     .option('--data <file>', 'CSV or JSON file driving iterations (one row per iteration)')
+    .option(
+      '-n, --iteration-count <n>',
+      'Number of iterations (with --data, rows are reused: the last row repeats past the end)'
+    )
+    .option('--delay-request <ms>', 'Pause between requests')
     .option(
       '--max-iterations <n>',
       'Cap the number of iterations (safety against large data files)'
@@ -148,8 +168,18 @@ export function registerRunCommand(program: Command): void {
  */
 export async function executeRun(collectionPath: string, opts: RunOpts): Promise<never> {
   try {
-    const envVars = opts.env ? await loadEnv(opts.env, { expandEnvVars: true }) : {};
-    const iterations = await loadIterationData(opts.data);
+    // Globals < env file; --env-var also wins over collection variables.
+    const envVars = {
+      ...(opts.globals ? await loadEnv(opts.globals, { expandEnvVars: true }) : {}),
+      ...(opts.env ? await loadEnv(opts.env, { expandEnvVars: true }) : {}),
+    };
+    const overrideVars = parseEnvVarFlags(opts.envVar);
+    const iterations = withIterationCount(
+      await loadIterationData(opts.data),
+      opts.iterationCount === undefined
+        ? undefined
+        : numericFlag('--iteration-count', opts.iterationCount, { min: 1 })
+    );
     const reporter = buildReporters(opts);
     const tls = buildTls(opts);
     const externalSecretResolver = await loadExternalSecretResolver(opts.externalSecretsConfig);
@@ -158,6 +188,7 @@ export async function executeRun(collectionPath: string, opts: RunOpts): Promise
       collectionPath,
       {
         envVars,
+        ...(Object.keys(overrideVars).length > 0 ? { overrideVars } : {}),
         bail: Boolean(opts.bail),
         timeoutMs: numericFlag('--timeout', opts.timeout, { min: 1 }),
         allowLocalhost: Boolean(opts.allowLocalhost),
@@ -167,6 +198,9 @@ export async function executeRun(collectionPath: string, opts: RunOpts): Promise
           ...(opts.exclude ? { exclude: opts.exclude } : {}),
         },
         iterations,
+        ...(opts.delayRequest !== undefined
+          ? { delayRequestMs: numericFlag('--delay-request', opts.delayRequest, { min: 0 }) }
+          : {}),
         ...(opts.maxIterations !== undefined
           ? { maxIterations: numericFlag('--max-iterations', opts.maxIterations, { min: 1 }) }
           : {}),
@@ -235,6 +269,28 @@ function numericFlag(name: string, value: string, opts: { min: number }): number
     throw new Error(`${name} must be >= ${opts.min}, got: ${value}`);
   }
   return n;
+}
+
+/** `--env-var key=value` pairs; the value may itself contain `=`. */
+export function parseEnvVarFlags(pairs: string[] | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const pair of pairs ?? []) {
+    const eq = pair.indexOf('=');
+    const key = eq < 0 ? '' : pair.slice(0, eq).trim();
+    if (!key) throw new Error(`--env-var expects key=value, got: ${pair}`);
+    out[key] = pair.slice(eq + 1);
+  }
+  return out;
+}
+
+/**
+ * Newman's `--iteration-count`: without data, that many empty iterations;
+ * with data, that many iterations over the rows, the last row repeating.
+ */
+export function withIterationCount<T extends object>(rows: T[], count: number | undefined): T[] {
+  if (count === undefined) return rows;
+  if (rows.length === 0) return Array.from({ length: count }, () => ({}) as T);
+  return Array.from({ length: count }, (_, i) => rows[Math.min(i, rows.length - 1)]!);
 }
 
 function parseReporterOutputs(pairs: string[] | undefined): Record<string, string> {

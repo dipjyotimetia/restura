@@ -46,6 +46,8 @@ export interface RequestRunResult {
   iteration?: number;
   /** The request was never executed (see `LoadedRequest.blocked`); counted as errored. */
   notSent?: boolean;
+  /** A pre-request script called `pm.execution.skipRequest()`: nothing was sent. */
+  skipped?: boolean;
 }
 
 export interface RunResult {
@@ -59,6 +61,8 @@ export interface RunResult {
     errored: number;
     /** Requests refused before execution (subset of `errored`); absent when 0. */
     notSent?: number;
+    /** Requests skipped by `pm.execution.skipRequest()` (subset of `passed`); absent when 0. */
+    skipped?: number;
   };
   /** Postman inputs only: the shared import report (warnings, skipped symlinks). */
   importReport?: CliPostmanImportReport;
