@@ -85,8 +85,14 @@ export function resolveStreamingText(
   let usedSecret = false;
   const unresolved: string[] = [];
   const json = { inString: false, escaped: false };
-  // Token text (`{{name}}`) holds no quotes or backslashes, so the string
-  // state only needs advancing across the literal text between tokens.
+  // A substituted value is encoded for its context, so it leaves the string
+  // state alone. A token left literal stays on the wire, and the grammar lets it
+  // hold quotes (`{{a"b}}`), so its text advances the state like any other.
+  const keepLiteral = (raw: string) => {
+    wire += raw;
+    display += raw;
+    if (options.json) scanJsonString(raw, json);
+  };
   const encode = (value: string) =>
     options.json && json.inString ? JSON.stringify(value).slice(1, -1) : value;
 
@@ -103,8 +109,7 @@ export function resolveStreamingText(
       const generated = applyDynamicVariables(`{{${name}}}`);
       if (generated === `{{${name}}}`) {
         if (!unresolved.includes(name)) unresolved.push(name);
-        wire += raw;
-        display += raw;
+        keepLiteral(raw);
       } else {
         wire += encode(generated);
         display += encode(generated);
@@ -125,8 +130,7 @@ export function resolveStreamingText(
     }
 
     if (!unresolved.includes(name)) unresolved.push(name);
-    wire += raw;
-    display += raw;
+    keepLiteral(raw);
   }
 
   const rest = text.slice(cursor);

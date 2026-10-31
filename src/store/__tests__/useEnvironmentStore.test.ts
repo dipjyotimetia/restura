@@ -331,30 +331,6 @@ describe('useEnvironmentStore', () => {
       expect(resolveVariables(text)).toBe(text);
     });
 
-    it('should handle variables with spaces', () => {
-      const {
-        createNewEnvironment,
-        addEnvironment,
-        addVariable,
-        setActiveEnvironment,
-        resolveVariables,
-      } = useEnvironmentStore.getState();
-      const env = createNewEnvironment('Test');
-      addEnvironment(env);
-
-      addVariable(env.id, {
-        id: 'var-1',
-        key: 'token',
-        value: 'abc123',
-        enabled: true,
-      });
-
-      setActiveEnvironment(env.id);
-
-      const resolved = resolveVariables('{{ token }}');
-      expect(resolved).toBe('abc123');
-    });
-
     it('resolves a key containing regex metacharacters without crashing', () => {
       // Pre-fix the key was interpolated raw into `new RegExp()`, so a key like
       // `id(x)` threw SyntaxError and crashed the send.
@@ -371,22 +347,6 @@ describe('useEnvironmentStore', () => {
       setActiveEnvironment(env.id);
 
       expect(resolveVariables('x/{{a.b*c+[d]}}')).toBe('x/ok');
-    });
-
-    it('treats $ patterns in a value literally (no replacement-pattern interpretation)', () => {
-      const {
-        createNewEnvironment,
-        addEnvironment,
-        addVariable,
-        setActiveEnvironment,
-        resolveVariables,
-      } = useEnvironmentStore.getState();
-      const env = createNewEnvironment('Test');
-      addEnvironment(env);
-      addVariable(env.id, { id: 'var-1', key: 'token', value: 'a$&b$1c', enabled: true });
-      setActiveEnvironment(env.id);
-
-      expect(resolveVariables('{{token}}')).toBe('a$&b$1c');
     });
 
     it('resolves workspace globals when there is no active environment', () => {

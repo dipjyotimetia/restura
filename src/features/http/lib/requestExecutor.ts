@@ -7,6 +7,7 @@ import {
   SET_COOKIE_SIDE_CHANNEL_HEADER,
   type SetCookieSource,
 } from '@shared/protocol/set-cookie';
+import { createVariableScope, expandChainedVariables } from '@shared/variables/resolver';
 import {
   basicAuthReferencesSecretVariable,
   replaceSecretVariableTokenMatches,
@@ -39,7 +40,6 @@ import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { selectCertForUrl } from '@/lib/shared/certMatcher';
 import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
-import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { makeRendererJudge } from '@/lib/shared/judgeBridge';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import {
@@ -223,13 +223,14 @@ export function buildDesktopTransportConfig(
 async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<BuiltSpec> {
   const { request, envVars, globalSettings, resolveVariables, secretVariables } = options;
 
+  // Request scope (collection / folder / script values the store cannot see) uses
+  // the same grammar and chain rule as the store, including `{{ padded }}` tokens.
+  // envVars never holds a SecretRef variable, so a chain ending in one leaves its
+  // token for the shield below. Dynamics stay literal here and expand once, in
+  // the store pass.
+  const requestScope = createVariableScope(Object.entries(envVars));
   const resolveLocal = (text: string) => {
-    let result = text;
-    Object.entries(envVars).forEach(([key, value]) => {
-      // escapeRegExp guards against metacharacter keys crashing the RegExp ctor;
-      // the function replacer keeps a value with $ patterns literal.
-      result = result.replace(new RegExp(`{{${escapeRegExp(key)}}}`, 'g'), () => value);
-    });
+    let result = expandChainedVariables(text, [requestScope]);
     // Keep SecretRef tokens opaque in the renderer. The store-level resolver
     // otherwise sees the variable's placeholder value and would consume the
     // token before Electron main can materialize its handle at the wire edge.
