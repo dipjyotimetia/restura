@@ -165,6 +165,7 @@ Agent telemetry is optional and **off by default**. It is available only in the 
 - **Metadata only.** Exported spans carry allowlisted fields: suite, task and agent identifiers, timing, model and provider names, token and cost totals, tool names and outcomes, and aggregate evaluation state. Prompts, model responses, tool arguments and output, URLs, request bodies, headers, credentials and error text are never exported.
 - **Desktop.** Configure the destination in the AI Lab telemetry panel. It accepts HTTPS endpoints and local loopback HTTP collectors, and rejects endpoints with query strings, fragments or embedded credentials. Langfuse and OTLP credentials are stored as keychain handles and resolved only in the Electron main process.
 - **CI.** Pass `--telemetry-config telemetry.json`; credentials must be environment references (`{ "source": "env", "name": "LANGFUSE_SECRET_KEY" }`), never inline values. See the [CLI reference](/reference/cli/).
+- **OpenInference spans.** Each trace is a root `AGENT` span with `LLM` (model call) and `TOOL` child spans, using `openinference.span.kind` and the OpenTelemetry `gen_ai.*` attributes. See the full attribute list in `docs/AGENT_TELEMETRY.md`.
 - **Best-effort.** A failed export is reported locally and never changes a suite's pass/fail exit code.
 
 The full contract is in [`docs/AGENT_TELEMETRY.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/AGENT_TELEMETRY.md).

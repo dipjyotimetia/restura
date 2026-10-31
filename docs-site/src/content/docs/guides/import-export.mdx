@@ -34,10 +34,13 @@ Restura imports from the major API client formats and exports to **OpenCollectio
     Browser or proxy captures. You choose which entries to import in the review step (state-changing methods are flagged), and credentials in captured headers and bodies are redacted before they reach the review.
   </Card>
   <Card title="cURL" icon="seti:shell">
-    Paste a cURL command into a request's URL bar to fill in method, URL, headers, body and settings such as `-L`, `-k` and `--max-time`. Shell expansions, substitutions and local-file reads are never evaluated.
+    One POSIX-shell cURL command, from the **cURL** import card (paste it or pick a `.sh` / `.txt` file) or pasted straight into a request's URL bar. Method, URL, headers, cookies, Basic auth, raw / form / binary bodies and settings such as `-L`, `-k`, `--max-time` and proxy options are filled in; unsupported options are shown as warnings. Shell expansions, substitutions and local-file reads are never evaluated.
   </Card>
   <Card title="Postman environments" icon="seti:json">
     `*.postman_environment.json` files import as environments. Secret variables keep their value on desktop; in the browser the value is dropped and the import warnings list the keys to re-enter.
+  </Card>
+  <Card title="Remote URL" icon="external">
+    Fetch a collection or spec from a public HTTPS URL (no embedded credentials) and review it before anything is saved. The format is detected from the content; HAR is not accepted this way. Private, local and metadata addresses and binary responses are refused. On web and self-host the fetch goes through the backend's `/api/import/fetch` route (10 MB cap, up to 5 redirects); on desktop it goes through the main process with the same URL and DNS checks.
   </Card>
   <Card title="OpenCollection" icon="open-book">
     Native format — both the bundled YAML file and the directory layout. Round-trips HTTP, GraphQL, gRPC, SSE, and MCP requests with their auth, scripts, and folders — see the [round-trip guarantees and known gaps](/reference/opencollection/#round-trip-guarantees).
@@ -62,10 +65,14 @@ The desktop app accepts a reviewed `restura://import` link, for example
 `format` is optional and may be `postman`, `insomnia`, `openapi`,
 `opencollection`, `hoppscotch`, `bruno`, or `http`.
 
-Restura only accepts public HTTP(S) source URLs without embedded credentials.
-Opening a link displays the source and format first; it does not download or
-import anything until you select **Download and import**. Every redirect and
-target is checked by the normal URL and DNS safety policy.
+The link must point at a public URL without embedded credentials; the download
+itself is HTTPS-only, so an `http://` link opens the review but its download is
+refused. Opening a link displays the source first and downloads nothing. Pick a
+format if the link didn't set one, then choose **Download preview**: Restura
+fetches the source, and every redirect and target is checked by the normal URL
+and DNS safety policy. The result goes through the usual import review, so
+nothing is added until you confirm it. See [Deep links](/guides/debugging-tools/#deep-links)
+for the other `restura://` routes.
 
 ## Export
 
@@ -77,7 +84,16 @@ From the collection menu:
 - **Insomnia** — for sharing with Insomnia users.
 - **Bruno** (`.bru` archive) — for sharing with Bruno users.
 
-Exporting to a format that can't hold some of your requests (Postman v2.1 has no item kind for gRPC, SSE, MCP, Kafka, MQTT or WebSocket, for instance) lists what was left out in an export report, so nothing disappears silently.
+Exporting to a format that can't hold everything in the collection tells you what was left out:
+
+| Format | How losses are reported |
+|---|---|
+| Postman v3 / v2.1 | A structured export report listing every dropped or approximated item (for example, v2.1 has no item kind for gRPC, SSE, MCP, Kafka, MQTT or WebSocket). See [Postman v3 export](#postman-v3-export) and [Postman v2.1 export](#postman-v21-export). |
+| Insomnia | A warning toast. Non-HTTP requests are written as non-runnable stubs; request scripts, folder auth and scripts, collection auth, variables and scripts, and attached contract specs are left out. |
+| OpenCollection | A warning toast if folders have contract attachments, which aren't exported. Everything else round-trips (see below). |
+| Bruno | A warning toast with the exporter's first warning. |
+
+A toast shows the first warning and how many more there are (`(+2 more)`). Workflows are never part of a collection export; when the collection has any, every format shows a toast saying how many were not included.
 
 On desktop you can also **Save to Files / Sync to Disk** to write the collection as an OpenCollection **directory layout** — one file per request, friendly for `git`.
 

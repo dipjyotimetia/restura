@@ -43,6 +43,26 @@ provider, no `url-validation`/`secret-handle` change).
 Both remain **Electron-only** (`ai.inlineActions`, `ai.agentMode` in the
 capability matrix, `web: false`), consistent with the no-`/api/ai` decision above.
 
+## Amendment (2026-10-31): URL host redaction was never implemented
+
+The original Decision and Consequences said the context snapshot's URLs are
+redacted. That was the design intent, but it was never built, and the user docs
+repeated the claim (issue #977); the two bullets above were corrected in place. What the code does:
+
+- `contextSnapshot.ts` captures the **full request URL** (scheme, host, path,
+  query) and `promptBuilder.ts` sends it as written. Nothing replaces the host.
+- In default mode, `promptBuilder.ts` replaces environment-variable **values of
+  8+ characters** with `[REDACTED]` wherever they appear in the URL, headers or
+  bodies. The ENVIRONMENT block masks every value.
+- `shared/protocol/ai/redaction.ts` masks sensitive header names
+  (`redactHeaders`) and token-shaped body values (`redactBody`).
+- The composer's **Send raw (skip redaction)** switch turns all of this off for
+  one message.
+
+So internal hostnames and URL paths reach the provider. The decision is
+otherwise unchanged; adding host redaction later would need a new amendment and a
+`tests/security/` regression test.
+
 ## Consequences
 
 **Positive**

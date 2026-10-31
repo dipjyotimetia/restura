@@ -16,7 +16,7 @@ Requires Node.js 24+.
 
 ## Quick start
 
-Export a collection from the Restura app (File → Export → OpenCollection directory), then:
+Save the collection to disk from the Restura desktop app (collection menu → **Save to Files**, which writes the OpenCollection directory layout), or export a single OpenCollection `.yml` from the collection menu → **Export → OpenCollection (YAML)** (web or desktop), then:
 
 ```bash
 restura run ./my-collection --reporter junit --reporter-output junit=results.xml
@@ -107,7 +107,7 @@ What the CLI does with constructs it cannot run — it never runs them silently:
 - **gRPC** (unary) — honours the request's wire protocol: auto / Connect uses the Connect protocol (JSON-encoded, no proto compilation needed); gRPC-Web (`grpc-web` binary or `grpc-web-text`) encodes protobuf with the request's saved schema snapshot (reflection descriptors or uploaded `.proto`) and fails with `FAILED_PRECONDITION` when there is none; native gRPC (HTTP/2) is not available in the CLI and fails with `UNIMPLEMENTED` instead of silently using Connect. Auth types gRPC can't apply (AWS SigV4, OAuth 1.0, WSSE, Digest, NTLM) fail with `FAILED_PRECONDITION` before any I/O, as in the app, and metadata over 16 KiB fails with `INVALID_ARGUMENT`
 - **SSE** — captures events for `--sse-duration` ms, or until `--sse-events N`
 - **MCP** — runs the saved operation (`defaultMethod` + `defaultParams`, e.g. `tools/call` with `{"name":"…","arguments":{…}}`; `{{var}}`s resolved) over a real MCP session: the CLI connects and initializes **once per server per run** (same URL + transport + headers), reuses that session for every MCP item, and closes it when the run ends. Both `streamable-http` and legacy `http-sse` are supported. The response body handed to test scripts is the JSON-RPC reply without the id. On success it is `{ "jsonrpc": "2.0", "result": … }`, so `rs.response.json().result.isError` asserts a tool failure. On a JSON-RPC error it is `{ "jsonrpc": "2.0", "error": { code, message, data? } }`. Without assertions, a tool `isError: true` result or a JSON-RPC error fails the item with the reason. With assertions, the assertions decide, so negative tests can pass. Connection, HTTP and timeout failures always fail the item. Redirects are refused. An MCP item with no method fails with an actionable error, and there is no implicit `ping`. The `echo-local` generated collection includes runnable MCP examples with test scripts
-- **WebSocket** — not run in collection batches (matches the desktop collection runner, which skips streaming protocols). A standalone executor exists for future wiring (`executors/websocket.ts`) but no collection format routes to it yet.
+- **WebSocket** — not run in collection batches (the desktop collection runner skips it too, but note the two runners differ elsewhere: the desktop runner also skips SSE, which the CLI runs). A standalone executor exists for future wiring (`executors/websocket.ts`) but no collection format routes to it yet.
 - **Kafka / MQTT connection presets** — skipped with a `[restura] skipping … preset` notice on stderr. Presets (`x-restura-kafka` / `x-restura-mqtt`) open in the desktop app; the CLI has no broker transport.
 - **WebSocket / Socket.IO collection items** — skipped with a `[restura] skipping WebSocket preset "…"` (or `Socket.IO preset`) notice on stderr, like Kafka / MQTT. They open in the app.
 

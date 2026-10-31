@@ -22,7 +22,7 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 - Collections, environments, scripts, and the safe OWS workflow profile: sequential, guarded (`if`), loop (`for`) and recovery (`try`/`catch`) controls with typed data/output, timeout/cancellation, and binding-only HTTP or GraphQL saved-request calls (GraphQL mutations need explicit approval). Other controls, event/process tasks, inline transport configuration and unsupported transports are rejected.
 - Load testing — fire an HTTP request at bounded concurrency (browser caps effective concurrency ~6).
 - Persistent IndexedDB storage (not encrypted at rest).
-- SSRF guard on every request proxied through the Worker (HTTP, GraphQL queries and `graphql-sse`, gRPC, SSE, MCP). WebSocket, Socket.IO and GraphQL WebSocket subscriptions connect browser-direct, so they get an in-app check instead: loopback, private-network and cloud-metadata targets are refused unless **Allow private / internal IPs** is on, and Restura asks before sending credentials over `ws://` / `http://`.
+- SSRF guard on every request proxied through the Worker (HTTP, GraphQL queries and `graphql-sse`, gRPC unary and gRPC-Web server streaming, SSE, MCP). WebSocket, Socket.IO and GraphQL WebSocket subscriptions connect browser-direct, so they get an in-app check instead: loopback, private-network and cloud-metadata targets are refused unless **Allow private / internal IPs** is on, and Restura asks before sending credentials over `ws://` / `http://`. gRPC server streaming over the Connect wire protocol also connects browser-direct and gets neither check — only the browser's own rules (CORS, CSP) apply.
 
 ### Desktop only
 
@@ -37,9 +37,11 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 - **Pre-flight DNS guard** against DNS-rebind.
 - **Filesystem-backed collections** + git operations.
 - **OS keychain** storage (via `safeStorage`).
+- **External cloud secret references** — auth fields can reference AWS Secrets Manager, Google Secret Manager or Azure Key Vault secrets, resolved in the main process at send time. See [Secrets & vaults](/guides/secrets/).
 - **Encrypted local storage** backed by an OS-keychain-wrapped key.
 - **Native shell / notifications / tray**.
 - **Local mock HTTP server**.
+- **Browser capture desktop bridge** — a loopback receiver for the Restura browser-capture extension. See [Browser capture](/guides/browser-capture/).
 - **AI assistant** — request-aware chat (OpenAI / Anthropic / OpenRouter); Electron-first, streams over IPC. No Worker `/api/ai` route.
 - **Inline AI actions** — one-click *Fix request* / *Generate tests* / *Enrich docs* from a request or response, sent through the assistant's propose-and-apply flow. See the [AI assistant](/guides/ai-assistant/).
 - **`rs.vault` and `rs.judge` in scripts** — `rs.vault` is an encrypted key-value store backed by the OS keychain; `rs.judge` runs an LLM-as-judge semantic assertion. Both are desktop only. See [Scripts](/guides/scripts/).

@@ -2,13 +2,14 @@ import { validateURL } from '@shared/protocol/url-validation';
 import type { BrokerSecurityPolicy } from './mqtt-broker-guard';
 
 /**
- * Pre-flight SSRF guard for Kafka bootstrap brokers. Unlike HTTP, production
- * Kafka clusters routinely live on RFC1918 / CGNAT IPs (AWS MSK, Confluent
- * VPC peering, self-hosted broker pools), so blocking all private IPs would
- * break the protocol's primary use case. We only reject:
+ * Pre-flight SSRF guard for Kafka bootstrap brokers. Literal addresses follow
+ * the caller's execution policy (the Settings → Security "Allow localhost" and
+ * "Allow private / internal IPs" toggles; the handler passes
+ * `getExecutionPolicy().security`). The default parameter below is permissive
+ * only for direct callers such as unit tests. Always rejected:
  *   - cloud metadata literal IPs (169.254.169.254 and friends)
  *   - cloud metadata hostnames (metadata.google.internal, etc.)
- *   - malformed / over-long broker strings
+ *   - malformed / over-long broker strings and userinfo in the address
  *
  * Caveat: `@platformatic/kafka` discovers additional brokers via cluster
  * metadata after connect and bypasses this guard for those. Documented in

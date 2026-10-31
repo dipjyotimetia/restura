@@ -1,0 +1,22 @@
+{
+  "opencollection": "1.0.0",
+  "info": {
+    "name": "Restura echo — SSE",
+    "version": "1.0.0"
+  },
+  "bundled": true,
+  "items": [],
+  "extensions": {
+    "x-restura-sse": [
+      {
+        "info": {
+          "type": "sse",
+          "name": "Echo event stream"
+        },
+        "sse": {
+          "url": "https://echo.restura.dev/sse"
+        }
+      }
+    ]
+  }
+}

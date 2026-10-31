@@ -4,8 +4,11 @@ description: Query builder with schema introspection, schema import, multi-opera
 ---
 
 import { Aside } from '@astrojs/starlight/components';
+import TryIt from '../../../components/TryIt.astro';
 
 GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can introspect the endpoint, hint completions from the schema, and run subscriptions over WebSocket (`graphql-transport-ws` or legacy Apollo `subscriptions-transport-ws`) or Server-Sent Events (`graphql-sse`).
+
+<TryIt protocol="graphql" />
 
 ## What works
 
@@ -13,13 +16,14 @@ GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can int
 - **Load a schema by hand** — for endpoints with introspection disabled. **Load** (next to the SDL download in the query toolbar, or the upload icon in the schema explorer) accepts a `.graphql` / `.graphqls` / `.gql` SDL file, pasted SDL, or an introspection JSON result (`{ "data": { "__schema": … } }` or `{ "__schema": … }`). Parse errors are shown with their line and column. The schema is saved on the request — it survives reload and travels with the request when saved to a collection or exported to OpenCollection — and drives completion, validation and the schema explorer (marked **IMPORTED**). Refresh asks before replacing an imported schema with an introspection result.
 - **Query / Mutation / Subscription** — the operation type is read from the parsed document, so a leading `#` comment or fragment definition never hides a subscription, and shorthand `{ … }` counts as a query. Queries and mutations POST over HTTP; subscriptions open a long-lived connection using the request's subscription **Protocol** (see below). The send button says which: **Run query**, **Run mutation** or **Subscribe**.
 - **Multiple operations** — when a document defines more than one operation, chips above the editor list them (with a query / mutation / subscription icon). The selected operation is saved on the request (and carried through OpenCollection export/import) and sent as `operationName` — over HTTP and in the subscription payload of every subscription protocol (`graphql-transport-ws` `subscribe`, legacy `start`, graphql-sse `POST` body). Picking an operation narrows the variables JSON to that operation's variables, keeping values you already typed for names they share. With no selection, the first operation runs.
-- **GET or POST** — click the method chip in the URL bar to switch. POST (the default) sends the JSON body `{ query, variables, operationName }`. GET sends the same fields URL-encoded as `query`, `variables`, `operationName` and `extensions` query parameters, per [GraphQL over HTTP](https://graphql.github.io/graphql-over-http/draft/), which is useful for CDN-cached or persisted queries. GET works for **queries only**: Restura refuses to send a mutation or subscription over GET and asks you to switch back to POST. The chip turns red when that applies. The method is saved on the request and exported as `graphql.method` in OpenCollection.
+- **GET or POST** — click the method chip in the URL bar to switch. POST (the default) sends the JSON body `{ query, variables, operationName }`. GET sends the same fields URL-encoded as `query`, `variables`, `operationName` and `extensions` query parameters, per [GraphQL over HTTP](https://graphql.github.io/graphql-over-http/draft/), which is useful for CDN-cached queries. The full `query` text is always sent — persisted queries (sending only a `sha256Hash` in `extensions.persistedQuery`) are not supported. GET works for **queries only**: Restura refuses to send a mutation or subscription over GET and asks you to switch back to POST. The chip turns red when that applies. The method is saved on the request and exported as `graphql.method` in OpenCollection.
 - **`Accept` header** — requests send `Accept: application/graphql-response+json, application/json;q=0.9` (GraphQL over HTTP) unless you set your own `Accept` header. Documents that use `@defer` or `@stream` also advertise `multipart/mixed;deferSpec=20220824`.
 - **`@defer` / `@stream` (incremental delivery)** — `multipart/mixed` responses are parsed and their parts merged into a single `{ data, errors, extensions }` result. Both the `deferSpec=20220824` format (Apollo, graphql-yoga) and the newer `pending`/`completed` format are supported. A notice above the body shows how many parts were merged. Test scripts and history see the merged JSON rather than the raw multipart body.
 - **Variables** — separate JSON editor; resolves environment placeholders (`{{userId}}`).
 - **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at send time.
 - **Authentication** — the same auth schemes as HTTP. Most teams ship a Bearer token here.
 - **Headers** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; header values resolve `{{variables}}`.
+- **Scripts** — the **Scripts** tab holds pre-request and test scripts, run for queries and mutations exactly as for HTTP (see [Scripts](/guides/scripts/)). They don't run for subscriptions.
 - **Subscriptions** — over WebSocket (`graphql-transport-ws`, or Apollo's legacy `subscriptions-transport-ws`) or `graphql-sse`, picked per request with the **Protocol** selector in the **Messages** tab (default **Auto**). Live events stream into the response panel. On desktop the socket is tunnelled over the WebSocket IPC bridge and graphql-sse over the SSE IPC handler (the packaged CSP blocks renderer `ws:`/`wss:`/`http:`), with header auth carried on the handshake.
 
 <Aside type="note">
@@ -53,9 +57,10 @@ Only header-shaped auth applies to a subscription handshake: Bearer, Basic, API 
 
 - Syntax highlighting + bracket matching.
 - **Prettify** — the button in the editor toolbar reformats the document (there is no keyboard shortcut for it).
-- **Download SDL** — the toolbar button saves the loaded schema as an `.graphql` SDL file.
-- **Click-to-insert** — selecting a field in the schema explorer appends it to the end of the query.
-- **Errors on a 200** — a response whose body contains a GraphQL `errors` array raises an error toast, and every entry is listed in the response panel's **Errors** tab (with locations marked in the editor).
+- **Download SDL** — the **SDL** toolbar button saves the loaded schema (introspected or imported) as `schema.graphql`.
+- **Click-to-insert** — clicking a field in the schema explorer appends its name on a new line at the end of the query and switches to the **Query** tab.
+- **Metadata chips** — the **Query** tab is tagged with the selected operation's type, **Variables** and **Headers** show how many variables (keys in the variables JSON) and enabled headers are set, and the query toolbar shows the document's size in bytes.
+- **Errors on a 2xx** — a successful (2xx) response whose body contains a GraphQL `errors` array raises an error toast, and every entry is listed in the response panel's **Errors** tab (with locations marked in the editor).
 - Inline error markers when the document doesn't validate against the schema.
 - Operation chips to switch between operations when the document defines several.
 - `Cmd+Enter` / `Ctrl+Enter` inside the query editor runs the operation under the cursor (selecting it); elsewhere it runs the selected operation.

@@ -28,6 +28,8 @@ When you invoke a chat that references the current request, Restura builds a **c
 
 The snapshot is what goes to the provider. Secrets in headers and bodies and environment-variable values are redacted before the prompt is sent, but **hostnames and URLs are not**: don't ask the assistant about requests whose internal hostnames you don't want a third-party model provider to see.
 
+The composer's **Send raw (skip redaction)** switch sends one message with no redaction at all. It resets after each message.
+
 ## Where it runs
 
 - **Desktop** — fully wired. The renderer streams chunks from the Electron main process over IPC; the main process talks to the provider directly. <Badge text="primary path" variant="success" />
