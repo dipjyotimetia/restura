@@ -216,7 +216,7 @@ export function CollectionRunDetail({
           {iterations.map((iter) => (
             <div key={iter}>
               {showIterationHeaders && (
-                <div className="sticky top-0 bg-muted/80 backdrop-blur px-3 py-1 text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground">
+                <div className="sticky top-0 bg-muted px-3 py-1 text-[10px] font-mono font-semibold text-muted-foreground">
                   Iteration {iter + 1}
                 </div>
               )}

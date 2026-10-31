@@ -4,6 +4,7 @@ import {
   AgentReportTooLargeError,
   retainAgentReports,
   sanitizeAgentSuiteReportForPersistence,
+  sanitizeArenaReportForPersistence,
 } from '../reportSanitizer';
 
 function agentEnvelope(text: string): Extract<AiLabReportEnvelope, { kind: 'agent-suite' }> {
@@ -383,5 +384,52 @@ describe('agent report persistence sanitization', () => {
     const one = new TextEncoder().encode(JSON.stringify(reports['e-0'])).byteLength;
     const retained = retainAgentReports(reports, { evalBytes: one * 2 + 1 });
     expect(Object.keys(retained).sort()).toEqual(['e-2', 'e-3']);
+  });
+});
+
+describe('arena report retention (#1046)', () => {
+  it('caps arena reports at the newest 30 and redacts URLs in match errors', () => {
+    const reports: Record<string, AiLabReportEnvelope> = {};
+    for (let index = 0; index < 35; index++) {
+      const id = `a-${String(index).padStart(2, '0')}`;
+      reports[id] = {
+        id,
+        kind: 'arena',
+        name: 'Arena',
+        startedAt: index,
+        finishedAt: index,
+        status: 'passed',
+        payload: {
+          id,
+          datasetId: 'ds',
+          datasetName: 'Dataset',
+          modelKeys: [],
+          modelLabels: {},
+          matches: [],
+          startedAt: index,
+          status: 'done',
+        },
+      };
+    }
+    const retained = retainAgentReports(reports);
+    expect(Object.keys(retained)).toHaveLength(30);
+    expect(retained['a-34']).toBeDefined();
+    expect(retained['a-04']).toBeUndefined();
+
+    const sanitized = sanitizeArenaReportForPersistence({
+      ...(reports['a-34'] as Extract<AiLabReportEnvelope, { kind: 'arena' }>),
+      payload: {
+        ...(reports['a-34'] as Extract<AiLabReportEnvelope, { kind: 'arena' }>).payload,
+        matches: [
+          {
+            a: 'x',
+            b: 'y',
+            winner: 'error',
+            error: 'GET https://api.example.com/v1?key=sk-secret',
+          },
+        ],
+      },
+    });
+    expect(sanitized.payload.matches[0]?.error).not.toContain('sk-secret');
   });
 });

@@ -1,4 +1,5 @@
 import { Sha256 } from '@aws-crypto/sha256-js';
+import type { AwsRequestSigner } from '@shared/protocol/ai/provider-routes';
 import type { SigV4Signer } from '@shared/protocol/auth-signer';
 import { HttpRequest } from '@smithy/protocol-http';
 import { SignatureV4 } from '@smithy/signature-v4';
@@ -98,6 +99,45 @@ export const smithySigV4Signer: SigV4Signer = async (args, creds) => {
   const signed = await signer.sign(request);
 
   // Return only the SigV4 contribution; applyAuth merges these onto the request.
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(signed.headers)) {
+    if (typeof value === 'string' && SIGV4_RESPONSE_HEADERS.has(key.toLowerCase())) {
+      out[key] = value;
+    }
+  }
+  return out;
+};
+
+/**
+ * `@smithy/signature-v4` signer for AI provider calls (Bedrock Converse).
+ * Supports temporary credentials and, like the AWS SDK, double-encodes the
+ * canonical path, which Bedrock model ids containing `:` depend on.
+ */
+export const smithyAwsRequestSigner: AwsRequestSigner = async (request, credentials) => {
+  const url = new URL(request.url);
+  const query: Record<string, string> = {};
+  for (const [key, value] of url.searchParams) query[key] = value;
+  const signer = createSmithySignatureV4(
+    {
+      accessKeyId: credentials.accessKeyId,
+      secretAccessKey: credentials.secretAccessKey,
+      sessionToken: credentials.sessionToken,
+    },
+    credentials.region,
+    credentials.service
+  );
+  const signed = await signer.sign(
+    new HttpRequest({
+      method: request.method,
+      protocol: url.protocol,
+      hostname: url.hostname,
+      ...(url.port ? { port: Number(url.port) } : {}),
+      path: url.pathname,
+      query,
+      headers: { ...request.headers, host: url.host },
+      body: request.body,
+    })
+  );
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(signed.headers)) {
     if (typeof value === 'string' && SIGV4_RESPONSE_HEADERS.has(key.toLowerCase())) {

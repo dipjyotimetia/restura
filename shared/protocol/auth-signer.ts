@@ -79,6 +79,14 @@ export interface SigV4Credentials {
   secretKey: string;
   region: string;
   service: string;
+  /** Temporary-credential token; sent and signed as `x-amz-security-token`. */
+  sessionToken?: string;
+  /**
+   * Encode each path segment again for the canonical URI, as every AWS service
+   * except S3 expects (e.g. Bedrock model ids containing `:`). Default false
+   * keeps the HTTP auth path's existing behaviour.
+   */
+  doubleEncodePath?: boolean;
 }
 
 /**
@@ -182,8 +190,8 @@ async function hashBody(body: BodyInit | undefined): Promise<string> {
 // SigV4 canonical request + string-to-sign + signature
 // ---------------------------------------------------------------------------
 
-async function signSigV4(
-  args: ApplyAuthArgs,
+export async function signSigV4(
+  args: Pick<ApplyAuthArgs, 'method' | 'url' | 'headers' | 'body'>,
   creds: SigV4Credentials
 ): Promise<Record<string, string>> {
   if (!creds.accessKey || !creds.secretKey || !creds.region || !creds.service) {
@@ -207,6 +215,7 @@ async function signSigV4(
     host: parsedUrl.host,
     'x-amz-content-sha256': bodyHash,
     'x-amz-date': amzDate,
+    ...(creds.sessionToken ? { 'x-amz-security-token': creds.sessionToken } : {}),
   };
 
   // Skip headers that AWS doesn't expect to see in the signed set, plus any
@@ -234,9 +243,15 @@ async function signSigV4(
   // case-sensitive, extension tokens go out verbatim, and AWS (like
   // @smithy/signature-v4 on desktop) canonicalises the received method as-is.
   // Known methods are already upper-cased by normalizeHttpMethod upstream.
+  const path = parsedUrl.pathname || '/';
   const canonicalRequest = [
     args.method,
-    parsedUrl.pathname || '/',
+    creds.doubleEncodePath
+      ? path
+          .split('/')
+          .map((segment) => encodeRfc3986(segment))
+          .join('/')
+      : path,
     queryParams,
     canonicalHeaders,
     signedHeaders,
@@ -264,7 +279,16 @@ async function signSigV4(
     Authorization: `AWS4-HMAC-SHA256 Credential=${creds.accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
     'X-Amz-Date': amzDate,
     'X-Amz-Content-Sha256': bodyHash,
+    ...(creds.sessionToken ? { 'X-Amz-Security-Token': creds.sessionToken } : {}),
   };
+}
+
+/** RFC 3986 percent-encoding (encodeURIComponent leaves !'()* unescaped). */
+function encodeRfc3986(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  );
 }
 
 // ---------------------------------------------------------------------------

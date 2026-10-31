@@ -73,7 +73,7 @@ function EntryRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 text-sp-13">
           <span className="font-medium text-sp-text truncate">{entry.name}</span>
-          <span className="text-sp-11 uppercase tracking-wide text-sp-dim">{entry.kind}</span>
+          <span className="text-sp-11 text-sp-dim">{entry.kind}</span>
           {entry.disabled && <span className="text-sp-11 text-sp-dim">disabled in source</span>}
           {entry.kind === 'stdio' && !desktop && (
             <span className="text-sp-11 text-amber-400">desktop app only</span>

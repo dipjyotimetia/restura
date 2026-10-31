@@ -44,7 +44,7 @@ export function ConnectionBadge({ tone, label, className, style, ...props }: Con
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 h-7 px-2.5 font-mono font-bold uppercase tracking-wide text-sp-11 rounded-sp-btn',
+        'inline-flex items-center gap-1.5 h-7 px-2.5 font-mono font-bold text-sp-11 rounded-sp-btn',
         className
       )}
       style={{ color: t.color, background: t.bg, boxShadow: t.glow, ...style }}

@@ -272,9 +272,7 @@ export default function NetworkConsole({
         {/* Header */}
         <div className="flex items-center justify-between px-3 h-7 shrink-0">
           <div className="flex items-center gap-3">
-            <span className="text-sp-11 font-mono uppercase tracking-widest text-sp-dim select-none">
-              Console
-            </span>
+            <span className="text-sp-11 font-mono text-sp-dim select-none">Console</span>
             {isExpanded && (
               <Tabs
                 value={activeTab === 'disk' && !showDiskTab ? 'network' : activeTab}

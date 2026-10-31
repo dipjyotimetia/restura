@@ -105,6 +105,18 @@ export async function listModels(args: DiscoverArgs): Promise<DiscoveredModel[]>
   if (args.provider === 'huggingface') {
     return fetchHuggingFaceModels(base, args);
   }
+  if (args.provider === 'gemini') {
+    return fetchGeminiModels(base, args);
+  }
+  if (args.provider === 'azure-openai') {
+    // Lists the models available to the resource; calls name a deployment.
+    return fetchOpenAiCompatibleModels(`${base}/openai`, args);
+  }
+  if (args.provider === 'bedrock') {
+    // The runtime endpoint has no catalog (that is the separate control-plane
+    // API); model ids are entered by hand.
+    return [];
+  }
   return fetchOpenAiCompatibleModels(base, args);
 }
 
@@ -129,6 +141,10 @@ async function fetchJson(url: string, args: DiscoverArgs): Promise<unknown> {
     if (args.provider === 'anthropic') {
       headers['x-api-key'] = args.apiKey;
       headers['anthropic-version'] = '2023-06-01';
+    } else if (args.provider === 'azure-openai') {
+      headers['api-key'] = args.apiKey;
+    } else if (args.provider === 'gemini') {
+      headers['x-goog-api-key'] = args.apiKey;
     } else {
       headers.Authorization = `Bearer ${args.apiKey}`;
     }
@@ -515,3 +531,34 @@ function dedupeSort(models: DiscoveredModel[]): DiscoveredModel[] {
 
 /** Re-exported for callers deciding whether to apply the localhost carve-out. */
 export { isLocalProvider };
+
+interface GeminiModelWire {
+  name?: string;
+  displayName?: string;
+  description?: string;
+  inputTokenLimit?: number;
+  supportedGenerationMethods?: string[];
+}
+
+/** Gemini `GET /v1beta/models` → `{ models: [{ name: 'models/…', … }] }`; chat-capable only. */
+async function fetchGeminiModels(base: string, args: DiscoverArgs): Promise<DiscoveredModel[]> {
+  const json = (await fetchJson(`${base}/v1beta/models?pageSize=1000`, args)) as {
+    models?: GeminiModelWire[];
+  };
+  const out = (json.models ?? []).flatMap((m): DiscoveredModel[] => {
+    if (typeof m.name !== 'string') return [];
+    if (!m.supportedGenerationMethods?.includes('generateContent')) return [];
+    const id = m.name.replace(/^models\//, '');
+    if (!id) return [];
+    return [
+      {
+        id,
+        ...(m.displayName ? { label: m.displayName } : {}),
+        ...(m.description ? { description: m.description } : {}),
+        ...(typeof m.inputTokenLimit === 'number' ? { contextLength: m.inputTokenLimit } : {}),
+        vendor: 'google',
+      },
+    ];
+  });
+  return dedupeSort(out);
+}

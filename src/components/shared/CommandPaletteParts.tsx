@@ -121,7 +121,7 @@ export function PaletteRow({ item, index, active, onMouseEnter, onClick }: Palet
         {item.activeMarker && <Check size={13} className="text-sp-accent" />}
         {item.recent && (
           <span
-            className="font-mono uppercase tracking-wide rounded-sp-chip px-1.5 py-0.5"
+            className="font-mono rounded-sp-chip px-1.5 py-0.5"
             style={{
               fontSize: 9,
               fontWeight: 700,

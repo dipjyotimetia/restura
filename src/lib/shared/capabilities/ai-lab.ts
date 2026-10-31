@@ -54,7 +54,7 @@ export const AI_LAB_CAPABILITIES = {
     web: false,
     desktop: true,
     notes:
-      'Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible through cancellable keychain-backed IPC with conservative per-model capabilities and explicit user overrides. Headless CLI wires stateless OpenAI Responses and native Anthropic Messages. Gemini, Azure OpenAI, and Bedrock are adapter profiles only, not shipped transports.',
+      'Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, generic OpenAI-compatible, Azure OpenAI (v1 API, api-key), Google Gemini (streamGenerateContent) and Amazon Bedrock (Converse; Bedrock API key or IAM credentials signed with SigV4) through cancellable keychain-backed IPC with conservative per-model capabilities and explicit user overrides. Headless CLI wires stateless OpenAI Responses, native Anthropic Messages, and azure.openai / google.generateContent / aws.bedrock.converse over the same shared wire routes as desktop (env credentials; Azure and Bedrock endpoints from the runtime manifest). Azure, Gemini and Bedrock have no static price table: cost is unknown unless the manifest prices the model.',
   },
   'aiLab.agentRequestTools': {
     label: 'AI Lab agents using saved Restura HTTP requests as tools',
@@ -70,11 +70,18 @@ export const AI_LAB_CAPABILITIES = {
     notes:
       'Uses saved encrypted MCP profiles with fresh desktop-owned sessions, existing SSRF/DNS pinning and execution policy, allowlists, cancellation, and per-call approval. CLI supports manifest-listed MCP tools when CI explicitly asserts readOnly:true (operator-asserted); tools the server marks destructiveHint:true or readOnlyHint:false are still refused with exit 2 (unannotated tools pass on the operator assertion).',
   },
+  'aiLab.agentA2aTools': {
+    label: 'AI Lab agents calling remote A2A (Agent2Agent) agents as tools',
+    web: false,
+    desktop: true,
+    notes:
+      'One tool per `a2a` source: agent card fetch (well-known path or direct card URL; card must stay on the suite origin), JSON-RPC message/send with tasks/get polling and tasks/cancel on abort. Desktop sends through the request executor (main-process SSRF guard) and every call is network-class, so approval is required. CLI runs only manifest-listed endpoints with readOnly:true over the DNS-pinned transport, with env-sourced headers. No A2A protocol tab',
+  },
   'aiLab.agentSandboxes': {
     label: 'AI Lab pluggable code sandboxes',
     web: false,
-    desktop: false,
+    desktop: true,
     notes:
-      'Unsupported: the provider contract and registry are implemented, but no Docker or hosted sandbox provider ships yet',
+      'QuickJS provider (`sandboxId: "quickjs"`) on desktop and in `restura agent eval`: JavaScript only, a fresh WASM runtime per call with the request-script memory/stack/time caps, no network, filesystem, timers or host bridges, bounded stdout/stderr. Docker/Podman providers are a follow-on',
   },
 } as const satisfies Record<string, CapabilityRow>;

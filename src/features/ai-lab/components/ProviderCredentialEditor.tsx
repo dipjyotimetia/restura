@@ -32,6 +32,9 @@ export const PROVIDER_OPTIONS: Array<{
   { value: 'anthropic', label: 'Anthropic', needsBaseUrl: false },
   { value: 'openrouter', label: 'OpenRouter', needsBaseUrl: false },
   { value: 'huggingface', label: 'HuggingFace Inference Providers', needsBaseUrl: false },
+  { value: 'azure-openai', label: 'Azure OpenAI', needsBaseUrl: true },
+  { value: 'gemini', label: 'Google Gemini', needsBaseUrl: false },
+  { value: 'bedrock', label: 'Amazon Bedrock', needsBaseUrl: true },
 ];
 
 export interface ProviderCredentialDraft {
@@ -148,9 +151,11 @@ export function ConnectProviderEditor({
               ? 'Usually not required'
               : provider === 'huggingface'
                 ? 'hf_…'
-                : providerRequiresApiKey(provider)
-                  ? 'Required'
-                  : 'sk-…'
+                : provider === 'bedrock'
+                  ? 'Bedrock API key, or {"accessKeyId":…,"secretAccessKey":…}'
+                  : providerRequiresApiKey(provider)
+                    ? 'Required'
+                    : 'sk-…'
           }
         />
         <p className="text-sp-10 text-sp-muted">

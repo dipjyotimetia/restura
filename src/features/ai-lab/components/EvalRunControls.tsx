@@ -1,4 +1,4 @@
-import { Play, Square } from 'lucide-react';
+import { Download, Play, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Stat } from '@/components/ui/spatial';
@@ -16,6 +16,8 @@ interface EvalRunControlsProps {
   passCount: number;
   runDisabledReason: string | null;
   onRun: () => void;
+  /** Download the eval as a `restura.eval` file for `restura eval run`. */
+  onExportForCli?: () => void;
   onStop: () => void;
   onRetrySave: () => void;
   onOpenReport: (runId: string) => void;
@@ -32,6 +34,7 @@ export function EvalRunControls({
   passCount,
   runDisabledReason,
   onRun,
+  onExportForCli,
   onStop,
   onRetrySave,
   onOpenReport,
@@ -52,6 +55,18 @@ export function EvalRunControls({
           title="Cmd/Ctrl+Enter"
         >
           <Play className="h-3.5 w-3.5" /> Run eval
+        </Button>
+      )}
+      {!running && onExportForCli && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onExportForCli}
+          disabled={runDisabledReason !== null}
+          className="w-full"
+          title="Download for `restura eval run` in CI. API keys are not exported; each endpoint names an environment variable."
+        >
+          <Download className="h-3.5 w-3.5" /> Export for CLI
         </Button>
       )}
       {!running && runDisabledReason && (

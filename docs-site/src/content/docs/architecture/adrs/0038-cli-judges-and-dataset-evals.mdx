@@ -1,0 +1,75 @@
+---
+title: "ADR 0038 — CLI judges and dataset evals"
+description: "restura eval run runs exported AI Lab dataset evals in CI on the shared eval core, judges included: env credentials by reference, cost budgets across model and judge calls, and a pass-threshold gate designed for stochastic graders."
+sidebar:
+  order: 38
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-10-31 · reverses the CLI judge refusal" variant="success" />
+
+## Context
+
+Until now the CLI ran only agent suites (`restura agent eval`) and deliberately refused LLM-as-judge graders. The reasoning was that a judge is a second paid, non-deterministic model call, that its credentials would have to come from somewhere, and that a CI gate built on a stochastic grader could flake. Dataset evals (prompt × dataset × models × scorers) were desktop-only.
+
+That left the main CI use case unserved: a team that tunes a prompt in the AI Lab wants the same eval, judge included, to gate merges. The 2026-10-12 review (decision Q11, [#1045](https://github.com/dipjyotimetia/restura/issues/1045), [#1048](https://github.com/dipjyotimetia/restura/issues/1048)) chose to add `restura eval run` and accept judges in CI, on the conditions recorded here.
+
+## Decision
+
+### 1. One eval core, two ports
+
+The dataset-eval engine moves to runtime-neutral `shared/ai-lab/`: scorers, templating, judge policy, pass threshold, retry, request extraction and the case × model cell runner (`evalCore.ts`). The only platform-specific part is an injected `EvalModelPort`, which answers which providers exist, makes one model call and prices it. The desktop port sends calls over IPC to Electron main. The CLI port calls the shared chat wire (`runToCompletion`) directly. Scoring, judge prompts, aggregation, self-consistency, retry and the pass rule are therefore the same code in both places.
+
+### 2. A portable eval file, with credentials by reference
+
+`restura.eval` v1 (`shared/ai-lab/evalFile.ts`) holds the prompt, the dataset, the scorers (validated as a strict union), the models and judges, the concurrency, the pass threshold and optional model prices. Models refer to **endpoints**. Each endpoint has a provider, an optional base URL, and `credentialEnv`, the *name* of the environment variable that holds the key. The desktop's "Export for CLI" writes conventional names (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `AZURE_OPENAI_API_KEY`, `GEMINI_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`, …). It never exports a key, and keychain handles do not leave the machine.
+
+### 3. Credential sourcing
+
+The CLI reads keys from the environment only, for the endpoints the run actually calls (models under test and judges). A missing variable is refused before any call (exit 2). Cloud endpoints must use https. Local runtimes (Ollama, OpenAI-compatible) need `--allow-localhost`. The outgoing secret check follows the desktop rule: it is on for cloud providers and off for local runtimes.
+
+### 4. Cost and budget enforcement
+
+Judges multiply spend, so cost is tracked across model **and** judge calls. `--max-cost <usd>`:
+
+- **Preflight:** every called model must have a known price (the shared price table, or `modelPrices` in the file), otherwise exit 2. An unknown price is never treated as free.
+- **Runtime:** when spend reaches the budget, no new call is made, the run stops, and the partial report is written with status `cancelled` and reason `cost budget exceeded` (exit 1).
+
+Without `--max-cost`, the report still records known spend and counts unpriced calls.
+
+### 5. Determinism expectations for CI gating
+
+A judge is stochastic, so the gate is designed around it rather than pretending it away:
+
+- The gate is the **per-eval pass threshold** (default 100% of scored cells, [#1024](https://github.com/dipjyotimetia/restura/issues/1024)). Teams with judge scorers should set a threshold below 1 and, where it matters, use judge self-consistency (`samples` ≤ 5, median plus variance) and calibration anchors.
+- Transient provider failures (network, 429, 5xx) are retried with bounded backoff. Validation, auth and SSRF errors are not retried.
+- A judge that is also a model under test is refused (exit 2), because it grades its own output.
+- `--split test` runs only the held-out cases, so a CI gate can stay independent of the cases a prompt was tuned on.
+- Exit codes: `0` at or above the threshold, `1` below it or cancelled (Ctrl-C or budget), `2` for invalid input before any model call. JSON (`--output`) and JUnit (`--junit`) reports record every cell and score, so a failure can be read without re-running.
+
+### 6. Scope limits
+
+- The `http-exec` target stays desktop-only. It executes model-authored requests through the app's request executor ([ADR 0023](/architecture/adrs/0023-ai-lab-http-exec/)), and that path does not exist headless. It is refused with exit 2.
+- The Arena stays desktop-only ([ADR 0037](/architecture/adrs/0037-agent-lab-suites-runtime-telemetry/) §7).
+- Agent-suite judge graders in `restura agent eval` are still refused. This ADR covers dataset evals only. Extending it to agent suites is a separate change with the same conditions.
+
+## Consequences
+
+**Positive**
+
+- A prompt tuned in the AI Lab can be exported and gated in CI unchanged, with judges.
+- Desktop and CLI cannot drift on scoring, because they run the same code.
+- Provider parity: every AI Lab provider, including Azure OpenAI, Gemini and Bedrock, runs headless over the shared routes.
+
+**Negative / residual risk**
+
+- Judge-based gates can still flake. The threshold, sampling and held-out split reduce this but do not remove it.
+- CI holds real provider keys in its environment. That is the norm for CI secrets, but a compromised pipeline can spend against them. `--max-cost` bounds the damage only when it is set.
+- The CLI's cloud calls use the CLI's standard fetcher. Endpoints are validated against the SSRF rules up front, but unlike the desktop main process the connection is not DNS-pinned. The endpoints come from an operator-controlled file, not from model output.
+
+## References
+
+- Code: `shared/ai-lab/`, `cli/src/commands/eval.ts`, `src/features/ai-lab/lib/evalRunner.ts`, `src/features/ai-lab/components/EvalBuilder.tsx`
+- Related: [ADR 0005 (CLI runner)](/architecture/adrs/0005-cli-runner/), [ADR 0020](/architecture/adrs/0020-ai-lab-eval-workbench/), [ADR 0037](/architecture/adrs/0037-agent-lab-suites-runtime-telemetry/)
+- Source: [`docs/adr/0038-cli-judges-and-dataset-evals.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0038-cli-judges-and-dataset-evals.md)

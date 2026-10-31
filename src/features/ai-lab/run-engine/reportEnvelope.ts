@@ -7,7 +7,7 @@ import {
 } from '@shared/agent-lab';
 import { z } from 'zod';
 import { evalPassOutcome } from '../lib/evalPassThreshold';
-import type { EvalRun } from '../types';
+import type { ArenaRun, EvalRun } from '../types';
 import type { RunStatus } from './types';
 
 interface ReportBase {
@@ -30,6 +30,10 @@ export type AiLabReportEnvelope =
       payload: AgentSuiteReport;
       /** Immutable task/input/reference snapshot used to interpret the report. */
       suite: AgentSuite;
+    })
+  | (ReportBase & {
+      kind: 'arena';
+      payload: ArenaRun;
     });
 
 const ReportBaseSchema = z.object({
@@ -234,12 +238,36 @@ export const EvalRunReportSchema = z.object({
   ),
 });
 
+const ArenaMatchSchema = z.object({
+  a: z.string(),
+  b: z.string(),
+  winner: z.enum(['a', 'b', 'tie', 'error']),
+  error: z.string().optional(),
+});
+
+export const ArenaRunReportSchema = z.object({
+  id: z.string(),
+  datasetId: z.string(),
+  datasetName: z.string(),
+  modelKeys: z.array(z.string()),
+  modelLabels: z.record(z.string(), z.string()),
+  matches: z.array(ArenaMatchSchema),
+  startedAt: z.number(),
+  finishedAt: z.number().optional(),
+  status: z.enum(['running', 'done', 'cancelled', 'error', 'partial']),
+  interrupted: z.boolean().optional(),
+});
+
 export const AiLabReportEnvelopeSchema = z.discriminatedUnion('kind', [
   ReportBaseSchema.extend({ kind: z.literal('eval'), payload: EvalRunReportSchema }),
   ReportBaseSchema.extend({
     kind: z.literal('agent-suite'),
     payload: AgentSuiteReportSchema,
     suite: AgentSuiteSchema,
+  }),
+  ReportBaseSchema.extend({
+    kind: z.literal('arena'),
+    payload: ArenaRunReportSchema,
   }),
 ]) as unknown as z.ZodType<AiLabReportEnvelope>;
 
@@ -272,9 +300,44 @@ export function createAgentSuiteReportEnvelope(
   };
 }
 
-/** Chip state for a report row: an eval run closed mid-flight reads `interrupted`, not `cancelled`. */
+/**
+ * Arena runs share the report pipeline: `partial` (some matches errored and
+ * were left out of the ratings) maps to `failed` with a reason, so the Reports
+ * tab never shows a leaderboard built on failed calls as a clean pass.
+ */
+export function adaptArenaRunReport(run: ArenaRun): AiLabReportEnvelope {
+  const base = {
+    id: run.id,
+    kind: 'arena' as const,
+    name: `Arena · ${run.datasetName}`,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt ?? run.startedAt,
+    payload: run,
+  };
+  const errored = run.matches.filter((m) => m.winner === 'error').length;
+  switch (run.status) {
+    case 'running':
+      return { ...base, status: 'running' };
+    case 'done':
+      return { ...base, status: 'passed' };
+    case 'partial':
+      return {
+        ...base,
+        status: 'failed',
+        statusReason: `${errored} of ${run.matches.length} matches failed`,
+      };
+    case 'error':
+      return { ...base, status: 'error', statusReason: 'every match failed' };
+    case 'cancelled':
+      return { ...base, status: 'cancelled' };
+  }
+}
+
+/** Chip state for a report row: a run closed mid-flight reads `interrupted`, not `cancelled`. */
 export function reportChipState(report: AiLabReportEnvelope): string {
-  return report.kind === 'eval' && report.payload.interrupted ? 'interrupted' : report.status;
+  return report.kind !== 'agent-suite' && report.payload.interrupted
+    ? 'interrupted'
+    : report.status;
 }
 
 function evalStatus(run: EvalRun): { status: RunStatus; reason?: string } {

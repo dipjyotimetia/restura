@@ -1,8 +1,10 @@
+import { buildEvalFile } from '@shared/ai-lab/evalFile';
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Floater } from '@/components/ui/spatial';
+import { downloadBlob } from '@/lib/shared/file-utils';
 import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
 import { useEvalRun } from '../hooks/useEvalRun';
 import { useModelSelection } from '../hooks/useModelSelection';
@@ -140,6 +142,51 @@ export function EvalBuilder() {
     start(config);
   };
 
+  /**
+   * Download the draft as a `restura.eval` file for `restura eval run` in CI.
+   * Keys stay in the keychain: the file names an env variable per endpoint.
+   */
+  const exportForCli = () => {
+    const dataset = datasets[draft.datasetId];
+    if (!dataset) {
+      toast.error('Pick a dataset.');
+      return;
+    }
+    try {
+      const config = evalConfigFromDraft(draft, {
+        promptId: '',
+        models: selectedModelRefs,
+        now: Date.now(),
+      });
+      const file = buildEvalFile({
+        name: config.name,
+        prompt: { system: draft.system, user: draft.user },
+        dataset,
+        models: config.models,
+        scorers: config.scorers,
+        concurrency: config.concurrency,
+        ...(config.passThreshold !== undefined ? { passThreshold: config.passThreshold } : {}),
+        ...(config.tools ? { tools: config.tools } : {}),
+        ...(config.target ? { target: config.target } : {}),
+        providers: Object.fromEntries(
+          Object.values(providers).map((cfg) => [
+            cfg.id,
+            {
+              provider: cfg.provider,
+              label: cfg.label,
+              ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
+            },
+          ])
+        ),
+      });
+      const safe = config.name.replace(/[^a-z0-9-_]+/gi, '_') || 'eval';
+      downloadBlob(`${JSON.stringify(file, null, 2)}\n`, `${safe}.eval.json`, 'application/json');
+      toast.success('Exported. Run it with: restura eval run ' + `${safe}.eval.json`);
+    } catch (cause) {
+      toast.error(`Export failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+  };
+
   const passCount = useMemo(
     () => progress?.cells.reduce((count, cell) => count + (cell.passed ? 1 : 0), 0) ?? 0,
     [progress]
@@ -199,6 +246,7 @@ export function EvalBuilder() {
             passCount={passCount}
             runDisabledReason={runDisabledReason}
             onRun={run}
+            onExportForCli={exportForCli}
             onStop={stop}
             onRetrySave={() => void retrySave()}
             onOpenReport={openReport}

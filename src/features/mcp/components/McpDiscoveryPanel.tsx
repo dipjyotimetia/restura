@@ -404,7 +404,7 @@ function LogList({ log, onClear }: { log: McpInvocationLog[]; onClear: () => voi
                       {entry.method}
                     </code>
                     <span
-                      className="font-mono text-sp-10 font-bold tracking-wider shrink-0"
+                      className="font-mono text-sp-10 font-bold shrink-0"
                       style={{
                         color: cancelled
                           ? 'var(--color-warning)'

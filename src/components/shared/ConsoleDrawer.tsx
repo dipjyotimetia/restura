@@ -114,9 +114,7 @@ export default function ConsoleDrawer({
         >
           <div className="flex items-center gap-3 min-w-0">
             <ChevronUp className="h-3.5 w-3.5 text-sp-muted shrink-0" aria-hidden="true" />
-            <span className="sp-label text-sp-11 font-bold uppercase tracking-sp-label">
-              Console
-            </span>
+            <span className="sp-label text-sp-11 font-bold">Console</span>
             <span
               className={cn(
                 'inline-flex items-center justify-center min-w-5 h-5 px-1.5',

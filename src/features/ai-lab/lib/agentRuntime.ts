@@ -8,18 +8,22 @@ import {
   aggregateJudgeVotes,
   applyAgentBundleBaseline,
   CallbackProviderAdapter,
+  completionToGenerationResponse,
   createAgentToolResolver,
   createFixtureToolSourceAdapter,
+  createSandboxToolSourceAdapter,
   evaluateAgentBundleBaseline,
-  type GenerationMessage,
+  generationMessagesToWire,
   type JudgeFailure,
   type JudgeModelVote,
   type ModelRef,
   ProviderRegistry,
   validateGenerationRequest,
 } from '@shared/agent-lab';
+import { createDefaultSandboxRegistry } from '@shared/agent-lab/sandbox-quickjs';
 import type { CompletionResult } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
+import { createDesktopA2aToolSourceAdapter } from './agentA2aTools';
 import { resolveDesktopGrounding } from './agentGrounding';
 import { createMcpAgentToolSourceAdapter } from './agentMcpTools';
 import { capabilitiesForDesktopModel, knownCostForCompletion } from './agentModelCapabilities';
@@ -40,7 +44,7 @@ const IPC_MAX_CONTENT_CHARS = 200_000;
 const MAX_PAIRED_TOOL_RESULTS = 64;
 const OMITTED_NOTE = '\n\n[Earlier conversation turns were omitted to fit the request size limit.]';
 
-type IpcMessage = ReturnType<typeof text>[number];
+type IpcMessage = ReturnType<typeof generationMessagesToWire>[number];
 
 /**
  * Fit a long agent history inside the IPC message limits. Keeps the leading
@@ -142,36 +146,6 @@ function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-function text(messages: GenerationMessage[]): Array<{
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
-  toolCallId?: string;
-  toolCalls?: Array<{ id: string; name: string; input: string }>;
-}> {
-  return messages.map((message) => ({
-    role: message.role,
-    content: message.content
-      .map((block) => {
-        if (block.type === 'text' || block.type === 'reasoning-summary') return block.text;
-        if (block.type === 'json') return JSON.stringify(block.value);
-        if (block.type === 'refusal') return block.reason;
-        return `[${block.type}]`;
-      })
-      .join('\n'),
-    ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
-    ...(message.toolCalls
-      ? {
-          toolCalls: message.toolCalls.map((call) => ({
-            id: call.id,
-            name: call.name,
-            input:
-              typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments),
-          })),
-        }
-      : {}),
-  }));
-}
-
 export function createDesktopAgentProviders(
   configs: Record<string, AiLabProviderConfig>,
   complete: Complete = completeLlm,
@@ -197,42 +171,25 @@ export function createDesktopAgentProviders(
             const unsupported = validateGenerationRequest(request, capabilities);
             if (unsupported.length > 0) throw new Error(unsupported.join('; '));
             const completion = await complete(
-              specFor(config, request.model.model, windowMessagesForIpc(text(request.messages)), {
-                ...(request.maxOutputTokens !== undefined
-                  ? { maxOutputTokens: request.maxOutputTokens }
-                  : {}),
-                ...(request.tools ? { tools: request.tools } : {}),
-                ...(sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
-              }),
+              specFor(
+                config,
+                request.model.model,
+                windowMessagesForIpc(generationMessagesToWire(request.messages)),
+                {
+                  ...(request.maxOutputTokens !== undefined
+                    ? { maxOutputTokens: request.maxOutputTokens }
+                    : {}),
+                  ...(request.tools ? { tools: request.tools } : {}),
+                  ...(sendUnredactedToCloud ? { sendUnredactedToCloud: true } : {}),
+                }
+              ),
               context.signal ? { signal: context.signal } : {}
             );
-            if (!completion.ok) throw new Error(completion.error?.message ?? 'model call failed');
-            const costUSD = completion.usage
-              ? knownCostForCompletion(config, request.model.model, completion.usage)
-              : undefined;
-            return {
-              id: crypto.randomUUID(),
-              output: completion.text ? [{ type: 'text', text: completion.text }] : [],
-              toolCalls: completion.toolCalls.map((call) => {
-                let arguments_: unknown = call.input;
-                try {
-                  arguments_ = JSON.parse(call.input);
-                } catch {
-                  /* preserve invalid provider payload */
-                }
-                return { id: call.id, name: call.name, arguments: arguments_ };
-              }),
-              ...(completion.usage
-                ? {
-                    usage: {
-                      inputTokens: completion.usage.promptTokens,
-                      outputTokens: completion.usage.completionTokens,
-                    },
-                    ...(costUSD !== undefined ? { costUSD } : {}),
-                  }
-                : {}),
-              stopReason: completion.toolCalls.length ? 'tool-calls' : 'completed',
-            };
+            const costUSD =
+              completion.ok && completion.usage
+                ? knownCostForCompletion(config, request.model.model, completion.usage)
+                : undefined;
+            return completionToGenerationResponse(completion, costUSD);
           },
         })
     )
@@ -258,6 +215,8 @@ export async function runDesktopAgentSuite(
     createAgentToolResolver([
       createResturaRequestToolSourceAdapter(),
       createMcpAgentToolSourceAdapter(),
+      createSandboxToolSourceAdapter(createDefaultSandboxRegistry()),
+      createDesktopA2aToolSourceAdapter(),
     ]);
   for (const agent of suite.agents) toolResolver.assertSupported(agent.tools);
   const execution = capabilityExecutionMetadata(suite, configs);
@@ -528,6 +487,8 @@ export async function runDesktopAgentBundle(
     createFixtureToolSourceAdapter(bundle.fixtures),
     createResturaRequestToolSourceAdapter(),
     createMcpAgentToolSourceAdapter(),
+    createSandboxToolSourceAdapter(createDefaultSandboxRegistry()),
+    createDesktopA2aToolSourceAdapter(),
   ]);
   const report = await runDesktopAgentSuite(bundle.suite, configs, {
     ...options,

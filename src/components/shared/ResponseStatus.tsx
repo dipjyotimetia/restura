@@ -1,20 +1,10 @@
 import { StatusPill } from '@/components/ui/spatial';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { describeHttpStatus } from '@/lib/shared/httpStatus';
-import { cn } from '@/lib/shared/utils';
 
 /** Response status pill with a plain-language explanation on hover/focus. */
 export function ResponseStatus({ status, statusText }: { status: number; statusText: string }) {
-  const pill = (
-    <StatusPill
-      status={status}
-      text={statusText}
-      className={cn(
-        status >= 400 && 'animate-error-shake',
-        status >= 200 && status < 300 && 'animate-success-pulse'
-      )}
-    />
-  );
+  const pill = <StatusPill status={status} text={statusText} />;
   const explanation = describeHttpStatus(status);
   if (!explanation) return pill;
   return (

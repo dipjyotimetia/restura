@@ -140,7 +140,7 @@ export default function EntryCompareDialog({
               </div>
 
               <div>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                <h4 className="text-xs font-semibold text-muted-foreground mb-1">
                   Request headers
                 </h4>
                 <div className="bg-muted/30 rounded p-2 font-mono text-sp-11 space-y-0.5">
@@ -175,9 +175,7 @@ export default function EntryCompareDialog({
 
               {entry.request.body && (
                 <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                    Request body
-                  </h4>
+                  <h4 className="text-xs font-semibold text-muted-foreground mb-1">Request body</h4>
                   <div className="rounded-lg overflow-hidden border border-border">
                     <CodeEditor
                       value={entry.request.body}
@@ -192,7 +190,7 @@ export default function EntryCompareDialog({
               )}
 
               <div>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                <h4 className="text-xs font-semibold text-muted-foreground mb-1">
                   Response headers
                 </h4>
                 <div className="bg-muted/30 rounded p-2 font-mono text-sp-11 space-y-0.5">
@@ -227,7 +225,7 @@ export default function EntryCompareDialog({
 
               {entry.response.body && (
                 <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                  <h4 className="text-xs font-semibold text-muted-foreground mb-1">
                     Response body
                   </h4>
                   <div className="rounded-lg overflow-hidden border border-border">
@@ -275,9 +273,7 @@ function DiffSection({ title, entries }: { title: string; entries: LineDiffEntry
   const allEqual = entries.every((e) => e.op === 'equal');
   return (
     <div className="px-4 py-3 border-b border-border/60 last:border-b-0 space-y-1.5">
-      <h4 className="text-sp-11 font-semibold text-muted-foreground uppercase tracking-wider">
-        {title}
-      </h4>
+      <h4 className="text-sp-11 font-semibold text-muted-foreground">{title}</h4>
       {allEqual ? (
         <p className="text-sp-11 text-muted-foreground italic">No differences.</p>
       ) : (

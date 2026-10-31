@@ -198,7 +198,7 @@ export function ReportSummary({
       <div className="overflow-x-auto">
         <table className="w-full text-sp-12">
           <thead>
-            <tr className="border-b border-sp-line text-left text-sp-11 uppercase tracking-wide text-sp-muted">
+            <tr className="border-b border-sp-line text-left text-sp-11 text-sp-muted">
               <th className="py-2 pr-3 font-medium">Model</th>
               <th className="py-2 pr-3 font-medium">Pass rate</th>
               <th className="py-2 pr-3 font-medium">Δ vs prev</th>
@@ -258,7 +258,7 @@ export function ReportSummary({
           <div className="overflow-x-auto">
             <table className="w-full text-sp-12" aria-label="Pass rate by split">
               <thead>
-                <tr className="border-b border-sp-line text-left text-sp-11 uppercase tracking-wide text-sp-muted">
+                <tr className="border-b border-sp-line text-left text-sp-11 text-sp-muted">
                   <th className="py-2 pr-3 font-medium">Model</th>
                   <th className="py-2 pr-3 font-medium">Train</th>
                   <th className="py-2 pr-3 font-medium">Test</th>

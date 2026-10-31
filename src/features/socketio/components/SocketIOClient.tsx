@@ -135,7 +135,7 @@ function DirTag({ direction }: { direction: SocketIOEventDirection }) {
   if (direction === 'sent') {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9 tracking-wide"
+        className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9"
         style={{
           color: 'var(--color-proto-ws)',
           background: 'color-mix(in srgb, var(--color-proto-ws) 16%, transparent)',
@@ -148,7 +148,7 @@ function DirTag({ direction }: { direction: SocketIOEventDirection }) {
   if (direction === 'received') {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9 tracking-wide"
+        className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9"
         style={{
           color: 'var(--color-success)',
           background: 'color-mix(in srgb, var(--color-success) 16%, transparent)',
@@ -161,7 +161,7 @@ function DirTag({ direction }: { direction: SocketIOEventDirection }) {
   if (direction === 'ack') {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9 tracking-wide"
+        className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9"
         style={{
           color: 'var(--color-warning)',
           background: 'color-mix(in srgb, var(--color-warning) 16%, transparent)',
@@ -173,7 +173,7 @@ function DirTag({ direction }: { direction: SocketIOEventDirection }) {
   }
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9 tracking-wide"
+      className="inline-flex items-center gap-1 rounded-sp-chip px-1.5 h-5 font-mono font-bold text-sp-9"
       style={{
         color: 'var(--color-neutral)',
         background: 'color-mix(in srgb, var(--color-neutral) 14%, transparent)',
@@ -420,7 +420,7 @@ function SocketIOClient() {
         )}
         <span
           className={cn(
-            'inline-flex items-center gap-1.5 h-6 px-2.5 rounded-sp-pill font-mono font-bold text-sp-10 tracking-wide',
+            'inline-flex items-center gap-1.5 h-6 px-2.5 rounded-sp-pill font-mono font-bold text-sp-10',
             isConnected && 'sp-accent-ring'
           )}
           style={{

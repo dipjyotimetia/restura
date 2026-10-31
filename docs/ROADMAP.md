@@ -56,7 +56,7 @@ Local mock server for stubbing responses without a real upstream (desktop).
 
 Chat panel with OpenAI, Anthropic, or OpenRouter. Sees the current request and response as context. Secrets and environment values are redacted before reaching the model; the request URL is sent as-is ([#977](https://github.com/dipjyotimetia/restura/issues/977)). BYO API key, stored in OS keychain.
 
-AI Lab (desktop) — multi-model playground, datasets, eval runner with LLM-as-judge (incl. pairwise/preference), OpenAPI-driven test generation, an `http-exec` target that executes AI-generated requests through the real request executor, and Arena — round-robin model-vs-model judging with an Elo leaderboard.
+AI Lab (desktop) — multi-model playground, datasets, eval runner with LLM-as-judge (incl. pairwise/preference), OpenAPI-driven test generation, an `http-exec` target that executes AI-generated requests through the real request executor, and Arena — round-robin model-vs-model judging with an Elo leaderboard. Providers include OpenAI, Anthropic, OpenRouter, Hugging Face, Azure OpenAI, Gemini, Amazon Bedrock and local runtimes. Agent suites can call saved requests, MCP servers, remote A2A agents and a QuickJS code sandbox as tools ([ADR 0037](adr/0037-agent-lab-suites-runtime-telemetry.md)). In CI, `restura agent eval` runs agent suites and `restura eval run` runs exported dataset evals, judges included, gated on a pass threshold ([ADR 0038](adr/0038-cli-judges-and-dataset-evals.md)).
 
 ### Contract specs
 
@@ -101,9 +101,7 @@ These are things that are clearly needed and will happen, roughly in order of ho
 
 **CLI protocol parity** — WebSocket requests in collection runs, per-domain client certificates, and protobuf bodies.
 
-**More agent model providers** — Azure OpenAI, then Bedrock, then Gemini, each on desktop and the CLI ([#1044](https://github.com/dipjyotimetia/restura/issues/1044)). Today they exist as adapter profiles, not transports.
-
-**AI Lab fixes and next steps** — the [AI Lab review](audits/ai-lab-review-2026-10-12.md) filed 23 bugs, now fixed, and the work below under [epic #1057](https://github.com/dipjyotimetia/restura/issues/1057). Planned: decision models such as Cloudflare Clef and TypeSafe Jev as a provider kind and a fast eval scorer ([#1049](https://github.com/dipjyotimetia/restura/issues/1049), [#1050](https://github.com/dipjyotimetia/restura/issues/1050)); dataset evals with judges in the CLI ([#1045](https://github.com/dipjyotimetia/restura/issues/1045)); remote agents as tools over A2A ([#1043](https://github.com/dipjyotimetia/restura/issues/1043)). AI Lab stays desktop-only.
+**AI Lab fixes and next steps** — the [AI Lab review](audits/ai-lab-review-2026-10-12.md) filed 23 bugs, now fixed, and the work below under [epic #1057](https://github.com/dipjyotimetia/restura/issues/1057). Shipped from it: Arena on the shared run engine ([#1046](https://github.com/dipjyotimetia/restura/issues/1046)), the QuickJS agent sandbox ([#1042](https://github.com/dipjyotimetia/restura/issues/1042)), A2A tool sources ([#1043](https://github.com/dipjyotimetia/restura/issues/1043)), Azure OpenAI, Bedrock and Gemini on desktop and CLI ([#1044](https://github.com/dipjyotimetia/restura/issues/1044)), and `restura eval run` with judges ([#1045](https://github.com/dipjyotimetia/restura/issues/1045)). Planned: decision models such as Cloudflare Clef and TypeSafe Jev as a provider kind and a fast eval scorer ([#1049](https://github.com/dipjyotimetia/restura/issues/1049), [#1050](https://github.com/dipjyotimetia/restura/issues/1050)). AI Lab stays desktop-only.
 
 **Protocol gaps from the 2026-10-12 review** — the [protocol gap review](audits/protocol-gap-review-2026-10-12.md) filed every confirmed spec, competitor, and product gap as an issue under one epic per area: [HTTP #843](https://github.com/dipjyotimetia/restura/issues/843), [GraphQL #844](https://github.com/dipjyotimetia/restura/issues/844), [gRPC #845](https://github.com/dipjyotimetia/restura/issues/845), [WebSocket #846](https://github.com/dipjyotimetia/restura/issues/846), [Socket.IO #847](https://github.com/dipjyotimetia/restura/issues/847), [SSE #848](https://github.com/dipjyotimetia/restura/issues/848), [Kafka #849](https://github.com/dipjyotimetia/restura/issues/849), [MQTT #850](https://github.com/dipjyotimetia/restura/issues/850), [MCP #851](https://github.com/dipjyotimetia/restura/issues/851), [cross-cutting #852](https://github.com/dipjyotimetia/restura/issues/852), and [docs #853](https://github.com/dipjyotimetia/restura/issues/853). P0s (silent data loss in collection export/save, desktop WebSocket binary frames, CLI MCP, gRPC in the desktop runner and web reflection) come first.
 
@@ -127,7 +125,7 @@ These are things that would be good to have but aren't being actively planned.
 - Natural-language to request builder (describe what you want, get a request)
 - Scheduled test runs
 - Audit logging for the self-hosted deployment
-- Code sandboxes for evaluated agents — script sandbox first ([#1042](https://github.com/dipjyotimetia/restura/issues/1042)), then an opt-in container provider ([#1055](https://github.com/dipjyotimetia/restura/issues/1055))
+- Container sandboxes for evaluated agents — an opt-in Docker/Podman provider ([#1055](https://github.com/dipjyotimetia/restura/issues/1055)); the QuickJS script sandbox has shipped
 - Self-hosted scale-out: Helm chart, shared rate-limit store, upstream mTLS
 
 ### Exploring — ideas from the 2026-10-12 protocol gap review

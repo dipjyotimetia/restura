@@ -296,9 +296,9 @@ OPENAI_API_KEY=... restura agent eval ./checkout.agent-suite.json --output agent
 | `--allow-localhost`         | `false` | Permit localhost saved-request targets.                                                                  |
 | `--telemetry-config <file>` |         | Metadata-only Langfuse or OTLP export; credentials must be environment references; the collector hostname is resolved once and every address validated (private, link-local, metadata and loopback-via-hostname results are refused with exit 2 before the run), and OTLP connects only to that validated address (Langfuse gets the DNS validation but no connect pin). See [Agent telemetry](https://github.com/dipjyotimetia/restura/blob/main/docs/AGENT_TELEMETRY.md). |
 
-Agents use `providerId: "openai.responses"` or `"anthropic.messages"` with an environment credential such as `{ "source": "env", "name": "OPENAI_API_KEY" }`. The OpenAI adapter is stateless (`store: false`, no `previous_response_id` continuation).
+Agents use `providerId: "openai.responses"`, `"anthropic.messages"`, `"azure.openai"`, `"google.generateContent"` or `"aws.bedrock.converse"` with an environment credential such as `{ "source": "env", "name": "OPENAI_API_KEY" }`. The OpenAI adapter is stateless (`store: false`, no `previous_response_id` continuation). Azure OpenAI, Gemini and Bedrock run over the same shared wire routes as the desktop AI Lab. Their endpoints come from the runtime manifest, never the suite: `providerEndpoints["azure.openai"]` (your resource, required), `providerEndpoints["aws.bedrock.converse"]` (a regional `bedrock-runtime` URL, default `us-east-1`) and `providerEndpoints["google.generateContent"]` (optional). All must be https. The Bedrock credential is either a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK`) or IAM credentials as JSON (`{"accessKeyId":…,"secretAccessKey":…,"sessionToken":…}`), which are signed with SigV4. None of the three has a static price table, so price them under `modelPrices` before you use cost budgets or graders.
 
-The headless runner is deliberately narrower than the desktop AI Lab. Unsupported suite configuration is refused at preflight, before any model call: suite `baseUrl` overrides, desktop secret-handle credentials, judge graders, and sandbox sources. Saved HTTP requests and MCP tools are only exposed when listed in a `--runtime` manifest — HTTP tools are limited to read-only requests without pre-request or test scripts (own or inherited from a folder or collection; scripts do not run for agent tools, so scripted requests are refused with exit 2), and MCP sources must be `readOnly: true` with an explicit tool allowlist and headers that name environment variables instead of holding values. `readOnly: true` is the operator's assertion, not a server guarantee: server annotations are never trusted to grant access, but a listed tool the server marks `destructiveHint: true` or `readOnlyHint: false` is refused with exit 2 (there is no opt-out; remove it from `allowedTools`; tools with no annotations pass on your assertion). These tool-level refusals are raised when a trial first resolves its tools, not at preflight, so they can come after earlier trials have already called the model:
+The headless runner is deliberately narrower than the desktop AI Lab. Unsupported suite configuration is refused at preflight, before any model call: suite `baseUrl` overrides, desktop secret-handle credentials, judge graders, and unregistered sandbox ids. `{ "kind": "sandbox", "sandboxId": "quickjs" }` gives the agent a `run_code_quickjs` tool. It runs JavaScript in a fresh QuickJS WASM runtime per call with the script caps and no network, filesystem or timers, so it needs no approval. Saved HTTP requests and MCP tools are only exposed when listed in a `--runtime` manifest — HTTP tools are limited to read-only requests without pre-request or test scripts (own or inherited from a folder or collection; scripts do not run for agent tools, so scripted requests are refused with exit 2), and MCP sources must be `readOnly: true` with an explicit tool allowlist and headers that name environment variables instead of holding values. `readOnly: true` is the operator's assertion, not a server guarantee: server annotations are never trusted to grant access, but a listed tool the server marks `destructiveHint: true` or `readOnlyHint: false` is refused with exit 2 (there is no opt-out; remove it from `allowedTools`; tools with no annotations pass on your assertion). These tool-level refusals are raised when a trial first resolves its tools, not at preflight, so they can come after earlier trials have already called the model:
 
 ```json
 {
@@ -313,10 +313,19 @@ The headless runner is deliberately narrower than the desktop AI Lab. Unsupporte
       "readOnly": true,
       "headers": [{ "name": "Authorization", "env": "DOCS_MCP_TOKEN" }],
       "allowedTools": ["search_docs"]
+    },
+    {
+      "id": "planner",
+      "kind": "a2a",
+      "endpoint": "https://agents.example.test",
+      "readOnly": true,
+      "headers": [{ "name": "Authorization", "env": "PLANNER_TOKEN" }]
     }
   ]
 }
 ```
+
+An `a2a` tool source (`{ "kind": "a2a", "endpoint": "…" }`) calls a remote Agent2Agent agent as a tool, but only when the manifest lists the same `endpoint` with `readOnly: true`. Otherwise the suite exits 2 before any model call. The agent card is read from `/.well-known/agent-card.json` (or `agent.json`), and its RPC URL must stay on the endpoint's origin. Calls use `message/send` and `tasks/get` over the DNS-pinned transport with redirects refused.
 
 Cost budgets (`limits.maxCostUSD`) and `cost` graders need a known price. OpenAI and Anthropic models in Restura's shared price table are costed from the provider's reported usage (cached tokens are billed at the cache rate; if cached tokens appear but no cache rate is known, cost is treated as unknown rather than guessed). A suite that uses a budget or cost grader on an unpriced model is refused with exit 2; price it with per-model overrides (USD per million tokens, keyed by model id) in the runtime manifest:
 
@@ -335,6 +344,27 @@ A suite's policy profile (`agents[].policyId` → `policies[]`) is refused with 
 A Bundle may also use deterministic, read-only fixture tools; its baseline gates turn a regressed report into a failing result. Exit codes: `0` when every trial (and every bundle gate) passes, `1` for an evaluated failure, error, or cancellation (SIGINT/SIGTERM cancel cooperatively: MCP sessions are closed and a partial `--output` report is still written; a second signal force-quits), `2` for invalid input, unsupported configuration, or I/O failure. Step, time, tool, token, cost, and output budgets still apply.
 
 > `--output` writes the complete local trace, which can include task inputs and model/tool outputs. Protect and expire that CI artifact according to your data policy.
+
+## Dataset eval
+
+`restura eval run <file.eval.json>` runs an AI Lab dataset eval (prompt × dataset × models × scorers) in CI. Export the file from **AI Lab → Evals → Export for CLI**. It holds the prompt, dataset, scorers and models, but never a key: each endpoint names the environment variable that holds its key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `HF_TOKEN`, `AZURE_OPENAI_API_KEY`, `GEMINI_API_KEY`, `AWS_BEARER_TOKEN_BEDROCK`). Scoring is the desktop's own code, judges included ([ADR 0038](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0038-cli-judges-and-dataset-evals.md)).
+
+```bash
+OPENAI_API_KEY=... ANTHROPIC_API_KEY=... restura eval run ./support.eval.json --junit eval.xml --max-cost 2
+```
+
+| Flag                 | Default | Description                                                                         |
+| -------------------- | ------- | ----------------------------------------------------------------------------------- |
+| `--output <file>`    |         | Write the full JSON report: every cell, output and score.                           |
+| `--junit <file>`     |         | Write JUnit XML, one test case per case × model.                                    |
+| `--max-cost <usd>`   |         | Stop once model + judge spend reaches this amount. Unpriced models are refused up front. |
+| `--split <split>`    |         | Run only the `train` or `test` cases.                                                |
+| `--concurrency <n>`  | file    | Override the file's concurrency (1-32).                                              |
+| `--allow-localhost`  | `false` | Permit local runtime endpoints (Ollama, OpenAI-compatible).                         |
+
+Judge and pairwise scorers call their judge model with its endpoint's env key. A judge that is also a model under test is refused. Judges are stochastic, so with judge scorers set a pass threshold below 100%, and consider judge `samples` and calibration anchors. The outgoing secret check is on for cloud providers and off for local runtimes, as on desktop. The `http-exec` target (it runs model-authored requests through the app's request executor) and the Arena are desktop-only.
+
+Exit codes: `0` when the share of scored cells that pass meets the eval's pass threshold (default 100%), `1` below the threshold, on cancellation (Ctrl-C) or when `--max-cost` is reached (a partial report is still written), `2` for invalid input before any model call: a malformed file, a missing env key, an unknown endpoint, an unsafe base URL, self-judging, no scorers, or `--max-cost` on an unpriced model.
 
 ## MCP conformance
 

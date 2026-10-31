@@ -1,5 +1,6 @@
 import type { Fetcher } from '@shared/protocol/types';
 import { executeAiChat } from './ai-proxy';
+import type { ProviderRouteContext } from './provider-routes';
 import type { ChatRequestSpec, ChatToolCall, CompletionResult, Usage } from './types';
 
 type SecretResolver = (handleId: string) => Promise<string | undefined>;
@@ -19,14 +20,15 @@ type SecretResolver = (handleId: string) => Promise<string | undefined>;
 export async function runToCompletion(
   spec: ChatRequestSpec,
   fetcher: Fetcher,
-  secretResolver: SecretResolver
+  secretResolver: SecretResolver,
+  routeContext: ProviderRouteContext = {}
 ): Promise<CompletionResult> {
   let text = '';
   let usage: Usage | undefined;
   const toolCalls: ChatToolCall[] = [];
   let error: CompletionResult['error'];
 
-  for await (const ev of executeAiChat(spec, fetcher, secretResolver)) {
+  for await (const ev of executeAiChat(spec, fetcher, secretResolver, routeContext)) {
     switch (ev.type) {
       case 'delta':
         text += ev.text;

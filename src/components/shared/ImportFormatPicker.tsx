@@ -39,7 +39,7 @@ export function ImportFormatCard({ format, active, onClick }: FormatCardProps) {
     >
       <span
         aria-hidden="true"
-        className="flex items-center justify-center size-9 rounded-sp-btn shrink-0 text-sp-11 font-bold text-white tracking-wide"
+        className="flex items-center justify-center size-9 rounded-sp-btn shrink-0 text-sp-11 font-bold text-white"
         style={{
           background: format.color,
           boxShadow: `0 4px 10px ${format.color}55, inset 0 1px 0 rgba(255,255,255,0.2)`,

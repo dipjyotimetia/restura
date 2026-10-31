@@ -32,7 +32,16 @@ export type HfProvider = 'huggingface';
  */
 export type LocalProvider = 'ollama' | 'openai-compatible';
 
-export type Provider = CloudProvider | LocalProvider | HfProvider;
+/**
+ * Enterprise cloud model platforms (AI Lab only): Azure OpenAI, Google Gemini
+ * and Amazon Bedrock. Hardcoded or customer-specific cloud endpoints with no
+ * static price table (pricing is per deployment/tier/agreement), so like
+ * HuggingFace they are not `CloudProvider`s and never get the localhost
+ * carve-out.
+ */
+export type EnterpriseProvider = 'azure-openai' | 'gemini' | 'bedrock';
+
+export type Provider = CloudProvider | LocalProvider | HfProvider | EnterpriseProvider;
 
 /**
  * Providers selectable in the AI assistant chat: the cloud set plus
@@ -54,6 +63,11 @@ export function isLocalProvider(provider: Provider): provider is LocalProvider {
  */
 export function isHuggingFaceProvider(provider: Provider): provider is HfProvider {
   return provider === 'huggingface';
+}
+
+/** Cloud providers whose pricing is not in a static table: cost reads as unknown. */
+export function hasStaticPricing(provider: Provider): boolean {
+  return provider === 'openai' || provider === 'anthropic' || provider === 'openrouter';
 }
 
 export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';

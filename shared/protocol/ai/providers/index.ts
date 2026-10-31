@@ -1,5 +1,8 @@
 import type { CloudProvider, Provider } from '@shared/protocol/ai/types';
 import { anthropicModule } from './anthropic';
+import { azureOpenAiModule } from './azure-openai';
+import { bedrockModule } from './bedrock';
+import { geminiModule } from './gemini';
 import { huggingfaceModule } from './huggingface';
 import { ollamaModule } from './ollama';
 import { openaiModule } from './openai';
@@ -14,6 +17,9 @@ const REGISTRY: Record<Provider, ProviderModule> = {
   ollama: ollamaModule,
   huggingface: huggingfaceModule,
   'openai-compatible': openaiCompatibleModule,
+  'azure-openai': azureOpenAiModule,
+  gemini: geminiModule,
+  bedrock: bedrockModule,
 };
 
 /** Cloud providers with hardcoded-safe endpoints + known pricing (the chat panel). */
@@ -29,7 +35,12 @@ export const LOCAL_PROVIDERS: Provider[] = ['ollama', 'openai-compatible'];
  * implies known pricing). Kept as its own list so the chat panel's curated set
  * stays untouched while the AI Lab provider picker enumerates the full union.
  */
-export const AI_LAB_CLOUD_PROVIDERS: Provider[] = ['huggingface'];
+export const AI_LAB_CLOUD_PROVIDERS: Provider[] = [
+  'huggingface',
+  'azure-openai',
+  'gemini',
+  'bedrock',
+];
 
 /** Every provider the wire layer can route + decode. */
 export const ALL_PROVIDERS: Provider[] = [
@@ -45,6 +56,9 @@ export function getProviderModule(provider: Provider): ProviderModule {
 export type { ModelInfo, ProviderModule, StreamDecoder } from './types';
 export {
   anthropicModule,
+  azureOpenAiModule,
+  bedrockModule,
+  geminiModule,
   huggingfaceModule,
   ollamaModule,
   openaiCompatibleModule,
