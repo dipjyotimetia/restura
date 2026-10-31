@@ -1,6 +1,7 @@
-import { test, expect } from '../fixtures/tls';
+import path from 'node:path';
 import type { Page } from '@playwright/test';
-import { switchMode, setUrl, sendButton } from '../../e2e/utils/selectors';
+import { sendButton, setUrl, switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/tls';
 
 /**
  * Desktop-only TLS transport: custom CA bundle + mTLS client certificate. These
@@ -70,6 +71,9 @@ test.describe('Desktop TLS — custom CA + mTLS', () => {
       await drawer
         .locator('input[type="file"][accept=".pem,.key"]')
         .setInputFiles(tls.certs.clientKeyPath);
+      // Reads are async: wait until both parts are stored before sending.
+      await expect(drawer.getByText(path.basename(tls.certs.clientCertPath))).toBeVisible();
+      await expect(drawer.getByText(path.basename(tls.certs.clientKeyPath))).toBeVisible();
       await page.getByRole('button', { name: 'Close settings' }).click();
 
       await switchMode(page, 'http');
@@ -78,7 +82,9 @@ test.describe('Desktop TLS — custom CA + mTLS', () => {
 
       // The server demands a client cert (requestCert + rejectUnauthorized): a
       // 200 with the client subject proves the cert was presented at the wire.
-      // Without it the TLS handshake is rejected and there is no 200.
+      // Without it the TLS handshake is rejected and the server never sees the
+      // request. Assert that first: an earlier spec can leave a '200' on screen.
+      await expect.poll(() => tls.mtls.requestCount()).toBeGreaterThanOrEqual(1);
       await expect(page.getByText('200', { exact: true }).first()).toBeVisible();
       await expect(page.getByText(/restura-client/).first()).toBeVisible();
     } finally {
