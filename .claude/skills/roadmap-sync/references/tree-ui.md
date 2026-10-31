@@ -30,8 +30,11 @@ Restura's cobalt tokens. Don't copy Up's art, logo treatment, or coral palette.
   `placePanel` is computed from `offset/scale`, so it is called from `paint()`.
 - Direct clicks keep the camera; search, relationship links, and `#hash` pan to
   the node (`x = width/3`, fixed top margin).
-- `panTo` clamps so the map stops a 40px margin past its edges; at the edge the
-  wheel falls through to page scroll (test-enforced).
+- The wheel zooms around the cursor (pinch arrives as a ctrlKey wheel and takes
+  the same path); Shift + wheel or a sideways trackpad swipe pans. At the zoom
+  limit the wheel falls through to page scroll (test-enforced).
+- `panTo` clamps so the map stops a 40px margin past its edges; a sideways pan
+  at the edge falls through too.
 - A tap on empty map closes the details; a drag never opens a node
   (`suppressClick`).
 

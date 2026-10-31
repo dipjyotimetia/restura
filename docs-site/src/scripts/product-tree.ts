@@ -565,25 +565,24 @@ function initializeTree() {
     (event) => {
       dismissHint();
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
-      // Ctrl/⌘ + wheel zooms; trackpad pinch arrives as a ctrlKey wheel too.
-      if (event.ctrlKey || event.metaKey) {
-        event.preventDefault();
-        const area = viewport.getBoundingClientRect();
-        const delta = event.deltaY * unit;
-        zoom(Math.exp(-Math.max(-100, Math.min(100, delta)) * 0.0015), {
-          x: event.clientX - area.left,
-          y: event.clientY - area.top,
+      // Shift + wheel and sideways trackpad swipes pan horizontally.
+      const sideways = Math.abs(event.deltaX) > Math.abs(event.deltaY);
+      if (event.shiftKey || sideways) {
+        const moved = panTo({
+          x: offset.x - (sideways ? event.deltaX : event.deltaY) * unit,
+          y: offset.y,
         });
+        if (moved) event.preventDefault();
         return;
       }
-      // Plain wheel pans like a document; Shift turns a vertical wheel horizontal.
-      const horizontal = event.shiftKey && !event.deltaX;
-      const moved = panTo({
-        x: offset.x - (horizontal ? event.deltaY : event.deltaX) * unit,
-        y: offset.y - (horizontal ? 0 : event.deltaY) * unit,
-      });
-      // At the map's edge the wheel scrolls the page instead of being trapped.
-      if (moved) event.preventDefault();
+      // The wheel zooms around the cursor; trackpad pinch arrives as a ctrlKey wheel too.
+      const delta = Math.max(-100, Math.min(100, event.deltaY * unit));
+      const next = Math.max(0.1, Math.min(1.6, scale * Math.exp(-delta * 0.0015)));
+      // At the zoom limit the wheel scrolls the page instead of being trapped.
+      if (next === scale) return;
+      event.preventDefault();
+      const area = viewport.getBoundingClientRect();
+      zoom(next / scale, { x: event.clientX - area.left, y: event.clientY - area.top });
     },
     { passive: false }
   );
