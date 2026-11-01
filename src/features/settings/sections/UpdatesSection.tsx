@@ -1,8 +1,8 @@
 import { Download, RefreshCw } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
-import { Badge } from '@/components/ui/badge';
 import { useReleaseNotes } from '@/components/shared/settings/useReleaseNotes';
+import { Badge } from '@/components/ui/badge';
 import { Segmented, ToggleField } from '@/components/ui/spatial';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { parseReleaseNoteContent, type ReleaseNotesChannel } from '@/lib/shared/release-notes';
@@ -217,6 +217,12 @@ function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
                     </div>
                   </section>
                 ))}
+
+                {content?.footer ? (
+                  <p className="border-t border-sp-line pt-3 text-sp-11 text-sp-dim">
+                    <ReleaseNoteMarkdown>{content.footer}</ReleaseNoteMarkdown>
+                  </p>
+                ) : null}
 
                 {content?.fallbackBody ? (
                   <div className="space-y-2 break-words [&_h1]:text-sp-14 [&_h1]:font-semibold [&_h2]:text-sp-13 [&_h2]:font-semibold [&_h3]:text-sp-12 [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
