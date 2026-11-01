@@ -180,6 +180,7 @@ Thanks to @octocat.`)
       contributors: 'Thanks to @octocat.',
       extraSections: [],
       preamble: null,
+      footer: null,
       fallbackBody: null,
     });
   });
@@ -192,6 +193,7 @@ Thanks to @octocat.`)
       contributors: null,
       extraSections: [],
       preamble: null,
+      footer: null,
       fallbackBody: 'A free-form legacy release body.',
     });
   });
@@ -220,6 +222,7 @@ Read [the issue tracker](https://example.com/issues) before upgrading.`)
         },
       ],
       preamble: null,
+      footer: null,
       fallbackBody: null,
     });
   });
@@ -240,6 +243,7 @@ Upgrade your agent configuration before installing this release.
       contributors: null,
       extraSections: [],
       preamble: '# v1.2.0\n\nUpgrade your agent configuration before installing this release.',
+      footer: null,
       fallbackBody: null,
     });
   });
@@ -267,7 +271,67 @@ enabled: true
       contributors: null,
       extraSections: [],
       preamble: null,
+      footer: null,
       fallbackBody: null,
     });
+  });
+
+  it('parses the git-cliff body that release.yml publishes', () => {
+    const commit = '([`5d16189`](https://github.com/dipjyotimetia/restura/commit/5d16189))';
+    expect(
+      parseReleaseNoteContent(`## 1.14.0 — 2026-10-31
+
+## Added
+
+- Custom close code ${commit}
+
+- Unified streaming timeline ${commit}
+
+
+## Fixed
+
+- Base64 IPC for desktop binary frames ${commit}
+
+
+---
+A CycloneDX SBOM of the production dependency tree is attached
+(\`restura.cdx.json\` / \`.xml\`).
+`)
+    ).toEqual({
+      highlights: null,
+      upgradeNotes: null,
+      sections: [
+        {
+          title: 'Added',
+          body: `- Custom close code ${commit}\n\n- Unified streaming timeline ${commit}`,
+          itemCount: 2,
+        },
+        {
+          title: 'Fixed',
+          body: `- Base64 IPC for desktop binary frames ${commit}`,
+          itemCount: 1,
+        },
+      ],
+      contributors: null,
+      extraSections: [],
+      preamble: null,
+      footer:
+        'A CycloneDX SBOM of the production dependency tree is attached\n(`restura.cdx.json` / `.xml`).',
+      fallbackBody: null,
+    });
+  });
+
+  it('keeps a thematic break inside a section when another heading follows', () => {
+    expect(
+      parseReleaseNoteContent('## Fixed\n\n- One\n\n---\n\n- Two\n\n## Security\n\n- Three')
+    ).toEqual(
+      expect.objectContaining({
+        sections: [
+          { title: 'Fixed', body: '- One\n\n---\n\n- Two', itemCount: 2 },
+          { title: 'Security', body: '- Three', itemCount: 1 },
+        ],
+        footer: null,
+      })
+    );
   });
 });
