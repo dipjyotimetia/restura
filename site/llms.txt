@@ -11,6 +11,7 @@ Key facts:
 - Scripts: pre-request and test scripts run in a QuickJS WebAssembly sandbox with Postman-compatible `pm.*` APIs.
 - Import: Postman (v2.x and v3), Insomnia, OpenAPI and Bruno collections.
 - CI: `restura-cli` runs collections with JUnit, HTML and JSON reporters (`npx restura-cli run ./my-collection`).
+- Compared with Postman, Hoppscotch and Insomnia: none of them supports Kafka; Postman also supports MQTT and MCP; Hoppscotch and Insomnia support neither. Restura is free and open source with no account; Postman requires an account and syncs to its cloud.
 - Not offered: real-time team collaboration, hosted mock servers, scheduled monitoring.
 
 ## Use it
