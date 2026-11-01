@@ -10,6 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { layoutWebSite, retargetAppHead } from '../vite-plugin-web-landing.ts';
 
 function fixture() {
@@ -81,12 +82,16 @@ test('fails when the landing page stops loading its script the expected way', ()
 test('the shipped landing FAQ structured data matches the visible FAQ', () => {
   // Google requires FAQPage answers to match the on-page text exactly.
   const html = readFileSync(new URL('../../site/index.html', import.meta.url), 'utf8');
-  const text = (t) =>
-    t
-      .replace(/<[^>]+>/g, '')
-      .replace(/&amp;/g, '&')
-      .replace(/\s+/g, ' ')
-      .trim();
+  const text = (t) => {
+    // Strip tags until stable (a single pass can leave nested fragments).
+    let out = t;
+    let prev;
+    do {
+      prev = out;
+      out = out.replace(/<[^>]*>/g, '');
+    } while (out !== prev);
+    return out.replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+  };
   const faq = html.slice(html.indexOf('id="faq"'));
   const visible = [...faq.matchAll(/<h3>([\s\S]*?)<\/h3>\s*<p>([\s\S]*?)<\/p>/g)].map((m) => [
     text(m[1]),
@@ -100,4 +105,32 @@ test('the shipped landing FAQ structured data matches the visible FAQ', () => {
     ld.map((q) => [q.name, q.acceptedAnswer.text]),
     visible
   );
+});
+
+function runLanding({ hash = '', search = '', returning = false, standalone = false }) {
+  const replaced = [];
+  const window = {
+    location: { hash, search, replace: (url) => replaced.push(url) },
+    localStorage: {
+      getItem: (k) => (returning && k === 'restura-onboarding-completed' ? 'true' : null),
+    },
+    matchMedia: () => ({ matches: standalone }),
+  };
+  const source = readFileSync(new URL('../../site/landing.js', import.meta.url), 'utf8');
+  runInNewContext(source, { window, URLSearchParams });
+  return replaced;
+}
+
+test('landing redirect: legacy app routes go to /app/, in-page anchors stay', () => {
+  assert.deepEqual(runLanding({ hash: '#/ai-lab' }), ['/app/#/ai-lab']);
+  assert.deepEqual(runLanding({ hash: '#compare' }), []);
+  assert.deepEqual(runLanding({ hash: '#compare', returning: true }), []);
+});
+
+test('landing redirect: returning users and the PWA skip the landing, ?home wins', () => {
+  assert.deepEqual(runLanding({}), []);
+  assert.deepEqual(runLanding({ returning: true }), ['/app/']);
+  assert.deepEqual(runLanding({ standalone: true }), ['/app/']);
+  assert.deepEqual(runLanding({ returning: true, search: '?home' }), []);
+  assert.deepEqual(runLanding({ hash: '#/ai-lab', search: '?home' }), []);
 });

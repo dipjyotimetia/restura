@@ -50,6 +50,7 @@ import { DEMO_REQUEST_URL, FirstRunWelcome } from './components/FirstRunWelcome'
 import { NoOpenTabs } from './components/NoOpenTabs';
 import { RequestWorkspace } from './components/RequestWorkspace';
 import { WindowFileDrop } from './components/WindowFileDrop';
+import { useWelcomeAutoDismiss } from './useWelcomeAutoDismiss';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
 const CommandPalette = lazyComponent(() => import('@/components/shared/CommandPalette'));
@@ -360,6 +361,7 @@ export default function Home() {
     markOnboardingComplete();
     setShowWelcome(false);
   }, []);
+  useWelcomeAutoDismiss(showWelcome, finishWelcome);
 
   // Live demo: load the echo request into a tab (reusing the untouched
   // starter tab when there is one) and let the HTTP builder send it through

@@ -10,10 +10,13 @@
   try {
     const APP = '/app/';
     if (new URLSearchParams(window.location.search).has('home')) return;
-    if (window.location.hash.length > 1) {
+    // Only legacy app routes (`#/…`); in-page anchors like `#compare` stay.
+    if (window.location.hash.startsWith('#/')) {
       window.location.replace(APP + window.location.hash);
       return;
     }
+    // A shared link to a landing section (`/#compare`) means "show me this".
+    if (window.location.hash.length > 1) return;
     const standalone = window.matchMedia?.('(display-mode: standalone)').matches === true;
     const returning = window.localStorage.getItem('restura-onboarding-completed') !== null;
     if (standalone || returning) window.location.replace(APP);
