@@ -161,6 +161,11 @@ export default function Home() {
 
   // Persisted request/response split (shared by every split protocol view).
   const sidebarCollapsed = settings.sidebarCollapsed === true;
+  // On phone/tablet widths the 268px sidebar would crush the first-run welcome
+  // screen; hide it (without touching the persisted setting) until the user
+  // leaves the welcome screen.
+  const isCompactViewport = useMediaQuery('(max-width: 899px)');
+  const sidebarHidden = sidebarCollapsed || (showWelcome && isCompactViewport);
   const toggleSidebar = useCallback(
     () =>
       updateSettings({ sidebarCollapsed: !useSettingsStore.getState().settings.sidebarCollapsed }),
@@ -428,12 +433,12 @@ export default function Home() {
           <motion.div
             key="sidebar-panel"
             initial={{ width: 0, opacity: 0 }}
-            animate={sidebarCollapsed ? { width: 0, opacity: 0 } : { width: 268, opacity: 1 }}
+            animate={sidebarHidden ? { width: 0, opacity: 0 } : { width: 268, opacity: 1 }}
             transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
             className="shrink-0 overflow-hidden"
             // Collapsed: out of the tab order and the accessibility tree.
-            inert={sidebarCollapsed}
-            aria-hidden={sidebarCollapsed || undefined}
+            inert={sidebarHidden}
+            aria-hidden={sidebarHidden || undefined}
           >
             <Sidebar activePanel={activePanel} onOpenImport={openImportDialog} />
           </motion.div>

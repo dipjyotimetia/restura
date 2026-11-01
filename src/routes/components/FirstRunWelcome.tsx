@@ -46,15 +46,15 @@ export function FirstRunWelcome({
     <Floater
       radius="panel"
       elevation="float-lg"
-      className="flex-1 m-2 overflow-y-auto"
+      className="@container flex-1 m-2 overflow-y-auto"
       data-testid="first-run-welcome"
     >
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-7 px-6 py-10 sm:px-10">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-7 px-5 py-8 @xl:px-10 @xl:py-10">
         <header className="space-y-3">
           <p className="font-mono text-sp-11 uppercase tracking-[0.08em] text-sp-accent">
             Welcome · no account needed
           </p>
-          <h1 className="text-2xl font-semibold tracking-tight text-sp-text sm:text-3xl">
+          <h1 className="text-2xl font-semibold tracking-tight text-sp-text @xl:text-3xl">
             Send your first request in one click.
           </h1>
           <p className="max-w-xl text-sp-13 leading-relaxed text-sp-muted">
@@ -85,7 +85,8 @@ export function FirstRunWelcome({
           </p>
         </section>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        {/* Container query, not viewport: the sidebar and AI panel eat width. */}
+        <div className="grid gap-3 @2xl:grid-cols-3">
           <button
             type="button"
             onClick={() => {

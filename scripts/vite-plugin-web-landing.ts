@@ -7,6 +7,7 @@
  *   dist/web/client/index.html      → dist/web/client/app/index.html  (the app)
  *   site/index.html                 → dist/web/client/index.html      (landing)
  *   site/landing.js                 → dist/web/client/landing-<hash>.js
+ *   site/404.html, site/llms.txt    → dist/web/client/ (as-is)
  *
  * The app's assets are root-absolute (`/assets/…`, base `/`) and it uses hash
  * routing, so it runs unchanged from `/app/`; IndexedDB is per-origin, so
@@ -70,6 +71,9 @@ export function layoutWebSite(outDir: string, sourceDir: string = siteDir): void
   // every unknown path with the landing page and a 200 (a soft 404 to search
   // engines). The app uses hash routing, so it never needs the fallback.
   writeFileSync(path.join(outDir, '404.html'), readFileSync(path.join(sourceDir, '404.html')));
+
+  // Plain-text summary for AI agents and answer engines (llmstxt.org).
+  writeFileSync(path.join(outDir, 'llms.txt'), readFileSync(path.join(sourceDir, 'llms.txt')));
 
   // Content-hash the script: `/*.js` is served `immutable` (public/_headers).
   const script = readFileSync(path.join(sourceDir, 'landing.js'));

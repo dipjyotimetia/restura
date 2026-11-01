@@ -30,6 +30,7 @@ function fixture() {
   writeFileSync(path.join(site, 'index.html'), '<script src="./landing.js"></script>LANDING');
   writeFileSync(path.join(site, 'landing.js'), 'console.log(1);');
   writeFileSync(path.join(site, '404.html'), 'NOT FOUND');
+  writeFileSync(path.join(site, 'llms.txt'), '# Restura');
   return { out, site };
 }
 
@@ -46,6 +47,7 @@ test('moves the app to /app/ and puts the landing page at /', () => {
   assert.ok(landing.includes(`src="/${script}"`), 'landing references the hashed script');
   assert.equal(existsSync(path.join(out, 'landing.js')), false);
   assert.equal(readFileSync(path.join(out, '404.html'), 'utf8'), 'NOT FOUND');
+  assert.equal(readFileSync(path.join(out, 'llms.txt'), 'utf8'), '# Restura');
 });
 
 test('keeps the app shell out of the search index', () => {
