@@ -22,7 +22,8 @@ const isElectronBuild = process.env.VITE_IS_ELECTRON_BUILD === 'true';
 // (setupContentSecurityPolicy) — the two policies must stay identical.
 const ELECTRON_RENDERER_CSP = [
   "default-src 'self' file:",
-  "script-src 'self' file: 'wasm-unsafe-eval'",
+  // sha256 = index.html's no-flash theme script (see security-hardening.test.ts).
+  "script-src 'self' file: 'wasm-unsafe-eval' 'sha256-U5EOdU33K/f6G+BZlSv0efXEGlGSc66ZXxpGXfAM1Ec='",
   "style-src 'self' 'unsafe-inline' file:",
   "img-src 'self' data: file: https:",
   "font-src 'self' data: file:",

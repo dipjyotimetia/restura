@@ -8,6 +8,7 @@
 //      vite.config.mts stay in sync — the two are maintained by hand in two
 //      processes, and nothing else checks their parity.
 
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
@@ -100,5 +101,44 @@ describe('CSP parity: main.ts header ↔ vite.config.mts meta fallback', () => {
       expect(scriptSources).toContain("'wasm-unsafe-eval'");
       expect(scriptSources).not.toContain("'unsafe-eval'");
     }
+  });
+});
+
+describe('no-flash theme script is allowed by hash, not by unsafe-inline', () => {
+  // index.html runs a tiny inline script before React mounts to apply the
+  // persisted theme (no light/dark flash). Every CSP that ships the renderer
+  // must allow exactly that script by its sha256 — never 'unsafe-inline' —
+  // or the browser blocks it and the theme flashes on every load. Editing the
+  // script changes its hash, so this test names the new value to paste in.
+  const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const headersSrc = fs.readFileSync(path.join(ROOT, 'public/_headers'), 'utf8');
+
+  const inline = [...indexHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]!);
+  const themeScript = inline.find((s) => s.includes("localStorage.getItem('theme')"));
+  const expected = themeScript
+    ? `'sha256-${crypto.createHash('sha256').update(themeScript, 'utf8').digest('base64')}'`
+    : '';
+
+  function webCsp(): string {
+    const line = headersSrc
+      .split('\n')
+      .find((l) => l.trim().startsWith('Content-Security-Policy:'));
+    expect(line).toBeDefined();
+    return line!.trim().slice('Content-Security-Policy:'.length).trim();
+  }
+
+  it('index.html still has exactly one inline (non-module) script: the theme script', () => {
+    expect(themeScript).toBeDefined();
+    expect(inline).toHaveLength(1);
+  });
+
+  it.each([
+    ['web (public/_headers)', () => webCsp()],
+    ['Electron header (main.ts)', () => extractMainCsp()],
+    ['Electron <meta> (vite.config.mts)', () => extractViteCsp()],
+  ])('%s script-src allows the theme script hash', (_label, read) => {
+    const sources = parseCsp(read()).get('script-src')!.split(/\s+/);
+    expect(sources, `add ${expected} to script-src`).toContain(expected);
+    expect(sources).not.toContain("'unsafe-inline'");
   });
 });

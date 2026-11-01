@@ -247,7 +247,9 @@ function setupContentSecurityPolicy(): void {
           ...details.responseHeaders,
           'Content-Security-Policy': [
             "default-src 'self' file:; " +
-              "script-src 'self' file: 'wasm-unsafe-eval'; " +
+              // sha256 = the no-flash theme script inlined in index.html (guarded by
+              // security-hardening.test.ts; editing that script changes it).
+              "script-src 'self' file: 'wasm-unsafe-eval' 'sha256-U5EOdU33K/f6G+BZlSv0efXEGlGSc66ZXxpGXfAM1Ec='; " +
               "style-src 'self' 'unsafe-inline' file:; " +
               "img-src 'self' data: file: https:; " +
               "font-src 'self' data: file:; " +

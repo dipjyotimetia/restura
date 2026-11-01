@@ -85,6 +85,9 @@
         ]
       }
     </script>
+    <!-- Allowed by sha256 in every CSP (public/_headers, electron/main/main.ts,
+         vite.config.mts). Any edit to this script changes its hash; the failing
+         security-hardening.test.ts prints the new value to paste in. -->
     <script>
       // No-flash theme: apply the persisted/system theme before React mounts.
       // next-themes (CSR-only here) applies the class after hydration, so without
