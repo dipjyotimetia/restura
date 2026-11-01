@@ -10,7 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { layoutWebSite } from '../vite-plugin-web-landing.ts';
+import { layoutWebSite, retargetAppHead } from '../vite-plugin-web-landing.ts';
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'web-landing-'));
@@ -18,9 +18,18 @@ function fixture() {
   const site = path.join(root, 'site');
   mkdirSync(out);
   mkdirSync(site);
-  writeFileSync(path.join(out, 'index.html'), '<div id="root"></div>APP');
+  writeFileSync(
+    path.join(out, 'index.html'),
+    [
+      '<link rel="canonical" href="https://restura.dev/" />',
+      '<meta name="robots" content="index, follow" />',
+      '<meta property="og:url" content="https://restura.dev/" />',
+      '<div id="root"></div>APP',
+    ].join('\n')
+  );
   writeFileSync(path.join(site, 'index.html'), '<script src="./landing.js"></script>LANDING');
   writeFileSync(path.join(site, 'landing.js'), 'console.log(1);');
+  writeFileSync(path.join(site, '404.html'), 'NOT FOUND');
   return { out, site };
 }
 
@@ -36,6 +45,20 @@ test('moves the app to /app/ and puts the landing page at /', () => {
   assert.ok(script, 'content-hashed landing script is emitted');
   assert.ok(landing.includes(`src="/${script}"`), 'landing references the hashed script');
   assert.equal(existsSync(path.join(out, 'landing.js')), false);
+  assert.equal(readFileSync(path.join(out, '404.html'), 'utf8'), 'NOT FOUND');
+});
+
+test('keeps the app shell out of the search index', () => {
+  const { out, site } = fixture();
+  layoutWebSite(out, site);
+  const app = readFileSync(path.join(out, 'app', 'index.html'), 'utf8');
+  assert.match(app, /<link rel="canonical" href="https:\/\/restura\.dev\/app\/" \/>/);
+  assert.match(app, /<meta name="robots" content="noindex, follow" \/>/);
+  assert.match(app, /<meta property="og:url" content="https:\/\/restura\.dev\/app\/" \/>/);
+});
+
+test('fails loudly if the app head tags it rewrites have moved', () => {
+  assert.throws(() => retargetAppHead('<html></html>'), /missing/);
 });
 
 test('fails loudly when the built app is missing', () => {

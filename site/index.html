@@ -7,8 +7,9 @@
     <title>Restura — Open-Source Multi-Protocol API Client</title>
     <meta
       name="description"
-      content="Open-source, privacy-first API client for REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT and MCP. Use it in the browser, on desktop, or self-hosted with Docker. No account."
+      content="Free, open-source API client for REST, GraphQL, gRPC, WebSocket, Kafka, MQTT and MCP. In the browser, on desktop or self-hosted. No account, no cloud sync."
     />
+    <meta name="author" content="Restura" />
     <meta name="robots" content="index, follow" />
     <meta name="theme-color" content="#0b0d10" />
     <meta name="color-scheme" content="dark" />
@@ -19,18 +20,89 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://restura.dev/" />
     <meta property="og:site_name" content="Restura" />
+    <meta property="og:locale" content="en_US" />
     <meta property="og:title" content="Restura — Open-Source Multi-Protocol API Client" />
     <meta
       property="og:description"
       content="One open-source client for REST, GraphQL, gRPC, WebSocket, Kafka, MQTT and MCP — in the browser, on desktop, or self-hosted. No account, no cloud sync."
     />
     <meta property="og:image" content="https://restura.dev/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Restura — Open-Source Multi-Protocol API Client" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@restura_dev" />
+    <meta name="twitter:title" content="Restura — Open-Source Multi-Protocol API Client" />
+    <meta
+      name="twitter:description"
+      content="One open-source client for REST, GraphQL, gRPC, WebSocket, Kafka, MQTT and MCP. No account, no cloud sync."
+    />
     <meta name="twitter:image" content="https://restura.dev/og-image.png" />
+    <meta name="twitter:image:alt" content="Restura — Open-Source Multi-Protocol API Client" />
+    <!-- Structured data: a data block, not executable, so the no-inline-script CSP does not apply. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://restura.dev/#organization",
+            "name": "Restura",
+            "url": "https://restura.dev/",
+            "logo": "https://restura.dev/icon.svg",
+            "sameAs": ["https://github.com/dipjyotimetia/restura"]
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://restura.dev/#website",
+            "name": "Restura",
+            "url": "https://restura.dev/",
+            "publisher": { "@id": "https://restura.dev/#organization" }
+          },
+          {
+            "@type": "WebPage",
+            "@id": "https://restura.dev/#webpage",
+            "url": "https://restura.dev/",
+            "name": "Restura — Open-Source Multi-Protocol API Client",
+            "isPartOf": { "@id": "https://restura.dev/#website" },
+            "about": { "@id": "https://restura.dev/#software" },
+            "primaryImageOfPage": "https://restura.dev/og-image.png",
+            "inLanguage": "en"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://restura.dev/#software",
+            "name": "Restura",
+            "applicationCategory": "DeveloperApplication",
+            "applicationSubCategory": "API Client",
+            "operatingSystem": "Web, Windows, macOS, Linux",
+            "url": "https://restura.dev/",
+            "installUrl": "https://restura.dev/app/",
+            "downloadUrl": "https://github.com/dipjyotimetia/restura/releases/latest",
+            "image": "https://restura.dev/og-image.png",
+            "screenshot": "https://restura.dev/og-image.png",
+            "description": "Open-source, privacy-first API client for REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT and MCP.",
+            "license": "https://opensource.org/licenses/MIT",
+            "isAccessibleForFree": true,
+            "author": { "@id": "https://restura.dev/#organization" },
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "featureList": [
+              "HTTP/REST API client",
+              "GraphQL client",
+              "gRPC client",
+              "WebSocket and Socket.IO testing",
+              "Server-Sent Events client",
+              "Kafka and MQTT clients (desktop)",
+              "Model Context Protocol client and server",
+              "Collections, environments and request workflows",
+              "Sandboxed pre-request and test scripts",
+              "Import from Postman, Insomnia, OpenAPI and Bruno"
+            ]
+          }
+        ]
+      }
+    </script>
     <style>
       :root {
         --bg: #0b0d10;
@@ -702,7 +774,10 @@ pm.request.headers.add({
         <div class="wrap import">
           <div>
             <h2>Coming from Postman or Insomnia?</h2>
-            <p class="lede">Import Postman, Insomnia, OpenAPI and Bruno collections in one step.</p>
+            <p class="lede">
+              Import Postman, Insomnia, OpenAPI and Bruno collections in one step.
+              <a href="https://docs.restura.dev/overview/comparison/">See how Restura compares</a>.
+            </p>
           </div>
           <div class="chips"><span>Postman</span><span>Insomnia</span><span>OpenAPI</span><span>Bruno</span></div>
         </div>
