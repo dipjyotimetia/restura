@@ -1,11 +1,11 @@
-import { Download, FolderOpen, Lock, Play, Sparkles } from 'lucide-react';
+import { BookOpen, Download, FolderOpen, Lock, Play, Sparkles } from 'lucide-react';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Button } from '@/components/ui/button';
 import { Floater, ProtoChip } from '@/components/ui/spatial';
 import { ToggleField } from '@/components/ui/spatial/ToggleField';
 import { addSampleCollection } from '@/features/collections/lib/addSampleCollection';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
-import { isElectron } from '@/lib/shared/platform';
+import { isElectron, openExternalUrl } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { RequestMode } from '@/types';
 import { NEW_REQUEST_PROTOCOLS } from './NoOpenTabs';
@@ -14,6 +14,7 @@ import { NEW_REQUEST_PROTOCOLS } from './NoOpenTabs';
 export const DEMO_REQUEST_URL = `${ECHO_URLS.http}?hello=restura`;
 
 const RELEASES_URL = 'https://github.com/dipjyotimetia/restura/releases/latest';
+const QUICK_START_URL = 'https://docs.restura.dev/overview/quick-start/';
 
 interface FirstRunWelcomeProps {
   /** Load the demo request into a tab and send it through the real executor. */
@@ -160,6 +161,20 @@ export function FirstRunWelcome({
             <Button variant="ghost" size="sm" className="px-0" onClick={onTakeTour}>
               Take the tour
             </Button>
+            <a
+              href={QUICK_START_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => {
+                // Desktop opens docs in the system browser, not the app window.
+                e.preventDefault();
+                void openExternalUrl(QUICK_START_URL);
+              }}
+              className="inline-flex items-center gap-1.5 text-sp-accent hover:underline"
+            >
+              <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+              Read the docs
+            </a>
             {!desktop && (
               <a
                 href={RELEASES_URL}

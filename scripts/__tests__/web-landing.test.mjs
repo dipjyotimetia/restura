@@ -77,3 +77,27 @@ test('fails when the landing page stops loading its script the expected way', ()
   writeFileSync(path.join(site, 'index.html'), '<script src="/landing.js"></script>');
   assert.throws(() => layoutWebSite(out, site), /must load the script/);
 });
+
+test('the shipped landing FAQ structured data matches the visible FAQ', () => {
+  // Google requires FAQPage answers to match the on-page text exactly.
+  const html = readFileSync(new URL('../../site/index.html', import.meta.url), 'utf8');
+  const text = (t) =>
+    t
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&')
+      .replace(/\s+/g, ' ')
+      .trim();
+  const faq = html.slice(html.indexOf('id="faq"'));
+  const visible = [...faq.matchAll(/<h3>([\s\S]*?)<\/h3>\s*<p>([\s\S]*?)<\/p>/g)].map((m) => [
+    text(m[1]),
+    text(m[2]),
+  ]);
+  const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)];
+  const graph = blocks.flatMap((b) => JSON.parse(b[1])['@graph']);
+  const ld = graph.find((n) => n['@type'] === 'FAQPage').mainEntity;
+  assert.ok(visible.length >= 5, 'landing has a visible FAQ');
+  assert.deepEqual(
+    ld.map((q) => [q.name, q.acceptedAnswer.text]),
+    visible
+  );
+});

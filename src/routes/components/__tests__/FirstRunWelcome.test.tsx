@@ -67,6 +67,14 @@ describe('FirstRunWelcome', () => {
     expect(useSettingsStore.getState().settings.telemetry?.errorsEnabled).toBe(false);
   });
 
+  it('links to the docs quick start', () => {
+    renderWelcome();
+    expect(screen.getByRole('link', { name: /read the docs/i })).toHaveAttribute(
+      'href',
+      'https://docs.restura.dev/overview/quick-start/'
+    );
+  });
+
   it('offers the desktop download on web', () => {
     renderWelcome();
     expect(screen.getByRole('link', { name: /get the desktop app/i })).toHaveAttribute(

@@ -74,14 +74,14 @@
             "@type": "FAQPage",
             "@id": "https://restura.dev/#faq",
             "mainEntity": [
-          {"@type": "Question", "name": "Is Restura a free alternative to Postman?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Restura is free and MIT-licensed, with no account and no paid tier. It imports Postman v2.x and v3 collections, and Postman-style pm.* pre-request and test scripts run in its sandbox."}},
-          {"@type": "Question", "name": "Do I need to create an account?", "acceptedAnswer": {"@type": "Answer", "text": "No. Open the web app or install the desktop app and start sending requests. There is no sign-up and no cloud sync."}},
-          {"@type": "Question", "name": "Where is my data stored?", "acceptedAnswer": {"@type": "Answer", "text": "On your device. The web app keeps collections, history and environments in your browser\u2019s IndexedDB; the desktop app stores secrets in your OS keychain; a self-hosted install keeps everything on your server. The only thing that can leave is opt-out crash reports, which exclude request content."}},
-          {"@type": "Question", "name": "Which protocols does Restura support?", "acceptedAnswer": {"@type": "Answer", "text": "HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, Server-Sent Events and MCP in the browser and on desktop. Kafka and MQTT need the desktop app, which also adds client and bidirectional gRPC streaming, mTLS, custom CAs and SOCKS proxies."}},
-          {"@type": "Question", "name": "Can I run collections in CI?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. The restura-cli package runs collections from the command line with JUnit, HTML and JSON reporters, for example npx restura-cli run ./my-collection."}},
-          {"@type": "Question", "name": "Can I self-host Restura?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. A single Docker container serves the same web app and its request proxy, so you can run it on infrastructure you control."}},
-          {"@type": "Question", "name": "How does Restura compare with Hoppscotch and Insomnia?", "acceptedAnswer": {"@type": "Answer", "text": "Hoppscotch is a fast open-source web client with real-time team collaboration; Insomnia is strong for design-first OpenAPI work. Restura focuses on protocol breadth (including Kafka, MQTT and MCP), local-only data and the same app on web, desktop and Docker. It does not offer real-time collaboration or hosted mock servers."}},
-          {"@type": "Question", "name": "Does Restura work with AI agents and MCP?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Restura is an MCP client: connect to any Model Context Protocol server to inspect its tools, resources and messages. The desktop app adds an AI assistant that uses your own API key and redacts secrets in headers and bodies before anything reaches the model."}}
+              {"@type": "Question", "name": "Is Restura a free alternative to Postman?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Restura is free and MIT-licensed, with no account and no paid tier. It imports Postman v2.x and v3 collections, and Postman-style pm.* pre-request and test scripts run in its sandbox. See Postman compatibility."}},
+              {"@type": "Question", "name": "Do I need to create an account?", "acceptedAnswer": {"@type": "Answer", "text": "No. Open the web app or install the desktop app and start sending requests. There is no sign-up and no cloud sync. Start with the quick start."}},
+              {"@type": "Question", "name": "Where is my data stored?", "acceptedAnswer": {"@type": "Answer", "text": "On your device. The web app keeps collections, history and environments in your browser’s IndexedDB; the desktop app stores secrets in your OS keychain; a self-hosted install keeps everything on your server. The only thing that can leave is opt-out crash reports, which exclude request content. Read the privacy policy and how secrets are stored."}},
+              {"@type": "Question", "name": "Which protocols does Restura support?", "acceptedAnswer": {"@type": "Answer", "text": "HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, Server-Sent Events and MCP in the browser and on desktop. Kafka and MQTT need the desktop app, which also adds client and bidirectional gRPC streaming, mTLS, custom CAs and SOCKS proxies. The capability matrix has the full list."}},
+              {"@type": "Question", "name": "Can I run collections in CI?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. The restura-cli package runs collections from the command line with JUnit, HTML and JSON reporters, for example npx restura-cli run ./my-collection. See the CLI reference."}},
+              {"@type": "Question", "name": "Can I self-host Restura?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. A single Docker container serves the same web app and its request proxy, so you can run it on infrastructure you control. See self-hosting with Docker."}},
+              {"@type": "Question", "name": "How does Restura compare with Hoppscotch and Insomnia?", "acceptedAnswer": {"@type": "Answer", "text": "Hoppscotch is a fast open-source web client with real-time team collaboration; Insomnia is strong for design-first OpenAPI work. Restura focuses on protocol breadth (including Kafka, MQTT and MCP), local-only data and the same app on web, desktop and Docker. It does not offer real-time collaboration or hosted mock servers. Read the full comparison."}},
+              {"@type": "Question", "name": "Does Restura work with AI agents and MCP?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Restura is an MCP client: connect to any Model Context Protocol server to inspect its tools, resources and messages. The desktop app adds an AI assistant that uses your own API key and redacts secrets in headers and bodies before anything reaches the model. See MCP and the AI assistant."}}
             ]
           },
           {
@@ -236,7 +236,21 @@
 
       /* Nav */
       .nav {
+        position: sticky;
+        top: 0;
+        z-index: 10;
         border-bottom: 1px solid var(--line);
+        background: var(--bg);
+      }
+      @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+        .nav {
+          background: rgba(11, 13, 16, 0.72);
+          -webkit-backdrop-filter: saturate(140%) blur(14px);
+          backdrop-filter: saturate(140%) blur(14px);
+        }
+      }
+      [id] {
+        scroll-margin-top: 84px;
       }
       .nav .wrap {
         display: flex;
@@ -505,6 +519,18 @@
         flex-direction: column;
         gap: 10px;
       }
+      .more {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .more::after {
+        content: ' →';
+        white-space: pre;
+      }
       .why h3 {
         font-size: 18px;
       }
@@ -543,6 +569,14 @@
         font-size: 14px;
         line-height: 1.6;
         color: var(--muted);
+      }
+      .target p a.inline {
+        display: inline;
+        min-height: 0;
+        margin: 0;
+        font-size: inherit;
+        font-weight: 400;
+        text-decoration: underline;
       }
       .target a {
         display: inline-flex;
@@ -632,16 +666,35 @@
         font-size: 13px;
         color: var(--muted);
       }
-      footer nav {
+      .footer-nav {
+        display: grid;
+        gap: 8px 40px;
+        grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+        flex: 1 1 560px;
+      }
+      .footer-nav div {
         display: flex;
-        flex-wrap: wrap;
-        gap: 20px;
+        flex-direction: column;
+      }
+      .footer-nav h2 {
+        font-size: 12px;
+        font-family: var(--mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--dim);
+        font-weight: 500;
+        margin-bottom: 4px;
       }
       footer a {
         display: inline-flex;
         align-items: center;
-        min-height: 44px;
+        min-height: 40px;
         color: var(--muted);
+        text-decoration: none;
+      }
+      footer a:hover {
+        color: var(--text);
+        text-decoration: underline;
       }
       .table-wrap {
         /* Scroll inside the column on phones instead of widening the page;
@@ -816,7 +869,10 @@
               >Download desktop</a
             >
           </div>
-          <p class="platforms">macOS · Windows · Linux · or self-host with Docker</p>
+          <p class="platforms">
+            macOS · Windows · Linux · or <a href="https://docs.restura.dev/self-hosting/docker/">self-host with Docker</a>.
+            New here? <a href="https://docs.restura.dev/overview/quick-start/">Read the quick start</a>.
+          </p>
         </div>
 
         <div class="preview" role="img" aria-label="Restura sending a POST request with a sandboxed pre-request script, a 201 response and two passing tests">
@@ -873,35 +929,38 @@ pm.request.headers.add({
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
             <h3>Nothing leaves your machine</h3>
             <p>No account. Collections, history and environments live in IndexedDB or your OS keychain. Crash reports are opt-out and scrubbed of request content.</p>
+            <a class="more" href="https://docs.restura.dev/guides/secrets/">How secrets are stored</a>
           </div>
           <div>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z" /></svg>
             <h3>Scripts that can’t escape</h3>
             <p>Pre-request and test scripts run in a QuickJS WebAssembly sandbox — no DOM, filesystem or network, with memory and time caps. Postman’s <span class="mono">pm.*</span> API works.</p>
+            <a class="more" href="https://docs.restura.dev/guides/scripts/">Scripting guide</a>
           </div>
           <div>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#6db4ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="12" r="2.5" /><circle cx="6" cy="18" r="2.5" /><path d="M8.5 6h3a4 4 0 0 1 4 4" /><path d="M8.5 18h3a4 4 0 0 0 4-4" /></svg>
             <h3>Chain requests into workflows</h3>
             <p>Typed bindings, guards, loops and try/catch. Run them in the app, or in CI with <span class="mono">restura workflow run</span>.</p>
+            <a class="more" href="https://docs.restura.dev/guides/workflows/">Workflows guide</a>
           </div>
         </div>
       </section>
 
       <section class="band">
         <div class="wrap section">
-          <h2>Runs where you do.</h2>
+          <h2>Web, desktop or your own server.</h2>
           <div class="targets">
             <div class="target">
               <span class="label">WEB</span>
               <span class="title">In your browser</span>
-              <p>Open it and start. HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE and MCP.</p>
+              <p>Open it and start. HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE and MCP. See <a class="inline" href="https://docs.restura.dev/reference/capability-matrix/">what works on web vs desktop</a>.</p>
               <a href="/app/">Open the app →</a>
             </div>
             <div class="target featured">
               <span class="label">DESKTOP</span>
               <span class="title">macOS, Windows, Linux</span>
               <p>Adds Kafka, MQTT, mTLS, SOCKS and PAC proxies, custom CAs, file-backed collections, OS-keychain secrets and the AI assistant.</p>
-              <a href="https://github.com/dipjyotimetia/restura/releases/latest">Download →</a>
+              <a href="https://docs.restura.dev/overview/install/">Download and install →</a>
             </div>
             <div class="target">
               <span class="label">SELF-HOSTED</span>
@@ -971,8 +1030,9 @@ pm.request.headers.add({
           <div>
             <h2>Coming from Postman or Insomnia?</h2>
             <p class="lede">
-              Import Postman, Insomnia, OpenAPI and Bruno collections in one step.
-              <a href="https://docs.restura.dev/overview/comparison/">See how Restura compares</a>.
+              Import Postman, Insomnia, OpenAPI and Bruno collections in one step — see the
+              <a href="https://docs.restura.dev/guides/import-export/">import guide</a> and
+              <a href="https://docs.restura.dev/reference/postman-compat/">Postman compatibility notes</a>.
             </p>
           </div>
           <div class="chips"><span>Postman</span><span>Insomnia</span><span>OpenAPI</span><span>Bruno</span></div>
@@ -984,41 +1044,41 @@ pm.request.headers.add({
         <div class="faq">
             <div>
               <h3>Is Restura a free alternative to Postman?</h3>
-              <p>Yes. Restura is free and MIT-licensed, with no account and no paid tier. It imports Postman v2.x and v3 collections, and Postman-style <span class="mono">pm.*</span> pre-request and test scripts run in its sandbox.</p>
+              <p>Yes. Restura is free and MIT-licensed, with no account and no paid tier. It imports Postman v2.x and v3 collections, and Postman-style <span class="mono">pm.*</span> pre-request and test scripts run in its sandbox. See <a href="https://docs.restura.dev/reference/postman-compat/">Postman compatibility</a>.</p>
             </div>
             <div>
               <h3>Do I need to create an account?</h3>
-              <p>No. Open the web app or install the desktop app and start sending requests. There is no sign-up and no cloud sync.</p>
+              <p>No. Open the web app or install the desktop app and start sending requests. There is no sign-up and no cloud sync. Start with the <a href="https://docs.restura.dev/overview/quick-start/">quick start</a>.</p>
             </div>
             <div>
               <h3>Where is my data stored?</h3>
-              <p>On your device. The web app keeps collections, history and environments in your browser’s IndexedDB; the desktop app stores secrets in your OS keychain; a self-hosted install keeps everything on your server. The only thing that can leave is opt-out crash reports, which exclude request content.</p>
+              <p>On your device. The web app keeps collections, history and environments in your browser’s IndexedDB; the desktop app stores secrets in your OS keychain; a self-hosted install keeps everything on your server. The only thing that can leave is opt-out crash reports, which exclude request content. Read the <a href="/privacy">privacy policy</a> and <a href="https://docs.restura.dev/guides/secrets/">how secrets are stored</a>.</p>
             </div>
             <div>
               <h3>Which protocols does Restura support?</h3>
-              <p>HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, Server-Sent Events and MCP in the browser and on desktop. Kafka and MQTT need the desktop app, which also adds client and bidirectional gRPC streaming, mTLS, custom CAs and SOCKS proxies.</p>
+              <p>HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, Server-Sent Events and MCP in the browser and on desktop. Kafka and MQTT need the desktop app, which also adds client and bidirectional gRPC streaming, mTLS, custom CAs and SOCKS proxies. The <a href="https://docs.restura.dev/reference/capability-matrix/">capability matrix</a> has the full list.</p>
             </div>
             <div>
               <h3>Can I run collections in CI?</h3>
-              <p>Yes. The <span class="mono">restura-cli</span> package runs collections from the command line with JUnit, HTML and JSON reporters, for example <span class="mono">npx restura-cli run ./my-collection</span>.</p>
+              <p>Yes. The <span class="mono">restura-cli</span> package runs collections from the command line with JUnit, HTML and JSON reporters, for example <span class="mono">npx restura-cli run ./my-collection</span>. See the <a href="https://docs.restura.dev/reference/cli/">CLI reference</a>.</p>
             </div>
             <div>
               <h3>Can I self-host Restura?</h3>
-              <p>Yes. A single Docker container serves the same web app and its request proxy, so you can run it on infrastructure you control.</p>
+              <p>Yes. A single Docker container serves the same web app and its request proxy, so you can run it on infrastructure you control. See <a href="https://docs.restura.dev/self-hosting/docker/">self-hosting with Docker</a>.</p>
             </div>
             <div>
               <h3>How does Restura compare with Hoppscotch and Insomnia?</h3>
-              <p>Hoppscotch is a fast open-source web client with real-time team collaboration; Insomnia is strong for design-first OpenAPI work. Restura focuses on protocol breadth (including Kafka, MQTT and MCP), local-only data and the same app on web, desktop and Docker. It does not offer real-time collaboration or hosted mock servers.</p>
+              <p>Hoppscotch is a fast open-source web client with real-time team collaboration; Insomnia is strong for design-first OpenAPI work. Restura focuses on protocol breadth (including Kafka, MQTT and MCP), local-only data and the same app on web, desktop and Docker. It does not offer real-time collaboration or hosted mock servers. Read the <a href="https://docs.restura.dev/overview/comparison/">full comparison</a>.</p>
             </div>
             <div>
               <h3>Does Restura work with AI agents and MCP?</h3>
-              <p>Yes. Restura is an MCP client: connect to any Model Context Protocol server to inspect its tools, resources and messages. The desktop app adds an AI assistant that uses your own API key and redacts secrets in headers and bodies before anything reaches the model.</p>
+              <p>Yes. Restura is an MCP client: connect to any Model Context Protocol server to inspect its tools, resources and messages. The desktop app adds an AI assistant that uses your own API key and redacts secrets in headers and bodies before anything reaches the model. See <a href="https://docs.restura.dev/protocols/mcp/">MCP</a> and the <a href="https://docs.restura.dev/guides/ai-assistant/">AI assistant</a>.</p>
             </div>
         </div>
       </section>
 
       <section class="wrap final band-top">
-        <h2>Send your first request in ten seconds.</h2>
+        <h2>Send your first request now.</h2>
         <p class="lede">No sign-up. Close the tab and your data is still here next time.</p>
         <div class="ctas">
           <a class="btn btn-primary" href="/app/">Open in browser</a>
@@ -1030,11 +1090,35 @@ pm.request.headers.add({
     <footer class="band">
       <div class="wrap">
         <span>Restura · MIT licensed</span>
-        <nav aria-label="Footer">
-          <a href="https://docs.restura.dev/">Docs</a>
-          <a href="https://docs.restura.dev/roadmap/">Roadmap</a>
-          <a href="/privacy">Privacy</a>
-          <a href="https://github.com/dipjyotimetia/restura">GitHub</a>
+        <nav aria-label="Footer" class="footer-nav">
+          <div>
+            <h2>Product</h2>
+            <a href="/app/">Web app</a>
+            <a href="https://docs.restura.dev/overview/install/">Download</a>
+            <a href="https://docs.restura.dev/self-hosting/docker/">Self-host</a>
+            <a href="https://docs.restura.dev/roadmap/">Roadmap</a>
+          </div>
+          <div>
+            <h2>Docs</h2>
+            <a href="https://docs.restura.dev/">Documentation</a>
+            <a href="https://docs.restura.dev/overview/quick-start/">Quick start</a>
+            <a href="https://docs.restura.dev/reference/capability-matrix/">Capability matrix</a>
+            <a href="https://docs.restura.dev/reference/cli/">CLI reference</a>
+          </div>
+          <div>
+            <h2>Compare</h2>
+            <a href="https://docs.restura.dev/overview/comparison/#postman">vs Postman</a>
+            <a href="https://docs.restura.dev/overview/comparison/#hoppscotch">vs Hoppscotch</a>
+            <a href="https://docs.restura.dev/overview/comparison/#insomnia">vs Insomnia</a>
+            <a href="https://docs.restura.dev/reference/postman-compat/">Postman compatibility</a>
+          </div>
+          <div>
+            <h2>Project</h2>
+            <a href="https://github.com/dipjyotimetia/restura">GitHub</a>
+            <a href="https://github.com/dipjyotimetia/restura/issues">Issues</a>
+            <a href="/privacy">Privacy</a>
+            <a href="/llms.txt">llms.txt</a>
+          </div>
         </nav>
       </div>
     </footer>
