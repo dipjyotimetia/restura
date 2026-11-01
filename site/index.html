@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="./landing.js"></script>
+    <title>Restura — Open-Source Multi-Protocol API Client</title>
+    <meta
+      name="description"
+      content="Open-source, privacy-first API client for REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT and MCP. Use it in the browser, on desktop, or self-hosted with Docker. No account."
+    />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0b0d10" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="canonical" href="https://restura.dev/" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg?v=20260716" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260716" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://restura.dev/" />
+    <meta property="og:site_name" content="Restura" />
+    <meta property="og:title" content="Restura — Open-Source Multi-Protocol API Client" />
+    <meta
+      property="og:description"
+      content="One open-source client for REST, GraphQL, gRPC, WebSocket, Kafka, MQTT and MCP — in the browser, on desktop, or self-hosted. No account, no cloud sync."
+    />
+    <meta property="og:image" content="https://restura.dev/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Restura — Open-Source Multi-Protocol API Client" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@restura_dev" />
+    <meta name="twitter:image" content="https://restura.dev/og-image.png" />
+    <style>
+      :root {
+        --bg: #0b0d10;
+        --band: #0e1014;
+        --surface: #12151a;
+        --line: #1d2128;
+        --line-strong: #2a3039;
+        --text: #e6e9ee;
+        --muted: #9aa3ae;
+        --dim: #8a939e;
+        --code: #c9d1db;
+        --accent: #2e91ff;
+        --accent-ink: #04101f;
+        --link: #6db4ff;
+        --link-hi: #a8d2ff;
+        --green: #4ade80;
+        --amber: #fbbf24;
+        --violet: #c084fc;
+        --pink: #f472b6;
+        --cyan: #22d3ee;
+        --magenta: #e879f9;
+        --teal: #2dd4bf;
+        --sans: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: var(--link);
+      }
+      a:hover {
+        color: var(--link-hi);
+      }
+      :focus-visible {
+        outline: 2px solid var(--link);
+        outline-offset: 2px;
+      }
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+      .band {
+        background: var(--band);
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+      .mono {
+        font-family: var(--mono);
+      }
+      .eyebrow {
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--link);
+        margin: 0;
+      }
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        letter-spacing: -0.02em;
+      }
+      h2 {
+        font-size: clamp(26px, 3.2vw, 34px);
+        line-height: 1.15;
+      }
+      p {
+        margin: 0;
+      }
+      .lede {
+        font-size: 16px;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 48px;
+        padding: 0 22px;
+        border-radius: 10px;
+        font-size: 15px;
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .btn-primary {
+        background: var(--accent);
+        color: var(--accent-ink);
+      }
+      .btn-primary:hover {
+        background: #5aa8ff;
+        color: var(--accent-ink);
+      }
+      .btn-secondary {
+        border: 1px solid #2f3640;
+        color: var(--text);
+      }
+      .btn-secondary:hover {
+        border-color: #4a5260;
+        color: var(--text);
+      }
+
+      /* Nav */
+      .nav {
+        border-bottom: 1px solid var(--line);
+      }
+      .nav .wrap {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px 24px;
+        padding-top: 14px;
+        padding-bottom: 14px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--text);
+        text-decoration: none;
+        font-size: 17px;
+        font-weight: 700;
+      }
+      .brand img {
+        width: 30px;
+        height: 30px;
+      }
+      .nav-links {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 24px;
+        font-size: 14px;
+      }
+      .nav-links a:not(.btn) {
+        color: var(--muted);
+        text-decoration: none;
+      }
+      .nav-links a:not(.btn):hover {
+        color: var(--text);
+      }
+      .nav-links .btn {
+        min-height: 40px;
+        padding: 0 16px;
+        font-size: 14px;
+      }
+
+      /* Hero */
+      .hero {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 56px;
+        padding-top: 88px;
+        padding-bottom: 72px;
+      }
+      .hero-copy {
+        flex: 1 1 440px;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+      }
+      .hero h1 {
+        font-size: clamp(38px, 5vw, 58px);
+        line-height: 1.04;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+      .hero .lede {
+        font-size: 18px;
+        max-width: 540px;
+      }
+      .ctas {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .platforms {
+        font-size: 13px;
+        color: var(--dim);
+      }
+
+      /* Product preview */
+      .preview {
+        flex: 1 1 520px;
+        min-width: 0;
+        background: var(--surface);
+        border: 1px solid #232830;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+      }
+      .preview-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--line-strong);
+      }
+      .preview-tabs {
+        display: flex;
+        gap: 4px;
+        margin-left: 12px;
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+      .preview-tabs span {
+        padding: 4px 9px;
+        border-radius: 6px;
+        color: var(--dim);
+      }
+      .preview-tabs .on {
+        background: var(--bg);
+        color: var(--link);
+      }
+      .preview-body {
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .urlbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .url {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        gap: 10px;
+        background: var(--bg);
+        border: 1px solid #232830;
+        border-radius: 9px;
+        padding: 9px 11px;
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+      .url span:last-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .send {
+        padding: 9px 14px;
+        border-radius: 9px;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .panes {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .pane {
+        flex: 1 1 200px;
+        min-width: 0;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 12px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        line-height: 1.7;
+        color: var(--code);
+        white-space: pre;
+        overflow-x: auto;
+      }
+      .pane-head {
+        color: var(--dim);
+        margin-bottom: 4px;
+        display: block;
+      }
+      .k {
+        color: var(--link);
+      }
+      .s {
+        color: var(--amber);
+      }
+      .kw {
+        color: var(--violet);
+      }
+      .ok {
+        color: var(--green);
+      }
+      .checks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: 12px;
+      }
+      .checks span {
+        padding: 5px 10px;
+        border-radius: 999px;
+        background: rgba(74, 222, 128, 0.12);
+        color: var(--green);
+      }
+
+      /* Sections */
+      .section {
+        padding-top: 80px;
+        padding-bottom: 80px;
+        display: flex;
+        flex-direction: column;
+        gap: 32px;
+      }
+      .section-head {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-width: 660px;
+      }
+      .grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      }
+      .proto {
+        text-decoration: none;
+        color: var(--text);
+        background: var(--surface);
+        border: 1px solid #232830;
+        border-radius: 12px;
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        transition: border-color 0.15s;
+      }
+      .proto:hover {
+        color: var(--text);
+        border-color: #3a4250;
+      }
+      .proto .tag {
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .proto .name {
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .proto .desc {
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      .why {
+        display: grid;
+        gap: 32px;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      }
+      .why div {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .why h3 {
+        font-size: 18px;
+      }
+      .why p {
+        font-size: 15px;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+      .targets {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      }
+      .target {
+        background: var(--surface);
+        border: 1px solid #232830;
+        border-radius: 14px;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .target.featured {
+        border-color: var(--accent);
+      }
+      .target .label {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--link);
+      }
+      .target .title {
+        font-size: 20px;
+        font-weight: 600;
+      }
+      .target p {
+        font-size: 14px;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+      .target a {
+        margin-top: auto;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .quote {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 80px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+      .quote blockquote {
+        margin: 0;
+        font-size: clamp(18px, 2.2vw, 22px);
+        line-height: 1.55;
+      }
+      .quote cite {
+        font-style: normal;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .import {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        padding-top: 56px;
+        padding-bottom: 56px;
+      }
+      .import > div:first-child {
+        flex: 1 1 420px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .import h2 {
+        font-size: 28px;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+      .chips span {
+        padding: 8px 12px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        color: var(--code);
+      }
+      .final {
+        padding-top: 88px;
+        padding-bottom: 88px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 22px;
+        text-align: center;
+      }
+      .final h2 {
+        font-size: clamp(30px, 4vw, 44px);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+      .final .ctas {
+        justify-content: center;
+      }
+      footer .wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 24px;
+        justify-content: space-between;
+        padding-top: 28px;
+        padding-bottom: 28px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      footer nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+      }
+      footer a {
+        color: var(--muted);
+      }
+      @media (max-width: 640px) {
+        .hero {
+          padding-top: 48px;
+          gap: 40px;
+        }
+        .section,
+        .final {
+          padding-top: 56px;
+          padding-bottom: 56px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="nav">
+      <nav class="wrap" aria-label="Main">
+        <a class="brand" href="/?home"><img src="/icon.svg?v=20260716" alt="" />Restura</a>
+        <div class="nav-links">
+          <a href="#protocols">Protocols</a>
+          <a href="#why">Why Restura</a>
+          <a href="https://docs.restura.dev/">Docs</a>
+          <a href="https://docs.restura.dev/roadmap/">Roadmap</a>
+          <a href="https://github.com/dipjyotimetia/restura">GitHub</a>
+          <a class="btn btn-primary" href="/app/">Open the app</a>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <section class="wrap hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Open source · MIT · No account</p>
+          <h1>One API client for every protocol your stack speaks.</h1>
+          <p class="lede">
+            REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT and MCP. Runs in your
+            browser, on your desktop or on your own server, and nothing syncs anywhere.
+          </p>
+          <div class="ctas">
+            <a class="btn btn-primary" href="/app/"
+              >Open in browser
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>
+            </a>
+            <a class="btn btn-secondary" href="https://github.com/dipjyotimetia/restura/releases/latest"
+              >Download desktop</a
+            >
+          </div>
+          <p class="platforms">macOS · Windows · Linux · or self-host with Docker</p>
+        </div>
+
+        <div class="preview" role="img" aria-label="Restura sending a POST request with a sandboxed pre-request script, a 201 response and two passing tests">
+          <div class="preview-bar" aria-hidden="true">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            <div class="preview-tabs">
+              <span class="on">HTTP</span><span>gRPC</span><span>WS</span><span>MCP</span>
+            </div>
+          </div>
+          <div class="preview-body" aria-hidden="true">
+            <div class="urlbar">
+              <div class="url"><span class="s">POST</span><span>{{baseUrl}}/v1/orders</span></div>
+              <span class="send">Send</span>
+            </div>
+            <div class="panes">
+<div class="pane"><span class="pane-head">Pre-request · sandboxed</span><span class="kw">const</span> id = pm.variables
+  .get(<span class="s">"customer"</span>);
+pm.request.headers.add({
+  key: <span class="s">"X-Trace"</span>, value: id });</div>
+<div class="pane"><span class="pane-head"><span class="ok">201 Created</span> · 88 ms</span>{
+  <span class="k">"id"</span>: <span class="s">"ord_7f2c"</span>,
+  <span class="k">"status"</span>: <span class="s">"pending"</span>
+}</div>
+            </div>
+            <div class="checks"><span>✓ status is 201</span><span>✓ body has id</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="protocols" class="band">
+        <div class="wrap section">
+          <div class="section-head">
+            <h2>Stop switching tools per protocol.</h2>
+            <p class="lede">One window, one set of environments and collections, for every protocol below.</p>
+          </div>
+          <div class="grid">
+            <a class="proto" href="https://docs.restura.dev/protocols/http/"><span class="tag" style="color: var(--link)">HTTP</span><span class="name">REST / HTTP</span><span class="desc">All methods and body types, cookies, code generation.</span></a>
+            <a class="proto" href="https://docs.restura.dev/protocols/graphql/"><span class="tag" style="color: var(--pink)">GQL</span><span class="name">GraphQL</span><span class="desc">Query builder, introspection, subscriptions.</span></a>
+            <a class="proto" href="https://docs.restura.dev/protocols/grpc/"><span class="tag" style="color: var(--green)">RPC</span><span class="name">gRPC</span><span class="desc">Unary and server streaming with reflection. Client and bidi streams on desktop.</span></a>
+            <a class="proto" href="https://docs.restura.dev/protocols/websocket/"><span class="tag" style="color: var(--violet)">WS</span><span class="name">WebSocket</span><span class="desc">Connect, send, receive, full history.</span></a>
+            <a class="proto" href="https://docs.restura.dev/protocols/socket-io/"><span class="tag" style="color: var(--violet)">IO</span><span class="name">Socket.IO</span><span class="desc">Emit, listen, ack, with a full transcript.</span></a>
+            <a class="proto" href="https://docs.restura.dev/protocols/sse/"><span class="tag" style="color: var(--cyan)">SSE</span><span class="name">Server-Sent Events</span><span class="desc">Live stream viewer with reconnection.</span></a>
+            <a class="proto" href="https://docs.restura.dev/protocols/kafka/"><span class="tag" style="color: var(--magenta)">KFK</span><span class="name">Kafka</span><span class="desc">Produce and consume. Desktop.</span></a>
+            <a class="proto" href="https://docs.restura.dev/protocols/mqtt/"><span class="tag" style="color: var(--teal)">MQTT</span><span class="name">MQTT</span><span class="desc">Publish and subscribe, QoS, TLS. Desktop.</span></a>
+            <a class="proto" href="https://docs.restura.dev/protocols/mcp/"><span class="tag" style="color: var(--amber)">MCP</span><span class="name">Model Context Protocol</span><span class="desc">Inspect any MCP server’s tools, resources and messages.</span></a>
+          </div>
+        </div>
+      </section>
+
+      <section id="why" class="wrap section">
+        <h2 style="max-width: 660px">Built for people who don’t want their tokens on someone else’s server.</h2>
+        <div class="why">
+          <div>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+            <h3>Nothing leaves your machine</h3>
+            <p>No account. Collections, history and environments live in IndexedDB or your OS keychain. Crash reports are opt-out and scrubbed of request content.</p>
+          </div>
+          <div>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z" /></svg>
+            <h3>Scripts that can’t escape</h3>
+            <p>Pre-request and test scripts run in a QuickJS WebAssembly sandbox — no DOM, filesystem or network, with memory and time caps. Postman’s <span class="mono">pm.*</span> API works.</p>
+          </div>
+          <div>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#6db4ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="12" r="2.5" /><circle cx="6" cy="18" r="2.5" /><path d="M8.5 6h3a4 4 0 0 1 4 4" /><path d="M8.5 18h3a4 4 0 0 0 4-4" /></svg>
+            <h3>Chain requests into workflows</h3>
+            <p>Typed bindings, guards, loops and try/catch. Run them in the app, or in CI with <span class="mono">restura workflow run</span>.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="band">
+        <div class="wrap section">
+          <h2>Runs where you do.</h2>
+          <div class="targets">
+            <div class="target">
+              <span class="label">WEB</span>
+              <span class="title">In your browser</span>
+              <p>Open it and start. HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE and MCP.</p>
+              <a href="/app/">Open the app →</a>
+            </div>
+            <div class="target featured">
+              <span class="label">DESKTOP</span>
+              <span class="title">macOS, Windows, Linux</span>
+              <p>Adds Kafka, MQTT, mTLS, SOCKS and PAC proxies, custom CAs, file-backed collections, OS-keychain secrets and the AI assistant.</p>
+              <a href="https://github.com/dipjyotimetia/restura/releases/latest">Download →</a>
+            </div>
+            <div class="target">
+              <span class="label">SELF-HOSTED</span>
+              <span class="title">On your own server</span>
+              <p>One Docker container serves the same app and its proxy, on infrastructure you control.</p>
+              <a href="https://docs.restura.dev/self-hosting/docker/">Self-hosting guide →</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="quote">
+        <blockquote>
+          I got tired of opening a different tool for every protocol. Then I realised my request
+          history — including auth tokens and internal endpoints — was syncing to someone else’s
+          server. Restura is what I wanted instead: one client that speaks every protocol I actually
+          use, with everything staying on my machine.
+        </blockquote>
+        <cite>— the maintainer</cite>
+      </section>
+
+      <section class="band">
+        <div class="wrap import">
+          <div>
+            <h2>Coming from Postman or Insomnia?</h2>
+            <p class="lede">Import Postman, Insomnia, OpenAPI and Bruno collections in one step.</p>
+          </div>
+          <div class="chips"><span>Postman</span><span>Insomnia</span><span>OpenAPI</span><span>Bruno</span></div>
+        </div>
+      </section>
+
+      <section class="wrap final">
+        <h2>Send your first request in ten seconds.</h2>
+        <p class="lede">No sign-up. Close the tab and your data is still here next time.</p>
+        <div class="ctas">
+          <a class="btn btn-primary" href="/app/">Open in browser</a>
+          <a class="btn btn-secondary" href="https://github.com/dipjyotimetia/restura">Star on GitHub</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="band">
+      <div class="wrap">
+        <span>Restura · MIT licensed</span>
+        <nav aria-label="Footer">
+          <a href="https://docs.restura.dev/">Docs</a>
+          <a href="https://docs.restura.dev/roadmap/">Roadmap</a>
+          <a href="/privacy">Privacy</a>
+          <a href="https://github.com/dipjyotimetia/restura">GitHub</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

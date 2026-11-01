@@ -13,7 +13,7 @@
 [![Node](https://img.shields.io/badge/node-%E2%89%A524-2E91FF?style=flat-square&labelColor=14121F)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-2E91FF?style=flat-square&labelColor=14121F)](https://www.typescriptlang.org)
 
-[![Try the web app](https://img.shields.io/badge/Try_the_web_app-2E91FF?style=for-the-badge&logo=cloudflare&logoColor=white)](https://restura.dev/)
+[![Try the web app](https://img.shields.io/badge/Try_the_web_app-2E91FF?style=for-the-badge&logo=cloudflare&logoColor=white)](https://restura.dev/app/)
 &nbsp;
 [![Download desktop](https://img.shields.io/badge/Download_desktop-14121F?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/dipjyotimetia/restura/releases/latest)
 &nbsp;
@@ -25,7 +25,7 @@ Restura lets you debug an HTTP API, inspect a gRPC service, keep a WebSocket tra
 
 No account. No cloud sync. Your collections, history, and environments stay on your machine, in browser storage or encrypted desktop storage. Crash reporting is scrubbed and can be turned off. Native networking and AI features are deliberately desktop-only where browser security boundaries make them impossible.
 
-> **Try it your way:** [open the web app](https://restura.dev/) for HTTP-first workflows, [download desktop](https://github.com/dipjyotimetia/restura/releases/latest) for native protocols and OS-backed secrets, or [self-host with Docker](docs/SELF_HOSTING.md) for a controlled deployment.
+> **Try it your way:** [open the web app](https://restura.dev/app/) for HTTP-first workflows, [download desktop](https://github.com/dipjyotimetia/restura/releases/latest) for native protocols and OS-backed secrets, or [self-host with Docker](docs/SELF_HOSTING.md) for a controlled deployment.
 
 ## Everything your API stack speaks
 
@@ -58,7 +58,7 @@ No account. No cloud sync. Your collections, history, and environments stay on y
 
 ### Web app
 
-Open [restura.dev](https://restura.dev/) to send HTTP, GraphQL, WebSocket, SSE, and supported gRPC/MCP requests immediately. Browser capabilities are intentionally constrained; consult the [capability matrix](docs/CAPABILITY_MATRIX.md) before relying on native networking features.
+Open [restura.dev](https://restura.dev/app/) to send HTTP, GraphQL, WebSocket, SSE, and supported gRPC/MCP requests immediately. Browser capabilities are intentionally constrained; consult the [capability matrix](docs/CAPABILITY_MATRIX.md) before relying on native networking features.
 
 ### Develop locally
 
