@@ -62,6 +62,8 @@ export interface ReleaseNoteContent {
   contributors: string | null;
   extraSections: ReleaseNoteExtraSection[];
   preamble: string | null;
+  /** Prose after a trailing thematic break (e.g. the SBOM note release.yml appends). */
+  footer: string | null;
   fallbackBody: string | null;
 }
 
@@ -84,7 +86,16 @@ interface MarkdownSection {
 interface ParsedMarkdownSections {
   preamble: string | null;
   sections: MarkdownSection[];
+  footer: string | null;
 }
+
+/**
+ * git-cliff (cliff.toml) opens every release body with `## 1.14.0 — 2026-10-31`
+ * (or `## Unreleased`). The panel already shows the release name and date, so a
+ * leading version heading is metadata, not a section.
+ */
+const VERSION_HEADING = /^(?:v?\d+\.\d+\.\d+\S*(?:\s+[—–-]\s+\d{4}-\d{2}-\d{2})?|unreleased)$/i;
+const THEMATIC_BREAK = /^ {0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/;
 
 function markdownSections(markdown: string): ParsedMarkdownSections {
   const preambleLines: string[] = [];
@@ -92,20 +103,43 @@ function markdownSections(markdown: string): ParsedMarkdownSections {
   let activeFence: '`' | '~' | null = null;
   let title: string | null = null;
   let bodyLines: string[] = [];
+  // Lines after a top-level thematic break. They become the footer unless
+  // another `##` heading follows, in which case they belong to the body.
+  let footerLines: string[] | null = null;
+  let previousLine = '';
+
+  const target = () => (title == null ? preambleLines : bodyLines);
+  const restoreFooter = () => {
+    if (footerLines != null) target().push(...footerLines);
+    footerLines = null;
+  };
 
   for (const line of markdown.split('\n')) {
     if (activeFence == null) {
       const heading = line.match(/^##\s+(.+?)\s*$/);
       if (heading) {
+        restoreFooter();
+        const headingTitle = heading[1]!.trim();
+        const isLeadingVersionHeading: boolean =
+          title == null && sections.length === 0 && VERSION_HEADING.test(headingTitle);
         if (title != null) sections.push({ title, body: bodyLines.join('\n').trim() });
-        title = heading[1]!.trim();
+        title = isLeadingVersionHeading ? null : headingTitle;
         bodyLines = [];
+        previousLine = line;
+        continue;
+      }
+
+      // A blank line before the break keeps `text\n---` (a setext heading) out.
+      if (THEMATIC_BREAK.test(line) && previousLine.trim() === '') {
+        restoreFooter();
+        footerLines = [line];
+        previousLine = line;
         continue;
       }
     }
 
-    if (title == null) preambleLines.push(line);
-    else bodyLines.push(line);
+    (footerLines ?? target()).push(line);
+    previousLine = line;
 
     const fence = line.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
     if (!fence) continue;
@@ -117,7 +151,8 @@ function markdownSections(markdown: string): ParsedMarkdownSections {
 
   if (title != null) sections.push({ title, body: bodyLines.join('\n').trim() });
 
-  return { preamble: preambleLines.join('\n').trim() || null, sections };
+  const footer = (footerLines as string[] | null)?.slice(1).join('\n').trim() || null;
+  return { preamble: preambleLines.join('\n').trim() || null, sections, footer };
 }
 
 /**
@@ -126,7 +161,7 @@ function markdownSections(markdown: string): ParsedMarkdownSections {
  */
 export function parseReleaseNoteContent(body: string): ReleaseNoteContent {
   const parsed = markdownSections(body);
-  const { preamble, sections: parsedSections } = parsed;
+  const { preamble, sections: parsedSections, footer } = parsed;
   const sectionByTitle = new Map(
     parsedSections.map((section) => [section.title.toLowerCase(), section])
   );
@@ -146,7 +181,7 @@ export function parseReleaseNoteContent(body: string): ReleaseNoteContent {
     ...CHANGELOG_SECTION_TITLES.map((title) => title.toLowerCase()),
   ]);
   const extraSections = parsedSections.filter(
-    (section) => !recognizedTitles.has(section.title.toLowerCase())
+    (section) => section.body && !recognizedTitles.has(section.title.toLowerCase())
   );
   const isStructured = parsedSections.length > 0;
 
@@ -157,6 +192,7 @@ export function parseReleaseNoteContent(body: string): ReleaseNoteContent {
     contributors,
     extraSections,
     preamble: isStructured ? preamble : null,
+    footer: isStructured ? footer : null,
     fallbackBody: isStructured ? null : body.trim() || null,
   };
 }
