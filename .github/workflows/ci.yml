@@ -52,7 +52,7 @@ jobs:
           set -euo pipefail
           # Paths that can change app behaviour covered by the e2e jobs (plus this
           # workflow, so CI edits exercise them).
-          pattern='^(src/features/|src/components/|electron/|e2e/|e2e-electron/|shared/|worker/|\.github/workflows/ci\.yml$)'
+          pattern='^(src/features/|src/components/|electron/|e2e/|e2e-electron/|shared/|worker/|scripts/e2e-shard\.mjs$|\.github/workflows/ci\.yml$)'
           case "$EVENT_NAME" in
             pull_request) range="$PR_BASE_SHA...$PR_HEAD_SHA" ;;
             push) range="$PUSH_BEFORE..$PUSH_SHA" ;;
@@ -437,7 +437,20 @@ jobs:
         run: npx playwright install-deps chromium
 
       - name: Run Playwright shard
-        run: npm run test:e2e -- --shard=${{ matrix.shard }}/4
+        # Whole spec files per shard, balanced by measured duration (see
+        # scripts/e2e-shard.mjs); `--shard` splits by test count and left one
+        # shard at ~230 s of tests against 40-90 s for the others.
+        #
+        # The list is assigned on its own line on purpose: a failing `$(...)`
+        # used inline as an argument does not stop the step, and `playwright
+        # test` with no files would then run the whole suite on this runner.
+        # A failed assignment aborts under the default `bash -e`.
+        env:
+          SHARD: ${{ matrix.shard }}/4
+        run: |
+          specs=$(node scripts/e2e-shard.mjs "$SHARD")
+          echo "Specs for shard $SHARD: $specs"
+          npm run test:e2e -- $specs
 
       - name: Upload Playwright report
         if: failure()
