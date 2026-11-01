@@ -113,7 +113,17 @@ describe('no-flash theme script is allowed by hash, not by unsafe-inline', () =>
   const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   const headersSrc = fs.readFileSync(path.join(ROOT, 'public/_headers'), 'utf8');
 
-  const inline = [...indexHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]!);
+  // Every executable inline script: no src, and no type or a JavaScript type.
+  // Case-insensitive and attribute-aware so `<SCRIPT>` or `<script defer>`
+  // can't slip past the "exactly one" guard; JSON-LD data blocks don't run,
+  // so CSP never applies to them.
+  const inline = [...indexHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi)]
+    .filter(([, attrs = '']) => {
+      if (/\bsrc\s*=/i.test(attrs)) return false;
+      const type = /\btype\s*=\s*["']?([^"'\s>]+)/i.exec(attrs)?.[1]?.toLowerCase();
+      return !type || type === 'module' || type.includes('javascript');
+    })
+    .map((m) => m[2]!);
   const themeScript = inline.find((s) => s.includes("localStorage.getItem('theme')"));
   const expected = themeScript
     ? `'sha256-${crypto.createHash('sha256').update(themeScript, 'utf8').digest('base64')}'`
@@ -127,7 +137,7 @@ describe('no-flash theme script is allowed by hash, not by unsafe-inline', () =>
     return line!.trim().slice('Content-Security-Policy:'.length).trim();
   }
 
-  it('index.html still has exactly one inline (non-module) script: the theme script', () => {
+  it('index.html has exactly one executable inline script: the theme script', () => {
     expect(themeScript).toBeDefined();
     expect(inline).toHaveLength(1);
   });
