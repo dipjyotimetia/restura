@@ -49,6 +49,7 @@
     "sharp": "$sharp"
   },
   "devDependencies": {
-    "starlight-links-validator": "^0.27.0"
+    "starlight-links-validator": "^0.27.0",
+    "starlight-llms-txt": "^0.12.0"
   }
 }

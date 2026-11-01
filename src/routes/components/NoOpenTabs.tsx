@@ -7,7 +7,7 @@ import { isElectron } from '@/lib/shared/platform';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { RequestMode } from '@/types';
 
-const PROTOCOLS: ReadonlyArray<{
+export const NEW_REQUEST_PROTOCOLS: ReadonlyArray<{
   mode: RequestMode;
   chip: string;
   label: string;
@@ -49,7 +49,7 @@ export function NoOpenTabs({ onNewRequest, onOpenImport }: NoOpenTabsProps) {
         </p>
       </div>
       <ul className="flex flex-wrap justify-center gap-2 max-w-lg" aria-label="New request">
-        {PROTOCOLS.map((p) => (
+        {NEW_REQUEST_PROTOCOLS.map((p) => (
           <li key={p.mode}>
             <Button
               variant="outline"

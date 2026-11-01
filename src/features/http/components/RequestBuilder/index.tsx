@@ -5,8 +5,10 @@ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Floater } from '@/components/ui/spatial';
 import UrlBar from '@/features/http/components/UrlBar';
 import { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
+import { consumeAutoSend } from '@/features/http/lib/autoSend';
 import { buildDisplayUrl } from '@/features/http/lib/urlQuery';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { useRequestStore } from '@/store/useRequestStore';
 import { useUiStore } from '@/store/useUiStore';
 import { RequestBuilderTabs } from './RequestBuilderTabs';
 import { type SubTabKey, subTabForShortcut } from './subTabShortcut';
@@ -50,6 +52,12 @@ function RequestBuilder() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+
+  // One-shot send queued before this builder mounted (first-run live demo).
+  const activeTabId = useRequestStore((s) => s.activeTabId);
+  useEffect(() => {
+    if (httpRequest && consumeAutoSend(activeTabId)) void sendRequest();
+  }, [activeTabId, httpRequest, sendRequest]);
 
   // Cmd/Ctrl + Enter send (cancels instead while a request is in flight)
   const { cancelRequest } = handlers;

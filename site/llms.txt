@@ -1,0 +1,35 @@
+# Restura
+
+> Restura is a free, open-source (MIT) API client for HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, Server-Sent Events, Kafka, MQTT and the Model Context Protocol (MCP). It runs in the browser, as a native desktop app (macOS, Windows, Linux) or self-hosted with Docker. No account is required and data stays on the user's device. It is an alternative to Postman, Hoppscotch and Insomnia.
+
+Key facts:
+
+- Price and licence: free, MIT-licensed, no paid tier, no sign-up.
+- Data: collections, history and environments live in the browser's IndexedDB (web), on the computer with secrets in the OS keychain (desktop), or on the operator's server (self-hosted). No cloud sync. Opt-out crash reports exclude request content.
+- Protocols in the browser and on desktop: HTTP/REST, GraphQL, gRPC (unary and server streaming), WebSocket, Socket.IO, SSE, MCP client.
+- Desktop-only: Kafka, MQTT, client/bidirectional gRPC streaming, mTLS, custom CAs, SOCKS5 proxies, file-backed collections, OS-keychain secrets, AI assistant (bring your own key).
+- Scripts: pre-request and test scripts run in a QuickJS WebAssembly sandbox with Postman-compatible `pm.*` APIs.
+- Import: Postman (v2.x and v3), Insomnia, OpenAPI and Bruno collections.
+- CI: `restura-cli` runs collections with JUnit, HTML and JSON reporters (`npx restura-cli run ./my-collection`).
+- Compared with Postman, Hoppscotch and Insomnia: none of them supports Kafka; Postman also supports MQTT and MCP; Hoppscotch and Insomnia support neither. Restura is free and open source with no account; Postman requires an account and syncs to its cloud.
+- Not offered: real-time team collaboration, hosted mock servers, scheduled monitoring.
+
+## Use it
+
+- [Web app](https://restura.dev/app/): open and start sending requests, no install.
+- [Desktop downloads](https://github.com/dipjyotimetia/restura/releases/latest): macOS, Windows and Linux builds.
+- [Self-hosting with Docker](https://docs.restura.dev/self-hosting/docker/)
+
+## Docs
+
+- [Documentation](https://docs.restura.dev/): full docs; an LLM-oriented index is at https://docs.restura.dev/llms.txt
+- [Quick start](https://docs.restura.dev/overview/quick-start/)
+- [Comparison with Postman, Hoppscotch, Insomnia, Bruno and others](https://docs.restura.dev/overview/comparison/)
+- [Capability matrix (web vs desktop)](https://docs.restura.dev/reference/capability-matrix/)
+- [CLI](https://docs.restura.dev/reference/cli/)
+
+## Optional
+
+- [Source code](https://github.com/dipjyotimetia/restura)
+- [Roadmap](https://docs.restura.dev/roadmap/)
+- [Privacy policy](https://restura.dev/privacy)

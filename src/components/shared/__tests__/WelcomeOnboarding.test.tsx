@@ -2,7 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import WelcomeOnboarding from '../WelcomeOnboarding';
+import WelcomeOnboarding, { REPLAY_ONBOARDING_EVENT } from '../WelcomeOnboarding';
 
 // jsdom localStorage is empty, so secureStorage.get(ONBOARDING_KEY) is null and
 // the dialog opens on its own (after a 500ms timer).
@@ -104,5 +104,16 @@ describe('WelcomeOnboarding privacy step', () => {
 
     expect(seenTitles).toContain('One Client, Every Protocol');
     expect(seenTitles).not.toContain('Ask the AI Assistant');
+  });
+
+  it('stays closed when autoOpen is off, but still opens on replay', async () => {
+    render(<WelcomeOnboarding autoOpen={false} />);
+    await new Promise((r) => setTimeout(r, 700));
+    expect(screen.queryByText('Send Your First Request')).not.toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new Event(REPLAY_ONBOARDING_EVENT));
+    });
+    expect(await screen.findByText('Send Your First Request')).toBeInTheDocument();
   });
 });

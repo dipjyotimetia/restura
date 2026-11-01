@@ -98,11 +98,29 @@ const onboardingSteps: OnboardingStep[] = [
   },
 ];
 
-const ONBOARDING_KEY = 'restura-onboarding-completed';
+export const ONBOARDING_KEY = 'restura-onboarding-completed';
+
+/** True once the user has finished (or skipped past) first-run onboarding. */
+export function hasCompletedOnboarding(): boolean {
+  return secureStorage.get(ONBOARDING_KEY) !== null;
+}
+
+/** Persist first-run completion so neither the tour nor the welcome screen reappears. */
+export function markOnboardingComplete(): void {
+  secureStorage.set(ONBOARDING_KEY, 'true');
+}
 /** Window event that reopens the tour from the start (e.g. from the command palette). */
 export const REPLAY_ONBOARDING_EVENT = 'restura:replay-onboarding';
 
-export default function WelcomeOnboarding() {
+interface WelcomeOnboardingProps {
+  /**
+   * Open on its own for a first-time user. The web build shows the
+   * FirstRunWelcome screen instead and keeps this tour replay-only.
+   */
+  autoOpen?: boolean;
+}
+
+export default function WelcomeOnboarding({ autoOpen = true }: WelcomeOnboardingProps = {}) {
   const [isOpen, setIsOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const telemetryEnabled = useSettingsStore((s) => s.settings.telemetry?.errorsEnabled ?? true);
@@ -117,13 +135,12 @@ export default function WelcomeOnboarding() {
   useEffect(() => {
     // secureStorage wraps localStorage with try/catch (private mode / disabled
     // storage → null), so we don't hand-roll the guard here.
-    const hasCompleted = secureStorage.get(ONBOARDING_KEY);
-    if (!hasCompleted) {
+    if (autoOpen && !hasCompletedOnboarding()) {
       const timer = setTimeout(() => setIsOpen(true), 500);
       return () => clearTimeout(timer);
     }
     return undefined;
-  }, []);
+  }, [autoOpen]);
 
   useEffect(() => {
     const replay = () => {
@@ -143,7 +160,7 @@ export default function WelcomeOnboarding() {
   };
 
   const handleComplete = () => {
-    secureStorage.set(ONBOARDING_KEY, 'true');
+    markOnboardingComplete();
     setIsOpen(false);
   };
 

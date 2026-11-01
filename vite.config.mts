@@ -5,6 +5,7 @@ import { cloudflare } from '@cloudflare/vite-plugin';
 import { realpathSync } from 'node:fs';
 import path from 'path';
 import { sandboxLibsPlugin } from './scripts/vite-plugin-sandbox-libs';
+import { webLandingPlugin } from './scripts/vite-plugin-web-landing';
 
 const isElectronBuild = process.env.VITE_IS_ELECTRON_BUILD === 'true';
 
@@ -64,7 +65,9 @@ export default defineConfig({
     react(),
     tailwind(),
     ...(isElectronBuild ? [electronCspMetaPlugin()] : []),
-    ...(skipCloudflare ? [] : [cloudflare()]),
+    // The Cloudflare Pages build (restura.dev) serves a landing page at `/`
+    // and the app at `/app/`; Electron and self-host keep the app at `/`.
+    ...(skipCloudflare ? [] : [cloudflare(), webLandingPlugin()]),
   ],
   resolve: {
     alias: {

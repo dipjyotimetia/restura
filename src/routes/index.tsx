@@ -11,7 +11,11 @@ import StatusBar from '@/components/shared/StatusBar';
 import { CLOSE_ACTIVE_TAB_EVENT, TabBar } from '@/components/shared/TabBar';
 import TopBar from '@/components/shared/TopBar';
 import { WebNativeDownloadBanner } from '@/components/shared/WebNativeDownloadBanner';
-import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
+import WelcomeOnboarding, {
+  hasCompletedOnboarding,
+  markOnboardingComplete,
+  REPLAY_ONBOARDING_EVENT,
+} from '@/components/shared/WelcomeOnboarding';
 import { motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
 import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
@@ -19,6 +23,7 @@ import {
   isConnectionPresetTab,
   saveTabBackToCollection,
 } from '@/features/collections/lib/saveBack';
+import { queueAutoSend } from '@/features/http/lib/autoSend';
 import { type Keybinding, useKeybindings } from '@/hooks/useKeybindings';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
@@ -41,9 +46,11 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { ActivePanel, RequestMode } from '@/types';
 import { isConnectionMode } from '@/types';
+import { DEMO_REQUEST_URL, FirstRunWelcome } from './components/FirstRunWelcome';
 import { NoOpenTabs } from './components/NoOpenTabs';
 import { RequestWorkspace } from './components/RequestWorkspace';
 import { WindowFileDrop } from './components/WindowFileDrop';
+import { useWelcomeAutoDismiss } from './useWelcomeAutoDismiss';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
 const CommandPalette = lazyComponent(() => import('@/components/shared/CommandPalette'));
@@ -78,6 +85,9 @@ export default function Home() {
   const [bugReportCaptureError, setBugReportCaptureError] = useState<string>();
   const [bugReportDiagnosticsError, setBugReportDiagnosticsError] = useState<string>();
   const isNarrowWorkspace = useMediaQuery('(max-width: 1279px)');
+  // Web first run shows the FirstRunWelcome screen in place of the blank tab
+  // and the modal tour; desktop keeps the tour (isElectron() is constant).
+  const [showWelcome, setShowWelcome] = useState(() => !isElectron() && !hasCompletedOnboarding());
 
   useStoreHydration();
   const activeTab = useActiveTab();
@@ -152,6 +162,11 @@ export default function Home() {
 
   // Persisted request/response split (shared by every split protocol view).
   const sidebarCollapsed = settings.sidebarCollapsed === true;
+  // On phone/tablet widths the 268px sidebar would crush the first-run welcome
+  // screen; hide it (without touching the persisted setting) until the user
+  // leaves the welcome screen.
+  const isCompactViewport = useMediaQuery('(max-width: 899px)');
+  const sidebarHidden = sidebarCollapsed || (showWelcome && isCompactViewport);
   const toggleSidebar = useCallback(
     () =>
       updateSettings({ sidebarCollapsed: !useSettingsStore.getState().settings.sidebarCollapsed }),
@@ -342,6 +357,49 @@ export default function Home() {
     setBugReportOpen(false);
   }, []);
 
+  const finishWelcome = useCallback(() => {
+    markOnboardingComplete();
+    setShowWelcome(false);
+  }, []);
+  useWelcomeAutoDismiss(showWelcome, finishWelcome);
+
+  // Live demo: load the echo request into a tab (reusing the untouched
+  // starter tab when there is one) and let the HTTP builder send it through
+  // the real executor once it mounts.
+  const handleRunDemo = useCallback(() => {
+    const state = useRequestStore.getState();
+    const active = state.tabs.find((t) => t.id === state.activeTabId);
+    const reusable =
+      active !== undefined &&
+      active.request.type === 'http' &&
+      active.modeOverride === undefined &&
+      !active.isDirty &&
+      active.savedRequestId === undefined;
+    const tabId = reusable ? active.id : state.createNewRequest('http');
+    if (useRequestStore.getState().updateRequest({ url: DEMO_REQUEST_URL, method: 'GET' })) {
+      queueAutoSend(tabId);
+    }
+    finishWelcome();
+  }, [finishWelcome]);
+
+  const handleWelcomeNewRequest = useCallback(
+    (mode: RequestMode) => {
+      handleRequestModeChange(mode);
+      finishWelcome();
+    },
+    [handleRequestModeChange, finishWelcome]
+  );
+
+  const handleWelcomeImport = useCallback(() => {
+    finishWelcome();
+    openImportDialog();
+  }, [finishWelcome, openImportDialog]);
+
+  const handleWelcomeTour = useCallback(() => {
+    finishWelcome();
+    window.dispatchEvent(new Event(REPLAY_ONBOARDING_EVENT));
+  }, [finishWelcome]);
+
   const handleSendRequest = useCallback(() => {
     const event = new KeyboardEvent('keydown', {
       key: 'Enter',
@@ -368,7 +426,7 @@ export default function Home() {
         onToggleSidebar={toggleSidebar}
         sidebarCollapsed={sidebarCollapsed}
       />
-      <WebNativeDownloadBanner />
+      {!showWelcome && <WebNativeDownloadBanner />}
 
       <div className="flex flex-1 overflow-hidden min-h-0">
         <ClientHydration
@@ -377,47 +435,59 @@ export default function Home() {
           <motion.div
             key="sidebar-panel"
             initial={{ width: 0, opacity: 0 }}
-            animate={sidebarCollapsed ? { width: 0, opacity: 0 } : { width: 268, opacity: 1 }}
+            animate={sidebarHidden ? { width: 0, opacity: 0 } : { width: 268, opacity: 1 }}
             transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
             className="shrink-0 overflow-hidden"
             // Collapsed: out of the tab order and the accessibility tree.
-            inert={sidebarCollapsed}
-            aria-hidden={sidebarCollapsed || undefined}
+            inert={sidebarHidden}
+            aria-hidden={sidebarHidden || undefined}
           >
             <Sidebar activePanel={activePanel} onOpenImport={openImportDialog} />
           </motion.div>
         </ClientHydration>
 
         <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
-          <main
-            aria-label="Request workspace"
-            className="flex flex-1 flex-col min-h-0 overflow-hidden"
-          >
-            <TabBar
-              onSaveToCollection={setSaveDialogTabId}
-              onChangeMode={handleRequestModeChange}
-            />
-            <div className="flex flex-1 flex-col min-h-0">
-              {activeTab ? (
-                <RequestWorkspace
-                  mode={requestMode}
-                  orientation={effectiveLayout}
-                  split={settings.requestResponseSplit ?? 50}
-                  onSplitChange={handleSplitChange}
-                />
-              ) : (
-                <NoOpenTabs
-                  onNewRequest={handleRequestModeChange}
-                  onOpenImport={openImportDialog}
-                />
-              )}
-            </div>
-            <ConsoleDrawer
-              scriptLogs={allLogs}
-              {...(allTests !== undefined && { tests: allTests })}
-              onClearScripts={handleClearConsole}
-            />
-          </main>
+          {showWelcome ? (
+            <main aria-label="Welcome" className="flex flex-1 flex-col min-h-0 overflow-hidden">
+              <FirstRunWelcome
+                onRunDemo={handleRunDemo}
+                onNewRequest={handleWelcomeNewRequest}
+                onOpenImport={handleWelcomeImport}
+                onTakeTour={handleWelcomeTour}
+                onDismiss={finishWelcome}
+              />
+            </main>
+          ) : (
+            <main
+              aria-label="Request workspace"
+              className="flex flex-1 flex-col min-h-0 overflow-hidden"
+            >
+              <TabBar
+                onSaveToCollection={setSaveDialogTabId}
+                onChangeMode={handleRequestModeChange}
+              />
+              <div className="flex flex-1 flex-col min-h-0">
+                {activeTab ? (
+                  <RequestWorkspace
+                    mode={requestMode}
+                    orientation={effectiveLayout}
+                    split={settings.requestResponseSplit ?? 50}
+                    onSplitChange={handleSplitChange}
+                  />
+                ) : (
+                  <NoOpenTabs
+                    onNewRequest={handleRequestModeChange}
+                    onOpenImport={openImportDialog}
+                  />
+                )}
+              </div>
+              <ConsoleDrawer
+                scriptLogs={allLogs}
+                {...(allTests !== undefined && { tests: allTests })}
+                onClearScripts={handleClearConsole}
+              />
+            </main>
+          )}
         </div>
         {enableAi && aiPanelOpen && <ChatPanel onClose={() => setAiPanelOpen(false)} />}
       </div>
@@ -443,7 +513,7 @@ export default function Home() {
           initialSection={settingsInitialSection}
         />
       )}
-      <WelcomeOnboarding />
+      <WelcomeOnboarding autoOpen={isElectron()} />
 
       {/* Dialogs */}
       {envManagerLoaded && (
