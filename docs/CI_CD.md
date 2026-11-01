@@ -479,10 +479,13 @@ validate, install, and relaunch into that patch.
 - All `npm ci` steps run with `--prefer-offline --no-audit --no-fund` to skip
   the audit round-trip and prefer the restored npm cache.
 - Playwright browsers are cached against `package-lock.json`; e2e runs in 4
-  shards on separate runners. Playwright splits by test count, and the slow
-  `real-*` specs sort last, so 2 shards left one at ~6 min and the other at
-  ~2 min; CI also prints a `list` report so per-test times can guide a later
-  rebalance.
+  shards on separate runners. Playwright's `--shard` splits by test count, which
+  left one shard at ~230 s of test time and the others at 40-90 s, so CI runs
+  whole spec files assigned by `scripts/e2e-shard.mjs` from a per-spec duration
+  table (longest-first packing, ~110 s each). A new spec still runs (default
+  weight); refresh `SPEC_SECONDS` from the `list` report in the CI log when
+  specs change a lot. `scripts/__tests__/e2e-shard.test.mjs` fails if the table
+  and `e2e/` drift apart.
 - The Electron desktop E2E, Electron pack smoke and VS Code integration jobs do
   not wait for `validate` (they build the app themselves), so they start with
   the Vitest shards instead of ~4.5 minutes later. A red unit run still blocks
