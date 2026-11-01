@@ -162,7 +162,8 @@ Husky installs two hooks on `npm install`:
 - **pre-push** runs `npm run type-check:related` (the tsconfig projects your
   branch touched: the renderer always, plus Electron, Worker, CLI, echo,
   extensions or tooling as needed; every project when `shared/` or a root
-  config changed), `npm run architecture:check`, and `vitest related` for the
+  config changed), `npm run architecture:check`, `npm run capabilities:check`,
+  `npm run format:check`, and `vitest related` for the
   files your branch changed since its merge-base with `origin/main` (the full
   suite if the Vitest config/setup changed). The full
   `test:coverage` budget is enforced by CI on every PR and re-run on top of

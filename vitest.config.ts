@@ -5,6 +5,14 @@ import { sandboxLibsPlugin } from './scripts/vite-plugin-sandbox-libs';
 
 const isVitestShard = process.env.VITEST_SHARD === 'true';
 
+// Suites outside `src/` that need a DOM (jsdom). Everything else outside `src/`
+// runs in plain Node. Add a path here only if a new test genuinely needs
+// `window`/`document`; prefer a `@vitest-environment jsdom` docblock in the file.
+const domTests = [
+  'tests/security/secret-storage-routing.test.ts',
+  'tests/security/visualizer-sandbox.test.tsx',
+];
+
 export default defineConfig({
   // Direct `npx vitest` must be as fresh-checkout safe as npm test. The
   // ignored QuickJS bundle is imported during Vite transform, before setup
@@ -35,15 +43,39 @@ export default defineConfig({
     // graphql copy as our in-process mock schema — otherwise the server-side
     // validate throws "Duplicate graphql modules" on cross-realm schemas.
     server: { deps: { inline: ['graphql-ws'] } },
-    include: [
-      'src/**/*.{test,spec}.{ts,tsx}',
-      'tests/**/*.{test,spec}.{ts,tsx}',
-      'electron/main/**/__tests__/**/*.{test,spec}.ts',
-      'worker/**/__tests__/**/*.{test,spec}.ts',
-      'echo/**/__tests__/**/*.{test,spec}.ts',
-      'shared/**/*.{test,spec}.{ts,tsx}',
-    ],
     exclude: ['node_modules', 'dist', 'out', '.next'],
+    // Two projects share everything above (aliases, setup, coverage) and differ
+    // only in the DOM environment. jsdom costs ~1s of environment + import time
+    // per test file, so only suites that really render or touch `window` pay it.
+    // `shared/`, Electron main, the Worker and echo are runtime-neutral (no DOM
+    // on their real runtimes), and so are the contract/security suites in
+    // `tests/` apart from the two DOM ones listed in `domTests`.
+    // A file can still opt in/out with a `@vitest-environment` docblock.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'dom',
+          environment: 'jsdom',
+          include: ['src/**/*.{test,spec}.{ts,tsx}', ...domTests],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'node',
+          environment: 'node',
+          include: [
+            'tests/**/*.{test,spec}.{ts,tsx}',
+            'electron/main/**/__tests__/**/*.{test,spec}.ts',
+            'worker/**/__tests__/**/*.{test,spec}.ts',
+            'echo/**/__tests__/**/*.{test,spec}.ts',
+            'shared/**/*.{test,spec}.{ts,tsx}',
+          ],
+          exclude: ['node_modules', 'dist', 'out', '.next', ...domTests],
+        },
+      },
+    ],
     coverage: {
       provider: 'v8',
       // A failed shard must still upload data that the CI merge job can turn

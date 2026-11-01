@@ -19,7 +19,9 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: 1,
-  reporter: process.env.CI ? [['github'], ['html']] : 'list',
+  // `list` prints per-test durations in the CI log (the `github` reporter does
+  // not), which is what you need to rebalance the e2e shards.
+  reporter: process.env.CI ? [['github'], ['html'], ['list']] : 'list',
   timeout: 60_000,
   expect: { timeout: 10_000 },
   use: {
