@@ -440,7 +440,17 @@ jobs:
         # Whole spec files per shard, balanced by measured duration (see
         # scripts/e2e-shard.mjs); `--shard` splits by test count and left one
         # shard at ~230 s of tests against 40-90 s for the others.
-        run: npm run test:e2e -- $(node scripts/e2e-shard.mjs ${{ matrix.shard }}/4)
+        #
+        # The list is assigned on its own line on purpose: a failing `$(...)`
+        # used inline as an argument does not stop the step, and `playwright
+        # test` with no files would then run the whole suite on this runner.
+        # A failed assignment aborts under the default `bash -e`.
+        env:
+          SHARD: ${{ matrix.shard }}/4
+        run: |
+          specs=$(node scripts/e2e-shard.mjs "$SHARD")
+          echo "Specs for shard $SHARD: $specs"
+          npm run test:e2e -- $specs
 
       - name: Upload Playwright report
         if: failure()
