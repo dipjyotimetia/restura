@@ -1,3 +1,9 @@
+# script-src allows one inline script by hash: index.html's no-flash theme
+# script (kept in sync by electron/main/__tests__/security-hardening.test.ts).
+# Third-party scripts stay blocked on purpose — including the Cloudflare Web
+# Analytics beacon Pages can inject: the privacy policy promises no
+# application-level analytics on the web app. Turn Web Analytics off in the
+# Pages dashboard rather than allowing it here.
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
@@ -5,7 +11,7 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   X-XSS-Protection: 0
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https: wss: ws:; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-U5EOdU33K/f6G+BZlSv0efXEGlGSc66ZXxpGXfAM1Ec='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https: wss: ws:; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';
 
 /*.js
   Cache-Control: public, max-age=31536000, immutable
