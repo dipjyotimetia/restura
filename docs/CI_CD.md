@@ -103,8 +103,10 @@ rules_) for `main`:
 
   | Optional check (exact check name)      | From                           |
   | -------------------------------------- | ------------------------------ |
-  | `Playwright E2E (shard 1/2)`           | CI / `e2e`                     |
-  | `Playwright E2E (shard 2/2)`           | CI / `e2e`                     |
+  | `Playwright E2E (shard 1/4)`           | CI / `e2e`                     |
+  | `Playwright E2E (shard 2/4)`           | CI / `e2e`                     |
+  | `Playwright E2E (shard 3/4)`           | CI / `e2e`                     |
+  | `Playwright E2E (shard 4/4)`           | CI / `e2e`                     |
   | `Electron desktop E2E`                 | CI / `e2e-electron`            |
   | `Electron critical-path coverage`      | CI / `electron-critical-coverage` |
   | `Electron pack smoke (ubuntu-latest)`  | CI / `electron-smoke`          |
@@ -387,7 +389,7 @@ the output and options.
 | --- | --- | --- |
 | Staged-file guard | `.husky/pre-commit` → `scripts/guard-staged.mjs` | Rejects new symlinks (relative `.claude/skills/*` links allowed), `node_modules` paths, `.dev.vars`, `*.snap` (gitignored, so absent in CI), and added lines containing a machine-local absolute repo path. |
 | lint-staged | `.husky/pre-commit` | Biome check/format on staged files; `--no-errors-on-unmatched` so commits that only stage Biome-ignored files pass. |
-| Fast pre-push | `.husky/pre-push` | `type-check:related` (`scripts/type-check-related.mjs`: the tsconfig projects the branch touched, every project when `shared/` or a root config changed), `architecture:check`, and `vitest related` for files changed since the merge-base with `origin/main`. `RESTURA_PREPUSH_FULL=1 git push` runs the full `test:coverage` instead. Full coverage is enforced by CI on every PR and re-run on the up-to-date branch by the merge lane. |
+| Fast pre-push | `.husky/pre-push` | `type-check:related` (`scripts/type-check-related.mjs`: the tsconfig projects the branch touched, every project when `shared/` or a root config changed), `architecture:check`, `capabilities:check`, `format:check`, and `vitest related` for files changed since the merge-base with `origin/main`. `RESTURA_PREPUSH_FULL=1 git push` runs the full `test:coverage` instead. Full coverage is enforced by CI on every PR and re-run on the up-to-date branch by the merge lane. |
 | Worktree setup | `npm run worktree:setup [-- <path>] [--hooks]` | Links every installed `node_modules` from the main checkout, copies `.dev.vars`, checks the links are gitignored, and reports (or with `--hooks`, fixes) worktrees that run the main checkout's hooks. |
 | Integration check | `npm run integration-check -- <branch...>` | Merges branches onto a fresh base in a throwaway worktree, prints the file-overlap matrix, runs the gates on the result. Never pushes. |
 | Architecture caps | `npm run architecture:check` / `architecture:tighten` | Caps fail only when exceeded; looser-than-code caps are warnings. `architecture:tighten` lowers them to the code (never raises). Also hard-fails on the IPC triple and forbidden config keys. |
@@ -476,8 +478,19 @@ validate, install, and relaunch into that patch.
 
 - All `npm ci` steps run with `--prefer-offline --no-audit --no-fund` to skip
   the audit round-trip and prefer the restored npm cache.
-- Playwright browsers are cached against `package-lock.json`; e2e runs in 2
-  shards on separate runners.
+- Playwright browsers are cached against `package-lock.json`; e2e runs in 4
+  shards on separate runners. Playwright splits by test count, and the slow
+  `real-*` specs sort last, so 2 shards left one at ~6 min and the other at
+  ~2 min; CI also prints a `list` report so per-test times can guide a later
+  rebalance.
+- The Electron desktop E2E, Electron pack smoke and VS Code integration jobs do
+  not wait for `validate` (they build the app themselves), so they start with
+  the Vitest shards instead of ~4.5 minutes later. A red unit run still blocks
+  merge through the required `validate` check.
+- Vitest runs two projects (`vitest.config.ts`): `dom` (jsdom) for `src/**` and
+  `node` for `shared/`, Electron main, Worker, echo and `tests/`. Only the two
+  DOM suites in `tests/security/` are pinned to jsdom (`domTests`). jsdom setup
+  was ~45% of each shard's time.
 - `setup-node` caches the npm download cache on every job.
 - CodeQL and Scorecard run as standalone workflows in parallel with CI — they
   do not lengthen the CI critical path (they only gate merges if you mark them
