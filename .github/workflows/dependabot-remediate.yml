@@ -147,7 +147,7 @@ jobs:
         run: echo "alerts=$(jq -c '.alerts' "$RUNNER_TEMP/remediation/alerts.json")" >> "$GITHUB_OUTPUT"
 
       - name: Run Claude Code
-        uses: anthropics/claude-code-action@925afb53776cf1a2b738c6bdbed37b4d4000ef13 # v1
+        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1
         env:
           # Keeps the OAuth token out of the environment of the npm commands.
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
