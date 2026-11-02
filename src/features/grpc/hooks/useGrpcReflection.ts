@@ -162,7 +162,9 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
       }
 
       try {
-        const spec = resolveGrpcReflectionConnect(rawUrl, requestRef.current);
+        const spec = resolveGrpcReflectionConnect(rawUrl, requestRef.current, {
+          inheritAuth: !silent,
+        });
         if (!spec.ok) {
           setResult({
             success: false,

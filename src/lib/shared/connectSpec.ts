@@ -8,18 +8,22 @@
  * either connect with the result or surface its refusal; nothing here renders
  * React or connects.
  *
- * Every field goes through `resolveRequestScopeText` (the HTTP executor's
- * resolver) via the single `resolveField` helper. Stored templates are never
- * mutated: the functions return new values.
+ * Every value goes through `resolveRequestScopeText` (the HTTP executor's
+ * resolver) via the single `resolveField` helper; auth fields resolve before a
+ * credential is encoded, so a Basic header can't hide a token. Header names stay
+ * as written, as in the CLI. Stored templates are never mutated: the functions
+ * return new values.
  *
  * SecretRef-backed variables stay opaque (ADR-0007). None of the live-connect
  * managers can hand a handle to Electron main yet, so a field that still
  * references one after resolution is refused instead of being sent as a
- * literal `{{name}}` placeholder.
+ * literal `{{name}}` placeholder, and SSE refuses a credential only main could
+ * apply instead of connecting anonymously.
  */
 import { referencesSecretVariable } from '@shared/variables/secret-variable-token';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
+import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
 import {
   postmanSendBlockedReason,
   resolveInheritedAuthFor,
@@ -91,7 +95,7 @@ function guarded<T>(build: () => ConnectResult<T>): ConnectResult<T> {
 function resolveHeaders(scope: ConnectScope, headers: KeyValue[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(keyValuePairsToRecord(headers))) {
-    out[resolveField(scope, key)] = resolveField(scope, value);
+    out[key] = resolveField(scope, value);
   }
   return out;
 }
@@ -130,10 +134,20 @@ export function resolveSseConnect(
     const inherited = resolveInheritedAuthFor(request);
     const effective = inherited ? withEffectiveAuth(request, inherited.auth) : request;
 
+    const resolve = (text: string) => resolveField(scope, text);
     const headers = resolveHeaders(scope, request.headers);
-    // Header-based auth (basic/bearer/api-key/oauth2).
-    const credential = buildAuthCredential(effective.auth);
-    for (const [k, v] of Object.entries(credential.headers)) headers[k] = resolveField(scope, v);
+    // Header-based auth (basic/bearer/api-key/oauth2), already resolved.
+    const credential = buildAuthCredential(
+      effective.auth && resolveAuthVariables(effective.auth, resolve)
+    );
+    if (credential.requiresMainSideApply) {
+      return {
+        ok: false,
+        error:
+          'This auth uses a keychain-stored or external secret, which SSE connections cannot apply yet. Enter the credential inline, or set auth on this request.',
+      };
+    }
+    Object.assign(headers, credential.headers);
 
     let url = resolveField(scope, request.url);
     // Enabled query params plus any query-placed auth credential.
@@ -141,10 +155,7 @@ export function resolveSseConnect(
       ...request.params
         .filter((p) => p.enabled !== false && p.key)
         .map((p): [string, string] => [resolveField(scope, p.key), resolveField(scope, p.value)]),
-      ...Object.entries(credential.params).map(([k, v]): [string, string] => [
-        k,
-        resolveField(scope, v),
-      ]),
+      ...Object.entries(credential.params),
     ];
     if (queryParams.length > 0) {
       try {
@@ -227,10 +238,15 @@ export interface GrpcReflectionConnectSpec {
 /**
  * Reflection endpoint + the metadata/auth a call would send. `request` is
  * optional (a bare URL probe has no metadata or auth).
+ *
+ * Auto-discover runs when a tab opens or its URL changes, so `inheritAuth` stays
+ * off unless the user asked: an ancestor's credential must not go to a URL
+ * nobody chose to call. The request's own auth is not gated by this.
  */
 export function resolveGrpcReflectionConnect(
   rawUrl: string,
   request?: GrpcRequest,
+  options: { inheritAuth?: boolean } = {},
   scope: ConnectScope = createConnectScope()
 ): ConnectResult<GrpcReflectionConnectSpec> {
   return guarded<GrpcReflectionConnectSpec>(() => {
@@ -239,8 +255,11 @@ export function resolveGrpcReflectionConnect(
     if (!request) return { ok: true, url };
     const blocked = postmanSendBlockedReason(request);
     if (blocked) return { ok: false, error: blocked };
-    const inherited = resolveInheritedAuthFor(request);
+    const inherited = options.inheritAuth ? resolveInheritedAuthFor(request) : undefined;
     const effective = inherited ? withEffectiveAuth(request, inherited.auth) : request;
-    return { ok: true, url, credentials: reflectionCredentialsFor(effective, resolve) };
+    const resolved = effective.auth
+      ? { ...effective, auth: resolveAuthVariables(effective.auth, resolve) }
+      : effective;
+    return { ok: true, url, credentials: reflectionCredentialsFor(resolved, resolve) };
   });
 }

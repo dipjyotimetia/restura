@@ -39,18 +39,25 @@ export interface RunScopePolicy {
    * only; substitution keeps the values the run started with.
    */
   collectionWritesSubstitute: boolean;
+  /**
+   * Keep every variable write in a run-wide layer below folder variables, so a
+   * same-key collection write cancels the override but not the value.
+   */
+  retainWrites: boolean;
 }
 
 /** The app's Collection run. */
 export const APP_SCOPE_POLICY: RunScopePolicy = {
   carriedWrites: 'below-collection',
   collectionWritesSubstitute: true,
+  retainWrites: false,
 };
 
 /** The CLI's Collection run. */
 export const CLI_SCOPE_POLICY: RunScopePolicy = {
   carriedWrites: 'above-folder',
   collectionWritesSubstitute: false,
+  retainWrites: true,
 };
 
 export interface RunScopeInit {
@@ -84,6 +91,7 @@ export class RunScope {
   /** The collection values the run started with (substitution when writes do not substitute). */
   private readonly collectionAtStart: VarMap;
   private readonly carried: VarMap = {};
+  private readonly retained: VarMap = {};
 
   constructor(init: RunScopeInit) {
     this.policy = init.policy;
@@ -108,6 +116,7 @@ export class RunScope {
         this.policy.collectionWritesSubstitute ? this.collection : this.collectionAtStart,
       overrides: this.overrides,
       carried: this.carried,
+      retained: this.retained,
     });
   }
 }
@@ -119,10 +128,13 @@ interface ScopeLayers {
   collectionForSubstitution: () => VarMap;
   overrides: VarMap;
   carried: VarMap;
+  retained: VarMap;
 }
 
 export class IterationScope {
   private readonly writes: VarMap = {};
+  /** Collection unsets: hidden from lower scopes until this iteration ends (app). */
+  private readonly unset = new Set<string>();
 
   constructor(
     private readonly run: RunScope,
@@ -132,28 +144,24 @@ export class IterationScope {
 
   /** The variable map a request starts with. `folder` is its merged folder variables. */
   requestVars(folder: Readonly<VarMap> = {}): VarMap {
-    const { policy, globals, environment, overrides, carried } = this.layers;
+    const { policy, globals, environment, overrides, carried, retained } = this.layers;
     const collection = this.layers.collectionForSubstitution();
-    return policy.carriedWrites === 'below-collection'
-      ? {
-          ...globals,
-          ...environment,
-          ...carried,
-          ...collection,
-          ...folder,
-          ...this.row,
-          ...this.writes,
-        }
-      : {
-          ...globals,
-          ...environment,
-          ...collection,
-          ...folder,
-          ...overrides,
-          ...carried,
-          ...this.row,
-          ...this.writes,
-        };
+    if (policy.carriedWrites === 'below-collection') {
+      const base: VarMap = { ...globals, ...environment, ...carried, ...collection };
+      for (const key of this.unset) delete base[key];
+      return { ...base, ...folder, ...this.row, ...this.writes };
+    }
+    return {
+      ...globals,
+      ...environment,
+      ...collection,
+      ...retained,
+      ...folder,
+      ...overrides,
+      ...carried,
+      ...this.row,
+      ...this.writes,
+    };
   }
 
   /**
@@ -169,7 +177,9 @@ export class IterationScope {
     const collectionMutations: VarMutations = {};
     for (const phase of phases) {
       for (const [key, value] of Object.entries(phase.after)) {
-        if (value !== phase.before[key]) this.writes[key] = value;
+        if (value === phase.before[key]) continue;
+        this.writes[key] = value;
+        if (this.layers.policy.retainWrites) this.layers.retained[key] = value;
       }
       if (phase.collectionMutations) Object.assign(collectionMutations, phase.collectionMutations);
       if (phase.globalsMutations && this.layers.globals) {
@@ -179,6 +189,9 @@ export class IterationScope {
     for (const key of Object.keys(collectionMutations)) {
       delete this.writes[key];
       delete this.layers.carried[key];
+      if (!this.layers.policy.collectionWritesSubstitute) continue;
+      if (collectionMutations[key] === null && !(key in this.row)) this.unset.add(key);
+      else this.unset.delete(key);
     }
     applyVarMutations(this.run.collection, collectionMutations);
     return collectionMutations;

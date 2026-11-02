@@ -287,7 +287,11 @@ export async function runMcpRequest(
       info: scriptInfo,
       location: opts.location,
       // The same script host as gRPC: sub-requests, cookie jar and vault.
-      host: makeRendererScriptHost({ variables: scriptEnvVars, inheritedHeaders: {} }),
+      host: makeRendererScriptHost({
+        variables: scriptEnvVars,
+        inheritedHeaders: {},
+        signal: ctx.signal,
+      }),
       absorb: { into: scriptEnvVars, variables: 'always' },
     });
     preRequestResult = pre.result;
@@ -409,7 +413,13 @@ export async function runMcpRequest(
       iterationData: opts.iterationData,
       info: scriptInfo,
       location: opts.location,
-      host: makeRendererScriptHost({ variables: scriptEnvVars, inheritedHeaders: {} }),
+      // rs.judge is wired on the test phase only: a response exists to judge.
+      host: makeRendererScriptHost({
+        variables: scriptEnvVars,
+        inheritedHeaders: {},
+        signal: ctx.signal,
+        judge: true,
+      }),
     });
     testResult = test.result;
   }

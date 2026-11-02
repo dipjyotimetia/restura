@@ -199,3 +199,19 @@ describe('flattenCollection — inheritance contract', () => {
     });
   });
 });
+
+describe('flatten — untyped containers', () => {
+  const tree = [
+    {
+      id: 'u',
+      name: 'untyped',
+      type: 'request',
+      items: [{ id: 'r', name: 'r', type: 'request', request: { id: 'r' } }],
+    },
+  ] as never;
+
+  it('walks them only when the host asks', () => {
+    expect(flattenCollection(tree, opts)).toHaveLength(0);
+    expect(flattenCollection(tree, { ...opts, walkUntypedContainers: true })).toHaveLength(1);
+  });
+});

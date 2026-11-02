@@ -283,16 +283,20 @@ function WebSocketClient() {
       return;
     }
     const { url, headers } = spec;
-    // ws:// would carry URL / handshake credentials in cleartext (#898).
-    if (cleartextGuard.needsConfirm(url, { headers }) && !(await cleartextGuard.confirm())) {
-      return;
+    try {
+      // ws:// would carry URL / handshake credentials in cleartext (#898).
+      if (cleartextGuard.needsConfirm(url, { headers }) && !(await cleartextGuard.confirm())) {
+        return;
+      }
+      websocketManager.connect(
+        activeConnectionId,
+        url,
+        connection.protocols.length > 0 ? connection.protocols : undefined,
+        Object.keys(headers).length > 0 ? headers : undefined
+      );
+    } catch (error) {
+      console.error('Failed to connect:', error);
     }
-    websocketManager.connect(
-      activeConnectionId,
-      url,
-      connection.protocols.length > 0 ? connection.protocols : undefined,
-      Object.keys(headers).length > 0 ? headers : undefined
-    );
   };
 
   const handleDisconnect = (close?: WsCloseOptions) => {

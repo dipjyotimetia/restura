@@ -66,6 +66,7 @@ export function flattenRunnables(
     root,
     folderId,
     sender: 'Restura',
+    walkUntypedContainers: true,
     guardOwner: 'name',
     // Connection presets (Kafka / MQTT #984, WebSocket / Socket.IO #1209) are
     // not runnable requests; `skippedConnectionPresets` reports them.

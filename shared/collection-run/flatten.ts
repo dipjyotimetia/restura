@@ -73,6 +73,8 @@ export interface FlattenOptions {
   leafAction?: ((item: CollectionItem, path: string) => LeafAction) | undefined;
   /** Drop a folder (and its subtree) before descending, e.g. an import placeholder. */
   skipFolder?: ((folder: CollectionItem, path: string) => boolean) | undefined;
+  /** Walk a non-folder item that holds `items` but no request (the app does; the CLI drops it). */
+  walkUntypedContainers?: boolean | undefined;
 }
 
 /** Find a folder anywhere in the tree by id. */
@@ -163,7 +165,11 @@ export function flattenCollection(
         continue;
       }
       const req = item.request as { preRequestScript?: string; testScript?: string } | undefined;
-      if (!req) continue;
+      if (!req) {
+        // Not a request or a typed folder: the app still walked what it holds.
+        if (options.walkUntypedContainers && item.items) walk(item.items, descend(inherited, item));
+        continue;
+      }
       if ((options.leafAction?.(item, path) ?? 'run') === 'skip') continue;
       const blocked = postmanBlockedReason(item, inherited.guard, sender);
       out.push({

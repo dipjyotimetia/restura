@@ -59,11 +59,14 @@ describe.each([
     expect(scope.beginIteration({ id: '2' }).requestVars()).toEqual({ id: '2', token: 'T' });
   });
 
-  it('an iteration that does not end does not carry its writes', () => {
+  it('an iteration that does not end does not carry its overrides', () => {
     const scope = scopeFor(policy);
     const first = scope.beginIteration({});
     first.absorb([wrote(first.requestVars(), { token: 'T' })]);
-    expect(scope.beginIteration({}).requestVars().token).toBeUndefined();
+    // The row outranks carried overrides, and retained writes sit below it too.
+    expect(scope.beginIteration({ token: 'row' }).requestVars().token).toBe('row');
+    const next = scope.beginIteration({}).requestVars().token;
+    expect(next).toBe(policy.retainWrites ? 'T' : undefined);
   });
 
   it('an untouched folder default or row value is not written back', () => {
@@ -202,13 +205,61 @@ describe('RunScope — CLI policy', () => {
     expect(second).toMatchObject({ host: 'script', k: 'script' });
   });
 
-  it('a later collection write cancels a carried write of that key', () => {
+  it('a later collection write cancels the override; the value stays retained', () => {
     const scope = scopeFor(policy);
     const first = scope.beginIteration({});
     first.absorb([wrote(first.requestVars(), { k: 'script' })]);
     first.end();
     const second = scope.beginIteration({});
     second.absorb([{ before: {}, after: {}, collectionMutations: { k: 'collection' } }]);
-    expect(second.requestVars().k).toBeUndefined();
+    expect(second.requestVars().k).toBe('script');
+    expect(second.requestVars({ k: 'folder' }).k).toBe('folder');
+  });
+});
+
+describe('RunScope — retained writes', () => {
+  it('CLI: a variable write stays substitutable after a same-key collection write', () => {
+    const scope = scopeFor(CLI_SCOPE_POLICY, { environment: { t: 'start' } });
+    const iter = scope.beginIteration({});
+    const before = iter.requestVars();
+    iter.absorb([
+      { before, after: { ...before, t: 'fresh' }, collectionMutations: { t: 'fresh' } },
+    ]);
+    expect(iter.requestVars().t).toBe('fresh');
+  });
+
+  it('CLI: the retained write outlives the iteration and sits below folder variables', () => {
+    const scope = scopeFor(CLI_SCOPE_POLICY);
+    const iter = scope.beginIteration({});
+    const before = iter.requestVars();
+    iter.absorb([{ before, after: { ...before, t: 'fresh' }, collectionMutations: { t: 'c' } }]);
+    iter.end();
+    const next = scope.beginIteration({});
+    expect(next.requestVars().t).toBe('fresh');
+    expect(next.requestVars({ t: 'folder' }).t).toBe('folder');
+  });
+
+  it('app: a collection unset hides lower scopes until the iteration ends', () => {
+    const scope = scopeFor(APP_SCOPE_POLICY, {
+      environment: { k: 'env' },
+      collection: { k: 'col' },
+    });
+    const iter = scope.beginIteration({ rowKey: 'r' });
+    const before = iter.requestVars();
+    iter.absorb([{ before, after: before, collectionMutations: { k: null } }]);
+    expect('k' in iter.requestVars()).toBe(false);
+    expect(iter.requestVars({ k: 'folder' }).k).toBe('folder');
+    iter.end();
+    expect(scope.beginIteration({}).requestVars().k).toBe('env');
+  });
+
+  it('app: a later collection set clears the unset; a row value survives one', () => {
+    const scope = scopeFor(APP_SCOPE_POLICY, { environment: { k: 'env' } });
+    const iter = scope.beginIteration({ inRow: 'row' });
+    const before = iter.requestVars();
+    iter.absorb([{ before, after: before, collectionMutations: { k: null, inRow: null } }]);
+    expect(iter.requestVars().inRow).toBe('row');
+    iter.absorb([{ before, after: before, collectionMutations: { k: 'back' } }]);
+    expect(iter.requestVars().k).toBe('back');
   });
 });

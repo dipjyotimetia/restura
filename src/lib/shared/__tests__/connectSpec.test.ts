@@ -195,7 +195,7 @@ describe('connectSpec', () => {
         message: '',
         auth: { type: 'none' },
       } as unknown as GrpcRequest;
-      expect(resolveGrpcReflectionConnect(grpc.url, grpc)).toMatchObject({
+      expect(resolveGrpcReflectionConnect(grpc.url, grpc, { inheritAuth: true })).toMatchObject({
         ok: true,
         url: 'https://col.example.com',
         credentials: { metadata: { 'x-f': 'from-folder' } },
@@ -218,7 +218,7 @@ describe('connectSpec', () => {
       });
       expect(resolveSseConnect(sse(), scope).ok).toBe(false);
       expect(resolveMcpConnect(mcp(), scope, false).ok).toBe(false);
-      expect(resolveGrpcReflectionConnect('https://x', undefined, scope).ok).toBe(false);
+      expect(resolveGrpcReflectionConnect('https://x', undefined, {}, scope).ok).toBe(false);
       expect(previewConnectText('{{a}}', scope)).toBe('{{a}}');
     });
 
@@ -238,6 +238,94 @@ describe('connectSpec', () => {
       const spec = resolveSseConnect(request);
       expect(spec.ok).toBe(false);
       expect(JSON.stringify(spec)).not.toContain('handle-1');
+    });
+  });
+  describe('credentials', () => {
+    const vaultVar = {
+      id: 'sv',
+      key: 'vault',
+      value: '',
+      enabled: true,
+      secretRef: { kind: 'handle', id: 'handle-1' },
+    } as never;
+    const grpc = (extra: object = {}) =>
+      ({
+        id: 'req-1',
+        name: 'G',
+        type: 'grpc',
+        url: 'https://g.example.com',
+        service: '',
+        method: '',
+        methodType: 'unary',
+        metadata: [],
+        message: '',
+        auth: { type: 'none' },
+        ...extra,
+      }) as unknown as GrpcRequest;
+
+    it('SSE: a Basic password variable resolves before encoding', () => {
+      const request = sse({
+        auth: { type: 'basic', basic: { username: 'u', password: '{{host}}' } },
+      });
+      seed(request);
+      expect(resolveSseConnect(request)).toMatchObject({
+        ok: true,
+        headers: { Authorization: `Basic ${btoa('u:col.example.com')}` },
+      });
+    });
+
+    it('SSE: refuses a secret variable inside a Basic password', () => {
+      const request = sse({
+        auth: { type: 'basic', basic: { username: 'u', password: '{{vault}}' } },
+      });
+      seed(request, { variables: [vaultVar] });
+      expect(resolveSseConnect(request).ok).toBe(false);
+    });
+
+    it('SSE: refuses a credential only Electron main could apply, not connect anonymously', () => {
+      const auth: AuthConfig = {
+        type: 'bearer',
+        bearer: { token: { kind: 'handle', id: 'handle-1' } },
+      } as never;
+      const own = sse({ auth });
+      seed(own);
+      expect(resolveSseConnect(own).ok).toBe(false);
+      const inheriting = sse();
+      seed(inheriting, {}, { auth });
+      expect(resolveSseConnect(inheriting).ok).toBe(false);
+    });
+
+    it('reflection: inherited auth goes only on an explicit discover', () => {
+      const request = grpc();
+      seed(request as never, {}, { auth: { type: 'bearer', bearer: { token: 'folder-token' } } });
+      const silent = resolveGrpcReflectionConnect(request.url, request, { inheritAuth: false });
+      expect(JSON.stringify(silent)).not.toContain('folder-token');
+      const explicit = resolveGrpcReflectionConnect(request.url, request, { inheritAuth: true });
+      expect(JSON.stringify(explicit)).toContain('folder-token');
+    });
+
+    it('reflection: own auth still goes on a silent discover, with variables resolved', () => {
+      const request = grpc({ auth: { type: 'bearer', bearer: { token: '{{host}}' } } });
+      seed(request as never);
+      const spec = resolveGrpcReflectionConnect(request.url, request, { inheritAuth: false });
+      expect(JSON.stringify(spec)).toContain('Bearer col.example.com');
+    });
+
+    it('reflection: refuses a secret variable in auth instead of sending the literal token', () => {
+      const request = grpc({ auth: { type: 'bearer', bearer: { token: '{{vault}}' } } });
+      seed(request as never, { variables: [vaultVar] });
+      const spec = resolveGrpcReflectionConnect(request.url, request, { inheritAuth: true });
+      expect(spec.ok).toBe(false);
+      expect(JSON.stringify(spec)).not.toContain('{{vault}}');
+    });
+
+    it('leaves header names as written, matching the CLI', () => {
+      const request = sse({ headers: [kv('X-{{host}}', 'v')] });
+      seed(request);
+      expect(resolveSseConnect(request)).toMatchObject({
+        ok: true,
+        headers: { 'X-{{host}}': 'v' },
+      });
     });
   });
 });
