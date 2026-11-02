@@ -1,14 +1,14 @@
-import { test, expect } from './fixtures/app';
+import { expect, test } from './fixtures/app';
 import { mockProxy } from './utils/mockProxy';
 import {
-  setUrl,
-  sendButton,
-  selectHttpMethod,
-  selectBodyType,
+  bodyTab,
   fillFirstMonacoEditor,
   headersTab,
-  bodyTab,
   paramsTab,
+  selectBodyType,
+  selectHttpMethod,
+  sendButton,
+  setUrl,
 } from './utils/selectors';
 
 test.describe('HTTP request flow', () => {

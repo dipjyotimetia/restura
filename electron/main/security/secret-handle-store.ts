@@ -35,7 +35,7 @@
  *    with a loud warning (matching the credential store's policy).
  */
 
-import * as crypto from 'crypto';
+import * as crypto from 'node:crypto';
 import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';

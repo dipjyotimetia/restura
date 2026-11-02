@@ -99,7 +99,7 @@ describe('OpenCollection imported GraphQL schema extension', () => {
 
   it('omits the extension when no request has an imported schema', () => {
     const oc = internalToOC({ id: 'c', name: 'Plain', items: [item(gql('None'))] });
-    expect((oc.extensions ?? {})[GRAPHQL_EXTENSION_KEY]).toBeUndefined();
+    expect(oc.extensions?.[GRAPHQL_EXTENSION_KEY]).toBeUndefined();
   });
 
   it('round-trips imported schemas through YAML', () => {

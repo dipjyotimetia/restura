@@ -251,7 +251,7 @@ function CollectionRunnerDialogInner({ scope, onClose, initialConfig }: Props) {
                 type="number"
                 min={1}
                 value={iterations}
-                onChange={(e) => setIterations(Math.max(1, parseInt(e.target.value) || 1))}
+                onChange={(e) => setIterations(Math.max(1, parseInt(e.target.value, 10) || 1))}
                 disabled={running || dataRows.length > 0}
                 className="h-8 text-xs"
               />
@@ -314,7 +314,7 @@ function CollectionRunnerDialogInner({ scope, onClose, initialConfig }: Props) {
                 type="number"
                 min={0}
                 value={delayMs}
-                onChange={(e) => setDelayMs(Math.max(0, parseInt(e.target.value) || 0))}
+                onChange={(e) => setDelayMs(Math.max(0, parseInt(e.target.value, 10) || 0))}
                 disabled={running}
                 className="h-8 text-xs"
               />

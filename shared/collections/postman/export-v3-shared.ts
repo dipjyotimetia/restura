@@ -391,7 +391,7 @@ function sidecarCreds(
 ): { type: string; creds: Cred[] } | undefined {
   if (!isObj(raw) || typeof raw.type !== 'string') return undefined;
   const type = raw.type;
-  const block = Object.prototype.hasOwnProperty.call(raw, type) ? raw[type] : undefined;
+  const block = Object.hasOwn(raw, type) ? raw[type] : undefined;
   const creds: Cred[] = Array.isArray(block)
     ? block.filter(isObj).map((c) => ({ key: str(c.key), value: bagValue(c.value, owner, ctx) }))
     : isObj(block)

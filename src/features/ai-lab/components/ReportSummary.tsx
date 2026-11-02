@@ -71,7 +71,7 @@ export interface SplitStats {
  * is now: retagging a case after a run moves its cells between the two columns.
  */
 export function statsBySplit(run: EvalRun, dataset: Dataset | undefined): SplitStats[] {
-  if (!dataset || !dataset.cases.some((c) => c.split === 'test')) return [];
+  if (!dataset?.cases.some((c) => c.split === 'test')) return [];
   const splitOf = new Map<string, 'train' | 'test'>(
     dataset.cases.map((c) => [c.id, c.split === 'test' ? 'test' : 'train'])
   );

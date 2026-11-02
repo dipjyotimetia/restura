@@ -87,7 +87,7 @@ export const VariableInput = React.forwardRef<HTMLInputElement, VariableInputPro
       const currentPos = input?.selectionStart || value.length;
       const before = value.slice(0, insertPosition);
       const after = value.slice(currentPos);
-      const newValue = before + '{{' + varName + '}}' + after;
+      const newValue = `${before}{{${varName}}}${after}`;
       onValueChange(newValue);
       setOpen(false);
 

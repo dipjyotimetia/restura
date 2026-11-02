@@ -20,10 +20,10 @@
  *    the export folder first (never following symlinks, never anything else).
  */
 
+import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import * as path from 'node:path';
 import { ipcMain } from 'electron';
-import * as fs from 'fs';
-import * as fsp from 'fs/promises';
-import * as path from 'path';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';

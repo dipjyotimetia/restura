@@ -1,5 +1,5 @@
-import { test, expect } from './fixtures/servers';
-import { setUrl, sendButton } from './utils/selectors';
+import { expect, test } from './fixtures/servers';
+import { sendButton, setUrl } from './utils/selectors';
 
 /**
  * Response-visualization features added in the API-client uplift, exercised

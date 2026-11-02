@@ -302,7 +302,7 @@ export function mergeReports(local, snapshots) {
   const perSession = [];
   for (const r of reports) {
     const s = r.subagents;
-    if (!s || s.status !== 'ok') continue;
+    if (s?.status !== 'ok') continue;
     subTotal += s.total;
     subSessions += s.sessions;
     perSession.push(...(s.perSession ?? []));
@@ -333,7 +333,7 @@ export function mergeReports(local, snapshots) {
   let reentrant = 0;
   for (const r of reports) {
     const s = r.stopOutcomes;
-    if (!s || s.status !== 'ok') continue;
+    if (s?.status !== 'ok') continue;
     blocked += s.blocked;
     allowed += s.allowed;
     reentrant += s.reentrant ?? 0;
@@ -460,7 +460,7 @@ if (subagents.status === 'no-data') {
   console.log(
     `Subagents — ${subagents.total} runs across ${subagents.sessions} sessions (mean ${subagents.meanPerSession}/session, max ${subagents.perSession[0] ?? 0})`
   );
-  console.log(pad('Agent type', 34) + pad('Runs', 6) + 'Sess');
+  console.log(`${pad('Agent type', 34) + pad('Runs', 6)}Sess`);
   console.log('-'.repeat(46));
   for (const t of subagents.byType) console.log(pad(t.type, 34) + pad(t.total, 6) + t.sessions);
 }
@@ -474,7 +474,7 @@ if (stopOutcomes.status === 'no-data') {
   console.log(
     `Stop-hook outcomes — ${stopOutcomes.total} stops: ${stopOutcomes.blocked} blocked, ${stopOutcomes.allowed} allowed (block rate ${stopOutcomes.blockRate}); ${stopOutcomes.reentrant} re-entrant stops excluded`
   );
-  console.log(pad('Check', 20) + pad('Fired', 7) + 'Fire rate');
+  console.log(`${pad('Check', 20) + pad('Fired', 7)}Fire rate`);
   console.log('-'.repeat(36));
   for (const c of stopOutcomes.checks) console.log(pad(c.name, 20) + pad(c.fired, 7) + c.fireRate);
 }

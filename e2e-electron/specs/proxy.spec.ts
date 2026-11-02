@@ -1,6 +1,6 @@
-import { test, expect } from '../fixtures/proxy';
 import type { Page } from '@playwright/test';
-import { switchMode, setUrl, sendButton } from '../../e2e/utils/selectors';
+import { sendButton, setUrl, switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/proxy';
 
 /**
  * Desktop HTTP proxy: renderer → IPC → http-handler → undici ProxyAgent → mock

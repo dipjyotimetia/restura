@@ -52,7 +52,7 @@ describe('assertKafkaBrokersSafe', () => {
   });
 
   it('rejects over-long broker strings (DoS prevention)', () => {
-    const huge = 'a'.repeat(300) + ':9092';
+    const huge = `${'a'.repeat(300)}:9092`;
     expect(() => assertKafkaBrokersSafe([huge])).toThrow(/Invalid Kafka broker/);
   });
 

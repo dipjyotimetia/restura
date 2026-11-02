@@ -193,7 +193,7 @@ function getArgumentSuggestions(
   const fields = getTypeFields(schema, typeName);
   const field = fields.find((f: GraphQLField) => f.name === fieldName);
 
-  if (!field || !field.args) return [];
+  if (!field?.args) return [];
 
   return field.args.map((arg) => {
     const typeStr = formatTypeRef(arg.type);

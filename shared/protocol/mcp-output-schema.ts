@@ -178,7 +178,10 @@ function check(
   const add = (message: string, at = path) => {
     if (issues.length < MAX_ISSUES) issues.push({ path: at, message });
   };
-  if (schema === false) return add('schema rejects every value');
+  if (schema === false) {
+    add('schema rejects every value');
+    return;
+  }
   if (!isRecord(schema)) return;
 
   // Only a re-entry of the same $ref against the SAME value is a cycle; a

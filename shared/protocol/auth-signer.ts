@@ -229,8 +229,7 @@ export async function signSigV4(
   }
 
   const sortedHeaderKeys = Object.keys(canonicalHeadersMap).sort();
-  const canonicalHeaders =
-    sortedHeaderKeys.map((k) => `${k}:${canonicalHeadersMap[k]}`).join('\n') + '\n';
+  const canonicalHeaders = `${sortedHeaderKeys.map((k) => `${k}:${canonicalHeadersMap[k]}`).join('\n')}\n`;
   const signedHeaders = sortedHeaderKeys.join(';');
 
   // Canonical query string: keys sorted, values percent-encoded.

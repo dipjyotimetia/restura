@@ -139,7 +139,7 @@ function exportItem(
     ctx.report.dropped(
       'placeholder-item',
       name,
-      String((sidecar?.item as { $kind: string }).$kind)
+      String((sidecar?.item as { $kind: string } | undefined)?.$kind)
     );
     return null;
   }

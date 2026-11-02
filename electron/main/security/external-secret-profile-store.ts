@@ -1,11 +1,11 @@
 /** Encrypted persistence and renderer-safe IPC for external provider profiles. */
 
+import * as crypto from 'node:crypto';
 import {
   type ExternalSecretProfile,
   type ExternalSecretProfileInput,
   externalSecretProfileListSchema,
 } from '@shared/secrets/external-secret-profile';
-import * as crypto from 'crypto';
 import { ipcMain } from 'electron';
 import { IPC } from '../../shared/channels';
 import {

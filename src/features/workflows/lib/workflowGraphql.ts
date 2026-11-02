@@ -39,7 +39,7 @@ export function findWorkflowGraphqlMutations(
     const binding = bindings.tasks[taskPath];
     if (!binding || !('protocol' in binding) || binding.protocol !== 'graphql') return;
     const request = findRequestByReference(items, binding.resourceId);
-    if (!request || request.type !== 'http') return;
+    if (request?.type !== 'http') return;
     let operation;
     try {
       operation = getGraphqlOperation(request as HttpRequest);

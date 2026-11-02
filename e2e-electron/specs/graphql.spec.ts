@@ -1,5 +1,5 @@
-import { test, expect } from '../fixtures/servers';
-import { switchMode, fillFirstMonacoEditor } from '../../e2e/utils/selectors';
+import { fillFirstMonacoEditor, switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/servers';
 
 /** Desktop GraphQL rides the HTTP IPC path; the renderer builds the envelope. */
 test.describe('Desktop GraphQL', () => {

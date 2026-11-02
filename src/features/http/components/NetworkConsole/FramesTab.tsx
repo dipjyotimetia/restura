@@ -105,7 +105,7 @@ export default function FramesTab() {
   const renderFrameRow = (frame: ConsoleFrame) => {
     const isSelected = frame.id === selectedId;
     const isSystem = frame.direction === 'system';
-    const preview = frame.payload.length > 80 ? frame.payload.slice(0, 80) + '…' : frame.payload;
+    const preview = frame.payload.length > 80 ? `${frame.payload.slice(0, 80)}…` : frame.payload;
     return (
       <div
         key={frame.id}

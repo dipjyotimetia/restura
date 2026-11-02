@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/servers';
+import { expect, test } from './fixtures/servers';
 import { setUrl } from './utils/selectors';
 
 /**

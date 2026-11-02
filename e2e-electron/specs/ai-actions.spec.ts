@@ -1,6 +1,6 @@
-import { test, expect } from '../fixtures/servers';
 import type { Page } from '@playwright/test';
-import { switchMode, setUrl, sendButton } from '../../e2e/utils/selectors';
+import { sendButton, setUrl, switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/servers';
 
 /**
  * Desktop AI inline actions + Agent Mode against a LOCAL mock LLM.

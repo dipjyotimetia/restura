@@ -140,7 +140,9 @@ export default function RequestSettingsEditor({
                   id="timeout"
                   type="number"
                   value={getEffectiveSettings().timeout}
-                  onChange={(e) => onSettingsChange({ timeout: parseInt(e.target.value) || 30000 })}
+                  onChange={(e) =>
+                    onSettingsChange({ timeout: parseInt(e.target.value, 10) || 30000 })
+                  }
                   min={1000}
                   max={600000}
                   step={1000}
@@ -176,7 +178,7 @@ export default function RequestSettingsEditor({
                     type="number"
                     value={getEffectiveSettings().maxRedirects}
                     onChange={(e) =>
-                      onSettingsChange({ maxRedirects: parseInt(e.target.value) || 10 })
+                      onSettingsChange({ maxRedirects: parseInt(e.target.value, 10) || 10 })
                     }
                     min={1}
                     max={50}
@@ -478,7 +480,7 @@ export default function RequestSettingsEditor({
                               onSettingsChange({
                                 proxy: {
                                   ...settings.proxy!,
-                                  port: parseInt(e.target.value) || 8080,
+                                  port: parseInt(e.target.value, 10) || 8080,
                                 },
                               })
                             }

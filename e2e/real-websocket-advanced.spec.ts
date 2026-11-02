@@ -1,5 +1,5 @@
-import { test, expect } from './fixtures/servers';
 import WebSocket from 'ws';
+import { expect, test } from './fixtures/servers';
 
 /**
  * Advanced WebSocket scenarios: subprotocol negotiation, ping/pong frames,

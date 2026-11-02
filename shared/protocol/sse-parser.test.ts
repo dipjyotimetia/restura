@@ -135,7 +135,7 @@ describe('SseParser un-delimited buffer cap (OOM guard)', () => {
     const p = new SseParser();
     // 1 MiB chunks with no '\n\n' — the retained buffer grows until the 8 MiB
     // cap trips and the parser fails closed (caller aborts the stream).
-    const chunk = enc('data: ' + 'x'.repeat(1024 * 1024));
+    const chunk = enc(`data: ${'x'.repeat(1024 * 1024)}`);
     expect(() => {
       for (let i = 0; i < 10; i++) p.feed(chunk);
     }).toThrow(/without a frame delimiter/);

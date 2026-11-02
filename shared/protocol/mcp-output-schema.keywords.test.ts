@@ -169,7 +169,7 @@ describe('review-feedback regressions', () => {
     (pattern) => {
       const r = validateToolOutput(
         { type: 'object', properties: { s: { type: 'string', pattern } } },
-        { structuredContent: { s: 'a'.repeat(30) + 'c' } }
+        { structuredContent: { s: `${'a'.repeat(30)}c` } }
       );
       expect(r.status).toBe('valid');
       expect(r).toHaveProperty('notes');

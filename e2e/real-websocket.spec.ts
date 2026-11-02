@@ -1,6 +1,6 @@
-import { test, expect } from './fixtures/servers';
-import { switchMode } from './utils/selectors';
 import WebSocket from 'ws';
+import { expect, test } from './fixtures/servers';
+import { switchMode } from './utils/selectors';
 
 /**
  * Real WebSocket server. Three transports exposed:

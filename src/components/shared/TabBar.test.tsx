@@ -19,7 +19,7 @@ vi.mock('@/lib/shared/platform', async (importOriginal) => {
 });
 
 const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
-  id: 'r-' + Math.random().toString(36).slice(2),
+  id: `r-${Math.random().toString(36).slice(2)}`,
   name: 'Test',
   type: 'http',
   method: 'GET',

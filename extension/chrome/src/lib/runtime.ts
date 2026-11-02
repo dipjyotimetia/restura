@@ -1,13 +1,14 @@
 /**
  * Thin typed wrapper over `chrome.runtime.sendMessage` to the service worker.
  */
+
+import { CAPTURE_SESSION_KEY } from '../background/session-store';
 import {
   type CaptureRequest,
   type CaptureState,
   captureStateSchema,
   captureStateUpdateSchema,
 } from './messages';
-import { CAPTURE_SESSION_KEY } from '../background/session-store';
 
 interface WorkerResponse {
   ok: boolean;

@@ -52,7 +52,7 @@ function sidecarAttributeTypes(
   const out = new Map<string, string | undefined>();
   const raw = sidecar?.authBagOnly ? undefined : sidecar?.auth;
   if (!isObj(raw) || typeof raw.type !== 'string') return out;
-  const block = Object.prototype.hasOwnProperty.call(raw, raw.type) ? raw[raw.type] : undefined;
+  const block = Object.hasOwn(raw, raw.type) ? raw[raw.type] : undefined;
   if (Array.isArray(block)) {
     for (const entry of block) {
       if (isObj(entry) && typeof entry.key === 'string') {

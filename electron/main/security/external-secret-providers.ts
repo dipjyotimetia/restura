@@ -1,15 +1,15 @@
+import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { fromIni, fromTokenFile } from '@aws-sdk/credential-providers';
 import { AzureCliCredential, WorkloadIdentityCredential } from '@azure/identity';
 import { SecretClient } from '@azure/keyvault-secrets';
-import { fromIni, fromTokenFile } from '@aws-sdk/credential-providers';
-import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import type { ExternalSecretProfile } from '@shared/secrets/external-secret-profile';
 import {
   createExternalSecretResolver,
   ExternalSecretError,
   type ExternalSecretReference,
   type ExternalSecretResolver,
 } from '@shared/secrets/external-secret-resolver';
-import type { ExternalSecretProfile } from '@shared/secrets/external-secret-profile';
 
 export type DesktopExternalSecretProfile = ExternalSecretProfile;
 

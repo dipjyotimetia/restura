@@ -75,14 +75,14 @@ describe('prefix-recognizable provider/cloud tokens (no key name, no Bearer)', (
   // real credentials) while the runtime values still match the redaction patterns.
   const FILL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   const SECRETS = [
-    'sk-' + FILL.slice(0, 32), // OpenAI
-    'sk-ant-api03-' + FILL.slice(0, 30), // Anthropic
-    'sk-or-v1-' + FILL.slice(0, 30), // OpenRouter
-    'AKIA' + FILL.slice(0, 16), // AWS access key id
-    'ghp_' + FILL.slice(0, 36), // GitHub PAT
-    'github_pat_' + FILL.slice(0, 30), // GitHub fine-grained
-    'xoxb-' + FILL.slice(0, 20), // Slack
-    'AIza' + FILL.slice(0, 35), // Google API key
+    `sk-${FILL.slice(0, 32)}`, // OpenAI
+    `sk-ant-api03-${FILL.slice(0, 30)}`, // Anthropic
+    `sk-or-v1-${FILL.slice(0, 30)}`, // OpenRouter
+    `AKIA${FILL.slice(0, 16)}`, // AWS access key id
+    `ghp_${FILL.slice(0, 36)}`, // GitHub PAT
+    `github_pat_${FILL.slice(0, 30)}`, // GitHub fine-grained
+    `xoxb-${FILL.slice(0, 20)}`, // Slack
+    `AIza${FILL.slice(0, 35)}`, // Google API key
   ];
 
   it('strips each bare token from a body that uses an unrecognized key name', () => {

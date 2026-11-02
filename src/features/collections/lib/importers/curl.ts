@@ -49,7 +49,7 @@ export function parseCurlCommand(source: string): {
   let bodyKind: HttpRequest['body']['type'] = 'none';
   let basic: { username: string; password: string } | undefined;
   let cookie: string | undefined;
-  let settings: Partial<RequestSettings> = {};
+  const settings: Partial<RequestSettings> = {};
 
   const take = (index: number, option: string, allowLeadingDash = false): string => {
     const value = tokens[index + 1];

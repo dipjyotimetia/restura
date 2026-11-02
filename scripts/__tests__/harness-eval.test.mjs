@@ -762,7 +762,7 @@ test('runCase dry-run applies patches, checks the combined merge and always clea
 function assertMainRepoReadOnly(exec) {
   for (const call of exec.calls) {
     const args = call.command === 'pipe' ? call.from[1] : call.args;
-    if (!args || args[0] !== '-C' || args[1] !== '/repo') continue;
+    if (args?.[0] !== '-C' || args[1] !== '/repo') continue;
     assert.ok(['archive', 'cat-file', 'show', 'rev-parse', 'ls-tree'].includes(args[2]), call.line);
   }
 }

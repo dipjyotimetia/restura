@@ -184,8 +184,7 @@ export function buildDesktopTransportConfig(
 
   const proxy = getEffectiveProxy(effectiveSettings, globalSettings.proxy);
   if (
-    proxy &&
-    proxy.enabled &&
+    proxy?.enabled &&
     proxy.type !== 'none' &&
     proxy.host &&
     !shouldBypassProxy(resolvedUrl, proxy.bypassList)

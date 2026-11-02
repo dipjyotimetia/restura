@@ -134,7 +134,7 @@ async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
       const cl = headers['content-length'];
       if (cl !== undefined) {
         const n = parseInt(cl, 10);
-        if (!isNaN(n)) contentLength = n;
+        if (!Number.isNaN(n)) contentLength = n;
       }
     }
 

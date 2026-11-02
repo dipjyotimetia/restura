@@ -177,7 +177,7 @@ export function extractPath(url: string, spec: AnyOpenAPISpec): string | null {
     // Not a full URL — strip query/fragment manually.
     pathname = url.split('?')[0]?.split('#')[0] ?? url;
   }
-  if (!pathname.startsWith('/')) pathname = '/' + pathname;
+  if (!pathname.startsWith('/')) pathname = `/${pathname}`;
 
   // Try stripping each `servers[*].url` prefix in order.
   const servers = spec.servers ?? [];
@@ -188,7 +188,7 @@ export function extractPath(url: string, spec: AnyOpenAPISpec): string | null {
       const sUrl = new URL(server.url, 'http://placeholder');
       serverPath = sUrl.pathname;
     } catch {
-      serverPath = server.url.startsWith('/') ? server.url : '/' + server.url;
+      serverPath = server.url.startsWith('/') ? server.url : `/${server.url}`;
     }
     serverPath = stripTrailingSlash(serverPath);
     if (serverPath === '/' || serverPath === '') continue;

@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/app';
+import { expect, test } from './fixtures/app';
 
 /**
  * The request/response divider position is persisted (useSettingsStore →

@@ -13,7 +13,7 @@ vi.mock('sonner', () => ({
 vi.mock('@/lib/shared/monacoModelLifecycle', () => monacoLifecycleMocks);
 
 const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
-  id: 'r-' + Math.random().toString(36).slice(2),
+  id: `r-${Math.random().toString(36).slice(2)}`,
   name: 'Test',
   type: 'http',
   method: 'GET',
@@ -26,7 +26,7 @@ const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
 });
 
 const makeGrpc = (overrides: Partial<GrpcRequest> = {}): GrpcRequest => ({
-  id: 'r-' + Math.random().toString(36).slice(2),
+  id: `r-${Math.random().toString(36).slice(2)}`,
   name: 'Test gRPC',
   type: 'grpc',
   methodType: 'unary',
@@ -40,7 +40,7 @@ const makeGrpc = (overrides: Partial<GrpcRequest> = {}): GrpcRequest => ({
 });
 
 const makeResponse = (requestId: string): ApiResponse => ({
-  id: 'res-' + Math.random().toString(36).slice(2),
+  id: `res-${Math.random().toString(36).slice(2)}`,
   requestId,
   status: 200,
   statusText: 'OK',

@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/app';
+import { expect, test } from './fixtures/app';
 import { fillFirstMonacoEditor, switchMode } from './utils/selectors';
 
 test.describe('Protocol switching', () => {

@@ -45,7 +45,7 @@ export function isMultipartMixed(contentType: string | null | undefined): boolea
  * when the header is not multipart or has no usable boundary.
  */
 export function parseMultipartBoundary(contentType: string | null | undefined): string | null {
-  if (!contentType || !contentType.toLowerCase().startsWith('multipart/')) return null;
+  if (!contentType?.toLowerCase().startsWith('multipart/')) return null;
   for (const raw of contentType.split(';').slice(1)) {
     const eq = raw.indexOf('=');
     if (eq < 0) continue;

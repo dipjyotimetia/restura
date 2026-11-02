@@ -62,7 +62,7 @@ describe('assertMqttBrokerSafe', () => {
   });
 
   it('rejects over-long broker URLs (DoS prevention)', () => {
-    const huge = 'mqtt://' + 'a'.repeat(2100) + ':1883';
+    const huge = `mqtt://${'a'.repeat(2100)}:1883`;
     expect(() => assertMqttBrokerSafe(huge)).toThrow(/Invalid MQTT broker URL/);
   });
 

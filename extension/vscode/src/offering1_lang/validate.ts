@@ -1,4 +1,3 @@
-import type { ZodType } from 'zod';
 import {
   graphqlRequestSchema,
   grpcRequestSchema,
@@ -6,6 +5,7 @@ import {
   websocketRequestSchema,
 } from '@shared/opencollection/schemas';
 import { escapeRegExp } from '@shared/text/escape-reg-exp';
+import type { ZodType } from 'zod';
 import { classifyOcFile, type OcRequestType } from '../workspace/collectionDetector';
 
 /** A single schema violation, located against the source text (0-based line). */

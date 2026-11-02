@@ -13,7 +13,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 export function rfc3986(value: string): string {
   return encodeURIComponent(value).replace(
     /[!'()*]/g,
-    (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
   );
 }
 

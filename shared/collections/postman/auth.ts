@@ -149,7 +149,7 @@ export const POSTMAN_MAPPED_AUTH_PARAMS: Readonly<Record<string, ReadonlySet<str
  * their whole active block. Sibling (inactive) type blocks are always dropped. Works on both v2.1 arrays and v2.0 object maps.
  */
 function hasOwn(obj: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(obj, key);
+  return Object.hasOwn(obj, key);
 }
 
 /**

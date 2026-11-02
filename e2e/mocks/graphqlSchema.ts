@@ -1,12 +1,12 @@
 import {
-  GraphQLSchema,
-  GraphQLObjectType,
-  GraphQLString,
-  GraphQLNonNull,
+  GraphQLError,
   GraphQLID,
   GraphQLInt,
   GraphQLList,
-  GraphQLError,
+  GraphQLNonNull,
+  GraphQLObjectType,
+  GraphQLSchema,
+  GraphQLString,
 } from 'graphql';
 
 /**

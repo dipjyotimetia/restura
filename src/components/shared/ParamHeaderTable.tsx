@@ -270,7 +270,7 @@ export function ParamHeaderTable({
           />
           <p className="mt-1 text-sp-11 text-sp-dim">
             One <code className="font-mono">key: value</code> per line; prefix with{' '}
-            <code className="font-mono">//</code> to disable.
+            <code className="font-mono">{'//'}</code> to disable.
           </p>
         </div>
       )}

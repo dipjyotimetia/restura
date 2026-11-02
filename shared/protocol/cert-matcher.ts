@@ -47,7 +47,7 @@ function entryMatches(entry: HostScopedEntry, hostname: string, port: number): b
   const host = hostname.toLowerCase();
   const { suffix, wildcard } = classifyHost(entry.host);
   if (!suffix) return false;
-  if (wildcard) return host === suffix || host.endsWith('.' + suffix);
+  if (wildcard) return host === suffix || host.endsWith(`.${suffix}`);
   return host === suffix;
 }
 

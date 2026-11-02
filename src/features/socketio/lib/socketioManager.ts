@@ -197,7 +197,7 @@ class SocketIOManager {
     }
 
     const socket = this.browserSockets.get(connectionId);
-    if (!socket || !socket.connected) {
+    if (!socket?.connected) {
       store.addEvent(connectionId, {
         direction: 'system',
         eventName: '<system>',

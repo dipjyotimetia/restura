@@ -134,7 +134,7 @@ export function KafkaClient() {
   if (!isDesktop) return <DesktopOnlyPanel />;
 
   const handleProduce = async (): Promise<void> => {
-    if (!connection || !connection.defaultTopic) return;
+    if (!connection?.defaultTopic) return;
     const valueSchema = connection.registry
       ? validateOptionalSchemaId(produceSchemaId, 'Value')
       : { valid: true as const, value: undefined };

@@ -59,7 +59,7 @@ const runRequestMock = vi.fn(async (req: HttpRequest, ctx: any) => {
     });
   }
   return {
-    id: 'r-' + req.name,
+    id: `r-${req.name}`,
     requestId: req.id,
     status: 200,
     statusText: 'OK',
@@ -95,7 +95,7 @@ function httpReq(id: string, name: string): HttpRequest {
     name,
     type: 'http',
     method: 'GET',
-    url: 'https://example.test/' + name,
+    url: `https://example.test/${name}`,
     headers: [],
     params: [],
     body: { type: 'none', raw: '' },

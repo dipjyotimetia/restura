@@ -163,7 +163,7 @@ export function preflightAgentSuite(
         const mcp = runtime?.sources.find(
           (candidate) => candidate.kind === 'mcp' && candidate.id === source.connectionId
         );
-        if (!mcp || mcp.kind !== 'mcp') {
+        if (mcp?.kind !== 'mcp') {
           throw new Error(
             `MCP tool source is not listed in the runtime manifest: ${source.connectionId}`
           );

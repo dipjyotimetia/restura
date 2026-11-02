@@ -131,7 +131,7 @@ export function useOwsWorkflowExecution() {
                 throw new Error('Workflow calls require an approved saved HTTP request binding.');
               }
               const request = findRequestByReference(collection.items, binding.resourceId);
-              if (!request || request.type !== 'http') {
+              if (request?.type !== 'http') {
                 throw new Error(
                   `Workflow binding ${binding.resourceId} does not resolve to a saved HTTP request.`
                 );

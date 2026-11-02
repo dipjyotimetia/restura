@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/servers';
+import { expect, test } from './fixtures/servers';
 
 /**
  * Command palette (Cmd/Ctrl+K) groups + HTTP-gated actions added in the uplift.

@@ -1,8 +1,8 @@
-import { test, expect } from './fixtures/servers';
-import { setUrl, sendButton } from './utils/selectors';
-import { configureProxy } from './utils/configureProxy';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import * as tls from 'node:tls';
+import { expect, test } from './fixtures/servers';
+import { configureProxy } from './utils/configureProxy';
+import { sendButton, setUrl } from './utils/selectors';
 
 /**
  * Web mode: axios in the browser ignores native proxy config (browser sandbox

@@ -575,7 +575,7 @@ export function entryToHttpRequest(entry: ConsoleEntry): HttpRequest | null {
 /** Reconstruct a GraphQL editor request without downgrading it to an HTTP tab. */
 export function entryToGraphqlRequest(entry: ConsoleEntry): HttpRequest | null {
   const draft = entry.nativeDraft;
-  if (!draft || draft.kind !== 'graphql') return null;
+  if (draft?.kind !== 'graphql') return null;
   let variables: unknown = {};
   try {
     variables = JSON.parse(draft.variables);
@@ -601,7 +601,7 @@ export function entryToGraphqlRequest(entry: ConsoleEntry): HttpRequest | null {
 /** gRPC drafts deliberately include no descriptors: discovery/upload is still required before send. */
 export function entryToGrpcRequest(entry: ConsoleEntry): GrpcRequest | null {
   const draft = entry.nativeDraft;
-  if (!draft || draft.kind !== 'grpc') return null;
+  if (draft?.kind !== 'grpc') return null;
   return {
     id: uuidv4(),
     name: 'Console gRPC Draft',

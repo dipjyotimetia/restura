@@ -38,7 +38,7 @@ export const MAX_FRAME_ASSERTION_BYTES = 256 * 1024;
 const RUNTIME_FAILURE = /out of memory|stack overflow|interrupted|InternalError/i;
 
 function usableScript(config: WebSocketConnection['frameAssertion']): string | null {
-  if (!config || config.enabled !== true || typeof config.script !== 'string') return null;
+  if (config?.enabled !== true || typeof config.script !== 'string') return null;
   return config.script.trim() ? config.script : null;
 }
 

@@ -1,7 +1,7 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { createLogger } from '@shared/runtime/logger';
 import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
-import * as fs from 'fs';
-import * as path from 'path';
 import { z } from 'zod';
 import { IPC } from '../shared/channels';
 import { gitRateLimiter } from './handlers/git-handler';

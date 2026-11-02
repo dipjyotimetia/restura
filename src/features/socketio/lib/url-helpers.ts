@@ -27,7 +27,7 @@ export interface UrlValidationResult {
 
 /** Renderer-side URL validation. The Electron handler's Zod schema enforces the same rules at the IPC boundary. */
 export function validateSocketIOUrl(url: string): UrlValidationResult {
-  if (!url || !url.trim()) return { valid: false, error: 'URL is required' };
+  if (!url?.trim()) return { valid: false, error: 'URL is required' };
   try {
     const parsed = new URL(url);
     if (!SOCKETIO_VALID_SCHEMES.has(parsed.protocol)) {

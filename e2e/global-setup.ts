@@ -50,10 +50,9 @@ function ensureDevVars(): void {
   if (!changed) return;
 
   mkdirSync(dirname(DEV_VARS_PATH), { recursive: true });
-  const next =
-    Object.entries(existing)
-      .map(([k, v]) => `${k}=${v}`)
-      .join('\n') + '\n';
+  const next = `${Object.entries(existing)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n')}\n`;
   writeFileSync(DEV_VARS_PATH, next, 'utf8');
 
   console.log(

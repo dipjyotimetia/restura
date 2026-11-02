@@ -1,6 +1,6 @@
-import { test, expect } from './fixtures/app';
+import { expect, test } from './fixtures/app';
 import { mockProxy } from './utils/mockProxy';
-import { headersTab, setUrl, settingsTab } from './utils/selectors';
+import { headersTab, settingsTab, setUrl } from './utils/selectors';
 
 test.describe('Headers autocomplete', () => {
   test('opens suggestions, filters by substring, and selecting Content-Type auto-fills application/json', async ({

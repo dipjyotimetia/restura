@@ -122,7 +122,7 @@ export function describeGrpcAuthMetadata(auth: AuthConfig): string {
     .map(([key, value]) => {
       const maskedValue =
         key.includes('authorization') || key.includes('password')
-          ? value.substring(0, 10) + '...'
+          ? `${value.substring(0, 10)}...`
           : value;
       return `${key}: ${maskedValue}`;
     })

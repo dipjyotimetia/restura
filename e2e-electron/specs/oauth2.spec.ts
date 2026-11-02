@@ -1,6 +1,6 @@
-import { test, expect } from '../fixtures/tls';
-import { switchMode, setUrl, sendButton } from '../../e2e/utils/selectors';
 import { TEST_AUTH_FIXTURES } from '../../e2e/mocks/authRoutes';
+import { sendButton, setUrl, switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/tls';
 
 /**
  * Desktop OAuth 2.0 (client-credentials), end-to-end. Unlike the sign-at-wire

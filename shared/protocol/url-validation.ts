@@ -263,7 +263,7 @@ export function isCloudMetadataHost(hostname: string): boolean {
       return true;
     }
   }
-  return CLOUD_METADATA_HOSTNAMES.some((n) => h === n || h.endsWith('.' + n));
+  return CLOUD_METADATA_HOSTNAMES.some((n) => h === n || h.endsWith(`.${n}`));
 }
 
 /**
@@ -355,7 +355,7 @@ export function validateURL(
   for (const blocked of blockedHostnames) {
     const b = canonicalizeNumericIPv4(normalizeHostForCompare(blocked));
     if (allowLocalhost && (b === 'localhost' || b === '127.0.0.1')) continue;
-    if (hostname === b || hostname.endsWith('.' + b)) {
+    if (hostname === b || hostname.endsWith(`.${b}`)) {
       return { valid: false, error: `Hostname "${hostname}" is blocked for security reasons` };
     }
   }

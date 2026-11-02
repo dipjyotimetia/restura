@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAgentTelemetryService, type TelemetryPipeline } from '../lifecycle/agent-telemetry';
 import type { TelemetryTrace } from '../../../shared/agent-lab/telemetry';
+import { createAgentTelemetryService, type TelemetryPipeline } from '../lifecycle/agent-telemetry';
 
 const trace: TelemetryTrace = {
   id: 'trace',

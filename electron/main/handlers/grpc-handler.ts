@@ -150,7 +150,7 @@ export function sanitizeErrorMessage(message: string | undefined): string {
 
   // Truncate very long messages
   if (sanitized.length > 500) {
-    sanitized = sanitized.substring(0, 500) + '...';
+    sanitized = `${sanitized.substring(0, 500)}...`;
   }
 
   return sanitized || 'Unknown error';
@@ -330,8 +330,8 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       statusText: 'INVALID_ARGUMENT',
       headers: {},
       trailers: {},
-      error: '[URL policy] ' + detail,
-      details: '[URL policy] ' + detail,
+      error: `[URL policy] ${detail}`,
+      details: `[URL policy] ${detail}`,
     };
   }
 

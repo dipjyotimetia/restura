@@ -207,7 +207,7 @@ const routes: Route[] = [
       let i = 0;
       const interval = setInterval(() => {
         i += 1;
-        res.write(JSON.stringify({ n: i }) + '\n');
+        res.write(`${JSON.stringify({ n: i })}\n`);
         if (i >= 3) {
           clearInterval(interval);
           res.end();

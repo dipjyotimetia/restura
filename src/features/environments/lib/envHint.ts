@@ -33,7 +33,7 @@ function normaliseKey(key: string): string {
 export function envHostHint(env: Environment | null | undefined): string | null {
   if (!env) return null;
   const match = env.variables.find((v) => v.enabled && HOST_KEYS.has(normaliseKey(v.key)));
-  if (!match || !match.value) return null;
+  if (!match?.value) return null;
   try {
     return new URL(match.value).host;
   } catch {

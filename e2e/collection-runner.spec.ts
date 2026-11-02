@@ -21,7 +21,7 @@
  * over a real socket through the same wire path as a normal send.
  */
 import type { Page } from '@playwright/test';
-import { test, expect } from './fixtures/servers';
+import { expect, test } from './fixtures/servers';
 import { resetPersistedState } from './utils/reset-state';
 
 /** A Postman v2.1 collection with two HTTP requests carrying `rs.*` test scripts. */

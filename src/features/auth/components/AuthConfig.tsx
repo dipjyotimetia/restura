@@ -9,8 +9,8 @@ import { NoAuthEditor } from './editors/NoAuthEditor';
 import { NtlmAuthEditor } from './editors/NtlmAuthEditor';
 import { OAuth1AuthEditor } from './editors/OAuth1AuthEditor';
 import { OAuth2AuthEditor } from './editors/OAuth2AuthEditor';
-import { WsseAuthEditor } from './editors/WsseAuthEditor';
 import type { AuthEditorProps } from './editors/types';
+import { WsseAuthEditor } from './editors/WsseAuthEditor';
 
 /**
  * Renders only the request's own authentication configuration. Inheritance is

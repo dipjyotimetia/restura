@@ -151,7 +151,7 @@ export async function resolveCliAgentTools(
       const runtimeSource = runtime.sources.find(
         (candidate) => candidate.kind === 'mcp' && candidate.id === source.connectionId
       );
-      if (!runtimeSource || runtimeSource.kind !== 'mcp' || runtimeSource.readOnly !== true) {
+      if (runtimeSource?.kind !== 'mcp' || runtimeSource.readOnly !== true) {
         throw new Error(
           `MCP tool source is not a read-only runtime binding: ${source.connectionId}`
         );
@@ -195,7 +195,7 @@ export async function resolveCliAgentTools(
       const runtimeSource = runtime.sources.find(
         (candidate) => candidate.kind === 'a2a' && candidate.endpoint === source.endpoint
       );
-      if (!runtimeSource || runtimeSource.kind !== 'a2a' || runtimeSource.readOnly !== true) {
+      if (runtimeSource?.kind !== 'a2a' || runtimeSource.readOnly !== true) {
         throw new Error(`A2A tool source is not a read-only runtime binding: ${source.endpoint}`);
       }
       const client = new A2aClient(

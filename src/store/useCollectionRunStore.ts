@@ -46,7 +46,7 @@ function runEvidenceBytes(run: CollectionRunResult): number {
 
 /** Quota policy: retain completed metadata, evict evidence from oldest runs first. */
 export function pruneCollectionRuns(runs: CollectionRunResult[]): CollectionRunResult[] {
-  let retained = runs
+  const retained = runs
     .slice(0, MAX_RUNS)
     .map((run) =>
       runEvidenceBytes(run) > RESPONSE_EVIDENCE_LIMITS.perRunBytes ? markUnavailable(run) : run

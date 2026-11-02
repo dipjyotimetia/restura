@@ -126,7 +126,7 @@ class OpenAIDecoder implements StreamDecoder {
           // No index: a delta carrying a new `id` starts the next call; arg-only
           // continuation deltas (no id) append to the current one.
           if (td.id) this.autoToolIdx += 1;
-          idx = this.autoToolIdx < 0 ? 0 : this.autoToolIdx;
+          idx = Math.max(this.autoToolIdx, 0);
         }
         const existing = this.toolCalls.get(idx) ?? { id: '', name: '', args: '' };
         if (td.id) existing.id = td.id;

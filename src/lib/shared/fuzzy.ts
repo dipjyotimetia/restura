@@ -30,5 +30,5 @@ export function fuzzyScore(query: string, text: string): number | null {
 
 function isWordStart(text: string, index: number): boolean {
   if (index === 0) return true;
-  return /[\s/._:\-]/.test(text[index - 1] ?? '');
+  return /[\s/._:-]/.test(text[index - 1] ?? '');
 }

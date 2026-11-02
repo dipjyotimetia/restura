@@ -165,6 +165,7 @@ export function MqttSubscriptionsPanel({
                     {subscription.options?.noLocal ? ' · no local' : ''}
                   </Badge>
                   <button
+                    type="button"
                     className="ml-auto text-sp-dim hover:text-red-400"
                     onClick={() => onUnsubscribe(subscription.topicFilter)}
                     aria-label={`Unsubscribe ${subscription.topicFilter}`}

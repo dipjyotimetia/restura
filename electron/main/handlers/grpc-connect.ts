@@ -87,7 +87,7 @@ function pinnedLookup(dial: PinnedDial) {
     opts: { all?: boolean } | undefined,
     cb: (err: Error | null, address: unknown, family?: number) => void
   ): void => {
-    if (opts && opts.all) cb(null, [{ address: dial.ip, family: dial.family }]);
+    if (opts?.all) cb(null, [{ address: dial.ip, family: dial.family }]);
     else cb(null, dial.ip, dial.family);
   };
 }

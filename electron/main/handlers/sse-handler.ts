@@ -143,8 +143,8 @@ async function readStream(
     } catch {
       /* already done */
     }
-    if (connections.get(connectionId, webContentsId) !== entry) return;
-    if (!entry.explicitlyClosed) {
+    const stillCurrent = connections.get(connectionId, webContentsId) === entry;
+    if (stillCurrent && !entry.explicitlyClosed) {
       const lastEventId = parser.getLastEventId();
       const retry = parser.getReconnectionTime();
       connections.emitAndRemove(connectionId, webContentsId, 'close', {
@@ -153,7 +153,7 @@ async function readStream(
         ...(lastEventId !== undefined ? { lastEventId: entry.redact(lastEventId) } : {}),
         ...(retry !== undefined ? { retry } : {}),
       } satisfies SseClosePayload);
-    } else {
+    } else if (stillCurrent) {
       connections.remove(connectionId, webContentsId);
     }
   }

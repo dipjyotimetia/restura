@@ -14,9 +14,9 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { loadCollectionFromDir } from './fs-reader';
 import type { OpenCollection } from '../schemas';
 import { serializeOpenCollectionYAML } from '../serializer';
+import { loadCollectionFromDir } from './fs-reader';
 
 const MANIFEST_FILE = '.restura-managed-files.json';
 

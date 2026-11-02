@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process';
-import { mkdirSync, existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export interface SelfSignedCert {
   key: Buffer;

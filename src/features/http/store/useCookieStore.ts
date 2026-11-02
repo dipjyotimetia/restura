@@ -78,7 +78,7 @@ export const useCookieStore = create<CookieStore>()(
             // Skip expired cookies
             if (cookie.expires) {
               const expiry = new Date(cookie.expires).getTime();
-              if (!isNaN(expiry) && expiry <= now) return false;
+              if (!Number.isNaN(expiry) && expiry <= now) return false;
             }
 
             // Public-suffix guard (RFC 6265 §5.3): a cookie scoped to a bare
@@ -112,7 +112,7 @@ export const useCookieStore = create<CookieStore>()(
           cookies: state.cookies.filter((c) => {
             if (!c.expires) return true;
             const expiry = new Date(c.expires).getTime();
-            return isNaN(expiry) || expiry > Date.now();
+            return Number.isNaN(expiry) || expiry > Date.now();
           }),
         })),
     }),

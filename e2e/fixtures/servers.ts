@@ -1,14 +1,14 @@
-import { test as appTest } from './app';
+import { type MockGrpcServerHandle, startMockGrpcServer } from '../mocks/grpcServer';
 import {
+  type MockHttpServerHandle,
   startMockHttpServer,
   startMockHttpsServer,
-  type MockHttpServerHandle,
 } from '../mocks/httpServer';
-import { startMockProxyServer, type MockProxyServerHandle } from '../mocks/proxyServer';
-import { startMockGrpcServer, type MockGrpcServerHandle } from '../mocks/grpcServer';
-import { startMockWsServer, type MockWsServerHandle } from '../mocks/wsServer';
-import { startMockMcpServer, type MockMcpServerHandle } from '../mocks/mcpServer';
-import { startMockSocketIOServer, type MockSocketIOServerHandle } from '../mocks/socketioServer';
+import { type MockMcpServerHandle, startMockMcpServer } from '../mocks/mcpServer';
+import { type MockProxyServerHandle, startMockProxyServer } from '../mocks/proxyServer';
+import { type MockSocketIOServerHandle, startMockSocketIOServer } from '../mocks/socketioServer';
+import { type MockWsServerHandle, startMockWsServer } from '../mocks/wsServer';
+import { test as appTest } from './app';
 
 export interface MockServers {
   http: MockHttpServerHandle;

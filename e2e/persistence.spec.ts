@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/app';
+import { expect, test } from './fixtures/app';
 import { setUrl } from './utils/selectors';
 
 // Persistence regression: global state must come back from the encrypted Dexie

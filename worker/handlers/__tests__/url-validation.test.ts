@@ -71,14 +71,14 @@ describe('validateURL', () => {
   });
 
   it('URL over 2048 chars returns valid: false with max length error', () => {
-    const longUrl = 'https://example.com/' + 'a'.repeat(2050);
+    const longUrl = `https://example.com/${'a'.repeat(2050)}`;
     const result = validateURL(longUrl);
     expect(result.valid).toBe(false);
     expect(result.error).toMatch(/exceeds maximum length/i);
   });
 
   it('custom maxUrlLength option is respected', () => {
-    const url = 'https://example.com/' + 'a'.repeat(50);
+    const url = `https://example.com/${'a'.repeat(50)}`;
     const result = validateURL(url, { maxUrlLength: 30 });
     expect(result.valid).toBe(false);
     expect(result.error).toMatch(/exceeds maximum length/i);

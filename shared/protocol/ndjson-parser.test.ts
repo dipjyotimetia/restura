@@ -71,7 +71,7 @@ describe('NdjsonParser.feed', () => {
     const p = new NdjsonParser();
     const lines: string[] = [];
     for (let i = 0; i < 100; i++) lines.push(`{"i":${i}}`);
-    const out = p.feed(enc(lines.join('\n') + '\n'));
+    const out = p.feed(enc(`${lines.join('\n')}\n`));
     expect(out).toHaveLength(100);
     expect(out[0]).toEqual({ i: 0 });
     expect(out[99]).toEqual({ i: 99 });

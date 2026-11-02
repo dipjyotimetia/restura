@@ -87,8 +87,8 @@ export function openSocksSocket(
           Buffer.from([0x04, 0x01]),
           port,
           Buffer.from([0x00, 0x00, 0x00, 0x01]),
-          Buffer.from((proxy.auth?.username ?? '') + '\0', 'ascii'),
-          Buffer.from(targetHost + '\0', 'ascii'),
+          Buffer.from(`${proxy.auth?.username ?? ''}\0`, 'ascii'),
+          Buffer.from(`${targetHost}\0`, 'ascii'),
         ]);
         socket.write(request);
         dataListener = (reply: Buffer) => {

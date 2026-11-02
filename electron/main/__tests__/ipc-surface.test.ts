@@ -11,9 +11,9 @@
 // A new channel that is added to the registry but wired up on only one side
 // (or neither) fails here, before it can ship as a silent dead channel.
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { parse } from '@babel/parser';
-import * as fs from 'fs';
-import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 import {
   ALL_IPC_CHANNELS,

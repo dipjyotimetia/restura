@@ -242,7 +242,7 @@ async function executeViaElectronIpc(
   // The IPC proxy type excludes 'none' (the renderer's ProxyConfig allows it
   // as a "disabled" sentinel). Only forward an actually-enabled, real proxy.
   const ipcProxy: IpcConfig['proxy'] | undefined =
-    desktop?.proxy && desktop.proxy.enabled && desktop.proxy.type !== 'none'
+    desktop?.proxy?.enabled && desktop.proxy.type !== 'none'
       ? {
           enabled: true,
           type: desktop.proxy.type,

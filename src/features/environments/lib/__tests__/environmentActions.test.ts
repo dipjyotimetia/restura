@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { duplicateEnvironment } from '../environmentActions';
 import type { Environment } from '@/types';
+import { duplicateEnvironment } from '../environmentActions';
 
 describe('duplicateEnvironment', () => {
   it('creates independently addressable environment and variable records', () => {

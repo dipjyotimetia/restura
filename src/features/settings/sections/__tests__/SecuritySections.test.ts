@@ -1,13 +1,13 @@
+import type { ExternalSecretProfile } from '@shared/secrets/external-secret-profile';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ExternalSecretProfile } from '@shared/secrets/external-secret-profile';
 import type { ElectronAPI } from '../../../../../electron/types/electron-api';
 import {
+  buildExternalSecretProfileInput,
   ExternalSecretProfiles,
   SecretsSection,
-  buildExternalSecretProfileInput,
 } from '../SecuritySections';
 
 const platformMock = vi.hoisted(() => ({
