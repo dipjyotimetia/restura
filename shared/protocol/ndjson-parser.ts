@@ -46,8 +46,11 @@ export class NdjsonParser {
     this.buffer += text;
 
     const out: NdjsonValue[] = [];
-    let idx: number;
-    while ((idx = this.buffer.indexOf('\n', this.cursor)) >= 0) {
+    for (
+      let idx = this.buffer.indexOf('\n', this.cursor);
+      idx >= 0;
+      idx = this.buffer.indexOf('\n', this.cursor)
+    ) {
       const line = this.buffer.slice(this.cursor, idx);
       this.cursor = idx + 1;
       const parsed = parseLine(line);

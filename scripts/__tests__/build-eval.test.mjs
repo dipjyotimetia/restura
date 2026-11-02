@@ -501,7 +501,7 @@ test('restoreGraderFiles: reverts grader-critical files the agent touched and li
     fs.writeFileSync(path.join(dir, 'vitest.config.ts'), "setupFiles: ['./tests/setup.ts'],");
     fs.mkdirSync(path.join(dir, '.claude'));
     fs.writeFileSync(path.join(dir, '.claude/settings.json'), '{}');
-    const exec = fakeExec((cmd, args) => {
+    const exec = fakeExec((_cmd, args) => {
       if (args.includes('diff')) return { status: 0, stdout: 'vitest.config.ts\ntests/setup.ts\n' };
       if (args.includes('ls-files')) return { status: 0, stdout: '.claude/settings.json\n' };
       if (args.includes('cat-file'))

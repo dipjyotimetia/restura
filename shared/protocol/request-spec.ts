@@ -26,11 +26,11 @@ export function isSendableRow(row: { enabled?: boolean; key?: string }): boolean
 /** Sendable key/value rows as a map; the host supplies each row's final value. */
 export function collectEnabledRows<T extends { enabled?: boolean; key: string }>(
   rows: readonly T[],
-  valueOf: (row: T) => string
+  getValue: (row: T) => string
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const row of rows) {
-    if (isSendableRow(row)) out[row.key] = valueOf(row);
+    if (isSendableRow(row)) out[row.key] = getValue(row);
   }
   return out;
 }

@@ -71,7 +71,7 @@ export function useOwsWorkflowExecution() {
       }
       const collection = collections.find((candidate) => candidate.id === workflow.collectionId);
       if (!collection) throw new Error('The workflow collection is unavailable.');
-      let mutations;
+      let mutations: ReturnType<typeof findWorkflowGraphqlMutations>;
       try {
         mutations = findWorkflowGraphqlMutations(
           workflow.document,

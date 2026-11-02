@@ -673,17 +673,17 @@ function shapeToHttpRequest(
 export function entryToCurl(entry: ConsoleEntry): string {
   if (!isHttpExportCompatible(entry)) return '';
   const safe = sanitizeConsoleEntry(entry);
-  const escape = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+  const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
   // A curl command needs the real URL — `entry.request.url` may still be an
   // unresolved `{{var}}` template.
   const url = safe.resolvedUrl ?? safe.request.url;
-  const parts = [`curl -X ${shellMethodWord(safe.request.method)} ${escape(url)}`];
+  const parts = [`curl -X ${shellMethodWord(safe.request.method)} ${shellQuote(url)}`];
   for (const [key, value] of Object.entries(safe.request.headers)) {
     if (isConsoleCredentialHeader(key)) continue;
-    parts.push(`-H ${escape(`${key}: ${value}`)}`);
+    parts.push(`-H ${shellQuote(`${key}: ${value}`)}`);
   }
   if (safe.request.body) {
-    parts.push(`-d ${escape(safe.request.body)}`);
+    parts.push(`-d ${shellQuote(safe.request.body)}`);
   }
   return parts.join(' \\\n  ');
 }

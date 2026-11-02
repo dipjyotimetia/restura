@@ -30,7 +30,7 @@ function parseArgs(argv: string[]): Args {
   const args: Args = { command: 'up', tls: true };
   // Accepts both `--flag value` and `--flag=value`. Returns the value and
   // advances the index when the space form consumes the next token.
-  const valueOf = (token: string, name: string, i: number): { value: string; next: number } => {
+  const readValue = (token: string, name: string, i: number): { value: string; next: number } => {
     if (token.startsWith(`${name}=`)) return { value: token.slice(name.length + 1), next: i };
     const v = argv[i + 1];
     if (v === undefined || v.startsWith('--')) throw new Error(`${name} requires a value`);
@@ -44,11 +44,11 @@ function parseArgs(argv: string[]): Args {
     } else if (token === '--no-tls') {
       args.tls = false;
     } else if (token === '--only' || token.startsWith('--only=')) {
-      const { value, next } = valueOf(token, '--only', i);
+      const { value, next } = readValue(token, '--only', i);
       args.only = parseOnly(value);
       i = next;
     } else if (token === '--domain' || token.startsWith('--domain=')) {
-      const { value, next } = valueOf(token, '--domain', i);
+      const { value, next } = readValue(token, '--domain', i);
       args.domain = value;
       i = next;
     } else {

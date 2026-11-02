@@ -373,8 +373,7 @@ function md5(data: string): string {
 function parseDigest(header: string): Record<string, string> {
   const out: Record<string, string> = {};
   const re = /(\w+)\s*=\s*(?:"([^"]*)"|([^,\s]+))/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(header)) !== null) {
+  for (const m of header.matchAll(re)) {
     out[m[1]!] = (m[2] ?? m[3] ?? '').trim();
   }
   return out;
@@ -402,8 +401,7 @@ function verifyDigest(req: IncomingMessage, expectedUser: string, expectedPass: 
 function parseWsseAttrs(s: string): Record<string, string> {
   const out: Record<string, string> = {};
   const re = /(\w+)="((?:[^"\\]|\\.)*)"/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(s)) !== null) {
+  for (const m of s.matchAll(re)) {
     out[m[1]!] = m[2]!.replace(/\\(.)/g, '$1');
   }
   return out;

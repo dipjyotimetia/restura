@@ -169,7 +169,7 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   // Resolve variables; prepareGrpcRequest also parses the message JSON. It
   // throws GrpcClientError("Invalid JSON message") on bad JSON — re-surface as
   // a plain Error with the substring expected by callers.
-  let prepared;
+  let prepared: ReturnType<typeof prepareGrpcRequest>;
   try {
     prepared = prepareGrpcRequest(args.request, args.resolveVariables);
   } catch (err) {

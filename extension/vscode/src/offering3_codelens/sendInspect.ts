@@ -35,7 +35,7 @@ export async function sendRequest(
   const root = findCollectionRoot(filePath);
   const vars = root ? loadDefaultEnvVars(root) : {};
 
-  let mapped;
+  let mapped: ReturnType<typeof mapHttpElementToSpec>;
   try {
     mapped = mapHttpElementToSpec(doc, vars);
   } catch (err) {

@@ -313,10 +313,16 @@ export class BrowseMessagesStream extends Readable {
       if (!topicMeta || leader === undefined || leader < 0) continue;
       if (this.#inflightNodes.has(leader) || this.#backoffs.has(leader)) continue;
       let request = requests.get(leader);
-      if (!request) requests.set(leader, (request = { topics: [], names: new Map() }));
+      if (!request) {
+        request = { topics: [], names: new Map() };
+        requests.set(leader, request);
+      }
       request.names.set(topicMeta.id, position.topic);
       let topic = request.topics.find((t) => t.topicId === topicMeta.id);
-      if (!topic) request.topics.push((topic = { topicId: topicMeta.id, partitions: [] }));
+      if (!topic) {
+        topic = { topicId: topicMeta.id, partitions: [] };
+        request.topics.push(topic);
+      }
       topic.partitions.push({
         partition: position.partition,
         fetchOffset: position.offset,

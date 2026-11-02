@@ -224,9 +224,8 @@ export function validateURLWithVariables(
   // First, resolve any environment variables
   let resolvedUrl = urlString;
   const variablePattern = /\{\{([^}]+)\}\}/g;
-  let match;
 
-  while ((match = variablePattern.exec(urlString)) !== null) {
+  for (const match of urlString.matchAll(variablePattern)) {
     const varName = match[1]?.trim();
     const varValue = varName ? variables[varName] : undefined;
 

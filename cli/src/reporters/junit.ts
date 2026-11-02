@@ -32,7 +32,6 @@ export function escapeXml(s: string): string {
 
 export function renderJUnitXml(result: RunResult): string {
   const ms = (n: number) => (n / 1000).toFixed(3);
-  const escape = escapeXml;
 
   const failureDetail = (r: RunResult['requests'][number]): string => {
     const failed = (r.assertions ?? []).filter((a) => !a.passed);
@@ -42,23 +41,23 @@ export function renderJUnitXml(result: RunResult): string {
 
   const cases = result.requests
     .map((r) => {
-      const cls = escape(r.request.type);
+      const cls = escapeXml(r.request.type);
       // Disambiguate data-driven iterations — without this, N rows of the same
       // request collapse to identical classname.name and CI consumers drop all
       // but one.
       const suffix = r.iteration !== undefined ? ` [iter ${r.iteration}]` : '';
-      const name = escape(r.request.request.name + suffix);
+      const name = escapeXml(r.request.request.name + suffix);
       const time = ms(r.durationMs);
       const failed = (r.assertions ?? []).filter((a) => !a.passed);
 
       if (r.errorMessage) {
-        const detail = escape([r.errorMessage, failureDetail(r)].filter(Boolean).join('\n'));
-        return `    <testcase classname="${cls}" name="${name}" time="${time}"><error message="${escape(r.errorMessage)}">${detail}</error></testcase>`;
+        const detail = escapeXml([r.errorMessage, failureDetail(r)].filter(Boolean).join('\n'));
+        return `    <testcase classname="${cls}" name="${name}" time="${time}"><error message="${escapeXml(r.errorMessage)}">${detail}</error></testcase>`;
       }
       if (!r.passed) {
         const msg = failed.length > 0 ? `${failed.length} assertion(s) failed` : `HTTP ${r.status}`;
-        const detail = escape(failureDetail(r));
-        return `    <testcase classname="${cls}" name="${name}" time="${time}"><failure message="${escape(msg)}">${detail}</failure></testcase>`;
+        const detail = escapeXml(failureDetail(r));
+        return `    <testcase classname="${cls}" name="${name}" time="${time}"><failure message="${escapeXml(msg)}">${detail}</failure></testcase>`;
       }
       return `    <testcase classname="${cls}" name="${name}" time="${time}"/>`;
     })
@@ -68,8 +67,8 @@ export function renderJUnitXml(result: RunResult): string {
 
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
-    `<testsuites name="${escape(result.meta.collectionName)}" tests="${result.summary.total}" failures="${result.summary.failed}" errors="${result.summary.errored}" time="${ms(result.durationMs)}">`,
-    `  <testsuite name="${escape(result.meta.collectionName)}" tests="${result.summary.total}" failures="${result.summary.failed}" errors="${result.summary.errored}" time="${ms(result.durationMs)}" timestamp="${timestamp}">`,
+    `<testsuites name="${escapeXml(result.meta.collectionName)}" tests="${result.summary.total}" failures="${result.summary.failed}" errors="${result.summary.errored}" time="${ms(result.durationMs)}">`,
+    `  <testsuite name="${escapeXml(result.meta.collectionName)}" tests="${result.summary.total}" failures="${result.summary.failed}" errors="${result.summary.errored}" time="${ms(result.durationMs)}" timestamp="${timestamp}">`,
     cases,
     `  </testsuite>`,
     `</testsuites>`,

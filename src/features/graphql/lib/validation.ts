@@ -26,7 +26,7 @@ export function validateQuery(
   const errors: GraphQLValidationError[] = [];
 
   // First, try to parse the query
-  let document;
+  let document: ReturnType<typeof parse>;
   try {
     document = parse(query);
   } catch (error) {

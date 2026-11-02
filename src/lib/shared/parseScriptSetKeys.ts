@@ -16,9 +16,7 @@ const SET_KEY_RE =
 export function parseScriptSetKeys(script?: string | null): string[] {
   if (!script) return [];
   const keys = new Set<string>();
-  SET_KEY_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = SET_KEY_RE.exec(script)) !== null) {
+  for (const m of script.matchAll(SET_KEY_RE)) {
     // A backtick key containing `${...}` is a dynamic template, not a literal.
     if (m[2] && !m[2].includes('${')) keys.add(m[2]);
   }

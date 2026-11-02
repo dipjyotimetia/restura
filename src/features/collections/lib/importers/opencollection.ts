@@ -112,9 +112,10 @@ function applyPrivateVariables(
   for (const entry of entries) {
     const value = entry as { environment?: unknown; names?: unknown };
     if (typeof value.environment !== 'string' || !Array.isArray(value.names)) continue;
+    if (value.environment === 'default') collection.variables ??= [];
     const target =
       value.environment === 'default'
-        ? (collection.variables ?? (collection.variables = []))
+        ? collection.variables
         : byName.get(value.environment)?.variables;
     if (!target) continue;
     for (const name of value.names) {
