@@ -127,10 +127,10 @@ test('landing redirect: legacy app routes go to /app/, in-page anchors stay', ()
   assert.deepEqual(runLanding({ hash: '#compare', returning: true }), []);
 });
 
-test('landing redirect: returning users and the PWA skip the landing, ?home wins', () => {
+test('landing redirect: returning users see the landing, the PWA skips it, ?home wins', () => {
   assert.deepEqual(runLanding({}), []);
-  assert.deepEqual(runLanding({ returning: true }), ['/app/']);
+  assert.deepEqual(runLanding({ returning: true }), []);
   assert.deepEqual(runLanding({ standalone: true }), ['/app/']);
-  assert.deepEqual(runLanding({ returning: true, search: '?home' }), []);
+  assert.deepEqual(runLanding({ standalone: true, search: '?home' }), []);
   assert.deepEqual(runLanding({ hash: '#/ai-lab', search: '?home' }), []);
 });
