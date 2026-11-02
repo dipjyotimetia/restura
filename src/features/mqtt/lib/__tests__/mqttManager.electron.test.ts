@@ -2,37 +2,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mqttManager, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
 import { MQTT_SECRET_SENTINEL, useMqttStore } from '@/features/mqtt/store/useMqttStore';
 import { brokerSecretHandleId, putBrokerSecret } from '@/lib/shared/broker-secrets';
+import { createFakeEventBridge } from '@/lib/shared/streaming/__tests__/fakeEventBridge';
 import type { MqttConnectIpc } from '../../../../../electron/types/electron-api';
 
 // Minimal fake of the Electron IPC bridge. Captures per-channel listeners so a
 // test can drive main→renderer events (connect / message / close) and assert
 // how mqttManager reacts.
 function installElectronMock() {
-  const listeners = new Map<string, Array<(...a: unknown[]) => void>>();
+  const fake = createFakeEventBridge();
   const mqtt = {
     connect: vi.fn(async (_input: MqttConnectIpc) => ({ success: true as const })),
     publish: vi.fn(async () => ({ success: true as const })),
     subscribe: vi.fn(async () => ({ success: true as const })),
     unsubscribe: vi.fn(async () => ({ success: true as const })),
     disconnect: vi.fn(async () => ({ success: true as const })),
-    on: (channel: string, cb: (...a: unknown[]) => void) => {
-      const arr = listeners.get(channel) ?? [];
-      arr.push(cb);
-      listeners.set(channel, arr);
-    },
+    ...fake.bridge,
     removeListener: () => {},
-    removeAllListeners: (channel: string) => listeners.delete(channel),
   };
   (window as unknown as { electron: unknown }).electron = {
     isElectron: true,
     mqtt,
     fs: { readFile: vi.fn(async () => ({ success: true, content: '' })) },
   };
-  const emit = (channel: string, payload?: unknown) => {
-    for (const cb of listeners.get(channel) ?? []) cb(payload);
-  };
-  const handlerCount = (channel: string) => (listeners.get(channel) ?? []).length;
-  return { mqtt, emit, handlerCount };
+  return { mqtt, emit: fake.emit, handlerCount: fake.listenerCount };
 }
 
 function resetStore() {
@@ -114,6 +106,24 @@ describe('mqttManager (Electron path)', () => {
         .connections[id]!.messages.filter((m) => m.direction === 'received');
       expect(received).toHaveLength(1);
     });
+  });
+
+  it('delivers buffered messages before detaching on disconnect', async () => {
+    const { emit, handlerCount } = installElectronMock();
+    const id = useMqttStore.getState().createConnection();
+    await mqttManager.connect(useMqttStore.getState().connections[id]!);
+    emit(`mqtt:message:${id}`, {
+      topic: 't',
+      payload: 'last',
+      qos: 0,
+      retain: false,
+      timestamp: Date.now(),
+    });
+    await mqttManager.disconnect(id);
+    const { messages } = useMqttStore.getState().connections[id]!;
+    expect(messages.map((m) => m.payload)).toEqual(['last']);
+    expect(handlerCount(`mqtt:message:${id}`)).toBe(0);
+    expect(handlerCount(`mqtt:close:${id}`)).toBe(0);
   });
 
   it('resets state and listeners when the connect IPC rejects', async () => {
