@@ -365,12 +365,12 @@ function WebSocketClient() {
         <span className="text-sp-11 font-medium text-sp-muted">Handshake headers</span>
         <DesktopOnlyBadge title="The browser WebSocket API cannot send handshake headers — headers set here are only sent by the desktop app." />
         <div className="mt-1">
-          {/* Handshake headers are sent as typed — no {{var}} resolution. */}
           <KeyValueTable
             items={connection.headers}
             onChange={(headers) => setHeaders(activeConnectionId, headers)}
             itemLabel="header"
             addLabel="Add header"
+            resolvesVariables="request"
             httpHeaders
           />
         </div>
@@ -699,7 +699,7 @@ function WebSocketClient() {
             <VariableUrlInput
               value={connection.url}
               onValueChange={(url) => updateConnectionUrl(activeConnectionId, url)}
-              variableScope="connection"
+              variableScope="request"
               placeholder={ECHO_URLS.websocket}
               aria-label="WebSocket URL"
               className="h-7 flex-1"

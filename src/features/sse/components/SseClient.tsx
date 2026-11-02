@@ -135,7 +135,7 @@ export default function SseClient() {
         onChange={(headers) => update({ headers })}
         itemLabel="header"
         addLabel="Add header"
-        resolvesVariables="connection"
+        resolvesVariables="request"
         httpHeaders
       />
       <div className="pt-3 mt-3 border-t border-sp-line">
@@ -145,7 +145,7 @@ export default function SseClient() {
           onChange={(params) => update({ params })}
           itemLabel="param"
           addLabel="Add param"
-          resolvesVariables="connection"
+          resolvesVariables="request"
         />
       </div>
       <div className="pt-3 mt-3 border-t border-sp-line">

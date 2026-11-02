@@ -73,8 +73,14 @@ describe('ScopeInspector', () => {
     expect(screen.getByText(/Open a request/)).toBeInTheDocument();
   });
 
-  it('uses the connection scope for non-HTTP tabs and says so', () => {
+  it('uses the request scope for a live-connect tab', () => {
     useRequestStore.getState().openTabWithMode('websocket');
+    render(<ScopeInspector />);
+    expect(screen.queryByText(/resolves only the active environment and globals/)).toBeNull();
+  });
+
+  it('uses the connection scope where a protocol still reads it, and says so', () => {
+    useRequestStore.getState().openTabWithMode('mqtt');
     render(<ScopeInspector />);
     expect(
       screen.getByText(/resolves only the active environment and globals/)

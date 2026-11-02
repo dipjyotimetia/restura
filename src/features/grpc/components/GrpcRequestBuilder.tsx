@@ -658,7 +658,7 @@ function GrpcRequestBuilder() {
                   onChange={(metadata) => updateRequest({ metadata })}
                   itemLabel="metadata"
                   addLabel="Add metadata"
-                  resolvesVariables="connection"
+                  resolvesVariables="request"
                 />
                 {grpcRequest.auth.type !== 'none' && (
                   <div className="p-3 rounded-sp-btn border border-sp-line bg-sp-surface-lo">

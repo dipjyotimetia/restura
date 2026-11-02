@@ -46,7 +46,7 @@ export function SseUrlBar({
       <VariableUrlInput
         value={url}
         onValueChange={onUrlChange}
-        variableScope="connection"
+        variableScope="request"
         placeholder={ECHO_URLS.sse}
         disabled={showStop}
         aria-label="SSE endpoint URL"

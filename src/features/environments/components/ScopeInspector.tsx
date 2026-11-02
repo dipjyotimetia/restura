@@ -8,11 +8,13 @@ import { useRequestStore } from '@/store/useRequestStore';
  * (nearest folder > outer folders > collection > sub-environment >
  * environment > globals), so this never disagrees with what is sent.
  */
+const CONNECTION_SCOPE_MODES = new Set<string>(['graphql', 'kafka', 'mqtt']);
+
 export function ScopeInspector() {
   const tab = useRequestStore((s) => s.getActiveTab());
-  // HTTP sends resolve every scope; the connection protocols (and GraphQL)
-  // resolve only the active environment and globals — show what this tab uses.
-  const connection = tab ? (tab.modeOverride ?? tab.request.type) !== 'http' : false;
+  // Sends and connect specs resolve every scope; these fields resolve only the
+  // active environment and globals — show what this tab uses.
+  const connection = tab ? CONNECTION_SCOPE_MODES.has(tab.modeOverride ?? tab.request.type) : false;
   const details = useVariableDetails(connection ? 'connection' : 'request');
   const tabName = tab?.request.name;
   const rows = [...details].sort((a, b) => a.name.localeCompare(b.name));
