@@ -27,6 +27,7 @@ import {
   resolvePolicyTransport,
 } from '../security/policy-transport';
 import { createPinnedLookup, resolveSafeAddress } from '../security/safe-connect';
+import { createPinnedPollingTransport } from './socketio-pinned-polling';
 
 const log = createLogger('socketio');
 
@@ -42,9 +43,25 @@ export const socketIoRateLimiter = createKeyedRateLimiter(20, 60_000);
 // bare `await import()` resolves the ESM build — TS treats the two `io` types as
 // distinct. Casting unifies them with the rest of the file.
 type SocketIoModule = typeof SocketIoClient;
-let _io: SocketIoModule['io'] | undefined;
-const getIo = async (): Promise<SocketIoModule['io']> =>
-  (_io ??= ((await import('socket.io-client')) as unknown as SocketIoModule).io);
+let _sio: SocketIoModule | undefined;
+const getSocketIo = async (): Promise<SocketIoModule> =>
+  (_sio ??= (await import('socket.io-client')) as unknown as SocketIoModule);
+
+/**
+ * Map the configured transport names to transport classes. `websocket` is
+ * engine.io's Node `ws` transport (`ws` never follows handshake redirects —
+ * engine.io doesn't forward `followRedirects`). `polling` is replaced with a
+ * transport that never follows HTTP redirects (see socketio-pinned-polling.ts):
+ * the stock one re-issues 3xx itself without the pinned agent and replays
+ * extraHeaders to the new host.
+ */
+function resolveTransports(
+  sio: SocketIoModule,
+  names: ReadonlyArray<'websocket' | 'polling'>
+): SocketIoClient.ManagerOptions['transports'] {
+  const polling = createPinnedPollingTransport(sio.Fetch);
+  return names.map((name) => (name === 'polling' ? polling : sio.NodeWebSocket));
+}
 
 const MAX_CONCURRENT_SOCKETIO_CONNECTIONS = 50;
 const DEFAULT_ACK_TIMEOUT_MS = 15_000;
@@ -111,6 +128,16 @@ function buildConnectUrl(rawUrl: string, namespace: string | undefined): string 
   }
 }
 
+/** engine.io reports a websocket 3xx as a bare "websocket error"; name the cause. */
+function connectErrorMessage(err: Error & { description?: { message?: unknown } }): string {
+  const detail = err.description?.message;
+  const status =
+    typeof detail === 'string' ? /Unexpected server response: (3\d\d)/.exec(detail) : null;
+  return status
+    ? `Server redirected the Socket.IO handshake (HTTP ${status[1]}); redirects aren't followed`
+    : err.message;
+}
+
 export function registerSocketIoHandlerIPC(): void {
   // socketio:connect is handled manually so we can capture event.sender.id
   // and target IPC emissions to the originating renderer window.
@@ -155,9 +182,10 @@ export function registerSocketIoHandlerIPC(): void {
       // re-resolves DNS on connect (and on each reconnect), so a one-shot
       // pre-flight check leaves a rebind/TOCTOU window open — matching the WS and
       // gRPC handlers, we close it. engine.io-client forwards `agent` to both the
-      // `ws` (websocket) and `xmlhttprequest-ssl` (polling) transports, so a single
-      // agent carrying a pinned `lookup` covers both. The URL keeps the original
-      // hostname so SNI + Host header stay correct.
+      // `ws` (websocket) and our redirect-free polling transport, so a single
+      // agent carrying a pinned `lookup` covers both. Neither transport follows
+      // redirects (a 3xx can't move the connection to an unvalidated host). The
+      // URL keeps the original hostname so SNI + Host header stay correct.
       let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
       try {
         pinned = await resolveSafeAddress(config.url, {
@@ -181,18 +209,18 @@ export function registerSocketIoHandlerIPC(): void {
         const connectUrl = buildConnectUrl(config.url, config.namespace);
         const secure = /^(https|wss):/i.test(config.url);
         const lookup = createPinnedLookup(pinned.host, pinned.ip);
-        const io = await getIo();
+        const sio = await getSocketIo();
         if (!activeConnections.isClaimLive(claim)) {
           return { success: false, error: 'Not connected' };
         }
         const agent = secure ? new HttpsAgent({ lookup }) : new HttpAgent({ lookup });
 
-        const socket = io(connectUrl, {
+        const socket = sio.io(connectUrl, {
           path: config.path ?? '/socket.io',
           auth: config.auth ?? {},
           query: config.query ?? {},
           extraHeaders: config.extraHeaders ?? {},
-          transports: config.transports ?? ['websocket', 'polling'],
+          transports: resolveTransports(sio, config.transports ?? ['websocket', 'polling']),
           reconnection: config.reconnection ?? true,
           reconnectionAttempts: config.reconnectionAttempts ?? 5,
           reconnectionDelay: config.reconnectionDelay ?? 1_000,
@@ -203,8 +231,8 @@ export function registerSocketIoHandlerIPC(): void {
           forceNew: config.forceNew ?? false,
           autoConnect: true,
           // Cap inbound websocket frames like the WebSocket handler (an
-          // oversize frame closes the transport). Polling has no transport cap;
-          // prepareIncomingArgs drops oversize events before IPC.
+          // oversize frame closes the transport). Polling's cap is in the pinned
+          // polling transport; prepareIncomingArgs drops oversize events before IPC.
           transportOptions: { websocket: { maxPayload: SOCKETIO_MAX_INCOMING_BYTES } },
           // engine.io types `agent` as string|boolean for historical reasons, but
           // at runtime it forwards the value straight to ws / http(s).request,
@@ -239,7 +267,9 @@ export function registerSocketIoHandlerIPC(): void {
         socket.on('connect_error', (err: Error) => {
           if (activeConnections.get(connectionId, webContentsId) !== entry) return;
           log.warn('connect error', { connectionId, error: err.message });
-          emitTo(webContentsId, socketioChannels.error(connectionId), { message: err.message });
+          emitTo(webContentsId, socketioChannels.error(connectionId), {
+            message: connectErrorMessage(err),
+          });
         });
 
         const manager = socket.io;

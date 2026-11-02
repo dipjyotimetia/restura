@@ -83,7 +83,10 @@ const sioMock = vi.hoisted(() => {
 vi.mock('electron', () => ({ ipcMain: { handle: mockHandle, removeHandler: vi.fn() } }));
 // The handler loads socket.io-client lazily via a memoized dynamic import;
 // vitest intercepts dynamic imports too, so this mock covers it.
-vi.mock('socket.io-client', () => ({ io: sioMock.io }));
+vi.mock('socket.io-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('socket.io-client')>()),
+  io: sioMock.io,
+}));
 // StreamRegistry + the handler emit through ipc-utils; mock it so emissions are
 // observable and the real `electron` import inside ipc-utils never loads.
 vi.mock('../ipc/ipc-utils', () => ({ emitTo: mockEmitTo }));

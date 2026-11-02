@@ -36,7 +36,10 @@ vi.mock('../ipc/ipc-utils', async (importOriginal) => {
   const actual = await importOriginal<typeof IpcUtils>();
   return { ...actual, emitTo: mockEmitTo };
 });
-vi.mock('../security/safe-connect', () => ({ resolveSafeAddress: mockResolveSafeAddress }));
+vi.mock('../security/safe-connect', () => ({
+  resolveSafeAddress: mockResolveSafeAddress,
+  rejectTransportRedirects: (pinned: unknown) => pinned,
+}));
 vi.mock('../security/policy-transport', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../security/policy-transport')>();
   return { ...actual, createPolicyPinnedFetch: vi.fn(() => vi.fn()) };

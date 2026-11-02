@@ -39,14 +39,14 @@ async function tokenFingerprint(token: string): Promise<string> {
  * let one noisy client exhaust the limit for everyone.
  *
  * Token preference: explicit proxy token > Authorization Bearer > CF Access
- * email. Anonymous requests get a literal `anon` token bucket.
+ * assertion. Anonymous requests get a literal `anon` token bucket.
  */
 export async function buildBucketKey(c: Context): Promise<string> {
   const ip = resolveClientIp(c);
   const token =
     c.req.header('X-Restura-Proxy-Token') ??
     c.req.header('Authorization')?.replace(/^Bearer\s+/i, '') ??
-    c.req.header('Cf-Access-Authenticated-User-Email');
+    c.req.header('Cf-Access-Jwt-Assertion');
   const tokenFp = token ? await tokenFingerprint(token) : 'anon';
   return `${ip}|${tokenFp}`;
 }

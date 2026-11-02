@@ -9,6 +9,10 @@ export type Env = {
   ALLOWED_ORIGIN?: string;
   WORKER_PROXY_TOKEN?: string;
   REQUIRE_CF_ACCESS?: string;
+  /** Access team name, or its `<team>.cloudflareaccess.com` host. Needed by REQUIRE_CF_ACCESS. */
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  /** Access application audience tag. Needed by REQUIRE_CF_ACCESS. */
+  CF_ACCESS_AUD?: string;
   /**
    * Explicit dev-bypass switch. MUST also have ENVIRONMENT=='development'.
    * Set only in .dev.vars / .env for self-hosted dev; never in production.

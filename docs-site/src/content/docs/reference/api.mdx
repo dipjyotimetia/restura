@@ -30,7 +30,7 @@ The Restura server exposes these HTTP endpoints. The same Hono app runs in the C
 Production requires one of:
 
 - `X-Restura-Proxy-Token: <WORKER_PROXY_TOKEN>` (or `Authorization: Bearer <WORKER_PROXY_TOKEN>`) on each request, **or**
-- A valid `Cf-Access-Authenticated-User-Email` header from a trusted reverse proxy (when `REQUIRE_CF_ACCESS=true`).
+- A valid signed `Cf-Access-Jwt-Assertion` (when `REQUIRE_CF_ACCESS=true`, with `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` set).
 
 With neither configured, `/api/*` fails closed with `503`. `/health`, `/ready`, `/api/feature-flags`, and `/api/telemetry/error` need no token.
 

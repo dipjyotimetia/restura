@@ -5,6 +5,7 @@ import type { Context } from 'hono';
 import type { NodeHostnameGuard } from '../adapters';
 import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
+import { isRedirectResponse, redirectMessage } from '../shared/redirect';
 import { parseJsonBody } from '../shared/validate-body';
 
 /**
@@ -223,8 +224,20 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
         method: 'POST',
         headers,
         body,
+        // Never follow a redirect off the validated host.
+        redirect: 'manual',
         signal: controller.signal,
       });
+      if (isRedirectResponse(upstream)) {
+        await upstream.body?.cancel().catch(() => {});
+        return c.json(
+          {
+            error: redirectMessage(upstream.status, 'MCP'),
+            upstreamStatus: upstream.status,
+          },
+          502
+        );
+      }
       // The timer stays armed until the body is fully read (cleared in
       // `finally`) so a slowly dripping body can't outlive the timeout.
 

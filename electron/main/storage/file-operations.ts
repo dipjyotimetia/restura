@@ -1,3 +1,4 @@
+import { constants as fsConstants } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { BrowserWindow } from 'electron';
@@ -7,7 +8,7 @@ import {
   AppPathNameSchema,
   createValidatedHandler,
   DialogOptionsSchema,
-  FilePathSchema,
+  FsPathSchema,
   NoInputSchema,
   ShellUrlSchema,
   WriteFileSchema,
@@ -75,6 +76,29 @@ const HOME_BLOCKED_SUBDIRS = [
   '.zshrc',
   '.zshenv',
   '.profile',
+  '.zprofile',
+  '.zlogin',
+  '.zlogout',
+  '.bash_login',
+  '.bash_logout',
+  '.inputrc',
+  '.cshrc',
+  '.tcshrc',
+  '.kshrc',
+  '.xprofile',
+  '.xsessionrc',
+  '.xsession',
+  '.xinitrc',
+  '.config/fish',
+  // Login-time launchers / autostart (a write here is code execution at next login)
+  'Library/LaunchAgents',
+  'Library/LaunchDaemons',
+  '.config/autostart',
+  '.config/systemd',
+  '.config/environment.d',
+  '.config/plasma-workspace',
+  '.local/share/applications',
+  '.local/share/systemd',
   // macOS
   'Library/Application Support',
   'Library/Keychains',
@@ -101,7 +125,29 @@ const HOME_BLOCKED_SUBDIRS = [
 
 // Pre-split once at module load — isPathSafe runs on every fs read/write and
 // the entries never change, so there's no reason to re-split per call.
-const HOME_BLOCKED_SUBDIR_PARTS: string[][] = HOME_BLOCKED_SUBDIRS.map((b) => b.split('/'));
+// Compared case-insensitively: macOS/Windows volumes are case-insensitive by
+// default, so `~/.ZProfile` and `~/library/launchagents` name the same files.
+// NFKC + lowercase so compatibility forms (e.g. U+017F "ſ" folds to "s" on
+// case-insensitive APFS/NTFS) cannot dodge the denylist.
+function foldSegment(s: string): string {
+  return s.normalize('NFKC').toLowerCase();
+}
+
+const HOME_BLOCKED_SUBDIR_PARTS: string[][] = HOME_BLOCKED_SUBDIRS.map((b) =>
+  foldSegment(b).split('/')
+);
+
+/** True when `resolved` (absolute) sits at/under a denylisted location of `homePath`. */
+function isUnderHomeBlocked(resolved: string, homePath: string): boolean {
+  if (resolved !== homePath && !resolved.startsWith(homePath + path.sep)) return false;
+  const rel = path.relative(homePath, resolved);
+  if (rel === '') return false;
+  const parts = foldSegment(rel).split(path.sep);
+  return HOME_BLOCKED_SUBDIR_PARTS.some(
+    (blockedParts) =>
+      blockedParts.length <= parts.length && blockedParts.every((p, i) => parts[i] === p)
+  );
+}
 
 // Block access to sensitive system directories at the OS level (cheap
 // defense-in-depth — userData/documents/home are inside the user's profile
@@ -153,16 +199,7 @@ export function isPathSafe(filePath: string): boolean {
     if (isMainOwnedUserDataFile(resolved, userDataPath)) return false;
 
     // $HOME-specific denylist
-    if (resolved === homePath || resolved.startsWith(homePath + path.sep)) {
-      const rel = path.relative(homePath, resolved);
-      // rel may be '' (the home root itself — allowed) or 'foo/bar/...'
-      if (rel === '') return true;
-      const parts = rel.split(path.sep);
-      for (const blockedParts of HOME_BLOCKED_SUBDIR_PARTS) {
-        if (blockedParts.length > parts.length) continue;
-        if (blockedParts.every((p, i) => parts[i] === p)) return false;
-      }
-    }
+    if (isUnderHomeBlocked(resolved, homePath)) return false;
 
     return true;
   } catch {
@@ -194,9 +231,48 @@ export async function isPathRealSafe(filePath: string): Promise<boolean> {
       fsp.realpath(allowedRoot),
       resolveFromExistingAncestor(path.resolve(filePath)),
     ]);
-    return realTarget === realRoot || realTarget.startsWith(realRoot + path.sep);
+    if (!(realTarget === realRoot || realTarget.startsWith(realRoot + path.sep))) return false;
+    // A symlink may land inside $HOME's denylist (shell init, autostart, creds)
+    // even though its lexical path looked fine — re-apply the denylist to the
+    // real target against the real home.
+    const homePath = path.resolve(app.getPath('home'));
+    const realHome = await fsp.realpath(homePath).catch(() => homePath);
+    if (isUnderHomeBlocked(realTarget, realHome)) return false;
+    return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Windows-only name tricks that alias a denylisted entry on NTFS: trailing
+ * dot/space components and alternate data streams (':' after the drive).
+ */
+export function hasUnsafeWin32Components(filePath: string): boolean {
+  const rest = filePath.replace(/^[A-Za-z]:/, '').replace(/^[\\/]{2}[?.][\\/]([A-Za-z]:)?/, '');
+  if (rest.includes(':')) return true;
+  return rest.split(/[\\/]/).some((c) => c !== '' && c !== '.' && /[. ]$/.test(c));
+}
+
+/** Absolute, no `..` segments (the kernel resolves `..` after following symlinks). */
+export function isCanonicalInputPath(filePath: string): boolean {
+  if (!path.isAbsolute(filePath) || filePath.includes('\0')) return false;
+  if (filePath.split(/[\\/]/).includes('..')) return false;
+  if (process.platform === 'win32' && hasUnsafeWin32Components(filePath)) return false;
+  return true;
+}
+
+/**
+ * Validate a renderer-supplied path and return the canonical real target that
+ * was checked (callers must operate on this, never re-resolve the raw input).
+ */
+export async function resolveCheckedPath(filePath: string): Promise<string | null> {
+  if (!isCanonicalInputPath(filePath)) return null;
+  if (!isPathSafe(filePath) || !(await isPathRealSafe(filePath))) return null;
+  try {
+    return await resolveFromExistingAncestor(path.resolve(filePath));
+  } catch {
+    return null;
   }
 }
 
@@ -256,13 +332,14 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
   // import/export touches a 50 MB collection).
   ipcMain.handle(
     IPC.fs.readFile,
-    createValidatedHandler(IPC.fs.readFile, FilePathSchema, async (filePath: string) => {
+    createValidatedHandler(IPC.fs.readFile, FsPathSchema, async (filePath: string) => {
       try {
-        if (!isPathSafe(filePath)) {
+        const target = await resolveCheckedPath(filePath);
+        if (!target) {
           return { success: false, error: 'Access denied: Path is outside allowed directories' };
         }
 
-        const stats = await fsp.stat(filePath);
+        const stats = await fsp.stat(target);
         if (stats.size > MAX_FILE_SIZE_BYTES) {
           return {
             success: false,
@@ -270,7 +347,7 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
           };
         }
 
-        const content = await fsp.readFile(filePath, 'utf-8');
+        const content = await fsp.readFile(target, 'utf-8');
         return { success: true, content };
       } catch (error) {
         return { success: false, error: String(error) };
@@ -285,7 +362,8 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
       WriteFileSchema,
       async ([filePath, content]: [string, string]) => {
         try {
-          if (!isPathSafe(filePath)) {
+          const target = await resolveCheckedPath(filePath);
+          if (!target) {
             return { success: false, error: 'Access denied: Path is outside allowed directories' };
           }
 
@@ -296,7 +374,19 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
             };
           }
 
-          await fsp.writeFile(filePath, content, 'utf-8');
+          // Write the canonical target we validated, refusing a final-component
+          // symlink (O_NOFOLLOW is unavailable on Windows).
+          const noFollow = process.platform === 'win32' ? 0 : fsConstants.O_NOFOLLOW;
+          const handle = await fsp.open(
+            target,
+            fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | noFollow,
+            0o600
+          );
+          try {
+            await handle.writeFile(content, 'utf-8');
+          } finally {
+            await handle.close();
+          }
           return { success: true };
         } catch (error) {
           return { success: false, error: String(error) };

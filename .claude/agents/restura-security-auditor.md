@@ -337,15 +337,12 @@ Only report what the diff introduces or makes reachable. Pre-existing issues the
 
 ## Known open gaps (pre-existing, not accepted — flag any diff that widens or copies them)
 
-- `/api/grpc` and `/api/mcp` fetchers (`worker/handlers/grpc.ts`, `mcp.ts`) don't set `redirect: 'manual'`. On self-host, a 3xx to an internal host skips `validateURL` and the Node DNS guard. The CF WebSocket upgrade fetch has the same problem.
-- `REQUIRE_CF_ACCESS=true` checks only that `Cf-Access-Authenticated-User-Email` is present and doesn't verify `Cf-Access-Jwt-Assertion`. This bypasses auth if the app is reachable without Access in front, e.g. on self-host.
 - `parseJsonBody` doesn't require `Content-Type: application/json`, so a cross-site `text/plain` POST skips preflight. That is a CSRF risk with cookie-based CF Access.
 - `/api/proxy`, `/api/grpc`, `/api/grpc/reflection` and `/api/mcp` have no `maxBytes` or `bodyLimit`.
 - The Node DNS-guard options use `allowLocalhost = ENVIRONMENT==='development'` instead of `isLocalDevBypass()` (`node-entry.ts`).
 - Codegen prints an inline proxy password regardless of `maskSecrets` (`codeGenerators/{curl,nodejs,python}.ts`).
 - Response cookies are stored with their `Domain=` unchecked against the responding host (cookie tossing), host-only cookies aren't modelled, and the jar has no size cap (`requestExecutor.ts` `persistResponseCookies`, `useCookieStore.ts`).
 - In the OAuth2 editor, the token and device-auth URLs are fetched by the renderer outside url-validation. The fetched access token is stored inline, not as a handle.
-- `fs:readFile` / `fs:writeFile` use the lexical `isPathSafe`, not `isPathRealSafe`, so they follow symlinks.
 - The mock-server and `deepLink:fetchImport` IPC handlers aren't rate-limited.
 
 ## General vulnerability pass

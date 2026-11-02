@@ -8,6 +8,9 @@ const mockResolveSafeAddress = vi.hoisted(() =>
 );
 const mockPinnedFetch = vi.hoisted(() => vi.fn());
 const mockCreatePinnedFetch = vi.hoisted(() => vi.fn(() => mockPinnedFetch));
+const mockRejectTransportRedirects = vi.hoisted(() =>
+  vi.fn((pinned: typeof globalThis.fetch) => pinned)
+);
 
 vi.mock('electron', () => ({
   ipcMain: { handle: mockHandle, removeHandler: vi.fn() },
@@ -19,6 +22,7 @@ vi.mock('../ipc/ipc-utils', async (importOriginal) => {
 vi.mock('../security/safe-connect', () => ({
   resolveSafeAddress: mockResolveSafeAddress,
   createPinnedFetch: mockCreatePinnedFetch,
+  rejectTransportRedirects: mockRejectTransportRedirects,
 }));
 
 // SDK mocks: classes so the handler's `instanceof` branches work.
@@ -240,6 +244,12 @@ describe('mcp-handler (SDK-backed)', () => {
     expect(mockCreatePinnedFetch).toHaveBeenCalledWith('mcp.example.com', '93.184.216.34', {
       rejectUnauthorized: true,
     });
+
+    // The SDK transport only ever gets the fetch that refuses redirects.
+    expect(mockRejectTransportRedirects).toHaveBeenCalledTimes(1);
+    expect(mockRejectTransportRedirects.mock.calls[0]?.[0]).toBe(
+      mockCreatePinnedFetch.mock.results[0]?.value
+    );
 
     const transport = sdkState.streamables[0]!;
     expect(transport.url.href).toBe('https://mcp.example.com/mcp');
