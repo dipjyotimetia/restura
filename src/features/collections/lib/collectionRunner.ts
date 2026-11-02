@@ -22,6 +22,7 @@ import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { grpcRunOptionsFromRequest } from '@/features/grpc/lib/grpcSchemaSnapshot';
 import type { McpClient } from '@/features/mcp/lib/mcpClient';
 import { disposeMcpClientPool, MCP_CLIENT_POOL_OPTION } from '@/features/mcp/lib/mcpRunRequest';
+import { protocolRunTraits } from '@/features/registry/modes';
 import { protocolRegistry } from '@/features/registry/registry';
 import type { ProtocolScriptResult } from '@/features/registry/types';
 import { isElectron } from '@/lib/shared/platform';
@@ -131,12 +132,6 @@ export interface RunProgress {
   results: CollectionRequestResult[];
   done: boolean;
 }
-
-/** Protocols that have no usable single-shot `runRequest` (their impl throws). */
-const STREAMING_PROTOCOLS = new Set(['sse', 'websocket', 'socketio', 'kafka']);
-
-/** Protocols that stop before sending when a pre-request script calls `skipRequest()`. */
-const HONORS_SKIP_REQUEST = new Set(['http', 'grpc', 'mcp']);
 
 /**
  * Fired after each executed request so callers can mirror the request into the
@@ -276,7 +271,8 @@ async function runCollectionWithPool(
       if (runnable.blocked) return skip(runnable.blocked, stopOnFailure);
 
       // Skip protocols without a usable single-shot runner.
-      if (!protocol || STREAMING_PROTOCOLS.has(protocolId)) {
+      const traits = protocolRunTraits(protocolId);
+      if (!protocol || !traits.runnable) {
         return skip(
           protocol
             ? `${protocolId} is not supported in the runner`
@@ -313,7 +309,7 @@ async function runCollectionWithPool(
           collectionVars: { ...collectionVars },
           iterationData: { ...row },
           info: { iteration: iter, iterationCount: rows.length },
-          ...(HONORS_SKIP_REQUEST.has(protocolId) ? { honorSkipRequest: true } : {}),
+          ...(traits.honorsSkipRequest ? { honorSkipRequest: true } : {}),
           location: {
             currentRequestName: runnable.name,
             folderPath: runnable.folderPath ?? [],
@@ -386,7 +382,7 @@ async function runCollectionWithPool(
         // A skipped row passes unless its pre-request script failed or asserted
         // false; a bad jump from it is silent (the CLI's `badJump: 'ignore'`).
         const preExecution = scripts?.preRequest?.execution;
-        if (HONORS_SKIP_REQUEST.has(protocolId) && preExecution?.skipRequested) {
+        if (traits.honorsSkipRequest && preExecution?.skipRequested) {
           const failed = !skipVerdict(fold).passed;
           results.push({
             itemId: runnable.itemId,

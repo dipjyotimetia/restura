@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { MODE_DESCRIPTORS, MODES_IN_COMMAND_ORDER, MODES_IN_MENU_ORDER } from '../modes';
+import {
+  MODE_DESCRIPTORS,
+  MODES_IN_COMMAND_ORDER,
+  MODES_IN_MENU_ORDER,
+  protocolRunTraits,
+} from '../modes';
 
 describe('MODE_DESCRIPTORS', () => {
   it('keeps the new-request menu order', () => {
@@ -36,7 +41,6 @@ describe('MODE_DESCRIPTORS', () => {
   });
 
   it('matches the collection runner membership today', () => {
-    // Mirrors STREAMING_PROTOCOLS / HONORS_SKIP_REQUEST in collectionRunner.ts.
     expect(MODES_IN_MENU_ORDER.filter((m) => !MODE_DESCRIPTORS[m].runnable)).toEqual([
       'websocket',
       'socketio',
@@ -48,5 +52,18 @@ describe('MODE_DESCRIPTORS', () => {
       'grpc',
       'mcp',
     ]);
+  });
+});
+
+describe('protocolRunTraits', () => {
+  it('reads a known protocol from its descriptor', () => {
+    expect(protocolRunTraits('sse').runnable).toBe(false);
+    expect(protocolRunTraits('grpc').honorsSkipRequest).toBe(true);
+  });
+
+  it('treats an unknown or inherited name as no trait, not an Object member', () => {
+    for (const id of ['nope', 'constructor', 'toString']) {
+      expect(protocolRunTraits(id)).toEqual({ runnable: true, honorsSkipRequest: false });
+    }
   });
 });

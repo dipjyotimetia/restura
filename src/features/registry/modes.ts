@@ -152,3 +152,16 @@ export const MODES_IN_MENU_ORDER = Object.keys(MODE_DESCRIPTORS) as RequestMode[
 export const MODES_IN_COMMAND_ORDER: RequestMode[] = [...MODES_IN_MENU_ORDER].sort(
   (a, b) => MODE_DESCRIPTORS[a].commandRank - MODE_DESCRIPTORS[b].commandRank
 );
+
+/**
+ * Collection-run traits for a Request's protocol id. A protocol with no mode
+ * entry reads as runnable and not honouring skipRequest: the runner's own
+ * unknown-protocol check handles it.
+ */
+export function protocolRunTraits(
+  protocolId: string
+): Pick<ModeDescriptor, 'runnable' | 'honorsSkipRequest'> {
+  return Object.hasOwn(MODE_DESCRIPTORS, protocolId)
+    ? MODE_DESCRIPTORS[protocolId as RequestMode]
+    : { runnable: true, honorsSkipRequest: false };
+}
