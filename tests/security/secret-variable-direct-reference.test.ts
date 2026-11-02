@@ -668,7 +668,7 @@ describe('scripts and sub-requests', () => {
       })
     );
     const sent = subRequests();
-    expect(sent.some((text) => text.includes('https://other.test/p'))).toBe(true);
+    expect(proxied.mock.calls.some((call) => call[0].url === 'https://other.test/p')).toBe(true);
     expect(sent.join()).not.toContain('PLAINTEXT');
     expect(sent.filter((text) => text.includes('other.test'))).toHaveLength(1);
   });

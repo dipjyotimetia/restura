@@ -118,7 +118,8 @@ export function resolveMapText(
     {
       values,
       secretNames,
-      resolveVariables: (rest) => walk(rest, withoutSecretNames(values, secretNames)),
+      // The values are already walked above; a second walk would re-expand them.
+      resolveVariables: (rest) => walk(rest, {}),
     },
     field
   );
