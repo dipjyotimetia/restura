@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import * as yaml from 'js-yaml';
@@ -53,7 +54,7 @@ export async function scanCollection(rootDir: string): Promise<ScannedRequest[]>
 }
 
 async function walk(dir: string, folderPath: string[], out: ScannedRequest[]): Promise<void> {
-  let entries;
+  let entries: Dirent[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {

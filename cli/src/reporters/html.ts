@@ -30,21 +30,23 @@ function escapeJsonForHtml(json: string): string {
 }
 
 export function renderHtml(result: RunResult): string {
-  const escape = (s: string) =>
+  const escapeHtml = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
   const rows = result.requests
     .map((r) => {
       const statusClass = r.passed ? 'pass' : r.errorMessage ? 'err' : 'fail';
       const statusText = r.errorMessage ? 'ERROR' : String(r.status);
-      const errorRow = r.errorMessage ? `<div class="err-msg">${escape(r.errorMessage)}</div>` : '';
+      const errorRow = r.errorMessage
+        ? `<div class="err-msg">${escapeHtml(r.errorMessage)}</div>`
+        : '';
       const method =
         (r.request.request as { method?: string }).method ?? r.request.type.toUpperCase();
       return `
     <tr class="${statusClass}">
-      <td>${escape(r.request.request.name)}</td>
-      <td>${escape(method)}</td>
-      <td><code>${escape(r.request.relativePath)}</code></td>
+      <td>${escapeHtml(r.request.request.name)}</td>
+      <td>${escapeHtml(method)}</td>
+      <td><code>${escapeHtml(r.request.relativePath)}</code></td>
       <td class="status">${statusText}</td>
       <td>${r.durationMs}ms</td>
     </tr>
@@ -53,7 +55,7 @@ export function renderHtml(result: RunResult): string {
     .join('');
 
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><title>${escape(result.meta.collectionName)} — Restura CLI Report</title>
+<html><head><meta charset="utf-8"/><title>${escapeHtml(result.meta.collectionName)} — Restura CLI Report</title>
 <style>
 :root { color-scheme: light dark; }
 body { font: 14px/1.45 system-ui, -apple-system, sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
@@ -74,7 +76,7 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85rem;
 </style></head>
 <body>
 <header>
-  <h1>${escape(result.meta.collectionName)}</h1>
+  <h1>${escapeHtml(result.meta.collectionName)}</h1>
   <div class="summary">
     <span class="pass">${result.summary.passed} passed</span> ·
     <span class="fail">${result.summary.failed} failed</span> ·

@@ -32,7 +32,8 @@ const SDL = /* GraphQL */ `
 // request handler where a worker handler context is active.
 let schema: ReturnType<typeof buildSchema> | undefined;
 function getSchema(): ReturnType<typeof buildSchema> {
-  return (schema ??= buildSchema(SDL));
+  schema ??= buildSchema(SDL);
+  return schema;
 }
 
 interface EchoContext {

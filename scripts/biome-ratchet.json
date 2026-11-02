@@ -11,13 +11,8 @@
   "lint/a11y/useSemanticElements": 22,
   "lint/complexity/noImportantStyles": 6,
   "lint/correctness/noComponentHookFactories": 2,
-  "lint/correctness/noUnusedFunctionParameters": 1,
   "lint/correctness/useExhaustiveDependencies": 72,
-  "lint/performance/noAccumulatingSpread": 3,
   "lint/style/noNonNullAssertion": 328,
   "lint/suspicious/noArrayIndexKey": 44,
-  "lint/suspicious/noAssignInExpressions": 14,
-  "lint/suspicious/noConfusingVoidType": 8,
-  "lint/suspicious/noImplicitAnyLet": 9,
-  "lint/suspicious/noShadowRestrictedNames": 6
+  "lint/suspicious/noConfusingVoidType": 8
 }

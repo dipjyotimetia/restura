@@ -106,8 +106,11 @@ export class SseParser {
     this.buffer += text;
 
     const events: DispatchedSseEvent[] = [];
-    let idx: number;
-    while ((idx = this.buffer.indexOf('\n\n', this.cursor)) >= 0) {
+    for (
+      let idx = this.buffer.indexOf('\n\n', this.cursor);
+      idx >= 0;
+      idx = this.buffer.indexOf('\n\n', this.cursor)
+    ) {
       const block = this.buffer.slice(this.cursor, idx);
       this.cursor = idx + 2;
       const event = this.processBlock(block);

@@ -415,9 +415,9 @@ export async function executeRequest(
     // the inherited-header set is the user-defined headers only. The test
     // script (further down) gets the fully-resolved sentHeaders including
     // the Authorization that auth-applier produced.
-    const inheritedHeadersPre = request.headers
-      .filter((h) => h.enabled)
-      .reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {} as Record<string, string>);
+    const inheritedHeadersPre: Record<string, string> = Object.fromEntries(
+      request.headers.filter((h) => h.enabled).map((h) => [h.key, h.value])
+    );
     const executor = new ScriptExecutor({
       envVars,
       globalVars,
@@ -440,9 +440,9 @@ export async function executeRequest(
       request: {
         url: request.url,
         method: request.method,
-        headers: request.headers
-          .filter((h) => h.enabled)
-          .reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {} as Record<string, string>),
+        headers: Object.fromEntries(
+          request.headers.filter((h) => h.enabled).map((h) => [h.key, h.value])
+        ) as Record<string, string>,
         body: request.body.raw,
       },
     });
@@ -582,9 +582,9 @@ export async function executeRequest(
       request: {
         url: request.url,
         method: request.method,
-        headers: request.headers
-          .filter((h) => h.enabled)
-          .reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {} as Record<string, string>),
+        headers: Object.fromEntries(
+          request.headers.filter((h) => h.enabled).map((h) => [h.key, h.value])
+        ) as Record<string, string>,
         body: request.body.raw,
       },
       response: {

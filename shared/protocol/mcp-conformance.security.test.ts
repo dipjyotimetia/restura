@@ -265,7 +265,7 @@ describe('markdown injection hardening', () => {
       { target: 'https://h.example/`x`' }
     );
     // Make the modern side differ so the raw "Server info: differs (...)" line renders.
-    report.diff && (report.diff.serverInfo.differs = true);
+    if (report.diff) report.diff.serverInfo.differs = true;
     const md = conformanceReportToMarkdown(report);
     expect(md).not.toMatch(/^# pwn/m);
     expect(md).not.toMatch(/(^|[^\\\\])<img/);

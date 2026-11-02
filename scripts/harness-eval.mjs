@@ -965,12 +965,12 @@ export function detectContamination(streamText, { forbiddenRoots = [], isolatedR
           break;
         }
         if (allowed.length === 0) continue;
-        const escape = gitTargets(text).find((target) =>
+        const escaping = gitTargets(text).find((target) =>
           path.isAbsolute(target)
             ? !allowed.some((root) => within(path.resolve(target), root))
             : target.split('/').includes('..')
         );
-        if (escape) {
+        if (escaping) {
           hit = text.slice(0, 160);
           break;
         }
@@ -1186,8 +1186,12 @@ function aggregateToolStats(runs) {
       ['skills', stats.skills ?? []],
       ['agents', stats.agents ?? []],
     ]) {
-      for (const name of new Set(names)) (out[key][name] ??= { runs: 0, calls: 0 }).runs += 1;
-      for (const name of names) out[key][name].calls += 1;
+      const bucket = out[key];
+      for (const name of new Set(names)) {
+        bucket[name] ??= { runs: 0, calls: 0 };
+        bucket[name].runs += 1;
+      }
+      for (const name of names) bucket[name].calls += 1;
     }
   }
   return out;
@@ -1202,7 +1206,7 @@ function aggregateToolStats(runs) {
 export function summarise(runs) {
   const byCase = {};
   for (const run of runs) {
-    const entry = (byCase[run.caseId] ??= {
+    byCase[run.caseId] ??= {
       expectClean: run.expectClean === true,
       runs: 0,
       caught: 0,
@@ -1214,7 +1218,8 @@ export function summarise(runs) {
       seen: false,
       incomplete: 0,
       contaminated: 0,
-    });
+    };
+    const entry = byCase[run.caseId];
     if (run.seenInHarness === true) entry.seen = true;
     const cost = runCost(run);
     if (cost !== null) entry.costs.push(cost);

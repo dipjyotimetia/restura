@@ -31,8 +31,7 @@ function scanVariables(query: string): GraphQLVariable[] {
   // Pattern: query/mutation/subscription Name($var1: Type!, $var2: Type = default)
   const operationPattern = /(?:query|mutation|subscription)\s*\w*\s*\(([^)]+)\)/g;
 
-  let match;
-  while ((match = operationPattern.exec(query)) !== null) {
+  for (const match of query.matchAll(operationPattern)) {
     const variablesString = match[1];
     if (variablesString) {
       const parsedVars = parseVariableDefinitions(variablesString);

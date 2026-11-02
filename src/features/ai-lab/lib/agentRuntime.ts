@@ -443,7 +443,7 @@ export async function runDesktopAgentSuite(
           ...resources,
         };
       }
-      let verdict;
+      let verdict: ReturnType<typeof aggregateJudgeVotes>;
       try {
         verdict = aggregateJudgeVotes(votes);
       } catch (cause) {
