@@ -6,6 +6,6 @@
     "openwiki": "0.7.0"
   },
   "allowScripts": {
-    "better-sqlite3": false
+    "better-sqlite3": true
   }
 }

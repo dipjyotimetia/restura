@@ -42,3 +42,32 @@ jobs:
           allow-licenses: >-
             MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0,
             CC0-1.0, CC-BY-4.0, Unlicense, 0BSD, BlueOak-1.0.0, Python-2.0, MITNFA
+          # Licence exceptions for CI-only tools, never bundled or shipped:
+          # they run as CLIs on CI runners from the lockfile-pinned folders
+          # .github/tools/publish (vsce, ovsx, chrome-webstore-upload-cli) and
+          # .github/tools/cyclonedx (release SBOM generator). Most already
+          # sat in the root tree via the VS Code extension's @vscode/vsce.
+          # Add a package here only when it is used solely by such a tool.
+          allow-dependencies-licenses: >-
+            pkg:npm/nan,
+            pkg:npm/normalize-package-data,
+            pkg:npm/spdx-exceptions,
+            pkg:npm/uri-js,
+            pkg:npm/ovsx,
+            pkg:npm/%40vscode/vsce-sign,
+            pkg:npm/%40vscode/vsce-sign-alpine-arm64,
+            pkg:npm/%40vscode/vsce-sign-alpine-x64,
+            pkg:npm/%40vscode/vsce-sign-darwin-arm64,
+            pkg:npm/%40vscode/vsce-sign-darwin-x64,
+            pkg:npm/%40vscode/vsce-sign-linux-arm,
+            pkg:npm/%40vscode/vsce-sign-linux-arm64,
+            pkg:npm/%40vscode/vsce-sign-linux-x64,
+            pkg:npm/%40vscode/vsce-sign-win32-arm64,
+            pkg:npm/%40vscode/vsce-sign-win32-x64,
+            pkg:npm/binaryextensions,
+            pkg:npm/editions,
+            pkg:npm/istextorbinary,
+            pkg:npm/textextensions,
+            pkg:npm/typed-rest-client,
+            pkg:npm/version-range,
+            pkg:npm/xmlbuilder

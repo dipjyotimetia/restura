@@ -46,9 +46,12 @@ review like any other code.
   `npm rebuild @vscode/vsce-sign` when packaging the VS Code extension).
   Electron downloads its binary lazily on first launch, and electron-builder
   rebuilds native modules itself. Pinned CI tools under `.github/tools/`
-  install with their own `allowScripts` decisions. Today only two scripts are
-  approved: the Claude Code binary for evals, and `@vscode/vsce-sign`, which
-  copies its platform binary in the VS Code publish job.
+  install with their own `allowScripts` decisions. Three tool scripts are
+  approved: the Claude Code binary for evals, `better-sqlite3` for OpenWiki
+  (its native binding; without it OpenWiki silently produced timestamp-only
+  updates from August 2026, when npm 12 began blocking it), and
+  `@vscode/vsce-sign`, which copies its platform binary in the VS Code publish
+  job. The CycloneDX tool's optional `libxmljs2` stays denied.
 - **Build-time code still runs.** `--ignore-scripts` stops install scripts,
   not the code a build or test executes. Jobs that hold a secret therefore
   avoid running repo dependencies at all where possible. Release secret
