@@ -1,4 +1,37 @@
-# Single maintainer today. Add path-specific owners below this line as
-# reviewers join (later matches win), e.g.:
-#   /shared/protocol/   @dipjyotimetia @new-reviewer
+# Single maintainer today. Later matches win.
 * @dipjyotimetia
+
+# Sensitive paths (supply-chain epic #1283, #1298 / #1302). Changes here can
+# reach CI secrets, release signing, published artifacts, the network guards,
+# or code that runs on contributors' machines. When a second trusted maintainer
+# joins, append them to every line below and turn on "Require review from Code
+# Owners" in the `main` ruleset, so one compromised account can't approve its
+# own change to these paths. Review them like CI changes (REVIEW.md).
+/.github/                                @dipjyotimetia
+/package.json                            @dipjyotimetia
+/package-lock.json                       @dipjyotimetia
+/docs-site/package.json                  @dipjyotimetia
+/docs-site/package-lock.json             @dipjyotimetia
+/electron-builder.json                   @dipjyotimetia
+/Dockerfile                              @dipjyotimetia
+/wrangler.jsonc                          @dipjyotimetia
+/shared/protocol/                        @dipjyotimetia
+/electron/main/security/                 @dipjyotimetia
+/scripts/check-lockfile-policy.mjs       @dipjyotimetia
+/scripts/check-skills-lock.mjs           @dipjyotimetia
+/scripts/verify-electron-signature.mjs   @dipjyotimetia
+/scripts/release-version.mjs             @dipjyotimetia
+/scripts/verify-toolchain.mjs            @dipjyotimetia
+/vendor/                                 @dipjyotimetia
+
+# Agent configuration: hooks, skills and settings run on contributors'
+# machines and in the Claude workflows.
+/.claude/settings.json                   @dipjyotimetia
+/.claude/hooks/                          @dipjyotimetia
+/.claude/skills/                         @dipjyotimetia
+/.claude/agents/                         @dipjyotimetia
+/.agents/                                @dipjyotimetia
+/skills-lock.json                        @dipjyotimetia
+/AGENTS.md                               @dipjyotimetia
+/CLAUDE.md                               @dipjyotimetia
+/.codex/                                 @dipjyotimetia

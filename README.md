@@ -75,7 +75,7 @@ This starts the Vite app and its local Cloudflare Worker proxy through Miniflare
 
 ### Desktop app
 
-Get prebuilt installers from the [latest release](https://github.com/dipjyotimetia/restura/releases/latest), or build from source:
+Get prebuilt installers from the [latest release](https://github.com/dipjyotimetia/restura/releases/latest), or build from source. To check a download is genuine, see [Verifying downloads](SECURITY.md#verifying-downloads).
 
 ```bash
 npm run electron:dev              # development with live reload

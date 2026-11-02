@@ -18,6 +18,15 @@ touches, so it is still bumped by hand.
 | VS Code   | `.github/workflows/extension-vscode-release.yml` | `vscode-v*.*.*` | `extension/vscode/package.json`         |
 | Chrome    | `.github/workflows/extension-chrome-release.yml` | `chrome-v*.*.*` | `extension/chrome/public/manifest.json` |
 
+Each workflow has two jobs. **`build`/`package`** installs the repo's
+dependencies (install scripts off), type-checks, builds and uploads the
+artifact; it holds no secrets and a read-only token. **`publish`** runs only on
+a tag and installs nothing from the repo. It installs only the lockfile-pinned
+publishers in `.github/tools/publish` (`@vscode/vsce`, `ovsx`,
+`chrome-webstore-upload-cli`), downloads the artifact, publishes it, and
+creates the GitHub release. Marketplace tokens therefore never sit next to
+app dependency code (supply-chain epic #1283).
+
 > **Why two version files?** The Chrome Web Store reads the version from the
 > built `manifest.json` (not `package.json`), so the Chrome workflow validates
 > the tag against `manifest.json`. The VS Code Marketplace reads `package.json`.
@@ -28,12 +37,29 @@ touches, so it is still bumped by hand.
 
 ## One-time maintainer setup
 
-### Secrets
+### The `extensions` environment and its secrets
 
-Set these in **Settings → Secrets and variables → Actions**. Every publish step
-**self-skips when its secrets are absent** — the workflow still builds, packages,
-and attaches the artifact to a GitHub release, so it is safe to run before any
-secrets exist.
+Both `publish` jobs declare `environment: extensions`. Create it in
+**Settings → Environments → New environment → `extensions`**:
+
+- **Deployment branches and tags → Selected**, with the tag rules `vscode-v*`
+  and `chrome-v*`. Only tag runs can then read the secrets below.
+- Add the secrets below as **environment secrets** (not repository secrets),
+  and delete any repository-level copies.
+- Required reviewers are optional; add one to get an approval prompt before
+  each store upload.
+
+Until the environment exists, GitHub creates an unprotected one on the first
+tag run, and the jobs fall back to repository secrets of the same name.
+
+Every publish step **self-skips when its secrets are absent**: the workflow
+still builds, packages and attaches the artifact to a GitHub release, so it's
+safe to run before any secrets exist. Give each token the shortest expiry the
+store allows and record its scope and expiry in the private credential
+inventory ([#1285](https://github.com/dipjyotimetia/restura/issues/1285)).
+Neither store offers OIDC publishing for these tokens. Check again when
+rotating `VSCE_PAT` (Microsoft Entra workload identity federation with
+`vsce publish --azure-credential` would remove it).
 
 | Secret                 | Required for                | Notes                                                                             |
 | ---------------------- | --------------------------- | --------------------------------------------------------------------------------- |
@@ -135,11 +161,12 @@ Common failures:
 
 - **`Tag … does not match … version`** — you tagged before bumping the
   authoritative version file. Bump it (or retag at the correct commit) and retry.
-- **Marketplace/Web Store publish error** — the build + GitHub release already
-  succeeded; the artifact is attached to the release. Fix the credential/listing
-  issue and re-run only the publish manually (`vsce publish --packagePath …` /
-  `chrome-webstore-upload --source …`) using the attached artifact, rather than
-  re-cutting the whole release.
+- **Marketplace/Web Store publish error** — the `build`/`package` job already
+  succeeded and its artifact is kept on the run. Fix the credential or listing
+  issue, then use **Re-run failed jobs**: only `publish` runs again, on the
+  same bytes. If the GitHub release was already created on an earlier attempt,
+  delete it first (`gh release delete <tag> --yes`, keeping the tag) so the
+  re-run can recreate it.
 - **Web Store "version already exists"** — that version was already uploaded;
   bump and re-tag.
 

@@ -26,3 +26,20 @@ The generator omits empty groups and filters maintenance-only commits according
 to `cliff.toml`. The app renders the generated groups as structured release
 history; genuinely curated sections and older free-form bodies remain readable
 as Markdown.
+
+## Verify this release
+
+Each release's notes should end with this block. The macOS identity comment is
+an HTML comment, so it does not render and does not block publication:
+
+```md
+### Verify this release
+
+- macOS: signed with a "Developer ID Application" certificate and notarized.
+  <!-- maintainer: fill in "Developer ID Application: NAME (TEAMID)" once -->
+- Windows: not code-signed yet. Verify with the attestation below.
+- Any installer: `gh attestation verify <file> --repo dipjyotimetia/restura`
+
+Full instructions (Docker, npm, SBOM, extensions):
+https://github.com/dipjyotimetia/restura/blob/main/SECURITY.md#verifying-downloads
+```

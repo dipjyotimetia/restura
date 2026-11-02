@@ -76,6 +76,25 @@ The token protects `/api/*` for scripted callers, but the stock image's web UI c
 
 For production setups (reverse proxy, TLS, multi-replica), see [Self-hosting → Docker](/self-hosting/docker/) and [Reverse proxy](/self-hosting/reverse-proxy/).
 
+## Verify your download
+
+Only download from the [GitHub releases page](https://github.com/dipjyotimetia/restura/releases), `ghcr.io/dipjyotimetia/restura`, [npm](https://www.npmjs.com/package/restura-cli) or restura.dev. Every release is built with signed provenance you can check with the [GitHub CLI](https://cli.github.com/):
+
+```bash
+# Desktop installer (.dmg, .exe, .AppImage, .deb, .rpm)
+gh attestation verify <downloaded-file> --repo dipjyotimetia/restura
+
+# Docker image (pin by digest in production)
+gh attestation verify oci://ghcr.io/dipjyotimetia/restura:<version> --repo dipjyotimetia/restura
+
+# CLI, inside a project that depends on restura-cli
+npm audit signatures
+```
+
+On macOS, `spctl --assess --type execute --verbose /Applications/Restura.app` should report `source=Notarized Developer ID`. Windows installers are not code-signed yet, so rely on the attestation check. Each release also attaches a CycloneDX SBOM (`restura.cdx.json`) for checking CVE exposure.
+
+The full guide, including the SBOM and extension steps, is in [SECURITY.md](https://github.com/dipjyotimetia/restura/blob/main/SECURITY.md#verifying-downloads).
+
 ## Next
 
 - [Quick start](/overview/quick-start/) — send your first request.
