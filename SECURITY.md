@@ -181,10 +181,10 @@ We follow responsible disclosure:
 
 Security updates are distributed through:
 
-- **GitHub Releases**: Tagged releases with security notes
-- **npm**: Updated packages published
-- **Advisories**: GitHub Security Advisories
-- **Changelog**: Documented in CHANGELOG.md
+- **GitHub Releases**: [Release notes](https://github.com/dipjyotimetia/restura/releases) are the changelog; a release with security fixes says so at the top and lists any breaking changes
+- **npm**: Updated `restura-cli` published
+- **Advisories**: [GitHub Security Advisories](https://github.com/dipjyotimetia/restura/security/advisories), which Dependabot uses to alert `restura-cli` users
+- **Docker**: the self-hosted image on GHCR is published for a release only when that release opts in, so check its release notes before relying on a matching tag
 
 ## Compliance
 
