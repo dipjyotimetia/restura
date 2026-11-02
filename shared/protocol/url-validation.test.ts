@@ -41,7 +41,7 @@ describe('validateURL', () => {
   });
 
   it('rejects URLs over 2048 chars', () => {
-    const longUrl = 'https://example.com/' + 'a'.repeat(3000);
+    const longUrl = `https://example.com/${'a'.repeat(3000)}`;
     expect(validateURL(longUrl, {}).valid).toBe(false);
   });
 

@@ -1,5 +1,5 @@
+import path from 'node:path';
 import react from '@vitejs/plugin-react';
-import path from 'path';
 import { defineConfig } from 'vitest/config';
 import { sandboxLibsPlugin } from './scripts/vite-plugin-sandbox-libs';
 

@@ -61,7 +61,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 
 function savedRequest(): SseRequest {
   const item = useCollectionStore.getState().collections[0]?.items[0];
-  if (!item || item.type !== 'request' || !item.request) throw new Error('nothing saved');
+  if (item?.type !== 'request' || !item.request) throw new Error('nothing saved');
   return item.request as SseRequest;
 }
 

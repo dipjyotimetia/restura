@@ -1,6 +1,6 @@
+import { AgentTelemetryConfigSchema } from '@shared/agent-lab/telemetry-config';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { AgentTelemetryConfigSchema } from '@shared/agent-lab/telemetry-config';
 import { useAiLabStore } from '../store/useAiLabStore';
 
 /** Opt-in metadata-only agent telemetry configuration. Credentials are stored

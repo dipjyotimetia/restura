@@ -300,7 +300,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
     const ak = Object.keys(ao);
     const bk = Object.keys(bo);
     if (ak.length !== bk.length) return false;
-    return ak.every((k) => Object.prototype.hasOwnProperty.call(bo, k) && deepEqual(ao[k], bo[k]));
+    return ak.every((k) => Object.hasOwn(bo, k) && deepEqual(ao[k], bo[k]));
   }
   return false;
 }

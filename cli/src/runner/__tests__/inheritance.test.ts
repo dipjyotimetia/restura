@@ -1,8 +1,8 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AuthConfig } from '@shared/types';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type LoadedRequest, loadCollection } from '../collectionLoader';
 
 /**

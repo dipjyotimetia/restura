@@ -1,7 +1,7 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { BrowserWindow } from 'electron';
 import { app, ipcMain, Notification } from 'electron';
-import * as fs from 'fs';
-import * as path from 'path';
 import { IPC } from '../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from './ipc/ipc-rate-limiter';
 import {

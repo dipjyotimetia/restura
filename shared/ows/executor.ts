@@ -300,11 +300,9 @@ export async function executeOwsWorkflow(options: OwsExecutorOptions): Promise<O
               }
               const indexName = typeof config.at === 'string' ? config.at : undefined;
               const previousItem = variables[config.each];
-              const hadPreviousItem = Object.prototype.hasOwnProperty.call(variables, config.each);
+              const hadPreviousItem = Object.hasOwn(variables, config.each);
               const previousIndex = indexName ? variables[indexName] : undefined;
-              const hadPreviousIndex = indexName
-                ? Object.prototype.hasOwnProperty.call(variables, indexName)
-                : false;
+              const hadPreviousIndex = indexName ? Object.hasOwn(variables, indexName) : false;
               try {
                 for (const [itemIndex, item] of items.entries()) {
                   variables[config.each] = item;

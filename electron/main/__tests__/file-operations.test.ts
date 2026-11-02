@@ -1,5 +1,5 @@
 // @vitest-environment node
-import path from 'path';
+import path from 'node:path';
 import { vi } from 'vitest';
 
 vi.mock('electron', () => {
@@ -183,7 +183,7 @@ describe('isPathSafe — tighter allowlist', () => {
 
   it('rejects sibling-of-allowed-root prefix attacks', () => {
     const u = app.getPath('userData');
-    expect(isPathSafe(u + '-evil/foo.json')).toBe(false);
+    expect(isPathSafe(`${u}-evil/foo.json`)).toBe(false);
   });
 
   it('allows ~/Documents/notes.json (non-blocked subdir under home)', () => {

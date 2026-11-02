@@ -84,7 +84,7 @@ describe('validateGrpcMessage', () => {
 
   it('rejects oversize payloads', () => {
     // Build a payload over 10MB. Use a single large string field so JSON.parse stays cheap.
-    const big = '"' + 'a'.repeat(10 * 1024 * 1024 + 10) + '"';
+    const big = `"${'a'.repeat(10 * 1024 * 1024 + 10)}"`;
     const result = validateGrpcMessage(big);
     expect(result.valid).toBe(false);
     expect(result.error).toMatch(/exceeds maximum allowed size of 10MB/);

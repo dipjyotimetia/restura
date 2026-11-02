@@ -181,7 +181,7 @@ export function EvalBuilder() {
       });
       const safe = config.name.replace(/[^a-z0-9-_]+/gi, '_') || 'eval';
       downloadBlob(`${JSON.stringify(file, null, 2)}\n`, `${safe}.eval.json`, 'application/json');
-      toast.success('Exported. Run it with: restura eval run ' + `${safe}.eval.json`);
+      toast.success(`Exported. Run it with: restura eval run ${safe}.eval.json`);
     } catch (cause) {
       toast.error(`Export failed: ${cause instanceof Error ? cause.message : String(cause)}`);
     }

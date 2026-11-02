@@ -1,5 +1,5 @@
-import * as React from 'react';
 import { Info, ShieldCheck, Trash2, Upload } from 'lucide-react';
+import * as React from 'react';
 import { toast } from 'sonner';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Floater } from '@/components/ui/spatial';

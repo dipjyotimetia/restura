@@ -163,7 +163,7 @@ Husky installs two hooks on `npm install`:
   branch touched: the renderer always, plus Electron, Worker, CLI, echo,
   extensions or tooling as needed; every project when `shared/` or a root
   config changed), `npm run architecture:check`, `npm run capabilities:check`,
-  `npm run format:check`, and `vitest related` for the
+  `npm run biome:ci`, and `vitest related` for the
   files your branch changed since its merge-base with `origin/main` (the full
   suite if the Vitest config/setup changed). The full
   `test:coverage` budget is enforced by CI on every PR and re-run on top of

@@ -17,7 +17,7 @@ export function shouldBypassProxy(url: string, bypassList: string[] = []): boole
         }
       } else if (pattern.includes('*')) {
         // Support patterns like 192.168.*
-        const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+        const regex = new RegExp(`^${pattern.replace(/\*/g, '.*')}$`);
         if (regex.test(hostname)) {
           return true;
         }

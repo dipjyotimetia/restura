@@ -1,5 +1,5 @@
-import { z } from 'zod';
 import { isCloudMetadataHost, isPrivateAddress } from '@shared/protocol/url-validation';
+import { z } from 'zod';
 
 const EnvironmentSchema = z.string().trim().min(1).max(100);
 const SampleRateSchema = z.number().min(0).max(1);

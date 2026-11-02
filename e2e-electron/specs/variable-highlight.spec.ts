@@ -1,5 +1,5 @@
-import { test, expect } from '../fixtures/servers';
-import { switchMode, setUrl, fillFirstMonacoEditor } from '../../e2e/utils/selectors';
+import { fillFirstMonacoEditor, setUrl, switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/servers';
 
 /**
  * End-to-end coverage for `{{var}}` highlighting across every HTTP request

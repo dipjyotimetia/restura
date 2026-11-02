@@ -1,13 +1,13 @@
-import { test, expect } from './fixtures/servers';
+import { expect, test } from './fixtures/servers';
 import {
-  setUrl,
-  sendButton,
-  selectHttpMethod,
-  selectBodyType,
+  bodyTab,
   fillFirstMonacoEditor,
   headersTab,
-  bodyTab,
   paramsTab,
+  selectBodyType,
+  selectHttpMethod,
+  sendButton,
+  setUrl,
 } from './utils/selectors';
 
 /**

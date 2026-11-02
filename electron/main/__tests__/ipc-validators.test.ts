@@ -220,7 +220,7 @@ describe('validateIpcInput', () => {
     });
 
     it('file path over 4096 chars throws', () => {
-      const longPath = '/tmp/' + 'a'.repeat(4093);
+      const longPath = `/tmp/${'a'.repeat(4093)}`;
       expect(() => validateIpcInput(FilePathSchema, longPath, 'fs:readFile')).toThrow();
     });
   });

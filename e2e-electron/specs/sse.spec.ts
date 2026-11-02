@@ -1,5 +1,5 @@
-import { test, expect } from '../fixtures/servers';
 import { switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/servers';
 
 /**
  * Desktop SSE: renderer → IPC → sse-handler (pinned fetch + shared SseParser).

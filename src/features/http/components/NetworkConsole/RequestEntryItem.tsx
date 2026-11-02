@@ -92,11 +92,11 @@ export default function RequestEntryItem({
     const url = new URL(fullUrl);
     displayUrl = url.pathname + url.search;
     if (displayUrl.length > 40) {
-      displayUrl = displayUrl.substring(0, 37) + '...';
+      displayUrl = `${displayUrl.substring(0, 37)}...`;
     }
   } catch {
     if (displayUrl.length > 40) {
-      displayUrl = displayUrl.substring(0, 37) + '...';
+      displayUrl = `${displayUrl.substring(0, 37)}...`;
     }
   }
 

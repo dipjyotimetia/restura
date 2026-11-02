@@ -112,7 +112,7 @@ export async function resolveResturaAgentTools(sources: ToolSource[]): Promise<A
         break;
       }
     }
-    if (!item?.request || item.request.type !== 'http') {
+    if (item?.request?.type !== 'http') {
       throw new Error(`HTTP request tool not found: ${source.requestId}`);
     }
     const collection = owningCollection;

@@ -1,5 +1,5 @@
-import { test, expect } from './fixtures/servers';
 import { request as httpRequest } from 'node:http';
+import { expect, test } from './fixtures/servers';
 
 /**
  * Proxy authentication scenarios. The proxy can be put into auth mode via

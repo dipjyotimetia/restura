@@ -27,7 +27,7 @@ function asString(v: unknown): string {
  *  request will surface the failure). */
 export function resolveVars(text: string, vars: Record<string, string>): string {
   return text.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, key: string) =>
-    Object.prototype.hasOwnProperty.call(vars, key) ? vars[key]! : match
+    Object.hasOwn(vars, key) ? vars[key]! : match
   );
 }
 

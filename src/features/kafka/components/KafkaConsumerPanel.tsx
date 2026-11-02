@@ -185,7 +185,11 @@ export function KafkaConsumerPanel({
                 style={{ color: KAFKA_PINK }}
               >
                 {topic}
-                <button onClick={() => onRemoveTopic(index)} aria-label={`Remove topic ${topic}`}>
+                <button
+                  type="button"
+                  onClick={() => onRemoveTopic(index)}
+                  aria-label={`Remove topic ${topic}`}
+                >
                   <Trash2 className="h-3 w-3" />
                 </button>
               </Badge>

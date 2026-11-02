@@ -1,5 +1,5 @@
-import { test, expect } from '../fixtures/servers';
-import { switchMode, setUrl, sendButton, selectHttpMethod } from '../../e2e/utils/selectors';
+import { selectHttpMethod, sendButton, setUrl, switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/servers';
 
 /**
  * Desktop multipart form-data send on the INTERACTIVE Send path

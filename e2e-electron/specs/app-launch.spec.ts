@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures/electronApp';
+import { expect, test } from '../fixtures/electronApp';
 
 /**
  * Desktop launch smoke: the packaged-layout (unpacked) app boots, loads the

@@ -103,7 +103,7 @@ export function validateURL(
     if (allowLocalhost && (blocked.toLowerCase() === 'localhost' || blocked === '127.0.0.1')) {
       continue;
     }
-    if (hostname === blocked.toLowerCase() || hostname.endsWith('.' + blocked.toLowerCase())) {
+    if (hostname === blocked.toLowerCase() || hostname.endsWith(`.${blocked.toLowerCase()}`)) {
       return {
         valid: false,
         error: `Hostname "${hostname}" is blocked for security reasons`,

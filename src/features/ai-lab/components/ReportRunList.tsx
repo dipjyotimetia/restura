@@ -28,6 +28,7 @@ export function ReportRunList({ reports, selectedId, onSelect }: ReportRunListPr
     <div className="flex flex-1 flex-col gap-2 overflow-auto p-3">
       {reports.map((report) => (
         <button
+          type="button"
           key={report.id}
           onClick={() => onSelect(report.id)}
           className={cn(

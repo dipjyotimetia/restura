@@ -1,9 +1,9 @@
-import { test, expect } from './fixtures/servers';
-import { switchMode } from './utils/selectors';
-import { createConnectTransport, createGrpcTransport } from '@connectrpc/connect-node';
-import { createClient } from '@connectrpc/connect';
 import { create } from '@bufbuild/protobuf';
-import { EchoService, EchoRequestSchema } from './mocks/proto/gen/echo_pb';
+import { createClient } from '@connectrpc/connect';
+import { createConnectTransport, createGrpcTransport } from '@connectrpc/connect-node';
+import { expect, test } from './fixtures/servers';
+import { EchoRequestSchema, EchoService } from './mocks/proto/gen/echo_pb';
+import { switchMode } from './utils/selectors';
 
 /**
  * Real gRPC server (Connect-RPC SDK + buf-generated descriptors).

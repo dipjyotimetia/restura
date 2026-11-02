@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
-import { test, expect } from '../fixtures/servers';
 import { switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/servers';
 
 /**
  * Desktop gRPC: renderer → IPC → grpc-handler → ConnectRPC `createGrpcTransport`

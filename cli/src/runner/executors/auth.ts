@@ -99,7 +99,7 @@ export async function resolveOAuth2Token(
   _vars: Record<string, string>,
   opts: { allowLocalhost?: boolean; fetch?: typeof globalThis.fetch; signal?: AbortSignal } = {}
 ): Promise<AuthConfig | undefined> {
-  if (!auth || auth.type !== 'oauth2' || !auth.oauth2) return auth;
+  if (auth?.type !== 'oauth2' || !auth.oauth2) return auth;
   const o = auth.oauth2;
   if (secretString(o.accessToken)) return auth; // already authenticated
   if (o.grantType && o.grantType !== 'client_credentials') return auth;

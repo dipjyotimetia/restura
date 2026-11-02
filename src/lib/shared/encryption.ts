@@ -106,7 +106,7 @@ export async function encryptValue(value: string, password: string): Promise<str
     combined.set(new Uint8Array(encryptedData), salt.length + iv.length);
 
     // Return as base64 with prefix to identify encrypted data
-    return 'ENC:' + arrayBufferToBase64(combined.buffer);
+    return `ENC:${arrayBufferToBase64(combined.buffer)}`;
   } catch (error) {
     console.error('Encryption failed:', error);
     throw new Error('Failed to encrypt data');

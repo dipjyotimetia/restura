@@ -24,7 +24,7 @@ export function readOwsPath(context: Record<string, unknown>, expression: string
   if (!/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(normalized)) return undefined;
   let current: unknown = context;
   for (const segment of normalized.split('.')) {
-    if (!isRecord(current) || !Object.prototype.hasOwnProperty.call(current, segment)) {
+    if (!isRecord(current) || !Object.hasOwn(current, segment)) {
       return undefined;
     }
     current = current[segment];
@@ -77,7 +77,7 @@ function tokenize(source: string, context: Record<string, unknown>): Token[] {
       index += path[0].length;
       continue;
     }
-    const operator = /^(\&\&|\|\||==|!=|>=|<=|>|<|!)/.exec(remaining);
+    const operator = /^(&&|\|\||==|!=|>=|<=|>|<|!)/.exec(remaining);
     if (operator) {
       tokens.push({ kind: 'operator', value: operator[1] as Operator });
       index += operator[0].length;
@@ -154,7 +154,7 @@ class Parser {
   }
 
   private parseComparison(): unknown {
-    let value = this.parseUnary();
+    const value = this.parseUnary();
     const token = this.peek();
     if (token?.kind !== 'operator' || !['==', '!=', '>', '>=', '<', '<='].includes(token.value)) {
       return value;
@@ -180,7 +180,7 @@ class Parser {
   }
 
   private parseUnary(): unknown {
-    if (this.consumeOperator('!')) return !Boolean(this.parseUnary());
+    if (this.consumeOperator('!')) return !this.parseUnary();
     const token = this.peek();
     if (token?.kind === 'paren' && token.value === '(') {
       this.index += 1;

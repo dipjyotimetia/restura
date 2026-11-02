@@ -78,10 +78,10 @@ docs-build: ## Build the docs site
 	npm run docs:build
 
 ##@ Quality
-lint: ## Biome lint over the application source trees
+lint: ## Biome lint over the whole repo
 	npm run lint
 
-lint-fix: ## Biome lint --write
+lint-fix: ## Biome check --write (lint fixes, format, import sorting)
 	npm run lint:fix
 
 format: ## Biome format --write

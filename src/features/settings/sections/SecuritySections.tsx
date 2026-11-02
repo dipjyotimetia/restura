@@ -420,7 +420,7 @@ export function SecretsSection() {
                   <KeyRound className="h-3.5 w-3.5 text-sp-muted shrink-0" aria-hidden="true" />
                   <div className="min-w-0">
                     <p className="text-sp-12 font-mono text-sp-text truncate">
-                      {handle.label || handle.id.slice(0, 8) + '…'}
+                      {handle.label || `${handle.id.slice(0, 8)}…`}
                     </p>
                     <p className="text-sp-11 text-sp-muted font-mono">
                       {new Date(handle.createdAt).toLocaleString()}

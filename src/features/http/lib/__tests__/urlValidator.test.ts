@@ -96,7 +96,7 @@ describe('URL Validator', () => {
     });
 
     it('should reject URLs exceeding max length', () => {
-      const longUrl = 'https://example.com/' + 'a'.repeat(3000);
+      const longUrl = `https://example.com/${'a'.repeat(3000)}`;
       const result = validateURL(longUrl, { maxUrlLength: 2048 });
       expect(result.valid).toBe(false);
       expect(result.error).toContain('exceeds maximum length');

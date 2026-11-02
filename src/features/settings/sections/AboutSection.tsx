@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
 import { Info, ShieldCheck } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Logo } from '@/components/shared/Logo';
 import { Floater } from '@/components/ui/spatial';
 import { cn } from '@/lib/shared/utils';

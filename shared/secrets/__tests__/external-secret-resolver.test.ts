@@ -1,6 +1,6 @@
 import {
-  ExternalSecretError,
   createExternalSecretResolver,
+  ExternalSecretError,
   type ExternalSecretProvider,
 } from '@shared/secrets/external-secret-resolver';
 import { describe, expect, it } from 'vitest';

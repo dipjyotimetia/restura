@@ -4,7 +4,7 @@ import { useHistoryStore } from '../useHistoryStore';
 import { useSettingsStore } from '../useSettingsStore';
 
 const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
-  id: 'r-' + Math.random().toString(36).slice(2),
+  id: `r-${Math.random().toString(36).slice(2)}`,
   name: 'Test',
   type: 'http',
   method: 'GET',
@@ -17,7 +17,7 @@ const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
 });
 
 const makeResponse = (requestId: string): ApiResponse => ({
-  id: 'res-' + Math.random().toString(36).slice(2),
+  id: `res-${Math.random().toString(36).slice(2)}`,
   requestId,
   status: 200,
   statusText: 'OK',

@@ -23,8 +23,8 @@
  * Requirements: sharp, png-to-ico. macOS .icns needs iconutil (macOS only).
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const brand = JSON.parse(
@@ -75,7 +75,7 @@ function bareSvg(px, color) {
 
 function write(file, contents) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, contents + '\n');
+  fs.writeFileSync(file, `${contents}\n`);
   console.log('  wrote', path.relative(ROOT, file));
 }
 
@@ -160,7 +160,7 @@ async function generate() {
   // 5. macOS ICNS -----------------------------------------------------------
   console.log('Generating macOS ICNS...');
   if (process.platform === 'darwin') {
-    const { execSync } = require('child_process');
+    const { execSync } = require('node:child_process');
     const iconsetDir = path.join(resourcesDir, 'icon.iconset');
     fs.mkdirSync(iconsetDir, { recursive: true });
     const iconsetSizes = [16, 32, 128, 256, 512];

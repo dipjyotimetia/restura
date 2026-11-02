@@ -99,7 +99,7 @@ class SseManager {
   private static DEFAULT_CONNECTION_TIMEOUT = 30000;
 
   private validateUrl(url: string): { valid: boolean; error?: string } {
-    if (!url || !url.trim()) return { valid: false, error: 'URL is required' };
+    if (!url?.trim()) return { valid: false, error: 'URL is required' };
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {

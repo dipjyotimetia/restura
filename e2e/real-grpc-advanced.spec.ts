@@ -1,9 +1,9 @@
-import { test, expect } from './fixtures/servers';
-import { createConnectTransport, createGrpcTransport } from '@connectrpc/connect-node';
-import { createClient, ConnectError, Code } from '@connectrpc/connect';
 import { create } from '@bufbuild/protobuf';
-import { EchoService, EchoRequestSchema } from './mocks/proto/gen/echo_pb';
+import { Code, ConnectError, createClient } from '@connectrpc/connect';
+import { createConnectTransport, createGrpcTransport } from '@connectrpc/connect-node';
+import { expect, test } from './fixtures/servers';
 import { FAIL_TRIGGERS, slowMessage } from './mocks/grpcServer';
+import { EchoRequestSchema, EchoService } from './mocks/proto/gen/echo_pb';
 
 /**
  * Advanced gRPC scenarios: error code mapping, metadata propagation

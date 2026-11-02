@@ -1,9 +1,9 @@
 import type { ContextPacket, GroundingSelection, GroundingSourceKind } from '@shared/agent-lab';
 import { buildContextPackets } from '@shared/agent-lab';
-import { redactToolUrl } from './agentTools';
-import { useCollectionStore } from '@/store/useCollectionStore';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import type { Collection, CollectionItem } from '@/types';
+import { redactToolUrl } from './agentTools';
 
 interface SourceCandidate {
   id: string;

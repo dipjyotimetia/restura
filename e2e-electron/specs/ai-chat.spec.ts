@@ -1,4 +1,4 @@
-import { test, expect } from '../fixtures/servers';
+import { expect, test } from '../fixtures/servers';
 
 /**
  * Desktop AI assistant CHAT against a LOCAL mock LLM. Previously the chat was

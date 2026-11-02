@@ -304,6 +304,7 @@ export function DatasetEditor() {
           <ImportFromHistoryDialog onCreated={(id) => void switchTo(id)} />
           {datasetList.map((d) => (
             <button
+              type="button"
               key={d.id}
               onClick={() => void switchTo(d.id)}
               className={cn(

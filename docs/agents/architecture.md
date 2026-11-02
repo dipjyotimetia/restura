@@ -15,8 +15,10 @@ npm run preview                # Preview production build
 npm run type-check             # TypeScript strict mode — renderer only (excludes worker, electron/main, cli)
 npm run type-check:all         # Full type-check across all tsconfigs — what CI runs
 npm run architecture:check     # Enforce runtime boundaries, acyclic imports, file-size + source-pattern ratchets, IPC triple, forbidden config keys
-npm run lint                   # Biome lint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ extension/ tests/ scripts/
-npm run lint:fix               # Biome lint --write
+npm run lint                   # Biome lint over the whole repo (recommended preset; config in biome.json)
+npm run lint:fix               # Biome check --write (safe lint fixes, formatting, import sorting)
+npm run lint:ratchet           # Fail if per-rule warning counts exceed scripts/biome-ratchet.json (only ever lowered, `-- --update`)
+npm run biome:ci               # Read-only lint + format + import sorting; what validate:static and pre-push run
 npm run format                 # Biome format (write)
 npm run format:check           # Biome format check
 

@@ -55,7 +55,7 @@ function toKeyValues(pairs?: Array<{ key: string; value: string }>): KeyValue[] 
 function activeHttpTab(): { request: HttpRequest } | null {
   const st = useRequestStore.getState();
   const tab = st.tabs.find((t) => t.id === st.activeTabId);
-  if (!tab || tab.request.type !== 'http') return null;
+  if (tab?.request.type !== 'http') return null;
   return { request: tab.request };
 }
 
@@ -135,7 +135,7 @@ const setTestScript: AgentTool = {
     if (!parsed.ok) return parsed;
     const st = useRequestStore.getState();
     const tab = st.tabs.find((t) => t.id === st.activeTabId);
-    if (!tab || tab.request.type !== 'http') {
+    if (tab?.request.type !== 'http') {
       return { ok: false, error: 'No active HTTP request to attach a test script to' };
     }
     if (!st.updateRequest({ testScript: parsed.value.script } as Partial<Request>)) {

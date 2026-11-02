@@ -1,7 +1,7 @@
+import * as fsp from 'node:fs/promises';
+import * as path from 'node:path';
 import type { BrowserWindow } from 'electron';
 import { app, dialog, ipcMain, shell } from 'electron';
-import * as fsp from 'fs/promises';
-import * as path from 'path';
 import { IPC } from '../../shared/channels';
 import {
   AppPathNameSchema,

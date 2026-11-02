@@ -28,7 +28,6 @@ export interface ProxyStack {
 
 export const test = electronTest.extend<NonNullable<unknown>, { proxyStack: ProxyStack }>({
   proxyStack: [
-    // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
       const [proxy, socks, upstream] = await Promise.all([
         startMockProxyServer(),

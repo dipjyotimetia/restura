@@ -120,7 +120,7 @@ export function useHttpRequestPage() {
   // executor; this hook owns only page concerns (toasts, response panel,
   // history, console, persisting refreshed auth / collection var mutations).
   const sendRequest = useCallback(async () => {
-    if (!httpRequest || !httpRequest.url || isLoading) return;
+    if (!httpRequest?.url || isLoading) return;
     const originTabId = useRequestStore.getState().activeTabId;
     if (!originTabId) return;
 

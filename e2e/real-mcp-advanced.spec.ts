@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/servers';
+import { expect, test } from './fixtures/servers';
 
 /**
  * Realistic MCP scenarios beyond `tools/call`: resources (list + read),

@@ -31,7 +31,7 @@ export function Segmented<T extends string>({
   // owns it; if nothing is checked, the first option does — so a radiogroup is
   // one Tab stop and arrow keys move within it (WAI-ARIA radiogroup pattern).
   const selectedIndex = options.findIndex((o) => o.value === value);
-  const tabStopIndex = selectedIndex >= 0 ? selectedIndex : 0;
+  const tabStopIndex = Math.max(selectedIndex, 0);
 
   const moveTo = (index: number) => {
     const len = options.length;

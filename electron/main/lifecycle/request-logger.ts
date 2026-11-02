@@ -1,6 +1,6 @@
+import * as fsp from 'node:fs/promises';
+import * as path from 'node:path';
 import { app, ipcMain } from 'electron';
-import * as fsp from 'fs/promises';
-import * as path from 'path';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import {
@@ -102,7 +102,7 @@ export function logRequest(entry: LogEntry): void {
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
       }
-      await fsp.appendFile(filePath, JSON.stringify(safeEntry) + '\n', 'utf8');
+      await fsp.appendFile(filePath, `${JSON.stringify(safeEntry)}\n`, 'utf8');
     } catch {
       // Silently ignore logging errors — never crash the app
     }

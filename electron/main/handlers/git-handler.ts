@@ -5,12 +5,12 @@
  * never accepts, stores, or exposes Git credentials. Hooks remain enabled.
  */
 
+import { existsSync } from 'node:fs';
+import * as path from 'node:path';
 import type { GitBranch, GitCommit, GitStatus, GitStatusFile } from '@shared/git-types';
 import { loadCollectionDirectory } from '@shared/opencollection/node/fs-reader';
 import { createLogger } from '@shared/runtime/logger';
 import { ipcMain } from 'electron';
-import { existsSync } from 'fs';
-import * as path from 'path';
 import type { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
@@ -177,8 +177,8 @@ export function parseBranchList(raw: string, currentBranch: string | null): GitB
       name,
       isCurrent: !isRemote && currentBranch !== null && name === currentBranch,
       isRemote,
-      ...(upstreamRaw && upstreamRaw.trim() ? { upstream: upstreamRaw.trim() } : {}),
-      ...(oidRaw && oidRaw.trim() ? { oid: oidRaw.trim() } : {}),
+      ...(upstreamRaw?.trim() ? { upstream: upstreamRaw.trim() } : {}),
+      ...(oidRaw?.trim() ? { oid: oidRaw.trim() } : {}),
     });
   }
   return out;

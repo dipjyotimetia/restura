@@ -91,7 +91,6 @@ interface ServerFixtures {
 /** Worker-scoped upstreams; counters reset per test where the mocks support it. */
 export const test = electronTest.extend<ServerFixtures, { _servers: DesktopMockServers }>({
   _servers: [
-    // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
       const [http, ws, mcp, mcpV2, socketio, grpc] = await Promise.all([
         startMockHttpServer(),

@@ -35,7 +35,6 @@ const PINNED_CIPHER = 'ECDHE-RSA-AES128-GCM-SHA256';
 
 export const test = electronTest.extend<{ tls: TlsStack }, { _tls: TlsStack }>({
   _tls: [
-    // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
       const certs = ensureCerts({ dir: path.join(ROOT, 'echo-local/certs') });
       const [https, mtls, tls12, cipherPinned] = await Promise.all([

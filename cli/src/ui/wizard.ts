@@ -69,7 +69,7 @@ export async function runWizard(): Promise<WizardResult> {
       await text({
         message: `Output path for the ${r} reporter`,
         placeholder: r === 'junit' ? 'results.xml' : r === 'html' ? 'report.html' : 'results.json',
-        validate: (v) => (v && v.trim() ? undefined : 'An output path is required'),
+        validate: (v) => (v?.trim() ? undefined : 'An output path is required'),
       })
     ).trim();
     reporterOutput.push(`${r}=${out}`);

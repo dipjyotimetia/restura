@@ -273,7 +273,7 @@ export default function SecretInput({
               ) : (
                 handles.map((h) => (
                   <SelectItem key={h.id} value={h.id}>
-                    {h.label || h.id.slice(0, 8) + '…'}
+                    {h.label || `${h.id.slice(0, 8)}…`}
                   </SelectItem>
                 ))
               )}

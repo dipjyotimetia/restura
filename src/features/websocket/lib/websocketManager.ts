@@ -76,7 +76,7 @@ class WebSocketManager {
   }
 
   private validateUrl(url: string): { valid: boolean; error?: string } {
-    if (!url || !url.trim()) {
+    if (!url?.trim()) {
       return { valid: false, error: 'URL is required' };
     }
 
@@ -566,7 +566,7 @@ class WebSocketManager {
     // Exponential backoff with jitter
     const baseDelay = connection.reconnectDelay;
     const delay = Math.min(
-      baseDelay * Math.pow(2, attempts - 1) + Math.random() * 1000,
+      baseDelay * 2 ** (attempts - 1) + Math.random() * 1000,
       30000 // Max 30 seconds
     );
 

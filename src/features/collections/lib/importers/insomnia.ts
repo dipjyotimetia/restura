@@ -370,7 +370,7 @@ function convertInsomniaAuth(
   requestName: string,
   warnings: ImportWarning[]
 ): AuthConfig {
-  if (!auth || !auth.type) return { type: 'none' };
+  if (!auth?.type) return { type: 'none' };
 
   switch (auth.type) {
     case 'none':

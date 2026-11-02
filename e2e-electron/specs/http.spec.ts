@@ -1,5 +1,5 @@
-import { test, expect } from '../fixtures/servers';
-import { setUrl, sendButton, switchMode } from '../../e2e/utils/selectors';
+import { sendButton, setUrl, switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/servers';
 
 /**
  * Desktop HTTP path: renderer → IPC → electron http-handler (undici) →

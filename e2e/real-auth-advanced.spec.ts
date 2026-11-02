@@ -1,5 +1,5 @@
-import { test, expect } from './fixtures/servers';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { expect, test } from './fixtures/servers';
 import { TEST_AUTH_FIXTURES } from './mocks/authRoutes';
 import { basicAuthHeader } from './utils/serverHelpers';
 
@@ -422,7 +422,7 @@ test.describe('OAuth 2.x — discovery & introspection', () => {
       { grant_type: 'client_credentials' },
       { clientAuth: 'basic' }
     );
-    const tampered = (tok.json.access_token as string).slice(0, -4) + 'xxxx';
+    const tampered = `${(tok.json.access_token as string).slice(0, -4)}xxxx`;
     const res = await fetch(`${servers.http.url}/oauth/protected`, {
       headers: { authorization: `Bearer ${tampered}` },
     });

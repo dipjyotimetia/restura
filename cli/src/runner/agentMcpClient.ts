@@ -3,8 +3,8 @@ import {
   SSEClientTransport,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
-import { validateMcpSpec } from '@shared/protocol/mcp-proxy';
 import type { AgentMcpClient, ContentBlock, McpToolDescriptor } from '@shared/agent-lab';
+import { validateMcpSpec } from '@shared/protocol/mcp-proxy';
 import type { AgentRuntimeSource } from '../commands/agentRuntime.js';
 import { createPinnedMcpFetchSession } from './pinnedMcpFetch.js';
 

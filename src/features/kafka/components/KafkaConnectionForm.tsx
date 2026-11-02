@@ -82,7 +82,11 @@ export function KafkaConnectionForm({ connection, controller }: KafkaConnectionF
             {connection.bootstrapBrokers.map((broker, index) => (
               <Badge key={`${broker}-${index}`} variant="secondary" className="gap-1 font-mono">
                 {broker}
-                <button onClick={() => removeBroker(index)} aria-label={`Remove broker ${broker}`}>
+                <button
+                  type="button"
+                  onClick={() => removeBroker(index)}
+                  aria-label={`Remove broker ${broker}`}
+                >
                   <Trash2 className="h-3 w-3" />
                 </button>
               </Badge>

@@ -212,7 +212,7 @@ async function attemptIntrospection(
     return { result: failure(endpoint, httpError), rejectedQuery: false };
   }
 
-  if (!json.data || !json.data.__schema) {
+  if (!json.data?.__schema) {
     return {
       result: failure(endpoint, 'Invalid introspection response: missing __schema'),
       rejectedQuery: false,

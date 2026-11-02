@@ -36,7 +36,6 @@ export function dockerAvailable(): boolean {
 
 export const test = electronTest.extend<NonNullable<unknown>, { brokers: Brokers }>({
   brokers: [
-    // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
       // `up -d` (idempotent; a no-op when already running) brings up the stack.
       // We poll the broker healthchecks ourselves rather than using `--wait`,

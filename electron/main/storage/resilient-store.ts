@@ -15,9 +15,9 @@
  * Any other error (EACCES, EBUSY, ...) is rethrown untouched.
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { createLogger } from '@shared/runtime/logger';
-import * as fs from 'fs';
-import * as path from 'path';
 
 const log = createLogger('resilient-store');
 

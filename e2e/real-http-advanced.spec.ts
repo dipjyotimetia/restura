@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/servers';
+import { expect, test } from './fixtures/servers';
 import { TEST_AUTH_FIXTURES } from './mocks/authRoutes';
 
 /**

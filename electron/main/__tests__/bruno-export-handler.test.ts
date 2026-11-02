@@ -1,8 +1,8 @@
 // @vitest-environment node
 
+import * as fsp from 'node:fs/promises';
+import * as path from 'node:path';
 import { ipcMain } from 'electron';
-import * as fsp from 'fs/promises';
-import * as path from 'path';
 import { vi } from 'vitest';
 
 let tmpRoot = '';

@@ -1,7 +1,7 @@
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CONSENT } from '@shared/mcp-server/consent';
 import type { McpDispatchContext } from '@shared/mcp-server/dispatch';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const stdioState = vi.hoisted(() => ({
   close: vi.fn(async () => undefined),

@@ -110,7 +110,7 @@ async function compileSchema(
   dialect: 'draft-07' | '2020-12',
   schema: object
 ): Promise<ValidateFunction> {
-  const key = dialect + '\n' + JSON.stringify(schema);
+  const key = `${dialect}\n${JSON.stringify(schema)}`;
   const cached = compileCache.get(key);
   if (cached) return cached;
   const ajv = await getAjv(dialect);
@@ -240,10 +240,10 @@ export function pickResponseKey(responses: Record<string, unknown>, status: numb
   const statusStr = String(status);
   if (statusStr in responses) return statusStr;
 
-  const classKey = statusStr[0] + 'XX';
+  const classKey = `${statusStr[0]}XX`;
   if (classKey in responses) return classKey;
   // OpenAPI 3.x permits lowercase too.
-  const classKeyLower = statusStr[0] + 'xx';
+  const classKeyLower = `${statusStr[0]}xx`;
   if (classKeyLower in responses) return classKeyLower;
 
   if ('default' in responses) return 'default';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ToolSource } from '../index';
-import { createAgentToolResolver, type AgentToolSourceAdapter } from '../tool-resolver';
+import { type AgentToolSourceAdapter, createAgentToolResolver } from '../tool-resolver';
 
 function adapter(kind: ToolSource['kind'], toolName: string): AgentToolSourceAdapter {
   return {

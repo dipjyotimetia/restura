@@ -1,5 +1,5 @@
-import { test, expect } from '../fixtures/servers';
 import { switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/servers';
 
 /** Desktop Socket.IO: renderer → IPC → socketio-handler (socket.io-client). */
 test.describe('Desktop Socket.IO', () => {

@@ -108,31 +108,29 @@ export default function App() {
   }, []);
 
   return (
-    <>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="dark"
-        enableSystem
-        enableColorScheme
-        disableTransitionOnChange
-      >
-        <ErrorBoundary>
-          <MotionProvider>
-            <AccentProvider>
-              <AriaLiveAnnouncerProvider>
-                <PlatformProvider>
-                  <UpdateNotification />
-                  <KeychainStatusBanner />
-                  <CaptureImportListener />
-                  <DeepLinkCoordinator />
-                  <RouterProvider router={router} />
-                </PlatformProvider>
-              </AriaLiveAnnouncerProvider>
-            </AccentProvider>
-          </MotionProvider>
-        </ErrorBoundary>
-        <ThemedToaster />
-      </ThemeProvider>
-    </>
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="dark"
+      enableSystem
+      enableColorScheme
+      disableTransitionOnChange
+    >
+      <ErrorBoundary>
+        <MotionProvider>
+          <AccentProvider>
+            <AriaLiveAnnouncerProvider>
+              <PlatformProvider>
+                <UpdateNotification />
+                <KeychainStatusBanner />
+                <CaptureImportListener />
+                <DeepLinkCoordinator />
+                <RouterProvider router={router} />
+              </PlatformProvider>
+            </AriaLiveAnnouncerProvider>
+          </AccentProvider>
+        </MotionProvider>
+      </ErrorBoundary>
+      <ThemedToaster />
+    </ThemeProvider>
   );
 }

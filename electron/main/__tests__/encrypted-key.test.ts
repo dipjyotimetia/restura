@@ -19,8 +19,8 @@ vi.mock('fs', () => ({
   chmodSync: vi.fn(),
 }));
 
+import * as fs from 'node:fs';
 import { safeStorage } from 'electron';
-import * as fs from 'fs';
 import {
   __resetPrimedKeysForTests,
   deriveEncryptedKey,

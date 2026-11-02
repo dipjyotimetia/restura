@@ -450,7 +450,7 @@ class ScriptExecutor {
             // already disposed
           }
         }
-        if (cbHandle && cbHandle.alive) {
+        if (cbHandle?.alive) {
           try {
             cbHandle.dispose();
           } catch {

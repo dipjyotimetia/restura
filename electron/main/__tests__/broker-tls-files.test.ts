@@ -41,7 +41,7 @@ describe('broker TLS files are read in main (SEC-K3)', () => {
     await expect(readBrokerTlsFile('/etc/passwd', 'CA')).rejects.toThrow(/outside the allowed/);
     await expect(readBrokerTlsFile(path.join(root, 'nope.pem'), 'CA')).rejects.toThrow(/not found/);
     await expect(readBrokerTlsFile(path.join(root, 'empty.pem'), 'CA')).rejects.toThrow(/empty/);
-    await expect(readBrokerTlsFile(root + path.sep + '.', 'CA')).rejects.toThrow();
+    await expect(readBrokerTlsFile(`${root + path.sep}.`, 'CA')).rejects.toThrow();
   });
 
   it('refuses a symlink inside the allowlist that points outside it', async () => {

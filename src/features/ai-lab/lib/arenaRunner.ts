@@ -68,7 +68,7 @@ export function modelKeyOf(m: ModelRef): string {
 
 function buildMessages(system: string | undefined, userText: string): LlmChatMessage[] {
   const messages: LlmChatMessage[] = [];
-  if (system && system.trim()) messages.push({ role: 'system', content: system.trim() });
+  if (system?.trim()) messages.push({ role: 'system', content: system.trim() });
   messages.push({ role: 'user', content: userText });
   return messages;
 }

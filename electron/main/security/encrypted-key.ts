@@ -8,11 +8,11 @@
  * consistent — a security fix in one place lands in both.
  */
 
+import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { createLogger } from '@shared/runtime/logger';
-import * as crypto from 'crypto';
 import { app, safeStorage } from 'electron';
-import * as fs from 'fs';
-import * as path from 'path';
 
 const log = createLogger('keystore');
 

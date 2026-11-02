@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AgentBundleSchema,
   createFixtureToolSourceAdapter,
   evaluateAgentBundleBaseline,
-  AgentBundleSchema,
   resolveFixtureTools,
 } from '../bundle';
 

@@ -218,7 +218,7 @@ function listRequests(
     const segments = parsed.data.folderPath.split('/').filter((s) => s.length > 0);
     for (const seg of segments) {
       const next = items.find((it) => it.type === 'folder' && it.name === seg);
-      if (!next || !next.items) {
+      if (!next?.items) {
         return { ok: false, error: `Folder path not found: ${parsed.data.folderPath}` };
       }
       items = next.items;

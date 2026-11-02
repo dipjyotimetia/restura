@@ -1,7 +1,7 @@
+import * as path from 'node:path';
 import { type DeepLinkPayload, parseDeepLink } from '@shared/deep-link';
 import type { BrowserWindow, WebContents } from 'electron';
 import { app, ipcMain } from 'electron';
-import * as path from 'path';
 import { z } from 'zod';
 import { EVENT, IPC } from '../../shared/channels';
 import { createValidatedEventHandler, NoInputSchema } from '../ipc/ipc-validators';

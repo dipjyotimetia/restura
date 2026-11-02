@@ -6,20 +6,20 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { FSWatcher } from 'chokidar';
-import chokidar from 'chokidar';
-import type { BrowserWindow } from 'electron';
-import { dialog, ipcMain, shell } from 'electron';
-import * as fsp from 'fs/promises';
-import * as path from 'path';
-import { z } from 'zod';
+import * as fsp from 'node:fs/promises';
+import * as path from 'node:path';
 import { internalToOC } from '@shared/opencollection/from-internal';
 import { loadCollectionDirectory } from '@shared/opencollection/node/fs-reader';
 import { saveCollectionToDir } from '@shared/opencollection/node/fs-writer';
 import { ocToInternal } from '@shared/opencollection/to-internal';
-import { redactCollectionSecrets } from '@shared/secrets/collection-redaction';
 import { createLogger } from '@shared/runtime/logger';
+import { redactCollectionSecrets } from '@shared/secrets/collection-redaction';
 import type { Collection } from '@shared/types';
+import type { FSWatcher } from 'chokidar';
+import chokidar from 'chokidar';
+import type { BrowserWindow } from 'electron';
+import { dialog, ipcMain, shell } from 'electron';
+import { z } from 'zod';
 
 const log = createLogger('collections');
 

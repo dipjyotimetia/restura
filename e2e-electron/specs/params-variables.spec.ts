@@ -1,5 +1,5 @@
-import { test, expect } from '../fixtures/servers';
-import { switchMode, setUrl, sendButton } from '../../e2e/utils/selectors';
+import { sendButton, setUrl, switchMode } from '../../e2e/utils/selectors';
+import { expect, test } from '../fixtures/servers';
 
 /**
  * Desktop query params + variable substitution on the interactive Send path.

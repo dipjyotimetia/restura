@@ -49,7 +49,7 @@ export function matchesNoProxy(
       pattern = pattern.slice(0, colon);
     }
     if (pattern.startsWith('.')) pattern = pattern.slice(1);
-    if (host === pattern || host.endsWith('.' + pattern)) return true;
+    if (host === pattern || host.endsWith(`.${pattern}`)) return true;
   }
   return false;
 }

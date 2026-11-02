@@ -109,7 +109,7 @@ describe('Bruno exporter — round trip', () => {
 
     const item = reimported.collection.items[0];
     expect(item).toBeDefined();
-    if (!item || item.type !== 'request' || item.request?.type !== 'http') {
+    if (item?.type !== 'request' || item.request?.type !== 'http') {
       throw new Error('expected an http request after round trip');
     }
     expect(item.request.method).toBe('POST');

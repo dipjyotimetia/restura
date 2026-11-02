@@ -232,9 +232,9 @@ describe('importPostmanCollection — OAuth2 full preservation', () => {
     const o = asHttp(collection.items[0]!).auth?.oauth2;
     expect(o).toBeDefined();
     // Only accessToken should be present; other keys must not exist as `undefined`
-    expect(Object.prototype.hasOwnProperty.call(o, 'clientId')).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(o, 'tokenUrl')).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(o, 'scope')).toBe(false);
+    expect(Object.hasOwn(o!, 'clientId')).toBe(false);
+    expect(Object.hasOwn(o!, 'tokenUrl')).toBe(false);
+    expect(Object.hasOwn(o!, 'scope')).toBe(false);
     expect(o?.accessToken).toBe('tok');
   });
 });

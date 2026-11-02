@@ -26,7 +26,7 @@ function assertAllPass(result: {
   const failed = result.tests!.filter((t) => !t.passed);
   if (failed.length > 0) {
     throw new Error(
-      'Failing tests:\n' + failed.map((t) => `  - ${t.name}: ${t.error ?? 'no error'}`).join('\n')
+      `Failing tests:\n${failed.map((t) => `  - ${t.name}: ${t.error ?? 'no error'}`).join('\n')}`
     );
   }
 }
