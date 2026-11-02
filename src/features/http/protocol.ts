@@ -3,6 +3,7 @@ import type { ProtocolModule } from '@/features/registry/types';
 import { readPmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
+import { withoutSecretNames } from '@/lib/shared/resolveRequestScope';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Response as ApiResponse, HttpRequest, Request } from '@/types';
 import { executeRequest } from './lib/requestExecutor';
@@ -42,10 +43,14 @@ function defaultResolveVariables(text: string, vars: Record<string, string>): st
   return result;
 }
 
-function injectHttpVariables(request: Request, variables: Record<string, string>): Request {
+function injectHttpVariables(
+  request: Request,
+  variables: Record<string, string>,
+  secretNames?: readonly string[]
+): Request {
   if (request.type !== 'http') return request;
   const http = request as HttpRequest;
-  const inject = (text: string) => injectString(text, variables);
+  const inject = (text: string) => injectString(text, variables, secretNames);
   return {
     ...http,
     url: inject(http.url),
@@ -90,7 +95,11 @@ export const httpProtocol: ProtocolModule = {
       // the resolver closes over `variables`.
       envVars: variables,
       globalSettings,
-      resolveVariables: (text) => defaultResolveVariables(text, variables),
+      ...(ctx.secretNames ? { secretNames: ctx.secretNames } : {}),
+      // The second pass reads no secret: it could not tell a written token from
+      // one a value brought in.
+      resolveVariables: (text) =>
+        defaultResolveVariables(text, withoutSecretNames(variables, ctx.secretNames ?? [])),
       ...(opts.collectionVars ? { collectionVars: opts.collectionVars } : {}),
       ...(opts.iterationData ? { iterationData: opts.iterationData } : {}),
       // requestName/requestId default from `request` one layer down in

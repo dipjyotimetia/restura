@@ -65,6 +65,11 @@ function buildTargetUrl(spec: RequestSpec): string {
   return u.toString();
 }
 
+/** Headers auth added, for the redirect follower. Authorization has its own `followAuthHeader` rule. */
+function namesToStrip(applied: Record<string, string>): string[] {
+  return Object.keys(applied).filter((name) => name.toLowerCase() !== 'authorization');
+}
+
 export interface ExecuteHttpProxyOptions {
   allowLocalhost: boolean;
   /** Optional caller cancellation, composed with the per-request timeout. */
@@ -150,6 +155,7 @@ export async function executeHttpProxy(
     // and BEFORE the fetcher — the signature must cover the exact bytes the
     // upstream receives, including the canonical URL with query params.
     let digest: DigestRetryOptions | undefined;
+    let authAppliedHeaders: string[] = [];
     if (spec.auth && spec.auth.type !== 'none') {
       try {
         const applied = await applyAuth(spec.auth, {
@@ -161,6 +167,7 @@ export async function executeHttpProxy(
           ...(options.sigV4Signer ? { sigV4Signer: options.sigV4Signer } : {}),
         });
         Object.assign(headers, applied.headers);
+        authAppliedHeaders = namesToStrip(applied.headers);
         digest = digestRetryFor(spec, options);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'unknown';
@@ -197,6 +204,10 @@ export async function executeHttpProxy(
         ...(spec.redirectPolicy?.maxRedirects !== undefined && {
           maxRedirects: spec.redirectPolicy.maxRedirects,
         }),
+        stripOnOriginChange: [
+          ...(spec.redirectPolicy?.stripOnOriginChange ?? []),
+          ...authAppliedHeaders,
+        ],
       },
       digest
     );
@@ -389,6 +400,7 @@ export async function executeHttpProxyStreaming(
     // Apply sign-at-wire auth (currently AWS SigV4) AFTER body construction
     // and BEFORE the fetcher. See executeHttpProxy above for rationale.
     let digest: DigestRetryOptions | undefined;
+    let authAppliedHeaders: string[] = [];
     if (spec.auth && spec.auth.type !== 'none') {
       try {
         const applied = await applyAuth(spec.auth, {
@@ -400,6 +412,7 @@ export async function executeHttpProxyStreaming(
           ...(options.sigV4Signer ? { sigV4Signer: options.sigV4Signer } : {}),
         });
         Object.assign(headers, applied.headers);
+        authAppliedHeaders = namesToStrip(applied.headers);
         digest = digestRetryFor(spec, options);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'unknown';
@@ -436,6 +449,10 @@ export async function executeHttpProxyStreaming(
         ...(spec.redirectPolicy?.maxRedirects !== undefined && {
           maxRedirects: spec.redirectPolicy.maxRedirects,
         }),
+        stripOnOriginChange: [
+          ...(spec.redirectPolicy?.stripOnOriginChange ?? []),
+          ...authAppliedHeaders,
+        ],
       },
       digest
     );

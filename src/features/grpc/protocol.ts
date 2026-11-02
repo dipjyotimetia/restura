@@ -26,7 +26,12 @@
  * call `useRequestRunner().run(grpcReq, 'grpc')` get scripts + history +
  * Console panel updates without re-implementing the pipeline.
  */
-import { applyScriptMetadata, grpcMetadataForScript } from '@shared/scripts/grpc-script-metadata';
+import {
+  applyScriptMetadata,
+  findScriptWrittenToken,
+  grpcMetadataForScript,
+} from '@shared/scripts/grpc-script-metadata';
+import { SecretVariableReferenceError } from '@shared/variables/secret-variable-token';
 import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule } from '@/features/registry/types';
 import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
@@ -43,6 +48,7 @@ import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { makeRendererJudge } from '@/lib/shared/judgeBridge';
 import { isElectron } from '@/lib/shared/platform';
+import { resolveMapText } from '@/lib/shared/resolveRequestScope';
 import { makeVaultAdapter } from '@/lib/shared/vaultClient';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -103,10 +109,14 @@ function readProtocolOptions(raw: Record<string, unknown> | undefined): GrpcProt
   return out;
 }
 
-function injectGrpcVariables(request: Request, variables: Record<string, string>): Request {
+function injectGrpcVariables(
+  request: Request,
+  variables: Record<string, string>,
+  secretNames?: readonly string[]
+): Request {
   if (request.type !== 'grpc') return request;
   const grpc = request as GrpcRequest;
-  const inject = (text: string) => injectString(text, variables);
+  const inject = (text: string) => injectString(text, variables, secretNames);
   return {
     ...grpc,
     url: inject(grpc.url),
@@ -130,9 +140,33 @@ type ScriptInfo = NonNullable<GrpcProtocolOptions['info']> & {
   requestId: string;
 };
 
+/**
+ * What a script sees for one metadata value. A reference that would be refused
+ * stays as written here: the script may yet skip the request or replace the value,
+ * and the send path decides after it has run.
+ */
+function scriptViewText(
+  text: string,
+  vars: Record<string, string>,
+  secretNames: readonly string[] | undefined
+): string {
+  try {
+    return resolveMapText(text, vars, secretNames, defaultResolveVariables);
+  } catch (error) {
+    if (error instanceof SecretVariableReferenceError) return text;
+    throw error;
+  }
+}
+
 /** Request view bound into scripts: `rs.request.metadata` (aliased as `headers`). */
-function scriptRequestContext(request: GrpcRequest, vars: Record<string, string>) {
-  const metadata = grpcMetadataForScript(request.metadata, (t) => defaultResolveVariables(t, vars));
+function scriptRequestContext(
+  request: GrpcRequest,
+  vars: Record<string, string>,
+  secretNames: readonly string[] | undefined
+) {
+  const metadata = grpcMetadataForScript(request.metadata, (t) =>
+    scriptViewText(t, vars, secretNames)
+  );
   return {
     url: request.url,
     method: request.methodType,
@@ -146,7 +180,8 @@ function makeScriptExecutor(
   scriptEnvVars: Record<string, string>,
   opts: GrpcProtocolOptions,
   info: ScriptInfo & { eventName: 'prerequest' | 'test' },
-  withJudge: boolean
+  withJudge: boolean,
+  secretNames: readonly string[] | undefined
 ): ScriptExecutor {
   const judgeCfg = withJudge ? useSettingsStore.getState().settings.judge : undefined;
   return new ScriptExecutor({
@@ -157,7 +192,11 @@ function makeScriptExecutor(
     info,
     ...(opts.location ? { location: opts.location } : {}),
     host: {
-      sendRequest: makeRendererSendRequest({ variables: scriptEnvVars, inheritedHeaders: {} }),
+      sendRequest: makeRendererSendRequest({
+        variables: scriptEnvVars,
+        ...(secretNames ? { secretNames } : {}),
+        inheritedHeaders: {},
+      }),
       cookies: (currentUrl) => makeCookieAdapter(currentUrl),
       vault: makeVaultAdapter(),
       ...(judgeCfg?.enabled ? { judge: makeRendererJudge(judgeCfg) } : {}),
@@ -173,7 +212,8 @@ function makeScriptExecutor(
 async function runGrpcPreRequestScript(
   request: GrpcRequest,
   variables: Record<string, string>,
-  opts: GrpcProtocolOptions
+  opts: GrpcProtocolOptions,
+  secretNames: readonly string[] | undefined
 ): Promise<{
   request: GrpcRequest;
   scriptEnvVars: Record<string, string>;
@@ -192,10 +232,11 @@ async function runGrpcPreRequestScript(
     scriptEnvVars,
     opts,
     { ...scriptInfo, eventName: 'prerequest' },
-    false
+    false,
+    secretNames
   );
   const preRequestResult = await executor.executeScript(request.preRequestScript, {
-    request: scriptRequestContext(request, variables),
+    request: scriptRequestContext(request, variables, secretNames),
   });
   if (preRequestResult.variables) {
     Object.assign(scriptEnvVars, preRequestResult.variables);
@@ -206,11 +247,27 @@ async function runGrpcPreRequestScript(
   if (preRequestResult.globalsMutations) {
     useGlobalsStore.getState().applyMutations(preRequestResult.globalsMutations);
   }
+  const skipping = opts.honorSkipRequest && preRequestResult.execution?.skipRequested;
+  if (preRequestResult.requestMetadata && !skipping) {
+    const written = findScriptWrittenToken(
+      request.metadata,
+      preRequestResult.requestMetadata,
+      (name) => secretNames?.includes(name) === true
+    );
+    if (written) {
+      throw new SecretVariableReferenceError(
+        'rs.request.metadata',
+        written.name,
+        `"${written.key}"`,
+        'A script cannot add a secret variable to a request field.'
+      );
+    }
+  }
   const next = preRequestResult.requestMetadata
     ? {
         ...request,
         metadata: applyScriptMetadata(request.metadata, preRequestResult.requestMetadata, (t) =>
-          defaultResolveVariables(t, variables)
+          scriptViewText(t, variables, secretNames)
         ),
       }
     : request;
@@ -235,17 +292,19 @@ async function runGrpcTestScript(
   streamMessages: unknown[] | undefined,
   scriptEnvVars: Record<string, string>,
   scriptInfo: ScriptInfo,
-  opts: GrpcProtocolOptions
+  opts: GrpcProtocolOptions,
+  secretNames: readonly string[] | undefined
 ): Promise<ScriptResult | undefined> {
   if (!request.testScript?.trim()) return undefined;
   const executor = makeScriptExecutor(
     scriptEnvVars,
     opts,
     { ...scriptInfo, eventName: 'test' },
-    true
+    true,
+    secretNames
   );
   const testResult = await executor.executeScript(request.testScript, {
-    request: scriptRequestContext(request, scriptEnvVars),
+    request: scriptRequestContext(request, scriptEnvVars, secretNames),
     response: {
       status: response.grpcStatus ?? 0,
       statusText: response.grpcStatusText ?? '',
@@ -295,7 +354,7 @@ export const grpcProtocol: ProtocolModule = {
 
     // Pre-request script — populated env vars merge into the script-side
     // sandbox only (we don't mutate the parent caller's `variables` map).
-    const pre = await runGrpcPreRequestScript(request, variables, opts);
+    const pre = await runGrpcPreRequestScript(request, variables, opts, ctx.secretNames);
     const { scriptEnvVars, scriptInfo, preRequestResult } = pre;
     request = pre.request;
 
@@ -308,7 +367,8 @@ export const grpcProtocol: ProtocolModule = {
 
     let response: GrpcResponse;
     let streamMessages: unknown[] | undefined;
-    const resolve = (text: string) => defaultResolveVariables(text, scriptEnvVars);
+    const resolve = (text: string) =>
+      resolveMapText(text, scriptEnvVars, ctx.secretNames, defaultResolveVariables);
     // Electron needs a schema; a request without one (e.g. a saved request run
     // from a collection with no snapshot) falls back to server reflection,
     // which throws an actionable error ("reflect or upload a .proto").
@@ -377,7 +437,8 @@ export const grpcProtocol: ProtocolModule = {
       streamMessages,
       scriptEnvVars,
       scriptInfo,
-      opts
+      opts,
+      ctx.secretNames
     );
 
     if (ctx.onScriptResult && (preRequestResult || testResult)) {

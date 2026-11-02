@@ -33,6 +33,8 @@ In the app, a value that contains `{{other}}` resolves when `other` comes later 
 
 The [CLI](/reference/cli/) and the message bodies of WebSocket, Socket.IO and MQTT sends substitute in a single pass and do not expand a substituted value again. The exception is the CLI's `{{$randomFirstName}}`-style helpers: a value of `{{$randomFirstName}}` still generates there. Streaming sends do not generate helpers that appear inside a variable value. The same collection can therefore resolve a chained value in the app and leave it literal in the CLI; write values that must work in both as complete strings.
 
+Secret variables resolve only where they are written; an alias to one fails the send. Write `{{api_token}}` in the URL, header, body or auth field itself rather than in another variable's value. The error names the variable and the field.
+
 To see what a tab actually resolves, open **Environments → Variables in scope**: it lists every name with its winning value (secrets masked) and the scope it came from.
 
 <Aside>

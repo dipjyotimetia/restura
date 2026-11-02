@@ -19,8 +19,21 @@ import { type ParsedSseEvent, SseParser } from './sseParser';
  * so the streaming shape is defined once. The orchestrator-side timeout is
  * disabled: the caller controls the stream's lifetime with its AbortController.
  */
-export function buildSseStreamSpec(url: string, headers: Record<string, string>): ProxyRequestBody {
-  return { method: 'GET', url, headers, streamingMode: true, timeout: 0 };
+export function buildSseStreamSpec(
+  url: string,
+  headers: Record<string, string>,
+  stripOnOriginChange: readonly string[] = []
+): ProxyRequestBody {
+  return {
+    method: 'GET',
+    url,
+    headers,
+    streamingMode: true,
+    timeout: 0,
+    ...(stripOnOriginChange.length > 0
+      ? { redirectPolicy: { stripOnOriginChange: [...stripOnOriginChange] } }
+      : {}),
+  };
 }
 
 /**
@@ -70,6 +83,8 @@ interface SseSession {
   /** User headers, without `Last-Event-ID` (recomputed per attempt). */
   headers: Record<string, string>;
   reconnectOnResume: boolean;
+  /** Auth-added header names, removed on a redirect to another origin. */
+  stripOnOriginChange: string[];
   autoReconnect: boolean;
   /** Reconnection time in ms — the store default until the server sends `retry:`. */
   retryMs: number;
@@ -122,7 +137,11 @@ class SseManager {
     connectionId: string,
     url: string,
     headers?: Record<string, string>,
-    options: { reconnectOnResume?: boolean; autoReconnect?: boolean } = {}
+    options: {
+      reconnectOnResume?: boolean;
+      autoReconnect?: boolean;
+      stripOnOriginChange?: string[];
+    } = {}
   ): void {
     this.disconnect(connectionId);
 
@@ -141,6 +160,7 @@ class SseManager {
       url,
       headers: { ...(headers ?? {}) },
       reconnectOnResume: options.reconnectOnResume ?? true,
+      stripOnOriginChange: options.stripOnOriginChange ?? [],
       autoReconnect: options.autoReconnect ?? true,
       retryMs: store.connections[connectionId]?.reconnectDelay ?? 1000,
       failures: 0,
@@ -209,10 +229,22 @@ class SseManager {
     if (session.reconnectOnResume && lastEventId) headers['Last-Event-ID'] = lastEventId;
 
     if (isElectron()) {
-      this.connectViaElectron(connectionId, session.url, headers, attempt);
+      this.connectViaElectron(
+        connectionId,
+        session.url,
+        headers,
+        attempt,
+        session.stripOnOriginChange
+      );
       return;
     }
-    void this.connectViaProxy(connectionId, session.url, headers, attempt);
+    void this.connectViaProxy(
+      connectionId,
+      session.url,
+      headers,
+      attempt,
+      session.stripOnOriginChange
+    );
   }
 
   private isCurrent(connectionId: string, attempt: Attempt): boolean {
@@ -302,7 +334,8 @@ class SseManager {
     connectionId: string,
     url: string,
     headers: Record<string, string>,
-    attempt: Attempt
+    attempt: Attempt,
+    stripOnOriginChange: string[]
   ): Promise<void> {
     const controller = new AbortController();
     this.webConnections.set(connectionId, controller);
@@ -320,7 +353,7 @@ class SseManager {
       // signal goes through to fetch so abort during the request/connect
       // phase actually closes the socket — not just the body afterward.
       const response = await executeProxiedStreamingRequest(
-        buildSseStreamSpec(url, { Accept: 'text/event-stream', ...headers }),
+        buildSseStreamSpec(url, { Accept: 'text/event-stream', ...headers }, stripOnOriginChange),
         { signal: controller.signal }
       );
       clearTimeout(timeoutId);
@@ -393,7 +426,8 @@ class SseManager {
     connectionId: string,
     url: string,
     headers: Record<string, string>,
-    attempt: Attempt
+    attempt: Attempt,
+    stripOnOriginChange: string[]
   ): void {
     const api = getElectronAPI();
     if (!api?.sse) {
@@ -418,7 +452,12 @@ class SseManager {
     };
 
     const session = openStreamSession(
-      createSseDesktopAdapter(api.sse, { connectionId, url, headers }),
+      createSseDesktopAdapter(api.sse, {
+        connectionId,
+        url,
+        headers,
+        ...(stripOnOriginChange.length > 0 ? { stripOnOriginChange } : {}),
+      }),
       {
         listeners: {
           open: () => {

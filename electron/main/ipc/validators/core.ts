@@ -297,6 +297,7 @@ export const HttpRequestConfigSchema = z.object({
   followOriginalMethod: z.boolean().optional(),
   followAuthHeader: z.boolean().optional(),
   stripReferer: z.boolean().optional(),
+  stripOnOriginChange: z.array(z.string().max(1024)).max(256).optional(),
   encodeUrlAutomatically: z.boolean().optional(),
   // TLS knobs (desktop-only; honoured by buildConnectOptions / createSocksDispatcher)
   serverCipherOrder: z.boolean().optional(),
@@ -629,6 +630,7 @@ export const SseConnectionIdSchema = ConnectionIdSchema;
 
 export const SseConnectSchema = z.object({
   connectionId: SseConnectionIdSchema,
+  stripOnOriginChange: z.array(z.string().max(1024)).max(256).optional(),
   url: z
     .string()
     .url('Invalid SSE URL')

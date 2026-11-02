@@ -147,6 +147,31 @@ describe('sse:connect — graphql-sse main-side auth', () => {
     expect(spec.redirectPolicy).toBeUndefined();
   });
 
+  it('passes named headers to the follower and validates them', async () => {
+    await handlerFor(IPC.sse.connect)(
+      makeEvent().event,
+      gqlSse('named', { stripOnOriginChange: ['X-Unusual'] })
+    );
+    const spec = mockStreaming.mock.calls[0]?.[0] as { redirectPolicy?: unknown };
+    expect(spec.redirectPolicy).toEqual({ stripOnOriginChange: ['X-Unusual'] });
+
+    mockStreaming.mockClear();
+    await handlerFor(IPC.sse.connect)(
+      makeEvent().event,
+      gqlSse('bad', { stripOnOriginChange: 'X-Unusual' })
+    ).catch(() => undefined);
+    expect(mockStreaming).not.toHaveBeenCalled();
+  });
+
+  it('still follows no redirects when main resolves credentials', async () => {
+    await handlerFor(IPC.sse.connect)(
+      makeEvent().event,
+      gqlSse('both', { auth: handleBearer, stripOnOriginChange: ['X-Unusual'] })
+    );
+    const spec = mockStreaming.mock.calls[0]?.[0] as { redirectPolicy?: unknown };
+    expect(spec.redirectPolicy).toEqual({ maxRedirects: 0 });
+  });
+
   it('appends a handle-backed query API key before the SSRF check', async () => {
     await handlerFor(IPC.sse.connect)(
       makeEvent().event,

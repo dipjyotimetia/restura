@@ -1,20 +1,13 @@
-import {
-  countUrlStringSecrets,
-  redactUrlCredentialsForStorage,
-} from '../collections/postman/text-redaction';
-import type { CollectionRequest, KeyValue, SocketIoRequest, WebSocketRequest } from '../types';
+import type { CollectionRequest, KeyValue, SocketIoRequest } from '../types';
 import { countSecretKeyValues, redactSecretKeyValues } from './key-value-redaction';
 import { blankSecretSlots, countSecretSlots, type SecretSlot, slotsForKind } from './secret-slot';
 
 /**
- * Export-time redaction for saved WebSocket / Socket.IO connections (#1209).
+ * Export-time redaction for saved Socket.IO connections (#1209).
  *
- * Handshake headers go through the generic credential-name row slot in
- * `request-secret-slots.ts`; Socket.IO `query` rows use the same rule here.
- * On top of that:
- *  - URL userinfo (`wss://user:pw@host`) is stripped and credential-named
- *    query values in the URL (`?access_token=…`) are blanked; a value that is
- *    one `{{var}}` reference is kept (a reference is not a secret).
+ * The URL and handshake headers go through the generic slots in
+ * `request-secret-slots.ts`, as for every other request kind; Socket.IO `query`
+ * rows use the credential-name rule here. On top of that:
  *  - The Socket.IO handshake auth payload (`handshakeAuth`) exists to carry
  *    credentials, so EVERY literal value is blanked whatever its key; values
  *    made only of `{{var}}` references are kept.
@@ -129,19 +122,7 @@ export function redactAuthJson(text: string): { text: string; blanked: number } 
 }
 
 export const STREAM_PRESET_SLOTS: readonly SecretSlot[] = [
-  ...slotsForKind('websocket', [
-    {
-      name: 'url',
-      blank: (r: WebSocketRequest) => ({ ...r, url: redactUrlCredentialsForStorage(r.url) }),
-      count: (r: WebSocketRequest) => countUrlStringSecrets(r.url),
-    },
-  ]),
   ...slotsForKind('socketio', [
-    {
-      name: 'url',
-      blank: (r: SocketIoRequest) => ({ ...r, url: redactUrlCredentialsForStorage(r.url) }),
-      count: (r: SocketIoRequest) => countUrlStringSecrets(r.url),
-    },
     {
       name: 'handshakeAuth',
       blank: (r: SocketIoRequest) => ({ ...r, handshakeAuth: blankLiteral(r.handshakeAuth) }),
@@ -165,14 +146,14 @@ export const STREAM_PRESET_SLOTS: readonly SecretSlot[] = [
   ]),
 ];
 
-/** Copy of a WebSocket / Socket.IO item with credentials removed; other kinds unchanged. */
+/** Copy of a Socket.IO item with handshake credentials removed; other kinds unchanged. */
 export function redactStreamPreset<T extends CollectionRequest>(request: T): T {
   return blankSecretSlots(STREAM_PRESET_SLOTS, request);
 }
 
 /**
- * Plaintext credentials {@link redactStreamPreset} would remove (headers are
- * counted by the generic row slot in `request-secret-slots.ts`).
+ * Plaintext credentials {@link redactStreamPreset} would remove (the URL and
+ * headers are counted by the generic slots in `request-secret-slots.ts`).
  */
 export function countStreamPresetSecrets(request: CollectionRequest): number {
   return countSecretSlots(STREAM_PRESET_SLOTS, request);

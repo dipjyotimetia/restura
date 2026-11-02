@@ -131,7 +131,11 @@ export function useCollectionSidebarCommands() {
     async (collection: Collection, format: ExportFormat) => {
       // Postman v2.1 / v3 show the structured export report instead.
       if (format === 'insomnia' || format === 'opencollection') {
-        const warnings = getCollectionExportWarnings(collection, format);
+        const warnings = getCollectionExportWarnings(
+          collection,
+          format,
+          useEnvironmentStore.getState().environments
+        );
         if (warnings.length > 0)
           toast.warning(
             `${warnings[0]}${warnings.length > 1 ? ` (+${warnings.length - 1} more)` : ''}`

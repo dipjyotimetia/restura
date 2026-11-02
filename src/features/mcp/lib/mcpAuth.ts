@@ -216,7 +216,12 @@ export function buildMcpConnectAuth(input: McpConnectAuthInput): McpConnectAuth 
         'This MCP auth uses a keychain-stored or external secret, which only the Restura desktop app can resolve. Enter the credential inline to connect from the browser.',
     };
   }
-  const credential = buildAuthCredential(picked);
+  let credential: ReturnType<typeof buildAuthCredential>;
+  try {
+    credential = buildAuthCredential(picked);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Invalid credential' };
+  }
   if (Object.keys(credential.headers).length === 0) {
     return { ok: false, error: `${mcpAuthLabel(picked.type)} auth produced no credential.` };
   }

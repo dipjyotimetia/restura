@@ -36,6 +36,8 @@ export interface GraphQLSseOptions extends SubscriptionOperation {
    * web — handles can't be resolved there and are reported as unapplied.
    */
   mainSide?: MainSideHandshakeAuth;
+  /** Auth-added header names, removed on a redirect to another origin. */
+  stripOnOriginChange?: string[];
 }
 
 /** Shared event dispatch for both transports. Returns true when the stream is complete. */
@@ -59,16 +61,18 @@ export function subscribeGraphQLSse(
   const url = toHttpUrl(options.url);
   const body = JSON.stringify(operationPayload(options));
   const headers = { ...options.headers, 'Content-Type': 'application/json' };
+  const strip = options.stripOnOriginChange ?? [];
   return isElectron()
-    ? viaElectron(url, headers, body, sink, options.mainSide)
-    : viaProxy(url, headers, body, sink);
+    ? viaElectron(url, headers, body, sink, options.mainSide, strip)
+    : viaProxy(url, headers, body, sink, strip);
 }
 
 function viaProxy(
   url: string,
   headers: Record<string, string>,
   body: string,
-  sink: SubscriptionSink
+  sink: SubscriptionSink,
+  stripOnOriginChange: string[]
 ): () => void {
   const controller = new AbortController();
   let done = false;
@@ -89,6 +93,7 @@ function viaProxy(
           data: body,
           streamingMode: true,
           timeout: 0,
+          ...(stripOnOriginChange.length > 0 ? { redirectPolicy: { stripOnOriginChange } } : {}),
         },
         { signal: controller.signal }
       );
@@ -134,7 +139,8 @@ function viaElectron(
   headers: Record<string, string>,
   body: string,
   sink: SubscriptionSink,
-  mainSide?: MainSideHandshakeAuth
+  mainSide: MainSideHandshakeAuth | undefined,
+  stripOnOriginChange: string[]
 ): () => void {
   const api = getElectronAPI()?.sse;
   if (!api) {
@@ -158,6 +164,7 @@ function viaElectron(
       url,
       headers,
       jsonBody: body,
+      ...(stripOnOriginChange.length > 0 ? { stripOnOriginChange } : {}),
       ...(mainSide?.auth ? { auth: mainSide.auth } : {}),
       ...(mainSide?.secretVariables && Object.keys(mainSide.secretVariables).length > 0
         ? { secretVariables: mainSide.secretVariables }

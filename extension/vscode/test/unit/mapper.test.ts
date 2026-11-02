@@ -17,6 +17,32 @@ describe('resolveVars', () => {
 });
 
 describe('mapHttpElementToSpec', () => {
+  const withAuth = (auth: Record<string, unknown>) => ({
+    info: { type: 'http', name: 'r' },
+    http: { method: 'GET', url: 'https://api.example.com/x', auth },
+  });
+
+  it('names an API key header for redirects', () => {
+    const { spec } = mapHttpElementToSpec(
+      withAuth({ type: 'apikey', key: 'X-{{NAME}}', value: 'v', placement: 'header' }),
+      { NAME: 'Unusual' }
+    );
+    expect(spec.headers?.['X-Unusual']).toBe('v');
+    expect(spec.redirectPolicy).toEqual({ stripOnOriginChange: ['X-Unusual'] });
+  });
+
+  it('names nothing for a query API key or bearer auth', () => {
+    expect(
+      mapHttpElementToSpec(
+        withAuth({ type: 'apikey', key: 'k', value: 'v', placement: 'query' }),
+        {}
+      ).spec.redirectPolicy
+    ).toBeUndefined();
+    expect(
+      mapHttpElementToSpec(withAuth({ type: 'bearer', token: 't' }), {}).spec.redirectPolicy
+    ).toBeUndefined();
+  });
+
   it('maps method, url, enabled headers/params with var resolution', () => {
     const doc = {
       info: { type: 'http', name: 'r' },

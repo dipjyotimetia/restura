@@ -52,6 +52,22 @@ export interface ScopedVariableResolution {
   provenance: Record<string, VariableProvenance>;
 }
 
+/** Enabled rows flagged secret, plaintext or SecretRef-backed, by trimmed name. */
+export function secretVariableNames(
+  ...scopes: ReadonlyArray<ReadonlyArray<KeyValue & { secretRef?: unknown }> | undefined>
+): string[] {
+  const names = new Set<string>();
+  for (const rows of scopes) {
+    for (const row of rows ?? []) {
+      const key = row.key?.trim();
+      if (row.enabled && key && (row.secret === true || row.secretRef !== undefined)) {
+        names.add(key);
+      }
+    }
+  }
+  return [...names];
+}
+
 function enabledEntries(vars: KeyValue[] | undefined): [string, string][] {
   if (!vars) return [];
   return vars.filter((v) => v.enabled && v.key).map((v) => [v.key, v.value]);

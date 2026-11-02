@@ -244,6 +244,16 @@ describe('Variable resolver parity across entry points', () => {
     expect(viaStore('{{a}}', { a: '{{host}}' })).toBe('global');
   });
 
+  it('keeps a token held in a value literal when its name is secret (streaming)', () => {
+    const scope = {
+      values: { fromScript: '{{sec}}', sec: 'plaintext' },
+      secretNames: new Set(['sec']),
+      handleNames: new Set<string>(),
+    };
+    expect(resolveStreamingText('{{fromScript}}', scope).wire).toBe('{{sec}}');
+    expect(resolveStreamingText('{{sec}}', scope).wire).toBe('plaintext');
+  });
+
   it('keeps a value set by a script from pulling in another variable (streaming, CLI)', () => {
     const vars = { fromScript: '{{SECRET_NAME}}', SECRET_NAME: 'plaintext' };
     expect(viaStreaming('{{fromScript}}', vars)).toBe('{{SECRET_NAME}}');
@@ -408,7 +418,9 @@ describe('same reach as the sequential loops, for every definition order', () =>
 });
 
 /**
- * The map the send path really walks, built from real stores. `mainBuilder` and
+ * The map the send path really walks, built from real stores. Non-secret rows must
+ * match the old loops byte for byte; see the `isSecret` rows for the one change.
+ * `mainBuilder` and
  * `mainResolve` are transcribed from main (`buildValueMap` plus the loop in
  * `buildActiveRequestVariableResolution`, then the executor's `resolveLocal`). An
  * override keeps a key's first position, so insertion order, and so reach, is the
@@ -505,12 +517,13 @@ describe('same reach through the active request scopes', () => {
   }
 
   function current(text: string) {
-    const { values, secretVariables } = buildActiveRequestVariableResolution();
+    const { values, secretVariables, sendSecretNames } = buildActiveRequestVariableResolution();
     return {
       order: Object.keys(values),
       out: resolveRequestScopeText(text, {
         values,
         secretVariables,
+        secretNames: sendSecretNames,
         resolveVariables: (t) => useEnvironmentStore.getState().resolveVariables(t),
       }),
     };
@@ -529,7 +542,13 @@ describe('same reach through the active request scopes', () => {
   const over = row('token', 'over');
   const a = row('a', '{{next}}');
 
-  const CASES: ReadonlyArray<{ name: string; build: (o: Row[]) => Scopes; rows: Row[] }> = [
+  const CASES: ReadonlyArray<{
+    name: string;
+    build: (o: Row[]) => Scopes;
+    rows: Row[];
+    /** `token` wins as a secret, so it resolves only where it is written. */
+    isSecret?: boolean;
+  }> = [
     {
       name: 'collection overridden by a folder',
       rows: [token, next, a],
@@ -570,6 +589,7 @@ describe('same reach through the active request scopes', () => {
     },
     {
       name: 'a secret row overriding a plain one',
+      isSecret: true,
       rows: [token, next, a],
       build: (o) => ({ collection: o, folder: [secret('token')] }),
     },
@@ -580,12 +600,13 @@ describe('same reach through the active request scopes', () => {
     },
     {
       name: 'a secret in the environment store',
+      isSecret: true,
       rows: [secret('token'), next, a],
       build: (o) => ({ base: o }),
     },
   ];
 
-  for (const { name, rows, build } of CASES) {
+  for (const { name, rows, build, isSecret } of CASES) {
     for (const order of orders(rows)) {
       it(`${name}, order ${order.map((r) => r.key).join(',')}`, () => {
         const scopes = build(order);
@@ -593,7 +614,22 @@ describe('same reach through the active request scopes', () => {
         expect(Object.keys(buildActiveRequestVariableResolution().values)).toEqual(
           Object.keys(mainBuilder(scopes).values)
         );
-        for (const text of TEXTS) expect(current(text).out).toBe(mainResolve(text, scopes));
+        for (const text of TEXTS) {
+          if (!isSecret) {
+            expect(current(text).out).toBe(mainResolve(text, scopes));
+            continue;
+          }
+          // The two secret rows are the only change from the old loops. A `token`
+          // written in the text still reaches main untouched. One the same walk
+          // brings in through a value used to reach main as a token, or the store
+          // as the mask; both now refuse.
+          const old = mainResolve(text.replaceAll('{{token}}', 'WRITTEN'), scopes);
+          if (old.includes('{{token}}') || old.includes(MASK)) {
+            expect(() => current(text)).toThrow('secret variable "token"');
+          } else {
+            expect(current(text).out).toBe(old.replaceAll('WRITTEN', '{{token}}'));
+          }
+        }
       });
     }
   }

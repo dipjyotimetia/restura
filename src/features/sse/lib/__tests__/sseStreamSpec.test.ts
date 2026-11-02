@@ -11,4 +11,11 @@ describe('buildSseStreamSpec', () => {
       timeout: 0,
     });
   });
+
+  it('names auth headers for redirects, and nothing when there are none', () => {
+    expect(buildSseStreamSpec('https://example.com/s', {}, ['X-Unusual']).redirectPolicy).toEqual({
+      stripOnOriginChange: ['X-Unusual'],
+    });
+    expect(buildSseStreamSpec('https://example.com/s', {}, []).redirectPolicy).toBeUndefined();
+  });
 });

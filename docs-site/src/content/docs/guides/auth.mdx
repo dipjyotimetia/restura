@@ -62,7 +62,7 @@ HTTP Digest (RFC 7616) works on web, self-hosted, desktop, and the CLI. The firs
 
 - The first request carries no credentials. Only an HMAC proof is sent after the challenge; the password never goes on the wire.
 - The handshake stays on one HTTP/1.1 connection. If the server closes it after the challenge, the request fails with an error instead of retrying on a new connection. A request set to HTTP/2 fails, because NTLM can't run over HTTP/2.
-- Credentials go only to the origin you requested. A redirect to another host doesn't get them.
+- Credentials go only to the origin you requested. A redirect to another origin drops `Authorization`, `Cookie`, `Proxy-Authorization`, credential-named headers and headers your auth added. Other headers keep following.
 - Works direct, through an HTTP/HTTPS proxy (always tunnelled with `CONNECT`) and through SOCKS. Keychain passwords are resolved in the main process at send time.
 - Over plain `http:` the NTLM exchange can be captured and cracked offline. Use `https:` for NTLM-protected APIs.
 - **Web and self-hosted don't send NTLM**: the request goes out without an `Authorization` header and the editor warns about it. The CLI refuses NTLM requests. NTLM isn't used for SSE, WebSocket, gRPC or GraphQL subscriptions.

@@ -7,9 +7,12 @@ import { countPostmanBagInlineSecrets, redactPostmanBag } from '../collections/p
 import { getPostmanSidecar } from '../collections/postman/sidecar';
 import {
   countUrlStringSecrets,
+  REFERENCE_ONLY_VALUE,
   redactUrlCredentialsForStorage,
+  redactVariableValue,
 } from '../collections/postman/text-redaction';
-import type { Collection, CollectionItem } from '../types';
+import type { Collection, CollectionItem, ScopedVariable } from '../types';
+import { hasUrlUserinfo, stripUrlUserinfo } from './broker-preset-redaction';
 import { isSecretFieldName } from './key-value-redaction';
 import {
   blankRequestSecrets,
@@ -17,6 +20,7 @@ import {
   countRequestSecrets,
   redactAuthConfigSecrets,
 } from './request-secret-slots';
+import { isSecretHandle, redactSecret } from './secret-ref';
 import { redactOcStdioEnv } from './stdio-env-redaction';
 
 export { redactAuthConfigSecrets };
@@ -39,9 +43,9 @@ export { redactAuthConfigSecrets };
  *    opaque on its own and the exporters render it as a `{{handle:label}}`
  *    placeholder.
  *
- * Non-secret fields (username, region, key name, URLs, scopes…) are kept so
- * a redacted export still round-trips the auth *shape* — only the credential
- * material is dropped. The Electron file-collection redactor
+ * Non-secret fields (username, region, key name, scopes…) and URLs minus their
+ * userinfo and credential query values are kept, so a redacted export still
+ * round-trips the auth *shape* — only the credential material is dropped. The Electron file-collection redactor
  * (`electron/main/security/collection-export-redactor.ts`) implements the same policy
  * for untyped auth blobs; both consume `SECRET_FIELDS_BY_AUTH_BLOCK`.
  */
@@ -114,8 +118,53 @@ function nestedAuthObjects(
   return out;
 }
 
+/** Bag keys holding a URL or address, whichever protocol or extension they sit in. */
+const OC_URL_KEYS = new Set([
+  'url',
+  'brokerUrl',
+  'endpoint',
+  'tokenUrl',
+  'authorizationUrl',
+  'deviceAuthorizationUrl',
+  'accessTokenUrl',
+  'refreshTokenUrl',
+  'redirectUri',
+  'callbackUrl',
+  'issuer',
+]);
+
+/** A broker address follows the typed slot's rule, so the two copies cannot disagree. */
+function redactOcUrlValue(key: string, value: string): string {
+  return key === 'brokerUrl' ? stripUrlUserinfo(value) : redactUrlCredentialsForStorage(value);
+}
+
+function countOcUrlKeys(obj: Record<string, unknown>): number {
+  let n = 0;
+  for (const key of OC_URL_KEYS) {
+    const value = obj[key];
+    if (typeof value !== 'string') continue;
+    n += key === 'brokerUrl' ? (hasUrlUserinfo(value) ? 1 : 0) : countUrlStringSecrets(value);
+  }
+  if (Array.isArray(obj.bootstrapBrokers)) {
+    n += obj.bootstrapBrokers.filter((b) => typeof b === 'string' && hasUrlUserinfo(b)).length;
+  }
+  return n;
+}
+
+/** A bag `{ name | key, value }` variable row whose value the policy would change. */
+function ocVariableRowValue(row: unknown): { value: string; next: string } | null {
+  if (!isPlainObject(row) || typeof row.value !== 'string') return null;
+  const name = typeof row.name === 'string' ? row.name : typeof row.key === 'string' ? row.key : '';
+  const next = redactVariableValue(name, row.value);
+  return next === row.value ? null : { value: row.value, next };
+}
+
 function redactOcAuthBlock(auth: Record<string, unknown>): Record<string, unknown> {
   const next: Record<string, unknown> = { ...auth };
+  for (const key of OC_URL_KEYS) {
+    const value = next[key];
+    if (typeof value === 'string') next[key] = redactOcUrlValue(key, value);
+  }
   for (const field of ALL_OC_AUTH_SECRET_FIELDS) {
     if (typeof next[field] === 'string') next[field] = '';
   }
@@ -147,9 +196,6 @@ function redactOcRows(rows: unknown[]): unknown[] {
   });
 }
 
-/** A value that is exactly one `{{var}}` reference — a pointer, not a secret. */
-const SINGLE_VARIABLE_REFERENCE = /^\{\{\s*[^{}\s]+\s*\}\}$/;
-
 /**
  * A cached OC `{ name, value }` row holding plaintext credential material.
  * A value that is entirely one `{{var}}` reference is left alone — it names
@@ -162,7 +208,7 @@ function isPlaintextSecretOcRow(row: Record<string, unknown>): boolean {
   return (
     typeof row.value === 'string' &&
     row.value !== '' &&
-    !SINGLE_VARIABLE_REFERENCE.test(row.value.trim()) &&
+    !REFERENCE_ONLY_VALUE.test(row.value.trim()) &&
     (row.secret === true || isSecretFieldName(name))
   );
 }
@@ -187,10 +233,17 @@ export function redactOcBag(node: unknown): unknown {
       output[key] = redactOcAuthBlock(value as Record<string, unknown>);
     } else if (key === 'passphrase' && typeof value === 'string') {
       output[key] = '';
-    } else if (key === 'url' && typeof value === 'string') {
+    } else if (OC_URL_KEYS.has(key) && typeof value === 'string') {
       // URL userinfo + credential-named query values (`?access_token=`): an
       // unedited item re-exports verbatim from its bag (#1209).
-      output[key] = redactUrlCredentialsForStorage(value);
+      output[key] = redactOcUrlValue(key, value);
+    } else if (key === 'variables' && Array.isArray(value)) {
+      output[key] = value.map((row) => {
+        const changed = ocVariableRowValue(row);
+        return redactOcBag(changed ? { ...(row as object), value: changed.next } : row);
+      });
+    } else if (key === 'bootstrapBrokers' && Array.isArray(value)) {
+      output[key] = value.map((b) => (typeof b === 'string' ? stripUrlUserinfo(b) : b));
     } else if (key === 'value' && input.secret === true) {
       output[key] = '';
     } else if (key === 'stdio' && isPlainObject(value) && Array.isArray(value.env)) {
@@ -276,7 +329,10 @@ function isOpaqueOcItem(obj: Record<string, unknown>): boolean {
 function countNestedAuthSecrets(a: Record<string, unknown>): number {
   let n = 0;
   for (const [, nested] of nestedAuthObjects(a)) {
-    n += countNonEmptyStrings(nested, ALL_OC_AUTH_SECRET_FIELDS) + countNestedAuthSecrets(nested);
+    n +=
+      countNonEmptyStrings(nested, ALL_OC_AUTH_SECRET_FIELDS) +
+      countOcUrlKeys(nested) +
+      countNestedAuthSecrets(nested);
   }
   return n;
 }
@@ -307,6 +363,8 @@ function countAuthBlockSecrets(a: Record<string, unknown>, opaque: boolean): num
   }
   // Nested credential objects never reach the typed model, whatever the node.
   n += countNestedAuthSecrets(a);
+  // An over-count for a modelled node's OAuth URLs (typed + bag), the safe direction.
+  n += countOcUrlKeys(a);
   // OAuth1 RSA `privateKey` is an object `{ type: 'file' | 'text', value }`; an
   // inline ('text') key is a secret. A 'file' value is a path, not a secret.
   if (isPlainObject(a.privateKey)) {
@@ -352,12 +410,15 @@ function countOcBagInlineSecrets(
   if (typeof obj.passphrase === 'string' && obj.passphrase.length > 0) count += 1;
   // URL userinfo / credential-named query values in a bag URL (a typed
   // request's copy may be counted too — an over-count, the safe direction).
-  if (typeof obj.url === 'string') count += countUrlStringSecrets(obj.url);
+  count += countOcUrlKeys(obj);
   for (const [key, value] of Object.entries(obj)) {
     // `auth` is handled above; `passphrase` is a scalar already counted. Recurse
     // everything else (incl. `proxy` → `proxy.config.auth`) so nested config
     // secrets like the proxy password are reached.
     if (key === 'auth' || key === 'passphrase') continue;
+    if (key === 'variables' && Array.isArray(value)) {
+      count += value.filter((row) => ocVariableRowValue(row) !== null).length;
+    }
     // Credential header / param / metadata rows. Only bag-only material
     // counts: a modelled node's rows are already counted on the typed request
     // (`countSecretKeyValues`), so counting the bag copy would double-report.
@@ -397,11 +458,81 @@ function redactBags<T extends object>(node: T): T {
 // bound is replaced by an empty stub on redaction (nothing below it can leak)
 // and counted as one secret (the export warning fires).
 
+/** A saved contract spec pointer at collection or folder scope. */
+interface ContractSpecHolder {
+  contractSpec?: { url?: unknown } | undefined;
+}
+
+function contractSpecUrl(node: ContractSpecHolder): string | undefined {
+  const url = node.contractSpec?.url;
+  return typeof url === 'string' ? url : undefined;
+}
+
+function redactContractSpec<T extends object>(node: T): T {
+  const holder = node as ContractSpecHolder;
+  const url = contractSpecUrl(holder);
+  if (url === undefined) return node;
+  return {
+    ...node,
+    contractSpec: { ...holder.contractSpec, url: redactUrlCredentialsForStorage(url) },
+  };
+}
+
+function countContractSpec(node: object): number {
+  const url = contractSpecUrl(node as ContractSpecHolder);
+  return url === undefined ? 0 : countUrlStringSecrets(url);
+}
+
+function variableIsFlagged(variable: ScopedVariable): boolean {
+  return variable.secret === true || variable.secretRef !== undefined;
+}
+
+/** Plaintext in a flagged or `secretRef` variable (handles hold none), or under the name policy. */
+function variableHoldsSecret(variable: ScopedVariable): boolean {
+  const ref = variable.secretRef;
+  if (variableIsFlagged(variable)) {
+    if (variable.value) return true;
+    if (typeof ref === 'string') return ref !== '';
+    return ref?.kind === 'inline' && ref.value !== '';
+  }
+  return (
+    typeof variable.value === 'string' &&
+    redactVariableValue(String(variable.key), variable.value) !== variable.value
+  );
+}
+
+function redactVariables<T extends object>(node: T): T {
+  const variables = (node as { variables?: unknown }).variables;
+  if (!Array.isArray(variables)) return node;
+  return {
+    ...node,
+    variables: (variables as ScopedVariable[]).map((variable) => {
+      if (!variableHoldsSecret(variable)) return variable;
+      if (!variableIsFlagged(variable)) {
+        return { ...variable, value: redactVariableValue(variable.key, variable.value) };
+      }
+      const ref = variable.secretRef;
+      return {
+        ...variable,
+        value: '',
+        ...(ref !== undefined && !isSecretHandle(ref) ? { secretRef: redactSecret(ref) } : {}),
+      };
+    }),
+  };
+}
+
+/** Variables on a collection or folder that {@link redactCollectionSecrets} changes. */
+export function countVariableSecrets(node: object): number {
+  const variables = (node as { variables?: unknown }).variables;
+  if (!Array.isArray(variables)) return 0;
+  return (variables as ScopedVariable[]).filter(variableHoldsSecret).length;
+}
+
 function redactItem(item: CollectionItem, depth = 0): CollectionItem {
   if (depth > MAX_COLLECTION_TREE_DEPTH) {
     return { id: item.id, name: item.name, type: item.type, ...(item.items ? { items: [] } : {}) };
   }
-  const next: CollectionItem = redactBags(item);
+  const next: CollectionItem = redactVariables(redactContractSpec(redactBags(item)));
   if (next.auth) next.auth = redactAuthConfigSecrets(next.auth);
   if (next.items) next.items = next.items.map((child) => redactItem(child, depth + 1));
   if (next.request) next.request = blankRequestSecrets(next.request);
@@ -419,7 +550,7 @@ function redactItem(item: CollectionItem, depth = 0): CollectionItem {
  * proxy passwords, private keys, certificate passphrases, and secret values.
  */
 export function redactCollectionSecrets(collection: Collection): Collection {
-  const next = redactBags(collection);
+  const next = redactVariables(redactContractSpec(redactBags(collection)));
   return {
     ...next,
     ...(collection.auth ? { auth: redactAuthConfigSecrets(collection.auth) } : {}),
@@ -434,7 +565,10 @@ export function redactCollectionSecrets(collection: Collection): Collection {
  * count — they never expose plaintext.
  */
 export function countCollectionInlineSecrets(collection: Collection): number {
-  let count = countAuthInlineSecrets(collection.auth);
+  let count =
+    countAuthInlineSecrets(collection.auth) +
+    countContractSpec(collection) +
+    countVariableSecrets(collection);
   const rootOc = (collection as { _oc?: unknown })._oc;
   // The root `_oc` bag holds the entire verbatim OC document, so walking it
   // covers every item's bag too. When it has been stripped (a post-import edit
@@ -451,7 +585,8 @@ export function countCollectionInlineSecrets(collection: Collection): number {
       return;
     }
     for (const item of items) {
-      count += countAuthInlineSecrets(item.auth);
+      count +=
+        countAuthInlineSecrets(item.auth) + countContractSpec(item) + countVariableSecrets(item);
       count += countPostmanBagInlineSecrets(getPostmanSidecar(item));
       if (rootOc === undefined) {
         // A `request` item's bag mirrors a typed node (http/graphql/grpc item or

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { followRedirectsWithDigest } from '../digest-auth';
 import { executeHttpProxy } from '../http-proxy';
+import { followRedirects } from '../redirect-follower';
 import type { Fetcher } from '../types';
 
 describe('executeHttpProxy redirect handling', () => {
@@ -43,6 +45,135 @@ describe('executeHttpProxy redirect handling', () => {
     );
 
     expect(result.ok).toBe(false);
+  });
+
+  it('keeps Authorization with followAuthHeader unless the spec names it', async () => {
+    const run = async (redirectPolicy: Record<string, unknown>) => {
+      const fetcher = vi
+        .fn()
+        .mockResolvedValueOnce({
+          status: 302,
+          statusText: 'Found',
+          headers: new Headers({ Location: 'https://other.example/api' }),
+          text: async () => '',
+          contentLengthHeader: '0',
+          body: null,
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          statusText: 'OK',
+          headers: new Headers(),
+          text: async () => 'ok',
+          contentLengthHeader: '2',
+          body: null,
+        });
+      await executeHttpProxy(
+        {
+          method: 'GET',
+          url: 'https://a.example/',
+          headers: { Authorization: 'Bearer t', 'X-Api-Key': 'k' },
+          redirectPolicy,
+        },
+        fetcher as unknown as Fetcher,
+        { allowLocalhost: false }
+      );
+      return new Headers(fetcher.mock.calls[1]?.[0].headers);
+    };
+    const kept = await run({ followAuthHeader: true });
+    expect(kept.get('authorization')).toBe('Bearer t');
+    expect(kept.get('x-api-key')).toBeNull();
+    const named = await run({ followAuthHeader: true, stripOnOriginChange: ['Authorization'] });
+    expect(named.get('authorization')).toBeNull();
+  });
+
+  const redirectThenOk = () =>
+    vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 302,
+        statusText: 'Found',
+        headers: new Headers({ Location: 'https://other.example/api' }),
+        text: async () => '',
+        contentLengthHeader: '0',
+        body: null,
+      })
+      .mockResolvedValue({
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers(),
+        text: async () => 'ok',
+        contentLengthHeader: '2',
+        body: null,
+      });
+
+  it('strips run-together credential names when the request holds a Headers object', async () => {
+    const fetcher = redirectThenOk();
+    await followRedirects(
+      {
+        url: 'https://a.example/',
+        method: 'GET',
+        body: undefined,
+        signal: new AbortController().signal,
+        headers: new Headers({
+          AccessToken: 'k',
+          AuthToken: 'k',
+          ApiToken: 'k',
+          RefreshToken: 'k',
+          clientSecret: 'k',
+          'X-AccessToken': 'k',
+          Accept: 'text/plain',
+          'X-Trace': 'abc',
+        }),
+      },
+      fetcher as unknown as Fetcher,
+      { allowLocalhost: false }
+    );
+    const names = [...new Headers(fetcher.mock.calls[1]?.[0].headers).keys()].sort();
+    expect(names).toEqual(['accept', 'x-trace']);
+  });
+
+  it('matches the case the request used, across a Digest retry too', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 401,
+        statusText: 'Unauthorized',
+        headers: new Headers({ 'WWW-Authenticate': 'Digest realm="r", nonce="n", qop="auth"' }),
+        text: async () => '',
+        contentLengthHeader: '0',
+        body: null,
+      })
+      .mockResolvedValueOnce({
+        status: 302,
+        statusText: 'Found',
+        headers: new Headers({ Location: 'https://other.example/api' }),
+        text: async () => '',
+        contentLengthHeader: '0',
+        body: null,
+      })
+      .mockResolvedValue({
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers(),
+        text: async () => 'ok',
+        contentLengthHeader: '2',
+        body: null,
+      });
+    await followRedirectsWithDigest(
+      {
+        url: 'https://a.example/',
+        method: 'GET',
+        body: undefined,
+        signal: new AbortController().signal,
+        headers: { MyPassword: 'k', 'X-Trace': 'abc' },
+      },
+      fetcher as unknown as Fetcher,
+      { allowLocalhost: false },
+      { credentials: { username: 'u', password: 'p' }, rebuildBody: () => undefined }
+    );
+    const last = new Headers(fetcher.mock.calls[2]?.[0].headers);
+    expect(last.get('mypassword')).toBeNull();
+    expect(last.get('x-trace')).toBe('abc');
   });
 
   it('strips Authorization on cross-origin redirect', async () => {

@@ -3,6 +3,7 @@ import { buildGraphQLWireRequest, graphqlEnvelopeFromBody } from '@shared/graphq
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import {
   applyBodyDefaultHeaders,
+  authHeaderNames,
   buildProxyBody,
   collectEnabledRows,
   type ProxyBody,
@@ -117,6 +118,8 @@ export async function executeHttp(
     } else if (settings?.maxRedirects !== undefined) {
       redirectPolicy.maxRedirects = settings.maxRedirects;
     }
+    const authHeaders = authHeaderNames(resolvedAuth);
+    if (authHeaders.length > 0) redirectPolicy.stripOnOriginChange = authHeaders;
 
     const result = await executeHttpProxy(
       {

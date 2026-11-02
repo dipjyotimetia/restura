@@ -240,6 +240,12 @@ describe('sseManager auto-reconnect (Electron)', () => {
     expect(disconnect).toHaveBeenCalledWith({ connectionId: id });
   });
 
+  it('names auth headers for redirects on sse:connect', async () => {
+    sseManager.connect(id, URL_, {}, { stripOnOriginChange: ['X-Unusual'] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(connect.mock.calls[0]?.[0]).toMatchObject({ stripOnOriginChange: ['X-Unusual'] });
+  });
+
   it('a failed connect reply without a close event ends the attempt', async () => {
     connect.mockResolvedValueOnce({ success: false, error: 'Rate limit exceeded' });
     sseManager.connect(id, URL_);

@@ -5,7 +5,7 @@ import {
   resolveEffectiveAuth,
 } from '@/features/auth/lib/authInheritance';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
-import { buildValueMap } from '@/lib/shared/variableScopes';
+import { buildValueMap, secretVariableNames } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
@@ -126,9 +126,10 @@ export async function resolveResturaAgentTools(sources: ToolSource[]): Promise<A
       async (request, signal) => {
         signal?.throwIfAborted();
         const collectionVars = buildValueMap({ collection: collection?.variables });
+        const activeVariables = useEnvironmentStore.getState().getActiveEnvironment()?.variables;
         const envVars = buildValueMap({
           globals: useGlobalsStore.getState().vars,
-          env: useEnvironmentStore.getState().getActiveEnvironment()?.variables,
+          env: activeVariables,
           collection: collection?.variables,
         });
         // Postman send guard (#1232): refuse rather than substitute an
@@ -146,6 +147,7 @@ export async function resolveResturaAgentTools(sources: ToolSource[]): Promise<A
         const result = await executeRequest({
           request: requestForExec,
           envVars,
+          secretNames: secretVariableNames(activeVariables, collection?.variables),
           globalSettings: useSettingsStore.getState().settings,
           resolveVariables: (value) => useEnvironmentStore.getState().resolveVariables(value),
           collectionVars,

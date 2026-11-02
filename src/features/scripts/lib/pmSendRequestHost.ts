@@ -22,9 +22,13 @@
  * `pm.sendRequest` native binding wraps the response in a Postman-shaped
  * object inside QuickJS.
  */
+
 import { checkHttpMethod } from '@shared/protocol/http-method';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
+import { SecretVariableReferenceError } from '@shared/variables/secret-variable-token';
+import { scanVariableTokens } from '@shared/variables/tokens';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
+import { withoutSecretNames } from '@/lib/shared/resolveRequestScope';
 import { executeProxiedRequest } from '@/lib/shared/transport';
 import type { PmSendRequestInput, PmSubResponse } from './scriptExecutor';
 
@@ -55,11 +59,33 @@ export interface MakeRendererSendRequestOptions {
    * headers in `pm.sendRequest(input)` win on collision.
    */
   inheritedHeaders?: Record<string, string>;
+  /** The parent's URL as sent. Headers are inherited only on its origin. */
+  parentUrl?: string;
+  /** The parent's URL before it is built, for `inheritedHeaderTemplates`. */
+  parentUrlTemplate?: string;
+  /**
+   * Parent headers not resolved yet (a pre-request script runs before the parent
+   * is built). Non-secret variables resolve; a secret token stays literal.
+   */
+  inheritedHeaderTemplates?: Record<string, string>;
+  /** Names this host never resolves: script strings cannot be told from server values. */
+  secretNames?: readonly string[];
   /**
    * Parent abort signal. A user-cancelled top-level send also cancels
    * any in-flight `pm.sendRequest` sub-requests.
    */
   signal?: AbortSignal;
+}
+
+/** An origin to compare, or undefined for anything that cannot be compared. */
+function originOf(url: string | undefined): string | undefined {
+  if (url === undefined) return undefined;
+  try {
+    const { origin } = new URL(url);
+    return origin === 'null' ? undefined : origin;
+  } catch {
+    return undefined;
+  }
 }
 
 function resolveAll(
@@ -82,7 +108,19 @@ export function makeRendererSendRequest(
 ): (input: PmSendRequestInput) => Promise<PmSubResponse> {
   const variables = options.variables ?? {};
   const inherited = options.inheritedHeaders ?? {};
-  const resolve = (s: string): string => injectString(s, variables);
+  const secretNames = options.secretNames ?? [];
+  const resolveText = (text: string, field: string): string => {
+    const written = scanVariableTokens(text).find(({ name }) => secretNames.includes(name));
+    if (written) {
+      throw new SecretVariableReferenceError(
+        'pm.sendRequest',
+        written.name,
+        field,
+        'pm.sendRequest does not resolve secret variables.'
+      );
+    }
+    return injectString(text, variables, secretNames);
+  };
 
   return async (input) => {
     // Same policy as the shared core (#857): any RFC 9110 token, verbatim;
@@ -93,20 +131,46 @@ export function makeRendererSendRequest(
       throw new Error(`pm.sendRequest: ${methodCheck.error}`);
     }
     const method = methodCheck.method;
-    // Merge order: inherited (lowest), user-supplied (highest). Resolve
-    // {{var}} on both sides; the user's literal `"Bearer {{token}}"` is
-    // legitimate Postman idiom.
+    const url = resolveText(input.url, 'the URL');
+    const secretFree = withoutSecretNames(variables, secretNames);
+    const parentOrigin = originOf(
+      options.parentUrl ??
+        (options.parentUrlTemplate === undefined
+          ? undefined
+          : injectString(options.parentUrlTemplate, secretFree))
+    );
+    // Anything that cannot be compared counts as another origin.
+    const sameOrigin = parentOrigin !== undefined && parentOrigin === originOf(url);
+    const inheritedHeaders = sameOrigin
+      ? {
+          ...resolveAll(options.inheritedHeaderTemplates, (text) => injectString(text, secretFree)),
+          ...inherited,
+        }
+      : {};
+    // Merge order: inherited (lowest), user-supplied (highest). Inherited headers
+    // already went through the parent's resolver and are sent as they are. The
+    // script's own `"Bearer {{token}}"` is legitimate Postman idiom.
     const mergedHeaders: Record<string, string> = {
-      ...resolveAll(inherited, resolve),
-      ...resolveAll(input.headers, resolve),
+      ...inheritedHeaders,
+      ...resolveAll(input.headers, (text) => resolveText(text, 'a header')),
     };
-    const bodyShape = inferBody(typeof input.body === 'string' ? resolve(input.body) : input.body);
+    // Inherited headers follow a redirect only as far as they would be inherited.
+    const scriptSet = new Set(Object.keys(input.headers ?? {}).map((name) => name.toLowerCase()));
+    const inheritedOnly = Object.keys(inheritedHeaders).filter(
+      (name) => !scriptSet.has(name.toLowerCase())
+    );
+    const bodyShape = inferBody(
+      typeof input.body === 'string' ? resolveText(input.body, 'the body') : input.body
+    );
     const spec: ProxyRequestBody = {
-      url: resolve(input.url),
+      url,
       method,
       headers: mergedHeaders,
       ...(bodyShape.bodyType !== undefined && { bodyType: bodyShape.bodyType }),
       ...(bodyShape.data !== undefined && { data: bodyShape.data }),
+      ...(inheritedOnly.length > 0 && {
+        redirectPolicy: { stripOnOriginChange: inheritedOnly },
+      }),
     };
     const started = Date.now();
     const proxy = await executeProxiedRequest(

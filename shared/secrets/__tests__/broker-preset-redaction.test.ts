@@ -89,6 +89,23 @@ describe('broker preset redaction (#984)', () => {
     expect(countBrokerPresetSecrets(KAFKA)).toBe(3);
   });
 
+  it('blanks an address with no safe parse in place, and counts it once', () => {
+    const preset: KafkaRequest = {
+      ...KAFKA,
+      connection: {
+        ...KAFKA.connection,
+        bootstrapBrokers: ['u:pa/ss@b1:9092', 'b2:9092'],
+        registry: { url: 'https://u:pa/ss@registry.test' },
+      },
+      produce: { ...KAFKA.produce, headers: [] },
+    };
+    expect(countBrokerPresetSecrets(preset)).toBe(2);
+    const out = redactBrokerPreset(preset);
+    expect(out.connection.bootstrapBrokers).toEqual(['', 'b2:9092']);
+    expect(out.connection.registry?.url).toBe('');
+    expect(countBrokerPresetSecrets(out)).toBe(0);
+  });
+
   it('redacts the MQTT broker URL and secret-named user properties', () => {
     const out = redactBrokerPreset(MQTT);
     expect(out.connection.brokerUrl).toBe('mqtts://broker.test:8883');

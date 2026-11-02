@@ -13,7 +13,8 @@
  * never exports to Bruno doesn't pay the bundle cost.
  */
 
-import type { SecretValue } from '@/lib/shared/secretRef';
+import { redactVariableValue } from '@shared/collections/postman/text-redaction';
+import { isSecretHandle, type SecretValue } from '@/lib/shared/secretRef';
 import type {
   AuthConfig,
   Collection,
@@ -51,7 +52,7 @@ function brunoSecretValue(value: SecretValue | undefined): string {
  * Bruno doesn't recognise.
  */
 export interface BrunoExportWarning {
-  kind: 'non-http-request' | 'unsupported-auth';
+  kind: 'non-http-request' | 'unsupported-auth' | 'secret-value-omitted';
   /** Bruno-relative path to the affected file (or '' for collection-level). */
   path: string;
   /** Short human-readable explanation. */
@@ -72,6 +73,45 @@ export interface ExportBrunoOptions {
   environments?: Environment[];
   /** Strict mode: throw on unrepresentable items. Default: `false` (warn-only). */
   strict?: boolean;
+}
+
+type BrunoVariable = KeyValue & { private?: boolean; secretRef?: SecretValue };
+
+/** Flagged secret, or backed by a `secretRef`: its value is never written. */
+function isSecretVariable(variable: BrunoVariable): boolean {
+  return variable.secret === true || variable.secretRef !== undefined;
+}
+
+function holdsPlaintext(variable: BrunoVariable): boolean {
+  if (!isSecretVariable(variable)) {
+    return redactVariableValue(variable.key, variable.value) !== variable.value;
+  }
+  if (variable.value) return true;
+  const ref = variable.secretRef;
+  if (ref === undefined || isSecretHandle(ref)) return false;
+  return typeof ref === 'string' ? ref !== '' : ref.kind === 'inline' && ref.value !== '';
+}
+
+/** Private variables stay local; secret values are blank in the file and reported by name. */
+function portableBrunoVariables(
+  variables: readonly BrunoVariable[] | undefined,
+  path: string,
+  warnings: BrunoExportWarning[]
+): BrunoVariable[] {
+  const portable = (variables ?? []).filter((variable) => !variable.private);
+  const omitted = portable.filter(holdsPlaintext).map((variable) => variable.key);
+  if (omitted.length > 0) {
+    warnings.push({
+      kind: 'secret-value-omitted',
+      path,
+      message: `Credentials in ${path} were not exported: ${omitted.join(', ')}. Re-enter them after import.`,
+    });
+  }
+  return portable.map((variable) =>
+    isSecretVariable(variable)
+      ? { ...variable, value: '' }
+      : { ...variable, value: redactVariableValue(variable.key, variable.value) }
+  );
 }
 
 /**
@@ -121,9 +161,14 @@ export async function exportBrunoCollection(
 
   // collection.bru — top-level defaults
   const collectionBruJson: Record<string, unknown> = {};
-  if (collection.variables && collection.variables.length > 0) {
+  const collectionVariables = portableBrunoVariables(
+    collection.variables,
+    'collection.bru',
+    warnings
+  );
+  if (collectionVariables.length > 0) {
     collectionBruJson.vars = {
-      req: collection.variables.map((v, i) => ({
+      req: collectionVariables.map((v, i) => ({
         name: v.key,
         value: v.value,
         enabled: v.enabled !== false,
@@ -148,10 +193,13 @@ export async function exportBrunoCollection(
 
   // Environments under environments/<name>.bru
   for (const env of opts.environments ?? []) {
-    const envJson = environmentToBrunoJson(env);
     const safeName = sanitiseFileName(env.name);
+    const relativePath = `environments/${safeName}.bru`;
+    const envJson = environmentToBrunoJson(
+      portableBrunoVariables(env.variables, relativePath, warnings)
+    );
     entries.push({
-      relativePath: `environments/${safeName}.bru`,
+      relativePath,
       content: lang.envJsonToBruV2(envJson),
     });
   }
@@ -456,13 +504,13 @@ function nonHttpRequestStub(
   };
 }
 
-function environmentToBrunoJson(env: Environment): Record<string, unknown> {
+function environmentToBrunoJson(variables: readonly BrunoVariable[]): Record<string, unknown> {
   return {
-    variables: (env.variables ?? []).map((v: KeyValue) => ({
+    variables: variables.map((v) => ({
       name: v.key,
       value: v.value,
       enabled: v.enabled !== false,
-      ...(v.secret ? { secret: true } : {}),
+      ...(isSecretVariable(v) ? { secret: true } : {}),
     })),
   };
 }

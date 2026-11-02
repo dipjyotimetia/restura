@@ -101,6 +101,8 @@ export interface RedirectPolicy {
   followAuthHeader?: boolean;
   stripReferer?: boolean;
   maxRedirects?: number;
+  /** Header names removed on a redirect to another origin, beyond the built-in set. */
+  stripOnOriginChange?: string[];
 }
 
 export interface RequestSpec {

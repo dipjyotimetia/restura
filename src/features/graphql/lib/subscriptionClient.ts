@@ -62,6 +62,8 @@ export interface SubscriptionClientOptions {
    * ADR-0007, #878/#882.
    */
   mainSide?: MainSideHandshakeAuth;
+  /** graphql-sse: auth-added header names, removed on a redirect to another origin. */
+  stripOnOriginChange?: string[];
 }
 
 const CONNECT_TIMEOUT_MS = 30_000;
@@ -86,6 +88,7 @@ export class GraphQLSubscriptionClient {
   private headers: Record<string, string>;
   private initParams: Record<string, string>;
   private mainSide: MainSideHandshakeAuth | undefined;
+  private stripOnOriginChange: string[] | undefined;
   private timeoutId: ReturnType<typeof setTimeout> | null = null;
   private negotiating: SubscriptionSocket | null = null;
   /** Bumped per connect/disconnect so a superseded run's late events are dropped. */
@@ -99,6 +102,7 @@ export class GraphQLSubscriptionClient {
     this.headers = headers;
     this.initParams = options.connectionParams ?? headers;
     this.mainSide = options.mainSide;
+    this.stripOnOriginChange = options.stripOnOriginChange;
   }
 
   connect(options: SubscriptionOptions): void {
@@ -145,6 +149,7 @@ export class GraphQLSubscriptionClient {
             url: options.url,
             headers: this.headers,
             ...(this.mainSide ? { mainSide: this.mainSide } : {}),
+            ...(this.stripOnOriginChange ? { stripOnOriginChange: this.stripOnOriginChange } : {}),
             ...this.operation(options),
           },
           sink

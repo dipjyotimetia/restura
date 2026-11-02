@@ -90,7 +90,11 @@ export function useRequestRunner() {
       // (precedence globals < env < collection). gRPC unary substitution reads
       // this map directly, so collection/global vars must live here, not only in
       // the store resolver.
-      const { values: variables, secretVariables } = buildActiveRequestVariableResolution();
+      const {
+        values: variables,
+        secretVariables,
+        sendSecretNames,
+      } = buildActiveRequestVariableResolution();
 
       // Capture script results emitted by the protocol so we can both push
       // them to the originating tab (so the Console panel updates) AND surface
@@ -120,6 +124,7 @@ export function useRequestRunner() {
         signal: ctrl.signal,
         variables,
         secretVariables,
+        secretNames: sendSecretNames,
         onScriptResult,
         onAuthRefreshed,
         ...(options?.protocolOptions ? { protocolOptions: options.protocolOptions } : {}),

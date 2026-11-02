@@ -22,7 +22,7 @@ Looking for collection import/export (Postman v2.x and v3 files)? See [Import & 
 | `pm.info` | `.requestName`, `.requestId`, `.iteration`, `.iterationCount`, `.eventName` (`'prerequest'` / `'test'`) — populated from the real request during a send or collection run. |
 | `pm.execution.location` | `.collectionName`, `.currentRequestName`, `.folderPath` — always a real object (never `undefined`), populated during collection/folder runs. |
 | `pm.cookies` | Cookie jar lookup, plus an async `.jar()` for get/set/clear. |
-| `pm.sendRequest(input, cb?)` | Fire an ad-hoc request through the SSRF-guarded proxy. Returns a promise. Works from the interactive Send button, gRPC, and in-app collection runs. Not wired in the CLI (rejects with a clear error). |
+| `pm.sendRequest(input, cb?)` | Fire an ad-hoc request through the SSRF-guarded proxy. Returns a promise. Secret variables are never resolved: a token naming one refuses the sub-request. Parent headers are inherited on the parent's origin only; on another origin none are, and headers the script sets stay. Works from the interactive Send button, gRPC, and in-app collection runs. Not wired in the CLI (rejects with a clear error). |
 | `pm.execution.setNextRequest` / `skipRequest` | Runner flow control. `skipRequest()` is honoured by the CLI runner and by the app's Collection run (nothing is sent, the test script does not run, the row is recorded as skipped). With stop-on-failure / `--bail`, an unknown `setNextRequest` name or the jump cap stops the run. |
 | `pm.visualizer.set(template, data)` | Custom HTML response visualizations. |
 | `pm.vault` | Encrypted secret vault (`await pm.vault.get(...)`). Restura-native. Desktop only. |

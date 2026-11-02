@@ -9,6 +9,27 @@
 import { replaceVariableTokens, scanVariableTokens } from './tokens';
 
 /**
+ * A send refused because a secret-variable token did not come from the field
+ * itself. The message names variables and the field, never a value.
+ */
+export class SecretVariableReferenceError extends Error {
+  readonly variable: string;
+
+  constructor(
+    source: string,
+    variable: string,
+    field?: string,
+    rule = 'Secret variables can only be used where they are written.'
+  ) {
+    super(
+      `${source} references secret variable "${variable}"${field ? ` in ${field}` : ''}. ${rule}`
+    );
+    this.name = 'SecretVariableReferenceError';
+    this.variable = variable;
+  }
+}
+
+/**
  * Replace every token whose name passes `isSecret` with `replacer(name, token)`;
  * other tokens are left untouched. Own-property semantics are the caller's
  * concern (pass a predicate built from `Object.hasOwn`).

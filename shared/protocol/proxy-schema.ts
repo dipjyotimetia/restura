@@ -151,6 +151,7 @@ export const RedirectPolicySchema = z.object({
   stripReferer: z.boolean().optional(),
   // 0 = "do not follow" (honoured by the redirect-follower); 1..50 = hop cap.
   maxRedirects: z.number().int().min(0).max(50).optional(),
+  stripOnOriginChange: z.array(z.string().max(1024)).max(256).optional(),
 });
 
 export const ProxyRequestBodySchema = z.object({

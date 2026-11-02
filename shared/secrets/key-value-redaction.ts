@@ -56,6 +56,10 @@ const SECRET_SEGMENTS = new Set([
   'jwt',
   'bearer',
   'apikey',
+  'apitoken',
+  'accesstoken',
+  'refreshtoken',
+  'authtoken',
   'privatekey',
   'signature',
   'sig',
@@ -68,6 +72,10 @@ const SECRET_SEGMENTS = new Set([
   'auth',
   'authz',
 ]);
+
+// Too common to match anywhere (`pass_rate`, `pw_policy`), but a credential as the
+// last word of a name (`db_pass`, `PG_PW`).
+const TRAILING_SECRET_SEGMENTS = new Set(['pass', 'pw']);
 
 // `token` / `key` are credential-bearing UNLESS qualified by a pagination or
 // structural word — so `accessToken`/`apiKey`/`x-goog-api-key` redact while
@@ -110,16 +118,69 @@ function nameSegments(name: string): string[] {
     .filter(Boolean);
 }
 
-/** True when a header/param/metadata key name looks credential-bearing. */
-export function isSecretFieldName(name: string): boolean {
-  const lower = name.trim().toLowerCase();
-  if (SECRET_NAME_EXACT.has(lower)) return true;
+/** The innermost name of a bracketed key and what holds it: `auth[password]`, `a[secret][]`. */
+function splitFieldName(name: string): { leaf: string; parent: string } {
+  let leaf = name.trim();
+  while (leaf.endsWith(']')) {
+    const open = leaf.lastIndexOf('[');
+    if (open === -1) break;
+    const inner = leaf.slice(open + 1, -1).trim();
+    const before = leaf.slice(0, open).trim();
+    if (inner) return { leaf: inner, parent: before };
+    leaf = before;
+  }
+  return { leaf, parent: '' };
+}
+
+/** Names built from a credential word that say how, not what (`authSource`, `token_type`). */
+const NON_CREDENTIAL_NAMES = new Set(['auth_source', 'auth_mechanism', 'token_type']);
+
+function isAmbiguousOnly(segs: readonly string[]): boolean {
+  return segs.length > 0 && segs.every((s) => AMBIGUOUS_SEGMENTS.has(s));
+}
+
+function isSecretPlainName(name: string): boolean {
+  const lower = name.toLowerCase();
   const segs = nameSegments(name);
+  if (NON_CREDENTIAL_NAMES.has(segs.join('_'))) return false;
+  if (SECRET_NAME_EXACT.has(lower)) return true;
   if (segs.some((s) => SECRET_SEGMENTS.has(s))) return true;
+  if (TRAILING_SECRET_SEGMENTS.has(segs.at(-1) ?? '')) return true;
   if (segs.some((s) => AMBIGUOUS_SEGMENTS.has(s)) && !segs.some((s) => BENIGN_QUALIFIERS.has(s))) {
     return true;
   }
   return false;
+}
+
+/**
+ * True when a header/param/metadata key name looks credential-bearing. In a
+ * bracketed name the inner word decides; `key` and `token` alone are structural
+ * there (`filter[key]`) unless what holds them is itself a credential word.
+ */
+export function isSecretFieldName(name: string): boolean {
+  const { leaf, parent } = splitFieldName(name);
+  if (!isSecretPlainName(leaf)) return false;
+  if (parent === '' || !isAmbiguousOnly(nameSegments(leaf))) return true;
+  const holder = splitFieldName(parent).leaf;
+  return isSecretPlainName(holder) && !isAmbiguousOnly(nameSegments(holder));
+}
+
+const VARIABLE_NAME_EXEMPT_SUFFIXES = ['public_key', 'cache_key', 'token_type'];
+const URL_NAME_ENDINGS = new Set(['url', 'uri']);
+
+/**
+ * {@link isSecretFieldName} for variables, whose names are broader than header
+ * names: a name ending in `_URL` / `_URI` holds an address (its value still gets
+ * URL redaction), and a few common names hold no credential.
+ */
+export function isSecretVariableName(name: string): boolean {
+  const segs = nameSegments(splitFieldName(name).leaf);
+  if (URL_NAME_ENDINGS.has(segs.at(-1) ?? '')) return false;
+  const joined = segs.join('_');
+  if (VARIABLE_NAME_EXEMPT_SUFFIXES.some((s) => joined === s || joined.endsWith(`_${s}`))) {
+    return false;
+  }
+  return isSecretFieldName(name);
 }
 
 function rowIsSecret(row: SecretableRow): boolean {
