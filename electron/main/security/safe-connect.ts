@@ -145,10 +145,9 @@ export function createPinnedLookup(host: string, ip: string): any {
     if (!callback) return;
     if (hostname !== host) {
       // A pinned connection must never resolve a hostname other than the one we
-      // validated. The only way this fires is a handshake/HTTP 3xx redirect to a
-      // different host (ws `followRedirects`, undici default redirect) — passing
-      // it through to the system resolver would reach an unvalidated, possibly
-      // internal/metadata target. Fail closed.
+      // validated. Transports refuse redirects themselves; this is the backstop
+      // if one is ever followed. Passing it through to the system resolver would
+      // reach an unvalidated, possibly internal/metadata target. Fail closed.
       callback(
         new Error(`pinned lookup refused unexpected hostname "${hostname}" (pinned to "${host}")`),
         '',
@@ -210,4 +209,24 @@ export function createClosablePinnedFetch(
     ) as unknown as Promise<Response>;
   }) as typeof globalThis.fetch;
   return { fetch: fetchImpl, close: () => agent.close() };
+}
+
+/**
+ * For MCP transports, which take the fetch as an opaque client. The pinned lookup
+ * guards a redirect to another hostname, but an IP-literal target skips lookup, so
+ * a redirect is refused here before it is followed. A caller can't opt out.
+ */
+export function rejectTransportRedirects(
+  pinnedFetch: typeof globalThis.fetch
+): typeof globalThis.fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await pinnedFetch(input, { ...init, redirect: 'manual' });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      throw new Error(
+        'MCP transport redirects are not permitted. Update the server URL to its final address.'
+      );
+    }
+    return response;
+  }) as typeof globalThis.fetch;
 }

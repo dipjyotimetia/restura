@@ -41,7 +41,7 @@ The self-hosted server also serves the SPA from `RESTURA_STATIC_ROOT` on the sam
 `/api/*` routes (except the two public ones above and CORS preflights) go through `proxyAuthMiddleware` in `worker/app.ts`:
 
 1. If `WORKER_PROXY_TOKEN` is set, the request must carry it as `X-Restura-Proxy-Token: <token>` or `Authorization: Bearer <token>` (constant-time compare). Otherwise `401`.
-2. Else, if `REQUIRE_CF_ACCESS=true`, a `Cf-Access-Authenticated-User-Email` header from a trusted reverse proxy is required. Otherwise `401`.
+2. Else, if `REQUIRE_CF_ACCESS=true`, a valid signed `Cf-Access-Jwt-Assertion` is required (`401` otherwise). `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` must be set (`503` otherwise).
 3. Else the API fails closed with `503` ("Worker proxy authentication is not configured").
 
 Local development bypasses the gate only under Miniflare (auto-detected) or with `DEV_BYPASS_AUTH=true` in `.dev.vars`. Never set `DEV_BYPASS_AUTH` in a deployed config. See [Self-hosting](SELF_HOSTING.md#auth-modes) for the reverse-proxy mode.

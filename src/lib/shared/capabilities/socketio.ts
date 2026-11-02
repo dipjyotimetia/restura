@@ -3,5 +3,11 @@
 import type { CapabilityRow } from './types';
 
 export const SOCKETIO_CAPABILITIES = {
-  'socketio.basic': { label: 'Socket.IO client', web: true, desktop: true },
+  'socketio.basic': {
+    label: 'Socket.IO client',
+    web: true,
+    desktop: true,
+    notes:
+      'Desktop refuses a redirected handshake or polling request and reports it; on web, the browser handles polling redirects',
+  },
 } as const satisfies Record<string, CapabilityRow>;

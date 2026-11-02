@@ -133,7 +133,7 @@ When Restura acts as an MCP server, every tool response is run through a redacto
 The deployed Cloudflare Worker requires one of:
 
 - `WORKER_PROXY_TOKEN` set as a secret, sent by the client as `X-Restura-Proxy-Token`.
-- `REQUIRE_CF_ACCESS=true` and a Cloudflare Access policy in front of the Worker.
+- `REQUIRE_CF_ACCESS=true` with `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`, and a Cloudflare Access policy in front of the Worker. Each request's signed assertion is verified.
 
 Local dev bypasses auth only when `ENVIRONMENT=development` **and** either Miniflare is detected or `DEV_BYPASS_AUTH=true` is set in `.dev.vars`. **Never put `DEV_BYPASS_AUTH` in `wrangler.jsonc`** (the deployed config).
 

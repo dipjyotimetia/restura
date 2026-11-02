@@ -68,6 +68,8 @@ app.use('*', async (c, next) => {
     ALLOWED_ORIGIN: process.env.ALLOWED_ORIGIN,
     WORKER_PROXY_TOKEN: process.env.WORKER_PROXY_TOKEN,
     REQUIRE_CF_ACCESS: process.env.REQUIRE_CF_ACCESS,
+    CF_ACCESS_TEAM_DOMAIN: process.env.CF_ACCESS_TEAM_DOMAIN,
+    CF_ACCESS_AUD: process.env.CF_ACCESS_AUD,
     DEV_BYPASS_AUTH: process.env.DEV_BYPASS_AUTH,
     ALLOW_PRIVATE_IPS: process.env.ALLOW_PRIVATE_IPS,
     RATE_LIMITER: process.env.RATE_LIMITER as 'binding' | 'binding-shadow' | 'map' | undefined,

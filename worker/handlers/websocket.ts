@@ -79,7 +79,7 @@ export async function websocketHandler(c: Context<{ Bindings: Env }>): Promise<R
   });
   let upstreamRes: Response;
   try {
-    upstreamRes = await fetch(upstreamUrl, { headers: sanitisedHeaders });
+    upstreamRes = await fetch(upstreamUrl, { headers: sanitisedHeaders, redirect: 'manual' });
   } catch (err) {
     server.close(1011, `Upstream connect failed: ${(err as Error).message}`);
     return upgradeResponse();

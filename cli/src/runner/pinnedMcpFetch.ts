@@ -167,7 +167,9 @@ export function createPinnedMcpFetchSession(allowLocalhost: boolean): PinnedFetc
     });
     if (response.status >= 300 && response.status < 400) {
       await response.body?.cancel();
-      throw new Error('MCP transport redirects are not permitted');
+      throw new Error(
+        'MCP transport redirects are not permitted. Update the server URL to its final address.'
+      );
     }
     return response as unknown as Response;
   }) as typeof globalThis.fetch;

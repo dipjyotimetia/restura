@@ -5,6 +5,7 @@ import type { Context } from 'hono';
 import type { NodeHostnameGuard } from '../adapters';
 import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
+import { rejectRedirect } from '../shared/redirect';
 import { parseJsonBody } from '../shared/validate-body';
 
 /**
@@ -35,7 +36,7 @@ function buildFetcher(
       redirect: 'manual',
     };
     if (req.body !== undefined) init.body = req.body;
-    const r = await fetchImpl(req.url, init);
+    const r = rejectRedirect(await fetchImpl(req.url, init), 'gRPC reflection');
     return {
       status: r.status,
       statusText: r.statusText,

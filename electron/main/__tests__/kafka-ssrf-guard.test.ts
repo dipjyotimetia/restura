@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
+import { assertMqttBrokerSafe } from '../security/mqtt-broker-guard';
 
 describe('assertKafkaBrokersSafe', () => {
   it('accepts public broker addresses with default port', () => {
@@ -146,4 +147,34 @@ describe('assertRegistryUrlSafe', () => {
       /Schema Registry URL rejected/
     );
   });
+});
+
+describe('numeric IPv4 forms', () => {
+  const forms = [
+    '2130706433',
+    '0x7f000001',
+    '0x7f.1',
+    '017700000001',
+    '127.1',
+    '2852039166',
+    '0xa9fea9fe',
+  ];
+  const strict = { allowLocalhost: false, allowPrivateIPs: false };
+
+  it.each(forms)('refuses Kafka broker %s', (host) => {
+    expect(() => assertKafkaBrokersSafe([`${host}:9092`], strict)).toThrow(/rejected/);
+  });
+
+  it.each(forms)('refuses MQTT broker %s', (host) => {
+    expect(() => assertMqttBrokerSafe(`mqtt://${host}:1883`, strict)).toThrow(/rejected/);
+  });
+
+  it.each(['2852039166', '0xa9fea9fe', '0251.0376.0251.0376'])(
+    'keeps the metadata block for %s even with private addresses allowed',
+    (host) => {
+      const open = { allowLocalhost: true, allowPrivateIPs: true };
+      expect(() => assertKafkaBrokersSafe([`${host}:9092`], open)).toThrow(/rejected/);
+      expect(() => assertMqttBrokerSafe(`mqtt://${host}:1883`, open)).toThrow(/rejected/);
+    }
+  );
 });

@@ -18,7 +18,7 @@ import {
   assertPinnedFetchCanHonorPolicy,
   createPolicyPinnedFetch,
 } from '../security/policy-transport';
-import { resolveSafeAddress } from '../security/safe-connect';
+import { rejectTransportRedirects, resolveSafeAddress } from '../security/safe-connect';
 import { mcpRateLimiter, resolveMcpExecutionPolicy } from './mcp-handler';
 import { connectMcpSdkClient, type McpSdkClient } from './mcp-sdk-client';
 
@@ -112,7 +112,9 @@ export function registerMcpConformanceIPC(): void {
             const pinned = await resolveSafeAddress(policyConfig.url, {
               ...getExecutionPolicy().security,
             });
-            const pinnedFetch = createPolicyPinnedFetch(policyConfig, pinned);
+            const pinnedFetch = rejectTransportRedirects(
+              createPolicyPinnedFetch(policyConfig, pinned)
+            );
             // Same main-side materialiser as mcp:connect (#896), after the SSRF
             // guard so a blocked URL never triggers a keychain/vault lookup.
             // Header only: the pinned URL is never changed.

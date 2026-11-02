@@ -35,6 +35,17 @@ export const wsPingRateLimiter = createKeyedRateLimiter(120, 60_000);
 
 const MAX_CONCURRENT_WS_CONNECTIONS = 50;
 
+/**
+ * `ws` (with `followRedirects: false`) reports a 3xx handshake as
+ * "Unexpected server response: 30x"; say plainly that redirects aren't followed.
+ */
+export function handshakeErrorMessage(err: Error): string {
+  const status = /^Unexpected server response: (3\d\d)$/.exec(err.message)?.[1];
+  return status
+    ? `Server redirected the WebSocket handshake (HTTP ${status}); redirects aren't followed`
+    : err.message;
+}
+
 interface ActiveWebSocket {
   ws: WebSocket;
   connectionId: string;
@@ -242,14 +253,12 @@ export function registerWebSocketHandlerIPC(): void {
           headers: config.headers ?? {},
           maxPayload: MAX_MESSAGE_SIZE,
           rejectUnauthorized: policyConfig.verifySsl,
-          // Same-host handshake redirects are followed; a redirect to a DIFFERENT
-          // host fails closed — `createPinnedLookup` errors on any hostname other
-          // than the validated one (an attacker can't 3xx into an internal/metadata
-          // target). Cross-host handshake redirects are rare and not supported by
-          // design; the abort surfaces as a normal `ws` 'error' event below.
-          // Never with main-side-resolved credentials: a same-host redirect may
-          // downgrade wss→ws (or change path) and would replay keychain secrets.
-          followRedirects: !materialize,
+          // Handshake redirects are never followed. The pinned `lookup` only
+          // guards hostnames — Node skips `lookup` for IP-literal hosts, so a
+          // `Location: ws://<ip>/` would be dialed unvalidated, and a followed
+          // redirect may also downgrade wss→ws or replay handshake headers. A
+          // 3xx surfaces as a clear 'error' event (see handshakeErrorMessage).
+          followRedirects: false,
           handshakeTimeout: policyConfig.timeout,
           // #923: per-connection toggle; `ws` offers permessage-deflate by default.
           perMessageDeflate: config.perMessageDeflate ?? true,
@@ -330,7 +339,7 @@ export function registerWebSocketHandlerIPC(): void {
         });
 
         ws.on('error', (err: Error) => {
-          const message = redact(err.message);
+          const message = redact(handshakeErrorMessage(err));
           log.warn('socket error', { connectionId, error: message });
           if (connections.get(connectionId, webContentsId) !== entry) return;
           connections.emit(connectionId, webContentsId, 'error', { message });

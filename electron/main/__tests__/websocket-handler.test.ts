@@ -621,7 +621,7 @@ describe('websocket-handler', () => {
       return { gate, signal: () => signal };
     }
 
-    it('never follows handshake redirects with main-side credentials (plain connects still do)', async () => {
+    it('never follows handshake redirects, with or without main-side credentials', async () => {
       const { event } = makeEvent();
       await handlerFor(IPC.ws.connect)(event, validConnect('plain'));
       await handlerFor(IPC.ws.connect)(event, {
@@ -629,7 +629,7 @@ describe('websocket-handler', () => {
         auth: { type: 'bearer', bearer: { token: { kind: 'handle', id: 'h-token' } } },
       });
       const [plain, authed] = wsMock.FakeWebSocket.instances;
-      expect(plain?.options?.followRedirects).toBe(true);
+      expect(plain?.options?.followRedirects).toBe(false);
       expect(authed?.options?.followRedirects).toBe(false);
     });
 

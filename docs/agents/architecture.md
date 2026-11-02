@@ -211,7 +211,7 @@ Hono app (`createApp` in `worker/app.ts`, composed with Cloudflare adapters in `
 - `nodejs_compat` flag enabled (for `Buffer` etc.) — see `wrangler.jsonc`.
 - Worker-only feature: upstream-proxy via the Cloudflare Sockets API in `worker/shared/tcp-proxy.ts`.
 - Rate limiting in `worker/middleware/rateLimiter.ts`.
-- **Auth gate**: production requires `WORKER_PROXY_TOKEN` or `REQUIRE_CF_ACCESS=true` (secrets). Local dev bypasses auth only when (a) Miniflare is running (auto-detected via `globalThis.MINIFLARE`), or (b) `DEV_BYPASS_AUTH=true` in `.dev.vars`. **Never** put `DEV_BYPASS_AUTH` in `wrangler.jsonc` (the deployed config).
+- **Auth gate**: production requires `WORKER_PROXY_TOKEN`, or `REQUIRE_CF_ACCESS=true` with `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` (secrets; the signed assertion is verified in `worker/shared/cf-access.ts`). Local dev bypasses auth only when (a) Miniflare is running (auto-detected via `globalThis.MINIFLARE`), or (b) `DEV_BYPASS_AUTH=true` in `.dev.vars`. **Never** put `DEV_BYPASS_AUTH` in `wrangler.jsonc` (the deployed config).
 - `ENVIRONMENT` var gates `allowLocalhost` in URL validation. Set to `development` in `.dev.vars` to proxy localhost during local iteration. e2e tests rely on `.dev.vars` existing **before** the dev server boots — `playwright.config.ts` bootstraps this synchronously at config-load time.
 
 ### Echo test server (`echo/`)

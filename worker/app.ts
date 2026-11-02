@@ -34,6 +34,7 @@ import { telemetryError } from './handlers/telemetry';
 import { wsTicket } from './handlers/ws-ticket';
 import { rateLimitMiddleware } from './middleware/rateLimiter';
 import { requestIdMiddleware } from './middleware/requestId';
+import { readCfAccessConfig, verifyCfAccessAssertion } from './shared/cf-access';
 import { isLocalDevBypass } from './shared/env';
 
 // Build-time substituted by:
@@ -119,7 +120,7 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-async function proxyAuthMiddleware(
+export async function proxyAuthMiddleware(
   c: Context<{ Bindings: Env }>,
   next: Next
 ): Promise<Response | void> {
@@ -139,7 +140,14 @@ async function proxyAuthMiddleware(
   }
 
   if (c.env.REQUIRE_CF_ACCESS === 'true') {
-    if (c.req.header('Cf-Access-Authenticated-User-Email')) {
+    const access = readCfAccessConfig(c.env);
+    if (!access) {
+      return c.json(
+        { error: 'REQUIRE_CF_ACCESS needs CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD to be set' },
+        503
+      );
+    }
+    if (await verifyCfAccessAssertion(c.req.header('Cf-Access-Jwt-Assertion'), access)) {
       return next();
     }
     return c.json({ error: 'Cloudflare Access authentication required' }, 401);
