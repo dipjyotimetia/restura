@@ -1,4 +1,3 @@
-import type { ComponentType } from 'react';
 import type { ConnectionLifecycle } from '@/lib/shared/connection-lifecycle';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import type { AuthConfig, Request, RequestType, Response, ScriptResult } from '@/types';
@@ -84,8 +83,6 @@ export interface ProtocolModule {
   label: string;
   /** Which `Request` discriminator this protocol uses (or 'graphql'/'websocket' for non-Request protocols) */
   tabType: ProtocolTabType;
-  /** React component rendered as the request builder (registered later) */
-  Builder?: ComponentType<{ request: Request; onChange: (next: Request) => void }>;
   /** Construct a default empty Request for this protocol */
   defaultRequest: () => Request;
   /** Execute the request and resolve to a Response (or throw) */

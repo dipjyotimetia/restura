@@ -271,9 +271,6 @@ export const grpcProtocol: ProtocolModule = {
   tabType: 'grpc',
   defaultRequest: createDefaultGrpcRequest,
   injectVariables: injectGrpcVariables,
-  // Builder is intentionally undefined — GrpcRequestBuilder remains
-  // mounted by the route and calls `useRequestRunner` for every call type
-  // (streams pass `stream` hooks for live messages + outbound controls).
   runRequest: async (rawRequest, ctx): Promise<ApiResponse> => {
     if (rawRequest.type !== 'grpc') {
       throw new Error(`gRPC protocol cannot run ${rawRequest.type} request`);

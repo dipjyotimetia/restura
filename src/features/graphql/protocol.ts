@@ -150,10 +150,6 @@ export const graphqlProtocol: ProtocolModule = {
   tabType: 'graphql',
   defaultRequest: createDefaultGraphQLRequest,
   injectVariables: injectGraphQLVariables,
-  // Builder is intentionally undefined — Builder lives at
-  // `src/features/graphql/components/GraphQLRequestBuilder.tsx` and drives
-  // this protocol via `useRequestRunner` rather than being mounted by the
-  // registry directly. Future Task 4.x can register the React component.
   runRequest: async (request, ctx): Promise<ApiResponse> => {
     if (request.type !== 'http') {
       throw new Error(`GraphQL protocol expects an HTTP request shape, got ${request.type}`);

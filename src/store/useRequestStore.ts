@@ -2,6 +2,7 @@ import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { MODE_DESCRIPTORS } from '@/features/registry/modes';
 import { protocolRegistry } from '@/features/registry/registry';
 import { cleanupConnectionLifecycle } from '@/lib/shared/connection-lifecycle';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
@@ -164,17 +165,15 @@ const createDefaultMcpRequest = (): McpRequest => ({
   auth: { type: 'none' },
 });
 
+const DEFAULT_REQUEST_FACTORIES: Record<RequestType, () => Request> = {
+  http: createDefaultHttpRequest,
+  grpc: createDefaultGrpcRequest,
+  sse: createDefaultSseRequest,
+  mcp: createDefaultMcpRequest,
+};
+
 function defaultRequestForType(type: RequestType): Request {
-  switch (type) {
-    case 'http':
-      return createDefaultHttpRequest();
-    case 'grpc':
-      return createDefaultGrpcRequest();
-    case 'sse':
-      return createDefaultSseRequest();
-    case 'mcp':
-      return createDefaultMcpRequest();
-  }
+  return DEFAULT_REQUEST_FACTORIES[type]();
 }
 
 function patchActiveTab(
@@ -474,15 +473,15 @@ export const useRequestStore = create<RequestState>()(
 
         openTabWithMode: (mode) => {
           const request = createDefaultHttpRequest();
-          const modeRequest =
-            mode === 'graphql'
-              ? {
-                  ...request,
-                  name: 'New GraphQL Request',
-                  method: 'POST' as const,
-                  body: { type: 'graphql' as const, raw: '' },
-                }
-              : request;
+          const seed = MODE_DESCRIPTORS[mode].httpSeed;
+          const modeRequest = seed
+            ? {
+                ...request,
+                name: seed.name,
+                method: seed.method,
+                body: { type: seed.bodyType, raw: '' },
+              }
+            : request;
           const tab = createTabFromRequest(modeRequest, { modeOverride: mode });
           set((state) => ({
             tabs: [...state.tabs, tab],

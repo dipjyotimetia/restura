@@ -82,7 +82,13 @@ export function RequestWorkspace({
       return <KafkaClient />;
     case 'mqtt':
       return <MqttClient />;
-    default:
+    default: {
+      // Panes are React and stay lazy here, not on the mode descriptor. Adding a
+      // RequestMode without a case fails to compile; a stale persisted value
+      // still renders nothing at runtime.
+      const unhandled: never = mode;
+      void unhandled;
       return null;
+    }
   }
 }
