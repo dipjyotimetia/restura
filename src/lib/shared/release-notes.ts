@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
 const RELEASES_URL = 'https://api.github.com/repos/dipjyotimetia/restura/releases';
+/** The human-readable releases page, offered when the API can't be reached. */
+export const RELEASES_PAGE_URL = 'https://github.com/dipjyotimetia/restura/releases';
+const UNAVAILABLE = 'Release notes are unavailable right now. Please try again.';
 const PAGE_SIZE = 30;
 
 const GitHubReleaseSchema = z.object({
@@ -197,6 +200,23 @@ export function parseReleaseNoteContent(body: string): ReleaseNoteContent {
   };
 }
 
+/**
+ * The API call is anonymous, so GitHub allows 60 an hour per IP address, shared
+ * by everything on the network. Name that instead of a generic failure.
+ */
+function rateLimitMessage(response: Response): string | null {
+  const exhausted =
+    response.status === 429 ||
+    (response.status === 403 && response.headers.get('X-RateLimit-Remaining') === '0');
+  if (!exhausted) return null;
+  const resetSeconds = Number(response.headers.get('X-RateLimit-Reset'));
+  const when =
+    Number.isFinite(resetSeconds) && resetSeconds > 0
+      ? `after ${new Date(resetSeconds * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+      : 'later';
+  return `GitHub's hourly limit for requests from your network has been reached. Try again ${when}, or read the release notes on GitHub.`;
+}
+
 function cacheKey({ channel, page = 1 }: FetchReleaseNotesOptions): string {
   return `${channel}:${page}`;
 }
@@ -231,23 +251,23 @@ async function requestReleaseNotes({
         headers: { Accept: 'application/vnd.github+json' },
       });
     } catch {
-      throw new Error('Release notes are unavailable right now. Please try again.');
+      throw new Error(UNAVAILABLE);
     }
 
     if (!response.ok) {
-      throw new Error('Release notes are unavailable right now. Please try again.');
+      throw new Error(rateLimitMessage(response) ?? UNAVAILABLE);
     }
 
     let payload: unknown;
     try {
       payload = await response.json();
     } catch {
-      throw new Error('Release notes are unavailable right now. Please try again.');
+      throw new Error(UNAVAILABLE);
     }
 
     const parsed = GitHubReleasesSchema.safeParse(payload);
     if (!parsed.success) {
-      throw new Error('Release notes are unavailable right now. Please try again.');
+      throw new Error(UNAVAILABLE);
     }
 
     const releases = parsed.data

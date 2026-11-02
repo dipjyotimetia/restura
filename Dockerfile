@@ -6,7 +6,11 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ──────── Stage 1: deps ──────────────────────────────────────────────────────
-FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS deps
+# deps and build run on the build host's platform: their output (the SPA and
+# the esbuild server bundle, which keeps packages external) is plain JS, so a
+# multi-arch build compiles it once natively instead of under emulation. Only
+# the runtime stage installs target-platform node_modules.
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS deps
 WORKDIR /app
 
 # Copy lockfile + manifest only so this layer caches across source changes.
@@ -20,7 +24,7 @@ RUN npm ci --ignore-scripts
 
 
 # ──────── Stage 2: build ─────────────────────────────────────────────────────
-FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS build
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS build
 WORKDIR /app
 ENV NODE_ENV=production
 ENV VITE_IS_DOCKER_BUILD=true

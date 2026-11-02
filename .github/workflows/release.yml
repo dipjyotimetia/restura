@@ -803,7 +803,9 @@ jobs:
     # Stable releases only, and only when opted in at dispatch (publish_docker).
     if: ${{ needs.release.outputs.is_prerelease == 'false' && needs.release.outputs.publish_docker == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The arm64 runtime install still runs under QEMU; leave headroom over a
+    # cold cache.
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write

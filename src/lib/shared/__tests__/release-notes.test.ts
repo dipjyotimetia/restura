@@ -136,6 +136,35 @@ describe('fetchReleaseNotesPage', () => {
       'Release notes are unavailable right now. Please try again.'
     );
   });
+
+  it('names an exhausted GitHub rate limit and when it resets', async () => {
+    const reset = Math.floor(new Date(2026, 10, 2, 18, 5).getTime() / 1000);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: 'API rate limit exceeded' }), {
+          status: 403,
+          headers: { 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': String(reset) },
+        })
+      )
+    );
+    const time = new Date(reset * 1000).toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+
+    await expect(fetchReleaseNotesPage({ channel: 'stable' })).rejects.toThrow(
+      `GitHub's hourly limit for requests from your network has been reached. Try again after ${time}, or read the release notes on GitHub.`
+    );
+  });
+
+  it('treats a 429 without a reset header as a rate limit', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 429 })));
+
+    await expect(fetchReleaseNotesPage({ channel: 'stable' })).rejects.toThrow(
+      /hourly limit .* Try again later,/
+    );
+  });
 });
 
 describe('parseReleaseNoteContent', () => {
