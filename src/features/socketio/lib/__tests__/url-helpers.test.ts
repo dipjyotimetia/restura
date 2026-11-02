@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { buildSocketIOConnectUrl, validateSocketIOUrl } from '@/features/socketio/lib/url-helpers';
 
 describe('buildSocketIOConnectUrl', () => {
-  it('returns the URL unchanged when namespace is "/"', () => {
-    expect(buildSocketIOConnectUrl('https://example.com', '/')).toBe('https://example.com');
+  it('returns the canonical URL when namespace is "/"', () => {
+    expect(buildSocketIOConnectUrl('https://example.com', '/')).toBe('https://example.com/');
   });
 
-  it('returns the URL unchanged when namespace is empty or undefined', () => {
-    expect(buildSocketIOConnectUrl('https://example.com', '')).toBe('https://example.com');
-    expect(buildSocketIOConnectUrl('https://example.com', undefined)).toBe('https://example.com');
+  it('returns the canonical URL when namespace is empty or undefined', () => {
+    expect(buildSocketIOConnectUrl('https://example.com', '')).toBe('https://example.com/');
+    expect(buildSocketIOConnectUrl('https://example.com/api', undefined)).toBe(
+      'https://example.com/api'
+    );
   });
 
   it('appends the namespace path to the origin', () => {
