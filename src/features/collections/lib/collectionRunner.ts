@@ -3,6 +3,7 @@ import {
   type ResponseEvidence,
   type ResponseRetentionMode,
 } from '@shared/collection-run/evidence';
+import { APP_SCOPE_POLICY, RunScope } from '@shared/collection-run/scope';
 import {
   type IterationHost,
   pickNextRequest,
@@ -10,6 +11,12 @@ import {
   type StepOutcome,
   sequenceCollectionRun,
 } from '@shared/collection-run/sequencer';
+import {
+  foldScriptPhases,
+  type PhaseOutcome,
+  settleVerdict,
+  skipVerdict,
+} from '@shared/collection-run/verdict';
 import { v4 as uuidv4 } from 'uuid';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { grpcRunOptionsFromRequest } from '@/features/grpc/lib/grpcSchemaSnapshot';
@@ -17,7 +24,6 @@ import type { McpClient } from '@/features/mcp/lib/mcpClient';
 import { disposeMcpClientPool, MCP_CLIENT_POOL_OPTION } from '@/features/mcp/lib/mcpRunRequest';
 import { protocolRegistry } from '@/features/registry/registry';
 import type { ProtocolScriptResult } from '@/features/registry/types';
-import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { isElectron } from '@/lib/shared/platform';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -147,6 +153,20 @@ export interface RequestCompleteInfo {
 }
 export type OnRequestComplete = (info: RequestCompleteInfo) => void;
 
+/** A script phase in the shape the shared fold reads (`tests` become assertions). */
+function phaseOutcome(phase: ProtocolScriptResult['preRequest']): PhaseOutcome | undefined {
+  if (!phase) return undefined;
+  return {
+    assertions: (phase.tests ?? []).map((t) => ({
+      name: t.name,
+      passed: t.passed,
+      ...(t.error ? { error: t.error } : {}),
+    })),
+    errors: phase.errors,
+    execution: phase.execution,
+  };
+}
+
 function isProtocolOk(response: ApiResponse): boolean {
   // MCP: the envelope is always 200; a JSON-RPC error or a tool result with
   // `isError: true` fails unless the test script's assertions decide.
@@ -214,46 +234,20 @@ async function runCollectionWithPool(
       done,
     });
 
-  // `pm.collectionVariables` backing map — separate from `allVars` (which
-  // folds env/globals/collection/data together for `{{var}}` substitution
-  // and `pm.variables`). Mutations persist to `useCollectionStore` as they
-  // happen, so later requests in the SAME run (and future runs) see them,
-  // matching Postman's collection-runner semantics.
+  // `pm.collectionVariables` backing map — separate from the request variables
+  // (`{{var}}` substitution and `pm.variables`). Mutations persist to
+  // `useCollectionStore` as they happen, so later requests in the SAME run (and
+  // future runs) see them, matching Postman's collection-runner semantics.
   const collectionVars = buildValueMap({ collection: collection.variables });
-  const runGlobals = { ...(options.globalVars ?? {}) };
-  const runEnvironment = {
-    ...(options.globalVars || options.environmentVars ? options.environmentVars : baseVars),
-  };
-  // Persist at most once per request (merging both script phases, test wins
-  // on conflict) rather than once per phase — `applyCollectionVarMutations`
-  // rewrites the entire persisted (encrypted, IndexedDB-backed) collections
-  // tree, so halving the call count halves that cost on every request that
-  // touches `pm.collectionVariables` in both its pre-request and test script.
-  const persistCollectionMutations = (
-    mutations: Record<string, string | null>,
-    effectiveVars: Record<string, string>,
-    iterationData: IterationRow,
-    environmentOverrides: Record<string, string>
-  ) => {
-    if (Object.keys(mutations).length === 0) return;
-    applyVarMutations(collectionVars, mutations);
-    for (const [key, value] of Object.entries(mutations)) {
-      if (key in iterationData || key in environmentOverrides) continue;
-      if (value === null) delete effectiveVars[key];
-      else effectiveVars[key] = value;
-    }
-    useCollectionStore.getState().applyCollectionVarMutations(collection.id, mutations);
-  };
+  const scope = new RunScope({
+    policy: APP_SCOPE_POLICY,
+    globals: { ...(options.globalVars ?? {}) },
+    environment: options.globalVars || options.environmentVars ? options.environmentVars : baseVars,
+    collection: collectionVars,
+  });
 
   const beginIteration = (iter: number, row: IterationRow): IterationHost<RunnableRequest> => {
-    const environmentOverrides: Record<string, string> = {};
-    // Scope precedence: globals < environment < collection < data < script-local.
-    const allVars: Record<string, string> = {
-      ...runGlobals,
-      ...runEnvironment,
-      ...collectionVars,
-      ...row,
-    };
+    const iterScope = scope.beginIteration(row);
 
     const step = async (runnable: RunnableRequest): Promise<StepOutcome> => {
       const protocolId = runnable.request.type;
@@ -304,12 +298,9 @@ async function runCollectionWithPool(
       // Auth inheritance: nearest ancestor folder's auth (threaded by
       // flattenRunnables), falling back to collection-level auth.
       const authed = withEffectiveAuth(runnable.request, runnable.inheritedAuth ?? collection.auth);
-      const requestVars = {
-        ...allVars,
-        ...buildValueMap({ folders: runnable.folderVariables }),
-        ...row,
-        ...environmentOverrides,
-      };
+      const requestVars = iterScope.requestVars(
+        buildValueMap({ folders: runnable.folderVariables })
+      );
 
       let scripts: ProtocolScriptResult | undefined;
       const ctx = {
@@ -357,60 +348,46 @@ async function runCollectionWithPool(
         result.httpStatus = response.status;
         result.sizeBytes = response.size;
 
-        // Aggregate pm.test() assertions from both script phases.
-        const assertions: RunnerAssertion[] = [];
-        const collectionMutations: Record<string, string | null> = {};
-        for (const phase of [scripts?.preRequest, scripts?.test]) {
-          if (phase?.tests) {
-            for (const t of phase.tests) {
-              assertions.push({
-                name: t.name,
-                passed: t.passed,
-                ...(t.error ? { error: t.error } : {}),
-              });
-            }
-          }
-          // Carry-forward pm.variables.set() mutations into the iteration map.
-          if (phase?.variables) {
-            for (const [key, value] of Object.entries(phase.variables)) {
-              if (requestStartVars[key] !== value) environmentOverrides[key] = value;
-            }
-          }
-          // Merge pm.collectionVariables.set/unset mutations from both phases
-          // (test wins on conflict) — persisted once below, not per phase.
-          if (phase?.collectionMutations)
-            Object.assign(collectionMutations, phase.collectionMutations);
-          if (phase?.globalsMutations) applyVarMutations(runGlobals, phase.globalsMutations);
-        }
-        // Collection mutations are surfaced in `variables` by the protocol
-        // executor too; keep them in their real scope instead of accidentally
-        // promoting them above iteration data.
-        for (const key of Object.keys(collectionMutations)) delete environmentOverrides[key];
-        Object.assign(runEnvironment, environmentOverrides);
-        Object.keys(allVars).forEach((key) => delete allVars[key]);
-        Object.assign(
-          allVars,
-          runGlobals,
-          runEnvironment,
-          collectionVars,
-          row,
-          environmentOverrides
+        // Fold both script phases: assertions, errors, and the variable /
+        // collection / globals writes. Collection writes persist once per
+        // request (both phases merged, test wins on conflict) rather than once
+        // per phase: persisting rewrites the whole encrypted collections tree.
+        const phases = [scripts?.preRequest, scripts?.test];
+        const fold = foldScriptPhases(
+          [
+            { label: 'pre-request', outcome: phaseOutcome(scripts?.preRequest) },
+            { label: 'test', outcome: phaseOutcome(scripts?.test) },
+          ],
+          { labelErrors: false }
+        );
+        const assertions: RunnerAssertion[] = fold.assertions;
+        const collectionMutations = iterScope.absorb(
+          phases.flatMap((phase) =>
+            phase
+              ? [
+                  {
+                    before: requestStartVars,
+                    after: phase.variables ?? {},
+                    collectionMutations: phase.collectionMutations,
+                    globalsMutations: phase.globalsMutations,
+                  },
+                ]
+              : []
+          )
         );
         result.assertions = assertions;
-        // Persist merged pm.collectionVariables mutations — later requests
-        // in this run (and future runs) see the updated value.
-        persistCollectionMutations(collectionMutations, allVars, row, environmentOverrides);
-
-        const scriptError = [scripts?.preRequest, scripts?.test]
-          .flatMap((p) => p?.errors ?? [])
-          .filter(Boolean);
+        if (Object.keys(collectionMutations).length > 0) {
+          useCollectionStore
+            .getState()
+            .applyCollectionVarMutations(collection.id, collectionMutations);
+        }
 
         // `pm.execution.skipRequest()`: nothing was sent and no test script ran.
         // A skipped row passes unless its pre-request script failed or asserted
         // false; a bad jump from it is silent (the CLI's `badJump: 'ignore'`).
         const preExecution = scripts?.preRequest?.execution;
         if (HONORS_SKIP_REQUEST.has(protocolId) && preExecution?.skipRequested) {
-          const failed = scriptError.length > 0 || assertions.some((a) => !a.passed);
+          const failed = !skipVerdict(fold).passed;
           results.push({
             itemId: runnable.itemId,
             itemName: runnable.name,
@@ -419,7 +396,7 @@ async function runCollectionWithPool(
             status: failed ? 'failed' : 'skipped',
             assertions,
             skippedReason: 'Skipped by pm.execution.skipRequest()',
-            ...(scriptError.length > 0 ? { error: scriptError.join('; ') } : {}),
+            ...(fold.errorText !== undefined ? { error: fold.errorText } : {}),
           });
           emit(false);
           return {
@@ -430,17 +407,16 @@ async function runCollectionWithPool(
           };
         }
 
-        let passed = isProtocolOk(response);
+        const protocolPassed = isProtocolOk(response);
         // Without assertions, say why an MCP item failed (JSON-RPC error / isError).
-        if (!passed && assertions.length === 0 && response.mcpOutcome) {
-          result.error = response.statusText;
-        }
-        if (assertions.length > 0) passed = assertions.every((a) => a.passed);
-        if (scriptError.length > 0) {
-          passed = false;
-          result.error = scriptError.join('; ');
-        }
-        result.status = passed ? 'success' : 'failed';
+        const verdict = settleVerdict({
+          protocolPassed,
+          protocolError: !protocolPassed && response.mcpOutcome ? response.statusText : undefined,
+          fold,
+          errorStyle: 'script-wins',
+        });
+        if (verdict.error !== undefined) result.error = verdict.error;
+        result.status = verdict.passed ? 'success' : 'failed';
         result.evidence = await buildResponseEvidence(
           response,
           retention === 'all' || result.status === 'failed' ? retention : 'metadata'
@@ -472,6 +448,7 @@ async function runCollectionWithPool(
     return {
       onStart: (runnable) => emit(false, { itemName: runnable.name, iteration: iter }),
       step,
+      onEnd: () => iterScope.end(),
       onFlowError: (runnable, error) => {
         results.push({
           itemId: runnable.itemId,

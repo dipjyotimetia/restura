@@ -1,3 +1,4 @@
+import { CLI_SCOPE_POLICY, RunScope } from '@shared/collection-run/scope';
 import {
   type IterationHost,
   type IterationRow,
@@ -6,7 +7,7 @@ import {
   type StepOutcome,
   sequenceCollectionRun,
 } from '@shared/collection-run/sequencer';
-import { applyVarMutations } from '@shared/collections/variable-mutations';
+import { foldScriptPhases, settleVerdict, skipVerdict } from '@shared/collection-run/verdict';
 import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
 import type { HttpRequest } from '@shared/types';
 import { lookupVariable } from '@shared/variables/resolver';
@@ -150,9 +151,6 @@ async function runCollectionWithSessions(
     baseVars,
     new Set(loaded.meta.privateVariableNames ?? [])
   );
-  const applyCollectionMutations = (mutations: Record<string, string | null> | undefined) =>
-    applyVarMutations(collectionVars, mutations);
-
   const filtered = options.filter ? applyFilters(loaded.requests, options.filter) : loaded.requests;
   const versionWarning = httpVersionWarning(filtered);
   if (versionWarning) process.stderr.write(versionWarning);
@@ -182,19 +180,18 @@ async function runCollectionWithSessions(
 
   const results: RequestRunResult[] = [];
 
-  // Run-wide variable map (env + collection), mutated by scripts. It outlives
-  // each iteration, as in Newman and the app's runner: a token fetched in
-  // iteration 1 is still set in iteration 2.
-  const allVars: Record<string, string> = { ...baseVars };
-  // Script writes from EARLIER iterations: above folder defaults (so they are
-  // not undone), below the next iteration's data row.
-  const carriedOverrides: Record<string, string> = {};
+  // The run-wide variable scope (env, collection, `--env-var`, and the script
+  // writes that outlive an iteration), as in Newman and the app's runner: a
+  // token fetched in iteration 1 is still set in iteration 2.
+  const scope = new RunScope({
+    policy: CLI_SCOPE_POLICY,
+    environment: options.envVars,
+    collection: collectionVars,
+    overrides: options.overrideVars,
+  });
 
   const beginIteration = (iter: number, row: IterationRow): IterationHost<LoadedRequest> => {
-    // Values a script changed this iteration. Layered on top of folder vars and
-    // the row, as the app's runner does (`environmentOverrides`), so a script
-    // write is not undone by a static folder default on the next request.
-    const scriptOverrides: Record<string, string> = {};
+    const iterScope = scope.beginIteration(row);
 
     const step = async (item: LoadedRequest): Promise<StepOutcome> => {
       if (item.blocked) {
@@ -217,46 +214,14 @@ async function runCollectionWithSessions(
 
       const preScript = item.request.preRequestScript;
       const testScript = item.request.testScript;
-      // Precedence matches the app's runner: env + collection < folder vars
-      // (`buildValueMap({ folders })`) < iteration row < script-set values.
-      const folderVars = item.folderVariables ?? {};
-      let perRequestVars = {
-        ...allVars,
-        ...folderVars,
-        ...options.overrideVars,
-        ...carriedOverrides,
-        ...row,
-        ...scriptOverrides,
-      };
-      // Write script variables back to the run-wide map, except folder
-      // variables a script left untouched (they must not leak to requests
-      // outside the folder). A changed value also becomes a script override —
-      // unless it was a pm.collectionVariables write, which stays in its own
-      // (lower) scope, as in the app.
-      const writeBack = (
-        before: Record<string, string>,
-        after: Record<string, string>,
-        collectionMutations: Record<string, string | null> | undefined
-      ) => {
-        for (const k of Object.keys(after)) {
-          const changed = after[k] !== before[k];
-          // Untouched folder defaults and data-row values stay in their own
-          // scope (a row value must not outlive its iteration).
-          if ((k in folderVars || k in row) && !changed) continue;
-          allVars[k] = after[k]!;
-          if (changed && !(collectionMutations && k in collectionMutations)) {
-            scriptOverrides[k] = after[k]!;
-          }
-        }
-        for (const k of Object.keys(collectionMutations ?? {})) {
-          delete scriptOverrides[k];
-          delete carriedOverrides[k];
-        }
-      };
-      const allAssertions: Array<{ name: string; passed: boolean; error?: string }> = [];
-      let scriptError: string | undefined;
+      // Precedence matches the app's runner except where `CLI_SCOPE_POLICY`
+      // says otherwise: env + collection < folder vars < `--env-var` < earlier
+      // iterations' script writes < iteration row < script writes this iteration.
+      let perRequestVars = iterScope.requestVars(item.folderVariables);
       let preResult: RunScriptResult | undefined;
       let testResult: RunScriptResult | undefined;
+      let preThrown: string | undefined;
+      let testThrown: string | undefined;
 
       const runCtx = {
         collectionVars,
@@ -274,27 +239,33 @@ async function runCollectionWithSessions(
           preResult = pre;
           sendItem = applyPreRequestMetadata(item, pre, preVars);
           perRequestVars = pre.variables;
-          writeBack(preVars, pre.variables, pre.collectionMutations);
-          applyCollectionMutations(pre.collectionMutations);
-          if (pre.errors.length > 0) scriptError = `pre-request: ${pre.errors.join('; ')}`;
-          if (pre.assertions.length > 0) allAssertions.push(...pre.assertions);
+          iterScope.absorb([
+            {
+              before: preVars,
+              after: pre.variables,
+              collectionMutations: pre.collectionMutations,
+            },
+          ]);
         } catch (err) {
-          scriptError = `pre-request: ${err instanceof Error ? err.message : String(err)}`;
+          preResult = undefined;
+          preThrown = err instanceof Error ? err.message : String(err);
         }
       }
+      const preSlot = { label: 'pre-request', outcome: preResult, thrown: preThrown };
 
       if (preResult?.execution?.skipRequested) {
         // `pm.execution.skipRequest()`: Postman sends nothing and runs no test
         // script; the request is a pass unless the pre-request script failed.
+        const fold = foldScriptPhases([preSlot], { labelErrors: true });
         const result: RequestRunResult = {
           request: item,
           status: 0,
-          passed: scriptError === undefined && allAssertions.every((a) => a.passed),
+          passed: skipVerdict(fold).passed,
           durationMs: 0,
           bodyBytes: 0,
           skipped: true,
-          ...(scriptError !== undefined ? { errorMessage: scriptError } : {}),
-          ...(allAssertions.length > 0 ? { assertions: allAssertions } : {}),
+          ...(fold.errorText !== undefined ? { errorMessage: fold.errorText } : {}),
+          ...(fold.assertions.length > 0 ? { assertions: fold.assertions } : {}),
           ...(isDataDriven ? { iteration: iter } : {}),
         };
         results.push(result);
@@ -344,46 +315,45 @@ async function runCollectionWithSessions(
         try {
           const test = await runTestScript(testScript, sendItem, outcome, perRequestVars, runCtx);
           testResult = test;
-          writeBack(perRequestVars, test.variables, test.collectionMutations);
-          applyCollectionMutations(test.collectionMutations);
-          if (test.assertions.length > 0) allAssertions.push(...test.assertions);
-          if (test.errors.length > 0) {
-            const msg = `test: ${test.errors.join('; ')}`;
-            scriptError = scriptError ? `${scriptError}; ${msg}` : msg;
-          }
+          iterScope.absorb([
+            {
+              before: perRequestVars,
+              after: test.variables,
+              collectionMutations: test.collectionMutations,
+            },
+          ]);
         } catch (err) {
-          const msg = `test: ${err instanceof Error ? err.message : String(err)}`;
-          scriptError = scriptError ? `${scriptError}; ${msg}` : msg;
+          testResult = undefined;
+          testThrown = err instanceof Error ? err.message : String(err);
         }
       }
 
-      let passed = outcome.passed;
-      if (allAssertions.length > 0) passed = allAssertions.every((a) => a.passed);
-      if (scriptError) passed = false;
-      // A transport-level failure can never be a pass, even if the test script
-      // happens to contain a response-independent assertion that passed.
-      if (outcome.errorMessage !== undefined) passed = false;
-      // A protocol-level failure (MCP JSON-RPC error / tool isError) is the
-      // reason an unasserted item failed; assertions override it.
-      const failureReason =
-        outcome.errorMessage ??
-        (allAssertions.length === 0 && !passed ? outcome.protocolError : undefined);
+      const fold = foldScriptPhases(
+        [preSlot, { label: 'test', outcome: testResult, thrown: testThrown }],
+        { labelErrors: true }
+      );
+      // Assertions override the protocol's verdict; a transport-level failure
+      // can never be a pass, even if the test script has a response-independent
+      // assertion that passed. A protocol-level failure (MCP JSON-RPC error /
+      // tool isError) is the reason an unasserted item failed.
+      const verdict = settleVerdict({
+        protocolPassed: outcome.passed,
+        transportError: outcome.errorMessage,
+        protocolError: outcome.protocolError,
+        fold,
+        errorStyle: 'append',
+      });
+      const allAssertions = fold.assertions;
 
       const result: RequestRunResult = {
         request: item,
         status: outcome.status,
-        passed,
+        passed: verdict.passed,
         durationMs: outcome.durationMs,
         bodyBytes: outcome.bodyBytes,
         ...(outcome.responseHeaders ? { responseHeaders: outcome.responseHeaders } : {}),
         ...(outcome.setCookies ? { setCookies: outcome.setCookies } : {}),
-        ...(failureReason !== undefined
-          ? {
-              errorMessage: scriptError ? `${failureReason}; ${scriptError}` : failureReason,
-            }
-          : scriptError !== undefined
-            ? { errorMessage: scriptError }
-            : {}),
+        ...(verdict.error !== undefined ? { errorMessage: verdict.error } : {}),
         ...(outcome.grpcStatus ? { grpcStatus: outcome.grpcStatus } : {}),
         ...(outcome.streamEvents ? { streamEvents: outcome.streamEvents } : {}),
         ...(allAssertions.length > 0 ? { assertions: allAssertions } : {}),
@@ -416,9 +386,7 @@ async function runCollectionWithSessions(
           ...(isDataDriven ? { iteration: iter } : {}),
         });
       },
-      onEnd: () => {
-        Object.assign(carriedOverrides, scriptOverrides);
-      },
+      onEnd: () => iterScope.end(),
     };
   };
 
