@@ -5,7 +5,11 @@ import { useReleaseNotes } from '@/components/shared/settings/useReleaseNotes';
 import { Badge } from '@/components/ui/badge';
 import { Segmented, ToggleField } from '@/components/ui/spatial';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import { parseReleaseNoteContent, type ReleaseNotesChannel } from '@/lib/shared/release-notes';
+import {
+  parseReleaseNoteContent,
+  RELEASES_PAGE_URL,
+  type ReleaseNotesChannel,
+} from '@/lib/shared/release-notes';
 import { cn } from '@/lib/shared/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
@@ -63,13 +67,23 @@ function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
       {!loading && error && (
         <div className="mt-4 rounded-sp-btn border border-red-500/30 bg-red-500/10 p-3 text-sp-12 text-red-200">
           <p>{error}</p>
-          <button
-            type="button"
-            onClick={() => void reload(true)}
-            className="mt-2 font-medium underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
-          >
-            Try again
-          </button>
+          <div className="mt-2 flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => void reload(true)}
+              className="font-medium underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+            >
+              Try again
+            </button>
+            <a
+              href={RELEASES_PAGE_URL}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="font-medium underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+            >
+              View releases on GitHub
+            </a>
+          </div>
         </div>
       )}
 
