@@ -4,5 +4,8 @@
   "description": "Lockfile-pinned CI tool install (OpenSSF Scorecard Pinned-Dependencies). Bump the version here and regenerate package-lock.json with: npm install --package-lock-only --engine-strict=false",
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.310"
+  },
+  "allowScripts": {
+    "@anthropic-ai/claude-code": true
   }
 }
