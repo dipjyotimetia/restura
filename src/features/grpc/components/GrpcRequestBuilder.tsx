@@ -38,7 +38,6 @@ import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type {
@@ -81,7 +80,6 @@ function GrpcRequestBuilder() {
   const setScriptResultForTab = useRequestStore((s) => s.setScriptResultForTab);
   const isLoading = useRequestStore((s) => s.isLoading);
   const addHistoryItem = useHistoryStore((s) => s.addHistoryItem);
-  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const { run: runViaRegistry } = useRequestRunner();
   const schemaDrift = useGrpcSchemaDrift();
   const [activeTab, setActiveTab] = useSubTabWithViolationJump<GrpcSubTab>('message', activeTabId);
@@ -184,7 +182,6 @@ function GrpcRequestBuilder() {
 
   const reflection = useGrpcReflection({
     url: grpcUrl,
-    resolveVariables,
     ...(currentRequest && { request: currentRequest }), // reflection sends its metadata/auth
     autoDiscover: !!currentRequest,
     onServiceSelected: handleReflectionServiceSelected,

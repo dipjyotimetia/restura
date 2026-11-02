@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { GrpcReflectionClient, reflectionCredentialsFor } from '@/features/grpc/lib/grpcReflection';
+import { GrpcReflectionClient } from '@/features/grpc/lib/grpcReflection';
 import { validateGrpcUrl } from '@/features/grpc/lib/grpcValidation';
+import { resolveGrpcReflectionConnect } from '@/lib/shared/connectSpec';
 import type {
   GrpcRequest,
   ReflectionMethodInfo,
@@ -14,8 +15,6 @@ const AUTO_DISCOVER_DEBOUNCE_MS = 1500;
 export interface UseGrpcReflectionOptions {
   /** The gRPC server URL (raw, before env-var resolution). */
   url: string | undefined;
-  /** Resolve {{var}} references in the URL before contacting the server. */
-  resolveVariables: (text: string) => string;
   /**
    * Whether to auto-discover when the URL changes. Defaults to true. Disable
    * for tests or when the parent isn't ready (e.g. no active request).
@@ -91,7 +90,6 @@ export interface UseGrpcReflectionResult {
 export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcReflectionResult {
   const {
     url,
-    resolveVariables,
     autoDiscover = true,
     onServiceSelected,
     onMethodSelected,
@@ -164,10 +162,19 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
       }
 
       try {
-        const resolvedUrl = resolveVariables(rawUrl);
-        const req = requestRef.current;
-        const credentials = req ? reflectionCredentialsFor(req, resolveVariables) : undefined;
-        const client = new GrpcReflectionClient(resolvedUrl, undefined, credentials);
+        const spec = resolveGrpcReflectionConnect(rawUrl, requestRef.current);
+        if (!spec.ok) {
+          setResult({
+            success: false,
+            services: [],
+            error: spec.error,
+            serverUrl: rawUrl,
+            timestamp: Date.now(),
+          });
+          if (!silent) toast.error('Discovery refused', { description: spec.error });
+          return;
+        }
+        const client = new GrpcReflectionClient(spec.url, undefined, spec.credentials);
         const discoveryResult = await client.discoverServices();
 
         if (discoveryResult.success) {
@@ -238,7 +245,7 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
         setLoading(false);
       }
     },
-    [url, resolveVariables, selectService, selectMethod, currentServiceName, currentMethodName]
+    [url, selectService, selectMethod, currentServiceName, currentMethodName]
   );
 
   // Debounced auto-discovery on URL change. We compare against the last

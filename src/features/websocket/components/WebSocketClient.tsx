@@ -48,6 +48,7 @@ import { wsExportName, wsToLogEntries } from '@/features/websocket/lib/wsLogExpo
 import type { WebSocketMessageType } from '@/features/websocket/store/useWebSocketStore';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
+import { resolveWebSocketConnect } from '@/lib/shared/connectSpec';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { isElectron } from '@/lib/shared/platform';
@@ -63,9 +64,8 @@ import {
 } from '@/lib/shared/streaming/messageTemplates';
 import { useComposerDraftSync } from '@/lib/shared/streaming/useComposerDraftSync';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
-import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
+import { cn } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import {
   FrameAssertionBadge,
   FrameAssertionButton,
@@ -177,7 +177,6 @@ function WebSocketClient() {
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const cleartextGuard = useCleartextCredentialsGuard();
 
-  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const activeTabId = useActiveTabId();
 
   const connectionByTabId = useWebSocketStore((s) => s.connectionByTabId);
@@ -213,6 +212,7 @@ function WebSocketClient() {
     patchControlState,
     setTemplates,
     setFrameAssertion,
+    addMessage,
   } = useWebSocketStore(
     useShallow((s) => ({
       ensureConnectionForTab: s.ensureConnectionForTab,
@@ -227,6 +227,7 @@ function WebSocketClient() {
       patchControlState: s.patchControlState,
       setTemplates: s.setTemplates,
       setFrameAssertion: s.setFrameAssertion,
+      addMessage: s.addMessage,
     }))
   );
 
@@ -276,25 +277,22 @@ function WebSocketClient() {
   const configOpen = configOpenOverride ?? configCount > 0;
 
   const handleConnect = async () => {
-    try {
-      const resolvedUrl = resolveVariables(connection.url);
-      const headers = keyValuePairsToRecord(connection.headers);
-      // ws:// would carry URL / handshake credentials in cleartext (#898).
-      if (
-        cleartextGuard.needsConfirm(resolvedUrl, { headers }) &&
-        !(await cleartextGuard.confirm())
-      ) {
-        return;
-      }
-      websocketManager.connect(
-        activeConnectionId,
-        resolvedUrl,
-        connection.protocols.length > 0 ? connection.protocols : undefined,
-        Object.keys(headers).length > 0 ? headers : undefined
-      );
-    } catch (error) {
-      console.error('Failed to connect:', error);
+    const spec = resolveWebSocketConnect(connection);
+    if (!spec.ok) {
+      addMessage(activeConnectionId, 'system', `Connection refused: ${spec.error}`);
+      return;
     }
+    const { url, headers } = spec;
+    // ws:// would carry URL / handshake credentials in cleartext (#898).
+    if (cleartextGuard.needsConfirm(url, { headers }) && !(await cleartextGuard.confirm())) {
+      return;
+    }
+    websocketManager.connect(
+      activeConnectionId,
+      url,
+      connection.protocols.length > 0 ? connection.protocols : undefined,
+      Object.keys(headers).length > 0 ? headers : undefined
+    );
   };
 
   const handleDisconnect = (close?: WsCloseOptions) => {

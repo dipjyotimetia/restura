@@ -2,10 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Floater } from '@/components/ui/spatial';
 import {
-  postmanSendBlockedReason,
-  resolveInheritedAuthFor,
-} from '@/features/auth/lib/resolveInheritedAuthFor';
-import {
   displayHost,
   McpClientRequestDialog,
 } from '@/features/mcp/components/McpClientRequestDialog';
@@ -26,7 +22,6 @@ import { McpTemplateForm } from '@/features/mcp/components/McpTemplateForm';
 import { useMcpClientRequests } from '@/features/mcp/hooks/useMcpClientRequests';
 import { useMcpConnectionActions } from '@/features/mcp/hooks/useMcpConnectionActions';
 import { useMcpServerEvents } from '@/features/mcp/hooks/useMcpServerEvents';
-import { buildMcpConnectAuth } from '@/features/mcp/lib/mcpAuth';
 import {
   type McpCall,
   McpClient,
@@ -41,7 +36,6 @@ import {
   parseMcpOperation,
   serializeMcpOperation,
 } from '@/features/mcp/lib/mcpOperation';
-import { buildStdioLaunch } from '@/features/mcp/lib/mcpStdioLaunch';
 import {
   useMcpNotificationStore,
   useMcpNotifications,
@@ -49,11 +43,11 @@ import {
 } from '@/features/mcp/store/useMcpNotificationStore';
 import { type McpRoot, useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
+import { previewConnectText, resolveMcpConnect } from '@/lib/shared/connectSpec';
 import { isElectron } from '@/lib/shared/platform';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useActiveRequest, useActiveTabId } from '@/store/selectors';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { McpRequest } from '@/types';
 
@@ -107,7 +101,6 @@ export default function McpRequestBuilder() {
   const request = useActiveRequest('mcp');
   const activeTabId = useActiveTabId();
   const updateRequest = useRequestStore((state) => state.updateRequest);
-  const resolveVariables = useEnvironmentStore((state) => state.resolveVariables);
   const clientRef = useRef<McpClientSession | null>(null);
   const clientGenerationRef = useRef(0);
   const [showCatalog, setShowCatalog] = useState(false);
@@ -256,60 +249,33 @@ export default function McpRequestBuilder() {
   const supportsCompletion = advertised?.completions !== undefined;
   const supportsLogging = advertised?.logging !== undefined;
 
+  // The conformance probe uses the connection's endpoint; unappliable auth
+  // fails the run closed — an anonymous probe would report misleading 401s.
   const resolveEndpoint = (): McpConformanceEndpoint => {
-    const rawHeaders = keyValuePairsToRecord(request.headers);
-    const headers = Object.fromEntries(
-      Object.entries(rawHeaders).map(([key, value]) => [key, resolveVariables(value)])
-    );
-    // Same auth as a connection: inline headers on web, main-resolved on
-    // desktop. Unappliable auth fails the run closed — an anonymous probe
-    // would report misleading 401s as conformance failures.
-    const blocked = postmanSendBlockedReason(request);
-    if (blocked) return { error: blocked };
-    const endpointAuth = buildMcpConnectAuth({
-      auth: request.auth,
-      inherited: resolveInheritedAuthFor(request),
-      headers,
-      resolve: resolveVariables,
-      desktop: isElectron(),
-    });
-    if (!endpointAuth.ok) return { error: endpointAuth.error };
+    const spec = resolveMcpConnect(request);
+    if (!spec.ok) return { error: spec.error };
     return {
-      url: resolveVariables(request.url),
+      url: spec.url,
       // stdio has no URL, so the Conformance action is disabled for it.
-      transport: request.transport === 'stdio' ? ('streamable-http' as const) : request.transport,
-      headers: endpointAuth.headers,
-      ...(endpointAuth.mainSideAuth ? { auth: endpointAuth.mainSideAuth } : {}),
+      transport: spec.transport === 'stdio' ? ('streamable-http' as const) : spec.transport,
+      headers: spec.headers,
+      ...(spec.mainSideAuth ? { auth: spec.mainSideAuth } : {}),
     };
   };
 
   const buildClient = (): McpClient | { error: string } => {
-    const rawHeaders = keyValuePairsToRecord(request.headers);
-    const headers = Object.fromEntries(
-      Object.entries(rawHeaders).map(([key, value]) => [key, resolveVariables(value)])
-    );
+    const spec = resolveMcpConnect(request);
+    if (!spec.ok) return { error: spec.error };
     const connectionId = active.id;
-    // #896: apply McpRequest.auth (inline on web, main-resolved on desktop).
-    // Postman send guard (#1232): refuse rather than connect without it.
-    const blocked = postmanSendBlockedReason(request);
-    if (blocked) return { error: blocked };
-    const auth = buildMcpConnectAuth({
-      auth: request.auth,
-      inherited: resolveInheritedAuthFor(request),
-      headers,
-      resolve: resolveVariables,
-      desktop: isElectron(),
-    });
-    if (!auth.ok) return { error: auth.error };
     return new McpClient({
-      url: resolveVariables(request.url),
-      transport: request.transport,
-      headers: auth.headers,
-      ...(auth.mainSideAuth ? { auth: auth.mainSideAuth } : {}),
+      url: spec.url,
+      transport: spec.transport,
+      headers: spec.headers,
+      ...(spec.mainSideAuth ? { auth: spec.mainSideAuth } : {}),
       connectionId,
-      ...(request.transport === 'stdio'
+      ...(spec.stdio
         ? {
-            stdio: buildStdioLaunch(request.stdio, resolveVariables),
+            stdio: spec.stdio,
             onStderr: (text: string) => appendStderr(connectionId, text),
           }
         : {}),
@@ -577,10 +543,10 @@ export default function McpRequestBuilder() {
       <McpClientRequestDialog
         connectionId={active.id}
         connectionName={request.name || 'MCP connection'}
-        serverHost={displayHost(resolveVariables(request.url))}
+        serverHost={displayHost(previewConnectText(request.url))}
         localCommand={
           request.transport === 'stdio'
-            ? resolveVariables(request.stdio?.command ?? '').trim()
+            ? previewConnectText(request.stdio?.command ?? '').trim()
             : undefined
         }
       />

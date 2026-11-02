@@ -25,6 +25,7 @@ vi.mock('@/components/shared/StreamSplit', () => ({
 
 import SseClient from '@/features/sse/components/SseClient';
 import { useSseStore } from '@/features/sse/store/useSseStore';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
 
@@ -59,6 +60,7 @@ describe('SseClient behaviour', () => {
     await useEnvironmentStore.persist.rehydrate();
     manager.connect.mockReset();
     manager.disconnect.mockReset();
+    useCollectionStore.setState({ collections: [] });
     useRequestStore.setState({ tabs: [], activeTabId: null, isLoading: false });
     useSseStore.setState({
       connections: {},
@@ -94,6 +96,66 @@ describe('SseClient behaviour', () => {
       { 'X-One': 'a', Authorization: 'Bearer tok' },
       { reconnectOnResume: true, autoReconnect: false }
     );
+  });
+
+  it('resolves collection and folder variables and inherits folder auth', async () => {
+    const user = userEvent.setup();
+    openSse({ url: 'https://{{host}}/events', params: [], headers: [] });
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c1',
+          name: 'Col',
+          variables: [{ id: 'cv', key: 'host', value: 'col.example.com', enabled: true }],
+          items: [
+            {
+              id: 'f1',
+              name: 'F',
+              type: 'folder',
+              auth: { type: 'bearer', bearer: { token: '{{folderTok}}' } },
+              variables: [{ id: 'fv', key: 'folderTok', value: 'ft', enabled: true }],
+              items: [
+                {
+                  id: 'item',
+                  name: 'R',
+                  type: 'request',
+                  request: useRequestStore.getState().tabs[0]?.request as SseRequest,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    render(<SseClient />);
+    await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
+    expect(manager.connect).toHaveBeenCalledWith(
+      activeId(),
+      'https://col.example.com/events',
+      { Authorization: 'Bearer ft' },
+      { reconnectOnResume: true, autoReconnect: true }
+    );
+  });
+
+  it('refuses to connect and says why when a variable cannot be resolved', async () => {
+    const user = userEvent.setup();
+    openSse({ params: [] });
+    const original = useEnvironmentStore.getState().resolveVariables;
+    useEnvironmentStore.setState({
+      resolveVariables: () => {
+        throw new Error('boom');
+      },
+    });
+    render(<SseClient />);
+    await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
+    useEnvironmentStore.setState({ resolveVariables: original });
+    expect(manager.connect).not.toHaveBeenCalled();
+    expect(
+      useSseStore
+        .getState()
+        .connections[activeId()]?.log.map((entry) => JSON.stringify(entry))
+        .join()
+    ).toContain('boom');
   });
 
   it('adds an api-key credential to the query string', async () => {

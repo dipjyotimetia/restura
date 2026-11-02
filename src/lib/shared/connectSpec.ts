@@ -1,0 +1,246 @@
+/**
+ * Connect specs for live connections (SSE, WebSocket, MCP, gRPC reflection).
+ *
+ * A live connect resolves the same Variable scope a single send does — the
+ * active request's globals < environment chain < collection < folders — plus
+ * auth inheritance and the Postman send guard, then hands the resolved values
+ * to the protocol manager. Builders call one `resolve*Connect` function and
+ * either connect with the result or surface its refusal; nothing here renders
+ * React or connects.
+ *
+ * Every field goes through `resolveRequestScopeText` (the HTTP executor's
+ * resolver) via the single `resolveField` helper. Stored templates are never
+ * mutated: the functions return new values.
+ *
+ * SecretRef-backed variables stay opaque (ADR-0007). None of the live-connect
+ * managers can hand a handle to Electron main yet, so a field that still
+ * references one after resolution is refused instead of being sent as a
+ * literal `{{name}}` placeholder.
+ */
+import { referencesSecretVariable } from '@shared/variables/secret-variable-token';
+import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
+import {
+  postmanSendBlockedReason,
+  resolveInheritedAuthFor,
+} from '@/features/auth/lib/resolveInheritedAuthFor';
+import {
+  type ReflectionCredentials,
+  reflectionCredentialsFor,
+} from '@/features/grpc/lib/grpcReflection';
+import { buildMcpConnectAuth } from '@/features/mcp/lib/mcpAuth';
+import type { McpClientStdioOptions } from '@/features/mcp/lib/mcpClient';
+import { buildStdioLaunch } from '@/features/mcp/lib/mcpStdioLaunch';
+import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
+import { isElectron } from '@/lib/shared/platform';
+import { type RequestScope, resolveRequestScopeText } from '@/lib/shared/resolveRequestScope';
+import { keyValuePairsToRecord } from '@/lib/shared/utils';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import type { GrpcRequest, KeyValue, McpRequest, SseRequest } from '@/types';
+
+/** An explicit refusal: nothing may connect. `error` is user-facing. */
+export interface ConnectRefusal {
+  ok: false;
+  error: string;
+}
+
+export type ConnectResult<T> = ({ ok: true } & T) | ConnectRefusal;
+
+/** The resolution scope a connect reads; build once per connect attempt. */
+export type ConnectScope = RequestScope;
+
+/** Scope of the ACTIVE request: full Variable scope + the env store's pass. */
+export function createConnectScope(): ConnectScope {
+  const { values, secretVariables } = buildActiveRequestVariableResolution();
+  return {
+    values,
+    secretVariables,
+    resolveVariables: useEnvironmentStore.getState().resolveVariables,
+  };
+}
+
+class ConnectRefused extends Error {}
+
+/** The one resolver call site; every connect field goes through here. */
+function resolveField(scope: ConnectScope, text: string): string {
+  const resolved = resolveRequestScopeText(text, scope);
+  const secrets = scope.secretVariables;
+  if (secrets && referencesSecretVariable(resolved, (name) => Object.hasOwn(secrets, name))) {
+    throw new ConnectRefused(
+      'A variable used here is stored as a desktop secret, which live connections cannot resolve yet. Use an inline variable value instead.'
+    );
+  }
+  return resolved;
+}
+
+/** Run `build`; a refusal or a thrown resolver error becomes a refusal result. */
+function guarded<T>(build: () => ConnectResult<T>): ConnectResult<T> {
+  try {
+    return build();
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof ConnectRefused
+          ? error.message
+          : `Could not resolve the connection: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+function resolveHeaders(scope: ConnectScope, headers: KeyValue[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(keyValuePairsToRecord(headers))) {
+    out[resolveField(scope, key)] = resolveField(scope, value);
+  }
+  return out;
+}
+
+/**
+ * Display-only resolution (host labels, OAuth status lookups). Never refuses:
+ * on any failure the template text is returned unchanged.
+ */
+export function previewConnectText(
+  text: string,
+  scope: ConnectScope = createConnectScope()
+): string {
+  try {
+    return resolveField(scope, text);
+  } catch {
+    return text;
+  }
+}
+
+export interface SseConnectSpec {
+  url: string;
+  headers: Record<string, string>;
+}
+
+/**
+ * Own configured auth wins; otherwise folder/Collection auth is inherited.
+ * Sign-at-wire types (sigv4/oauth1/wsse) no-op for SSE (`buildAuthCredential`).
+ */
+export function resolveSseConnect(
+  request: SseRequest,
+  scope: ConnectScope = createConnectScope()
+): ConnectResult<SseConnectSpec> {
+  return guarded<SseConnectSpec>(() => {
+    const blocked = postmanSendBlockedReason(request);
+    if (blocked) return { ok: false, error: blocked };
+    const inherited = resolveInheritedAuthFor(request);
+    const effective = inherited ? withEffectiveAuth(request, inherited.auth) : request;
+
+    const headers = resolveHeaders(scope, request.headers);
+    // Header-based auth (basic/bearer/api-key/oauth2).
+    const credential = buildAuthCredential(effective.auth);
+    for (const [k, v] of Object.entries(credential.headers)) headers[k] = resolveField(scope, v);
+
+    let url = resolveField(scope, request.url);
+    // Enabled query params plus any query-placed auth credential.
+    const queryParams: Array<[string, string]> = [
+      ...request.params
+        .filter((p) => p.enabled !== false && p.key)
+        .map((p): [string, string] => [resolveField(scope, p.key), resolveField(scope, p.value)]),
+      ...Object.entries(credential.params).map(([k, v]): [string, string] => [
+        k,
+        resolveField(scope, v),
+      ]),
+    ];
+    if (queryParams.length > 0) {
+      try {
+        const u = new URL(url);
+        for (const [k, v] of queryParams) u.searchParams.set(k, v);
+        url = u.toString();
+      } catch {
+        // Not yet an absolute URL: leave it for the manager's validation error.
+      }
+    }
+    return { ok: true, url, headers };
+  });
+}
+
+export interface WebSocketConnectSpec {
+  url: string;
+  /** Resolved handshake headers (empty when none are configured). */
+  headers: Record<string, string>;
+}
+
+/** WebSocket handshake URL + headers, resolved with the full active scope. */
+export function resolveWebSocketConnect(
+  connection: { url: string; headers: KeyValue[] },
+  scope: ConnectScope = createConnectScope()
+): ConnectResult<WebSocketConnectSpec> {
+  return guarded<WebSocketConnectSpec>(() => ({
+    ok: true,
+    url: resolveField(scope, connection.url),
+    headers: resolveHeaders(scope, connection.headers),
+  }));
+}
+
+export interface McpConnectSpec {
+  url: string;
+  transport: McpRequest['transport'];
+  headers: Record<string, string>;
+  mainSideAuth?: NonNullable<ReturnType<typeof buildMcpConnectAuth> & { ok: true }>['mainSideAuth'];
+  /** Resolved launch config; only for the stdio transport. */
+  stdio?: McpClientStdioOptions;
+}
+
+/**
+ * MCP url, headers, auth (inline on web, main-resolved on desktop) and, for
+ * stdio, the launch. Unappliable auth fails closed — an anonymous connect or
+ * conformance probe would report misleading 401s.
+ */
+export function resolveMcpConnect(
+  request: McpRequest,
+  scope: ConnectScope = createConnectScope(),
+  desktop: boolean = isElectron()
+): ConnectResult<McpConnectSpec> {
+  return guarded<McpConnectSpec>(() => {
+    const blocked = postmanSendBlockedReason(request);
+    if (blocked) return { ok: false, error: blocked };
+    const resolve = (text: string) => resolveField(scope, text);
+    const auth = buildMcpConnectAuth({
+      auth: request.auth,
+      inherited: resolveInheritedAuthFor(request),
+      headers: resolveHeaders(scope, request.headers),
+      resolve,
+      desktop,
+    });
+    if (!auth.ok) return { ok: false, error: auth.error };
+    return {
+      ok: true,
+      url: resolve(request.url),
+      transport: request.transport,
+      headers: auth.headers,
+      ...(auth.mainSideAuth ? { mainSideAuth: auth.mainSideAuth } : {}),
+      ...(request.transport === 'stdio' ? { stdio: buildStdioLaunch(request.stdio, resolve) } : {}),
+    };
+  });
+}
+
+export interface GrpcReflectionConnectSpec {
+  url: string;
+  credentials?: ReflectionCredentials;
+}
+
+/**
+ * Reflection endpoint + the metadata/auth a call would send. `request` is
+ * optional (a bare URL probe has no metadata or auth).
+ */
+export function resolveGrpcReflectionConnect(
+  rawUrl: string,
+  request?: GrpcRequest,
+  scope: ConnectScope = createConnectScope()
+): ConnectResult<GrpcReflectionConnectSpec> {
+  return guarded<GrpcReflectionConnectSpec>(() => {
+    const resolve = (text: string) => resolveField(scope, text);
+    const url = resolve(rawUrl);
+    if (!request) return { ok: true, url };
+    const blocked = postmanSendBlockedReason(request);
+    if (blocked) return { ok: false, error: blocked };
+    const inherited = resolveInheritedAuthFor(request);
+    const effective = inherited ? withEffectiveAuth(request, inherited.auth) : request;
+    return { ok: true, url, credentials: reflectionCredentialsFor(effective, resolve) };
+  });
+}

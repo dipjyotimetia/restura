@@ -5,15 +5,13 @@ import { StreamSplit } from '@/components/shared/StreamSplit';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
-import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { sseExportName } from '@/features/sse/lib/sseLogExport';
 import { sseManager } from '@/features/sse/lib/sseManager';
 import { createSseStreamSummary, getSseSummaryView } from '@/features/sse/lib/streamSummary';
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
-import { keyValuePairsToRecord } from '@/lib/shared/utils';
+import { resolveSseConnect } from '@/lib/shared/connectSpec';
 import { useActiveRequest, useActiveTabId } from '@/store/selectors';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { SseRequest } from '@/types';
 import SseAssembledOutput from './SseAssembledOutput';
@@ -64,7 +62,6 @@ export default function SseClient() {
   const activeTabId = useActiveTabId();
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const update = (patch: Partial<SseRequest>) => updateRequest(patch);
-  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const eventNameFilter = request?.eventFilter?.[0] ?? 'all';
 
   // Auto-create a default connection on first mount if none exist
@@ -96,41 +93,13 @@ export default function SseClient() {
 
   const handleConnect = () => {
     if (!active || !request) return;
-    const headers = keyValuePairsToRecord(request.headers);
-    const resolvedHeaders: Record<string, string> = {};
-    for (const [k, v] of Object.entries(headers)) resolvedHeaders[k] = resolveVariables(v);
-
-    // Header-based auth (basic/bearer/api-key/oauth2). Sign-at-wire types
-    // (sigv4/oauth1/wsse) aren't applied to SSE streams — buildAuthCredential
-    // no-ops them and the SSE handler doesn't sign.
-    const credential = buildAuthCredential(request.auth);
-    for (const [k, v] of Object.entries(credential.headers))
-      resolvedHeaders[k] = resolveVariables(v);
-
-    let url = resolveVariables(request.url);
-    // Enabled query params (parity with the workflow `startStream` path) plus
-    // any query-placed auth credential.
-    const queryParams: Array<[string, string]> = [
-      ...request.params
-        .filter((p) => p.enabled !== false && p.key)
-        .map((p): [string, string] => [resolveVariables(p.key), resolveVariables(p.value)]),
-      ...Object.entries(credential.params).map(([k, v]): [string, string] => [
-        k,
-        resolveVariables(v),
-      ]),
-    ];
-    if (queryParams.length > 0) {
-      try {
-        const u = new URL(url);
-        for (const [k, v] of queryParams) u.searchParams.set(k, v);
-        url = u.toString();
-      } catch {
-        // Leave the URL untouched if it isn't yet a valid absolute URL;
-        // sseManager.connect surfaces the validation error.
-      }
+    const spec = resolveSseConnect(request);
+    if (!spec.ok) {
+      useSseStore.getState().appendSystem(active.id, `Connection refused: ${spec.error}`);
+      return;
     }
 
-    sseManager.connect(active.id, url, resolvedHeaders, {
+    sseManager.connect(active.id, spec.url, spec.headers, {
       reconnectOnResume: request.reconnectOnResume ?? true,
       autoReconnect: request.autoReconnect ?? true,
     });
