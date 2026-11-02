@@ -13,6 +13,7 @@ import {
   SET_COOKIE_SIDE_CHANNEL_HEADER,
   type SetCookieSource,
 } from '@shared/protocol/set-cookie';
+import { runScriptPhase } from '@shared/scripts/script-phase';
 import { basicAuthReferencesSecretVariable } from '@shared/variables/secret-variable-token';
 import { Cookie } from 'tough-cookie';
 import { v4 as uuidv4 } from 'uuid';
@@ -36,13 +37,9 @@ import {
 } from '@/features/http/lib/streamingResponseReader';
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
-import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
-import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHost';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
-import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
+import { makeRendererScriptHost } from '@/features/scripts/lib/scriptPhaseHost.renderer';
 import { selectCertForUrl } from '@/lib/shared/certMatcher';
-import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
-import { makeRendererJudge } from '@/lib/shared/judgeBridge';
 import { resolveRequestScopeText } from '@/lib/shared/resolveRequestScope';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import {
@@ -51,9 +48,6 @@ import {
   executeProxiedStreamingRequest,
   ProxyTransportError,
 } from '@/lib/shared/transport';
-import { makeVaultAdapter } from '@/lib/shared/vaultClient';
-import { useGlobalsStore } from '@/store/useGlobalsStore';
-import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Response as ApiResponse, AppSettings, HttpRequest, RequestSettings } from '@/types';
 
 export interface RequestExecutionResult {
@@ -410,7 +404,6 @@ export async function executeRequest(
   let preRequestResult: ScriptResult | undefined;
   if (request.preRequestScript) {
     signal?.throwIfAborted();
-    const globalVars = useGlobalsStore.getState().vars;
     // Pre-request runs before buildProxyRequestSpec has resolved auth, so
     // the inherited-header set is the user-defined headers only. The test
     // script (further down) gets the fully-resolved sentHeaders including
@@ -418,25 +411,10 @@ export async function executeRequest(
     const inheritedHeadersPre: Record<string, string> = Object.fromEntries(
       request.headers.filter((h) => h.enabled).map((h) => [h.key, h.value])
     );
-    const executor = new ScriptExecutor({
-      envVars,
-      globalVars,
-      collectionVars: { ...(collectionVars ?? {}) },
-      iterationData: { ...(iterationData ?? {}) },
-      info: { ...baseInfo, eventName: 'prerequest' },
-      ...(location ? { location } : {}),
-      host: {
-        sendRequest: makeRendererSendRequest({
-          variables: envVars,
-          inheritedHeaders: inheritedHeadersPre,
-          ...(signal ? { signal } : {}),
-        }),
-        cookies: (currentUrl) => makeCookieAdapter(currentUrl),
-        vault: makeVaultAdapter(),
-      },
-    });
     void useCookieStore; // keep the import side-effect for cookieAdapter's lazy store binding
-    preRequestResult = await executor.executeScript(request.preRequestScript, {
+    const pre = await runScriptPhase({
+      phase: 'prerequest',
+      script: request.preRequestScript,
       request: {
         url: request.url,
         method: request.method,
@@ -445,20 +423,23 @@ export async function executeRequest(
         ) as Record<string, string>,
         body: request.body.raw,
       },
+      envVars,
+      collectionVars,
+      iterationData,
+      info: baseInfo,
+      location,
+      host: makeRendererScriptHost({
+        variables: envVars,
+        inheritedHeaders: inheritedHeadersPre,
+        signal,
+      }),
+      // A failed script's partial writes stay out of the request.
+      absorb: { into: envVars, variables: 'on-success' },
+      afterRun: () => signal?.throwIfAborted(),
     });
-    signal?.throwIfAborted();
-    if (preRequestResult.success && preRequestResult.variables) {
-      Object.assign(envVars, preRequestResult.variables);
-    }
-    if (preRequestResult.globalsMutations) {
-      useGlobalsStore.getState().applyMutations(preRequestResult.globalsMutations);
-    }
+    preRequestResult = pre.result;
     if (preRequestResult.collectionMutations) {
       Object.assign(collectionVarsMutations, preRequestResult.collectionMutations);
-      // The wire request is built after this phase, so collection-variable
-      // writes must participate in substitution for this request as well as
-      // later requests in a collection run.
-      applyVarMutations(envVars, preRequestResult.collectionMutations);
     }
   }
 
@@ -550,35 +531,14 @@ export async function executeRequest(
   let testResult: ScriptResult | undefined;
   if (request.testScript) {
     signal?.throwIfAborted();
-    const globalVars = useGlobalsStore.getState().vars;
-    // rs.judge is wired only on the TEST script (a response exists to judge)
-    // and only when the user has enabled + configured a judge provider.
-    // When absent, rs.judge rejects with a clean "not wired in" error.
-    const judgeCfg = useSettingsStore.getState().settings.judge;
     // Test script gets the fully-resolved sentHeaders (auth + content-type
     // + framework defaults) so pm.sendRequest sub-requests inherit the
     // same Authorization the parent went out with. The user can still
     // override per-call via the headers param to pm.sendRequest.
-    const executor = new ScriptExecutor({
-      envVars,
-      globalVars,
-      collectionVars: { ...(collectionVars ?? {}) },
-      iterationData: { ...(iterationData ?? {}) },
-      info: { ...baseInfo, eventName: 'test' },
-      ...(location ? { location } : {}),
-      host: {
-        sendRequest: makeRendererSendRequest({
-          variables: envVars,
-          inheritedHeaders: sentHeaders,
-          ...(signal ? { signal } : {}),
-        }),
-        cookies: (currentUrl) => makeCookieAdapter(currentUrl),
-        vault: makeVaultAdapter(),
-        ...(judgeCfg?.enabled ? { judge: makeRendererJudge(judgeCfg) } : {}),
-      },
-    });
     void useCookieStore; // keep the import side-effect for cookieAdapter's lazy store binding
-    testResult = await executor.executeScript(request.testScript, {
+    const test = await runScriptPhase({
+      phase: 'test',
+      script: request.testScript,
       request: {
         url: request.url,
         method: request.method,
@@ -596,11 +556,21 @@ export async function executeRequest(
         time: responseData.time,
         size: responseData.size,
       },
+      envVars,
+      collectionVars,
+      iterationData,
+      info: baseInfo,
+      location,
+      // rs.judge is wired only on the TEST script (a response exists to judge).
+      host: makeRendererScriptHost({
+        variables: envVars,
+        inheritedHeaders: sentHeaders,
+        signal,
+        judge: true,
+      }),
+      afterRun: () => signal?.throwIfAborted(),
     });
-    signal?.throwIfAborted();
-    if (testResult.globalsMutations) {
-      useGlobalsStore.getState().applyMutations(testResult.globalsMutations);
-    }
+    testResult = test.result;
     if (testResult.collectionMutations) {
       Object.assign(collectionVarsMutations, testResult.collectionMutations);
     }

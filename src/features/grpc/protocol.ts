@@ -27,25 +27,19 @@
  * Console panel updates without re-implementing the pipeline.
  */
 import { applyScriptMetadata, grpcMetadataForScript } from '@shared/scripts/grpc-script-metadata';
+import { runScriptPhase } from '@shared/scripts/script-phase';
 import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule } from '@/features/registry/types';
-import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
 import type { PmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
 import {
   readPmRunContextOptions,
   skippedPlaceholderResponse,
 } from '@/features/scripts/lib/pmRunContextOptions';
-import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHost';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
-import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
+import { makeRendererScriptHost } from '@/features/scripts/lib/scriptPhaseHost.renderer';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
-import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
-import { makeRendererJudge } from '@/lib/shared/judgeBridge';
 import { isElectron } from '@/lib/shared/platform';
-import { makeVaultAdapter } from '@/lib/shared/vaultClient';
-import { useGlobalsStore } from '@/store/useGlobalsStore';
-import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Response as ApiResponse, GrpcRequest, GrpcResponse, Request } from '@/types';
 import { makeElectronGrpcRequest, makeProxyGrpcRequest } from './lib/grpcClient';
 import { reflectionCredentialsFor } from './lib/grpcReflection';
@@ -142,29 +136,6 @@ function scriptRequestContext(request: GrpcRequest, vars: Record<string, string>
   };
 }
 
-function makeScriptExecutor(
-  scriptEnvVars: Record<string, string>,
-  opts: GrpcProtocolOptions,
-  info: ScriptInfo & { eventName: 'prerequest' | 'test' },
-  withJudge: boolean
-): ScriptExecutor {
-  const judgeCfg = withJudge ? useSettingsStore.getState().settings.judge : undefined;
-  return new ScriptExecutor({
-    envVars: scriptEnvVars,
-    globalVars: useGlobalsStore.getState().vars,
-    collectionVars: { ...(opts.collectionVars ?? {}) },
-    iterationData: { ...(opts.iterationData ?? {}) },
-    info,
-    ...(opts.location ? { location: opts.location } : {}),
-    host: {
-      sendRequest: makeRendererSendRequest({ variables: scriptEnvVars, inheritedHeaders: {} }),
-      cookies: (currentUrl) => makeCookieAdapter(currentUrl),
-      vault: makeVaultAdapter(),
-      ...(judgeCfg?.enabled ? { judge: makeRendererJudge(judgeCfg) } : {}),
-    },
-  });
-}
-
 /**
  * Run the pre-request script (if any). Returns the script-side variable map,
  * the result, and the request with any `rs.request.metadata` edits folded in
@@ -188,24 +159,18 @@ async function runGrpcPreRequestScript(
   };
   if (!request.preRequestScript?.trim()) return { request, scriptEnvVars, scriptInfo };
 
-  const executor = makeScriptExecutor(
-    scriptEnvVars,
-    opts,
-    { ...scriptInfo, eventName: 'prerequest' },
-    false
-  );
-  const preRequestResult = await executor.executeScript(request.preRequestScript, {
+  const { result: preRequestResult } = await runScriptPhase({
+    phase: 'prerequest',
+    script: request.preRequestScript,
     request: scriptRequestContext(request, variables),
+    envVars: scriptEnvVars,
+    collectionVars: opts.collectionVars,
+    iterationData: opts.iterationData,
+    info: scriptInfo,
+    location: opts.location,
+    host: makeRendererScriptHost({ variables: scriptEnvVars, inheritedHeaders: {} }),
+    absorb: { into: scriptEnvVars, variables: 'always' },
   });
-  if (preRequestResult.variables) {
-    Object.assign(scriptEnvVars, preRequestResult.variables);
-  }
-  if (preRequestResult.collectionMutations) {
-    applyVarMutations(scriptEnvVars, preRequestResult.collectionMutations);
-  }
-  if (preRequestResult.globalsMutations) {
-    useGlobalsStore.getState().applyMutations(preRequestResult.globalsMutations);
-  }
   const next = preRequestResult.requestMetadata
     ? {
         ...request,
@@ -238,14 +203,21 @@ async function runGrpcTestScript(
   opts: GrpcProtocolOptions
 ): Promise<ScriptResult | undefined> {
   if (!request.testScript?.trim()) return undefined;
-  const executor = makeScriptExecutor(
-    scriptEnvVars,
-    opts,
-    { ...scriptInfo, eventName: 'test' },
-    true
-  );
-  const testResult = await executor.executeScript(request.testScript, {
+  const { result: testResult } = await runScriptPhase({
+    phase: 'test',
+    script: request.testScript,
     request: scriptRequestContext(request, scriptEnvVars),
+    envVars: scriptEnvVars,
+    collectionVars: opts.collectionVars,
+    iterationData: opts.iterationData,
+    info: scriptInfo,
+    location: opts.location,
+    // rs.judge is wired on the test phase only: a response exists to judge.
+    host: makeRendererScriptHost({
+      variables: scriptEnvVars,
+      inheritedHeaders: {},
+      judge: true,
+    }),
     response: {
       status: response.grpcStatus ?? 0,
       statusText: response.grpcStatusText ?? '',
@@ -259,9 +231,6 @@ async function runGrpcTestScript(
       ...(response.statusDetails ? { statusDetails: response.statusDetails } : {}),
     },
   });
-  if (testResult.globalsMutations) {
-    useGlobalsStore.getState().applyMutations(testResult.globalsMutations);
-  }
   return testResult;
 }
 
