@@ -1,11 +1,12 @@
-// restura.dev landing — send people who came for the app straight to it.
+// restura.dev landing — forward only the visits that were really for the app.
 // Loaded synchronously from <head> (the CSP forbids inline scripts) so the
 // redirect happens before the landing page paints.
 //
 //  - `?home` always shows the landing page (escape hatch from the app).
 //  - Old app URLs (`restura.dev/#/…`, e.g. `#/ai-lab`) keep working.
-//  - Returning users (finished first-run onboarding, a localStorage flag the
-//    app writes) and the installed PWA (manifest start_url is `/`) skip it.
+//  - The installed PWA (manifest start_url is `/`) opens the app.
+//  - Everyone else, returning users included, sees the landing page; it links
+//    to the app. (Auto-forwarding returning users hid the landing entirely.)
 (() => {
   try {
     const APP = '/app/';
@@ -18,9 +19,8 @@
     // A shared link to a landing section (`/#compare`) means "show me this".
     if (window.location.hash.length > 1) return;
     const standalone = window.matchMedia?.('(display-mode: standalone)').matches === true;
-    const returning = window.localStorage.getItem('restura-onboarding-completed') !== null;
-    if (standalone || returning) window.location.replace(APP);
+    if (standalone) window.location.replace(APP);
   } catch {
-    // Storage blocked (private mode) — just show the landing page.
+    // Anything unexpected — just show the landing page.
   }
 })();
