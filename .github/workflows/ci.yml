@@ -18,12 +18,13 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  # Dependabot / dependabot-remediate branches install without lifecycle scripts
-  # (supply-chain hardening). Computed once here and read as an env var in
-  # `run:` so no expression is interpolated into shell (Scorecard
-  # Dangerous-Workflow). Intentionally unquoted at use: empty -> no argument.
-  NPM_INSTALL_SCRIPT_FLAG: ${{ (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/dependabot-remediate') && '--ignore-scripts' || '' }}
+# Every install runs with --ignore-scripts (supply-chain hardening, #1292): a
+# dependency's install script is the usual payload of a malicious npm release.
+# Packages that declare one need a reviewed `allowScripts` decision in
+# package.json (enforced by `npm run lockfile:check`); none of them is needed by
+# these jobs (prebuilt binaries arrive as optional dependencies, Electron
+# downloads its binary lazily on first launch, and electron-builder rebuilds
+# native modules itself). Dependabot PRs install exactly like everyone else.
 
 jobs:
   # Gate for the heavy browser/desktop jobs (web e2e, Electron e2e, pack smoke).
@@ -38,6 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Detect app-path changes
@@ -80,6 +82,8 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
@@ -87,11 +91,11 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Install docs-site test dependencies
         if: matrix.shard == 1
-        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Test docs-site interactions
         if: matrix.shard == 1
@@ -138,6 +142,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
@@ -145,7 +151,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Download Vitest blob reports
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -268,6 +274,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
@@ -275,7 +283,13 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
+
+      # Every installed package must carry a valid npm registry signature
+      # (catches tampered tarballs / non-registry sources). Needs registry
+      # access, so it runs right after install. (#1293)
+      - name: Verify registry signatures
+        run: npm audit signatures
 
       - name: Static validation
         # Shared with local `npm run validate`: all product/tooling tsconfigs,
@@ -307,6 +321,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
@@ -314,18 +330,16 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Verify Electron IPC and transport coverage
         run: npm run test:electron:critical-coverage
 
   electron-smoke:
     name: Electron pack smoke (${{ matrix.os }})
-    # Skip for Dependabot: this job needs the `electron-builder install-app-deps`
-    # postinstall (native rebuild), which the Dependabot runs deliberately skip
-    # via --ignore-scripts. Electron dep bumps still get desktop coverage at
-    # release-preflight time. Not a required check, so skipping never blocks merge.
-    if: ${{ needs.changes.outputs.app == 'true' && (github.actor != 'dependabot[bot]' && github.head_ref != 'deps/dependabot-remediate') }}
+    # Runs for Dependabot too: every CI install skips install scripts, so a
+    # Dependabot run is no different. Not a required check.
+    if: ${{ needs.changes.outputs.app == 'true' }}
     # Only `changes` is needed: these desktop jobs build the app themselves, so
     # gating them on `validate` just delayed their start by ~4.5 minutes (the
     # Vitest shards + merge). A red unit run still fails the PR via the required
@@ -339,6 +353,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
@@ -346,8 +362,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        shell: bash # matrix includes windows; the env var is read with bash syntax
-        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Generate icons
         # Produces icon.ico (Windows) / icon.icns / PNGs from icon.svg. The .ico
@@ -400,6 +415,8 @@ jobs:
       CI: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
@@ -407,7 +424,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       # Pin the Playwright browser cache to the package-lock so a version bump
       # invalidates it automatically and we don't run on stale binaries.
@@ -482,6 +499,8 @@ jobs:
       CI: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
@@ -489,7 +508,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -526,9 +545,8 @@ jobs:
           retention-days: 7
 
   e2e-electron:
-    # Skip for Dependabot (see electron-smoke): needs the native-rebuild
-    # postinstall that --ignore-scripts skips on Dependabot runs.
-    if: ${{ needs.changes.outputs.app == 'true' && (github.actor != 'dependabot[bot]' && github.head_ref != 'deps/dependabot-remediate') }}
+    # Runs for Dependabot too (see electron-smoke). Not a required check.
+    if: ${{ needs.changes.outputs.app == 'true' }}
     # Desktop e2e: launches the compiled, unpacked app via Playwright's
     # `_electron` API (no electron-builder packaging, no Vite dev server). The
     # specs spin up in-process mock upstreams + a spawned native gRPC server.
@@ -546,6 +564,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
@@ -553,7 +573,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       # Electron bundles Chromium, so it needs the same shared system libs
       # (libnss3, libgbm, libatk, GTK, …). `playwright install-deps chromium`
@@ -605,6 +625,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
@@ -612,7 +634,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Build extension bundle
         # @vscode/test-cli loads dist `out/extension.js` as the dev extension.
@@ -661,6 +683,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
@@ -668,7 +692,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Build
         env:
@@ -727,7 +751,7 @@ jobs:
           command: pages deploy dist/web/client --project-name=restura --branch=${{ steps.branch.outputs.slug }}
 
       - name: Install docs-site dependencies
-        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Build docs site
         run: npm --prefix docs-site run build
@@ -803,6 +827,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           # A main push can contain more than one commit, so the docs-only
           # production deploy guard needs both sides of github.event.before.
           fetch-depth: 0
@@ -837,7 +862,7 @@ jobs:
           cache-dependency-path: docs-site/package-lock.json
 
       - name: Install docs-site dependencies
-        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund $NPM_INSTALL_SCRIPT_FLAG
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Type-check docs (astro check)
         run: npm --prefix docs-site run check

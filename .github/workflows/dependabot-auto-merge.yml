@@ -29,7 +29,7 @@ name: Dependabot auto-merge
 #   - A red required check still blocks the merge; CI installs Dependabot PRs
 #     with --ignore-scripts (ci.yml).
 
-on: pull_request_target
+on: pull_request_target # zizmor: ignore[dangerous-triggers] -- no checkout or PR code; see safety rules above
 
 permissions:
   contents: read
@@ -42,7 +42,10 @@ jobs:
       contents: write
       pull-requests: write
     # Only ever act on Dependabot's own PRs, in runs Dependabot triggered.
-    if: ${{ github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]' }}
+    # Both checks are deliberate: user.login pins the PR author, and actor
+    # stops a human push onto a Dependabot branch from being auto-merged.
+    # fetch-metadata then verifies every commit is Dependabot-authored.
+    if: ${{ github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]' }} # zizmor: ignore[bot-conditions] -- paired with PR author + fetch-metadata commit check
     timeout-minutes: 5
     steps:
       - name: Fetch Dependabot metadata

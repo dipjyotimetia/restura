@@ -28,7 +28,7 @@ updates:
     # Actions are referenced by mutable tags, so a poisoned tag-repoint lands as
     # a "new version". A cooldown gives that the same age-out window as npm deps.
     cooldown:
-      default-days: 5
+      default-days: 7
     labels:
       - 'dependencies'
       - 'github-actions'
@@ -49,7 +49,7 @@ updates:
     # malicious. Majors wait longest; patches (lowest blast radius, most likely
     # to be a genuine fix) clear soonest. Security advisories bypass this.
     cooldown:
-      default-days: 5
+      default-days: 7
       semver-major-days: 7
       semver-minor-days: 5
       semver-patch-days: 3
@@ -93,7 +93,7 @@ updates:
       timezone: Australia/Melbourne
     rebase-strategy: 'auto'
     cooldown:
-      default-days: 5
+      default-days: 7
       semver-major-days: 7
       semver-minor-days: 5
       semver-patch-days: 3
@@ -110,13 +110,33 @@ updates:
       astro-major:
         patterns: ['astro', '@astrojs/*']
 
+  # Lockfile-pinned CI tools (.github/tools/*): Claude Code for evals,
+  # OpenWiki, the CycloneDX SBOM generator and the marketplace publishers. They
+  # run in CI/release jobs, so they get the same cooldown as app deps; a bump
+  # that adds an install script fails `npm run lockfile:check` until reviewed.
+  - package-ecosystem: 'npm'
+    directories:
+      - '/.github/tools/*'
+    schedule:
+      interval: 'monthly'
+    cooldown:
+      default-days: 7
+    labels:
+      - 'dependencies'
+      - 'npm'
+    open-pull-requests-limit: 3
+    versioning-strategy: 'increase'
+    groups:
+      ci-tools:
+        patterns: ['*']
+
   # Base images in the root Dockerfile (self-host image published to GHCR).
   - package-ecosystem: 'docker'
     directory: '/'
     schedule:
       interval: 'monthly'
     cooldown:
-      default-days: 5
+      default-days: 7
     labels:
       - 'dependencies'
       - 'docker'

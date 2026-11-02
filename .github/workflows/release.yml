@@ -36,10 +36,24 @@ name: Release
 # notarization) runs before anything irreversible ships:
 #   release (tag + DRAFT release)
 #     → `desktop`         — build + upload Electron installers to the draft.
-#     → `publish-cli`     — publish `restura-cli` to npm (stable only).
+#     → `attest-desktop`  — SLSA provenance for the installers (no npm).
+#     → `build-cli`       — build + pack `restura-cli` (stable only, no OIDC).
+#     → `publish-cli`     — publish that tarball via npm trusted publishing
+#                           (OIDC, no npm install, no NPM_TOKEN).
 #       `publish-docker`  — publish Docker image to GHCR (stable + opt-in).
+#     → `attest-image`    — SLSA provenance for the pushed image (no build).
 #       `deploy-web`      — deploy to Cloudflare (stable only).
 #     → `publish-release` — flip the draft public.
+#
+# Supply-chain rules (epic #1283, docs/SUPPLY_CHAIN_HARDENING.md):
+#   - Every `npm ci` runs with --ignore-scripts; jobs `npm rebuild` only the
+#     allowScripts-approved packages they actually need.
+#   - No job that holds `id-token: write` installs or runs repo dependencies:
+#     provenance and npm publishing happen in artifact-only jobs.
+#   - No dependency cache in release jobs (a PR-writable cache must never be
+#     restored into a job that signs, attests, publishes or deploys).
+#   - Checkouts drop the token (`persist-credentials: false`) except `release`,
+#     which pushes the tag.
 #
 # Retry: if a stable run fails before npm/web/Docker publish, only a draft
 # release + tag exist. Merge the fix to main, then dispatch with
@@ -93,8 +107,67 @@ permissions:
   contents: read
 
 jobs:
+  release-secrets:
+    name: Release secrets present
+    # Presence checks only, in a job with no checkout and no npm: a secret a
+    # job references is delivered to that job's runner, so it must never share
+    # a job with `npm run validate` (every devDependency's code). (#1283)
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Validate stable release secrets
+        if: ${{ github.event_name == 'pull_request' || !inputs.prerelease }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER_PROXY_TOKEN: ${{ secrets.WORKER_PROXY_TOKEN }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+          # restura-cli publishes through npm trusted publishing (OIDC), so there
+          # is no NPM_TOKEN to check.
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WORKER_PROXY_TOKEN SENTRY_DSN SENTRY_AUTH_TOKEN SENTRY_ORG SENTRY_PROJECT CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required stable release secret(s): %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+      - name: Validate release preparation credentials
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.prerelease && inputs.retry_release_tag == '' }}
+        env:
+          RELEASE_PR_APP_ID: ${{ secrets.RELEASE_PR_APP_ID }}
+          RELEASE_PR_APP_PRIVATE_KEY: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in RELEASE_PR_APP_ID RELEASE_PR_APP_PRIVATE_KEY; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing release PR App credential(s): %s\n' "${missing[*]}"
+            exit 1
+          fi
+
   preflight:
     name: Release preflight
+    needs: [release-secrets]
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -140,61 +213,16 @@ jobs:
             fi
           fi
 
-      - name: Validate stable release secrets
-        if: ${{ github.event_name == 'pull_request' || !inputs.prerelease }}
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          WORKER_PROXY_TOKEN: ${{ secrets.WORKER_PROXY_TOKEN }}
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -euo pipefail
-          missing=()
-          for name in NPM_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WORKER_PROXY_TOKEN SENTRY_DSN SENTRY_AUTH_TOKEN SENTRY_ORG SENTRY_PROJECT CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            if [ -z "${!name:-}" ]; then
-              missing+=("$name")
-            fi
-          done
-          if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Missing required stable release secret(s): %s\n' "${missing[*]}"
-            exit 1
-          fi
-
-      - name: Validate release preparation credentials
-        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.prerelease && inputs.retry_release_tag == '' }}
-        env:
-          RELEASE_PR_APP_ID: ${{ secrets.RELEASE_PR_APP_ID }}
-          RELEASE_PR_APP_PRIVATE_KEY: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          missing=()
-          for name in RELEASE_PR_APP_ID RELEASE_PR_APP_PRIVATE_KEY; do
-            if [ -z "${!name:-}" ]; then
-              missing+=("$name")
-            fi
-          done
-          if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Missing release PR App credential(s): %s\n' "${missing[*]}"
-            exit 1
-          fi
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
-          cache: "npm"
+          # No dependency cache in release jobs (cache poisoning, #1291).
+          cache: ""
 
       - name: Validate stable release candidate
         if: ${{ github.event_name == 'pull_request' || inputs.retry_release_tag != '' }}
@@ -251,7 +279,11 @@ jobs:
 
       - name: Install dependencies
         if: ${{ steps.reuse.outputs.skip != 'true' }}
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
+
+      - name: Verify registry signatures
+        if: ${{ steps.reuse.outputs.skip != 'true' }}
+        run: npm audit signatures
 
       # `validate` covers every release surface: type-check:all (renderer,
       # electron, worker, echo, cli), build:workspaces, and electron:compile.
@@ -267,28 +299,27 @@ jobs:
     needs: [preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Every write (branch push, PR create, bypass merge) uses the restura-bot
+    # App token minted below, so GITHUB_TOKEN stays read-only (#1291).
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
     steps:
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        id: release-pr-token
-        with:
-          app-id: ${{ secrets.RELEASE_PR_APP_ID }}
-          private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
-
+      # The restura-bot token can merge to main through its ruleset bypass, so
+      # it is minted only AFTER dependencies are installed and is never written
+      # into .git/config (create-pull-request authenticates with `token:`).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          token: ${{ steps.release-pr-token.outputs.token }}
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
-          cache: "npm"
+          # No dependency cache in release jobs (cache poisoning, #1291).
+          cache: ""
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Compute release tag
         id: tag
@@ -311,7 +342,18 @@ jobs:
             --workspace cli \
             --workspace extension/vscode \
             --include-workspace-root \
-            --allow-same-version
+            --allow-same-version \
+            --ignore-scripts
+
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: release-pr-token
+        with:
+          app-id: ${{ secrets.RELEASE_PR_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
+          # Only what opening + merging the version-bump PR needs (zizmor
+          # github-app): push the branch, create and merge the PR.
+          permission-contents: write
+          permission-pull-requests: write
 
       - name: Create stable release pull request
         id: create-release-pr
@@ -348,10 +390,58 @@ jobs:
           set -euo pipefail
           gh pr merge --squash --admin "$PR_URL"
 
+  sbom:
+    name: Release SBOM
+    # Same trigger as `release`. Runs the pinned CycloneDX generator (third-
+    # party npm code) with a read-only token, and hands the SBOM over as an
+    # artifact, so it never shares a job with the tag-push token (#1283).
+    if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.prerelease || inputs.retry_release_tag != '')) || (github.event_name == 'pull_request' && github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]') }}
+    needs: [preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}
+
+      - uses: ./.github/actions/setup-node-npm
+        with:
+          node-version-file: ".nvmrc"
+          # No dependency cache in release jobs (cache poisoning, #1291).
+          cache: ""
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          set -euo pipefail
+          # Lockfile-pinned generator (.github/tools/cyclonedx), installed
+          # without install scripts — not a floating `npx` download.
+          npm ci --prefix .github/tools/cyclonedx --ignore-scripts --no-audit --no-fund
+          CYCLONEDX=.github/tools/cyclonedx/node_modules/.bin/cyclonedx-npm
+          # --package-lock-only: read the dep graph from package-lock.json
+          # instead of node_modules, so no prod-only install is needed.
+          # --omit dev: keep devDeps out of the production SBOM.
+          "$CYCLONEDX" --package-lock-only --omit dev \
+            --output-format JSON --output-file restura.cdx.json
+          "$CYCLONEDX" --package-lock-only --omit dev \
+            --output-format XML --output-file restura.cdx.xml
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-sbom
+          path: |
+            restura.cdx.json
+            restura.cdx.xml
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Tag + release
     if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.prerelease || inputs.retry_release_tag != '')) || (github.event_name == 'pull_request' && github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]') }}
-    needs: [preflight]
+    needs: [preflight, sbom]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -389,16 +479,21 @@ jobs:
         with:
           # full history: changelog range + tag-existence checks read prior tags
           fetch-depth: 0
+          # Credentials persist on purpose: this job pushes the release tag.
+          # It runs no npm-installed code (the SBOM is built in `sbom`).
+          persist-credentials: true # zizmor: ignore[artipacked] -- pushes the release tag; no npm-installed code runs here
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}
 
       - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
-          cache: "npm"
+          # No dependency cache in release jobs (cache poisoning, #1291).
+          cache: ""
 
-      - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+      # No npm code here at all: this job keeps a contents:write token in
+      # .git/config to push the tag, and needs only Node built-ins
+      # (release-version.mjs). The SBOM comes from the read-only `sbom` job.
 
       - name: Compute actual tag
         id: tag
@@ -535,18 +630,12 @@ jobs:
         env:
           OUTPUT: CHANGELOG.md
 
-      - name: Generate CycloneDX SBOM
-        run: |
-          # --package-lock-only: read the dep graph from package-lock.json
-          # instead of node_modules, so no separate prod-only install is
-          # needed (and we sidestep the electron-builder postinstall issue).
-          # --omit dev: keep devDeps out of the production SBOM.
-          npx --yes @cyclonedx/cyclonedx-npm@6 \
-            --package-lock-only --omit dev \
-            --output-format JSON --output-file restura.cdx.json
-          npx --yes @cyclonedx/cyclonedx-npm@6 \
-            --package-lock-only --omit dev \
-            --output-format XML --output-file restura.cdx.xml
+      # Generated in the read-only `sbom` job: this job keeps a contents:write
+      # token in .git/config and must run no third-party npm code.
+      - name: Download SBOM
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-sbom
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -581,10 +670,9 @@ jobs:
     timeout-minutes: 120
     permissions:
       # electron-builder uploads installers to the release via GH_TOKEN.
+      # No id-token/attestations: provenance is minted in `attest-desktop`,
+      # which runs no npm code (#1290).
       contents: write
-      # Sigstore build-provenance attestation for each installer (below).
-      id-token: write
-      attestations: write
     strategy:
       # One platform failing (e.g. a flaky notarization) shouldn't discard
       # installers that built cleanly on the others.
@@ -594,6 +682,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           # The freshly-pushed version-bump commit, by tag, so package.json's
           # version matches the release electron-builder publishes into.
           ref: ${{ needs.release.outputs.actual_tag }}
@@ -601,10 +690,20 @@ jobs:
       - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
-          cache: "npm"
+          # No dependency cache in release jobs (cache poisoning, #1291).
+          cache: ""
 
+      # Install scripts off (#1292); then rebuild only the two approved
+      # packages this job needs: @sentry/cli (source-map upload) and
+      # electron-winstaller (Windows Squirrel 7-Zip). Electron downloads its
+      # binary lazily, and electron-builder rebuilds native deps itself.
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
+          npm audit signatures
+          npm rebuild @sentry/cli electron-winstaller
 
       # For prerelease builds the release job tags current HEAD without bumping
       # package.json on main. Set the version locally here so the packaged app
@@ -621,7 +720,8 @@ jobs:
             --workspace cli \
             --workspace extension/vscode \
             --include-workspace-root \
-            --allow-same-version
+            --allow-same-version \
+            --ignore-scripts
 
       # Inject the Sentry DSN into package.json so the packaged main process can
       # read it at runtime (electron/main/sentry.ts reads sentry.dsn). The DSN is
@@ -728,39 +828,85 @@ jobs:
             --bundle-id "com.dipjyotimetia.restura"
           xcrun stapler validate "$WORK_DIR/Restura.app"
 
-      # Generate a signed SLSA build-provenance attestation for every installer
-      # this runner produced, so consumers can verify the binaries came from
-      # this workflow at this commit (`gh attestation verify <file>`). Globs
-      # span all three OS targets; only the patterns matching this runner's
-      # output contribute subjects, which is fine as long as at least one does.
-      - name: Attest installer provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      # Hand the installers to `attest-desktop`. Globs span all three OS
+      # targets; only the patterns matching this runner's output match.
+      - name: Upload installers for attestation
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          subject-path: |
+          name: installers-${{ runner.os }}
+          path: |
             dist/installers/*.dmg
             dist/installers/*.zip
             dist/installers/*.exe
             dist/installers/*.AppImage
             dist/installers/*.deb
             dist/installers/*.rpm
+          if-no-files-found: error
+          retention-days: 7
 
-  publish-cli:
-    name: Publish restura-cli to npm
-    # After desktop: nothing irreversible ships until installers are signed.
-    needs: [release, desktop]
+  attest-desktop:
+    name: Attest installer provenance
+    needs: [desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Holds the OIDC permission, so it runs no checkout and no npm: only the
+    # installer bytes the desktop legs built and signed (#1290).
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      # Exact names, one per desktop leg — never a pattern/merge: any job in
+      # the run can upload an artifact, and a squatted `installers-*` name
+      # merged in here would get attested. With exact names a squat can only
+      # make the real upload fail.
+      - name: Download macOS installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: installers-macOS
+          path: installers/macOS
+
+      - name: Download Windows installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: installers-Windows
+          path: installers/Windows
+
+      - name: Download Linux installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: installers-Linux
+          path: installers/Linux
+
+      # Signed SLSA build provenance for every installer, so consumers can
+      # verify the binaries came from this workflow at this commit
+      # (`gh attestation verify <file> --repo dipjyotimetia/restura`).
+      - name: Attest installer provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            installers/macOS/*.dmg
+            installers/macOS/*.zip
+            installers/Windows/*.exe
+            installers/Linux/*.AppImage
+            installers/Linux/*.deb
+            installers/Linux/*.rpm
+
+  build-cli:
+    name: Build restura-cli package
+    # Nothing irreversible ships until installers are signed and attested.
+    needs: [release, desktop, attest-desktop]
     # Stable releases only — beta installers don't warrant a CLI npm publish.
     if: ${{ needs.release.outputs.is_prerelease == 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Runs repo dependencies, so it gets no OIDC permission (#1287).
     permissions:
       contents: read
-      # Required for npm publish --provenance (signed build attestation). Only
-      # works on a public repo publishing to the public npm registry — both true
-      # here. Drop this and the --provenance flag below if either changes.
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           # The freshly-pushed version-bump commit, by tag, so cli/package.json's
           # version matches the GitHub release this run cut.
           ref: ${{ needs.release.outputs.actual_tag }}
@@ -768,38 +914,97 @@ jobs:
       - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
-          cache: "npm"
+          # No dependency cache in release jobs (cache poisoning, #1291).
+          cache: ""
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: |
+          set -euo pipefail
+          npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
+          npm audit signatures
 
       - name: Build CLI
         # The `cli` workspace (by dir path, so it survives a package rename).
         # Runs the workspace's prebuild (sandbox libs) + tsup bundle → cli/dist.
         run: npm run build -w cli
 
-      - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Smoke test CLI
+        run: npm run smoke -w cli
+
+      - name: Pack CLI
         run: |
           set -euo pipefail
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "NPM_TOKEN secret not set; stable releases must publish restura-cli."
+          mkdir -p dist-npm
+          npm pack -w cli --pack-destination dist-npm
+          ls -l dist-npm
+
+      - name: Upload CLI package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: restura-cli-package
+          path: dist-npm/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-cli:
+    name: Publish restura-cli to npm
+    needs: [release, build-cli]
+    if: ${{ needs.release.outputs.is_prerelease == 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # npm trusted publishing: npm exchanges this job's OIDC token for a
+      # short-lived publish token (no NPM_TOKEN exists), and provenance is
+      # attached automatically. The job installs no dependencies, so no
+      # third-party code can request the token (#1287). The npmjs.com trusted
+      # publisher must name this repo + `release.yml` (docs/CI_CD.md §6).
+      id-token: write
+    steps:
+      # Checkout only for the local setup action (pinned npm ≥ 11.5.1, which
+      # trusted publishing needs). No `npm ci`.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.release.outputs.actual_tag }}
+
+      - uses: ./.github/actions/setup-node-npm
+        with:
+          node-version-file: ".nvmrc"
+          cache: ""
+
+      - name: Download CLI package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: restura-cli-package
+          path: dist-npm
+
+      - name: Publish to npm
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # The leading ./ matters: npm 12 reads a bare `dir/file.tgz` as
+          # GitHub shorthand (github:dir/file.tgz) and refuses it (EALLOWGIT).
+          tarballs=(./dist-npm/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "Expected exactly one CLI tarball, found ${#tarballs[@]}."
             exit 1
           fi
-          NAME="$(node -p "require('./cli/package.json').name")"
-          VERSION="$(node -p "require('./cli/package.json').version")"
+          TARBALL="${tarballs[0]}"
+          MANIFEST="$(tar -xOzf "$TARBALL" package/package.json)"
+          NAME="$(printf '%s' "$MANIFEST" | node -p "JSON.parse(require('node:fs').readFileSync(0, 'utf8')).name")"
+          VERSION="$(printf '%s' "$MANIFEST" | node -p "JSON.parse(require('node:fs').readFileSync(0, 'utf8')).version")"
           # Idempotent: a re-run of an already-published version is a no-op rather
           # than a hard failure (npm view exits non-zero when the version is new).
           if npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
             echo "${NAME}@${VERSION} already on npm — skipping."
             exit 0
           fi
-          npm publish -w cli --provenance --access public
+          npm publish "$TARBALL" --provenance --access public
 
   publish-docker:
     name: Publish Docker image to GHCR
-    needs: [release, desktop]
+    needs: [release, desktop, attest-desktop]
     # Stable releases only, and only when opted in at dispatch (publish_docker).
     if: ${{ needs.release.outputs.is_prerelease == 'false' && needs.release.outputs.publish_docker == 'true' }}
     runs-on: ubuntu-latest
@@ -809,14 +1014,14 @@ jobs:
     permissions:
       contents: read
       packages: write
-      # Sigstore build-provenance attestation for the pushed image (below).
-      id-token: write
-      attestations: write
       # Upload the Trivy vulnerability scan to code scanning.
       security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ needs.release.outputs.actual_tag }}
 
       - name: Set up Docker Buildx
@@ -848,8 +1053,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # No GitHub Actions cache: PR runs can write to it, and a poisoned
+          # layer must never reach a release image (#1291).
+          no-cache: true
 
       # Scan the pushed image for known CVEs. Report-only (exit-code 0): a
       # fixable advisory in an upstream base layer shouldn't block an opt-in
@@ -871,18 +1077,38 @@ jobs:
           sarif_file: trivy-results.sarif
           category: trivy-image
 
+  attest-image:
+    name: Attest image provenance
+    needs: [publish-docker]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Holds the OIDC permission, so it builds nothing: it attests the digest
+    # publish-docker pushed (#1290).
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # Signed SLSA build-provenance for the image, pushed alongside it in GHCR.
       # Verify with `gh attestation verify oci://ghcr.io/<owner>/<repo>:<tag>`.
       - name: Attest image provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ needs.publish-docker.outputs.digest }}
           push-to-registry: true
 
   deploy-web:
     name: Deploy web to production (Cloudflare)
-    needs: [release, desktop]
+    needs: [release, desktop, attest-desktop]
     # Stable releases only — web/Cloudflare deploys do not ship beta builds.
     if: ${{ needs.release.outputs.is_prerelease == 'false' }}
     # Production Cloudflare deploy (Worker + SPA + docs). Lives here, not in CI,
@@ -898,15 +1124,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ needs.release.outputs.actual_tag }}
 
       - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
-          cache: "npm"
+          # No dependency cache in release jobs (cache poisoning, #1291).
+          cache: ""
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: |
+          set -euo pipefail
+          npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
+          npm audit signatures
 
       - name: Build
         env:
@@ -957,7 +1188,7 @@ jobs:
           command: pages deploy dist/web/client --project-name=restura --branch=main
 
       - name: Install docs-site dependencies
-        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Build docs site
         run: npm --prefix docs-site run build
@@ -985,10 +1216,11 @@ jobs:
 
   publish-release:
     name: Publish GitHub release
-    needs: [release, desktop, publish-cli, publish-docker, deploy-web]
-    # publish-docker is opt-in (publish_docker input), so 'skipped' is an acceptable
-    # outcome here — only a hard 'failure'/'cancelled' should block publishing.
-    if: ${{ always() && needs.release.result == 'success' && needs.desktop.result == 'success' && (needs.release.outputs.is_prerelease == 'true' || (needs.publish-cli.result == 'success' && (needs.publish-docker.result == 'success' || needs.publish-docker.result == 'skipped') && needs.deploy-web.result == 'success')) }}
+    needs: [release, desktop, attest-desktop, publish-cli, publish-docker, attest-image, deploy-web]
+    # publish-docker (and so attest-image) is opt-in (publish_docker input), so
+    # 'skipped' is acceptable there — only a hard 'failure'/'cancelled' blocks.
+    # A release is never published unattested.
+    if: ${{ always() && needs.release.result == 'success' && needs.desktop.result == 'success' && needs.attest-desktop.result == 'success' && (needs.release.outputs.is_prerelease == 'true' || (needs.publish-cli.result == 'success' && ((needs.publish-docker.result == 'success' && needs.attest-image.result == 'success') || (needs.publish-docker.result == 'skipped' && needs.attest-image.result == 'skipped')) && needs.deploy-web.result == 'success')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

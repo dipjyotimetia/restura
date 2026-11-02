@@ -7,7 +7,7 @@ inputs:
     required: false
     default: .nvmrc
   cache:
-    description: Optional dependency cache used by actions/setup-node.
+    description: Optional dependency cache used by actions/setup-node. Pass '' to disable ALL caching (release, signing and publish jobs must).
     required: false
     default: npm
   cache-dependency-path:
@@ -22,6 +22,11 @@ runs:
       with:
         node-version-file: ${{ inputs.node-version-file }}
         cache: ${{ inputs.cache }}
+        # setup-node auto-enables an npm cache when package.json declares
+        # `packageManager: npm@…` (ours does), even with `cache: ''`. Tie the
+        # auto-cache to the explicit input so '' really means no cache
+        # (supply-chain epic #1283: no PR-writable cache in release jobs).
+        package-manager-cache: ${{ inputs.cache != '' }}
         cache-dependency-path: ${{ inputs.cache-dependency-path }}
 
     # Node 24.18.0 on the GitHub-hosted image bundles npm 11.16.0; install

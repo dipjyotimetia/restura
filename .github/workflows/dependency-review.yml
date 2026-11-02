@@ -4,22 +4,39 @@ on:
   pull_request:
     branches: [main]
 
+# Read-only by default; the job below declares the write scopes it needs.
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   review:
     name: Review dependency changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # comment-summary-in-pr posts the summary on failure.
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Dependency Review
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
+          # Development dependencies run in CI and on contributors' machines,
+          # so a vulnerable devDependency counts as much as a runtime one.
+          fail-on-scopes: runtime, development
           comment-summary-in-pr: on-failure
+          # Flag (not block) new dependencies whose OpenSSF Scorecard is low:
+          # few maintainers, no branch protection, no code review — the
+          # typosquat / hijack profile an advisory database can't see yet.
+          # See CONTRIBUTING.md → Adding a dependency. (#1297)
+          show-openssf-scorecard: true
+          warn-on-openssf-scorecard-level: 3
+          # Known-bad package URLs go here as they come up, e.g.
+          #   deny-packages: pkg:npm/some-typosquat
           # Allow OSI-approved licenses common in our dep tree.
           # Tighten over time once we audit transitive deps.
           allow-licenses: >-

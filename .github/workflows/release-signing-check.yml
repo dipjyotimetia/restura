@@ -61,14 +61,21 @@ jobs:
           fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
-          cache: "npm"
+          # No dependency cache next to the production signing cert (#1291).
+          cache: ""
 
+      # Install scripts off (#1292): nothing this job runs needs them.
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: |
+          set -euo pipefail
+          npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
+          npm audit signatures
 
       - name: Build app
         run: npm run electron:build:all
