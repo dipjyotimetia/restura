@@ -1,6 +1,11 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true,
+    "defaultBranch": "main"
+  },
   "assist": {
     "actions": {
       "source": {
@@ -11,51 +16,53 @@
   "files": {
     "includes": [
       "**",
-      "!node_modules/**",
-      "!.wrangler/**",
-      "!dist/**",
-      "!build/**",
-      "!coverage/**",
-      "!playwright-report/**",
-      "!test-results/**",
-      "!electron/dist/**",
-      "!.next/**",
-      "!.cache/**",
-      "!.turbo/**",
-      "!.husky/_/**",
-      "!.worktrees/**",
-      "!.claude/worktrees/**",
-      "!*.tsbuildinfo",
-      "!out/**",
+      "!!node_modules",
+      "!!.wrangler",
+      "!!dist",
+      "!!build",
+      "!!coverage",
+      "!!playwright-report",
+      "!!test-results",
+      "!!electron/dist",
+      "!!.next",
+      "!!.cache",
+      "!!.turbo",
+      "!.husky/_",
+      "!!.worktrees",
+      "!!.claude/worktrees",
+      "!**/*.tsbuildinfo",
+      "!!out",
       "!package-lock.json",
       "!yarn.lock",
       "!pnpm-lock.yaml",
-      "!cli/dist/**",
-      "!cli/fixtures/**",
+      "!!cli/dist",
+      "!cli/fixtures",
       "!echo-local/manifest.json",
       "!echo-local/restura-echo-local.collection.json",
-      "!extension/chrome/dist/**",
-      "!extension/vscode/out/**",
+      "!!extension/chrome/dist",
+      "!!extension/vscode/out",
       "!extension/vscode/*.vsix",
-      "!extension/vscode/.vscode-test/**",
+      "!extension/vscode/.vscode-test",
       "!docs/CAPABILITY_MATRIX.md",
       "!shared/opencollection/spec-types.ts",
       "!shared/collections/postman/v3-types.ts",
       "!shared/collections/postman/v21-types.ts",
       "!shared/scripts/sandbox-libraries/bundle.generated.ts",
-      "!scripts/sandbox-shims/**",
-      "!vendor/**",
-      "!tests/fixtures/**",
-      "!extension/vscode/test/fixtures/**",
+      "!scripts/sandbox-shims",
+      "!vendor",
+      "!tests/fixtures",
+      "!extension/vscode/test/fixtures",
       "!*.config.mts",
-      "!.claude/**",
-      "!.astro/**",
-      "!docs-site/.astro/**",
-      "!docs-site/node_modules/**",
-      "!docs-site/dist/**",
-      "!extension/vscode/schemas/**",
-      "!*.mdx",
-      "!*.generated.*"
+      "!.claude",
+      "!!.astro",
+      "!!docs-site/.astro",
+      "!!docs-site/node_modules",
+      "!!docs-site/dist",
+      "!extension/vscode/schemas",
+      "!**/*.mdx",
+      "!**/*.generated.*",
+      "!e2e/mocks/proto/gen",
+      "!index.html"
     ]
   },
   "formatter": {
@@ -67,15 +74,62 @@
   },
   "linter": {
     "enabled": true,
+    "domains": {
+      "react": "recommended",
+      "test": "recommended"
+    },
     "rules": {
-      "preset": "none",
-      "suspicious": {
-        "noExplicitAny": "error",
-        "noImportCycles": "error",
-        "noControlCharactersInRegex": "off"
+      "preset": "recommended",
+      "a11y": {
+        "noAutofocus": "warn",
+        "noInteractiveElementToNoninteractiveRole": "warn",
+        "noLabelWithoutControl": "warn",
+        "noNoninteractiveElementToInteractiveRole": "warn",
+        "noNoninteractiveTabindex": "warn",
+        "noStaticElementInteractions": "warn",
+        "noSvgWithoutTitle": "warn",
+        "useAriaPropsSupportedByRole": "warn",
+        "useFocusableInteractive": "warn",
+        "useSemanticElements": "warn",
+        "useValidAriaRole": {
+          "level": "error",
+          "options": {
+            "ignoreNonDom": true
+          }
+        }
+      },
+      "complexity": {
+        "noUselessSwitchCase": "off",
+        "useLiteralKeys": "off",
+        "useSimpleNumberKeys": "off"
+      },
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error",
+        "noUnusedPrivateClassMembers": "error",
+        "useExhaustiveDependencies": "warn",
+        "noComponentHookFactories": "warn",
+        "usePlaywrightValidDescribeCallback": "off"
       },
       "style": {
         "useImportType": "error"
+      },
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noImportCycles": "error",
+        "noControlCharactersInRegex": "off",
+        "noFocusedTests": "error",
+        "noArrayIndexKey": "warn",
+        "noTemplateCurlyInString": "off",
+        "useIterableCallbackReturn": {
+          "level": "error",
+          "options": {
+            "checkForEach": false
+          }
+        },
+        "noAssignInExpressions": "warn",
+        "noImplicitAnyLet": "warn",
+        "noShadowRestrictedNames": "warn"
       }
     }
   },
@@ -92,6 +146,77 @@
       "tailwindDirectives": true
     }
   },
-  "markdown": { "formatter": { "enabled": false } },
-  "yaml": { "formatter": { "enabled": false } }
+  "markdown": {
+    "formatter": {
+      "enabled": false
+    }
+  },
+  "yaml": {
+    "formatter": {
+      "enabled": false
+    }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.test.mjs",
+        "**/__tests__/**",
+        "tests/**",
+        "e2e/**",
+        "e2e-electron/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNonNullAssertion": "off"
+          },
+          "correctness": {
+            "noUnsafeOptionalChaining": "off",
+            "useYield": "off",
+            "noEmptyPattern": "off",
+            "noComponentHookFactories": "off",
+            "useHookAtTopLevel": "off",
+            "usePlaywrightValidDescribeCallback": "off"
+          },
+          "a11y": {
+            "recommended": false
+          }
+        }
+      }
+    },
+    {
+      "includes": ["docs-site/**/*.astro"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedImports": "off",
+            "noUnusedVariables": "off",
+            "noUndeclaredVariables": "off"
+          },
+          "style": {
+            "useConst": "off",
+            "useImportType": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["docs-site/**", "site/**"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noImportantStyles": "off"
+          },
+          "style": {
+            "noDescendingSpecificity": "off"
+          },
+          "suspicious": {
+            "noFocusedTests": "off"
+          }
+        }
+      }
+    }
+  ]
 }
