@@ -1,5 +1,39 @@
 // gRPC unary, streaming and reflection IPC types (`window.electron.grpc`).
 
+import type { ProtocolSecretValue } from './shared';
+
+/** TLS trust / mTLS material shared by the call and reflection payloads. */
+interface GrpcTlsIpc {
+  verifySsl?: boolean;
+  clientCert?: { pfx?: string; cert?: string; key?: string; passphrase?: ProtocolSecretValue };
+  caCert?: { pem: string };
+}
+
+/**
+ * `grpc:request` / `grpc:start-stream` payload. Either `protoContent` or
+ * `descriptors` must be present (a schema refinement, not expressible here).
+ */
+export interface GrpcCallIpcConfig extends GrpcTlsIpc {
+  /** Stream id (alphanumeric, dashes, underscores; at most 64 chars). */
+  id?: string;
+  url: string;
+  service: string;
+  method: string;
+  methodType: 'unary' | 'server-streaming' | 'client-streaming' | 'bidirectional-streaming';
+  metadata: Record<string, string>;
+  message: unknown;
+  protoContent?: string;
+  protoFileName?: string;
+  /** Base64 FileDescriptorProtos from server reflection. */
+  descriptors?: string[];
+  useCompression?: boolean;
+  wireProtocol?: 'grpc' | 'connect' | 'grpc-web';
+  /** Milliseconds; 0 (no deadline) is for streaming methods only. */
+  timeoutMs?: number;
+  /** Only when a credential holds a SecretRef handle; resolved main-side (ADR-0007). */
+  auth?: import('../../../../shared/types/auth').AuthConfig;
+}
+
 export interface GrpcIpcResult {
   status: number;
   statusText: string;
@@ -13,7 +47,7 @@ export interface GrpcIpcResult {
   statusDetails?: import('../../../../shared/protocol/grpc-status-details').GrpcStatusDetail[];
 }
 
-export interface GrpcReflectionConfig {
+export interface GrpcReflectionConfig extends GrpcTlsIpc {
   url: string;
   reflectionService: string;
   request: Record<string, unknown>;
@@ -22,14 +56,11 @@ export interface GrpcReflectionConfig {
   metadata?: Record<string, string>;
   /**
    * Auth descriptor, only when it holds a SecretRef handle the renderer can't
-   * read; resolved main-side (ADR-0007). Validated by ReflectionIpcConfigSchema.
+   * read; resolved main-side (ADR-0007).
    */
-  auth?: unknown;
-  // TLS trust / mTLS material (resolved per-host from cert-override settings),
-  // so Discover reaches a self-signed / private-CA / mTLS server.
-  verifySsl?: boolean;
-  clientCert?: { pfx?: string; cert?: string; key?: string; passphrase?: unknown };
-  caCert?: { pem: string };
+  auth?: import('../../../../shared/types/auth').AuthConfig;
+  // TLS trust / mTLS material (GrpcTlsIpc, resolved per-host from cert-override
+  // settings), so Discover reaches a self-signed / private-CA / mTLS server.
 }
 
 export interface GrpcRawReflectionResponse {
@@ -39,9 +70,9 @@ export interface GrpcRawReflectionResponse {
 }
 
 export interface ElectronGrpcAPI {
-  request: (config: unknown) => Promise<GrpcIpcResult>;
+  request: (config: GrpcCallIpcConfig) => Promise<GrpcIpcResult>;
   reflect: (config: GrpcReflectionConfig) => Promise<GrpcRawReflectionResponse>;
-  startStream: (config: unknown) => void;
+  startStream: (config: GrpcCallIpcConfig) => void;
   sendMessage: (requestId: string, message: unknown) => void;
   endStream: (requestId: string) => void;
   cancelStream: (requestId: string) => void;

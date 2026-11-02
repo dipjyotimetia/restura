@@ -92,6 +92,8 @@ export interface ElectronAPI {
 
 This file has its own `ElectronMyConfig` type, structurally matching the Zod-inferred `MyConfig` in `ipc-validators.ts` and the canonical type in `src/types/`. Three definitions, all must match. Yes, this is duplication; it's the cost of keeping the layers independently buildable.
 
+The Zod-vs-preload-type pair is checked at compile time: add a line to `electron/main/ipc/validators/ipc-payload-parity.ts` (`export type MyParity = Assert<PayloadParity<Arg0<Api['myfeature']['do']>, typeof MySchema>>;`). `npm run type-check:all` then fails if the type can send something the schema rejects, or the schema has a field the type cannot name. A deliberate difference needs a `// drift:` comment plus the third `PayloadParity` argument (schema-only keys). See "Type sharing" in `SKILL.md`.
+
 ## Rate limiting
 
 `electron/main/ipc/ipc-rate-limiter.ts` exports `createRateLimiter(maxRequests, windowMs)`. Apply per-feature:

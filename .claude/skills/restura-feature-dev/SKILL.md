@@ -60,6 +60,14 @@ Types are duplicated across layers intentionally. For an IPC-bound config there 
 
 The Worker has its own local interface in each handler file too. Do not try to centralize this into a shared package — it's been considered and rejected as the cost of letting each layer build independently. When you change one definition, change all of them in the same PR.
 
+**Compile-time parity (the link between 2 and 3).** Centralising stays rejected, but drift is no longer a runtime-only surprise: `electron/main/ipc/validators/ipc-payload-parity.ts` asserts, per connect/send payload, that (a) the preload payload type is assignable to `z.input<typeof Schema>` (anything the renderer can send passes validation by type) and (b) every top-level schema key is nameable on the type. It is types-only, compiled by `electron/tsconfig.json`, so `npm run type-check:all` fails on drift. To cover a new IPC payload add one line:
+
+```ts
+export type MyConnectParity = Assert<PayloadParity<Arg0<Api['myfeature']['connect']>, typeof MyConnectSchema>>;
+```
+
+Fix drift by making the hand-written type match the schema. If the difference is deliberate (e.g. a deprecated field the schema still accepts), do not weaken the schema: add a `// drift: <reason>` comment and pass the key as the third argument (`PayloadParity<P, S, 'fromBeginning'>`). Nested-object fields are checked by assignability only, not key-by-key. Do not add a "Validated by …" comment instead of an assertion.
+
 ### `'use client'` directive
 
 Several legacy files have `'use client'` at the top. **It's a no-op in Vite.** Don't add it to new files. Leave it where it exists.
