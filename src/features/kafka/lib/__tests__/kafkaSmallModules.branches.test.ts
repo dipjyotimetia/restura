@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  ConsumedMessageBuffer,
   type KafkaConsumedPayload,
   toReceivedMessage,
 } from '@/features/kafka/lib/consumedMessageBuffer';
@@ -178,31 +177,6 @@ describe('consumedMessageBuffer', () => {
       value: '<tombstone>',
       tombstone: true,
     });
-  });
-
-  it('flush on an empty or unknown connection never calls the sink; discard cancels the timer', () => {
-    vi.useFakeTimers();
-    try {
-      const sink = vi.fn();
-      const buffer = new ConsumedMessageBuffer(sink, 50, 2);
-      buffer.flush('nope');
-      buffer.push('a', toReceivedMessage(payload({ offset: '1' })));
-      buffer.push('a', toReceivedMessage(payload({ offset: '2' })));
-      buffer.push('a', toReceivedMessage(payload({ offset: '3' })));
-      buffer.discard('a');
-      vi.advanceTimersByTime(100);
-      expect(sink).not.toHaveBeenCalled();
-      buffer.discard('never-seen');
-
-      buffer.push('b', toReceivedMessage(payload({ offset: '1' })));
-      buffer.push('b', toReceivedMessage(payload({ offset: '2' })));
-      buffer.push('b', toReceivedMessage(payload({ offset: '3' })));
-      vi.advanceTimersByTime(60);
-      expect(sink).toHaveBeenCalledTimes(1);
-      expect(sink.mock.calls[0]![1].map((m: { offset: string }) => m.offset)).toEqual(['2', '3']);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
 

@@ -17,7 +17,7 @@ Point Restura at any MCP server and explore it like any other request target.
 - **`streamable-http`** transport — the modern wire shape.
 - **`http-sse`** transport — older shape; <Badge text="desktop only" variant="caution" /> the web build supports only `streamable-http`.
 - **`stdio`** transport <Badge text="desktop only" variant="caution" /> — start a local MCP server (`npx`, `uvx`, `docker run`, a binary) and talk to it over stdin/stdout. See [Local servers over stdio](#local-servers-over-stdio).
-- **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at connect time.
+- **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from globals, the environment, the collection and its folders at connect time. A variable stored as a keychain or external secret refuses the connection.
 - **List tools** — see the server's exposed tool catalogue with schemas.
 - **Invoke a tool** — fill in the JSON schema (the form validates arguments before sending), send, and inspect the result. A tool call returns one result; on desktop, progress and log messages for an in-flight call show in the [Events tab](#server-notifications-and-resource-subscriptions).
 - **Result view** — Pretty / Raw / Tree, a JSONPath query, find, copy, and download for every tool result or error payload.
@@ -25,6 +25,7 @@ Point Restura at any MCP server and explore it like any other request target.
 - **Tool errors vs protocol errors** — a tool that fails reports `isError: true` inside a successful response; the result panel and call log show it as a red **TOOL ERROR**, distinct from a **PROTOCOL ERROR** (JSON-RPC or transport failure). `restura run` also fails the item for a tool error and words the message differently from a JSON-RPC error.
 - **Structured output** — when a tool declares an `outputSchema`, the result panel validates `structuredContent` against it and flags mismatches (or a missing `structuredContent`); you can view `structuredContent` on its own.
 - **Connection headers** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; values resolve `{{variables}}`.
+- **Scripts** — pre-request and test scripts in the app can use `rs.sendRequest`, cookies and the vault, and test scripts can use `rs.judge`, as gRPC scripts do. The CLI doesn't wire these.
 - **List prompts / list resources** — for servers that expose them. Lists follow `nextCursor` pagination automatically. **Read** a resource to see its contents, or **Get** a prompt (filling in its arguments) to see the messages it returns; each call appears in the Log tab.
 - **Resource templates** — when the server advertises `resources`, a Templates tab lists `resources/templates/list`. Selecting one opens a form with a field per RFC 6570 URI-template variable (levels 1–3, values percent-encoded), a live preview of the expanded URI, and Read.
 - **Argument completion** — when the server advertises `completions`, prompt arguments and template parameters suggest values via `completion/complete` (debounced, previously entered arguments sent as context).

@@ -1,4 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+
+const executeProxiedRequestMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/shared/transport', () => ({
+  executeProxiedRequest: (...args: unknown[]) => executeProxiedRequestMock(...args),
+}));
+
 import type { McpRequest, Request } from '@/types';
 import type { McpClient } from '../mcpClient';
 import {
@@ -223,5 +229,58 @@ describe('runMcpRequest — pm.execution.skipRequest()', () => {
     const runJsonRpc = vi.fn<McpRunJsonRpc>().mockResolvedValue({ ok: true, result: {} });
     await runMcpRequest(skipping(), ctx(), runJsonRpc);
     expect(runJsonRpc).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runMcpRequest — script host (same renderer host as gRPC)', () => {
+  it('rs.sendRequest never resolves a secret variable', async () => {
+    executeProxiedRequestMock.mockReset();
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: '{}',
+      size: 2,
+    });
+    const runJsonRpc = vi.fn<McpRunJsonRpc>().mockResolvedValue({ ok: true, result: {} });
+    await runMcpRequest(
+      req({ preRequestScript: "rs.sendRequest('https://auth.test/{{sec}}', () => {});" }),
+      {
+        ...ctx(),
+        variables: { ...ctx().variables, sec: 'PLAINTEXT' },
+        secretNames: ['sec'],
+        onScriptResult: vi.fn(),
+      },
+      runJsonRpc
+    ).catch(() => undefined);
+    expect(JSON.stringify(executeProxiedRequestMock.mock.calls)).not.toContain('PLAINTEXT');
+  });
+
+  it('rs.sendRequest in a pre-request script reaches the host', async () => {
+    executeProxiedRequestMock.mockReset();
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: '{"token":"t"}',
+      size: 13,
+    });
+    const runJsonRpc = vi.fn<McpRunJsonRpc>().mockResolvedValue({ ok: true, result: {} });
+    const onScriptResult = vi.fn();
+    await runMcpRequest(
+      req({
+        preRequestScript:
+          "rs.sendRequest('https://auth.test/token', (err, res) => rs.variables.set('code', String(res.code)));",
+      }),
+      { ...ctx(), onScriptResult },
+      runJsonRpc
+    );
+    expect(executeProxiedRequestMock).toHaveBeenCalledTimes(1);
+    expect(executeProxiedRequestMock.mock.calls[0]![0]).toMatchObject({
+      url: 'https://auth.test/token',
+    });
+    const pre = onScriptResult.mock.calls[0]![0].preRequest;
+    expect(pre.errors).toEqual([]);
+    expect(pre.variables.code).toBe('200');
   });
 });

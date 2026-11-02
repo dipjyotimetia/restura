@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { McpConnection } from '@/features/mcp/store/useMcpStore';
-import type { McpServerCapabilities, McpToolDescriptor } from '@/types';
+import type { McpRequest, McpServerCapabilities, McpToolDescriptor } from '@/types';
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -24,7 +24,7 @@ const clientMocks = vi.hoisted(() => ({
   discoveryResults: [] as Array<Promise<McpServerCapabilities | { error: string }>>,
   instances: [] as Array<{
     connectionId: string;
-    options: { headers?: Record<string, string>; auth?: unknown };
+    options: { url?: string; headers?: Record<string, string>; auth?: unknown };
     connect: ReturnType<typeof vi.fn>;
     disconnect: ReturnType<typeof vi.fn>;
     discoverCapabilities: ReturnType<typeof vi.fn>;
@@ -212,6 +212,8 @@ vi.mock('@/features/mcp/components/McpInvokeForm', () => ({
 
 import McpRequestBuilder from '@/features/mcp/components/McpRequestBuilder';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
 
 const FIRST_CAPABILITIES: McpServerCapabilities = {
@@ -455,6 +457,78 @@ describe('McpRequestBuilder connect-time auth (#896)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
     await waitFor(() => expect(useMcpStore.getState().connections.first?.status).toBe('error'));
     expect(useMcpStore.getState().connections.first?.lastError).toMatch(/credential is empty/);
+    expect(clientMocks.instances).toHaveLength(0);
+  });
+});
+
+describe('McpRequestBuilder connect scope', () => {
+  beforeEach(() => {
+    clientMocks.connectResults.length = 0;
+    clientMocks.discoveryResults.length = 0;
+    clientMocks.instances.length = 0;
+    useMcpStore.setState({
+      connections: { first: connection('first') },
+      activeConnectionId: 'first',
+    });
+    useRequestStore.setState({ tabs: [], activeTabId: null, isLoading: false });
+    useCollectionStore.setState({ collections: [] });
+  });
+
+  function openScopedTab() {
+    const tabId = useRequestStore.getState().createNewRequest('mcp');
+    useRequestStore.getState().updateRequestForTab(tabId, {
+      url: 'https://{{host}}/mcp',
+      headers: [{ id: 'h', key: 'X-Folder', value: '{{folderVar}}', enabled: true }],
+    });
+    const request = useRequestStore.getState().getActiveTab()?.request as McpRequest;
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c1',
+          name: 'Col',
+          variables: [{ id: 'cv', key: 'host', value: 'col.example.com', enabled: true }],
+          items: [
+            {
+              id: 'f1',
+              name: 'F',
+              type: 'folder',
+              variables: [{ id: 'fv', key: 'folderVar', value: 'from-folder', enabled: true }],
+              items: [{ id: request.id, name: 'M', type: 'request', request }],
+            },
+          ],
+        },
+      ],
+    });
+    useRequestStore.getState().linkTabToSavedRequest(tabId, request.id);
+  }
+
+  it('resolves collection and folder variables in the url and headers', async () => {
+    openScopedTab();
+    render(<McpRequestBuilder />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await waitFor(() => expect(clientMocks.instances[0]?.connect).toHaveBeenCalled());
+    expect(clientMocks.instances[0]?.options).toMatchObject({
+      url: 'https://col.example.com/mcp',
+      headers: { 'X-Folder': 'from-folder' },
+    });
+  });
+
+  it('refuses to connect when a variable cannot be resolved', async () => {
+    openScopedTab();
+    const original = useEnvironmentStore.getState().resolveVariables;
+    useEnvironmentStore.setState({
+      resolveVariables: () => {
+        throw new Error('boom');
+      },
+    });
+    try {
+      render(<McpRequestBuilder />);
+      fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+      await waitFor(() => expect(useMcpStore.getState().connections.first?.status).toBe('error'));
+    } finally {
+      useEnvironmentStore.setState({ resolveVariables: original });
+    }
+    expect(useMcpStore.getState().connections.first?.lastError).toMatch(/boom/);
     expect(clientMocks.instances).toHaveLength(0);
   });
 });

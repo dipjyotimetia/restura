@@ -1,5 +1,7 @@
 import { applyScriptMetadata, grpcMetadataForScript } from '@shared/scripts/grpc-script-metadata';
-import ScriptExecutor, { type ScriptResult } from '@shared/scripts/script-executor';
+import type { ScriptResult } from '@shared/scripts/script-executor';
+import type { ScriptContext } from '@shared/scripts/script-executor-types';
+import { NO_SCRIPT_HOST, runScriptPhase } from '@shared/scripts/script-phase';
 import type { GrpcRequest, HttpRequest, McpRequest } from '@shared/types';
 import { substituteVariables } from '@shared/variables/resolver';
 import type { LoadedRequest } from './collectionLoader.js';
@@ -44,6 +46,31 @@ function requestId(item: LoadedRequest): string {
 }
 
 /**
+ * The scopes a CLI script phase runs with. The CLI has no script host: no
+ * cookie jar, keychain or sub-request path, so `pm.sendRequest`, `pm.cookies`
+ * and `pm.vault` reject with a clear error; and no globals scope.
+ */
+function phaseScopes(item: LoadedRequest, vars: Record<string, string>, runCtx: ScriptRunContext) {
+  return {
+    envVars: { ...vars },
+    collectionVars: runCtx.collectionVars,
+    iterationData: runCtx.iterationData,
+    info: {
+      requestName: requestName(item),
+      requestId: requestId(item),
+      iteration: runCtx.iteration,
+      iterationCount: runCtx.iterationCount,
+    },
+    location: {
+      currentRequestName: requestName(item),
+      folderPath: item.folderPath,
+      collectionName: '',
+    },
+    host: NO_SCRIPT_HOST,
+  };
+}
+
+/**
  * Run a pre-request script in QuickJS. The current `vars` are exposed via
  * `pm.environment.get` / `pm.variables.get` inside the script; any
  * `pm.environment.set(k, v)` calls are returned in `variables` and the runner
@@ -55,26 +82,13 @@ export async function runPreRequestScript(
   vars: Record<string, string>,
   runCtx: ScriptRunContext
 ): Promise<RunScriptResult> {
-  const executor = new ScriptExecutor({
-    envVars: { ...vars },
-    collectionVars: { ...runCtx.collectionVars },
-    iterationData: { ...runCtx.iterationData },
-    info: {
-      requestName: requestName(item),
-      requestId: requestId(item),
-      iteration: runCtx.iteration,
-      iterationCount: runCtx.iterationCount,
-      eventName: 'prerequest',
-    },
-    location: {
-      currentRequestName: requestName(item),
-      folderPath: item.folderPath,
-      collectionName: '',
-    },
+  const phase = await runScriptPhase({
+    phase: 'prerequest',
+    script,
+    request: buildRequestContext(item, vars),
+    ...phaseScopes(item, vars, runCtx),
   });
-  const ctx = buildRequestContext(item, vars);
-  const result = await executor.executeScript(script, { request: ctx });
-  return toRunScriptResult(result, vars);
+  return toRunScriptResult(phase.result, vars);
 }
 
 /**
@@ -90,24 +104,6 @@ export async function runTestScript(
   vars: Record<string, string>,
   runCtx: ScriptRunContext
 ): Promise<RunScriptResult> {
-  const executor = new ScriptExecutor({
-    envVars: { ...vars },
-    collectionVars: { ...runCtx.collectionVars },
-    iterationData: { ...runCtx.iterationData },
-    info: {
-      requestName: requestName(item),
-      requestId: requestId(item),
-      iteration: runCtx.iteration,
-      iterationCount: runCtx.iterationCount,
-      eventName: 'test',
-    },
-    location: {
-      currentRequestName: requestName(item),
-      folderPath: item.folderPath,
-      collectionName: '',
-    },
-  });
-  const requestCtx = buildRequestContext(item, vars);
   const responseCtx = {
     status: outcome.status,
     statusText: '',
@@ -118,17 +114,20 @@ export async function runTestScript(
     time: outcome.durationMs,
     size: outcome.bodyBytes,
   };
-  const result = await executor.executeScript(script, {
-    request: requestCtx,
+  const phase = await runScriptPhase({
+    phase: 'test',
+    script,
+    request: buildRequestContext(item, vars),
     response: responseCtx,
+    ...phaseScopes(item, vars, runCtx),
   });
-  return toRunScriptResult(result, vars);
+  return toRunScriptResult(phase.result, vars);
 }
 
 function buildRequestContext(
   item: LoadedRequest,
   vars: Record<string, string>
-): NonNullable<Parameters<InstanceType<typeof ScriptExecutor>['executeScript']>[1]['request']> {
+): ScriptContext['request'] {
   if (item.type === 'http') {
     const req = item.request as HttpRequest;
     const headers: Record<string, string> = {};

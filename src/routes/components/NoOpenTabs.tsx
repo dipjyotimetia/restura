@@ -3,6 +3,7 @@ import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Button } from '@/components/ui/button';
 import { Floater, ProtoChip } from '@/components/ui/spatial';
 import { addSampleCollection } from '@/features/collections/lib/addSampleCollection';
+import { MODE_DESCRIPTORS, MODES_IN_MENU_ORDER } from '@/features/registry/modes';
 import { isElectron } from '@/lib/shared/platform';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { RequestMode } from '@/types';
@@ -12,17 +13,10 @@ export const NEW_REQUEST_PROTOCOLS: ReadonlyArray<{
   chip: string;
   label: string;
   desktopOnly?: boolean;
-}> = [
-  { mode: 'http', chip: 'HTTP', label: 'HTTP' },
-  { mode: 'graphql', chip: 'GQL', label: 'GraphQL' },
-  { mode: 'grpc', chip: 'GRPC', label: 'gRPC' },
-  { mode: 'websocket', chip: 'WS', label: 'WebSocket' },
-  { mode: 'socketio', chip: 'SOCKETIO', label: 'Socket.IO' },
-  { mode: 'sse', chip: 'SSE', label: 'SSE' },
-  { mode: 'mcp', chip: 'MCP', label: 'MCP' },
-  { mode: 'kafka', chip: 'KAFKA', label: 'Kafka', desktopOnly: true },
-  { mode: 'mqtt', chip: 'MQTT', label: 'MQTT', desktopOnly: true },
-];
+}> = MODES_IN_MENU_ORDER.map((mode) => {
+  const d = MODE_DESCRIPTORS[mode];
+  return { mode, chip: d.chip, label: d.label, ...(d.desktopOnly ? { desktopOnly: true } : {}) };
+});
 
 interface NoOpenTabsProps {
   onNewRequest: (mode: RequestMode) => void;

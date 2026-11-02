@@ -1,10 +1,10 @@
 import {
-  nextPostmanAuthGuard,
-  type PostmanAuthGuard,
-  postmanBlockedReason,
-} from '@shared/collections/postman/auth-guard';
-import { combineScripts } from '@shared/scripts/combine-scripts';
-import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
+  findFolderPath as findFolderPathShared,
+  findFolder as findFolderShared,
+  flattenCollection,
+  type RootScripts,
+} from '@shared/collection-run/flatten';
+import type { Collection } from '@shared/types';
 import type { AuthConfig, CollectionItem, Request, ScopedVariable } from '@/types';
 import { isConnectionPresetRequest } from '@/types';
 
@@ -41,103 +41,10 @@ export interface RunnableRequest {
   blocked?: string;
 }
 
-/** Collection-scope (root) scripts, applied to every request in the run. */
-export interface RootScripts {
-  preRequestScript?: string;
-  testScript?: string;
-}
+export type { RootScripts };
 
-/** Nearest-ancestor-wins: a configured folder auth replaces the inherited one. */
-function effectiveFolderAuth(
-  item: CollectionItem,
-  current: AuthConfig | undefined
-): AuthConfig | undefined {
-  return isConfiguredAuth(item.auth) ? item.auth : current;
-}
-
-/** Bake the inherited (ancestor) scripts plus the request's own into a copy. */
-function withEffectiveScripts(
-  request: Request,
-  inheritedPre: Array<string | undefined>,
-  inheritedTest: Array<string | undefined>
-): Request {
-  const preRequestScript = combineScripts([...inheritedPre, request.preRequestScript]);
-  const testScript = combineScripts([...inheritedTest, request.testScript]);
-  return { ...request, preRequestScript, testScript } as Request;
-}
-
-/** Depth-first preorder flatten of request leaves, threading ancestor scripts + auth. */
-function flatten(
-  items: CollectionItem[],
-  inheritedPre: Array<string | undefined>,
-  inheritedTest: Array<string | undefined>,
-  inheritedAuth: AuthConfig | undefined,
-  folderPath: string[],
-  folderVariables: ScopedVariable[][],
-  guard: PostmanAuthGuard
-): RunnableRequest[] {
-  const out: RunnableRequest[] = [];
-  for (const item of items) {
-    if (item.type === 'request' && item.request) {
-      // Connection presets (Kafka / MQTT #984, WebSocket / Socket.IO #1209) are
-      // not runnable requests; `skippedConnectionPresets` reports them.
-      if (isConnectionPresetRequest(item.request)) continue;
-      const blocked = postmanBlockedReason(item, guard, 'Restura');
-      out.push({
-        itemId: item.id,
-        name: item.name,
-        folderPath,
-        request: withEffectiveScripts(item.request, inheritedPre, inheritedTest),
-        inheritedAuth: blocked ? { type: 'none' } : inheritedAuth,
-        ...(blocked ? { blocked } : {}),
-        ...(folderVariables.length > 0 ? { folderVariables } : {}),
-      });
-    } else if (item.items) {
-      out.push(
-        ...flatten(
-          item.items,
-          [...inheritedPre, item.preRequestScript],
-          [...inheritedTest, item.testScript],
-          effectiveFolderAuth(item, inheritedAuth),
-          [...folderPath, item.name],
-          item.variables ? [...folderVariables, item.variables] : folderVariables,
-          nextPostmanAuthGuard(guard, item)
-        )
-      );
-    }
-  }
-  return out;
-}
-
-/** Find a folder anywhere in the tree by id. */
-export function findFolder(items: CollectionItem[], folderId: string): CollectionItem | undefined {
-  for (const item of items) {
-    if (item.id === folderId && item.type === 'folder') return item;
-    if (item.items) {
-      const found = findFolder(item.items, folderId);
-      if (found) return found;
-    }
-  }
-  return undefined;
-}
-
-/**
- * Path of folders from the outermost ancestor down to and including the target
- * folder. Used so a folder run still applies the scripts of folders above it.
- */
-export function findFolderPath(
-  items: CollectionItem[],
-  folderId: string
-): CollectionItem[] | undefined {
-  for (const item of items) {
-    if (item.id === folderId && item.type === 'folder') return [item];
-    if (item.items) {
-      const sub = findFolderPath(item.items, folderId);
-      if (sub) return [item, ...sub];
-    }
-  }
-  return undefined;
-}
+export const findFolder = findFolderShared;
+export const findFolderPath = findFolderPathShared;
 
 /**
  * Flatten a collection (or, when `folderId` is given, a single folder subtree)
@@ -151,39 +58,36 @@ export function flattenRunnables(
   rootScripts?: RootScripts,
   rootAuth?: AuthConfig,
   /** The collection itself, for the Postman send guard's root (sidecar + name). */
-  root?: Parameters<typeof nextPostmanAuthGuard>[1]
+  root?: Collection
 ): RunnableRequest[] {
-  const rootGuard = root
-    ? nextPostmanAuthGuard({}, root)
-    : isConfiguredAuth(rootAuth)
-      ? { configured: { owner: 'collection' } }
-      : {};
-  const rootPre: Array<string | undefined> = [rootScripts?.preRequestScript];
-  const rootTest: Array<string | undefined> = [rootScripts?.testScript];
-
-  if (!folderId) return flatten(items, rootPre, rootTest, rootAuth, [], [], rootGuard);
-
-  const path = findFolderPath(items, folderId);
-  if (!path || path.length === 0) return [];
-  const target = path[path.length - 1];
-  if (!target?.items) return [];
-
-  // A folder run still inherits auth from folders above the target, so walk
-  // the path applying the same nearest-ancestor-wins rule.
-  const pathAuth = path.reduce<AuthConfig | undefined>(
-    (current, folder) => effectiveFolderAuth(folder, current),
-    rootAuth
-  );
-
-  return flatten(
-    target.items,
-    [...rootPre, ...path.map((f) => f.preRequestScript)],
-    [...rootTest, ...path.map((f) => f.testScript)],
-    pathAuth,
-    path.map((folder) => folder.name),
-    path.flatMap((folder) => (folder.variables ? [folder.variables] : [])),
-    path.reduce<PostmanAuthGuard>((g, folder) => nextPostmanAuthGuard(g, folder), rootGuard)
-  );
+  return flattenCollection(items, {
+    rootScripts,
+    rootAuth,
+    root,
+    folderId,
+    sender: 'Restura',
+    walkUntypedContainers: true,
+    guardOwner: 'name',
+    // Connection presets (Kafka / MQTT #984, WebSocket / Socket.IO #1209) are
+    // not runnable requests; `skippedConnectionPresets` reports them.
+    leafAction: (item) =>
+      item.request && isConnectionPresetRequest(item.request) ? 'skip' : 'run',
+  }).map((leaf) => {
+    const { item } = leaf;
+    return {
+      itemId: item.id,
+      name: item.name,
+      folderPath: leaf.folderPath,
+      request: {
+        ...item.request,
+        preRequestScript: leaf.preRequestScript,
+        testScript: leaf.testScript,
+      } as Request,
+      inheritedAuth: leaf.blocked ? { type: 'none' } : leaf.inheritedAuth,
+      ...(leaf.blocked ? { blocked: leaf.blocked } : {}),
+      ...(leaf.folderVariables.length > 0 ? { folderVariables: leaf.folderVariables } : {}),
+    };
+  });
 }
 
 /**

@@ -11,7 +11,6 @@ export interface ElectronWebSocketAPI {
     /**
      * Header-shaped auth descriptor whose SecretRef handle(s) the renderer
      * can't read; resolved main-side into the handshake (ADR-0007).
-     * Validated by `WsConnectSchema` (AuthConfigSchema).
      */
     auth?: import('../../../../shared/types/auth').AuthConfig;
     /** SecretRef-backed `{{vars}}` referenced from url/headers/auth. */

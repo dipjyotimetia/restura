@@ -11,7 +11,10 @@ import {
 } from '@/features/mqtt/store/useMqttStore';
 import { brokerSecretRef, ensureBrokerSecret } from '@/lib/shared/broker-secrets';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import { MQTT_CHANNEL, mqttChannel } from '../../../../electron/shared/mqtt-channels';
+import { createChannelBinder } from '@/lib/shared/streaming/channelBinding';
+import { CoalescingBuffer } from '@/lib/shared/streaming/coalescingBuffer';
+import { connectionChannels } from '@/lib/shared/streaming/desktopStreamAdapter';
+import { EVENT_PREFIX } from '../../../../electron/shared/channels';
 import type {
   MqttBinaryEncoding,
   MqttConnectedEvent,
@@ -229,8 +232,17 @@ function systemMessage(
 
 class MqttManager {
   /** Per-connection buffer of inbound messages awaiting the next flush. */
-  private buffers = new Map<string, ReceivedInput[]>();
-  private flushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private inbound = new CoalescingBuffer<ReceivedInput>(
+    (connectionId, batch) => useMqttStore.getState().addMessages(connectionId, batch),
+    { intervalMs: FLUSH_INTERVAL_MS }
+  );
+  private channels = createChannelBinder({
+    bridge: () => getElectronAPI()?.mqtt,
+    channels: (id) => connectionChannels(EVENT_PREFIX.mqtt, id),
+    // Drain anything still buffered before detaching — otherwise the last
+    // ~100ms of inbound messages would be silently dropped on disconnect.
+    drain: (id) => this.flushBuffer(id),
+  });
 
   async connect(connection: MqttConnection): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!isElectron()) {
@@ -272,10 +284,9 @@ class MqttManager {
       return { ok: false, error: msg };
     }
 
-    // Always start from a clean listener set — a previous failed/closed attempt
+    // `bind` starts from a clean listener set — a previous failed/closed attempt
     // on this connectionId may have left handlers bound, and binding again
     // would double-handle every subsequent event.
-    this.unbindListeners(connection.id);
     this.bindListeners(connection.id);
 
     let result: Awaited<ReturnType<typeof api.mqtt.connect>>;
@@ -292,7 +303,7 @@ class MqttManager {
         retain: false,
         error: msg,
       });
-      this.unbindListeners(connection.id);
+      this.channels.unbind(connection.id);
       return { ok: false, error: msg };
     }
     if (!result.success) {
@@ -306,7 +317,7 @@ class MqttManager {
         retain: false,
         error: msg,
       });
-      this.unbindListeners(connection.id);
+      this.channels.unbind(connection.id);
       return { ok: false, error: msg };
     }
 
@@ -471,40 +482,12 @@ class MqttManager {
     const api = getElectronAPI();
     if (!api) return;
     await api.mqtt.disconnect({ connectionId });
-    this.unbindListeners(connectionId);
+    this.channels.unbind(connectionId);
     const store = useMqttStore.getState();
     store.updateStatus(connectionId, 'disconnected');
   }
 
   private bindListeners(connectionId: string): void {
-    const api = getElectronAPI();
-    if (!api?.mqtt) return;
-
-    api.mqtt.on(mqttChannel(MQTT_CHANNEL.CONNECTED, connectionId), (payload: unknown) => {
-      const p = payload as MqttConnectedEvent;
-      const store = useMqttStore.getState();
-      store.updateStatus(connectionId, 'connected');
-      // Runtime CONNACK facts — explicitly cleared when the broker omits them.
-      store.updateConnection(connectionId, {
-        assignedClientId: p.assignedClientIdentifier,
-        serverTopicAliasMaximum: p.topicAliasMaximum,
-      } as Partial<MqttConnection>);
-      const notes = [
-        p.sessionPresent ? 'session present' : '',
-        p.assignedClientIdentifier ? `assigned client ID ${p.assignedClientIdentifier}` : '',
-        p.topicAliasMaximum ? `topic alias max ${p.topicAliasMaximum}` : '',
-        p.serverKeepAlive !== undefined ? `server keep-alive ${p.serverKeepAlive}s` : '',
-      ].filter(Boolean);
-      systemMessage(connectionId, `Connected${notes.length ? ` (${notes.join(', ')})` : ''}`);
-    });
-
-    // Broker-initiated MQTT 5 DISCONNECT — explain why before CLOSE arrives.
-    api.mqtt.on(mqttChannel(MQTT_CHANNEL.DISCONNECTED, connectionId), (payload: unknown) => {
-      this.flushBuffer(connectionId);
-      const p = payload as MqttServerDisconnectEvent;
-      systemMessage(connectionId, describeServerDisconnect(p), { error: p.reasonCode >= 0x80 });
-    });
-
     // mqtt.js retry cycle: drive 'reconnecting' from main, logged once per drop.
     const markReconnecting = (): void => {
       this.flushBuffer(connectionId);
@@ -514,146 +497,133 @@ class MqttManager {
       store.updateStatus(connectionId, 'reconnecting');
       systemMessage(connectionId, 'Connection lost — reconnecting…');
     };
-    api.mqtt.on(mqttChannel(MQTT_CHANNEL.OFFLINE, connectionId), () => {
-      if (useMqttStore.getState().connections[connectionId]?.autoReconnect) markReconnecting();
-    });
-    api.mqtt.on(mqttChannel(MQTT_CHANNEL.RECONNECT, connectionId), markReconnecting);
 
-    api.mqtt.on(mqttChannel(MQTT_CHANNEL.MESSAGE, connectionId), (payload: unknown) => {
-      this.enqueueReceived(connectionId, receivedFromEvent(payload as MqttMessageEvent));
-    });
+    this.channels.bind(connectionId, {
+      connected: (payload) => {
+        const p = payload as MqttConnectedEvent;
+        const store = useMqttStore.getState();
+        store.updateStatus(connectionId, 'connected');
+        // Runtime CONNACK facts — explicitly cleared when the broker omits them.
+        store.updateConnection(connectionId, {
+          assignedClientId: p.assignedClientIdentifier,
+          serverTopicAliasMaximum: p.topicAliasMaximum,
+        } as Partial<MqttConnection>);
+        const notes = [
+          p.sessionPresent ? 'session present' : '',
+          p.assignedClientIdentifier ? `assigned client ID ${p.assignedClientIdentifier}` : '',
+          p.topicAliasMaximum ? `topic alias max ${p.topicAliasMaximum}` : '',
+          p.serverKeepAlive !== undefined ? `server keep-alive ${p.serverKeepAlive}s` : '',
+        ].filter(Boolean);
+        systemMessage(connectionId, `Connected${notes.length ? ` (${notes.join(', ')})` : ''}`);
+      },
 
-    api.mqtt.on(mqttChannel(MQTT_CHANNEL.SUBSCRIBED, connectionId), (payload: unknown) => {
-      const p = payload as {
-        topicFilter: string;
-        grantedQos?: MqttQoS;
-        subscriptionIdentifier?: number;
-      };
-      const store = useMqttStore.getState();
-      store.patchSubscription(connectionId, p.topicFilter, {
-        status: 'subscribed',
-        ...(p.grantedQos !== undefined ? { grantedQos: p.grantedQos } : {}),
-      });
-      store.addMessage(connectionId, {
-        direction: 'system',
-        topic: p.topicFilter,
-        payload: `Subscribed to ${p.topicFilter} (QoS ${p.grantedQos ?? '?'}${
-          p.subscriptionIdentifier !== undefined ? `, id ${p.subscriptionIdentifier}` : ''
-        })`,
-        qos: 0,
-        retain: false,
-      });
-    });
+      // Broker-initiated MQTT 5 DISCONNECT — explain why before CLOSE arrives.
+      disconnected: (payload) => {
+        this.flushBuffer(connectionId);
+        const p = payload as MqttServerDisconnectEvent;
+        systemMessage(connectionId, describeServerDisconnect(p), { error: p.reasonCode >= 0x80 });
+      },
 
-    api.mqtt.on(mqttChannel(MQTT_CHANNEL.UNSUBSCRIBED, connectionId), (payload: unknown) => {
-      const p = payload as { topicFilter: string };
-      const store = useMqttStore.getState();
-      store.removeSubscription(connectionId, p.topicFilter);
-      store.addMessage(connectionId, {
-        direction: 'system',
-        topic: p.topicFilter,
-        payload: `Unsubscribed from ${p.topicFilter}`,
-        qos: 0,
-        retain: false,
-      });
-    });
+      offline: () => {
+        if (useMqttStore.getState().connections[connectionId]?.autoReconnect) markReconnecting();
+      },
+      reconnect: markReconnecting,
 
-    api.mqtt.on(mqttChannel(MQTT_CHANNEL.ERROR, connectionId), (payload: unknown) => {
-      this.flushBuffer(connectionId);
-      const store = useMqttStore.getState();
-      // With auto-reconnect on, an unreachable broker emits an error every
-      // retry cycle. Surface the first one, then stay quiet while reconnecting
-      // so the log isn't flooded.
-      if (store.connections[connectionId]?.status === 'reconnecting') return;
-      const err = payload as { message?: string };
-      const msg = err.message ?? 'MQTT error';
-      store.addMessage(connectionId, {
-        direction: 'system',
-        topic: '',
-        payload: msg,
-        qos: 0,
-        retain: false,
-        error: msg,
-      });
-    });
+      message: (payload) => {
+        this.inbound.push(connectionId, receivedFromEvent(payload as MqttMessageEvent));
+      },
 
-    api.mqtt.on(mqttChannel(MQTT_CHANNEL.CLOSE, connectionId), () => {
-      this.flushBuffer(connectionId);
-      const store = useMqttStore.getState();
-      const conn = store.connections[connectionId];
-      // A user-initiated disconnect unbinds these listeners before the CLOSE
-      // event is delivered, so reaching here means the broker (or network)
-      // dropped the connection.
-      if (!conn) return;
-      if (conn.autoReconnect) {
-        // mqtt.js retries under the hood; reflect that as 'reconnecting' and
-        // only log the transition once per drop.
-        if (conn.status === 'reconnecting') return;
-        store.updateStatus(connectionId, 'reconnecting');
+      subscribed: (payload) => {
+        const p = payload as {
+          topicFilter: string;
+          grantedQos?: MqttQoS;
+          subscriptionIdentifier?: number;
+        };
+        const store = useMqttStore.getState();
+        store.patchSubscription(connectionId, p.topicFilter, {
+          status: 'subscribed',
+          ...(p.grantedQos !== undefined ? { grantedQos: p.grantedQos } : {}),
+        });
         store.addMessage(connectionId, {
           direction: 'system',
-          topic: '',
-          payload: 'Connection lost — reconnecting…',
+          topic: p.topicFilter,
+          payload: `Subscribed to ${p.topicFilter} (QoS ${p.grantedQos ?? '?'}${
+            p.subscriptionIdentifier !== undefined ? `, id ${p.subscriptionIdentifier}` : ''
+          })`,
           qos: 0,
           retain: false,
         });
-        return;
-      }
-      store.updateStatus(connectionId, 'disconnected');
-      store.addMessage(connectionId, {
-        direction: 'system',
-        topic: '',
-        payload: 'Connection closed',
-        qos: 0,
-        retain: false,
-      });
-    });
-  }
+      },
 
-  /** Buffer an inbound message and arm the flush timer if it isn't already. */
-  private enqueueReceived(connectionId: string, msg: ReceivedInput): void {
-    const buf = this.buffers.get(connectionId);
-    if (buf) {
-      buf.push(msg);
-    } else {
-      this.buffers.set(connectionId, [msg]);
-    }
-    if (!this.flushTimers.has(connectionId)) {
-      this.flushTimers.set(
-        connectionId,
-        setTimeout(() => this.flushBuffer(connectionId), FLUSH_INTERVAL_MS)
-      );
-    }
+      unsubscribed: (payload) => {
+        const p = payload as { topicFilter: string };
+        const store = useMqttStore.getState();
+        store.removeSubscription(connectionId, p.topicFilter);
+        store.addMessage(connectionId, {
+          direction: 'system',
+          topic: p.topicFilter,
+          payload: `Unsubscribed from ${p.topicFilter}`,
+          qos: 0,
+          retain: false,
+        });
+      },
+
+      error: (payload) => {
+        this.flushBuffer(connectionId);
+        const store = useMqttStore.getState();
+        // With auto-reconnect on, an unreachable broker emits an error every
+        // retry cycle. Surface the first one, then stay quiet while reconnecting
+        // so the log isn't flooded.
+        if (store.connections[connectionId]?.status === 'reconnecting') return;
+        const err = payload as { message?: string };
+        const msg = err.message ?? 'MQTT error';
+        store.addMessage(connectionId, {
+          direction: 'system',
+          topic: '',
+          payload: msg,
+          qos: 0,
+          retain: false,
+          error: msg,
+        });
+      },
+
+      close: () => {
+        this.flushBuffer(connectionId);
+        const store = useMqttStore.getState();
+        const conn = store.connections[connectionId];
+        // A user-initiated disconnect unbinds these listeners before the CLOSE
+        // event is delivered, so reaching here means the broker (or network)
+        // dropped the connection.
+        if (!conn) return;
+        if (conn.autoReconnect) {
+          // mqtt.js retries under the hood; reflect that as 'reconnecting' and
+          // only log the transition once per drop.
+          if (conn.status === 'reconnecting') return;
+          store.updateStatus(connectionId, 'reconnecting');
+          store.addMessage(connectionId, {
+            direction: 'system',
+            topic: '',
+            payload: 'Connection lost — reconnecting…',
+            qos: 0,
+            retain: false,
+          });
+          return;
+        }
+        store.updateStatus(connectionId, 'disconnected');
+        store.addMessage(connectionId, {
+          direction: 'system',
+          topic: '',
+          payload: 'Connection closed',
+          qos: 0,
+          retain: false,
+        });
+      },
+    });
   }
 
   /** Drain the buffer for a connection into the store in a single update. */
   flushBuffer(connectionId: string): void {
-    const timer = this.flushTimers.get(connectionId);
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      this.flushTimers.delete(connectionId);
-    }
-    const buf = this.buffers.get(connectionId);
-    if (!buf || buf.length === 0) return;
-    this.buffers.delete(connectionId);
-    useMqttStore.getState().addMessages(connectionId, buf);
-  }
-
-  private unbindListeners(connectionId: string): void {
-    // Drain anything still buffered before detaching — otherwise the last
-    // ~100ms of inbound messages would be silently dropped on disconnect.
-    this.flushBuffer(connectionId);
-    const api = getElectronAPI();
-    if (!api?.mqtt) return;
-    api.mqtt.removeAllListeners(mqttChannel(MQTT_CHANNEL.CONNECTED, connectionId));
-    api.mqtt.removeAllListeners(mqttChannel(MQTT_CHANNEL.MESSAGE, connectionId));
-    api.mqtt.removeAllListeners(mqttChannel(MQTT_CHANNEL.SUBSCRIBED, connectionId));
-    api.mqtt.removeAllListeners(mqttChannel(MQTT_CHANNEL.UNSUBSCRIBED, connectionId));
-    api.mqtt.removeAllListeners(mqttChannel(MQTT_CHANNEL.ERROR, connectionId));
-    api.mqtt.removeAllListeners(mqttChannel(MQTT_CHANNEL.CLOSE, connectionId));
-    api.mqtt.removeAllListeners(mqttChannel(MQTT_CHANNEL.DISCONNECTED, connectionId));
-    api.mqtt.removeAllListeners(mqttChannel(MQTT_CHANNEL.RECONNECT, connectionId));
-    api.mqtt.removeAllListeners(mqttChannel(MQTT_CHANNEL.OFFLINE, connectionId));
+    this.inbound.flush(connectionId);
   }
 }
 

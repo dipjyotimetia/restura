@@ -1,11 +1,11 @@
-import {
-  deletePassthroughBags,
-  hasPassthroughBag,
-  MAX_COLLECTION_TREE_DEPTH,
-} from '@shared/collections/passthrough-bags';
-import { postmanGuardMarkers } from '@shared/collections/postman/auth-guard';
 import { upgradeStreamPlaceholders } from '@shared/collections/postman/parse-v3-streaming';
-import { attachPostmanSidecar, clearPostmanSidecar } from '@shared/collections/postman/sidecar';
+import {
+  addItem,
+  moveItem,
+  removeItem,
+  updateItem,
+  updateRoot,
+} from '@shared/collections/tree-edit';
 import { materializeLegacySocketIo } from '@shared/opencollection/stream-items';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
@@ -91,156 +91,6 @@ function findItem(items: CollectionItem[], itemId: string): CollectionItem | und
   return undefined;
 }
 
-/** Collect the dragged item's id plus all descendant ids — the set a drop target must not fall inside. */
-function collectSubtreeIds(item: CollectionItem): Set<string> {
-  const ids = new Set<string>([item.id]);
-  const walk = (children: CollectionItem[]) => {
-    for (const c of children) {
-      ids.add(c.id);
-      if (c.items) walk(c.items);
-    }
-  };
-  if (item.items) walk(item.items);
-  return ids;
-}
-
-/** Remove an item by id, returning the pruned tree. */
-function removeFromTree(items: CollectionItem[], itemId: string): CollectionItem[] {
-  return items
-    .filter((i) => i.id !== itemId)
-    .map((i) => (i.items ? { ...i, items: removeFromTree(i.items, itemId) } : i));
-}
-
-/**
- * Insert `node` into the tree. `beforeId` takes precedence: the node is placed
- * before that sibling *wherever it lives* in the tree (so reordering onto a
- * folder-nested sibling lands in that folder, not the root). With only
- * `parentId`, append into that folder. With neither, append to the root.
- *
- * Callers must validate the target exists before pruning — see
- * `moveCollectionItem` — otherwise a miss here would drop the node.
- */
-function insertIntoTree(
-  items: CollectionItem[],
-  node: CollectionItem,
-  parentId: string | undefined,
-  beforeId: string | undefined
-): CollectionItem[] {
-  if (beforeId) {
-    const idx = items.findIndex((i) => i.id === beforeId);
-    if (idx >= 0) {
-      const next = [...items];
-      next.splice(idx, 0, node);
-      return next;
-    }
-    return items.map((i) =>
-      i.items ? { ...i, items: insertIntoTree(i.items, node, parentId, beforeId) } : i
-    );
-  }
-
-  if (parentId) {
-    return items.map((i) => {
-      if (i.id === parentId && i.type === 'folder') {
-        return { ...i, items: [...(i.items ?? []), node] };
-      }
-      return i.items ? { ...i, items: insertIntoTree(i.items, node, parentId, beforeId) } : i;
-    });
-  }
-
-  return [...items, node];
-}
-
-/**
- * Drop every import passthrough bag (`_oc`, `_postman` — see
- * `PASSTHROUGH_BAG_KEYS`) from an item. Once the item (or a descendant)
- * changes, a cached bag is stale: `_oc` must be rebuilt from the live model on
- * re-export, and a `_postman` bag would describe a request the user has since
- * edited.
- */
-function stripPassthroughBags(item: CollectionItem): CollectionItem {
-  if (!hasPassthroughBag(item)) return item;
-  return deletePassthroughBags({ ...item });
-}
-
-/**
- * {@link stripPassthroughBags}, but keep the Postman send-guard markers
- * (`_postman.noauth`, the unsupported auth TYPE — #1232) as a minimal bag.
- * Used for every node whose OWN auth was not edited (ancestors on a mutation
- * path, an item edited in other fields): dropping them would silently
- * re-enable auth inheritance for the whole subtree.
- */
-function stripPassthroughBagsKeepingGuard(item: CollectionItem): CollectionItem {
-  if (!hasPassthroughBag(item)) return item;
-  const markers = postmanGuardMarkers(item);
-  const stripped = deletePassthroughBags({ ...item });
-  return markers ? attachPostmanSidecar(stripped, markers) : stripped;
-}
-
-/** Whether `updates` changes the item's own auth (folder `auth` or `request.auth`). */
-function editsOwnAuth(current: CollectionItem, updates: Partial<CollectionItem>): boolean {
-  if ('auth' in updates && !sameValue(updates.auth, current.auth)) return true;
-  return (
-    'request' in updates &&
-    !sameValue(
-      (updates.request as { auth?: unknown } | undefined)?.auth,
-      (current.request as { auth?: unknown } | undefined)?.auth
-    )
-  );
-}
-
-// Past MAX_COLLECTION_TREE_DEPTH the bag-stripping walk leaves deeper subtrees
-// untouched rather than risking a stack overflow inside a store update.
-
-/** Structural equality for plain JSON-shaped store values (auth, variables, scripts). */
-function sameValue(a: unknown, b: unknown): boolean {
-  return a === b || JSON.stringify(a) === JSON.stringify(b);
-}
-
-/** Collection fields whose edit makes the root `_postman` sidecar stale. */
-const ROOT_SIDECAR_STALE_KEYS = ['auth', 'variables', 'preRequestScript', 'testScript'] as const;
-
-/**
- * Clear the stale root `_postman` sidecar, but keep its send-guard markers
- * (#1228) unless the root auth itself was edited — the collection-level twin
- * of {@link stripPassthroughBagsKeepingGuard}.
- */
-function clearRootSidecarKeepingGuard<T extends Collection>(col: T, authEdited: boolean): T {
-  const markers = authEdited ? undefined : postmanGuardMarkers(col);
-  clearPostmanSidecar(col);
-  return markers ? attachPostmanSidecar(col, markers) : col;
-}
-
-/** Ancestor folder ids on the path from the root to `itemId` (excludes the item). */
-function ancestorPath(
-  items: CollectionItem[],
-  itemId: string,
-  acc: string[] = []
-): string[] | null {
-  for (const i of items) {
-    if (i.id === itemId) return acc;
-    if (i.items) {
-      const found = ancestorPath(i.items, itemId, [...acc, i.id]);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-/** Strip the passthrough bags (`_oc`, `_postman`) from every item whose id is in `ids` (recursive). */
-function stripPassthroughByIds(
-  items: CollectionItem[],
-  ids: Set<string>,
-  depth = 0
-): CollectionItem[] {
-  if (depth > MAX_COLLECTION_TREE_DEPTH) return items;
-  return items.map((i) => {
-    const withChildren = i.items
-      ? { ...i, items: stripPassthroughByIds(i.items, ids, depth + 1) }
-      : i;
-    return ids.has(i.id) ? stripPassthroughBagsKeepingGuard(withChildren) : withChildren;
-  });
-}
-
 interface CollectionState {
   collections: Collection[];
   activeCollectionId: string | null;
@@ -305,23 +155,7 @@ export const useCollectionStore = create<CollectionState>()(
         set((state) => ({
           collections: state.collections.map((col) => {
             if (col.id !== id) return col;
-            const merged = { ...col, ...updates };
-            // The root Postman sidecar holds collection-scope constructs
-            // (unsupported auth, shadowed events, …); once auth / variables /
-            // scripts are edited it is stale. Root `_oc` is deliberately kept:
-            // `internalToOC` re-checks root auth / scripts freshness against
-            // the live model before taking its whole-collection shortcut.
-            // Strip only on a real change: file-collection reloads pass the
-            // whole collection back in with these keys present but unchanged.
-            if (
-              ROOT_SIDECAR_STALE_KEYS.some((k) => k in updates && !sameValue(updates[k], col[k]))
-            ) {
-              clearRootSidecarKeepingGuard(
-                merged,
-                'auth' in updates && !sameValue(updates.auth, col.auth)
-              );
-            }
-            const next = migrateCollectionAuth(migrateCollectionToV4(merged));
+            const next = migrateCollectionAuth(migrateCollectionToV4(updateRoot(col, updates)));
             validateCollection(next);
             return next;
           }),
@@ -337,161 +171,30 @@ export const useCollectionStore = create<CollectionState>()(
 
       addItemToCollection: (collectionId, item, parentId) =>
         set((state) => ({
-          collections: state.collections.map((col) => {
-            if (col.id !== collectionId) return col;
-
-            if (!parentId) {
-              // Root add: the new item has no `_oc` bag, which already defeats
-              // the root Strategy-1 shortcut, so re-export rebuilds and the
-              // item appears.
-              return { ...col, items: [...col.items, item] };
-            }
-
-            const addToParent = (items: CollectionItem[]): CollectionItem[] =>
-              items.map((i) => {
-                if (i.id === parentId && i.type === 'folder') {
-                  return { ...i, items: [...(i.items || []), item] };
-                }
-                if (i.items) {
-                  return { ...i, items: addToParent(i.items) };
-                }
-                return i;
-              });
-
-            // Strip the target folder's `_oc` bag (and its ancestors') — its
-            // cached child list is now stale, and the folder verbatim shortcut
-            // in from-internal.ts would otherwise re-export it without the new
-            // child. See the `_oc` staleness note on `updateCollectionItem`.
-            const withItem = addToParent(col.items);
-            const staleIds = new Set<string>(ancestorPath(withItem, item.id) ?? []);
-            return { ...col, items: stripPassthroughByIds(withItem, staleIds) };
-          }),
+          collections: state.collections.map((col) =>
+            col.id === collectionId ? addItem(col, item, parentId) : col
+          ),
         })),
 
       updateCollectionItem: (collectionId, itemId, updates) =>
         set((state) => ({
-          collections: state.collections.map((col) => {
-            if (col.id !== collectionId) return col;
-
-            // Strip the OpenCollection `_oc` passthrough bag from the edited
-            // item and every ancestor folder on its path. The bag holds the
-            // verbatim imported node; once a descendant changes, the cached
-            // subtree is stale and re-export must rebuild it from the live
-            // model — otherwise the edit is silently lost. The root Strategy-1
-            // shortcut and the folder verbatim shortcut in from-internal.ts
-            // both short-circuit on these bags, so an ancestor bag left in
-            // place would still emit the pre-edit subtree.
-            const updateItem = (
-              items: CollectionItem[]
-            ): { items: CollectionItem[]; changed: boolean } => {
-              let changed = false;
-              const next = items.map((i) => {
-                if (i.id === itemId) {
-                  // A value-identical re-save (e.g. the folder settings dialog
-                  // writing back normalised values) changes nothing, so no bag
-                  // on the path is stale: keep the item and its ancestors.
-                  const current = i as unknown as Record<string, unknown>;
-                  const supplied = updates as Record<string, unknown>;
-                  if (Object.keys(supplied).every((k) => sameValue(supplied[k], current[k]))) {
-                    return i;
-                  }
-                  changed = true;
-                  const merged = { ...i, ...updates };
-                  // Own guard markers go stale only when this node's auth is edited.
-                  return editsOwnAuth(i, updates)
-                    ? stripPassthroughBags(merged)
-                    : stripPassthroughBagsKeepingGuard(merged);
-                }
-                if (i.items) {
-                  const res = updateItem(i.items);
-                  if (res.changed) {
-                    changed = true;
-                    return stripPassthroughBagsKeepingGuard({ ...i, items: res.items });
-                  }
-                }
-                return i;
-              });
-              return { items: next, changed };
-            };
-
-            return { ...col, items: updateItem(col.items).items };
-          }),
+          collections: state.collections.map((col) =>
+            col.id === collectionId ? updateItem(col, itemId, updates) : col
+          ),
         })),
 
       removeCollectionItem: (collectionId, itemId) =>
         set((state) => ({
-          collections: state.collections.map((col) => {
-            if (col.id !== collectionId) return col;
-
-            const removeItem = (items: CollectionItem[]): CollectionItem[] =>
-              items
-                .filter((i) => i.id !== itemId)
-                .map((i) => (i.items ? { ...i, items: removeItem(i.items) } : i));
-
-            // Strip the removed item's ancestor-folder `_oc` bags (computed
-            // before removal) — those cached child lists are now stale and the
-            // folder verbatim shortcut in from-internal.ts would otherwise
-            // resurrect the removed item on re-export. (A root-level removal
-            // where every surviving sibling keeps its bag is not fully covered
-            // here — that needs a Strategy-1 staleness change; tracked
-            // separately.)
-            const staleIds = new Set<string>(ancestorPath(col.items, itemId) ?? []);
-            return { ...col, items: stripPassthroughByIds(removeItem(col.items), staleIds) };
-          }),
+          collections: state.collections.map((col) =>
+            col.id === collectionId ? removeItem(col, itemId) : col
+          ),
         })),
 
       moveCollectionItem: (collectionId, itemId, target) =>
         set((state) => ({
-          collections: state.collections.map((col) => {
-            if (col.id !== collectionId) return col;
-
-            const node = findItem(col.items, itemId);
-            if (!node) return col;
-
-            const subtreeIds = collectSubtreeIds(node);
-
-            // Validate the target BEFORE pruning — an invalid target would
-            // otherwise remove the node and fail to reinsert it (data loss).
-            if (target.parentId) {
-              const parent = findItem(col.items, target.parentId);
-              // No-op if the target isn't a real folder, it's the moved node
-              // itself / one of its descendants (cycle), or it's already the
-              // item's current direct parent (would silently reorder to bottom).
-              if (parent?.type !== 'folder' || subtreeIds.has(target.parentId)) return col;
-              const currentParentId = (ancestorPath(col.items, itemId) ?? []).at(-1);
-              if (target.parentId === currentParentId && !target.beforeId) return col;
-            }
-            if (target.beforeId) {
-              // No-op if dropping before itself, before one of its own
-              // descendants, or before a sibling that no longer exists.
-              if (
-                target.beforeId === itemId ||
-                subtreeIds.has(target.beforeId) ||
-                !findItem(col.items, target.beforeId)
-              ) {
-                return col;
-              }
-            }
-
-            // A move restructures the tree, so every cached `_oc` bag for the
-            // source and target ancestor chains (and the collection's
-            // Strategy-1 shortcut, which requires *all* items to have bags)
-            // goes stale. Collect those folder ids — plus the moved item — and
-            // strip their bags from the final tree so re-export rebuilds the
-            // moved subtree in its new home instead of emitting the pre-move
-            // layout. The moved node's own content is unchanged, but its bag is
-            // dropped too so a folder-nested SSE/MCP rebuilds via the extension
-            // hoist path rather than surfacing as an invalid folder item.
-            const sourceAncestors = ancestorPath(col.items, itemId) ?? [];
-            const pruned = removeFromTree(col.items, itemId);
-            const inserted = insertIntoTree(pruned, node, target.parentId, target.beforeId);
-            // Derive target ancestors from the *post-move* tree so parentId,
-            // beforeId (which can land the item in another folder with
-            // parentId undefined), and root drops all resolve uniformly.
-            const targetAncestors = ancestorPath(inserted, itemId) ?? [];
-            const staleIds = new Set<string>([itemId, ...sourceAncestors, ...targetAncestors]);
-            return { ...col, items: stripPassthroughByIds(inserted, staleIds) };
-          }),
+          collections: state.collections.map((col) =>
+            col.id === collectionId ? moveItem(col, itemId, target) : col
+          ),
         })),
 
       updateAnyCollectionItem: (itemId, updates) => {
@@ -541,7 +244,7 @@ export const useCollectionStore = create<CollectionState>()(
             // Same staleness rule as updateCollection: a real variables change
             // makes the root `_postman` sidecar stale. Root `_oc` is kept —
             // internalToOC re-checks root variables freshness itself.
-            return clearRootSidecarKeepingGuard({ ...col, variables: next }, false);
+            return updateRoot(col, { variables: next });
           }),
         })),
     }),

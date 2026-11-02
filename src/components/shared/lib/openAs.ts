@@ -1,3 +1,4 @@
+import { MODE_DESCRIPTORS } from '@/features/registry/modes';
 import { useSocketIOStore } from '@/features/socketio/store/useSocketIOStore';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -9,22 +10,11 @@ export function tabMode(tab: RequestTab): RequestMode {
 }
 
 /**
- * Modes whose URL lives with the tab itself, so "Open as" can seed it. SSE and
- * MCP keep their request config on the tab (`tab.request.url`). Kafka and MQTT
- * have no single URL (broker lists) — nothing to seed.
+ * Modes whose URL lives with the tab itself, so "Open as" can seed it
+ * (`carriesUrl` on the mode descriptor). Kafka and MQTT have no single URL.
  */
-const SEEDABLE: ReadonlySet<RequestMode> = new Set([
-  'http',
-  'graphql',
-  'grpc',
-  'websocket',
-  'socketio',
-  'sse',
-  'mcp',
-]);
-
 export function carriesUrl(mode: RequestMode): boolean {
-  return SEEDABLE.has(mode);
+  return MODE_DESCRIPTORS[mode].carriesUrl;
 }
 
 /** The URL a tab is pointed at, wherever its protocol keeps it. */

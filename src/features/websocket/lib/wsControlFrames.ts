@@ -20,14 +20,6 @@ export interface WsCloseOptions {
 export const WEB_PING_UNSUPPORTED =
   'Ping/pong frames are not exposed by the browser WebSocket API — use the desktop app to send pings and see pong round-trip times.';
 
-/** Per-connection IPC event channels added for control frames (#919). */
-export function controlFrameChannels(connectionId: string): string[] {
-  return [
-    eventChannel(EVENT_PREFIX.ws.pong, connectionId),
-    eventChannel(EVENT_PREFIX.ws.pingReceived, connectionId),
-  ];
-}
-
 /** `"Closing (code: 4000, reason: bye)"` — logged when a custom close frame is sent. */
 export function describeClose(close: WsCloseOptions): string {
   return close.reason

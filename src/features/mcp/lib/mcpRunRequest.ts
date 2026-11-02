@@ -21,6 +21,7 @@ import {
   mcpSessionKey,
   parseMcpRunParams,
 } from '@shared/protocol/mcp-run';
+import { runScriptPhase } from '@shared/scripts/script-phase';
 import { v4 as uuidv4 } from 'uuid';
 import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
 import {
@@ -34,12 +35,10 @@ import {
   skippedPlaceholderResponse,
 } from '@/features/scripts/lib/pmRunContextOptions';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
-import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
+import { makeRendererScriptHost } from '@/features/scripts/lib/scriptPhaseHost.renderer';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
-import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { isElectron } from '@/lib/shared/platform';
 import { withoutSecretNames } from '@/lib/shared/resolveRequestScope';
-import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { Response as ApiResponse, McpRequest, Request } from '@/types';
 import { buildMcpConnectAuth, type McpConnectAuth } from './mcpAuth';
 import type { McpClient } from './mcpClient';
@@ -242,21 +241,6 @@ type ScriptInfo = NonNullable<PmRunContextOptions['info']> & {
   requestId: string;
 };
 
-function makeExecutor(
-  envVars: Record<string, string>,
-  opts: PmRunContextOptions,
-  info: ScriptInfo & { eventName: 'prerequest' | 'test' }
-): ScriptExecutor {
-  return new ScriptExecutor({
-    envVars,
-    globalVars: useGlobalsStore.getState().vars,
-    collectionVars: { ...(opts.collectionVars ?? {}) },
-    iterationData: { ...(opts.iterationData ?? {}) },
-    info,
-    ...(opts.location ? { location: opts.location } : {}),
-  });
-}
-
 /** `rs.request` view: the JSON-RPC method and its params text. */
 function scriptRequestContext(request: McpRequest) {
   return {
@@ -265,12 +249,6 @@ function scriptRequestContext(request: McpRequest) {
     headers: enabledHeaders(request),
     body: request.defaultParams ?? '',
   };
-}
-
-function absorbScriptMutations(result: ScriptResult, vars: Record<string, string>): void {
-  if (result.variables) Object.assign(vars, result.variables);
-  if (result.collectionMutations) applyVarMutations(vars, result.collectionMutations);
-  if (result.globalsMutations) useGlobalsStore.getState().applyMutations(result.globalsMutations);
 }
 
 export async function runMcpRequest(
@@ -305,10 +283,9 @@ export async function runMcpRequest(
   };
 
   if (rawRequest.preRequestScript?.trim()) {
-    preRequestResult = await makeExecutor(scriptEnvVars, opts, {
-      ...scriptInfo,
-      eventName: 'prerequest',
-    }).executeScript(rawRequest.preRequestScript, {
+    const pre = await runScriptPhase({
+      phase: 'prerequest',
+      script: rawRequest.preRequestScript,
       // A reference that would be refused stays as written in this view: the
       // script may yet skip the request or replace the value.
       request: scriptRequestContext(
@@ -317,11 +294,24 @@ export async function runMcpRequest(
           withoutSecretNames(scriptEnvVars, ctx.secretNames ?? [])
         ) as McpRequest
       ),
+      envVars: scriptEnvVars,
+      collectionVars: opts.collectionVars,
+      iterationData: opts.iterationData,
+      info: scriptInfo,
+      location: opts.location,
+      // The same script host as gRPC: sub-requests, cookie jar and vault.
+      host: makeRendererScriptHost({
+        variables: scriptEnvVars,
+        inheritedHeaders: {},
+        secretNames: ctx.secretNames,
+        signal: ctx.signal,
+      }),
+      absorb: { into: scriptEnvVars, variables: 'always' },
     });
-    absorbScriptMutations(preRequestResult, scriptEnvVars);
+    preRequestResult = pre.result;
     // `pm.execution.skipRequest()` in a Collection run: nothing is sent and no
     // test script runs.
-    if (opts.honorSkipRequest && preRequestResult.execution?.skipRequested) {
+    if (opts.honorSkipRequest && pre.skipRequested) {
       report();
       return skippedPlaceholderResponse(rawRequest.id);
     }
@@ -420,10 +410,9 @@ export async function runMcpRequest(
   };
 
   if (request.testScript?.trim()) {
-    testResult = await makeExecutor(scriptEnvVars, opts, {
-      ...scriptInfo,
-      eventName: 'test',
-    }).executeScript(request.testScript, {
+    const test = await runScriptPhase({
+      phase: 'test',
+      script: request.testScript,
       request: scriptRequestContext(request),
       response: {
         status: response.status,
@@ -433,10 +422,21 @@ export async function runMcpRequest(
         time: response.time,
         size: response.size,
       },
+      envVars: scriptEnvVars,
+      collectionVars: opts.collectionVars,
+      iterationData: opts.iterationData,
+      info: scriptInfo,
+      location: opts.location,
+      // rs.judge is wired on the test phase only: a response exists to judge.
+      host: makeRendererScriptHost({
+        variables: scriptEnvVars,
+        inheritedHeaders: {},
+        secretNames: ctx.secretNames,
+        signal: ctx.signal,
+        judge: true,
+      }),
     });
-    if (testResult.globalsMutations) {
-      useGlobalsStore.getState().applyMutations(testResult.globalsMutations);
-    }
+    testResult = test.result;
   }
 
   report();

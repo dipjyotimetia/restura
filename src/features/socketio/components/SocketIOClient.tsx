@@ -392,7 +392,7 @@ function SocketIOClient() {
               <VariableUrlInput
                 value={connection.url}
                 onValueChange={(url) => updateConnectionField(activeConnectionId, 'url', url)}
-                variableScope="connection"
+                variableScope="request"
                 placeholder="https://your-server.example.com"
                 aria-label="Socket.IO server URL"
                 className="h-7 flex-1"
