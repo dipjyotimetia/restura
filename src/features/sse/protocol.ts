@@ -129,6 +129,12 @@ async function sseStartStream(
 
   // Header-based auth (basic/bearer/api-key/oauth2); sign-at-wire types no-op.
   const credential = buildAuthCredential(sseReq.auth);
+  // Same rule as a live connect (`resolveSseConnect`): never connect without it.
+  if (credential.requiresMainSideApply) {
+    throw new Error(
+      'This auth uses a keychain-stored or external secret, which SSE connections cannot apply yet. Enter the credential inline, or set auth on this request.'
+    );
+  }
   const url = buildUrlWithParams(sseReq, credential.params);
   const headers = flattenHeaders(sseReq, credential.headers);
   const authHeaders = authHeaderNames(sseReq.auth);
