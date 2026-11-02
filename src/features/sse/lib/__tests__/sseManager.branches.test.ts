@@ -97,6 +97,17 @@ describe('sseManager (web)', () => {
     expect(messages(id)[0]).toContain(expected);
   });
 
+  it('names auth headers for redirects on the proxy spec', async () => {
+    mockExecute.mockResolvedValue(
+      response(['id: 1\ndata: a\n\n'], { contentType: 'text/event-stream' })
+    );
+    sseManager.connect(id, URL_, {}, { autoReconnect: false, stripOnOriginChange: ['X-Unusual'] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockExecute.mock.calls[0]?.[0].redirectPolicy).toEqual({
+      stripOnOriginChange: ['X-Unusual'],
+    });
+  });
+
   it('streams events, tracks open state and reports a clean close', async () => {
     mockExecute.mockResolvedValue(
       response(['retry: 50\nid: 1\nevent: tick\ndata: a\n\n'], { contentType: 'text/plain' })

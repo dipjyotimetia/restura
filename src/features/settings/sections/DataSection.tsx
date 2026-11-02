@@ -12,8 +12,21 @@ import {
   secureDeleteAllDexieData,
 } from '@/lib/shared/dexie-storage';
 import { downloadBlob } from '@/lib/shared/file-utils';
+import { getKeyProvider } from '@/lib/shared/keyProvider';
 import { cn } from '@/lib/shared/utils';
 import { SectionHeader, SectionLabel } from '../components/SettingsSectionPrimitives';
+
+const UNENCRYPTED_BACKUP_WARNING =
+  'This backup is not encrypted and can contain saved credentials such as tokens and passwords. Store it securely and do not share it.';
+
+/** Records are only encrypted at rest with a real key provider; otherwise assume plaintext. */
+function backupIsEncrypted(): boolean {
+  try {
+    return getKeyProvider().isEncrypted();
+  } catch {
+    return false;
+  }
+}
 
 function DataButton({
   onClick,
@@ -94,7 +107,9 @@ export function DataSection() {
         ),
       'Data exported',
       'Export failed'
-    );
+    ).then((ok) => {
+      if (ok && !backupIsEncrypted()) toast.warning(UNENCRYPTED_BACKUP_WARNING);
+    });
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

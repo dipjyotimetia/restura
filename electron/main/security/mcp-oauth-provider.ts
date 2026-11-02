@@ -43,6 +43,7 @@ import {
   type StoredOAuthClientInformation,
   type StoredOAuthTokens,
 } from '@modelcontextprotocol/client';
+import { assertStorableTokens } from '@shared/auth/oauth2';
 import {
   assertOAuthEndpointUrl,
   createMcpOAuthFetch,
@@ -378,6 +379,7 @@ export class McpOAuthSession {
       },
       tokens: () => session.record?.tokens,
       saveTokens: (tokens: StoredOAuthTokens) => {
+        assertStorableTokens(tokens);
         session.track(tokens.access_token);
         session.track(tokens.refresh_token);
         // Keep the old refresh token when the AS doesn't rotate it.

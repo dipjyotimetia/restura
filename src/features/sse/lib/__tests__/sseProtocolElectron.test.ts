@@ -67,6 +67,19 @@ describe('sseProtocol.startStream on Electron', () => {
     mockExecuteProxiedStreamingRequest.mockReset();
   });
 
+  it('names an API key header for redirects on sse:connect', async () => {
+    const api = installFakeSseApi();
+    const handle = await sseProtocol.startStream!(
+      baseRequest({
+        auth: { type: 'api-key', apiKey: { key: 'X-Unusual', value: 'k', in: 'header' } },
+      }),
+      { signal: new AbortController().signal, variables: {} }
+    );
+    await vi.waitFor(() => expect(api.connect).toHaveBeenCalled());
+    expect(api.connect.mock.calls[0]?.[0]).toMatchObject({ stripOnOriginChange: ['X-Unusual'] });
+    await handle.close();
+  });
+
   it('connects via the sse:connect IPC channel, never the proxy transport', async () => {
     const api = installFakeSseApi();
     const handle = await sseProtocol.startStream!(baseRequest(), {

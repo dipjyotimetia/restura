@@ -173,11 +173,12 @@ async function attemptIntrospection(
   // it also gives introspection OAuth2 refresh, Secret reference handling and
   // the cookie jar. Any refreshed auth is discarded: Refresh Schema doesn't
   // write back to the tab.
-  const { values, secretVariables } = buildActiveRequestVariableResolution();
+  const { values, secretVariables, sendSecretNames } = buildActiveRequestVariableResolution();
   const { response, transportOk } = await executeRequest({
     request: buildIntrospectionRequest(endpoint, options.request, timeout, query),
     envVars: values,
     secretVariables,
+    secretNames: sendSecretNames,
     globalSettings: useSettingsStore.getState().settings,
     resolveVariables: (text) => useEnvironmentStore.getState().resolveVariables(text),
   });

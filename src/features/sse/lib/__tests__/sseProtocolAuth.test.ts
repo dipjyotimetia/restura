@@ -55,6 +55,21 @@ describe('sseProtocol.startStream auth', () => {
     expect(spec.headers['Authorization']).toBe('Bearer tok');
   });
 
+  it('names an API key header for redirects', async () => {
+    mockExecute.mockResolvedValue(emptyStreamResponse());
+    const req = baseRequest({
+      auth: { type: 'api-key', apiKey: { key: 'X-Unusual', value: 'k', in: 'header' } },
+    });
+    const handle = await sseProtocol.startStream!(req, {
+      signal: new AbortController().signal,
+      variables: {},
+    });
+    await handle.close();
+    expect(mockExecute.mock.calls[0]![0].redirectPolicy).toEqual({
+      stripOnOriginChange: ['X-Unusual'],
+    });
+  });
+
   it('applies api-key-in-query auth as a URL search param', async () => {
     mockExecute.mockResolvedValue(emptyStreamResponse());
     const req = baseRequest({

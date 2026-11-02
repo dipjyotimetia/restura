@@ -16,7 +16,15 @@ export interface RendererScriptHostOptions {
   /** The variable map `{{var}}` in a sub-request resolves against. */
   variables: Record<string, string>;
   /** Default headers inherited by `rs.sendRequest` sub-requests; a call's own headers win. */
-  inheritedHeaders: Record<string, string>;
+  inheritedHeaders?: Record<string, string> | undefined;
+  /** The parent's URL as sent. Headers are inherited only on its origin. */
+  parentUrl?: string | undefined;
+  /** The parent's URL before it is built, for `inheritedHeaderTemplates`. */
+  parentUrlTemplate?: string | undefined;
+  /** Parent headers not resolved yet (a pre-request script runs before the parent is built). */
+  inheritedHeaderTemplates?: Record<string, string> | undefined;
+  /** Names sub-requests never resolve. */
+  secretNames?: readonly string[] | undefined;
   /** The parent send's abort signal: cancelling it cancels in-flight sub-requests. */
   signal?: AbortSignal | undefined;
   /**
@@ -33,7 +41,15 @@ export function makeRendererScriptHost(options: RendererScriptHostOptions): Scri
     bridges: {
       sendRequest: makeRendererSendRequest({
         variables: options.variables,
-        inheritedHeaders: options.inheritedHeaders,
+        ...(options.inheritedHeaders ? { inheritedHeaders: options.inheritedHeaders } : {}),
+        ...(options.parentUrl !== undefined ? { parentUrl: options.parentUrl } : {}),
+        ...(options.parentUrlTemplate !== undefined
+          ? { parentUrlTemplate: options.parentUrlTemplate }
+          : {}),
+        ...(options.inheritedHeaderTemplates
+          ? { inheritedHeaderTemplates: options.inheritedHeaderTemplates }
+          : {}),
+        ...(options.secretNames ? { secretNames: options.secretNames } : {}),
         ...(options.signal ? { signal: options.signal } : {}),
       }),
       cookies: (currentUrl) => makeCookieAdapter(currentUrl),

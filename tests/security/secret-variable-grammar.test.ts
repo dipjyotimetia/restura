@@ -194,28 +194,32 @@ describe('a secret-backed variable with a space stays opaque on the HTTP send pa
     ['secret defined first', [NAME, 'alias']],
   ] as const) {
     for (const token of ['{{alias}}', '{{ alias }}']) {
-      it(`does not reveal the placeholder through a chain: ${token}, ${label}`, async () => {
+      it(`refuses a token reached through a chain: ${token}, ${label}`, async () => {
         const variables: Record<string, Partial<ScopedVariable>> = {
           alias: { key: 'alias', value: '{{my secret}}' },
           [NAME]: { key: NAME, value: SECRET_HANDLE_PLACEHOLDER, secretRef: HANDLE },
         };
         useEnvironment(order.map((key) => variables[key] as Partial<ScopedVariable>));
-        const spec = await send(
-          request({ headers: [{ id: 'h', key: 'X-Key', value: token, enabled: true }] }),
-          { alias: '{{my secret}}' }
+        await expect(
+          send(request({ headers: [{ id: 'h', key: 'X-Key', value: token, enabled: true }] }), {
+            alias: '{{my secret}}',
+          })
+        ).rejects.toThrow(
+          'Variable "alias" references secret variable "my secret" in header "X-Key". Secret variables can only be used where they are written.'
         );
-        expect(spec.headers['X-Key']).toBe('{{my secret}}');
+        expect(proxied).not.toHaveBeenCalled();
       });
     }
   }
 
-  it('keeps the store walk as it has always been when the request scope does not hold an alias', () => {
-    // Definition order decides, as it always has; neither order produces plaintext.
+  it('keeps a token reached through a value literal in the store walk, in either order', () => {
     useEnvironment([
       { key: 'alias', value: '{{my secret}}' },
       { key: NAME, value: SECRET_HANDLE_PLACEHOLDER, secretRef: HANDLE },
     ]);
-    expect(useEnvironmentStore.getState().resolveVariables('{{alias}}')).toBe(
+    expect(useEnvironmentStore.getState().resolveVariables('{{alias}}')).toBe('{{my secret}}');
+    // A direct reference still answers with the mask.
+    expect(useEnvironmentStore.getState().resolveVariables('{{my secret}}')).toBe(
       SECRET_HANDLE_PLACEHOLDER
     );
     useEnvironment([
@@ -225,16 +229,17 @@ describe('a secret-backed variable with a space stays opaque on the HTTP send pa
     expect(useEnvironmentStore.getState().resolveVariables('{{alias}}')).toBe('{{my secret}}');
   });
 
-  it('does not let the store pass hand main a token main would not have received', async () => {
+  it('refuses a token the store pass brings in', async () => {
     useEnvironment([
       { key: 'alias', value: '{{my secret}}' },
       { key: NAME, value: SECRET_HANDLE_PLACEHOLDER, secretRef: HANDLE },
     ]);
-    const spec = await send(
-      request({ headers: [{ id: 'h', key: 'X-Key', value: '{{next}}', enabled: true }] }),
-      { alias: '{{my secret}}', next: '{{alias}}' }
-    );
-    expect(spec.headers['X-Key']).toBe(SECRET_HANDLE_PLACEHOLDER);
+    await expect(
+      send(request({ headers: [{ id: 'h', key: 'X-Key', value: '{{next}}', enabled: true }] }), {
+        next: '{{alias}}',
+      })
+    ).rejects.toThrow('secret variable "my secret"');
+    expect(proxied).not.toHaveBeenCalled();
   });
 });
 

@@ -26,6 +26,11 @@ export interface RunContext {
    */
   secretVariables?: Record<string, SecretValue>;
   /**
+   * Names in `variables` or `secretVariables` that resolve only where they are
+   * written. A token for one that arrives through a value fails the run.
+   */
+  secretNames?: readonly string[];
+  /**
    * Optional sink for pre-request / test script results produced by the
    * protocol. Protocols that run user scripts call this once per run so the
    * caller (typically `useRequestRunner`) can forward results to the
@@ -105,7 +110,11 @@ export interface ProtocolModule {
    * may omit it. The executor falls back to the identity function in
    * that case and logs a one-time warning to surface the gap.
    */
-  injectVariables?: (request: Request, variables: Record<string, string>) => Request;
+  injectVariables?: (
+    request: Request,
+    variables: Record<string, string>,
+    secretNames?: readonly string[]
+  ) => Request;
   /**
    * Open a long-lived streaming connection. Only defined on protocols
    * whose `runRequest` doesn't apply — SSE (server-push), WebSocket

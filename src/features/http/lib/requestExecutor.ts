@@ -2,6 +2,7 @@ import { PROXY_STREAM_MARKER_HEADER } from '@shared/protocol/proxy-limits';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
   applyBodyDefaultHeaders,
+  authHeaderNames,
   buildProxyBody,
   buildProxyFormFields,
   collectEnabledRows,
@@ -14,7 +15,11 @@ import {
   type SetCookieSource,
 } from '@shared/protocol/set-cookie';
 import { runScriptPhase } from '@shared/scripts/script-phase';
-import { basicAuthReferencesSecretVariable } from '@shared/variables/secret-variable-token';
+import {
+  basicAuthReferencesSecretVariable,
+  SecretVariableReferenceError,
+} from '@shared/variables/secret-variable-token';
+import { scanVariableTokens } from '@shared/variables/tokens';
 import { Cookie } from 'tough-cookie';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -95,6 +100,8 @@ export interface RequestExecutorOptions {
   envVars: Record<string, string>;
   /** Opaque SecretRef values that may cross only to Electron main for wire substitution. */
   secretVariables?: Record<string, SecretValue>;
+  /** Names that resolve only where they are written (`sendSecretNames`). */
+  secretNames?: readonly string[];
   globalSettings: AppSettings;
   resolveVariables: (text: string, vars?: Record<string, string>) => string;
   /** Cancels scripts and transport work owned by the caller. */
@@ -226,13 +233,25 @@ export function buildDesktopTransportConfig(
 // against the exact bytes it sends. Bearer / Basic / API-key / OAuth2 go
 // through `applyAuthHeaders` because they don't depend on body bytes.
 async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<BuiltSpec> {
-  const { request, envVars, globalSettings, resolveVariables, secretVariables } = options;
+  const { request, envVars, globalSettings, resolveVariables, secretVariables, secretNames } =
+    options;
 
   // envVars is read per call: scripts have already written to it by this point.
-  const resolveLocal = (text: string) =>
-    resolveRequestScopeText(text, { values: envVars, secretVariables, resolveVariables });
+  const resolveLocal = (text: string, field: string) =>
+    resolveRequestScopeText(
+      text,
+      { values: envVars, secretVariables, secretNames, resolveVariables },
+      field
+    );
+  // A value no user wrote (the cookie jar) must not carry a token main would
+  // substitute: main replaces every token it finds in the spec.
+  const refuseHandleToken = (text: string, source: string) => {
+    if (!secretVariables) return;
+    const token = scanVariableTokens(text).find(({ name }) => Object.hasOwn(secretVariables, name));
+    if (token) throw new SecretVariableReferenceError(source, token.name);
+  };
 
-  const resolvedUrl = resolveLocal(request.url);
+  const resolvedUrl = resolveLocal(request.url, 'URL');
 
   const urlValidation = validateURL(resolvedUrl, {
     allowPrivateIPs: globalSettings.allowPrivateIPs === true,
@@ -242,23 +261,25 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     throw new Error(`Invalid URL: ${urlValidation.error}`);
   }
 
-  const params = collectEnabledRows(request.params, (p) => resolveLocal(p.value));
+  const params = collectEnabledRows(request.params, (p) =>
+    resolveLocal(p.value, `query parameter "${p.key}"`)
+  );
   const headers = applyBodyDefaultHeaders(
     request.body.type,
-    collectEnabledRows(request.headers, (h) => resolveLocal(h.value))
+    collectEnabledRows(request.headers, (h) => resolveLocal(h.value, `header "${h.key}"`))
   );
 
   // {{vars}} in the body resolve like the URL/params/headers do. Binary bodies
   // hold base64 bytes and are never touched; file parts likewise; desktop secret
   // handles stay opaque via resolveLocal. Built once, so a dynamic in the body is
   // the same value here and on the wire.
-  const builtBody = buildProxyBody(request.body, { resolve: resolveLocal });
+  const builtBody = buildProxyBody(request.body, { resolve: (text) => resolveLocal(text, 'body') });
 
   // Resolve {{vars}} in every auth type with the same scope as the URL/headers/
   // body (secret-variable tokens and handle SecretRefs stay opaque for main).
   // The resolved copy is what's applied to headers AND sent as `spec.auth`
   // for sign-at-wire schemes (SigV4 / OAuth1 / WSSE / Digest / NTLM).
-  const resolvedAuth = resolveAuthVariables(request.auth, resolveLocal);
+  const resolvedAuth = resolveAuthVariables(request.auth, (text) => resolveLocal(text, 'auth'));
   const effectiveAuth = await refreshOAuth2Auth(resolvedAuth, Date.now(), options.signal);
   // Only a real token refresh is reported for persistence — and it's folded
   // back onto the template so resolved variable values never get saved.
@@ -294,6 +315,8 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     const cookies = useCookieStore.getState().getCookiesForUrl(resolvedUrl);
     if (cookies.length > 0) {
       const cookieHeader = cookies.map((c) => `${c.key}=${c.value}`).join('; ');
+      // The joined text: a name, or a name and value together, can hold a token too.
+      refuseHandleToken(cookieHeader, 'The Cookie header');
       headers['Cookie'] = cookieHeader;
     }
   }
@@ -322,6 +345,9 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   } else if (effectiveSettings.maxRedirects !== undefined) {
     redirectPolicy.maxRedirects = effectiveSettings.maxRedirects;
   }
+
+  const authHeaders = authHeaderNames(effectiveAuth);
+  if (authHeaders.length > 0) redirectPolicy.stripOnOriginChange = authHeaders;
 
   const spec: ProxyRequestBody = {
     method: request.method,
@@ -430,7 +456,9 @@ export async function executeRequest(
       location,
       host: makeRendererScriptHost({
         variables: envVars,
-        inheritedHeaders: inheritedHeadersPre,
+        secretNames: options.secretNames,
+        parentUrlTemplate: request.url,
+        inheritedHeaderTemplates: inheritedHeadersPre,
         signal,
       }),
       // A failed script's partial writes stay out of the request.
@@ -564,6 +592,8 @@ export async function executeRequest(
       // rs.judge is wired only on the TEST script (a response exists to judge).
       host: makeRendererScriptHost({
         variables: envVars,
+        secretNames: options.secretNames,
+        parentUrl: spec.url,
         inheritedHeaders: sentHeaders,
         signal,
         judge: true,

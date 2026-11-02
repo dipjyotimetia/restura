@@ -233,6 +233,29 @@ describe('runMcpRequest — pm.execution.skipRequest()', () => {
 });
 
 describe('runMcpRequest — script host (same renderer host as gRPC)', () => {
+  it('rs.sendRequest never resolves a secret variable', async () => {
+    executeProxiedRequestMock.mockReset();
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: '{}',
+      size: 2,
+    });
+    const runJsonRpc = vi.fn<McpRunJsonRpc>().mockResolvedValue({ ok: true, result: {} });
+    await runMcpRequest(
+      req({ preRequestScript: "rs.sendRequest('https://auth.test/{{sec}}', () => {});" }),
+      {
+        ...ctx(),
+        variables: { ...ctx().variables, sec: 'PLAINTEXT' },
+        secretNames: ['sec'],
+        onScriptResult: vi.fn(),
+      },
+      runJsonRpc
+    ).catch(() => undefined);
+    expect(JSON.stringify(executeProxiedRequestMock.mock.calls)).not.toContain('PLAINTEXT');
+  });
+
   it('rs.sendRequest in a pre-request script reaches the host', async () => {
     executeProxiedRequestMock.mockReset();
     executeProxiedRequestMock.mockResolvedValue({

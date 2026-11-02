@@ -202,6 +202,7 @@ function GraphQLRequestBuilder() {
     const client = new GraphQLSubscriptionClient(resolvedUrl, headers, {
       connectionParams: handshake.connectionParams,
       ...(handshake.mainSide ? { mainSide: handshake.mainSide } : {}),
+      stripOnOriginChange: handshake.stripOnOriginChange,
     });
     subscriptionClientRef.current = client;
 

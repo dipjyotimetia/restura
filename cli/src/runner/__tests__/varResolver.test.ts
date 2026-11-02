@@ -19,6 +19,13 @@ describe('resolveVarsDeep', () => {
     expect(resolveVarsDeep('{{GREETING}} {{$randomInt}}', { GREETING: 'Hi' })).toMatch(/^Hi \d+$/);
   });
 
+  it('does not expand a token held in a value', () => {
+    expect(resolveVarsDeep('{{next}}', { next: '{{sec}}', sec: 'S' })).toBe('{{sec}}');
+    expect(resolveVarsDeep('{{next}}', { sec: 'S', next: 'https://a.test/?k={{sec}}' })).toBe(
+      'https://a.test/?k={{sec}}'
+    );
+  });
+
   it('fails clearly for unavailable private values and SecretRef handles', () => {
     expect(() => resolveVarsDeep('{{TOKEN}}', {}, new Set(['TOKEN']))).toThrow(
       'Private variable "TOKEN" is unavailable in the CLI'

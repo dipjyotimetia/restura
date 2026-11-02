@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
+import { secretVariableNames } from '@/lib/shared/variableScopes';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { Environment, KeyValue, ScopedVariable } from '@/types';
 
@@ -120,9 +121,13 @@ export const useEnvironmentStore = create<EnvironmentState>()(
         // for free. Built-in dynamics (Postman-name compatible) expand once at the
         // very end, so a helper in a value is never generated twice.
         const enabled = (get().getActiveEnvironment()?.variables ?? []).filter((v) => v.enabled);
+        // A secret answers only a token written in `text`. One reached through a
+        // value stays literal here; the send path refuses it (resolveRequestScope).
+        const secret = new Set(secretVariableNames(enabled));
         const afterEnv = expandVariablesInOrder(
           text,
-          enabled.map((v) => [v.key, v.value] as const)
+          enabled.map((v) => [v.key, v.value] as const),
+          secret.size > 0 ? { directOnly: (name) => secret.has(name) } : {}
         );
         return applyDynamicVariables(
           expandVariablesInOrder(afterEnv, Object.entries(useGlobalsStore.getState().vars))

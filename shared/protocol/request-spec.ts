@@ -10,8 +10,10 @@
  * NTLM) produce no credential here; their descriptor travels to the proxy, which
  * signs the exact bytes it sends (ADR-0007, ADR-0016).
  */
+
 import type { SecretValue } from '../secrets/secret-ref';
 import type { AuthConfig, BodyType, FormDataItem, RequestBody } from '../types';
+import { scanVariableTokens } from '../variables/tokens';
 import type { FormField, ProxyBodyType } from './body-builder';
 
 // ---------------------------------------------------------------------------
@@ -204,6 +206,12 @@ export interface AuthCredentialOptions {
   basicRequiresPassword?: boolean;
 }
 
+/** Headers this auth puts on the request under a name of the user's choosing. */
+export function authHeaderNames(auth: AuthConfig | undefined): string[] {
+  if (auth?.type !== 'api-key' || auth.apiKey?.in === 'query' || !auth.apiKey?.key) return [];
+  return [auth.apiKey.key];
+}
+
 export function buildAuthCredential(
   auth: AuthConfig | undefined,
   host: CredentialHost,
@@ -249,7 +257,16 @@ export function buildAuthCredential(
       if (token === DEFERRED_SECRET) return deferred;
       if (!token) return empty;
       const tokenType = auth.oauth2?.tokenType || 'Bearer';
-      return { headers: { [authzKey]: `${tokenType} ${token}` }, params: {} };
+      const authorization = `${tokenType} ${token}`;
+      // A token written in either field stays as written; one that spans the join
+      // was never written anywhere, so it must not reach a later resolver.
+      const join = tokenType.length;
+      if (scanVariableTokens(authorization).some(({ start, end }) => start <= join && end > join)) {
+        throw new Error(
+          'The OAuth 2.0 token type and access token form a variable reference, so the request was not sent.'
+        );
+      }
+      return { headers: { [authzKey]: authorization }, params: {} };
     }
 
     // Sign-at-wire types: the caller forwards the descriptor (digest answers a

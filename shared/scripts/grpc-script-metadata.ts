@@ -1,4 +1,5 @@
 import type { KeyValue } from '../types';
+import { scanVariableTokens } from '../variables/tokens';
 
 /**
  * gRPC metadata <-> script bridge (#910). A pre-request script sees the
@@ -55,4 +56,31 @@ export function applyScriptMetadata(
     if (!seen.has(key)) next.push({ id: `script:${key}`, key, value, enabled: true });
   }
   return next;
+}
+
+/**
+ * The first secret token a script put in the metadata: one not already in an
+ * enabled saved entry of the same key. A script string can be a server value, so
+ * only what was saved counts as written.
+ */
+export function findScriptWrittenToken(
+  metadata: readonly KeyValue[],
+  final: Readonly<Record<string, string>>,
+  isSecret: (name: string) => boolean
+): { key: string; name: string } | undefined {
+  const saved = new Map<string, Set<string>>();
+  for (const m of metadata) {
+    if (!m.enabled || !m.key) continue;
+    const key = m.key.toLowerCase();
+    const names = saved.get(key) ?? new Set<string>();
+    for (const token of scanVariableTokens(m.value)) names.add(token.name);
+    saved.set(key, names);
+  }
+  for (const [key, value] of Object.entries(final)) {
+    const allowed = saved.get(key.toLowerCase());
+    for (const { name } of scanVariableTokens(value)) {
+      if (isSecret(name) && !allowed?.has(name)) return { key, name };
+    }
+  }
+  return undefined;
 }

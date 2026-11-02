@@ -195,6 +195,7 @@ describe('buildActiveRequestValueMap', () => {
       values: {},
       secretVariables: { token: { kind: 'inline', value: 'desktop-only' } },
       secretNames: [],
+      sendSecretNames: ['token'],
     });
 
     useEnvironmentStore.getState().setActiveEnvironment('sub');
@@ -203,6 +204,7 @@ describe('buildActiveRequestValueMap', () => {
       values: { token: 'sub' },
       secretVariables: {},
       secretNames: [],
+      sendSecretNames: [],
     });
   });
 

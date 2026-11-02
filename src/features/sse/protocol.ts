@@ -21,6 +21,7 @@
  * / the same `sse:connect` IPC channel (desktop) so the SSRF/header/auth
  * pipeline applies uniformly either way.
  */
+import { authHeaderNames } from '@shared/protocol/request-spec';
 import { v4 as uuidv4 } from 'uuid';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
@@ -56,10 +57,14 @@ function createDefaultSseRequest(): SseRequest {
 // placeholders in url/headers/params. Auth credential values are resolved at the
 // wire (the interactive client) but not here, matching HTTP's injectVariables
 // (which also leaves auth untouched).
-function injectSseVariables(request: Request, variables: Record<string, string>): Request {
+function injectSseVariables(
+  request: Request,
+  variables: Record<string, string>,
+  secretNames?: readonly string[]
+): Request {
   if (request.type !== 'sse') return request;
   const sse = request as SseRequest;
-  const inject = (text: string) => injectString(text, variables);
+  const inject = (text: string) => injectString(text, variables, secretNames);
   return {
     ...sse,
     url: inject(sse.url),
@@ -126,6 +131,7 @@ async function sseStartStream(
   const credential = buildAuthCredential(sseReq.auth);
   const url = buildUrlWithParams(sseReq, credential.params);
   const headers = flattenHeaders(sseReq, credential.headers);
+  const authHeaders = authHeaderNames(sseReq.auth);
 
   // Desktop: `executeProxiedStreamingRequest` deliberately throws for
   // Electron (streaming HTTP has no generic IPC channel — see its
@@ -135,7 +141,7 @@ async function sseStartStream(
   // uses (`sseManager.connectViaElectron`), just without touching
   // `useSseStore` — the executor owns event accumulation here.
   if (isElectron()) {
-    return sseStartStreamElectron(url, headers, ctx);
+    return sseStartStreamElectron(url, headers, authHeaders, ctx);
   }
 
   // Each call gets its own AbortController. The caller's signal feeds
@@ -146,9 +152,10 @@ async function sseStartStream(
   if (ctx.signal.aborted) ourCtrl.abort();
   else ctx.signal.addEventListener('abort', linkAbort, { once: true });
 
-  const response = await executeProxiedStreamingRequest(buildSseStreamSpec(url, headers), {
-    signal: ourCtrl.signal,
-  });
+  const response = await executeProxiedStreamingRequest(
+    buildSseStreamSpec(url, headers, authHeaders),
+    { signal: ourCtrl.signal }
+  );
 
   if (!response.ok) {
     ourCtrl.abort();
@@ -224,6 +231,7 @@ async function sseStartStream(
 async function sseStartStreamElectron(
   url: string,
   headers: Record<string, string>,
+  authHeaders: string[],
   ctx: { signal: AbortSignal }
 ): Promise<ProtocolStreamHandle> {
   // Destructured up front rather than closing over `ctx` itself: the
@@ -241,7 +249,12 @@ async function sseStartStreamElectron(
 
   const sequence = createStreamSequence<ParsedSseEvent>();
   const session = openStreamSession(
-    createSseDesktopAdapter(api.sse, { connectionId, url, headers }),
+    createSseDesktopAdapter(api.sse, {
+      connectionId,
+      url,
+      headers,
+      ...(authHeaders.length > 0 ? { stripOnOriginChange: authHeaders } : {}),
+    }),
     {
       signal,
       listeners: {

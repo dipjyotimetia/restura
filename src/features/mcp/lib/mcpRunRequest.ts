@@ -38,6 +38,7 @@ import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import { makeRendererScriptHost } from '@/features/scripts/lib/scriptPhaseHost.renderer';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { isElectron } from '@/lib/shared/platform';
+import { withoutSecretNames } from '@/lib/shared/resolveRequestScope';
 import type { Response as ApiResponse, McpRequest, Request } from '@/types';
 import { buildMcpConnectAuth, type McpConnectAuth } from './mcpAuth';
 import type { McpClient } from './mcpClient';
@@ -172,10 +173,14 @@ function raceAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 /** Substitute `{{var}}` in every stringy MCP field. Pure. */
-export function injectMcpVariables(request: Request, variables: Record<string, string>): Request {
+export function injectMcpVariables(
+  request: Request,
+  variables: Record<string, string>,
+  secretNames?: readonly string[]
+): Request {
   if (request.type !== 'mcp') return request;
   const mcp = request as McpRequest;
-  const inject = (text: string) => injectString(text, variables);
+  const inject = (text: string) => injectString(text, variables, secretNames);
   return {
     ...mcp,
     url: inject(mcp.url),
@@ -191,12 +196,13 @@ export function injectMcpVariables(request: Request, variables: Record<string, s
  */
 export function resolveMcpRunAuth(
   request: McpRequest,
-  variables: Record<string, string>
+  variables: Record<string, string>,
+  secretNames?: readonly string[]
 ): McpRequest {
   if (!request.auth || request.auth.type === 'none') return request;
   return {
     ...request,
-    auth: resolveAuthVariables(request.auth, (text) => injectString(text, variables)),
+    auth: resolveAuthVariables(request.auth, (text) => injectString(text, variables, secretNames)),
   };
 }
 
@@ -280,7 +286,14 @@ export async function runMcpRequest(
     const pre = await runScriptPhase({
       phase: 'prerequest',
       script: rawRequest.preRequestScript,
-      request: scriptRequestContext(injectMcpVariables(rawRequest, scriptEnvVars) as McpRequest),
+      // A reference that would be refused stays as written in this view: the
+      // script may yet skip the request or replace the value.
+      request: scriptRequestContext(
+        injectMcpVariables(
+          rawRequest,
+          withoutSecretNames(scriptEnvVars, ctx.secretNames ?? [])
+        ) as McpRequest
+      ),
       envVars: scriptEnvVars,
       collectionVars: opts.collectionVars,
       iterationData: opts.iterationData,
@@ -290,6 +303,7 @@ export async function runMcpRequest(
       host: makeRendererScriptHost({
         variables: scriptEnvVars,
         inheritedHeaders: {},
+        secretNames: ctx.secretNames,
         signal: ctx.signal,
       }),
       absorb: { into: scriptEnvVars, variables: 'always' },
@@ -305,8 +319,8 @@ export async function runMcpRequest(
 
   // Resolve with the post-pre-request variables so a script can set the
   // tool name / arguments / token for this call.
-  const injected = injectMcpVariables(rawRequest, scriptEnvVars) as McpRequest;
-  const request = resolveMcpRunAuth(injected, scriptEnvVars);
+  const injected = injectMcpVariables(rawRequest, scriptEnvVars, ctx.secretNames) as McpRequest;
+  const request = resolveMcpRunAuth(injected, scriptEnvVars, ctx.secretNames);
   const method = request.defaultMethod?.trim() ?? '';
   if (!method) {
     report();
@@ -417,6 +431,7 @@ export async function runMcpRequest(
       host: makeRendererScriptHost({
         variables: scriptEnvVars,
         inheritedHeaders: {},
+        secretNames: ctx.secretNames,
         signal: ctx.signal,
         judge: true,
       }),

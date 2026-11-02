@@ -26,7 +26,7 @@ import { protocolRunTraits } from '@/features/registry/modes';
 import { protocolRegistry } from '@/features/registry/registry';
 import type { ProtocolScriptResult } from '@/features/registry/types';
 import { isElectron } from '@/lib/shared/platform';
-import { buildValueMap } from '@/lib/shared/variableScopes';
+import { buildValueMap, secretVariableNames } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { Response as ApiResponse, Collection, GrpcRequest, Request } from '@/types';
 import type { IterationRow } from './dataLoader';
@@ -112,6 +112,8 @@ export interface CollectionRunOptions {
   /** Optional separated scopes used to preserve precedence as scripts mutate them. */
   globalVars?: Record<string, string>;
   environmentVars?: Record<string, string>;
+  /** Secret names from scopes the runner does not see (the environment chain). */
+  secretNames?: readonly string[];
   /** Repeat count when no data file; ignored when dataRows is non-empty. */
   iterations: number;
   /** Data-file rows; when non-empty drives one iteration per row (Postman semantics). */
@@ -302,6 +304,10 @@ async function runCollectionWithPool(
       const ctx = {
         signal,
         variables: requestVars,
+        secretNames: [
+          ...(options.secretNames ?? []),
+          ...secretVariableNames(collection.variables, ...(runnable.folderVariables ?? [])),
+        ],
         onScriptResult: (r: ProtocolScriptResult) => {
           scripts = r;
         },

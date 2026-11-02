@@ -11,10 +11,20 @@
  * the replacement.
  */
 
+import { resolveMapText } from '@/lib/shared/resolveRequestScope';
+
 const REGEX_META = /[.*+?^${}()|[\]\\]/g;
 
-export function injectString(text: string, variables: Record<string, string>): string {
+export function injectString(
+  text: string,
+  variables: Record<string, string>,
+  /** Names that resolve only where they are written. A token through a value throws. */
+  secretNames?: readonly string[]
+): string {
   if (!text) return text;
+  if (secretNames?.length) {
+    return resolveMapText(text, variables, secretNames, (rest, map) => injectString(rest, map));
+  }
   let result = text;
   for (const [key, value] of Object.entries(variables)) {
     const escaped = key.replace(REGEX_META, '\\$&');

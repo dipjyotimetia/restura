@@ -385,7 +385,7 @@ const FIXTURES = {
         type: 'digest',
         digest: { username: 'kept', password: 'PLAIN-folder-digest' },
       },
-      variables: [row('folderSecret', 'PLAIN-folder-variable-kept', { secret: true })],
+      variables: [row('folderSecret', 'PLAIN-folder-variable', { secret: true })],
       items: [
         {
           id: 'f2',
@@ -418,7 +418,7 @@ const FIXTURES = {
         password: { kind: 'inline', value: 'PLAIN-ntlm-inline' },
       },
     },
-    variables: [row('rootSecret', 'PLAIN-root-variable-kept', { secret: true })],
+    variables: [row('rootSecret', 'PLAIN-root-variable', { secret: true })],
   }),
   handles: collectionOf(
     [
@@ -738,11 +738,6 @@ const FIXTURES = {
       }
     ),
   ]),
-};
-
-/** Fixtures where `count(redact(c)) !== 0` on the pre-refactor code. See the block below. */
-const PINNED_VIOLATIONS = {
-  // Broker userinfo stops at the FIRST `@`, so part of the password SURVIVES redaction.
   mqttAtSignInPassword: collectionOf([
     requestItem({
       id: 'r',
@@ -767,6 +762,169 @@ const PINNED_VIOLATIONS = {
       consume: {},
     }),
   ]),
+  mqttWhitespaceInPassword: collectionOf([
+    requestItem({
+      id: 'r',
+      name: 'mqtt space',
+      type: 'mqtt',
+      connection: { brokerUrl: 'mqtt://user:PLAIN tail@broker.test:1883' },
+      publish: { topic: 't', payload: '', qos: 0, retain: false },
+      subscribe: { topicFilter: '#', qos: 0 },
+      templates: [],
+    }),
+  ]),
+  kafkaTemplateFirst: collectionOf([
+    requestItem({
+      id: 'r',
+      name: 'kafka template first',
+      type: 'kafka',
+      connection: {
+        bootstrapBrokers: ['{{user}}@PLAIN@b1:9092', '{{user}}:{{pw}}@b2:9092'],
+        registry: { url: 'https://user:PLAIN/ss@registry.test' },
+      },
+      produce: { headers: [] },
+      consume: {},
+    }),
+  ]),
+  httpUrlCredentials: collectionOf([
+    requestItem({
+      id: 'r',
+      name: 'http url',
+      type: 'http',
+      url: 'https://u:PLAIN@api.test/p?access_token=PLAIN&page=1',
+    }),
+  ]),
+  graphqlUrlCredentials: collectionOf([
+    requestItem({
+      id: 'r',
+      name: 'graphql url',
+      type: 'http',
+      url: 'https://u:PLAIN@api.test/graphql?token=PLAIN',
+      body: { type: 'graphql', raw: 'query { a }' },
+    }),
+  ]),
+  grpcUrlCredentials: collectionOf([
+    requestItem({
+      id: 'r',
+      name: 'grpc url',
+      type: 'grpc',
+      url: 'grpcs://u:PLAIN@api.test:50051?token=PLAIN',
+      metadata: [],
+    }),
+  ]),
+  sseUrlCredentials: collectionOf([
+    requestItem({
+      id: 'r',
+      name: 'sse url',
+      type: 'sse',
+      url: 'https://u:PLAIN@sse.test/events?token=PLAIN',
+      headers: [],
+    }),
+  ]),
+  mcpUrlCredentials: collectionOf([
+    requestItem({
+      id: 'r',
+      name: 'mcp url',
+      type: 'mcp',
+      url: 'https://u:PLAIN@mcp.test/mcp?api_key=PLAIN',
+      headers: [],
+    }),
+  ]),
+  secretVariables: collectionOf(
+    [
+      {
+        id: 'f',
+        name: 'folder',
+        type: 'folder',
+        items: [],
+        variables: [
+          row('flagged', 'PLAIN-folder-flagged', { secret: true }),
+          row('inlineRef', '', { secretRef: { kind: 'inline', value: 'PLAIN-folder-ref' } }),
+          row('plain', 'kept'),
+        ],
+      } as unknown as CollectionItem,
+    ],
+    { variables: [row('flagged', 'PLAIN-root-flagged', { secret: true })] }
+  ),
+  contractSpecUrls: collectionOf(
+    [
+      {
+        id: 'f',
+        name: 'folder',
+        type: 'folder',
+        items: [],
+        contractSpec: { source: 'url', url: 'https://u:PLAIN@spec.test/f?token=PLAIN' },
+      } as unknown as CollectionItem,
+    ],
+    { contractSpec: { source: 'url', url: 'https://u:PLAIN@spec.test/c' } }
+  ),
+  oauthUrls: collectionOf([
+    requestItem({
+      id: 'r',
+      name: 'oauth urls',
+      type: 'http',
+      url: 'https://api.test',
+      auth: {
+        type: 'oauth2',
+        oauth2: {
+          tokenUrl: 'https://u:PLAIN@idp.test/token',
+          authorizationUrl: 'https://idp.test/auth?client_secret=PLAIN',
+          deviceAuthorizationUrl: '//u:PLAIN@idp.test/device',
+        },
+      },
+    }),
+  ]),
+  opaqueBagAddresses: collectionOf([
+    {
+      id: 'p',
+      name: 'placeholder',
+      type: 'folder',
+      items: [],
+      _oc: {
+        info: { type: 'future-protocol' },
+        brokerUrl: 'mqtt://u:PLAIN@broker.test',
+        endpoint: '{{scheme}}://u:PLAIN@host?token=PLAIN',
+        bootstrapBrokers: ['u:PLAIN@b1:9092', 'b2:9092'],
+        auth: { type: 'oauth2', tokenUrl: 'https://u:PLAIN@idp.test' },
+      },
+    } as unknown as CollectionItem,
+  ]),
+  postmanUrlHost: collectionOf([
+    {
+      id: 'f',
+      name: 'folder',
+      type: 'folder',
+      items: [],
+      _postman: {
+        response: [
+          { originalRequest: { url: { host: ['u:PLAIN@h', 'example', 'com'], path: ['a'] } } },
+          { originalRequest: { url: { host: 'u:PLAIN@h.example.com' } } },
+        ],
+      },
+    } as unknown as CollectionItem,
+  ]),
+  grpcSchemelessUserinfo: collectionOf([
+    requestItem({
+      id: 'r',
+      name: 'grpc schemeless',
+      type: 'grpc',
+      url: 'user:PLAIN@api.test:50051',
+      metadata: [],
+    }),
+  ]),
+  httpProtocolRelativeUserinfo: collectionOf([
+    requestItem({ id: 'r', name: 'http //', type: 'http', url: '//u:PLAIN@api.test/p' }),
+  ]),
+  httpTemplatedSchemeUserinfo: collectionOf([
+    requestItem({ id: 'r', name: 'http tpl', type: 'http', url: '{{scheme}}://u:PLAIN@api.test' }),
+  ]),
+  httpSlashInPassword: collectionOf([
+    requestItem({ id: 'r', name: 'http /', type: 'http', url: 'https://u:pa/PLAIN@api.test/p' }),
+  ]),
+};
+
+/** Fixtures where `count(redact(c)) !== 0` on the pre-refactor code. See the block below. */
+const PINNED_VIOLATIONS = {
   // External refs are preserved by `redactSecret` but counted as inline.
   externalSecretRef: collectionOf([], {
     auth: {
@@ -807,7 +965,7 @@ describe('collection redaction characterization', () => {
   it('http', () => {
     expect(record(FIXTURES.http)).toMatchInlineSnapshot(`
       {
-        "count": 5,
+        "count": 7,
         "redacted": {
           "id": "c",
           "items": [
@@ -890,7 +1048,7 @@ describe('collection redaction characterization', () => {
                   },
                 ],
                 "type": "http",
-                "url": "https://user:PLAIN-url-pw@api.test/v1?api_key=PLAIN-url-key&page=1",
+                "url": "https://api.test/v1?api_key=&page=1",
               },
               "type": "request",
             },
@@ -1315,7 +1473,7 @@ describe('collection redaction characterization', () => {
   it('sse', () => {
     expect(record(FIXTURES.sse)).toMatchInlineSnapshot(`
       {
-        "count": 3,
+        "count": 4,
         "redacted": {
           "id": "c",
           "items": [
@@ -1348,7 +1506,7 @@ describe('collection redaction characterization', () => {
                   },
                 ],
                 "type": "sse",
-                "url": "https://sse.test/events?token=PLAIN-sse-url",
+                "url": "https://sse.test/events?token=",
               },
               "type": "request",
             },
@@ -1362,7 +1520,7 @@ describe('collection redaction characterization', () => {
   it('mcp http', () => {
     expect(record(FIXTURES.mcpHttp)).toMatchInlineSnapshot(`
       {
-        "count": 2,
+        "count": 3,
         "redacted": {
           "id": "c",
           "items": [
@@ -1389,7 +1547,7 @@ describe('collection redaction characterization', () => {
                 "name": "mcp",
                 "transport": "streamable-http",
                 "type": "mcp",
-                "url": "https://user:PLAIN-mcp-pw@mcp.test/mcp",
+                "url": "https://mcp.test/mcp",
               },
               "type": "request",
             },
@@ -1491,7 +1649,7 @@ describe('collection redaction characterization', () => {
   it('kafka', () => {
     expect(record(FIXTURES.kafka)).toMatchInlineSnapshot(`
       {
-        "count": 3,
+        "count": 4,
         "redacted": {
           "id": "c",
           "items": [
@@ -1514,7 +1672,7 @@ describe('collection redaction characterization', () => {
                   },
                   "sasl": {
                     "extensions": {
-                      "token": "PLAIN-sasl-ext",
+                      "token": "",
                     },
                     "mechanism": "PLAIN",
                     "username": "kept",
@@ -1608,7 +1766,7 @@ describe('collection redaction characterization', () => {
   it('mqtt', () => {
     expect(record(FIXTURES.mqtt)).toMatchInlineSnapshot(`
       {
-        "count": 3,
+        "count": 5,
         "redacted": {
           "id": "c",
           "items": [
@@ -1623,7 +1781,7 @@ describe('collection redaction characterization', () => {
                   "clientId": "c",
                   "connectProperties": {
                     "userProperties": {
-                      "password": "PLAIN-connect-prop",
+                      "password": "",
                     },
                   },
                   "connectTimeout": 1000,
@@ -1632,7 +1790,7 @@ describe('collection redaction characterization', () => {
                     "payload": "x",
                     "properties": {
                       "userProperties": {
-                        "token": "PLAIN-lwt-prop",
+                        "token": "",
                       },
                     },
                     "qos": 0,
@@ -1691,7 +1849,7 @@ describe('collection redaction characterization', () => {
   it('folder auth', () => {
     expect(record(FIXTURES.folderAuth)).toMatchInlineSnapshot(`
       {
-        "count": 2,
+        "count": 3,
         "redacted": {
           "id": "c",
           "items": [
@@ -1727,7 +1885,7 @@ describe('collection redaction characterization', () => {
                   "id": "folderSecret",
                   "key": "folderSecret",
                   "secret": true,
-                  "value": "PLAIN-folder-variable-kept",
+                  "value": "",
                 },
               ],
             },
@@ -1741,7 +1899,7 @@ describe('collection redaction characterization', () => {
   it('collection auth', () => {
     expect(record(FIXTURES.collectionAuth)).toMatchInlineSnapshot(`
       {
-        "count": 5,
+        "count": 6,
         "redacted": {
           "auth": {
             "awsSignature": {
@@ -1772,7 +1930,7 @@ describe('collection redaction characterization', () => {
               "id": "rootSecret",
               "key": "rootSecret",
               "secret": true,
-              "value": "PLAIN-root-variable-kept",
+              "value": "",
             },
           ],
         },
@@ -2393,7 +2551,7 @@ describe('collection redaction characterization', () => {
     `);
   });
   it('mqtt with @ in the password', () => {
-    expect(record(PINNED_VIOLATIONS.mqttAtSignInPassword)).toMatchInlineSnapshot(`
+    expect(record(FIXTURES.mqttAtSignInPassword)).toMatchInlineSnapshot(`
       {
         "count": 1,
         "redacted": {
@@ -2404,7 +2562,7 @@ describe('collection redaction characterization', () => {
               "name": "item",
               "request": {
                 "connection": {
-                  "brokerUrl": "mqtt://tail@broker.test:1883",
+                  "brokerUrl": "mqtt://broker.test:1883",
                 },
                 "id": "r",
                 "name": "mqtt @",
@@ -2426,12 +2584,12 @@ describe('collection redaction characterization', () => {
           ],
           "name": "c",
         },
-        "residual": 1,
+        "residual": 0,
       }
     `);
   });
   it('kafka with @ in the password', () => {
-    expect(record(PINNED_VIOLATIONS.kafkaAtSignInPassword)).toMatchInlineSnapshot(`
+    expect(record(FIXTURES.kafkaAtSignInPassword)).toMatchInlineSnapshot(`
       {
         "count": 2,
         "redacted": {
@@ -2443,10 +2601,10 @@ describe('collection redaction characterization', () => {
               "request": {
                 "connection": {
                   "bootstrapBrokers": [
-                    "tail@b1:9092",
+                    "b1:9092",
                   ],
                   "registry": {
-                    "url": "https://tail@registry.test",
+                    "url": "https://registry.test",
                   },
                 },
                 "consume": {},
@@ -2462,7 +2620,7 @@ describe('collection redaction characterization', () => {
           ],
           "name": "c",
         },
-        "residual": 2,
+        "residual": 0,
       }
     `);
   });
@@ -2691,6 +2849,31 @@ describe('request slot edge cases', () => {
 describe('count(redact(c)) === 0', () => {
   it.each(Object.entries(FIXTURES))('%s', (_name, collection) => {
     expect(countCollectionInlineSecrets(redactCollectionSecrets(collection))).toBe(0);
+  });
+
+  it.each([
+    'mqttAtSignInPassword',
+    'kafkaAtSignInPassword',
+    'mqttWhitespaceInPassword',
+    'kafkaTemplateFirst',
+    'httpUrlCredentials',
+    'graphqlUrlCredentials',
+    'grpcUrlCredentials',
+    'sseUrlCredentials',
+    'mcpUrlCredentials',
+    'grpcSchemelessUserinfo',
+    'httpProtocolRelativeUserinfo',
+    'httpTemplatedSchemeUserinfo',
+    'httpSlashInPassword',
+    'secretVariables',
+    'contractSpecUrls',
+    'oauthUrls',
+    'opaqueBagAddresses',
+    'postmanUrlHost',
+  ] as const)('%s: the warning fires and no fake credential remains', (name) => {
+    const collection = FIXTURES[name];
+    expect(countCollectionInlineSecrets(collection)).toBeGreaterThan(0);
+    expect(JSON.stringify(redactCollectionSecrets(collection))).not.toContain('PLAIN');
   });
 
   /**

@@ -7,6 +7,8 @@
  * explicit escaping rather than via a Markdown library — no extra dependency
  * and no untrusted-HTML surface.
  */
+import { redactUrlCredentialsForStorage } from '@shared/collections/postman/text-redaction';
+import { isSecretFieldName } from '@shared/secrets/key-value-redaction';
 import type { Collection, CollectionItem, KeyValue, Request } from '@/types';
 import { isConnectionPresetRequest } from '@/types';
 
@@ -44,7 +46,7 @@ function enabledKeyValues(list: KeyValue[] | undefined): DocParam[] {
     .filter((kv) => kv.enabled && kv.key)
     .map((kv) => ({
       name: kv.key,
-      value: kv.secret ? '••••••' : kv.value,
+      value: kv.secret || isSecretFieldName(kv.key) ? '••••••' : kv.value,
       ...(kv.description ? { description: kv.description } : {}),
     }));
 }
@@ -56,7 +58,8 @@ function operationFromRequest(req: Request, path: string): DocOperation {
     path,
     name: req.name,
     protocol: req.type,
-    url: 'url' in req ? req.url : '',
+    // Docs have no redact-or-include prompt, so URLs are always redacted.
+    url: 'url' in req ? redactUrlCredentialsForStorage(req.url) : '',
     authType: 'auth' in req && req.auth ? req.auth.type : 'none',
     ...(description ? { description } : {}),
   };

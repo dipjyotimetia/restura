@@ -20,7 +20,11 @@
  * literal `{{name}}` placeholder, and SSE refuses a credential only main could
  * apply instead of connecting anonymously.
  */
-import { referencesSecretVariable } from '@shared/variables/secret-variable-token';
+import { authHeaderNames } from '@shared/protocol/request-spec';
+import {
+  referencesSecretVariable,
+  SecretVariableReferenceError,
+} from '@shared/variables/secret-variable-token';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
@@ -55,10 +59,11 @@ export type ConnectScope = RequestScope;
 
 /** Scope of the ACTIVE request: full Variable scope + the env store's pass. */
 export function createConnectScope(): ConnectScope {
-  const { values, secretVariables } = buildActiveRequestVariableResolution();
+  const { values, secretVariables, sendSecretNames } = buildActiveRequestVariableResolution();
   return {
     values,
     secretVariables,
+    secretNames: sendSecretNames,
     resolveVariables: useEnvironmentStore.getState().resolveVariables,
   };
 }
@@ -66,8 +71,8 @@ export function createConnectScope(): ConnectScope {
 class ConnectRefused extends Error {}
 
 /** The one resolver call site; every connect field goes through here. */
-function resolveField(scope: ConnectScope, text: string): string {
-  const resolved = resolveRequestScopeText(text, scope);
+function resolveField(scope: ConnectScope, text: string, field?: string): string {
+  const resolved = resolveRequestScopeText(text, scope, field);
   const secrets = scope.secretVariables;
   if (secrets && referencesSecretVariable(resolved, (name) => Object.hasOwn(secrets, name))) {
     throw new ConnectRefused(
@@ -85,7 +90,7 @@ function guarded<T>(build: () => ConnectResult<T>): ConnectResult<T> {
     return {
       ok: false,
       error:
-        error instanceof ConnectRefused
+        error instanceof ConnectRefused || error instanceof SecretVariableReferenceError
           ? error.message
           : `Could not resolve the connection: ${error instanceof Error ? error.message : String(error)}`,
     };
@@ -95,7 +100,7 @@ function guarded<T>(build: () => ConnectResult<T>): ConnectResult<T> {
 function resolveHeaders(scope: ConnectScope, headers: KeyValue[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(keyValuePairsToRecord(headers))) {
-    out[key] = resolveField(scope, value);
+    out[key] = resolveField(scope, value, `header "${key}"`);
   }
   return out;
 }
@@ -118,6 +123,8 @@ export function previewConnectText(
 export interface SseConnectSpec {
   url: string;
   headers: Record<string, string>;
+  /** Auth-added header names, removed on a redirect to another origin. */
+  stripOnOriginChange: string[];
 }
 
 /**
@@ -137,9 +144,8 @@ export function resolveSseConnect(
     const resolve = (text: string) => resolveField(scope, text);
     const headers = resolveHeaders(scope, request.headers);
     // Header-based auth (basic/bearer/api-key/oauth2), already resolved.
-    const credential = buildAuthCredential(
-      effective.auth && resolveAuthVariables(effective.auth, resolve)
-    );
+    const auth = effective.auth && resolveAuthVariables(effective.auth, resolve);
+    const credential = buildAuthCredential(auth);
     if (credential.requiresMainSideApply) {
       return {
         ok: false,
@@ -149,7 +155,7 @@ export function resolveSseConnect(
     }
     Object.assign(headers, credential.headers);
 
-    let url = resolveField(scope, request.url);
+    let url = resolveField(scope, request.url, 'URL');
     // Enabled query params plus any query-placed auth credential.
     const queryParams: Array<[string, string]> = [
       ...request.params
@@ -166,7 +172,7 @@ export function resolveSseConnect(
         // Not yet an absolute URL: leave it for the manager's validation error.
       }
     }
-    return { ok: true, url, headers };
+    return { ok: true, url, headers, stripOnOriginChange: authHeaderNames(auth) };
   });
 }
 
@@ -183,7 +189,7 @@ export function resolveWebSocketConnect(
 ): ConnectResult<WebSocketConnectSpec> {
   return guarded<WebSocketConnectSpec>(() => ({
     ok: true,
-    url: resolveField(scope, connection.url),
+    url: resolveField(scope, connection.url, 'URL'),
     headers: resolveHeaders(scope, connection.headers),
   }));
 }
@@ -221,7 +227,7 @@ export function resolveMcpConnect(
     if (!auth.ok) return { ok: false, error: auth.error };
     return {
       ok: true,
-      url: resolve(request.url),
+      url: resolveField(scope, request.url, 'URL'),
       transport: request.transport,
       headers: auth.headers,
       ...(auth.mainSideAuth ? { mainSideAuth: auth.mainSideAuth } : {}),
@@ -251,7 +257,7 @@ export function resolveGrpcReflectionConnect(
 ): ConnectResult<GrpcReflectionConnectSpec> {
   return guarded<GrpcReflectionConnectSpec>(() => {
     const resolve = (text: string) => resolveField(scope, text);
-    const url = resolve(rawUrl);
+    const url = resolveField(scope, rawUrl, 'URL');
     if (!request) return { ok: true, url };
     const blocked = postmanSendBlockedReason(request);
     if (blocked) return { ok: false, error: blocked };

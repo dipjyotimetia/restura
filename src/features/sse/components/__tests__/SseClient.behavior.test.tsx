@@ -75,6 +75,29 @@ describe('SseClient behaviour', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('reports a refused credential in the log and does not connect', async () => {
+    const user = userEvent.setup();
+    openSse({ auth: { type: 'oauth2', oauth2: { accessToken: '}}', tokenType: '{{sec' } } });
+    render(<SseClient />);
+    await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
+    expect(manager.connect).not.toHaveBeenCalled();
+    const log = useSseStore.getState().getFilteredLog(activeId());
+    expect(log.at(-1)).toMatchObject({
+      kind: 'system',
+      message: expect.stringMatching(/^Connection failed: .*variable reference/),
+    });
+  });
+
+  it('names an API key header for redirects', async () => {
+    const user = userEvent.setup();
+    openSse({ auth: { type: 'api-key', apiKey: { key: 'X-Unusual', value: 'k', in: 'header' } } });
+    render(<SseClient />);
+    await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
+    expect(manager.connect.mock.calls[0]?.[3]).toMatchObject({
+      stripOnOriginChange: ['X-Unusual'],
+    });
+  });
+
   it('connects with auth header, auth query param and resolved variables', async () => {
     const user = userEvent.setup();
     openSse({

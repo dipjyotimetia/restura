@@ -93,7 +93,7 @@ function applyAuth(
   headers: Record<string, string>,
   params: Record<string, string>,
   vars: Record<string, string>
-): { wireAuth?: ProtocolAuthConfig; warnings: string[] } {
+): { wireAuth?: ProtocolAuthConfig; warnings: string[]; authHeaders?: string[] } {
   const warnings: string[] = [];
   if (!isRecord(auth) || typeof auth.type !== 'string' || auth.type === 'none') {
     return { warnings };
@@ -114,7 +114,7 @@ function applyAuth(
       const value = v(auth.value);
       if (auth.placement === 'query') params[key] = value;
       else headers[key] = value;
-      return { warnings };
+      return auth.placement === 'query' ? { warnings } : { warnings, authHeaders: [key] };
     }
     case 'awsv4':
       return {
@@ -189,6 +189,7 @@ export function mapHttpElementToSpec(doc: unknown, vars: Record<string, string>)
     ...(built.data !== undefined ? { data: built.data } : {}),
     ...(built.formData ? { formData: built.formData } : {}),
     ...(auth.wireAuth ? { auth: auth.wireAuth } : {}),
+    ...(auth.authHeaders ? { redirectPolicy: { stripOnOriginChange: auth.authHeaders } } : {}),
   };
 
   return { spec, warnings };

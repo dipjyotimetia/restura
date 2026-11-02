@@ -280,7 +280,15 @@ export interface ElectronCollectionsAPI {
   saveToDirectory: (
     collection: unknown,
     path: string
-  ) => Promise<{ success: boolean; error?: string }>;
+  ) => Promise<{
+    success: boolean;
+    error?: string;
+    /** Present when the save left something out. Item names only, never values. */
+    redactions?: {
+      credentialsRemovedFrom: string[];
+      addressesBlankedIn: string[];
+    };
+  }>;
   /**
    * Write a directory export (Bruno / Postman v3) under `path`. With
    * `replace`, files matching the export layout inside `<path>/<subdir>` are

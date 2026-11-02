@@ -13,8 +13,14 @@ import { loadCollectionDirectory } from '@shared/opencollection/node/fs-reader';
 import { saveCollectionToDir } from '@shared/opencollection/node/fs-writer';
 import { ocToInternal } from '@shared/opencollection/to-internal';
 import { createLogger } from '@shared/runtime/logger';
-import { redactCollectionSecrets } from '@shared/secrets/collection-redaction';
-import type { Collection } from '@shared/types';
+import { countBlankedAddresses } from '@shared/secrets/broker-preset-redaction';
+import {
+  countCollectionInlineSecrets,
+  countVariableSecrets,
+  redactCollectionSecrets,
+} from '@shared/secrets/collection-redaction';
+import { countRequestSecrets } from '@shared/secrets/request-secret-slots';
+import type { Collection, CollectionRequest } from '@shared/types';
 import type { FSWatcher } from 'chokidar';
 import chokidar from 'chokidar';
 import type { BrowserWindow } from 'electron';
@@ -23,32 +29,77 @@ import { z } from 'zod';
 
 const log = createLogger('collections');
 
-/**
- * Walks the collection tree and emits a single warning to main-process stdout
- * if ANY request (or the collection itself) carries a plaintext secret that
- * `redactAuthForExport` will drop on save. Surfaced here so operators have
- * visibility — the IPC contract doesn't currently bubble warnings back to
- * the renderer for per-export advisories.
- */
-function warnIfPlaintextSecretsWillBeDropped(collection: FileCollection): void {
-  const offenders: string[] = [];
-  if (authHasPlaintextSecret(collection.auth)) offenders.push('<collection>');
+/** What `redactCollectionSecrets` removes from a directory save. Names only, never values. */
+export interface SaveRedactionNotices {
+  /** Items holding auth, URL, broker or passthrough credentials that are not written. */
+  credentialsRemovedFrom: string[];
+  /** Kafka / MQTT presets with an address that reloads empty and needs re-entering. */
+  addressesBlankedIn: string[];
+}
+
+/** A shape the counters cannot read is reported, and never fails the save it warns about. */
+function countOrAssumeOne(count: () => number): number {
+  try {
+    return count();
+  } catch {
+    return 1;
+  }
+}
+
+export function describeSaveRedactions(collection: FileCollection): SaveRedactionNotices {
+  const credentialsRemovedFrom: string[] = [];
+  const addressesBlankedIn: string[] = [];
+  if (authHasPlaintextSecret(collection.auth) || countVariableSecrets(collection) > 0) {
+    credentialsRemovedFrom.push('<collection>');
+  }
   const visit = (items: FileCollectionItem[]): void => {
     for (const item of items) {
+      const request = item.request as CollectionRequest | undefined;
+      const inRequest =
+        item.type === 'request' && request
+          ? countOrAssumeOne(() => countRequestSecrets(request))
+          : 0;
+      if (
+        inRequest > 0 ||
+        authHasPlaintextSecret((item as { auth?: unknown }).auth) ||
+        countVariableSecrets(item) > 0
+      ) {
+        credentialsRemovedFrom.push(item.name);
+      }
       if (
         item.type === 'request' &&
-        item.request &&
-        authHasPlaintextSecret((item.request as Record<string, unknown>).auth)
+        request &&
+        countOrAssumeOne(() => countBlankedAddresses(request)) > 0
       ) {
-        offenders.push(item.name);
+        addressesBlankedIn.push(item.name);
       }
       if (item.items?.length) visit(item.items);
     }
   };
   visit(collection.items);
-  if (offenders.length > 0) {
-    log.warn('plaintext auth secrets redacted on export — re-enter after import', {
-      offenders,
+  // Passthrough bags and contract specs are not per-request.
+  if (
+    credentialsRemovedFrom.length === 0 &&
+    countOrAssumeOne(() => countCollectionInlineSecrets(collection as unknown as Collection)) > 0
+  ) {
+    credentialsRemovedFrom.push('<collection>');
+  }
+  return { credentialsRemovedFrom, addressesBlankedIn };
+}
+
+/** For operators; the renderer gets the same names in the save result. */
+function logSaveRedactions({
+  credentialsRemovedFrom,
+  addressesBlankedIn,
+}: SaveRedactionNotices): void {
+  if (credentialsRemovedFrom.length > 0) {
+    log.warn('plaintext credentials not written on save — re-enter after import', {
+      offenders: credentialsRemovedFrom,
+    });
+  }
+  if (addressesBlankedIn.length > 0) {
+    log.warn('broker / registry address saved blank — re-enter it without credentials', {
+      offenders: addressesBlankedIn,
     });
   }
 }
@@ -84,7 +135,7 @@ interface FileCollectionItem {
   items?: FileCollectionItem[];
 }
 
-interface FileCollection {
+export interface FileCollection {
   id: string;
   name: string;
   description?: string;
@@ -256,14 +307,15 @@ async function loadCollectionFromDirectory(directoryPath: string): Promise<{
 async function saveCollectionToDirectory(
   collection: FileCollection,
   directoryPath: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; redactions?: SaveRedactionNotices }> {
   const dirKey = watcherKey(directoryPath);
   try {
     if (!(await isPathRealSafe(directoryPath))) {
       return { success: false, error: 'Access denied: Path is outside allowed directories' };
     }
 
-    warnIfPlaintextSecretsWillBeDropped(collection);
+    const redactions = describeSaveRedactions(collection);
+    logSaveRedactions(redactions);
     const previousManagedFiles =
       loadedManagedFiles.get(dirKey) ?? (await managedFilesFromManifest(directoryPath));
     const before = await expectedFingerprints(directoryPath, previousManagedFiles);
@@ -302,7 +354,9 @@ async function saveCollectionToDirectory(
     }
     writeState.active = false;
     await flushQueuedWatchEvents(dirKey, directoryPath, writeState, getMainWindowForWatchers);
-    return { success: true };
+    return redactions.credentialsRemovedFrom.length > 0 || redactions.addressesBlankedIn.length > 0
+      ? { success: true, redactions }
+      : { success: true };
   } catch (error) {
     const writeState = selfWriteStates.get(dirKey);
     if (writeState) {

@@ -102,6 +102,9 @@ export default function SseClient() {
     sseManager.connect(active.id, spec.url, spec.headers, {
       reconnectOnResume: request.reconnectOnResume ?? true,
       autoReconnect: request.autoReconnect ?? true,
+      ...(spec.stripOnOriginChange.length > 0
+        ? { stripOnOriginChange: spec.stripOnOriginChange }
+        : {}),
     });
   };
 

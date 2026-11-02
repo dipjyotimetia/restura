@@ -14,6 +14,7 @@
  * so plaintext never reaches the renderer. On web they can't be resolved at
  * all and are reported back as `unapplied` instead of being sent literally.
  */
+import { authHeaderNames } from '@shared/protocol/request-spec';
 import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
@@ -53,6 +54,8 @@ export interface SubscriptionHandshake {
   };
   /** Credentials that are configured but won't be sent — surface to the user. */
   unapplied: string[];
+  /** Auth-added header names, removed on a redirect to another origin. */
+  stripOnOriginChange: string[];
 }
 
 export interface SubscriptionHandshakeInput {
@@ -63,6 +66,8 @@ export interface SubscriptionHandshakeInput {
   values: Record<string, string>;
   /** SecretRef-backed variables — opaque to the renderer. */
   secretVariables: Record<string, SecretValue>;
+  /** Names that resolve only where they are written (`sendSecretNames`). */
+  secretNames?: readonly string[];
   /** Store-level resolver (dynamic vars etc.), applied after `values`. */
   resolveVariables: (text: string) => string;
   /** True on the Electron harness (handles can be resolved main-side). */
@@ -150,22 +155,30 @@ export function buildSubscriptionHandshake(
   const { request, values, secretVariables, desktop } = input;
   const unapplied: string[] = [];
 
-  const resolve = (text: string): string =>
-    resolveRequestScopeText(text, {
-      values,
-      secretVariables,
-      resolveVariables: input.resolveVariables,
-    });
+  const resolve = (text: string, field: string): string =>
+    resolveRequestScopeText(
+      text,
+      {
+        values,
+        secretVariables,
+        secretNames: input.secretNames,
+        resolveVariables: input.resolveVariables,
+      },
+      field
+    );
 
-  let url = resolve(request.url);
+  let url = resolve(request.url, 'URL');
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   for (const header of request.headers) {
-    if (header.enabled && header.key) headers[resolve(header.key)] = resolve(header.value);
+    if (header.enabled && header.key) {
+      const field = `header "${header.key}"`;
+      headers[resolve(header.key, field)] = resolve(header.value, field);
+    }
   }
 
   const effectiveAuth = resolveAuthVariables(
     resolveEffectiveAuth(request.auth, input.inheritedAuth),
-    resolve
+    (text) => resolve(text, 'auth')
   );
   let mainSideAuth: AuthConfig | undefined;
 
@@ -225,7 +238,14 @@ export function buildSubscriptionHandshake(
         }
       : undefined;
 
-  return { url, headers, connectionParams, ...(mainSide ? { mainSide } : {}), unapplied };
+  return {
+    url,
+    headers,
+    connectionParams,
+    ...(mainSide ? { mainSide } : {}),
+    unapplied,
+    stripOnOriginChange: authHeaderNames(effectiveAuth),
+  };
 }
 
 /**
@@ -234,7 +254,7 @@ export function buildSubscriptionHandshake(
  * environment resolver and the current harness.
  */
 export function prepareSubscriptionHandshake(request: HttpRequest): SubscriptionHandshake {
-  const { values, secretVariables } = buildActiveRequestVariableResolution();
+  const { values, secretVariables, sendSecretNames } = buildActiveRequestVariableResolution();
   // Refuses a Postman-guard-blocked request (#1232).
   const inherited = resolveInheritedAuthForSend(request);
   return buildSubscriptionHandshake({
@@ -242,6 +262,7 @@ export function prepareSubscriptionHandshake(request: HttpRequest): Subscription
     ...(inherited ? { inheritedAuth: inherited.auth } : {}),
     values,
     secretVariables,
+    secretNames: sendSecretNames,
     resolveVariables: (text) => useEnvironmentStore.getState().resolveVariables(text),
     desktop: isElectron(),
   });

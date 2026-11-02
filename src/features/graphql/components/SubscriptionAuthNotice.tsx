@@ -1,6 +1,9 @@
 import { UnappliedAuthNotice } from '@/features/auth/components/editors/UnappliedAuthNotice';
 import { useInheritedAuth } from '@/features/auth/components/InheritedAuthHint';
-import { buildSubscriptionHandshake } from '@/features/graphql/lib/subscriptionAuth';
+import {
+  buildSubscriptionHandshake,
+  type SubscriptionHandshake,
+} from '@/features/graphql/lib/subscriptionAuth';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { isElectron } from '@/lib/shared/platform';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -15,15 +18,23 @@ export function SubscriptionAuthNotice({ request }: { request: HttpRequest }) {
   const inherited = useInheritedAuth(request);
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const desktop = isElectron();
-  const { values, secretVariables } = buildActiveRequestVariableResolution();
-  const { unapplied, mainSide } = buildSubscriptionHandshake({
-    request,
-    ...(inherited ? { inheritedAuth: inherited.auth } : {}),
-    values,
-    secretVariables,
-    resolveVariables,
-    desktop,
-  });
+  const { values, secretVariables, sendSecretNames } = buildActiveRequestVariableResolution();
+  // This renders: a credential the handshake refuses is reported, not thrown.
+  let handshake: Pick<SubscriptionHandshake, 'unapplied' | 'mainSide'>;
+  try {
+    handshake = buildSubscriptionHandshake({
+      request,
+      ...(inherited ? { inheritedAuth: inherited.auth } : {}),
+      values,
+      secretVariables,
+      secretNames: sendSecretNames,
+      resolveVariables,
+      desktop,
+    });
+  } catch (error) {
+    handshake = { unapplied: [error instanceof Error ? error.message : 'Subscription failed'] };
+  }
+  const { unapplied, mainSide } = handshake;
 
   return (
     <div className="mb-4 space-y-2" data-testid="subscription-auth-notice">

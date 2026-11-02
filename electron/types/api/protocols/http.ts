@@ -66,6 +66,7 @@ export interface ElectronHttpRequestConfig {
   followOriginalMethod?: boolean;
   followAuthHeader?: boolean;
   stripReferer?: boolean;
+  stripOnOriginChange?: string[];
   encodeUrlAutomatically?: boolean;
   // TLS (desktop-only enforcement; mirrors HttpRequestConfigSchema)
   serverCipherOrder?: boolean;

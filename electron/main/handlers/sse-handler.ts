@@ -306,7 +306,11 @@ export function registerSseHandlerIPC(): void {
           timeout: policyConfig.timeout,
           // Never replay main-resolved credentials across a redirect (scheme
           // downgrade / path change): a 3xx is returned unfollowed → error.
-          ...(materialize ? { redirectPolicy: { maxRedirects: 0 } } : {}),
+          ...(materialize
+            ? { redirectPolicy: { maxRedirects: 0 } }
+            : config.stripOnOriginChange?.length
+              ? { redirectPolicy: { stripOnOriginChange: config.stripOnOriginChange } }
+              : {}),
         },
         sseFetcher,
         // Same outbound-network policy as every other desktop transport

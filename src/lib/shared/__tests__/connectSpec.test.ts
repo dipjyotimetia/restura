@@ -97,7 +97,7 @@ describe('connectSpec', () => {
         params: [kv('q', '{{folderVar}}')],
       });
       seed(request);
-      expect(resolveSseConnect(request)).toEqual({
+      expect(resolveSseConnect(request)).toMatchObject({
         ok: true,
         url: 'https://col.example.com/events?q=from-folder',
         headers: { 'X-Folder': 'from-folder' },
@@ -325,6 +325,69 @@ describe('connectSpec', () => {
       expect(resolveSseConnect(request)).toMatchObject({
         ok: true,
         headers: { 'X-{{host}}': 'v' },
+      });
+    });
+  });
+  describe('secret variables', () => {
+    const plainSecret = { id: 'ps', key: 'sec', value: 'PLAINTEXT', enabled: true, secret: true };
+    const alias = { id: 'al', key: 'alias', value: '{{sec}}', enabled: true };
+
+    it('refuses a secret reached through another variable, naming the field', () => {
+      const request = sse({ url: 'https://x.example.com/{{alias}}' });
+      seed(request, { variables: [plainSecret, alias] as never });
+      const spec = resolveSseConnect(request);
+      expect(spec.ok).toBe(false);
+      expect(JSON.stringify(spec)).toContain('URL');
+      expect(JSON.stringify(spec)).not.toContain('PLAINTEXT');
+    });
+
+    it('still resolves a secret written directly in the field', () => {
+      const request = sse({ url: 'https://x.example.com/{{sec}}' });
+      seed(request, { variables: [plainSecret] as never });
+      expect(resolveSseConnect(request)).toMatchObject({
+        ok: true,
+        url: 'https://x.example.com/PLAINTEXT',
+      });
+    });
+
+    it('refuses the same alias on WebSocket and MCP', () => {
+      const request = sse({ url: 'https://x.example.com' });
+      seed(request, { variables: [plainSecret, alias] as never });
+      expect(resolveWebSocketConnect({ url: 'wss://x/{{alias}}', headers: [] }).ok).toBe(false);
+      const mcp = {
+        id: 'req-1',
+        type: 'mcp',
+        url: 'https://x/{{alias}}',
+        transport: 'streamable-http',
+        headers: [],
+        auth: { type: 'none' },
+      } as unknown as McpRequest;
+      expect(resolveMcpConnect(mcp).ok).toBe(false);
+    });
+  });
+
+  describe('SSE cross-origin header strip', () => {
+    const apiKey = (key: string): AuthConfig =>
+      ({ type: 'api-key', apiKey: { key, value: 'v', in: 'header' } }) as AuthConfig;
+
+    it('names an auth-added header, including an inherited one', () => {
+      const own = sse({ auth: apiKey('X-Own') });
+      seed(own);
+      expect(resolveSseConnect(own)).toMatchObject({ ok: true, stripOnOriginChange: ['X-Own'] });
+      const inheriting = sse();
+      seed(inheriting, {}, { auth: apiKey('X-Folder') });
+      expect(resolveSseConnect(inheriting)).toMatchObject({
+        ok: true,
+        stripOnOriginChange: ['X-Folder'],
+      });
+    });
+
+    it('names the header as sent when its name is a variable', () => {
+      const request = sse({ auth: apiKey('X-{{host}}') });
+      seed(request);
+      expect(resolveSseConnect(request)).toMatchObject({
+        ok: true,
+        stripOnOriginChange: ['X-col.example.com'],
       });
     });
   });

@@ -14,6 +14,7 @@
  * the export redactors when a new auth descriptor is added.
  */
 
+import { redactVariableValue, scanUrlCredentials } from '../collections/postman/text-redaction';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '../secrets/auth-fields';
 import { isSecretHandle, redactSecret } from '../secrets/secret-ref';
 
@@ -51,6 +52,29 @@ function isSecretFieldName(key: string, inAuth: boolean): boolean {
   return GLOBAL_SECRET_FIELD_NAMES.has(k) || (inAuth && AUTH_ONLY_SECRET_FIELD_NAMES.has(k));
 }
 
+/** Fields holding a URL or address, lowercased: their credentials go, the rest stays. */
+const URL_FIELD_NAMES = new Set([
+  'url',
+  'tokenurl',
+  'authorizationurl',
+  'deviceauthorizationurl',
+  'accesstokenurl',
+  'refreshtokenurl',
+  'brokerurl',
+  'endpoint',
+  'redirecturi',
+  'callbackurl',
+  'issuer',
+]);
+
+function urlFieldChanges(key: string, value: unknown): value is string {
+  return (
+    URL_FIELD_NAMES.has(key.toLowerCase()) &&
+    typeof value === 'string' &&
+    redactUrlCredentials(value) !== value
+  );
+}
+
 /** A key that roots an auth descriptor subtree. */
 function isAuthKey(key: string): boolean {
   return key.toLowerCase() === 'auth';
@@ -76,7 +100,7 @@ function containsSecretField(value: unknown, seen: WeakSet<object>, inAuth: bool
     return value.some((v) => containsSecretField(v, seen, inAuth));
   }
   for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-    if (isSecretFieldName(key, inAuth)) return true;
+    if (isSecretFieldName(key, inAuth) || urlFieldChanges(key, v)) return true;
     if (containsSecretField(v, seen, inAuth || isAuthKey(key))) return true;
   }
   return false;
@@ -95,6 +119,8 @@ function redactInner(value: unknown, seen: WeakSet<object>, inAuth: boolean): un
   for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
     if (isSecretFieldName(key, inAuth)) {
       out[key] = redactValueAtSecretField(v);
+    } else if (urlFieldChanges(key, v)) {
+      out[key] = redactUrlCredentials(v);
     } else {
       out[key] = redactInner(v, seen, inAuth || isAuthKey(key));
     }
@@ -124,39 +150,20 @@ function redactValueAtSecretField(value: unknown): unknown {
 }
 
 /**
- * Credential-bearing query parameter names — values are replaced, the
- * parameter itself stays so the agent can still see it exists.
- */
-const SECRET_QUERY_PARAM_RE =
-  /^(api[-_]?key|access[-_]?token|token|secret|signature|sig|key|password|auth)$/i;
-
-/**
  * Strip credential material embedded in a URL before it crosses the MCP
- * boundary: `user:pass@host` userinfo is dropped and known credential query
- * params are masked. Non-URL strings pass through unchanged.
+ * boundary, with the shared rule. Credential values are replaced rather than
+ * blanked, so the agent can still see the parameter exists.
  */
 export function redactUrlCredentials(url: string | undefined): string | undefined {
   if (!url) return url;
-  try {
-    const u = new URL(url);
-    u.username = '';
-    u.password = '';
-    for (const name of [...u.searchParams.keys()]) {
-      if (SECRET_QUERY_PARAM_RE.test(name)) u.searchParams.set(name, '(secret)');
-    }
-    return u.toString();
-  } catch {
-    // Not an absolute URL (templated {{base}}/path etc.) — leave as-is; the
-    // interesting leak vector is a concrete user:pass@host / ?token= URL.
-    return url;
-  }
+  return scanUrlCredentials(url, { mask: '%28secret%29' }).redacted;
 }
 
 /**
  * Environment variables are key/value pairs where the value may itself be
  * a secret. We expose names (so an agent can ask "set foo to bar"), but
- * the values get an opaque "(secret)" placeholder if the variable is
- * marked as such, or are passed through if not.
+ * the values get an opaque "(secret)" placeholder if the variable is marked
+ * as such or credential-named, and any other value loses URL credentials.
  *
  * Mirrors Postman's environment "secret" flag handling.
  */
@@ -166,14 +173,17 @@ export interface RedactedEnvironmentVariable {
   isSecret: boolean;
 }
 
+const SECRET_PLACEHOLDER = '(secret)';
+
 export function redactEnvironmentVariables(
   vars: Array<{ key: string; value: string; enabled?: boolean; secret?: boolean }>
 ): RedactedEnvironmentVariable[] {
   return vars
     .filter((v) => v.enabled !== false)
-    .map((v) => ({
-      key: v.key,
-      value: v.secret ? '(secret)' : v.value,
-      isSecret: v.secret === true,
-    }));
+    .map((v) => {
+      const value = v.secret
+        ? SECRET_PLACEHOLDER
+        : redactVariableValue(v.key, v.value, SECRET_PLACEHOLDER);
+      return { key: v.key, value, isSecret: v.secret === true || value === SECRET_PLACEHOLDER };
+    });
 }

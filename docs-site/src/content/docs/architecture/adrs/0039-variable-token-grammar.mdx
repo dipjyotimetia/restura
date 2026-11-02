@@ -34,6 +34,10 @@ Variable lookups read own properties of a scope only. A name that matches an inh
 - **App** (`expandVariablesInOrder`): the existing definition-order walk. Request-scope values run first, in insertion order, then the active environment's variables in definition order, then globals, then dynamic helpers once at the end. Each variable is substituted once over the text so far, so a value can reference only variables that come after it in that order.
 - **CLI and streaming sends** (`resolveVariableText` and its streaming equivalent): a single pass over the original text. A substituted value is not expanded again. The CLI still generates a value of `{{$randomFirstName}}`, because dynamics run over the substituted result.
 
+### 5. Secret variables resolve only where they are written
+
+A secret variable, SecretRef-backed or plaintext, resolves only from a token written in the field being sent. An alias to one fails the send, with an error naming the variable and the field. `resolveRequestScopeText` shields written tokens before expansion and refuses any secret token left afterwards. `useEnvironmentStore.resolveVariables` never throws: there, a secret token reached through a value stays literal. Non-secret chains are unchanged. `pm.sendRequest` never resolves a secret variable, because a script string cannot be told apart from a server value; a token naming one refuses the sub-request.
+
 ## Alternatives considered
 
 - **Order-independent chaining everywhere.** Rejected: it changes which variables a stored value can reference, so it is not a safe default for existing environments or for the CLI.

@@ -140,3 +140,5 @@ handles. Since #1226, a request whose auth is identical to its nearest
 ancestor's reuses that ancestor's handle. Environment-file secrets (#1231)
 are not converted to handles: desktop keeps them as secret-flagged env vars
 and web drops them. Keychain handles for env vars remain a follow-up.
+
+**Update 2026-10-31:** A secret variable, SecretRef-backed or plaintext, resolves only from a token written in the field being sent, never through another variable's value; the renderer decides this before sending, and a reference through a value fails the send. A token endpoint value holding a variable token is refused and never stored. `pm.sendRequest` never resolves secret variables; a token naming one refuses the sub-request. A script-written request field cannot add a secret token; only tokens already in the saved field count as written.

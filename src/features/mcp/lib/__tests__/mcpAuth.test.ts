@@ -20,6 +20,17 @@ function build(
 }
 
 describe('buildMcpConnectAuth — web harness (#896)', () => {
+  it('reports a refused credential as a connect error', () => {
+    const result = build({
+      type: 'oauth2',
+      oauth2: { accessToken: '}}', tokenType: '{{sec' },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/variable reference/),
+    });
+  });
+
   it('passes headers through when there is no auth', () => {
     expect(build({ type: 'none' })).toEqual({ ok: true, headers: { 'X-Trace': '1' }, notices: [] });
     expect(build(undefined)).toMatchObject({ ok: true, headers: { 'X-Trace': '1' } });

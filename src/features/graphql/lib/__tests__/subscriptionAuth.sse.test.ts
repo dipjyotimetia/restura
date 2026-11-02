@@ -36,6 +36,7 @@ function subscribe(hs: ReturnType<typeof buildSubscriptionHandshake>) {
   const client = new GraphQLSubscriptionClient(hs.url, hs.headers, {
     connectionParams: hs.connectionParams,
     ...(hs.mainSide ? { mainSide: hs.mainSide } : {}),
+    stripOnOriginChange: hs.stripOnOriginChange,
   });
   client.connect({
     url: hs.url,
@@ -89,6 +90,46 @@ describe('graphql-sse subscription auth', () => {
     expect((cfg.headers as Record<string, string>)['X-Secret']).toBe('{{s}}');
     expect(typeof cfg.jsonBody).toBe('string');
     expect(JSON.stringify(cfg)).not.toContain(PLAINTEXT);
+  });
+
+  it.each([
+    ['web', false],
+    ['desktop', true],
+  ])('%s: names an API key header for redirects', async (_name, desktop) => {
+    const connect = vi.fn(async (_cfg: Record<string, unknown>) => ({ success: true }));
+    if (desktop) {
+      (window as unknown as { electron: unknown }).electron = {
+        isElectron: true,
+        sse: {
+          connect,
+          disconnect: vi.fn(async () => ({ success: true })),
+          on: vi.fn(),
+          removeAllListeners: vi.fn(),
+        },
+      };
+    }
+    proxyMock.mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized' });
+    const hs = buildSubscriptionHandshake({
+      request: request({
+        auth: { type: 'api-key', apiKey: { key: 'X-Unusual', value: 'k', in: 'header' } },
+      }),
+      values: {},
+      secretVariables: {},
+      resolveVariables: (t) => t,
+      desktop,
+    });
+    expect(hs.stripOnOriginChange).toEqual(['X-Unusual']);
+    const client = subscribe(hs);
+    if (desktop) {
+      await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+      expect(connect.mock.calls[0]?.[0]).toMatchObject({ stripOnOriginChange: ['X-Unusual'] });
+    } else {
+      await vi.waitFor(() => expect(proxyMock).toHaveBeenCalledTimes(1));
+      expect(proxyMock.mock.calls[0]?.[0]).toMatchObject({
+        redirectPolicy: { stripOnOriginChange: ['X-Unusual'] },
+      });
+    }
+    client.disconnect();
   });
 
   it('web: sends resolved headers + inherited auth + query API key through the proxy', async () => {

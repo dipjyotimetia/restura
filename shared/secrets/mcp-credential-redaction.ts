@@ -15,57 +15,20 @@
  * and the row kept so the request shape survives. The server URL loses any
  * `user:pass@` userinfo and the values of credential-named query params.
  */
+import {
+  REFERENCE_ONLY_VALUE,
+  redactUrlCredentialsForStorage,
+} from '../collections/postman/text-redaction';
 import type { AuthConfig, Collection, CollectionItem } from '../types';
 import { redactAuthConfigSecrets, redactOcBag } from './collection-redaction';
-import {
-  isSecretFieldName,
-  redactSecretKeyValues,
-  type SecretableRow,
-} from './key-value-redaction';
+import { redactSecretKeyValues, type SecretableRow } from './key-value-redaction';
+
+export { redactUrlCredentialsForStorage };
 
 interface McpCredentialBearer {
   url?: string | undefined;
   headers?: SecretableRow[] | undefined;
   auth?: AuthConfig | undefined;
-}
-
-/** A value that is exactly one `{{var}}` reference — a pointer, not a secret. */
-const SINGLE_VARIABLE_REFERENCE = /^\{\{\s*[^{}\s]+\s*\}\}$/;
-
-function decodeComponent(text: string): string {
-  try {
-    return decodeURIComponent(text.replace(/\+/g, ' '));
-  } catch {
-    return text;
-  }
-}
-
-/**
- * Strip `user:pass@` userinfo and blank credential-named query parameter
- * values (`?api_key=…`, `?access_token=…`) from a server URL. String-level so
- * templated URLs (`{{base}}/mcp?token={{t}}`) survive untouched apart from
- * the credential; a value that is a single `{{var}}` reference is kept.
- */
-export function redactUrlCredentialsForStorage(url: string): string {
-  let out = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
-  const queryStart = out.indexOf('?');
-  if (queryStart === -1) return out;
-  const hashStart = out.indexOf('#', queryStart);
-  const end = hashStart === -1 ? out.length : hashStart;
-  const query = out
-    .slice(queryStart + 1, end)
-    .split('&')
-    .map((pair) => {
-      const eq = pair.indexOf('=');
-      if (eq === -1) return pair;
-      const name = decodeComponent(pair.slice(0, eq));
-      const value = pair.slice(eq + 1);
-      if (!value || SINGLE_VARIABLE_REFERENCE.test(decodeComponent(value).trim())) return pair;
-      return isSecretFieldName(name) ? `${pair.slice(0, eq)}=` : pair;
-    })
-    .join('&');
-  out = `${out.slice(0, queryStart + 1)}${query}${out.slice(end)}`;
-  return out;
 }
 
 function isReference(v: unknown): boolean {
@@ -75,7 +38,7 @@ function isReference(v: unknown): boolean {
       : (v as { kind?: string; value?: unknown })?.kind === 'inline'
         ? (v as { value: unknown }).value
         : undefined;
-  return typeof raw === 'string' && SINGLE_VARIABLE_REFERENCE.test(raw.trim());
+  return typeof raw === 'string' && REFERENCE_ONLY_VALUE.test(raw.trim());
 }
 
 /**
@@ -107,7 +70,7 @@ export function redactMcpCredentials<T extends McpCredentialBearer>(value: T): T
   if (Array.isArray(value.headers)) {
     // A row whose value is exactly one `{{var}}` is a pointer, not a secret.
     next.headers = value.headers.map((row) =>
-      typeof row.value === 'string' && SINGLE_VARIABLE_REFERENCE.test(row.value.trim())
+      typeof row.value === 'string' && REFERENCE_ONLY_VALUE.test(row.value.trim())
         ? row
         : (redactSecretKeyValues([row])?.[0] ?? row)
     ) as T['headers'];

@@ -27,6 +27,8 @@ export interface ElectronSseAPI {
     secretVariables?: Record<string, ProtocolSecretValue>;
     /** POST this JSON body instead of a plain GET (GraphQL over SSE). */
     jsonBody?: string;
+    /** Header names removed on a redirect to another origin (auth-added ones). */
+    stripOnOriginChange?: string[];
   }) => Promise<{ success: boolean; error?: string }>;
   disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;
