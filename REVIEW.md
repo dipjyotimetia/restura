@@ -18,6 +18,8 @@ Each area has one dominant way of being wrong. Look for that first.
 | Docs (`docs/`, `docs-site/`, root `*.md`) | **it lies**: text that no longer matches the code or the CLI. |
 | Tests | **it mocks the seam away**: the test passes because the harness boundary it should exercise is stubbed. |
 | `.github/workflows/`, `scripts/merge-lane.mjs`, hooks | **it widens access**: new write permissions, secrets in logs, a gate that can be skipped. |
+| Dependencies (`package.json`, `allowScripts`, `.github/tools/*`, `vendor/`) | **it lets something in unvetted**: a new direct dependency without the [intake checklist](CONTRIBUTING.md#adding-a-dependency), a new `allowScripts: true`, or a vendor update without recorded provenance. The lockfile itself is skipped below, so read the `package.json` change and the PR's checklist. |
+| Agent config (`.claude/`, `.agents/`, `skills-lock.json`, `AGENTS.md`, `CLAUDE.md`) | **it hands an agent more reach**: a new hook command, a broader `--allowedTools`/permission rule, or an imported skill updated without reviewing the upstream diff. |
 
 ## Rules for findings
 
@@ -38,7 +40,7 @@ Generated, vendored or evidence-only files; the diff command in the `code-review
 
 The `code-review` skill picks **Quick / Standard / Deep** from the diff, not from the author (see its SKILL.md). Any change under the paths below is **Deep** regardless of size, because one missed bug there costs more than the extra review:
 
-`shared/protocol/`, `electron/main/security/`, `electron/main/ipc/`, `electron/main/storage/userdata-guard.ts`, `worker/` (auth, proxy, `dns-guard-node.ts`), `cli/src/runner/executors/`, `src/lib/shared/capabilities/`, secret stores, sandboxes, `.github/workflows/`, `scripts/merge-lane.mjs`, `.claude/hooks/`.
+`shared/protocol/`, `electron/main/security/`, `electron/main/ipc/`, `electron/main/storage/userdata-guard.ts`, `worker/` (auth, proxy, `dns-guard-node.ts`), `cli/src/runner/executors/`, `src/lib/shared/capabilities/`, secret stores, sandboxes, `.github/workflows/`, `scripts/merge-lane.mjs`, `.claude/hooks/`, `.claude/settings.json`, `skills-lock.json`, `scripts/check-lockfile-policy.mjs`, any `allowScripts` change.
 
 ## Rounds
 

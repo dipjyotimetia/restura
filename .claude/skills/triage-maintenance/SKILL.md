@@ -37,6 +37,16 @@ rebase` instead of pushing. If the repo needs a mechanical adaptation
    validators, or secret stores is a judgment call by definition: dispatch
    the `restura-security-auditor` agent and include its verdict rather than
    deciding alone.
+4. Supply chain (weekly; cadence in `docs/SUPPLY_CHAIN_HARDENING.md` §6):
+   open code-scanning alerts in the `zizmor` and CodeQL `actions` categories
+   (a red `workflow-lint` run on `main` is a regression; fix it like a failing
+   test); `npm run lockfile:check && npm run skills:check` pass on `main`; and
+   `npm install-scripts ls` reports nothing unreviewed.
+5. First sweep of each month, also: `npm install-scripts prune --dry-run`
+   (stale `allowScripts` entries → small `chore:` PR) and compare the action
+   owners in use (`grep -rhoE 'uses:\s*[^./][^@ ]+' .github | sed -E
+   's/uses:\s*//; s#/.*##' | sort -u`) with the repo's allowed-actions
+   setting. Report any drift; settings changes are for the maintainer.
 
 ## Stream 3 — Skill metrics (`--skills`)
 

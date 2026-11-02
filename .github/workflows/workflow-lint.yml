@@ -1,0 +1,56 @@
+name: Workflow lint
+
+# zizmor: static analysis for GitHub Actions (supply-chain epic #1283, #1296).
+# Flags template injection, excessive permissions, credential persistence
+# (artipacked), dangerous triggers, cache poisoning, unpinned/impostor actions
+# and known-vulnerable actions. Results land in Security → Code scanning under
+# the `zizmor` category; findings at medium severity and above fail the check.
+#
+# Suppress a finding only inline, with a reason:
+#   some-key: value  # zizmor: ignore[rule-name] -- why this is safe
+#
+# Run the same check locally:  uvx zizmor@1.31.1 --min-severity medium .github
+
+on:
+  pull_request:
+    paths:
+      - ".github/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/**"
+  schedule:
+    # Weekly, so newly-published advisories for pinned actions surface even
+    # when no workflow changed.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # SARIF upload to code scanning.
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          inputs: .github
+          # Pinned, never `latest`: a new zizmor release can add audits, and a
+          # red check should come from a reviewed version bump.
+          version: "1.31.1"
+          min-severity: medium

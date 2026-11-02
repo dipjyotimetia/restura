@@ -21,9 +21,9 @@ name: Merge lane
 on:
   push:
     branches: [main]
-  pull_request_target:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] -- wake-up signal only; never checks out PR code
     types: [auto_merge_enabled, unlabeled, reopened]
-  workflow_run:
+  workflow_run: # zizmor: ignore[dangerous-triggers] -- wake-up signal only; reads no artifacts from the triggering run
     workflows: [CI]
     types: [completed]
   schedule:

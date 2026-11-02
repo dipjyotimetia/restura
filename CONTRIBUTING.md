@@ -12,6 +12,7 @@ Thank you for your interest in contributing to Restura! This document provides g
 - [Coding Standards](#coding-standards)
 - [Testing Guidelines](#testing-guidelines)
 - [Pull Request Process](#pull-request-process)
+- [Adding a dependency](#adding-a-dependency)
 - [Issue Reporting](#issue-reporting)
 
 ## Code of Conduct
@@ -42,11 +43,12 @@ npm run dev
 
 #### npm 12 and dependency install scripts
 
-`scripts/verify-toolchain.mjs` pins npm to `12.1.0`. npm 12 blocks dependency install scripts by default, so native and binary packages only get their binaries if they are listed in the `allowScripts` field of the root `package.json` (esbuild, workerd, keytar, protobufjs, fsevents, `@sentry/cli`, `electron-winstaller`, `@vscode/vsce-sign`). That allowlist is committed, so `npm ci` works out of the box.
+`scripts/verify-toolchain.mjs` pins npm to `12.1.0`. npm 12 blocks dependency install scripts by default, so native and binary packages only get their binaries if they are listed in the `allowScripts` field of the root `package.json` (esbuild, workerd, protobufjs, fsevents, `@sentry/cli`, `electron-winstaller`, `@vscode/vsce-sign`). That allowlist is committed, so `npm ci` works out of the box. `npm run lockfile:check` (part of `validate`) fails if any lockfile entry with an install script has no `allowScripts` decision, so a dependency bump can't add one unnoticed.
 
-- If `npm ci` ends with an `install-scripts ... blocked` warning after a dependency bump, review with `npm install-scripts ls` and approve with `npm install-scripts approve <pkg> --no-allow-scripts-pin` (alias `npm approve-scripts`). Commit the `package.json` change.
+- If `npm ci` ends with an `install-scripts ... blocked` warning after a dependency bump, review with `npm install-scripts ls`. Read what the script does, then record the decision: `npm install-scripts approve <pkg> --no-allow-scripts-pin` if the package needs it, or `npm install-scripts deny <pkg>` if it works without it. Commit the `package.json` change; reviewers treat it as a security change (see [Adding a dependency](#adding-a-dependency)).
 - The Electron binary is not downloaded by `npm ci`. Run `node node_modules/electron/install.js` once (needed for `npm run electron:dev` and the desktop e2e).
-- If you installed with `--ignore-scripts` or an older allowlist, repair with `npm rebuild esbuild workerd keytar protobufjs fsevents`.
+- If you installed with `--ignore-scripts` or an older allowlist, repair with `npm rebuild esbuild workerd protobufjs fsevents`.
+- **Optional, stricter local setup** (what CI does): `npm ci --ignore-scripts`, then `npm rebuild` only what you need. Nothing in the dev loop requires install scripts: prebuilt binaries arrive as optional dependencies and Electron downloads itself on first launch. Add `@sentry/cli electron-winstaller` to the rebuild only if you package desktop installers locally.
 
 ## Development Setup
 
@@ -501,6 +503,50 @@ Add screenshots
    auto-merge PR at a time up to date with `main` so its checks run on top of
    everything merged before it (see [docs/CI_CD.md](docs/CI_CD.md#merging-the-merge-lane)).
    Don't use `--admin`: it skips the required checks and is for emergencies only.
+
+## Adding a dependency
+
+`npm audit` and Dependency Review only know about **published** advisories. A
+typosquat, a hijacked maintainer account or a freshly published malicious
+version has no advisory yet. The best defence is adding fewer, better-vetted
+dependencies. A PR that adds a new **direct** dependency (in any
+`package.json`, including `docs-site/`, the workspaces and `.github/tools/*`)
+says in its description:
+
+1. **Why.** Why the standard library, an existing dependency or a small amount
+   of our own code won't do.
+2. **Health check.** Weekly downloads, number of maintainers, age, recent
+   ownership changes, whether it has an install script, and whether it
+   publishes provenance (`npm view <pkg> --json | jq .dist.attestations`).
+3. **Size.** The lockfile diff: how many new transitive packages it brings. A
+   large tree for a small feature needs a justification.
+4. **Name.** The exact package name matches the one the project's GitHub repo
+   and docs link to (typosquats differ by a character or a scope).
+5. **Install script.** If it has one, the reasoned `allowScripts` decision
+   (`npm install-scripts approve|deny <pkg>`). `npm run lockfile:check` fails
+   until there is one.
+
+Rules enforced in CI:
+
+- Every lockfile entry resolves from `https://registry.npmjs.org/` with an
+  `integrity` hash: no git URLs, tarball URLs or local paths
+  (`npm run lockfile:check`).
+- `npm audit signatures` must pass after install.
+- Dependency Review blocks high-severity advisories (runtime and development)
+  and disallowed licences, and warns on packages with an OpenSSF Scorecard
+  below 3.
+- Dependabot only auto-merges patch/minor updates after a cooldown; majors are
+  always reviewed by hand.
+
+Vendored code under `vendor/` is a dependency too. Each folder records its
+upstream source, pinned commit or SHA-256 and licence in `SOURCE.md` + `LICENSE`.
+Update it like a bump: review the upstream diff, then update `SOURCE.md` in the
+same PR.
+
+Changes to `.github/`, `.claude/` (hooks, skills, agents, settings),
+`.agents/`, `AGENTS.md`, `CLAUDE.md` and `skills-lock.json` are reviewed like CI
+changes: they run on CI runners or on contributors' machines. Imported skills
+must match `skills-lock.json` (`npm run skills:check`).
 
 ## Issue Reporting
 

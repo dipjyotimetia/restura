@@ -261,6 +261,27 @@ building their own Electron image can disable this by setting
 
 ---
 
+## Pinning and verifying the image
+
+Tags such as `latest` can move. For production, pin the image by digest and
+verify its provenance before you upgrade:
+
+```bash
+# Get the digest of a release tag
+docker buildx imagetools inspect ghcr.io/dipjyotimetia/restura:<version>
+# or: crane digest ghcr.io/dipjyotimetia/restura:<version>
+
+# Verify the SLSA build provenance
+gh attestation verify oci://ghcr.io/dipjyotimetia/restura@sha256:<digest> \
+  --repo dipjyotimetia/restura
+```
+
+Then reference `ghcr.io/dipjyotimetia/restura@sha256:<digest>` in your compose
+file or `docker run`. See [Verifying downloads](../SECURITY.md#verifying-downloads)
+for the other artifacts.
+
+---
+
 ## Healthchecks
 
 | Path      | Purpose                                                                                          | Auth |

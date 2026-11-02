@@ -20,12 +20,13 @@ secret scanning, required reviewers, secrets).
 | **Merge lane**            | `.github/workflows/merge-lane.yml`               | push to `main`, CI completion, auto-merge enabled, every 30 min, manual | Keeps one auto-merge PR at a time up to date with `main` so its required checks run on the real tip (see [Merging](#merging-the-merge-lane)). |
 | **Claude Code Review**    | `.github/workflows/claude-code-review.yml`       | PR opened / ready / reopened; `claude-review` label | Sonnet review of the PR. Skips drafts, bots, forks and docs/lockfile-only PRs, and PRs whose body carries a `/ship-check` READY marker for the exact head sha (`<!-- restura:ship-check verdict=READY sha=<sha> -->`, the local review already ran). The label always forces a run, plus the repo Correctness/Standards/Spec `code-review` skill. Both jobs follow `REVIEW.md` (evidence rule, Important / Nit / Pre-existing tags, nit cap, skip paths) and the label re-run counts rounds so findings are not repeated and the fourth round asks for a rethink. |
 | **Eval harness**          | `.github/workflows/eval-harness.yml`             | manual dispatch; `eval-harness` label on a same-repo PR | Runs the seam-bug harness eval or the routing eval. **Costs money** (real model calls): default split `test`, 2 runs per case, per-run budget cap. The reviewer's Bash runs in the Claude Code sandbox with egress limited to the Claude API hosts and the npm registry (`sandbox: off` only to diagnose the sandbox). `save-baseline` also uploads a summary-only baseline to commit under `evals/harness/baselines/`. Uploads `.claude/metrics/evals/`. Never runs on push; not a required check. |
-| **Dependency Review**     | `.github/workflows/dependency-review.yml`        | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                                                |
+| **Dependency Review**     | `.github/workflows/dependency-review.yml`        | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps; warns on new deps with an OpenSSF Scorecard below 3.                                            |
+| **Workflow lint**         | `.github/workflows/workflow-lint.yml`            | PR / push touching `.github/**`, weekly, manual | [zizmor](https://docs.zizmor.sh) static analysis of every workflow, action and `dependabot.yml`; SARIF to code scanning (category `zizmor`); fails on medium+ findings. |
 | **Security Audit**        | `.github/workflows/security-audit.yml`           | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                                                           |
 | **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml`    | PR (Dependabot only)                     | Approves (as restura-bot) and auto-merges patch/minor dependency updates once required checks pass (see §4).                                                            |
 | **Dependabot alert remediation** | `.github/workflows/dependabot-remediate.yml` | Every 5 days + manual | Claude fixes open Dependabot alerts; a policy gate checks the patch and restura-bot opens and auto-merges the PR (see §4). |
 | **OpenWiki update**       | `.github/workflows/openwiki-update.yml`          | weekly, manual                           | Runs [OpenWiki](https://github.com/langchain-ai/openwiki) against OpenRouter to diff recent commits and open a PR updating `openwiki/`, the agent-facing docs (see §8). |
-| **Release**               | `.github/workflows/release.yml`                  | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                                                   |
+| **Release**               | `.github/workflows/release.yml`                  | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → provenance → npm CLI (trusted publishing) → Docker → Cloudflare.                                 |
 | **Release signing check** | `.github/workflows/release-signing-check.yml`    | weekly, manual, signing config on `main` | Signs the macOS app with the real Developer ID cert (no notarize, no publish) so signing regressions surface before release day.                                        |
 | **VS Code extension**     | `.github/workflows/extension-vscode-release.yml` | tag `vscode-v*.*.*` + manual dry-run     | Package + publish `restura-vscode` to the VS Code Marketplace + Open VSX; attach `.vsix` to a GitHub release.                                                           |
 | **Chrome extension**      | `.github/workflows/extension-chrome-release.yml` | tag `chrome-v*.*.*` + manual dry-run     | Build + zip the MV3 bundle, upload to the Chrome Web Store; attach `.zip` to a GitHub release.                                                                          |
@@ -39,14 +40,24 @@ secret scanning, required reviewers, secrets).
 
 ## Supply-chain security layers
 
+The threat model, the incident runbook and the review cadence live in
+[`SUPPLY_CHAIN_HARDENING.md`](./SUPPLY_CHAIN_HARDENING.md); user-facing
+verification steps are in [`SECURITY.md`](../SECURITY.md#verifying-downloads).
+
 | Layer                          | Where                                  | What it gives you                                                                    |
 | ------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------ |
 | **SAST**                       | CodeQL (default setup)                 | Code-scanning alerts on the app source.                                              |
+| **Workflow lint**              | zizmor (`workflow-lint.yml`)           | Template injection, excessive permissions, credential persistence, cache poisoning, unpinned/impostor actions. |
 | **Supply-chain scoring**       | OpenSSF Scorecard                      | Public score + SARIF; backs the README badge.                                        |
 | **Dependency gate**            | `dependency-review-action`, Dependabot | High-severity / disallowed-license deps blocked at PR; weekly update + security PRs. |
-| **Build provenance (npm)**     | `npm publish --provenance`             | Signed SLSA provenance for `restura-cli` on npm.                                     |
-| **Build provenance (desktop)** | `actions/attest-build-provenance`      | Signed provenance for every installer in `dist/installers`.                          |
-| **Build provenance (image)**   | `actions/attest-build-provenance`      | Signed provenance for the GHCR image, pushed alongside it.                           |
+| **No install scripts in CI**   | `npm ci --ignore-scripts` for repo deps | A dependency's install script never runs in CI or release jobs; jobs `npm rebuild` only the approved packages they need. Pinned tools under `.github/tools/` follow their own `allowScripts`. |
+| **Install-script review**      | `allowScripts` + `npm run lockfile:check` | Every lockfile entry with an install script needs a reviewed `true`/`false` decision in `package.json`. |
+| **Lockfile sources**           | `npm run lockfile:check`               | Every committed lockfile resolves only from `registry.npmjs.org` with an `integrity` hash. |
+| **Registry signatures**        | `npm audit signatures`                 | Run after install in `validate-static-build` and every release job that installs.   |
+| **Imported skill integrity**   | `npm run skills:check`                 | `.agents/skills/*` must match the hashes in `skills-lock.json`.                      |
+| **Build provenance (npm)**     | npm trusted publishing (OIDC)          | `restura-cli` published without any npm token; provenance attached automatically.    |
+| **Build provenance (desktop)** | `actions/attest-build-provenance`      | Signed provenance for every installer, minted in `attest-desktop` (no npm code).     |
+| **Build provenance (image)**   | `actions/attest-build-provenance`      | Signed provenance for the GHCR image, minted in `attest-image` and pushed alongside it. |
 | **Container CVE scan**         | `aquasecurity/trivy-action`            | Image scanned on publish; results in code scanning (report-only, `ignore-unfixed`).  |
 | **SBOM**                       | `@cyclonedx/cyclonedx-npm`             | CycloneDX SBOM (JSON + XML) attached to every GitHub release.                        |
 | **Signed + notarized desktop** | electron-builder + Apple notary        | macOS/Windows code signing when certs are configured.                                |
@@ -63,6 +74,7 @@ gh attestation verify oci://ghcr.io/dipjyotimetia/restura:<version> \
 
 # npm CLI provenance
 npm view restura-cli --json | jq .dist.attestations
+npm audit signatures   # in a project that depends on restura-cli
 ```
 
 ---
@@ -147,8 +159,10 @@ CodeQL runs via GitHub **default setup** (enabled in **Settings → Code securit
 to upload (`analyses from advanced configurations cannot be processed when the
 default setup is enabled`), which is why there is no `codeql.yml` here.
 
-- To broaden coverage, edit default setup and switch the query suite to
-  **`security-extended`** and/or add the **`actions`** language.
+- **Recommended (#1295):** edit default setup, add the **GitHub Actions**
+  (`actions`) language and switch the query suite to **`security-extended`**.
+  The `actions` language catches script injection and unsafe
+  `pull_request_target` / `workflow_run` use in workflows, complementing zizmor.
 - To switch to an advanced workflow instead (e.g. for `security-extended` +
   `actions` + a weekly schedule in code), first **disable default setup**, then
   add a `codeql.yml`. Don't run both.
@@ -187,13 +201,16 @@ To make it work:
 
 How Dependabot runs are hardened (in `ci.yml`):
 
-- **`--ignore-scripts`** on every `npm ci` — the updated package's lifecycle
-  scripts never execute in the merge-gating jobs. (Dependabot runs also get a
-  read-only token and no secrets by default.)
-- **`electron-smoke` and `e2e-electron` are skipped** — they need the
-  `electron-builder install-app-deps` postinstall that `--ignore-scripts`
-  suppresses. They aren't required checks, so skipping never blocks the merge;
-  Electron dep bumps still get desktop coverage at release preflight.
+- **`--ignore-scripts`** on every `npm ci` — for every CI run, not only
+  Dependabot's, so an updated package's lifecycle scripts never execute in the
+  merge-gating jobs. A bump that introduces a new install script fails
+  `npm run lockfile:check` until someone records an `allowScripts` decision.
+  (Dependabot runs also get a read-only token and no secrets by default.)
+- **Cooldowns** (`.github/dependabot.yml`): routine bumps wait until a release
+  has been public for 3–7 days (7 by default, and for every GitHub Actions
+  bump), long enough for most malicious releases to be yanked. Security updates
+  bypass the cooldown.
+- **Majors are never auto-merged** — only semver patch/minor updates qualify.
 - **`deploy-preview` is skipped** — Dependabot has no Cloudflare secrets and a
   preview of a dep bump has no value.
 - **PR test-result / coverage comments are skipped** — the read-only Dependabot
@@ -251,11 +268,12 @@ Prerequisites:
 ### 6. Release secrets
 
 The Release **preflight** job fails fast if a stable release is missing any of
-these. Set them in **Settings → Secrets and variables → Actions**:
+these. Set them in **Settings → Secrets and variables → Actions** (repository
+secrets — see §7 for why `release.yml` does not use a protected environment
+yet):
 
 | Secret                                                     | Required for            | Notes                                                   |
 | ---------------------------------------------------------- | ----------------------- | ------------------------------------------------------- |
-| `NPM_TOKEN`                                                | npm CLI publish         | Automation token; publish to public npm.                |
 | `CLOUDFLARE_API_TOKEN`                                     | web deploy              | Pages + Workers deploy scope.                           |
 | `CLOUDFLARE_ACCOUNT_ID`                                    | web deploy              |                                                         |
 | `WORKER_PROXY_TOKEN`                                       | web build/deploy        | Injected into the production build + Worker auth gate.  |
@@ -266,10 +284,22 @@ these. Set them in **Settings → Secrets and variables → Actions**:
 | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`        | source-map upload       | Required for stable releases; symbolicated stacks.      |
 
 > `GITHUB_TOKEN` is automatic. `GHCR` publish uses it (`packages: write`).
+>
+> **No npm token.** `restura-cli` publishes through
+> [npm trusted publishing](https://docs.npmjs.com/trusted-publishers): on
+> npmjs.com → `restura-cli` → *Settings → Trusted publishing*, add GitHub
+> Actions with owner `dipjyotimetia`, repository `restura`, workflow
+> `release.yml` and no environment. Configure it **before** the first stable
+> release on this workflow (otherwise `publish-cli` fails with 403/404 and can
+> be re-run once it's set). After one successful publish, set *Publishing
+> access → Require two-factor authentication and disallow tokens* and revoke any
+> remaining npm automation token.
 
-The **extension** release workflows use a separate set of secrets. They are all
-optional — each publish step self-skips when its secrets are absent, so a tagged
-run still builds, packages, and attaches the artifact to a GitHub release:
+The **extension** release workflows use a separate set of secrets, read only by
+their `publish` jobs, which run in the **`extensions`** environment (§7). They
+are all optional — each publish step self-skips when its secrets are absent, so
+a tagged run still builds, packages, and attaches the artifact to a GitHub
+release:
 
 | Secret                                                                                    | Required for        | Notes                                           |
 | ----------------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------- |
@@ -279,12 +309,24 @@ run still builds, packages, and attaches the artifact to a GitHub release:
 
 > Full step-by-step in the [extension release runbook](./EXTENSION_RELEASE.md).
 
-### 7. (Optional) Protected production environment
+### 7. Deployment environments
 
-For an extra approval gate on the production Cloudflare deploy, create a
-**Settings → Environments → `production`** environment with **required
-reviewers**, then add `environment: production` to the `deploy-web` job in
-`release.yml`. The job will then pause for manual approval before deploying.
+- ✅ **`extensions`** (**Settings → Environments → New environment**). The
+  `publish` jobs of both extension release workflows declare
+  `environment: extensions`. Under *Deployment branches and tags* choose
+  *Selected* and add the **tag** rules `vscode-v*` and `chrome-v*`, then move
+  `VSCE_PAT`, `OVSX_PAT` and the four `CHROME_*` secrets from repository to
+  environment secrets. Required reviewers are optional. Until you create it,
+  GitHub auto-creates an unprotected `extensions` environment on the first run
+  and the jobs keep reading the repository secrets, so nothing breaks in the
+  meantime.
+- ⏸ **`release`** (not used yet). The stable publish run of `release.yml` is
+  triggered by the merged `release/prepare` PR (`pull_request: closed`), so its
+  `GITHUB_REF` is `refs/pull/<n>/merge`. A deployment rule of `main` / `v*`
+  would refuse those jobs, and allowing `refs/pull/*/merge` would let any
+  same-repo PR's copy of the workflow read the secrets. Moving the publish run
+  to a `push`/dispatch trigger is the prerequisite; see
+  [`SUPPLY_CHAIN_HARDENING.md` §4](./SUPPLY_CHAIN_HARDENING.md#4-deliberately-not-done-yet).
 
 ### 8. OpenWiki documentation updates
 
@@ -293,10 +335,15 @@ weekly to keep `openwiki/` — the machine-readable docs coding agents reference
 in sync with recent commits. It opens a PR rather than pushing directly.
 
 CI-only tools installed outside the root lockfile (OpenWiki here, the Claude Code
-CLI in `eval-harness.yml`) are pinned by lockfile under `.github/tools/<tool>/`
-and installed with `npm ci --prefix`, so every transitive package is
-integrity-checked (OpenSSF Scorecard *Pinned-Dependencies*). To bump one, edit
-its `package.json` and run `npm install --package-lock-only` in that folder.
+CLI in `eval-harness.yml`, the CycloneDX SBOM generator in `release.yml`, and the
+marketplace publishers in the extension workflows) are pinned by lockfile under
+`.github/tools/<tool>/` and installed with `npm ci --prefix`, so every
+transitive package is integrity-checked (OpenSSF Scorecard
+*Pinned-Dependencies*) and covered by `npm run lockfile:check`. Each tool's
+`package.json` carries its own `allowScripts` decisions. To bump one, edit its
+`package.json` and run `npm install --package-lock-only --ignore-scripts` in
+that folder. Dependabot proposes monthly, cooled-down bumps for every
+`.github/tools/*` folder.
 
 - ✅ Set **`OPENROUTER_API_KEY`** in **Settings → Secrets and variables →
   Actions**. This is the only required secret; the workflow defaults
@@ -317,6 +364,32 @@ requests` error.
   dispatch (or `openwiki --init` run locally and committed) to seed the
   `openwiki/` directory — the scheduled job only handles incremental `--update`
   diffs.
+
+
+### AI-agent workflows
+
+**Rule:** an agent that reads untrusted input (issue or PR text, diffs, commit
+messages, advisory text, web pages) never holds a token that can push to
+`main`, publish, deploy or read release secrets. Anything an agent produces
+lands as a PR that goes through the same required checks and human review as
+any other PR. Neither the Claude GitHub App nor the GitHub Actions identity has
+a bypass on the `main` ruleset (check this when you edit the ruleset);
+restura-bot's bypass is used only by `release.yml` and the merge lane, which
+run no agent.
+
+| Workflow | Untrusted input it reads | Gating | Tokens it holds | Agent tools |
+|---|---|---|---|---|
+| `claude.yml` | Issue / PR / review text in the thread | `@claude` from OWNER, MEMBER or COLLABORATOR only; no bots | `GITHUB_TOKEN` read-only; Claude App token via OIDC (comments, branch pushes, never `main`) | `claude-code-action` defaults (no `--allowedTools` override), 30 turns |
+| `claude-code-review.yml` | PR diff and description | Same-repo, non-draft, non-bot PRs; `claude-review` label to re-run | `GITHUB_TOKEN` read-only; Claude App token via OIDC | Explicit allowlist: read/search tools, `git diff/log/rev-parse`, `gh pr view/diff/comment`, `gh issue view/list`, `gh search`, inline comments; no general `Bash` |
+| `claude-security-review.yml` | PR diff | Same-repo, non-draft, non-bot PRs; label to re-run | `GITHUB_TOKEN` read-only; Claude App token via OIDC | Explicit allowlist: read/search tools, `git diff/log/show`, `gh pr view/diff/comment`; no general `Bash` |
+| `dependabot-remediate.yml` | Dependabot alert and advisory text | Schedule / dispatch, `main` only | Remediate job: `contents: read`; the restura-bot token exists only in the later `publish` job, after a policy gate checks the patch | `Read/Glob/Grep`, `Edit` of `package.json` files only, `npm install/update --package-lock-only --ignore-scripts`, `npm ls/explain/view/audit` |
+| `eval-harness.yml` | Eval cases (repo content) and a same-repo PR | Dispatch, or `eval-harness` label on a same-repo, non-bot PR | `contents: read`; Claude OAuth token | `Bash` inside the Claude Code sandbox, egress limited to the Claude API and the npm registry |
+| `openwiki-update.yml` | Commit history | Schedule / dispatch | Job `contents`/`pull-requests: write`, but the checkout token is not persisted; the PR is opened by `create-pull-request`, not by the agent | OpenWiki CLI (OpenRouter) |
+
+Agent configuration (`.claude/`, `.agents/`, `AGENTS.md`, `CLAUDE.md`,
+`skills-lock.json`) is a sensitive path in `.github/CODEOWNERS`. Review hook and
+skill changes like CI changes. Imported skills must match `skills-lock.json`
+(`npm run skills:check`).
 
 ---
 
@@ -416,11 +489,16 @@ the output and options.
    does not wait for candidate-PR CI. The merged PR automatically starts
    publication. The workflow uses that exact merge commit, so later `main`
    commits are excluded.
-4. The publish run: **preflight** → **release**
-   (tag, notes, SBOM, draft release) → **desktop** (signed installers uploaded
-   to the draft) → **publish-cli**, **publish-docker**, **deploy-web** →
+4. The publish run: **release-secrets** (presence checks only, no checkout)
+   → **preflight** → **sbom** → **release** (tag, notes, draft release with
+   the SBOM attached) → **desktop** (signed installers uploaded
+   to the draft) → **attest-desktop**, **build-cli** → **publish-cli**,
+   **publish-docker** → **attest-image**, **deploy-web** →
    **publish-release** (flips the draft to public once every required
-   downstream job succeeds). Desktop runs first because signing/notarization is
+   downstream job, including both attestations, succeeds). Jobs that hold
+   `id-token: write` (`attest-desktop`, `attest-image`, `publish-cli`) install
+   no dependencies and run no repo build; they work only on the artifacts the
+   earlier jobs uploaded. Desktop runs first because signing/notarization is
    the likeliest failure; until it succeeds nothing irreversible has shipped.
    Preflight skips `npm run validate` when the merged commit is the
    dispatch-validated commit plus a version-only bump (checked by

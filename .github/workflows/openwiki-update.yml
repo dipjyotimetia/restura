@@ -31,7 +31,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: true
+          # OpenWiki is an LLM agent reading commit history (untrusted text):
+          # it must not find a contents:write token in .git/config.
+          # create-pull-request pushes with its own `token` input instead.
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:

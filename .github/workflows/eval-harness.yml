@@ -103,7 +103,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Install Claude Code CLI
         # Lockfile-pinned in .github/tools/claude-code (Scorecard Pinned-Dependencies);

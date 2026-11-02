@@ -43,6 +43,78 @@ Use GitHub's private vulnerability reporting: [open a private security advisory]
 | Medium   | XSS, CSRF, information disclosure           | 1-2 weeks     |
 | Low      | Minor information exposure                  | Next release  |
 
+## Verifying downloads
+
+Official Restura artifacts come only from these places. Treat anything else, including lookalike sites and re-hosted installers, as untrusted:
+
+- [github.com/dipjyotimetia/restura/releases](https://github.com/dipjyotimetia/restura/releases) (desktop installers, SBOMs, extension packages)
+- `ghcr.io/dipjyotimetia/restura` (Docker image)
+- [npmjs.com/package/restura-cli](https://www.npmjs.com/package/restura-cli) (CLI)
+- [restura.dev](https://restura.dev)
+
+The commands below use the [GitHub CLI](https://cli.github.com/) (`gh`), which verifies signed attestations against GitHub's records. For how the release pipeline protects these artifacts, and what to do if one is compromised, see [docs/SUPPLY_CHAIN_HARDENING.md](docs/SUPPLY_CHAIN_HARDENING.md).
+
+### Desktop installers
+
+Every installer (`.dmg`, `.zip`, `.exe`, `.AppImage`, `.deb`, `.rpm`) on a GitHub release has a SLSA build provenance attestation, created by the `attest-desktop` job of `.github/workflows/release.yml`:
+
+```bash
+gh attestation verify <downloaded-file> --repo dipjyotimetia/restura
+```
+
+A successful check proves the file was built by that workflow in this repository and has not been altered since.
+
+**macOS** installers are also code signed and notarized. After copying the app to `/Applications`:
+
+```bash
+codesign --verify --deep --strict --verbose=2 /Applications/Restura.app
+spctl --assess --type execute --verbose /Applications/Restura.app
+```
+
+`codesign` should report that the app is valid on disk and satisfies its Designated Requirement. `spctl` should report `accepted` with `source=Notarized Developer ID`. The signing identity is a "Developer ID Application" certificate; each release's notes list the expected identity.
+
+**Windows** installers are currently **not** Authenticode-signed (Windows signing is optional until a certificate is added), so SmartScreen may warn about them. Rely on the `gh attestation verify` check above before running an installer.
+
+### Docker image
+
+```bash
+gh attestation verify oci://ghcr.io/dipjyotimetia/restura:<version> --repo dipjyotimetia/restura
+```
+
+Tags can move; digests cannot. Pin deployments by digest (`ghcr.io/dipjyotimetia/restura@sha256:...`) and verify before upgrading. See [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#pinning-and-verifying-the-image).
+
+### npm CLI (`restura-cli`)
+
+`restura-cli` is published from `.github/workflows/release.yml` through npm trusted publishing (OIDC) with provenance, so there is no long-lived npm token. To check a version:
+
+```bash
+npm view restura-cli@<version> --json | jq .dist.attestations
+```
+
+In a project that depends on it, `npm audit signatures` verifies the registry signatures and provenance attestations of all installed packages. The npmjs.com package page also shows a "Provenance" badge linking to the exact workflow run and commit.
+
+### SBOM
+
+Every GitHub release attaches a CycloneDX SBOM of the production dependency tree as `restura.cdx.json` and `restura.cdx.xml`. Use it to check whether a release is affected by a CVE:
+
+```bash
+# Is a given package (and which version) in this release?
+jq -r '.components[] | "\(.name)@\(.version)"' restura.cdx.json | grep '^<package>@'
+```
+
+or feed it to an SBOM scanner, for example:
+
+```bash
+grype sbom:restura.cdx.json
+osv-scanner --sbom=restura.cdx.json
+```
+
+These scanners are examples; any tool that reads CycloneDX works.
+
+### VS Code and Chrome extensions
+
+Install the extensions only from the official Visual Studio Marketplace, Open VSX or Chrome Web Store listings linked from this repository. The VS Code publisher id is `dipjyotimetia`. The `.vsix` and `.zip` files attached to `vscode-v*` and `chrome-v*` GitHub releases are the same bytes uploaded to the stores.
+
 ## Security Best Practices
 
 ### For Users

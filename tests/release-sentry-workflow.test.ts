@@ -54,8 +54,12 @@ describe('release workflow Sentry guardrails', () => {
     expect(preflightBlock).toContain('SENTRY_ORG');
     expect(preflightBlock).toContain('SENTRY_PROJECT');
     expect(preflightBlock).toContain(
-      'NPM_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WORKER_PROXY_TOKEN SENTRY_DSN SENTRY_AUTH_TOKEN SENTRY_ORG SENTRY_PROJECT'
+      'for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WORKER_PROXY_TOKEN SENTRY_DSN SENTRY_AUTH_TOKEN SENTRY_ORG SENTRY_PROJECT'
     );
+    // restura-cli publishes through npm trusted publishing (OIDC); no npm token
+    // is read anywhere in the release workflow.
+    expect(workflow).not.toContain('secrets.NPM_TOKEN');
+    expect(workflow).not.toContain('NODE_AUTH_TOKEN');
   });
 
   it('smoke tests Sentry ingest before stable installers publish', () => {
@@ -149,11 +153,18 @@ describe('release workflow Sentry guardrails', () => {
   });
 
   it('publishes npm, Docker, and web only after desktop installers succeed', () => {
-    for (const job of ['publish-cli', 'publish-docker', 'deploy-web']) {
+    const needsOf = (job: string) => {
       const block = workflow.slice(workflow.indexOf(`\n  ${job}:`));
-      const needs = block.match(/^ {4}needs: \[([^\]]+)\]/m)?.[1];
-      expect(needs, `${job} needs`).toBe('release, desktop');
+      return block.match(/^ {4}needs: \[([^\]]+)\]/m)?.[1];
+    };
+    // Nothing irreversible ships before the installers are signed AND attested.
+    for (const job of ['build-cli', 'publish-docker', 'deploy-web']) {
+      expect(needsOf(job), `${job} needs`).toBe('release, desktop, attest-desktop');
     }
+    // publish-cli only ever publishes the tarball build-cli packed.
+    expect(needsOf('publish-cli')).toBe('release, build-cli');
+    expect(needsOf('attest-desktop')).toBe('desktop');
+    expect(needsOf('attest-image')).toBe('publish-docker');
     expect(workflow).not.toContain('repair_release_tag');
     expect(workflow).not.toContain('is_repair');
   });
@@ -203,7 +214,14 @@ describe('release workflow Sentry guardrails', () => {
       workflow.indexOf('- name: Create GitHub release')
     );
 
-    expect(sbomBlock.match(/@cyclonedx\/cyclonedx-npm@6/g) ?? []).toHaveLength(2);
-    expect(sbomBlock).not.toContain('@cyclonedx/cyclonedx-npm@2');
+    // Lockfile-pinned generator, installed without install scripts — never a
+    // floating `npx` download in a job that holds a contents:write token.
+    expect(sbomBlock).toContain('npm ci --prefix .github/tools/cyclonedx --ignore-scripts');
+    expect(sbomBlock).not.toMatch(/^\s*npx /m);
+    expect(sbomBlock.match(/"\$CYCLONEDX" --package-lock-only --omit dev/g) ?? []).toHaveLength(2);
+    const tool = JSON.parse(
+      readFileSync(resolve(process.cwd(), '.github/tools/cyclonedx/package.json'), 'utf8')
+    ) as { dependencies: Record<string, string> };
+    expect(tool.dependencies['@cyclonedx/cyclonedx-npm']).toMatch(/^6\.\d+\.\d+$/);
   });
 });

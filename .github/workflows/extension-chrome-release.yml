@@ -16,7 +16,14 @@ name: Release — Chrome extension
 #   dry_run=true (default) it builds + zips + uploads the .zip as a build
 #   artifact, but never uploads to the store and never creates a release.
 #
-# Required repo secrets for publishing (publish steps self-skip when absent):
+# Supply-chain layout (epic #1283, #1288): `build` runs the repo's npm
+# dependencies but holds no secrets and only a read token; `publish` holds the
+# Web Store credentials and installs ONLY the lockfile-pinned publisher
+# (.github/tools/publish) — app dependency code never runs next to the token.
+# `publish` runs in the `extensions` environment (tag-only deployment rule,
+# docs/CI_CD.md §7).
+#
+# Required `extensions` environment secrets (the upload self-skips when absent):
 #   CHROME_EXTENSION_ID   — the published item's ID.
 #   CHROME_CLIENT_ID      — OAuth client ID for the Chrome Web Store API.
 #   CHROME_CLIENT_SECRET  — OAuth client secret.
@@ -42,27 +49,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build + publish
+  build:
+    name: Build + zip
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      zip: ${{ steps.zip.outputs.zip }}
     env:
       IS_TAG: ${{ github.ref_type == 'tag' }}
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
-      # All four Web Store credentials must be present to attempt an upload.
-      HAS_STORE_CREDS: ${{ secrets.CHROME_EXTENSION_ID != '' && secrets.CHROME_CLIENT_ID != '' && secrets.CHROME_CLIENT_SECRET != '' && secrets.CHROME_REFRESH_TOKEN != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: '.nvmrc'
-          cache: 'npm'
+          # No dependency cache in release jobs (cache poisoning, #1291).
+          cache: ''
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: |
+          set -euo pipefail
+          npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
+          npm audit signatures
 
       - name: Type-check
         run: npm run type-check --workspace @restura/extension
@@ -105,30 +118,62 @@ jobs:
       - name: Upload zip artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: restura-capture-${{ steps.version.outputs.version }}-zip
+          name: restura-capture-zip
           path: ${{ steps.zip.outputs.zip }}
           if-no-files-found: error
 
+  publish:
+    name: Publish
+    needs: [build]
+    if: ${{ github.ref_type == 'tag' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: extensions
+    permissions:
+      # gh release create.
+      contents: write
+    env:
+      # All four Web Store credentials must be present to attempt an upload.
+      HAS_STORE_CREDS: ${{ secrets.CHROME_EXTENSION_ID != '' && secrets.CHROME_CLIENT_ID != '' && secrets.CHROME_CLIENT_SECRET != '' && secrets.CHROME_REFRESH_TOKEN != '' }}
+    steps:
+      # Checkout only for the local setup action and the pinned publisher's
+      # lockfile. No repo `npm ci` in this job.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-npm
+        with:
+          node-version-file: '.nvmrc'
+          cache: ''
+
+      - name: Install pinned publisher
+        run: npm ci --prefix .github/tools/publish --no-audit --no-fund --ignore-scripts
+
+      - name: Download zip
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: restura-capture-zip
+
       - name: Upload + publish to Chrome Web Store
-        if: env.IS_TAG == 'true' && env.DRY_RUN != 'true' && env.HAS_STORE_CREDS == 'true'
+        if: env.HAS_STORE_CREDS == 'true'
         env:
           EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
           CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
-          ZIP: ${{ steps.zip.outputs.zip }}
+          ZIP: ${{ needs.build.outputs.zip }}
         # The CLI reads EXTENSION_ID / CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN
         # from the environment. The command-less form uploads AND submits for
         # review (the modern replacement for the deprecated `upload --auto-publish`).
-        run: npx --yes chrome-webstore-upload-cli@4 --source "$ZIP"
+        run: .github/tools/publish/node_modules/.bin/chrome-webstore-upload --source "$ZIP"
 
       - name: Create GitHub release
-        if: env.IS_TAG == 'true' && env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
-          VERSION: ${{ steps.version.outputs.version }}
-          ZIP: ${{ steps.zip.outputs.zip }}
+          VERSION: ${{ needs.build.outputs.version }}
+          ZIP: ${{ needs.build.outputs.zip }}
           STORE_PUBLISHED: ${{ env.HAS_STORE_CREDS }}
         run: |
           set -euo pipefail
