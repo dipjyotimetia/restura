@@ -6,6 +6,9 @@
  * Any path that makes a cached bag stale (an edit, a move, a duplicate with
  * fresh identity) must drop ALL of them; iterate this list rather than naming
  * one bag so a new importer's bag cannot be forgotten.
+ *
+ * Tree mutations do not call these directly: `tree-edit.ts` owns when bags go
+ * stale (callers state what changed). Only that module and importers should.
  */
 export const PASSTHROUGH_BAG_KEYS = ['_oc', '_postman'] as const;
 

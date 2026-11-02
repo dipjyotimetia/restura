@@ -1,39 +1,17 @@
 /**
  * Shared WebSocket protocol primitives. Backend-agnostic.
  *
- * Both backends consume the same `WsTransport` contract:
- *   - WorkerWsTransport (web)      — opens `wss://api/.../ws?ticket=…`
- *   - ElectronWsTransport (desktop) — IPC over window.electron.websocket
+ * Contains `validateWsUrl` (the SSRF + scheme gate used by the Worker and
+ * Electron handlers) and base64 helpers for binary frames.
  *
- * The Worker route piggybacks on the same SSRF / header policy / auth gate
- * that already protects /api/proxy, so the web build is no longer more
- * permissive than the desktop build for WebSocket traffic.
- *
- * Browser `WebSocket` can't set custom headers, so the renderer uses a
- * one-shot "ticket" handshake: POST /api/ws-ticket with the connect spec,
- * receive a short-lived ticket id, open `wss://...?ticket=<id>` against the
- * Worker. The Worker dereferences the ticket and applies the headers when
- * it opens the upstream connection.
+ * Transport today: on Web the renderer connects browser-direct; on Desktop it
+ * goes through IPC (`window.electron.websocket`). The Worker also exposes
+ * `/api/ws-ticket` and `/api/ws` as a documented interface for self-hosters;
+ * the renderer does not currently use them.
  */
 
 import { base64ToBytes, bytesToBase64 } from './crypto-utils';
 import { validateURL } from './url-validation';
-
-export interface WsConnectSpec {
-  url: string;
-  protocols?: string[];
-  headers?: Record<string, string>;
-}
-
-export interface WsTransport {
-  connect(id: string, spec: WsConnectSpec): Promise<void>;
-  send(id: string, payload: string | ArrayBuffer): boolean;
-  disconnect(id: string, code?: number, reason?: string): void;
-  onOpen(id: string, cb: () => void): void;
-  onMessage(id: string, cb: (data: string | ArrayBuffer) => void): void;
-  onError(id: string, cb: (err: Error) => void): void;
-  onClose(id: string, cb: (code: number, reason: string) => void): void;
-}
 
 export interface WsValidationOptions {
   allowLocalhost: boolean;

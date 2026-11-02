@@ -1,4 +1,3 @@
-import { authHeaderNames } from '@shared/protocol/request-spec';
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
@@ -6,15 +5,13 @@ import { StreamSplit } from '@/components/shared/StreamSplit';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
-import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { sseExportName } from '@/features/sse/lib/sseLogExport';
 import { sseManager } from '@/features/sse/lib/sseManager';
 import { createSseStreamSummary, getSseSummaryView } from '@/features/sse/lib/streamSummary';
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
-import { keyValuePairsToRecord } from '@/lib/shared/utils';
+import { resolveSseConnect } from '@/lib/shared/connectSpec';
 import { useActiveRequest, useActiveTabId } from '@/store/selectors';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { SseRequest } from '@/types';
 import SseAssembledOutput from './SseAssembledOutput';
@@ -65,7 +62,6 @@ export default function SseClient() {
   const activeTabId = useActiveTabId();
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const update = (patch: Partial<SseRequest>) => updateRequest(patch);
-  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const eventNameFilter = request?.eventFilter?.[0] ?? 'all';
 
   // Auto-create a default connection on first mount if none exist
@@ -97,52 +93,18 @@ export default function SseClient() {
 
   const handleConnect = () => {
     if (!active || !request) return;
-    const headers = keyValuePairsToRecord(request.headers);
-    const resolvedHeaders: Record<string, string> = {};
-    for (const [k, v] of Object.entries(headers)) resolvedHeaders[k] = resolveVariables(v);
-
-    // Header-based auth (basic/bearer/api-key/oauth2). Sign-at-wire types
-    // (sigv4/oauth1/wsse) aren't applied to SSE streams — buildAuthCredential
-    // no-ops them and the SSE handler doesn't sign.
-    let credential: ReturnType<typeof buildAuthCredential>;
-    try {
-      credential = buildAuthCredential(request.auth);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : 'Invalid credential';
-      useSseStore.getState().appendSystem(active.id, `Connection failed: ${reason}`);
+    const spec = resolveSseConnect(request);
+    if (!spec.ok) {
+      useSseStore.getState().appendSystem(active.id, `Connection failed: ${spec.error}`);
       return;
     }
-    for (const [k, v] of Object.entries(credential.headers))
-      resolvedHeaders[k] = resolveVariables(v);
 
-    let url = resolveVariables(request.url);
-    // Enabled query params (parity with the workflow `startStream` path) plus
-    // any query-placed auth credential.
-    const queryParams: Array<[string, string]> = [
-      ...request.params
-        .filter((p) => p.enabled !== false && p.key)
-        .map((p): [string, string] => [resolveVariables(p.key), resolveVariables(p.value)]),
-      ...Object.entries(credential.params).map(([k, v]): [string, string] => [
-        k,
-        resolveVariables(v),
-      ]),
-    ];
-    if (queryParams.length > 0) {
-      try {
-        const u = new URL(url);
-        for (const [k, v] of queryParams) u.searchParams.set(k, v);
-        url = u.toString();
-      } catch {
-        // Leave the URL untouched if it isn't yet a valid absolute URL;
-        // sseManager.connect surfaces the validation error.
-      }
-    }
-
-    const authHeaders = authHeaderNames(request.auth);
-    sseManager.connect(active.id, url, resolvedHeaders, {
+    sseManager.connect(active.id, spec.url, spec.headers, {
       reconnectOnResume: request.reconnectOnResume ?? true,
       autoReconnect: request.autoReconnect ?? true,
-      ...(authHeaders.length > 0 ? { stripOnOriginChange: authHeaders } : {}),
+      ...(spec.stripOnOriginChange.length > 0
+        ? { stripOnOriginChange: spec.stripOnOriginChange }
+        : {}),
     });
   };
 
@@ -176,7 +138,7 @@ export default function SseClient() {
         onChange={(headers) => update({ headers })}
         itemLabel="header"
         addLabel="Add header"
-        resolvesVariables="connection"
+        resolvesVariables="request"
         httpHeaders
       />
       <div className="pt-3 mt-3 border-t border-sp-line">
@@ -186,7 +148,7 @@ export default function SseClient() {
           onChange={(params) => update({ params })}
           itemLabel="param"
           addLabel="Add param"
-          resolvesVariables="connection"
+          resolvesVariables="request"
         />
       </div>
       <div className="pt-3 mt-3 border-t border-sp-line">

@@ -85,7 +85,7 @@ export function McpStdioFields({ stdio, onChange, disabled }: McpStdioFieldsProp
           onChange={(items: KeyValue[]) => onChange({ ...stdio, env: items as McpStdioEnvVar[] })}
           itemLabel="environment variable"
           addLabel="Add variable"
-          resolvesVariables="connection"
+          resolvesVariables="request"
         />
         {secretBacked.length > 0 && (
           <p className="text-sp-11 text-sp-dim">

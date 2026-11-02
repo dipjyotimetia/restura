@@ -39,6 +39,7 @@ import {
   isConnectionPresetTab,
   saveTabBackToCollection,
 } from '@/features/collections/lib/saveBack';
+import { MODE_DESCRIPTORS, MODES_IN_MENU_ORDER } from '@/features/registry/modes';
 import { CAPABILITIES } from '@/lib/shared/capabilities';
 import { isElectron } from '@/lib/shared/platform';
 import { useOverflowFade } from '@/lib/shared/useOverflowFade';
@@ -57,22 +58,7 @@ import { SaveToCollectionDialog } from './SaveToCollectionDialog';
 type NewRequestMode = RequestMode;
 
 /** "Open as" targets, in the new-request menu's order. */
-const OPEN_AS: ReadonlyArray<{
-  mode: RequestMode;
-  chip: React.ComponentProps<typeof ProtoChip>['protocol'];
-  label: string;
-  desktopOnly?: boolean;
-}> = [
-  { mode: 'http', chip: 'HTTP', label: 'HTTP request' },
-  { mode: 'graphql', chip: 'GQL', label: 'GraphQL request' },
-  { mode: 'grpc', chip: 'GRPC', label: 'gRPC request' },
-  { mode: 'websocket', chip: 'WS', label: 'WebSocket' },
-  { mode: 'socketio', chip: 'SOCKETIO', label: 'Socket.IO' },
-  { mode: 'sse', chip: 'SSE', label: 'SSE stream' },
-  { mode: 'mcp', chip: 'MCP', label: 'MCP request' },
-  { mode: 'kafka', chip: 'KAFKA', label: 'Kafka client', desktopOnly: true },
-  { mode: 'mqtt', chip: 'MQTT', label: 'MQTT client', desktopOnly: true },
-];
+const OPEN_AS = MODES_IN_MENU_ORDER.map((mode) => ({ mode, ...MODE_DESCRIPTORS[mode] }));
 
 // When a tab still carries a default auto-assigned name ("New Request",
 // "New gRPC Request", …), several open tabs become indistinguishable — fall
@@ -494,7 +480,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                           onClick={() => handleOpenAs(tab, t.mode)}
                         >
                           <ProtoChip protocol={t.chip} className="w-12 justify-center" />
-                          {t.label}
+                          {t.menuLabel}
                           {carriesUrl(t.mode) ? null : (
                             <span className="ml-auto pl-3 text-sp-11 text-sp-dim">
                               URL not carried
@@ -542,54 +528,25 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                 sideOffset clears the floater's bottom edge (trigger sits 8px
                 above it) so the menu never overlaps the strip. */}
             <DropdownMenuContent align="start" sideOffset={10}>
-              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('http')}>
-                <ProtoChip protocol="HTTP" className="w-12 justify-center" />
-                HTTP request
-              </DropdownMenuItem>
-              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('graphql')}>
-                <ProtoChip protocol="GQL" className="w-12 justify-center" />
-                GraphQL request
-              </DropdownMenuItem>
-              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('grpc')}>
-                <ProtoChip protocol="GRPC" className="w-12 justify-center" />
-                gRPC request
-              </DropdownMenuItem>
-              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('websocket')}>
-                <ProtoChip protocol="WS" className="w-12 justify-center" />
-                WebSocket
-              </DropdownMenuItem>
-              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('socketio')}>
-                <ProtoChip protocol="SOCKETIO" className="w-12 justify-center" />
-                Socket.IO
-              </DropdownMenuItem>
-              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('sse')}>
-                <ProtoChip protocol="SSE" className="w-12 justify-center" />
-                SSE stream
-              </DropdownMenuItem>
-              <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('mcp')}>
-                <ProtoChip protocol="MCP" className="w-12 justify-center" />
-                MCP request
-              </DropdownMenuItem>
-              {/* Raw-TCP protocols: shown on web too (disabled + badge) so users can
-                  discover them instead of wondering where they went. */}
-              <DropdownMenuItem
-                className="gap-2"
-                disabled={!isElectron()}
-                onClick={() => handleNewTab('kafka')}
-              >
-                <ProtoChip protocol="KAFKA" className="w-12 justify-center" />
-                Kafka client
-                <DesktopOnlyBadge title={CAPABILITIES['kafka.basic'].notes} className="ml-auto" />
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="gap-2"
-                disabled={!isElectron()}
-                onClick={() => handleNewTab('mqtt')}
-              >
-                <ProtoChip protocol="MQTT" className="w-12 justify-center" />
-                MQTT client
-                <DesktopOnlyBadge title={CAPABILITIES['mqtt.basic'].notes} className="ml-auto" />
-              </DropdownMenuItem>
+              {/* Desktop-only (raw-TCP) modes are shown on web too (disabled + badge)
+                  so users can discover them instead of wondering where they went. */}
+              {OPEN_AS.map((t) => (
+                <DropdownMenuItem
+                  key={t.mode}
+                  className="gap-2"
+                  disabled={t.desktopOnly && !isElectron()}
+                  onClick={() => handleNewTab(t.mode)}
+                >
+                  <ProtoChip protocol={t.chip} className="w-12 justify-center" />
+                  {t.menuLabel}
+                  {t.capability && (
+                    <DesktopOnlyBadge
+                      title={CAPABILITIES[t.capability].notes}
+                      className="ml-auto"
+                    />
+                  )}
+                </DropdownMenuItem>
+              ))}
             </DropdownMenuContent>
           </DropdownMenu>
         </Floater>

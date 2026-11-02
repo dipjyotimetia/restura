@@ -19,6 +19,9 @@ vi.mock('@/features/grpc/lib/grpcReflection', () => ({
 
 import { toast } from 'sonner';
 import { GrpcReflectionClient } from '@/features/grpc/lib/grpcReflection';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useRequestStore } from '@/store/useRequestStore';
 import type { GrpcRequest } from '@/types';
 import { useGrpcReflection } from '../useGrpcReflection';
 
@@ -33,7 +36,6 @@ describe('useGrpcReflection credentials (#887)', () => {
     const { result } = renderHook(() =>
       useGrpcReflection({
         url: 'https://api.example.com',
-        resolveVariables: (t: string) => t,
         autoDiscover: false,
         request: { id: 'req-1' } as GrpcRequest,
       })
@@ -46,6 +48,66 @@ describe('useGrpcReflection credentials (#887)', () => {
       undefined,
       { metadata: { 'x-req': 'req-1' } }
     );
+  });
+});
+
+describe('useGrpcReflection endpoint scope', () => {
+  it('resolves collection variables in the endpoint it contacts', async () => {
+    discoverMock.mockResolvedValueOnce({
+      success: true,
+      services: [],
+      serverUrl: 'x',
+      timestamp: 1,
+    });
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c1',
+          name: 'Col',
+          variables: [{ id: 'cv', key: 'host', value: 'col.example.com', enabled: true }],
+          items: [
+            { id: 'req-1', name: 'R', type: 'request', request: { id: 'req-1' } as GrpcRequest },
+          ],
+        },
+      ],
+    });
+    useRequestStore
+      .getState()
+      .openTab({ id: 'req-1', type: 'grpc' } as GrpcRequest, { savedRequestId: 'req-1' });
+    const { result } = renderHook(() =>
+      useGrpcReflection({ url: 'https://{{host}}:443', autoDiscover: false })
+    );
+    await act(async () => {
+      await result.current.discover(true);
+    });
+    expect(vi.mocked(GrpcReflectionClient)).toHaveBeenLastCalledWith(
+      'https://col.example.com:443',
+      undefined,
+      undefined
+    );
+  });
+
+  it('refuses to contact the server when resolution fails', async () => {
+    vi.mocked(GrpcReflectionClient).mockClear();
+    const original = useEnvironmentStore.getState().resolveVariables;
+    useEnvironmentStore.setState({
+      resolveVariables: () => {
+        throw new Error('boom');
+      },
+    });
+    const { result } = renderHook(() =>
+      useGrpcReflection({ url: 'https://{{host}}:443', autoDiscover: false })
+    );
+    try {
+      await act(async () => {
+        await result.current.discover(true);
+      });
+    } finally {
+      useEnvironmentStore.setState({ resolveVariables: original });
+    }
+    expect(vi.mocked(GrpcReflectionClient)).not.toHaveBeenCalled();
+    expect(result.current.result).toMatchObject({ success: false });
+    expect(result.current.result?.error).toMatch(/boom/);
   });
 });
 
@@ -77,7 +139,6 @@ const buildSuccessResult = (overrides: Partial<ReflectionResult> = {}): Reflecti
 
 const baseOptions = {
   url: 'https://api.example.com',
-  resolveVariables: (text: string) => text,
   // Disable auto-discover by default — individual tests opt in to exercise it.
   autoDiscover: false,
 };

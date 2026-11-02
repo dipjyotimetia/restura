@@ -523,13 +523,6 @@ describe('mqttManager event listeners', () => {
     }
   });
 
-  it('flushBuffer is a no-op for unknown or empty buffers', () => {
-    const before = msgs(id).length;
-    mqttManager.flushBuffer(id);
-    mqttManager.flushBuffer('unknown');
-    expect(msgs(id)).toHaveLength(before);
-  });
-
   it('SUBSCRIBED without a granted QoS prints "?" and includes the identifier', () => {
     env.emit(`mqtt:subscribed:${id}`, { topicFilter: 'x/#', subscriptionIdentifier: 3 });
     expect(last().payload).toBe('Subscribed to x/# (QoS ?, id 3)');

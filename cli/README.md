@@ -182,7 +182,7 @@ AWS also accepts `{ kind: named-profile, profile: <name> }`; Azure workload iden
 
 ## Scripts and assertions
 
-Pre-request and test scripts run in a sandboxed QuickJS WASM VM (no DOM, no filesystem, no network escape; 64 MB memory cap, 5 s execution timeout). `pm.sendRequest`, `pm.cookies`, and `pm.vault` are not wired in the CLI (no cookie jar or OS keychain in a CI process) and reject with a clear error.
+Pre-request and test scripts run in a sandboxed QuickJS WASM VM (no DOM, no filesystem, no network escape; 64 MB memory cap, 5 s execution timeout). `pm.sendRequest`, `pm.cookies`, and `pm.vault` are not wired in the CLI (no cookie jar or OS keychain in a CI process). Calling them fails the script: `pm.vault` and `rs.judge` reject with a clear error, while `pm.sendRequest` and `pm.cookies.set` raise a `TypeError`. The CLI has no globals scope either: `pm.globals` starts empty and its writes are not kept, so pass shared values with `--env`, `--globals` or `--env-var`.
 
 ```yaml
 # request.http.yaml

@@ -8,11 +8,6 @@ import {
   type PostmanImportIssue,
   type PostmanImportReport,
 } from '@shared/collections/postman';
-import {
-  nextPostmanAuthGuard,
-  type PostmanAuthGuard,
-  postmanBlockedReason as sharedPostmanBlockedReason,
-} from '@shared/collections/postman/auth-guard';
 import { unzipPostmanV3Archive } from '@shared/collections/postman/v3-archive';
 import type { PostmanV3Limits } from '@shared/collections/postman/v3-container';
 import { collectPostmanFolderFiles } from '@shared/collections/postman/v3-folder';
@@ -266,20 +261,4 @@ export function postmanSecretVariableNames(c: Collection): Set<string> {
   };
   walk(c.items ?? []);
   return out;
-}
-
-/**
- * The Postman send guard (explicit `noauth`, unsupported auth) is shared
- * with the app: `shared/collections/postman/auth-guard.ts` (#1228, #1232).
- * The CLI's own `resolveEffectiveAuth` would fill `none` from an ancestor,
- * so a blocked request is refused at load time (`LoadedRequest.blocked`).
- */
-export { nextPostmanAuthGuard, type PostmanAuthGuard };
-
-/** Why a request item must not be sent by the CLI, or `undefined`. */
-export function postmanBlockedReason(
-  item: CollectionItem,
-  guard: PostmanAuthGuard
-): string | undefined {
-  return sharedPostmanBlockedReason(item, guard, 'the CLI');
 }

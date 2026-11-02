@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { isConfiguredAuth, resolveEffectiveAuth } from '@shared/auth/inheritance';
+import { flattenCollection } from '@shared/collection-run/flatten';
 import {
   fileCollectionMetaSchema,
   fileGrpcRequestSchema,
@@ -16,26 +17,14 @@ import {
 } from '@shared/opencollection/node/fs-reader';
 import { ocToInternal } from '@shared/opencollection/to-internal';
 import { resolveMcpEffectiveAuth } from '@shared/protocol/mcp-auth';
-import { combineScripts } from '@shared/scripts/combine-scripts';
-import type {
-  AuthConfig,
-  Collection,
-  CollectionItem,
-  GrpcRequest,
-  HttpRequest,
-  McpRequest,
-  SseRequest,
-} from '@shared/types';
+import type { Collection, GrpcRequest, HttpRequest, McpRequest, SseRequest } from '@shared/types';
 import * as yaml from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
 import {
   type CliPostmanImportReport,
   importPostmanFolder,
   loadPostmanFile,
-  nextPostmanAuthGuard,
-  type PostmanAuthGuard,
   type PostmanLimits,
-  postmanBlockedReason,
   postmanSecretVariableNames,
 } from './postmanImport.js';
 
@@ -223,104 +212,72 @@ function extractMeta(c: Collection): LoadedCollection['meta'] {
 }
 
 function flattenInternal(c: Collection): LoadedRequest[] {
-  const out: LoadedRequest[] = [];
-  // Seed inheritance from the collection root: collection-level scripts run
-  // against every descendant; collection-level auth is the fallback when a
-  // request (and every ancestor folder) leaves auth unconfigured. This mirrors
-  // the desktop runner's `flattenRunnables` + `withEffectiveAuth`.
-  walkItems(
-    c.items ?? [],
-    [],
-    [c.preRequestScript],
-    [c.testScript],
-    isConfiguredAuth(c.auth) ? c.auth : undefined,
-    nextPostmanAuthGuard({}, c),
-    {},
-    out
-  );
-  return out;
-}
-
-function walkItems(
-  items: CollectionItem[],
-  folderPath: string[],
-  inheritedPre: Array<string | undefined>,
-  inheritedTest: Array<string | undefined>,
-  inheritedAuth: AuthConfig | undefined,
-  guard: PostmanAuthGuard,
-  folderVars: Readonly<Record<string, string>>,
-  out: LoadedRequest[]
-): void {
-  for (const item of items) {
-    if (item.type === 'folder') {
-      const placeholder = getPostmanSidecar(item)?.item;
-      if (placeholder !== undefined && (item.items ?? []).length === 0) {
-        // A Postman v3 item kind with no Restura equivalent (LLM, data,
-        // MCP stdio …) imports as an empty placeholder folder. WebSocket /
-        // Socket.IO import as native items since #1209 (skipped below);
-        // only collections saved before that may still hold placeholders.
-        reportSkippedPlaceholder([...folderPath, item.name].join('/'));
-        continue;
+  // Inheritance (scripts, nearest-ancestor auth, the Postman guard, folder
+  // variables) is the shared Collection run flatten, the same walk the app's
+  // runner uses. Here each leaf also gets its effective auth and scripts baked
+  // in so the executor and runner stay tree-shape-agnostic.
+  const leaves = flattenCollection(c.items ?? [], {
+    rootScripts: { preRequestScript: c.preRequestScript, testScript: c.testScript },
+    rootAuth: isConfiguredAuth(c.auth) ? c.auth : undefined,
+    root: c,
+    sender: 'the CLI',
+    guardOwner: 'path',
+    skipFolder: (folder, path) => {
+      const placeholder = getPostmanSidecar(folder)?.item;
+      if (placeholder === undefined || (folder.items ?? []).length > 0) return false;
+      // A Postman v3 item kind with no Restura equivalent (LLM, data,
+      // MCP stdio …) imports as an empty placeholder folder. WebSocket /
+      // Socket.IO import as native items since #1209 (skipped below);
+      // only collections saved before that may still hold placeholders.
+      reportSkippedPlaceholder(path);
+      return true;
+    },
+    leafAction: (item, path) => {
+      const t = item.request?.type;
+      if (t === 'kafka' || t === 'mqtt' || t === 'websocket' || t === 'socketio') {
+        // Connection presets — Kafka / MQTT (#984), WebSocket / Socket.IO (#1209) —
+        // hold no runnable request; the app's runner skips them too. Report the
+        // skip instead of failing.
+        reportSkippedPreset(t, path);
+        return 'skip';
       }
-      // Thread this folder's default scripts (parent→child order) and its
-      // default auth (nearest-ancestor-wins) down to its descendants.
-      walkItems(
-        item.items ?? [],
-        [...folderPath, item.name],
-        [...inheritedPre, item.preRequestScript],
-        [...inheritedTest, item.testScript],
-        isConfiguredAuth(item.auth) ? item.auth : inheritedAuth,
-        nextPostmanAuthGuard(guard, item, [...folderPath, item.name].join('/')),
-        // Folder variables, outer → inner (inner wins), as the app's runner
-        // layers them (`flattenRunnables` + `buildValueMap({ folders })`).
-        { ...folderVars, ...folderVariableValues(item.variables) },
-        out
-      );
-      continue;
-    }
-    const req = item.request;
-    if (!req) continue;
-    const t = req.type;
-    if (t === 'kafka' || t === 'mqtt' || t === 'websocket' || t === 'socketio') {
-      // Connection presets — Kafka / MQTT (#984), WebSocket / Socket.IO (#1209) —
-      // hold no runnable request; the app's runner skips them too. Report the
-      // skip instead of failing.
-      reportSkippedPreset(t, [...folderPath, item.name].join('/'));
-      continue;
-    }
-    if (t !== 'http' && t !== 'grpc' && t !== 'sse' && t !== 'mcp') {
       // GraphQL is not in the internal Request union (ocToInternal converts
       // it to http with a graphql body) and the connection presets were
       // handled above, so anything else here is genuinely unrunnable.
-      continue;
-    }
-    // Bake effective auth + combined scripts into the request so the executor
-    // and runner can stay tree-shape-agnostic — the request's own auth/scripts
-    // win, with collection/folder defaults filled in behind them.
-    const pre = combineScripts([...inheritedPre, req.preRequestScript]);
-    const test = combineScripts([...inheritedTest, req.testScript]);
+      return t === 'http' || t === 'grpc' || t === 'sse' || t === 'mcp' ? 'run' : 'skip';
+    },
+  });
+
+  return leaves.map((leaf): LoadedRequest => {
+    const { item } = leaf;
+    const req = item.request as HttpRequest | GrpcRequest | SseRequest | McpRequest;
+    const t = req.type;
+    // The request's own auth/scripts win, with collection/folder defaults
+    // filled in behind them.
     const effective = {
       ...req,
       // MCP skips an inherited scheme it can't carry (shared policy, #896) —
       // the same rule the app applies at connect time.
       auth:
         t === 'mcp'
-          ? (resolveMcpEffectiveAuth(req.auth, inheritedAuth).auth ?? req.auth)
-          : resolveEffectiveAuth(req.auth, inheritedAuth),
+          ? (resolveMcpEffectiveAuth(req.auth, leaf.inheritedAuth).auth ?? req.auth)
+          : resolveEffectiveAuth(req.auth, leaf.inheritedAuth),
       ...(t === 'http' ? { body: withEnabledFormRows((req as HttpRequest).body) } : {}),
-      ...(pre !== undefined ? { preRequestScript: pre } : {}),
-      ...(test !== undefined ? { testScript: test } : {}),
+      ...(leaf.preRequestScript !== undefined ? { preRequestScript: leaf.preRequestScript } : {}),
+      ...(leaf.testScript !== undefined ? { testScript: leaf.testScript } : {}),
     } as HttpRequest | GrpcRequest | SseRequest | McpRequest;
-    const blocked = postmanBlockedReason(item, guard);
-    out.push({
-      relativePath: [...folderPath, item.name].join('/') || item.name,
-      folderPath,
+    // Folder variables, outer → inner (inner wins), as the app's runner
+    // layers them (`flattenRunnables` + `buildValueMap({ folders })`).
+    const folderVars = Object.assign({}, ...leaf.folderVariables.map(folderVariableValues));
+    return {
+      relativePath: [...leaf.folderPath, item.name].join('/') || item.name,
+      folderPath: leaf.folderPath,
       type: t,
       request: effective,
-      ...(blocked ? { blocked } : {}),
-      ...(Object.keys(folderVars).length > 0 ? { folderVariables: { ...folderVars } } : {}),
-    });
-  }
+      ...(leaf.blocked ? { blocked: leaf.blocked } : {}),
+      ...(Object.keys(folderVars).length > 0 ? { folderVariables: folderVars } : {}),
+    };
+  });
 }
 
 /**

@@ -53,10 +53,10 @@ export function useVariableDetails(scope: VariableScope = 'request'): VariableDe
 }
 
 /**
- * Which resolver the field feeds: `request` is the HTTP/GraphQL send path
- * (env chain, globals, collection, folders, script keys); `connection` is
- * `useEnvironmentStore.resolveVariables` used by WS / Socket.IO / SSE / MCP /
- * gRPC (active environment and globals only).
+ * Which resolver the field feeds: `request` is the send path and the connect
+ * spec (env chain, globals, collection, folders, script keys), used by HTTP, SSE,
+ * WebSocket, Socket.IO, MCP and gRPC; `connection` is
+ * `useEnvironmentStore.resolveVariables` (active environment and globals only).
  */
 export type VariableScope = 'request' | 'connection';
 

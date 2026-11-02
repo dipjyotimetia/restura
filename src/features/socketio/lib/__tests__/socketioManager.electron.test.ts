@@ -199,6 +199,32 @@ describe('socketioManager (desktop IPC path)', () => {
     expect(socketioManager.canReplyServerAck(id, 'srv-3')).toBe(false);
   });
 
+  it('replaces rather than stacks listeners when the same id connects again', () => {
+    socketioManager.connect(id);
+    socketioManager.connect(id);
+    const open = socketioChannels.open(id);
+    const events = [
+      ...api.socketio.on.mock.calls.map((c, i) => ({
+        kind: 'on',
+        ch: c[0],
+        at: api.socketio.on.mock.invocationCallOrder[i]!,
+      })),
+      ...api.socketio.removeAllListeners.mock.calls.map((c, i) => ({
+        kind: 'off',
+        ch: c[0],
+        at: api.socketio.removeAllListeners.mock.invocationCallOrder[i]!,
+      })),
+    ]
+      .filter((e) => e.ch === open)
+      .sort((a, b) => a.at - b.at)
+      .map((e) => e.kind);
+    // Every bind is preceded by a clear of the same channel; two binds never meet.
+    expect(events.filter((k) => k === 'on')).toHaveLength(2);
+    events.forEach((kind, i) => {
+      if (kind === 'on') expect(events[i - 1]).toBe('off');
+    });
+  });
+
   it('disconnects over IPC and clears listeners', () => {
     socketioManager.connect(id);
     socketioManager.disconnect(id);

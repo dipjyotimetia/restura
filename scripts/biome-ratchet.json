@@ -12,7 +12,7 @@
   "lint/complexity/noImportantStyles": 6,
   "lint/correctness/noComponentHookFactories": 2,
   "lint/correctness/useExhaustiveDependencies": 72,
-  "lint/style/noNonNullAssertion": 328,
+  "lint/style/noNonNullAssertion": 326,
   "lint/suspicious/noArrayIndexKey": 44,
   "lint/suspicious/noConfusingVoidType": 8
 }

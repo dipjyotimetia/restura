@@ -36,7 +36,7 @@ export const MCP_CAPABILITIES = {
     web: true,
     desktop: true,
     notes:
-      'Desktop can store the credential as an OS-keychain or external SecretRef handle, resolved in the main process at connect time; web is inline-only and never persists the request’s own MCP credentials to IndexedDB (re-enter after reload). SecretRef-backed {{secret variables}} in MCP auth/headers are not resolved yet on either platform',
+      'Desktop can store the credential as an OS-keychain or external SecretRef handle, resolved in the main process at connect time; web is inline-only and never persists the request’s own MCP credentials to IndexedDB (re-enter after reload). a SecretRef-backed {{secret variable}} in MCP auth or headers refuses the connection on either platform',
   },
   'mcp.oauth': {
     label: 'MCP OAuth 2.1 sign-in (PKCE, PRM discovery, dynamic registration)',

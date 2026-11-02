@@ -18,6 +18,7 @@ import {
   GrpcReflectionClient,
   generateRequestTemplate,
 } from '@/features/grpc/lib/grpcReflection';
+import { resolveGrpcReflectionConnect } from '@/lib/shared/connectSpec';
 import type {
   GrpcMethodType,
   ReflectionMethodInfo,
@@ -27,17 +28,11 @@ import type {
 
 interface GrpcReflectionPanelProps {
   url: string;
-  resolveVariables: (text: string) => string;
   onServiceSelect: (serviceName: string) => void;
   onMethodSelect: (methodName: string, methodType: GrpcMethodType, message?: string) => void;
 }
 
-function GrpcReflectionPanel({
-  url,
-  resolveVariables,
-  onServiceSelect,
-  onMethodSelect,
-}: GrpcReflectionPanelProps) {
+function GrpcReflectionPanel({ url, onServiceSelect, onMethodSelect }: GrpcReflectionPanelProps) {
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [reflectionResult, setReflectionResult] = useState<ReflectionResult | null>(null);
   const [selectedReflectionService, setSelectedReflectionService] =
@@ -97,8 +92,12 @@ function GrpcReflectionPanel({
       }
 
       try {
-        const resolvedUrl = resolveVariables(url);
-        const client = new GrpcReflectionClient(resolvedUrl);
+        const spec = resolveGrpcReflectionConnect(url);
+        if (!spec.ok) {
+          if (!silent) toast.error('Discovery refused', { description: spec.error });
+          return;
+        }
+        const client = new GrpcReflectionClient(spec.url);
         const result = await client.discoverServices();
 
         if (result.success) {
@@ -163,7 +162,7 @@ function GrpcReflectionPanel({
         setIsDiscovering(false);
       }
     },
-    [url, resolveVariables, onServiceSelect, handleMethodSelection]
+    [url, onServiceSelect, handleMethodSelection]
   );
 
   // Auto-discover services when URL changes

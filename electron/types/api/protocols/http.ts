@@ -53,6 +53,15 @@ export interface ElectronHttpRequestConfig {
   verifySsl?: boolean;
   clientCert?: ElectronHttpClientCert;
   caCert?: ElectronHttpCaCert;
+  /**
+   * Sign-at-wire / handle-bearing auth, applied main-side (ADR-0007).
+   * Validated by `HttpRequestConfigSchema` (`AuthConfigSchema`).
+   */
+  // `| undefined` (via the Zod-inferred ProxyRequestBody) so the renderer's
+  // spec.auth assigns cleanly under exactOptionalPropertyTypes.
+  auth?: import('../../../../shared/protocol/proxy-schema').ProxyRequestBody['auth'];
+  /** SecretRef-backed `{{vars}}` referenced from url/headers/body/auth. */
+  secretVariables?: Record<string, ProtocolSecretValue>;
   // Redirect / URL handling (cross-platform)
   followOriginalMethod?: boolean;
   followAuthHeader?: boolean;

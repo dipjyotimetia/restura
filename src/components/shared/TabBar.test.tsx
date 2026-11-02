@@ -53,6 +53,25 @@ describe('TabBar', () => {
     expect(screen.queryByRole('menuitem', { name: /Kafka consumer/i })).not.toBeInTheDocument();
   });
 
+  it('lists the new-request menu in a fixed order with fixed labels', async () => {
+    const user = userEvent.setup();
+    render(<TabBar />);
+    await user.click(screen.getByRole('button', { name: /new request/i }));
+    expect(screen.getAllByRole('menuitem').map((el) => el.textContent)).toMatchInlineSnapshot(`
+      [
+        "HTTPHTTP request",
+        "GQLGraphQL request",
+        "gRPCgRPC request",
+        "WSWebSocket",
+        "IOSocket.IO",
+        "SSESSE stream",
+        "MCPMCP request",
+        "KafkaKafka client",
+        "MQTTMQTT client",
+      ]
+    `);
+  });
+
   it('shows Kafka and MQTT on web as disabled, desktop-only entries', async () => {
     platform.electron = false;
     const user = userEvent.setup();

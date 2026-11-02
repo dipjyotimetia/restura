@@ -40,6 +40,7 @@ import { Kbd } from '@/components/ui/spatial';
 import { openCollectionItem } from '@/features/collections/lib/openCollectionItem';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import { generateRequestCode } from '@/features/http/lib/requestCode';
+import { MODE_DESCRIPTORS, MODES_IN_COMMAND_ORDER } from '@/features/registry/modes';
 import { useVariableDetails } from '@/hooks/useVariableStatus';
 import { fuzzyScore } from '@/lib/shared/fuzzy';
 import { isElectron } from '@/lib/shared/platform';
@@ -54,7 +55,7 @@ import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useUiStore } from '@/store/useUiStore';
-import type { Collection, CollectionItem, CollectionRequest, RequestType } from '@/types';
+import type { Collection, CollectionItem, CollectionRequest, RequestMode } from '@/types';
 import { isConnectionMode } from '@/types';
 
 interface CommandPaletteProps {
@@ -63,13 +64,9 @@ interface CommandPaletteProps {
   onOpenShortcuts?: () => void;
   onOpenImport?: () => void;
   onSendRequest?: () => void;
-  // Widened to include `graphql` so the "New GraphQL request" command can
-  // hand off to Home's `handleRequestModeChange`, which already understands
-  // the full RequestMode union. The original narrower type omitted graphql
-  // because graphql lives under modeOverride rather than as a tab type.
-  onChangeMode?: (
-    mode: 'http' | 'grpc' | 'websocket' | 'socketio' | 'sse' | 'mcp' | 'graphql' | 'kafka' | 'mqtt'
-  ) => void;
+  // Hands off to Home's `handleRequestModeChange`, which understands the full
+  // RequestMode union (graphql lives under modeOverride, not as a tab type).
+  onChangeMode?: (mode: RequestMode) => void;
   // Optional controlled mode — when both are provided the palette becomes
   // controlled (e.g. opened by the chrome Search pill). When omitted the
   // palette keeps its internal Cmd+K listener as the sole open source.
@@ -408,26 +405,15 @@ export default function CommandPalette({
       onSelect: () => setConfirmClearOpen(true),
     });
 
-    // New group — Kafka and MQTT are desktop-only (worker can't open raw TCP).
-    const newProtos: Array<{
-      proto: string;
-      type: RequestType | 'websocket' | 'socketio' | 'graphql' | 'kafka' | 'mqtt';
-      label: string;
-    }> = [
-      { proto: 'HTTP', type: 'http', label: 'New HTTP request' },
-      { proto: 'GRPC', type: 'grpc', label: 'New gRPC request' },
-      { proto: 'GQL', type: 'graphql', label: 'New GraphQL request' },
-      { proto: 'WS', type: 'websocket', label: 'New WS' },
-      { proto: 'SOCKETIO', type: 'socketio', label: 'New Socket.IO' },
-      { proto: 'SSE', type: 'sse', label: 'New SSE stream' },
-      { proto: 'MCP', type: 'mcp', label: 'New MCP request' },
-      ...(isElectron()
-        ? [
-            { proto: 'KAFKA', type: 'kafka' as const, label: 'New Kafka client' },
-            { proto: 'MQTT', type: 'mqtt' as const, label: 'New MQTT client' },
-          ]
-        : []),
-    ];
+    // New group — desktop-only modes (Kafka, MQTT: the worker can't open raw
+    // TCP) are omitted on web rather than shown disabled.
+    const newProtos = MODES_IN_COMMAND_ORDER.filter(
+      (mode) => !MODE_DESCRIPTORS[mode].desktopOnly || isElectron()
+    ).map((type) => ({
+      proto: MODE_DESCRIPTORS[type].chip,
+      type,
+      label: MODE_DESCRIPTORS[type].commandLabel,
+    }));
     for (const p of newProtos) {
       items.push({
         id: `new-${p.type}`,

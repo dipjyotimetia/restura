@@ -92,6 +92,13 @@ Three sibling directories hold logic every harness shares but that is not a prot
 - `shared/variables/` — `tokens.ts` is the one `{{name}}` grammar (a name is any text without `{`, `}` or a line break, trimmed), read by the resolvers, the highlighter and the secret matcher. `resolver.ts` holds the resolver core: `resolveVariableText` (single pass, used by the CLI and streaming sends) and `expandVariablesInOrder` (the app's definition-order walk). See ADR 0039.
 - `shared/secrets/` — `secret-slot.ts` defines a `SecretSlot` (one place a saved request can hold a Secret, with both its blanking and its counting); `request-secret-slots.ts` lists them all in `REQUEST_SECRET_SLOTS`, which export blanking and the export warning both read.
 - `shared/collection-run/sequencer.ts` — decides what a Collection run executes next: iterations, data rows, bail, delay and `pm.execution.setNextRequest` jumps (capped per iteration by `MAX_NEXT_REQUEST_JUMPS`). How one Request is sent stays with the host (the app's `collectionRunner.ts`, the CLI's `runner.ts`).
+- `shared/collection-run/{flatten,scope,verdict}.ts` — the rest of a Collection run step, shared by the app and CLI runners: tree flatten with inheritance, Variable layering and script write-back, and the step verdict. Host differences are named policies and options.
+- `shared/scripts/script-phase.ts` — runs one pre-request or test script phase given a host adapter (`src/features/scripts/lib/scriptPhaseHost.renderer.ts` in the app, none in the CLI).
+- `shared/collections/tree-edit.ts` — Collection tree edits; decides which passthrough bags go stale and when Postman guard markers survive, so stores and factories don't.
+- `src/lib/shared/connectSpec.ts` — resolves what a live connection sends (SSE, WebSocket, MCP, gRPC reflection): full Variable scope via `resolveRequestScopeText`, auth inheritance, and the send guard; returns values or an explicit refusal.
+- `src/lib/shared/streaming/{coalescingBuffer,channelBinding}.ts` — inbound batching and per-connection IPC listener binding for the renderer's stream managers. Reconnect policy stays per Protocol.
+- `src/features/registry/modes.ts` — data-only descriptor per `RequestMode` (labels, chips, gating, run traits); a `Record` over the union, so a missing mode doesn't compile.
+- `electron/main/ipc/validators/ipc-payload-parity.ts` — compile-time assertions that hand-written IPC payload types match their Zod schemas. Types stay hand-written; add an assertion for each new payload.
 
 The browser-capture extension's pipeline lives in a sibling module, `shared/capture/` (normalizer, classifier, secret-extractor, HAR / OpenCollection exporters — ADR 0024).
 

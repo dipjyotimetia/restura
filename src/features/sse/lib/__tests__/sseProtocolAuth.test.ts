@@ -55,6 +55,16 @@ describe('sseProtocol.startStream auth', () => {
     expect(spec.headers['Authorization']).toBe('Bearer tok');
   });
 
+  it('refuses a credential only the desktop app could apply, and opens no stream', async () => {
+    const req = baseRequest({
+      auth: { type: 'bearer', bearer: { token: { kind: 'handle', id: 'h-1' } } },
+    } as never);
+    await expect(
+      sseProtocol.startStream!(req, { signal: new AbortController().signal, variables: {} })
+    ).rejects.toThrow(/keychain-stored or external secret/);
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
   it('names an API key header for redirects', async () => {
     mockExecute.mockResolvedValue(emptyStreamResponse());
     const req = baseRequest({

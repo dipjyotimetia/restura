@@ -108,7 +108,7 @@ export function McpConnectionPanel({
               placeholder="Command, e.g. npx or /usr/local/bin/my-mcp-server"
               value={stdioConfig.command}
               onValueChange={(command) => updateStdio({ ...stdioConfig, command })}
-              variableScope="connection"
+              variableScope="request"
               disabled={isBusy || isConnected}
               aria-label="MCP stdio command"
               className="flex-1 min-w-[140px] h-7"
@@ -123,7 +123,7 @@ export function McpConnectionPanel({
               placeholder="https://mcp.example.com/v1/server"
               value={connection.url}
               onValueChange={onUrlChange}
-              variableScope="connection"
+              variableScope="request"
               disabled={isBusy}
               aria-label="MCP server URL"
               className="flex-1 min-w-[140px] h-7"
@@ -277,7 +277,7 @@ export function McpConnectionPanel({
                 onChange={onHeadersChange}
                 itemLabel="header"
                 addLabel="Add header"
-                resolvesVariables="connection"
+                resolvesVariables="request"
                 httpHeaders
               />
             </div>

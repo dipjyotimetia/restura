@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import SecretInput from '@/features/auth/components/SecretInput';
+import { previewConnectText } from '@/lib/shared/connectSpec';
 import { getElectronAPI } from '@/lib/shared/platform';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { AuthConfig } from '@/types';
 
 interface OAuthStatus {
@@ -35,8 +35,7 @@ export function McpOAuthEditor({ auth, onChange, serverUrl, disabled }: McpOAuth
   const oauth2: OAuth2Block = auth.oauth2 ?? { accessToken: '', grantType: 'authorization_code' };
   const update = (patch: Partial<OAuth2Block>) =>
     onChange({ ...auth, oauth2: { ...oauth2, ...patch, accessToken: '' } });
-  const resolveVariables = useEnvironmentStore((state) => state.resolveVariables);
-  const resolvedUrl = resolveVariables(serverUrl).trim();
+  const resolvedUrl = previewConnectText(serverUrl).trim();
   const clientId = oauth2.clientId?.trim() ?? '';
   const [status, setStatus] = useState<OAuthStatus | null>(null);
 

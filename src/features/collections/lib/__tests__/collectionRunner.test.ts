@@ -430,3 +430,69 @@ describe('runCollection', () => {
     expect(result.outcome).toBe('aborted');
   });
 });
+
+describe('runCollection — variable precedence across iterations', () => {
+  const run = (
+    runnables: RunnableRequest[],
+    dataRows: Array<Record<string, string>>,
+    extra: Partial<Collection> = {}
+  ) =>
+    runCollection(
+      {
+        collection: { ...collection, ...extra },
+        scopeName: 'C',
+        runnables,
+        baseVars: {},
+        iterations: 1,
+        dataRows,
+        delayMs: 0,
+        stopOnFailure: false,
+      },
+      noop,
+      new AbortController().signal
+    );
+
+  it('a script write in this iteration beats the data row', async () => {
+    behaviors.push({ setVars: { x: 'script' } }, {});
+    await run([runnable('1', 'a'), runnable('2', 'b')], [{ x: 'row' }]);
+    expect(seenVariables[0]?.x).toBe('row');
+    expect(seenVariables[1]?.x).toBe('script');
+  });
+
+  it('a write from an earlier iteration sits below the next data row', async () => {
+    behaviors.push({ setVars: { x: 'script' } }, {});
+    await run([runnable('1', 'a')], [{ x: 'row1' }, { x: 'row2' }]);
+    expect(seenVariables[1]?.x).toBe('row2');
+  });
+
+  it('a write from an earlier iteration carries when the next row lacks the key', async () => {
+    behaviors.push({ setVars: { token: 'script' } }, {});
+    await run([runnable('1', 'a')], [{ id: '1' }, { id: '2' }]);
+    expect(seenVariables[1]).toEqual({ id: '2', token: 'script' });
+  });
+
+  it('a write from an earlier iteration sits BELOW a folder variable (the CLI keeps it above)', async () => {
+    behaviors.push({ setVars: { host: 'script' } }, {});
+    const nested = {
+      ...runnable('1', 'a'),
+      folderVariables: [[{ id: 'f', key: 'host', value: 'folder', enabled: true }]],
+    };
+    await run([nested], [{ id: '1' }, { id: '2' }]);
+    expect(seenVariables[0]?.host).toBe('folder');
+    expect(seenVariables[1]?.host).toBe('folder');
+  });
+
+  it('a write from an earlier iteration sits BELOW a collection variable', async () => {
+    behaviors.push({ setVars: { k: 'script' } }, {});
+    await run([runnable('1', 'a')], [{ id: '1' }, { id: '2' }], {
+      variables: [{ id: 'c', key: 'k', value: 'collection', enabled: true }],
+    });
+    expect(seenVariables[1]?.k).toBe('collection');
+  });
+
+  it('a pm.collectionVariables write is visible to {{var}} substitution of later requests', async () => {
+    behaviors.push({ collectionMutations: { token: 'abc' } }, {});
+    await run([runnable('1', 'a'), runnable('2', 'b')], []);
+    expect(seenVariables[1]?.token).toBe('abc');
+  });
+});

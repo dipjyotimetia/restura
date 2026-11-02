@@ -38,7 +38,7 @@ Secret variables resolve only where they are written; an alias to one fails the 
 To see what a tab actually resolves, open **Environments → Variables in scope**: it lists every name with its winning value (secrets masked) and the scope it came from.
 
 <Aside>
-WebSocket, Socket.IO, SSE, MCP, gRPC and GraphQL resolve their URL and headers against the active environment and globals only — collection and folder variables apply to HTTP requests. The scope inspector shows the narrower set for those tabs.
+HTTP, SSE, WebSocket, Socket.IO, MCP and gRPC resolve against all of these scopes when you send or connect. On GraphQL, Kafka and MQTT tabs the scope inspector shows the active environment and globals only.
 </Aside>
 
 ## Switching environments

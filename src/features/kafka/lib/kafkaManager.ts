@@ -1,7 +1,7 @@
 import { type KafkaSecretField, kafkaSecretStorageKey } from '@shared/protocol/broker-secret-id';
 import type { ProtocolSecretValue } from '@shared/protocol/types';
 import {
-  ConsumedMessageBuffer,
+  KAFKA_FLUSH_INTERVAL_MS,
   type KafkaConsumedPayload,
   toReceivedMessage,
 } from '@/features/kafka/lib/consumedMessageBuffer';
@@ -9,6 +9,7 @@ import type {
   KafkaAuth,
   KafkaCompression,
   KafkaConnection,
+  KafkaMessageInput,
   KafkaRegistry,
   KafkaSasl,
 } from '@/features/kafka/store/useKafkaStore';
@@ -20,9 +21,13 @@ import {
   useKafkaStore,
 } from '@/features/kafka/store/useKafkaStore';
 import { brokerSecretRef, ensureBrokerSecret } from '@/lib/shared/broker-secrets';
+import { MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import type { SecretRef } from '@/lib/shared/secretRef';
-import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
+import { createChannelBinder } from '@/lib/shared/streaming/channelBinding';
+import { CoalescingBuffer } from '@/lib/shared/streaming/coalescingBuffer';
+import { connectionChannels } from '@/lib/shared/streaming/desktopStreamAdapter';
+import { EVENT_PREFIX } from '../../../../electron/shared/channels';
 import type {
   ElectronKafkaAPI,
   KafkaAuthIpc,
@@ -39,6 +44,27 @@ import type {
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
 import { isKafkaBrowse, type KafkaSubscribePayload, toBrowseSubscribe } from './kafkaBrowse';
+
+type KafkaEventKind = keyof typeof EVENT_PREFIX.kafka;
+
+/** Everything but `message`, which is bound per subscribe. `connected` is never listened to but is cleared with the rest. */
+const LIFECYCLE_KINDS = [
+  'close',
+  'error',
+  'consumerClosed',
+  'consumerStatus',
+  'consumerLag',
+  'connected',
+] as const satisfies readonly KafkaEventKind[];
+
+function kafkaChannels<K extends KafkaEventKind>(
+  connectionId: string,
+  kinds: readonly K[]
+): Record<K, string> {
+  const prefixes = {} as Record<K, string>;
+  for (const kind of kinds) prefixes[kind] = EVENT_PREFIX.kafka[kind];
+  return connectionChannels(prefixes, connectionId);
+}
 
 export type KafkaResetGroupOffsetsParams = Parameters<ElectronKafkaAPI['resetGroupOffsets']>[0];
 export type KafkaDeleteGroupOffsetsParams = Parameters<ElectronKafkaAPI['deleteGroupOffsets']>[0];
@@ -245,9 +271,20 @@ function schemaField(
 class KafkaManager {
   private subscribed: Set<string> = new Set();
   /** Batches consumed records into one store update per connection per tick. */
-  private inbound = new ConsumedMessageBuffer((connectionId, batch) =>
-    useKafkaStore.getState().addMessages(connectionId, batch)
+  private inbound = new CoalescingBuffer<KafkaMessageInput>(
+    (connectionId, batch) => useKafkaStore.getState().addMessages(connectionId, batch),
+    { intervalMs: KAFKA_FLUSH_INTERVAL_MS, maxBuffered: MAX_MESSAGES_PER_CONNECTION }
   );
+  private lifecycle = createChannelBinder({
+    bridge: () => getElectronAPI()?.kafka,
+    channels: (id) => kafkaChannels(id, LIFECYCLE_KINDS),
+  });
+  /** Separate from `lifecycle`: it is bound per subscribe, and drains the buffer on detach. */
+  private messages = createChannelBinder({
+    bridge: () => getElectronAPI()?.kafka,
+    channels: (id) => kafkaChannels(id, ['message']),
+    drain: (id) => this.inbound.flush(id),
+  });
   constructor() {
     // Clearing the log must also drop records still waiting for the next flush.
     onKafkaMessagesCleared((id) => this.inbound.discard(id));
@@ -284,7 +321,6 @@ class KafkaManager {
     // Reconnecting with the same id must replace, not stack, renderer event
     // handlers. Otherwise every broker event is processed once per prior
     // connection attempt.
-    this.unbindLifecycleListeners(connection.id);
     this.bindLifecycleListeners(connection.id);
 
     let result: Awaited<ReturnType<typeof api.kafka.connect>>;
@@ -302,7 +338,7 @@ class KafkaManager {
       const msg = err instanceof Error ? err.message : 'Kafka connect failed';
       store.updateStatus(connection.id, 'disconnected');
       store.addMessage(connection.id, { direction: 'system', topic: '', value: msg, error: msg });
-      this.unbindLifecycleListeners(connection.id);
+      this.lifecycle.unbind(connection.id);
       return { ok: false, error: msg };
     }
 
@@ -310,7 +346,7 @@ class KafkaManager {
       store.updateStatus(connection.id, 'disconnected');
       const msg = result.error ?? 'Kafka connect failed';
       store.addMessage(connection.id, { direction: 'system', topic: '', value: msg, error: msg });
-      this.unbindLifecycleListeners(connection.id);
+      this.lifecycle.unbind(connection.id);
       return { ok: false, error: msg };
     }
 
@@ -515,7 +551,7 @@ class KafkaManager {
     await api.kafka.disconnect({ connectionId });
     this.subscribed.delete(connectionId);
     this.unbindMessageListener(connectionId);
-    this.unbindLifecycleListeners(connectionId);
+    this.lifecycle.unbind(connectionId);
     const store = useKafkaStore.getState();
     store.updateStatus(connectionId, 'disconnected');
     store.updateConsumer(connectionId, { status: 'idle' });
@@ -651,90 +687,78 @@ class KafkaManager {
   }
 
   private bindLifecycleListeners(connectionId: string): void {
-    const api = getElectronAPI();
-    if (!api?.kafka) return;
-
-    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CLOSE, connectionId), () => {
-      this.inbound.flush(connectionId);
-      const store = useKafkaStore.getState();
-      store.updateStatus(connectionId, 'disconnected');
-      store.addMessage(connectionId, {
-        direction: 'system',
-        topic: '',
-        value: 'Connection closed',
-      });
+    // Rebinding replaces, never stacks, handlers: otherwise every broker event
+    // is processed once per prior connection attempt on this id.
+    this.lifecycle.bind(connectionId, {
+      close: () => {
+        this.inbound.flush(connectionId);
+        const store = useKafkaStore.getState();
+        store.updateStatus(connectionId, 'disconnected');
+        store.addMessage(connectionId, {
+          direction: 'system',
+          topic: '',
+          value: 'Connection closed',
+        });
+      },
+      error: (payload) => {
+        this.inbound.flush(connectionId);
+        const err = payload as { scope?: string; message?: string };
+        const msg = err.message ?? 'Kafka error';
+        useKafkaStore.getState().addMessage(connectionId, {
+          direction: 'system',
+          topic: '',
+          value: `[${err.scope ?? 'error'}] ${msg}`,
+          error: msg,
+        });
+      },
+      consumerClosed: () => {
+        this.inbound.flush(connectionId);
+        const store = useKafkaStore.getState();
+        store.updateConsumer(connectionId, { status: 'idle' });
+        store.addMessage(connectionId, {
+          direction: 'system',
+          topic: '',
+          value: 'Consumer closed',
+        });
+      },
+      consumerStatus: (payload) => {
+        const status = payload as { state?: string };
+        useKafkaStore
+          .getState()
+          .updateConsumer(connectionId, { groupState: status.state ?? 'unknown' });
+      },
+      consumerLag: (payload) => {
+        const event = payload as { lag?: { topic: string; offsets: string[] }[] };
+        if (!event.lag) return;
+        const store = useKafkaStore.getState();
+        const paused = store.connections[connectionId]?.consumer.pausedPartitions;
+        // Lag -1 = no longer assigned to this member: main already dropped its pause.
+        const assigned = (key: string) => {
+          const sep = key.lastIndexOf(':');
+          const topic = event.lag?.find((l) => l.topic === key.slice(0, sep));
+          return topic?.offsets[Number(key.slice(sep + 1))] !== '-1';
+        };
+        store.updateConsumer(connectionId, {
+          lag: event.lag,
+          ...(paused?.length ? { pausedPartitions: paused.filter(assigned) } : {}),
+        });
+      },
     });
-
-    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.ERROR, connectionId), (payload: unknown) => {
-      this.inbound.flush(connectionId);
-      const err = payload as { scope?: string; message?: string };
-      const msg = err.message ?? 'Kafka error';
-      useKafkaStore.getState().addMessage(connectionId, {
-        direction: 'system',
-        topic: '',
-        value: `[${err.scope ?? 'error'}] ${msg}`,
-        error: msg,
-      });
-    });
-
-    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, connectionId), () => {
-      this.inbound.flush(connectionId);
-      const store = useKafkaStore.getState();
-      store.updateConsumer(connectionId, { status: 'idle' });
-      store.addMessage(connectionId, { direction: 'system', topic: '', value: 'Consumer closed' });
-    });
-    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, connectionId), (payload: unknown) => {
-      const status = payload as { state?: string };
-      useKafkaStore
-        .getState()
-        .updateConsumer(connectionId, { groupState: status.state ?? 'unknown' });
-    });
-    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CONSUMER_LAG, connectionId), (payload: unknown) => {
-      const event = payload as { lag?: { topic: string; offsets: string[] }[] };
-      if (!event.lag) return;
-      const store = useKafkaStore.getState();
-      const paused = store.connections[connectionId]?.consumer.pausedPartitions;
-      // Lag -1 = no longer assigned to this member: main already dropped its pause.
-      const assigned = (key: string) => {
-        const sep = key.lastIndexOf(':');
-        const topic = event.lag?.find((l) => l.topic === key.slice(0, sep));
-        return topic?.offsets[Number(key.slice(sep + 1))] !== '-1';
-      };
-      store.updateConsumer(connectionId, {
-        lag: event.lag,
-        ...(paused?.length ? { pausedPartitions: paused.filter(assigned) } : {}),
-      });
-    });
-  }
-
-  private unbindLifecycleListeners(connectionId: string): void {
-    const api = getElectronAPI();
-    if (!api?.kafka) return;
-    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CLOSE, connectionId));
-    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.ERROR, connectionId));
-    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, connectionId));
-    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId));
-    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, connectionId));
-    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CONSUMER_LAG, connectionId));
   }
 
   private bindMessageListener(connectionId: string): void {
-    const api = getElectronAPI();
-    if (!api?.kafka) return;
     // Idempotent: a consumer can close main-side (browse stop-after-N, fetch
     // error) without an unsubscribe, so a re-subscribe must not stack listeners.
-    this.unbindMessageListener(connectionId);
-    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.MESSAGE, connectionId), (payload: unknown) => {
-      this.inbound.push(connectionId, toReceivedMessage(payload as KafkaConsumedPayload));
+    this.messages.bind(connectionId, {
+      message: (payload) => {
+        this.inbound.push(connectionId, toReceivedMessage(payload as KafkaConsumedPayload));
+      },
     });
   }
 
   private unbindMessageListener(connectionId: string): void {
-    // Drain buffered records first so the last ~100 ms aren't dropped.
-    this.inbound.flush(connectionId);
-    const api = getElectronAPI();
-    if (!api?.kafka) return;
-    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.MESSAGE, connectionId));
+    // Drains buffered records first so the last ~100 ms aren't dropped.
+    this.messages.unbind(connectionId);
   }
 }
 

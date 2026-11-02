@@ -77,7 +77,6 @@ export const httpProtocol: ProtocolModule = {
   tabType: 'http',
   defaultRequest: createDefaultHttpRequest,
   injectVariables: injectHttpVariables,
-  // Builder is intentionally undefined — Tasks 4.4/4.5 wire RequestBuilder.
   runRequest: async (request, ctx): Promise<ApiResponse> => {
     if (request.type !== 'http') {
       throw new Error(`HTTP protocol cannot run ${request.type} request`);

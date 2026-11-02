@@ -1,5 +1,6 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { resolveWebSocketConnect } from '@/lib/shared/connectSpec';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
@@ -87,7 +88,7 @@ describe('useVariableStatus', () => {
     expect(result.current('subVar')).toBe('resolved');
     expect(result.current('folderVar')).toBe('resolved');
 
-    // The connection scope (WS / SSE / MCP / gRPC / GraphQL URL fields) must
+    // The connection scope (GraphQL URL fields) must
     // agree with what useEnvironmentStore.resolveVariables actually substitutes.
     const { result: connection } = renderHook(() => useVariableStatus('connection'));
     const resolve = useEnvironmentStore.getState().resolveVariables;
@@ -96,6 +97,14 @@ describe('useVariableStatus', () => {
       expect(connection.current(name)).toBe(substituted ? 'resolved' : 'unresolved');
     }
     expect(connection.current('subVar')).toBe('resolved');
+
+    // The request scope must agree with what a live connect actually substitutes.
+    const { result: request } = renderHook(() => useVariableStatus('request'));
+    for (const name of ['baseVar', 'subVar', 'folderVar', 'neverDefined']) {
+      const spec = resolveWebSocketConnect({ url: `{{${name}}}`, headers: [] });
+      const substituted = spec.ok && spec.url !== `{{${name}}}`;
+      expect(request.current(name)).toBe(substituted ? 'resolved' : 'unresolved');
+    }
   });
 
   it('classifies a workspace global as resolved', () => {

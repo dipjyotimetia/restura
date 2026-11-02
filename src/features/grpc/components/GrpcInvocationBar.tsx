@@ -71,7 +71,7 @@ export function GrpcInvocationBar({
           <VariableUrlInput
             value={url}
             onValueChange={onUrlChange}
-            variableScope="connection"
+            variableScope="request"
             placeholder={ECHO_URLS.grpc}
             aria-label="gRPC server URL"
             invalid={!isUrlValid}
