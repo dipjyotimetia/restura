@@ -9,7 +9,7 @@ vi.mock('@/lib/shared/platform', () => ({
 }));
 
 import { useSseStore } from '@/features/sse/store/useSseStore';
-import { buildSseStreamSpec, cleanupSseElectronListeners, sseManager } from '../sseManager';
+import { buildSseStreamSpec, sseManager } from '../sseManager';
 
 const URL_ = 'https://example.com/stream';
 const enc = new TextEncoder();
@@ -69,19 +69,6 @@ describe('sseManager helpers', () => {
       streamingMode: true,
       timeout: 0,
     });
-  });
-
-  it('cleanupSseElectronListeners tolerates a missing api or sse bridge', () => {
-    expect(() => cleanupSseElectronListeners('c', undefined as never)).not.toThrow();
-    expect(() => cleanupSseElectronListeners('c', {} as never)).not.toThrow();
-    const removeAllListeners = vi.fn();
-    cleanupSseElectronListeners('c', { sse: { removeAllListeners } } as never);
-    expect(removeAllListeners.mock.calls.map((c) => c[0])).toEqual([
-      'sse:open:c',
-      'sse:event:c',
-      'sse:error:c',
-      'sse:close:c',
-    ]);
   });
 });
 

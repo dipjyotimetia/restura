@@ -6,11 +6,12 @@ import {
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { checkBrowserSocketTargetFromSettings } from '@/lib/shared/browserSocketPolicy';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import { EVENT_PREFIX, eventChannel } from '../../../../electron/shared/channels';
+import { createChannelBinder } from '@/lib/shared/streaming/channelBinding';
+import { connectionChannels } from '@/lib/shared/streaming/desktopStreamAdapter';
+import { EVENT_PREFIX } from '../../../../electron/shared/channels';
 import {
   attachControlFrameListeners,
   clearPingRtt,
-  controlFrameChannels,
   describeClose,
   recordNegotiation,
   sendElectronPing,
@@ -19,22 +20,14 @@ import {
 } from './wsControlFrames';
 
 /**
- * Remove all `ws:{open,message,error,close}:<connectionId>` IPC listeners and
- * the control-frame ones, by connection id so a reconnect or `disconnect()`
- * clears whatever an earlier attempt left on the same id.
+ * Every `ws:*` channel of a connection (control frames included), bound and
+ * cleared by connection id so a reconnect or `disconnect()` clears whatever
+ * an earlier attempt left on the same id.
  */
-export function cleanupWebSocketElectronListeners(
-  connectionId: string,
-  api: ReturnType<typeof getElectronAPI>
-): void {
-  api?.websocket?.removeAllListeners(eventChannel(EVENT_PREFIX.ws.open, connectionId));
-  api?.websocket?.removeAllListeners(eventChannel(EVENT_PREFIX.ws.message, connectionId));
-  api?.websocket?.removeAllListeners(eventChannel(EVENT_PREFIX.ws.error, connectionId));
-  api?.websocket?.removeAllListeners(eventChannel(EVENT_PREFIX.ws.close, connectionId));
-  for (const channel of controlFrameChannels(connectionId)) {
-    api?.websocket?.removeAllListeners(channel);
-  }
-}
+const wsChannels = createChannelBinder({
+  bridge: () => getElectronAPI()?.websocket,
+  channels: (id) => connectionChannels(EVENT_PREFIX.ws, id),
+});
 
 interface ConnectArgs {
   url: string;
@@ -253,9 +246,8 @@ class WebSocketManager {
     // Handle Electron-managed connections — tracked from connectViaElectron,
     // so this also aborts an in-flight handshake (#908).
     if (this.electronConnections.has(connectionId)) {
-      const api = getElectronAPI();
-      api?.websocket?.disconnect({ connectionId, ...close });
-      this.releaseElectron(connectionId, api);
+      getElectronAPI()?.websocket?.disconnect({ connectionId, ...close });
+      this.releaseElectron(connectionId);
       const state = useWebSocketStore.getState();
       if (close) state.addMessage(connectionId, 'system', describeClose(close));
       state.updateConnectionStatus(connectionId, 'disconnected');
@@ -376,46 +368,44 @@ class WebSocketManager {
     this.electronAttempts.set(connectionId, attempt);
     const isLive = () => this.electronAttempts.get(connectionId) === attempt;
 
-    api.websocket.on(eventChannel(EVENT_PREFIX.ws.open, connectionId), (payload: unknown) => {
-      // #923: main forwards the negotiated subprotocol + extensions.
-      const open = (payload ?? {}) as { protocol?: string; extensions?: string };
-      if (isLive()) this.handleOpen(connectionId, url, open.protocol, open.extensions);
-    });
-
-    attachControlFrameListeners(connectionId, api);
-
-    api.websocket.on(eventChannel(EVENT_PREFIX.ws.message, connectionId), (payload: unknown) => {
-      const msg = payload as { type: 'text' | 'binary'; data: string };
-      const s = useWebSocketStore.getState();
-      if (msg.type === 'binary') {
-        let buf: ArrayBuffer;
-        try {
-          buf = decodeWsBinaryFrame(msg.data).buffer;
-        } catch {
-          s.addMessage(connectionId, 'system', 'Received a malformed binary frame payload');
-          return;
+    wsChannels.bind(connectionId, {
+      open: (payload) => {
+        // #923: main forwards the negotiated subprotocol + extensions.
+        const open = (payload ?? {}) as { protocol?: string; extensions?: string };
+        if (isLive()) this.handleOpen(connectionId, url, open.protocol, open.extensions);
+      },
+      message: (payload) => {
+        const msg = payload as { type: 'text' | 'binary'; data: string };
+        const s = useWebSocketStore.getState();
+        if (msg.type === 'binary') {
+          let buf: ArrayBuffer;
+          try {
+            buf = decodeWsBinaryFrame(msg.data).buffer;
+          } catch {
+            s.addMessage(connectionId, 'system', 'Received a malformed binary frame payload');
+            return;
+          }
+          s.addMessage(connectionId, 'received', this.arrayBufferToHex(buf), 'binary', buf);
+        } else {
+          s.addMessage(connectionId, 'received', msg.data, 'text');
         }
-        s.addMessage(connectionId, 'received', this.arrayBufferToHex(buf), 'binary', buf);
-      } else {
-        s.addMessage(connectionId, 'received', msg.data, 'text');
-      }
+      },
+      error: (payload) => {
+        const err = payload as { message: string };
+        useWebSocketStore.getState().addMessage(connectionId, 'system', `Error: ${err.message}`);
+      },
+      close: (payload) => {
+        if (!isLive()) return;
+        const ev = payload as { code: number; reason: string };
+        this.releaseElectron(connectionId);
+        this.handleClose(connectionId, ev.code, ev.reason);
+      },
     });
-
-    api.websocket.on(eventChannel(EVENT_PREFIX.ws.error, connectionId), (payload: unknown) => {
-      const err = payload as { message: string };
-      useWebSocketStore.getState().addMessage(connectionId, 'system', `Error: ${err.message}`);
-    });
-
-    api.websocket.on(eventChannel(EVENT_PREFIX.ws.close, connectionId), (payload: unknown) => {
-      if (!isLive()) return;
-      const ev = payload as { code: number; reason: string };
-      this.releaseElectron(connectionId, api);
-      this.handleClose(connectionId, ev.code, ev.reason);
-    });
+    attachControlFrameListeners(connectionId, api);
 
     const fail = (errMsg: string) => {
       if (!isLive()) return;
-      this.releaseElectron(connectionId, api);
+      this.releaseElectron(connectionId);
       const s = useWebSocketStore.getState();
       s.addMessage(connectionId, 'system', `Failed to connect: ${errMsg}`);
       // A rejected first connect is final (policy/SSRF); a rejected reconnect
@@ -444,10 +434,10 @@ class WebSocketManager {
       .catch((err: unknown) => fail(err instanceof Error ? err.message : 'Connection failed'));
   }
 
-  private releaseElectron(connectionId: string, api: ReturnType<typeof getElectronAPI>): void {
+  private releaseElectron(connectionId: string): void {
     this.electronConnections.delete(connectionId);
     this.electronAttempts.delete(connectionId);
-    cleanupWebSocketElectronListeners(connectionId, api);
+    wsChannels.unbind(connectionId);
   }
 
   /**

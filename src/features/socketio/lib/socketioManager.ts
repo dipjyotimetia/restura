@@ -12,7 +12,23 @@ import {
 } from '@/features/socketio/store/useSocketIOStore';
 import { checkBrowserSocketTargetFromSettings } from '@/lib/shared/browserSocketPolicy';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { createChannelBinder } from '@/lib/shared/streaming/channelBinding';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
+
+/** Every `socketio:*` channel of a connection, bound and cleared by connection id. */
+const socketioEvents = createChannelBinder({
+  bridge: () => getElectronAPI()?.socketio,
+  channels: (id) => ({
+    open: socketioChannels.open(id),
+    close: socketioChannels.close(id),
+    error: socketioChannels.error(id),
+    event: socketioChannels.event(id),
+    ack: socketioChannels.ack(id),
+    reconnectAttempt: socketioChannels.reconnectAttempt(id),
+    reconnect: socketioChannels.reconnect(id),
+    reconnectFailed: socketioChannels.reconnectFailed(id),
+  }),
+});
 
 interface ConnectConfig {
   url: string;
@@ -312,7 +328,7 @@ class SocketIOManager {
       const api = getElectronAPI();
       void api?.socketio?.disconnect({ connectionId });
       this.electronConnections.delete(connectionId);
-      this.cleanupElectronListeners(connectionId);
+      socketioEvents.unbind(connectionId);
       this.subscriptions.delete(connectionId);
       store.updateConnectionStatus(connectionId, 'disconnected');
       return;
@@ -492,93 +508,95 @@ class SocketIOManager {
       return;
     }
 
-    api.socketio.on(socketioChannels.open(connectionId), (payload: unknown) => {
-      const data = payload as { socketId?: string } | undefined;
-      const s = useSocketIOStore.getState();
-      s.updateConnectionStatus(connectionId, 'connected');
-      s.setReconnectAttemptCount(connectionId, 0);
-      s.setLastConnectedAt(connectionId, Date.now());
-      s.addEvent(connectionId, {
-        direction: 'system',
-        eventName: 'connect',
-        args: [{ socketId: data?.socketId }],
-      });
-    });
+    socketioEvents.bind(connectionId, {
+      open: (payload) => {
+        const data = payload as { socketId?: string } | undefined;
+        const s = useSocketIOStore.getState();
+        s.updateConnectionStatus(connectionId, 'connected');
+        s.setReconnectAttemptCount(connectionId, 0);
+        s.setLastConnectedAt(connectionId, Date.now());
+        s.addEvent(connectionId, {
+          direction: 'system',
+          eventName: 'connect',
+          args: [{ socketId: data?.socketId }],
+        });
+      },
 
-    api.socketio.on(socketioChannels.close(connectionId), (payload: unknown) => {
-      const data = payload as { reason?: string } | undefined;
-      const s = useSocketIOStore.getState();
-      s.updateConnectionStatus(connectionId, 'disconnected');
-      s.addEvent(connectionId, {
-        direction: 'system',
-        eventName: 'disconnect',
-        args: [data?.reason ?? 'unknown'],
-      });
-    });
+      close: (payload) => {
+        const data = payload as { reason?: string } | undefined;
+        const s = useSocketIOStore.getState();
+        s.updateConnectionStatus(connectionId, 'disconnected');
+        s.addEvent(connectionId, {
+          direction: 'system',
+          eventName: 'disconnect',
+          args: [data?.reason ?? 'unknown'],
+        });
+      },
 
-    api.socketio.on(socketioChannels.error(connectionId), (payload: unknown) => {
-      const data = payload as { message?: string } | undefined;
-      useSocketIOStore.getState().addEvent(connectionId, {
-        direction: 'system',
-        eventName: 'connect_error',
-        args: [data?.message ?? 'unknown error'],
-      });
-    });
+      error: (payload) => {
+        const data = payload as { message?: string } | undefined;
+        useSocketIOStore.getState().addEvent(connectionId, {
+          direction: 'system',
+          eventName: 'connect_error',
+          args: [data?.message ?? 'unknown error'],
+        });
+      },
 
-    api.socketio.on(socketioChannels.reconnectAttempt(connectionId), (payload: unknown) => {
-      const data = payload as { attempt?: number } | undefined;
-      const s = useSocketIOStore.getState();
-      s.updateConnectionStatus(connectionId, 'reconnecting');
-      if (typeof data?.attempt === 'number') {
-        s.setReconnectAttemptCount(connectionId, data.attempt);
-      }
-      s.addEvent(connectionId, {
-        direction: 'system',
-        eventName: 'reconnect_attempt',
-        args: [{ attempt: data?.attempt }],
-      });
-    });
+      reconnectAttempt: (payload) => {
+        const data = payload as { attempt?: number } | undefined;
+        const s = useSocketIOStore.getState();
+        s.updateConnectionStatus(connectionId, 'reconnecting');
+        if (typeof data?.attempt === 'number') {
+          s.setReconnectAttemptCount(connectionId, data.attempt);
+        }
+        s.addEvent(connectionId, {
+          direction: 'system',
+          eventName: 'reconnect_attempt',
+          args: [{ attempt: data?.attempt }],
+        });
+      },
 
-    api.socketio.on(socketioChannels.reconnect(connectionId), (payload: unknown) => {
-      useSocketIOStore.getState().addEvent(connectionId, {
-        direction: 'system',
-        eventName: 'reconnect',
-        args: [payload ?? {}],
-      });
-    });
+      reconnect: (payload) => {
+        useSocketIOStore.getState().addEvent(connectionId, {
+          direction: 'system',
+          eventName: 'reconnect',
+          args: [payload ?? {}],
+        });
+      },
 
-    api.socketio.on(socketioChannels.reconnectFailed(connectionId), () => {
-      useSocketIOStore.getState().addEvent(connectionId, {
-        direction: 'system',
-        eventName: 'reconnect_failed',
-        args: [],
-      });
-    });
+      reconnectFailed: () => {
+        useSocketIOStore.getState().addEvent(connectionId, {
+          direction: 'system',
+          eventName: 'reconnect_failed',
+          args: [],
+        });
+      },
 
-    api.socketio.on(socketioChannels.event(connectionId), (payload: unknown) => {
-      const data = payload as
-        | { eventName?: string; args?: unknown[]; serverAckId?: string }
-        | undefined;
-      if (!data?.eventName) return;
-      useSocketIOStore.getState().addEvent(connectionId, {
-        direction: 'received',
-        eventName: data.eventName,
-        args: data.args ?? [],
-        ...(typeof data.serverAckId === 'string' ? { serverAckId: data.serverAckId } : {}),
-      });
-    });
+      event: (payload) => {
+        const data = payload as
+          | { eventName?: string; args?: unknown[]; serverAckId?: string }
+          | undefined;
+        if (!data?.eventName) return;
+        useSocketIOStore.getState().addEvent(connectionId, {
+          direction: 'received',
+          eventName: data.eventName,
+          args: data.args ?? [],
+          ...(typeof data.serverAckId === 'string' ? { serverAckId: data.serverAckId } : {}),
+        });
+      },
 
-    api.socketio.on(socketioChannels.ack(connectionId), (payload: unknown) => {
-      const data = payload as { ackId?: string; args?: unknown[]; error?: string } | undefined;
-      if (!data?.ackId) return;
-      useSocketIOStore
-        .getState()
-        .resolveAck(
-          connectionId,
-          data.ackId,
-          data.args ?? [],
-          data.error === 'timeout' ? 'timeout' : 'ok'
-        );
+      ack: (payload) => {
+        const data = payload as { ackId?: string; args?: unknown[]; error?: string } | undefined;
+        if (!data?.ackId) return;
+        useSocketIOStore
+          .getState()
+          .resolveAck(
+            connectionId,
+            data.ackId,
+            data.args ?? [],
+            data.error === 'timeout' ? 'timeout' : 'ok'
+          );
+      },
     });
 
     this.electronConnections.add(connectionId);
@@ -621,23 +639,7 @@ class SocketIOManager {
     });
     s.updateConnectionStatus(connectionId, 'disconnected');
     this.electronConnections.delete(connectionId);
-    this.cleanupElectronListeners(connectionId);
-  }
-
-  private cleanupElectronListeners(connectionId: string): void {
-    const api = getElectronAPI();
-    if (!api?.socketio) return;
-    const channels = [
-      socketioChannels.open(connectionId),
-      socketioChannels.close(connectionId),
-      socketioChannels.error(connectionId),
-      socketioChannels.event(connectionId),
-      socketioChannels.ack(connectionId),
-      socketioChannels.reconnectAttempt(connectionId),
-      socketioChannels.reconnect(connectionId),
-      socketioChannels.reconnectFailed(connectionId),
-    ];
-    for (const ch of channels) api.socketio.removeAllListeners(ch);
+    socketioEvents.unbind(connectionId);
   }
 }
 

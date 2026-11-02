@@ -3,6 +3,7 @@ import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import { isReconnectableSseResponse } from '@shared/protocol/sse-parser';
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { createChannelBinder } from '@/lib/shared/streaming/channelBinding';
 import {
   connectionChannels,
   createSseDesktopAdapter,
@@ -24,18 +25,14 @@ export function buildSseStreamSpec(url: string, headers: Record<string, string>)
 }
 
 /**
- * Remove all `sse:{open,event,error,close}:<connectionId>` IPC listeners, by
- * connection id rather than by session: a retry or `disconnect()` has to clear
- * whatever an earlier attempt left on the same id.
+ * The `sse:*` channels of a connection, cleared by connection id rather than by
+ * session: a retry or `disconnect()` has to clear whatever an earlier attempt
+ * left on the same id.
  */
-export function cleanupSseElectronListeners(
-  connectionId: string,
-  api: ReturnType<typeof getElectronAPI>
-): void {
-  for (const channel of Object.values(connectionChannels(EVENT_PREFIX.sse, connectionId))) {
-    api?.sse?.removeAllListeners(channel);
-  }
-}
+const sseChannels = createChannelBinder({
+  bridge: () => getElectronAPI()?.sse,
+  channels: (id) => connectionChannels(EVENT_PREFIX.sse, id),
+});
 
 /**
  * A 502/503/504 the Worker generated itself (upstream unreachable / timed
@@ -161,10 +158,9 @@ class SseManager {
     }
 
     if (this.electronConnections.has(connectionId)) {
-      const api = getElectronAPI();
-      api?.sse?.disconnect({ connectionId });
+      getElectronAPI()?.sse?.disconnect({ connectionId });
       this.electronConnections.delete(connectionId);
-      cleanupSseElectronListeners(connectionId, api);
+      sseChannels.unbind(connectionId);
     }
 
     const ac = this.webConnections.get(connectionId);
@@ -406,7 +402,7 @@ class SseManager {
 
     // Always clear any prior listeners for this id before re-registering — otherwise
     // a retry after a failed connect leaves stale handlers that fire on the next event.
-    cleanupSseElectronListeners(connectionId, api);
+    sseChannels.unbind(connectionId);
     // Tracked from the start so a disconnect while still connecting reaches main.
     this.electronConnections.add(connectionId);
 
