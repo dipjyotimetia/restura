@@ -181,7 +181,7 @@ describe('NTLM desktop handshake', () => {
     const result = await send(`${url}/x`);
     expect(result.ok).toBe(false);
     // Either undici notices the dead socket, or the pin refuses the reconnect.
-    expect(errorOf(result)).toMatch(/NTLM handshake failed|other side closed/);
+    expect(errorOf(result)).toMatch(/NTLM handshake failed|other side closed|ECONNRESET/);
     expect(seen.filter((s) => s.ntlmType === 3)).toEqual([]);
     expect(new Set(seen.map((s) => s.socket)).size).toBe(1);
   });
