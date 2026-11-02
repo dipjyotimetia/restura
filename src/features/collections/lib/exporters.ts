@@ -3,6 +3,7 @@ import {
   type PostmanV21Collection,
   type PostmanV21Export,
 } from '@shared/collections/postman';
+import { redactVariableValue } from '@shared/collections/postman/text-redaction';
 import { isKnownHttpMethod, normalizeHttpMethod } from '@shared/protocol/http-method';
 import { v4 as uuidv4 } from 'uuid';
 import { internalToOC, serializeOpenCollectionYAML } from '@/lib/opencollection';
@@ -25,9 +26,23 @@ export type CollectionExportFormat = 'insomnia' | 'opencollection';
 /** User-visible advisories for data a target format cannot faithfully carry. */
 export function getCollectionExportWarnings(
   collection: Collection,
-  format: CollectionExportFormat
+  format: CollectionExportFormat,
+  environments: readonly Environment[] = []
 ): string[] {
   const warnings = new Set<string>();
+  if (format === 'opencollection') {
+    const leftOut = environments
+      .filter((environment) => environment.collectionId === collection.id)
+      .flatMap((environment) => environment.variables ?? [])
+      .some(
+        (variable) =>
+          !variable.private &&
+          !variable.secret &&
+          !variable.secretRef &&
+          redactVariableValue(variable.key, variable.value) !== variable.value
+      );
+    if (leftOut) warnings.add('Credentials in environment variables were not exported');
+  }
   const visit = (items: CollectionItem[]) => {
     for (const item of items) {
       if (item.type === 'folder') {
@@ -589,7 +604,7 @@ function portableVariables(
     .map((variable) =>
       variable.secret || variable.secretRef
         ? { name: variable.key, secret: true as const }
-        : { name: variable.key, value: variable.value }
+        : { name: variable.key, value: redactVariableValue(variable.key, variable.value) }
     );
 }
 

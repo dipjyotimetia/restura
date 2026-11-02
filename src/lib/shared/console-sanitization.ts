@@ -1,3 +1,4 @@
+import { isUrlHeaderName, scanUrlCredentials } from '@shared/collections/postman/text-redaction';
 import { CREDENTIAL_HEADER_NAMES } from '@shared/protocol/credential-header-names';
 import { bodyTokenPatterns, headerDenylistRegex } from '@shared/protocol/secret-patterns';
 import { isSecretFieldName } from '@shared/secrets/key-value-redaction';
@@ -62,29 +63,30 @@ export function sanitizeConsoleText(value: string): string {
   );
 }
 
-export function sanitizeConsoleUrl(value: string): string {
+const ENCODED_REDACTED = encodeURIComponent(CONSOLE_REDACTED);
+
+/** An absolute URL with a host. `user:pw@host` parses as scheme `user:` with neither. */
+function isHostUrl(value: string): boolean {
   try {
-    const url = new URL(value);
-    let changed = Boolean(url.username || url.password);
-    if (changed) {
-      url.username = CONSOLE_REDACTED;
-      url.password = CONSOLE_REDACTED;
-    }
-    for (const key of [...url.searchParams.keys()]) {
-      if (isCredentialQueryParam(key)) {
-        url.searchParams.set(key, CONSOLE_REDACTED);
-        changed = true;
-      }
-    }
-    return changed ? url.toString() : value;
+    return new URL(value).host !== '';
   } catch {
-    const withRedactedQuery = value.replace(
-      /([?&]([^=&]+)=)([^&#\s]+)/g,
-      (match, prefix: string, key: string) =>
-        isCredentialQueryParam(key) ? `${prefix}${CONSOLE_REDACTED}` : match
-    );
-    return sanitizeConsoleText(withRedactedQuery);
+    return false;
   }
+}
+
+export function sanitizeConsoleUrl(value: string): string {
+  if (isHostUrl(value)) {
+    return scanUrlCredentials(value, {
+      mask: ENCODED_REDACTED,
+      userinfoMask: `${ENCODED_REDACTED}:${ENCODED_REDACTED}`,
+      isSecretParam: isCredentialQueryParam,
+    }).redacted;
+  }
+  const { redacted } = scanUrlCredentials(value, {
+    mask: CONSOLE_REDACTED,
+    isSecretParam: isCredentialQueryParam,
+  });
+  return sanitizeConsoleText(redacted);
 }
 
 /** RFC 6265 attributes safe to keep visible; anything else is dropped. */
@@ -120,6 +122,11 @@ export function redactSetCookie(raw: string): string {
   ].join('; ');
 }
 
+function sanitizeHeaderValue(name: string, value: string | string[]): string | string[] {
+  const sanitize = isUrlHeaderName(name) ? sanitizeConsoleUrl : sanitizeConsoleText;
+  return Array.isArray(value) ? value.map(sanitize) : sanitize(value);
+}
+
 export function sanitizeConsoleHeaders<T extends Record<string, string | string[]>>(headers: T): T {
   return Object.fromEntries(
     Object.entries(headers).map(([key, value]) => [
@@ -128,9 +135,7 @@ export function sanitizeConsoleHeaders<T extends Record<string, string | string[
         ? Array.isArray(value)
           ? value.map(() => CONSOLE_REDACTED)
           : CONSOLE_REDACTED
-        : Array.isArray(value)
-          ? value.map(sanitizeConsoleText)
-          : sanitizeConsoleText(value),
+        : sanitizeHeaderValue(key, value),
     ])
   ) as T;
 }

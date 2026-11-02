@@ -1,4 +1,4 @@
-import { isSecretFieldName } from '../../secrets/key-value-redaction';
+import { isSecretFieldName, isSecretVariableName } from '../../secrets/key-value-redaction';
 
 /**
  * String-level credential redaction for the `_postman` sidecar (ADR 0034):
@@ -11,21 +11,143 @@ import { isSecretFieldName } from '../../secrets/key-value-redaction';
 
 export type Counter = { n: number } | undefined;
 
-/** A value that is exactly one `{{var}}` reference — a pointer, not a secret. */
-export const SINGLE_VARIABLE_REFERENCE = /^\{\{\s*[^{}\s]+\s*\}\}$/;
+/**
+ * A value made only of `{{name}}` references, `:` and whitespace: pointers, not
+ * secrets. Names follow `shared/variables/tokens.ts` (`{{my key}}`, no line break,
+ * not blank). Any literal character outside a reference fails it.
+ */
+export const REFERENCE_ONLY_VALUE = /^\s*(?:\{\{(?!\s*\}\})[^{}\r\n\u2028\u2029]+\}\}[\s:]*)+$/;
 
 function isSecretText(value: string): boolean {
   const v = value.trim();
-  return v !== '' && !SINGLE_VARIABLE_REFERENCE.test(v);
+  return v !== '' && !REFERENCE_ONLY_VALUE.test(v);
 }
 
 function bump(counter: Counter): void {
   if (counter) counter.n += 1;
 }
 
-// ── URLs: userinfo + credential-named query params ──────────────────────────
+// ── URLs: the one authority ─────────────────────────────────────────────────
+//
+// `scanUrlCredentials` is the single rule for credentials in a URL string, used
+// by export slots, passthrough bags, MCP tool output, the console and generated
+// docs. It normalises first, as the WHATWG parser does, then classifies. Nothing
+// else parses URLs for credentials: a new surface calls this.
 
-const URL_USERINFO = /^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i;
+/**
+ * What comes before the authority. A special scheme takes any number of slashes,
+ * including none, as the WHATWG parser does (`https:///u:p@h`, `https:u:p@h`); a
+ * templated scheme may be special, so it takes extra ones. Other schemes need `//`,
+ * and may be compound (`jdbc:mysql://`, `view-source:https://`).
+ */
+const URL_PREFIX =
+  /^(?:(?:https?|wss?|ftp):[\\/]*|\{\{[^{}]*\}\}:\/\/+|(?:[a-z][a-z0-9+.-]*:)*\/\/)/i;
+/** No authority without `//`, so a `:` and `@` are not userinfo. */
+const NON_HIERARCHICAL_SCHEME = /^(?:mailto|data|tel|sms|urn|sips?|xmpp|acct):(?!\/\/)/i;
+const VARIABLE_REFERENCE = /\{\{(?!\s*\}\})[^{}\r\n\u2028\u2029]+\}\}/g;
+const IPV6_LITERAL = /^\[[^\]]*\]/;
+const PORT = /^\d*$/;
+/** A free-form value is only touched when all of it is a URL with a scheme and `//`. */
+const WHOLE_URL_VALUE = /^(?:(?:[a-z][a-z0-9+.-]*|\{\{[^{}]*\}\}):)+\/\/[^\s"'`]*$/i;
+/** Schemes whose username is an account name, not a credential (`ssh://deploy@host`). */
+const USERNAME_SCHEMES = /^(?:ssh|git|sftp|scp|rsync|git\+ssh|ssh\+git|svn\+ssh)$/i;
+/** Userinfo passes before giving up on reading the rest; only hostile input gets there. */
+const MAX_USERINFO_PASSES = 4;
+
+export interface UrlScanOptions {
+  /** Replaces a credential query value. Default: blank. */
+  mask?: string;
+  /** Replaces userinfo, as `<mask>@`, for a display that shows it was there. Default: removed. */
+  userinfoMask?: string;
+  /** Names to treat as credentials. Default: {@link isSecretFieldName}. */
+  isSecretParam?: (name: string) => boolean;
+  /** The string may be any text, not a known address: see {@link WHOLE_URL_VALUE}. */
+  anyText?: boolean;
+}
+
+/** Userinfo made only of `{{var}}` references (and `:`): pointers, not secrets. */
+export function isReferenceOnlyUserinfo(userinfo: string): boolean {
+  return userinfo.replace(VARIABLE_REFERENCE, '').replace(/:/g, '') === '';
+}
+
+function isC0OrSpace(code: number): boolean {
+  return code <= 0x20;
+}
+
+/** Strip what the WHATWG parser strips: outer C0 / space, and any tab or newline. */
+function normalizeUrlInput(url: string): string {
+  const text = url.replace(/[\t\n\r]/g, '');
+  let start = 0;
+  let end = text.length;
+  while (start < end && isC0OrSpace(text.charCodeAt(start))) start += 1;
+  while (end > start && isC0OrSpace(text.charCodeAt(end - 1))) end -= 1;
+  return text.slice(start, end);
+}
+
+/**
+ * True when the `:` in a reference-masked authority cannot introduce a port, so
+ * a delimiter ended a password early. A reference reads as a port digit.
+ */
+function hasNonPortColon(authority: string): boolean {
+  const plain = authority.replace(IPV6_LITERAL, '');
+  const colon = plain.indexOf(':');
+  return colon !== -1 && !PORT.test(plain.slice(colon + 1));
+}
+
+function maskReferences(text: string): string {
+  return text.replace(VARIABLE_REFERENCE, (reference) => '0'.repeat(reference.length));
+}
+
+/** The last scheme of a `scheme://` prefix (`git+ssh`, `https` of `view-source:https://`). */
+function prefixScheme(prefix: string): string {
+  const slashes = prefix.indexOf('//');
+  if (slashes < 1) return '';
+  const schemes = prefix.slice(0, slashes - 1);
+  return schemes.slice(schemes.lastIndexOf(':') + 1);
+}
+
+/** The next userinfo in `url`, or null. References are never read as delimiters. */
+function nextUserinfo(url: string): { userinfo: string; remainder: string } | null {
+  if (!url.includes('@') || NON_HIERARCHICAL_SCHEME.test(url)) return null;
+  const prefix = URL_PREFIX.exec(url)?.[0] ?? '';
+  const rest = url.slice(prefix.length);
+  const masked = maskReferences(rest);
+  const pathStart = masked.search(/[/?#]/);
+  const authority = pathStart === -1 ? masked : masked.slice(0, pathStart);
+  let at = authority.lastIndexOf('@');
+  if (at === -1) {
+    // A password holding a delimiter. Without `//` this shape is an ordinary value.
+    if (prefix === '' || !hasNonPortColon(authority)) return null;
+    const queryStart = masked.search(/[?#]/);
+    at = queryStart === -1 ? -1 : masked.slice(0, queryStart).lastIndexOf('@');
+    if (at === -1) at = masked.lastIndexOf('@');
+    if (at === -1) return null;
+  } else if (!masked.slice(0, at).includes(':') && USERNAME_SCHEMES.test(prefixScheme(prefix))) {
+    return null;
+  }
+  return { userinfo: rest.slice(0, at), remainder: `${prefix}${rest.slice(at + 1)}` };
+}
+
+/**
+ * Userinfo through the last `@` of the authority, for an optional scheme. Each
+ * pass is linear and there are at most {@link MAX_USERINFO_PASSES}; past that,
+ * everything through the last `@` goes. Reference-only userinfo stays unless what
+ * follows it had a credential too.
+ */
+function stripUrlUserinfo(url: string): string {
+  let result = url;
+  let probe = url;
+  for (let pass = 0; pass < MAX_USERINFO_PASSES; pass += 1) {
+    const found = nextUserinfo(probe);
+    if (!found) return result;
+    probe = found.remainder;
+    if (!isReferenceOnlyUserinfo(found.userinfo)) result = probe;
+  }
+  const prefix = URL_PREFIX.exec(probe)?.[0] ?? '';
+  const rest = probe.slice(prefix.length);
+  const lastAt = maskReferences(rest).lastIndexOf('@');
+  return lastAt === -1 ? result : `${prefix}${rest.slice(lastAt + 1)}`;
+}
 
 function decodeComponent(text: string): string {
   try {
@@ -35,49 +157,141 @@ function decodeComponent(text: string): string {
   }
 }
 
-/**
- * Strip `user:pass@` userinfo and blank credential-named query values in a
- * URL string; templated URLs survive apart from the credential, and a value
- * that is one `{{var}}` reference is kept. Same policy as
- * `redactUrlCredentialsForStorage` (`shared/secrets/mcp-credential-redaction.ts`),
- * which cannot be imported here: that module depends on collection-redaction,
- * which depends on `./redaction.ts` (runtime cycle).
- */
-export function redactUrlCredentialsForStorage(url: string): string {
-  const out = url.replace(URL_USERINFO, '$1');
-  const queryStart = out.indexOf('?');
-  if (queryStart === -1) return out;
-  const hashStart = out.indexOf('#', queryStart);
-  const end = hashStart === -1 ? out.length : hashStart;
-  const query = out
-    .slice(queryStart + 1, end)
-    .split('&')
-    .map((pair) => {
-      const eq = pair.indexOf('=');
-      if (eq === -1) return pair;
-      const value = pair.slice(eq + 1);
-      if (!value || SINGLE_VARIABLE_REFERENCE.test(decodeComponent(value).trim())) return pair;
-      return isSecretFieldName(decodeComponent(pair.slice(0, eq))) ? `${pair.slice(0, eq)}=` : pair;
-    })
-    .join('&');
-  return `${out.slice(0, queryStart + 1)}${query}${out.slice(end)}`;
+function looksLikeUrl(text: string): boolean {
+  return text.startsWith('//') || text.includes('://');
 }
 
-function queryPairs(url: string): string[] {
-  const q = url.indexOf('?');
-  if (q === -1) return [];
-  const hash = url.indexOf('#', q);
-  return url.slice(q + 1, hash === -1 ? url.length : hash).split('&');
+/** One `name=value`. A value that is a URL is read once, never recursively. */
+function redactUrlParam(pair: string, options: UrlScanOptions, readNested: boolean): string {
+  const eq = pair.indexOf('=');
+  if (eq === -1) return pair;
+  const rawName = pair.slice(0, eq);
+  const value = pair.slice(eq + 1);
+  if (!value) return pair;
+  const decoded = decodeComponent(value);
+  if (REFERENCE_ONLY_VALUE.test(decoded.trim())) return pair;
+  const isSecretParam = options.isSecretParam ?? isSecretFieldName;
+  if (isSecretParam(decodeComponent(rawName))) return `${rawName}=${options.mask ?? ''}`;
+  if (!readNested || !looksLikeUrl(decoded)) return pair;
+  const inner = scan(decoded, options, false);
+  if (inner.edits === 0) return pair;
+  if (decoded === value) return `${rawName}=${inner.redacted}`;
+  try {
+    return `${rawName}=${encodeURIComponent(inner.redacted)}`;
+  } catch {
+    // A lone surrogate cannot be encoded: the value goes, like a credential.
+    return `${rawName}=${options.mask ?? ''}`;
+  }
+}
+
+function redactUrlParamList(
+  list: string,
+  options: UrlScanOptions,
+  readNested: boolean
+): { text: string; edits: number } {
+  let edits = 0;
+  const text = list
+    .split('&')
+    .map((pair) => {
+      const next = redactUrlParam(pair, options, readNested);
+      if (next !== pair) edits += 1;
+      return next;
+    })
+    .join('&');
+  return { text, edits };
+}
+
+/** Query and fragment parameters (`#access_token=`, `#/route?token=`). */
+function redactUrlParams(
+  url: string,
+  options: UrlScanOptions,
+  readNested: boolean
+): { text: string; edits: number } {
+  const hash = url.indexOf('#');
+  const base = hash === -1 ? url : url.slice(0, hash);
+  const query = base.indexOf('?');
+  let edits = 0;
+  let text = base;
+  if (query !== -1) {
+    const params = redactUrlParamList(base.slice(query + 1), options, readNested);
+    edits += params.edits;
+    text = `${base.slice(0, query + 1)}${params.text}`;
+  }
+  if (hash === -1) return { text, edits };
+  const fragment = url.slice(hash + 1);
+  const start = fragment.indexOf('?') + 1;
+  const params = redactUrlParamList(fragment.slice(start), options, readNested);
+  return {
+    text: `${text}#${fragment.slice(0, start)}${params.text}`,
+    edits: edits + params.edits,
+  };
+}
+
+function scan(
+  url: string,
+  options: UrlScanOptions,
+  readNested: boolean
+): { redacted: string; edits: number } {
+  if (options.anyText && !WHOLE_URL_VALUE.test(url.trim())) return { redacted: url, edits: 0 };
+  const input = normalizeUrlInput(url);
+  if (!/[@?#]/.test(input)) return { redacted: url, edits: 0 };
+  let stripped = stripUrlUserinfo(input);
+  const userinfoEdits = stripped === input ? 0 : 1;
+  if (userinfoEdits === 1 && options.userinfoMask !== undefined) {
+    const prefix = URL_PREFIX.exec(stripped)?.[0] ?? '';
+    stripped = `${prefix}${options.userinfoMask}@${stripped.slice(prefix.length)}`;
+  }
+  const params = redactUrlParams(stripped, options, readNested);
+  const edits = userinfoEdits + params.edits;
+  // A string with no credential comes back exactly as written.
+  return edits === 0 ? { redacted: url, edits: 0 } : { redacted: params.text, edits };
+}
+
+/** {@link scan} with the one level of nested URL reading. */
+export function scanUrlCredentials(
+  url: string,
+  options: UrlScanOptions = {}
+): { redacted: string; edits: number } {
+  return scan(url, options, true);
+}
+
+/**
+ * Credentials in a URL string removed; templated URLs survive apart from the
+ * credential, and userinfo or a value made only of `{{var}}` references is kept.
+ * Lives in this leaf module because `shared/secrets/mcp-credential-redaction.ts`
+ * depends on collection-redaction, which depends on `./redaction.ts` (runtime cycle).
+ */
+export function redactUrlCredentialsForStorage(url: string): string {
+  return scanUrlCredentials(url).redacted;
 }
 
 /** Exactly the number of edits {@link redactUrlCredentialsForStorage} makes to `url`. */
 export function countUrlStringSecrets(url: string): number {
-  const redacted = redactUrlCredentialsForStorage(url);
-  if (redacted === url) return 0;
-  const withoutUserinfo = url.replace(URL_USERINFO, '$1');
-  const before = queryPairs(withoutUserinfo);
-  const after = queryPairs(redacted);
-  return (withoutUserinfo === url ? 0 : 1) + before.filter((pair, i) => pair !== after[i]).length;
+  return scanUrlCredentials(url).edits;
+}
+
+/**
+ * A value that may or may not be a URL (a variable): credentials are removed only
+ * when all of it is a URL with a scheme and `//`. Anything else comes back as written.
+ */
+export function redactTextValueCredentials(value: string): string {
+  return scanUrlCredentials(value, { anyText: true }).redacted;
+}
+
+/**
+ * The one policy for a variable's value: a credential-named value is replaced with
+ * `mask`, a value made only of references stays, and a whole URL loses its credentials.
+ */
+export function redactVariableValue(name: string, value: string, mask = ''): string {
+  if (!value || REFERENCE_ONLY_VALUE.test(value.trim())) return value;
+  return isSecretVariableName(name) ? mask : redactTextValueCredentials(value);
+}
+
+const URL_HEADER_NAMES = new Set(['location', 'content-location', 'referer']);
+
+/** A header whose value is a URL. */
+export function isUrlHeaderName(name: string): boolean {
+  return URL_HEADER_NAMES.has(name.trim().toLowerCase());
 }
 
 // ── header lines ────────────────────────────────────────────────────────────
@@ -103,8 +317,6 @@ const SCHEME_START = /^[a-z][a-z0-9+.-]*:\/\//i;
  * `@` of the authority (`admin:P@ssw0rd@host`), as on the whole-URL path.
  */
 const USERINFO_IN_TEXT = /(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*):\/\/([^\s/?#]+)@/gi;
-/** Schemes whose username is an account name, not a credential (`ssh://deploy@host`). */
-const USERNAME_SCHEMES = /^(?:ssh|git|sftp|scp|rsync|git\+ssh|ssh\+git|svn\+ssh)$/i;
 /**
  * `?name=value` / `&name=value`, with or without a scheme. Not after `?.`
  * (optional chaining) and not `==` (comparison); `{{ var }}` and a balanced
@@ -267,7 +479,7 @@ function isBlank(value: string): boolean {
 
 /** A value that is kept: empty / already blanked, or a lone `{{var}}`. */
 function isKept(value: string): boolean {
-  return isBlank(value) || SINGLE_VARIABLE_REFERENCE.test(value.trim());
+  return isBlank(value) || REFERENCE_ONLY_VALUE.test(value.trim());
 }
 
 /**

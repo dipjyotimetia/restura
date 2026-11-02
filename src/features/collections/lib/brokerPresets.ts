@@ -212,7 +212,7 @@ export function snapshotBrokerTab(
 }
 
 export const USERINFO_STRIPPED_WARNING =
-  'Credentials in the broker / registry address were not saved — use the password fields instead';
+  'A broker / registry address may have held credentials, so they were not saved. If an address is now blank, re-enter it without them and use the password fields';
 
 function walkPresets(items: CollectionItem[], visit: (preset: BrokerRequest) => void): void {
   for (const item of items) {

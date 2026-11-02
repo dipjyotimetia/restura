@@ -1,3 +1,4 @@
+import { isSecretFieldName } from '../secrets/key-value-redaction';
 import type { Fetcher, FetcherRequest, FetcherResponse } from './types';
 import { validateURL } from './url-validation';
 
@@ -11,9 +12,9 @@ import { validateURL } from './url-validation';
  * Policy enforced here:
  * - Every hop's target URL is re-validated via `validateURL` with the same
  *   private/localhost policy as the initial request.
- * - `Authorization`, `Cookie`, and `Proxy-Authorization` are stripped on
- *   cross-origin redirects (matches browser / curl --location-trusted=false
- *   behavior).
+ * - `Authorization`, `Cookie`, `Proxy-Authorization`, credential-named headers
+ *   and the headers named by `stripOnOriginChange` are stripped on cross-origin
+ *   redirects. Other headers keep following.
  * - 303 always rewrites to GET; 301/302 rewrite to GET when the original
  *   method wasn't HEAD (matches widespread real-world behavior even though
  *   RFC 9110 calls for method preservation); 307/308 preserve method.
@@ -24,11 +25,42 @@ import { validateURL } from './url-validation';
  */
 
 const DEFAULT_MAX_REDIRECTS = 5;
-const DEFAULT_STRIPPED_ON_CROSS_ORIGIN: ReadonlyArray<string> = [
-  'authorization',
-  'cookie',
-  'proxy-authorization',
-];
+const DEFAULT_STRIPPED_ON_CROSS_ORIGIN: ReadonlyArray<string> = ['cookie', 'proxy-authorization'];
+
+// Run-together spellings, for names that reach here lowercased (a `Headers` object
+// has lost the case `isSecretFieldName` would split on).
+const RUN_TOGETHER_CREDENTIAL_NAMES = new Set([
+  'accesstoken',
+  'apitoken',
+  'authtoken',
+  'clientsecret',
+  'idtoken',
+  'refreshtoken',
+  'securitytoken',
+  'sessiontoken',
+]);
+
+function isCredentialHeaderName(name: string): boolean {
+  return (
+    isSecretFieldName(name) ||
+    name
+      .toLowerCase()
+      .split(/[-_.\s]+/)
+      .some((segment) => RUN_TOGETHER_CREDENTIAL_NAMES.has(segment))
+  );
+}
+
+/**
+ * The credential headers of a request, judged on the case it was written in. Later
+ * hops only see lowercased names. Authorization is left to `followAuthHeader`.
+ */
+export function credentialHeaderNames(headers: FetcherRequest['headers']): string[] {
+  const names = headers instanceof Headers ? [...headers.keys()] : Object.keys(headers);
+  return names
+    .filter(isCredentialHeaderName)
+    .map((name) => name.toLowerCase())
+    .filter((name) => name !== 'authorization');
+}
 
 /**
  * Distinguishes a redirect-policy violation (blocked target, too many hops,
@@ -91,6 +123,8 @@ export interface FollowRedirectsOptions {
    * Default: false (Authorization stripped, matching curl's default).
    */
   followAuthHeader?: boolean;
+  /** Further header names to strip on an origin change, whatever they are called. */
+  stripOnOriginChange?: readonly string[];
   /**
    * If true, the Referer header is removed on every redirect hop (regardless
    * of origin). Default: false.
@@ -128,11 +162,16 @@ export async function followRedirects(
   }
 
   const maxHops = Math.max(1, options.maxRedirects ?? DEFAULT_MAX_REDIRECTS);
-  // Compute the cross-origin strip list per call so feature flags can opt out
-  // of the default Authorization strip (followAuthHeader).
-  const crossOriginStrip: ReadonlyArray<string> = options.followAuthHeader
-    ? DEFAULT_STRIPPED_ON_CROSS_ORIGIN.filter((h) => h !== 'authorization')
-    : DEFAULT_STRIPPED_ON_CROSS_ORIGIN;
+  const named = new Set([
+    ...DEFAULT_STRIPPED_ON_CROSS_ORIGIN,
+    ...(options.stripOnOriginChange ?? []).map((name) => name.toLowerCase()),
+    ...credentialHeaderNames(initialReq.headers),
+  ]);
+  // followAuthHeader opts out of the name match for Authorization only; a header
+  // the spec names explicitly still goes.
+  const stripOnOriginChange = (name: string) =>
+    named.has(name) ||
+    (isCredentialHeaderName(name) && !(name === 'authorization' && options.followAuthHeader));
 
   while (isRedirect(response.status)) {
     if (hops >= maxHops) {
@@ -162,7 +201,9 @@ export async function followRedirects(
     const toOrigin = new URL(nextUrl).origin;
     const headers = headersFromRequest(req);
     if (fromOrigin !== toOrigin) {
-      for (const h of crossOriginStrip) headers.delete(h);
+      for (const name of [...headers.keys()]) {
+        if (stripOnOriginChange(name)) headers.delete(name);
+      }
     }
     if (options.stripReferer) {
       headers.delete('referer');

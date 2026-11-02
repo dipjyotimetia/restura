@@ -144,7 +144,11 @@ export function useHttpRequestPage() {
       // Active environment + workspace globals + collection vars (precedence
       // globals < env < collection). The executor layers pre-request-script
       // mutations on top and mutates this map in place.
-      const { values: envVars, secretVariables } = buildActiveRequestVariableResolution();
+      const {
+        values: envVars,
+        secretVariables,
+        sendSecretNames,
+      } = buildActiveRequestVariableResolution();
 
       // Resolve the owning collection (if this request is saved in one) so
       // scripts get a real `pm.collectionVariables` namespace + `pm.info`,
@@ -169,6 +173,7 @@ export function useHttpRequestPage() {
         request: requestForExec,
         envVars,
         secretVariables,
+        secretNames: sendSecretNames,
         globalSettings,
         resolveVariables: (text) => resolveVariables(text),
         collectionVars,

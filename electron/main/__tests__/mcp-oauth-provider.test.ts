@@ -67,6 +67,29 @@ beforeEach(() => {
 });
 afterAll(() => __setSecretStoreForTests(null));
 
+describe('saving tokens that hold a variable token', () => {
+  const previous = { access_token: 'kept-access', token_type: 'Bearer', refresh_token: 'kept' };
+  it.each([
+    ['access_token', { access_token: '{{sec}}', token_type: 'Bearer' }],
+    ['padded access_token', { access_token: 'a{{ sec }}b', token_type: 'Bearer' }],
+    ['refresh_token', { access_token: 'ok', token_type: 'Bearer', refresh_token: '{{sec}}' }],
+    ['token_type', { access_token: 'ok', token_type: '{{sec}}' }],
+    ['a token split across fields', { access_token: '}}', token_type: '{{sec' }],
+  ])('refuses %s and keeps the stored record', async (_field, tokens) => {
+    saveMcpOAuthRecord(SERVER, undefined, { tokens: previous });
+    const session = new McpOAuthSession({ serverUrl: SERVER }, { fetchFn: noFetch });
+    const error = await (async () => session.provider.saveTokens(tokens))().then(
+      () => undefined,
+      (cause: unknown) => cause
+    );
+    const described = describeOAuthError(error);
+    expect(described).toMatch(/^MCP OAuth failed \(.+\): .*variable reference/);
+    expect(described).not.toContain('{{');
+    expect(loadMcpOAuthRecord(SERVER, undefined)?.tokens).toEqual(previous);
+    session.dispose();
+  });
+});
+
 describe('mcp-oauth-store', () => {
   it('binds records to origin + path and a UUID-shaped deterministic id', () => {
     expect(canonicalMcpResource(SERVER)).toBe('https://mcp.example.com/mcp');

@@ -93,13 +93,48 @@ describe('useOwsWorkflowExecution', () => {
 
     expect(injectVariables).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'http', url: 'https://example.test/saved' }),
-      expect.objectContaining({ globalVar: 'global', collectionVar: 'collection' })
+      expect.objectContaining({ globalVar: 'global', collectionVar: 'collection' }),
+      []
     );
     expect(runRequest).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'http', url: 'https://example.test/saved' }),
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
     expect(result.current.result?.status).toBe('success');
+  });
+
+  it('names secret variables from every scope to the protocol adapter', async () => {
+    runRequest.mockResolvedValue({ status: 200, headers: {}, body: 'ok', size: 2, time: 1 });
+    useEnvironmentStore.setState({
+      activeEnvironmentId: 'env',
+      environments: [
+        {
+          id: 'env',
+          name: 'env',
+          variables: [{ id: 'v', key: ' envSecret ', value: 'x', secret: true, enabled: true }],
+        },
+      ],
+    });
+    useCollectionStore.setState((state) => ({
+      collections: state.collections.map((collection) => ({
+        ...collection,
+        variables: [{ id: 'c', key: 'colSecret', value: 'y', secret: true, enabled: true }],
+      })),
+    }));
+    const { result } = renderHook(() => useOwsWorkflowExecution());
+
+    await act(async () => {
+      await result.current.run(workflow);
+    });
+
+    expect(injectVariables).toHaveBeenCalledWith(expect.anything(), expect.anything(), [
+      'envSecret',
+      'colSecret',
+    ]);
+    expect(runRequest).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ secretNames: ['envSecret', 'colSecret'] })
+    );
   });
 
   it.each([

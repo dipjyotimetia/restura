@@ -1,4 +1,4 @@
-import { isSecretFieldName } from '../../secrets/key-value-redaction';
+import { isSecretFieldName, isSecretVariableName } from '../../secrets/key-value-redaction';
 import { isSecretHandle, type SecretValue } from '../../secrets/secret-ref';
 import { MAX_COLLECTION_TREE_DEPTH } from '../passthrough-bags';
 import {
@@ -10,9 +10,11 @@ import {
 import {
   countUrlStringSecrets,
   isSecretHeaderLine,
+  isUrlHeaderName,
+  REFERENCE_ONLY_VALUE,
   redactTextCredentials,
+  redactTextValueCredentials,
   redactUrlCredentialsForStorage,
-  SINGLE_VARIABLE_REFERENCE,
   walkArgv,
   walkCommandLine,
 } from './text-redaction';
@@ -79,9 +81,7 @@ function isCredentialValue(v: unknown): boolean {
 
 /** A plaintext credential value (a lone `{{var}}` reference is a pointer, not a secret). */
 function isPlaintextValue(v: unknown): boolean {
-  return (
-    isNonEmptyScalar(v) && !(typeof v === 'string' && SINGLE_VARIABLE_REFERENCE.test(v.trim()))
-  );
+  return isNonEmptyScalar(v) && !(typeof v === 'string' && REFERENCE_ONLY_VALUE.test(v.trim()));
 }
 
 export function isPostmanAuthSecretKey(key: string): boolean {
@@ -167,20 +167,66 @@ function countPostmanRows(rows: unknown): number {
   return Array.isArray(rows) ? rows.filter(isPostmanSecretRow).length : 0;
 }
 
+/** A variable row holding a plaintext secret, by the same names as a typed variable. */
+function isPostmanSecretVariable(row: unknown): boolean {
+  if (!isObj(row) || !isNonEmptyScalar(row.value)) return false;
+  if (row.type === 'secret' || row.secret === true) return true;
+  return (
+    isPlaintextValue(row.value) && typeof row.key === 'string' && isSecretVariableName(row.key)
+  );
+}
+
+/** Variable rows: the secret rule, and any other value loses URL credentials. */
+function redactPostmanVariableRow(row: unknown): unknown {
+  if (isPostmanSecretVariable(row)) return { ...(row as object), value: '' };
+  if (!isObj(row) || typeof row.value !== 'string') return row;
+  const value = redactTextValueCredentials(row.value);
+  return value === row.value ? row : { ...row, value };
+}
+
+function redactPostmanVariableRows(rows: unknown): unknown {
+  return Array.isArray(rows) ? rows.map(redactPostmanVariableRow) : rows;
+}
+
+function countPostmanVariableRows(rows: unknown): number {
+  return Array.isArray(rows)
+    ? rows.filter((row) => redactPostmanVariableRow(row) !== row).length
+    : 0;
+}
+
+/** A URL-valued header's value without its credentials; anything else as given. */
+function redactUrlHeaderValue(name: unknown, value: unknown): unknown {
+  return typeof name === 'string' && typeof value === 'string' && isUrlHeaderName(name)
+    ? redactUrlCredentialsForStorage(value)
+    : value;
+}
+
+function redactPostmanHeaderLine(line: string): string {
+  const colon = line.indexOf(':');
+  if (colon === -1) return line;
+  if (isSecretHeaderLine(line)) return `${line.slice(0, colon)}: `;
+  const value = line.slice(colon + 1).trim();
+  const next = redactUrlHeaderValue(line.slice(0, colon), value);
+  return next === value ? line : `${line.slice(0, colon)}: ${String(next)}`;
+}
+
 /** Headers as `[{ key, value }]`, a raw `"Key: Value\n…"` block, or a `{ Key: value }` map. */
 function redactPostmanHeaders(header: unknown): unknown {
-  if (Array.isArray(header)) return redactPostmanRows(header);
+  if (Array.isArray(header)) {
+    return (redactPostmanRows(header) as unknown[]).map((row) => {
+      if (!isObj(row)) return row;
+      const value = redactUrlHeaderValue(row.key, row.value);
+      return value === row.value ? row : { ...row, value };
+    });
+  }
   if (typeof header === 'string') {
-    return header
-      .split('\n')
-      .map((line) => (isSecretHeaderLine(line) ? `${line.slice(0, line.indexOf(':'))}: ` : line))
-      .join('\n');
+    return header.split('\n').map(redactPostmanHeaderLine).join('\n');
   }
   if (isObj(header)) {
     return Object.fromEntries(
       Object.entries(header).map(([k, v]) => [
         k,
-        isSecretFieldName(k) && isPlaintextValue(v) ? '' : v,
+        isSecretFieldName(k) && isPlaintextValue(v) ? '' : redactUrlHeaderValue(k, v),
       ])
     );
   }
@@ -188,11 +234,20 @@ function redactPostmanHeaders(header: unknown): unknown {
 }
 
 function countPostmanHeaders(header: unknown): number {
-  if (Array.isArray(header)) return countPostmanRows(header);
-  if (typeof header === 'string') return header.split('\n').filter(isSecretHeaderLine).length;
+  if (Array.isArray(header)) {
+    return header.filter(
+      (row) =>
+        isPostmanSecretRow(row) ||
+        (isObj(row) && redactUrlHeaderValue(row.key, row.value) !== row.value)
+    ).length;
+  }
+  if (typeof header === 'string') {
+    return header.split('\n').filter((line) => redactPostmanHeaderLine(line) !== line).length;
+  }
   if (isObj(header)) {
-    return Object.entries(header).filter(([k, v]) => isSecretFieldName(k) && isPlaintextValue(v))
-      .length;
+    return Object.entries(header).filter(
+      ([k, v]) => (isSecretFieldName(k) && isPlaintextValue(v)) || redactUrlHeaderValue(k, v) !== v
+    ).length;
   }
   return 0;
 }
@@ -208,12 +263,28 @@ function redactUrlAuth(auth: Raw): Raw {
   );
 }
 
+/** A structured `host` as text: a string, or dot-joined segments. */
+function hostText(host: unknown): string | undefined {
+  if (typeof host === 'string') return host;
+  if (Array.isArray(host) && host.every((part) => typeof part === 'string')) return host.join('.');
+  return undefined;
+}
+
+function redactPostmanHost(host: unknown): unknown {
+  const text = hostText(host);
+  if (text === undefined) return host;
+  const redacted = redactUrlCredentialsForStorage(text);
+  if (redacted === text) return host;
+  return typeof host === 'string' ? redacted : redacted.split('.');
+}
+
 function redactPostmanUrl(url: unknown): unknown {
   if (typeof url === 'string') return redactUrlCredentialsForStorage(url);
   if (!isObj(url)) return url;
   const next: Raw = { ...url };
   if (url.query !== undefined) next.query = redactPostmanRows(url.query);
   if (typeof url.raw === 'string') next.raw = redactUrlCredentialsForStorage(url.raw);
+  if (url.host !== undefined) next.host = redactPostmanHost(url.host);
   if (isObj(url.auth)) next.auth = redactUrlAuth(url.auth);
   return next;
 }
@@ -223,6 +294,7 @@ function countPostmanUrl(url: unknown): number {
   if (!isObj(url)) return 0;
   let n = countPostmanRows(url.query);
   if (typeof url.raw === 'string') n += countUrlStringSecrets(url.raw);
+  n += countUrlStringSecrets(hostText(url.host) ?? '');
   if (isObj(url.auth)) {
     n += Object.entries(url.auth).filter(
       ([k, v]) => isPostmanAuthSecretKey(k) && isCredentialValue(v)
@@ -348,7 +420,7 @@ export const UNSAFE_OBJECT_KEYS: ReadonlySet<string> = new Set([
 function hasCredentialContent(v: unknown): boolean {
   if (Array.isArray(v)) return v.length > 0;
   if (isObj(v)) return Object.keys(v).length > 0;
-  if (typeof v === 'string' && SINGLE_VARIABLE_REFERENCE.test(v.trim())) return false;
+  if (typeof v === 'string' && REFERENCE_ONLY_VALUE.test(v.trim())) return false;
   return isCredentialValue(v) && v !== false;
 }
 
@@ -444,8 +516,8 @@ export function redactPostmanBag(bag: unknown): unknown {
   const next: Raw = { ...bag };
   if (bag.body !== undefined) next.body = redactPostmanBody(bag.body);
   if (isObj(bag.auth)) next.auth = redactPostmanAuth(bag.auth);
-  if (bag.variable !== undefined) next.variable = redactPostmanRows(bag.variable);
-  if (bag.urlVariable !== undefined) next.urlVariable = redactPostmanRows(bag.urlVariable);
+  if (bag.variable !== undefined) next.variable = redactPostmanVariableRows(bag.variable);
+  if (bag.urlVariable !== undefined) next.urlVariable = redactPostmanVariableRows(bag.urlVariable);
   if (Array.isArray(bag.response)) next.response = bag.response.map(redactPostmanResponse);
   for (const field of V3_RAW_FIELDS) {
     if (bag[field] !== undefined) next[field] = walkV3Raw(bag[field], undefined);
@@ -463,8 +535,8 @@ export function countPostmanBagInlineSecrets(bag: unknown): number {
     // `authBagOnly`: the auth was NOT mapped onto the typed model (v3 broker
     // presets and placeholder items), so every credential lives only here.
     countPostmanAuthSecrets(bag.auth, bag.authBagOnly === true) +
-    countPostmanRows(bag.variable) +
-    countPostmanRows(bag.urlVariable) +
+    countPostmanVariableRows(bag.variable) +
+    countPostmanVariableRows(bag.urlVariable) +
     countPostmanBody(bag.body) +
     countV3RawFields(bag);
   for (const response of Array.isArray(bag.response) ? bag.response : []) {

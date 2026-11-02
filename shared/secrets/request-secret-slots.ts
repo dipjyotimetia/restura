@@ -1,3 +1,7 @@
+import {
+  countUrlStringSecrets,
+  redactUrlCredentialsForStorage,
+} from '../collections/postman/text-redaction';
 import type { AuthConfig, CollectionRequest } from '../types';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from './auth-fields';
 import { BROKER_PRESET_SLOTS } from './broker-preset-redaction';
@@ -31,6 +35,24 @@ function isInlineWithValue(value: SecretValue | undefined): boolean {
   return !isSecretHandle(value) && unwrapSecret(value) !== '';
 }
 
+/** OAuth endpoints: not secrets, but a URL field can still carry a credential. */
+const OAUTH2_URL_FIELDS = [
+  'authorizationUrl',
+  'tokenUrl',
+  'deviceAuthorizationUrl',
+  'redirectUri',
+  'issuer',
+] as const;
+
+function oauth2UrlValues(auth: AuthConfig): Array<[string, string]> {
+  const block = auth.oauth2 as Record<string, unknown> | undefined;
+  if (!block || typeof block !== 'object') return [];
+  return OAUTH2_URL_FIELDS.flatMap((field) => {
+    const value = block[field];
+    return typeof value === 'string' ? [[field, value] as [string, string]] : [];
+  });
+}
+
 /** Returns a copy of `auth` with every known secret-bearing field redacted. */
 export function redactAuthConfigSecrets(auth: AuthConfig): AuthConfig {
   const next: AuthConfig = { ...auth };
@@ -45,6 +67,13 @@ export function redactAuthConfigSecrets(auth: AuthConfig): AuthConfig {
     }
     (next as unknown as Record<string, unknown>)[block] = copy;
   }
+  const urls = oauth2UrlValues(next);
+  if (urls.length > 0) {
+    (next as unknown as Record<string, unknown>).oauth2 = {
+      ...next.oauth2,
+      ...Object.fromEntries(urls.map(([k, v]) => [k, redactUrlCredentialsForStorage(v)])),
+    };
+  }
   return next;
 }
 
@@ -58,6 +87,7 @@ export function countAuthInlineSecrets(auth: AuthConfig | undefined): number {
       if (isInlineWithValue(current[field] as SecretValue | undefined)) count++;
     }
   }
+  for (const [, url] of oauth2UrlValues(auth)) count += countUrlStringSecrets(url);
   return count;
 }
 
@@ -119,6 +149,24 @@ const FORM_BODY_SLOT: SecretSlot = {
     countSecretKeyValues(formBodyRows(request)?.filter((row) => row.type !== 'file')),
 };
 
+/**
+ * URL userinfo and credential-named query values, for every request kind with a
+ * `url`. `count` throws on a non-string URL, as `rowListSlot` does on a non-array
+ * list: `blank` passes it through, so returning 0 would suppress the warning.
+ */
+const URL_SLOT: SecretSlot = {
+  name: 'url',
+  blank(request) {
+    const url = loose(request).url;
+    if (typeof url !== 'string') return request;
+    return typed({ ...loose(request), url: redactUrlCredentialsForStorage(url) });
+  },
+  count(request) {
+    const url = loose(request).url;
+    return url === undefined || url === null ? 0 : countUrlStringSecrets(url as string);
+  },
+};
+
 const AUTH_SLOT: SecretSlot = {
   name: 'auth',
   blank: (request) =>
@@ -144,6 +192,7 @@ const STDIO_ENV_SLOT: SecretSlot = {
 };
 
 export const REQUEST_SECRET_SLOTS: readonly SecretSlot[] = [
+  URL_SLOT,
   rowListSlot('headers'),
   rowListSlot('params'),
   rowListSlot('metadata'),

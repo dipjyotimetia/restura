@@ -21,6 +21,7 @@ import {
   reapBrokerPresetSecrets,
   reapBrokerPresetSecretsForItem,
   snapshotBrokerTab,
+  USERINFO_STRIPPED_WARNING,
 } from '../brokerPresets';
 import { exportToInsomnia, exportToPostmanV21, getCollectionExportWarnings } from '../exporters';
 import { skippedConnectionPresets } from '../flattenRunnables';
@@ -444,4 +445,50 @@ describe('preset save-back, credential lifecycle and runner reporting (#984 revi
       connection: { brokerUrl: 'mqtt://h:1883' },
     });
   });
+
+  it.each([
+    ['mqtt://u:p@ss@h:1883', 'mqtt://h:1883'],
+    ['mqtt://u:p ss@h:1883', 'mqtt://h:1883'],
+    // No safe parse, so nothing of it is kept: the field comes back empty and
+    // connecting reports the missing address.
+    ['mqtt://u:pa/ss@h:1883', ''],
+    ['mqtt://u:pa#ss@h:1883', ''],
+  ])('snapshots MQTT address %s as %j and flags it', (brokerUrl, expected) => {
+    const tabId = useRequestStore.getState().openTabWithMode('mqtt');
+    const connectionId = useMqttStore.getState().ensureConnectionForTab(tabId);
+    useMqttStore.getState().updateConnection(connectionId, { brokerUrl });
+    const snap = snapshotBrokerTab({ id: tabId, modeOverride: 'mqtt' }, 'S', 'fixed-id')!;
+    expect(snap.strippedUserinfo).toBe(true);
+    expect(snap.request).toMatchObject({ connection: { brokerUrl: expected } });
+  });
+
+  it.each(['mqtt://h:1883/a@b', 'mqtt://{{h}}:1883/a@b'])(
+    'snapshots MQTT address %s as blank and flags it, as it may hold a credential',
+    (brokerUrl) => {
+      const tabId = useRequestStore.getState().openTabWithMode('mqtt');
+      const connectionId = useMqttStore.getState().ensureConnectionForTab(tabId);
+      useMqttStore.getState().updateConnection(connectionId, { brokerUrl });
+      const snap = snapshotBrokerTab({ id: tabId, modeOverride: 'mqtt' }, 'S', 'fixed-id')!;
+      expect(snap.strippedUserinfo).toBe(true);
+      expect(snap.request).toMatchObject({ connection: { brokerUrl: '' } });
+    }
+  );
+
+  it('the warning tells the user a blank address needs re-entering', () => {
+    expect(USERINFO_STRIPPED_WARNING).toMatch(/re-enter/i);
+    expect(USERINFO_STRIPPED_WARNING).toMatch(/blank/i);
+    expect(USERINFO_STRIPPED_WARNING).toMatch(/password fields/i);
+  });
+
+  it.each(['mqtt://h/a@b', 'mqtt://{{u}}:{{p}}@h:1883'])(
+    'snapshots MQTT address %s unchanged and unflagged',
+    (brokerUrl) => {
+      const tabId = useRequestStore.getState().openTabWithMode('mqtt');
+      const connectionId = useMqttStore.getState().ensureConnectionForTab(tabId);
+      useMqttStore.getState().updateConnection(connectionId, { brokerUrl });
+      const snap = snapshotBrokerTab({ id: tabId, modeOverride: 'mqtt' }, 'S', 'fixed-id')!;
+      expect(snap.strippedUserinfo).toBe(false);
+      expect(snap.request).toMatchObject({ connection: { brokerUrl } });
+    }
+  );
 });

@@ -27,6 +27,7 @@ import { executeRequest } from '@/features/http/lib/requestExecutor';
 import type { ProtocolModule } from '@/features/registry/types';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
+import { withoutSecretNames } from '@/lib/shared/resolveRequestScope';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Response as ApiResponse, HttpRequest, Request } from '@/types';
 
@@ -63,10 +64,14 @@ function defaultResolveVariables(text: string, vars: Record<string, string>): st
  * to plain string substitution so partial input still resolves the
  * obvious cases.
  */
-function injectGraphQLVariables(request: Request, variables: Record<string, string>): Request {
+function injectGraphQLVariables(
+  request: Request,
+  variables: Record<string, string>,
+  secretNames?: readonly string[]
+): Request {
   if (request.type !== 'http') return request;
   const http = request as HttpRequest;
-  const inject = (text: string) => injectString(text, variables);
+  const inject = (text: string) => injectString(text, variables, secretNames);
 
   let body = http.body;
   if (body.raw !== undefined) {
@@ -173,8 +178,12 @@ export const graphqlProtocol: ProtocolModule = {
         envVars: { ...variables },
         globalSettings,
         signal: ctx.signal,
-        resolveVariables: (text) => defaultResolveVariables(text, variables),
+        // The second pass reads no secret: it could not tell a written token from
+        // one a value brought in.
+        resolveVariables: (text) =>
+          defaultResolveVariables(text, withoutSecretNames(variables, ctx.secretNames ?? [])),
         ...(ctx.secretVariables ? { secretVariables: ctx.secretVariables } : {}),
+        ...(ctx.secretNames ? { secretNames: ctx.secretNames } : {}),
         // `multipart/mixed` incremental (@defer / @stream) responses are folded
         // into one result before test scripts and history see them; a live
         // caller additionally gets (coalesced) merged snapshots as parts arrive.

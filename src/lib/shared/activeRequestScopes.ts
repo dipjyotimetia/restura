@@ -14,7 +14,7 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { CollectionItem, ScopedVariable } from '@/types';
-import { buildValueMap } from './variableScopes';
+import { buildValueMap, secretVariableNames } from './variableScopes';
 
 export function findAncestorFolderVariables(
   items: CollectionItem[],
@@ -45,6 +45,12 @@ export function buildActiveRequestVariableResolution(): {
   secretVariables: Record<string, SecretValue>;
   /** Keys whose winning value in `values` is marked secret (mask before display). */
   secretNames: string[];
+  /**
+   * Every name a send must treat as secret: the winners above, the handles, and
+   * anything flagged in the active environment, because the store pass reads that
+   * environment whatever overrode it or scoped it out here.
+   */
+  sendSecretNames: string[];
 } {
   const savedRequestId = useRequestStore.getState().getActiveTab()?.savedRequestId;
   const collectionRecord = savedRequestId
@@ -98,5 +104,15 @@ export function buildActiveRequestVariableResolution(): {
       }
     }
   }
-  return { values, secretVariables, secretNames: [...secretNames] };
+  const sendSecretNames = new Set([
+    ...secretNames,
+    ...Object.keys(secretVariables),
+    ...secretVariableNames(useEnvironmentStore.getState().getActiveEnvironment()?.variables),
+  ]);
+  return {
+    values,
+    secretVariables,
+    secretNames: [...secretNames],
+    sendSecretNames: [...sendSecretNames],
+  };
 }

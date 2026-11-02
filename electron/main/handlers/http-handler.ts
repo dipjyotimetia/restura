@@ -13,6 +13,7 @@ import type {
   FetcherRequest,
   FetcherResponse,
   ProtocolAuthConfig,
+  RedirectPolicy,
   ResponseTimings,
   ProtocolSecretValue as SecretValue,
 } from '@shared/protocol/types';
@@ -153,6 +154,7 @@ export interface HttpRequestConfig {
   followOriginalMethod?: boolean;
   followAuthHeader?: boolean;
   stripReferer?: boolean;
+  stripOnOriginChange?: string[];
   encodeUrlAutomatically?: boolean;
   // TLS knobs (desktop-only enforcement).
   serverCipherOrder?: boolean;
@@ -696,12 +698,7 @@ async function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse>
     interceptedConfig,
     ntlmFetchAuthFor(mainAuth.auth, interceptedConfig.url)
   );
-  const redirectPolicy: {
-    followOriginalMethod?: boolean;
-    followAuthHeader?: boolean;
-    stripReferer?: boolean;
-    maxRedirects?: number;
-  } = {};
+  const redirectPolicy: RedirectPolicy = {};
   if (interceptedConfig.followOriginalMethod !== undefined) {
     redirectPolicy.followOriginalMethod = interceptedConfig.followOriginalMethod;
   }
@@ -713,6 +710,9 @@ async function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse>
   }
   if (interceptedConfig.maxRedirects !== undefined) {
     redirectPolicy.maxRedirects = interceptedConfig.maxRedirects;
+  }
+  if (interceptedConfig.stripOnOriginChange !== undefined) {
+    redirectPolicy.stripOnOriginChange = interceptedConfig.stripOnOriginChange;
   }
   const result = await executeHttpProxy(
     {

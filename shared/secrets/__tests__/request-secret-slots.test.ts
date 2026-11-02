@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Collection, CollectionItem, CollectionRequest } from '../../types';
 import { countCollectionInlineSecrets, redactCollectionSecrets } from '../collection-redaction';
+import { isSecretFieldName, isSecretVariableName } from '../key-value-redaction';
 import {
   blankRequestSecrets,
   countRequestSecrets,
@@ -49,6 +50,10 @@ const SAMPLES: Record<string, { request: Record<string, unknown>; secrets: numbe
     request: { type: 'mcp', stdio: { env: [row('API_TOKEN', 'PLAIN')] } },
     secrets: 1,
   },
+  url: {
+    request: { type: 'http', url: 'https://u:PLAIN@h.test?token=PLAIN' },
+    secrets: 2,
+  },
   'kafka.bootstrapBrokers': {
     request: {
       ...KAFKA_CLEAN,
@@ -67,6 +72,16 @@ const SAMPLES: Record<string, { request: Record<string, unknown>; secrets: numbe
     request: { ...KAFKA_CLEAN, produce: { headers: [row('x-api-key', 'PLAIN')] } },
     secrets: 1,
   },
+  'kafka.saslExtensions': {
+    request: {
+      ...KAFKA_CLEAN,
+      connection: {
+        bootstrapBrokers: [],
+        sasl: { mechanism: 'OAUTHBEARER', extensions: { token: 'PLAIN', logicalCluster: 'lkc-1' } },
+      },
+    },
+    secrets: 1,
+  },
   'mqtt.brokerUrl': {
     request: { ...MQTT_CLEAN, connection: { brokerUrl: 'mqtt://u:PLAIN@broker.test' } },
     secrets: 1,
@@ -82,13 +97,25 @@ const SAMPLES: Record<string, { request: Record<string, unknown>; secrets: numbe
     },
     secrets: 2,
   },
-  'websocket.url': {
-    request: { type: 'websocket', url: 'wss://u:PLAIN@ws.test?token=PLAIN' },
-    secrets: 2,
+  'mqtt.lwtUserProperties': {
+    request: {
+      ...MQTT_CLEAN,
+      connection: {
+        brokerUrl: 'mqtt://broker.test',
+        lwt: { properties: { userProperties: { token: 'PLAIN', site: 'kept' } } },
+      },
+    },
+    secrets: 1,
   },
-  'socketio.url': {
-    request: { ...SOCKETIO_CLEAN, url: 'https://u:PLAIN@s.test?token=PLAIN' },
-    secrets: 2,
+  'mqtt.connectUserProperties': {
+    request: {
+      ...MQTT_CLEAN,
+      connection: {
+        brokerUrl: 'mqtt://broker.test',
+        connectProperties: { userProperties: { password: 'PLAIN', site: 'kept' } },
+      },
+    },
+    secrets: 1,
   },
   'socketio.handshakeAuth': {
     request: { ...SOCKETIO_CLEAN, handshakeAuth: [row('anything', 'PLAIN')] },
@@ -163,12 +190,83 @@ describe('request secret slots', () => {
     });
   });
 
+  it('applies one url slot to every request kind', () => {
+    expect(REQUEST_SECRET_SLOTS.filter((s) => s.name.endsWith('url'))).toHaveLength(1);
+    for (const type of ['http', 'grpc', 'sse', 'mcp', 'websocket']) {
+      const request = asRequest({ type, url: 'https://u:PLAIN@h.test' });
+      expect(countRequestSecrets(request)).toBe(1);
+      expect(blankRequestSecrets(request)).toMatchObject({ url: 'https://h.test' });
+    }
+  });
+
+  it('keeps routing values in saved broker maps and leaves absent maps absent', () => {
+    const kafka = blankRequestSecrets(
+      asRequest((SAMPLES['kafka.saslExtensions'] as { request: Record<string, unknown> }).request)
+    );
+    expect(kafka).toMatchObject({
+      connection: { sasl: { extensions: { token: '', logicalCluster: 'lkc-1' } } },
+    });
+    const mqtt = asRequest({ ...MQTT_CLEAN, connection: { brokerUrl: 'mqtt://h', lwt: {} } });
+    expect(blankRequestSecrets(mqtt)).toMatchObject({ connection: { lwt: {} } });
+    expect(countRequestSecrets(mqtt)).toBe(0);
+    const bare = blankRequestSecrets(asRequest(KAFKA_CLEAN)) as unknown as {
+      connection: Record<string, unknown>;
+    };
+    expect('sasl' in bare.connection).toBe(false);
+  });
+
   it('a kind-scoped slot ignores every other kind', () => {
     const http = asRequest({ type: 'http', url: 'https://u:PLAIN@h.test' });
     for (const slot of REQUEST_SECRET_SLOTS.filter((s) => s.name.includes('.'))) {
       expect(slot.blank(http)).toBe(http);
       expect(slot.count(http)).toBe(0);
     }
+  });
+});
+
+describe('credential names', () => {
+  it.each([
+    'pass',
+    'db_pass',
+    'DB-PW',
+    'pw',
+    'apitoken',
+    'APITOKEN',
+    'accesstoken',
+    'auth[password]',
+    'a[b][secret]',
+    'password[]',
+    'password_hint',
+    'accessToken',
+    'x-api-key',
+  ])('%s is a credential name', (name) => {
+    expect(isSecretFieldName(name)).toBe(true);
+  });
+
+  it.each([
+    'compass',
+    'bypass',
+    'pass_rate',
+    'pw_policy',
+    'page_token',
+    'max_tokens',
+    'session',
+    'auth[type]',
+    'user[name]',
+    'author',
+  ])('%s is not a credential name', (name) => {
+    expect(isSecretFieldName(name)).toBe(false);
+  });
+
+  it.each(['PUBLIC_KEY', 'publicKey', 'CACHE_KEY', 'token_type', 'AUTH_URL', 'TOKEN_URI'])(
+    '%s is not a secret variable name',
+    (name) => {
+      expect(isSecretVariableName(name)).toBe(false);
+    }
+  );
+
+  it.each(['API_TOKEN', 'dbPassword', 'PRIVATE_KEY'])('%s is a secret variable name', (name) => {
+    expect(isSecretVariableName(name)).toBe(true);
   });
 });
 

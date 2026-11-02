@@ -10,6 +10,7 @@ import type {
 const mocks = vi.hoisted(() => ({
   addConsoleEntry: vi.fn(),
   addRun: vi.fn(),
+  environments: [] as Environment[],
   runCollection: vi.fn(),
   toastError: vi.fn(),
 }));
@@ -24,7 +25,7 @@ vi.mock('@/store/useConsoleStore', () => ({
   useConsoleStore: { getState: () => ({ addEntry: mocks.addConsoleEntry }) },
 }));
 vi.mock('@/store/useEnvironmentStore', () => ({
-  useEnvironmentStore: { getState: () => ({ environments: [] }) },
+  useEnvironmentStore: { getState: () => ({ environments: mocks.environments }) },
 }));
 vi.mock('@/store/useGlobalsStore', () => ({
   useGlobalsStore: { getState: () => ({ vars: {} }) },
@@ -179,6 +180,31 @@ describe('buildBaseVars', () => {
 });
 
 describe('useCollectionRun lifecycle', () => {
+  it('names the secret variables of the selected environment chain', () => {
+    mocks.environments = [
+      {
+        id: 'base',
+        name: 'Base',
+        variables: [{ id: 'b', key: 'baseSecret', value: 'x', secret: true, enabled: true }],
+      },
+      {
+        id: 'sub',
+        name: 'Sub',
+        parentId: 'base',
+        variables: [
+          { id: 's', key: 'subSecret', value: 'y', secret: true, enabled: true },
+          { id: 'p', key: 'plain', value: 'z', enabled: true },
+        ],
+      },
+    ];
+    mocks.runCollection.mockReturnValue(deferred<CollectionRunResult>().promise);
+    const { result, unmount } = renderHook(() => useCollectionRun());
+    act(() => result.current.start({ ...startArgs(), environmentId: 'sub' }));
+    expect(mocks.runCollection.mock.calls[0]?.[0].secretNames).toEqual(['baseSecret', 'subSecret']);
+    unmount();
+    mocks.environments = [];
+  });
+
   it('aborts an active run on unmount and rejects all late successful publications', async () => {
     const pending = deferred<CollectionRunResult>();
     let signal: AbortSignal | undefined;

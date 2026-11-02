@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { findInheritedAuth, withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { protocolRegistry } from '@/features/registry/registry';
 import { findAncestorFolderVariables } from '@/lib/shared/activeRequestScopes';
-import { buildValueMap } from '@/lib/shared/variableScopes';
+import { buildValueMap, secretVariableNames } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
@@ -179,12 +179,19 @@ export function useOwsWorkflowExecution() {
                 ...folderVariables,
                 ...workflowOverrides,
               };
+              const secretNames = secretVariableNames(
+                baseEnvironment?.variables,
+                subEnvironment?.variables,
+                collection.variables,
+                ...(findAncestorFolderVariables(collection.items, binding.resourceId) ?? [])
+              );
               const injected = protocol.injectVariables
-                ? protocol.injectVariables(authed, resolvedVariables)
+                ? protocol.injectVariables(authed, resolvedVariables, secretNames)
                 : authed;
               const response = await protocol.runRequest(injected, {
                 signal,
                 variables: resolvedVariables,
+                secretNames,
               });
               if (graphql) {
                 const errors = getGraphqlResponseErrors(response.body);

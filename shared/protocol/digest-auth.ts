@@ -15,7 +15,11 @@
 import { bytesToHex, md5Hex, sha256Hex } from './crypto-utils';
 import { headerFieldValues } from './header-policy';
 import { HTTP_METHOD_TOKEN_RE } from './http-method';
-import { type FollowRedirectsOptions, followRedirects } from './redirect-follower';
+import {
+  credentialHeaderNames,
+  type FollowRedirectsOptions,
+  followRedirects,
+} from './redirect-follower';
 import type { Fetcher, FetcherRequest, FetcherResponse } from './types';
 
 export type DigestAlgorithm = 'MD5' | 'MD5-sess' | 'SHA-256' | 'SHA-256-sess';
@@ -302,6 +306,14 @@ export async function followRedirectsWithDigest(
   return followRedirects(
     { ...last, headers, body: last.body === undefined ? undefined : digest.rebuildBody() },
     fetcher,
-    { ...redirectOptions, hopsUsed: (redirectOptions.hopsUsed ?? 0) + calls - 1 }
+    {
+      ...redirectOptions,
+      hopsUsed: (redirectOptions.hopsUsed ?? 0) + calls - 1,
+      // This replay's headers are a lowercased copy; judge them as first written.
+      stripOnOriginChange: [
+        ...(redirectOptions.stripOnOriginChange ?? []),
+        ...credentialHeaderNames(initialReq.headers),
+      ],
+    }
   );
 }

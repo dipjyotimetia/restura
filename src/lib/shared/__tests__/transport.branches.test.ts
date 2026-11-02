@@ -131,6 +131,7 @@ describe('executeProxiedRequest (Electron IPC)', () => {
           followOriginalMethod: true,
           followAuthHeader: false,
           stripReferer: true,
+          stripOnOriginChange: ['X-Unusual'],
         },
         encodeUrl: false,
       } as never,
@@ -166,6 +167,7 @@ describe('executeProxiedRequest (Electron IPC)', () => {
       followOriginalMethod: true,
       followAuthHeader: false,
       stripReferer: true,
+      stripOnOriginChange: ['X-Unusual'],
       encodeUrlAutomatically: false,
       proxy: {
         enabled: true,

@@ -8,7 +8,7 @@ import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { executeStreamingRequest, isStreamingAccept } from '@/features/http/lib/requestExecutor';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
-import { buildActiveRequestValueMap } from '@/lib/shared/activeRequestScopes';
+import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { isElectron } from '@/lib/shared/platform';
 import { useActiveRequest, useActiveResponse } from '@/store/selectors';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -168,7 +168,7 @@ export function useHttpRequest(): UseHttpRequestReturn {
         // wants the full {{var}} resolver to stay consistent with the rest
         // of the app.
         // Active env + workspace globals + collection vars (globals < env < collection).
-        const envVars: Record<string, string> = buildActiveRequestValueMap();
+        const { values: envVars, sendSecretNames } = buildActiveRequestVariableResolution();
         // Folder/collection auth inheritance — the streaming executor builds
         // its own headers from request.auth, so resolve before dispatch (the
         // buffered path below gets this inside the registry runner).
@@ -179,6 +179,7 @@ export function useHttpRequest(): UseHttpRequestReturn {
         const { events } = await executeStreamingRequest({
           request: streamingRequest,
           envVars,
+          secretNames: sendSecretNames,
           globalSettings,
           resolveVariables,
         });

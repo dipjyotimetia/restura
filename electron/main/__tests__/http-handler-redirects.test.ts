@@ -57,6 +57,10 @@ let b: Awaited<ReturnType<typeof startServer>>;
 beforeAll(async () => {
   // B: /via-300 answers 300 → B/steal; everything else is a Digest 401.
   b = await startServer((url, res) => {
+    if (url === '/plain') {
+      res.writeHead(200).end('ok');
+      return;
+    }
     if (url === '/via-300') {
       res.writeHead(300, { location: `${b.base}/steal` }).end();
       return;
@@ -70,6 +74,8 @@ beforeAll(async () => {
     } else if (url === '/hop') {
       // 300 Multiple Choices is not followed by the shared follower.
       res.writeHead(300, { location: `${b.base}/steal` }).end();
+    } else if (url === '/cross-plain') {
+      res.writeHead(302, { location: `${b.base}/plain` }).end();
     } else if (url === '/cross') {
       res.writeHead(302, { location: `${b.base}/via-300` }).end();
     } else {
@@ -108,6 +114,45 @@ describe('desktop http:request redirect credential handling', () => {
     registerHttpHandlerIPC();
     a.hits.length = 0;
     b.hits.length = 0;
+  });
+
+  it('removes the same headers as the Worker and CLI on an origin change', async () => {
+    await send({
+      url: `${a.base}/cross-plain`,
+      headers: {
+        Authorization: 'Bearer t',
+        Cookie: 'a=1',
+        'X-Api-Key': 'k',
+        'X-Auth-Token': 'k',
+        AccessToken: 'k',
+        AuthToken: 'k',
+        ApiToken: 'k',
+        clientSecret: 'k',
+        'X-Unusual': 'v',
+        Accept: 'application/json',
+        'X-Request-Id': 'r',
+        'X-Trace': 'abc',
+      },
+      stripOnOriginChange: ['X-Unusual'],
+    });
+    const hop = b.hits.find((hit) => hit.url === '/plain');
+    expect(hop).toBeDefined();
+    for (const name of [
+      'authorization',
+      'cookie',
+      'x-api-key',
+      'x-auth-token',
+      'accesstoken',
+      'authtoken',
+      'apitoken',
+      'clientsecret',
+      'x-unusual',
+    ]) {
+      expect(hop?.headers[name]).toBeUndefined();
+    }
+    expect(hop?.headers['accept']).toBe('application/json');
+    expect(hop?.headers['x-request-id']).toBe('r');
+    expect(hop?.headers['x-trace']).toBe('abc');
   });
 
   it('302 → 300 cross-origin: Digest is never answered at the other origin', async () => {

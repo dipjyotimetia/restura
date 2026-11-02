@@ -5,6 +5,7 @@
  * Works alongside useCollectionStore to sync changes to the file system.
  */
 
+import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -480,11 +481,40 @@ export async function loadCollectionFromDirectory(directoryPath: string): Promis
   return result as { success: boolean; error?: string };
 }
 
+type SaveToDirectoryResult = Awaited<ReturnType<ElectronAPI['collections']['saveToDirectory']>>;
+
+function itemNameList(names: readonly string[]): string {
+  const shown = names.slice(0, 3).map((n) => (n === '<collection>' ? 'the collection' : n));
+  const hidden = names.length - shown.length;
+  return hidden > 0 ? `${shown.join(', ')} and ${hidden} more` : shown.join(', ');
+}
+
+/** The file on disk differs from the app after this save: say where, naming items only. */
+function notifySaveRedactions(
+  collectionId: string,
+  redactions: SaveToDirectoryResult['redactions']
+): void {
+  if (!redactions) return;
+  const { credentialsRemovedFrom, addressesBlankedIn } = redactions;
+  const parts: string[] = [];
+  if (addressesBlankedIn.length > 0) {
+    parts.push(
+      `A broker / registry address may hold credentials and was saved blank in ${itemNameList(addressesBlankedIn)}. Re-enter it after reloading, and use the password fields for credentials.`
+    );
+  }
+  if (credentialsRemovedFrom.length > 0) {
+    parts.push(`Credentials were not written to disk for ${itemNameList(credentialsRemovedFrom)}.`);
+  }
+  if (parts.length === 0) return;
+  // One toast per collection: a repeat save replaces it rather than stacking.
+  toast.warning(parts.join(' '), { id: `collection-save-redactions:${collectionId}` });
+}
+
 // Save collection to directory
 export async function saveCollectionToDirectory(
   collection: Collection,
   directoryPath: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<SaveToDirectoryResult> {
   const electron = getElectronCollections();
   if (!electron) {
     return { success: false, error: 'File collections only available in Electron' };
@@ -496,6 +526,7 @@ export async function saveCollectionToDirectory(
   const result = await electron.saveToDirectory(collection, directoryPath);
   if (result.success) {
     fileStore.markAsSynced(collection.id);
+    notifySaveRedactions(collection.id, result.redactions);
   } else {
     fileStore.updateSyncState(collection.id, 'error', result.error);
   }

@@ -281,6 +281,9 @@ async function executeViaElectronIpc(
     ...(spec.redirectPolicy?.stripReferer !== undefined
       ? { stripReferer: spec.redirectPolicy.stripReferer }
       : {}),
+    ...(spec.redirectPolicy?.stripOnOriginChange !== undefined
+      ? { stripOnOriginChange: spec.redirectPolicy.stripOnOriginChange }
+      : {}),
     ...(spec.encodeUrl !== undefined ? { encodeUrlAutomatically: spec.encodeUrl } : {}),
     // Desktop-only transport config (proxy / mTLS / CA / verifySsl / TLS knobs).
     // The IPC schema (HttpRequestConfigSchema) and buildConnectOptions already

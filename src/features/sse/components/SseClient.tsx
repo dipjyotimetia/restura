@@ -1,3 +1,4 @@
+import { authHeaderNames } from '@shared/protocol/request-spec';
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
@@ -103,7 +104,14 @@ export default function SseClient() {
     // Header-based auth (basic/bearer/api-key/oauth2). Sign-at-wire types
     // (sigv4/oauth1/wsse) aren't applied to SSE streams — buildAuthCredential
     // no-ops them and the SSE handler doesn't sign.
-    const credential = buildAuthCredential(request.auth);
+    let credential: ReturnType<typeof buildAuthCredential>;
+    try {
+      credential = buildAuthCredential(request.auth);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Invalid credential';
+      useSseStore.getState().appendSystem(active.id, `Connection failed: ${reason}`);
+      return;
+    }
     for (const [k, v] of Object.entries(credential.headers))
       resolvedHeaders[k] = resolveVariables(v);
 
@@ -130,9 +138,11 @@ export default function SseClient() {
       }
     }
 
+    const authHeaders = authHeaderNames(request.auth);
     sseManager.connect(active.id, url, resolvedHeaders, {
       reconnectOnResume: request.reconnectOnResume ?? true,
       autoReconnect: request.autoReconnect ?? true,
+      ...(authHeaders.length > 0 ? { stripOnOriginChange: authHeaders } : {}),
     });
   };
 

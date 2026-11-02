@@ -1,7 +1,7 @@
 import type { ResponseRetentionMode } from '@shared/collection-run/evidence';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { buildValueMap } from '@/lib/shared/variableScopes';
+import { buildValueMap, secretVariableNames } from '@/lib/shared/variableScopes';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';
 import {
   type ConsoleLog,
@@ -154,6 +154,10 @@ export function useCollectionRun() {
         baseVars,
         globalVars: useGlobalsStore.getState().vars,
         environmentVars,
+        secretNames: secretVariableNames(
+          environmentChain[0]?.variables,
+          environmentChain[1]?.variables
+        ),
         iterations: args.iterations,
         dataRows: args.dataRows,
         delayMs: args.delayMs,

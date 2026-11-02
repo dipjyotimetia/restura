@@ -96,6 +96,26 @@ export class OAuth2TokenError extends Error {
   }
 }
 
+/**
+ * A stored token sits in an auth field as written text, where a variable token
+ * would resolve (ADR-0007), and these fields are later joined into one header, so
+ * half a token counts as well. The message holds no value.
+ */
+export function assertStorableTokens(tokens: {
+  access_token?: unknown;
+  refresh_token?: unknown;
+  token_type?: unknown;
+}): void {
+  for (const value of [tokens.access_token, tokens.refresh_token, tokens.token_type]) {
+    if (typeof value === 'string' && (value.includes('{{') || value.includes('}}'))) {
+      throw new OAuth2TokenError(
+        'invalid_token_value',
+        'The token endpoint returned a value containing a variable reference, so it was not stored.'
+      );
+    }
+  }
+}
+
 async function postToken(
   tokenUrl: string,
   params: Record<string, string>,
@@ -128,6 +148,7 @@ async function postToken(
     );
   }
 
+  assertStorableTokens(json as OAuth2TokenResponse);
   return json as OAuth2TokenResponse;
 }
 
