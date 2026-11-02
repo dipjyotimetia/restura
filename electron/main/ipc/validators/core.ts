@@ -407,9 +407,6 @@ export const FileContentSchema = z
   .string()
   .max(50 * 1024 * 1024, 'File content exceeds 50MB limit');
 
-// Schema for fs:writeFile which takes both filePath and content
-export const WriteFileSchema = z.tuple([FilePathSchema, FileContentSchema]);
-
 // Keep in sync with ElectronAppAPI.getPath in electron/types/electron-api.ts —
 // a name in one list but not the other either type-checks then fails at
 // runtime, or works at runtime but is untyped.

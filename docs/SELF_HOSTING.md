@@ -28,7 +28,7 @@ curl -fs http://localhost:3000/health
 The API now accepts scripted calls carrying `X-Restura-Proxy-Token` (see
 [Verifying the build](#verifying-the-build)). The bundled web UI has no way to
 send that token, so to use Restura from a browser, front the container with an
-authenticating reverse proxy (Mode B under [Auth modes](#auth-modes)) and then
+authenticating reverse proxy ([Auth modes](#auth-modes)) and then
 open it through that proxy.
 
 ### Local source smoke test
@@ -91,7 +91,9 @@ reports.
 | Var                  | Required        | Default                     | Purpose                                                                                             |
 | -------------------- | --------------- | --------------------------- | --------------------------------------------------------------------------------------------------- |
 | `WORKER_PROXY_TOKEN` | Yes¹            | _(unset → 503)_             | Shared secret. SPA sends it in `X-Restura-Proxy-Token`.                                             |
-| `REQUIRE_CF_ACCESS`  | Yes¹            | `false`                     | Trust a reverse-proxy `Cf-Access-Authenticated-User-Email` header instead of a Bearer token.        |
+| `REQUIRE_CF_ACCESS`  | Yes¹            | `false`                     | Accept a verified Cloudflare Access assertion instead of a Bearer token. Needs the two variables below. |
+| `CF_ACCESS_TEAM_DOMAIN` | With Access  | —                           | Access team name, or `<team>.cloudflareaccess.com`.                                                  |
+| `CF_ACCESS_AUD`      | With Access     | —                           | Access application audience (AUD) tag.                                                               |
 | `ENVIRONMENT`        | No              | `production`                | Anything other than `development` enforces full auth + SSRF.                                        |
 | `ALLOWED_ORIGIN`     | No              | _(no cross-origin access)_  | Comma-separated CORS allow-list. Supports `*` inside hostnames. Unset = same-origin only.           |
 | `ALLOW_PRIVATE_IPS`  | No              | `false`                     | Permit RFC 1918 / link-local / CGNAT upstreams. See _Internal-network access_ below.                |
@@ -121,19 +123,20 @@ openssl rand -hex 32   # generate a token
 > time (`VITE_WORKER_PROXY_TOKEN`), and the stock Docker image is built without
 > one — so with Mode A alone, `/api/*` is protected for scripted callers but
 > requests from the bundled web UI are rejected with `401`. For browser use,
-> put an authenticating reverse proxy in front (Mode B). Baking the token into
+> put an authenticating reverse proxy in front ([Auth modes](#auth-modes)). Baking the token into
 > the image would expose it to anyone who can load the page, so the Dockerfile
 > deliberately does not accept it as a build argument.
 
-### Mode B — Reverse-proxy auth header
+### Mode B — Cloudflare Access
 
-If you already run an SSO gateway (Cloudflare Access, Pomerium, oauth2-proxy,
-Tailscale Funnel, Vouch, etc.), let it terminate auth and inject
-`Cf-Access-Authenticated-User-Email`. Set `REQUIRE_CF_ACCESS=true` and leave
-`WORKER_PROXY_TOKEN` unset.
+Put Cloudflare Access in front of Restura, set `REQUIRE_CF_ACCESS=true`,
+`CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`, and leave `WORKER_PROXY_TOKEN` unset.
 
-The Worker does NOT validate the header's authenticity — your reverse proxy
-must be the only ingress, and must strip the header from untrusted callers.
+The server verifies the signed `Cf-Access-Jwt-Assertion` on every request: its
+signature against your team's published keys, issuer, audience and expiry. With
+either variable missing it fails closed with HTTP 503. Other SSO gateways don't
+send this assertion: set `WORKER_PROXY_TOKEN` and have the gateway add
+`X-Restura-Proxy-Token` to `/api/*` requests after it authenticates the user.
 
 ### Mode C — Local development
 
@@ -331,7 +334,7 @@ Compose's `env_file` is runtime-only and `.dockerignore` excludes `.env`.
 
 | Symptom                                                                              | Likely cause                                                                                           |
 | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| 503 on every `/api/*` request                                                        | Neither `WORKER_PROXY_TOKEN` nor `REQUIRE_CF_ACCESS=true` is set.                                      |
+| 503 on every `/api/*` request                                                        | Neither `WORKER_PROXY_TOKEN` nor `REQUIRE_CF_ACCESS=true` is set, or `REQUIRE_CF_ACCESS=true` without `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`. |
 | CORS errors in the browser console                                                   | `ALLOWED_ORIGIN` doesn't include the SPA hostname. Use a comma-separated list or `*` wildcards.        |
 | Upstreams to internal IPs return 400 "Private/internal IP addresses are not allowed" | Set `ALLOW_PRIVATE_IPS=true` (and read the DNS-rebind caveat above).                                   |
 | WebSocket connects but no frames flow                                                | Reverse proxy isn't forwarding the `Upgrade: websocket` header. Caddy / nginx need explicit WS config. |

@@ -12,6 +12,7 @@ import { bodyLimit } from 'hono/body-limit';
 import type { NodeHostnameGuard } from '../adapters';
 import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
+import { rejectRedirect } from '../shared/redirect';
 import { parseJsonBody } from '../shared/validate-body';
 
 // Worst-case UTF-8 bytes per UTF-16 code unit (zod `.max()` counts code units).
@@ -64,7 +65,7 @@ function buildFetcher(
       redirect: 'manual',
     };
     if (req.body !== undefined) init.body = req.body;
-    const r = await fetch(req.url, init);
+    const r = rejectRedirect(await fetch(req.url, init), 'gRPC-Web');
     return {
       status: r.status,
       statusText: r.statusText,

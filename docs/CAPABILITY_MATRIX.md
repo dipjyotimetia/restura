@@ -57,7 +57,7 @@ rather than discover it experimentally.
 | MQTT binary payloads (Text / JSON / Hex / Base64) | ❌ | ✅ | Payloads and correlation data cross IPC as UTF-8 or base64 — non-UTF-8 bytes are shown as hex/base64, never lossy-decoded |
 | MQTT 5 properties (CONNECT, Will, publish, subscription options) | ❌ | ✅ | CONNECT properties incl. initial enhanced-auth method/data (multi-step AUTH challenges are reported as errors), server-assigned client IDs, Will properties, payload format indicator, topic alias (bounded by CONNACK maximum), No Local / Retain As Published / Retain Handling / subscription identifier, server DISCONNECT reason codes |
 | MQTT 5 request/response with round-trip latency | ❌ | ✅ | Publishes with a generated response topic + correlation data, waits in main for the reply matched on raw correlation bytes; timeout and cancel supported |
-| Socket.IO client | ✅ | ✅ |  |
+| Socket.IO client | ✅ | ✅ | Desktop refuses a redirected handshake or polling request and reports it; on web, the browser handles polling redirects |
 | AI assistant (streaming chat) | ❌ | ✅ | Electron-only; tokens stream over IPC (ai:chat:chunk/end). No Worker /api/ai route |
 | AI assistant tool calls | ❌ | ✅ | Provider tool-call decoding (OpenAI / Anthropic / OpenRouter) in the chat path |
 | Inline AI actions (Fix request / Generate tests / Enrich docs) | ❌ | ✅ | One-click request/response actions that seed a chat send through the propose-&-apply harness; reuse the ai.basic IPC path |

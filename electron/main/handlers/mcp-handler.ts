@@ -33,7 +33,7 @@ import {
   type PolicyTransportConfig,
   resolvePolicyTransport,
 } from '../security/policy-transport';
-import { resolveSafeAddress } from '../security/safe-connect';
+import { rejectTransportRedirects, resolveSafeAddress } from '../security/safe-connect';
 import {
   McpClientRequestBridge,
   registerMcpClientRequestIPC,
@@ -211,7 +211,7 @@ export function registerMcpHandlerIPC(): void {
           ...getExecutionPolicy().security,
         });
         pinnedIp = pinned.ip;
-        pinnedFetch = createPolicyPinnedFetch(policyConfig, pinned);
+        pinnedFetch = rejectTransportRedirects(createPolicyPinnedFetch(policyConfig, pinned));
       } catch (err) {
         return { success: false, error: errorMessage(err) };
       }
