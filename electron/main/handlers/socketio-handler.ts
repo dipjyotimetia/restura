@@ -4,6 +4,7 @@ import { Agent as HttpsAgent } from 'node:https';
 import { createLogger } from '@shared/runtime/logger';
 import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
 import { prepareIncomingArgs, SOCKETIO_MAX_INCOMING_BYTES } from '@shared/socketio-payload';
+import { socketIoConnectUrl } from '@shared/socketio-url';
 import { ipcMain } from 'electron';
 import type * as SocketIoClient from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
@@ -112,22 +113,6 @@ function disposeSocketIo(entry: ActiveSocketIO): void {
 // registry is used purely for bookkeeping here.
 const activeConnections = new StreamRegistry<ActiveSocketIO>({ dispose: disposeSocketIo });
 
-function buildConnectUrl(rawUrl: string, namespace: string | undefined): string {
-  // Socket.IO joins the namespace by appending it to the URL's pathname.
-  // The io() client accepts either url + { path } or url-with-namespace-suffix.
-  // We append namespace here so the wire URL exactly matches user intent.
-  if (!namespace || namespace === '/' || namespace === '') return rawUrl;
-  try {
-    const u = new URL(rawUrl);
-    // Strip trailing slash on origin, then append namespace path.
-    const origin = `${u.protocol}//${u.host}`;
-    const ns = namespace.startsWith('/') ? namespace : `/${namespace}`;
-    return `${origin}${ns}`;
-  } catch {
-    return rawUrl;
-  }
-}
-
 /** engine.io reports a websocket 3xx as a bare "websocket error"; name the cause. */
 function connectErrorMessage(err: Error & { description?: { message?: unknown } }): string {
   const detail = err.description?.message;
@@ -206,7 +191,8 @@ export function registerSocketIoHandlerIPC(): void {
       }
 
       try {
-        const connectUrl = buildConnectUrl(config.url, config.namespace);
+        // The host resolveSafeAddress checked: never pass io() the raw URL.
+        const connectUrl = socketIoConnectUrl(config.url, config.namespace);
         const secure = /^(https|wss):/i.test(config.url);
         const lookup = createPinnedLookup(pinned.host, pinned.ip);
         const sio = await getSocketIo();

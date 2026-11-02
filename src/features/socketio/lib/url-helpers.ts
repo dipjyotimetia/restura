@@ -1,20 +1,14 @@
 import { SOCKETIO_VALID_SCHEMES } from '@shared/socketio-constants';
+import { socketIoConnectUrl } from '@shared/socketio-url';
 
 /**
- * Join a Socket.IO base URL with a namespace path. Socket.IO's `io()` accepts
- * either `(url, { path })` or a namespace-suffixed URL — we use the latter so
- * the wire URL exactly mirrors user intent.
- *
- * Returns the input unchanged for the default namespace (`/`), an empty
- * namespace, or an unparseable URL.
+ * The URL `io()` connects to: the WHATWG serialisation joined with the
+ * namespace (see `socketIoConnectUrl`). Returns an unparseable URL unchanged so
+ * the connect guard reports it.
  */
 export function buildSocketIOConnectUrl(rawUrl: string, namespace: string | undefined): string {
-  if (!namespace || namespace === '/' || namespace === '') return rawUrl;
   try {
-    const u = new URL(rawUrl);
-    const origin = `${u.protocol}//${u.host}`;
-    const ns = namespace.startsWith('/') ? namespace : `/${namespace}`;
-    return `${origin}${ns}`;
+    return socketIoConnectUrl(rawUrl, namespace);
   } catch {
     return rawUrl;
   }

@@ -95,7 +95,7 @@ describe('socketioManager (browser)', () => {
 
   it('connects to the resolved URL without writing it back to the store (SIO-2)', () => {
     expect(connectWithVariables(id, scope)).toEqual({ ok: true });
-    expect(socket().url).toBe('https://sio.example.com?token=s3cr3t');
+    expect(socket().url).toBe('https://sio.example.com/?token=s3cr3t');
     expect(conn().url).toBe('{{base}}?token={{secret}}');
   });
 

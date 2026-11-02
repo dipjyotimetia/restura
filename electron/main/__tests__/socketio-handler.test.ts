@@ -206,6 +206,14 @@ describe('socketio-handler', () => {
     }
   });
 
+  it('hands io() the canonical URL, never the raw string', async () => {
+    const { event } = makeEvent();
+    const raw = 'http://echo.example.com\\@127.0.0.1:3000/';
+    const res = await handlerFor(IPC.socketio.connect)(event, { connectionId: 'c-url', url: raw });
+    expect(res.success).toBe(true);
+    expect(sioMock.io.mock.calls[0]?.[0]).toBe(new URL(raw).href);
+  });
+
   it('forwards lifecycle + application events to the owning renderer', async () => {
     const { event, senderId } = makeEvent();
     const res = await handlerFor(IPC.socketio.connect)(event, validConnect('c1'));
