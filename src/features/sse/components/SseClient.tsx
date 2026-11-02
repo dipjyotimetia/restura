@@ -95,7 +95,7 @@ export default function SseClient() {
     if (!active || !request) return;
     const spec = resolveSseConnect(request);
     if (!spec.ok) {
-      useSseStore.getState().appendSystem(active.id, `Connection refused: ${spec.error}`);
+      useSseStore.getState().appendSystem(active.id, `Connection failed: ${spec.error}`);
       return;
     }
 

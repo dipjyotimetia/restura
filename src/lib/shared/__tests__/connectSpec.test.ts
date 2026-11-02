@@ -214,7 +214,7 @@ describe('connectSpec', () => {
       };
       expect(resolveWebSocketConnect({ url: 'wss://x', headers: [] }, scope)).toEqual({
         ok: false,
-        error: 'Could not resolve the connection: boom',
+        error: 'boom',
       });
       expect(resolveSseConnect(sse(), scope).ok).toBe(false);
       expect(resolveMcpConnect(mcp(), scope, false).ok).toBe(false);

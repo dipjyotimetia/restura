@@ -21,10 +21,7 @@
  * apply instead of connecting anonymously.
  */
 import { authHeaderNames } from '@shared/protocol/request-spec';
-import {
-  referencesSecretVariable,
-  SecretVariableReferenceError,
-} from '@shared/variables/secret-variable-token';
+import { referencesSecretVariable } from '@shared/variables/secret-variable-token';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
@@ -87,13 +84,7 @@ function guarded<T>(build: () => ConnectResult<T>): ConnectResult<T> {
   try {
     return build();
   } catch (error) {
-    return {
-      ok: false,
-      error:
-        error instanceof ConnectRefused || error instanceof SecretVariableReferenceError
-          ? error.message
-          : `Could not resolve the connection: ${error instanceof Error ? error.message : String(error)}`,
-    };
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
