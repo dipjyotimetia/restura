@@ -33,9 +33,10 @@ export const MAX_RETRY_AFTER_MS = 60_000;
 /**
  * Wrap an executor invocation in a retry loop. The outcome is retried only
  * if it matches one of the `retryOn` rules:
- *   - `'network'`   — transport-layer failure: status 0 with no gRPC status
- *                     (an HTTP response, an SSE 404 or a gRPC application
- *                     error is not a network failure)
+ *   - `'network'`   — transport failure: the executor received no upstream
+ *                     response (`transportError`). An HTTP answer of any
+ *                     status, an SSE 404 or a gRPC status the server sent is
+ *                     not a network failure
  *   - `'5xx'`       — an HTTP 5xx (no gRPC status), or a gRPC status that is
  *                     transient: UNAVAILABLE, DEADLINE_EXCEEDED,
  *                     RESOURCE_EXHAUSTED (whatever HTTP status the executor
@@ -43,9 +44,9 @@ export const MAX_RETRY_AFTER_MS = 60_000;
  *   - `'4xx'`       — HTTP 4xx (opt-in)
  *   - `<number>`    — specific status code
  *
- * A request refused before any I/O (`refused: true`: an unresolvable variable,
- * a blocked or unsupported request, a URL the SSRF guard rejects) is never
- * retried: the refusal is deterministic. The delay is exponential backoff,
+ * A refusal (`refused: true`: an unresolvable variable or secret, a blocked or
+ * unsupported request, a URL the SSRF guard rejects, an auth signing failure,
+ * the CLI's own response-size cap) is never retried: it is deterministic. The delay is exponential backoff,
  * except that a 429 / 503 carrying `Retry-After` waits what the server asked
  * (capped at `MAX_RETRY_AFTER_MS`).
  *
@@ -109,7 +110,7 @@ function isServerTransient(outcome: ExecuteOutcome): boolean {
 function shouldRetry(outcome: ExecuteOutcome, rules: RetryOptions['retryOn']): boolean {
   if (outcome.refused) return false;
   for (const rule of rules) {
-    if (rule === 'network' && outcome.status === 0 && !outcome.grpcStatus) return true;
+    if (rule === 'network' && outcome.transportError) return true;
     if (rule === '5xx' && isServerTransient(outcome)) return true;
     if (rule === '4xx' && outcome.status >= 400 && outcome.status < 500) return true;
     if (typeof rule === 'number' && outcome.status === rule) return true;

@@ -6,7 +6,8 @@ import type { ExecuteOutcome } from './types';
 /**
  * The CLI's one rule for variables it cannot resolve on its own: a SecretRef
  * handle, a private variable or a secret (value-less) variable that still has
- * no value is never sent as a literal `{{name}}` or an empty string. Every
+ * no value — or only an empty one — is never sent as a literal `{{name}}` or an
+ * empty string. Every
  * executor calls `unavailableVariableRefusal` before any I/O, so the collection
  * runner, OWS workflows and agent tools share it; the runner also uses it to
  * refuse a whole run up front (private names) and to report a missing secret as
@@ -49,7 +50,9 @@ export function unavailableVariableRefusal(
       const isPrivate = privateNames.includes(name);
       const isSecret = !isPrivate && secretNames.includes(name);
       if (!isPrivate && !isSecret) continue;
-      if (lookupVariable([vars], name) !== undefined) continue;
+      // An empty value is missing too: `${CI_TOKEN}` unset must not send "Bearer ".
+      const value = lookupVariable([vars], name);
+      if (value !== undefined && value !== '') continue;
       return isPrivate ? privateVariableRefusalMessage(name) : secretVariableRefusalMessage(name);
     }
   }

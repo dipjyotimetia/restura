@@ -1,3 +1,4 @@
+import { stripControl, stripControlKeepLayout } from '@shared/protocol/mcp-conformance-text';
 import type { LoadedRequest } from '../runner/collectionLoader.js';
 import { color } from '../ui/colors.js';
 import type { RequestRunResult, RunResult } from './types.js';
@@ -21,8 +22,12 @@ export function formatRequestLine(r: RequestRunResult): string {
     : r.passed
       ? color.green(String(r.status))
       : color.red(String(r.status));
-  const line = `  ${icon} ${methodOf(r.request)} ${r.request.request.name} — ${status} ${color.dim(`(${r.durationMs}ms)`)}`;
-  return r.errorMessage ? `${line}\n    ${color.yellow(r.errorMessage)}` : line;
+  // Names and error messages are untrusted (collection files, servers): only our
+  // own SGR codes may reach the terminal.
+  const line = `  ${icon} ${stripControl(methodOf(r.request))} ${stripControl(r.request.request.name)} — ${status} ${color.dim(`(${r.durationMs}ms)`)}`;
+  return r.errorMessage
+    ? `${line}\n    ${color.yellow(stripControlKeepLayout(r.errorMessage))}`
+    : line;
 }
 
 /** The run totals line: `3/4 passed (1 failed, 0 errored) in 1.20s`. */

@@ -1,6 +1,7 @@
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@shared/secrets/auth-fields';
 import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
 import type { AuthConfig } from '@shared/types';
+import { CliRefusalError } from './failure';
 
 type SecretCarrier = { [key: string]: unknown };
 
@@ -17,7 +18,7 @@ async function materializeValue(
     return value;
   }
   if (!resolver) {
-    throw new Error(
+    throw new CliRefusalError(
       'Request uses an external secret reference. Configure an explicit external-secret profile for this CLI run.'
     );
   }

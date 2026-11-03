@@ -12,11 +12,12 @@ export const colorEnabled =
     : Boolean(process.stdout.isTTY) && process.env.NO_COLOR === undefined;
 
 /**
- * True when stdout is an interactive terminal we may take over with cursor
- * control (the live dashboard). Piped output, CI logs, and NO_COLOR all resolve
- * to false, falling back to plain line output.
+ * True when stdout is an interactive terminal: the wizard may prompt and the
+ * live dashboard may take over the cursor. Depends on the TTY only — NO_COLOR
+ * and FORCE_COLOR change colour, never interactivity. Piped output and CI logs
+ * resolve to false, falling back to plain line output.
  */
-export const interactive = Boolean(process.stdout.isTTY) && colorEnabled;
+export const interactive = Boolean(process.stdout.isTTY);
 
 // Proper open/close SGR pairs (not a blanket reset) so styles nest correctly —
 // e.g. bold(cyan(x)) closes the inner color with 39 and the outer weight with 22.

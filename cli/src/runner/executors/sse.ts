@@ -7,6 +7,7 @@ import type { LoadedRequest } from '../collectionLoader';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
+import { thrownOutcome } from './failure';
 import type { ExecuteOptions, ExecuteOutcome, StreamEvent } from './types';
 import { preflightRefusal, refusedOutcome } from './variable-guard';
 
@@ -61,13 +62,16 @@ export async function executeSse(
   let status = 0;
   let errorMessage: string | undefined;
   let responseHeaders: Record<string, string> | undefined;
+  // True once the request is on the wire: an error before that is the auth
+  // step's (a refusal or a token failure), after it with no status a transport one.
+  let sent = false;
 
   // Started once auth is ready: slow secret or token fetches are not stream time.
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   try {
     // Header-based auth (Bearer / Basic / API-key / OAuth2). Applied here so an
-    // unresolvable secret-handle ref surfaces as an errored outcome below.
+    // unresolvable secret-handle ref surfaces as a refused outcome below.
     // `{{vars}}` in every auth field resolve first (shared field map, same as
     // the HTTP executor and the app).
     const varResolvedAuth = req.auth
@@ -85,6 +89,7 @@ export async function executeSse(
     applyAuthHeaders(resolvedAuth, headers, params);
     const finalUrl = appendQuery(url, params);
     timer = setTimeout(() => controller.abort(), durationMs);
+    sent = true;
     const response = await undiciRequest(finalUrl, {
       method: 'GET',
       headers,
@@ -135,6 +140,7 @@ export async function executeSse(
       });
     }
   } catch (err) {
+    if (!sent) return thrownOutcome(err, Date.now() - start);
     // AbortError from our duration timer is expected — not a failure.
     // Only once the stream opened: an abort before any response headers means
     // the server never answered, which is a failure, not an empty 200 stream.
@@ -156,6 +162,8 @@ export async function executeSse(
   };
   if (responseHeaders) outcome.responseHeaders = responseHeaders;
   if (errorMessage) outcome.errorMessage = errorMessage;
+  // No status: the upstream never answered (connect failure, no headers in time).
+  if (errorMessage && status === 0) outcome.transportError = true;
   return outcome;
 }
 

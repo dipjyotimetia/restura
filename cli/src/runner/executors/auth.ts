@@ -5,6 +5,7 @@ import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/type
 import { validateURL } from '@shared/protocol/url-validation';
 import type { AuthConfig } from '@shared/types';
 import { type Dispatcher, request as undiciRequest } from 'undici';
+import { CliRefusalError, TransportFailureError } from './failure';
 import type { ExecuteOptions, OAuth2TokenCache } from './types';
 
 /**
@@ -36,19 +37,19 @@ export function secretString(v: unknown): string | undefined {
     const r = v as { kind?: string; value?: string };
     if (r.kind === 'inline') return typeof r.value === 'string' ? r.value : undefined;
     if (r.kind === 'handle') {
-      throw new Error(
+      throw new CliRefusalError(
         'auth uses a desktop-only secret handle that cannot be resolved in the CLI; ' +
           're-export the collection with inline secret values for CI use'
       );
     }
     if (r.kind === 'external') {
-      throw new Error(
+      throw new CliRefusalError(
         'auth uses an external secret reference that was not resolved for this request; ' +
           'HTTP, MCP, SSE and gRPC requests resolve one through an explicit external-secret ' +
           'profile, so configure one for this run or use an inline value'
       );
     }
-    throw new Error('auth uses an unrecognised secret value; the request was not sent');
+    throw new CliRefusalError('auth uses an unrecognised secret value; the request was not sent');
   }
   return undefined;
 }
@@ -118,10 +119,16 @@ export function oauth2TokenOptions(
  */
 function refusingTokenRedirects(transport: typeof globalThis.fetch): typeof globalThis.fetch {
   return async (input, init) => {
-    const response = await transport(input, { ...init, redirect: 'manual' });
+    let response: Response;
+    try {
+      response = await transport(input, { ...init, redirect: 'manual' });
+    } catch (err) {
+      // No answer from the token endpoint: a transport failure `--retry-on network` retries.
+      throw new TransportFailureError(err);
+    }
     if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
       await response.body?.cancel().catch(() => undefined);
-      throw new Error(
+      throw new CliRefusalError(
         `OAuth2 token endpoint answered with a redirect (${response.status}); refusing to follow it with the client credentials.`
       );
     }
@@ -240,7 +247,9 @@ export async function resolveOAuth2Token(
     allowPrivateIPs: false,
     allowLocalhost: opts.allowLocalhost ?? false,
   });
-  if (!validation.valid) throw new Error(`OAuth2 token URL blocked: ${validation.error}`);
+  if (!validation.valid) {
+    throw new CliRefusalError(`OAuth2 token URL blocked: ${validation.error}`);
+  }
 
   const token = await fetchClientCredentialsToken(
     {

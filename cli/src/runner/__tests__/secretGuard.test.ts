@@ -149,6 +149,26 @@ describe('CLI unresolvable-variable guard', () => {
       expect(supplied.errorMessage).toContain('stub network failure');
     }
   );
+
+  it.each([
+    [{ privateVariableNames: ['tok'] }, 'Private variable "tok" is unavailable'],
+    [{ secretVariableNames: ['tok'] }, 'secret variable "tok" has no value'],
+  ] as const)(
+    'an empty value counts as missing: never sent as "Bearer " (%o)',
+    async (names, message) => {
+      // e.g. `tok: ${CI_TOKEN}` in an env file with CI_TOKEN unset expands to ''.
+      const fetcher = vi.fn<Fetcher>();
+      const outcome = await executeRequest(httpItem(names), {
+        vars: { tok: '' },
+        timeoutMs: 1000,
+        allowLocalhost: false,
+        fetcher,
+      });
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(outcome).toMatchObject({ passed: false, refused: true });
+      expect(outcome.errorMessage).toContain(message);
+    }
+  );
 });
 
 describe('executor type-mismatch refusal', () => {

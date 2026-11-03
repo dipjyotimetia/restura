@@ -17,6 +17,7 @@ import { type CliMcpSession, openCliMcpSession } from '../mcpSession';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
+import { CliRefusalError, thrownOutcome } from './failure';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 import { preflightRefusal, refusedOutcome } from './variable-guard';
 
@@ -69,10 +70,10 @@ export async function executeMcp(
   // external refs resolve through the configured provider (HTTP parity).
   try {
     const unsupported = mcpAuthUnsupportedReason(req.auth);
-    if (unsupported) throw new Error(unsupported);
+    if (unsupported) throw new CliRefusalError(unsupported);
     // #856: the OAuth 2.1 browser sign-in is desktop-only; CI passes a token.
     if (isMcpOAuthFlow(req.auth)) {
-      throw new Error(
+      throw new CliRefusalError(
         'MCP OAuth sign-in is interactive (desktop app only) — in CI set oauth2.accessToken from a variable or use Bearer auth'
       );
     }
@@ -94,7 +95,7 @@ export async function executeMcp(
     applyAuthHeaders(resolvedAuth, authHeaders, {});
     for (const [key, value] of Object.entries(authHeaders)) {
       if (isMcpTransportHeader(key)) {
-        throw new Error(`Auth header "${key}" is reserved by the MCP transport`);
+        throw new CliRefusalError(`Auth header "${key}" is reserved by the MCP transport`);
       }
       // Auth wins over a same-named user header in any casing.
       for (const existing of Object.keys(headers)) {
@@ -103,13 +104,7 @@ export async function executeMcp(
       headers[key] = value;
     }
   } catch (err) {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: err instanceof Error ? err.message : String(err),
-    };
+    return thrownOutcome(err, 0);
   }
 
   const parsedParams = parseMcpRunParams(
@@ -180,13 +175,7 @@ export async function executeMcp(
     // A transport-level failure (JSON-RPC errors are returned, not thrown)
     // may have broken the session: evict it so a retry / later item reconnects.
     pool?.evict(sessionKey);
-    return {
-      status: 0,
-      passed: false,
-      durationMs: Date.now() - start,
-      bodyBytes: 0,
-      errorMessage: err instanceof Error ? err.message : String(err),
-    };
+    return thrownOutcome(err, Date.now() - start);
   } finally {
     if (!pool) await session?.close();
   }

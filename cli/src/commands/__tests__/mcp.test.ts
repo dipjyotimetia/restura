@@ -126,6 +126,50 @@ describe('restura mcp conformance', () => {
     ).rejects.toThrow(message);
   });
 
+  it('rejects --transport http-sse with the modern era (usage error, nothing opened)', async () => {
+    const deps = fakeDeps(async () => okSession());
+    await expect(
+      executeMcpConformanceCommand(
+        'https://h.example/mcp',
+        { ...baseOpts, transport: 'http-sse', eras: 'modern' },
+        deps
+      )
+    ).rejects.toThrow(/--eras modern needs --transport streamable-http/);
+    expect(deps.createDeps).not.toHaveBeenCalled();
+  });
+
+  it('defaults --eras to legacy over http-sse', async () => {
+    const opened: string[] = [];
+    const deps = fakeDeps(async (era) => {
+      opened.push(era);
+      return okSession();
+    });
+    const { eras: _omitted, ...withoutEras } = baseOpts;
+    await expect(
+      executeMcpConformanceCommand(
+        'https://h.example/mcp',
+        { ...withoutEras, transport: 'http-sse' },
+        deps
+      )
+    ).resolves.toBe(0);
+    expect(opened).toEqual(['legacy']);
+  });
+
+  it('exits 1 when no requested era reached ok, whatever --fail-on says', async () => {
+    // A modern-only run against a server that refuses the modern era: only an
+    // informational "unsupported" note, zero checks — not a pass.
+    const deps = fakeDeps(async () => {
+      throw Object.assign(new Error('Unsupported protocol version'), { code: -32602 });
+    });
+    const code = await executeMcpConformanceCommand(
+      'https://h.example/mcp',
+      { ...baseOpts, eras: 'modern', failOn: 'never', format: 'json' },
+      deps
+    );
+    expect(code).toBe(1);
+    expect(deps.err.join('')).toMatch(/no requested era connected/);
+  });
+
   it('refuses localhost targets without --allow-localhost (SSRF preflight)', async () => {
     const deps = fakeDeps(async () => okSession());
     await expect(

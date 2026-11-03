@@ -11,6 +11,7 @@ import {
 import { unzipPostmanV3Archive } from '@shared/collections/postman/v3-archive';
 import type { PostmanV3Limits } from '@shared/collections/postman/v3-container';
 import { collectPostmanFolderFiles } from '@shared/collections/postman/v3-folder';
+import { stripControl } from '@shared/protocol/mcp-conformance-text';
 import type { Collection, CollectionItem } from '@shared/types';
 import * as yaml from 'js-yaml';
 import { walkPostmanFolder } from './postmanFolder.js';
@@ -176,7 +177,9 @@ export function formatImportReport(report: CliPostmanImportReport): string {
     const shown = report.skippedSymlinks.slice(0, MAX_NAMES).join(', ');
     lines.push(`  - symlink skipped, not followed (${report.skippedSymlinks.length}): ${shown}`);
   }
-  return `${lines.join('\n')}\n`;
+  // Names, auth types and paths come from the collection: one line each, with
+  // no terminal control sequences.
+  return `${lines.map(stripControl).join('\n')}\n`;
 }
 
 // ---------------------------------------------------------------------------
