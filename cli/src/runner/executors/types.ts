@@ -64,6 +64,12 @@ export interface CachedOAuth2Token {
   accessToken: string;
   tokenType: string;
   expiresAt?: number;
+  /**
+   * The client secret the token was issued for. The cache key leaves the
+   * secret out (it is never hashed or logged); a lookup reuses the token only
+   * when this matches, so a rotated secret never gets the old token.
+   */
+  clientSecret?: string;
 }
 
 export type OAuth2TokenCache = Map<string, CachedOAuth2Token>;

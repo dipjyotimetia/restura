@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { fetchClientCredentialsToken, tokenExpiresAt } from '@shared/auth/oauth2';
 import { buildAuthCredential, type CredentialHost } from '@shared/protocol/request-spec';
 import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/types';
@@ -194,10 +193,9 @@ function toWebStream(body: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array
 /** A token response is a small JSON document; anything larger is refused, not buffered. */
 const MAX_TOKEN_RESPONSE_BYTES = 256 * 1024;
 
-/** Cache key: the secret is hashed so a rotated secret never reuses the old token. */
-function tokenCacheKey(tokenUrl: string, clientId: string, scope = '', secret = ''): string {
-  const secretHash = createHash('sha256').update(secret).digest('hex');
-  return `${tokenUrl}|${clientId}|${scope}|${secretHash}`;
+/** Cache key per token endpoint + client + scope; the secret is matched on the entry instead. */
+function tokenCacheKey(tokenUrl: string, clientId: string, scope = ''): string {
+  return `${tokenUrl}|${clientId}|${scope}`;
 }
 
 /**
@@ -210,7 +208,7 @@ function tokenCacheKey(tokenUrl: string, clientId: string, scope = '', secret = 
  * (authorization_code / password / device_code). OpenCollection import drops
  * `grantType`, so an unset grantType with a token endpoint is treated as
  * client_credentials. Tokens are cached in the run's cache (per token-url +
- * client + scope + secret hash) so a run of N requests hits the token endpoint
+ * client + scope, reused only for the same secret) so a run of N requests hits the token endpoint
  * once, not N times.
  */
 export async function resolveOAuth2Token(
@@ -235,10 +233,14 @@ export async function resolveOAuth2Token(
   const scope = o.scope || undefined;
 
   const cache = opts.cache;
-  const cacheKey = tokenCacheKey(tokenUrl, clientId, scope, clientSecret);
+  const cacheKey = tokenCacheKey(tokenUrl, clientId, scope);
   const now = Date.now();
   const cached = cache?.get(cacheKey);
-  if (cached && (cached.expiresAt === undefined || cached.expiresAt > now + 5000)) {
+  if (
+    cached &&
+    cached.clientSecret === clientSecret &&
+    (cached.expiresAt === undefined || cached.expiresAt > now + 5000)
+  ) {
     return withAccessToken(auth, o, cached.accessToken, cached.tokenType);
   }
 
@@ -271,6 +273,7 @@ export async function resolveOAuth2Token(
     accessToken: token.access_token,
     tokenType,
     ...(expiresAt !== undefined ? { expiresAt } : {}),
+    ...(clientSecret !== undefined ? { clientSecret } : {}),
   });
   return withAccessToken(auth, o, token.access_token, tokenType);
 }

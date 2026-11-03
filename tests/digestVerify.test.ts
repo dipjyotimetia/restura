@@ -17,7 +17,8 @@ function header(over: Record<string, string> = {}, opts: { uri?: string } = {}) 
     cnonce: 'cn',
     ...over,
   };
-  const ha1 = md5(`${p.username}:${p.realm}:secret`);
+  // The fixture user is fixed ('alice'); Digest (RFC 7616) mandates MD5 here.
+  const ha1 = md5(`alice:${p.realm}:secret`);
   const ha2 = md5(`GET:${p.uri}`);
   const response = md5(`${ha1}:${p.nonce}:${p.nc}:${p.cnonce}:${p.qop}:${ha2}`);
   const all = { ...p, response };
