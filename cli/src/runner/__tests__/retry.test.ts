@@ -1,3 +1,4 @@
+import { GrpcStatusCode, GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import { describe, expect, it } from 'vitest';
 import type { ExecuteOutcome } from '../executors/types';
 import {
@@ -127,6 +128,60 @@ describe('retry semantics', () => {
     expect(retryDelayMs(withHeader(429, 'Wed, 31 Dec 2025 00:00:00 GMT'), 1, 250, now)).toBe(0);
     expect(retryDelayMs(withHeader(429, 'soon'), 1, 250, now)).toBe(500);
     expect(retryDelayMs(withHeader(500, '5'), 2, 250, now)).toBe(1000);
+  });
+});
+
+describe('gRPC retry semantics', () => {
+  const grpc = (code: GrpcStatusCode): ExecuteOutcome => ({
+    // The executor maps gRPC failures to an HTTP-ish status (here 500).
+    ...outcome(500, `gRPC ${GrpcStatusCodeName[code]}`),
+    grpcStatus: { code, message: GrpcStatusCodeName[code] ?? '' },
+  });
+  async function attempts(o: ExecuteOutcome): Promise<number> {
+    let calls = 0;
+    await withRetry(
+      () => {
+        calls++;
+        return Promise.resolve(o);
+      },
+      { retries: 2, retryOn: ['network', '5xx'], baseDelayMs: 1 }
+    );
+    return calls;
+  }
+
+  it.each([
+    GrpcStatusCode.INVALID_ARGUMENT,
+    GrpcStatusCode.NOT_FOUND,
+    GrpcStatusCode.PERMISSION_DENIED,
+    GrpcStatusCode.INTERNAL,
+    GrpcStatusCode.UNIMPLEMENTED,
+  ])('5xx makes exactly one attempt for gRPC application error %i', async (code) => {
+    expect(await attempts(grpc(code))).toBe(1);
+  });
+
+  it.each([
+    GrpcStatusCode.UNAVAILABLE,
+    GrpcStatusCode.DEADLINE_EXCEEDED,
+    GrpcStatusCode.RESOURCE_EXHAUSTED,
+  ])('5xx retries transient gRPC status %i', async (code) => {
+    expect(await attempts(grpc(code))).toBe(3);
+  });
+
+  it('a transient gRPC status the executor reports with status 0 is retried under 5xx too', async () => {
+    expect(await attempts({ ...grpc(GrpcStatusCode.UNAVAILABLE), status: 0 })).toBe(3);
+    expect(await attempts({ ...grpc(GrpcStatusCode.NOT_FOUND), status: 0 })).toBe(1);
+  });
+
+  it('a transient gRPC status is not retried when 5xx is not a trigger', async () => {
+    let calls = 0;
+    await withRetry(
+      () => {
+        calls++;
+        return Promise.resolve(grpc(GrpcStatusCode.UNAVAILABLE));
+      },
+      { retries: 2, retryOn: ['network'], baseDelayMs: 1 }
+    );
+    expect(calls).toBe(1);
   });
 });
 

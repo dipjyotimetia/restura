@@ -1,4 +1,16 @@
+import { GrpcStatusCode } from '@shared/protocol/grpc-status';
 import type { ExecuteOutcome } from './executors/types.js';
+
+/**
+ * The standard transient gRPC codes: the server-side analogue of a 5xx worth
+ * retrying. Every other code (INVALID_ARGUMENT, NOT_FOUND, PERMISSION_DENIED,
+ * INTERNAL, …) is an application answer and is attempted exactly once.
+ */
+const TRANSIENT_GRPC_CODES: ReadonlySet<number> = new Set([
+  GrpcStatusCode.UNAVAILABLE,
+  GrpcStatusCode.DEADLINE_EXCEEDED,
+  GrpcStatusCode.RESOURCE_EXHAUSTED,
+]);
 
 export interface RetryOptions {
   /** Number of additional attempts (0 = no retry). */
@@ -24,7 +36,10 @@ export const MAX_RETRY_AFTER_MS = 60_000;
  *   - `'network'`   — transport-layer failure: status 0 with no gRPC status
  *                     (an HTTP response, an SSE 404 or a gRPC application
  *                     error is not a network failure)
- *   - `'5xx'`       — HTTP/gRPC mapped 5xx
+ *   - `'5xx'`       — an HTTP 5xx (no gRPC status), or a gRPC status that is
+ *                     transient: UNAVAILABLE, DEADLINE_EXCEEDED,
+ *                     RESOURCE_EXHAUSTED (whatever HTTP status the executor
+ *                     mapped it to)
  *   - `'4xx'`       — HTTP 4xx (opt-in)
  *   - `<number>`    — specific status code
  *
@@ -86,11 +101,16 @@ function retryAfterHeader(headers: Record<string, string> | undefined): string |
   return undefined;
 }
 
+function isServerTransient(outcome: ExecuteOutcome): boolean {
+  if (outcome.grpcStatus) return TRANSIENT_GRPC_CODES.has(outcome.grpcStatus.code);
+  return outcome.status >= 500 && outcome.status < 600;
+}
+
 function shouldRetry(outcome: ExecuteOutcome, rules: RetryOptions['retryOn']): boolean {
   if (outcome.refused) return false;
   for (const rule of rules) {
     if (rule === 'network' && outcome.status === 0 && !outcome.grpcStatus) return true;
-    if (rule === '5xx' && outcome.status >= 500 && outcome.status < 600) return true;
+    if (rule === '5xx' && isServerTransient(outcome)) return true;
     if (rule === '4xx' && outcome.status >= 400 && outcome.status < 500) return true;
     if (typeof rule === 'number' && outcome.status === rule) return true;
   }
