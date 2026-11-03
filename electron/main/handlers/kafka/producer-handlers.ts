@@ -35,6 +35,8 @@ export interface KafkaProducerEntry {
   /** Why the last producer stream failed; cleared by the next open/close. */
   producerStreamError?: string;
   transaction?: AppTransaction;
+  /** A beginTransaction is awaiting the broker (guards concurrent begins). */
+  transactionStarting?: boolean;
   idempotent: boolean;
   transactionalId?: string;
   registry?: KafkaRegistryClient;
@@ -374,6 +376,13 @@ export function registerKafkaProducerHandlers<E extends KafkaProducerEntry>(
         if (entry.producerStream)
           return { success: false, error: 'Close the producer stream first.' };
         if (entry.transaction) return { success: false, error: 'A transaction is already active.' };
+        // While a begin awaits FindCoordinator / InitProducerId, a second one
+        // would get the library's "already active" error and its failure path
+        // would cancel the first, in-flight transaction.
+        if (entry.transactionStarting) {
+          return { success: false, error: 'A transaction is already being started.' };
+        }
+        entry.transactionStarting = true;
         try {
           const transaction = await entry.producer.beginTransaction({ idempotent: true, acks: -1 });
           entry.transaction = transaction;
@@ -392,6 +401,8 @@ export function registerKafkaProducerHandlers<E extends KafkaProducerEntry>(
             }
           }
           return { success: false, error: errorMessage(err) };
+        } finally {
+          entry.transactionStarting = false;
         }
       }
     )

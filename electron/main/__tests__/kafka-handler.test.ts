@@ -828,6 +828,28 @@ describe('kafka-handler', () => {
       ).resolves.toEqual({ success: true, transactionId: 'txn-1' });
     });
 
+    it('refuses a second begin while one is still preparing, without cancelling it', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(
+        event,
+        validConnect('txn-race', { idempotent: true, transactionalId: 'restura-txn' })
+      );
+      const producer = FakeProducer.instances[0]!;
+      const gate = deferred<void>();
+      producer.beginTransaction.mockImplementationOnce(async () => {
+        await gate.promise;
+        return producer.transaction;
+      });
+      const first = handlerFor(IPC.kafka.beginTransaction)(event, { connectionId: 'txn-race' });
+      await expect(
+        handlerFor(IPC.kafka.beginTransaction)(event, { connectionId: 'txn-race' })
+      ).resolves.toEqual({ success: false, error: 'A transaction is already being started.' });
+      gate.resolve();
+      await expect(first).resolves.toEqual({ success: true, transactionId: 'txn-1' });
+      expect(producer.beginTransaction).toHaveBeenCalledTimes(1);
+      expect(producer.transaction.cancel).not.toHaveBeenCalled();
+    });
+
     it('reports one ack per batch record (partition base offset + position)', async () => {
       const { event } = makeEvent();
       await handlerFor(IPC.kafka.connect)(event, validConnect('acks'));
