@@ -1,6 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import type { DeepLinkImportFormat } from '@shared/deep-link';
-import * as yaml from 'js-yaml';
+import { load } from 'js-yaml';
 import { Check, Download, Link, Lock, Upload, X } from 'lucide-react';
 import { type ChangeEvent, type DragEvent, useEffect, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -115,7 +115,7 @@ export default function ImportDialog({
 
   const parseFileContent = (text: string, fileName: string): unknown => {
     if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
-      return yaml.load(text);
+      return load(text);
     }
     if (
       fileName.endsWith('.bru') ||
@@ -134,7 +134,7 @@ export default function ImportDialog({
     try {
       return JSON.parse(text);
     } catch {
-      return yaml.load(text);
+      return load(text);
     }
   };
 

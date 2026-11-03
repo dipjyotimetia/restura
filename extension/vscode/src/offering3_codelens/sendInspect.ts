@@ -1,4 +1,4 @@
-import * as yaml from 'js-yaml';
+import { JSON_SCHEMA, load } from 'js-yaml';
 import { executeHttpProxy } from '../../../../shared/protocol/http-proxy';
 import type { NormalizedResponse } from '../../../../shared/protocol/types';
 import { createNodeFetcher } from '../util/nodeFetcher';
@@ -27,7 +27,7 @@ export async function sendRequest(
 ): Promise<SendOutcome> {
   let doc: unknown;
   try {
-    doc = yaml.load(text, { schema: yaml.JSON_SCHEMA });
+    doc = load(text, { schema: JSON_SCHEMA });
   } catch (err) {
     return { ok: false, error: `Invalid YAML: ${(err as Error).message}`, warnings: [] };
   }

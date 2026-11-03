@@ -5,7 +5,7 @@ import {
   type PostmanV3FileMap,
 } from '@shared/collections/postman';
 import { collectPostmanFolderFiles } from '@shared/collections/postman/v3-folder';
-import * as yaml from 'js-yaml';
+import { load } from 'js-yaml';
 import type { ImportWarning } from '@/features/collections/lib/importers/types';
 import { getElectronAPI, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
 
@@ -223,7 +223,7 @@ export function detectImportFormat(text: string, fileName: string): ParsedImport
   try {
     data = JSON.parse(text);
   } catch {
-    data = yaml.load(text);
+    data = load(text);
   }
   if (!data || typeof data !== 'object')
     throw new Error('Remote import format could not be detected.');

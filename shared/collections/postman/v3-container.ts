@@ -1,4 +1,4 @@
-import * as yaml from 'js-yaml';
+import { load } from 'js-yaml';
 import { isObj, MAX_POSTMAN_NESTING_DEPTH } from './common';
 import { UNSAFE_OBJECT_KEYS } from './redaction';
 
@@ -172,7 +172,7 @@ function parseYaml(text: string, path: string, limits: PostmanV3Limits): unknown
   let data: unknown;
   try {
     // Default schema = safe: no !!js/* or other custom tags.
-    data = yaml.load(text, { filename: path });
+    data = load(text, { filename: path });
   } catch (error) {
     const reason = error instanceof Error ? error.message.split('\n')[0] : 'parse error';
     throw new PostmanV3ContainerError(`"${safe(path)}" is not valid YAML (${reason})`);

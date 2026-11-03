@@ -7,7 +7,7 @@
 
 import { canCreateCollection, canEdit, setCollectionConsent } from '@shared/mcp-server/consent';
 import { type ControlToolInput, MAX_AGENT_SCRIPT_CHARS } from '@shared/mcp-server/control-tools';
-import * as yaml from 'js-yaml';
+import { load } from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
 import { deleteCollectionWithCleanup } from '@/features/collections/lib/deleteCollection';
 import {
@@ -356,7 +356,7 @@ async function parseImport(
     if (format !== 'openapi') throw new Error(`The ${format} document is not valid JSON.`);
     // json: true makes duplicate keys an error rather than a silent override;
     // the default schema (no custom tags) cannot instantiate objects.
-    data = yaml.load(content, { json: true });
+    data = load(content, { json: true });
   }
   switch (format) {
     case 'postman':

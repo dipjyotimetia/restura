@@ -1,5 +1,5 @@
 import type { Specification } from '@openworkflowspec/sdk';
-import * as yaml from 'js-yaml';
+import { load as loadYaml } from 'js-yaml';
 import { isCanonicalHttpMethod } from '../protocol/http-method';
 import { evaluateOwsCondition, isOwsPathExpression } from './runtime-expression';
 
@@ -505,7 +505,7 @@ export function parseOwsWorkflowJson(source: string): OwsWorkflow {
 export function parseOwsWorkflowImport(source: string): OwsWorkflow {
   try {
     return assertSafeOwsDocument(
-      source.trimStart().startsWith('{') ? JSON.parse(source) : yaml.load(source)
+      source.trimStart().startsWith('{') ? JSON.parse(source) : loadYaml(source)
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import * as yaml from 'js-yaml';
+import { JSON_SCHEMA, load } from 'js-yaml';
 import * as vscode from 'vscode';
 import { infoName, ROOT_FILENAMES } from '../util/oc';
 import { getResturaSettings } from '../util/settings';
@@ -26,7 +26,7 @@ async function collectionLabel(rootDir: string): Promise<string> {
   for (const f of ROOT_FILENAMES) {
     try {
       const name = infoName(
-        yaml.load(await readFile(join(rootDir, f), 'utf8'), { schema: yaml.JSON_SCHEMA })
+        load(await readFile(join(rootDir, f), 'utf8'), { schema: JSON_SCHEMA })
       );
       if (name) return name;
     } catch {

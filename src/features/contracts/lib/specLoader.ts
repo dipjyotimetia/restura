@@ -19,7 +19,7 @@
  */
 
 import SwaggerParser from '@apidevtools/swagger-parser';
-import * as yaml from 'js-yaml';
+import { load as loadYaml } from 'js-yaml';
 import type { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types';
 import { isElectron } from '@/lib/shared/platform';
 import { executeProxiedRequest } from '@/lib/shared/transport';
@@ -62,7 +62,7 @@ export async function loadContractSpec(source: ContractSpecSource): Promise<Load
 
   let parsed: unknown;
   try {
-    parsed = raw.trimStart().startsWith('{') ? JSON.parse(raw) : yaml.load(raw);
+    parsed = raw.trimStart().startsWith('{') ? JSON.parse(raw) : loadYaml(raw);
   } catch (err) {
     return {
       ok: false,
