@@ -147,6 +147,10 @@ describe('secretRef — coerceToInlineSecret', () => {
       value: long,
     });
     expect(coerceToInlineSecret(long)).toEqual({ kind: 'inline', value: long });
+    expect(coerceToInlineSecret({ kind: 'handle', id: 'id-1', label: undefined })).toEqual({
+      kind: 'handle',
+      id: 'id-1',
+    });
     const longId = 'h'.repeat(200);
     expect(coerceToInlineSecret({ kind: 'handle', id: longId })).toEqual({
       kind: 'handle',

@@ -187,19 +187,27 @@ export function coerceToInlineSecret(value: unknown): SecretValue {
 /**
  * Same kinds and field types as `secretValueSchema`, without its length caps.
  * Only for coercing already-persisted state; boundaries use the capped schema.
+ * Keys holding `undefined` are dropped first, so `{label: undefined}` reads
+ * as an absent label rather than a malformed ref.
  */
-const secretRefShapeSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('inline'), value: z.string() }),
-  z.object({ kind: z.literal('handle'), id: z.string(), label: z.string().optional() }),
-  z.object({
-    kind: z.literal('external'),
-    provider: externalSecretProviderSchema,
-    profileId: z.string().min(1),
-    secretId: z.string().min(1),
-    selector: z.string().min(1).optional(),
-    label: z.string().min(1).optional(),
-  }),
-]);
+const secretRefShapeSchema = z.preprocess(
+  (value) =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined))
+      : value,
+  z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('inline'), value: z.string() }),
+    z.object({ kind: z.literal('handle'), id: z.string(), label: z.string().exactOptional() }),
+    z.object({
+      kind: z.literal('external'),
+      provider: externalSecretProviderSchema,
+      profileId: z.string().min(1),
+      secretId: z.string().min(1),
+      selector: z.string().min(1).exactOptional(),
+      label: z.string().min(1).exactOptional(),
+    }),
+  ])
+);
 
 /**
  * Runtime guard for SecretValue, validated by the length-capped
