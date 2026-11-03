@@ -177,6 +177,9 @@ const graphqlRequest = z.object({
   info: z.object({
     type: z.literal('graphql'),
     name: z.string().min(1),
+    description: description.optional(),
+    seq: z.number().optional(),
+    tags: z.array(z.string()).optional(),
   }),
   graphql: z.object({
     // Spec GraphQLRequestDetails.method; Restura emits it only for GET (#885).
@@ -187,6 +190,12 @@ const graphqlRequest = z.object({
     headers: z.array(httpHeader).optional(),
     auth: auth.optional(),
   }),
+  // Same as gRPC: without these the parser stripped a GraphQL item's
+  // pre-request/test scripts (`runtime.scripts`), settings and docs on load,
+  // so a saved GraphQL request silently ran with no scripts.
+  runtime: z.object({}).passthrough().optional(),
+  settings: z.object({}).passthrough().optional(),
+  docs: z.string().optional(),
 });
 
 const websocketMessage = z.object({ type: z.string(), data: z.string() });

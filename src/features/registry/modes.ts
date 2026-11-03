@@ -67,7 +67,7 @@ export const MODE_DESCRIPTORS: Record<RequestMode, ModeDescriptor> = {
     carriesUrl: true,
     httpSeed: { name: 'New GraphQL Request', method: 'POST', bodyType: 'graphql' },
     runnable: true,
-    honorsSkipRequest: false,
+    honorsSkipRequest: true,
   },
   grpc: {
     label: 'gRPC',

@@ -188,11 +188,11 @@ describe('RunScope — CLI policy', () => {
     expect(iter.requestVars()).toEqual({});
   });
 
-  it('a collection write is NOT substituted into later requests', () => {
+  it('a collection write is substituted into later requests (Newman and app parity)', () => {
     const collection: VarMap = {};
     const iter = scopeFor(policy, { collection }).beginIteration({});
     iter.absorb([{ before: {}, after: {}, collectionMutations: { token: 'abc' } }]);
-    expect(iter.requestVars().token).toBeUndefined();
+    expect(iter.requestVars().token).toBe('abc');
     expect(collection.token).toBe('abc');
   });
 
@@ -261,5 +261,30 @@ describe('RunScope — retained writes', () => {
     expect(iter.requestVars().inRow).toBe('row');
     iter.absorb([{ before, after: before, collectionMutations: { k: 'back' } }]);
     expect(iter.requestVars().k).toBe('back');
+  });
+});
+
+describe.each([
+  ['app', APP_SCOPE_POLICY],
+  ['CLI', CLI_SCOPE_POLICY],
+] as const)('RunScope — pm.variables.unset (%s)', (_host, policy) => {
+  it("drops this iteration's write so the scoped value shows again", () => {
+    const iter = scopeFor(policy, { environment: { k: 'env' } }).beginIteration({});
+    iter.absorb([{ before: { k: 'env' }, after: { k: 'script' } }]);
+    expect(iter.requestVars().k).toBe('script');
+    iter.absorb([{ before: { k: 'script' }, after: {} }]);
+    expect(iter.requestVars().k).toBe('env');
+  });
+
+  it('a write unset in a later iteration does not come back', () => {
+    const scope = scopeFor(policy);
+    const first = scope.beginIteration({});
+    first.absorb([{ before: {}, after: { token: 't1' } }]);
+    first.end();
+    const second = scope.beginIteration({});
+    expect(second.requestVars().token).toBe('t1');
+    second.absorb([{ before: { token: 't1' }, after: {} }]);
+    second.end();
+    expect(scope.beginIteration({}).requestVars().token).toBeUndefined();
   });
 });

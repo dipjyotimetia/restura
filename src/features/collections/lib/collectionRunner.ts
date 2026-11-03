@@ -28,7 +28,13 @@ import type { ProtocolScriptResult } from '@/features/registry/types';
 import { isElectron } from '@/lib/shared/platform';
 import { buildValueMap, secretVariableNames } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import type { Response as ApiResponse, Collection, GrpcRequest, Request } from '@/types';
+import type {
+  Response as ApiResponse,
+  Collection,
+  GrpcRequest,
+  HttpRequest,
+  Request,
+} from '@/types';
 import type { IterationRow } from './dataLoader';
 import type { RunnableRequest } from './flattenRunnables';
 
@@ -164,6 +170,13 @@ function phaseOutcome(phase: ProtocolScriptResult['preRequest']): PhaseOutcome |
   };
 }
 
+/** The registry module that runs this request (GraphQL rides an HTTP-shaped request). */
+function dispatchProtocolId(request: Request): string {
+  if (request.type === 'http' && (request as HttpRequest).body?.type === 'graphql')
+    return 'graphql';
+  return request.type;
+}
+
 function isProtocolOk(response: ApiResponse): boolean {
   // MCP: the envelope is always 200; a JSON-RPC error or a tool result with
   // `isError: true` fails unless the test script's assertions decide.
@@ -248,7 +261,11 @@ async function runCollectionWithPool(
 
     const step = async (runnable: RunnableRequest): Promise<StepOutcome> => {
       const protocolId = runnable.request.type;
-      const protocol = protocolRegistry.get(protocolId);
+      // A saved GraphQL request is an HTTP-shaped request with a `graphql` body:
+      // it must go through the GraphQL module, which shapes the `{ query,
+      // variables }` envelope (the HTTP module would send the raw document).
+      const dispatchId = dispatchProtocolId(runnable.request);
+      const protocol = protocolRegistry.get(dispatchId);
 
       // Never sent, ignores delay and `setNextRequest`. Fails the run only when
       // asked to (a blocked request under stopOnFailure, like the CLI's --bail),
@@ -273,7 +290,7 @@ async function runCollectionWithPool(
       if (runnable.blocked) return skip(runnable.blocked, stopOnFailure);
 
       // Skip protocols without a usable single-shot runner.
-      const traits = protocolRunTraits(protocolId);
+      const traits = protocolRunTraits(dispatchId);
       if (!protocol || !traits.runnable) {
         return skip(
           protocol
@@ -301,6 +318,7 @@ async function runCollectionWithPool(
       );
 
       let scripts: ProtocolScriptResult | undefined;
+      let transportError: string | undefined;
       const ctx = {
         signal,
         variables: requestVars,
@@ -310,6 +328,9 @@ async function runCollectionWithPool(
         ],
         onScriptResult: (r: ProtocolScriptResult) => {
           scripts = r;
+        },
+        onTransportError: (message: string) => {
+          transportError = message;
         },
         protocolOptions: {
           collectionVars: { ...collectionVars },
@@ -413,6 +434,7 @@ async function runCollectionWithPool(
         // Without assertions, say why an MCP item failed (JSON-RPC error / isError).
         const verdict = settleVerdict({
           protocolPassed,
+          transportError,
           protocolError: !protocolPassed && response.mcpOutcome ? response.statusText : undefined,
           fold,
           errorStyle: 'script-wins',

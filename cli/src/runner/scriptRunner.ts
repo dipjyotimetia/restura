@@ -185,13 +185,14 @@ function toRunScriptResult(
   result: ScriptResult,
   originalVars: Record<string, string>
 ): RunScriptResult {
-  // The executor returns only the variables it touched; layer them over the
-  // originals so callers get the full, merge-ready map (script changes win).
+  // The executor returns the full variable map as the script left it, so a key
+  // it `unset` is absent. Layering it over the originals would put that key
+  // back; fall back to the originals only when the executor returned none.
   return {
     assertions: result.tests ?? [],
     logs: result.logs,
     errors: result.errors,
-    variables: { ...originalVars, ...result.variables },
+    variables: result.variables ? { ...result.variables } : { ...originalVars },
     ...(result.execution ? { execution: result.execution } : {}),
     ...(result.collectionMutations ? { collectionMutations: result.collectionMutations } : {}),
     ...(result.requestMetadata ? { requestMetadata: result.requestMetadata } : {}),

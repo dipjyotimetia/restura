@@ -93,6 +93,22 @@ const oauth2TokenCache = new Map<string, CachedToken>();
  * client_credentials. Tokens are cached (per token-url + client + scope) so a
  * collection of N requests hits the token endpoint once, not N times.
  */
+/**
+ * The token request carries the client secret, and `validateURL` checked only
+ * the URL as written: following a redirect would POST that secret to a host
+ * the SSRF guard never saw (e.g. `307 → http://169.254.169.254/`). A token
+ * endpoint has no reason to redirect, so a 3xx is refused.
+ */
+const noRedirectFetch: typeof globalThis.fetch = async (input, init) => {
+  const response = await globalThis.fetch(input, { ...init, redirect: 'manual' });
+  if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+    throw new Error(
+      `OAuth2 token endpoint answered with a redirect (${response.status}); refusing to follow it with the client credentials.`
+    );
+  }
+  return response;
+};
+
 export async function resolveOAuth2Token(
   auth: AuthConfig | undefined,
   /** @deprecated Unused — pass auth already resolved with `resolveAuthVariables`. */
@@ -137,7 +153,7 @@ export async function resolveOAuth2Token(
       ...(scope !== undefined ? { scope } : {}),
     },
     {
-      ...(opts.fetch ? { fetch: opts.fetch } : {}),
+      fetch: opts.fetch ?? noRedirectFetch,
       ...(opts.signal ? { signal: opts.signal } : {}),
     }
   );

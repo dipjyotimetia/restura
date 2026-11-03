@@ -7,6 +7,7 @@ import { withoutSecretNames } from '@/lib/shared/resolveRequestScope';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Response as ApiResponse, HttpRequest, Request } from '@/types';
 import { executeRequest } from './lib/requestExecutor';
+import { reportTransportError } from './lib/transportOutcome';
 
 function createDefaultHttpRequest(): HttpRequest {
   return {
@@ -115,6 +116,7 @@ export const httpProtocol: ProtocolModule = {
     if (ctx.onScriptResult && result.scriptResult) {
       ctx.onScriptResult(result.scriptResult);
     }
+    reportTransportError(result, ctx);
     return result.response;
   },
 };

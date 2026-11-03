@@ -16,7 +16,8 @@ export type CliIterationRow = Record<string, string>;
 export async function loadIterationData(path: string | undefined): Promise<CliIterationRow[]> {
   if (!path) return [];
   const ext = extname(path).toLowerCase();
-  const text = await readFile(path, 'utf-8');
+  // A UTF-8 BOM (Excel exports) would break JSON.parse and the first CSV header.
+  const text = (await readFile(path, 'utf-8')).replace(/^\uFEFF/, '');
 
   if (ext === '.json') {
     const parsed = JSON.parse(text);
@@ -29,7 +30,15 @@ export async function loadIterationData(path: string | undefined): Promise<CliIt
       }
       const out: CliIterationRow = {};
       for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
-        out[k] = v === null || v === undefined ? '' : String(v);
+        if (k === '') continue;
+        // Same coercion as the app (`coerceRow`): nested values stay JSON, so a
+        // `{{payload}}` body is not sent as "[object Object]".
+        out[k] =
+          v === null || v === undefined
+            ? ''
+            : typeof v === 'object'
+              ? JSON.stringify(v)
+              : String(v);
       }
       return out;
     });

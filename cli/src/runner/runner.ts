@@ -145,13 +145,14 @@ async function runCollectionWithSessions(
     }
   }
   Object.assign(baseVars, options.overrideVars);
+  const filtered = options.filter ? applyFilters(loaded.requests, options.filter) : loaded.requests;
   assertCliSecretsAvailable(
-    // A blocked request is never sent, so its variables can't abort the run.
-    loaded.requests.filter((r) => !r.blocked),
+    // A blocked request is never sent, and one the filters dropped never runs,
+    // so neither one's variables can abort the run.
+    filtered.filter((r) => !r.blocked),
     baseVars,
     new Set(loaded.meta.privateVariableNames ?? [])
   );
-  const filtered = options.filter ? applyFilters(loaded.requests, options.filter) : loaded.requests;
   const versionWarning = httpVersionWarning(filtered);
   if (versionWarning) process.stderr.write(versionWarning);
 

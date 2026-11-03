@@ -161,17 +161,13 @@ describe('runCollection — variable precedence', () => {
     expect(await run(file)).toEqual([`${ORIGIN}inner/outer`]);
   });
 
-  // The app substitutes a `pm.collectionVariables` write into later requests;
-  // the CLI keeps it in `pm.collectionVariables` only (probed on this branch).
-  it.todo(
-    'DIVERGENCE: a pm.collectionVariables write is visible to {{var}} substitution of later requests (app: yes, CLI: no)'
-  );
-
-  it('CURRENT: a pm.collectionVariables write is not substituted into later requests', async () => {
+  // Newman and the app substitute a `pm.collectionVariables` write into the
+  // `{{var}}`s of later requests (login → token chaining).
+  it('a pm.collectionVariables write is substituted into later requests', async () => {
     const file = writeCollection([
       request('a', 'one', "pm.collectionVariables.set('token', 'abc');"),
       request('b', '{{token}}'),
     ]);
-    expect((await run(file))[1]).toBe(`${ORIGIN}{{token}}`);
+    expect((await run(file))[1]).toBe(`${ORIGIN}abc`);
   });
 });
