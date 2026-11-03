@@ -18,4 +18,7 @@ describe('key-value schemas keep the secret flag (P2)', () => {
   it('rejects a non-boolean `secret`', () => {
     expect(keyValueSchema.safeParse({ ...row, secret: 'yes' }).success).toBe(false);
   });
+  it('accepts an explicit `secret: undefined` instead of rejecting the row', () => {
+    expect(keyValueSchema.safeParse({ ...row, secret: undefined }).success).toBe(true);
+  });
 });

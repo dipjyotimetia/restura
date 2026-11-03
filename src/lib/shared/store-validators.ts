@@ -168,12 +168,13 @@ export function validateEnvironment(env: unknown): Environment {
       ...(collectionId !== undefined ? { collectionId } : {}),
       ...(parentId !== undefined ? { parentId } : {}),
       variables: result.data.variables.map((v) => {
-        const { description, private: isPrivate, secretRef, ...rest } = v;
+        const { description, private: isPrivate, secretRef, secret, ...rest } = v;
         return {
           ...rest,
           ...(description !== undefined ? { description } : {}),
           ...(isPrivate !== undefined ? { private: isPrivate } : {}),
           ...(secretRef !== undefined ? { secretRef } : {}),
+          ...(secret !== undefined ? { secret } : {}),
         };
       }),
     };

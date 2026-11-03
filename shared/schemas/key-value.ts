@@ -8,8 +8,8 @@ export const keyValueSchema = z.object({
   enabled: z.boolean(),
   description: z.string().optional(),
   // Mirrors KeyValue.secret: without it a parsed row loses its secret flag and
-  // the value is treated as plain text. Exact-optional to match `secret?:
-  // boolean` under exactOptionalPropertyTypes; producers omit the key rather
-  // than writing `undefined`.
-  secret: z.boolean().exactOptional(),
+  // the value is treated as plain text. Plain optional so a row carrying an
+  // explicit `secret: undefined` still validates (never quarantined); EOPT
+  // consumers strip the undefined key after parsing.
+  secret: z.boolean().optional(),
 });
