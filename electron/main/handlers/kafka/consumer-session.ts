@@ -5,7 +5,12 @@ import {
   DeliveredOffsetCommitter,
 } from './delivered-offset-committer';
 import { OrderedDelivery } from './ordered-delivery';
-import { PartitionPauseSet, parsePartitionKey, partitionKey } from './partition-pause';
+import {
+  addTopicPartition,
+  PartitionPauseSet,
+  parsePartitionKey,
+  partitionKey,
+} from './partition-pause';
 
 type SessionConsumer = KafkaLib.Consumer<Buffer, Buffer, Buffer, Buffer>;
 type SessionStream = KafkaLib.MessagesStream<Buffer, Buffer, Buffer, Buffer>;
@@ -27,6 +32,8 @@ export interface ConsumerStreamHooks {
   deliver: (msg: SessionMessage, signal: AbortSignal) => Promise<boolean | void>;
   onError: (err: Error) => void;
   onClose: () => void;
+  /** This member's assignment changed (any group protocol); runs synchronously. */
+  onAssignment?: (assigned: ReadonlySet<string>) => void;
 }
 
 export interface ConsumerSessionOptions {
@@ -40,6 +47,12 @@ export interface ConsumerSessionOptions {
   swapTimeoutMs?: number;
   /** Upper bound on decoding + sending one record before it is skipped. */
   decodeTimeoutMs?: number;
+  /**
+   * The subscribe-time stream runs in MANUAL mode (explicit offsets or a
+   * timestamp start), which never reads committed offsets, so rebalances are
+   * handled as after a swap from the start.
+   */
+  manualStart?: boolean;
 }
 
 const DEFAULT_SWAP_TIMEOUT_MS = 30_000;
@@ -83,7 +96,8 @@ export function assignedKeys(consumer: SessionConsumer): Set<string> | undefined
  *     topics stay tracked, so the consumer does not rejoin its group;
  *  4. bind the replacement, hand it the current pause reasons, close the old.
  * A MANUAL stream would keep stale positions across a rebalance, so after a
- * swap every group join repositions newly assigned partitions to the group's
+ * swap (or a MANUAL-mode subscribe: explicit offsets or a timestamp start)
+ * every group join repositions newly assigned partitions to the group's
  * committed offset (or the fallback), keeping explicit positions only for
  * partitions this member still owns.
  */
@@ -93,12 +107,19 @@ export class KafkaConsumerSession {
   #exclusive: Promise<unknown> = Promise.resolve();
   #entry: ConsumerSessionEntry | undefined;
   #committer: DeliveredOffsetCommitter | undefined;
-  /** Partitions positioned by the last swap; undefined while the stream runs in its subscribe mode. */
+  /**
+   * Partitions positioned by the last swap (or by a MANUAL-mode subscribe);
+   * undefined while a committed/earliest/latest subscribe stream runs.
+   */
   #positioned: Set<string> | undefined;
   #closed = false;
   #closing: Promise<void> | undefined;
-  /** Bumped on every group join; a delivery queued under an older assignment never commits. */
+  /** Bumped on every assignment change; a delivery queued under an older assignment never commits. */
   #assignmentGeneration = 0;
+  /** Sorted `topic:partition` keys of the assignment last acted on. */
+  #assignmentSignature: string | undefined;
+  /** MANUAL start bound before any assignment existed (KIP-848 timing). */
+  #awaitingBaseline = false;
   /** Bumped by every successful stream swap. */
   #streamGeneration = 0;
   /**
@@ -154,7 +175,10 @@ export class KafkaConsumerSession {
     const draining = this.#delivery.close(drainMs);
     if (this.#closing) return this.#closing;
     this.#closed = true;
-    this.#entry?.consumer?.removeListener('consumer:group:join', this.#onGroupJoin);
+    const consumer = this.#entry?.consumer;
+    consumer?.removeListener('consumer:group:join', this.#onAssignmentEvent);
+    consumer?.removeListener('consumer:group:rebalance', this.#onAssignmentEvent);
+    consumer?.removeListener('consumer:heartbeat:end', this.#onAssignmentEvent);
     this.#closing = draining.then(() => this.#committer?.close());
     return this.#closing;
   }
@@ -248,7 +272,26 @@ export class KafkaConsumerSession {
     this.#entry = entry;
     const consumer = entry.consumer;
     if (!consumer) return;
-    consumer.on('consumer:group:join', this.#onGroupJoin);
+    // A MANUAL-mode subscribe keeps stale positions across rebalances, like a
+    // swapped stream: what is assigned now is positioned; later gains are not.
+    const assigned = assignedKeys(consumer);
+    if (this.options.manualStart) {
+      // Under KIP-848 consume() can resolve before the first assignment is
+      // applied; that first assignment is then what the stream was positioned
+      // for, not a gain (see #onAssignmentEvent).
+      if (assigned) this.#positioned = assigned;
+      else this.#awaitingBaseline = true;
+    }
+    this.#assignmentSignature = assigned && assignmentSignature(assigned);
+    // Classic applies a new assignment before group:join (and, cooperatively,
+    // before group:rebalance). The consumer protocol (KIP-848) applies it
+    // asynchronously after a heartbeat, emits group:rebalance only for
+    // revocations and before applying them, and never re-emits group:join;
+    // the next heartbeat ends after it is applied. Each event is compared with
+    // the last acted-on assignment, so one change runs once.
+    consumer.on('consumer:group:join', this.#onAssignmentEvent);
+    consumer.on('consumer:group:rebalance', this.#onAssignmentEvent);
+    consumer.on('consumer:heartbeat:end', this.#onAssignmentEvent);
     if (this.options.autoCommitIntervalMs !== undefined) {
       this.#committer = new DeliveredOffsetCommitter(
         (offsets) => consumer.commit({ offsets }),
@@ -270,8 +313,23 @@ export class KafkaConsumerSession {
     this.#committer?.delivered(msg.topic, msg.partition, msg.offset, msg.leaderEpoch ?? -1);
   }
 
-  #onGroupJoin = (): void => {
+  #onAssignmentEvent = (): void => {
+    const consumer = this.#entry?.consumer;
+    if (!consumer || this.#closed) return;
+    const assigned = assignedKeys(consumer);
+    if (!assigned) return;
+    const signature = assignmentSignature(assigned);
+    if (signature === this.#assignmentSignature) return;
+    this.#assignmentSignature = signature;
+    if (this.#awaitingBaseline) {
+      // The manual start's own offsets apply to this first assignment.
+      this.#awaitingBaseline = false;
+      this.#positioned = assigned;
+      this.hooks.onAssignment?.(assigned);
+      return;
+    }
     this.#assignmentGeneration += 1;
+    this.hooks.onAssignment?.(assigned);
     void this.runExclusive(() => this.#rebalanced()).catch((err: unknown) => {
       this.hooks.onError(err instanceof Error ? err : new Error(String(err)));
     });
@@ -285,7 +343,7 @@ export class KafkaConsumerSession {
     if (!assigned) return;
     this.partitions.retain(assigned);
     this.#committer?.retain(assigned);
-    // Before any swap the library's own subscribe mode restores positions itself.
+    // Before any swap a non-MANUAL subscribe stream restores positions itself.
     const positioned = this.#positioned;
     if (!positioned) return;
     const added = [...assigned].filter((key) => !positioned.has(key));
@@ -315,7 +373,7 @@ export class KafkaConsumerSession {
     for (const key of keys) {
       const tp = parsePartitionKey(key);
       if (!tp) continue;
-      byTopic.set(tp.topic, [...(byTopic.get(tp.topic) ?? []), tp.partition]);
+      addTopicPartition(byTopic, tp.topic, tp.partition);
     }
     const topics = [...byTopic].map(([topic, partitions]) => ({ topic, partitions }));
     const committed = await consumer.listCommittedOffsets({ topics });
@@ -354,6 +412,10 @@ export class KafkaConsumerSession {
   }
 }
 
+function assignmentSignature(assigned: ReadonlySet<string>): string {
+  return [...assigned].sort().join('\n');
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -379,12 +441,15 @@ export function subscriptionSession(
     autoCommitIntervalMs?: number;
   },
   kafka: typeof KafkaLib,
-  hooks: ConsumerStreamHooks
+  hooks: ConsumerStreamHooks,
+  /** The subscribe-time stream was opened in the library's MANUAL mode. */
+  manualStart = false
 ): KafkaConsumerSession {
   return new KafkaConsumerSession(
     {
       topics: cfg.topics,
       kafka,
+      ...(manualStart ? { manualStart: true } : {}),
       ...(cfg.fallbackMode ? { fallback: cfg.fallbackMode } : {}),
       ...(cfg.commitPolicy === 'manual'
         ? {}
