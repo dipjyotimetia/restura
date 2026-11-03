@@ -12,6 +12,7 @@ The container needs the proxy to:
 - Forward `/api/ws` as a **WebSocket upgrade** (don't terminate the upgrade).
 - Pass through the `X-Restura-Proxy-Token` header **or**, with Cloudflare Access, the `Cf-Access-Jwt-Assertion` header.
 - Not strip the `Content-Encoding` header — streaming responses (SSE, chunked) depend on it.
+- **Overwrite** `True-Client-IP` with the real client address, and run the container with `TRUST_PROXY=true`. The rate limiter keys on the socket peer by default, so without `TRUST_PROXY=true` every client shares the proxy's bucket. With it, the server reads `CF-Connecting-IP`, then `True-Client-IP` (`X-Real-IP` and `X-Forwarded-For` are not used outside development), so the proxy must overwrite `True-Client-IP` and strip any client-sent `CF-Connecting-IP` — a value passed through from the client lets the client choose its own bucket.
 
 ## Example configs
 
@@ -31,7 +32,9 @@ server {
     proxy_pass http://restura:3000;
     proxy_http_version 1.1;
     proxy_set_header Host              $host;
-    proxy_set_header X-Real-IP         $remote_addr;
+    # Overwrites any client-sent value; requires TRUST_PROXY=true on the container
+    proxy_set_header True-Client-IP    $remote_addr;
+    proxy_set_header CF-Connecting-IP  "";
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
 
@@ -58,7 +61,8 @@ restura.example.com {
       keepalive 30s
     }
     header_up Host {host}
-    header_up X-Real-IP {remote_host}
+    header_up True-Client-IP {remote_host}
+    header_up -CF-Connecting-IP
   }
 }
 ```
@@ -103,7 +107,7 @@ See [Self-hosting / Docker](/self-hosting/docker/) for the env var names.
 
 WebSocket tickets are per-replica in-memory (v1 constraint). Either use **sticky routing** on `/api/ws-ticket` and `/api/ws` paths, or stick to a single replica.
 
-Per-replica in-memory rate limiting means high-traffic deployments should put a rate limiter in the reverse proxy too.
+Per-replica in-memory rate limiting means high-traffic deployments should put a rate limiter in the reverse proxy too. Forwarded client IPs only count when each replica runs with `TRUST_PROXY=true` behind a proxy that overwrites `True-Client-IP`.
 
 ## Related
 

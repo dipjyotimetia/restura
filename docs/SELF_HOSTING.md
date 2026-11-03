@@ -98,6 +98,7 @@ reports.
 | `ALLOWED_ORIGIN`     | No              | _(no cross-origin access)_  | Comma-separated CORS allow-list. Supports `*` inside hostnames. Unset = same-origin only.           |
 | `ALLOW_PRIVATE_IPS`  | No              | `false`                     | Permit RFC 1918 / link-local / CGNAT upstreams. See _Internal-network access_ below.                |
 | `RATE_LIMITER`       | No              | `map`                       | Always `map` in self-hosted (per-process limiter).                                                  |
+| `TRUST_PROXY`        | No              | `false`                     | `true` = honour client-IP forwarding headers for rate limiting. Set only behind a reverse proxy that overwrites them. See _Rate limiting_ below. |
 | `PORT` / `HOST`      | No              | `3000` / `0.0.0.0`          | Bind address inside the container.                                                                  |
 | `VITE_ECHO_*_URL`    | No              | _(public echo.restura.dev)_ | **Build-time `--build-arg` only.** Replace the SPA's placeholder URLs with internal echo endpoints. |
 | `DEV_BYPASS_AUTH`    | _Never in prod_ | _(unset)_                   | Local dev only. Bypasses auth + allows localhost SSRF.                                              |
@@ -192,18 +193,29 @@ the full threat model.
 ## Rate limiting
 
 The self-hosted build uses a per-process in-memory limiter (default
-100 req / 60s per client). The bucket key falls through this chain:
+100 req / 60s per client). The bucket key is `${ip}|${authPrincipal}`:
 
-1. `True-Client-IP` — set by Cloudflare-style upstreams.
-2. `CF-Connecting-IP` — never set on self-hosted; included for parity.
-3. Identity-aware tokens (`X-Restura-Proxy-Token` / `Authorization`).
-4. `User-Agent` hash — last-ditch so a missing IP header doesn't collapse
-   every client into one shared bucket.
+- **`authPrincipal`** is set only by the auth middleware from a verified
+  credential: `proxy-token` for a valid `WORKER_PROXY_TOKEN`, or
+  `access:<sub>` (falling back to `access:<email>`) for a verified Cloudflare
+  Access assertion. It is never read from a client header; when no principal
+  is set (for example under `DEV_BYPASS_AUTH`) it is `anon`.
+- **`ip`** is, on the self-hosted Node server, the TCP socket peer address —
+  unless `TRUST_PROXY=true`. Nothing strips `CF-Connecting-IP` or
+  `True-Client-IP` on Node, so they are ignored by default; otherwise a client
+  could pick a fresh bucket per request. With `TRUST_PROXY=true` the IP falls
+  through `CF-Connecting-IP`, then `True-Client-IP`, then (only when
+  `ENVIRONMENT=development` or `DEV_BYPASS_AUTH=true`) `X-Real-IP`, then a
+  `Sec-WebSocket-Key` / `User-Agent` hash so a missing header doesn't
+  collapse every client into one shared bucket.
 
-**Important:** if you're not behind a reverse proxy that sets a trusted
-client-IP header, every browser-direct request shares the UA-hash bucket
-(small cardinality). Run Caddy / nginx / Traefik / a K8s ingress in front
-and have it set `True-Client-IP` from the real client address.
+**Important:** behind a reverse proxy (Caddy / nginx / Traefik / a K8s
+ingress), set `TRUST_PROXY=true` and have the proxy **overwrite** (not
+append to) `True-Client-IP` with the real client address and strip any
+client-sent `CF-Connecting-IP`, which is read first (or overwrite
+`CF-Connecting-IP` instead). Without `TRUST_PROXY=true`, the socket peer is the proxy, so every
+client shares the proxy's address bucket. With `TRUST_PROXY=true` but a proxy
+that passes the client's header through, clients choose their own bucket.
 
 For a multi-replica deployment, each replica enforces independently — a
 6-replica deployment effectively grants 600 req / 60s. Two options:
