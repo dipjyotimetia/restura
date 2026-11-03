@@ -187,3 +187,184 @@ export function redactEnvironmentVariables(
       return { key: v.key, value, isSecret: v.secret === true || value === SECRET_PLACEHOLDER };
     });
 }
+
+// ---------------------------------------------------------------------------
+// Response redaction for the control server's send tools (ADR 0041)
+// ---------------------------------------------------------------------------
+
+/** Response/request headers whose values are credentials. Compared lowercased. */
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'set-cookie',
+  'set-cookie2',
+  'x-api-key',
+  'api-key',
+  'x-auth-token',
+  'x-access-token',
+  'x-csrf-token',
+  'x-xsrf-token',
+  'x-amz-security-token',
+  'x-goog-api-key',
+  'www-authenticate',
+  'proxy-authenticate',
+]);
+
+export const REDACTED = '(redacted)';
+
+/** Mask credential-bearing headers; everything else passes through. */
+export function redactHeadersForAgent(
+  headers: Record<string, string | string[] | undefined> | undefined
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, raw] of Object.entries(headers ?? {})) {
+    if (raw === undefined) continue;
+    const value = Array.isArray(raw) ? raw.join(', ') : String(raw);
+    out[name] = SENSITIVE_HEADER_NAMES.has(name.toLowerCase()) ? REDACTED : value;
+  }
+  return out;
+}
+
+/** Normalise a JSON key for token-likeness: lowercase, separators dropped. */
+function normaliseKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+const TOKEN_LIKE_KEYS = new Set([
+  'token',
+  'accesstoken',
+  'refreshtoken',
+  'idtoken',
+  'sessiontoken',
+  'sessionid',
+  'sid',
+  'jwt',
+  'bearer',
+  'password',
+  'passwd',
+  'pwd',
+  'secret',
+  'clientsecret',
+  'apikey',
+  'apisecret',
+  'privatekey',
+  'authorization',
+  'cookie',
+  'otp',
+  'mfacode',
+]);
+
+function isTokenLikeKey(key: string): boolean {
+  const k = normaliseKey(key);
+  if (TOKEN_LIKE_KEYS.has(k)) return true;
+  return k.endsWith('token') || k.endsWith('secret') || k.endsWith('password');
+}
+
+/** Compact JWTs (three base64url segments, header starting `eyJ`). */
+const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\b/g;
+
+interface RedactCounter {
+  count: number;
+}
+
+function redactJwts(text: string, counter: RedactCounter): string {
+  return text.replace(JWT_PATTERN, () => {
+    counter.count += 1;
+    return '(redacted-jwt)';
+  });
+}
+
+function redactJsonValue(value: unknown, depth: number, counter: RedactCounter): unknown {
+  if (depth > 64) {
+    counter.count += 1;
+    return REDACTED;
+  }
+  if (Array.isArray(value)) return value.map((v) => redactJsonValue(v, depth + 1, counter));
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      if (isTokenLikeKey(key) && (typeof v === 'string' || typeof v === 'number')) {
+        counter.count += 1;
+        out[key] = REDACTED;
+      } else {
+        out[key] = redactJsonValue(v, depth + 1, counter);
+      }
+    }
+    return out;
+  }
+  if (typeof value === 'string') return redactJwts(value, counter);
+  return value;
+}
+
+/**
+ * `key=value` pairs (x-www-form-urlencoded bodies, query strings) whose key is
+ * token-like get their value masked: `user=a&password=x` → `user=a&password=(redacted)`.
+ */
+function redactFormPairs(text: string, counter: RedactCounter): string {
+  return text.replace(
+    /(^|[&?\s;])([^=&?\s;]+)=([^&\s;]*)/g,
+    (match, sep: string, key: string, value: string) => {
+      let decoded = key;
+      try {
+        decoded = decodeURIComponent(key.replace(/\+/g, ' '));
+      } catch {
+        decoded = key;
+      }
+      if (value === '' || !isTokenLikeKey(decoded)) return match;
+      counter.count += 1;
+      return `${sep}${key}=${REDACTED}`;
+    }
+  );
+}
+
+export interface AgentBody {
+  /** Body text the agent sees: redacted (when enabled), then truncated. */
+  text: string;
+  /** Characters in the body before redaction and truncation. */
+  originalLength: number;
+  truncated: boolean;
+  /** Number of values masked by redaction. */
+  redactions: number;
+}
+
+export interface AgentBodyOptions {
+  /** Redact token-like JSON fields and JWT-shaped strings. */
+  redact: boolean;
+  /** Truncate to this many characters (after redaction). */
+  maxChars: number;
+}
+
+/**
+ * Prepare a response body for an agent: token-like JSON fields and JWTs are
+ * masked (when `redact`), and the result is capped at `maxChars`. JSON bodies
+ * that needed redaction are re-serialised; everything else keeps its exact
+ * text apart from masked JWTs. Never throws.
+ */
+export function redactBodyForAgent(body: string | undefined, options: AgentBodyOptions): AgentBody {
+  const source = typeof body === 'string' ? body : '';
+  const counter: RedactCounter = { count: 0 };
+  let text = source;
+  if (options.redact && source.length > 0) {
+    const trimmed = source.trimStart();
+    let handled = false;
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed: unknown = JSON.parse(source);
+        const cleaned = redactJsonValue(parsed, 0, counter);
+        if (counter.count > 0) text = JSON.stringify(cleaned, null, 2);
+        handled = true;
+      } catch {
+        handled = false;
+      }
+    }
+    if (!handled) text = redactJwts(redactFormPairs(source, counter), counter);
+  }
+  const truncated = text.length > options.maxChars;
+  return {
+    text: truncated ? text.slice(0, options.maxChars) : text,
+    originalLength: source.length,
+    truncated,
+    redactions: counter.count,
+  };
+}

@@ -29,7 +29,7 @@ Legend: ✅ supported · ⚠️ partial / paid / behind sign-in · ❌ not suppo
 | **Kafka** | ✅ desktop | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **MQTT** | ✅ desktop | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **MCP (client)** | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **MCP server mode** | 🚧 desktop (in progress) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **MCP server mode** | ✅ desktop | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **AI assistant** | ✅ BYOK (desktop) | ⚠️ Postbot (paid tiers) | ❌ | ❌ | ⚠️ paid | ⚠️ paid | ❌ | ❌ |
 | **Pre-request / test scripts** | ✅ QuickJS sandbox | ✅ Node-like | ✅ | ✅ | ✅ | ✅ | ⚠️ | ❌ |
 | **mTLS / custom CA** | ✅ desktop | ✅ | ❌ | ✅ | ✅ | ❌ | ⚠️ | ✅ |
@@ -55,7 +55,7 @@ This table reflects feature availability **in the free / open-source tier** of e
     HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, **Kafka**, **MQTT**, and **MCP** in one tool. Most clients give you 2–4 of these. Restura is the broadest free option.
   </Card>
   <Card title="You build with AI agents" icon="seti:notebook">
-    Built-in AI chat on desktop (OpenAI / Anthropic / OpenRouter, BYOK) that reads request context with redaction. Restura is also [becoming an MCP server](/guides/mcp-server-mode/) for agents like Claude.
+    Built-in AI chat on desktop (OpenAI / Anthropic / OpenRouter, BYOK) that reads request context with redaction. Restura is also an [MCP server](/guides/mcp-server-mode/) that agents like Claude Code and Codex can drive.
   </Card>
   <Card title="You want one tool, three places" icon="laptop">
     Web app on Cloudflare Pages, native desktop on macOS / Windows / Linux, self-hosted Docker — same React renderer, same shortcuts, same UX.
@@ -149,7 +149,7 @@ Beautiful, minimal, designed for HTTP-only workflows. Great defaults, polished U
 
 A short list of capabilities not currently available in any of the alternatives above:
 
-1. **Restura *as* an MCP server (in progress).** The goal is to expose collections / environments / history to AI agents over MCP with consent gating and per-tool secret redaction. The server and consent gates ship today; exposing your data does not yet. (See [MCP server mode](/guides/mcp-server-mode/).)
+1. **Restura *as* an MCP server.** AI agents can read, build and send collections and environments over MCP, with per-collection consent, in-app approvals and secret redaction. (See [MCP server mode](/guides/mcp-server-mode/).)
 2. **Wire-level auth signing across protocols.** AWS SigV4, OAuth 1.0a, and WSSE sign at the Worker / Electron main process — not the renderer — so signatures match the exact bytes the upstream receives. Bruno and Insomnia sign at the client; Postman handles this on its cloud proxy.
 3. **`SecretRef` handle pattern.** Secrets stored on desktop are never exposed to the renderer in plaintext — resolved only at wire time in the main process, with `safeStorage` + OS keychain. See [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/).
 4. **One renderer to three backends.** The same React SPA ships to Cloudflare Pages (web), Electron (native desktop), and a Node+Docker container (self-hosted) — see the [architecture overview](/architecture/overview/).

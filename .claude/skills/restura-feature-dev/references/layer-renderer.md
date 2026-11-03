@@ -77,7 +77,7 @@ export const useXStore = create<XState>()(
 
 - Naming: always `useXStore`. File name matches.
 - Global stores live in `src/store/`. Feature-local stores (e.g. `useCookieStore` for HTTP) live in `src/features/<name>/store/`.
-- Sensitive data (settings with secrets, cookies) → `dexieStorageAdapters` (encrypted IndexedDB). Default = localStorage.
+- Persist through `dexieStorageAdapters` (encrypted IndexedDB; electron-store on desktop where a store uses `createElectronStorage`). The legacy localStorage adapter is removed: never add persistence through `window.localStorage` (see `docs/agents/architecture.md`).
 - Use `partialize` to exclude transient state (`isLoading`, `currentResponse`) from persistence.
 - Add a Zod schema in `src/lib/shared/validations.ts` and wire it through `store-validators.ts` for soft validation on updates.
 - Outside React (in lib code), use `useXStore.getState()` for imperative access. Inside components, use the hook directly.

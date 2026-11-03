@@ -50,6 +50,7 @@ timeline
              : 0038 — CLI judges and dataset evals
              : 0039 — One variable token grammar
              : 0040 — Random install ID for Release Health
+  2026-11-03 : 0041 — Desktop MCP control server
 ```
 
 <CardGrid>
@@ -105,7 +106,7 @@ timeline
   />
   <LinkCard
     title="0011 — Restura as an MCP server"
-    description="Restura as an MCP server: pure tool dispatch, consent gating, and SecretRef redaction on every response."
+    description="Restura as an MCP server: pure tool dispatch, consent gating, and SecretRef redaction on every response. Hosting superseded by ADR 0041."
     href="/architecture/adrs/0011-mcp-server-mode/"
   />
   <LinkCard
@@ -252,6 +253,11 @@ timeline
     title="0040 — Random install ID for Release Health"
     description="Desktop Release Health sessions carry a random, non-derived install ID so Sentry can count installs. Errors never carry it, the same opt-out deletes it, and the release smoke test reports as its own environment."
     href="/architecture/adrs/0040-random-install-id-for-release-health/"
+  />
+  <LinkCard
+    title="0041 — Desktop MCP control server"
+    description="The running desktop app hosts a loopback MCP server whose tools run in the renderer against the real stores; Restura --mcp-server is a stdio relay. Consent per collection and environment, in-app approvals, user-typed secrets and redaction."
+    href="/architecture/adrs/0041-mcp-control-server/"
   />
 </CardGrid>
 

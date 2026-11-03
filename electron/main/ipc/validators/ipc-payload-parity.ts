@@ -30,6 +30,7 @@ import type {
   WsSendSchema,
 } from './core';
 import type { KafkaConnectSchema, KafkaProduceSchema, KafkaSubscribeSchema } from './kafka';
+import type { ControlServerStartSchema, ToolCallResultPayloadSchema } from './mcp-control';
 import type { McpStdioConnectSchema } from './mcp-stdio';
 import type {
   MqttConnectSchema,
@@ -156,4 +157,10 @@ export type McpConnectStdioParity = Assert<
 >;
 export type McpRequestParity = Assert<
   PayloadParity<Arg0<Api['mcp']['request']>, typeof McpRequestSchema>
+>;
+export type McpControlStartParity = Assert<
+  PayloadParity<NonNullable<Arg0<Api['mcpControl']['start']>>, typeof ControlServerStartSchema>
+>;
+export type McpControlToolResultParity = Assert<
+  PayloadParity<Arg0<Api['mcpControl']['sendToolResult']>, typeof ToolCallResultPayloadSchema>
 >;

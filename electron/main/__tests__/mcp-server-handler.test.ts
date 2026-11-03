@@ -1,7 +1,15 @@
-import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
-import { DEFAULT_CONSENT } from '@shared/mcp-server/consent';
-import type { McpDispatchContext } from '@shared/mcp-server/dispatch';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+/**
+ * `Restura --mcp-server` stdio shim: an agent connects over stdio (here, an
+ * in-memory linked pair), the shim reads the handshake file and relays every
+ * call to the running app's loopback control server (a real one, with a fake
+ * renderer dispatcher behind it).
+ */
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { Client, InMemoryTransport, ProtocolError } from '@modelcontextprotocol/client';
+import { CONTROL_TOOLS } from '@shared/mcp-server/control-tools';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const stdioState = vi.hoisted(() => ({
   close: vi.fn(async () => undefined),
@@ -15,64 +23,350 @@ vi.mock('@modelcontextprotocol/server/stdio', () => ({
     stdioState.options = options;
     return { close: stdioState.close };
   }),
+  StdioServerTransport: class {
+    constructor(
+      _stdin: unknown,
+      _stdout: unknown,
+      readonly opts: { maxBufferSize?: number }
+    ) {}
+  },
 }));
 
-import { createResturaMcpServer, startStdioMcpServer } from '../handlers/mcp-server-handler';
+import { mintToken, writeHandshake } from '../handlers/mcp-control-protocol';
+import {
+  type ControlHttpServerHandle,
+  type ControlToolCall,
+  startControlHttpServer,
+} from '../handlers/mcp-control-server';
+import {
+  APP_NOT_RUNNING_MESSAGE,
+  createShimRelay,
+  createShimServer,
+  isConnectionRefused,
+  type RemoteSessionFactory,
+  startStdioMcpServer,
+} from '../handlers/mcp-server-handler';
 
-const connected: Array<{ close(): Promise<void> }> = [];
+const IDENTITY = { name: 'restura', version: '1.0.0' };
+let dir: string;
+const cleanups: Array<() => Promise<unknown>> = [];
 
-afterEach(async () => {
-  await Promise.allSettled(connected.splice(0).map((value) => value.close()));
-  stdioState.close.mockClear();
-  stdioState.factory = undefined;
-  stdioState.options = undefined;
+beforeEach(async () => {
+  dir = await mkdtemp(path.join(tmpdir(), 'restura-shim-'));
 });
 
-describe('createResturaMcpServer', () => {
-  it('builds a fresh v2 server exposing the consent-gated Restura tool catalogue', async () => {
-    const context: McpDispatchContext = {
-      collections: [],
-      environments: [],
-      history: [],
-      consent: DEFAULT_CONSENT,
-    };
-    const server = createResturaMcpServer(() => context);
-    const client = new Client(
-      { name: 'restura-server-test', version: '1.0.0' },
-      { capabilities: {} }
-    );
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    connected.push(client, server);
+afterEach(async () => {
+  for (const fn of cleanups.splice(0).reverse()) await fn().catch(() => undefined);
+  await rm(dir, { recursive: true, force: true });
+  stdioState.close.mockClear();
+  stdioState.factory = undefined;
+});
 
-    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+async function agentOver(relay: ReturnType<typeof createShimRelay>) {
+  const server = createShimServer(IDENTITY, relay.relay);
+  const client = new Client({ name: 'claude-code', version: '2.1.0' }, { capabilities: {} });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  cleanups.push(
+    () => client.close(),
+    () => server.close(),
+    () => relay.close()
+  );
+  return client;
+}
 
-    const catalogue = await client.listTools();
-    expect(catalogue.tools.map((tool) => tool.name).sort()).toEqual([
-      'get_environment',
-      'get_history',
-      'list_collections',
-      'list_environments',
-      'list_requests',
-    ]);
-    await expect(client.callTool({ name: 'list_collections', arguments: {} })).resolves.toEqual({
-      content: [{ type: 'text', text: '{\n  "collections": []\n}' }],
+async function runningApp(dispatch: (call: ControlToolCall) => Promise<unknown>) {
+  const token = mintToken();
+  const handle: ControlHttpServerHandle = await startControlHttpServer({
+    identity: IDENTITY,
+    getToken: () => token,
+    dispatch: dispatch as never,
+  });
+  cleanups.push(() => handle.close());
+  await writeHandshake(dir, {
+    version: 1,
+    running: true,
+    port: handle.port,
+    token,
+    pid: process.pid,
+    updatedAt: Date.now(),
+  });
+  return { handle, token };
+}
+
+const text = (r: { content: unknown }) => (r.content as Array<{ text: string }>)[0]!.text;
+
+describe('stdio shim', () => {
+  it('exposes the same catalogue as the app, even before the app is running', async () => {
+    const client = await agentOver(createShimRelay({ identity: IDENTITY, userDataDir: dir }));
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name).sort()).toEqual(CONTROL_TOOLS.map((t) => t.name).sort());
+  });
+
+  it('tells the agent what to do when Restura is not running', async () => {
+    const client = await agentOver(createShimRelay({ identity: IDENTITY, userDataDir: dir }));
+    const result = await client.callTool({ name: 'describe_access', arguments: {} });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toBe(APP_NOT_RUNNING_MESSAGE);
+  });
+
+  it('treats a stopped server or a dead pid as not running', async () => {
+    await writeHandshake(dir, {
+      version: 1,
+      running: false,
+      port: 1234,
+      token: mintToken(),
+      pid: process.pid,
+      updatedAt: 0,
     });
+    const connect = vi.fn<RemoteSessionFactory>();
+    const client = await agentOver(
+      createShimRelay({ identity: IDENTITY, userDataDir: dir, connect })
+    );
+    expect(text(await client.callTool({ name: 'describe_access', arguments: {} }))).toBe(
+      APP_NOT_RUNNING_MESSAGE
+    );
+    await writeHandshake(dir, {
+      version: 1,
+      running: true,
+      port: 1234,
+      token: mintToken(),
+      pid: 999_999,
+      updatedAt: 0,
+    });
+    const deadPid = await agentOver(
+      createShimRelay({ identity: IDENTITY, userDataDir: dir, connect, isAlive: () => false })
+    );
+    expect(text(await deadPid.callTool({ name: 'describe_access', arguments: {} }))).toBe(
+      APP_NOT_RUNNING_MESSAGE
+    );
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('relays end to end to the running app and labels the stdio client', async () => {
+    const dispatch = vi.fn(async (call: ControlToolCall) => ({
+      ok: true as const,
+      data: { echoed: call.input, client: call.client?.name },
+    }));
+    await runningApp(dispatch);
+    const client = await agentOver(createShimRelay({ identity: IDENTITY, userDataDir: dir }));
+
+    const result = await client.callTool({
+      name: 'get_collection_tree',
+      arguments: { collectionId: 'c-42' },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(text(result))).toEqual({
+      echoed: { collectionId: 'c-42' },
+      client: 'claude-code/2.1.0 (stdio)',
+    });
+    // Second call reuses the session.
+    await client.callTool({ name: 'describe_access', arguments: {} });
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it('picks up a restarted app (new port + rotated token) without restarting the shim', async () => {
+    const first = await runningApp(async () => ({ ok: true, data: 'first' }));
+    const client = await agentOver(createShimRelay({ identity: IDENTITY, userDataDir: dir }));
+    expect(text(await client.callTool({ name: 'describe_access', arguments: {} }))).toBe('"first"');
+
+    await first.handle.close();
+    await runningApp(async () => ({ ok: true, data: 'second' }));
+    expect(text(await client.callTool({ name: 'describe_access', arguments: {} }))).toBe(
+      '"second"'
+    );
+  });
+
+  it('retries once when the connection was refused (nothing was sent)', async () => {
+    await writeHandshake(dir, {
+      version: 1,
+      running: true,
+      port: 1,
+      token: mintToken(),
+      pid: process.pid,
+      updatedAt: 0,
+    });
+    const refused = Object.assign(new Error('fetch failed'), {
+      cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
+    });
+    const callTool = vi.fn().mockRejectedValue(refused);
+    const connect = vi.fn<RemoteSessionFactory>(async () => ({
+      callTool,
+      close: async () => undefined,
+    }));
+    const client = await agentOver(
+      createShimRelay({ identity: IDENTITY, userDataDir: dir, connect })
+    );
+    const result = await client.callTool({ name: 'describe_access', arguments: {} });
+    expect(callTool).toHaveBeenCalledTimes(2);
+    expect(text(result)).toBe(APP_NOT_RUNNING_MESSAGE);
+  });
+
+  it('never retries an ambiguous failure — send_request is not idempotent', async () => {
+    await writeHandshake(dir, {
+      version: 1,
+      running: true,
+      port: 1,
+      token: mintToken(),
+      pid: process.pid,
+      updatedAt: 0,
+    });
+    const callTool = vi.fn().mockRejectedValue(new Error('socket hang up'));
+    const connect = vi.fn<RemoteSessionFactory>(async () => ({
+      callTool,
+      close: async () => undefined,
+    }));
+    const client = await agentOver(
+      createShimRelay({ identity: IDENTITY, userDataDir: dir, connect })
+    );
+    const result = await client.callTool({
+      name: 'send_request',
+      arguments: { requestId: 'r1' },
+    });
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(result.isError).toBe(true);
+    expect(text(result)).toMatch(/may or may not have completed/);
+  });
+
+  it('concurrent first calls share one session instead of orphaning a connection', async () => {
+    await writeHandshake(dir, {
+      version: 1,
+      running: true,
+      port: 1,
+      token: mintToken(),
+      pid: process.pid,
+      updatedAt: 0,
+    });
+    const close = vi.fn(async () => undefined);
+    const connect = vi.fn<RemoteSessionFactory>(async () => ({
+      callTool: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+      close,
+    }));
+    const relay = createShimRelay({ identity: IDENTITY, userDataDir: dir, connect });
+    cleanups.push(() => relay.close());
+    const call = () =>
+      relay.relay(
+        { tool: 'describe_access', input: {}, signal: new AbortController().signal },
+        undefined
+      );
+    const results = await Promise.all([call(), call(), call()]);
+    expect(results.map(text)).toEqual(['ok', 'ok', 'ok']);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('concurrent calls after an app restart open one new session, not two', async () => {
+    const handshake = {
+      version: 1 as const,
+      running: true,
+      port: 1,
+      token: mintToken(),
+      pid: process.pid,
+      updatedAt: 0,
+    };
+    await writeHandshake(dir, handshake);
+    const sessions: Array<{ closed: boolean }> = [];
+    const connect = vi.fn<RemoteSessionFactory>(async () => {
+      const state = { closed: false };
+      sessions.push(state);
+      return {
+        callTool: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+        // Closing the old session takes a while (a real HTTP DELETE).
+        close: async () => {
+          await new Promise((r) => setTimeout(r, 20));
+          state.closed = true;
+        },
+      };
+    });
+    const relay = createShimRelay({ identity: IDENTITY, userDataDir: dir, connect });
+    cleanups.push(() => relay.close());
+    const call = () =>
+      relay.relay(
+        { tool: 'describe_access', input: {}, signal: new AbortController().signal },
+        undefined
+      );
+    await call();
+    // The app restarted: new token in the handshake.
+    await writeHandshake(dir, { ...handshake, token: mintToken() });
+    await Promise.all([call(), call()]);
+    expect(connect).toHaveBeenCalledTimes(2);
+    await relay.close();
+    // Every session that was opened was also closed: none was orphaned.
+    expect(sessions.map((x) => x.closed)).toEqual([true, true]);
+  });
+
+  it('a failed call drops only its own session, not a newer one', async () => {
+    await writeHandshake(dir, {
+      version: 1,
+      running: true,
+      port: 1,
+      token: mintToken(),
+      pid: process.pid,
+      updatedAt: 0,
+    });
+    const closes: number[] = [];
+    let n = 0;
+    const connect = vi.fn<RemoteSessionFactory>(async () => {
+      const id = ++n;
+      return {
+        callTool: async () => {
+          if (id === 1) throw new Error('socket hang up');
+          return { content: [{ type: 'text', text: `s${id}` }] };
+        },
+        close: async () => {
+          closes.push(id);
+        },
+      };
+    });
+    const relay = createShimRelay({ identity: IDENTITY, userDataDir: dir, connect });
+    const client = await agentOver(relay);
+    const failed = await client.callTool({ name: 'describe_access', arguments: {} });
+    expect(failed.isError).toBe(true);
+    const next = await client.callTool({ name: 'describe_access', arguments: {} });
+    expect(text(next)).toBe('s2');
+    expect(closes).toEqual([1]);
+  });
+
+  it('passes a JSON-RPC error from the app through without retrying', async () => {
+    await writeHandshake(dir, {
+      version: 1,
+      running: true,
+      port: 1,
+      token: mintToken(),
+      pid: process.pid,
+      updatedAt: 0,
+    });
+    const callTool = vi.fn().mockRejectedValue(new ProtocolError(-32602, 'bad args'));
+    const connect = vi.fn<RemoteSessionFactory>(async () => ({
+      callTool,
+      close: async () => undefined,
+    }));
+    const client = await agentOver(
+      createShimRelay({ identity: IDENTITY, userDataDir: dir, connect })
+    );
+    const result = await client.callTool({ name: 'describe_access', arguments: {} });
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(result.isError).toBe(true);
+    expect(text(result)).toMatch(/bad args/);
+  });
+
+  it('isConnectionRefused walks the cause chain', () => {
+    expect(isConnectionRefused({ code: 'ECONNREFUSED' })).toBe(true);
+    expect(isConnectionRefused({ cause: { cause: { code: 'ECONNREFUSED' } } })).toBe(true);
+    expect(isConnectionRefused({ code: 'ECONNRESET' })).toBe(false);
+    expect(isConnectionRefused(undefined)).toBe(false);
   });
 
   it('serves stdio through the v2 compatibility transport with isolated server instances', async () => {
-    const context: McpDispatchContext = {
-      collections: [],
-      environments: [],
-      history: [],
-      consent: DEFAULT_CONSENT,
-    };
-
-    const handle = startStdioMcpServer(() => context);
-
+    const handle = startStdioMcpServer({ identity: IDENTITY, userDataDir: dir });
     expect(stdioState.options).toMatchObject({ legacy: 'serve' });
+    // Big enough for the largest import_collection document.
+    expect(
+      (stdioState.options as unknown as { transport: { opts: { maxBufferSize: number } } })
+        .transport.opts.maxBufferSize
+    ).toBeGreaterThanOrEqual(20 * 1024 * 1024);
     expect(stdioState.factory).toBeTypeOf('function');
     expect(stdioState.factory?.()).not.toBe(stdioState.factory?.());
-
     await handle.stop();
     expect(stdioState.close).toHaveBeenCalledOnce();
   });

@@ -620,21 +620,32 @@ export const features: Feature[] = [
     'ai',
     'mcp-server',
     'Restura as an MCP server',
-    'Let agents like Claude read your collections through a local MCP server you control. The server runs today but exposes nothing until data sync and consent controls land.',
-    'in-progress',
+    'Let Claude Code, Codex and other MCP agents build, configure and send your collections through a local server in the desktop app, within the access you grant and with your approval.',
+    'shipped',
     desktop,
     '/guides/mcp-server-mode/',
-    ['collections'],
+    ['collections']
+  ),
+  entry(
+    'ai',
+    'mcp-server-next',
+    'MCP server: full coverage',
+    'Extend the agent tools to the rest of Restura: connection presets, workflows, exports and more read tools.',
+    'planned',
+    desktop,
+    '/guides/mcp-server-mode/',
+    ['mcp-server'],
     {
       today:
-        'Launching the desktop app with --mcp-server starts a stdio MCP server with read-only, redacted tools. It deliberately sees no collections, environments, or history yet, so every tool call is refused.',
+        'Agents can build, edit, delete and send HTTP, GraphQL, gRPC, SSE and MCP requests, environments and imports. The items below are not exposed to agents yet (ADR 0041, Scope).',
       milestones: [
-        done('Headless stdio server (restura --mcp-server)'),
-        done('Read-only tools with input validation and deep redaction'),
-        done('Fail-closed consent model: every surface hidden by default'),
-        todo('Sync collections, environments, and history to the headless server'),
-        todo('Settings screen for per-collection and per-surface consent'),
-        todo('Optional local HTTP transport with a one-time token'),
+        todo(
+          'WebSocket, Socket.IO, Kafka and MQTT connection presets, with keychain-safe credentials'
+        ),
+        todo('HAR import, export_collection and deleting environments'),
+        todo('Workflows, active tab, last response and capabilities tools'),
+        todo('Inline (unsaved) sends and MCP resources and prompts'),
+        todo('Revert a whole agent session at once, and an "agent connected" status indicator'),
       ],
     }
   ),

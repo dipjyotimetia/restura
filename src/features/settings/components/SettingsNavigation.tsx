@@ -1,4 +1,5 @@
 import {
+  Bot,
   Database,
   Download,
   Info,
@@ -24,6 +25,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDefinition[] = [
   { id: 'security', label: 'Security', icon: ShieldAlert },
   { id: 'secrets', label: 'Secrets', icon: KeyRound },
   { id: 'ai', label: 'AI', icon: Sparkles },
+  { id: 'mcp', label: 'MCP Server', icon: Bot },
   { id: 'data', label: 'Data', icon: Database },
   { id: 'updates', label: 'Updates', icon: Download },
   { id: 'shortcuts', label: 'Shortcuts', icon: KeyboardIcon },

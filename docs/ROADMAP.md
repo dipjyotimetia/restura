@@ -18,7 +18,7 @@ This is an honest picture of what's done, what's being worked on, and what's nex
 - Server-Sent Events — live stream viewer; manual reconnect resumes with `Last-Event-ID`
 - Kafka — typed produce/consume, batching, streams, transactions, guarded admin, SASL/OAuth + TLS (desktop)
 - MQTT — publish/subscribe, QoS levels, TLS (desktop)
-- MCP — proxy to any MCP server over streamable HTTP; the legacy HTTP+SSE transport and local stdio servers (started after a per-command-line consent prompt, [ADR 0030](adr/0030-mcp-stdio-transport.md)) are desktop-only (Restura-as-an-MCP-server is in progress; see below)
+- MCP — proxy to any MCP server over streamable HTTP; the legacy HTTP+SSE transport and local stdio servers (started after a per-command-line consent prompt, [ADR 0030](adr/0030-mcp-stdio-transport.md)) are desktop-only
 
 ### Auth
 
@@ -58,6 +58,8 @@ Chat panel with OpenAI, Anthropic, or OpenRouter. Sees the current request and r
 
 AI Lab (desktop) — multi-model playground, datasets, eval runner with LLM-as-judge (incl. pairwise/preference), OpenAPI-driven test generation, an `http-exec` target that executes AI-generated requests through the real request executor, and Arena — round-robin model-vs-model judging with an Elo leaderboard. Providers include OpenAI, Anthropic, OpenRouter, Hugging Face, Azure OpenAI, Gemini, Amazon Bedrock and local runtimes. Agent suites can call saved requests, MCP servers, remote A2A agents and a QuickJS code sandbox as tools ([ADR 0037](adr/0037-agent-lab-suites-runtime-telemetry.md)). In CI, `restura agent eval` runs agent suites and `restura eval run` runs exported dataset evals, judges included, gated on a pass threshold ([ADR 0038](adr/0038-cli-judges-and-dataset-evals.md)).
 
+Restura as an MCP server (desktop) — Claude Code, Codex, Claude Desktop and other MCP agents can read, build and send collections, folders, requests and environments through a local server in the running app. Access is granted per collection and per environment, edits/deletes/sends wait for in-app approval, secrets are typed by the user and never reach the agent, and every change is logged with Undo ([ADR 0041](adr/0041-mcp-control-server.md)).
+
 ### Contract specs
 
 Attach an OpenAPI spec to a collection and generate mock-server routes from it. Validating live responses against the spec is in progress (see below).
@@ -78,7 +80,6 @@ Web app (Cloudflare Pages + Worker), desktop app (Electron — macOS, Windows, L
 - **Test coverage** — currently patchy in places, working toward meaningful coverage on the protocol core and IPC layer.
 - **Accessibility** — keyboard navigation and screen reader support needs work, particularly in the workflow builder and response viewer.
 - **Contract testing** — the response validator exists and is tested but nothing calls it yet; next is validating on send, then in collection runs and CLI reports.
-- **Restura as an MCP server** — the headless stdio server and fail-closed consent model ship; syncing collections to it and a consent Settings screen are next ([ADR 0011](adr/0011-mcp-server-mode.md)).
 - **Secret handle management** — migrate the remaining credential fields to desktop secret handles, offer conversion on import, and list handles in Settings ([ADR 0007](adr/0007-secret-ref-pattern.md)).
 
 ---
@@ -90,6 +91,8 @@ These are things that are clearly needed and will happen, roughly in order of ho
 **Environment export** — environments can't currently be exported standalone, only as part of a collection. That's a gap.
 
 **WebSocket bidirectional scripting** — the scripting sandbox currently works for HTTP request/response. Extending it to WebSocket (run a script on each incoming message) is on the list.
+
+**MCP server: full coverage** — agents can already build and send HTTP, GraphQL, gRPC, SSE and MCP requests, environments and imports. Next: WebSocket/Socket.IO/Kafka/MQTT connection presets, HAR import and collection export, workflows and more read tools, inline sends, MCP resources and prompts, and reverting a whole agent session at once ([ADR 0041](adr/0041-mcp-control-server.md), Scope).
 
 **AI on web** — the AI assistant currently only works on the desktop app because there's no `/api/ai` route in the Worker. Adding web support requires some care around API key handling in the browser, but it's wanted.
 

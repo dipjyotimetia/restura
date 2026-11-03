@@ -52,7 +52,7 @@ No account. No cloud sync. Your collections, history, and environments stay on y
 | **Automate without a fragile script runner** | Run pre-request and test scripts in a bounded QuickJS WASM sandbox with no DOM, filesystem, or network access. Build portable workflows from saved HTTP and GraphQL requests. |
 | **Keep authentication close to the wire** | Send with Basic, Bearer, API Key, OAuth 2.0 (with PKCE and token refresh), OAuth 1.0a, WSSE, Digest, and AWS SigV4. Desktop adds NTLM, mTLS, custom CAs, and SOCKS proxies. |
 | **Work with AI on sensitive requests** | Desktop AI chat and AI Lab use request context with secrets and internal URLs redacted before provider calls. Evaluate prompts, models, and bounded agent suites locally. |
-| **Use MCP in both directions** | Inspect MCP server traffic as a client, or expose permitted Restura collections through Restura’s MCP server mode. |
+| **Use MCP in both directions** | Inspect MCP server traffic as a client, or let Claude Code, Codex and other agents build and run your collections through Restura’s MCP server — only what you share, with your approval. |
 
 ## Start in the right place
 

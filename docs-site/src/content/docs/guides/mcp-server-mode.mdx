@@ -1,21 +1,50 @@
 ---
 title: MCP server mode
-description: Run the Restura desktop app as a local MCP server for agents like Claude — how it launches, what it exposes, and what is still being built.
+description: Let Claude Code, Codex, Claude Desktop and other MCP agents build, configure and run your Restura collections — only what you share, with your approval.
 ---
 
 import { Badge, Aside } from '@astrojs/starlight/components';
 
-<Badge text="desktop only" variant="caution" /> <Badge text="in progress" variant="note" />
+<Badge text="desktop only" variant="caution" />
 
-Restura can act as an MCP server so an agent can discover your saved requests through a curated, redacted, read-only view. The server and its safety model ship today; the step that hands it your data does not yet.
+The Restura desktop app can act as an MCP server. An agent can then do what you do in the app: browse collections, write requests for HTTP, GraphQL, gRPC, SSE and MCP, set up environments, import an OpenAPI spec, send requests and run collections. You decide what it can see and change, and nothing is edited, deleted or sent without your approval unless you allow it.
 
-<Aside type="caution" title="Current status">
-The headless server starts and answers MCP requests, but it deliberately sees **no collections, environments, or history yet** — every tool call is refused as hidden. Syncing your data to the server and a Settings screen for consent are the next milestones. Follow progress on the [delivery plan](/overview/delivery-plan/#plan-mcp-server).
-</Aside>
+Example prompts:
 
-## How it runs
+- "Import `openapi.yaml` into Restura and add a status-code test to every GET request."
+- "Create `staging` and `prod` environments for the Orders collection. Ask me for the API token."
+- "Run the Orders collection against staging and fix the requests that fail."
 
-The desktop app has a headless mode. Launched with `--mcp-server`, it opens no window and speaks MCP over **stdio**, so the agent starts it as a subprocess — there is no network port.
+## Turn it on
+
+1. Open **Settings → MCP Server** and switch on **Enable MCP server**. The status line shows `Listening on 127.0.0.1:<port>`.
+2. Under **Collections agents may use** and **Environments agents may use**, choose what to share (see [Access levels](#access-levels)). Everything starts hidden.
+3. Copy the config for your agent from **Connect an agent**.
+
+Keep Restura open while the agent works: the server runs inside the app.
+
+## Connect an agent
+
+The **Connect an agent** panel shows these commands with the right launch path for your install: the AppImage itself on Linux (not its temporary mount), the portable `.exe` on Windows portable builds, and the entry script for a development build. `Restura --mcp-server` is a small stdio relay to the running app. It reads the app's port and token from your user data folder, so no secret goes into the agent's config file.
+
+**Claude Code**
+
+```sh
+claude mcp add restura -- /Applications/Restura.app/Contents/MacOS/Restura --mcp-server
+```
+
+**Codex** (`~/.codex/config.toml`)
+
+```toml
+[mcp_servers.restura]
+command = "/Applications/Restura.app/Contents/MacOS/Restura"
+args = ["--mcp-server"]
+tool_timeout_sec = 600
+```
+
+`tool_timeout_sec` matters: a call waits while you read an approval, and Codex's default per-tool timeout is shorter than that. For Claude Code, set `MCP_TOOL_TIMEOUT` (in milliseconds) if approvals time out.
+
+**Claude Desktop** (`claude_desktop_config.json`)
 
 ```json
 {
@@ -28,34 +57,82 @@ The desktop app has a headless mode. Launched with `--mcp-server`, it opens no w
 }
 ```
 
-Use the path to the Restura executable on your platform (on Windows, the installed `Restura.exe`; on Linux, the AppImage or installed binary). Logs go to stderr, which agents such as Claude Desktop capture in their own log files.
+Copy the commands from Settings rather than typing them: they use the right path for your install. On macOS, if Restura is running straight from Downloads or a disk image, Settings asks you to move it to Applications first, because macOS runs such apps from a temporary location that changes on every launch.
 
-## What it exposes
+**Over HTTP (advanced).** Clients that speak streamable HTTP can connect to `http://127.0.0.1:<port>/mcp` directly with `Authorization: Bearer <token>`. Settings shows the URL and the token. A new token is created every time the server starts, so HTTP clients need the new one after a restart. The stdio command above never does.
 
-| Tool | What it does |
+<Aside type="note" title="Development builds">
+In an unpackaged development build, Settings puts the entry script before `--mcp-server`. When the app runs with `RESTURA_USER_DATA_DIR`, the commands pass the same folder to the agent, so both read the same handshake file.
+</Aside>
+
+## Access levels
+
+| Collections | The agent can |
 |---|---|
-| `list_collections` | Enumerate collections you have shared with the agent. |
-| `list_requests` | Browse requests in a shared collection (filterable by folder). |
-| `list_environments` | List shared environments. |
-| `get_environment` | Fetch one environment's details — secrets redacted. |
-| `get_history` | Query past request executions, if you share history. |
+| Hidden | Nothing. It cannot tell the collection exists. |
+| Read | List and read its folders and requests (credentials redacted). |
+| Read & edit | Also create, update, rename, move and delete items in it. |
+| Full (send) | Also send its requests and run it. |
 
-The tool surface is read-only and metadata-shaped: an agent can ask *what* requests exist, but cannot send them or change saved state.
+The **New collections** setting applies to collections without their own choice. A collection or environment the agent creates is shared with it for editing automatically. Creating a collection needs the **New collections** level set to edit or full, or at least one collection shared for editing. Creating an environment has the same rule for environments.
 
-## Consent and redaction
+| Environments | The agent can |
+|---|---|
+| Hidden | Nothing. |
+| Read | See variable names and non-secret values. Secret values show as `(secret)`. |
+| Read & edit | Also add, change and delete variables. |
 
-- **Everything is hidden by default.** Collections (hidden / read-only / full), environments, and history each have their own consent level, and all start hidden.
-- Tool input is validated against strict schemas, and every response is deeply redacted before it leaves the process.
-- Secret values stay in the desktop secret store; the same [`SecretRef`](/architecture/adrs/0007-secret-ref-pattern/) machinery that protects [auth](/guides/auth/) credentials keeps them out of tool output.
+Sending with an environment is a separate checkbox, **Agents may send with this environment**, so you can let an agent read `prod` without letting it send requests with prod credentials. **Request history** has its own switch.
 
-## What's next
+## Approvals
 
-1. Sync collections, environments, and history to the headless server.
-2. A Settings screen to choose what each agent may see.
-3. An optional local HTTP transport bound to `127.0.0.1` with a one-time token.
+- **Ask for every change** (default): every create, update, delete and send opens an approval dialog in Restura.
+- **Auto-approve edits**: creates and updates apply immediately. Deletes and sends still ask.
+
+There is no setting that auto-approves deletes or sends.
+
+- **Scripts always ask.** A change that adds or edits a pre-request or test script, including an import that contains scripts, asks in every mode and shows the full script, because scripts run with full access to your variables on every send.
+- **Approval covers exactly what you saw.** If the request, its collection, the environment or the globals change while a dialog is open (for example because the agent made another change), the call is refused and the agent has to ask again.
+- **Send dialogs show the details.** A single send shows the URL with variables filled in, and which scripts will run. A collection run lists every host it will send to, with each request's method and auth type, so a request the agent pointed somewhere new stands out.
+- **Closing the dialog or pressing Escape denies.** If you change access while a dialog is open, the new setting applies when you click Approve.
+
+The **Activity** list in Settings shows every change, refusal and send, with the agent's name. Most changes have **Undo**, which puts the collection or environment back the way it was before that change. Undo refuses if the collection or environment changed since; undo the later changes first. Deleting a collection that is linked to a folder on disk cannot be undone in Restura.
+
+If you have more than one Restura window open, a change in any window, such as revoking access or turning the server off, applies to the agent's next call.
+
+## Secrets
+
+- Agents never see secret values. Credentials in saved requests, secret variables, keychain handles, URL passwords and token-like fields are redacted in everything an agent reads.
+- Agents cannot write secrets either, and cannot overwrite yours. Auth fields only accept a `{{variable}}` reference. If an agent copies a masked value such as `(redacted)` back into a request, Restura keeps your real value, and refuses any other masked value. A URL's `user:password@` is kept when the agent changes the path but not the host. A body too long for the agent to see in full can't be edited by it. When a request needs a credential, the agent calls `request_secret_variable`. Restura asks you to type the value and stores it as a secret variable, and the agent only learns that it was set.
+- Responses an agent receives have credential headers (`Authorization`, `Set-Cookie`, …), token-like JSON fields and JWTs masked. You can turn this off in Settings, for example to debug a login flow.
+- Response bodies, headers and saved documentation come from third parties, and Restura labels them as untrusted when it passes them to the agent. A malicious API response could still try to instruct an agent, which is one reason sends always need your approval.
+
+## Tools
+
+| Tool | Tier |
+|---|---|
+| `describe_access`, `list_collections`, `get_collection_tree`, `list_requests`, `get_request`, `list_environments`, `get_environment`, `get_history`, `list_collection_runs` | Read |
+| `open_request` | Opens a tab |
+| `create_collection`, `create_folder`, `create_request`, `update_request`, `rename_item`, `move_item`, `import_collection` (OpenAPI, Postman, Insomnia, OpenCollection, curl) | Edit |
+| `create_environment`, `set_environment_variable`, `request_secret_variable`, `set_active_environment` (needs edit access) | Edit |
+| `delete_item`, `delete_collection`, `delete_environment_variable` | Delete — always asks |
+| `send_request`, `run_collection` | Send — always asks |
+
+`send_request` and `run_collection` use the collection runner, the same pipeline as the Runner dialog: variables, inherited auth, pre-request and test scripts, and Restura's SSRF protection. Each run appears in the **Runs** panel.
+
+No tool can change MCP settings or access, except that something an agent creates is shared with it for editing. No tool can touch AI provider keys, the secret store, proxy and certificate settings, or updates.
+
+## Security
+
+- The server listens on `127.0.0.1` only and needs a 256-bit token on every request.
+- Requests from web browsers are refused (any `Origin` or `Sec-Fetch-Site` header), as is any `Host` that isn't loopback, so a website cannot reach it through your browser or a rebound DNS name.
+- The token is kept in a file only your user can read, under the app's data folder.
+- Turning the server off, or closing the window that owns it, ends every pending call.
+
+See [ADR 0041](/architecture/adrs/0041-mcp-control-server/) for the design.
 
 ## Related
 
 - [MCP protocol](/protocols/mcp/) — Restura *as a client* of other MCP servers.
 - [AI assistant](/guides/ai-assistant/) — the built-in chat panel.
-- [Roadmap](/roadmap/#mcp-server) — where this sits among other AI features.
+- [Collections](/guides/collections/) and [Environments](/guides/environments/).

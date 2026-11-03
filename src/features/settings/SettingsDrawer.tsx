@@ -25,6 +25,11 @@ import type { SectionId, SettingsDrawerProps } from './types';
 
 export type { SectionId, SettingsDrawerProps } from './types';
 
+const McpServerSection = lazyComponent(async () => {
+  const m = await import('./sections/McpServerSection');
+  return { default: m.McpServerSection };
+});
+
 const ProviderSettings = lazyComponent(async () => {
   const m = await import('@/features/ai/components/ProviderSettings');
   const Comp: React.ComponentType<object> = m.ProviderSettings;
@@ -128,6 +133,7 @@ export default function SettingsDrawer({
                   AI features are available in the desktop app only.
                 </div>
               )}
+              {activeSection === 'mcp' && <McpServerSection />}
               {activeSection === 'data' && (
                 <>
                   <DataSection />

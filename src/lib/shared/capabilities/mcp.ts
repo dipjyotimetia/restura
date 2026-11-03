@@ -66,4 +66,11 @@ export const MCP_CAPABILITIES = {
     notes:
       'Desktop connects in both protocol eras (legacy initialize and pinned modern 2026-07-28) and diffs them. Web runs the legacy era only: /api/mcp is a stateless JSON-RPC proxy with no era negotiation, so the modern era needs the desktop app or `restura mcp conformance`',
   },
+  'mcp.serverMode': {
+    label: 'Restura as an MCP server (agents such as Claude Code and Codex control the app)',
+    web: false,
+    desktop: true,
+    notes:
+      'The running desktop app hosts a 127.0.0.1-only streamable-HTTP MCP server (bearer token, browser-origin and DNS-rebind refusal) and `Restura --mcp-server` is a stdio shim that relays to it (ADR 0041). Agents read, build and send collections, folders, requests and environments within per-collection / per-environment consent; edits, deletes and sends wait for in-app approval per the approval mode; secrets are typed by the user, never passed through the agent; responses are redacted. Web and self-host have no long-lived local process to host it; the CLI does not serve MCP',
+  },
 } as const satisfies Record<string, CapabilityRow>;

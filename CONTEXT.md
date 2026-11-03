@@ -97,8 +97,20 @@ A Request in which Restura acts as an MCP client, calling a tool, resource or pr
 _Avoid_: MCP call, MCP connection
 
 **MCP server mode**:
-Restura acting as an MCP server, exposing its own collections and actions to an external agent.
+Restura acting as an MCP server, exposing its own collections and actions to an external agent. Hosted by the running desktop app; `Restura --mcp-server` is a stdio relay to it (ADR 0041). An agent's access is set by **MCP consent** (per collection / environment), and its changes and sends wait for **MCP approval** in the app.
 _Avoid_: MCP integration, MCP plugin
+
+**MCP consent**:
+What the user lets an agent do in MCP server mode: per collection `hidden`, `read-only`, `edit` or `full` (full adds sending); per environment `hidden`, `read-only` or `edit`, plus a separate "agents may send with this environment" flag; and request history `hidden` or `read-only`. Everything starts hidden.
+_Avoid_: permissions, sharing (alone)
+
+**MCP approval**:
+The in-app card the user answers before an agent's call runs. Deletes, sends and script changes always need one; plain edits need one unless the approval mode is "auto-approve edits". An approval covers only the exact state the user saw.
+_Avoid_: confirmation, consent (that is MCP consent)
+
+**Tool tier**:
+The risk class of an MCP server-mode tool — `read`, `ui`, `edit`, `destructive` or `execute` — which decides the consent level it needs and whether it needs MCP approval.
+_Avoid_: tool type, permission level
 
 ### AI
 

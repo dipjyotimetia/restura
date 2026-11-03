@@ -5,6 +5,7 @@ import type {
   GitMergeOutcome,
   GitMergeState,
 } from '@shared/git-types';
+import type { AgentLaunchCommand } from '@shared/mcp-server/control-bridge';
 import type { ProtocolSecretValue } from './protocols';
 
 export interface ElectronNotificationAPI {
@@ -222,6 +223,58 @@ export interface ElectronCaptureAPI {
   // A captured session arrived over the loopback bridge, already converted to an
   // OpenCollection document the renderer should confirm-and-import.
   onReceived: (callback: (doc: unknown) => void) => () => void;
+}
+
+/** Status of the desktop MCP control server (ADR 0041). Mirrors `ControlServerStatus`. */
+export interface ElectronMcpControlStatus {
+  running: boolean;
+  port?: number;
+  url?: string;
+  lastCallAt?: number;
+  inFlight: number;
+}
+
+/** A tool call an agent made; mirrors `ToolCallEvent` in shared/mcp-server/control-bridge. */
+export interface ElectronMcpControlToolCall {
+  callId: string;
+  tool: string;
+  input: unknown;
+  client?: { name: string; version?: string };
+}
+
+export type ElectronMcpControlToolResult =
+  | { ok: true; data: unknown }
+  | { ok: false; error: string };
+
+/** How an agent launches `--mcp-server` for this install. */
+export type ElectronMcpAgentLaunch = AgentLaunchCommand;
+
+export interface ElectronMcpControlAPI {
+  /** Every start mints a fresh token, so calling it again rotates the token. */
+  start: (options?: { preferredPort?: number }) => Promise<
+    | {
+        ok: true;
+        status: ElectronMcpControlStatus;
+        token: string;
+        launch: ElectronMcpAgentLaunch;
+      }
+    | { ok: false; error: string }
+  >;
+  stop: () => Promise<{ ok: true; status: ElectronMcpControlStatus }>;
+  /** `token` is present while the server runs (trusted renderer only). */
+  status: () => Promise<{
+    ok: true;
+    status: ElectronMcpControlStatus;
+    token?: string;
+    launch: ElectronMcpAgentLaunch;
+  }>;
+  /** Answer one forwarded tool call. `ok: false` → the call already settled. */
+  sendToolResult: (payload: {
+    callId: string;
+    result: ElectronMcpControlToolResult;
+  }) => Promise<{ ok: boolean }>;
+  onToolCall: (callback: (call: ElectronMcpControlToolCall) => void) => () => void;
+  onToolCancelled: (callback: (payload: { callId: string }) => void) => () => void;
 }
 
 export interface ElectronDeepLinkAPI {

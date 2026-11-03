@@ -1,7 +1,6 @@
 import type { ResponseRetentionMode } from '@shared/collection-run/evidence';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { buildValueMap, secretVariableNames } from '@/lib/shared/variableScopes';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';
 import {
   type ConsoleLog,
@@ -9,9 +8,7 @@ import {
   type ConsoleTest,
   useConsoleStore,
 } from '@/store/useConsoleStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { useGlobalsStore } from '@/store/useGlobalsStore';
-import type { Collection, Environment } from '@/types';
+import type { Collection } from '@/types';
 import {
   type CollectionRunResult,
   type RequestCompleteInfo,
@@ -20,6 +17,7 @@ import {
 } from '../lib/collectionRunner';
 import type { IterationRow } from '../lib/dataLoader';
 import type { RunnableRequest } from '../lib/flattenRunnables';
+import { resolveRunVariables } from '../lib/runVariables';
 
 export interface StartRunArgs {
   collection: Collection;
@@ -34,21 +32,9 @@ export interface StartRunArgs {
   retention: ResponseRetentionMode;
 }
 
-/** Globals, enabled environment values, then collection values (highest precedence). */
-export function buildBaseVars(
-  globals: Record<string, string>,
-  environment: Environment | readonly Environment[] | null,
-  collection: Collection
-): Record<string, string> {
-  const chain = Array.isArray(environment) ? environment : environment ? [environment] : [];
-  const [baseEnvironment, subEnvironment] = chain;
-  return buildValueMap({
-    globals,
-    baseEnvironment: baseEnvironment?.variables,
-    subEnvironment: subEnvironment?.variables,
-    collection: collection.variables,
-  });
-}
+// Run-variable resolution lives in lib/ (pure store reads); re-exported here
+// for existing callers.
+export { buildBaseVars, type RunVariables } from '../lib/runVariables';
 
 /** Mirror a finished runner request into the Console, tagged by run. */
 function pushConsoleEntry(info: RequestCompleteInfo): void {
@@ -123,28 +109,8 @@ export function useCollectionRun() {
     const runGeneration = ++runGenerationRef.current;
     const isCurrent = () => mountedRef.current && runGeneration === runGenerationRef.current;
 
-    const selectedEnvironment =
-      useEnvironmentStore.getState().environments.find((e) => e.id === args.environmentId) ?? null;
-    const allEnvironments = useEnvironmentStore.getState().environments;
-    const baseEnvironment = selectedEnvironment?.parentId
-      ? (allEnvironments.find((environment) => environment.id === selectedEnvironment.parentId) ??
-        null)
-      : selectedEnvironment;
-    const environmentChain =
-      baseEnvironment && selectedEnvironment && baseEnvironment.id !== selectedEnvironment.id
-        ? [baseEnvironment, selectedEnvironment]
-        : baseEnvironment
-          ? [baseEnvironment]
-          : [];
-    const baseVars = buildBaseVars(
-      useGlobalsStore.getState().vars,
-      environmentChain,
-      args.collection
-    );
-    const environmentVars = buildValueMap({
-      baseEnvironment: environmentChain[0]?.variables,
-      subEnvironment: environmentChain[1]?.variables,
-    });
+    const { selectedEnvironment, globalVars, baseVars, environmentVars, secretNames } =
+      resolveRunVariables(args.environmentId, args.collection);
 
     void runCollection(
       {
@@ -152,12 +118,9 @@ export function useCollectionRun() {
         scopeName: args.scopeName,
         runnables: args.runnables,
         baseVars,
-        globalVars: useGlobalsStore.getState().vars,
+        globalVars,
         environmentVars,
-        secretNames: secretVariableNames(
-          environmentChain[0]?.variables,
-          environmentChain[1]?.variables
-        ),
+        secretNames,
         iterations: args.iterations,
         dataRows: args.dataRows,
         delayMs: args.delayMs,
