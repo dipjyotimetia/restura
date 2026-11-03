@@ -30,7 +30,8 @@ function setup(
       ConsumerSessionOptions,
       'swapTimeoutMs' | 'decodeTimeoutMs' | 'autoCommitIntervalMs' | 'fallback'
     >
-  > = {}
+  > = {},
+  extraHooks: { onAssignment?: (assigned: ReadonlySet<string>) => void } = {}
 ) {
   const stream = new FakeStream();
   const consumer = Object.assign(new EventEmitter(), {
@@ -46,6 +47,7 @@ function setup(
     deliver: vi.fn(async (_msg: unknown, _signal: AbortSignal) => {}),
     onError: vi.fn(),
     onClose: vi.fn(),
+    ...extraHooks,
   };
   const session = new KafkaConsumerSession({ topics: ['orders'], kafka, ...options }, hooks);
   entry.session = session;
@@ -220,6 +222,19 @@ describe('KafkaConsumerSession timeouts', () => {
     expect(listOffsets).not.toHaveBeenCalled();
     expect(consumer.consume).toHaveBeenCalledTimes(1);
     expect(hooks.onError).not.toHaveBeenCalled();
+  });
+
+  it('reports assignment changes from join, rebalance and heartbeat events once each', async () => {
+    const onAssignment = vi.fn();
+    const { consumer } = setup({}, { onAssignment });
+    consumer.emit('consumer:heartbeat:end'); // unchanged: nothing to report
+    consumer.emit('consumer:group:rebalance', {}); // KIP-848: fires before the update
+    expect(onAssignment).not.toHaveBeenCalled();
+    consumer.assignments = [{ topic: 'orders', partitions: [1] }];
+    consumer.emit('consumer:heartbeat:end');
+    consumer.emit('consumer:group:join', {}); // same assignment again
+    expect(onAssignment).toHaveBeenCalledTimes(1);
+    expect([...onAssignment.mock.calls[0]![0]]).toEqual(['orders:1']);
   });
 
   it('maps fallback strings to library values', () => {

@@ -81,8 +81,21 @@ class FakeProducer {
   }
 }
 class FakeProducerStream extends EventEmitter {
-  write = vi.fn(() => true);
-  end = vi.fn(() => this.emit('finish'));
+  destroyed = false;
+  errored: Error | null = null;
+  writableFinished = false;
+  write = vi.fn((_message?: unknown) => true);
+  end = vi.fn(() => {
+    this.writableFinished = true;
+    this.emit('finish');
+  });
+  /** What the library does when a batch send fails: destroy(error). */
+  fail(error: Error): void {
+    this.destroyed = true;
+    this.errored = error;
+    this.emit('error', error);
+    this.emit('close');
+  }
 }
 class FakeTransaction {
   id = 'txn-1';
@@ -94,6 +107,7 @@ class FakeTransaction {
   abort = vi.fn(async () => {
     this.completed = true;
   });
+  cancel = vi.fn(async () => {});
 }
 class FakeAdmin {
   static instances: FakeAdmin[] = [];
@@ -158,10 +172,13 @@ class FakeConsumer extends EventEmitter {
   });
   close = vi.fn(async () => {});
   startLagMonitoring = vi.fn();
+  /** Overrides the assignment the next consumers start with (null = not yet applied). */
+  static initialAssignments: Array<{ topic: string; partitions: number[] }> | null | undefined;
   /** Partitions the group assigned to this member. */
-  assignments: Array<{ topic: string; partitions: number[] }> | null = [
-    { topic: 'orders', partitions: [0, 1, 2] },
-  ];
+  assignments: Array<{ topic: string; partitions: number[] }> | null =
+    FakeConsumer.initialAssignments !== undefined
+      ? FakeConsumer.initialAssignments
+      : [{ topic: 'orders', partitions: [0, 1, 2] }];
   commit = vi.fn(async (_options: { offsets: unknown[] }) => {});
   committed = new Map<string, bigint[]>([['orders', [-1n, -1n, -1n, -1n]]]);
   listCommittedOffsets = vi.fn(async (_options: unknown) => this.committed);
@@ -171,8 +188,12 @@ class FakeConsumer extends EventEmitter {
     const value = options.timestamp === -2n ? this.watermarks.earliest : this.watermarks.latest;
     return new Map(options.topics.map((topic) => [topic, Array<bigint>(8).fill(value)]));
   });
+  /** Overrides the default ListOffsets-by-timestamp answer for the next consumers. */
+  static timestampOffsets: Map<string, Map<number, { offset: bigint; timestamp: bigint }>> | null =
+    null;
   listOffsetsWithTimestamps = vi.fn(
     async (_options: unknown) =>
+      FakeConsumer.timestampOffsets ??
       new Map([['orders', new Map([[1, { offset: 42n, timestamp: 5n }]])]])
   );
   constructor(options: unknown) {
@@ -282,6 +303,8 @@ describe('kafka-handler', () => {
     FakeProducer.metadataGates.length = 0;
     FakeAdmin.instances.length = 0;
     FakeConsumer.instances.length = 0;
+    FakeConsumer.timestampOffsets = null;
+    FakeConsumer.initialAssignments = undefined;
     setExecutionPolicy({
       security: { allowLocalhost: true, allowPrivateIPs: true },
       proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
@@ -623,6 +646,253 @@ describe('kafka-handler', () => {
     expect(producer.transaction.commit).toHaveBeenCalled();
   });
 
+  describe('producer stream failures, transaction recovery, and per-record acks', () => {
+    const record = { topic: 'orders', value: { encoding: 'utf8', data: 'hello' } };
+    const settledWithin = <T>(promise: Promise<T>, ms = 200) =>
+      Promise.race([
+        promise,
+        new Promise<'timed out'>((resolve) => setTimeout(() => resolve('timed out'), ms)),
+      ]);
+
+    async function openStream(connectionId: string) {
+      const { event, senderId } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(event, validConnect(connectionId));
+      const producer = FakeProducer.instances[0]!;
+      await expect(
+        handlerFor(IPC.kafka.openProducerStream)(event, { connectionId, acks: 1 })
+      ).resolves.toEqual({ success: true });
+      return { event, senderId, producer, stream: producer.stream };
+    }
+
+    it('a failed stream batch is reported, clears the stream, and later writes fail', async () => {
+      const { event, senderId, producer, stream } = await openStream('ps-fail');
+      // Without an 'error' listener this throws (an uncaughtException in main).
+      expect(() => stream.fail(new Error('NOT_LEADER_OR_FOLLOWER'))).not.toThrow();
+      expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'kafka:error:ps-fail', {
+        scope: 'producer',
+        message: expect.stringContaining('NOT_LEADER_OR_FOLLOWER'),
+      });
+      const write = await handlerFor(IPC.kafka.writeProducerStream)(event, {
+        connectionId: 'ps-fail',
+        record,
+      });
+      expect(write).toMatchObject({
+        success: false,
+        error: expect.stringContaining('NOT_LEADER_OR_FOLLOWER'),
+      });
+      expect(stream.write).not.toHaveBeenCalled();
+      await expect(
+        settledWithin(handlerFor(IPC.kafka.closeProducerStream)(event, { connectionId: 'ps-fail' }))
+      ).resolves.toEqual({ success: true });
+      // A fresh stream can be opened afterwards.
+      producer.stream = new FakeProducerStream();
+      await expect(
+        handlerFor(IPC.kafka.openProducerStream)(event, { connectionId: 'ps-fail', acks: 1 })
+      ).resolves.toEqual({ success: true });
+    });
+
+    it('refuses to write to a stream the library already destroyed', async () => {
+      const { event, stream } = await openStream('ps-destroyed');
+      stream.destroyed = true; // destroyed synchronously; 'error' is emitted on the next tick
+      await expect(
+        handlerFor(IPC.kafka.writeProducerStream)(event, { connectionId: 'ps-destroyed', record })
+      ).resolves.toMatchObject({ success: false });
+      expect(stream.write).not.toHaveBeenCalled();
+    });
+
+    it('closing a destroyed stream resolves instead of waiting for a finish that never comes', async () => {
+      const { event, stream } = await openStream('ps-close');
+      stream.destroyed = true;
+      stream.end.mockImplementation(() => {}); // a destroyed Writable never emits 'finish'
+      await expect(
+        settledWithin(
+          handlerFor(IPC.kafka.closeProducerStream)(event, { connectionId: 'ps-close' })
+        )
+      ).resolves.toEqual({ success: true });
+    });
+
+    it('closing resolves when the stream closes without finishing', async () => {
+      const { event, stream } = await openStream('ps-close-race');
+      stream.end.mockImplementation(() => {
+        stream.destroyed = true;
+        stream.emit('close');
+      });
+      await expect(
+        settledWithin(
+          handlerFor(IPC.kafka.closeProducerStream)(event, { connectionId: 'ps-close-race' })
+        )
+      ).resolves.toEqual({ success: true });
+    });
+
+    it('disconnect lets the open stream flush before closing the producer', async () => {
+      const { event, producer, stream } = await openStream('ps-disconnect');
+      const finished = vi.fn();
+      stream.end.mockImplementation(() => {
+        setTimeout(() => {
+          finished();
+          stream.writableFinished = true;
+          stream.emit('finish');
+        }, 20);
+      });
+      await handlerFor(IPC.kafka.disconnect)(event, { connectionId: 'ps-disconnect' });
+      expect(finished).toHaveBeenCalled();
+      expect(finished.mock.invocationCallOrder[0]!).toBeLessThan(
+        producer.close.mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('a failed commit keeps the transaction so it can still be aborted', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(
+        event,
+        validConnect('txn-fail', { idempotent: true, transactionalId: 'restura-txn' })
+      );
+      const producer = FakeProducer.instances[0]!;
+      await handlerFor(IPC.kafka.beginTransaction)(event, { connectionId: 'txn-fail' });
+      producer.transaction.commit.mockRejectedValueOnce(new Error('COORDINATOR_NOT_AVAILABLE'));
+      await expect(
+        handlerFor(IPC.kafka.endTransaction)(event, { connectionId: 'txn-fail', action: 'commit' })
+      ).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('COORDINATOR_NOT_AVAILABLE'),
+      });
+      await expect(
+        handlerFor(IPC.kafka.endTransaction)(event, { connectionId: 'txn-fail', action: 'abort' })
+      ).resolves.toEqual({ success: true });
+      expect(producer.transaction.abort).toHaveBeenCalledTimes(1);
+      await expect(
+        handlerFor(IPC.kafka.endTransaction)(event, { connectionId: 'txn-fail', action: 'abort' })
+      ).resolves.toEqual({ success: false, error: 'No transaction is active.' });
+    });
+
+    it('a fenced commit (library dropped the transaction) ends the session instead of wedging it', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(
+        event,
+        validConnect('txn-fenced', { idempotent: true, transactionalId: 'restura-txn' })
+      );
+      const producer = FakeProducer.instances[0]!;
+      const transaction = producer.transaction;
+      await handlerFor(IPC.kafka.beginTransaction)(event, { connectionId: 'txn-fenced' });
+      // INVALID_PRODUCER_EPOCH: #handleFencingError clears producer.#transaction,
+      // but transaction.completed stays false.
+      transaction.commit.mockImplementationOnce(async () => {
+        (producer as { transaction: FakeTransaction | undefined }).transaction = undefined;
+        throw new Error('INVALID_PRODUCER_EPOCH');
+      });
+      const result = await handlerFor(IPC.kafka.endTransaction)(event, {
+        connectionId: 'txn-fenced',
+        action: 'commit',
+      });
+      expect(result).toMatchObject({ success: false, error: expect.stringContaining('aborted') });
+      expect(result.error).not.toContain('still open');
+      await expect(
+        handlerFor(IPC.kafka.endTransaction)(event, { connectionId: 'txn-fenced', action: 'abort' })
+      ).resolves.toEqual({ success: false, error: 'No transaction is active.' });
+      producer.transaction = new FakeTransaction();
+      await expect(
+        handlerFor(IPC.kafka.beginTransaction)(event, { connectionId: 'txn-fenced' })
+      ).resolves.toEqual({ success: true, transactionId: 'txn-1' });
+    });
+
+    it('transactional producers get a 60 s transaction timeout instead of the 5 s library default', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(
+        event,
+        validConnect('txn-timeout', { idempotent: true, transactionalId: 'restura-txn' })
+      );
+      await handlerFor(IPC.kafka.connect)(event, validConnect('plain-timeout'));
+      const [transactional, plain] = FakeProducer.instances;
+      expect(transactional!.options).toMatchObject({ timeout: 60_000 });
+      expect(plain!.options).not.toHaveProperty('timeout');
+    });
+
+    it('a failed begin cancels the library transaction so a retry can begin again', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(
+        event,
+        validConnect('txn-begin', { idempotent: true, transactionalId: 'restura-txn' })
+      );
+      const producer = FakeProducer.instances[0]!;
+      producer.beginTransaction.mockRejectedValueOnce(new Error('FindCoordinator failed'));
+      await expect(
+        handlerFor(IPC.kafka.beginTransaction)(event, { connectionId: 'txn-begin' })
+      ).resolves.toMatchObject({
+        success: false,
+        error: expect.stringContaining('FindCoordinator failed'),
+      });
+      // The library set its #transaction before prepare failed; it must be released.
+      expect(producer.transaction.cancel).toHaveBeenCalledTimes(1);
+      await expect(
+        handlerFor(IPC.kafka.beginTransaction)(event, { connectionId: 'txn-begin' })
+      ).resolves.toEqual({ success: true, transactionId: 'txn-1' });
+    });
+
+    it('refuses a second begin while one is still preparing, without cancelling it', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(
+        event,
+        validConnect('txn-race', { idempotent: true, transactionalId: 'restura-txn' })
+      );
+      const producer = FakeProducer.instances[0]!;
+      const gate = deferred<void>();
+      producer.beginTransaction.mockImplementationOnce(async () => {
+        await gate.promise;
+        return producer.transaction;
+      });
+      const first = handlerFor(IPC.kafka.beginTransaction)(event, { connectionId: 'txn-race' });
+      await expect(
+        handlerFor(IPC.kafka.beginTransaction)(event, { connectionId: 'txn-race' })
+      ).resolves.toEqual({ success: false, error: 'A transaction is already being started.' });
+      gate.resolve();
+      await expect(first).resolves.toEqual({ success: true, transactionId: 'txn-1' });
+      expect(producer.beginTransaction).toHaveBeenCalledTimes(1);
+      expect(producer.transaction.cancel).not.toHaveBeenCalled();
+    });
+
+    it('reports one ack per batch record (partition base offset + position)', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(event, validConnect('acks'));
+      const producer = FakeProducer.instances[0]!;
+      producer.send.mockResolvedValueOnce({
+        offsets: [
+          { topic: 'orders', partition: 0, offset: 7n },
+          { topic: 'orders', partition: 1, offset: 3n },
+        ],
+      });
+      const result = await handlerFor(IPC.kafka.produceBatch)(event, {
+        connectionId: 'acks',
+        records: [
+          { ...record, partition: 0 },
+          { ...record, partition: 1 },
+          { ...record, partition: 0 },
+        ],
+        acks: 1,
+      });
+      const pairs = (acks: unknown) =>
+        (acks as Array<{ partition: number; offset: string }>).map((a) => [a.partition, a.offset]);
+      expect(pairs(result.acks)).toEqual([
+        [0, '7'],
+        [1, '3'],
+        [0, '8'],
+      ]);
+
+      // Unpartitioned records that all landed on one partition are attributable too.
+      producer.send.mockResolvedValueOnce({
+        offsets: [{ topic: 'orders', partition: 2, offset: 40n }],
+      });
+      const single = await handlerFor(IPC.kafka.produceBatch)(event, {
+        connectionId: 'acks',
+        records: [record, record],
+        acks: 1,
+      });
+      expect(pairs(single.acks)).toEqual([
+        [2, '40'],
+        [2, '41'],
+      ]);
+    });
+  });
+
   it('uses native committed consumption, manual commits, lag monitoring, and pause/resume', async () => {
     const { event } = makeEvent();
     await handlerFor(IPC.kafka.connect)(event, validConnect('consumer'));
@@ -954,6 +1224,191 @@ describe('kafka-handler', () => {
       });
       expect(consumer.consume).toHaveBeenCalledTimes(1);
       expect(consumer.listCommittedOffsets).not.toHaveBeenCalled();
+    });
+
+    it('a rebalance drops manual-commit tokens for revoked partitions', async () => {
+      const { consumer, stream, delivered, call } = await live('mc-revoke', 'manual');
+      const commits = [vi.fn(async () => {}), vi.fn(async () => {})];
+      stream.emit('data', record(0, 7, commits[0]));
+      stream.emit('data', record(2, 30, commits[1]));
+      await vi.waitFor(() => expect(delivered()).toHaveLength(2));
+      const [kept, revoked] = delivered();
+
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1] }];
+      consumer.emit('consumer:group:join', {});
+      // Even if partition 2 comes back later, the pre-rebalance token stays dead.
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1, 2] }];
+      await expect(
+        call(IPC.kafka.commitMessage, { commitToken: revoked!.commitToken })
+      ).resolves.toEqual({ success: false, error: 'Commit token is unknown or expired.' });
+      expect(commits[1]).not.toHaveBeenCalled();
+      await expect(
+        call(IPC.kafka.commitMessage, { commitToken: kept!.commitToken })
+      ).resolves.toEqual({ success: true });
+      expect(commits[0]).toHaveBeenCalledTimes(1);
+    });
+
+    it('under the consumer protocol (KIP-848), drops tokens once the heartbeat applies the revocation', async () => {
+      const { consumer, stream, delivered, call } = await live('mc-848', 'manual', {
+        groupProtocol: 'consumer',
+      });
+      const commit = vi.fn(async () => {});
+      stream.emit('data', record(2, 30, commit));
+      await vi.waitFor(() => expect(delivered()).toHaveLength(1));
+      // KIP-848 emits group:rebalance *before* the new assignment is applied,
+      // never group:join; the next heartbeat ends after it is applied.
+      consumer.emit('consumer:group:rebalance', { groupId: 'g' });
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1] }];
+      consumer.emit('consumer:heartbeat:end');
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1, 2] }];
+      await expect(
+        call(IPC.kafka.commitMessage, { commitToken: delivered()[0]!.commitToken })
+      ).resolves.toEqual({ success: false, error: 'Commit token is unknown or expired.' });
+      expect(commit).not.toHaveBeenCalled();
+    });
+
+    it('under the consumer protocol, a manual-offset start repositions partitions gained on heartbeat', async () => {
+      const { consumer } = await live('manual-848', 'auto', {
+        groupProtocol: 'consumer',
+        mode: 'manual',
+        offsets: [{ topic: 'orders', partition: 0, offset: '5' }],
+      });
+      consumer.streams[0]!.offsetsToFetch.set('orders:0', 6n).set('orders:3', 99n);
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1, 2, 3] }];
+      consumer.committed = new Map([['orders', [-1n, -1n, -1n, 15n]]]);
+      consumer.emit('consumer:heartbeat:end');
+      await vi.waitFor(() => expect(consumer.consume).toHaveBeenCalledTimes(2));
+      expect(consumer.listCommittedOffsets).toHaveBeenCalledWith({
+        topics: [{ topic: 'orders', partitions: [3] }],
+      });
+      expect(consumer.consume).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          offsets: expect.arrayContaining([{ topic: 'orders', partition: 3, offset: 15n }]),
+        })
+      );
+    });
+
+    it('under the consumer protocol, the first assignment after a manual start keeps the requested offsets', async () => {
+      // KIP-848: consume() resolves before the assignment is applied, so the
+      // stream binds with no assignment and it lands on a later heartbeat.
+      FakeConsumer.initialAssignments = null;
+      const { consumer } = await live('manual-848-late', 'auto', {
+        groupProtocol: 'consumer',
+        mode: 'manual',
+        offsets: [{ topic: 'orders', partition: 0, offset: '5' }],
+      });
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1] }];
+      consumer.emit('consumer:heartbeat:end');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(consumer.consume).toHaveBeenCalledTimes(1);
+      expect(consumer.listCommittedOffsets).not.toHaveBeenCalled();
+      // A later gain still repositions.
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1, 3] }];
+      consumer.committed = new Map([['orders', [-1n, -1n, -1n, 15n]]]);
+      consumer.emit('consumer:heartbeat:end');
+      await vi.waitFor(() => expect(consumer.consume).toHaveBeenCalledTimes(2));
+      expect(consumer.listCommittedOffsets).toHaveBeenCalledWith({
+        topics: [{ topic: 'orders', partitions: [3] }],
+      });
+    });
+
+    it('a classic rebalance followed by its join repositions once', async () => {
+      const { consumer } = await live('manual-once', 'auto', {
+        mode: 'manual',
+        offsets: [{ topic: 'orders', partition: 0, offset: '5' }],
+      });
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1, 2, 3] }];
+      consumer.committed = new Map([['orders', [-1n, -1n, -1n, 15n]]]);
+      consumer.emit('consumer:group:rebalance', { groupId: 'g' });
+      consumer.emit('consumer:group:join', {});
+      await vi.waitFor(() => expect(consumer.consume).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(consumer.listCommittedOffsets).toHaveBeenCalledTimes(1);
+      expect(consumer.consume).toHaveBeenCalledTimes(2);
+    });
+
+    it('refuses a manual commit for a partition this member no longer owns', async () => {
+      const { consumer, stream, delivered, call } = await live('mc-owner', 'manual');
+      const commit = vi.fn(async () => {});
+      stream.emit('data', record(2, 30, commit));
+      await vi.waitFor(() => expect(delivered()).toHaveLength(1));
+      // Assignment moved on before the join event reached this handler.
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1] }];
+      await expect(
+        call(IPC.kafka.commitMessage, { commitToken: delivered()[0]!.commitToken })
+      ).resolves.toEqual({
+        success: false,
+        error: expect.stringContaining('no longer assigned'),
+      });
+      expect(commit).not.toHaveBeenCalled();
+    });
+
+    it('in manual-offset mode, a rebalance starts newly gained partitions at their committed offset', async () => {
+      const { consumer } = await live('manual-gain', 'auto', {
+        mode: 'manual',
+        offsets: [{ topic: 'orders', partition: 0, offset: '5' }],
+      });
+      expect(consumer.consume).toHaveBeenCalledWith(expect.objectContaining({ mode: 'MANUAL' }));
+      const stream = consumer.streams[0]!;
+      stream.offsetsToFetch.set('orders:0', 6n).set('orders:1', 20n).set('orders:2', 30n);
+      stream.offsetsToFetch.set('orders:3', 99n); // library-filled watermark, never the commit
+
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1, 2, 3] }];
+      consumer.committed = new Map([['orders', [-1n, -1n, -1n, 15n]]]);
+      consumer.emit('consumer:group:join', {});
+      await vi.waitFor(() => expect(consumer.consume).toHaveBeenCalledTimes(2));
+      expect(consumer.listCommittedOffsets).toHaveBeenCalledWith({
+        topics: [{ topic: 'orders', partitions: [3] }],
+      });
+      expect(consumer.consume).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          mode: 'MANUAL',
+          offsets: [
+            { topic: 'orders', partition: 0, offset: 6n },
+            { topic: 'orders', partition: 1, offset: 20n },
+            { topic: 'orders', partition: 2, offset: 30n },
+            { topic: 'orders', partition: 3, offset: 15n },
+          ],
+        })
+      );
+    });
+
+    it('timestamp mode starts partitions with nothing after the timestamp at their end', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(event, validConnect('ts-empty'));
+      FakeConsumer.timestampOffsets = new Map([
+        [
+          'orders',
+          new Map([
+            [0, { offset: -1n, timestamp: -1n }],
+            [1, { offset: 42n, timestamp: 5n }],
+          ]),
+        ],
+      ]);
+      await expect(
+        handlerFor(IPC.kafka.subscribe)(event, {
+          connectionId: 'ts-empty',
+          groupId: 'g',
+          topics: ['orders'],
+          mode: 'timestamp',
+          timestamp: '1700000000000',
+          fallbackMode: 'earliest',
+          commitPolicy: 'auto',
+          isolation: 'read-uncommitted',
+          groupProtocol: 'classic',
+        })
+      ).resolves.toEqual({ success: true });
+      const consumer = FakeConsumer.instances[0]!;
+      expect(consumer.consume).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'MANUAL',
+          offsets: expect.arrayContaining([
+            { topic: 'orders', partition: 1, offset: 42n },
+            // Explicit latest: an omitted partition would be filled from EARLIEST.
+            { topic: 'orders', partition: 0, offset: 100n },
+          ]),
+        })
+      );
     });
 
     it('withholds a paused partition while the others keep flowing', async () => {

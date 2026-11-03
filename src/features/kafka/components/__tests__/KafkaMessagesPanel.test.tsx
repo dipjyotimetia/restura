@@ -54,11 +54,11 @@ const connection: KafkaConnection = {
   createdAt: 0,
 };
 
-function MessagesPanel() {
+function MessagesPanel({ conn = connection }: { conn?: KafkaConnection }) {
   const [paused, setPaused] = useState(false);
   return (
     <Tabs value="messages">
-      <KafkaMessagesPanel connection={connection} paused={paused} onPausedChange={setPaused} />
+      <KafkaMessagesPanel connection={conn} paused={paused} onPausedChange={setPaused} />
     </Tabs>
   );
 }
@@ -81,6 +81,37 @@ describe('KafkaMessagesPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Freeze message view' }));
 
     expect(screen.getByRole('button', { name: 'Resume live message view' })).toBeVisible();
+  });
+
+  it('pretty-prints JSON values in the inspector without rounding large integers', async () => {
+    const record = {
+      id: 'record-big',
+      direction: 'received',
+      topic: 'orders',
+      partition: 0,
+      offset: '43',
+      value: '{"id":9007199254740993,"name":"o"}',
+      timestamp: 3,
+    } satisfies KafkaMessage;
+    const withRecord = { ...connection, messages: [...messages, record] };
+    useKafkaStore.setState((state) => ({
+      ...state,
+      connections: { ...state.connections, [connection.id]: withRecord },
+      messageFilter: 'all',
+      searchQuery: '',
+    }));
+    const user = userEvent.setup();
+    render(<MessagesPanel conn={withRecord} />);
+
+    await user.click(screen.getByRole('button', { name: /Kafka record.*offset 43/i }));
+
+    expect(
+      screen.getByText(
+        (_, el) =>
+          el?.tagName === 'PRE' &&
+          el.textContent === '{\n  "id": 9007199254740993,\n  "name": "o"\n}'
+      )
+    ).toBeVisible();
   });
 
   it('explains tombstone records in the inspector', async () => {
