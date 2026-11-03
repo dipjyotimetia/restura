@@ -8,6 +8,7 @@ import type {
   Environment,
   FormDataItem,
   HttpRequest,
+  InsomniaBodyParam,
   InsomniaCollection,
   InsomniaV5Document,
   InsomniaV5Item,
@@ -219,11 +220,7 @@ interface InsomniaRequestLike {
   url?: string;
   headers?: Array<{ name: string; value: string; disabled?: boolean }>;
   parameters?: Array<{ name: string; value: string; disabled?: boolean }>;
-  body?: {
-    mimeType?: string;
-    text?: string;
-    params?: Array<{ name: string; value: string; disabled?: boolean }>;
-  };
+  body?: { mimeType?: string; text?: string; params?: InsomniaBodyParam[] };
   authentication?: { type?: string; [key: string]: unknown };
   // v4 scripts
   preRequestScript?: string;
@@ -293,15 +290,22 @@ function convertInsomniaParams(
   }));
 }
 
-function convertInsomniaBody(
-  body:
-    | {
-        mimeType?: string;
-        text?: string;
-        params?: Array<{ name: string; value: string; disabled?: boolean }>;
-      }
-    | undefined
-): HttpRequest['body'] {
+function convertInsomniaBodyParam(param: InsomniaBodyParam, multipart: boolean): FormDataItem {
+  const base = { id: uuidv4(), key: param.name, enabled: !param.disabled };
+  // A file field's bytes don't travel through Insomnia (it references files by
+  // path), so `value` — Restura's base64 file bytes — starts empty.
+  if (multipart && param.type === 'file') {
+    return {
+      ...base,
+      value: '',
+      type: 'file',
+      ...(param.fileName ? { fileName: param.fileName } : {}),
+    };
+  }
+  return { ...base, value: param.value, type: 'text' };
+}
+
+function convertInsomniaBody(body: InsomniaRequestLike['body']): HttpRequest['body'] {
   if (!body) return { type: 'none' };
 
   const mimeTypeMap: Record<string, HttpRequest['body']['type']> = {
@@ -317,13 +321,8 @@ function convertInsomniaBody(
   const bodyType = (body.mimeType && mimeTypeMap[body.mimeType]) || 'text';
 
   if ((bodyType === 'form-data' || bodyType === 'x-www-form-urlencoded') && body.params) {
-    const formData: FormDataItem[] = body.params.map((param) => ({
-      id: uuidv4(),
-      key: param.name,
-      value: param.value,
-      enabled: !param.disabled,
-      type: 'text' as const,
-    }));
+    const multipart = bodyType === 'form-data';
+    const formData = body.params.map((param) => convertInsomniaBodyParam(param, multipart));
     return { type: bodyType, formData };
   }
 

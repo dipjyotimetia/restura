@@ -560,7 +560,30 @@ describe('entryToCurl', () => {
 
     expect(curl).toContain(`curl -X POST 'https://api.example.com/users'`);
     expect(curl).toContain(`-H 'Content-Type: application/json'`);
-    expect(curl).toContain(`-d '{"name":"John"}'`);
+    // `--data-raw`, never `-d`: curl reads a FILE when a `-d` body starts with `@`.
+    expect(curl).toContain(`--data-raw '{"name":"John"}'`);
+    expect(curl).not.toMatch(/(^|\s)-d\s/);
+  });
+
+  it('sends an @-leading body verbatim rather than as a file reference', () => {
+    const curl = entryToCurl({
+      id: 'e2',
+      timestamp: Date.now(),
+      protocol: 'http',
+      request: { method: 'POST', url: 'https://example.com/', headers: {}, body: '@/etc/passwd' },
+      response: {
+        id: 'r',
+        requestId: 'q',
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: '',
+        size: 0,
+        time: 10,
+        timestamp: Date.now(),
+      },
+    });
+    expect(curl.endsWith(`--data-raw '@/etc/passwd'`)).toBe(true);
   });
 
   it('escapes single quotes in values', () => {

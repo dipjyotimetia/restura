@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { shellMethodWord } from '@/lib/shared/codeGenerators/types';
+import { escapeShell, shellMethodWord } from '@/lib/shared/codeGenerators/types';
 import {
   isConsoleCredentialHeader,
   sanitizeConsoleEntry,
@@ -673,17 +673,17 @@ function shapeToHttpRequest(
 export function entryToCurl(entry: ConsoleEntry): string {
   if (!isHttpExportCompatible(entry)) return '';
   const safe = sanitizeConsoleEntry(entry);
-  const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
   // A curl command needs the real URL — `entry.request.url` may still be an
   // unresolved `{{var}}` template.
   const url = safe.resolvedUrl ?? safe.request.url;
-  const parts = [`curl -X ${shellMethodWord(safe.request.method)} ${shellQuote(url)}`];
+  const parts = [`curl -X ${shellMethodWord(safe.request.method)} ${escapeShell(url)}`];
   for (const [key, value] of Object.entries(safe.request.headers)) {
     if (isConsoleCredentialHeader(key)) continue;
-    parts.push(`-H ${shellQuote(`${key}: ${value}`)}`);
+    parts.push(`-H ${escapeShell(`${key}: ${value}`)}`);
   }
   if (safe.request.body) {
-    parts.push(`-d ${shellQuote(safe.request.body)}`);
+    // `-d @file` reads a file; `--data-raw` sends the body verbatim.
+    parts.push(`--data-raw ${escapeShell(safe.request.body)}`);
   }
   return parts.join(' \\\n  ');
 }
