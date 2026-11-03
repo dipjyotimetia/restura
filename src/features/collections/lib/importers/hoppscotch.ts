@@ -1,3 +1,4 @@
+import { attachPostmanSidecar } from '@shared/collections/postman/sidecar';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
@@ -88,6 +89,22 @@ const hoppAuth = z
     secretKey: z.string().optional(),
     region: z.string().optional(),
     serviceName: z.string().optional(),
+    // Hoppscotch REST v5+ nests every OAuth 2 setting here; older exports
+    // used the flat fields above.
+    grantTypeInfo: z
+      .object({
+        grantType: z.string().optional(),
+        authEndpoint: z.string().optional(),
+        tokenEndpoint: z.string().optional(),
+        clientID: z.string().optional(),
+        clientSecret: z.string().optional(),
+        scopes: z.string().optional(),
+        token: z.string().optional(),
+        username: z.string().optional(),
+        password: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 
@@ -132,6 +149,10 @@ interface HoppCollection {
   testScript: string;
   folders: HoppCollection[];
   requests: HoppRequest[];
+  /** Collection/folder auth (collection schema v2+); `inherit` defers to the parent. */
+  auth?: Record<string, unknown>;
+  /** Collection/folder headers (collection schema v2+), sent by every descendant. */
+  headers: HoppKeyValue[];
 }
 
 const hoppCollection: z.ZodType<HoppCollection> = z.lazy(() =>
@@ -143,9 +164,14 @@ const hoppCollection: z.ZodType<HoppCollection> = z.lazy(() =>
       testScript: z.string().default(''),
       folders: z.array(hoppCollection).default([]),
       requests: z.array(hoppRequest).default([]),
+      auth: z.record(z.string(), z.unknown()).optional(),
+      headers: z.array(hoppHeader).default([]),
     })
     .passthrough()
 );
+
+/** "Export all collections" writes a top-level array of collections. */
+const hoppCollectionExport = z.union([hoppCollection, z.array(hoppCollection).min(1)]);
 
 const hoppEnvironment = z
   .object({
@@ -185,7 +211,7 @@ export function isHoppscotchCollection(data: unknown): boolean {
   } catch {
     return false;
   }
-  return hoppCollection.safeParse(data).success;
+  return hoppCollectionExport.safeParse(data).success;
 }
 
 export function importHoppscotchEnvironmentDetailed(
@@ -217,57 +243,239 @@ export function importHoppscotchEnvironment(
   return importHoppscotchEnvironmentDetailed(data, options).environment;
 }
 
+/** Script fields hold JavaScript (where `<<` is a shift operator), not templates. */
+const NON_TEMPLATE_KEYS = new Set(['preRequestScript', 'testScript']);
+const HOPP_VARIABLE = /<<([\w.-]+)>>/g;
+
+/**
+ * Hoppscotch templates variables as `<<name>>`; Restura uses `{{name}}`.
+ * Returns a rewritten copy of the parsed JSON tree (every string field except
+ * scripts). Objects are rebuilt with `Object.fromEntries`, which defines own
+ * properties, so an untrusted `__proto__` key can never reach a prototype.
+ */
+function rewriteHoppVariables(value: unknown): unknown {
+  if (typeof value === 'string') return value.replace(HOPP_VARIABLE, '{{$1}}');
+  if (Array.isArray(value)) return value.map(rewriteHoppVariables);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key,
+        NON_TEMPLATE_KEYS.has(key) ? child : rewriteHoppVariables(child),
+      ])
+    );
+  }
+  return value;
+}
+
+/** What a node inherits from its ancestors (Hoppscotch collection → folder → request). */
+interface HoppScope {
+  /** Enabled headers every descendant sends; the closest scope wins per key. */
+  headers: KeyValue[];
+  /** Name of the nearest ancestor with configured auth, if any. */
+  authSource: string | undefined;
+}
+
+const ROOT_SCOPE: HoppScope = { headers: [], authSource: undefined };
+
 export function importHoppscotchCollection(data: unknown): ImportResult {
   // Guard depth before the recursive schema validates the tree (see schemas.ts).
   assertBoundedDocument(data);
-  const r = hoppCollection.safeParse(data);
+  const r = hoppCollectionExport.safeParse(rewriteHoppVariables(data));
   if (!r.success) {
     throw new Error(`Invalid Hoppscotch collection: ${formatZodIssues(r.error)}`);
   }
   const warnings: ImportWarning[] = [];
-  const root = r.data;
+  const roots = Array.isArray(r.data) ? r.data : [r.data];
+  const [only] = roots;
+  if (only && roots.length === 1) {
+    const auth = containerAuth(only, warnings);
+    const collection: Collection = {
+      id: uuid(),
+      name: only.name,
+      ...(auth ? { auth } : {}),
+      items: childItems(only, childScope(only, auth, ROOT_SCOPE), warnings),
+    };
+    return { collection, warnings };
+  }
+  // A multi-collection export lands as one Restura collection with a folder
+  // per Hoppscotch collection, each keeping its own auth and headers.
   const collection: Collection = {
     id: uuid(),
-    name: root.name,
-    items: [
-      ...root.folders.map((f) => folderToItem(f, warnings)),
-      ...root.requests.map((rq) => requestToItem(rq, root, warnings)),
-    ],
+    name: 'Hoppscotch collections',
+    items: roots.map((root) => folderToItem(root, ROOT_SCOPE, warnings)),
   };
   return { collection, warnings };
 }
 
-function folderToItem(folder: HoppCollection, warnings: ImportWarning[]): CollectionItem {
+/**
+ * Auth a collection/folder contributes to its descendants, or undefined when
+ * it inherits or sets none (see `markExplicitNoAuth`).
+ */
+function containerAuth(node: HoppCollection, warnings: ImportWarning[]): AuthConfig | undefined {
+  if (!node.auth) return undefined;
+  const auth = hoppAuthToInternal(node.auth, node.name, warnings);
+  return auth.type !== 'none' ? auth : undefined;
+}
+
+function childScope(
+  node: HoppCollection,
+  auth: AuthConfig | undefined,
+  parent: HoppScope
+): HoppScope {
   return {
+    headers: mergeInheritedHeaders(
+      parent.headers,
+      node.headers.filter((h) => h.active !== false).map(toKv)
+    ),
+    authSource: auth ? node.name : parent.authSource,
+  };
+}
+
+/**
+ * Hoppscotch and Bruno send a collection/folder's headers with every
+ * descendant request, and the closest scope wins per (case-insensitive) key.
+ * Restura has no folder-level headers, so importers materialise the effective
+ * inherited set on each request (fresh ids), ahead of the request's own.
+ */
+export function mergeInheritedHeaders(inherited: KeyValue[], own: KeyValue[]): KeyValue[] {
+  const ownKeys = new Set(own.map((h) => h.key.toLowerCase()));
+  return [
+    ...inherited
+      .filter((h) => !ownKeys.has(h.key.toLowerCase()))
+      .map((h) => ({ ...h, id: uuid() })),
+    ...own,
+  ];
+}
+
+/**
+ * An explicit "no auth" request or folder below an authenticated ancestor has
+ * no Restura model: `{ type: 'none' }` means *inherit* (shared/auth/
+ * inheritance.ts), so the ancestor's credential would be sent to an endpoint
+ * the user deliberately left unauthenticated. Mark the node with the shared
+ * explicit-noauth marker so the send guard (`postmanBlockedReasonFor`, used by
+ * every send path) refuses it, and say so. Callers invoke this only when a
+ * configured auth sits above the node — with nothing above, nothing can leak.
+ */
+function markExplicitNoAuth<T extends object>(
+  node: T,
+  format: string,
+  name: string,
+  authSource: string,
+  warnings: ImportWarning[]
+): T {
+  warnings.push({
+    kind: 'unmodelled-construct',
+    construct: 'explicit-no-auth',
+    requestName: name,
+    detail: `${format} "No Auth" cannot override the auth of "${authSource}" in Restura; it will not be sent until its auth is configured`,
+  });
+  return attachPostmanSidecar(node, { noauth: true });
+}
+
+/**
+ * An unsupported auth type (imported as `none`, already reported as
+ * `unsupported-auth`) below an authenticated ancestor would inherit that
+ * ancestor's credential instead. Record the source TYPE NAME only — never a
+ * credential — in the shared sidecar shape the send guard recognises
+ * (`hasUnsupportedPostmanAuth`), so the request is refused. The type is
+ * namespaced (`hoppscotch:hawk`) so the Postman exporter never mistakes it for
+ * a Postman auth type: it exports as `noauth` and is reported.
+ */
+function markUnsupportedAuth<T extends object>(node: T, format: string, authType: string): T {
+  return attachPostmanSidecar(node, {
+    auth: { type: `${format.toLowerCase()}:${authType.slice(0, 64)}` },
+  });
+}
+
+/** How a node's source auth was lost when it imported as Restura `none`. */
+export type LostAuth = { kind: 'explicit-none' } | { kind: 'unsupported'; type: string };
+
+/**
+ * Guard a node whose source auth was lost on import: only when a configured
+ * auth sits above it (`authSource`) can Restura's inherit-on-`none`
+ * substitute a credential the source tool would not send. With nothing above,
+ * the node stays sendable (Postman semantics).
+ */
+export function guardLostAuth<T extends object>(
+  node: T,
+  lost: LostAuth | undefined,
+  format: string,
+  name: string,
+  authSource: string | undefined,
+  warnings: ImportWarning[]
+): T {
+  if (!lost || !authSource) return node;
+  return lost.kind === 'explicit-none'
+    ? markExplicitNoAuth(node, format, name, authSource, warnings)
+    : markUnsupportedAuth(node, format, lost.type);
+}
+
+/**
+ * Why a Hoppscotch auth that converted to `none` is lossy: an explicit "None"
+ * or disabled auth, or an unsupported type. `inherit` is exactly Restura's
+ * semantics and loses nothing.
+ */
+function hoppLostAuth(
+  rawAuth: Record<string, unknown> | undefined,
+  converted: AuthConfig | undefined
+): LostAuth | undefined {
+  if (!rawAuth || (converted && converted.type !== 'none')) return undefined;
+  if (rawAuth.authType === 'none' || rawAuth.authActive === false) return { kind: 'explicit-none' };
+  if (rawAuth.authType === 'inherit') return undefined;
+  return {
+    kind: 'unsupported',
+    type: typeof rawAuth.authType === 'string' ? rawAuth.authType : 'unknown',
+  };
+}
+
+function childItems(
+  node: HoppCollection,
+  scope: HoppScope,
+  warnings: ImportWarning[]
+): CollectionItem[] {
+  return [
+    ...node.folders.map((f) => folderToItem(f, scope, warnings)),
+    ...node.requests.map((rq) => requestToItem(rq, node, scope, warnings)),
+  ];
+}
+
+function folderToItem(
+  folder: HoppCollection,
+  parent: HoppScope,
+  warnings: ImportWarning[]
+): CollectionItem {
+  const auth = containerAuth(folder, warnings);
+  const item: CollectionItem = {
     id: uuid(),
     name: folder.name,
     type: 'folder',
-    items: [
-      ...folder.folders.map((f) => folderToItem(f, warnings)),
-      ...folder.requests.map((rq) => requestToItem(rq, folder, warnings)),
-    ],
+    ...(auth ? { auth } : {}),
+    items: childItems(folder, childScope(folder, auth, parent), warnings),
   };
+  const lost = hoppLostAuth(folder.auth, auth);
+  return guardLostAuth(item, lost, 'Hoppscotch', folder.name, parent.authSource, warnings);
 }
 
 function requestToItem(
   rq: HoppRequest,
   parent: HoppCollection,
+  scope: HoppScope,
   warnings: ImportWarning[]
 ): CollectionItem {
-  return {
-    id: uuid(),
-    name: rq.name,
-    type: 'request',
-    request: requestToInternal(rq, parent, warnings),
-  };
+  const request = requestToInternal(rq, parent, scope, warnings);
+  const item: CollectionItem = { id: uuid(), name: rq.name, type: 'request', request };
+  const lost = hoppLostAuth(rq.auth, request.auth);
+  return guardLostAuth(item, lost, 'Hoppscotch', rq.name, scope.authSource, warnings);
 }
 
 function requestToInternal(
   rq: HoppRequest,
   parent: HoppCollection,
+  scope: HoppScope,
   warnings: ImportWarning[]
 ): HttpRequest {
   const url = rq.endpoint ?? rq.url ?? '';
+  const auth = hoppAuthToInternal(rq.auth, rq.name, warnings);
   const collectionPre = parent.preRequestScript ?? '';
   const collectionTest = parent.testScript ?? '';
   const reqPre = rq.preRequestScript ?? '';
@@ -280,10 +488,12 @@ function requestToInternal(
     type: 'http',
     method: coerceHttpMethod(rq.method, rq.name, warnings),
     url,
-    headers: (rq.headers ?? []).map(toKv),
+    headers: mergeInheritedHeaders(scope.headers, (rq.headers ?? []).map(toKv)),
     params: (rq.params ?? []).map(toKv),
     body: hoppBodyToInternal(rq.body, rq.name, warnings),
-    auth: hoppAuthToInternal(rq.auth, rq.name, warnings),
+    // `inherit` maps to 'none', which Restura resolves to the nearest
+    // configured ancestor auth (shared/auth/inheritance.ts).
+    auth,
     // Hoppscotch uses Postman's pm.* namespace; normalize to native rs.* on import.
     ...(combinedPre ? { preRequestScript: migrateScriptPmToRs(combinedPre) } : {}),
     ...(combinedTest ? { testScript: migrateScriptPmToRs(combinedTest) } : {}),
@@ -385,7 +595,8 @@ function hoppAuthToInternal(
     return { type: 'none' };
   }
   const auth = parsed.data;
-  if (auth.authType === 'none' || auth.authActive === false) return { type: 'none' };
+  if (auth.authType === 'none' || auth.authType === 'inherit' || auth.authActive === false)
+    return { type: 'none' };
   switch (auth.authType) {
     case 'basic':
       return {
@@ -403,21 +614,8 @@ function hoppAuthToInternal(
           in: auth.addTo === 'QUERY_PARAMS' ? 'query' : 'header',
         },
       };
-    case 'oauth-2': {
-      const grant = auth.grantType ? mapHoppGrant(auth.grantType) : undefined;
-      return {
-        type: 'oauth2',
-        oauth2: {
-          accessToken: auth.token ?? '',
-          ...(grant ? { grantType: grant } : {}),
-          ...(auth.clientID ? { clientId: auth.clientID } : {}),
-          ...(auth.clientSecret ? { clientSecret: auth.clientSecret } : {}),
-          ...(auth.authURL ? { authorizationUrl: auth.authURL } : {}),
-          ...(auth.accessTokenURL ? { tokenUrl: auth.accessTokenURL } : {}),
-          ...(auth.scope ? { scope: auth.scope } : {}),
-        },
-      };
-    }
+    case 'oauth-2':
+      return { type: 'oauth2', oauth2: hoppOAuth2ToInternal(auth) };
     case 'aws-signature':
       return {
         type: 'aws-signature',
@@ -441,6 +639,40 @@ function hoppAuthToInternal(
       });
       return { type: 'none' };
   }
+}
+
+/**
+ * OAuth 2 settings live under `grantTypeInfo` in current exports (flat fields
+ * in older ones). Hoppscotch names the token endpoint `authEndpoint` for the
+ * client-credentials and password grants; only the authorization-code grant
+ * has a separate `tokenEndpoint`.
+ */
+function hoppOAuth2ToInternal(auth: z.infer<typeof hoppAuth>): NonNullable<AuthConfig['oauth2']> {
+  const info = auth.grantTypeInfo ?? {};
+  const grantName = info.grantType ?? auth.grantType;
+  const grant = grantName ? mapHoppGrant(grantName) : undefined;
+  const authEndpointIsTokenUrl = grant === 'client_credentials' || grant === 'password';
+  const authorizationUrl = authEndpointIsTokenUrl
+    ? auth.authURL
+    : (info.authEndpoint ?? auth.authURL);
+  const tokenUrl =
+    info.tokenEndpoint ??
+    (authEndpointIsTokenUrl ? info.authEndpoint : undefined) ??
+    auth.accessTokenURL;
+  const clientId = info.clientID ?? auth.clientID;
+  const clientSecret = info.clientSecret ?? auth.clientSecret;
+  const scope = info.scopes ?? auth.scope;
+  return {
+    accessToken: info.token || auth.token || '',
+    ...(grant ? { grantType: grant } : {}),
+    ...(clientId ? { clientId } : {}),
+    ...(clientSecret ? { clientSecret } : {}),
+    ...(authorizationUrl ? { authorizationUrl } : {}),
+    ...(tokenUrl ? { tokenUrl } : {}),
+    ...(scope ? { scope } : {}),
+    ...(grant === 'password' && info.username ? { username: info.username } : {}),
+    ...(grant === 'password' && info.password ? { password: info.password } : {}),
+  };
 }
 
 function mapHoppGrant(

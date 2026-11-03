@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import type { HttpRequest } from '@/types';
+import { findInheritedAuth } from '@shared/auth/inheritance';
+import { exportPostmanV21 } from '@shared/collections/postman';
+import { postmanBlockedReasonFor } from '@shared/collections/postman/auth-guard';
+import { describe, expect, it, vi } from 'vitest';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import type { CollectionItem, HttpRequest } from '@/types';
 import {
   importHoppscotchCollection,
   importHoppscotchEnvironment,
@@ -349,5 +353,451 @@ describe('isHoppscotchCollection / isHoppscotchEnvironment', () => {
 
   it('rejects non-environment input', () => {
     expect(isHoppscotchEnvironment({ name: 1 })).toBe(false);
+  });
+});
+
+describe('Hoppscotch round-2 regressions', () => {
+  // Shape of a real Hoppscotch "Export all collections" file: a top-level
+  // array, `<<var>>` templating, collection/folder auth + headers, requests
+  // that inherit, and OAuth 2 settings nested under `grantTypeInfo`.
+  const exportAll = [
+    {
+      v: 2,
+      name: 'Petstore',
+      folders: [
+        {
+          v: 2,
+          name: 'Admin',
+          folders: [],
+          requests: [
+            {
+              v: '6',
+              endpoint: '<<baseUrl>>/admin/stats',
+              name: 'Stats',
+              params: [],
+              headers: [],
+              method: 'GET',
+              auth: { authType: 'inherit', authActive: true },
+              preRequestScript: '',
+              testScript: '',
+              body: { contentType: null, body: null },
+              requestVariables: [],
+            },
+            {
+              v: '6',
+              endpoint: '<<baseUrl>>/admin/public',
+              name: 'Public',
+              params: [],
+              headers: [],
+              method: 'GET',
+              auth: { authType: 'none', authActive: true },
+              preRequestScript: '',
+              testScript: '',
+              body: { contentType: null, body: null },
+              requestVariables: [],
+            },
+          ],
+          auth: { authType: 'basic', authActive: true, username: '<<adminUser>>', password: 'pw' },
+          headers: [{ key: 'X-Scope', value: 'admin', active: true }],
+        },
+      ],
+      requests: [
+        {
+          v: '6',
+          endpoint: '<<baseUrl>>/pets/<<petId>>',
+          name: 'Get pet',
+          params: [{ key: 'limit', value: '<<limit>>', active: true }],
+          headers: [
+            { key: 'X-Trace', value: '<<trace>>', active: true },
+            { key: 'X-Client', value: 'override', active: true },
+          ],
+          method: 'GET',
+          auth: { authType: 'inherit', authActive: true },
+          preRequestScript: 'const flags = 1 << 2;',
+          testScript: '',
+          body: { contentType: 'application/json', body: '{"owner":"<<owner>>"}' },
+          requestVariables: [],
+        },
+        {
+          v: '6',
+          endpoint: '<<authBase>>/token-check',
+          name: 'OAuth nested',
+          params: [],
+          headers: [],
+          method: 'POST',
+          auth: {
+            authType: 'oauth-2',
+            authActive: true,
+            addTo: 'HEADERS',
+            grantTypeInfo: {
+              grantType: 'AUTHORIZATION_CODE',
+              authEndpoint: '<<authBase>>/authorize',
+              tokenEndpoint: '<<authBase>>/token',
+              clientID: '<<clientId>>',
+              clientSecret: 'shh',
+              scopes: 'read write',
+              isPKCE: true,
+              codeVerifierMethod: 'S256',
+              token: 'tok-1',
+            },
+          },
+          preRequestScript: '',
+          testScript: '',
+          body: { contentType: null, body: null },
+          requestVariables: [],
+        },
+        {
+          v: '6',
+          endpoint: 'https://api.example.com/cc',
+          name: 'Client credentials',
+          params: [],
+          headers: [],
+          method: 'POST',
+          auth: {
+            authType: 'oauth-2',
+            authActive: true,
+            addTo: 'HEADERS',
+            grantTypeInfo: {
+              grantType: 'CLIENT_CREDENTIALS',
+              authEndpoint: 'https://auth.example.com/oauth/token',
+              clientID: 'svc',
+              clientSecret: 'svc-secret',
+              scopes: 'jobs',
+              token: '',
+            },
+          },
+          preRequestScript: '',
+          testScript: '',
+          body: { contentType: null, body: null },
+          requestVariables: [],
+        },
+      ],
+      auth: { authType: 'bearer', authActive: true, token: '<<token>>' },
+      headers: [{ key: 'X-Client', value: 'restura', active: true }],
+    },
+    {
+      v: 2,
+      name: 'Billing',
+      folders: [],
+      requests: [
+        {
+          v: '6',
+          endpoint: '<<billingUrl>>/invoices',
+          name: 'Invoices',
+          params: [],
+          headers: [],
+          method: 'GET',
+          auth: { authType: 'inherit', authActive: true },
+          preRequestScript: '',
+          testScript: '',
+          body: { contentType: null, body: null },
+          requestVariables: [],
+        },
+      ],
+      auth: { authType: 'inherit', authActive: true },
+      headers: [],
+    },
+  ];
+
+  function itemNamed(items: CollectionItem[] | undefined, name: string): CollectionItem {
+    const item = items?.find((i) => i.name === name);
+    if (!item) throw new Error(`no item named ${name}`);
+    return item;
+  }
+
+  function requestOf(item: CollectionItem): HttpRequest {
+    if (item.request?.type !== 'http') throw new Error(`${item.name} is not an HTTP request`);
+    return item.request;
+  }
+
+  it('detects and imports a top-level array export, one folder per collection (I6)', () => {
+    expect(isHoppscotchCollection(exportAll)).toBe(true);
+    const { collection } = importHoppscotchCollection(exportAll);
+    expect(collection.items.map((i) => [i.type, i.name])).toEqual([
+      ['folder', 'Petstore'],
+      ['folder', 'Billing'],
+    ]);
+    const invoices = requestOf(itemNamed(itemNamed(collection.items, 'Billing').items, 'Invoices'));
+    expect(invoices.url).toBe('{{billingUrl}}/invoices');
+  });
+
+  it('imports a single-element array as that collection', () => {
+    const { collection } = importHoppscotchCollection([exportAll[0]]);
+    expect(collection.name).toBe('Petstore');
+    expect(collection.auth).toEqual({ type: 'bearer', bearer: { token: '{{token}}' } });
+  });
+
+  it('maps collection/folder auth, inherit and headers onto Restura scopes (I5)', () => {
+    const { collection, warnings } = importHoppscotchCollection(exportAll[0]);
+    expect(collection.auth).toEqual({ type: 'bearer', bearer: { token: '{{token}}' } });
+
+    const admin = itemNamed(collection.items, 'Admin');
+    expect(admin.auth).toEqual({
+      type: 'basic',
+      basic: { username: '{{adminUser}}', password: 'pw' },
+    });
+
+    // `inherit` becomes Restura's inherit (auth 'none' resolves to the nearest
+    // configured ancestor) without an unsupported-auth warning.
+    const stats = requestOf(itemNamed(admin.items, 'Stats'));
+    expect(stats.auth.type).toBe('none');
+    expect(findInheritedAuth(collection, stats.id)?.type).toBe('basic');
+    expect(warnings.filter((w) => w.kind === 'unsupported-auth')).toEqual([]);
+
+    // Collection + folder headers reach every descendant; the closer scope wins.
+    expect(stats.headers.map((h) => [h.key, h.value])).toEqual([
+      ['X-Client', 'restura'],
+      ['X-Scope', 'admin'],
+    ]);
+    const getPet = requestOf(itemNamed(collection.items, 'Get pet'));
+    expect(getPet.headers.map((h) => [h.key, h.value])).toEqual([
+      ['X-Trace', '{{trace}}'],
+      ['X-Client', 'override'],
+    ]);
+
+    // An explicit "None" under an authenticated parent cannot be modelled
+    // (Restura would inherit the parent's credentials) — say so.
+    expect(warnings).toContainEqual(
+      expect.objectContaining({ kind: 'unmodelled-construct', requestName: 'Public' })
+    );
+  });
+
+  it('rewrites <<var>> to {{var}} in every templated field, not in scripts (I6)', () => {
+    const { collection } = importHoppscotchCollection(exportAll[0]);
+    const getPet = requestOf(itemNamed(collection.items, 'Get pet'));
+    expect(getPet.url).toBe('{{baseUrl}}/pets/{{petId}}');
+    expect(getPet.params[0]?.value).toBe('{{limit}}');
+    expect(getPet.body.raw).toBe('{"owner":"{{owner}}"}');
+    expect(getPet.preRequestScript).toBe('const flags = 1 << 2;');
+    expect(JSON.stringify(collection)).not.toMatch(/<<\w+>>/);
+  });
+
+  it('reads OAuth 2 settings nested under grantTypeInfo (I6)', () => {
+    const { collection } = importHoppscotchCollection(exportAll[0]);
+    const authCode = requestOf(itemNamed(collection.items, 'OAuth nested'));
+    expect(authCode.auth).toEqual({
+      type: 'oauth2',
+      oauth2: {
+        accessToken: 'tok-1',
+        grantType: 'authorization_code',
+        clientId: '{{clientId}}',
+        clientSecret: 'shh',
+        authorizationUrl: '{{authBase}}/authorize',
+        tokenUrl: '{{authBase}}/token',
+        scope: 'read write',
+      },
+    });
+    // Hoppscotch names the client-credentials token endpoint `authEndpoint`.
+    const cc = requestOf(itemNamed(collection.items, 'Client credentials'));
+    expect(cc.auth.oauth2).toMatchObject({
+      grantType: 'client_credentials',
+      clientId: 'svc',
+      tokenUrl: 'https://auth.example.com/oauth/token',
+      scope: 'jobs',
+    });
+    expect(cc.auth.oauth2?.authorizationUrl).toBeUndefined();
+  });
+
+  it('never writes untrusted keys onto prototypes while rewriting', () => {
+    const hostile = JSON.parse(
+      '{"v":2,"name":"P","folders":[],"requests":[],"__proto__":{"polluted":"<<x>>"}}'
+    );
+    importHoppscotchCollection(hostile);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+describe('Hoppscotch explicit No Auth below an authenticated parent', () => {
+  const request = (name: string, auth: Record<string, unknown>) => ({
+    v: '6',
+    endpoint: '<<baseUrl>>/x',
+    name,
+    params: [],
+    headers: [],
+    method: 'GET',
+    auth,
+    preRequestScript: '',
+    testScript: '',
+    body: { contentType: null, body: null },
+    requestVariables: [],
+  });
+  const fixture = {
+    v: 2,
+    name: 'Guarded',
+    folders: [
+      {
+        v: 2,
+        name: 'Public folder',
+        folders: [],
+        requests: [request('Under none folder', { authType: 'inherit', authActive: true })],
+        auth: { authType: 'none', authActive: true },
+        headers: [],
+      },
+    ],
+    requests: [
+      request('Explicit none', { authType: 'none', authActive: true }),
+      request('Disabled auth', { authType: 'bearer', authActive: false, token: 'x' }),
+      request('Inheriting', { authType: 'inherit', authActive: true }),
+    ],
+    auth: { authType: 'bearer', authActive: true, token: '<<token>>' },
+    headers: [],
+  };
+
+  function idOf(items: CollectionItem[] | undefined, name: string): string {
+    for (const item of items ?? []) {
+      if (item.type === 'request' && item.name === name && item.request) return item.request.id;
+      const nested = item.items ? idOf(item.items, name) : '';
+      if (nested) return nested;
+    }
+    return '';
+  }
+
+  it('refuses to send the parent credential to an explicit no-auth request or folder', () => {
+    const { collection } = importHoppscotchCollection(fixture);
+    for (const name of ['Explicit none', 'Disabled auth', 'Under none folder']) {
+      const id = idOf(collection.items, name);
+      expect(id).not.toBe('');
+      expect(postmanBlockedReasonFor(collection, id, 'test')).toMatch(/not sent/);
+    }
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Inheriting'), 'test')
+    ).toBeUndefined();
+  });
+
+  it('does not mark an explicit no-auth request when nothing above it is configured', () => {
+    const { collection } = importHoppscotchCollection({ ...fixture, auth: undefined });
+    const id = idOf(collection.items, 'Explicit none');
+    expect(postmanBlockedReasonFor(collection, id, 'test')).toBeUndefined();
+    expect(JSON.stringify(collection)).not.toContain('noauth');
+  });
+});
+
+describe('Hoppscotch unsupported auth below an authenticated parent', () => {
+  const request = (name: string, auth: Record<string, unknown>) => ({
+    v: '6',
+    endpoint: 'https://api.example.com/x',
+    name,
+    params: [],
+    headers: [],
+    method: 'GET',
+    auth,
+    preRequestScript: '',
+    testScript: '',
+    body: { contentType: null, body: null },
+    requestVariables: [],
+  });
+  const fixture = (withParentAuth: boolean) => ({
+    v: 2,
+    name: 'Unsupported',
+    folders: [
+      {
+        v: 2,
+        name: 'Hawk folder',
+        folders: [],
+        requests: [request('Under hawk folder', { authType: 'inherit', authActive: true })],
+        auth: { authType: 'hawk', authActive: true, authId: 'id', authKey: 'k-secret' },
+        headers: [],
+      },
+    ],
+    requests: [
+      request('Magic call', { authType: 'magic-token', authActive: true, token: 'm-secret' }),
+      request('Inheriting', { authType: 'inherit', authActive: true }),
+    ],
+    ...(withParentAuth ? { auth: { authType: 'bearer', authActive: true, token: 'parent' } } : {}),
+    headers: [],
+  });
+
+  function idOf(items: CollectionItem[] | undefined, name: string): string {
+    for (const item of items ?? []) {
+      if (item.type === 'request' && item.name === name && item.request) return item.request.id;
+      const nested = item.items ? idOf(item.items, name) : '';
+      if (nested) return nested;
+    }
+    return '';
+  }
+
+  it('refuses to send the parent credential instead of the unsupported auth', () => {
+    const { collection, warnings } = importHoppscotchCollection(fixture(true));
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Magic call'), 'test')
+    ).toMatch(/magic-token/);
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Under hawk folder'), 'test')
+    ).toMatch(/hawk/);
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Inheriting'), 'test')
+    ).toBeUndefined();
+    // The unsupported-auth warning is kept; no credential value reaches the marker.
+    expect(warnings).toContainEqual(
+      expect.objectContaining({ kind: 'unsupported-auth', authType: 'magic-token' })
+    );
+    expect(JSON.stringify(collection)).not.toMatch(/m-secret|k-secret/);
+  });
+
+  it('leaves an unsupported auth with nothing configured above sendable', () => {
+    const { collection } = importHoppscotchCollection(fixture(false));
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Magic call'), 'test')
+    ).toBeUndefined();
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Under hawk folder'), 'test')
+    ).toBeUndefined();
+    expect(JSON.stringify(collection)).not.toContain('_postman');
+  });
+
+  it('keeps the marker through the store migration (migrateCollectionAuth)', () => {
+    const { collection } = importHoppscotchCollection(fixture(true));
+    useCollectionStore.getState().addCollection(collection);
+    const stored = useCollectionStore.getState().collections.find((c) => c.id === collection.id);
+    if (!stored) throw new Error('collection was not stored');
+    expect(postmanBlockedReasonFor(stored, idOf(stored.items, 'Magic call'), 'test')).toMatch(
+      /magic-token/
+    );
+    useCollectionStore.getState().removeCollection(collection.id);
+  });
+
+  it('keeps the marker through desktop secret-handle conversion', async () => {
+    vi.resetModules();
+    let n = 0;
+    vi.doMock('@/lib/shared/platform', () => ({
+      isElectron: () => true,
+      getElectronAPI: () => ({
+        secrets: { store: async () => ({ ok: true as const, id: `h-${++n}` }) },
+      }),
+    }));
+    try {
+      const { convertCollectionSecretsToHandles } = await import(
+        '@/lib/shared/secretRef-migrations'
+      );
+      const { collection } = importHoppscotchCollection(fixture(true));
+      const converted = await convertCollectionSecretsToHandles(collection);
+      expect(converted.auth?.bearer?.token).toEqual(expect.objectContaining({ kind: 'handle' }));
+      expect(
+        postmanBlockedReasonFor(converted, idOf(converted.items, 'Magic call'), 'test')
+      ).toMatch(/magic-token/);
+      expect(
+        postmanBlockedReasonFor(converted, idOf(converted.items, 'Inheriting'), 'test')
+      ).toBeUndefined();
+    } finally {
+      vi.doUnmock('@/lib/shared/platform');
+    }
+  });
+
+  it('exports the unsupported node to Postman as noauth, never as a Postman auth type', () => {
+    const { collection } = importHoppscotchCollection(fixture(true));
+    const { collection: v21 } = exportPostmanV21(collection);
+    // Round-trip through JSON: assert on the wire shape, not the export types.
+    const doc: unknown = JSON.parse(JSON.stringify(v21));
+    const json = JSON.stringify(doc);
+    expect(json).not.toMatch(/hoppscotch:|"hawk"|magic-token/);
+    expect(doc).toMatchObject({
+      item: expect.arrayContaining([
+        expect.objectContaining({ name: 'Hawk folder', auth: { type: 'noauth' } }),
+        expect.objectContaining({
+          name: 'Magic call',
+          request: expect.objectContaining({ auth: { type: 'noauth' } }),
+        }),
+      ]),
+    });
   });
 });

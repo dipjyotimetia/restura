@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import type { HttpRequest, OpenAPIDocument } from '@/types';
+import type { Collection, HttpRequest, OpenAPIDocument, OpenAPISchema } from '@/types';
 import { importOpenAPICollection } from '../importers';
+import { generateExampleFromSchema } from '../importers/openapi';
 
 // Helper function to safely cast request to HttpRequest
 function asHttpRequest(request: unknown): HttpRequest {
   return request as HttpRequest;
+}
+
+function requestNamed(collection: Collection, name: string): HttpRequest {
+  const item = collection.items.find((i) => i.name === name);
+  if (!item?.request) throw new Error(`no request named ${name}`);
+  return asHttpRequest(item.request);
 }
 
 describe('importOpenAPICollection', () => {
@@ -1071,6 +1078,169 @@ describe('importOpenAPICollection', () => {
       expect(request.body.type).toBe('json');
       // Body should be generated without infinite loop
       expect(request.body.raw).toBeDefined();
+    });
+  });
+  describe('Round-2 regressions', () => {
+    it('inherits root-level security, and an explicit empty security opts out (I1)', async () => {
+      const doc: OpenAPIDocument = {
+        openapi: '3.0.3',
+        info: { title: 'Secured', version: '1' },
+        security: [{ bearerAuth: [] }],
+        paths: {
+          '/me': { get: { summary: 'Me', responses: {} } },
+          '/health': { get: { summary: 'Health', security: [], responses: {} } },
+        },
+        components: {
+          securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer' } },
+        },
+      };
+      const collection = await importOpenAPICollection(doc);
+      const me = requestNamed(collection, 'Me');
+      const health = requestNamed(collection, 'Health');
+      expect(me.auth.type).toBe('bearer');
+      expect(health.auth.type).toBe('none');
+    });
+
+    it('generates full examples for sibling $refs to the same schema (I2)', async () => {
+      const doc: OpenAPIDocument = {
+        openapi: '3.0.3',
+        info: { title: 'Shipping', version: '1' },
+        paths: {
+          '/shipments': {
+            post: {
+              summary: 'Ship',
+              requestBody: {
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        from: { $ref: '#/components/schemas/Address' },
+                        to: { $ref: '#/components/schemas/Address' },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: {},
+            },
+          },
+        },
+        components: {
+          schemas: {
+            Address: {
+              type: 'object',
+              properties: { city: { type: 'string', example: 'Berlin' } },
+            },
+          },
+        },
+      };
+      const collection = await importOpenAPICollection(doc);
+      const request = requestNamed(collection, 'Ship');
+      expect(JSON.parse(request.body.raw ?? '')).toEqual({
+        from: { city: 'Berlin' },
+        to: { city: 'Berlin' },
+      });
+    });
+
+    it('caps example generation depth for deep non-cyclic schemas (I2)', async () => {
+      let schema: OpenAPISchema = { type: 'string', example: 'leaf' };
+      for (let i = 0; i < 200; i++) schema = { type: 'object', properties: { next: schema } };
+      let depth = 0;
+      let cursor: unknown = generateExampleFromSchema(schema);
+      while (cursor && typeof cursor === 'object' && 'next' in cursor) {
+        cursor = (cursor as { next: unknown }).next;
+        depth++;
+      }
+      expect(depth).toBeGreaterThan(5);
+      expect(depth).toBeLessThan(200);
+    });
+
+    it('uses Swagger 2 consumes to pick urlencoded for formData (I3)', async () => {
+      const doc = {
+        swagger: '2.0',
+        info: { title: 'Petstore', version: '1.0.0' },
+        host: 'petstore.swagger.io',
+        basePath: '/v2',
+        consumes: ['application/json'],
+        paths: {
+          '/pet/{petId}': {
+            post: {
+              summary: 'Updates a pet with form data',
+              consumes: ['application/x-www-form-urlencoded'],
+              parameters: [
+                { name: 'petId', in: 'path', required: true, type: 'integer' },
+                { name: 'name', in: 'formData', type: 'string' },
+                { name: 'status', in: 'formData', type: 'string' },
+              ],
+              responses: {},
+            },
+          },
+          '/token': {
+            post: {
+              summary: 'Token',
+              parameters: [{ name: 'grant_type', in: 'formData', type: 'string' }],
+              responses: {},
+            },
+          },
+        },
+      };
+      // Document says multipart; the operation-level consumes wins.
+      const collection = await importOpenAPICollection({
+        ...doc,
+        consumes: ['multipart/form-data'],
+      });
+      const pet = requestNamed(collection, 'Updates a pet with form data');
+      expect(pet.body.type).toBe('x-www-form-urlencoded');
+      expect(pet.headers.find((h) => h.key === 'Content-Type')?.value).toBe(
+        'application/x-www-form-urlencoded'
+      );
+      expect(requestNamed(collection, 'Token').body.type).toBe('form-data');
+
+      // No operation-level consumes: the document's urlencoded applies.
+      const urlencoded = await importOpenAPICollection({
+        ...doc,
+        consumes: ['application/x-www-form-urlencoded'],
+      });
+      expect(requestNamed(urlencoded, 'Token').body.type).toBe('x-www-form-urlencoded');
+    });
+
+    it('detects JSON bodies under +json and parameterised media types (I3)', async () => {
+      const doc: OpenAPIDocument = {
+        openapi: '3.0.3',
+        info: { title: 'Problem', version: '1' },
+        paths: {
+          '/a': {
+            post: {
+              summary: 'Merge patch',
+              requestBody: {
+                content: {
+                  'application/merge-patch+json': { example: { name: 'x' } },
+                },
+              },
+              responses: {},
+            },
+          },
+          '/b': {
+            post: {
+              summary: 'Charset',
+              requestBody: {
+                content: {
+                  'application/json; charset=utf-8': { example: { id: 1 } },
+                },
+              },
+              responses: {},
+            },
+          },
+        },
+      };
+      const collection = await importOpenAPICollection(doc);
+      const a = requestNamed(collection, 'Merge patch');
+      const b = requestNamed(collection, 'Charset');
+      expect(a.body.type).toBe('json');
+      expect(JSON.parse(a.body.raw ?? '')).toEqual({ name: 'x' });
+      expect(b.body.type).toBe('json');
+      expect(JSON.parse(b.body.raw ?? '')).toEqual({ id: 1 });
     });
   });
 });

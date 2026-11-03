@@ -10,7 +10,8 @@ import type {
   KeyValue,
   RequestBody,
 } from '@/types';
-import { loadBrunoLang } from '../bruno-lang';
+import { type BrunoLangModule, loadBrunoLang } from '../bruno-lang';
+import { guardLostAuth, type LostAuth, mergeInheritedHeaders } from './hoppscotch';
 import { applyEnvironmentSecretPolicy, type EnvironmentImportOptions } from './postman-environment';
 import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
 
@@ -49,7 +50,7 @@ export async function importBrunoCollection(
 
   if (source.kind === 'single') {
     const parsed = lang.bruToJsonV2(source.content) as Record<string, unknown>;
-    const item = bruRequestToItem(parsed, 'Imported request', warnings);
+    const item = bruRequestToItem(parsed, 'Imported request', ROOT_SCOPE, warnings);
     return {
       collection: { id: uuid(), name: 'Bruno Import', items: [item] },
       warnings,
@@ -66,8 +67,18 @@ export async function importBrunoCollection(
       ? brunoConfig.name
       : 'Bruno Collection';
 
+  // collection.bru: defaults (auth, headers, scripts, vars, docs) that every
+  // request inherits — same grammar as folder.bru.
+  const collectionBruRaw = entriesByPath.get('collection.bru');
+  const collectionDefaults = collectionBruRaw
+    ? (lang.collectionBruToJson(collectionBruRaw) as Record<string, unknown>)
+    : null;
+  const root = collectionDefaults
+    ? bruContainer(collectionDefaults, collectionName, ROOT_SCOPE, true, warnings)
+    : undefined;
+
   // Build folder hierarchy from relative paths.
-  const items = buildItemsFromEntries(source.entries, lang.bruToJsonV2, warnings);
+  const items = buildItemsFromEntries(source.entries, lang, root?.scope ?? ROOT_SCOPE, warnings);
 
   // Environments — every `.bru` under `environments/`.
   const environments: Environment[] = [];
@@ -81,28 +92,201 @@ export async function importBrunoCollection(
     warnings.push(...env.warnings);
   }
 
-  // Collection-level defaults are parsed but not yet applied to items —
-  // surfacing them properly (inheriting headers/auth/scripts onto every
-  // descendant) is a follow-up. For now we capture collection-level vars
-  // as the Collection's `variables`.
-  const collectionBruRaw = entriesByPath.get('collection.bru');
-  const collectionDefaults = collectionBruRaw
-    ? (lang.collectionBruToJson(collectionBruRaw) as Record<string, unknown>)
-    : null;
-  const collectionVariables = collectionDefaults
-    ? extractCollectionVariables(collectionDefaults)
-    : undefined;
-
   const collection: Collection = {
     id: uuid(),
     name: collectionName,
+    ...(root?.description ? { description: root.description } : {}),
     items,
-    ...(collectionVariables && collectionVariables.length > 0
-      ? { variables: collectionVariables }
-      : {}),
+    ...(root?.fields ?? {}),
   };
 
   return { collection, environments, warnings };
+}
+
+// ---------- Collection / folder scope ----------
+
+/** What a node inherits from collection.bru and its ancestor folder.bru files. */
+interface BrunoScope {
+  /** Enabled headers every descendant sends; the closest scope wins per key. */
+  headers: KeyValue[];
+  /** Name of the nearest ancestor with configured auth, if any. */
+  authSource: string | undefined;
+}
+
+const ROOT_SCOPE: BrunoScope = { headers: [], authSource: undefined };
+
+/** Top-level blocks of collection.bru / folder.bru that the importer maps. */
+const MAPPED_CONTAINER_BLOCKS = new Set([
+  'meta',
+  'headers',
+  'auth',
+  'script',
+  'tests',
+  'vars',
+  'docs',
+]);
+
+/** Fields shared by `Collection` and folder `CollectionItem`. */
+interface BrunoContainerFields {
+  auth?: AuthConfig;
+  variables?: KeyValue[];
+  preRequestScript?: string;
+  testScript?: string;
+}
+
+/**
+ * Map a parsed collection.bru / folder.bru onto Restura's collection/folder
+ * model: auth (`auth { mode }` + `auth:<mode>`), pre-request vars and
+ * scripts land on the node; headers have no folder-level slot in Restura, so
+ * they flow into the scope every descendant request merges. Anything else is
+ * reported as an `unmodelled-construct` rather than silently dropped.
+ */
+function bruContainer(
+  bru: Record<string, unknown>,
+  name: string,
+  parent: BrunoScope,
+  isCollection: boolean,
+  warnings: ImportWarning[]
+): {
+  fields: BrunoContainerFields;
+  scope: BrunoScope;
+  description?: string;
+  /** Why this node's auth was lost on import (explicit `none` / unsupported mode). */
+  lostAuth?: LostAuth;
+} {
+  const authBlock = isRecord(bru.auth) ? bru.auth : undefined;
+  const mode = typeof authBlock?.mode === 'string' ? authBlock.mode : undefined;
+  const auth = bruAuthToInternal(authBlock, mode, name, warnings);
+  const lostAuth = bruLostAuth(mode, auth);
+
+  const variables = extractCollectionVariables(bru);
+  const vars = isRecord(bru.vars) ? bru.vars : undefined;
+  if (Array.isArray(vars?.res) && vars.res.length > 0) {
+    warnings.push(
+      unmodelled('post-response-vars', name, 'Bruno post-response variables were not imported')
+    );
+  }
+
+  const docs = typeof bru.docs === 'string' && bru.docs.trim() ? bru.docs : undefined;
+  if (docs && !isCollection) {
+    warnings.push(unmodelled('docs', name, 'Bruno folder docs were not imported'));
+  }
+  for (const [key, value] of Object.entries(bru)) {
+    if (MAPPED_CONTAINER_BLOCKS.has(key) || value === undefined) continue;
+    warnings.push(unmodelled(key, name, `Bruno "${key}" block was not imported`));
+  }
+
+  const { preRequestScript, testScript } = bruScripts(bru);
+  const configured = auth.type !== 'none';
+  return {
+    fields: {
+      ...(configured ? { auth } : {}),
+      ...(variables.length > 0 ? { variables } : {}),
+      ...(preRequestScript ? { preRequestScript } : {}),
+      ...(testScript ? { testScript } : {}),
+    },
+    scope: {
+      headers: mergeInheritedHeaders(
+        parent.headers,
+        bruHeaders(bru.headers).filter((h) => h.enabled)
+      ),
+      authSource: configured ? name : parent.authSource,
+    },
+    ...(docs && isCollection ? { description: docs } : {}),
+    ...(lostAuth ? { lostAuth } : {}),
+  };
+}
+
+/**
+ * Why a Bruno auth mode that converted to `none` is lossy: an explicit
+ * `none`, or a mode Restura does not support (already reported as
+ * `unsupported-auth`). `inherit` is exactly Restura's semantics.
+ */
+function bruLostAuth(mode: string | undefined, converted: AuthConfig): LostAuth | undefined {
+  if (!mode || mode === 'inherit' || converted.type !== 'none') return undefined;
+  return mode === 'none' ? { kind: 'explicit-none' } : { kind: 'unsupported', type: mode };
+}
+
+function unmodelled(construct: string, requestName: string, detail: string): ImportWarning {
+  return { kind: 'unmodelled-construct', construct, requestName, detail };
+}
+
+function bruHeaders(raw: unknown): KeyValue[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(isRecord).map((h) => ({
+    id: uuid(),
+    key: typeof h.name === 'string' ? h.name : '',
+    value: typeof h.value === 'string' ? h.value : '',
+    enabled: h.enabled !== false,
+  }));
+}
+
+/** `script:pre-request` → pre-request; `script:post-response` + `tests` → test script. */
+function bruScripts(bru: Record<string, unknown>): {
+  preRequestScript?: string;
+  testScript?: string;
+} {
+  const script = isRecord(bru.script) ? bru.script : undefined;
+  const preReqScript = typeof script?.req === 'string' ? script.req : undefined;
+  const postResScript = typeof script?.res === 'string' ? script.res : undefined;
+  const testsBlock = typeof bru.tests === 'string' ? bru.tests : undefined;
+  const testScriptParts = [postResScript, testsBlock].filter(
+    (s): s is string => typeof s === 'string' && s.length > 0
+  );
+  const testScript =
+    testScriptParts.length > 0 ? testScriptParts.join('\n\n// --- tests block ---\n\n') : undefined;
+  // Bruno uses Postman's pm.* namespace; normalize to native rs.* on import.
+  return {
+    ...(preReqScript ? { preRequestScript: migrateScriptPmToRs(preReqScript) } : {}),
+    ...(testScript ? { testScript: migrateScriptPmToRs(testScript) } : {}),
+  };
+}
+
+/** A whole `:name` path segment (never a port like `host:8080` or a `{{var}}`). */
+const PATH_VARIABLE_SEGMENT = /^:([A-Za-z_][\w.-]*)$/;
+
+/**
+ * Substitute `:name` path segments from Bruno's `params:path` block, as the
+ * Postman importer does (shared/collections/postman/common.ts) — Restura has
+ * no `:param` runtime, so a literal `:id` would go on the wire. Only whole
+ * segments before the query/fragment are replaced, and only by a non-empty
+ * value (which may itself be a `{{var}}`). A declared parameter with no value
+ * keeps its segment and is reported.
+ */
+function substitutePathParams(
+  url: string,
+  pathParams: ReadonlyMap<string, string>,
+  requestName: string,
+  warnings: ImportWarning[]
+): string {
+  if (pathParams.size === 0) return url;
+  const split = url.search(/[?#]/);
+  const path = split === -1 ? url : url.slice(0, split);
+  const suffix = split === -1 ? '' : url.slice(split);
+  const unresolved: string[] = [];
+  const substituted = path
+    .split('/')
+    .map((segment) => {
+      const name = PATH_VARIABLE_SEGMENT.exec(segment)?.[1];
+      if (name === undefined || !pathParams.has(name)) return segment;
+      const value = pathParams.get(name);
+      if (!value) {
+        unresolved.push(segment);
+        return segment;
+      }
+      return value;
+    })
+    .join('/');
+  if (unresolved.length > 0) {
+    warnings.push(
+      unmodelled(
+        'path-variables',
+        requestName,
+        `Bruno path parameter(s) ${unresolved.join(', ')} have no value; the literal segment was kept`
+      )
+    );
+  }
+  return substituted + suffix;
 }
 
 // ---------- Helpers ----------
@@ -124,7 +308,8 @@ const MAX_FOLDER_DEPTH = 100;
 
 function buildItemsFromEntries(
   entries: Array<{ relativePath: string; content: string }>,
-  bruToJsonV2: (s: string) => unknown,
+  lang: Pick<BrunoLangModule, 'bruToJsonV2' | 'collectionBruToJson'>,
+  rootScope: BrunoScope,
   warnings: ImportWarning[]
 ): CollectionItem[] {
   const root: TreeNode = { name: '', folders: new Map(), requests: [] };
@@ -133,9 +318,13 @@ function buildItemsFromEntries(
     if (!e.relativePath.endsWith('.bru')) continue;
     if (e.relativePath === 'collection.bru') continue;
     if (e.relativePath.startsWith('environments/')) continue;
-    // Folder-level meta (`folder.bru`) is ignored for now — it carries
-    // folder name/auth/scripts that we can apply in a follow-up.
-    if (e.relativePath.endsWith('/folder.bru') || e.relativePath === 'folder.bru') continue;
+    if (e.relativePath === 'folder.bru') {
+      // collection.bru is the root's settings file; a root folder.bru is not.
+      warnings.push(
+        unmodelled('folder.bru', 'folder.bru', 'A folder.bru at the collection root was ignored')
+      );
+      continue;
+    }
 
     const parts = e.relativePath.split('/');
     const fileName = parts.pop();
@@ -156,34 +345,56 @@ function buildItemsFromEntries(
       if (!next) continue;
       node = next;
     }
+    if (fileName === 'folder.bru') {
+      // Folder settings: same grammar as collection.bru.
+      const parsed = lang.collectionBruToJson(e.content);
+      if (isRecord(parsed)) node.settings = parsed;
+      continue;
+    }
     const requestName = fileName.slice(0, -'.bru'.length);
-    const parsed = bruToJsonV2(e.content);
+    const parsed = lang.bruToJsonV2(e.content);
     if (isRecord(parsed)) {
       node.requests.push({ name: requestName, bru: parsed });
     }
   }
 
-  return treeToItems(root, warnings);
+  return treeToItems(root, rootScope, warnings);
 }
 
 type TreeNode = {
   name: string;
   folders: Map<string, TreeNode>;
   requests: Array<{ name: string; bru: Record<string, unknown> }>;
+  /** Parsed folder.bru, when the folder has one. */
+  settings?: Record<string, unknown>;
 };
 
-function treeToItems(node: TreeNode, warnings: ImportWarning[]): CollectionItem[] {
+function treeToItems(
+  node: TreeNode,
+  scope: BrunoScope,
+  warnings: ImportWarning[]
+): CollectionItem[] {
   const out: CollectionItem[] = [];
   for (const folder of node.folders.values()) {
-    out.push({
+    const meta = isRecord(folder.settings?.meta) ? folder.settings.meta : undefined;
+    // folder.bru `meta.name` is the display name; the directory name is the fallback.
+    const name = typeof meta?.name === 'string' && meta.name.length > 0 ? meta.name : folder.name;
+    const container = folder.settings
+      ? bruContainer(folder.settings, name, scope, false, warnings)
+      : undefined;
+    const item: CollectionItem = {
       id: uuid(),
-      name: folder.name,
+      name,
       type: 'folder',
-      items: treeToItems(folder, warnings),
-    });
+      ...(container?.fields ?? {}),
+      items: treeToItems(folder, container?.scope ?? scope, warnings),
+    };
+    // An explicit `none` or unsupported folder auth below a configured
+    // ancestor: refuse to send that ancestor's credential to its requests.
+    out.push(guardLostAuth(item, container?.lostAuth, 'Bruno', name, scope.authSource, warnings));
   }
   for (const r of node.requests) {
-    out.push(bruRequestToItem(r.bru, r.name, warnings));
+    out.push(bruRequestToItem(r.bru, r.name, scope, warnings));
   }
   return out;
 }
@@ -191,6 +402,7 @@ function treeToItems(node: TreeNode, warnings: ImportWarning[]): CollectionItem[
 function bruRequestToItem(
   bru: Record<string, unknown>,
   fallbackName: string,
+  scope: BrunoScope,
   warnings: ImportWarning[]
 ): CollectionItem {
   const meta = isRecord(bru.meta) ? bru.meta : {};
@@ -208,17 +420,22 @@ function bruRequestToItem(
       requestName: name,
     });
   }
-  return {
-    id: uuid(),
-    name,
-    type: 'request',
-    request: bruToHttpRequest(bru, name, warnings),
-  };
+  const request = bruToHttpRequest(bru, name, scope, warnings);
+  const item: CollectionItem = { id: uuid(), name, type: 'request', request };
+  // An explicit `auth: none` or unsupported mode below a configured ancestor
+  // is marked so the send guard refuses it instead of inheriting.
+  const declaredAuth = isRecord(bru.http) ? bru.http.auth : undefined;
+  const lost = bruLostAuth(
+    typeof declaredAuth === 'string' ? declaredAuth : undefined,
+    request.auth
+  );
+  return guardLostAuth(item, lost, 'Bruno', name, scope.authSource, warnings);
 }
 
 function bruToHttpRequest(
   bru: Record<string, unknown>,
   name: string,
+  scope: BrunoScope,
   warnings: ImportWarning[]
 ): HttpRequest {
   // Verified shape (from running bruToJsonV2 on real .bru text):
@@ -240,7 +457,7 @@ function bruToHttpRequest(
     name,
     warnings
   );
-  const url = typeof httpMeta.url === 'string' ? httpMeta.url : '';
+  const rawUrl = typeof httpMeta.url === 'string' ? httpMeta.url : '';
 
   // Detect Bruno-specific syntax in URL/body/headers and warn once per pattern.
   // Scan only the fields where these patterns can meaningfully appear; previously
@@ -255,7 +472,7 @@ function bruToHttpRequest(
   const headerValues = Array.isArray(bru.headers)
     ? bru.headers.filter(isRecord).map((h) => (typeof h.value === 'string' ? h.value : ''))
     : [];
-  const haystacks = [url, ...headerValues, ...bodyStrings];
+  const haystacks = [rawUrl, ...headerValues, ...bodyStrings];
   const seenLabels = new Set<string>();
   for (const { pattern, label } of BRUNO_SYNTAX_PATTERNS) {
     if (seenLabels.has(label)) continue;
@@ -270,46 +487,29 @@ function bruToHttpRequest(
     }
   }
 
-  const headers: KeyValue[] = [];
-  if (Array.isArray(bru.headers)) {
-    for (const h of bru.headers) {
-      if (!isRecord(h)) continue;
-      headers.push({
-        id: uuid(),
-        key: typeof h.name === 'string' ? h.name : '',
-        value: typeof h.value === 'string' ? h.value : '',
-        enabled: h.enabled !== false,
-      });
-    }
-  }
-
   const params: KeyValue[] = [];
+  const pathParams = new Map<string, string>();
   if (Array.isArray(bru.params)) {
     for (const q of bru.params) {
       if (!isRecord(q)) continue;
-      // Only surface query params — `path` params are handled via `{{var}}` in the URL.
+      const key = typeof q.name === 'string' ? q.name : '';
+      const value = typeof q.value === 'string' ? q.value : '';
+      if (q.type === 'path') {
+        // Substituted into the URL's `:name` segments below.
+        if (q.enabled !== false && key) pathParams.set(key, value);
+        continue;
+      }
       if (q.type !== undefined && q.type !== 'query') continue;
-      params.push({
-        id: uuid(),
-        key: typeof q.name === 'string' ? q.name : '',
-        value: typeof q.value === 'string' ? q.value : '',
-        enabled: q.enabled !== false,
-      });
+      params.push({ id: uuid(), key, value, enabled: q.enabled !== false });
     }
   }
+  const url = substitutePathParams(rawUrl, pathParams, name, warnings);
 
   const declaredAuthType = typeof httpMeta.auth === 'string' ? httpMeta.auth : undefined;
   const authBlocks = isRecord(bru.auth) ? bru.auth : undefined;
-
-  const script = isRecord(bru.script) ? bru.script : undefined;
-  const preReqScript = typeof script?.req === 'string' ? script.req : undefined;
-  const postResScript = typeof script?.res === 'string' ? script.res : undefined;
-  const testsBlock = typeof bru.tests === 'string' ? bru.tests : undefined;
-  const testScriptParts = [postResScript, testsBlock].filter(
-    (s): s is string => typeof s === 'string' && s.length > 0
-  );
-  const testScript =
-    testScriptParts.length > 0 ? testScriptParts.join('\n\n// --- tests block ---\n\n') : undefined;
+  // `inherit` → 'none', which Restura resolves to the nearest configured
+  // ancestor (shared/auth/inheritance.ts); explicit `none` is guarded in
+  // bruRequestToItem.
 
   return {
     id: uuid(),
@@ -317,13 +517,11 @@ function bruToHttpRequest(
     type: 'http',
     method,
     url,
-    headers,
+    headers: mergeInheritedHeaders(scope.headers, bruHeaders(bru.headers)),
     params,
     body: bruBodyToInternal(bru.body),
     auth: bruAuthToInternal(authBlocks, declaredAuthType, name, warnings),
-    // Bruno uses Postman's pm.* namespace; normalize to native rs.* on import.
-    ...(preReqScript ? { preRequestScript: migrateScriptPmToRs(preReqScript) } : {}),
-    ...(testScript ? { testScript: migrateScriptPmToRs(testScript) } : {}),
+    ...bruScripts(bru),
   };
 }
 
