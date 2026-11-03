@@ -59,6 +59,8 @@ vi.mock('../../electron/main/security/safe-connect', () => ({
   resolveSafeAddress: mockResolveSafe,
   createPinnedLookup: () => vi.fn(),
   createPinnedFetch: () => vi.fn(),
+  // The SSE handler closes its per-origin pinned transport when the stream ends.
+  createClosablePinnedFetch: () => ({ fetch: vi.fn(), close: vi.fn(async () => undefined) }),
 }));
 vi.mock('@shared/protocol/http-proxy', () => ({ executeHttpProxyStreaming: mockStreaming }));
 vi.mock('../../electron/main/security/secret-handle-store', () => ({
