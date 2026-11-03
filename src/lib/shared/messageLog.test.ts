@@ -54,6 +54,15 @@ describe('exportLog', () => {
   });
 });
 
+describe('exportLog precision', () => {
+  it('keeps payloads whose integers a plain parse would round as their exact text', () => {
+    const body = '{"id":9007199254740993,"ok":true}';
+    const line = exportLog([{ id: 'b', timestamp: 0, direction: 'in', body }], 'ndjson');
+    expect(JSON.parse(line).payload).toBe(body);
+    expect(line).toContain('9007199254740993');
+  });
+});
+
 describe('splitAtCutoff', () => {
   it('shows entries up to the cutoff and counts the rest; null is live', () => {
     const at1000 = splitAtCutoff(entries, 1000);

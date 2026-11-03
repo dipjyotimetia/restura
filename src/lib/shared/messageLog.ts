@@ -1,3 +1,5 @@
+import { jsonLosesPrecision } from '@shared/text/lossless-json';
+
 /**
  * Shared logic for the streaming message logs (WebSocket, Socket.IO, SSE,
  * gRPC streams, MQTT, Kafka). Each protocol maps its own messages to
@@ -58,6 +60,8 @@ export function exportLog(
 function parseMaybeJson(body: string): unknown {
   const t = body.trimStart();
   if (!t.startsWith('{') && !t.startsWith('[')) return body;
+  // Embedding the parsed value would round integers beyond 2^53; keep the exact text.
+  if (jsonLosesPrecision(body)) return body;
   try {
     return JSON.parse(body);
   } catch {
