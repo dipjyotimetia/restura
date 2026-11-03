@@ -367,17 +367,14 @@ export async function runDesktopAgentSuite(
       const votes: JudgeModelVote[] = settled.flatMap((entry) =>
         entry.status === 'fulfilled' ? [entry.value] : []
       );
-      const failures: JudgeFailure[] = settled.flatMap((entry, index) =>
-        entry.status === 'rejected'
-          ? [
-              {
-                providerId: grader.judgeModels[index]!.providerId,
-                model: grader.judgeModels[index]!.model,
-                error: errorMessage(entry.reason),
-              },
-            ]
-          : []
-      );
+      const failures: JudgeFailure[] = settled.flatMap((entry, index) => {
+        const judge = grader.judgeModels[index];
+        // `settled` is index-aligned with `judgeModels`; the guard only narrows the type.
+        if (entry.status !== 'rejected' || !judge) return [];
+        return [
+          { providerId: judge.providerId, model: judge.model, error: errorMessage(entry.reason) },
+        ];
+      });
       const quorum = grader.minimumQuorum ?? Math.floor(grader.judgeModels.length / 2) + 1;
       const panelDetail = `${votes.length}/${grader.judgeModels.length} judges succeeded (quorum ${quorum})`;
       const usageKnown =
