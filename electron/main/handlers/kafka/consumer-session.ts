@@ -5,7 +5,12 @@ import {
   DeliveredOffsetCommitter,
 } from './delivered-offset-committer';
 import { OrderedDelivery } from './ordered-delivery';
-import { PartitionPauseSet, parsePartitionKey, partitionKey } from './partition-pause';
+import {
+  addTopicPartition,
+  PartitionPauseSet,
+  parsePartitionKey,
+  partitionKey,
+} from './partition-pause';
 
 type SessionConsumer = KafkaLib.Consumer<Buffer, Buffer, Buffer, Buffer>;
 type SessionStream = KafkaLib.MessagesStream<Buffer, Buffer, Buffer, Buffer>;
@@ -27,6 +32,8 @@ export interface ConsumerStreamHooks {
   deliver: (msg: SessionMessage, signal: AbortSignal) => Promise<boolean | void>;
   onError: (err: Error) => void;
   onClose: () => void;
+  /** This member's assignment changed (any group protocol); runs synchronously. */
+  onAssignment?: (assigned: ReadonlySet<string>) => void;
 }
 
 export interface ConsumerSessionOptions {
@@ -107,8 +114,10 @@ export class KafkaConsumerSession {
   #positioned: Set<string> | undefined;
   #closed = false;
   #closing: Promise<void> | undefined;
-  /** Bumped on every group join; a delivery queued under an older assignment never commits. */
+  /** Bumped on every assignment change; a delivery queued under an older assignment never commits. */
   #assignmentGeneration = 0;
+  /** Sorted `topic:partition` keys of the assignment last acted on. */
+  #assignmentSignature: string | undefined;
   /** Bumped by every successful stream swap. */
   #streamGeneration = 0;
   /**
@@ -164,7 +173,10 @@ export class KafkaConsumerSession {
     const draining = this.#delivery.close(drainMs);
     if (this.#closing) return this.#closing;
     this.#closed = true;
-    this.#entry?.consumer?.removeListener('consumer:group:join', this.#onGroupJoin);
+    const consumer = this.#entry?.consumer;
+    consumer?.removeListener('consumer:group:join', this.#onAssignmentEvent);
+    consumer?.removeListener('consumer:group:rebalance', this.#onAssignmentEvent);
+    consumer?.removeListener('consumer:heartbeat:end', this.#onAssignmentEvent);
     this.#closing = draining.then(() => this.#committer?.close());
     return this.#closing;
   }
@@ -260,8 +272,18 @@ export class KafkaConsumerSession {
     if (!consumer) return;
     // A MANUAL-mode subscribe keeps stale positions across rebalances, like a
     // swapped stream: what is assigned now is positioned; later gains are not.
-    if (this.options.manualStart) this.#positioned = assignedKeys(consumer) ?? new Set();
-    consumer.on('consumer:group:join', this.#onGroupJoin);
+    const assigned = assignedKeys(consumer);
+    if (this.options.manualStart) this.#positioned = assigned ?? new Set();
+    this.#assignmentSignature = assigned && assignmentSignature(assigned);
+    // Classic applies a new assignment before group:join (and, cooperatively,
+    // before group:rebalance). The consumer protocol (KIP-848) applies it
+    // asynchronously after a heartbeat, emits group:rebalance only for
+    // revocations and before applying them, and never re-emits group:join;
+    // the next heartbeat ends after it is applied. Each event is compared with
+    // the last acted-on assignment, so one change runs once.
+    consumer.on('consumer:group:join', this.#onAssignmentEvent);
+    consumer.on('consumer:group:rebalance', this.#onAssignmentEvent);
+    consumer.on('consumer:heartbeat:end', this.#onAssignmentEvent);
     if (this.options.autoCommitIntervalMs !== undefined) {
       this.#committer = new DeliveredOffsetCommitter(
         (offsets) => consumer.commit({ offsets }),
@@ -283,8 +305,16 @@ export class KafkaConsumerSession {
     this.#committer?.delivered(msg.topic, msg.partition, msg.offset, msg.leaderEpoch ?? -1);
   }
 
-  #onGroupJoin = (): void => {
+  #onAssignmentEvent = (): void => {
+    const consumer = this.#entry?.consumer;
+    if (!consumer || this.#closed) return;
+    const assigned = assignedKeys(consumer);
+    if (!assigned) return;
+    const signature = assignmentSignature(assigned);
+    if (signature === this.#assignmentSignature) return;
+    this.#assignmentSignature = signature;
     this.#assignmentGeneration += 1;
+    this.hooks.onAssignment?.(assigned);
     void this.runExclusive(() => this.#rebalanced()).catch((err: unknown) => {
       this.hooks.onError(err instanceof Error ? err : new Error(String(err)));
     });
@@ -328,7 +358,7 @@ export class KafkaConsumerSession {
     for (const key of keys) {
       const tp = parsePartitionKey(key);
       if (!tp) continue;
-      byTopic.set(tp.topic, [...(byTopic.get(tp.topic) ?? []), tp.partition]);
+      addTopicPartition(byTopic, tp.topic, tp.partition);
     }
     const topics = [...byTopic].map(([topic, partitions]) => ({ topic, partitions }));
     const committed = await consumer.listCommittedOffsets({ topics });
@@ -367,6 +397,10 @@ export class KafkaConsumerSession {
   }
 }
 
+function assignmentSignature(assigned: ReadonlySet<string>): string {
+  return [...assigned].sort().join('\n');
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -387,20 +421,20 @@ async function closeQuietly(stream: SessionStream): Promise<void> {
 export function subscriptionSession(
   cfg: {
     topics: string[];
-    mode?: string;
     fallbackMode?: ConsumerFallback;
     commitPolicy?: 'auto' | 'manual';
     autoCommitIntervalMs?: number;
   },
   kafka: typeof KafkaLib,
-  hooks: ConsumerStreamHooks
+  hooks: ConsumerStreamHooks,
+  /** The subscribe-time stream was opened in the library's MANUAL mode. */
+  manualStart = false
 ): KafkaConsumerSession {
   return new KafkaConsumerSession(
     {
       topics: cfg.topics,
       kafka,
-      // Both start the library stream in MANUAL mode (see the subscribe handler).
-      ...(cfg.mode === 'manual' || cfg.mode === 'timestamp' ? { manualStart: true } : {}),
+      ...(manualStart ? { manualStart: true } : {}),
       ...(cfg.fallbackMode ? { fallback: cfg.fallbackMode } : {}),
       ...(cfg.commitPolicy === 'manual'
         ? {}

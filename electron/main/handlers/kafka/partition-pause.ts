@@ -37,6 +37,17 @@ export function parsePartitionKey(key: string): TopicPartition | undefined {
   return { topic: key.slice(0, sep), partition };
 }
 
+/** Append `partition` to `topic`'s list in a topic → partitions map. */
+export function addTopicPartition(
+  byTopic: Map<string, number[]>,
+  topic: string,
+  partition: number
+): void {
+  const list = byTopic.get(topic);
+  if (list) list.push(partition);
+  else byTopic.set(topic, [partition]);
+}
+
 interface PausedPartition {
   /** Where the partition resumes; undefined until a record is withheld or a seek pins it. */
   rewindTo?: bigint;

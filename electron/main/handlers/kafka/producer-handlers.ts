@@ -20,6 +20,7 @@ import {
   KafkaTransactionEndSchema,
 } from '../../ipc/ipc-validators';
 import { decodeWirePayload, encodeSchemaField } from '../kafka-serde';
+import { addTopicPartition } from './partition-pause';
 import { type KafkaRegistryClient, resolveFieldSchemaId } from './registry';
 
 export type AppProducer = KafkaLib.Producer<Buffer, Buffer, Buffer, Buffer>;
@@ -123,7 +124,7 @@ function acknowledgements(
   const partitionsByTopic = new Map<string, number[]>();
   for (const { topic, partition, offset } of result.offsets) {
     base.set(`${topic}:${partition}`, offset);
-    partitionsByTopic.set(topic, [...(partitionsByTopic.get(topic) ?? []), partition]);
+    addTopicPartition(partitionsByTopic, topic, partition);
   }
   const seen = new Map<string, bigint>();
   const acks: KafkaAck[] = [];
@@ -417,6 +418,16 @@ export function registerKafkaProducerHandlers<E extends KafkaProducerEntry>(
           if (transaction.completed) {
             if (entry.transaction === transaction) entry.transaction = undefined;
             return { success: false, error: errorMessage(err) };
+          }
+          // Fenced (e.g. INVALID_PRODUCER_EPOCH after the broker timed the
+          // transaction out): the library dropped it without marking it
+          // completed, and every retry would fail "in use by another transaction".
+          if (entry.producer.transaction !== transaction) {
+            if (entry.transaction === transaction) entry.transaction = undefined;
+            return {
+              success: false,
+              error: `${errorMessage(err)} The broker aborted the transaction (fenced or timed out); its records were not committed. Begin a new transaction.`,
+            };
           }
           const next =
             cfg.action === 'commit'

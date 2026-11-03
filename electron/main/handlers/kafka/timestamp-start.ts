@@ -1,4 +1,5 @@
 import type * as KafkaLib from '@platformatic/kafka';
+import { addTopicPartition } from './partition-pause';
 
 type StartConsumer = Pick<
   KafkaLib.Consumer<Buffer, Buffer, Buffer, Buffer>,
@@ -25,7 +26,7 @@ export async function timestampStartOffsets(
   for (const [topic, partitions] of resolved) {
     for (const [partition, { offset }] of partitions) {
       if (offset >= 0n) offsets.push({ topic, partition, offset });
-      else empty.set(topic, [...(empty.get(topic) ?? []), partition]);
+      else addTopicPartition(empty, topic, partition);
     }
   }
   if (offsets.length === 0 || empty.size === 0) return offsets;

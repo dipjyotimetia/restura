@@ -201,8 +201,30 @@ describe('KafkaProducerPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Write batch to stream' }));
 
     const status = await screen.findByRole('status');
-    await waitFor(() => expect(status).toHaveTextContent(/1 of 2 records.*buffered/i));
+    await waitFor(() =>
+      expect(status).toHaveTextContent(
+        'Backpressure: 1 of 2 records queued; they send as the stream drains.'
+      )
+    );
     expect(status).not.toHaveTextContent('Operation completed');
+  });
+
+  it('pluralises the stream write summary', async () => {
+    api.openProducerStream.mockResolvedValueOnce({ success: true });
+    api.writeProducerStream.mockResolvedValueOnce({ success: true, accepted: true });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByRole('tab', { name: 'Stream' }));
+    fireEvent.change(screen.getByLabelText('Kafka typed record batch'), {
+      target: { value: '[{"topic":"orders","value":{"encoding":"utf8","data":"one"}}]' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Open stream' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close stream' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Write batch to stream' }));
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('1 record written to the stream.')
+    );
   });
 
   it('marks the stream closed even when closing reports a failure', async () => {

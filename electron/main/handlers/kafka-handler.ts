@@ -72,6 +72,8 @@ const rawDeserializer = (data: Buffer): Buffer | undefined =>
   Buffer.isBuffer(data) ? data : undefined;
 export const kafkaRateLimiter = createKeyedRateLimiter(120, 60_000);
 const MAX_CONCURRENT_KAFKA_CONNECTIONS = 20;
+/** Kafka's own transaction.timeout.ms default (brokers cap it at 15 min). */
+const TRANSACTION_TIMEOUT_MS = 60_000;
 type AppConsumer = Consumer<Buffer, Buffer, Buffer, Buffer>;
 type AppStream = MessagesStream<Buffer, Buffer, Buffer, Buffer>;
 type AppMessage = Message<Buffer, Buffer, Buffer, Buffer>;
@@ -211,10 +213,12 @@ async function emitConsumedMessage(
   });
   return true;
 }
-/** Drop manual-commit tokens for partitions a rebalance took from this member. */
-function pruneRevokedCommitTokens(entry: ActiveKafka): void {
-  const assigned = entry.consumer ? assignedKeys(entry.consumer) : undefined;
-  if (!assigned) return;
+/**
+ * Drop manual-commit tokens for partitions a rebalance took from this member:
+ * the broker accepts a commit for a partition this member no longer owns, so a
+ * stale token could rewind the new owner's position.
+ */
+function pruneRevokedCommitTokens(entry: ActiveKafka, assigned: ReadonlySet<string>): void {
   for (const [token, message] of entry.pendingCommits) {
     if (!assigned.has(partitionKey(message.topic, message.partition))) {
       entry.pendingCommits.delete(token);
@@ -231,6 +235,7 @@ function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
     deliver: (msg, signal) => emitConsumedMessage(entry, msg, signal),
     onError: (err) => emit(KAFKA_CHANNEL.ERROR, { scope: 'consumer', message: err.message }),
     onClose: () => emit(KAFKA_CHANNEL.CONSUMER_CLOSED, {}),
+    onAssignment: (assigned) => pruneRevokedCommitTokens(entry, assigned),
   };
 }
 
@@ -337,7 +342,11 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           // Idempotent producer dedups retries per-partition. The broker requires
           // acks=all(-1) for it; the produce handler enforces that override.
           ...(cfg.idempotent ? { idempotent: true } : {}),
-          ...(cfg.transactionalId ? { transactionalId: cfg.transactionalId } : {}),
+          // `timeout` is also the InitProducerId transactionTimeoutMs; the 5 s
+          // library default lets the broker abort any interactive transaction.
+          ...(cfg.transactionalId
+            ? { transactionalId: cfg.transactionalId, timeout: TRANSACTION_TIMEOUT_MS }
+            : {}),
         } as ProducerOptions<Buffer, Buffer, Buffer, Buffer>;
         const producer = new kafka.Producer<Buffer, Buffer, Buffer, Buffer>(producerOptions);
         claim.pendingProducer = producer;
@@ -524,13 +533,15 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           return { success: false, error: 'Not connected' };
         }
         entry.consumer = consumer;
-        entry.session = subscriptionSession(cfg, kafka, consumerStreamHooks(entry));
+        entry.session = subscriptionSession(
+          cfg,
+          kafka,
+          consumerStreamHooks(entry),
+          mode === M.MANUAL
+        );
         entry.session.bind(entry, stream);
         entry.manualCommit = cfg.commitPolicy === 'manual';
         consumer.on('consumer:group:join', (payload) => {
-          // The broker accepts a commit for a partition this member no longer
-          // owns, so a stale token could rewind the new owner's position.
-          pruneRevokedCommitTokens(entry);
           emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
             state: 'joined',
             ...payload,

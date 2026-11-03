@@ -761,6 +761,48 @@ describe('kafka-handler', () => {
       ).resolves.toEqual({ success: false, error: 'No transaction is active.' });
     });
 
+    it('a fenced commit (library dropped the transaction) ends the session instead of wedging it', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(
+        event,
+        validConnect('txn-fenced', { idempotent: true, transactionalId: 'restura-txn' })
+      );
+      const producer = FakeProducer.instances[0]!;
+      const transaction = producer.transaction;
+      await handlerFor(IPC.kafka.beginTransaction)(event, { connectionId: 'txn-fenced' });
+      // INVALID_PRODUCER_EPOCH: #handleFencingError clears producer.#transaction,
+      // but transaction.completed stays false.
+      transaction.commit.mockImplementationOnce(async () => {
+        (producer as { transaction: FakeTransaction | undefined }).transaction = undefined;
+        throw new Error('INVALID_PRODUCER_EPOCH');
+      });
+      const result = await handlerFor(IPC.kafka.endTransaction)(event, {
+        connectionId: 'txn-fenced',
+        action: 'commit',
+      });
+      expect(result).toMatchObject({ success: false, error: expect.stringContaining('aborted') });
+      expect(result.error).not.toContain('still open');
+      await expect(
+        handlerFor(IPC.kafka.endTransaction)(event, { connectionId: 'txn-fenced', action: 'abort' })
+      ).resolves.toEqual({ success: false, error: 'No transaction is active.' });
+      producer.transaction = new FakeTransaction();
+      await expect(
+        handlerFor(IPC.kafka.beginTransaction)(event, { connectionId: 'txn-fenced' })
+      ).resolves.toEqual({ success: true, transactionId: 'txn-1' });
+    });
+
+    it('transactional producers get a 60 s transaction timeout instead of the 5 s library default', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(
+        event,
+        validConnect('txn-timeout', { idempotent: true, transactionalId: 'restura-txn' })
+      );
+      await handlerFor(IPC.kafka.connect)(event, validConnect('plain-timeout'));
+      const [transactional, plain] = FakeProducer.instances;
+      expect(transactional!.options).toMatchObject({ timeout: 60_000 });
+      expect(plain!.options).not.toHaveProperty('timeout');
+    });
+
     it('a failed begin cancels the library transaction so a retry can begin again', async () => {
       const { event } = makeEvent();
       await handlerFor(IPC.kafka.connect)(
@@ -1178,6 +1220,61 @@ describe('kafka-handler', () => {
         call(IPC.kafka.commitMessage, { commitToken: kept!.commitToken })
       ).resolves.toEqual({ success: true });
       expect(commits[0]).toHaveBeenCalledTimes(1);
+    });
+
+    it('under the consumer protocol (KIP-848), drops tokens once the heartbeat applies the revocation', async () => {
+      const { consumer, stream, delivered, call } = await live('mc-848', 'manual', {
+        groupProtocol: 'consumer',
+      });
+      const commit = vi.fn(async () => {});
+      stream.emit('data', record(2, 30, commit));
+      await vi.waitFor(() => expect(delivered()).toHaveLength(1));
+      // KIP-848 emits group:rebalance *before* the new assignment is applied,
+      // never group:join; the next heartbeat ends after it is applied.
+      consumer.emit('consumer:group:rebalance', { groupId: 'g' });
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1] }];
+      consumer.emit('consumer:heartbeat:end');
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1, 2] }];
+      await expect(
+        call(IPC.kafka.commitMessage, { commitToken: delivered()[0]!.commitToken })
+      ).resolves.toEqual({ success: false, error: 'Commit token is unknown or expired.' });
+      expect(commit).not.toHaveBeenCalled();
+    });
+
+    it('under the consumer protocol, a manual-offset start repositions partitions gained on heartbeat', async () => {
+      const { consumer } = await live('manual-848', 'auto', {
+        groupProtocol: 'consumer',
+        mode: 'manual',
+        offsets: [{ topic: 'orders', partition: 0, offset: '5' }],
+      });
+      consumer.streams[0]!.offsetsToFetch.set('orders:0', 6n).set('orders:3', 99n);
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1, 2, 3] }];
+      consumer.committed = new Map([['orders', [-1n, -1n, -1n, 15n]]]);
+      consumer.emit('consumer:heartbeat:end');
+      await vi.waitFor(() => expect(consumer.consume).toHaveBeenCalledTimes(2));
+      expect(consumer.listCommittedOffsets).toHaveBeenCalledWith({
+        topics: [{ topic: 'orders', partitions: [3] }],
+      });
+      expect(consumer.consume).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          offsets: expect.arrayContaining([{ topic: 'orders', partition: 3, offset: 15n }]),
+        })
+      );
+    });
+
+    it('a classic rebalance followed by its join repositions once', async () => {
+      const { consumer } = await live('manual-once', 'auto', {
+        mode: 'manual',
+        offsets: [{ topic: 'orders', partition: 0, offset: '5' }],
+      });
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1, 2, 3] }];
+      consumer.committed = new Map([['orders', [-1n, -1n, -1n, 15n]]]);
+      consumer.emit('consumer:group:rebalance', { groupId: 'g' });
+      consumer.emit('consumer:group:join', {});
+      await vi.waitFor(() => expect(consumer.consume).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(consumer.listCommittedOffsets).toHaveBeenCalledTimes(1);
+      expect(consumer.consume).toHaveBeenCalledTimes(2);
     });
 
     it('refuses a manual commit for a partition this member no longer owns', async () => {

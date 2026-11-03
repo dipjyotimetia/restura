@@ -467,15 +467,14 @@ export function KafkaProducerPanel({
                       // accepted=false: queued past the stream's high-water mark, not yet sent.
                       if (result.accepted === false) buffered += 1;
                     }
-                    return buffered > 0
-                      ? {
-                          success: true,
-                          message: `${buffered} of ${records.length} records were buffered past the stream's high-water mark (backpressure); they are sent as earlier batches flush. Failures are reported in the message log.`,
-                        }
-                      : {
-                          success: true,
-                          message: `${records.length} records written to the stream.`,
-                        };
+                    const total = `${records.length} record${records.length === 1 ? '' : 's'}`;
+                    return {
+                      success: true,
+                      message:
+                        buffered > 0
+                          ? `Backpressure: ${buffered} of ${total} queued; they send as the stream drains.`
+                          : `${total} written to the stream.`,
+                    };
                   })
                 }
               >
