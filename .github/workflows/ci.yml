@@ -601,6 +601,15 @@ jobs:
       - name: Run Electron e2e
         run: xvfb-run -a npm run test:e2e:electron
 
+      # Same Redpanda broker + bundled Schema Registry: the Avro / Protobuf /
+      # JSON Schema produce → broker → consume matrix through the real Kafka IPC
+      # handlers, and the admin wire shapes. Opt-in (KAFKA_E2E) everywhere else.
+      - name: Run live Kafka + Schema Registry suites
+        run: |
+          docker compose -f echo-local/docker-compose.yml up -d --wait kafka
+          timeout 120 sh -c 'until curl -sf http://localhost:8081/subjects >/dev/null; do sleep 2; done'
+          KAFKA_E2E=1 npx vitest run electron/main/__tests__/kafka-schema-matrix.live.test.ts electron/main/__tests__/kafka-admin.live.test.ts
+
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

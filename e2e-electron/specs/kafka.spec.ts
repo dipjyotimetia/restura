@@ -162,6 +162,68 @@ describeOrSkip('Desktop Kafka (live Redpanda broker)', () => {
     expect(consoleErrors).toEqual([]);
   });
 
+  test('producer stream writes reach the broker and the panel reports the write', async ({
+    app: page,
+    brokers,
+  }) => {
+    const consoleErrors: string[] = [];
+    page.on('console', (message) => {
+      if (message.type() === 'error') consoleErrors.push(message.text());
+    });
+    const stamp = await page.evaluate(() => String(Date.now()));
+    const topic = `restura-e2e-stream-${stamp}`;
+    const admin = new Admin({ clientId: 'restura-e2e-stream', bootstrapBrokers: [brokers.kafka] });
+    try {
+      await admin.createTopics({ topics: [topic], partitions: 1, replicas: 1 });
+      await page.getByRole('button', { name: 'new request', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Kafka client' }).click();
+      await page.getByRole('button', { name: 'Connect', exact: true }).click();
+      await expect(page.getByRole('button', { name: /Disconnect/ })).toBeVisible({
+        timeout: 20_000,
+      });
+
+      await page.getByRole('tab', { name: 'Produce' }).click();
+      const produce = page.getByRole('tabpanel', { name: 'Produce' });
+      await produce.getByRole('tab', { name: 'Stream' }).click();
+      const batchEditor = produce
+        .getByRole('textbox', { name: 'Kafka typed record batch' })
+        .locator('xpath=ancestor::div[contains(@class, "monaco-editor")][1]');
+      await fillMonacoEditor(
+        page,
+        batchEditor,
+        JSON.stringify(
+          [0, 1].map((i) => ({
+            topic,
+            partition: 0,
+            value: { encoding: 'utf8', data: `stream-${stamp}-${i}` },
+          }))
+        )
+      );
+      await produce.getByRole('button', { name: 'Open stream' }).click();
+      await expect(produce.getByRole('button', { name: 'Close stream' })).toBeEnabled();
+      await produce.getByRole('button', { name: 'Write batch to stream' }).click();
+      await expect(produce.getByRole('status')).toHaveText('2 records written to the stream.');
+      await produce.getByRole('button', { name: 'Close stream' }).click();
+      await expect(produce.getByRole('button', { name: 'Open stream' })).toBeEnabled();
+
+      // Close waits for the flush, so both records are on the broker now.
+      const offsets = await admin.listOffsets({
+        topics: [{ name: topic, partitions: [{ partitionIndex: 0, timestamp: -1n }] }],
+      });
+      expect(offsets[0]?.partitions[0]?.offset).toBe(2n);
+
+      await page
+        .getByRole('button', { name: /Disconnect/ })
+        .first()
+        .click();
+      await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+      expect(consoleErrors).toEqual([]);
+    } finally {
+      await admin.deleteTopics({ topics: [topic] }).catch(() => {});
+      await admin.close().catch(() => {});
+    }
+  });
+
   test('browse mode reads the last N per partition without creating a consumer group', async ({
     app: page,
     brokers,

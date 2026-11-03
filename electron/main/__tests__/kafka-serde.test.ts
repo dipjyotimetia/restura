@@ -80,11 +80,10 @@ describe('isConfluentEncoded', () => {
 
 describe('encodeSchemaField', () => {
   const okRegistry = {
-    encode: async (id: number, payload: unknown) =>
-      Buffer.from(`enc:${id}:${JSON.stringify(payload)}`),
+    encode: async (id: number, json: string) => Buffer.from(`enc:${id}:${json}`),
   };
 
-  it('parses JSON and encodes with the schema id', async () => {
+  it('checks the JSON and passes its text to the encoder', async () => {
     const r = await encodeSchemaField(okRegistry, 7, '{"id":1}', 'value');
     expect(r).toEqual({ value: Buffer.from('enc:7:{"id":1}') });
   });

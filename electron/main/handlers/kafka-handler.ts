@@ -32,12 +32,14 @@ import { buildClientOptions, type KafkaClientOptions } from './kafka/client-opti
 import { guardKafkaConnect, resolveKafkaConnect } from './kafka/connect-preflight';
 import { registerKafkaConsumerControlHandlers } from './kafka/consumer-control-handlers';
 import {
+  assignedKeys,
   type ConsumerStreamHooks,
   fallbackModeValue,
   type KafkaConsumerSession,
   subscriptionSession,
 } from './kafka/consumer-session';
 import { type OrderedDelivery, UNSUBSCRIBE_DRAIN_MS } from './kafka/ordered-delivery';
+import { partitionKey } from './kafka/partition-pause';
 import {
   type AppProducer,
   closeKafkaProducerSessions,
@@ -46,6 +48,7 @@ import {
 } from './kafka/producer-handlers';
 import { createKafkaRegistryClient, type KafkaRegistryClient } from './kafka/registry';
 import { registerKafkaRegistryHandlers } from './kafka/registry-handlers';
+import { timestampStartOffsets } from './kafka/timestamp-start';
 import { decodeDisplayField, headersFromMap } from './kafka-serde';
 
 const log = createLogger('kafka');
@@ -69,6 +72,8 @@ const rawDeserializer = (data: Buffer): Buffer | undefined =>
   Buffer.isBuffer(data) ? data : undefined;
 export const kafkaRateLimiter = createKeyedRateLimiter(120, 60_000);
 const MAX_CONCURRENT_KAFKA_CONNECTIONS = 20;
+/** Kafka's own transaction.timeout.ms default (brokers cap it at 15 min). */
+const TRANSACTION_TIMEOUT_MS = 60_000;
 type AppConsumer = Consumer<Buffer, Buffer, Buffer, Buffer>;
 type AppStream = MessagesStream<Buffer, Buffer, Buffer, Buffer>;
 type AppMessage = Message<Buffer, Buffer, Buffer, Buffer>;
@@ -208,6 +213,19 @@ async function emitConsumedMessage(
   });
   return true;
 }
+/**
+ * Drop manual-commit tokens for partitions a rebalance took from this member:
+ * the broker accepts a commit for a partition this member no longer owns, so a
+ * stale token could rewind the new owner's position.
+ */
+function pruneRevokedCommitTokens(entry: ActiveKafka, assigned: ReadonlySet<string>): void {
+  for (const [token, message] of entry.pendingCommits) {
+    if (!assigned.has(partitionKey(message.topic, message.partition))) {
+      entry.pendingCommits.delete(token);
+    }
+  }
+}
+
 function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
   const isCurrent = () => activeConnections.get(entry.connectionId, entry.webContentsId) === entry;
   const emit = (prefix: KafkaChannelPrefix, payload: unknown): void => {
@@ -217,12 +235,20 @@ function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
     deliver: (msg, signal) => emitConsumedMessage(entry, msg, signal),
     onError: (err) => emit(KAFKA_CHANNEL.ERROR, { scope: 'consumer', message: err.message }),
     onClose: () => emit(KAFKA_CHANNEL.CONSUMER_CLOSED, {}),
+    onAssignment: (assigned) => pruneRevokedCommitTokens(entry, assigned),
   };
 }
 
 export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
-  registerKafkaProducerHandlers((connectionId, ownerId) =>
-    activeConnections.getForOwner(connectionId, ownerId)
+  registerKafkaProducerHandlers(
+    (connectionId, ownerId) => activeConnections.getForOwner(connectionId, ownerId),
+    (entry, err) => {
+      if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
+      emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.ERROR, entry.connectionId), {
+        scope: 'producer',
+        message: `Producer stream failed: ${err.message}`,
+      });
+    }
   );
   ipcMain.handle(IPC.kafka.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.kafka.connect, event);
@@ -316,7 +342,11 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           // Idempotent producer dedups retries per-partition. The broker requires
           // acks=all(-1) for it; the produce handler enforces that override.
           ...(cfg.idempotent ? { idempotent: true } : {}),
-          ...(cfg.transactionalId ? { transactionalId: cfg.transactionalId } : {}),
+          // `timeout` is also the InitProducerId transactionTimeoutMs; the 5 s
+          // library default lets the broker abort any interactive transaction.
+          ...(cfg.transactionalId
+            ? { transactionalId: cfg.transactionalId, timeout: TRANSACTION_TIMEOUT_MS }
+            : {}),
         } as ProducerOptions<Buffer, Buffer, Buffer, Buffer>;
         const producer = new kafka.Producer<Buffer, Buffer, Buffer, Buffer>(producerOptions);
         claim.pendingProducer = producer;
@@ -470,17 +500,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
             await closeConsumerQuietly(consumer);
             return { success: false, error: 'A timestamp is required for timestamp mode' };
           }
-          // Resolve the first available offset at/after the timestamp per partition.
-          const resolved = await consumer.listOffsetsWithTimestamps({
-            topics: cfg.topics,
-            timestamp: BigInt(cfg.timestamp),
-          });
-          offsets = [];
-          for (const [topic, partitions] of resolved) {
-            for (const [partition, { offset }] of partitions) {
-              if (offset >= 0n) offsets.push({ topic, partition, offset });
-            }
-          }
+          // First offset at/after the timestamp per partition; the end when none is.
+          offsets = await timestampStartOffsets(consumer, kafka, cfg.topics, BigInt(cfg.timestamp));
           if (offsets.length === 0) {
             await closeConsumerQuietly(consumer);
             return {
@@ -512,7 +533,12 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           return { success: false, error: 'Not connected' };
         }
         entry.consumer = consumer;
-        entry.session = subscriptionSession(cfg, kafka, consumerStreamHooks(entry));
+        entry.session = subscriptionSession(
+          cfg,
+          kafka,
+          consumerStreamHooks(entry),
+          mode === M.MANUAL
+        );
         entry.session.bind(entry, stream);
         entry.manualCommit = cfg.commitPolicy === 'manual';
         consumer.on('consumer:group:join', (payload) => {
@@ -570,6 +596,15 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         if (!entry?.consumer) return { success: false, error: 'No consumer is active.' };
         const message = entry.pendingCommits.get(cfg.commitToken);
         if (!message) return { success: false, error: 'Commit token is unknown or expired.' };
+        // Re-check ownership: the assignment may have moved before the join event ran.
+        const assigned = assignedKeys(entry.consumer);
+        if (assigned && !assigned.has(partitionKey(message.topic, message.partition))) {
+          entry.pendingCommits.delete(cfg.commitToken);
+          return {
+            success: false,
+            error: `Partition ${message.topic}:${message.partition} is no longer assigned to this consumer, so its offset cannot be committed.`,
+          };
+        }
         try {
           await Promise.resolve(message.commit());
           entry.pendingCommits.delete(cfg.commitToken);
