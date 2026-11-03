@@ -32,7 +32,9 @@ import { desktopExternalSecretResolver } from '../../security/external-secret-pr
 import { assertRegistryUrlSafe } from '../../security/kafka-broker-guard';
 import type { BrokerSecurityPolicy } from '../../security/mqtt-broker-guard';
 import { describeSecretHandle, unwrapSecretValueMain } from '../../security/secret-handle-store';
+import { avroTypeHook } from './avro-codec';
 import { KAFKA_SECRET_SCOPE, plaintextKafkaSecret } from './sasl';
+import { createSchemaCodecs } from './schema-codecs';
 
 export { KAFKA_SECRET_SCOPE };
 
@@ -69,7 +71,8 @@ export interface RegistrySchemaRef {
 export type SchemaFieldRef = { schemaId: number } | { subject: string; version: number | 'latest' };
 
 export interface KafkaRegistryClient {
-  encode(registryId: number, payload: unknown): Promise<Buffer>;
+  /** `messageName` picks a Protobuf message type (default: the file's first message). */
+  encode(registryId: number, payload: unknown, messageName?: string): Promise<Buffer>;
   decode(buffer: Buffer): Promise<unknown>;
   resolveSchemaId(ref: SchemaFieldRef): Promise<number>;
   describeSchemaId(id: number): Promise<RegistrySchemaRef>;
@@ -348,69 +351,7 @@ export function capResponseBytes<A extends http.Agent>(agent: A, maxBytes = MAX_
   return agent;
 }
 
-interface AvscTypeLike {
-  typeName: string;
-  fields?: { name: string; type: AvscTypeLike }[];
-  itemsType?: AvscTypeLike;
-  valuesType?: AvscTypeLike;
-  types?: AvscTypeLike[];
-  underlyingType?: AvscTypeLike;
-  isValid?: (value: unknown) => boolean;
-}
-
-function isAvscType(value: unknown): value is AvscTypeLike {
-  return !!value && typeof (value as { typeName?: unknown }).typeName === 'string';
-}
-
-function coerceAvroValue(type: AvscTypeLike, value: unknown, depth: number): unknown {
-  if (depth > 64) return value;
-  const name = type.typeName;
-  if (name === 'bytes' || name === 'fixed') {
-    // Avro JSON encoding: bytes/fixed are strings of code points 0-255.
-    return typeof value === 'string' ? Buffer.from(value, 'latin1') : value;
-  }
-  if ((name === 'record' || name === 'error') && value && typeof value === 'object') {
-    const out: Record<string, unknown> = { ...(value as Record<string, unknown>) };
-    for (const field of type.fields ?? []) {
-      if (field.name in out)
-        out[field.name] = coerceAvroValue(field.type, out[field.name], depth + 1);
-    }
-    return out;
-  }
-  if (name === 'array' && Array.isArray(value) && type.itemsType) {
-    const items = type.itemsType;
-    return value.map((item) => coerceAvroValue(items, item, depth + 1));
-  }
-  if (name === 'map' && value && typeof value === 'object' && type.valuesType) {
-    const values = type.valuesType;
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
-        k,
-        coerceAvroValue(values, v, depth + 1),
-      ])
-    );
-  }
-  if (name.startsWith('union') && type.types) {
-    for (const branch of type.types) {
-      const coerced = coerceAvroValue(branch, value, depth + 1);
-      if (branch.isValid?.(coerced)) return coerced;
-    }
-    return value;
-  }
-  if (name.startsWith('logical:') && type.underlyingType) {
-    return coerceAvroValue(type.underlyingType, value, depth + 1);
-  }
-  return value;
-}
-
-/**
- * JSON payloads cannot carry Buffers, so Avro `bytes` / `fixed` values are
- * accepted as strings (Avro JSON-encoding convention: code points 0-255) and
- * converted before the registry encoder sees them. Non-Avro schemas pass through.
- */
-export function coerceAvroPayload(schema: unknown, payload: unknown): unknown {
-  return isAvscType(schema) ? coerceAvroValue(schema, payload, 0) : payload;
-}
+export { coerceAvroPayload } from './avro-codec';
 
 function boundedSet<K, V>(map: Map<K, V>, key: K, value: V): void {
   if (map.size >= MAX_CACHE_ENTRIES) {
@@ -453,27 +394,33 @@ export async function createKafkaRegistryClient(
   );
   const timeout = agentOptions.timeout;
 
-  const lib: SchemaRegistry = new (getLib().SchemaRegistry)({
-    host: cfg.url,
-    agent,
-    // Basic keeps the library's own auth path (unchanged behaviour); bearer
-    // and the policy timeout go in via middleware.
-    ...(cfg.auth?.type === 'basic' && cfg.auth.username
-      ? {
-          auth: {
-            username: cfg.auth.username,
-            password:
-              cfg.auth.password !== undefined ? plaintextKafkaSecret(cfg.auth.password) : '',
-          },
-        }
-      : {}),
-    middlewares: [
-      headerMiddleware(
-        cfg.auth?.type === 'bearer' && authorization ? { Authorization: authorization } : {},
-        timeout
-      ),
-    ],
-  });
+  const lib: SchemaRegistry = new (getLib().SchemaRegistry)(
+    {
+      host: cfg.url,
+      agent,
+      // Basic keeps the library's own auth path (unchanged behaviour); bearer
+      // and the policy timeout go in via middleware.
+      ...(cfg.auth?.type === 'basic' && cfg.auth.username
+        ? {
+            auth: {
+              username: cfg.auth.username,
+              password:
+                cfg.auth.password !== undefined ? plaintextKafkaSecret(cfg.auth.password) : '',
+            },
+          }
+        : {}),
+      middlewares: [
+        headerMiddleware(
+          cfg.auth?.type === 'bearer' && authorization ? { Authorization: authorization } : {},
+          timeout
+        ),
+      ],
+    },
+    // Full-range Avro longs (see avro-codec.ts); keyed per schema type.
+    { AVRO: { typeHook: avroTypeHook } } as unknown as ConstructorParameters<
+      typeof SchemaRegistryLib.SchemaRegistry
+    >[1]
+  );
 
   const prefix = cfg.url.replace(/\/+$/, '');
   const getJson = (path: string, requestTimeout = timeout): Promise<unknown> =>
@@ -529,14 +476,14 @@ export async function createKafkaRegistryClient(
   // one bounded wait per id per cooldown, not one per consumed record.
   const retryLabelAt = new Map<number, number>();
   const pinnedIds = new Map<string, number>();
+  const codecs = createSchemaCodecs({
+    getJson: (path) => getJson(path),
+    avroType: (id) => lib.getSchema(id),
+  });
 
   return {
-    async encode(registryId, payload) {
-      // Avro bytes/fixed have no JSON form; accept strings for them (see coerceAvroPayload).
-      const schema = await lib.getSchema(registryId);
-      return lib.encode(registryId, coerceAvroPayload(schema, payload));
-    },
-    decode: (buffer) => lib.decode(buffer),
+    encode: (registryId, payload, messageName) => codecs.encode(registryId, payload, messageName),
+    decode: (buffer) => codecs.decode(buffer),
 
     async resolveSchemaId(ref) {
       if ('schemaId' in ref) return ref.schemaId;

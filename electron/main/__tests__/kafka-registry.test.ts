@@ -603,11 +603,15 @@ describe('createKafkaRegistryClient', () => {
     };
     const encoded = await registry.encode(21, JSON.parse(JSON.stringify(generated)));
     const decoded = (await registry.decode(encoded)) as Record<string, unknown>;
-    expect(Buffer.isBuffer(decoded.b)).toBe(true);
-    expect(decoded.f).toEqual(Buffer.alloc(4));
-    expect(decoded.list).toEqual([Buffer.alloc(0)]);
+    // bytes/fixed decode to the same code-point strings encode accepts, so a
+    // consumed record can be re-produced unchanged.
+    expect(decoded.b).toBe('');
+    expect(decoded.f).toBe('\u0000\u0000\u0000\u0000');
+    expect(decoded.list).toEqual(['']);
     const custom = await registry.encode(21, { ...generated, b: 'h\u00ff', maybe: null });
-    expect(((await registry.decode(custom)) as { b: Buffer }).b).toEqual(Buffer.from([0x68, 0xff]));
+    const customDecoded = (await registry.decode(custom)) as { b: string };
+    expect(Buffer.from(customDecoded.b, 'latin1')).toEqual(Buffer.from([0x68, 0xff]));
+    expect(await registry.encode(21, customDecoded)).toEqual(custom);
   });
 
   it('round-trips an Avro record and labels decoded fields with subject/version', async () => {
