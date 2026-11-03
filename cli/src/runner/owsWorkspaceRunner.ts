@@ -4,7 +4,7 @@ import { getGraphqlOperation, getGraphqlResponseErrors } from '@shared/ows/graph
 import type { HttpRequest } from '@shared/types';
 import { type LoadedCollection, type LoadedRequest, loadCollection } from './collectionLoader';
 import { executeHttp } from './executors/http';
-import type { ExecuteOptions, ExecuteOutcome } from './executors/types';
+import type { ExecuteOptions, ExecuteOutcome, OAuth2TokenCache } from './executors/types';
 import { discoverOwsWorkspace } from './owsWorkspaceLoader';
 
 export type OwsWorkspaceRunOptions = Omit<ExecuteOptions, 'vars'> & {
@@ -151,6 +151,8 @@ export async function runOwsWorkspaceWorkflow(
       );
     }
   }
+  // client_credentials tokens are reused within this workflow run only.
+  const oauth2TokenCache: OAuth2TokenCache = new Map();
   return executeOwsWorkflow({
     workflow: selected.artifact.workflow,
     bindings: selected.artifact.bindings,
@@ -170,6 +172,7 @@ export async function runOwsWorkspaceWorkflow(
           timeoutMs: call.timeoutMs ?? options.timeoutMs,
           allowLocalhost: options.allowLocalhost,
           signal: call.signal,
+          oauth2TokenCache,
           ...(options.dispatcher ? { dispatcher: options.dispatcher } : {}),
           ...(options.fetcher ? { fetcher: options.fetcher } : {}),
           ...(options.oauthFetch ? { oauthFetch: options.oauthFetch } : {}),

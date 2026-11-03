@@ -13,9 +13,10 @@ import type { HttpRequest, KeyValue } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
 import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
-import { applyAuthHeaders, resolveOAuth2Token, toProtocolAuth } from './auth';
+import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token, toProtocolAuth } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
+import { preflightRefusal, refusedOutcome } from './variable-guard';
 
 /**
  * HTTP + GraphQL executor. GraphQL is represented internally as an HttpRequest
@@ -30,11 +31,13 @@ export async function executeHttp(
   opts: ExecuteOptions
 ): Promise<ExecuteOutcome> {
   if (item.type !== 'http') {
-    return errorOutcome(`HTTP executor received non-http request: ${item.type}`);
+    return refusedOutcome(`HTTP executor received non-http request: ${item.type}`);
   }
-  // Refused at load time (e.g. a Postman auth type the CLI cannot sign): never
-  // sent, from any entry point (collection runner, OWS workflows, agent tools).
-  if (item.blocked) return errorOutcome(item.blocked);
+  // Refused before any I/O, from every entry point (collection runner, OWS
+  // workflows, agent tools): blocked at load time (e.g. a Postman auth type the
+  // CLI cannot sign), or a private / secret / handle variable with no value.
+  const refused = preflightRefusal(item, opts.vars);
+  if (refused) return refused;
   let req = item.request as HttpRequest;
 
   // GraphQL: shape the wire request exactly as the app does (shared
@@ -44,7 +47,7 @@ export async function executeHttp(
   const preResolvedParams = new Set<KeyValue>();
   if (req.body.type === 'graphql') {
     const shaped = shapeGraphQL(req, opts.vars);
-    if (!shaped.ok) return errorOutcome(shaped.error);
+    if (!shaped.ok) return refusedOutcome(shaped.error);
     req = shaped.request;
     graphqlBuilt = shaped.built;
     for (const p of shaped.addedParams) preResolvedParams.add(p);
@@ -88,15 +91,17 @@ export async function executeHttp(
       varResolvedAuth,
       opts.externalSecretResolver
     );
-    const resolvedAuth = await resolveOAuth2Token(externalMaterializedAuth, opts.vars, {
-      allowLocalhost: opts.allowLocalhost,
-      ...(opts.oauthFetch ? { fetch: opts.oauthFetch } : {}),
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    });
+    const resolvedAuth = await resolveOAuth2Token(
+      externalMaterializedAuth,
+      opts.vars,
+      oauth2TokenOptions(opts)
+    );
     // NTLM needs the desktop fetcher's pinned-connection handshake (#1069);
     // refuse rather than send the request unauthenticated.
     if (resolvedAuth?.type === 'ntlm') {
-      return errorOutcome('NTLM authentication is desktop-only; the CLI cannot send this request');
+      return refusedOutcome(
+        'NTLM authentication is desktop-only; the CLI cannot send this request'
+      );
     }
     applyAuthHeaders(resolvedAuth, headers, params);
     const proxyAuth = toProtocolAuth(resolvedAuth);
@@ -174,16 +179,6 @@ export async function executeHttp(
       errorMessage: err instanceof Error ? err.message : String(err),
     };
   }
-}
-
-function errorOutcome(msg: string): ExecuteOutcome {
-  return {
-    status: 0,
-    passed: false,
-    durationMs: 0,
-    bodyBytes: 0,
-    errorMessage: msg,
-  };
 }
 
 type ShapedGraphQL =

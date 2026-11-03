@@ -23,9 +23,10 @@ import { hasVariableToken } from '@shared/variables/tokens';
 import type { LoadedRequest } from '../collectionLoader';
 import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
-import { applyAuthHeaders, resolveOAuth2Token } from './auth';
+import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
+import { preflightRefusal, refusedOutcome } from './variable-guard';
 
 /**
  * gRPC executor. Honours the request's pinned `wireProtocol` (#914):
@@ -58,14 +59,10 @@ export async function executeGrpc(
   opts: ExecuteOptions
 ): Promise<ExecuteOutcome> {
   if (item.type !== 'grpc') {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: `gRPC executor received non-grpc request: ${item.type}`,
-    };
+    return refusedOutcome(`gRPC executor received non-grpc request: ${item.type}`);
   }
+  const refused = preflightRefusal(item, opts.vars);
+  if (refused) return refused;
   const raw = item.request as GrpcRequest;
   // Service / method may be templated like the URL (`{{svc}}`), as in the app;
   // every path below builds `/{service}/{method}` from the resolved names.
@@ -75,13 +72,9 @@ export async function executeGrpc(
     method: resolveVarsDeep(raw.method ?? '', opts.vars),
   };
   if (req.methodType && req.methodType !== 'unary') {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: `The CLI does not support ${req.methodType} gRPC methods yet (unary only). Run streaming methods from the desktop app.`,
-    };
+    return refusedOutcome(
+      `The CLI does not support ${req.methodType} gRPC methods yet (unary only). Run streaming methods from the desktop app.`
+    );
   }
   const unsupportedAuth = grpcUnsupportedAuthMessage(req.auth);
   if (unsupportedAuth) {
@@ -112,13 +105,9 @@ export async function executeGrpc(
     try {
       parsedMessage = JSON.parse(message);
     } catch (err) {
-      return {
-        status: 0,
-        passed: false,
-        durationMs: 0,
-        bodyBytes: 0,
-        errorMessage: `Invalid gRPC message JSON: ${err instanceof Error ? err.message : String(err)}`,
-      };
+      return refusedOutcome(
+        `Invalid gRPC message JSON: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 
@@ -133,9 +122,11 @@ export async function executeGrpc(
       varResolvedAuth,
       opts.externalSecretResolver
     );
-    const resolvedAuth = await resolveOAuth2Token(externalMaterializedAuth, opts.vars, {
-      allowLocalhost: opts.allowLocalhost,
-    });
+    const resolvedAuth = await resolveOAuth2Token(
+      externalMaterializedAuth,
+      opts.vars,
+      oauth2TokenOptions(opts)
+    );
     applyAuthHeaders(resolvedAuth, metadata, {});
     // `*-bin` values travel base64-encoded (same rule as the app).
     Object.assign(metadata, normalizeBinaryMetadata(metadata));

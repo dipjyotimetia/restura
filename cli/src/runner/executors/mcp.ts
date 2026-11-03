@@ -15,9 +15,10 @@ import type { McpRequest } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
 import { type CliMcpSession, openCliMcpSession } from '../mcpSession';
 import { resolveVarsDeep } from '../varResolver';
-import { applyAuthHeaders, resolveOAuth2Token } from './auth';
+import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
+import { preflightRefusal, refusedOutcome } from './variable-guard';
 
 /**
  * MCP (Model Context Protocol) executor (#901). Runs the saved operation
@@ -34,27 +35,19 @@ export async function executeMcp(
   opts: ExecuteOptions
 ): Promise<ExecuteOutcome> {
   if (item.type !== 'mcp') {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: `MCP executor received non-mcp request: ${item.type}`,
-    };
+    return refusedOutcome(`MCP executor received non-mcp request: ${item.type}`);
   }
+  const refused = preflightRefusal(item, opts.vars);
+  if (refused) return refused;
   const req = item.request as McpRequest;
 
   // The stdio transport launches a local process. That is a desktop-only
   // capability gated by an interactive consent prompt (ADR 0030); the CLI
   // must never spawn processes from collection data, so refuse before any I/O.
   if (req.transport === 'stdio') {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: `MCP stdio transport is desktop-only; "${req.name}" was not run (the CLI never launches local processes from a collection).`,
-    };
+    return refusedOutcome(
+      `MCP stdio transport is desktop-only; "${req.name}" was not run (the CLI never launches local processes from a collection).`
+    );
   }
 
   // A saved MCP request is ONE operation (`defaultMethod` + `defaultParams`).
@@ -62,13 +55,7 @@ export async function executeMcp(
   // instead of silently substituting `ping` (#877), before any I/O.
   const method = req.defaultMethod ? resolveVarsDeep(req.defaultMethod, opts.vars).trim() : '';
   if (!method) {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: mcpMissingMethodMessage(req.name),
-    };
+    return refusedOutcome(mcpMissingMethodMessage(req.name));
   }
 
   const url = resolveVarsDeep(req.url, opts.vars);
@@ -98,10 +85,11 @@ export async function executeMcp(
       varResolvedAuth,
       opts.externalSecretResolver
     );
-    const resolvedAuth = await resolveOAuth2Token(externalMaterializedAuth, opts.vars, {
-      allowLocalhost: opts.allowLocalhost,
-      ...(opts.oauthFetch ? { fetch: opts.oauthFetch } : {}),
-    });
+    const resolvedAuth = await resolveOAuth2Token(
+      externalMaterializedAuth,
+      opts.vars,
+      oauth2TokenOptions(opts)
+    );
     const authHeaders: Record<string, string> = {};
     applyAuthHeaders(resolvedAuth, authHeaders, {});
     for (const [key, value] of Object.entries(authHeaders)) {
@@ -128,13 +116,7 @@ export async function executeMcp(
     req.defaultParams ? resolveVarsDeep(req.defaultParams, opts.vars) : undefined
   );
   if (!parsedParams.ok) {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: parsedParams.error,
-    };
+    return refusedOutcome(parsedParams.error);
   }
 
   // Shared URL guard + header sanitisation; the SDK session owns the wire.
@@ -150,13 +132,7 @@ export async function executeMcp(
     opts.allowLocalhost
   );
   if (!validation.ok) {
-    return {
-      status: validation.status,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: validation.error,
-    };
+    return { ...refusedOutcome(validation.error), status: validation.status };
   }
 
   // Narrowed above: stdio was refused, so only the HTTP transports remain.

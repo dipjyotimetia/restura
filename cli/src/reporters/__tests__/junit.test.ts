@@ -203,3 +203,51 @@ describe('renderJUnitXml', () => {
     expect(xml).toContain('tests="5" failures="1" errors="1" time="1.500"');
   });
 });
+
+describe('renderJUnitXml skipped requests', () => {
+  it('emits <skipped/> for pm.execution.skipRequest() and counts it on the suite', () => {
+    const result: RunResult = {
+      meta: { collectionName: 'S', collectionDir: '/x', startedAt: 1 },
+      durationMs: 10,
+      requests: [
+        { request: fakeReq('Ran'), status: 200, passed: true, durationMs: 5, bodyBytes: 0 },
+        {
+          request: fakeReq('Skipped'),
+          status: 0,
+          passed: true,
+          durationMs: 0,
+          bodyBytes: 0,
+          skipped: true,
+        },
+      ],
+      summary: { total: 2, passed: 2, failed: 0, errored: 0, skipped: 1 },
+    };
+    const xml = renderJUnitXml(result);
+    expect(xml).toContain(
+      '<testcase classname="http" name="Skipped" time="0.000"><skipped/></testcase>'
+    );
+    expect(xml).toContain('<testcase classname="http" name="Ran" time="0.005"/>');
+    expect(xml).toMatch(/<testsuite [^>]*skipped="1"/);
+    expect(xml).toMatch(/<testsuites [^>]*skipped="1"/);
+  });
+
+  it('a skipped request whose pre-request script failed is still an error, not a skip', () => {
+    const result: RunResult = {
+      meta: { collectionName: 'S', collectionDir: '/x', startedAt: 1 },
+      durationMs: 10,
+      requests: [
+        {
+          request: fakeReq('Bad'),
+          status: 0,
+          passed: false,
+          durationMs: 0,
+          bodyBytes: 0,
+          skipped: true,
+          errorMessage: 'pre-request: boom',
+        },
+      ],
+      summary: { total: 1, passed: 0, failed: 0, errored: 1, skipped: 1 },
+    };
+    expect(renderJUnitXml(result)).toContain('<error message="pre-request: boom">');
+  });
+});

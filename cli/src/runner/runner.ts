@@ -10,13 +10,12 @@ import {
 import { foldScriptPhases, settleVerdict, skipVerdict } from '@shared/collection-run/verdict';
 import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
 import type { HttpRequest } from '@shared/types';
-import { lookupVariable } from '@shared/variables/resolver';
-import { scanVariableTokens } from '@shared/variables/tokens';
 import type { Reporter, RequestRunResult, RunMeta, RunResult } from '../reporters/types.js';
 import { type LoadedRequest, loadCollection } from './collectionLoader.js';
 import type { CliIterationRow } from './dataLoader.js';
 import { executeRequest } from './executors/dispatch.js';
-import type { ExecuteOutcome } from './executors/types.js';
+import type { ExecuteOutcome, OAuth2TokenCache } from './executors/types.js';
+import { unavailableVariableRefusal } from './executors/variable-guard.js';
 import { applyFilters, type FilterOptions } from './filter.js';
 import { CliMcpSessionPool } from './mcpSession.js';
 import { formatImportReport, importReportSize } from './postmanImport.js';
@@ -146,14 +145,15 @@ async function runCollectionWithSessions(
   }
   Object.assign(baseVars, options.overrideVars);
   const filtered = options.filter ? applyFilters(loaded.requests, options.filter) : loaded.requests;
-  const secretNames = new Set(loaded.meta.secretVariableNames ?? []);
-  assertCliSecretsAvailable(
-    // A blocked request is never sent, and one the filters dropped never runs,
-    // so neither one's variables can abort the run.
-    filtered.filter((r) => !r.blocked),
-    baseVars,
-    new Set(loaded.meta.privateVariableNames ?? [])
-  );
+  // Private names and SecretRef handles refuse the whole run before anything is
+  // sent. A blocked request is never sent, and one the filters dropped never
+  // runs, so neither one's variables can abort the run. A value a script writes
+  // at run time is not on disk and is caught per item by the executor preflight.
+  for (const item of filtered) {
+    if (item.blocked) continue;
+    const refusal = unavailableVariableRefusal(item, baseVars, 'private');
+    if (refusal !== undefined) throw new Error(refusal);
+  }
   const versionWarning = httpVersionWarning(filtered);
   if (versionWarning) process.stderr.write(versionWarning);
 
@@ -179,6 +179,8 @@ async function runCollectionWithSessions(
 
   // Dispatcher (TLS + explicit proxy) built once and reused for every request.
   const dispatcher = buildDispatcher(options.tls, options.proxy);
+  // client_credentials tokens are reused within this run only.
+  const oauth2TokenCache: OAuth2TokenCache = new Map();
 
   const results: RequestRunResult[] = [];
 
@@ -282,20 +284,19 @@ async function runCollectionWithSessions(
         };
       }
 
-      // A secret collection variable with no value by now (no `--env`, row or
-      // earlier script supplied one) fails this item before anything is sent:
-      // never an empty or literal `{{name}}` on the wire.
-      const missingSecret = missingSecretVariable(sendItem.request, perRequestVars, secretNames);
-      if (missingSecret !== undefined) {
+      // A secret (collection- or folder-level) variable with no value by now (no
+      // `--env`, row or earlier script supplied one) fails this item before
+      // anything is sent: never an empty or literal `{{name}}` on the wire. The
+      // executor preflight enforces the same rule; here it is reported "not sent".
+      const refusal = unavailableVariableRefusal(sendItem, perRequestVars);
+      if (refusal !== undefined) {
         const result: RequestRunResult = {
           request: item,
           status: 0,
           passed: false,
           durationMs: 0,
           bodyBytes: 0,
-          errorMessage:
-            `not sent: secret variable "${missingSecret}" has no value; ` +
-            'provide it with --env, --env-var or --data, or set it in an earlier script.',
+          errorMessage: refusal,
           notSent: true,
           ...(isDataDriven ? { iteration: iter } : {}),
         };
@@ -320,6 +321,7 @@ async function runCollectionWithSessions(
             ...(options.tls ? { tls: options.tls } : {}),
             ...(options.proxy ? { proxy: options.proxy } : {}),
             mcpSessions,
+            oauth2TokenCache,
             ...(options.externalSecretResolver
               ? { externalSecretResolver: options.externalSecretResolver }
               : {}),
@@ -449,65 +451,4 @@ async function runCollectionWithSessions(
   };
   await reporter.onEnd(final);
   return final;
-}
-
-/** The first secret collection variable the request uses that has no value yet. */
-function missingSecretVariable(
-  request: unknown,
-  vars: Record<string, string>,
-  secretNames: ReadonlySet<string>
-): string | undefined {
-  if (secretNames.size === 0) return undefined;
-  for (const text of stringLeaves(request)) {
-    if (!text.includes('{{')) continue;
-    for (const { name } of scanVariableTokens(text)) {
-      if (secretNames.has(name) && lookupVariable([vars], name) === undefined) return name;
-    }
-  }
-  return undefined;
-}
-
-/** Every string in a request, object keys included: a header map can hold a token as a key. */
-function* stringLeaves(value: unknown): Generator<string> {
-  if (typeof value === 'string') {
-    yield value;
-  } else if (Array.isArray(value)) {
-    for (const entry of value) yield* stringLeaves(entry);
-  } else if (value && typeof value === 'object') {
-    for (const [key, entry] of Object.entries(value)) {
-      yield key;
-      yield* stringLeaves(entry);
-    }
-  }
-}
-
-/**
- * The run's only enforcement of the private-name refusal (executors do not pass
- * `resolveVarsDeep` its third argument), so it refuses before anything is sent. It
- * reads a request's own fields; a value a script writes at run time is not on disk
- * and fails that one item instead (see the `executeRequest` call above).
- */
-function assertCliSecretsAvailable(
-  requests: readonly { request: unknown }[],
-  vars: Record<string, string>,
-  privateNames: ReadonlySet<string>
-): void {
-  for (const { request } of requests) {
-    for (const text of stringLeaves(request)) {
-      if (!text.includes('{{')) continue;
-      for (const { name } of scanVariableTokens(text)) {
-        if (name.startsWith('$')) continue;
-        if (name.startsWith('handle:')) {
-          throw new Error(
-            'SecretRef handles are unavailable in the CLI; provide the value with --env.'
-          );
-        }
-        if (privateNames.has(name) && lookupVariable([vars], name) === undefined) {
-          throw new Error(
-            `Private variable "${name}" is unavailable in the CLI; provide it with --env.`
-          );
-        }
-      }
-    }
-  }
 }

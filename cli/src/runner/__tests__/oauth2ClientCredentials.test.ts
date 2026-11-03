@@ -3,8 +3,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { AuthConfig } from '@shared/types';
+import { Agent, type Dispatcher } from 'undici';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Reporter } from '../../reporters/types';
+import { oauth2TokenOptions, resolveOAuth2Token } from '../executors/auth';
 import { runCollection } from '../runner';
 
 let server: Server;
@@ -14,6 +17,7 @@ const seenAuth: string[] = [];
 
 beforeAll(async () => {
   server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    if (req.url === '/token-hang') return; // accept, never answer
     if ((req.url ?? '').startsWith('/token')) {
       tokenFetches++;
       let body = '';
@@ -38,6 +42,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  server.closeAllConnections();
   await new Promise<void>((resolve, reject) =>
     server.close((err) => (err ? reject(err) : resolve()))
   );
@@ -57,7 +62,7 @@ class NoopReporter implements Reporter {
  * `scope` distinguishes the token-cache key per test (the cache is process-wide
  * by design — one `restura run` is one process — so tests must not share keys).
  */
-function makeCollection(count: number, scope: string): string {
+function makeCollection(count: number, scope: string, tokenPath = '/token'): string {
   const dir = mkdtempSync(join(tmpdir(), 'restura-cc-'));
   const items = Array.from(
     { length: count },
@@ -74,7 +79,7 @@ request:
     type: oauth2
     clientId: CLIENT
     clientSecret: SECRET
-    tokenUrl: "${baseUrl}/token"
+    tokenUrl: "${baseUrl}${tokenPath}"
     scope: ${scope}
 items:
 ${items}
@@ -100,5 +105,59 @@ describe('runCollection — OAuth2 client_credentials', () => {
     expect(seenAuth).toEqual(['Bearer CC_TOKEN', 'Bearer CC_TOKEN', 'Bearer CC_TOKEN']);
     // One token fetch, reused for all three requests.
     expect(tokenFetches).toBe(1);
+  });
+});
+
+describe('OAuth2 client_credentials token fetch honours the run options', () => {
+  const auth = (clientSecret: string): AuthConfig => ({
+    type: 'oauth2',
+    oauth2: { clientId: 'CLIENT', clientSecret, tokenUrl: `${baseUrl}/token`, scope: 'opts' },
+  });
+
+  it('a token endpoint that never answers fails within --timeout', async () => {
+    const started = Date.now();
+    const result = await runCollection(
+      makeCollection(1, 'hang', '/token-hang'),
+      { ...RUN_OPTS, timeoutMs: 300 },
+      new NoopReporter()
+    );
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(result.requests[0]?.passed).toBe(false);
+    expect(result.requests[0]?.errorMessage).toMatch(/abort|timeout/i);
+    expect(seenAuth).toEqual([]);
+  });
+
+  it('the token POST goes through the run dispatcher (TLS / proxy flags)', async () => {
+    const paths: string[] = [];
+    class SpyAgent extends Agent {
+      override dispatch(options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler) {
+        paths.push(options.path);
+        return super.dispatch(options, handler);
+      }
+    }
+    const dispatcher = new SpyAgent();
+    const resolved = await resolveOAuth2Token(
+      auth('S1'),
+      {},
+      oauth2TokenOptions({ vars: {}, timeoutMs: 2000, allowLocalhost: true, dispatcher })
+    );
+    expect(resolved?.oauth2?.accessToken).toBe('CC_TOKEN');
+    expect(paths).toEqual(['/token']);
+    await dispatcher.close();
+  });
+
+  it('the token cache is per run and keyed by the client secret too', async () => {
+    const run = { vars: {}, timeoutMs: 2000, allowLocalhost: true, oauth2TokenCache: new Map() };
+    await resolveOAuth2Token(auth('S1'), {}, oauth2TokenOptions(run));
+    await resolveOAuth2Token(auth('S1'), {}, oauth2TokenOptions(run));
+    await resolveOAuth2Token(auth('S2'), {}, oauth2TokenOptions(run));
+    expect(tokenFetches).toBe(2);
+    // A new run (no shared cache) fetches again.
+    await resolveOAuth2Token(
+      auth('S1'),
+      {},
+      oauth2TokenOptions({ ...run, oauth2TokenCache: new Map() })
+    );
+    expect(tokenFetches).toBe(3);
   });
 });
