@@ -116,7 +116,7 @@ describe('Protobuf message indexes (Confluent wire format)', () => {
   });
 
   it('rejects truncated, negative and absurd index arrays', () => {
-    expect(() => decodeMessageIndexes(Buffer.from([]))).toThrow(/Truncated/);
+    expect(() => decodeMessageIndexes(Buffer.from([]))).toThrow(/premature EOF/);
     expect(() => decodeMessageIndexes(Buffer.from([1]))).toThrow(/count/); // zigzag(1) = -1
     expect(() => decodeMessageIndexes(Buffer.from([2, 1]))).toThrow(/negative/);
     expect(() => decodeMessageIndexes(Buffer.from([0x7e]))).toThrow(/count/); // 63 > 32
@@ -144,7 +144,6 @@ describe('buildProtobufCodec', () => {
       lines: [{ sku: 's', qty: 3 }],
       tags: { k: 7 },
       cash: 1.5,
-      created_at: null,
       big: '18446744073709551615',
     });
     expect(codec.encode(order)).toEqual(CONFLUENT_ORDER.subarray(5));
@@ -165,7 +164,7 @@ describe('buildProtobufCodec', () => {
     const body = codec.encode({
       orderId: 7,
       status: 2,
-      createdAt: { seconds: '1', nanos: 0 },
+      createdAt: '1970-01-01T00:00:01Z', // canonical Timestamp JSON
       lines: [{ sku: 'a', qty: '2' }],
       cash: '1.25',
       name: null,
@@ -173,27 +172,33 @@ describe('buildProtobufCodec', () => {
     expect(codec.decode(body)).toMatchObject({
       order_id: '7',
       status: 'DONE',
-      created_at: { seconds: '1', nanos: 0 },
+      created_at: '1970-01-01T00:00:01Z',
       lines: [{ sku: 'a', qty: 2 }],
       cash: 1.25,
       name: '',
     });
   });
 
-  it('rejects values protobufjs would otherwise silently coerce', () => {
+  it('rejects invalid values with field-level errors (bufbuild proto3 JSON)', () => {
     const cases: [unknown, RegExp][] = [
-      [{ nope: 1 }, /unknown field/],
-      [{ status: 'LOST' }, /not a Status value/],
-      [{ order_id: Number.MAX_SAFE_INTEGER + 2 }, /precision/],
-      [{ order_id: 'abc' }, /integer/],
-      [{ big: '-1' }, /out of range for uint64/],
-      [{ lines: [{ qty: 2 ** 31 }] }, /out of range for int32/],
-      [{ lines: { sku: 'a' } }, /expected an array/],
-      [{ tags: [] }, /map expected an object/],
-      [{ card: 'x', cash: 1 }, /oneof pay already set/],
-      [{ blob: 'not base64!' }, /Base64/],
-      [{ name: 5 }, /string expected/],
-      ['just a string', /expected an object/],
+      [{ nope: 1 }, /Unknown field\(s\) in interop\.shop\.Order: nope/],
+      [{ status: 'LOST' }, /cannot decode enum interop\.shop\.Status from JSON: "LOST"/],
+      [
+        { order_id: Number.MAX_SAFE_INTEGER + 2 },
+        /order_id: integer exceeds JSON number precision/,
+      ],
+      [{ lines: [{ qty: Number.MAX_SAFE_INTEGER + 2 }] }, /lines\[0\]\.qty: integer exceeds/],
+      [{ order_id: 'abc' }, /order_id from JSON: expected bigint \(int64\)/],
+      [{ order_id: 1.5 }, /order_id from JSON: expected bigint \(int64\): 1\.5/],
+      [{ big: '-1' }, /\(uint64\): -1 out of range/],
+      [{ lines: [{ qty: 2 ** 31 }] }, /\(int32\): 2147483648 out of range/],
+      [{ lines: { sku: 'a' } }, /lines from JSON: expected Array/],
+      [{ tags: [] }, /tags from JSON: expected object/],
+      [{ card: 'x', cash: 1 }, /oneof set multiple times by card and cash/],
+      [{ blob: 'not base64!' }, /invalid base64/],
+      [{ name: 5 }, /name from JSON: expected string/],
+      [{ created_at: { seconds: 1 } }, /Timestamp from JSON/], // canonical form is RFC 3339
+      ['just a string', /cannot decode message interop\.shop\.Order/],
     ];
     for (const [payload, error] of cases) {
       expect(() => codec.encode(payload), JSON.stringify(payload)).toThrow(error);
@@ -233,10 +238,8 @@ describe('buildProtobufCodec', () => {
     // Only the main file's messages are indexed — not the referenced Money.
     expect(withRefs.messageNames).toEqual(['main.Invoice']);
     expect(
-      withRefs.decode(
-        withRefs.encode({ total: { units: '-9223372036854775808' }, memo: { value: 'm' } })
-      )
-    ).toEqual({ total: { units: '-9223372036854775808' }, memo: { value: 'm' } });
+      withRefs.decode(withRefs.encode({ total: { units: '-9223372036854775808' }, memo: 'm' }))
+    ).toEqual({ total: { units: '-9223372036854775808' }, memo: 'm' });
   });
 
   it('fails clearly for schemas with no messages or unresolvable types', () => {

@@ -284,7 +284,7 @@ function cases(): Case[] {
           lines: [{ sku: 's', qty: 3 }],
           tags: { k: 7 },
           cash: 1.5,
-          createdAt: { seconds: '1700000000', nanos: 5 }, // camelCase JSON name accepted
+          createdAt: '2023-11-14T22:13:20.000000005Z', // camelCase name, canonical Timestamp
           big: '18446744073709551615',
           total: { currency: 'EUR', units: '-3' },
           delta: -7,
@@ -298,7 +298,7 @@ function cases(): Case[] {
           lines: [{ sku: 's', qty: 3 }],
           tags: { k: 7 },
           cash: 1.5,
-          created_at: { seconds: '1700000000', nanos: 5 },
+          created_at: '2023-11-14T22:13:20.000000005Z',
           big: '18446744073709551615',
           total: { currency: 'EUR', units: '-3' },
           delta: -7,
@@ -318,9 +318,7 @@ function cases(): Case[] {
           status: 'NEW',
           lines: [],
           tags: {},
-          created_at: null,
           big: '0',
-          total: null,
           delta: 0,
           checksum: '0',
         },
