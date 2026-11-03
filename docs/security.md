@@ -28,6 +28,11 @@ passphrase is held in memory for the session only; closing the tab clears
 it. On next page load the user must re-enter the passphrase to decrypt
 existing data.
 
+Encryption fails closed: if the Web Crypto API (`crypto.subtle` and
+`crypto.getRandomValues`) is unavailable, the encrypt/decrypt helpers in
+`src/lib/shared/encryption.ts` throw instead of falling back to plaintext or
+`Math.random`.
+
 > The opt-in passphrase UI is tracked separately; the runtime hook
 > (`setKeyProvider(new WebSessionPassphraseProvider(...))`) is already
 > wired through `getKeyProvider()`. See the TODO in

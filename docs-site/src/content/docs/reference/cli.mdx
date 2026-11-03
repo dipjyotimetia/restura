@@ -120,7 +120,7 @@ restura run [collection] [options]
 
 | Flag | Default | Description |
 |---|---|---|
-| `-e, --env <file>` | | JSON or YAML env file: a flat `{ "key": "value" }` object (string values only) or a Postman environment export (`*.postman_environment.json`; disabled rows skipped). `${VAR}` placeholders are expanded from `process.env`. Hoppscotch environment exports are not read; import those in the app. |
+| `-e, --env <file>` | | JSON or YAML env file: a flat `{ "key": "value" }` object (string values only) or a Postman environment export (`*.postman_environment.json`; disabled rows skipped). `${VAR}` placeholders are expanded from `process.env`; an unset one expands to an empty string with a `[restura] WARNING: ${VAR} is not set…` line on stderr (once per name; the exit code is unchanged). Hoppscotch environment exports are not read; import those in the app. |
 | `-g, --globals <file>` | | Postman globals export (or a flat key/value file). Lowest precedence: below `--env`. |
 | `--env-var <kv...>` | | Set variables, Newman style: `--env-var token=abc base=https://x`. Wins over `--env` and collection / folder variables. |
 | `-n, --iteration-count <n>` | | Number of iterations. Without `--data`, runs the collection `n` times; with `--data`, the last row repeats past the end. |
@@ -136,8 +136,8 @@ restura run [collection] [options]
 | `--exclude <pattern...>` | | Same syntax as `--include`. Applied after. |
 | `--data <file>` | | CSV (with header row) or JSON array. Runs the collection once per row. |
 | `--max-iterations <n>` | | Cap iterations when a `--data` file is large. |
-| `--retry <n>` | `0` | Retry attempts per failing request. |
-| `--retry-on <list>` | `network,5xx` | Triggers: `network`, `5xx`, `4xx`, or specific status codes (`429,503`). |
+| `--retry <n>` | `0` | Retry attempts per failing request. Backoff doubles from 250 ms; a `429` / `503` with `Retry-After` (seconds or HTTP-date) waits that long instead, capped at 60 s. |
+| `--retry-on <list>` | `network,5xx` | Comma-separated triggers: `network`, `5xx`, `4xx`, or specific status codes (`429,503`). `network` means no response at all (status 0, no gRPC status); an HTTP or gRPC answer is not a network failure. `5xx` means an HTTP 5xx, or for gRPC only the transient statuses `UNAVAILABLE`, `DEADLINE_EXCEEDED` and `RESOURCE_EXHAUSTED`; other gRPC statuses (`INVALID_ARGUMENT`, `NOT_FOUND`, `PERMISSION_DENIED`, `INTERNAL`, …) are attempted once. A request refused before any I/O (unresolvable variable, blocked or unsupported request, NTLM, invalid URL) is never retried. |
 | `--sse-duration <ms>` | `5000` | How long to keep SSE streams open. |
 | `--sse-events <n>` | | Stop SSE early after N events. |
 | `--insecure` | `false` | Skip TLS certificate verification (self-signed / staging). |
@@ -186,7 +186,7 @@ Layered sources, in order of precedence (later wins):
 
 1. `--globals` file, then the `--env` file
 2. Collection variables (declared in `opencollection.yml` or `_collection.yaml`, or the Postman collection's variables). A `pm.collectionVariables.set` in a script updates this layer for later requests in the run, as in Newman and the app (the file on disk is not changed). A secret collection variable has no value in the file: supply it with `--env`, `--env-var` or a `--data` row, or set it from an earlier script. A request that is about to be sent while it still has no value is reported as not sent and fails; the rest of the run carries on.
-3. Folder variables of the folders above the request, outer → inner
+3. Folder variables of the folders above the request, outer → inner (inner wins). Secret, private and handle-backed folder variables have no value in the file: like a secret collection variable, a request that is about to be sent while one it uses still has no value is reported as not sent and fails.
 4. `--env-var` values
 5. Values a script set in an earlier iteration
 6. Iteration row (when `--data` is set)
@@ -196,7 +196,7 @@ Substitutions use `{{NAME}}`. A name is any text without braces, trimmed of surr
 
 ### Auth
 
-Header-based auth (Bearer, Basic, API-key, OAuth2) follows the app's rule: Basic with an empty username and a password sends `Basic base64(":password")`, and with neither sends no header. HTTP, MCP, SSE and gRPC items resolve external secret references through the profile given with `--external-secrets-config`; with no resolver for a reference the item fails explicitly instead of being sent without credentials.
+Header-based auth (Bearer, Basic, API-key, OAuth2) follows the app's rule: Basic with an empty username and a password sends `Basic base64(":password")`, and with neither sends no header. HTTP, MCP, SSE and gRPC items resolve external secret references through the profile given with `--external-secrets-config`; with no resolver for a reference the item fails explicitly instead of being sent without credentials. For OAuth2, a pre-supplied access token is used as-is; if the auth instead carries a token endpoint + client id (and no token), the CLI fetches one via the **client_credentials** grant, caching it for the run only. The token request goes through the same transport as the run: `--ca`, `--insecure`, `--client-cert`/`--client-key`, `--proxy` and `--timeout` apply to it, and a token endpoint that redirects is refused.
 
 ### Dynamic helpers
 
@@ -241,13 +241,13 @@ Live, in-place dashboard with a progress bar and a spinner on the in-flight requ
 Plain one-line-per-request progress — the default when output is piped or in CI (no ANSI cursor control). Force it with `--reporter live` if the dashboard misbehaves.
 </TabItem>
 <TabItem label="json">
-Full `RunResult` dumped as JSON. Path required (`--output` or `--reporter-output json=...`). Pipe into anything.
+The `RunResult` dumped as JSON. Path required (`--output` or `--reporter-output json=...`). Each request is reported as `{ relativePath, folderPath, type, request: { name, type, method, url, auth } }` with every auth secret field shown as `[redacted]`; headers, bodies, scripts and variables are not written, so a report artifact carries no inline credentials or session cookies.
 </TabItem>
 <TabItem label="junit">
-JUnit XML for CI dashboards (GitLab, Azure DevOps, Jenkins, GitHub Actions test reporters). One `<testcase>` per request.
+JUnit XML for CI dashboards (GitLab, Azure DevOps, Jenkins, GitHub Actions test reporters). One `<testcase>` per request; a request skipped by `pm.execution.skipRequest()` carries `<skipped/>` and is counted in the suite's `skipped` attribute.
 </TabItem>
 <TabItem label="html">
-Self-contained HTML page with embedded data + summary table. Great for sharing failures.
+Self-contained HTML page with embedded data + summary table. The embedded data is redacted like the `json` report.
 </TabItem>
 <TabItem label="stats">
 Latency percentiles (p50/p90/p95/p99) + throughput at the end of the run.

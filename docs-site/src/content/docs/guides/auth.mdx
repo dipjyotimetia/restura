@@ -25,12 +25,12 @@ Choose where the key lives — a header or a query parameter — and its name.
 
 Four grants supported, all with optional **PKCE**:
 
-- **Authorization code** — full browser-redirect flow. Restura opens the auth URL in a system browser and catches the callback.
+- **Authorization code** — on the web, **Get token** opens the authorization URL in a popup and reads the redirect. The desktop app denies renderer popups, so the button is disabled with a notice there: use client credentials, password or device code, or paste a token. Desktop loopback support is a planned follow-up; the system-browser flow in the desktop app is MCP OAuth ([ADR 0031](/architecture/adrs/0031-mcp-oauth-in-electron-main/)).
 - **Client credentials** — service-to-service.
 - **Resource owner password** — when you must.
 - **Device code** — for CLIs and headless clients.
 
-Token refresh is automatic where supported. Issued tokens live in the encrypted secret store (desktop) or session memory (web).
+**Get token** saves the issued access token, plus `refresh_token` and the expiry from `expires_in` when the server returns them, in the request's auth settings. When the token is expired or about to expire and a refresh token is present, an HTTP send refreshes it and saves the newly issued token back to the request.
 
 ### OAuth 1.0a
 

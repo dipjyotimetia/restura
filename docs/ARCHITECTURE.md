@@ -352,7 +352,7 @@ Restura streams `text/event-stream`, `application/x-ndjson`, and `application/js
 
 - `executeHttpProxyStreaming(spec, fetcher, options)` returns a `StreamingResponseHandle` whose `body: ReadableStream<Uint8Array>` is handed to the caller without buffering. Does NOT enforce `MAX_RESPONSE_SIZE` — streaming is unbounded by intent.
 - `shared/protocol/sse-parser.ts` — canonical W3C SSE event-frame parser (consumed by worker MCP, Electron SSE, and renderer SSE)
-- `shared/protocol/ndjson-parser.ts` — line-delimited JSON parser with `__parseError` sentinel for malformed lines
+- `shared/protocol/ndjson-parser.ts` — line-delimited JSON parser with `__parseError` sentinel for malformed lines. Fails closed: a line longer than `MAX_NDJSON_LINE_CHARS` (8 Mi chars) without a newline throws instead of buffering further
 - `FetcherResponse.body?: ReadableStream<Uint8Array>` — optional streaming-mode field on the Fetcher contract; populated by Worker (native fetch) and Electron (undici)
 
 **Worker path:** When the request has `Accept: text/event-stream | application/x-ndjson | application/jsonl` (or `streamingMode: true`), `worker/handlers/proxy.ts` routes through `executeHttpProxyStreaming` and pipes the upstream body via Hono's `stream(c, ...)` helper. Otherwise the buffered path runs unchanged. Upstream `Set-Cookie` is never forwarded as a real header on this path (the browser would store it for the Restura origin); every cookie travels as a JSON array in `x-restura-set-cookies`, which the renderer decodes into its cookie jar. Buffered responses carry the same list as `setCookies: string[]` (`shared/protocol/set-cookie.ts`).
@@ -543,6 +543,8 @@ The `ENVIRONMENT=development` var in `.dev.vars` enables localhost proxying for 
 `useRequestStore.updateRequest` hard-fails on validator rejection. Invalid updates are not applied; the user sees a `toast.error` with the validation message.
 
 All stores are validated with Zod schemas on hydration from persisted storage — Dexie (web) or electron-store (desktop) — via `src/lib/shared/store-validators.ts`.
+
+Stores built with `createPersistedStore` (`src/lib/shared/persistence/createPersistedStore.ts`: connection protocols, GraphQL/proto, console, collection runs, globals) validate on every hydration, including a same-version row: zustand only calls `migrate` on a version mismatch, so `merge` checks the schema too. A rejected row is quarantined and the store keeps its current state. The multi-version stores (collections, history, settings, request, environment, workflow, cookies) still hand-roll `persist`.
 
 ### Electron hardening
 
