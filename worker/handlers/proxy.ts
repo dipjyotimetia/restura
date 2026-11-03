@@ -252,7 +252,7 @@ export function createProxyHandler(
           ...(body.encodeUrl !== undefined && { encodeUrl: body.encodeUrl }),
         },
         fetcher,
-        { allowLocalhost: isDev, allowPrivateIPs }
+        { allowLocalhost: isDev, allowPrivateIPs, signal: c.req.raw.signal }
       );
 
       if (!streamingResult.ok) {
@@ -311,7 +311,7 @@ export function createProxyHandler(
         ...(body.encodeUrl !== undefined && { encodeUrl: body.encodeUrl }),
       },
       fetcher,
-      { allowLocalhost: isDev, allowPrivateIPs }
+      { allowLocalhost: isDev, allowPrivateIPs, signal: c.req.raw.signal }
     );
 
     if (!result.ok) {
