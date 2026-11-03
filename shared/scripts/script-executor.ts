@@ -114,8 +114,8 @@ class ScriptExecutor {
   private runtime: QuickJSRuntime | null = null;
   private vm: QuickJSContext | null = null;
   /**
-   * Wall-clock start of the currently-running `eval()`, or `0` when no
-   * user script is in flight.
+   * Wall-clock start of the currently-running `eval()` (set on entry, so its
+   * setup, user script and harvest share one ceiling), or `0` outside it.
    *
    * **Contract**: the interrupt handler and the async pump skip
    * enforcement whenever this is `0` — that's how `initialize()`'s
@@ -216,12 +216,11 @@ class ScriptExecutor {
     // The interrupt handler reads instance fields so each `eval()` call can
     // reset the start time without re-registering the handler.
     runtime.setInterruptHandler(() => {
-      // Only enforce timeouts during USER-script eval. `evalStartTime`
-      // is set by `eval()` before running the user script and reset to
-      // 0 once that script settles (and at construction). During `initialize()` (library bundle load,
-      // pm.* native setup, PM_EXPECT bootstrap) we must NOT interrupt
-      // — those run trusted code we authored, and the 2MB library
-      // bundle can take a couple of seconds to parse on slower devices.
+      // Only enforce timeouts inside `eval()`, which is timed end to end
+      // (its setup and harvest evals can hit user-installed accessors) and
+      // resets `evalStartTime` to 0 on exit. `initialize()` (library bundle,
+      // pm.* setup, PM_EXPECT bootstrap) runs our own code untimed: the 2MB
+      // bundle can take seconds to parse on slower devices.
       if (this.evalStartTime === 0) return false;
       const ceiling = this.executionCeilingMs();
       if (Date.now() - this.evalStartTime > ceiling) {
@@ -710,40 +709,42 @@ class ScriptExecutor {
     // setup time reference these object identities, so we can't replace them.
     for (const k of Object.keys(this.globalsMutations)) delete this.globalsMutations[k];
     for (const k of Object.keys(this.collectionMutations)) delete this.collectionMutations[k];
-    // Reset the per-eval sentinels (execution flow control + visualizer).
-    // We use a tiny eval rather than setProp so we don't have to manage
-    // QuickJS handles for transient state.
-    const sentinelReset = vm.evalCode(
-      `globalThis.__pm_execution_state__ = { nextRequest: undefined, skipRequested: false }; ` +
-        `globalThis.__pm_visualization__ = undefined;`
-    );
-    if (sentinelReset.error) sentinelReset.error.dispose();
-    else sentinelReset.value.dispose();
-
-    const trimmedScript = typeof script === 'string' ? script.trim() : '';
-    if (!trimmedScript) {
-      return {
-        success: true,
-        logs: this.logs,
-        errors: this.errors,
-        variables: { ...this.envVars },
-      };
-    }
-
-    this.bindRequestResponse(vm, context);
+    // The whole eval() is timed: the sentinel reset and bindings below can run
+    // getters/setters an earlier user script installed. Reset on every exit.
     this.evalStartTime = Date.now();
     this.evalInterrupted = false;
-    // Reset to 0 once the user script settles, so a reused executor's trusted
-    // evals (sentinels, bindings) before the next user script stay untimed.
     try {
-      const result = vm.evalCode(trimmedScript, 'user-script.js');
-      if (result.error) {
-        const errorValue = vm.dump(result.error);
-        const errorMsg = typeof errorValue === 'string' ? errorValue : JSON.stringify(errorValue);
-        this.addLog('error', `Script execution error: ${errorMsg}`);
-        result.error.dispose();
-      } else {
-        result.value.dispose();
+      // Reset the per-eval sentinels (execution flow control + visualizer).
+      // We use a tiny eval rather than setProp so we don't have to manage
+      // QuickJS handles for transient state.
+      const sentinelReset = vm.evalCode(
+        `globalThis.__pm_execution_state__ = { nextRequest: undefined, skipRequested: false }; ` +
+          `globalThis.__pm_visualization__ = undefined;`
+      );
+      if (sentinelReset.error) sentinelReset.error.dispose();
+      else sentinelReset.value.dispose();
+
+      const trimmedScript = typeof script === 'string' ? script.trim() : '';
+      if (!trimmedScript && !this.evalInterrupted) {
+        return {
+          success: true,
+          logs: this.logs,
+          errors: this.errors,
+          variables: { ...this.envVars },
+        };
+      }
+
+      if (!this.evalInterrupted) this.bindRequestResponse(vm, context);
+      if (!this.evalInterrupted) {
+        const result = vm.evalCode(trimmedScript, 'user-script.js');
+        if (result.error) {
+          const errorValue = vm.dump(result.error);
+          const errorMsg = typeof errorValue === 'string' ? errorValue : JSON.stringify(errorValue);
+          this.addLog('error', `Script execution error: ${errorMsg}`);
+          result.error.dispose();
+        } else {
+          result.value.dispose();
+        }
       }
       // Drain microtasks the script queued (await / .then / promise chains):
       // pump QuickJS jobs, yield to the host so in-flight host Promises (e.g.
@@ -782,35 +783,35 @@ class ScriptExecutor {
         // once it eventually settles.
         this.releasePendingHostOps();
       }
+
+      // Harvest the per-eval sentinels back into the result shape. Both are
+      // optional — absent when the script didn't touch them. We tolerate
+      // malformed JSON silently because the bootstrap above writes well-formed
+      // values; a parse error here would mean a user script tampered with the
+      // sentinel global, in which case "ignore and move on" matches Postman's
+      // permissive behaviour.
+      const execution = this.readExecutionSentinel(vm);
+      const visualization = this.readVisualizationSentinel(vm);
+      const requestMetadata = readRequestMetadata(vm, context.request);
+
+      const hasGlobalsMutations = Object.keys(this.globalsMutations).length > 0;
+      const hasCollectionMutations = Object.keys(this.collectionMutations).length > 0;
+
+      return {
+        success: this.errors.length === 0,
+        logs: this.logs,
+        errors: this.errors,
+        variables: { ...this.envVars },
+        ...(this.tests.length > 0 && { tests: this.tests }),
+        ...(hasGlobalsMutations && { globalsMutations: { ...this.globalsMutations } }),
+        ...(hasCollectionMutations && { collectionMutations: { ...this.collectionMutations } }),
+        ...(execution && { execution }),
+        ...(visualization && { visualization }),
+        ...(requestMetadata && { requestMetadata }),
+      };
     } finally {
       this.evalStartTime = 0;
     }
-
-    // Harvest the per-eval sentinels back into the result shape. Both are
-    // optional — absent when the script didn't touch them. We tolerate
-    // malformed JSON silently because the bootstrap above writes well-formed
-    // values; a parse error here would mean a user script tampered with the
-    // sentinel global, in which case "ignore and move on" matches Postman's
-    // permissive behaviour.
-    const execution = this.readExecutionSentinel(vm);
-    const visualization = this.readVisualizationSentinel(vm);
-    const requestMetadata = readRequestMetadata(vm, context.request);
-
-    const hasGlobalsMutations = Object.keys(this.globalsMutations).length > 0;
-    const hasCollectionMutations = Object.keys(this.collectionMutations).length > 0;
-
-    return {
-      success: this.errors.length === 0,
-      logs: this.logs,
-      errors: this.errors,
-      variables: { ...this.envVars },
-      ...(this.tests.length > 0 && { tests: this.tests }),
-      ...(hasGlobalsMutations && { globalsMutations: { ...this.globalsMutations } }),
-      ...(hasCollectionMutations && { collectionMutations: { ...this.collectionMutations } }),
-      ...(execution && { execution }),
-      ...(visualization && { visualization }),
-      ...(requestMetadata && { requestMetadata }),
-    };
   }
 
   /** Read `__pm_execution_state__` back into the typed sentinel shape. */
