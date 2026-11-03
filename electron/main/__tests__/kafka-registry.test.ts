@@ -601,23 +601,26 @@ describe('createKafkaRegistryClient', () => {
       byKey: { key: '' },
       id: '',
     };
-    const encoded = await registry.encode(21, JSON.parse(JSON.stringify(generated)));
+    const encoded = await registry.encode(21, JSON.stringify(generated));
     const decoded = (await registry.decode(encoded)) as Record<string, unknown>;
     // bytes/fixed decode to the same code-point strings encode accepts, so a
     // consumed record can be re-produced unchanged.
     expect(decoded.b).toBe('');
     expect(decoded.f).toBe('\u0000\u0000\u0000\u0000');
     expect(decoded.list).toEqual(['']);
-    const custom = await registry.encode(21, { ...generated, b: 'h\u00ff', maybe: null });
+    const custom = await registry.encode(
+      21,
+      JSON.stringify({ ...generated, b: 'h\u00ff', maybe: null })
+    );
     const customDecoded = (await registry.decode(custom)) as { b: string };
     expect(Buffer.from(customDecoded.b, 'latin1')).toEqual(Buffer.from([0x68, 0xff]));
-    expect(await registry.encode(21, customDecoded)).toEqual(custom);
+    expect(await registry.encode(21, JSON.stringify(customDecoded))).toEqual(custom);
   });
 
   it('round-trips an Avro record and labels decoded fields with subject/version', async () => {
     const registry = await client();
     const id = await registry.resolveSchemaId({ subject: 'orders-value', version: 'latest' });
-    const encoded = await registry.encode(id, { id: 7, sku: 'A-1' });
+    const encoded = await registry.encode(id, '{"id":7,"sku":"A-1"}');
     expect(encoded[0]).toBe(0);
     expect(await decodeDisplayField(registry, encoded)).toEqual({
       value: '{"id":7,"sku":"A-1"}',

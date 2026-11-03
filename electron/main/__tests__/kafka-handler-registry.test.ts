@@ -157,8 +157,9 @@ describe('kafka-handler schema registry wiring', () => {
       subject: 'orders-value',
       version: 'latest',
     });
-    expect(registry.encode).toHaveBeenCalledWith(12, { a: 1 });
-    expect(registry.encode).toHaveBeenCalledWith(4, 'k');
+    // The JSON text is passed through so codecs can parse it without precision loss.
+    expect(registry.encode).toHaveBeenCalledWith(12, '{"a":1}');
+    expect(registry.encode).toHaveBeenCalledWith(4, '"k"');
   });
 
   it('fails the produce with a clear error when the subject is missing', async () => {

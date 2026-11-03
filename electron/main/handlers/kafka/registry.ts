@@ -1,8 +1,11 @@
 // Confluent Schema Registry client for the Kafka handler (#922, #926, #982).
 //
-// One client per live Kafka connection. Every registry request — the
-// @kafkajs/confluent-schema-registry encode/decode/resolve calls AND the
-// read-only browse calls below — goes through a single Node agent that:
+// One client per live Kafka connection. Record encode/decode is
+// schema-codecs.ts (Avro through @kafkajs/confluent-schema-registry's avsc
+// type; Protobuf and JSON Schema through Restura's codecs). Every registry
+// request — schema/reference fetches for the codecs, the library's
+// resolve/getSchema calls, and the read-only browse calls below — goes through
+// a single Node agent that:
 //   - carries the execution policy's host-selected TLS material (custom CA,
 //     mTLS client cert, verify toggle) for https registries, and
 //   - resolves the registry hostname on every new socket and refuses
@@ -71,8 +74,8 @@ export interface RegistrySchemaRef {
 export type SchemaFieldRef = { schemaId: number } | { subject: string; version: number | 'latest' };
 
 export interface KafkaRegistryClient {
-  /** `messageName` picks a Protobuf message type (default: the file's first message). */
-  encode(registryId: number, payload: unknown, messageName?: string): Promise<Buffer>;
+  /** Encode the user's JSON text (kept as text so no codec loses integer precision). */
+  encode(registryId: number, json: string): Promise<Buffer>;
   decode(buffer: Buffer): Promise<unknown>;
   resolveSchemaId(ref: SchemaFieldRef): Promise<number>;
   describeSchemaId(id: number): Promise<RegistrySchemaRef>;
@@ -482,7 +485,7 @@ export async function createKafkaRegistryClient(
   });
 
   return {
-    encode: (registryId, payload, messageName) => codecs.encode(registryId, payload, messageName),
+    encode: (registryId, json) => codecs.encode(registryId, json),
     decode: (buffer) => codecs.decode(buffer),
 
     async resolveSchemaId(ref) {

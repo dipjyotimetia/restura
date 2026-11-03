@@ -198,6 +198,12 @@ interface FieldSpec {
   subject: string;
   payload: unknown;
   expected: unknown;
+  /** Exact JSON text to send instead of JSON.stringify(payload) (e.g. integer literals > 2^53). */
+  text?: string;
+  /** For JSON Schema: the consumed record text must equal this exactly. */
+  expectedText?: string;
+  /** Address the schema by numeric id instead of subject + version. */
+  byId?: boolean;
 }
 interface Case {
   name: string;
@@ -333,6 +339,36 @@ function cases(): Case[] {
       },
     },
     {
+      name: 'avro-exact-int64-literal',
+      value: {
+        subject: subject('avro-order'),
+        payload: undefined,
+        text: JSON.stringify({ ...orderBase, payment: null }).replace(
+          '"id":"1793000000000000001"',
+          '"id":1793000000000000001'
+        ),
+        expected: { ...orderBase, payment: null },
+      },
+    },
+    {
+      name: 'proto-key-json-value-by-schema-id',
+      key: {
+        subject: subject('proto-key'),
+        byId: true,
+        payload: undefined,
+        text: '{"id":"k1","shard":9007199254740993}',
+        expected: { id: 'k1', shard: '9007199254740993' },
+      },
+      value: {
+        subject: subject('json-event'),
+        byId: true,
+        payload: undefined,
+        text: '{"id": 9007199254740993, "tags": ["x"]}',
+        expected: undefined,
+        expectedText: '{"id": 9007199254740993, "tags": ["x"]}',
+      },
+    },
+    {
       name: 'json-draft-2020-12',
       value: {
         subject: subject('json-2020'),
@@ -380,6 +416,11 @@ describe.skipIf(!RUN)('Kafka Schema Registry matrix — live through the IPC han
       schema: PROTO_SHOP,
       references: [{ name: 'money.proto', subject: subject('proto-money'), version: 1 }],
     });
+    ids['proto-key'] = await register(subject('proto-key'), {
+      schemaType: 'PROTOBUF',
+      schema:
+        'syntax = "proto3";\npackage matrix.key;\nmessage Key { string id = 1; int64 shard = 2; }\n',
+    });
     ids['json-event'] = await register(subject('json-event'), {
       schemaType: 'JSON',
       schema: JSON.stringify(JSON_EVENT),
@@ -406,6 +447,14 @@ describe.skipIf(!RUN)('Kafka Schema Registry matrix — live through the IPC han
     __setKafkaForTests(undefined);
   });
 
+  const idOf = (subj: string) => Object.entries(ids).find(([k]) => subject(k) === subj)?.[1];
+  // Mix the addressing styles: schema id, subject + version, subject + latest.
+  const schemaField = (f: FieldSpec, version: number | 'latest') => ({
+    encoding: 'schema',
+    ...(f.byId ? { schemaId: idOf(f.subject) } : { subject: f.subject, version }),
+    data: f.text ?? JSON.stringify(f.payload),
+  });
+
   it('round-trips every schema case through produce → broker → consume', async () => {
     const all = cases();
     for (const c of all) {
@@ -415,22 +464,8 @@ describe.skipIf(!RUN)('Kafka Schema Registry matrix — live through the IPC han
         record: {
           topic: TOPIC,
           // Mix both addressing styles: subject+version and subject+latest.
-          value: {
-            encoding: 'schema',
-            subject: c.value.subject,
-            version: 'latest',
-            data: JSON.stringify(c.value.payload),
-          },
-          ...(c.key
-            ? {
-                key: {
-                  encoding: 'schema',
-                  subject: c.key.subject,
-                  version: 1,
-                  data: JSON.stringify(c.key.payload),
-                },
-              }
-            : {}),
+          value: schemaField(c.value, 'latest'),
+          ...(c.key ? { key: schemaField(c.key, 1) } : {}),
           headers: [
             { key: { encoding: 'utf8', data: 'case' }, value: { encoding: 'utf8', data: c.name } },
           ],
@@ -473,7 +508,8 @@ describe.skipIf(!RUN)('Kafka Schema Registry matrix — live through the IPC han
       expect(msg, c.name).toBeDefined();
       if (!msg) continue;
       expect(msg.valueEncoding, c.name).toBe('utf8');
-      expect(JSON.parse(msg.value), c.name).toEqual(c.value.expected);
+      if (c.value.expectedText !== undefined) expect(msg.value, c.name).toBe(c.value.expectedText);
+      else expect(JSON.parse(msg.value), c.name).toEqual(c.value.expected);
       const valueKey = Object.entries(ids).find(([k]) => subject(k) === c.value.subject)?.[1];
       // Id only: registries dedupe identical schemas, so the subject label may
       // name another subject (e.g. one from a previous run) sharing that id.
@@ -489,7 +525,6 @@ describe.skipIf(!RUN)('Kafka Schema Registry matrix — live through the IPC han
 
   it('rejects payloads that do not match their schema before anything is sent', async () => {
     const bad: [string, unknown][] = [
-      [subject('avro-order'), { ...orderBase, id: Number.MAX_SAFE_INTEGER + 2 }], // unsafe JSON number
       [subject('avro-order'), { ...orderBase, status: 'NOPE' }],
       [subject('proto-shop'), { status: 'NOPE' }],
       [subject('proto-shop'), { unknown_field: 1 }],

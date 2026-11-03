@@ -9,11 +9,13 @@
 // makes every such schema fail with "no such type"), and cannot resolve
 // google/protobuf/* imports.
 //
-// Everything Protobuf-specific is delegated to the libraries the gRPC client
-// already uses: `.proto` text (schema + registry references) is compiled by the
-// shared `compileProtoFiles` (protobufjs parse → bufbuild descriptors with
-// canonical well-known types), and values go through bufbuild's proto3 JSON
-// mapping (`fromJson` / `toJson`) and binary codec (`toBinary` / `fromBinary`).
+// Everything Protobuf-specific is bufbuild — the stack the gRPC client uses:
+//  - Descriptors come, in order of preference, from the registry itself
+//    (`?format=serialized`: the FileDescriptorProto the registry compiled, so
+//    message indexes match what Confluent's own deserializers resolve), or from
+//    compiling the schema text with the shared `compileProtoFiles`.
+//  - Values go through bufbuild's proto3 JSON mapping (`fromJson` / `toJson`,
+//    with the file registry so `google.protobuf.Any` resolves) and binary codec.
 // Only the Confluent message-index framing lives here
 // (https://docs.confluent.io/platform/current/schema-registry/fundamentals/serdes-develop/index.html#wire-format):
 //   zigzag varint count, then that many zigzag varint indexes (the path to the
@@ -22,39 +24,53 @@
 //
 // JSON mapping is proto3 canonical JSON with `.proto` field names on output
 // (JSON names are accepted on input): 64-bit integers as strings, enums as
-// names, bytes as Base64, Timestamp/Duration/wrappers/Struct in their canonical
-// JSON forms, implicit defaults emitted.
+// names, bytes as Base64, Timestamp/Duration/wrappers/Struct/Any in their
+// canonical JSON forms, implicit defaults emitted. Input integer literals beyond
+// 2^53 keep their exact digits (parsed as text, which fromJson accepts).
 
 import {
   create,
   createFileRegistry,
+  type DescField,
   type DescMessage,
+  type FileRegistry,
   fromBinary,
   fromJson,
   type JsonValue,
+  ScalarType,
   toBinary,
   toJson,
 } from '@bufbuild/protobuf';
 import { BinaryReader, BinaryWriter } from '@bufbuild/protobuf/wire';
-import { type DescriptorProto, FileDescriptorSetSchema } from '@bufbuild/protobuf/wkt';
-import { compileProtoFiles } from '@shared/protocol/grpc-proto-compiler';
+import {
+  type DescriptorProto,
+  type FileDescriptorProto,
+  FileDescriptorSetSchema,
+} from '@bufbuild/protobuf/wkt';
+import {
+  compileProtoFiles,
+  toJsonName,
+  wellKnownFileProto,
+} from '@shared/protocol/grpc-proto-compiler';
 import { describeUnknownFields, findUnknownJsonFields } from '@shared/protocol/grpc-unknown-fields';
-
-export interface ProtobufReference {
-  name: string;
-  schema: string;
-}
+import { BigIntLiteral, parseJsonExact, type SchemaReference } from './schema-types';
 
 export interface ProtobufCodec {
   /** Fully-qualified names of the schema file's messages, in Confluent index order. */
   readonly messageNames: readonly string[];
-  /** Encode a JSON value; returns message-indexes + payload (no magic/id). */
-  encode(payload: unknown, messageName?: string): Buffer;
+  /** Encode JSON text; returns message-indexes + payload (no magic/id). */
+  encode(json: string, messageName?: string): Buffer;
   /** Decode message-indexes + payload (no magic/id) to a JSON value. */
   decode(body: Buffer): unknown;
 }
 
-/** Path the registry schema itself is compiled under (references keep their names). */
+/** A registry-compiled FileDescriptorProto and its import name. */
+export interface ProtobufDescriptorReference {
+  name: string;
+  proto: FileDescriptorProto;
+}
+
+/** Path the registry schema itself is registered under (references keep their names). */
 const MAIN_FILE = '__restura_registry_schema__.proto';
 const MAX_INDEX_DEPTH = 32;
 
@@ -81,63 +97,219 @@ export function decodeMessageIndexes(body: Buffer): { path: number[]; offset: nu
   return { path, offset: reader.pos };
 }
 
+const INT64_SCALARS = new Set<ScalarType>([
+  ScalarType.INT64,
+  ScalarType.UINT64,
+  ScalarType.FIXED64,
+  ScalarType.SFIXED64,
+  ScalarType.SINT64,
+]);
+const INT64_WRAPPERS = new Set(['google.protobuf.Int64Value', 'google.protobuf.UInt64Value']);
+
 /**
- * JSON.parse has already rounded integers beyond 2^53, and fromJson accepts the
- * rounded number for 64-bit fields, so refuse them up front (pass a string).
+ * Resolve {@link BigIntLiteral}s against the message type: exact text for
+ * 64-bit integer fields (fromJson accepts decimal strings), a number anywhere
+ * else (double/float, Struct/Value, unknown keys).
  */
-function findUnsafeInteger(value: unknown, path: string, depth = 0): string | undefined {
-  if (typeof value === 'number') {
-    return Number.isInteger(value) && !Number.isSafeInteger(value) ? path || '$' : undefined;
-  }
-  if (depth > 64 || !value || typeof value !== 'object') return undefined;
+function resolveLiterals(desc: DescMessage | undefined, value: unknown, depth = 0): unknown {
+  if (value instanceof BigIntLiteral) return value.toNumber();
+  if (depth > 64 || !value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((v) => resolveLiterals(undefined, v, depth + 1));
+  const typed = desc && !desc.typeName.startsWith('google.protobuf.') ? desc : undefined;
+  const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    const hit = findUnsafeInteger(
-      child,
-      Array.isArray(value) ? `${path}[${key}]` : path ? `${path}.${key}` : key,
-      depth + 1
-    );
-    if (hit) return hit;
+    const field = typed?.fields.find((f) => f.name === key || f.jsonName === key);
+    out[key] = field
+      ? resolveField(field, child, depth + 1)
+      : resolveLiterals(undefined, child, depth + 1);
   }
-  return undefined;
+  return out;
+}
+
+function resolveScalar(scalar: ScalarType, value: unknown, depth: number): unknown {
+  if (value instanceof BigIntLiteral)
+    return INT64_SCALARS.has(scalar) ? value.source : value.toNumber();
+  return resolveLiterals(undefined, value, depth);
+}
+
+function resolveMessage(desc: DescMessage, value: unknown, depth: number): unknown {
+  if (value instanceof BigIntLiteral) {
+    return INT64_WRAPPERS.has(desc.typeName) ? value.source : value.toNumber();
+  }
+  return resolveLiterals(desc, value, depth);
+}
+
+function resolveField(field: DescField, value: unknown, depth: number): unknown {
+  switch (field.fieldKind) {
+    case 'scalar':
+      return resolveScalar(field.scalar, value, depth);
+    case 'message':
+      return resolveMessage(field.message, value, depth);
+    case 'list':
+      return Array.isArray(value)
+        ? value.map((v) =>
+            field.listKind === 'scalar'
+              ? resolveScalar(field.scalar, v, depth + 1)
+              : field.listKind === 'message'
+                ? resolveMessage(field.message, v, depth + 1)
+                : resolveLiterals(undefined, v, depth + 1)
+          )
+        : resolveLiterals(undefined, value, depth);
+    case 'map':
+      return value && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(
+            Object.entries(value).map(([k, v]) => [
+              k,
+              field.mapKind === 'scalar'
+                ? resolveScalar(field.scalar, v, depth + 1)
+                : field.mapKind === 'message'
+                  ? resolveMessage(field.message, v, depth + 1)
+                  : resolveLiterals(undefined, v, depth + 1),
+            ])
+          )
+        : resolveLiterals(undefined, value, depth);
+    default:
+      return resolveLiterals(undefined, value, depth);
+  }
+}
+
+const isWellKnown = (name: string) => wellKnownFileProto(name) !== undefined;
+
+const TYPE_GROUP = 10;
+const TYPE_MESSAGE = 11;
+const TYPE_ENUM = 14;
+
+/** Fully-qualified (leading-dot) message and enum names a file declares. */
+function declaredTypes(file: FileDescriptorProto, out: Map<string, number>): void {
+  const pkg = file.package ? `.${file.package}` : '';
+  const walk = (types: readonly DescriptorProto[], prefix: string) => {
+    for (const type of types) {
+      const name = `${prefix}.${type.name}`;
+      out.set(name, TYPE_MESSAGE);
+      for (const e of type.enumType) out.set(`${name}.${e.name}`, TYPE_ENUM);
+      walk(type.nestedType, name);
+    }
+  };
+  for (const e of file.enumType) out.set(`${pkg}.${e.name}`, TYPE_ENUM);
+  walk(file.messageType, pkg);
+}
+
+/** Protobuf scoping: a relative type name resolves innermost-scope first. */
+function qualifyTypeName(
+  typeName: string,
+  scope: string,
+  known: Map<string, number>
+): string | undefined {
+  if (typeName.startsWith('.')) return known.has(typeName) ? typeName : undefined;
+  for (let at = scope; ; at = at.slice(0, Math.max(0, at.lastIndexOf('.')))) {
+    const candidate = `${at}.${typeName}`;
+    if (known.has(candidate)) return candidate;
+    if (at === '') return undefined;
+  }
 }
 
 /**
- * Build the codec for a registry Protobuf schema plus its resolved references.
- * Throws when the schema does not compile (parse error, unresolvable type or
- * import).
+ * Registry-served descriptors can leave out what protoc always sets: json_name
+ * (bufbuild reads an empty one verbatim), the field `type` for message/enum
+ * fields (unset reads as TYPE_DOUBLE), and fully-qualified type names (Redpanda
+ * writes e.g. map entries relative). Fill them in from the declared types.
+ */
+function repairDescriptor(
+  types: readonly DescriptorProto[],
+  scope: string,
+  known: Map<string, number>
+): void {
+  for (const type of types) {
+    const name = `${scope}.${type.name}`;
+    for (const field of type.field) {
+      if (!field.jsonName) field.jsonName = toJsonName(field.name);
+      if (!field.typeName) continue;
+      const qualified = qualifyTypeName(field.typeName, name, known);
+      if (!qualified) continue;
+      field.typeName = qualified;
+      const kind = known.get(qualified) as number;
+      if (field.type !== TYPE_GROUP && field.type !== kind) field.type = kind;
+    }
+    repairDescriptor(type.nestedType, name, known);
+  }
+}
+
+/**
+ * Codec from the registry's own compiled descriptors (`?format=serialized`).
+ * Message indexes follow the descriptor's message_type / nested_type lists
+ * exactly (map-entry types included), as Confluent's deserializers do.
+ */
+export function buildProtobufCodecFromDescriptors(
+  main: FileDescriptorProto,
+  references: readonly ProtobufDescriptorReference[] = []
+): ProtobufCodec {
+  const byName = new Map<string, FileDescriptorProto>();
+  for (const ref of references) {
+    if (isWellKnown(ref.name) || byName.has(ref.name)) continue;
+    // Registries serve descriptors with an empty name; imports use the reference name.
+    ref.proto.name = ref.name;
+    byName.set(ref.name, ref.proto);
+  }
+  main.name = MAIN_FILE;
+  const resolve = (name: string) => wellKnownFileProto(name) ?? byName.get(name);
+  const known = new Map<string, number>();
+  const seenFiles = new Set<string>();
+  const collect = (file: FileDescriptorProto) => {
+    if (seenFiles.has(file.name)) return;
+    seenFiles.add(file.name);
+    declaredTypes(file, known);
+    for (const dep of file.dependency) {
+      const resolved = resolve(dep);
+      if (resolved) collect(resolved);
+    }
+  };
+  collect(main);
+  for (const file of [main, ...byName.values()]) {
+    repairDescriptor(file.messageType, file.package ? `.${file.package}` : '', known);
+  }
+  // Canonical bufbuild descriptors for google/protobuf/* (exact WKT JSON).
+  const registry = createFileRegistry(main, resolve);
+  return codecFor(registry, false);
+}
+
+/**
+ * Codec compiled from the schema text (registries that cannot serve
+ * descriptors). protobufjs-derived descriptors list map-entry types before
+ * explicit nested messages, so explicit messages are counted first — protoc's
+ * order whenever nested messages are declared before map fields, which is how
+ * registries print normalised schemas.
  */
 export function buildProtobufCodec(
   schema: string,
-  references: readonly ProtobufReference[] = []
+  references: readonly SchemaReference[] = []
 ): ProtobufCodec {
   const seen = new Set<string>();
   const files = [
-    ...references.filter((r) => !seen.has(r.name) && seen.add(r.name)),
+    // google/protobuf/* references resolve to bufbuild's canonical descriptors.
+    ...references.filter((r) => !isWellKnown(r.name) && !seen.has(r.name) && seen.add(r.name)),
     { name: MAIN_FILE, schema },
   ].map((f) => ({ path: f.name, content: f.schema }));
   const registry = createFileRegistry(
     create(FileDescriptorSetSchema, { file: compileProtoFiles(files) })
   );
+  return codecFor(registry, true);
+}
+
+function codecFor(registry: FileRegistry, explicitNestedFirst: boolean): ProtobufCodec {
   const file = registry.getFile(MAIN_FILE);
   if (!file) throw new Error('Protobuf schema could not be compiled.');
   if (file.proto.messageType.length === 0) {
     throw new Error('Protobuf schema defines no message types.');
   }
 
-  // Message indexes follow protoc's message_type / nested_type order, where
-  // map-entry types count too. protobufjs-derived descriptors list map entries
-  // before explicit nested messages, so order explicit messages first (protoc
-  // order whenever nested messages are declared before map fields, which is
-  // how registries print normalised schemas).
   const prefix = file.proto.package ? `${file.proto.package}.` : '';
   const messageNames: string[] = [];
   const pathByName = new Map<string, number[]>();
   const nameByPath = new Map<string, string>();
   const walk = (types: readonly DescriptorProto[], parent: string, path: number[]) => {
-    const ordered = [
-      ...types.filter((t) => !t.options?.mapEntry),
-      ...types.filter((t) => t.options?.mapEntry),
-    ];
+    const ordered = explicitNestedFirst
+      ? [...types.filter((t) => !t.options?.mapEntry), ...types.filter((t) => t.options?.mapEntry)]
+      : types;
     ordered.forEach((type, index) => {
       const fullName = `${parent}${type.name}`;
       const nextPath = [...path, index];
@@ -151,15 +323,11 @@ export function buildProtobufCodec(
   };
   walk(file.proto.messageType, prefix, []);
 
-  const message = (typeName: string): DescMessage => {
-    const desc = registry.getMessage(typeName);
-    if (!desc) throw new Error(`Protobuf message "${typeName}" is not in the schema.`);
-    return desc;
-  };
   const messageAt = (path: readonly number[]): DescMessage => {
     const name = nameByPath.get(path.join(','));
-    if (!name) throw new Error(`Protobuf message index [${path.join(', ')}] is not in the schema.`);
-    return message(name);
+    const desc = name === undefined ? undefined : registry.getMessage(name);
+    if (!desc) throw new Error(`Protobuf message index [${path.join(', ')}] is not in the schema.`);
+    return desc;
   };
   const resolvePath = (messageName: string | undefined): number[] => {
     if (!messageName) return [0];
@@ -171,24 +339,23 @@ export function buildProtobufCodec(
     );
   };
   const toDisplay = (desc: DescMessage, bytes: Uint8Array): unknown =>
-    toJson(desc, fromBinary(desc, bytes), { alwaysEmitImplicit: true, useProtoFieldName: true });
+    toJson(desc, fromBinary(desc, bytes), {
+      alwaysEmitImplicit: true,
+      useProtoFieldName: true,
+      registry,
+    });
 
   return {
     messageNames,
-    encode(payload, messageName) {
+    encode(json, messageName) {
       const path = resolvePath(messageName);
       const desc = messageAt(path);
+      const payload = resolveLiterals(desc, parseJsonExact(json));
       const unknown = findUnknownJsonFields(desc, payload);
       if (unknown.length > 0) {
         throw new Error(`Unknown field(s) in ${desc.typeName}: ${describeUnknownFields(unknown)}`);
       }
-      const unsafe = findUnsafeInteger(payload, '');
-      if (unsafe) {
-        throw new Error(
-          `${unsafe}: integer exceeds JSON number precision; pass 64-bit values as strings`
-        );
-      }
-      const value = fromJson(desc, payload as JsonValue);
+      const value = fromJson(desc, payload as JsonValue, { registry });
       return Buffer.concat([encodeMessageIndexes(path), Buffer.from(toBinary(desc, value))]);
     },
     decode(body) {
