@@ -8,6 +8,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { createNodeWebSocket } from '@hono/node-ws';
 import { Hono } from 'hono';
@@ -15,6 +16,7 @@ import { Agent, EnvHttpProxyAgent, setGlobalDispatcher, fetch as undiciFetch } f
 import { createApp } from './app';
 import type { Env } from './env';
 import { createNodeWebsocketHandler } from './handlers/websocket-node';
+import { socketClientIpMiddleware } from './middleware/rateLimiter';
 import { assertNodeHostnameSafe } from './shared/dns-guard-node';
 import { createHttpsViaConnectProxy, createHttpViaProxy } from './shared/tcp-proxy-node';
 
@@ -82,6 +84,13 @@ app.use('*', async (c, next) => {
   }
   await next();
 });
+
+// Rate-limit by the socket peer: client-sent CF-Connecting-IP / True-Client-IP
+// are only honoured behind an operator-declared reverse proxy (TRUST_PROXY=true).
+app.use(
+  '*',
+  socketClientIpMiddleware((c) => getConnInfo(c).remote.address, process.env.TRUST_PROXY === 'true')
+);
 
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 

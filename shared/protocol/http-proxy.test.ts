@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { flattenHeaders as asRecord } from './header-utils';
 import { executeHttpProxy, executeHttpProxyStreaming, MAX_RESPONSE_SIZE } from './http-proxy';
-import type { Fetcher } from './types';
+import type { Fetcher, FetcherResponse } from './types';
 
 function makeFetcher(
   text: string,
@@ -621,5 +621,106 @@ describe('executeHttpProxy timings', () => {
       { allowLocalhost: false }
     );
     expect(r.ok && Object.keys(r.response.timings ?? {}).sort()).toEqual(['download', 'ttfb']);
+  });
+});
+
+const CHUNK = 1024 * 1024;
+
+/**
+ * A body with no Content-Length that is larger than the cap. Counts the bytes
+ * actually pulled so a test can prove the reader stopped at the cap instead of
+ * buffering the whole body first.
+ */
+function oversizeStream(fill: number): {
+  stream: ReadableStream<Uint8Array>;
+  pulled: () => number;
+} {
+  let pulled = 0;
+  const total = 2 * MAX_RESPONSE_SIZE;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (pulled >= total) {
+        controller.close();
+        return;
+      }
+      pulled += CHUNK;
+      controller.enqueue(new Uint8Array(CHUNK).fill(fill));
+    },
+  });
+  return { stream, pulled: () => pulled };
+}
+
+function respondWith(overrides: Partial<FetcherResponse>): Fetcher {
+  return vi.fn().mockResolvedValue({
+    status: 200,
+    statusText: 'OK',
+    headers: new Headers({ 'content-type': 'text/plain' }),
+    text: async () => '',
+    contentLengthHeader: null,
+    ...overrides,
+  });
+}
+
+const runBig = (fetcher: Fetcher) =>
+  executeHttpProxy({ method: 'GET', url: 'https://example.com/big' }, fetcher, {
+    allowLocalhost: false,
+  });
+
+describe('executeHttpProxy — response cap without Content-Length', () => {
+  it('stops reading a text body at the cap and returns 413', async () => {
+    const { stream, pulled } = oversizeStream(0x61);
+    const text = vi.fn(async () => 'x');
+    const result = await runBig(respondWith({ body: stream, text }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(413);
+    expect(text).not.toHaveBeenCalled();
+    // One chunk of stream read-ahead (highWaterMark) past the one that crossed the cap.
+    expect(pulled()).toBeLessThanOrEqual(MAX_RESPONSE_SIZE + 2 * CHUNK);
+  });
+
+  it('stops reading a binary body at the cap and returns 413', async () => {
+    const { stream, pulled } = oversizeStream(0xff);
+    const arrayBuffer = vi.fn(async () => new ArrayBuffer(0));
+    const result = await runBig(
+      respondWith({
+        headers: new Headers({ 'content-type': 'application/octet-stream' }),
+        body: stream,
+        arrayBuffer,
+      })
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(413);
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    // One chunk of stream read-ahead (highWaterMark) past the one that crossed the cap.
+    expect(pulled()).toBeLessThanOrEqual(MAX_RESPONSE_SIZE + 2 * CHUNK);
+  });
+
+  it('measures the text cap in UTF-8 bytes, not UTF-16 code units', async () => {
+    // Each '€' is 1 UTF-16 unit but 3 UTF-8 bytes: under the cap by .length,
+    // over it by bytes.
+    const body = '€'.repeat(Math.floor(MAX_RESPONSE_SIZE / 3) + 1);
+    const result = await runBig(respondWith({ text: async () => body, body: null }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(413);
+  });
+
+  it('reads an in-cap streamed text body and reports its byte size', async () => {
+    const bytes = new TextEncoder().encode('héllo');
+    const result = await runBig(
+      respondWith({
+        body: new ReadableStream({
+          start(c) {
+            c.enqueue(bytes);
+            c.close();
+          },
+        }),
+        text: async () => 'should-not-be-used',
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.response.body).toBe('héllo');
+      expect(result.response.size).toBe(bytes.byteLength);
+    }
   });
 });

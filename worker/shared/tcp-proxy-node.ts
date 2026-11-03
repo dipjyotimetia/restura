@@ -309,6 +309,62 @@ function readHttpResponseBody(
   });
 }
 
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+  for (const k of Object.keys(headers)) if (k.toLowerCase() === name) return true;
+  return false;
+}
+
+function deleteHeader(headers: Record<string, string>, name: string): void {
+  for (const k of Object.keys(headers)) if (k.toLowerCase() === name) delete headers[k];
+}
+
+/**
+ * Serialise a fetch body to the exact bytes framed on the wire, and set the
+ * matching Content-Length (and Content-Type when the caller set none).
+ * Strings and byte views pass through without a copy; anything else
+ * (FormData, Blob, URLSearchParams, streams) goes through `new Response(body)`,
+ * which yields the bytes and the Content-Type fetch() would have sent — for
+ * FormData that is the multipart boundary. Twin of tcp-proxy.ts.
+ */
+async function frameBody(
+  body: RequestInit['body'],
+  headers: Record<string, string>
+): Promise<Uint8Array | undefined> {
+  if (body == null) return undefined;
+  let bytes: Uint8Array;
+  if (typeof body === 'string') {
+    bytes = ENCODER.encode(body);
+  } else if (body instanceof Uint8Array) {
+    bytes = body;
+  } else if (body instanceof ArrayBuffer) {
+    bytes = new Uint8Array(body);
+  } else {
+    const serialised = new Response(body);
+    const contentType = serialised.headers.get('content-type');
+    if (contentType && !hasHeader(headers, 'content-type')) headers['Content-Type'] = contentType;
+    bytes = new Uint8Array(await serialised.arrayBuffer());
+  }
+  deleteHeader(headers, 'content-length');
+  headers['Content-Length'] = String(bytes.byteLength);
+  return bytes;
+}
+
+/** Build the Response; a null-body status must not be given a body (the constructor throws). */
+function toResponse(
+  statusLine: string,
+  headerList: Array<[string, string]>,
+  body: Uint8Array
+): Response {
+  const status = parseStatusCode(statusLine);
+  const nullBody = status === 101 || status === 204 || status === 205 || status === 304;
+  return new Response(nullBody ? null : body, { status, headers: headerList });
+}
+
+/**
+ * Frame request line + headers + body. `Host` is always the target authority
+ * written here; any caller-supplied Host (any case) is dropped so the wire
+ * never carries two Host fields.
+ */
 function encodeRequest(
   method: string,
   url: URL,
@@ -318,7 +374,7 @@ function encodeRequest(
   const path = url.pathname + url.search;
   let raw = `${method} ${path} HTTP/1.1\r\nHost: ${url.host}\r\n`;
   for (const [k, v] of Object.entries(headers)) {
-    raw += `${k}: ${v}\r\n`;
+    if (k.toLowerCase() !== 'host') raw += `${k}: ${v}\r\n`;
   }
   raw += '\r\n';
   // Encode the request line + headers as UTF-8 (matching the Cloudflare
@@ -386,16 +442,10 @@ async function buildTunneledRequest(
   // Verbatim (#857): the shared core already normalised known methods; extension
   // tokens are case-sensitive and must match what auth signers signed.
   const method = requestInit.method ?? 'GET';
+  // encodeRequest writes Host from the target authority and drops any
+  // caller-supplied (possibly stale) Host.
   const headers = toRecord(requestInit.headers);
-  // Force Host to the target authority so we round-trip the right header
-  // even if the caller supplied a stale value.
-  delete headers['host'];
-  delete headers['Host'];
-  headers['Host'] = targetUrl.hostname;
-
-  const bodyStr = typeof requestInit.body === 'string' ? requestInit.body : undefined;
-  const bodyBytes = bodyStr ? ENCODER.encode(bodyStr) : undefined;
-  if (bodyBytes) headers['Content-Length'] = String(bodyBytes.length);
+  const bodyBytes = await frameBody(requestInit.body, headers);
 
   return { wire: encodeRequest(method, targetUrl, headers, bodyBytes) };
 }
@@ -425,13 +475,19 @@ export function createHttpsViaConnectProxy(dnsGuard?: NodeDnsGuardOptions) {
       `\r\n`;
     socket.write(Buffer.from(ENCODER.encode(connectReq)));
 
-    const { statusLine } = await readConnectResponse(socket, signal);
-    if (parseStatusCode(statusLine) !== 200) {
+    // Until the TLS socket owns it, the proxy socket is ours to destroy on
+    // every failure path (bad reply, proxy hang-up, abort, handshake error).
+    let tlsSocket: tls.TLSSocket;
+    try {
+      const { statusLine } = await readConnectResponse(socket, signal);
+      if (parseStatusCode(statusLine) !== 200) {
+        throw new Error(`Proxy CONNECT failed: ${statusLine}`);
+      }
+      tlsSocket = await upgradeToTls(socket, targetUrl.hostname, signal);
+    } catch (err) {
       socket.destroy();
-      throw new Error(`Proxy CONNECT failed: ${statusLine}`);
+      throw err;
     }
-
-    const tlsSocket = await upgradeToTls(socket, targetUrl.hostname, signal);
 
     try {
       const { wire } = await buildTunneledRequest(targetUrl, requestInit);
@@ -442,10 +498,7 @@ export function createHttpsViaConnectProxy(dnsGuard?: NodeDnsGuardOptions) {
         headerList: respHeaderList,
         body: respBody,
       } = await readHttpResponseBody(tlsSocket, signal);
-      return new Response(respBody, {
-        status: parseStatusCode(respStatusLine),
-        headers: respHeaderList,
-      });
+      return toResponse(respStatusLine, respHeaderList, respBody);
     } finally {
       tlsSocket.destroy();
     }
@@ -469,16 +522,10 @@ export function createHttpViaProxy(dnsGuard?: NodeDnsGuardOptions) {
       // tokens are case-sensitive and must match what auth signers signed.
       const method = requestInit.method ?? 'GET';
       const headers = toRecord(requestInit.headers);
-      delete headers['host'];
-      delete headers['Host'];
-      headers['Host'] = targetUrl.hostname;
       if (proxy.auth) {
         headers['Proxy-Authorization'] = proxyAuthValue(proxy.auth);
       }
-
-      const bodyStr = typeof requestInit.body === 'string' ? requestInit.body : undefined;
-      const bodyBytes = bodyStr ? ENCODER.encode(bodyStr) : undefined;
-      if (bodyBytes) headers['Content-Length'] = String(bodyBytes.length);
+      const bodyBytes = await frameBody(requestInit.body, headers);
 
       // HTTP proxy uses absolute URI in the request-line.
       let raw = `${method} ${targetUrl.toString()} HTTP/1.1\r\nHost: ${targetUrl.host}\r\n`;
@@ -496,10 +543,7 @@ export function createHttpViaProxy(dnsGuard?: NodeDnsGuardOptions) {
         headerList: respHeaderList,
         body: respBody,
       } = await readHttpResponseBody(socket, signal);
-      return new Response(respBody, {
-        status: parseStatusCode(statusLine),
-        headers: respHeaderList,
-      });
+      return toResponse(statusLine, respHeaderList, respBody);
     } finally {
       socket.destroy();
     }

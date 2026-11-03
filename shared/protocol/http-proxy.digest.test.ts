@@ -16,13 +16,20 @@ function scripted(...replies: Reply[]) {
       body: req.body,
     });
     const r = replies[calls.length - 1] ?? replies[replies.length - 1]!;
+    const text = r.text ?? (async () => '');
     return {
       statusText: '',
       headers: {},
-      text: async () => '',
       contentLengthHeader: null,
-      body: new ReadableStream<Uint8Array>(),
+      // Like a real fetcher, the body stream and text() carry the same bytes.
+      body: new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(new TextEncoder().encode(await text()));
+          controller.close();
+        },
+      }),
       ...r,
+      text,
     };
   };
   return { fetcher, calls };
