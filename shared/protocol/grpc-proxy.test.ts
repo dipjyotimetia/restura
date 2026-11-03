@@ -73,6 +73,18 @@ describe('executeGrpcProxy', () => {
     expect(fetcher.mock.calls[0]?.[0]?.url).toBe('https://example.com/svc.Foo/Bar');
   });
 
+  it.each([
+    ['a query string', 'https://h.example/rpc?tenant=x', 'https://h.example/rpc/svc.Foo/Bar'],
+    ['repeated trailing slashes', 'https://h.example/rpc//', 'https://h.example/rpc/svc.Foo/Bar'],
+    ['a fragment', 'https://h.example/rpc#frag', 'https://h.example/rpc/svc.Foo/Bar'],
+  ])('appends the service path to the base path for a base URL with %s', async (_l, url, want) => {
+    const fetcher = vi.fn(makeFetcher('{}'));
+    await executeGrpcProxy({ url, service: 'svc.Foo', method: 'Bar', timeout: 1000 }, fetcher, {
+      allowLocalhost: false,
+    });
+    expect(fetcher.mock.calls[0]?.[0]?.url).toBe(want);
+  });
+
   it('maps Connect error codes via parseConnectError', async () => {
     const fetcher = makeFetcher(JSON.stringify({ code: 'not_found', message: 'gone' }), 404, {
       'content-type': 'application/json',

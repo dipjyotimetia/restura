@@ -17,6 +17,7 @@ import { headerFieldValues } from './header-policy';
 import { HTTP_METHOD_TOKEN_RE } from './http-method';
 import {
   credentialHeaderNames,
+  discardBody,
   type FollowRedirectsOptions,
   followRedirects,
 } from './redirect-follower';
@@ -246,14 +247,6 @@ export function requestTargetOf(url: string): string {
   const rest = url.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, '').replace(/#[\s\S]*$/, '');
   if (rest === '') return '/';
   return rest.startsWith('?') ? `/${rest}` : rest;
-}
-
-async function discardBody(response: FetcherResponse): Promise<void> {
-  try {
-    if (response.body) await response.body.cancel();
-  } catch {
-    // Best effort — the stream may already be closed.
-  }
 }
 
 export interface DigestRetryOptions {

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { type NdjsonParseError, NdjsonParser } from './ndjson-parser';
+import { describe, expect, it, vi } from 'vitest';
+import { MAX_NDJSON_LINE_CHARS, type NdjsonParseError, NdjsonParser } from './ndjson-parser';
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const isParseError = (v: unknown): v is NdjsonParseError =>
@@ -119,3 +119,55 @@ describe('NdjsonParser.flush', () => {
     expect(p.flush()).toEqual([]);
   });
 });
+
+describe('NdjsonParser — long lines', () => {
+  it('scans only newly fed text for the line delimiter (linear, not quadratic)', () => {
+    const p = new NdjsonParser();
+    const chunk = enc('x'.repeat(16 * 1024));
+    const feeds = 128;
+    const out: unknown[] = [];
+    // No newline in the new text → the buffered tail is not searched at all
+    // (searching it would also force V8 to flatten the whole rope).
+    const whileUnterminated = charsScannedByIndexOf(() => {
+      p.feed(enc('"'));
+      for (let i = 0; i < feeds; i++) out.push(...p.feed(chunk));
+    });
+    expect(whileUnterminated).toBe(0);
+    const scanned = charsScannedByIndexOf(() => {
+      out.push(...p.feed(enc('"\n{"a"')), ...p.feed(enc(':1}\n')));
+    });
+    expect(out).toHaveLength(2);
+    expect((out[0] as string).length).toBe(feeds * chunk.length);
+    expect(out[1]).toEqual({ a: 1 });
+    // Each char is scanned O(1) times; the old full-tail rescan was ~feeds/2 × input.
+    expect(scanned).toBeLessThan(4 * feeds * chunk.length);
+  });
+
+  it('fails closed when a line never terminates', () => {
+    const p = new NdjsonParser();
+    const chunk = enc('x'.repeat(1024 * 1024));
+    expect(() => {
+      for (let i = 0; i <= MAX_NDJSON_LINE_CHARS / chunk.length + 1; i++) p.feed(chunk);
+    }).toThrow(/exceeds/);
+  });
+});
+
+/** Total chars `String.prototype.indexOf` examined while `run` executes. */
+function charsScannedByIndexOf(run: () => void): number {
+  let scanned = 0;
+  const original = String.prototype.indexOf;
+  const spy = vi.spyOn(String.prototype, 'indexOf').mockImplementation(function (
+    this: string,
+    search: string,
+    from?: number
+  ) {
+    scanned += Math.max(0, this.length - (from ?? 0));
+    return original.call(this, search, from);
+  });
+  try {
+    run();
+  } finally {
+    spy.mockRestore();
+  }
+  return scanned;
+}
