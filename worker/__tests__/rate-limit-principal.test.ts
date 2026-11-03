@@ -60,12 +60,12 @@ describe('rate-limit bucket keys on the authenticated principal', () => {
 });
 
 describe('self-host client address (socketClientIpMiddleware)', () => {
-  function nodeApp(trustProxy: boolean) {
+  function nodeApp(
+    trustProxy: boolean,
+    remoteAddress: () => string | undefined = () => '198.51.100.9'
+  ) {
     const a = new Hono<{ Bindings: Env }>();
-    a.use(
-      '*',
-      socketClientIpMiddleware(() => '198.51.100.9', trustProxy)
-    );
+    a.use('*', socketClientIpMiddleware(remoteAddress, trustProxy));
     a.use('*', rateLimitMiddleware);
     a.get('/x', (c) => c.text('ok'));
     return a;
@@ -75,6 +75,12 @@ describe('self-host client address (socketClientIpMiddleware)', () => {
 
   it('ignores client-supplied forwarding headers unless TRUST_PROXY is set', async () => {
     const a = nodeApp(false);
+    for (let i = 0; i < 100; i++) expect((await spoofed(a, i)).status).toBe(200);
+    expect((await spoofed(a, 100)).status).toBe(429);
+  });
+
+  it('fails closed when the socket address is unavailable', async () => {
+    const a = nodeApp(false, () => undefined);
     for (let i = 0; i < 100; i++) expect((await spoofed(a, i)).status).toBe(200);
     expect((await spoofed(a, 100)).status).toBe(429);
   });

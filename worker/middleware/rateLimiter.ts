@@ -28,8 +28,9 @@ export function socketClientIpMiddleware(
 ): MiddlewareHandler {
   return async (c, next) => {
     if (!trustProxy) {
-      const address = remoteAddress(c);
-      if (address) c.set('clientIp', address);
+      // Fail closed: with no peer address (socket already gone) a forgeable
+      // header must still not pick the bucket, so pin a fixed sentinel.
+      c.set('clientIp', remoteAddress(c) ?? 'no-peer-address');
     }
     await next();
   };
