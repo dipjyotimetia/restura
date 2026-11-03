@@ -63,7 +63,7 @@ restura run        # also → wizard when no collection is given
 ```
 
 <Aside type="tip" title="CI-safe by design">
-The wizard is **terminal-only**: piped output and CI never prompt. There, a missing collection is an error (exit 2) and bare `restura` prints help — so existing scripts and pipelines are unaffected. Cancelling (Ctrl-C / Esc) exits `130`.
+The wizard is **terminal-only**: piped output and CI never prompt. Only the TTY decides; `NO_COLOR` turns colour off but keeps the wizard. There, a missing collection is an error (exit 2) and bare `restura` prints help — so existing scripts and pipelines are unaffected. Cancelling (Ctrl-C / Esc) exits `130`.
 </Aside>
 
 By default an interactive run shows the live `tui` dashboard; piped output and CI fall back to plain line output (`live`). See [Reporters](#reporters).
@@ -120,7 +120,7 @@ restura run [collection] [options]
 
 | Flag | Default | Description |
 |---|---|---|
-| `-e, --env <file>` | | JSON or YAML env file: a flat `{ "key": "value" }` object (string values only) or a Postman environment export (`*.postman_environment.json`; disabled rows skipped). `${VAR}` placeholders are expanded from `process.env`; an unset one expands to an empty string with a `[restura] WARNING: ${VAR} is not set…` line on stderr (once per name; the exit code is unchanged). Hoppscotch environment exports are not read; import those in the app. |
+| `-e, --env <file>` | | JSON or YAML env file: a flat `{ "key": "value" }` object (string values only) or a Postman environment export (`*.postman_environment.json`; disabled rows skipped). `${VAR}` placeholders are expanded from `process.env`; an unset one expands to an empty string with a `[restura] WARNING: ${VAR} is not set…` line on stderr (once per name; the exit code is unchanged). A secret or private variable left empty this way counts as missing: a request that uses it is refused, not sent. Hoppscotch environment exports are not read; import those in the app. |
 | `-g, --globals <file>` | | Postman globals export (or a flat key/value file). Lowest precedence: below `--env`. |
 | `--env-var <kv...>` | | Set variables, Newman style: `--env-var token=abc base=https://x`. Wins over `--env` and collection / folder variables. |
 | `-n, --iteration-count <n>` | | Number of iterations. Without `--data`, runs the collection `n` times; with `--data`, the last row repeats past the end. |
@@ -137,7 +137,7 @@ restura run [collection] [options]
 | `--data <file>` | | CSV (with header row) or JSON array. Runs the collection once per row. |
 | `--max-iterations <n>` | | Cap iterations when a `--data` file is large. |
 | `--retry <n>` | `0` | Retry attempts per failing request. Backoff doubles from 250 ms; a `429` / `503` with `Retry-After` (seconds or HTTP-date) waits that long instead, capped at 60 s. |
-| `--retry-on <list>` | `network,5xx` | Comma-separated triggers: `network`, `5xx`, `4xx`, or specific status codes (`429,503`). `network` means no response at all (status 0, no gRPC status); an HTTP or gRPC answer is not a network failure. `5xx` means an HTTP 5xx, or for gRPC only the transient statuses `UNAVAILABLE`, `DEADLINE_EXCEEDED` and `RESOURCE_EXHAUSTED`; other gRPC statuses (`INVALID_ARGUMENT`, `NOT_FOUND`, `PERMISSION_DENIED`, `INTERNAL`, …) are attempted once. A request refused before any I/O (unresolvable variable, blocked or unsupported request, NTLM, invalid URL) is never retried. |
+| `--retry-on <list>` | `network,5xx` | Comma-separated triggers: `network`, `5xx`, `4xx`, or specific status codes (`429,503`). `network` means the upstream never answered: the connection was refused or reset, DNS failed, or the call timed out before any response (HTTP / GraphQL, gRPC Connect and gRPC-Web, SSE, MCP, and the OAuth2 token request). Any answer is not a network failure, whatever its status: an HTTP `503`, an SSE `404` or a gRPC status the server sent. `5xx` means an HTTP 5xx, or for gRPC only the transient statuses `UNAVAILABLE`, `DEADLINE_EXCEEDED` and `RESOURCE_EXHAUSTED`; other gRPC statuses (`INVALID_ARGUMENT`, `NOT_FOUND`, `PERMISSION_DENIED`, `INTERNAL`, …) are attempted once. A refusal is never retried, whatever the triggers: an unresolvable variable or secret (a desktop secret handle, an external secret reference with no resolver), a blocked or unsupported request, NTLM, a URL or redirect the SSRF guard rejects (reported as `400`), a wire-signing failure (`500` `Auth signing failed`), and the CLI's own response-size cap (HTTP `413`, gRPC `RESOURCE_EXHAUSTED` with `Response too large`). |
 | `--sse-duration <ms>` | `5000` | How long to keep SSE streams open. |
 | `--sse-events <n>` | | Stop SSE early after N events. |
 | `--insecure` | `false` | Skip TLS certificate verification (self-signed / staging). |
@@ -185,7 +185,7 @@ Collection, folder and request scripts of one phase run in order, each in its ow
 Layered sources, in order of precedence (later wins):
 
 1. `--globals` file, then the `--env` file
-2. Collection variables (declared in `opencollection.yml` or `_collection.yaml`, or the Postman collection's variables). A `pm.collectionVariables.set` in a script updates this layer for later requests in the run, as in Newman and the app (the file on disk is not changed). A secret collection variable has no value in the file: supply it with `--env`, `--env-var` or a `--data` row, or set it from an earlier script. A request that is about to be sent while it still has no value is reported as not sent and fails; the rest of the run carries on.
+2. Collection variables (declared in `opencollection.yml` or `_collection.yaml`, or the Postman collection's variables). A `pm.collectionVariables.set` in a script updates this layer for later requests in the run, as in Newman and the app (the file on disk is not changed). A secret collection variable has no value in the file: supply it with `--env`, `--env-var` or a `--data` row, or set it from an earlier script. A request that is about to be sent while it still has no value (an empty value counts as none) is reported as not sent and fails; the rest of the run carries on.
 3. Folder variables of the folders above the request, outer → inner (inner wins). Secret, private and handle-backed folder variables have no value in the file: like a secret collection variable, a request that is about to be sent while one it uses still has no value is reported as not sent and fails.
 4. `--env-var` values
 5. Values a script set in an earlier iteration
@@ -196,7 +196,7 @@ Substitutions use `{{NAME}}`. A name is any text without braces, trimmed of surr
 
 ### Auth
 
-Header-based auth (Bearer, Basic, API-key, OAuth2) follows the app's rule: Basic with an empty username and a password sends `Basic base64(":password")`, and with neither sends no header. HTTP, MCP, SSE and gRPC items resolve external secret references through the profile given with `--external-secrets-config`; with no resolver for a reference the item fails explicitly instead of being sent without credentials. For OAuth2, a pre-supplied access token is used as-is; if the auth instead carries a token endpoint + client id (and no token), the CLI fetches one via the **client_credentials** grant, caching it for the run only. The token request goes through the same transport as the run: `--ca`, `--insecure`, `--client-cert`/`--client-key`, `--proxy` and `--timeout` apply to it, and a token endpoint that redirects is refused.
+Header-based auth (Bearer, Basic, API-key, OAuth2) follows the app's rule: Basic with an empty username and a password sends `Basic base64(":password")`, and with neither sends no header. HTTP, MCP, SSE and gRPC items resolve external secret references through the profile given with `--external-secrets-config`; with no resolver for a reference (or a desktop secret handle) the item is refused, never retried, instead of being sent without credentials. For OAuth2, a pre-supplied access token is used as-is; if the auth instead carries a token endpoint + client id (and no token), the CLI fetches one via the **client_credentials** grant, caching it for the run only. The token request goes through the same transport as the run: `--ca`, `--insecure`, `--client-cert`/`--client-key`, `--proxy` and `--timeout` apply to it, and a token endpoint that redirects is refused.
 
 ### Dynamic helpers
 
@@ -231,7 +231,7 @@ Each row exposes `username` and `role` as variables, overriding any same-named e
 
 ## Reporters
 
-The default is chosen automatically: the live `tui` dashboard when stdout is a terminal (and `NO_COLOR` is unset), `live` lines otherwise (piped output / CI).
+The default is chosen automatically: the live `tui` dashboard when stdout is a terminal, `live` lines otherwise (piped output / CI). `NO_COLOR` only turns colour off (the dashboard and the wizard still run in a terminal); `FORCE_COLOR` colours piped output without making it interactive. Names and error messages from collections and servers are printed with terminal control sequences stripped.
 
 <Tabs>
 <TabItem label="tui">
@@ -241,7 +241,7 @@ Live, in-place dashboard with a progress bar and a spinner on the in-flight requ
 Plain one-line-per-request progress — the default when output is piped or in CI (no ANSI cursor control). Force it with `--reporter live` if the dashboard misbehaves.
 </TabItem>
 <TabItem label="json">
-The `RunResult` dumped as JSON. Path required (`--output` or `--reporter-output json=...`). Each request is reported as `{ relativePath, folderPath, type, request: { name, type, method, url, auth } }` with every auth secret field shown as `[redacted]`; headers, bodies, scripts and variables are not written, so a report artifact carries no inline credentials or session cookies.
+The `RunResult` dumped as JSON. Path required (`--output` or `--reporter-output json=...`). Each request is reported as `{ relativePath, folderPath, type, request: { name, type, method, url, auth } }` with every auth secret field shown as `[redacted]`; request headers, bodies, scripts and variables are not written. The `url` is written as saved in the collection, query string included and `{{variables}}` unresolved, so a credential typed literally into a URL does reach the artifact. Response bodies are not written. From the response, each `setCookies` entry keeps only its cookie name (`sid=[redacted]`) and the `Set-Cookie`, `Set-Cookie2`, `Authorization` and `Proxy-Authorization` headers are shown as `[redacted]`. Still written as received: status, timings, assertions, error messages, all other response headers, and SSE / WebSocket stream events (so a credential an upstream puts in an event or a custom header does reach the artifact).
 </TabItem>
 <TabItem label="junit">
 JUnit XML for CI dashboards (GitLab, Azure DevOps, Jenkins, GitHub Actions test reporters). One `<testcase>` per request; a request skipped by `pm.execution.skipRequest()` carries `<skipped/>` and is counted in the suite's `skipped` attribute.
@@ -313,16 +313,20 @@ OPENAI_API_KEY=... ANTHROPIC_API_KEY=... restura eval run ./support.eval.json --
 |---|---|---|
 | `--output <file>` | | Write the full JSON report: every cell, output and score. |
 | `--junit <file>` | | Write JUnit XML, one test case per case × model. |
-| `--max-cost <usd>` | | Stop once model + judge spend reaches this amount. Unpriced models are refused up front. |
+| `--max-cost <usd>` | | Stop once model + judge spend reaches this amount. Unpriced models are refused up front, and a call whose cost cannot be computed (no usage reported, or cached tokens with no cache rate) cancels the run with `cost unknown`. While a budget is set, model calls run one at a time whatever `--concurrency` says, so only the call that crosses the budget can be spent past it. |
 | `--split <split>` | | Run only the `train` or `test` cases. |
 | `--concurrency <n>` | file | Override the file's concurrency (1-32). |
 | `--allow-localhost` | `false` | Permit local runtime endpoints (Ollama, OpenAI-compatible). |
 
-Exit codes: `0` when the share of passing scored cells meets the eval's pass threshold (default 100%), `1` below it, on Ctrl-C, or when `--max-cost` is reached (a partial report is still written), and `2` for invalid input before any model call (a malformed file, a missing key, an unsafe endpoint, self-judging, no scorers, or `--max-cost` on an unpriced model). With judge scorers, set a pass threshold below 100%: judges are stochastic. The `http-exec` target is desktop-only.
+Exit codes: `0` when the share of passing scored cells meets the eval's pass threshold (default 100%), `1` below it, on Ctrl-C, when `--max-cost` is reached, or when a call's cost is unknown under `--max-cost` (a partial report is still written), and `2` for invalid input before any model call (a malformed file, a missing key, an unsafe endpoint, self-judging, no scorers, or `--max-cost` on an unpriced model). With judge scorers, set a pass threshold below 100%: judges are stochastic. The `http-exec` target is desktop-only.
 
 <Aside type="caution" title="Treat trace reports as sensitive">
 `--output` writes the full local trace report, which can contain task inputs and model or tool outputs. Store and expire it according to your CI artifact policy.
 </Aside>
+
+## MCP conformance
+
+`restura mcp conformance <url>` checks an MCP server in the legacy and modern (2026-07-28) protocol eras with the same engine as the app's **Conformance** action. `--eras` defaults to `legacy,modern` over `streamable-http` and to `legacy` over `http-sse`; asking for the modern era over `http-sse` exits `2`. Exit codes: `0` when at least one requested era connected and no finding reaches `--fail-on`, `1` when a finding does or when no requested era connected (nothing was checked; this ignores `--fail-on`), `2` for invalid input or I/O failure. See the [CLI README](https://github.com/dipjyotimetia/restura/blob/main/cli/README.md#mcp-conformance) for every flag.
 
 ## Example: GitHub Actions
 

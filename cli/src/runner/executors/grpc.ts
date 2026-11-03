@@ -16,7 +16,12 @@ import {
 } from '@shared/protocol/grpc-request-policy';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import { base64ToBytes, bytesToBase64 } from '@shared/protocol/grpc-web-framing';
-import { collectGrpcWebEvents, executeGrpcWebProxy } from '@shared/protocol/grpc-web-proxy';
+import {
+  collectGrpcWebEvents,
+  executeGrpcWebProxy,
+  type GrpcWebEndEvent,
+  type GrpcWebEvent,
+} from '@shared/protocol/grpc-web-proxy';
 import type { Fetcher } from '@shared/protocol/types';
 import type { GrpcRequest, GrpcSchemaSnapshot } from '@shared/types';
 import { hasVariableToken } from '@shared/variables/tokens';
@@ -25,6 +30,7 @@ import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
+import { sharedCoreFailure, thrownOutcome } from './failure';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 import { preflightRefusal, refusedOutcome } from './variable-guard';
 
@@ -181,6 +187,9 @@ export async function executeGrpc(
       };
     }
     const payload = result.payload;
+    // `ok: false` is the shared core's own verdict, never a server answer
+    // (a Connect error the server sent comes back `ok: true`).
+    const failure = sharedCoreFailure(result.status);
     if ('error' in payload) {
       return {
         status: result.status,
@@ -188,6 +197,7 @@ export async function executeGrpc(
         durationMs,
         bodyBytes: 0,
         errorMessage: payload.error,
+        ...failure,
       };
     }
     return {
@@ -199,15 +209,10 @@ export async function executeGrpc(
       responseTrailers: payload.trailers,
       grpcStatus: { code: payload.grpcStatus, message: payload.grpcStatusText },
       errorMessage: connectFailureMessage(payload.grpcStatusText, payload.data, req.wireProtocol),
+      ...failure,
     };
   } catch (err) {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: Date.now() - start,
-      bodyBytes: 0,
-      errorMessage: err instanceof Error ? err.message : String(err),
-    };
+    return thrownOutcome(err, Date.now() - start);
   }
 }
 
@@ -249,6 +254,28 @@ function grpcFailure(code: GrpcStatusCode, message: string, durationMs = 0): Exe
     grpcStatus: { code, message: name },
     errorMessage: `gRPC ${name}: ${message}`,
   };
+}
+
+/**
+ * Classify a gRPC-Web end the shared core produced itself: no HTTP answer and
+ * UNAVAILABLE / DEADLINE_EXCEEDED is a transport failure; RESOURCE_EXHAUSTED
+ * with no trailers is the CLI's response-size cap (a server-sent status always
+ * carries `grpc-status` in its trailers), a refusal.
+ */
+function grpcWebFailure(
+  end: GrpcWebEndEvent,
+  answered: boolean
+): Pick<ExecuteOutcome, 'refused' | 'transportError'> {
+  const coreVerdict = Object.keys(end.trailers).length === 0;
+  if (
+    !answered &&
+    (end.grpcStatus === GrpcStatusCode.UNAVAILABLE ||
+      end.grpcStatus === GrpcStatusCode.DEADLINE_EXCEEDED)
+  ) {
+    return { transportError: true };
+  }
+  if (coreVerdict && end.grpcStatus === GrpcStatusCode.RESOURCE_EXHAUSTED) return { refused: true };
+  return {};
 }
 
 const NO_SCHEMA =
@@ -326,13 +353,23 @@ async function executeGrpcWeb(
       durationMs: Date.now() - start,
       bodyBytes: 0,
       errorMessage: result.payload.error,
+      ...sharedCoreFailure(result.status),
     };
   }
   const onAbort = () => result.cancel();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
   let collected: Awaited<ReturnType<typeof collectGrpcWebEvents>>;
+  // A `headers` event means the server answered over HTTP; without one, an
+  // UNAVAILABLE / DEADLINE_EXCEEDED end is the core's own transport verdict.
+  let answered = false;
+  async function* tapAnswered(events: AsyncIterable<GrpcWebEvent>) {
+    for await (const event of events) {
+      if (event.type === 'headers') answered = true;
+      yield event;
+    }
+  }
   try {
-    collected = await collectGrpcWebEvents(result.events);
+    collected = await collectGrpcWebEvents(tapAnswered(result.events));
   } finally {
     opts.signal?.removeEventListener('abort', onAbort);
   }
@@ -358,6 +395,7 @@ async function executeGrpcWeb(
   }
   const passed = end.grpcStatus === GrpcStatusCode.OK;
   return {
+    ...grpcWebFailure(end, answered),
     status: passed ? 200 : 500,
     passed,
     durationMs,

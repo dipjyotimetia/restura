@@ -8,6 +8,7 @@ import type { JsonRpcError } from '@shared/protocol/mcp-proxy';
 import type { McpRunReplyInput } from '@shared/protocol/mcp-run';
 import { Agent, type Dispatcher, fetch as undiciFetch } from 'undici';
 import { z } from 'zod';
+import { TransportFailureError } from './executors/failure.js';
 import {
   configuredProxyEnvironment,
   createPinnedLookup,
@@ -79,7 +80,11 @@ function byteCap(maxBytes: number): TransformStream<Uint8Array, Uint8Array> {
   });
 }
 
-export type GuardedMcpFetch = typeof globalThis.fetch & { dispose(): Promise<void> };
+export type GuardedMcpFetch = typeof globalThis.fetch & {
+  dispose(): Promise<void>;
+  /** True once a call got no response at all (see `TransportFailureError`). */
+  sawTransportFailure(): boolean;
+};
 
 /**
  * Every URL the SDK touches (incl. the POST endpoint a legacy SSE server
@@ -97,6 +102,7 @@ export function createGuardedMcpFetch(
 ): GuardedMcpFetch {
   const agents = new Map<string, Agent>();
   let disposed = false;
+  let transportFailed = false;
   // One pinned agent per validated (host, ip); a rebinding host gets a new
   // agent, never a reused connection to the previous address.
   const agentFor = (host: string, ip: string): Agent => {
@@ -116,7 +122,15 @@ export function createGuardedMcpFetch(
   const guarded = (async (input, init) => {
     if (disposed) throw new DOMException('MCP session disposed', 'AbortError');
     const rawUrl = typeof input === 'string' || input instanceof URL ? input.toString() : input.url;
-    const address = await resolvePinnedMcpAddress(rawUrl, options.allowLocalhost);
+    let address: Awaited<ReturnType<typeof resolvePinnedMcpAddress>>;
+    try {
+      address = await resolvePinnedMcpAddress(rawUrl, options.allowLocalhost);
+    } catch (err) {
+      // A DNS failure is "no answer" (as on the HTTP path); a guard rejection is not.
+      if (!isDnsLookupFailure(err)) throw err;
+      transportFailed = true;
+      throw new TransportFailureError(err);
+    }
     // Behind a proxy (explicit --proxy, or HTTP(S)_PROXY with no custom
     // dispatcher) the proxy resolves the origin, so pinning is impossible and
     // only the pre-flight check above applies. Otherwise dial ONLY the
@@ -127,11 +141,21 @@ export function createGuardedMcpFetch(
         Boolean(configuredProxyEnvironment()) &&
         !isNoProxyDestination(rawUrl));
     const dispatcher = viaProxy ? options.dispatcher : agentFor(address.host, address.ip);
-    const response = await undiciFetch(rawUrl, {
-      ...(init as Parameters<typeof undiciFetch>[1]),
-      ...(dispatcher ? { dispatcher } : {}),
-      redirect: 'manual',
-    });
+    let response: Awaited<ReturnType<typeof undiciFetch>>;
+    try {
+      response = await undiciFetch(rawUrl, {
+        ...(init as Parameters<typeof undiciFetch>[1]),
+        ...(dispatcher ? { dispatcher } : {}),
+        redirect: 'manual',
+      });
+    } catch (err) {
+      // No response at all (refused / reset / TLS): tagged so the executor can
+      // report a transport failure. Aborts stay as they are — the SDK's own
+      // timeout and close paths recognise them by name.
+      if (err instanceof Error && err.name === 'AbortError') throw err;
+      transportFailed = true;
+      throw new TransportFailureError(err);
+    }
     if (response.status >= 300 && response.status < 400) {
       await response.body?.cancel();
       throw new Error(
@@ -154,6 +178,7 @@ export function createGuardedMcpFetch(
     );
   }) as typeof globalThis.fetch;
   return Object.assign(guarded, {
+    sawTransportFailure: () => transportFailed,
     async dispose() {
       disposed = true;
       const open = [...agents.values()];
@@ -161,6 +186,10 @@ export function createGuardedMcpFetch(
       await Promise.allSettled(open.map((a) => a.close()));
     },
   });
+}
+
+function isDnsLookupFailure(err: unknown): boolean {
+  return err instanceof Error && (err as NodeJS.ErrnoException).syscall === 'getaddrinfo';
 }
 
 function toJsonRpcError(err: ProtocolError): JsonRpcError {
@@ -193,7 +222,11 @@ export async function openCliMcpSession(options: CliMcpSessionOptions): Promise<
   } catch (err) {
     await client.close().catch(() => {});
     await guardedFetch.dispose();
-    throw err;
+    // The legacy SSE transport reports a failed connect as its own SseError,
+    // dropping the fetch error; the guarded fetch saw it, so keep the tag.
+    throw guardedFetch.sawTransportFailure() && !(err instanceof TransportFailureError)
+      ? new TransportFailureError(err)
+      : err;
   }
 
   return {

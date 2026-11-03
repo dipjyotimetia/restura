@@ -35,10 +35,11 @@ function file(overrides: Partial<EvalFile> = {}): EvalFile {
 }
 
 /** OpenAI chat-completions SSE that answers with the word the prompt asked for. */
-function openAiStream(text: string): FetcherResponse {
+function openAiStream(text: string, withUsage = true): FetcherResponse {
+  const usage = withUsage ? { usage: { prompt_tokens: 1_000_000, completion_tokens: 0 } } : {};
   const body = [
     `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}`,
-    `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 1_000_000, completion_tokens: 0 } })}`,
+    `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], ...usage })}`,
     'data: [DONE]',
     '',
   ].join('\n\n');
@@ -52,11 +53,13 @@ function openAiStream(text: string): FetcherResponse {
   };
 }
 
-function echoFetcher(transform = (word: string) => word) {
+function echoFetcher(transform = (word: string) => word, withUsage = true) {
   return vi.fn<Fetcher>(async (request) => {
     const sent = JSON.parse(String(request.body)) as { messages: Array<{ content: string }> };
-    const word = sent.messages.at(-1)!.content.replace('Say ', '');
-    return openAiStream(transform(word));
+    const word = sent.messages.at(-1)?.content.replace('Say ', '') ?? '';
+    // Let concurrent calls interleave, as real network calls would.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    return openAiStream(transform(word), withUsage);
   });
 }
 
@@ -239,6 +242,38 @@ describe('restura eval run (#1045)', () => {
     expect(report.reason).toMatch(/cost budget exceeded/);
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(evalRunExitCode(report)).toBe(1);
+  });
+
+  it('--max-cost cancels with "cost unknown" when a call reports no usage', async () => {
+    const fetcher = echoFetcher((word) => word, false);
+    const report = await evaluateEvalFile(
+      '/e.json',
+      { maxCost: '0.01' },
+      deps(file(), fetcher).dependencies
+    );
+    expect(report.status).toBe('cancelled');
+    expect(report.reason).toMatch(/cost unknown/);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(evalRunExitCode(report)).toBe(1);
+  });
+
+  it('--max-cost never lets concurrent calls overshoot the budget', async () => {
+    const cases = ['a', 'b', 'c', 'd', 'e', 'f'].map((word) => ({
+      id: word,
+      vars: { word },
+      expected: word,
+    }));
+    const fetcher = echoFetcher();
+    // $0.10 per call: the second call reaches $0.15, nothing starts after it.
+    const report = await evaluateEvalFile(
+      '/e.json',
+      { maxCost: '0.15', concurrency: '6' },
+      deps(file({ dataset: { name: 'd', cases }, concurrency: 6 }), fetcher).dependencies
+    );
+    expect(report.status).toBe('cancelled');
+    expect(report.reason).toMatch(/cost budget exceeded/);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(report.costUSD).toBeCloseTo(0.2);
   });
 
   it('runs only the selected split', async () => {

@@ -15,6 +15,7 @@ import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token, toProtocolAuth } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
+import { sharedCoreFailure, thrownOutcome } from './failure';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 import { preflightRefusal, refusedOutcome } from './variable-guard';
 
@@ -78,7 +79,7 @@ export async function executeHttp(
     // Auth that the renderer normally applies before hitting the proxy. Bearer
     // / Basic / API-key / OAuth2 are header-only; AWS SigV4 / OAuth1 / WSSE are
     // signed at the wire by executeHttpProxy. Resolved here (inside the try) so
-    // an unresolvable secret-handle ref surfaces as an errored outcome.
+    // an unresolvable secret-handle ref surfaces as a refused outcome.
     // Acquire an OAuth2 client_credentials token when the auth declares a token
     // endpoint but carries no access token (e.g. a CI collection). No-op for
     // every other auth type.
@@ -169,15 +170,10 @@ export async function executeHttp(
       durationMs,
       bodyBytes: 0,
       errorMessage: result.payload.error,
+      ...sharedCoreFailure(result.status),
     };
   } catch (err) {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: Date.now() - start,
-      bodyBytes: 0,
-      errorMessage: err instanceof Error ? err.message : String(err),
-    };
+    return thrownOutcome(err, Date.now() - start);
   }
 }
 

@@ -79,6 +79,15 @@ class BudgetExceededError extends Error {
   }
 }
 
+class CostUnknownError extends Error {
+  constructor(model: ModelRef) {
+    super(
+      `cost unknown: ${model.model} reported no usage (or usage with no known rate), so --max-cost cannot be enforced`
+    );
+    this.name = 'CostUnknownError';
+  }
+}
+
 function numberFlag(name: string, raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
   const value = Number(raw);
@@ -216,38 +225,66 @@ function cliEvalPort(
     }
     return hasStaticPricing(resolved.endpoint.provider) ? usage.estimatedCostUSD : null;
   };
+  // With a budget, model calls run one at a time: a call starts only after the
+  // previous one's cost is counted, so --concurrency cannot start calls the
+  // budget no longer covers (at most the call that crosses it is spent).
+  let budgetQueue: Promise<void> = Promise.resolve();
+  const underBudget = async <T>(call: () => Promise<T>): Promise<T> => {
+    if (spend.maxCost === undefined) return call();
+    const previous = budgetQueue;
+    let release = (): void => {};
+    budgetQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await call();
+    } finally {
+      release();
+    }
+  };
   return {
     has: (model) => endpoints.has(model.providerConfigId),
-    async complete(model, messages, { tools, signal }) {
-      if (spend.maxCost !== undefined && spend.costUSD >= spend.maxCost) {
-        const error = new BudgetExceededError(spend.costUSD, spend.maxCost);
-        spend.abort(error);
-        throw error;
-      }
-      const { endpoint, apiKey } = endpoints.get(model.providerConfigId)!;
-      const result = await runToCompletion(
-        {
-          provider: endpoint.provider,
-          model: model.model,
-          messages,
-          apiKeyHandleId: apiKey ? CREDENTIAL_HANDLE : '',
-          // Same rule as desktop: the outgoing secret check is on for cloud
-          // providers and off for local runtimes.
-          rawMode: isLocalProvider(endpoint.provider),
-          ...(endpoint.baseUrl ? { baseUrlOverride: endpoint.baseUrl } : {}),
-          ...(tools ? { tools } : {}),
-          signal,
-        },
-        fetcher,
-        async (handle) => (handle === CREDENTIAL_HANDLE ? apiKey : undefined)
-      );
-      if (result.ok) {
-        const cost = costOf(model, result.usage);
-        if (cost === null) spend.unpricedCalls += 1;
-        else spend.costUSD += cost;
-      }
-      return result;
-    },
+    complete: (model, messages, { tools, signal }) =>
+      underBudget(async () => {
+        if (spend.maxCost !== undefined && spend.costUSD >= spend.maxCost) {
+          const error = new BudgetExceededError(spend.costUSD, spend.maxCost);
+          spend.abort(error);
+          throw error;
+        }
+        const resolved = endpoints.get(model.providerConfigId);
+        if (!resolved) throw new Error(`no endpoint configured for ${model.providerConfigId}`);
+        const { endpoint, apiKey } = resolved;
+        const result = await runToCompletion(
+          {
+            provider: endpoint.provider,
+            model: model.model,
+            messages,
+            apiKeyHandleId: apiKey ? CREDENTIAL_HANDLE : '',
+            // Same rule as desktop: the outgoing secret check is on for cloud
+            // providers and off for local runtimes.
+            rawMode: isLocalProvider(endpoint.provider),
+            ...(endpoint.baseUrl ? { baseUrlOverride: endpoint.baseUrl } : {}),
+            ...(tools ? { tools } : {}),
+            signal,
+          },
+          fetcher,
+          async (handle) => (handle === CREDENTIAL_HANDLE ? apiKey : undefined)
+        );
+        if (result.ok) {
+          const cost = costOf(model, result.usage);
+          if (cost === null) {
+            spend.unpricedCalls += 1;
+            // A budget cannot be enforced on spend it cannot see: stop, never guess.
+            if (spend.maxCost !== undefined) {
+              const error = new CostUnknownError(model);
+              spend.abort(error);
+              throw error;
+            }
+          } else spend.costUSD += cost;
+        }
+        return result;
+      }),
     cost: costOf,
   };
 }

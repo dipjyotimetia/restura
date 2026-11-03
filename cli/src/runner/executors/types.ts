@@ -44,11 +44,19 @@ export interface ExecuteOutcome {
   grpcStatus?: GrpcStatusInfo;
   streamEvents?: StreamEvent[];
   /**
-   * Set when the request was refused before any I/O (blocked at load, an
-   * unresolvable variable, an auth scheme or URL the CLI will not send). The
-   * refusal is deterministic, so it is never retried.
+   * Set when the CLI refused the request or its answer by a deterministic rule:
+   * before any I/O (blocked at load, an unresolvable variable or secret, an auth
+   * scheme or URL the CLI will not send), or in the shared core (an SSRF or
+   * redirect-policy block, an auth signing failure, the response-size cap).
+   * Retrying can never succeed, so it is never retried (see `failure.ts`).
    */
   refused?: true;
+  /**
+   * Set when no upstream response was received: the connection failed, DNS
+   * did not resolve, or the call timed out before any answer. `--retry-on
+   * network` matches this marker and nothing else.
+   */
+  transportError?: true;
 }
 
 /** A cached OAuth2 token: `expiresAt` epoch ms, undefined = no expiry info. */

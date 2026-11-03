@@ -1,5 +1,8 @@
+import { createServer } from 'node:net';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import { describe, expect, it } from 'vitest';
+import type { LoadedRequest } from '../collectionLoader';
+import { executeHttp } from '../executors/http';
 import type { ExecuteOutcome } from '../executors/types';
 import {
   MAX_RETRY_AFTER_MS,
@@ -17,6 +20,16 @@ function outcome(status: number, errorMessage?: string, passed = false): Execute
     bodyBytes: 0,
     ...(errorMessage ? { errorMessage } : {}),
   };
+}
+
+/** A localhost port nothing listens on (bound, then released). */
+async function closedPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
 }
 
 describe('withRetry', () => {
@@ -60,17 +73,47 @@ describe('withRetry', () => {
     expect(result.status).toBe(200);
   });
 
-  it('treats status 0 + errorMessage as a network failure', async () => {
+  it('retries a real transport failure (closed port) under network: 3 attempts', async () => {
+    const port = await closedPort();
+    const item: LoadedRequest = {
+      relativePath: 'r',
+      folderPath: [],
+      type: 'http',
+      request: {
+        id: 'r',
+        name: 'r',
+        type: 'http',
+        method: 'GET',
+        url: `http://127.0.0.1:${port}/x`,
+        headers: [],
+        params: [],
+        body: { type: 'none' },
+        auth: { type: 'none' },
+      },
+    };
     let calls = 0;
     const result = await withRetry(
       () => {
         calls++;
-        return Promise.resolve(outcome(0, 'ECONNREFUSED'));
+        return executeHttp(item, { vars: {}, timeoutMs: 2000, allowLocalhost: true });
       },
       { retries: 2, retryOn: ['network'], baseDelayMs: 1 }
     );
     expect(calls).toBe(3);
-    expect(result.errorMessage).toBe('ECONNREFUSED');
+    expect(result.transportError).toBe(true);
+    expect(result.errorMessage).toMatch(/ECONNREFUSED|fetch failed|connect/i);
+  });
+
+  it('network keys on the transport marker only, not on status 0', async () => {
+    let calls = 0;
+    await withRetry(
+      () => {
+        calls++;
+        return Promise.resolve(outcome(0, 'script threw'));
+      },
+      { retries: 2, retryOn: ['network'], baseDelayMs: 1 }
+    );
+    expect(calls).toBe(1);
   });
 
   it('accumulates durations across attempts', async () => {
