@@ -6,6 +6,7 @@ import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { Button } from '@/components/ui/button';
 import { Floater, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
+import { type AuthTypeGroup, AuthTypePicker } from '@/features/auth/components/AuthTypePicker';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
 import { useGrpcSchemaDrift } from '@/features/grpc/hooks/useGrpcSchemaDrift';
@@ -70,6 +71,24 @@ type GrpcSubTab =
   | 'scripts'
   | 'streaming'
   | 'web-stream';
+
+/**
+ * Auth methods gRPC can apply as metadata. Sign-at-wire / challenge types
+ * (SigV4, OAuth 1.0, Digest, NTLM, WSSE) are not offered; an imported request
+ * that carries one keeps GrpcUnsupportedAuthNotice and a blocked send (#900).
+ */
+const GRPC_AUTH_GROUPS: ReadonlyArray<AuthTypeGroup> = [
+  {
+    label: 'Common',
+    options: [
+      { value: 'none', label: 'No Auth' },
+      { value: 'bearer', label: 'Bearer' },
+      { value: 'basic', label: 'Basic' },
+      { value: 'api-key', label: 'API Key' },
+    ],
+  },
+  { label: 'OAuth', options: [{ value: 'oauth2', label: 'OAuth 2.0' }] },
+];
 
 function GrpcRequestBuilder() {
   const currentRequest = useActiveRequest('grpc');
@@ -672,13 +691,23 @@ function GrpcRequestBuilder() {
             )}
 
             {activeTab === 'auth' && (
-              <div className="p-3 space-y-3">
-                <p className="text-sp-11 text-sp-muted font-mono">
-                  Authentication will be automatically converted to gRPC metadata.
-                </p>
-                <InheritedAuthHint request={grpcRequest} />
-                <GrpcUnsupportedAuthNotice request={grpcRequest} />
-                <AuthConfiguration auth={grpcRequest.auth} onChange={handleAuthChange} />
+              <div className="grid grid-cols-[170px_1fr] min-h-full">
+                <div className="border-r border-sp-line p-2 bg-sp-surface-lo/40 overflow-y-auto">
+                  <AuthTypePicker
+                    request={grpcRequest}
+                    groups={GRPC_AUTH_GROUPS}
+                    onChange={handleAuthChange}
+                    ariaLabel="gRPC authentication type"
+                  />
+                </div>
+                <div className="p-3 space-y-3 min-w-0">
+                  <p className="text-sp-11 text-sp-muted font-mono">
+                    Authentication will be automatically converted to gRPC metadata.
+                  </p>
+                  <InheritedAuthHint request={grpcRequest} />
+                  <GrpcUnsupportedAuthNotice request={grpcRequest} />
+                  <AuthConfiguration auth={grpcRequest.auth} onChange={handleAuthChange} />
+                </div>
               </div>
             )}
 

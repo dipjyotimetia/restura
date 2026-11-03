@@ -87,6 +87,21 @@ describe('buildConnectTransport', () => {
     expect(nodeOptions.rejectUnauthorized).toBe(false);
   });
 
+  it.each([
+    ['IPv4', 'grpcs://93.184.216.34:50051'],
+    ['bracketed IPv6', 'grpcs://[2001:db8::1]:50051'],
+  ])('sends no SNI for an %s literal (RFC 6066) but still pins the dial', (_label, url) => {
+    buildConnectTransport(url, DIAL);
+    const { nodeOptions } = lastOptions();
+    expect(nodeOptions.servername).toBeUndefined();
+    expect(typeof nodeOptions.lookup).toBe('function');
+  });
+
+  it('keeps the URL path prefix in baseUrl, dropping query and fragment', () => {
+    buildConnectTransport('https://gw.example.com/api/rpc/?x=1#frag', DIAL);
+    expect(lastOptions().baseUrl).toBe('https://gw.example.com:50051/api/rpc');
+  });
+
   it('maps a PEM client cert + key + passphrase for mTLS', () => {
     buildConnectTransport('grpcs://api.example.com:50051', DIAL, {
       clientCert: { cert: 'CERT-PEM', key: 'KEY-PEM', passphrase: 'hunter2' },

@@ -15,6 +15,7 @@
 import type { DescMethod, DescService, Registry } from '@bufbuild/protobuf';
 import { ConnectError, createClient, type Transport } from '@connectrpc/connect';
 import { createConnectTransport } from '@connectrpc/connect-web';
+import { resolveAuthVariables } from '@shared/auth/resolve-variables';
 import {
   callKindOf,
   inputFromJson,
@@ -111,14 +112,15 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   const inherited = resolveInheritedAuthForSend(rawArgs.request);
   const authed = inherited ? withEffectiveAuth(rawArgs.request, inherited.auth) : rawArgs.request;
   // Every transport below builds `/{service}/{method}` from these fields, so a
-  // templated `{{service}}` is resolved once here (the URL is resolved by
-  // prepareGrpcRequest / the IPC path).
+  // templated `{{service}}` is resolved once here, as are auth fields (the URL
+  // is resolved by prepareGrpcRequest / the IPC path).
   const args: StartGrpcStreamArgs = {
     ...rawArgs,
     request: {
       ...authed,
       service: rawArgs.resolveVariables(authed.service),
       method: rawArgs.resolveVariables(authed.method),
+      auth: resolveAuthVariables(authed.auth, rawArgs.resolveVariables),
     },
   };
   // Basic validation of what will actually be dialled — `{{variables}}`
@@ -219,7 +221,11 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   }
 
   const baseUrl = prepared.url.endsWith('/') ? prepared.url.slice(0, -1) : prepared.url;
-  const transport = args.transport ?? createConnectTransport({ baseUrl, useBinaryFormat: false });
+  // Connect JSON needs the schema's registry to (de)serialise
+  // google.protobuf.Any payloads (`@type`), on the request and the replies.
+  const transport =
+    args.transport ??
+    createConnectTransport({ baseUrl, useBinaryFormat: false, jsonOptions: { registry } });
 
   return startConnectServerStream<TIn, TOut>({
     transport,

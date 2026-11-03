@@ -220,7 +220,12 @@ function connectFailureMessage(
     data && typeof data === 'object' && typeof (data as { error?: unknown }).error === 'string'
       ? (data as { error: string }).error
       : '';
-  const refusedConnect = /^HTTP (404|415)\b/.test(reason);
+  // A refusal of Connect itself (404/415 without a Connect error body), or an
+  // HTTP/2-only (h2c prior-knowledge) server answering our HTTP/1.1 request
+  // with an HTTP/2 preface — the usual plaintext grpc-go / grpc-js setup.
+  const refusedConnect =
+    /^HTTP (404|415)\b/.test(reason) ||
+    /does not match the HTTP\/1\.1 protocol|HPE_INVALID_CONSTANT/.test(reason);
   const note =
     refusedConnect && !wireProtocol
       ? ' The CLI sends "auto" requests over the Connect protocol only; this server looks native-gRPC-only (desktop "auto" would dial native gRPC). Pin the request to gRPC-Web if the server supports it, or run it from the desktop app.'

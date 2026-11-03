@@ -622,6 +622,18 @@ describe('grpc:request deadlines', () => {
     expect(args.timeoutMs).toBe(5000);
   });
 
+  it('lets one window send a collection-run burst (> 30 calls / minute)', async () => {
+    const call = mockHandle.mock.calls.find(([channel]) => channel === IPC.grpc.request);
+    const handler = call?.[1] as Handler;
+    const window = makeEvent().event; // one renderer, one rate-limit bucket
+    for (let i = 0; i < 120; i++) {
+      await expect(
+        handler(window, { ...validStream(`burst-${i}`), methodType: 'unary' })
+      ).resolves.toMatchObject({ status: 0 });
+    }
+    expect(mockExecuteConnectUnary).toHaveBeenCalledTimes(120);
+  });
+
   it('labels a setup failure with the real name of code 2 (UNKNOWN)', async () => {
     mockExecuteConnectUnary.mockRejectedValueOnce(new Error('Service "x" not found in proto'));
     const res = (await invoke({ ...validStream('u3'), methodType: 'unary' })) as {

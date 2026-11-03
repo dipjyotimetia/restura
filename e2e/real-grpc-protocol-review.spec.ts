@@ -7,6 +7,7 @@ import { registryFromProtoText } from '../shared/protocol/grpc-registry';
 import { expect, test } from './fixtures/servers';
 import { EDGE_PROTO, EDGE_SERVICE } from './mocks/grpcServer';
 import { EchoReplySchema, EchoRequestSchema } from './mocks/proto/gen/echo_pb';
+import { setGrpcTarget } from './utils/grpc';
 import { fillFirstMonacoEditor, switchMode } from './utils/selectors';
 
 /**
@@ -183,24 +184,23 @@ async function setGlobal(page: Page, name: string, value: string): Promise<void>
 /**
  * Fill a unary call in the builder. The builder needs a schema before it
  * invokes (the mock's reflection only lists services), so the matching
- * `.proto` is uploaded first; service / method / URL are typed afterwards so
- * the test controls them exactly.
+ * `.proto` is uploaded (via setGrpcTarget, which orders URL → schema →
+ * service / method deterministically).
  */
 async function fillCall(
   page: Page,
   call: { url: string; service: string; method: string; body: string; proto: 'echo' | 'edge' }
 ) {
   await switchMode(page, 'grpc');
-  await page.getByLabel('Upload .proto file').setInputFiles({
-    name: `${call.proto}.proto`,
-    mimeType: 'text/plain',
-    buffer: Buffer.from(call.proto === 'echo' ? ECHO_PROTO : EDGE_PROTO),
+  await setGrpcTarget(page, {
+    url: call.url,
+    service: call.service,
+    method: call.method,
+    proto: {
+      name: `${call.proto}.proto`,
+      text: call.proto === 'echo' ? ECHO_PROTO : EDGE_PROTO,
+    },
   });
-  // Service + method before the URL: a URL change starts auto-discovery,
-  // which can swap the Method textbox for a picker mid-fill.
-  await page.getByPlaceholder(/Service \(e\.g\./i).fill(call.service);
-  await page.getByPlaceholder(/Method \(e\.g\./i).fill(call.method);
-  await page.getByRole('textbox', { name: 'gRPC server URL' }).fill(call.url);
   await fillFirstMonacoEditor(page, call.body);
 }
 

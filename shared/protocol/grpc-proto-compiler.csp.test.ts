@@ -242,3 +242,40 @@ describe('wire compatibility with protobufjs (independent oracle)', () => {
     });
   });
 });
+
+describe('user type names that shadow Object.prototype members', () => {
+  it('emits `constructor` / `toString` messages as message fields, not scalars', () => {
+    const [fd] = compileProtoFiles([
+      {
+        path: 'proto/names.proto',
+        content: `syntax = "proto3"; package names.v1;
+          message constructor { string a = 1; }
+          message toString { string b = 1; }
+          message hasOwnProperty { string c = 1; }
+          message Holder {
+            constructor a = 1;
+            repeated toString r = 2;
+            map<string, hasOwnProperty> m = 3;
+          }`,
+      },
+    ]).filter((f) => f.name === 'proto/names.proto');
+    const holder = fd!.messageType.find((m) => m.name === 'Holder')!;
+    const byName = (n: string) => holder.field.find((f) => f.name === n)!;
+    expect(byName('a').type).toBe(11);
+    expect(byName('a').typeName).toBe('.names.v1.constructor');
+    expect(byName('r').type).toBe(11);
+    expect(byName('r').typeName).toBe('.names.v1.toString');
+    const entry = holder.nestedType.find((n) => n.name === 'MEntry')!;
+    expect(entry.field[1]?.typeName).toBe('.names.v1.hasOwnProperty');
+    // And the registry built from it accepts the result.
+    expect(() =>
+      registryFromProtoFiles([
+        {
+          path: 'proto/names2.proto',
+          content:
+            'syntax = "proto3"; package n2; message valueOf { int32 x = 1; } message H { valueOf v = 1; }',
+        },
+      ])
+    ).not.toThrow();
+  });
+});

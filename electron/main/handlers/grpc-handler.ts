@@ -27,7 +27,15 @@ import { type GrpcTlsConfig, resolveGrpcExecutionPolicy } from './grpc-credentia
 
 const log = createLogger('grpc');
 
-export const grpcRateLimiter = createKeyedRateLimiter(30, 60_000);
+// Unary / buffered `grpc:request` sends. Same rationale and ceiling as the
+// HTTP limiter: the renderer is trusted, and collection runs, retries and
+// load-style runs fire many calls a minute — 30/min turned a 31-request gRPC
+// collection run into self-inflicted "Rate limit exceeded" failures. The
+// limiter only backstops runaway loops.
+export const grpcRateLimiter = createKeyedRateLimiter(6000, 60_000);
+// Live stream opens (`grpc:start-stream`): each holds an HTTP/2 stream open,
+// so a lower ceiling — still well above interactive and collection-run use.
+export const grpcStreamRateLimiter = createKeyedRateLimiter(600, 60_000);
 
 // Belt-and-braces guard on the stream id used to key activeCalls.
 const SAFE_GRPC_ID_RE = /^[a-zA-Z0-9_-]+$/;
@@ -478,7 +486,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           }
         };
 
-        if (!grpcRateLimiter.check(event.sender.id)) {
+        if (!grpcStreamRateLimiter.check(event.sender.id)) {
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 14,
             details: 'Rate limit exceeded',

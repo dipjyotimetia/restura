@@ -242,6 +242,15 @@ const SCALAR_DESCRIPTOR_TYPE: Readonly<Record<string, number>> = {
   sint32: 17,
   sint64: 18,
 };
+/**
+ * Descriptor type for a protobufjs scalar name. Own-property lookup only: a
+ * user message named `constructor` / `toString` must not resolve to an
+ * `Object.prototype` member and be emitted as a scalar.
+ */
+function scalarDescriptorType(type: string): number | undefined {
+  return Object.hasOwn(SCALAR_DESCRIPTOR_TYPE, type) ? SCALAR_DESCRIPTOR_TYPE[type] : undefined;
+}
+
 const TYPE_GROUP = 10;
 const TYPE_MESSAGE = 11;
 const TYPE_ENUM = 14;
@@ -267,7 +276,7 @@ export function mapEntryName(fieldName: string): string {
 type FieldInit = MessageInitShape<typeof FieldDescriptorProtoSchema>;
 
 function fieldTypeOf(type: string, resolved: protobuf.ReflectionObject | null, delimited: boolean) {
-  const scalar = SCALAR_DESCRIPTOR_TYPE[type];
+  const scalar = scalarDescriptorType(type);
   if (scalar !== undefined) return { type: scalar };
   if (resolved instanceof protobuf.Enum) return { type: TYPE_ENUM, typeName: qualified(resolved) };
   if (resolved instanceof protobuf.Type) {
@@ -312,7 +321,7 @@ function messageDescriptor(type: protobuf.Type, syntax: 'proto2' | 'proto3'): De
       init.type = TYPE_MESSAGE;
       init.typeName = `${qualified(type)}.${entry}`;
       init.label = LABEL_REPEATED;
-      const keyType = SCALAR_DESCRIPTOR_TYPE[f.keyType];
+      const keyType = scalarDescriptorType(f.keyType);
       if (keyType === undefined) throw new Error(`illegal map key type: ${f.keyType}`);
       const value = fieldTypeOf(f.type, f.resolvedType, false);
       nestedType.push(

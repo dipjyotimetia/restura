@@ -26,6 +26,8 @@
  * call `useRequestRunner().run(grpcReq, 'grpc')` get scripts + history +
  * Console panel updates without re-implementing the pipeline.
  */
+
+import { resolveAuthVariables } from '@shared/auth/resolve-variables';
 import {
   applyScriptMetadata,
   findScriptWrittenToken,
@@ -331,7 +333,15 @@ export const grpcProtocol: ProtocolModule = {
       resolveMapText(text, scriptEnvVars, ctx.secretNames, defaultResolveVariables);
     // Service / method may be templated like the URL (`{{service}}`); every
     // transport below builds `/{service}/{method}` from these fields.
-    request = { ...request, service: resolve(request.service), method: resolve(request.method) };
+    // Auth fields resolve `{{vars}}` with the same scope as the URL / metadata
+    // (secret-variable tokens and keychain handles stay opaque), as HTTP,
+    // GraphQL, MCP, gRPC reflection and the CLI already do.
+    request = {
+      ...request,
+      service: resolve(request.service),
+      method: resolve(request.method),
+      auth: resolveAuthVariables(request.auth, resolve),
+    };
     // Electron needs a schema; a request without one (e.g. a saved request run
     // from a collection with no snapshot) falls back to server reflection,
     // which throws an actionable error ("reflect or upload a .proto").

@@ -18,6 +18,7 @@ import {
   redecodeRawStatusDetails,
 } from '@shared/protocol/grpc-status-details';
 import { MAX_GRPC_METADATA_BYTES } from '@shared/protocol/header-policy';
+import { hasVariableToken } from '@shared/variables/tokens';
 import { v4 as uuidv4 } from 'uuid';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import {
@@ -206,9 +207,12 @@ export function parseProtoFile(content: string, fileName = 'schema.proto'): Prot
   return { fileName, package: pkg, services, messages };
 }
 
-/** True when `text` holds a `{{variable}}` reference resolved at send time. */
+/**
+ * True when `text` holds a `{{variable}}` reference resolved at send time —
+ * the shared variable grammar (ADR-0039), never a local regex.
+ */
 export function hasTemplateVariable(text: string): boolean {
-  return /\{\{[^{}]+\}\}/.test(text);
+  return hasVariableToken(text);
 }
 
 const DESKTOP_GRPC_SCHEMES = ['grpc://', 'grpcs://'];
