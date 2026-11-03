@@ -1,6 +1,7 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
+    "verbatimModuleSyntax": true,
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
