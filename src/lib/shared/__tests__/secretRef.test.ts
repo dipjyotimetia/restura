@@ -140,6 +140,20 @@ describe('secretRef — coerceToInlineSecret', () => {
     });
   });
 
+  it('never drops a structurally valid ref because it is long', () => {
+    const long = 'k'.repeat(64 * 1024 + 1);
+    expect(coerceToInlineSecret({ kind: 'inline', value: long })).toEqual({
+      kind: 'inline',
+      value: long,
+    });
+    expect(coerceToInlineSecret(long)).toEqual({ kind: 'inline', value: long });
+    const longId = 'h'.repeat(200);
+    expect(coerceToInlineSecret({ kind: 'handle', id: longId })).toEqual({
+      kind: 'handle',
+      id: longId,
+    });
+  });
+
   it('coerces malformed refs to an empty inline secret', () => {
     for (const malformed of [
       { kind: 'inline', value: 123 },

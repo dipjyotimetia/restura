@@ -1,5 +1,6 @@
 import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
-import type { ZodType } from 'zod';
+import { type ZodType, z } from 'zod';
+import { externalSecretProviderSchema } from './external-secret-profile';
 
 /**
  * SecretRef — discriminated union representing a secret value that may be
@@ -170,23 +171,43 @@ export function externalSecret(
 /**
  * Coerce an arbitrary persisted value into a canonical `SecretValue`:
  *  - string → `{kind:'inline', value}`
- *  - a SecretRef that passes `secretValueSchema` → that ref (unknown keys dropped)
+ *  - a structurally valid SecretRef → that ref (unknown keys dropped)
  *  - anything else (undefined, number, malformed ref) → `{kind:'inline', value:''}`
  *
  * Used by Zustand store migrations to widen legacy plaintext fields without
- * data loss. Idempotent — safe to apply twice.
+ * data loss. Idempotent — safe to apply twice. Checks shape only (no length
+ * caps): a migration must never drop a valid secret just because it is long.
  */
 export function coerceToInlineSecret(value: unknown): SecretValue {
   if (typeof value === 'string') return { kind: 'inline', value };
-  const parsed = secretValueSchema.safeParse(value);
+  const parsed = secretRefShapeSchema.safeParse(value);
   return parsed.success ? parsed.data : { kind: 'inline', value: '' };
 }
 
 /**
- * Runtime guard for the SecretValue shape (validated by `secretValueSchema`)
- * — used by IPC validators and store-validators to gate persisted state.
- * Throws otherwise. The message never includes the value: a near-miss shape
- * can still carry plaintext, and this error ends up in logs.
+ * Same kinds and field types as `secretValueSchema`, without its length caps.
+ * Only for coercing already-persisted state; boundaries use the capped schema.
+ */
+const secretRefShapeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('inline'), value: z.string() }),
+  z.object({ kind: z.literal('handle'), id: z.string(), label: z.string().optional() }),
+  z.object({
+    kind: z.literal('external'),
+    provider: externalSecretProviderSchema,
+    profileId: z.string().min(1),
+    secretId: z.string().min(1),
+    selector: z.string().min(1).optional(),
+    label: z.string().min(1).optional(),
+  }),
+]);
+
+/**
+ * Runtime guard for SecretValue, validated by the length-capped
+ * `secretValueSchema` — the same bound the IPC validators enforce, so a value
+ * that passes here is accepted at every boundary. Used by IPC validators and
+ * store-validators to gate persisted state; throws otherwise. The message
+ * never includes the value: a near-miss shape can still carry plaintext, and
+ * this error ends up in logs.
  */
 export function assertSecretValue(value: unknown, fieldName: string): asserts value is SecretValue {
   if (!secretValueSchema.safeParse(value).success) {
