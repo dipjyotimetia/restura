@@ -486,4 +486,66 @@ describe('HAR importer', () => {
     // Long registered methods are not truncated into a different token.
     expect(methodOf('UPDATEREDIRECTREF')).toBe('UPDATEREDIRECTREF');
   });
+  it('drops HTTP/2 pseudo-headers and content-length from a Chrome h2 capture (I4)', () => {
+    // Shape of a real Chrome DevTools "Save all as HAR" entry over HTTP/2.
+    const h2 = JSON.stringify({
+      log: {
+        version: '1.2',
+        creator: { name: 'WebInspector', version: '537.36' },
+        pages: [],
+        entries: [
+          {
+            _initiator: { type: 'script' },
+            _priority: 'High',
+            _resourceType: 'fetch',
+            cache: {},
+            connection: '443',
+            request: {
+              method: 'POST',
+              url: 'https://api.example.test/v1/items',
+              httpVersion: 'http/2.0',
+              headers: [
+                { name: ':authority', value: 'api.example.test' },
+                { name: ':method', value: 'POST' },
+                { name: ':path', value: '/v1/items' },
+                { name: ':scheme', value: 'https' },
+                { name: 'accept', value: 'application/json' },
+                { name: 'content-length', value: '13' },
+                { name: 'content-type', value: 'application/json' },
+              ],
+              queryString: [],
+              cookies: [],
+              headersSize: -1,
+              bodySize: 13,
+              postData: { mimeType: 'application/json', text: '{"name":"x"}' },
+            },
+            response: {
+              status: 201,
+              statusText: '',
+              httpVersion: 'http/2.0',
+              headers: [],
+              cookies: [],
+              content: { size: 0, mimeType: 'x-unknown' },
+              redirectURL: '',
+              headersSize: -1,
+              bodySize: 0,
+              _transferSize: 120,
+            },
+            serverIPAddress: '203.0.113.7',
+            startedDateTime: '2026-08-02T10:00:00.000Z',
+            time: 88.1,
+            timings: { blocked: 1, dns: -1, ssl: -1, connect: -1, send: 0.2, wait: 80, receive: 1 },
+          },
+        ],
+      },
+    });
+
+    const preview = parseHarImport(h2);
+    const request = preview.groups[0]?.entries[0]?.request;
+    expect(request?.headers.map((header) => header.key)).toEqual(['accept', 'content-type']);
+    const discarded = preview.warnings.filter((w) => w.kind === 'har-field-discarded');
+    expect(discarded).toHaveLength(1);
+    expect(JSON.stringify(discarded[0])).toContain(':authority');
+    expect(JSON.stringify(discarded[0])).toContain('content-length');
+  });
 });

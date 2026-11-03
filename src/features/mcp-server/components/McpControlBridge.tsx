@@ -31,13 +31,8 @@ import { McpSecretPromptDialog } from './McpSecretPromptDialog';
 
 const STATUS_POLL_MS = 5_000;
 
-interface PersistApi {
-  hasHydrated: () => boolean;
-  onFinishHydration: (fn: () => void) => () => void;
-}
-
 /** Zustand persist API of the settings store (module-stable). */
-const settingsPersist = (useSettingsStore as unknown as { persist?: PersistApi }).persist;
+const settingsPersist = useSettingsStore.persist;
 
 /** True once the persisted settings are loaded, so a default `enabled: false` never stops a server. */
 function useSettingsHydrated(): boolean {

@@ -102,7 +102,11 @@ describe('Postman v2.1 export — renderer', () => {
 
   it('the export report supersedes the postman export warnings', () => {
     // Only insomnia / opencollection still use the string warnings.
+    // Insomnia export cannot carry Digest / OAuth 1.0 / NTLM, so those warn too.
     expect(getCollectionExportWarnings(collection(), 'insomnia')).toEqual([
+      'Insomnia export omits Digest auth (exported without authentication)',
+      'Insomnia export omits OAuth 1.0 auth (exported without authentication)',
+      'Insomnia export omits NTLM auth (exported without authentication)',
       'SSE requests are exported as non-runnable stubs',
     ]);
   });

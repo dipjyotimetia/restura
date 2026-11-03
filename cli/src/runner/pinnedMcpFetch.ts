@@ -75,7 +75,14 @@ export function createPinnedLookup(host: string, ip: string): any {
 }
 
 export interface PinnedFetchSession {
+  /** DNS-pinned fetch that refuses any 3xx (MCP / A2A transports). */
   fetch: typeof globalThis.fetch;
+  /**
+   * DNS-pinned fetch that never follows a redirect and returns the 3xx
+   * response as-is, for a caller that applies its own refusal (the OAuth2
+   * token request refuses it at `resolveOAuth2Token`, the CLI's one seam).
+   */
+  manualRedirectFetch: typeof globalThis.fetch;
   /** DNS-pinned equivalent for the shared HTTP protocol executor. */
   fetcher: Fetcher;
   /** Ends all requests owned by this short-lived agent/MCP session. */
@@ -158,24 +165,30 @@ export function createPinnedMcpFetchSession(allowLocalhost: boolean): PinnedFetc
     return agent;
   };
 
-  const fetch = (async (input, init) => {
+  const manualRedirectFetch = (async (input, init) => {
     const rawUrl = typeof input === 'string' || input instanceof URL ? input.toString() : input.url;
     const response = await undiciFetch(input as Parameters<typeof undiciFetch>[0], {
       ...(init as Parameters<typeof undiciFetch>[1]),
       dispatcher: await agentFor(rawUrl),
       redirect: 'manual',
     });
+    return response as unknown as Response;
+  }) as typeof globalThis.fetch;
+
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const response = await manualRedirectFetch(input, init);
     if (response.status >= 300 && response.status < 400) {
       await response.body?.cancel();
       throw new Error(
         'MCP transport redirects are not permitted. Update the server URL to its final address.'
       );
     }
-    return response as unknown as Response;
-  }) as typeof globalThis.fetch;
+    return response;
+  };
 
   return {
     fetch,
+    manualRedirectFetch,
     fetcher: async (request) => createUndiciFetcher(await agentFor(request.url))(request),
     async dispose() {
       if (disposed) return;

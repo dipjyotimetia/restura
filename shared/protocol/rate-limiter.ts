@@ -1,5 +1,4 @@
 import type { Context, Next } from 'hono';
-import { sha256Hex } from './crypto-utils';
 
 /**
  * Cloudflare Rate Limiting binding shape. Declared inline so we don't pull in
@@ -11,47 +10,41 @@ export interface RateLimitBinding {
   limit(input: { key: string }): Promise<{ success: boolean }>;
 }
 
-// FIFO-bounded cache: token → first-16-hex of SHA-256. Tokens are stable per
-// client, so caching avoids running an async digest on every request. Per
-// isolate; bucket cardinality is independent.
-const TOKEN_FP_CACHE_CAP = 256;
-const tokenFpCache = new Map<string, string>();
-
-async function tokenFingerprint(token: string): Promise<string> {
-  const cached = tokenFpCache.get(token);
-  if (cached) return cached;
-  const fp = (await sha256Hex(token)).slice(0, 16);
-  if (tokenFpCache.size >= TOKEN_FP_CACHE_CAP) {
-    // FIFO eviction — Map preserves insertion order, so the first key is the oldest.
-    const oldest = tokenFpCache.keys().next().value;
-    if (oldest !== undefined) tokenFpCache.delete(oldest);
+declare module 'hono' {
+  interface ContextVariableMap {
+    /**
+     * Who the host's auth middleware authenticated the request as (e.g. the
+     * proxy-token principal or a CF Access subject). Never a raw client header:
+     * a client-chosen value would let each request open a fresh bucket.
+     * Unset means anonymous.
+     */
+    authPrincipal: string;
+    /**
+     * Transport-level client address, set by a host whose forwarding headers
+     * are not trustworthy (self-host Node without TRUST_PROXY=true). When set
+     * it wins over every IP header.
+     */
+    clientIp: string;
   }
-  tokenFpCache.set(token, fp);
-  return fp;
 }
 
 /**
- * Bucket key composition: `${ip}|${tokenFingerprint}`.
+ * Bucket key composition: `${ip}|${principal}`.
  *
- * The token fingerprint is the first 16 chars of SHA-256(token). The IP falls
- * back through `True-Client-IP`, then dev-only `X-Real-IP`, then a UA-derived
- * hash — it NEVER collapses to a single shared `'unknown'` bucket, which would
- * let one noisy client exhaust the limit for everyone.
- *
- * Token preference: explicit proxy token > Authorization Bearer > CF Access
- * assertion. Anonymous requests get a literal `anon` token bucket.
+ * The principal is what the auth middleware stashed on `authPrincipal`
+ * (`anon` when unset). The IP is the host-supplied `clientIp` when present,
+ * else `CF-Connecting-IP`, `True-Client-IP`, dev-only `X-Real-IP`, then a
+ * UA-derived hash — it NEVER collapses to a single shared `'unknown'` bucket,
+ * which would let one noisy client exhaust the limit for everyone.
  */
-export async function buildBucketKey(c: Context): Promise<string> {
-  const ip = resolveClientIp(c);
-  const token =
-    c.req.header('X-Restura-Proxy-Token') ??
-    c.req.header('Authorization')?.replace(/^Bearer\s+/i, '') ??
-    c.req.header('Cf-Access-Jwt-Assertion');
-  const tokenFp = token ? await tokenFingerprint(token) : 'anon';
-  return `${ip}|${tokenFp}`;
+export function buildBucketKey(c: Context): string {
+  const principal: string | undefined = c.get('authPrincipal');
+  return `${resolveClientIp(c)}|${principal ?? 'anon'}`;
 }
 
 function resolveClientIp(c: Context): string {
+  const socketIp: string | undefined = c.get('clientIp');
+  if (socketIp) return socketIp;
   const cf = c.req.header('CF-Connecting-IP');
   if (cf) return cf;
   const trueClient = c.req.header('True-Client-IP');
@@ -70,9 +63,10 @@ function resolveClientIp(c: Context): string {
   return `noip:${crypto.randomUUID()}`;
 }
 
-// Fast sync hash for the no-IP fingerprint path. Collision risk is
-// acceptable because the bucket key also includes the (separately hashed)
-// token fingerprint — a djb2 collision alone can't merge two distinct buckets.
+// Fast sync hash for the no-IP fingerprint path. Only reached when no client
+// address exists at all (self-host pins the socket peer; Cloudflare sets
+// CF-Connecting-IP), so a djb2 collision merges two address-less clients into
+// one bucket in the worst case — never into a client that has an address.
 function djb2Hash(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i);
@@ -90,12 +84,13 @@ export function createBindingRateLimiter(
   opts: { shadow?: boolean } = {}
 ) {
   async function middleware(c: Context, next: Next): Promise<Response | void> {
-    const key = await buildBucketKey(c);
+    const key = buildBucketKey(c);
     const result = await binding.limit({ key });
     if (!result.success) {
       if (opts.shadow) {
-        // Single-line JSON for `wrangler tail` correlation. No bucket key
-        // because it includes a (hashed) token fingerprint we'd rather not log.
+        // Single-line JSON for `wrangler tail` correlation. No bucket key:
+        // it carries the client address and the Access subject, which stay
+        // out of logs.
         console.log(JSON.stringify({ kind: 'ratelimit.shadow-deny', ts: Date.now() }));
         return next();
       }
@@ -131,13 +126,10 @@ export function createIsolateRateLimiter(
   }
 
   async function middleware(c: Context, next: Next): Promise<Response | void> {
-    // Bucket key. On Cloudflare, CF-Connecting-IP is canonical and unspoofable.
-    // On Node (self-hosted), it's never set — so fall through to the same
-    // chain `buildBucketKey` uses for the binding path: True-Client-IP →
-    // X-Real-IP / X-Forwarded-For (set by the operator's reverse proxy) →
-    // UA-derived hash, instead of collapsing every client into a shared
-    // 'unknown' bucket where one noisy client could DoS everyone.
-    const ip = await buildBucketKey(c);
+    // Same composite key as the binding path (`buildBucketKey`). On self-host
+    // Node the host pins `clientIp` to the socket peer unless TRUST_PROXY=true,
+    // so client-sent forwarding headers cannot choose the bucket.
+    const ip = buildBucketKey(c);
     const now = Date.now();
     if (now - lastPrune > pruneIntervalMs) {
       pruneOldEntries(now);

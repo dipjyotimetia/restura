@@ -82,7 +82,11 @@ function frameSize(message: WebSocketMessage): number {
 export class FrameAssertionRunner {
   private readonly sessions = new Map<string, Session>();
 
-  constructor(private readonly factory: ExecutorFactory = defaultFactory) {}
+  private readonly factory: ExecutorFactory;
+
+  constructor(factory: ExecutorFactory = defaultFactory) {
+    this.factory = factory;
+  }
 
   /** Reconcile sessions with the store and enqueue any newly received frames. */
   sync(connections: Record<string, WebSocketConnection>): void {

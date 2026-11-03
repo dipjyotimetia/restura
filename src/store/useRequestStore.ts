@@ -24,7 +24,12 @@ import type {
   StreamEventLike,
   TabModeOverride,
 } from '@/types';
-import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './lib/tabs';
+import {
+  createTabFromRequest,
+  findTabIndex,
+  type MigratedRequestState,
+  migrateLegacyStateToTabs,
+} from './lib/tabs';
 
 interface ScriptResults {
   preRequest?: ScriptResult;
@@ -565,7 +570,8 @@ export const useRequestStore = create<RequestState>()(
         // v2:    Dexie-backed but still per-protocol slots
         // v3:    tabs[] + activeTabId
         // v4:    AuthConfig sensitive fields widened to SecretValue (ADR-0007)
-        let state: RequestState | null = null;
+        // The persisted slice (see `partialize`), not the whole store.
+        let state: MigratedRequestState | null = null;
         if (version < 3 && persistedState && typeof persistedState === 'object') {
           const legacy = persistedState as {
             currentRequest?: Request | null;
@@ -582,9 +588,9 @@ export const useRequestStore = create<RequestState>()(
             sseRequest: legacy.sseRequest ?? null,
             mcpRequest: legacy.mcpRequest ?? null,
             currentResponse: legacy.currentResponse ?? null,
-          }) as unknown as RequestState;
+          });
         } else {
-          state = persistedState as RequestState;
+          state = persistedState as MigratedRequestState;
         }
         if (version < 4 && state?.tabs) {
           state = {
@@ -598,7 +604,7 @@ export const useRequestStore = create<RequestState>()(
             }),
           };
         }
-        return state as RequestState;
+        return state;
       },
       onRehydrateStorage: () => (state) => {
         if (!state) return;

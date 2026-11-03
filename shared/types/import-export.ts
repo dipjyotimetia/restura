@@ -1,3 +1,15 @@
+/**
+ * One multipart / urlencoded field of an Insomnia body (`body.params`). A file
+ * field carries `type: 'file'` and its `fileName`; its bytes are not portable.
+ */
+export interface InsomniaBodyParam {
+  name: string;
+  value: string;
+  disabled?: boolean;
+  type?: 'file';
+  fileName?: string;
+}
+
 // Insomnia Collection Format (simplified)
 export interface InsomniaResource {
   _id: string;
@@ -19,6 +31,7 @@ export interface InsomniaResource {
   body?: {
     mimeType: string;
     text: string;
+    params?: InsomniaBodyParam[];
   };
   authentication?: {
     /** Absent for no-auth — Insomnia's native export uses an empty object. */
@@ -55,7 +68,7 @@ export interface InsomniaV5Item {
   body?: {
     mimeType?: string;
     text?: string;
-    params?: Array<{ name: string; value: string; disabled?: boolean }>;
+    params?: InsomniaBodyParam[];
   };
   authentication?: {
     type?: string;
@@ -93,6 +106,9 @@ export interface OpenAPIDocument {
   components?: OpenAPIComponents;
   definitions?: Record<string, OpenAPISchema>; // Swagger 2.0
   securityDefinitions?: Record<string, OpenAPISecurityScheme>; // Swagger 2.0
+  consumes?: string[]; // Swagger 2.0 — default request media types
+  /** Root security requirement; operations inherit it unless they set their own. */
+  security?: Array<Record<string, string[]>>;
   tags?: OpenAPITag[];
 }
 
@@ -140,6 +156,7 @@ export interface OpenAPIOperation {
   requestBody?: OpenAPIRequestBody;
   responses?: Record<string, OpenAPIResponse>;
   security?: Array<Record<string, string[]>>;
+  consumes?: string[]; // Swagger 2.0 — overrides the document's `consumes`
   deprecated?: boolean;
 }
 

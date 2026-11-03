@@ -1,39 +1,19 @@
 import { connect } from 'cloudflare:sockets';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
+import {
+  assertCompleteAtEof,
+  encodeRequest,
+  type FinalHead,
+  findFinalHead,
+  frameBody,
+  isBodyComplete,
+  parseStatusCode,
+  sliceBody,
+  toRecord,
+  toResponse,
+} from './http-framing';
 
 const ENCODER = new TextEncoder();
-
-/**
- * Normalise HeadersInit into a plain Record. `Object.entries(new Headers())`
- * yields [] — the redirect-follower always passes a Headers instance, so
- * without this normalisation every redirected upstream-proxy hop silently
- * drops Authorization / Cookie / Content-Type / custom headers.
- */
-function toRecord(input: RequestInit['headers']): Record<string, string> {
-  if (!input) return {};
-  if (input instanceof Headers) {
-    const out: Record<string, string> = {};
-    input.forEach((v, k) => {
-      out[k] = v;
-    });
-    return out;
-  }
-  if (Array.isArray(input)) {
-    const out: Record<string, string> = {};
-    for (const [k, v] of input) out[k] = v;
-    return out;
-  }
-  return { ...(input as Record<string, string>) };
-}
-
-function parseStatusCode(statusLine: string): number {
-  // Exact-match the second token; substring-matching '200' anywhere in the
-  // line would falsely accept e.g. `HTTP/1.1 502 Backend 200 unavailable`.
-  const token = statusLine.split(' ')[1];
-  if (!token) return 502;
-  const n = parseInt(token, 10);
-  return Number.isNaN(n) ? 502 : n;
-}
 
 export interface UpstreamProxy {
   host: string;
@@ -52,26 +32,6 @@ function buildProxyAuthHeader(auth?: { username: string; password: string }): st
   return `Proxy-Authorization: ${proxyAuthValue(auth)}\r\n`;
 }
 
-function encodeRequest(
-  method: string,
-  url: URL,
-  headers: Record<string, string>,
-  bodyBytes?: Uint8Array
-): Uint8Array {
-  const path = url.pathname + url.search;
-  let raw = `${method} ${path} HTTP/1.1\r\nHost: ${url.host}\r\n`;
-  for (const [k, v] of Object.entries(headers)) {
-    raw += `${k}: ${v}\r\n`;
-  }
-  raw += '\r\n';
-  const headBytes = ENCODER.encode(raw);
-  if (!bodyBytes || bodyBytes.length === 0) return headBytes;
-  const combined = new Uint8Array(headBytes.length + bodyBytes.length);
-  combined.set(headBytes);
-  combined.set(bodyBytes, headBytes.length);
-  return combined;
-}
-
 function concatChunks(chunks: Uint8Array[], total: number): Uint8Array {
   const out = new Uint8Array(total);
   let offset = 0;
@@ -82,78 +42,105 @@ function concatChunks(chunks: Uint8Array[], total: number): Uint8Array {
   return out;
 }
 
-async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
-  statusLine: string;
-  headers: Record<string, string>;
-  /** Every header field in wire order, duplicates kept (repeated Set-Cookie, #855). */
-  headerList: Array<[string, string]>;
-  body: Uint8Array;
-}> {
+/** Close a socket on a failure path; a close error must not mask the original one. */
+async function closeQuietly(socket: { close(): Promise<void> }): Promise<void> {
+  try {
+    await socket.close();
+  } catch {
+    /* already closed */
+  }
+}
+
+function tooLarge(): Error {
+  return new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`);
+}
+
+type CfSocket = ReturnType<typeof connect>;
+
+/** Close `socket` when `signal` aborts (now, if it already has); returns the detach. */
+function closeOnAbort(signal: AbortSignal, socket: CfSocket): () => void {
+  const onAbort = () => void closeQuietly(socket);
+  if (signal.aborted) {
+    onAbort();
+    return () => undefined;
+  }
+  signal.addEventListener('abort', onAbort, { once: true });
+  return () => signal.removeEventListener('abort', onAbort);
+}
+
+/**
+ * Read only the CONNECT reply's header section. A CONNECT 200 has no body and
+ * the proxy holds the socket open for the tunnel, so reading to EOF would hang.
+ */
+async function readConnectResponse(
+  readable: ReadableStream<Uint8Array>
+): Promise<{ statusLine: string }> {
   const reader = readable.getReader();
   const decoder = new TextDecoder();
-  // Keep the body as raw bytes so binary responses (images, PDFs, gzip) survive
-  // the proxy untouched. Only the header section is decoded as text — HTTP
-  // headers are ASCII, so the char index of \r\n\r\n equals its byte offset.
+  let headerText = '';
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) throw new Error('Upstream proxy closed before CONNECT response headers');
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_RESPONSE_SIZE) throw tooLarge();
+      headerText += decoder.decode(value, { stream: true });
+      if (headerText.includes('\r\n\r\n')) {
+        return { statusLine: headerText.slice(0, headerText.indexOf('\r\n')) };
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/**
+ * Read a full HTTP/1.1 response — same resolution rule as the Node twin's
+ * `readHttpResponseBody` (framing helpers shared in `http-framing`):
+ *   - interim 1xx heads are skipped; 204 / 304 stop at the final head.
+ *   - Content-Length present: read exactly N body bytes.
+ *   - otherwise: read until the server closes the stream. Transfer-Encoding:
+ *     chunked is not decoded; the raw framing is the body (Node parity).
+ * EOF on an aborted signal or short of Content-Length throws.
+ */
+async function readHttpResponse(
+  readable: ReadableStream<Uint8Array>,
+  signal: AbortSignal
+): Promise<FinalHead & { body: Uint8Array }> {
+  const reader = readable.getReader();
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
-  let headerText = '';
-  let headerByteLen = -1; // bytes up to and including the \r\n\r\n terminator
-  const headers: Record<string, string> = {};
-  const headerList: Array<[string, string]> = [];
-  let statusLine = '';
-  let contentLength: number | null = null;
+  let head: FinalHead | null = null;
+  const collect = (): Uint8Array => {
+    const [only] = chunks;
+    return chunks.length === 1 && only ? only : concatChunks(chunks, totalBytes);
+  };
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalBytes += value.byteLength;
-    if (totalBytes > MAX_RESPONSE_SIZE) {
-      reader.releaseLock();
-      throw new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`);
-    }
-    chunks.push(value);
-
-    if (headerByteLen === -1) {
-      headerText += decoder.decode(value, { stream: true });
-      const idx = headerText.indexOf('\r\n\r\n');
-      if (idx === -1) continue;
-      headerByteLen = idx + 4;
-
-      const lines = headerText.slice(0, idx).split('\r\n');
-      statusLine = lines[0] ?? '';
-      for (const line of lines.slice(1)) {
-        const colon = line.indexOf(':');
-        if (colon !== -1) {
-          const name = line.slice(0, colon).trim().toLowerCase();
-          const value = line.slice(colon + 1).trim();
-          headers[name] = value;
-          headerList.push([name, value]);
-        }
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_RESPONSE_SIZE) throw tooLarge();
+      chunks.push(value);
+      // Until the head is found, keep one contiguous buffer to search.
+      if (!head) {
+        const all = collect();
+        chunks.length = 0;
+        chunks.push(all);
+        head = findFinalHead(all);
       }
-
-      const cl = headers['content-length'];
-      if (cl !== undefined) {
-        const n = parseInt(cl, 10);
-        if (!Number.isNaN(n)) contentLength = n;
+      if (head && isBodyComplete(head, totalBytes)) {
+        return { ...head, body: sliceBody(collect(), head) };
       }
     }
-
-    const bodyBytesSoFar = totalBytes - headerByteLen;
-    if (contentLength === null || bodyBytesSoFar >= contentLength) {
-      reader.releaseLock();
-      const all = concatChunks(chunks, totalBytes);
-      const body =
-        contentLength !== null
-          ? all.slice(headerByteLen, headerByteLen + contentLength)
-          : all.slice(headerByteLen);
-      return { statusLine, headers, headerList, body };
-    }
+  } finally {
+    reader.releaseLock();
   }
 
-  reader.releaseLock();
-  const all = concatChunks(chunks, totalBytes);
-  const body = headerByteLen !== -1 ? all.slice(headerByteLen) : new Uint8Array(0);
-  return { statusLine, headers, headerList, body };
+  assertCompleteAtEof(head, totalBytes, signal);
+  return { ...head, body: sliceBody(collect(), head) };
 }
 
 export async function httpsViaConnectProxy(
@@ -162,12 +149,12 @@ export async function httpsViaConnectProxy(
   requestInit: RequestInit,
   signal: AbortSignal
 ): Promise<Response> {
+  if (signal.aborted) throw new Error('Aborted');
   const socket = connect(
     { hostname: proxy.host, port: proxy.port },
     { secureTransport: 'starttls', allowHalfOpen: false }
   );
-
-  signal.addEventListener('abort', () => void socket.close(), { once: true });
+  let detachAbort = closeOnAbort(signal, socket);
 
   const targetPort = targetUrl.port || '443';
   const writer = socket.writable.getWriter();
@@ -175,44 +162,42 @@ export async function httpsViaConnectProxy(
   await writer.write(ENCODER.encode(connectRequest));
   writer.releaseLock();
 
-  const { statusLine } = await readHttpResponse(socket.readable);
-  if (parseStatusCode(statusLine) !== 200) {
-    await socket.close();
-    throw new Error(`Proxy CONNECT failed: ${statusLine}`);
+  // Until the TLS socket owns it, the proxy socket is ours to close on every
+  // failure path (bad reply, proxy hang-up, oversized reply, TLS upgrade error).
+  let tlsSocket: ReturnType<typeof socket.startTls>;
+  try {
+    const { statusLine } = await readConnectResponse(socket.readable);
+    if (parseStatusCode(statusLine) !== 200) {
+      throw new Error(`Proxy CONNECT failed: ${statusLine}`);
+    }
+    tlsSocket = socket.startTls({ expectedServerHostname: targetUrl.hostname });
+  } catch (err) {
+    detachAbort();
+    await closeQuietly(socket);
+    throw err;
   }
-
-  const tlsSocket = socket.startTls({ expectedServerHostname: targetUrl.hostname });
+  // The TLS socket now owns the connection: abort must close it, not the
+  // pre-upgrade socket (whose close would leave the tunnel read hanging).
+  detachAbort();
+  detachAbort = closeOnAbort(signal, tlsSocket);
 
   try {
-    // Make the real request over the TLS tunnel
     // Verbatim (#857): the shared core already normalised known methods; extension
     // tokens are case-sensitive and must match what auth signers signed.
     const method = requestInit.method ?? 'GET';
     const headers = toRecord(requestInit.headers);
-    delete headers['host'];
-    delete headers['Host'];
-    headers['Host'] = targetUrl.hostname;
-
-    const bodyStr = typeof requestInit.body === 'string' ? requestInit.body : undefined;
-    const bodyBytes = bodyStr ? ENCODER.encode(bodyStr) : undefined;
-    if (bodyBytes) headers['Content-Length'] = String(bodyBytes.length);
+    const bodyBytes = await frameBody(requestInit.body, headers);
+    const target = targetUrl.pathname + targetUrl.search;
 
     const tlsWriter = tlsSocket.writable.getWriter();
-    await tlsWriter.write(encodeRequest(method, targetUrl, headers, bodyBytes));
+    await tlsWriter.write(encodeRequest(method, target, targetUrl.host, headers, bodyBytes));
     tlsWriter.releaseLock();
 
-    const {
-      statusLine: respStatusLine,
-      headerList: respHeaderList,
-      body: respBody,
-    } = await readHttpResponse(tlsSocket.readable);
-
-    return new Response(respBody, {
-      status: parseStatusCode(respStatusLine),
-      headers: respHeaderList,
-    });
+    const response = await readHttpResponse(tlsSocket.readable, signal);
+    return toResponse(response.statusLine, response.headerList, response.body);
   } finally {
-    await tlsSocket.close();
+    detachAbort();
+    await closeQuietly(tlsSocket);
   }
 }
 
@@ -222,55 +207,31 @@ export async function httpViaProxy(
   requestInit: RequestInit,
   signal: AbortSignal
 ): Promise<Response> {
+  if (signal.aborted) throw new Error('Aborted');
   const socket = connect({ hostname: proxy.host, port: proxy.port });
+  const detachAbort = closeOnAbort(signal, socket);
 
-  signal.addEventListener('abort', () => void socket.close(), { once: true });
+  try {
+    // Verbatim (#857): the shared core already normalised known methods; extension
+    // tokens are case-sensitive and must match what auth signers signed.
+    const method = requestInit.method ?? 'GET';
+    const headers = toRecord(requestInit.headers);
+    if (proxy.auth) {
+      headers['Proxy-Authorization'] = proxyAuthValue(proxy.auth);
+    }
+    const bodyBytes = await frameBody(requestInit.body, headers);
 
-  // Verbatim (#857): the shared core already normalised known methods; extension
-  // tokens are case-sensitive and must match what auth signers signed.
-  const method = requestInit.method ?? 'GET';
-  const headers = toRecord(requestInit.headers);
-  delete headers['host'];
-  delete headers['Host'];
-  headers['Host'] = targetUrl.hostname;
-  if (proxy.auth) {
-    headers['Proxy-Authorization'] = proxyAuthValue(proxy.auth);
+    // An HTTP proxy takes the absolute-form request target.
+    const writer = socket.writable.getWriter();
+    await writer.write(
+      encodeRequest(method, targetUrl.toString(), targetUrl.host, headers, bodyBytes)
+    );
+    writer.releaseLock();
+
+    const response = await readHttpResponse(socket.readable, signal);
+    return toResponse(response.statusLine, response.headerList, response.body);
+  } finally {
+    detachAbort();
+    await closeQuietly(socket);
   }
-
-  const bodyStr = typeof requestInit.body === 'string' ? requestInit.body : undefined;
-  const bodyBytes = bodyStr ? ENCODER.encode(bodyStr) : undefined;
-  if (bodyBytes) headers['Content-Length'] = String(bodyBytes.length);
-
-  // HTTP proxy uses absolute URI
-  let raw = `${method} ${targetUrl.toString()} HTTP/1.1\r\nHost: ${targetUrl.host}\r\n`;
-  for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase() !== 'host') raw += `${k}: ${v}\r\n`;
-  }
-  raw += '\r\n';
-
-  const headBytes = ENCODER.encode(raw);
-  const wireBytes = bodyBytes
-    ? (() => {
-        const out = new Uint8Array(headBytes.length + bodyBytes.length);
-        out.set(headBytes);
-        out.set(bodyBytes, headBytes.length);
-        return out;
-      })()
-    : headBytes;
-
-  const writer = socket.writable.getWriter();
-  await writer.write(wireBytes);
-  writer.releaseLock();
-
-  const {
-    statusLine,
-    headerList: respHeaderList,
-    body: respBody,
-  } = await readHttpResponse(socket.readable);
-  await socket.close();
-
-  return new Response(respBody, {
-    status: parseStatusCode(statusLine),
-    headers: respHeaderList,
-  });
 }

@@ -7,7 +7,7 @@ import {
   ArenaRunReportSchema,
 } from '@/features/ai-lab/run-engine/reportEnvelope';
 import { ConsoleNativeDraftSchema } from '@/lib/shared/console-store-schemas';
-import type { Collection, Environment, Request, SpatialAccent } from '@/types';
+import type { Collection, Environment, Request } from '@/types';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
 import {
   collectionSchema,
@@ -168,12 +168,13 @@ export function validateEnvironment(env: unknown): Environment {
       ...(collectionId !== undefined ? { collectionId } : {}),
       ...(parentId !== undefined ? { parentId } : {}),
       variables: result.data.variables.map((v) => {
-        const { description, private: isPrivate, secretRef, ...rest } = v;
+        const { description, private: isPrivate, secretRef, secret, ...rest } = v;
         return {
           ...rest,
           ...(description !== undefined ? { description } : {}),
           ...(isPrivate !== undefined ? { private: isPrivate } : {}),
           ...(secretRef !== undefined ? { secretRef } : {}),
+          ...(secret !== undefined ? { secret } : {}),
         };
       }),
     };
@@ -185,6 +186,24 @@ export function validateEnvironment(env: unknown): Environment {
   throw new Error(
     `Environment validation failed: ${result.error?.issues.map((e) => e.message).join(', ')}`
   );
+}
+
+/**
+ * Zod-gate environments (e.g. from an import) before any reaches the store;
+ * throws the first validation error. Gate only: the schema strips fields it
+ * does not model (e.g. `secret`), so the caller stores its own object.
+ */
+export function assertValidEnvironments(environments: readonly unknown[] | undefined): void {
+  for (const environment of environments ?? []) validateEnvironment(environment);
+}
+
+/**
+ * Type guard over the environment schema, for gating persisted or imported
+ * environments without replacing them with the parsed copy (the schema strips
+ * fields it does not model, such as a variable's `secret` flag).
+ */
+export function isValidEnvironment(env: unknown): env is Environment {
+  return environmentSchema.safeParse(env).success;
 }
 
 /**
@@ -699,10 +718,7 @@ export const appSettingsSchema = z
       .object({ errorsEnabled: z.boolean().catch(true) })
       .optional()
       .catch(undefined),
-    accent: z
-      .enum(SPATIAL_ACCENT_PRESETS as unknown as [SpatialAccent, ...SpatialAccent[]])
-      .optional()
-      .catch(undefined),
+    accent: z.enum(SPATIAL_ACCENT_PRESETS).optional().catch(undefined),
     autoUpdate: z
       .object({
         autoDownload: z.boolean().catch(true),

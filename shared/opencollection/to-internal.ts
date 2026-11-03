@@ -28,6 +28,7 @@ import { applyGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension'
 import { applyHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
 import { kvToInternal } from './key-value';
 import { mcpStdioFromOC, mcpTransportFromOC } from './mcp-stdio-extension';
+import { MULTIPART_MIXED_BODY_KEY, multipartMixedFromOC } from './multipart-mixed-body';
 import type { OpenCollection } from './schemas';
 import {
   applyWebSocketExtension,
@@ -479,6 +480,7 @@ function bodyToInternal(body: unknown, context: string): RequestBody {
     return { type: 'x-www-form-urlencoded', formData: (fue.parts as never[]) ?? [] };
   }
   if (b.graphql) return { type: 'graphql', raw: JSON.stringify(b.graphql) };
+  if (b[MULTIPART_MIXED_BODY_KEY]) return multipartMixedFromOC(b[MULTIPART_MIXED_BODY_KEY]);
   // Body present but matches no known shape. Likely a forward-compat
   // OpenCollection field we don't yet handle. Warn so the user can spot
   // data loss; the original is preserved in `_oc` for byte-stable export.

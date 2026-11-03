@@ -1,5 +1,6 @@
 import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
-import type { ZodType } from 'zod';
+import { type ZodType, z } from 'zod';
+import { externalSecretProviderSchema } from './external-secret-profile';
 
 /**
  * SecretRef — discriminated union representing a secret value that may be
@@ -170,53 +171,56 @@ export function externalSecret(
 /**
  * Coerce an arbitrary persisted value into a canonical `SecretValue`:
  *  - string → `{kind:'inline', value}`
- *  - existing SecretRef → unchanged
- *  - anything else (undefined, number, malformed) → `{kind:'inline', value:''}`
+ *  - a structurally valid SecretRef → that ref (unknown keys dropped)
+ *  - anything else (undefined, number, malformed ref) → `{kind:'inline', value:''}`
  *
  * Used by Zustand store migrations to widen legacy plaintext fields without
- * data loss. Idempotent — safe to apply twice.
+ * data loss. Idempotent — safe to apply twice. Checks shape only (no length
+ * caps): a migration must never drop a valid secret just because it is long.
  */
 export function coerceToInlineSecret(value: unknown): SecretValue {
   if (typeof value === 'string') return { kind: 'inline', value };
-  if (
-    isInlineSecretRef(value as SecretValue) ||
-    isSecretHandle(value as SecretValue) ||
-    isExternalSecretRef(value as SecretValue)
-  ) {
-    return value as SecretValue;
-  }
-  return { kind: 'inline', value: '' };
+  const parsed = secretRefShapeSchema.safeParse(value);
+  return parsed.success ? parsed.data : { kind: 'inline', value: '' };
 }
 
 /**
- * Zod-style runtime guard for the SecretRef shape — used by IPC validators
- * and store-validators to gate persisted state. Returns the value unchanged
- * if valid; throws otherwise.
+ * Same kinds and field types as `secretValueSchema`, without its length caps.
+ * Only for coercing already-persisted state; boundaries use the capped schema.
+ * Keys holding `undefined` are dropped first, so `{label: undefined}` reads
+ * as an absent label rather than a malformed ref.
+ */
+const secretRefShapeSchema = z.preprocess(
+  (value) =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined))
+      : value,
+  z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('inline'), value: z.string() }),
+    z.object({ kind: z.literal('handle'), id: z.string(), label: z.string().exactOptional() }),
+    z.object({
+      kind: z.literal('external'),
+      provider: externalSecretProviderSchema,
+      profileId: z.string().min(1),
+      secretId: z.string().min(1),
+      selector: z.string().min(1).exactOptional(),
+      label: z.string().min(1).exactOptional(),
+    }),
+  ])
+);
+
+/**
+ * Runtime guard for SecretValue, validated by the length-capped
+ * `secretValueSchema` — the same bound the IPC validators enforce, so a value
+ * that passes here is accepted at every boundary. Used by IPC validators and
+ * store-validators to gate persisted state; throws otherwise. The message
+ * never includes the value: a near-miss shape can still carry plaintext, and
+ * this error ends up in logs.
  */
 export function assertSecretValue(value: unknown, fieldName: string): asserts value is SecretValue {
-  if (typeof value === 'string') return;
-  if (value && typeof value === 'object') {
-    const v = value as {
-      kind?: unknown;
-      value?: unknown;
-      id?: unknown;
-      provider?: unknown;
-      profileId?: unknown;
-      secretId?: unknown;
-    };
-    if (v.kind === 'inline' && typeof v.value === 'string') return;
-    if (v.kind === 'handle' && typeof v.id === 'string') return;
-    if (
-      v.kind === 'external' &&
-      (v.provider === 'aws-secrets-manager' ||
-        v.provider === 'google-secret-manager' ||
-        v.provider === 'azure-key-vault') &&
-      typeof v.profileId === 'string' &&
-      typeof v.secretId === 'string'
-    )
-      return;
+  if (!secretValueSchema.safeParse(value).success) {
+    throw new TypeError(`${fieldName}: expected string or SecretRef`);
   }
-  throw new TypeError(`${fieldName}: expected string or SecretRef, got ${JSON.stringify(value)}`);
 }
 
 /**

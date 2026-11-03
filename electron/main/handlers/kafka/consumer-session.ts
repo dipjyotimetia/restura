@@ -128,10 +128,12 @@ export class KafkaConsumerSession {
    */
   readonly #soughtAt = new Map<string, number>();
 
-  constructor(
-    private readonly options: ConsumerSessionOptions,
-    private readonly hooks: ConsumerStreamHooks
-  ) {
+  private readonly options: ConsumerSessionOptions;
+  private readonly hooks: ConsumerStreamHooks;
+
+  constructor(options: ConsumerSessionOptions, hooks: ConsumerStreamHooks) {
+    this.options = options;
+    this.hooks = hooks;
     this.#delivery = new OrderedDelivery(hooks.deliver, hooks.onError, options.decodeTimeoutMs);
   }
 

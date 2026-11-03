@@ -5,6 +5,7 @@
  * Works alongside useCollectionStore to sync changes to the file system.
  */
 
+import { readKey, writeKey } from '@shared/object-keys';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
@@ -361,13 +362,16 @@ function reconcileRequestIds(
   incoming: CollectionRequest
 ): CollectionRequest {
   incoming.id = existing.id;
-  const oldRecord = existing as unknown as Record<string, unknown>;
-  const newRecord = incoming as unknown as Record<string, unknown>;
-  // `query` / `handshakeAuth`: Socket.IO collection items (#1209).
+  // `query` / `handshakeAuth`: Socket.IO collection items (#1209). Not every
+  // request kind has every key; an absent one reconciles to `undefined`.
   for (const key of ['headers', 'params', 'metadata', 'query', 'handshakeAuth']) {
-    newRecord[key] = reconcileKeyValues(
-      oldRecord[key] as KeyValue[] | undefined,
-      newRecord[key] as KeyValue[] | undefined
+    writeKey(
+      incoming,
+      key,
+      reconcileKeyValues(
+        readKey(existing, key) as KeyValue[] | undefined,
+        readKey(incoming, key) as KeyValue[] | undefined
+      )
     );
   }
   return incoming;

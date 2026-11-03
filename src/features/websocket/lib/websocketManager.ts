@@ -150,6 +150,10 @@ class WebSocketManager {
       // Set connection timeout
       const timeoutId = setTimeout(() => {
         if (ws.readyState === WebSocket.CONNECTING) {
+          // The timeout owns this close: detach first so the browser's
+          // follow-up close(1006) cannot schedule a reconnect with no args.
+          ws.onclose = null;
+          ws.onerror = null;
           ws.close();
           store.addMessage(
             connectionId,
@@ -571,8 +575,13 @@ class WebSocketManager {
       // Replay the original (already variable-resolved) url, protocols and
       // headers — desktop handshake headers must survive a reconnect.
       const args = this.connectArgs.get(connectionId);
-      if (args && useWebSocketStore.getState().connections[connectionId]) {
+      const state = useWebSocketStore.getState();
+      if (!state.connections[connectionId]) return;
+      if (args) {
         this.open(connectionId, args, true);
+      } else {
+        // Nothing left to replay — never leave the UI stuck on 'reconnecting'.
+        state.updateConnectionStatus(connectionId, 'disconnected');
       }
     }, delay);
 

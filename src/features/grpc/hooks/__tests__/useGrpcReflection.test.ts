@@ -329,3 +329,107 @@ describe('useGrpcReflection', () => {
     expect(result.current.showSchema).toBe(true);
   });
 });
+
+describe('useGrpcReflection stale results', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function deferred<T>() {
+    let resolve: (value: T) => void = () => {};
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  it('drops a discovery that resolves after a newer one started', async () => {
+    const first = deferred<ReflectionResult>();
+    const second = deferred<ReflectionResult>();
+    discoverMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const onServiceSelected = vi.fn();
+    const { result } = renderHook(() => useGrpcReflection({ ...baseOptions, onServiceSelected }));
+
+    let firstRun: Promise<void> = Promise.resolve();
+    let secondRun: Promise<void> = Promise.resolve();
+    act(() => {
+      firstRun = result.current.discover(true);
+    });
+    act(() => {
+      secondRun = result.current.discover(true);
+    });
+    await act(async () => {
+      second.resolve(buildSuccessResult({ services: [buildService({ fullName: 'new.New' })] }));
+      await secondRun;
+    });
+    await act(async () => {
+      first.resolve(buildSuccessResult({ services: [buildService({ fullName: 'old.Old' })] }));
+      await firstRun;
+    });
+
+    expect(onServiceSelected).toHaveBeenCalledTimes(1);
+    expect(onServiceSelected).toHaveBeenLastCalledWith(
+      expect.objectContaining({ fullName: 'new.New' })
+    );
+    expect(result.current.result?.services[0]?.fullName).toBe('new.New');
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('drops a discovery whose tab is no longer active when it resolves', async () => {
+    const pending = deferred<ReflectionResult>();
+    discoverMock.mockReturnValueOnce(pending.promise);
+    const onServiceSelected = vi.fn();
+    const onMethodSelected = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ scopeKey }: { scopeKey: string }) =>
+        useGrpcReflection({ ...baseOptions, scopeKey, onServiceSelected, onMethodSelected }),
+      { initialProps: { scopeKey: 'tab-a' } }
+    );
+
+    let run: Promise<void> = Promise.resolve();
+    act(() => {
+      run = result.current.discover(true);
+    });
+    rerender({ scopeKey: 'tab-b' });
+    await act(async () => {
+      pending.resolve(buildSuccessResult());
+      await run;
+    });
+
+    expect(onServiceSelected).not.toHaveBeenCalled();
+    expect(onMethodSelected).not.toHaveBeenCalled();
+    expect(result.current.result).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('re-discovers for the now-active tab when a same-URL discovery was dropped as stale', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<ReflectionResult>();
+    discoverMock.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(buildSuccessResult());
+    const onServiceSelected = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ scopeKey }: { scopeKey: string }) =>
+        useGrpcReflection({ ...baseOptions, autoDiscover: true, scopeKey, onServiceSelected }),
+      { initialProps: { scopeKey: 'tab-a' } }
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1600);
+    });
+    expect(discoverMock).toHaveBeenCalledTimes(1);
+
+    // Same URL, different tab: tab A's in-flight discovery is now stale.
+    rerender({ scopeKey: 'tab-b' });
+    await act(async () => {
+      pending.resolve(buildSuccessResult({ services: [buildService({ fullName: 'old.Old' })] }));
+      await vi.advanceTimersByTimeAsync(1600);
+    });
+
+    expect(discoverMock).toHaveBeenCalledTimes(2);
+    expect(result.current.result?.success).toBe(true);
+    expect(onServiceSelected).toHaveBeenCalledTimes(1);
+    expect(onServiceSelected).toHaveBeenLastCalledWith(
+      expect.objectContaining({ fullName: 'greet.v1.GreetService' })
+    );
+    vi.useRealTimers();
+  });
+});

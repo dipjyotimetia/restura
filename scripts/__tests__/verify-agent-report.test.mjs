@@ -130,3 +130,16 @@ test('ownership: **/ keeps a directory boundary before the next literal', () => 
     ['src/myindex.ts', 'src/a/xindex.ts']
   );
 });
+
+test('gates must be a non-empty plain object with tests, lint and typeCheckAll', () => {
+  for (const gates of [{}, [], true, 1, 'pass']) {
+    const problems = validateReport({ ...good, gates });
+    assert.ok(
+      problems.some((p) => /gates must be/.test(p)),
+      `gates=${JSON.stringify(gates)} must be a problem`
+    );
+  }
+  const partial = validateReport({ ...good, gates: { tests: 'pass' } });
+  assert.ok(partial.some((p) => /missing gate: lint/.test(p)));
+  assert.ok(partial.some((p) => /missing gate: typeCheckAll/.test(p)));
+});

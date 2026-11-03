@@ -4,6 +4,7 @@ import { GrpcStatusCode, GrpcStatusCodeName, grpcStatusFromHttpStatus } from './
 import { type GrpcStatusDetail, statusDetailsFromConnectJson } from './grpc-status-details';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
 import { MAX_RESPONSE_SIZE } from './http-proxy';
+import { discardBody } from './redirect-follower';
 import type { Fetcher } from './types';
 import { validateURL } from './url-validation';
 
@@ -163,8 +164,14 @@ export async function executeGrpcProxy(
     return { ok: false, status: 400, payload: { error: 'Invalid method name format' } };
   }
 
-  const baseUrl = spec.url.endsWith('/') ? spec.url.slice(0, -1) : spec.url;
-  const connectUrl = `${baseUrl}/${spec.service}/${spec.method}`;
+  // Build via URL (as grpc-web-proxy does) so a query/fragment in spec.url
+  // can't swallow the path. Both are dropped: a Connect/gRPC-Web route is
+  // `/<service>/<method>` and gRPC carries no query, so web/desktop agree.
+  const target = new URL(spec.url);
+  target.search = '';
+  target.hash = '';
+  target.pathname = `${target.pathname.replace(/\/+$/, '')}/${spec.service}/${spec.method}`;
+  const connectUrl = target.toString();
 
   const timeout =
     typeof spec.timeout === 'number' && Number.isFinite(spec.timeout) && spec.timeout > 0
@@ -204,6 +211,7 @@ export async function executeGrpcProxy(
 
     const tooLargeMsg = `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`;
     if (response.contentLengthHeader && Number(response.contentLengthHeader) > MAX_RESPONSE_SIZE) {
+      await discardBody(response);
       return {
         ok: false,
         status: 413,

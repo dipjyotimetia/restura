@@ -236,11 +236,10 @@ export interface FetcherResponse {
    */
   text: () => Promise<string>;
   /**
-   * Buffered raw bytes — the canonical read for binary responses. Preferred
-   * over `body` for the buffered path because it's reliable across every
-   * runtime (workerd, the vite-plugin Miniflare dev proxy, and undici), whereas
-   * the `body` stream property isn't always surfaced. Consumes the body once,
-   * same as `text()`.
+   * Buffered raw bytes. The buffered path prefers the `body` stream (read
+   * with a byte cap so an oversized body is rejected before it is held in
+   * memory) and uses this only when a runtime does not surface `body`.
+   * Consumes the body once, same as `text()`.
    */
   arrayBuffer?: () => Promise<ArrayBuffer>;
   contentLengthHeader: string | null;

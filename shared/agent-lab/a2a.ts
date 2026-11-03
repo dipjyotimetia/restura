@@ -178,11 +178,12 @@ export class A2aClient {
   private card: A2aAgentCard | undefined;
   private readonly endpoint: URL;
 
-  constructor(
-    endpoint: string,
-    private readonly transport: A2aTransport,
-    private readonly options: A2aClientOptions = {}
-  ) {
+  private readonly transport: A2aTransport;
+  private readonly options: A2aClientOptions;
+
+  constructor(endpoint: string, transport: A2aTransport, options: A2aClientOptions = {}) {
+    this.transport = transport;
+    this.options = options;
     this.endpoint = assertHttpUrl(endpoint, 'endpoint');
   }
 

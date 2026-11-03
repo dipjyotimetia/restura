@@ -47,8 +47,11 @@ class FakeSocket extends EventTarget {
   onmessage: ((e: { data: unknown }) => void) | null = null;
   onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
-  constructor(public url: string) {
+  public url: string;
+
+  constructor(url: string) {
     super();
+    this.url = url;
     FakeSocket.last = this;
   }
   send(frame: string) {

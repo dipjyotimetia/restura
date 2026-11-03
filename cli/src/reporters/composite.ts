@@ -11,7 +11,11 @@ import type { Reporter, RequestRunResult, RunMeta, RunResult } from './types.js'
  *     write still surfaces as a non-zero exit — after all outputs are flushed.
  */
 export class CompositeReporter implements Reporter {
-  constructor(private readonly children: Reporter[]) {}
+  private readonly children: Reporter[];
+
+  constructor(children: Reporter[]) {
+    this.children = children;
+  }
 
   async onStart(meta: RunMeta): Promise<void> {
     for (const c of this.children) await this.safe(() => c.onStart?.(meta));

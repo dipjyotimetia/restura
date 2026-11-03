@@ -33,8 +33,9 @@ if [ -z "$base" ]; then
   exit 0
 fi
 
-# Deleted files are dropped (--diff-filter=d): Vitest cannot relate a file that
-# no longer exists, and broken importers fail the type-check above instead.
+# Deleted files are dropped (--diff-filter=d) for Vitest only: it cannot relate a
+# file that no longer exists. The type-check above does include deleted files and
+# both sides of renames (scripts/type-check-related.mjs), so broken importers fail there.
 changed=$(git diff --name-only --diff-filter=d "$base" HEAD -- \
   '*.ts' '*.tsx' '*.mts' '*.cts' '*.js' '*.jsx' '*.mjs' '*.cjs')
 

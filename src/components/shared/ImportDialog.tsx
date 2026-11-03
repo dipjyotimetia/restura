@@ -1,6 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import type { DeepLinkImportFormat } from '@shared/deep-link';
-import * as yaml from 'js-yaml';
+import { load } from 'js-yaml';
 import { Check, Download, Link, Lock, Upload, X } from 'lucide-react';
 import { type ChangeEvent, type DragEvent, useEffect, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -31,6 +31,7 @@ import {
 } from '@/features/collections/lib/importers/postman';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
+import { assertValidEnvironments } from '@/lib/shared/store-validators';
 import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -115,7 +116,7 @@ export default function ImportDialog({
 
   const parseFileContent = (text: string, fileName: string): unknown => {
     if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
-      return yaml.load(text);
+      return load(text);
     }
     if (
       fileName.endsWith('.bru') ||
@@ -134,7 +135,7 @@ export default function ImportDialog({
     try {
       return JSON.parse(text);
     } catch {
-      return yaml.load(text);
+      return load(text);
     }
   };
 
@@ -236,6 +237,7 @@ export default function ImportDialog({
   const confirmImport = async () => {
     if (!pendingOutcome) return;
     const outcome = pendingOutcome;
+    assertValidEnvironments('kind' in outcome ? [outcome.environment] : outcome.environments);
     if ('kind' in outcome) {
       addEnvironment(outcome.environment);
       setImportStatus('success');
@@ -258,9 +260,7 @@ export default function ImportDialog({
         ? await convertCollectionSecretsToHandles(outcome.collection)
         : outcome.collection;
     addCollection(collection);
-    for (const env of outcome.environments ?? []) {
-      addEnvironment(env);
-    }
+    for (const environment of outcome.environments ?? []) addEnvironment(environment);
     setImportStatus('success');
     setWarnings(outcome.warnings);
     setEnvironmentOnlyName(null);
@@ -290,6 +290,7 @@ export default function ImportDialog({
             `Imported collection failed validation — ${validation.issues.join('; ')}`
           );
         }
+        assertValidEnvironments(result.environments);
         addCollection(result.collection);
         for (const environment of result.environments ?? []) addEnvironment(environment);
       }
@@ -321,8 +322,7 @@ export default function ImportDialog({
 
   const handleImportError = (error: unknown) => {
     setImportStatus('error');
-    const message = error instanceof Error ? error.message : 'Failed to import collection';
-    setErrorMessage(message);
+    setErrorMessage(error instanceof Error ? error.message : 'Failed to import collection');
     setTimeout(() => setImportStatus('idle'), 3000);
   };
 
@@ -567,7 +567,7 @@ export default function ImportDialog({
                 <div className="mt-3 flex gap-2">
                   <button
                     type="button"
-                    onClick={() => void confirmImport()}
+                    onClick={() => void confirmImport().catch(handleImportError)}
                     className="rounded-sp-btn bg-sp-accent px-3 py-2 text-sp-12 font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
                   >
                     Confirm import

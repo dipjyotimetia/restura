@@ -1,13 +1,14 @@
 {
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
     "exactOptionalPropertyTypes": true,
     "noEmit": true,
     "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": ["dom", "esnext"],
     "module": "esnext",
     "moduleResolution": "bundler",
-    "isolatedModules": true,
     "jsx": "react-jsx",
     "types": ["vite/client", "node", "@testing-library/jest-dom/vitest"],
     "rootDir": "../../..",

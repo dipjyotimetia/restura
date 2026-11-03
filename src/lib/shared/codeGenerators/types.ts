@@ -1,4 +1,5 @@
-import type { HttpRequest, RequestSettings } from '@/types';
+import { isInlineSecretRef } from '@/lib/shared/secretRef';
+import type { HttpRequest, ProxyConfig, RequestSettings } from '@/types';
 
 export interface GenerateOptions {
   request: HttpRequest;
@@ -8,6 +9,43 @@ export interface GenerateOptions {
   settings?: RequestSettings;
   /** Multipart fields for a form-data body (files carry their file name). */
   formData?: Array<{ key: string; value: string; type: 'text' | 'file' }>;
+}
+
+/** Printed instead of a proxy password that is masked or held as a handle/external ref. */
+export const PROXY_PASSWORD_PLACEHOLDER = '<proxy-password>';
+
+/**
+ * Proxy credentials a snippet may print: the username, and the password as
+ * plaintext only when it is a plain/inline value — a desktop handle or an
+ * external reference never resolves in the renderer, so it becomes the
+ * placeholder. Null when the proxy carries no usable credentials.
+ */
+export function proxyCredentials(
+  proxy: ProxyConfig
+): { username: string; password: string } | null {
+  const auth = proxy.auth;
+  if (!auth?.username) return null;
+  const password =
+    typeof auth.password === 'string'
+      ? auth.password
+      : isInlineSecretRef(auth.password)
+        ? auth.password.value
+        : PROXY_PASSWORD_PLACEHOLDER;
+  return password ? { username: auth.username, password } : null;
+}
+
+/**
+ * `scheme://user:pass@host:port` with percent-encoded credentials so `@ : /`
+ * in a password cannot break the URL. The masked placeholder stays readable.
+ */
+export function proxyUrlOf(proxy: ProxyConfig): string {
+  const creds = proxyCredentials(proxy);
+  const encodePassword = (p: string) =>
+    p === PROXY_PASSWORD_PLACEHOLDER ? p : encodeURIComponent(p);
+  const userInfo = creds
+    ? `${encodeURIComponent(creds.username)}:${encodePassword(creds.password)}@`
+    : '';
+  return `${proxy.type}://${userInfo}${proxy.host}:${proxy.port}`;
 }
 
 export const escapeShell = (str: string): string => `'${str.replace(/'/g, "'\\''")}'`;

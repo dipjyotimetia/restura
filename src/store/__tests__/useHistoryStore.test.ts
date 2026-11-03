@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Response as ApiResponse, HttpRequest } from '@/types';
 import { useHistoryStore } from '../useHistoryStore';
 import { useSettingsStore } from '../useSettingsStore';
@@ -52,6 +52,24 @@ describe('useHistoryStore — addHistoryItem', () => {
     const req = makeHttp();
     useHistoryStore.getState().addHistoryItem(req, makeResponse(req.id));
     expect(useHistoryStore.getState().history).toHaveLength(1);
+  });
+
+  it('gives two sends in the same millisecond distinct ids', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    try {
+      const req = makeHttp();
+      useHistoryStore.getState().addHistoryItem(req, makeResponse(req.id));
+      useHistoryStore.getState().addHistoryItem(req, makeResponse(req.id));
+    } finally {
+      now.mockRestore();
+    }
+    const [a, b] = useHistoryStore.getState().history;
+    expect(a?.id).toBeTruthy();
+    expect(a?.id).not.toBe(b?.id);
+
+    // Removing one must leave the other in place.
+    useHistoryStore.getState().removeHistoryItem(a?.id ?? '');
+    expect(useHistoryStore.getState().history.map((h) => h.id)).toEqual([b?.id]);
   });
 
   it('does not store an imported GraphQL schema on the history entry', () => {

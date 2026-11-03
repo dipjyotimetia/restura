@@ -1,3 +1,4 @@
+import { writeKey } from '../object-keys';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '../secrets/auth-fields';
 import type { SecretValue } from '../secrets/secret-ref';
 import type { AuthConfig } from '../types';
@@ -127,7 +128,7 @@ export function unwrapAuthForCompare(a: AuthConfig): AuthConfig {
     for (const f of fields) {
       if (f in copy) copy[f] = secretToString(copy[f] as SecretValue | undefined);
     }
-    (out as unknown as Record<string, unknown>)[block as string] = copy;
+    writeKey(out, block, copy);
   }
   return out;
 }

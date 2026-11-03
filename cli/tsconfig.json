@@ -10,7 +10,8 @@
     "rootDir": "..",
     "noEmit": false,
     "declaration": false,
-    "exactOptionalPropertyTypes": false,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
     "paths": {
       "@shared/*": ["../shared/*"]
     }

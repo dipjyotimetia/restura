@@ -16,11 +16,46 @@ import {
   fetchClientCredentialsToken,
   fetchDeviceCode,
   fetchPasswordToken,
+  type OAuth2TokenResponse,
   pollForDeviceToken,
+  tokenExpiresAt,
 } from '@/features/auth/lib/oauth2';
+import { isCapableHere } from '@/lib/shared/capabilities';
+import { isElectron } from '@/lib/shared/platform';
 import { unwrapSecret } from '@/lib/shared/secretRef';
+import type { AuthConfig } from '@/types';
 import SecretInput from '../SecretInput';
 import type { AuthEditorProps } from './types';
+import { UnappliedAuthNotice } from './UnappliedAuthNotice';
+
+// Desktop denies renderer popups, so the redirect can never be captured there.
+const AUTH_CODE_DESKTOP_MESSAGE =
+  'Authorization Code sign-in is not available in the desktop app yet. Use another grant type or paste an access token below.';
+
+type OAuth2Settings = NonNullable<AuthConfig['oauth2']>;
+
+/**
+ * Apply a fresh token response. The refresh token and expiry always come from
+ * this response: stale ones from an earlier token are dropped, so auto-refresh
+ * never replays a consumed refresh token over a newer access token.
+ */
+function withIssuedToken(
+  oauth: OAuth2Settings,
+  response: OAuth2TokenResponse,
+  nowMs: number
+): OAuth2Settings {
+  const { refreshToken: _staleRefresh, expiresAt: _staleExpiry, ...rest } = oauth;
+  const expiresAt = tokenExpiresAt(nowMs, response.expires_in);
+  return {
+    ...rest,
+    accessToken: { kind: 'inline', value: response.access_token },
+    ...(response.token_type !== undefined && { tokenType: response.token_type }),
+    ...(response.refresh_token !== undefined && {
+      refreshToken: { kind: 'inline', value: response.refresh_token },
+    }),
+    ...(expiresAt !== undefined && { expiresAt }),
+  };
+}
 
 export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
   const [tokenLoading, setTokenLoading] = useState(false);
@@ -31,6 +66,9 @@ export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
   } | null>(null);
   const oauth2 = auth.oauth2;
   const grantType = oauth2?.grantType ?? 'authorization_code';
+  const authCodeUnavailable =
+    grantType === 'authorization_code' &&
+    !isCapableHere('http.auth.oauth2AuthCodePopup', isElectron());
 
   if (auth.type !== 'oauth2') return null;
 
@@ -41,6 +79,7 @@ export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
       setTokenError('Client ID, Token URL, and Grant Type are required');
       return;
     }
+    if (authCodeUnavailable) return;
 
     setTokenLoading(true);
     setTokenError(null);
@@ -65,17 +104,12 @@ export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
         ...(oauth.password !== undefined && { password: unwrapSecret(oauth.password) }),
       };
 
-      let token: string;
-      let tokenType: string | undefined;
+      let response: OAuth2TokenResponse;
 
       if (oauth.grantType === 'client_credentials') {
-        const response = await fetchClientCredentialsToken(config);
-        token = response.access_token;
-        tokenType = response.token_type;
+        response = await fetchClientCredentialsToken(config);
       } else if (oauth.grantType === 'password') {
-        const response = await fetchPasswordToken(config);
-        token = response.access_token;
-        tokenType = response.token_type;
+        response = await fetchPasswordToken(config);
       } else if (oauth.grantType === 'authorization_code') {
         const { url, codeVerifier, state } = await buildAuthorizationUrl(config);
         const result = await authorizeWithPopup(url, state);
@@ -83,34 +117,23 @@ export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
           setTokenError('Authorization was cancelled or the popup was blocked');
           return;
         }
-        const response = await exchangeCodeForToken(config, result.code, codeVerifier);
-        token = response.access_token;
-        tokenType = response.token_type;
+        response = await exchangeCodeForToken(config, result.code, codeVerifier);
       } else if (oauth.grantType === 'device_code') {
         const device = await fetchDeviceCode(config);
         setDeviceCodeInfo({ userCode: device.user_code, verificationUri: device.verification_uri });
-        const response = await pollForDeviceToken(
+        response = await pollForDeviceToken(
           config,
           device.device_code,
           device.interval ?? 5,
           Math.ceil(device.expires_in / (device.interval ?? 5))
         );
-        token = response.access_token;
-        tokenType = response.token_type;
         setDeviceCodeInfo(null);
       } else {
         setTokenError('Unsupported grant type');
         return;
       }
 
-      onChange({
-        ...auth,
-        oauth2: {
-          ...auth.oauth2,
-          accessToken: { kind: 'inline', value: token },
-          ...(tokenType !== undefined && { tokenType }),
-        },
-      });
+      onChange({ ...auth, oauth2: withIssuedToken(oauth, response, Date.now()) });
     } catch (error) {
       setTokenError(error instanceof Error ? error.message : 'Failed to get token');
     } finally {
@@ -276,11 +299,17 @@ export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
           </div>
         </>
       )}
+      {authCodeUnavailable && (
+        <UnappliedAuthNotice
+          message={AUTH_CODE_DESKTOP_MESSAGE}
+          testId="oauth2-authcode-unavailable"
+        />
+      )}
       <Button
         variant="outline"
         size="sm"
         onClick={handleGetToken}
-        disabled={tokenLoading}
+        disabled={tokenLoading || authCodeUnavailable}
         className="w-full"
       >
         {tokenLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}

@@ -1,6 +1,7 @@
 import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
 import { isReconnectableSseResponse } from '@shared/protocol/sse-parser';
+import type { Fetcher } from '@shared/protocol/types';
 import { createLogger } from '@shared/runtime/logger';
 import { ipcMain } from 'electron';
 import { EVENT_PREFIX, IPC } from '../../shared/channels';
@@ -17,11 +18,15 @@ import { StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
-  createPolicyPinnedFetch,
+  createClosablePolicyPinnedFetch,
   type PolicyTransportConfig,
   resolvePolicyTransport,
 } from '../security/policy-transport';
-import { resolveSafeAddress } from '../security/safe-connect';
+import {
+  type ClosablePinnedFetch,
+  resolveSafeAddress,
+  type SafeAddress,
+} from '../security/safe-connect';
 import {
   materializeStreamingAuth,
   needsWsHandshakeMaterialization,
@@ -78,6 +83,48 @@ const connections = new StreamRegistry<ActiveSse, SseClaimFields>({
   },
   disposeClaim: (claim) => claim.abort?.abort(),
 });
+
+/**
+ * One DNS-pinned connection per request the shared streaming core issues.
+ * Requests to the pre-flight origin dial the address already validated for it;
+ * a redirect hop to another origin gets that origin's transport policy
+ * (per-host TLS material, proxy check) and is re-resolved through the DNS guard
+ * and re-pinned before dialling. `redirect: 'manual'` keeps the shared follower
+ * in charge of redirect policy and per-hop URL validation (Worker parity).
+ */
+function createSseHopTransport(
+  config: PolicyTransportConfig,
+  policyConfig: PolicyTransportConfig,
+  pinned: SafeAddress
+): { fetcher: Fetcher; close: () => void } {
+  // One pinned fetch (one undici Agent) per origin: same-origin hops and
+  // every request of the stream reuse it instead of allocating a pool per hop.
+  // `close` releases every Agent once the stream ends, fails or is aborted.
+  const byOrigin = new Map<string, Fetcher>();
+  const pools: ClosablePinnedFetch[] = [];
+  const fetcherFor = (policy: PolicyTransportConfig, address: SafeAddress): Fetcher => {
+    const pool = createClosablePolicyPinnedFetch(policy, address);
+    pools.push(pool);
+    return makeFetchFetcher({ redirect: 'manual', fetchImpl: pool.fetch });
+  };
+  byOrigin.set(new URL(policyConfig.url).origin, fetcherFor(policyConfig, pinned));
+  return {
+    fetcher: async (req) => {
+      const origin = new URL(req.url).origin;
+      let fetcher = byOrigin.get(origin);
+      if (!fetcher) {
+        const hopPolicy = resolveSseExecutionPolicy({ ...config, url: req.url });
+        const hopAddress = await resolveSafeAddress(req.url, { ...getExecutionPolicy().security });
+        fetcher = fetcherFor(hopPolicy, hopAddress);
+        byOrigin.set(origin, fetcher);
+      }
+      return fetcher(req);
+    },
+    close: () => {
+      for (const pool of pools.splice(0)) pool.close().catch(() => {});
+    },
+  };
+}
 
 function redactSseEvent(e: ParsedSseEvent, redact: SecretRedactor): ParsedSseEvent {
   // Every string field (data, event, lastEventId, …) — not a fixed list, so a
@@ -199,6 +246,9 @@ export function registerSseHandlerIPC(): void {
     if (!claim) return { success: false, error: 'Not connected' };
 
     let claimedEntry: ActiveSse | undefined;
+    // Released in `finally` unless the background read loop takes it over.
+    let transport: ReturnType<typeof createSseHopTransport> | undefined;
+    let transportHandedOff = false;
     // Scrubs resolved plaintext from replies, events and logs for this connect.
     let redact: SecretRedactor = (text) => text;
     try {
@@ -281,19 +331,9 @@ export function registerSseHandlerIPC(): void {
       }
       claimedEntry = entry;
 
-      // `redirect: 'manual'` so followRedirects can validate every hop (matches
-      // the Worker proxy's policy — Location pointing at metadata IPs etc. is
-      // rejected before we connect). `fetchImpl` is DNS-pinned to the address we
-      // just validated so the connect can't be rebound out from under us.
-      const sseFetcher = makeFetchFetcher({
-        redirect: 'manual',
-        fetchImpl: createPolicyPinnedFetch(policyConfig, pinned),
-      });
-
-      // Same orchestrator as the HTTP handler so SSE inherits the SSRF /
-      // header / redirect / auth pipeline. resolveSafeAddress above validated
-      // the address and the pinned fetcher dials it directly, so the rebind
-      // window the URL parse can't cover is now closed.
+      // Same orchestrator as the HTTP handler: SSE inherits the SSRF / header /
+      // redirect / auth pipeline; every hop is dialled DNS-pinned.
+      transport = createSseHopTransport(config, policyConfig, pinned);
       const result = await executeHttpProxyStreaming(
         {
           // graphql-sse (#889) POSTs its operation; plain SSE stays a GET.
@@ -312,7 +352,7 @@ export function registerSseHandlerIPC(): void {
               ? { redirectPolicy: { stripOnOriginChange: config.stripOnOriginChange } }
               : {}),
         },
-        sseFetcher,
+        transport.fetcher,
         // Same outbound-network policy as every other desktop transport
         // (Settings → Security), so localhost/private-IP rules stay consistent.
         // `signal` lets disconnect / renderer destroy / teardown abort the
@@ -354,11 +394,12 @@ export function registerSseHandlerIPC(): void {
       const contentType = Object.entries(response.headers ?? {}).find(
         ([k]) => k.toLowerCase() === 'content-type'
       )?.[1];
+      transportHandedOff = true;
       void readStream(
         entry,
         response.body ?? null,
         isReconnectableSseResponse(response.status, contentType ?? null)
-      );
+      ).finally(transport.close);
       return { success: true };
     } catch (err) {
       if (claimedEntry && connections.get(connectionId, webContentsId) === claimedEntry) {
@@ -373,6 +414,7 @@ export function registerSseHandlerIPC(): void {
       log.warn('connect failed', { connectionId, error: message });
       return { success: false, error: message };
     } finally {
+      if (!transportHandedOff) transport?.close();
       connections.releaseClaim(claim);
     }
   });

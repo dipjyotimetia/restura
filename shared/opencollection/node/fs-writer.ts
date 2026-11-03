@@ -378,13 +378,19 @@ async function writeItems(items: unknown[], dir: string): Promise<void> {
   // silently overwrite each other.
   const usedSlugs = new Set<string>();
 
-  for (const it of items) {
+  for (const [index, it] of items.entries()) {
     const item = it as Record<string, unknown>;
+    // Directory order is not sibling order: stamp every item's position so the
+    // reader (which sorts by `info.seq`) restores it. The array position always
+    // wins over a cached seq: a moved item loses its bag but its siblings keep
+    // theirs, and a stale value would otherwise re-sort the edited order.
+    const { name } = item.info as { name: string };
+    const info: unknown = { ...(item.info as object), seq: index + 1 };
     if (isFolder(item)) {
-      const slug = uniqueSlug((item.info as { name: string }).name, usedSlugs);
+      const slug = uniqueSlug(name, usedSlugs);
       const folderDir = join(dir, slug);
       await mkdir(folderDir, { recursive: true });
-      const folderMeta = compact({ info: item.info, request: item.request, docs: item.docs });
+      const folderMeta = compact({ info, request: item.request, docs: item.docs });
       if (folderMeta && Object.keys(folderMeta as object).length > 0) {
         await writeFile(
           join(folderDir, '_folder.yaml'),
@@ -394,17 +400,24 @@ async function writeItems(items: unknown[], dir: string): Promise<void> {
       }
       await writeItems((item.items as unknown[]) ?? [], folderDir);
     } else {
-      const info = item.info as { name: string; type: string };
-      const slug = uniqueSlug(info.name, usedSlugs);
+      const slug = uniqueSlug(name, usedSlugs, RESERVED_FILE_SLUGS);
       const filename = `${slug}.yaml`;
       await writeFile(
         join(dir, filename),
-        serializeOpenCollectionYAML(compact(item) as OpenCollection),
+        serializeOpenCollectionYAML(compact({ ...item, info }) as OpenCollection),
         'utf8'
       );
     }
   }
 }
+
+/**
+ * Request-file slugs that would collide with a collection root document
+ * (`opencollection.yaml`). The reader skips the root document, so a request
+ * written there would silently vanish on reload.
+ */
+const RESERVED_FILE_SLUGS: ReadonlySet<string> = new Set(['opencollection']);
+const NO_RESERVED_SLUGS: ReadonlySet<string> = new Set();
 
 function isFolder(item: Record<string, unknown>): boolean {
   const info = item.info as { type?: string } | undefined;
@@ -433,18 +446,23 @@ function slugify(name: string): string {
 }
 
 /**
- * Produce a slug guaranteed to be unique within `used`. If the base slug
- * is already taken, appends `-2`, `-3`, ... until a free name is found.
- * Mutates `used` to reserve the chosen slug.
+ * Produce a slug guaranteed to be unique within `used` and outside
+ * `reserved`. If the base slug is taken, appends `-2`, `-3`, ... until a free
+ * name is found. Mutates `used` to reserve the chosen slug.
  */
-function uniqueSlug(name: string, used: Set<string>): string {
+function uniqueSlug(
+  name: string,
+  used: Set<string>,
+  reserved: ReadonlySet<string> = NO_RESERVED_SLUGS
+): string {
+  const taken = (slug: string) => used.has(slug) || reserved.has(slug);
   const base = slugify(name);
-  if (!used.has(base)) {
+  if (!taken(base)) {
     used.add(base);
     return base;
   }
   let n = 2;
-  while (used.has(`${base}-${n}`)) n++;
+  while (taken(`${base}-${n}`)) n++;
   const slug = `${base}-${n}`;
   used.add(slug);
   return slug;

@@ -1,4 +1,5 @@
 import type { SseRequest } from '@/types';
+import { escapeShell } from './types';
 
 export interface SseGenerateOptions {
   request: SseRequest;
@@ -58,10 +59,10 @@ while (true) {
 
 function generateCurl({ request }: SseGenerateOptions): string {
   const headerArgs = Object.entries(enabledHeaders(request))
-    .map(([k, v]) => `  -H ${JSON.stringify(`${k}: ${v}`)}`)
+    .map(([k, v]) => `  -H ${escapeShell(`${k}: ${v}`)}`)
     .join(' \\\n');
   return `curl -N -H 'Accept: text/event-stream' \\
-${headerArgs ? `${headerArgs} \\\n` : ''}  ${JSON.stringify(request.url)}`;
+${headerArgs ? `${headerArgs} \\\n` : ''}  ${escapeShell(request.url)}`;
 }
 
 export const sseCodeGenerators = {

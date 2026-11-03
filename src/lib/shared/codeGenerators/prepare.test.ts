@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AuthConfig, HttpRequest } from '@/types';
+import type { AuthConfig, HttpRequest, RequestSettings } from '@/types';
 import { generateCurl } from './curl';
 import { generateJavaScript } from './javascript';
 import { type CodegenInput, prepareCodegen, withNotes } from './prepare';
@@ -128,6 +128,63 @@ describe('prepareCodegen', () => {
     expect(generateCurl(out)).toContain("-F 'doc=@a.pdf'");
     expect(generatePython(out)).toContain('files=files');
     expect(generateJavaScript(out)).toContain('body: form');
+  });
+});
+
+describe('prepareCodegen variable and secret edge cases', () => {
+  it('leaves prototype-named references alone instead of printing function source', () => {
+    const out = prepareCodegen(
+      input({ request: { ...base, url: 'https://x.dev/{{constructor}}/{{toString}}' } })
+    );
+    expect(out.resolvedUrl).toBe('https://x.dev/{{constructor}}/{{toString}}');
+  });
+
+  it('prints a placeholder for an external SecretRef even when unmasked', () => {
+    const external = {
+      kind: 'external',
+      provider: 'aws-secrets-manager',
+      profileId: 'p',
+      secretId: 'app/token',
+    } as const;
+    const out = prepareCodegen(
+      input({ auth: { type: 'bearer', bearer: { token: external } }, maskSecrets: false })
+    );
+    expect(out.resolvedHeaders.Authorization).toBe('Bearer <token>');
+  });
+
+  const transport = { timeout: 0, followRedirects: true, maxRedirects: 5, verifySsl: true };
+
+  it('masks the proxy password when masking and keeps it (for encoding) when not', () => {
+    const settings: RequestSettings = {
+      ...transport,
+      proxy: {
+        enabled: true,
+        type: 'http',
+        host: 'proxy.local',
+        port: 8080,
+        auth: { username: 'u', password: 'p' },
+      },
+    };
+    const masked = prepareCodegen(input({ settings }));
+    expect(masked.settings?.proxy?.auth?.password).toBe('<proxy-password>');
+    expect(generateCurl(masked)).toContain("--proxy 'http://u:<proxy-password>@proxy.local:8080'");
+    const plain = prepareCodegen(input({ settings, maskSecrets: false }));
+    expect(generateCurl(plain)).toContain("--proxy 'http://u:p@proxy.local:8080'");
+  });
+
+  it('never prints a desktop-handle proxy password', () => {
+    const settings: RequestSettings = {
+      ...transport,
+      proxy: {
+        enabled: true,
+        type: 'http',
+        host: 'proxy.local',
+        port: 8080,
+        auth: { username: 'u', password: { kind: 'handle', id: 'h1' } },
+      },
+    };
+    const out = prepareCodegen(input({ settings, maskSecrets: false }));
+    expect(out.settings?.proxy?.auth?.password).toBe('<proxy-password>');
   });
 });
 

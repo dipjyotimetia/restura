@@ -27,6 +27,21 @@ interface RequestBodyLike {
   multipartParts?: Array<{ contentType?: string; content?: string }>;
 }
 
+/**
+ * Per-body cap for the AI context. The whole context travels in one chat
+ * message, which the desktop IPC schema caps at 200 000 characters
+ * (`AiChatMessageSchema`); an uncapped large response body failed every send
+ * with a raw validation error. 32 KiB per body leaves room for both bodies,
+ * headers and the environment.
+ */
+export const AI_CONTEXT_BODY_LIMIT = 32_768;
+
+function capBody(text: string): string {
+  if (text.length <= AI_CONTEXT_BODY_LIMIT) return text;
+  const dropped = text.length - AI_CONTEXT_BODY_LIMIT;
+  return `${text.slice(0, AI_CONTEXT_BODY_LIMIT)}\n…[truncated: ${dropped} more characters]`;
+}
+
 function normalizeHeaders(headers: Record<string, string | string[]>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(headers)) {
@@ -79,7 +94,7 @@ export function captureActive(): RawSnapshot {
     return { contextRef: { kind: 'none', capturedAt: Date.now() } };
   }
 
-  const request = tab.request as unknown as RequestLike;
+  const request: RequestLike = tab.request;
   const reqHeaders = Array.isArray(request.headers)
     ? keyValuePairsToRecord(request.headers as KeyValue[])
     : {};
@@ -101,14 +116,14 @@ export function captureActive(): RawSnapshot {
       method: typeof request.method === 'string' ? request.method : '',
       url: typeof request.url === 'string' ? request.url : '',
       headers: reqHeaders,
-      body: bodyToText(request.body),
+      body: capBody(bodyToText(request.body)),
     },
     ...(response
       ? {
           response: {
             status: response.status,
             headers: normalizeHeaders(response.headers),
-            body: response.body ?? '',
+            body: capBody(response.body ?? ''),
           },
         }
       : {}),

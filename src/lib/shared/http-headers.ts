@@ -8,6 +8,13 @@
  * and matches what most servers log). Lower-cased entries (DNT, x-api-key,
  * etc.) are kept lower-case where that's the de-facto convention.
  */
+/**
+ * Header name → value(s), as a request or response carries them. Single-valued
+ * maps (`Record<string, string>`, e.g. the sent request headers) fit as-is;
+ * readers handle both forms.
+ */
+export type HeaderValues = Readonly<Record<string, string | string[]>>;
+
 export interface HttpHeaderDef {
   /** Canonical name, e.g. "Content-Type" or "x-api-key". */
   name: string;

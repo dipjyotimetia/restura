@@ -1,6 +1,6 @@
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative, sep } from 'node:path';
-import * as yaml from 'js-yaml';
+import { JSON_SCHEMA, load } from 'js-yaml';
 import type { OpenCollection } from '../schemas';
 import {
   assertBoundedDocument,
@@ -57,7 +57,7 @@ export async function loadCollectionDirectory(dir: string): Promise<LoadedCollec
   const rootRaw = await readFile(rootPath, 'utf8');
   const root = parseOpenCollectionYAML(rootRaw);
   const managedFiles = [relative(dir, rootPath).split(sep).join('/')];
-  const items = await readItems(dir, dir, managedFiles);
+  const items = await readItems(dir, dir, managedFiles, basename(rootPath));
   const collection = { ...root, items, bundled: false };
   assertBoundedDocument(collection);
   const validation = openCollectionSchema.safeParse(collection);
@@ -78,7 +78,18 @@ async function findRootFile(dir: string): Promise<string | null> {
   return null;
 }
 
-async function readItems(dir: string, rootDir: string, managedFiles: string[]): Promise<unknown[]> {
+/**
+ * `rootFile` is the collection document this load chose; it is skipped only at
+ * the collection root. Everywhere else a file named like a root document is an
+ * ordinary request file (older writers slugged a request named "OpenCollection"
+ * to `opencollection.yaml`, which then vanished on reload).
+ */
+async function readItems(
+  dir: string,
+  rootDir: string,
+  managedFiles: string[],
+  rootFile?: string
+): Promise<unknown[]> {
   const entries = await readdir(dir, { withFileTypes: true });
   // Track each item alongside the source filename so we can break sort ties
   // deterministically. `readdir` order varies across filesystems; pinning the
@@ -95,12 +106,12 @@ async function readItems(dir: string, rootDir: string, managedFiles: string[]): 
     }
 
     if (!entry.isFile()) continue;
-    if (ROOT_FILES.includes(entry.name)) continue;
+    if (entry.name === rootFile) continue;
     if (entry.name === FOLDER_META) continue;
     if (!entry.name.endsWith('.yaml') && !entry.name.endsWith('.yml')) continue;
 
     const raw = await readFile(fullPath, 'utf8');
-    const parsed = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
+    const parsed = load(raw, { schema: JSON_SCHEMA });
     if (!isOpenCollectionRequestItem(parsed)) continue;
     managedFiles.push(relative(rootDir, fullPath).split(sep).join('/'));
     indexed.push({ item: parsed, sortName: entry.name });
@@ -131,7 +142,7 @@ async function readFolder(
     const metaStat = await lstat(metaPath);
     if (!metaStat.isFile()) throw new Error('Folder metadata must be a regular file');
     const raw = await readFile(metaPath, 'utf8');
-    meta = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
+    meta = load(raw, { schema: JSON_SCHEMA });
     assertBoundedDocument(meta);
     if (!folderSchema.safeParse(meta).success) {
       throw new Error('Invalid OpenCollection folder metadata');

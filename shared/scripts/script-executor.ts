@@ -114,12 +114,13 @@ class ScriptExecutor {
   private runtime: QuickJSRuntime | null = null;
   private vm: QuickJSContext | null = null;
   /**
-   * Wall-clock start of the currently-running `eval()`, or `0` when no
-   * user script is in flight.
+   * Wall-clock start of the currently-running `eval()` (set on entry, so its
+   * setup, user script and harvest share one ceiling), or `0` outside it.
    *
    * **Contract**: the interrupt handler and the async pump skip
    * enforcement whenever this is `0` — that's how `initialize()`'s
-   * trusted bundle / pm.* / setup evals run untimed. Anything that
+   * trusted bundle / pm.* / setup evals run untimed. For the same reason
+   * host settles and job drains never touch the VM while it is `0`. Anything that
    * calls `vm.evalCode(...)` directly outside `eval()` runs without a
    * timeout. If you add such a call site, decide explicitly whether it
    * should be bounded and set `evalStartTime` accordingly before the
@@ -178,11 +179,27 @@ class ScriptExecutor {
     }
     this.pendingHostCleanups.clear();
     // Drain so any .then() chains waiting on the rejected deferreds run
-    // (and short-circuit out via `!this.runtime` in the settle handlers).
-    if (this.runtime) {
-      const pending = this.runtime.executePendingJobs();
-      if (pending.error) pending.error.dispose();
-    }
+    // (only inside a timed eval; from dispose() they are freed undrained).
+    this.drainJobs();
+  }
+
+  /**
+   * Run queued jobs only inside `eval()`, where the interrupt handler bounds
+   * them; a host op settling after its eval (started by a handler during the
+   * timeout drain) leaves its reactions queued for the next eval's deadline.
+   */
+  private drainJobs(): void {
+    if (!this.runtime || this.evalStartTime === 0) return;
+    const pending = this.runtime.executePendingJobs();
+    if (pending.error) pending.error.dispose();
+  }
+
+  /**
+   * A host settle may touch the VM only for a live op inside an eval: resolve
+   * can hit a user `then` getter and the callback is user code.
+   */
+  private canSettle(cleanup: () => void): boolean {
+    return this.evalStartTime !== 0 && !!this.runtime && this.pendingHostCleanups.has(cleanup);
   }
 
   private executionCeilingMs(): number {
@@ -216,12 +233,11 @@ class ScriptExecutor {
     // The interrupt handler reads instance fields so each `eval()` call can
     // reset the start time without re-registering the handler.
     runtime.setInterruptHandler(() => {
-      // Only enforce timeouts during USER-script eval. `evalStartTime`
-      // is set by `eval()` before running the user script and reset to
-      // 0 at construction. During `initialize()` (library bundle load,
-      // pm.* native setup, PM_EXPECT bootstrap) we must NOT interrupt
-      // — those run trusted code we authored, and the 2MB library
-      // bundle can take a couple of seconds to parse on slower devices.
+      // Only enforce timeouts inside `eval()`, which is timed end to end
+      // (its setup and harvest evals can hit user-installed accessors) and
+      // resets `evalStartTime` to 0 on exit. `initialize()` (library bundle,
+      // pm.* setup, PM_EXPECT bootstrap) runs our own code untimed: the 2MB
+      // bundle can take seconds to parse on slower devices.
       if (this.evalStartTime === 0) return false;
       const ceiling = this.executionCeilingMs();
       if (Date.now() - this.evalStartTime > ceiling) {
@@ -471,7 +487,7 @@ class ScriptExecutor {
           // handle below (vm, deferred, cbHandle) is owned by the runtime
           // and was already freed. Note: `errH = vm.null` / `nullH = vm.null`
           // are shared QuickJS singletons — never call `.dispose()` on them.
-          if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
+          if (!this.canSettle(cleanup)) return;
           const respJs = makeJSValue(vm, sandboxResponse(response));
           deferred.resolve(respJs);
           if (cbHandle) {
@@ -483,7 +499,7 @@ class ScriptExecutor {
           respJs.dispose();
         })
         .catch((err: unknown) => {
-          if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
+          if (!this.canSettle(cleanup)) return;
           const msg = err instanceof Error ? err.message : String(err);
           const errObj = makeJSValue(vm, { message: msg });
           deferred.reject(errObj);
@@ -498,15 +514,11 @@ class ScriptExecutor {
         .finally(() => {
           this.pendingHostOps--;
           // If we already cleaned up (timeout / dispose) this is a no-op.
-          // Otherwise run the cleanup now (drains microtasks, disposes
-          // cbHandle). The deferred is already settled by then so its
-          // dispose() inside cleanup is a no-op.
+          // Otherwise run the cleanup now (disposes cbHandle; rejects the
+          // deferred if a settle outside eval left it pending).
           cleanup();
-          // Drain microtasks the .then() callback queued.
-          if (this.runtime) {
-            const pending = this.runtime.executePendingJobs();
-            if (pending.error) pending.error.dispose();
-          }
+          // Drain microtasks the .then() callback queued (inside eval only).
+          this.drainJobs();
         });
 
       return deferred.handle;
@@ -515,11 +527,6 @@ class ScriptExecutor {
     fn.dispose();
   }
 
-  /**
-   * Build pm.vault namespace — three async methods returning QuickJS
-   * Promises that resolve when the host async work completes. The
-   * Promise / pending-counter pattern matches pm.sendRequest above.
-   */
   /**
    * Shared async-host-op machinery for `pm.vault` / `rs.judge` (and any
    * future host bridge that returns a host-resolved promise). Creates a
@@ -562,13 +569,13 @@ class ScriptExecutor {
       .then((value) => {
         // Bail if dispose() ran during host work — every handle below
         // is owned by the vm that's now gone.
-        if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
+        if (!this.canSettle(cleanup)) return;
         const h = onResolve(value);
         deferred.resolve(h);
         h.dispose();
       })
       .catch((err: unknown) => {
-        if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
+        if (!this.canSettle(cleanup)) return;
         const msg = err instanceof Error ? err.message : String(err);
         const e = makeJSValue(vm, { message: msg });
         deferred.reject(e);
@@ -577,10 +584,7 @@ class ScriptExecutor {
       .finally(() => {
         this.pendingHostOps--;
         cleanup();
-        if (this.runtime) {
-          const pending = this.runtime.executePendingJobs();
-          if (pending.error) pending.error.dispose();
-        }
+        this.drainJobs();
       });
     return deferred.handle;
   }
@@ -710,109 +714,103 @@ class ScriptExecutor {
     // setup time reference these object identities, so we can't replace them.
     for (const k of Object.keys(this.globalsMutations)) delete this.globalsMutations[k];
     for (const k of Object.keys(this.collectionMutations)) delete this.collectionMutations[k];
-    // Reset the per-eval sentinels (execution flow control + visualizer).
-    // We use a tiny eval rather than setProp so we don't have to manage
-    // QuickJS handles for transient state.
-    const sentinelReset = vm.evalCode(
-      `globalThis.__pm_execution_state__ = { nextRequest: undefined, skipRequested: false }; ` +
-        `globalThis.__pm_visualization__ = undefined;`
-    );
-    if (sentinelReset.error) sentinelReset.error.dispose();
-    else sentinelReset.value.dispose();
+    // The whole eval() is timed: the sentinel reset and bindings below can run
+    // getters/setters an earlier user script installed. Reset on every exit.
+    this.evalStartTime = Date.now();
+    this.evalInterrupted = false;
+    try {
+      // Reset the per-eval sentinels (execution flow control + visualizer).
+      // We use a tiny eval rather than setProp so we don't have to manage
+      // QuickJS handles for transient state.
+      const sentinelReset = vm.evalCode(
+        `globalThis.__pm_execution_state__ = { nextRequest: undefined, skipRequested: false }; ` +
+          `globalThis.__pm_visualization__ = undefined;`
+      );
+      if (sentinelReset.error) sentinelReset.error.dispose();
+      else sentinelReset.value.dispose();
 
-    const trimmedScript = typeof script === 'string' ? script.trim() : '';
-    if (!trimmedScript) {
+      const trimmedScript = typeof script === 'string' ? script.trim() : '';
+      if (!trimmedScript && !this.evalInterrupted) {
+        return {
+          success: true,
+          logs: this.logs,
+          errors: this.errors,
+          variables: { ...this.envVars },
+        };
+      }
+
+      if (!this.evalInterrupted) this.bindRequestResponse(vm, context);
+      if (!this.evalInterrupted) {
+        const result = vm.evalCode(trimmedScript, 'user-script.js');
+        if (result.error) {
+          const errorValue = vm.dump(result.error);
+          const errorMsg = typeof errorValue === 'string' ? errorValue : JSON.stringify(errorValue);
+          this.addLog('error', `Script execution error: ${errorMsg}`);
+          result.error.dispose();
+        } else {
+          result.value.dispose();
+        }
+      }
+      // Drain microtasks the script queued (await / .then / promise chains):
+      // pump QuickJS jobs, yield to the host so in-flight host Promises (e.g.
+      // pm.sendRequest) resolve, and repeat until no host work is outstanding
+      // OR the wall-clock deadline is hit. That guard is load-bearing: the
+      // interrupt handler only fires while bytecode runs, and a script awaiting
+      // a hung host promise runs none, so we flip `evalInterrupted` ourselves.
+      const ceiling = this.executionCeilingMs();
+      const deadline = this.evalStartTime + ceiling;
+      this.drainJobs();
+      while (this.pendingHostOps > 0 && !this.evalInterrupted) {
+        if (Date.now() >= deadline) {
+          this.evalInterrupted = true;
+          break;
+        }
+        // Yield once to the host so any pending Promise.then() callbacks
+        // attached by pm.sendRequest can fire. setImmediate isn't available
+        // in browsers; setTimeout(0) is the portable equivalent.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        this.drainJobs();
+      }
+      if (this.evalInterrupted) {
+        this.addLog('error', `Script execution timed out after ${ceiling}ms`);
+        this.errors.push(`Script execution timed out after ${ceiling}ms`);
+        // Reject + dispose any still-pending host-promise deferreds. The
+        // host-side Promises they wrap are still running (we can't cancel
+        // an arbitrary host promise), but their QuickJS-side deferred is
+        // freed so the runtime can be disposed cleanly. The host promise's
+        // own .then/.catch/.finally will short-circuit on `!this.runtime`
+        // once it eventually settles.
+        this.releasePendingHostOps();
+      }
+
+      // Harvest the per-eval sentinels back into the result shape. Both are
+      // optional — absent when the script didn't touch them. We tolerate
+      // malformed JSON silently because the bootstrap above writes well-formed
+      // values; a parse error here would mean a user script tampered with the
+      // sentinel global, in which case "ignore and move on" matches Postman's
+      // permissive behaviour.
+      const execution = this.readExecutionSentinel(vm);
+      const visualization = this.readVisualizationSentinel(vm);
+      const requestMetadata = readRequestMetadata(vm, context.request);
+
+      const hasGlobalsMutations = Object.keys(this.globalsMutations).length > 0;
+      const hasCollectionMutations = Object.keys(this.collectionMutations).length > 0;
+
       return {
-        success: true,
+        success: this.errors.length === 0,
         logs: this.logs,
         errors: this.errors,
         variables: { ...this.envVars },
+        ...(this.tests.length > 0 && { tests: this.tests }),
+        ...(hasGlobalsMutations && { globalsMutations: { ...this.globalsMutations } }),
+        ...(hasCollectionMutations && { collectionMutations: { ...this.collectionMutations } }),
+        ...(execution && { execution }),
+        ...(visualization && { visualization }),
+        ...(requestMetadata && { requestMetadata }),
       };
+    } finally {
+      this.evalStartTime = 0;
     }
-
-    this.bindRequestResponse(vm, context);
-    this.evalStartTime = Date.now();
-    this.evalInterrupted = false;
-
-    const result = vm.evalCode(trimmedScript, 'user-script.js');
-    if (result.error) {
-      const errorValue = vm.dump(result.error);
-      const errorMsg = typeof errorValue === 'string' ? errorValue : JSON.stringify(errorValue);
-      this.addLog('error', `Script execution error: ${errorMsg}`);
-      result.error.dispose();
-    } else {
-      result.value.dispose();
-    }
-    // Drain microtasks the script queued (await / .then / promise chains).
-    // For sync-only scripts this is a single immediate call. For scripts
-    // that called pm.sendRequest, we loop: pump QuickJS microtasks, yield
-    // to the host event loop so the in-flight Promise can resolve, then
-    // pump again — until no host-side work is outstanding OR the wall-clock
-    // deadline is hit.
-    //
-    // The wall-clock guard is the load-bearing safety net. QuickJS's
-    // interrupt handler only fires while JS bytecode runs; a script that
-    // awaits a hung host promise queues NO bytecode while waiting, so
-    // `evalInterrupted` never flips on its own. We compute the same
-    // ceiling the interrupt handler uses and flip `evalInterrupted`
-    // ourselves when the deadline passes.
-    const ceiling = this.executionCeilingMs();
-    const deadline = this.evalStartTime + ceiling;
-    if (this.runtime) {
-      const pending = this.runtime.executePendingJobs();
-      if (pending.error) pending.error.dispose();
-    }
-    while (this.pendingHostOps > 0 && !this.evalInterrupted) {
-      if (Date.now() >= deadline) {
-        this.evalInterrupted = true;
-        break;
-      }
-      // Yield once to the host so any pending Promise.then() callbacks
-      // attached by pm.sendRequest can fire. setImmediate isn't available
-      // in browsers; setTimeout(0) is the portable equivalent.
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      if (this.runtime) {
-        const pending = this.runtime.executePendingJobs();
-        if (pending.error) pending.error.dispose();
-      }
-    }
-    if (this.evalInterrupted) {
-      this.addLog('error', `Script execution timed out after ${ceiling}ms`);
-      this.errors.push(`Script execution timed out after ${ceiling}ms`);
-      // Reject + dispose any still-pending host-promise deferreds. The
-      // host-side Promises they wrap are still running (we can't cancel
-      // an arbitrary host promise), but their QuickJS-side deferred is
-      // freed so the runtime can be disposed cleanly. The host promise's
-      // own .then/.catch/.finally will short-circuit on `!this.runtime`
-      // once it eventually settles.
-      this.releasePendingHostOps();
-    }
-
-    // Harvest the per-eval sentinels back into the result shape. Both are
-    // optional — absent when the script didn't touch them. We tolerate
-    // malformed JSON silently because the bootstrap above writes well-formed
-    // values; a parse error here would mean a user script tampered with the
-    // sentinel global, in which case "ignore and move on" matches Postman's
-    // permissive behaviour.
-    const execution = this.readExecutionSentinel(vm);
-    const visualization = this.readVisualizationSentinel(vm);
-    const requestMetadata = readRequestMetadata(vm, context.request);
-
-    const hasGlobalsMutations = Object.keys(this.globalsMutations).length > 0;
-    const hasCollectionMutations = Object.keys(this.collectionMutations).length > 0;
-
-    return {
-      success: this.errors.length === 0,
-      logs: this.logs,
-      errors: this.errors,
-      variables: { ...this.envVars },
-      ...(this.tests.length > 0 && { tests: this.tests }),
-      ...(hasGlobalsMutations && { globalsMutations: { ...this.globalsMutations } }),
-      ...(hasCollectionMutations && { collectionMutations: { ...this.collectionMutations } }),
-      ...(execution && { execution }),
-      ...(visualization && { visualization }),
-      ...(requestMetadata && { requestMetadata }),
-    };
   }
 
   /** Read `__pm_execution_state__` back into the typed sentinel shape. */

@@ -232,10 +232,15 @@ export async function signSigV4(
   const canonicalHeaders = `${sortedHeaderKeys.map((k) => `${k}:${canonicalHeadersMap[k]}`).join('\n')}\n`;
   const signedHeaders = sortedHeaderKeys.join(';');
 
-  // Canonical query string: keys sorted, values percent-encoded.
-  const queryParams = Array.from(parsedUrl.searchParams.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+  // Canonical query string (AWS SigV4): RFC 3986-encode key and value, then
+  // sort by encoded key and, for repeated keys, by encoded value — both in
+  // code-unit order (not locale order), as @smithy/signature-v4 does.
+  const queryParams = Array.from(parsedUrl.searchParams, ([k, v]): [string, string] => [
+    encodeRfc3986(k),
+    encodeRfc3986(v),
+  ])
+    .sort(([ak, av], [bk, bv]) => compareCodeUnits(ak, bk) || compareCodeUnits(av, bv))
+    .map(([k, v]) => `${k}=${v}`)
     .join('&');
 
   // The method goes in exactly as it is sent (#857): RFC 9110 methods are
@@ -288,6 +293,12 @@ function encodeRfc3986(value: string): string {
     /[!'()*]/g,
     (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
   );
+}
+
+/** Code-unit (byte order for the ASCII-only encoded form) string comparison. */
+function compareCodeUnits(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,17 +355,16 @@ export async function applyAuth(
       console.warn('OAuth1 auth selected but oauth1 config missing — skipping');
       return { headers: {} };
     }
-    let bodyParams: Record<string, string> = {};
     // Parse body as form params only when addParamsToBody is set and the body
     // is a plain string we can interpret as application/x-www-form-urlencoded.
+    // Repeated keys keep every value (RFC 5849 §3.4.1.3) — URLSearchParams
+    // never throws on a string, so no fallback is needed.
+    const bodyParams: Record<string, string | string[]> = {};
     if (auth.oauth1.addParamsToBody && typeof args.body === 'string') {
-      try {
-        for (const [k, v] of new URLSearchParams(args.body).entries()) {
-          bodyParams[k] = v;
-        }
-      } catch {
-        // Malformed body — fall through with empty bodyParams.
-        bodyParams = {};
+      const form = new URLSearchParams(args.body);
+      for (const key of new Set(form.keys())) {
+        const values = form.getAll(key);
+        bodyParams[key] = values.length > 1 ? values : (values[0] ?? '');
       }
     }
     const o1 = auth.oauth1;

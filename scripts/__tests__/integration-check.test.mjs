@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { computeOverlap, formatTable, parseIntegrationArgs } from '../integration-check.mjs';
+import {
+  computeOverlap,
+  formatTable,
+  needsFreshInstall,
+  parseIntegrationArgs,
+} from '../integration-check.mjs';
 
 test('parses branches and options in any order', () => {
   assert.deepEqual(
@@ -84,4 +89,17 @@ test('--gates accepts a space-separated list', () => {
     'lint',
     'type-check',
   ]);
+});
+
+test('an empty --gates list is an error', () => {
+  assert.throws(() => parseIntegrationArgs(['a', '--gates=']), /at least one gate/);
+  assert.throws(() => parseIntegrationArgs(['a', '--gates', ',']), /at least one gate/);
+});
+
+test('needsFreshInstall flags a merged lockfile that differs from the installed one', () => {
+  assert.equal(needsFreshInstall('{"a":1}\n', '{"a":1}\n'), false);
+  assert.equal(needsFreshInstall('{"a":1}\r\n', '{"a":1}\n'), false);
+  assert.equal(needsFreshInstall('{"a":2}', '{"a":1}'), true);
+  assert.equal(needsFreshInstall('{"a":1}', null), true);
+  assert.equal(needsFreshInstall(null, '{"a":1}'), false);
 });

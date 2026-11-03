@@ -6,6 +6,7 @@ import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { parseCurlCommand } from '@/features/collections/lib/importers/curl';
 import { executeRequest, resolveEffectiveSettings } from '@/features/http/lib/requestExecutor';
+import { applySettingsPatch, type RequestSettingsPatch } from '@/features/http/lib/settingsPatch';
 import { applyUrlInput } from '@/features/http/lib/urlQuery';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
@@ -292,9 +293,9 @@ export function useHttpRequestPage() {
   ]);
 
   const changeSettings = useCallback(
-    (updates: Partial<RequestSettings>) => {
+    (updates: RequestSettingsPatch) => {
       const current = httpRequest?.settings || getEffectiveSettings();
-      updateRequest({ settings: { ...current, ...updates } });
+      updateRequest({ settings: applySettingsPatch(current, updates) });
     },
     [httpRequest?.settings, getEffectiveSettings, updateRequest]
   );

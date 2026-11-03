@@ -1,15 +1,21 @@
 import { writeFile } from 'node:fs/promises';
+import { redactRunResult } from './redact.js';
 import type { Reporter, RunResult } from './types.js';
 
 /**
  * Writes a self-contained HTML report — single file, inline CSS, no external
  * fetches. Designed to be uploaded as a CI artifact and opened directly in a
- * browser. The full RunResult is also embedded as a `<script
+ * browser. The RunResult is also embedded as a `<script
  * type="application/json">` block so downstream tooling can re-parse without
- * needing the JSON reporter alongside.
+ * needing the JSON reporter alongside — with requests redacted as in the JSON
+ * report (`redact.ts`).
  */
 export class HtmlReporter implements Reporter {
-  constructor(private outputPath: string) {}
+  private readonly outputPath: string;
+
+  constructor(outputPath: string) {
+    this.outputPath = outputPath;
+  }
 
   async onEnd(result: RunResult): Promise<void> {
     await writeFile(this.outputPath, renderHtml(result), 'utf-8');
@@ -90,6 +96,6 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85rem;
   </thead>
   <tbody>${rows}</tbody>
 </table>
-<script type="application/json" id="results">${escapeJsonForHtml(JSON.stringify(result))}</script>
+<script type="application/json" id="results">${escapeJsonForHtml(JSON.stringify(redactRunResult(result)))}</script>
 </body></html>`;
 }

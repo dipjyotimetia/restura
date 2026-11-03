@@ -16,11 +16,8 @@ export async function executeRequest(
   item: LoadedRequest,
   opts: ExecuteOptions
 ): Promise<ExecuteOutcome> {
-  // Refused at load time (see `LoadedRequest.blocked`): never executed, for
-  // every protocol and every caller.
-  if (item.blocked) {
-    return { status: 0, passed: false, durationMs: 0, bodyBytes: 0, errorMessage: item.blocked };
-  }
+  // Each executor runs `preflightRefusal` first (blocked at load, unresolvable
+  // variables), so the refusal holds for every caller, not only this router.
   switch (item.type) {
     case 'http':
       return executeHttp(item, opts);

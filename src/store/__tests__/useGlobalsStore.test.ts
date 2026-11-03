@@ -7,6 +7,14 @@ describe('useGlobalsStore', () => {
   });
 
   describe('get / set / unset / clear', () => {
+    it('ignores Object.prototype names when unsetting a key that is not set', () => {
+      useGlobalsStore.setState({ vars: { region: 'eu' } });
+      const before = useGlobalsStore.getState().vars;
+      useGlobalsStore.getState().unset('toString');
+      useGlobalsStore.getState().applyMutations({ constructor: null });
+      expect(useGlobalsStore.getState().vars).toBe(before);
+    });
+
     it('starts empty', () => {
       expect(useGlobalsStore.getState().vars).toEqual({});
     });

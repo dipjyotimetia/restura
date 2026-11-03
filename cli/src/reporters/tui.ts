@@ -1,3 +1,4 @@
+import { stripControl } from '@shared/protocol/mcp-conformance-text';
 import logUpdate from 'log-update';
 import type { LoadedRequest } from '../runner/collectionLoader.js';
 import { color, hideCursor, interactive, showCursor } from '../ui/colors.js';
@@ -85,8 +86,9 @@ function rowLine(row: TuiRow, spinnerFrame: number, width: number): string {
   const inner = width - 4; // content width between "│ " and " │"
   const { plain: rPlain, colored: rColored } = statusCell(row);
   const nameBudget = inner - ROW_PREFIX - rPlain.length - 1; // 1 = min gap before the status cell
-  const name = clamp(row.name, Math.max(0, nameBudget));
-  const left = `${icon(row.outcome, spinnerFrame)} ${color.dim(row.method.padEnd(METHOD_W))} ${name}`;
+  // Untrusted text is stripped before measuring, so the box stays aligned.
+  const name = clamp(stripControl(row.name), Math.max(0, nameBudget));
+  const left = `${icon(row.outcome, spinnerFrame)} ${color.dim(stripControl(row.method).padEnd(METHOD_W))} ${name}`;
   const leftVisible = ROW_PREFIX + name.length;
   const gap = Math.max(1, inner - leftVisible - rPlain.length);
   return frameLine(
@@ -146,7 +148,7 @@ export function renderFrame(state: TuiState, opts: RenderOpts): string {
   const width = Math.max(MIN_WIDTH, opts.width);
   const borderInner = width - 2; // between the two corner characters
 
-  const title = ` ${state.collectionName} `;
+  const title = ` ${stripControl(state.collectionName)} `;
   const top =
     color.gray(BOX.tl) +
     color.bold(title) +

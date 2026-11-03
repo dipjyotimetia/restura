@@ -30,9 +30,12 @@ import WebSocket from 'ws';
 import type { Env } from '../env';
 import { assertNodeHostnameSafe, type NodeDnsGuardOptions } from '../shared/dns-guard-node';
 import { isLocalDevBypass, allowPrivateIPs as readAllowPrivateIPs } from '../shared/env';
+import { closeReason, errorText, relayCloseCode } from '../shared/ws-relay';
 import { consumeTicket } from './ws-ticket';
 
 const MAX_FRAME_BYTES = 1 * 1024 * 1024;
+/** Cap on client frames buffered before the upstream is open (DNS check + dial). */
+const MAX_QUEUED_BYTES = 4 * 1024 * 1024;
 const TEXT_ENCODER = new TextEncoder();
 
 // Loose typing — @hono/node-ws's upgradeWebSocket return signature varies
@@ -81,109 +84,133 @@ export function createNodeWebsocketHandler(
 
     let upstream: WebSocket | null = null;
     let serverWs: WSContext<unknown> | null = null;
+    // Set once either side is closing; checked after every await in onOpen so
+    // a client that left during the DNS check never gets an upstream dialled.
+    let closed = false;
     const queue: Array<string | Buffer> = [];
+    let queuedBytes = 0;
 
+    const closeUpstream = (code: number, reason: string) => {
+      if (!upstream) return;
+      try {
+        upstream.close(relayCloseCode(code), closeReason(reason));
+      } catch {
+        upstream.terminate();
+      }
+    };
+    const closeClient = (code: number, reason: string) => {
+      if (!serverWs) return;
+      try {
+        serverWs.close(relayCloseCode(code), closeReason(reason));
+      } catch {
+        const raw = serverWs.raw;
+        if (raw instanceof WebSocket) raw.terminate();
+      }
+    };
     const closeBoth = (code = 1000, reason = '') => {
+      closed = true;
+      closeUpstream(code, reason);
+      closeClient(code, reason);
+    };
+
+    const openUpstream = async (ws: WSContext<unknown>): Promise<void> => {
+      // Consume the ticket only after the upgrade has succeeded.
+      const spec = ticket ? consumeTicket(ticket) : null;
+      if (!spec) {
+        closeBoth(1008, 'Invalid or expired ticket');
+        return;
+      }
+      const validation = validateWsUrl(spec.target, { allowLocalhost, allowPrivateIPs });
+      if (!validation.ok) {
+        closeBoth(1008, `Invalid target: ${validation.error ?? 'validation failed'}`);
+        return;
+      }
+
+      // DNS guard: resolve and reject private/metadata IPs before dialling.
+      let upstreamHostname: string;
       try {
-        upstream?.close(code, reason);
+        upstreamHostname = new URL(spec.target).hostname;
       } catch {
-        /* already closed */
+        closeBoth(1008, 'Invalid upstream URL');
+        return;
       }
       try {
-        serverWs?.close(code, reason);
-      } catch {
-        /* already closed */
+        await assertNodeHostnameSafe(upstreamHostname, perRequestDnsGuard);
+      } catch (err) {
+        closeBoth(1008, `Upstream DNS guard failed: ${errorText(err)}`);
+        return;
       }
+      if (closed) return;
+
+      const sanitisedHeaders = sanitizeRequestHeaders({
+        ...(spec.headers ?? {}),
+      });
+      try {
+        upstream = new WebSocket(spec.target, spec.protocols, {
+          headers: sanitisedHeaders,
+          // The validateWsUrl + DNS guard combo enforces SSRF policy.
+          // Defer cert verification to the system trust store; enterprises
+          // with internal CAs set NODE_EXTRA_CA_CERTS at process startup.
+          // maxPayload bounds the receiver buffer BEFORE delivering a
+          // 'message' to the size-check below — without it, the ws lib
+          // buffers each entire frame (no client default cap) and an
+          // attacker-controlled upstream can OOM the process.
+          maxPayload: MAX_FRAME_BYTES,
+        });
+      } catch (err) {
+        closeBoth(1011, `Upstream connect failed: ${errorText(err)}`);
+        return;
+      }
+
+      upstream.on('open', () => {
+        // Flush messages buffered while the upstream was still connecting.
+        for (const msg of queue) upstream?.send(msg);
+        queue.length = 0;
+        queuedBytes = 0;
+      });
+      upstream.on('message', (data, isBinary) => {
+        const buf = normaliseRawData(data);
+        if (sizeOf(buf) > MAX_FRAME_BYTES) {
+          closeBoth(1009, 'Frame too large');
+          return;
+        }
+        try {
+          if (!isBinary) {
+            ws.send(Buffer.from(buf).toString('utf-8'));
+          } else {
+            // Buffer → Uint8Array<ArrayBuffer> for Hono's WSContext typing.
+            // .buffer of Node's Buffer can be SharedArrayBuffer; copy into
+            // a fresh ArrayBuffer-backed view to satisfy the slot.
+            const copy = new Uint8Array(buf.byteLength);
+            copy.set(buf);
+            ws.send(copy);
+          }
+        } catch {
+          /* peer closed */
+        }
+      });
+      upstream.on('close', (code, reason) => {
+        closed = true;
+        closeClient(code, reason.toString());
+      });
+      upstream.on('error', () => {
+        closeBoth(1011, 'Upstream error');
+      });
     };
 
     return {
       async onOpen(_ev, ws) {
-        // Consume the ticket only after the upgrade has succeeded.
-        const spec = ticket ? consumeTicket(ticket) : null;
-        if (!spec) {
-          ws.close(1008, 'Invalid or expired ticket');
-          return;
-        }
-        const validation = validateWsUrl(spec.target, { allowLocalhost, allowPrivateIPs });
-        if (!validation.ok) {
-          ws.close(1008, `Invalid target: ${validation.error ?? 'validation failed'}`);
-          return;
-        }
         serverWs = ws;
-
-        // DNS guard: resolve and reject private/metadata IPs before dialling.
-        let upstreamHostname: string;
+        // @hono/node-ws does not await onOpen: a rejection here would be an
+        // unhandled rejection, which terminates a Node 24 process.
         try {
-          upstreamHostname = new URL(spec.target).hostname;
+          await openUpstream(ws);
         } catch {
-          ws.close(1008, 'Invalid upstream URL');
-          return;
+          closeBoth(1011, 'Internal error');
         }
-        try {
-          await assertNodeHostnameSafe(upstreamHostname, perRequestDnsGuard);
-        } catch (err) {
-          ws.close(1008, `Upstream DNS guard failed: ${(err as Error).message}`);
-          return;
-        }
-
-        const sanitisedHeaders = sanitizeRequestHeaders({
-          ...(spec.headers ?? {}),
-        });
-        try {
-          upstream = new WebSocket(spec.target, spec.protocols, {
-            headers: sanitisedHeaders,
-            // The validateWsUrl + DNS guard combo enforces SSRF policy.
-            // Defer cert verification to the system trust store; enterprises
-            // with internal CAs set NODE_EXTRA_CA_CERTS at process startup.
-            // maxPayload bounds the receiver buffer BEFORE delivering a
-            // 'message' to the size-check below — without it, the ws lib
-            // buffers each entire frame (no client default cap) and an
-            // attacker-controlled upstream can OOM the process.
-            maxPayload: MAX_FRAME_BYTES,
-          });
-        } catch (err) {
-          ws.close(1011, `Upstream connect failed: ${(err as Error).message}`);
-          return;
-        }
-
-        upstream.on('open', () => {
-          // Flush messages buffered while the upstream was still connecting.
-          for (const msg of queue) upstream?.send(msg);
-          queue.length = 0;
-        });
-        upstream.on('message', (data, isBinary) => {
-          const buf = normaliseRawData(data);
-          if (sizeOf(buf) > MAX_FRAME_BYTES) {
-            closeBoth(1009, 'Frame too large');
-            return;
-          }
-          try {
-            if (!isBinary) {
-              ws.send(Buffer.from(buf).toString('utf-8'));
-            } else {
-              // Buffer → Uint8Array<ArrayBuffer> for Hono's WSContext typing.
-              // .buffer of Node's Buffer can be SharedArrayBuffer; copy into
-              // a fresh ArrayBuffer-backed view to satisfy the slot.
-              const copy = new Uint8Array(buf.byteLength);
-              copy.set(buf);
-              ws.send(copy);
-            }
-          } catch {
-            /* peer closed */
-          }
-        });
-        upstream.on('close', (code, reason) => {
-          try {
-            ws.close(code || 1000, reason?.toString() ?? '');
-          } catch {
-            /* already closed */
-          }
-        });
-        upstream.on('error', () => {
-          closeBoth(1011, 'Upstream error');
-        });
       },
       onMessage(ev, _ws) {
+        if (closed) return;
         const data = ev.data;
         if (sizeOf(data) > MAX_FRAME_BYTES) {
           closeBoth(1009, 'Frame too large');
@@ -192,16 +219,21 @@ export function createNodeWebsocketHandler(
         const payload = typeof data === 'string' ? data : Buffer.from(data as ArrayBuffer);
         if (upstream && upstream.readyState === WebSocket.OPEN) {
           upstream.send(payload);
-        } else {
-          queue.push(payload);
+          return;
         }
+        // Not dialled / still connecting: buffer, but never without bound.
+        queuedBytes +=
+          typeof payload === 'string' ? Buffer.byteLength(payload) : payload.byteLength;
+        if (queuedBytes > MAX_QUEUED_BYTES) {
+          queue.length = 0;
+          closeBoth(1013, 'Upstream not ready');
+          return;
+        }
+        queue.push(payload);
       },
       onClose(ev, _ws) {
-        try {
-          upstream?.close(ev.code, ev.reason);
-        } catch {
-          /* already closed */
-        }
+        closed = true;
+        closeUpstream(ev.code, ev.reason);
       },
       onError(_ev, _ws) {
         closeBoth(1011, 'Client error');

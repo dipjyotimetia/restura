@@ -79,6 +79,50 @@ describe('update_http_request', () => {
     }
   });
 
+  it('merges headers by key: keeps redacted originals, disabled rows and descriptions', () => {
+    runAgentTool(
+      'create_http_request',
+      JSON.stringify({ url: 'https://h.example', method: 'POST', body: '{"token":"abc"}' })
+    );
+    useRequestStore.getState().updateRequest({
+      headers: [
+        {
+          id: 'auth',
+          key: 'Authorization',
+          value: 'Bearer real',
+          enabled: true,
+          description: 'prod token',
+        },
+        { id: 'off', key: 'X-Debug', value: '1', enabled: false },
+        { id: 'old', key: 'X-Old', value: 'gone', enabled: true },
+      ],
+    });
+    // The model saw the redacted snapshot and proposes a full header list.
+    const res = runAgentTool(
+      'update_http_request',
+      JSON.stringify({
+        headers: [
+          { key: 'authorization', value: '[REDACTED]' },
+          { key: 'Accept', value: 'application/json' },
+        ],
+        body: '{"token":"[REDACTED]","extra":1}',
+      })
+    );
+    expect(res.ok).toBe(true);
+    const st = useRequestStore.getState();
+    const tab = st.tabs.find((t) => t.id === st.activeTabId);
+    if (tab?.request.type !== 'http') throw new Error('expected an HTTP tab');
+    expect(
+      tab.request.headers.map((h) => [h.id, h.key, h.value, h.enabled, h.description])
+    ).toEqual([
+      ['auth', 'Authorization', 'Bearer real', true, 'prod token'],
+      ['off', 'X-Debug', '1', false, undefined],
+      [expect.any(String), 'Accept', 'application/json', true, undefined],
+    ]);
+    // A body proposal carrying the placeholder never overwrites the real body.
+    expect(tab.request.body.raw).toBe('{"token":"abc"}');
+  });
+
   it('leaves omitted fields untouched', () => {
     runAgentTool(
       'create_http_request',

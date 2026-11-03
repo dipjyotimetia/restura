@@ -165,7 +165,12 @@ export function validateMcpSpec(
     ...(spec.jsonRpc.params !== undefined ? { params: spec.jsonRpc.params } : {}),
   });
 
-  const timeoutMs = Math.min(spec.timeout ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
+  // 0 / unset means "no explicit deadline" (as elsewhere in the app), which
+  // here is the default — never an immediate abort. Positive values are capped.
+  const timeoutMs =
+    spec.timeout !== undefined && spec.timeout > 0
+      ? Math.min(spec.timeout, MAX_TIMEOUT_MS)
+      : DEFAULT_TIMEOUT_MS;
 
   return { ok: true, targetUrl, headers, body, timeoutMs, isNotification };
 }

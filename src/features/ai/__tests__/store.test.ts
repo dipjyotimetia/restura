@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useAiChatStore } from '@/features/ai/store';
+import {
+  type Conversation,
+  MAX_PERSISTED_CONVERSATIONS,
+  MAX_PERSISTED_MESSAGES,
+  useAiChatStore,
+} from '@/features/ai/store';
 
 describe('useAiChatStore', () => {
   beforeEach(() => {
@@ -103,5 +108,47 @@ describe('useAiChatStore', () => {
     expect(msgInA?.text).toBe('hello');
     expect(msgInA?.status).toBe('done');
     expect(useAiChatStore.getState().conversations[convB]?.messages).toEqual([]);
+  });
+});
+
+describe('useAiChatStore persistence caps', () => {
+  const conversation = (id: string, updatedAt: number, messageCount: number): Conversation => ({
+    id,
+    title: id,
+    createdAt: updatedAt,
+    updatedAt,
+    messages: Array.from({ length: messageCount }, (_, i) => ({
+      id: `${id}-m${i}`,
+      role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+      text: `message ${i}`,
+      status: 'done' as const,
+      createdAt: updatedAt + i,
+    })),
+  });
+
+  it('persists only the newest conversations (always the active one) and their latest messages', () => {
+    const conversations: Record<string, Conversation> = {};
+    const total = MAX_PERSISTED_CONVERSATIONS + 5;
+    for (let i = 0; i < total; i++) conversations[`c${i}`] = conversation(`c${i}`, 1_000 + i, 1);
+    // The active conversation is the oldest and the longest.
+    conversations.c0 = conversation('c0', 1, MAX_PERSISTED_MESSAGES + 10);
+    useAiChatStore.setState({ conversations, activeConversationId: 'c0' });
+
+    const partialize = useAiChatStore.persist.getOptions().partialize;
+    if (!partialize) throw new Error('expected partialize');
+    const persisted = partialize(useAiChatStore.getState()) as {
+      conversations: Record<string, Conversation>;
+    };
+
+    const ids = Object.keys(persisted.conversations);
+    expect(ids).toHaveLength(MAX_PERSISTED_CONVERSATIONS);
+    expect(ids).toContain('c0');
+    expect(ids).toContain(`c${total - 1}`);
+    expect(ids).not.toContain('c1');
+    const active = persisted.conversations.c0;
+    expect(active?.messages).toHaveLength(MAX_PERSISTED_MESSAGES);
+    expect(active?.messages.at(-1)?.id).toBe(`c0-m${MAX_PERSISTED_MESSAGES + 9}`);
+    // In-memory state is untouched; only the persisted copy is capped.
+    expect(Object.keys(useAiChatStore.getState().conversations)).toHaveLength(total);
   });
 });

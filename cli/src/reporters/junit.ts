@@ -6,11 +6,16 @@ import type { Reporter, RunResult } from './types.js';
  * GitLab CI, CircleCI, GitHub Actions test reporting actions, etc.).
  *
  * Each request becomes a `<testcase>`. Non-2xx responses become `<failure>`,
- * fetcher / network errors become `<error>`, and the surrounding `<testsuite>`
+ * fetcher / network errors become `<error>`, a request a pre-request script
+ * skipped (`pm.execution.skipRequest()`) becomes `<skipped/>`, and the surrounding `<testsuite>`
  * carries the aggregate counts for at-a-glance CI dashboards.
  */
 export class JUnitReporter implements Reporter {
-  constructor(private outputPath: string) {}
+  private readonly outputPath: string;
+
+  constructor(outputPath: string) {
+    this.outputPath = outputPath;
+  }
 
   async onEnd(result: RunResult): Promise<void> {
     await writeFile(this.outputPath, renderJUnitXml(result), 'utf-8');
@@ -59,16 +64,24 @@ export function renderJUnitXml(result: RunResult): string {
         const detail = escapeXml(failureDetail(r));
         return `    <testcase classname="${cls}" name="${name}" time="${time}"><failure message="${escapeXml(msg)}">${detail}</failure></testcase>`;
       }
+      if (r.skipped) {
+        return `    <testcase classname="${cls}" name="${name}" time="${time}"><skipped/></testcase>`;
+      }
       return `    <testcase classname="${cls}" name="${name}" time="${time}"/>`;
     })
     .join('\n');
 
   const timestamp = new Date(result.meta.startedAt).toISOString();
+  // A skip whose pre-request script failed is reported as an error above, not a skip.
+  const skipped = result.requests.filter((r) => r.skipped && !r.errorMessage && r.passed).length;
+  const counts =
+    `tests="${result.summary.total}" failures="${result.summary.failed}" ` +
+    `errors="${result.summary.errored}" time="${ms(result.durationMs)}" skipped="${skipped}"`;
 
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
-    `<testsuites name="${escapeXml(result.meta.collectionName)}" tests="${result.summary.total}" failures="${result.summary.failed}" errors="${result.summary.errored}" time="${ms(result.durationMs)}">`,
-    `  <testsuite name="${escapeXml(result.meta.collectionName)}" tests="${result.summary.total}" failures="${result.summary.failed}" errors="${result.summary.errored}" time="${ms(result.durationMs)}" timestamp="${timestamp}">`,
+    `<testsuites name="${escapeXml(result.meta.collectionName)}" ${counts}>`,
+    `  <testsuite name="${escapeXml(result.meta.collectionName)}" ${counts} timestamp="${timestamp}">`,
     cases,
     `  </testsuite>`,
     `</testsuites>`,

@@ -70,6 +70,30 @@ describe('graphql-sse over the masked Worker stream (web)', () => {
     expect(fetchMock.mock.calls[0]![1]).toMatchObject({ redirect: 'manual' });
   });
 
+  it('cancels the body of a non-ok response instead of leaving it open', async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(body, {
+          status: 200,
+          headers: {
+            'x-restura-proxy': '1',
+            'x-restura-proxy-stream': '1',
+            'x-restura-upstream-status': '503',
+            'x-restura-upstream-status-text': 'Service Unavailable',
+          },
+        })
+      )
+    );
+    const { sink, done } = collect();
+    subscribeGraphQLSse(OP, sink);
+    const result = await done;
+    expect(result.error).toBe('HTTP 503 Service Unavailable');
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalled());
+  });
+
   it('still streams events from a marked upstream 200', async () => {
     vi.stubGlobal(
       'fetch',

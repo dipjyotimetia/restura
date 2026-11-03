@@ -27,7 +27,8 @@ const GENERIC_RESULT = z.unknown();
 
 export interface McpConformanceCommandOpts {
   transport: string;
-  eras: string;
+  /** Absent = every era the transport can reach (`legacy` only over http-sse). */
+  eras?: string;
   sampleCalls: string;
   approveTool?: string[];
   header?: string[];
@@ -198,7 +199,8 @@ export function conformanceExitCode(
 /**
  * `restura mcp conformance <url>`: run the shared era/conformance engine over
  * HTTP transports and print/write a Markdown or JSON report. Exits 1 when
- * findings reach `--fail-on`, 2 (via the registrar) on usage/IO errors.
+ * findings reach `--fail-on` or no requested era connected, 2 (via the
+ * registrar) on usage/IO errors (incl. `--transport http-sse` with the modern era).
  */
 export async function executeMcpConformanceCommand(
   url: string,
@@ -213,7 +215,12 @@ export async function executeMcpConformanceCommand(
   ] as const);
   const format = oneOf('--format', opts.format, ['markdown', 'json'] as const);
   const failOn = oneOf('--fail-on', opts.failOn, ['error', 'warning', 'never'] as const);
-  const eras = parseEras(opts.eras);
+  const eras = parseEras(opts.eras ?? (transport === 'http-sse' ? 'legacy' : 'legacy,modern'));
+  if (transport === 'http-sse' && eras.includes('modern')) {
+    throw new Error(
+      '--eras modern needs --transport streamable-http: the legacy http-sse transport cannot reach the modern era'
+    );
+  }
   const timeoutMs = positiveTimeout(opts.timeout);
   const headers = parseHeaders(opts, dependencies.environment);
   const approvedTools = opts.approveTool ?? [];
@@ -284,6 +291,12 @@ export async function executeMcpConformanceCommand(
   }
   const { errors, warnings, info } = report.summary;
   dependencies.stderr(`${errors} error(s), ${warnings} warning(s), ${info} note(s)\n`);
+  // Zero checks ran is not a pass: e.g. a modern-only run against a server that
+  // does not negotiate it reports only an informational "unsupported" note.
+  if (!report.eras.some((era) => era.status === 'ok')) {
+    dependencies.stderr(`no requested era connected (${eras.join(', ')}); nothing was checked\n`);
+    return 1;
+  }
   return conformanceExitCode(report, failOn);
 }
 
@@ -300,7 +313,10 @@ export function registerMcpCommand(program: Command): void {
     )
     .argument('<url>', 'MCP server URL (HTTP transports only)')
     .option('--transport <t>', 'streamable-http | http-sse', 'streamable-http')
-    .option('--eras <list>', 'Comma-separated eras to test: legacy,modern', 'legacy,modern')
+    .option(
+      '--eras <list>',
+      'Comma-separated eras to test: legacy,modern (default: legacy,modern; legacy over http-sse)'
+    )
     .option(
       '--sample-calls <mode>',
       'off | read-only (call readOnlyHint tools) | selected (also --approve-tool)',

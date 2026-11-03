@@ -39,7 +39,7 @@ function avroExample(
 ): Json {
   if (depth > MAX_DEPTH || !spendNode()) return null;
   if (typeof type === 'string') {
-    if (type in AVRO_PRIMITIVES) return AVRO_PRIMITIVES[type] as Json;
+    if (Object.hasOwn(AVRO_PRIMITIVES, type)) return AVRO_PRIMITIVES[type] as Json;
     const ref = named.get(type) ?? [...named.entries()].find(([n]) => n.endsWith(`.${type}`))?.[1];
     return ref === undefined ? null : avroExample(ref, named, depth + 1);
   }

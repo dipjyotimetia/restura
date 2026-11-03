@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
+import { isValidEnvironment } from '@/lib/shared/store-validators';
 import { secretVariableNames } from '@/lib/shared/variableScopes';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { Environment, KeyValue, ScopedVariable } from '@/types';
@@ -27,6 +28,34 @@ interface EnvironmentState {
     name: string,
     scope?: Pick<Environment, 'collectionId' | 'parentId'>
   ) => Environment;
+}
+
+const environmentStorage = dexieStorageAdapters.environments();
+
+/** Row (same encrypted table) holding environments rejected on rehydration. */
+const INVALID_ENVIRONMENTS_KEY = 'environment-storage__invalid';
+
+/**
+ * Rehydration gate: keep the persisted environments that pass the schema and
+ * set the rest aside instead of letting a malformed row reach the resolver.
+ * zustand only calls `migrate` on a version mismatch, so this runs from
+ * `merge`, on every hydration. Rejected rows go to a side row of the SAME
+ * encrypted table (not the plaintext quarantine in `metadata`): environment
+ * values can be secrets.
+ */
+function keepValidEnvironments(environments: readonly unknown[]): Environment[] {
+  const valid = environments.filter(isValidEnvironment);
+  const invalid = environments.filter((environment) => !isValidEnvironment(environment));
+  if (invalid.length > 0) {
+    console.error(
+      `[environment-storage] set aside ${invalid.length} environment(s) that failed validation`
+    );
+    void environmentStorage.setItem(INVALID_ENVIRONMENTS_KEY, {
+      state: { environments: invalid },
+      version: 3,
+    });
+  }
+  return valid;
 }
 
 export const useEnvironmentStore = create<EnvironmentState>()(
@@ -145,7 +174,7 @@ export const useEnvironmentStore = create<EnvironmentState>()(
     {
       name: 'environment-storage',
       version: 3,
-      storage: dexieStorageAdapters.environments(),
+      storage: environmentStorage,
       migrate: (persistedState) => {
         const state = persistedState as Partial<EnvironmentState> | null;
         if (!state?.environments) return state as EnvironmentState;
@@ -156,6 +185,18 @@ export const useEnvironmentStore = create<EnvironmentState>()(
             variables: environment.variables.map((variable): ScopedVariable => ({ ...variable })),
           })),
         } as EnvironmentState;
+      },
+      merge: (persistedState, currentState) => {
+        if (!persistedState || typeof persistedState !== 'object') return currentState;
+        const persisted: Partial<EnvironmentState> = persistedState;
+        const environments: unknown = persisted.environments;
+        return {
+          ...currentState,
+          ...persisted,
+          environments: Array.isArray(environments)
+            ? keepValidEnvironments(environments)
+            : currentState.environments,
+        };
       },
       onRehydrateStorage: () => (state, error) => {
         if (error) {

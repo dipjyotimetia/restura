@@ -48,7 +48,11 @@ export class GrpcWebFrameDecoder {
   private chunks: Uint8Array[] = [];
   private buffered = 0;
 
-  constructor(private readonly maxFrameBytes: number = Number.POSITIVE_INFINITY) {}
+  private readonly maxFrameBytes: number;
+
+  constructor(maxFrameBytes: number = Number.POSITIVE_INFINITY) {
+    this.maxFrameBytes = maxFrameBytes;
+  }
 
   push(chunk: Uint8Array): GrpcWebFrame[] {
     if (chunk.length > 0) {

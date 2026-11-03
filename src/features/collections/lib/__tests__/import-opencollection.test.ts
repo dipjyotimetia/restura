@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import * as yaml from 'js-yaml';
+import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 import { importOpenCollection } from '../importers/opencollection';
 
@@ -8,7 +8,7 @@ const FIXTURES = 'tests/fixtures/opencollection';
 describe('importOpenCollection', () => {
   it('imports a parsed bundled OpenCollection document', () => {
     const raw = readFileSync(`${FIXTURES}/simple-http.yaml`, 'utf8');
-    const data = yaml.load(raw);
+    const data = load(raw);
     const result = importOpenCollection(data);
     expect(result.collection.name).toBe('Simple HTTP Demo');
     expect(result.collection.items.length).toBe(1);
@@ -49,7 +49,7 @@ describe('importOpenCollection', () => {
 
   it('imports the multi-protocol fixture and surfaces SSE from extensions', () => {
     const raw = readFileSync(`${FIXTURES}/multi-protocol.yaml`, 'utf8');
-    const data = yaml.load(raw);
+    const data = load(raw);
     const result = importOpenCollection(data);
     const types = result.collection.items.map((i) => i.request?.type ?? `folder:${i.name}`);
     expect(types).toContain('http');

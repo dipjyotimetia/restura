@@ -719,6 +719,24 @@ describe('proxy handler', () => {
       expect(res.status).toBeGreaterThanOrEqual(400);
       expect(res.headers.get('x-restura-proxy-stream')).toBeNull();
     });
+
+    // The upstream-proxy twins buffer to EOF, so a stream would show nothing
+    // until the timeout: refuse the combination up front instead.
+    it.each([
+      ['streamingMode', { streamingMode: true }],
+      ['Accept: text/event-stream', { headers: { Accept: 'text/event-stream' } }],
+    ])('rejects %s through an upstream proxy with a clear 400', async (_label, extra) => {
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/events',
+        upstreamProxy: { host: 'proxy.example.com', port: 8080 },
+        ...extra,
+      });
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error: string };
+      expect(json.error).toMatch(/upstream proxy/i);
+      expect(res.headers.get('x-restura-proxy-stream')).toBeNull();
+    });
   });
 
   describe('desktop-only TLS knobs', () => {
@@ -766,4 +784,38 @@ describe('proxy handler', () => {
       expect(res.status).toBe(200);
     });
   });
+});
+
+describe('client disconnect propagates to the upstream fetch', () => {
+  for (const streamingMode of [false, true]) {
+    it(`aborting the incoming request aborts the upstream fetch (streamingMode=${streamingMode})`, async () => {
+      let upstreamSignal: AbortSignal | undefined;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((_url: string, init: RequestInit) => {
+          upstreamSignal = init.signal ?? undefined;
+          return new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () =>
+              reject(new DOMException('The operation was aborted.', 'AbortError'))
+            );
+          });
+        })
+      );
+      const client = new AbortController();
+      const pending = app.request(
+        new Request('http://localhost/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ method: 'GET', url: 'https://example.com/slow', streamingMode }),
+          signal: client.signal,
+        }),
+        undefined,
+        {}
+      );
+      await vi.waitFor(() => expect(upstreamSignal).toBeDefined());
+      client.abort();
+      await vi.waitFor(() => expect(upstreamSignal?.aborted).toBe(true), { timeout: 1000 });
+      await pending;
+    });
+  }
 });

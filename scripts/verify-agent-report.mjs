@@ -25,6 +25,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setupWorktree } from './worktree-setup.mjs';
 
+const REQUIRED_GATES = ['tests', 'lint', 'typeCheckAll'];
 const REQUIRED = ['branch', 'worktree', 'sha', 'filesTouched', 'redFirst', 'gates'];
 
 /** Parse the report from bare JSON or the last ```json fence in agent prose. */
@@ -57,8 +58,17 @@ export function validateReport(report) {
     if (typeof rf.failingExcerpt !== 'string' || !rf.failingExcerpt.trim())
       problems.push('redFirst.failingExcerpt is empty — red-first was not shown');
   }
-  for (const [gate, result] of Object.entries(report.gates ?? {})) {
-    if (result !== 'pass') problems.push(`gate ${gate} reported "${result}"`);
+  if (report.gates != null) {
+    const g = report.gates;
+    if (typeof g !== 'object' || Array.isArray(g) || Object.keys(g).length === 0) {
+      problems.push('gates must be a non-empty object of gate -> "pass"|"fail"');
+    } else {
+      for (const required of REQUIRED_GATES)
+        if (!(required in g)) problems.push(`missing gate: ${required}`);
+      for (const [gate, result] of Object.entries(g)) {
+        if (result !== 'pass') problems.push(`gate ${gate} reported "${result}"`);
+      }
+    }
   }
   return problems;
 }

@@ -1,13 +1,19 @@
 import { isKnownHttpMethod, normalizeHttpMethod } from '@shared/protocol/http-method';
-import { unwrapSecret } from '@/lib/shared/secretRef';
-import { escapeJson, type GenerateOptions } from './types';
+import { escapeJson, type GenerateOptions, proxyUrlOf } from './types';
+
+/**
+ * Python double-quoted string literal. JSON string escapes (`\\` `\"` `\n`
+ * `\r` `\t` `\uXXXX`…) are all valid Python escapes, so this is exact.
+ */
+const pythonString = (str: string): string => JSON.stringify(str);
 
 export const generatePython = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams, settings, formData } = options;
   const textFields = formData?.filter((f) => f.type === 'text') ?? [];
   const fileFields = formData?.filter((f) => f.type === 'file') ?? [];
 
-  let python = `import requests\n\n`;
+  const jsonBody = !formData && request.body.type === 'json' && Boolean(request.body.raw);
+  let python = jsonBody ? `import json\n\nimport requests\n\n` : `import requests\n\n`;
   python += `url = "${escapeJson(resolvedUrl)}"\n\n`;
 
   if (Object.keys(resolvedParams).length > 0) {
@@ -41,21 +47,18 @@ export const generatePython = (options: GenerateOptions): string => {
       python += `}\n\n`;
     }
   } else if (request.body.type !== 'none' && request.body.raw) {
+    // Parse JSON at runtime: dumping it as a Python literal turns
+    // `true`/`null` into NameErrors.
     if (request.body.type === 'json') {
-      python += `json_data = ${request.body.raw}\n\n`;
+      python += `json_data = json.loads(${pythonString(request.body.raw)})\n\n`;
     } else {
-      python += `data = """${request.body.raw}"""\n\n`;
+      python += `data = ${pythonString(request.body.raw)}\n\n`;
     }
   }
 
   const proxyConfig = settings?.proxy;
   if (proxyConfig?.enabled && proxyConfig.host) {
-    let proxyUrl = `${proxyConfig.type}://`;
-    const proxyPassword = proxyConfig.auth ? unwrapSecret(proxyConfig.auth.password) : '';
-    if (proxyConfig.auth?.username && proxyPassword) {
-      proxyUrl += `${proxyConfig.auth.username}:${proxyPassword}@`;
-    }
-    proxyUrl += `${proxyConfig.host}:${proxyConfig.port}`;
+    const proxyUrl = proxyUrlOf(proxyConfig);
     python += `proxies = {\n`;
     python += `    "http": "${escapeJson(proxyUrl)}",\n`;
     python += `    "https": "${escapeJson(proxyUrl)}",\n`;

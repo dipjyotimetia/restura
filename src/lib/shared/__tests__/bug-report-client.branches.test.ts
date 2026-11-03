@@ -189,7 +189,11 @@ describe('copyBugReportScreenshot', () => {
     const write = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { write } });
     class FakeClipboardItem {
-      constructor(public items: Record<string, Blob>) {}
+      public items: Record<string, Blob>;
+
+      constructor(items: Record<string, Blob>) {
+        this.items = items;
+      }
     }
     vi.stubGlobal('ClipboardItem', FakeClipboardItem);
     vi.stubGlobal(

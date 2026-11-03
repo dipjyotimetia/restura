@@ -28,6 +28,12 @@ export interface NdjsonParseError {
 
 export type NdjsonValue = unknown;
 
+/**
+ * Hard cap on a single unterminated line, in UTF-16 code units (~16 MiB) —
+ * the same bound and fail-closed behaviour as `MAX_SSE_EVENT_CHARS`.
+ */
+export const MAX_NDJSON_LINE_CHARS = 8 * 1024 * 1024;
+
 export class NdjsonParser {
   private decoder = new TextDecoder();
   private buffer = '';
@@ -43,11 +49,17 @@ export class NdjsonParser {
         text = text.slice(1);
       }
     }
+    // Only the new text can hold a new delimiter — the unterminated tail was
+    // already scanned, so a long line costs O(bytes), not O(n²). The buffer is
+    // not even searched unless the new text has one: searching it makes V8
+    // flatten the whole `+=` rope (a full copy).
+    const scanFrom = Math.max(this.cursor, this.buffer.length);
+    const mayComplete = text.includes('\n');
     this.buffer += text;
 
     const out: NdjsonValue[] = [];
     for (
-      let idx = this.buffer.indexOf('\n', this.cursor);
+      let idx = mayComplete ? this.buffer.indexOf('\n', scanFrom) : -1;
       idx >= 0;
       idx = this.buffer.indexOf('\n', this.cursor)
     ) {
@@ -62,6 +74,12 @@ export class NdjsonParser {
     if (this.cursor > this.buffer.length / 2) {
       this.buffer = this.buffer.slice(this.cursor);
       this.cursor = 0;
+    }
+
+    // An upstream that never sends `\n` would otherwise grow the buffer
+    // without limit (main-process OOM). Fail closed so the caller aborts.
+    if (this.buffer.length - this.cursor > MAX_NDJSON_LINE_CHARS) {
+      throw new Error(`NDJSON line exceeds ${MAX_NDJSON_LINE_CHARS} chars without a newline`);
     }
 
     return out;

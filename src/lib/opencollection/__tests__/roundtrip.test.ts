@@ -40,8 +40,29 @@ describe('OpenCollection roundtrip', () => {
 
   it('dir-layout: dir -> save dir -> reload', async () => {
     const oc1 = await loadCollectionFromDir('tests/fixtures/opencollection/dir-layout');
-    await saveCollectionToDir(oc1, tmp);
+    const first = await saveCollectionToDir(oc1, tmp);
     const oc2 = await loadCollectionFromDir(tmp);
-    expect(oc2).toEqual(oc1);
+    // The writer stamps each item's sibling position as `info.seq`; nothing
+    // else changes, and a second save is a fixed point.
+    expect(oc2).toEqual(withStampedSeq(oc1));
+    await saveCollectionToDir(oc2, tmp, { previousManagedFiles: first.managedFiles });
+    expect(await loadCollectionFromDir(tmp)).toEqual(oc2);
   });
 });
+
+/** Copy of `oc` with every item's `info.seq` set to its 1-based sibling position. */
+function withStampedSeq<T>(oc: T): T {
+  const stamp = (items: unknown): unknown =>
+    Array.isArray(items)
+      ? items.map((it, index) => {
+          const node = it as { info: object; items?: unknown };
+          return {
+            ...node,
+            info: { ...node.info, seq: index + 1 },
+            ...(node.items ? { items: stamp(node.items) } : {}),
+          };
+        })
+      : items;
+  const root = oc as { items?: unknown };
+  return { ...root, items: stamp(root.items) } as T;
+}

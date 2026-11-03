@@ -182,3 +182,13 @@ describe('describeVariables', () => {
     expect(variableSourceLabel('sub-environment')).toBe('Sub-environment');
   });
 });
+
+describe('user-keyed lookups ignore Object.prototype', () => {
+  it('lists a script-set key named like a prototype member', () => {
+    const details = describeVariables({ scriptSetKeys: ['constructor', 'toString'] });
+    expect(details.map((d) => [d.name, d.source])).toEqual([
+      ['constructor', 'script'],
+      ['toString', 'script'],
+    ]);
+  });
+});

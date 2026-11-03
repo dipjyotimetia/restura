@@ -72,6 +72,8 @@ export class SseParser {
   private bomChecked = false;
   /** The previous chunk ended in `\r`; a leading `\n` here completes that CRLF. */
   private pendingCR = false;
+  /** The last char fed was `\n` (a `\n\n` may straddle into the next chunk). */
+  private endsWithLF = false;
   /**
    * WHATWG "last event ID string": set from every completed block with an
    * `id:` field (dispatched or not). `undefined` until the stream sends one;
@@ -103,11 +105,19 @@ export class SseParser {
         text = text.slice(1);
       }
     }
+    // Only the new text (plus the one char before it, for a `\n\n` split
+    // across chunks) can hold a new delimiter — the rest of the unterminated
+    // tail was already scanned, so a large event costs O(bytes), not O(n²).
+    // The buffer is not even searched unless the new text can complete a
+    // frame: searching it makes V8 flatten the whole `+=` rope (a full copy).
+    const scanFrom = Math.max(this.cursor, this.buffer.length - 1);
+    const mayComplete = text.includes('\n\n') || (this.endsWithLF && text.startsWith('\n'));
+    if (text.length > 0) this.endsWithLF = text.endsWith('\n');
     this.buffer += text;
 
     const events: DispatchedSseEvent[] = [];
     for (
-      let idx = this.buffer.indexOf('\n\n', this.cursor);
+      let idx = mayComplete ? this.buffer.indexOf('\n\n', scanFrom) : -1;
       idx >= 0;
       idx = this.buffer.indexOf('\n\n', this.cursor)
     ) {
@@ -139,6 +149,7 @@ export class SseParser {
     this.buffer = '';
     this.cursor = 0;
     this.pendingCR = false;
+    this.endsWithLF = false;
     if (remaining.length === 0) return [];
     const event = this.processBlock(remaining);
     return event ? [event] : [];

@@ -208,6 +208,20 @@ describe('validateMcpSpec', () => {
     if (r.ok) expect(r.timeoutMs).toBe(60_000);
   });
 
+  it.each([0, -5, Number.NaN])('treats a non-positive timeout (%s) as the default', (timeout) => {
+    const r = validateMcpSpec(
+      {
+        url: 'https://example.com',
+        transport: 'streamable-http',
+        timeout,
+        jsonRpc: { method: 'tools/list', id: 1 },
+      },
+      false
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.timeoutMs).toBe(60_000);
+  });
+
   it('always sets Content-Type and Accept headers', () => {
     const r = validateMcpSpec(
       {

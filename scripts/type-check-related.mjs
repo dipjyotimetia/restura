@@ -107,7 +107,7 @@ export function planFor(files) {
   };
 }
 
-/** Files changed between the merge-base with origin/main and HEAD; null when there is no merge-base. */
+/** Files changed (deleted files and both sides of renames included, so importers of a removed/moved file are checked) between the merge-base with origin/main and HEAD; null when there is no merge-base. */
 export function changedSinceMergeBase(cwd = process.cwd()) {
   let base;
   try {
@@ -119,7 +119,7 @@ export function changedSinceMergeBase(cwd = process.cwd()) {
     return null;
   }
   if (!base) return null;
-  const out = execFileSync('git', ['diff', '--name-only', '--diff-filter=d', base, 'HEAD'], {
+  const out = execFileSync('git', ['diff', '--name-only', '--no-renames', base, 'HEAD'], {
     cwd,
     encoding: 'utf8',
   });

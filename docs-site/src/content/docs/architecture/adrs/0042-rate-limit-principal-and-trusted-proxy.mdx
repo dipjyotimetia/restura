@@ -1,0 +1,48 @@
+---
+title: "ADR 0042 — Rate-limit principal and trusted proxy"
+description: "The rate-limit bucket is client IP plus the principal the auth middleware verified; self-host Node keys on the socket peer unless TRUST_PROXY=true."
+sidebar:
+  order: 42
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-11-03" variant="success" />
+
+Refines the Worker bucket key of [ADR 0018](/architecture/adrs/0018-rate-limiting-strategy/); the rest of ADR 0018 stands.
+
+## Context
+
+[ADR 0018](/architecture/adrs/0018-rate-limiting-strategy/) puts request-rate limiting on the Worker's `/api/*` routes. The bucket key was the client IP plus a fingerprint of whichever credential header the request carried (`X-Restura-Proxy-Token`, else `Authorization`, else `Cf-Access-Jwt-Assertion`), and the IP came from `CF-Connecting-IP`, then `True-Client-IP`. Two holes followed from that:
+
+- **Self-host Node never stripped the forwarding headers.** On Cloudflare the edge sets `CF-Connecting-IP`; the Node server (`worker/node-entry.ts`) passed whatever the client sent. A client could send a fresh `CF-Connecting-IP` or `True-Client-IP` on each request and get a fresh bucket every time.
+- **The credential part of the key could be client-chosen.** The fingerprint came from the first credential header present, not from the credential that was verified. In Cloudflare Access mode no proxy token is configured, so a client could add an arbitrary `X-Restura-Proxy-Token` and land in a new bucket while still authenticating with its Access assertion.
+
+## Decision
+
+- **Bucket key is `${ip}|${authPrincipal}`** (`buildBucketKey` in `shared/protocol/rate-limiter.ts`), used by both the binding and the in-memory limiter.
+- **The principal comes only from a verified credential.** `proxyAuthMiddleware` (`worker/app.ts`) runs before the rate limiter and sets `authPrincipal` after it has checked the credential: `proxy-token` for a matching `WORKER_PROXY_TOKEN` (only one value can pass, so the principal is constant), or `access:<sub>`, falling back to `access:<email>` and then `access`, for a verified Cloudflare Access assertion. No client header is read for it; an unset principal is `anon`.
+- **Self-host Node pins the IP to the socket peer unless `TRUST_PROXY=true`.** `socketClientIpMiddleware` (`worker/middleware/rateLimiter.ts`), mounted only in `worker/node-entry.ts`, sets the `clientIp` context variable from the TCP peer address, and `resolveClientIp` uses it ahead of any header. With `TRUST_PROXY=true` the middleware does nothing and the IP falls through `CF-Connecting-IP`, `True-Client-IP`, `X-Real-IP` (only with `ENVIRONMENT=development` or `DEV_BYPASS_AUTH=true`), then a `Sec-WebSocket-Key` / `User-Agent` hash. The Cloudflare Worker is unchanged: the edge sets `CF-Connecting-IP`.
+
+## Alternatives considered
+
+- **Trust forwarding headers by default on Node.** Rejected: it is only safe behind a proxy that overwrites them, and nothing in a bare `docker run` does. The safe default is the socket peer; operators who run a proxy opt in.
+- **Keep a token fingerprint in the key, but only after verification.** With a single configured proxy token the fingerprint is a constant, so it adds nothing over `proxy-token`. For Access, the verified `sub` / `email` claim identifies the user directly, without depending on the raw assertion string.
+
+## Consequences
+
+**Positive**
+
+- A client can no longer choose its own bucket on self-host Node (without `TRUST_PROXY`) or in Access mode.
+- The key is built from values the server set (socket peer, verified principal), not raw credential strings, so no credential material is hashed into it.
+
+**Negative**
+
+- Behind a reverse proxy without `TRUST_PROXY=true`, every client shares the proxy's address bucket. Operators must set `TRUST_PROXY=true` and have the proxy overwrite `True-Client-IP` and strip a client-sent `CF-Connecting-IP` (read first), or overwrite `CF-Connecting-IP`; a proxy that passes the client's value through reopens the bucket-choice hole. [Docker](/self-hosting/docker/) and [Reverse proxy](/self-hosting/reverse-proxy/) say so.
+- With `TRUST_PROXY=true`, `X-Real-IP` and `X-Forwarded-For` are still not read outside development, so the common nginx `X-Real-IP` line alone does not identify clients.
+
+## References
+
+- Code: `shared/protocol/rate-limiter.ts` (`buildBucketKey`, `resolveClientIp`), `worker/middleware/rateLimiter.ts` (`socketClientIpMiddleware`), `worker/node-entry.ts`, `worker/app.ts` (`proxyAuthMiddleware`)
+- Tests: `worker/__tests__/rate-limit-principal.test.ts`
+- Related: [ADR 0009 (shared Hono app factory)](/architecture/adrs/0009-shared-hono-app-factory/), [ADR 0018](/architecture/adrs/0018-rate-limiting-strategy/)

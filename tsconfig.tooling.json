@@ -1,6 +1,8 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
     "target": "ES2022",
     "lib": ["ES2022", "DOM"],
     "module": "ESNext",

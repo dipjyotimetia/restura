@@ -236,7 +236,22 @@ export function createProxyHandler(
       nodeHostnameGuard
     );
 
-    if (isStreamingRequest(body)) {
+    const streaming = isStreamingRequest(body);
+    // The upstream-proxy twins read the response to EOF before returning, so
+    // a stream would show nothing until the timeout. Refuse it explicitly.
+    if (streaming && body.upstreamProxy) {
+      return c.json(
+        {
+          error:
+            'Streaming responses (Server-Sent Events, NDJSON, streaming mode) cannot be sent ' +
+            'through an upstream proxy on the web / self-hosted server. Remove the upstream ' +
+            'proxy for this request or turn off streaming.',
+        },
+        400
+      );
+    }
+
+    if (streaming) {
       const streamingResult = await executeHttpProxyStreaming(
         {
           method,
@@ -252,7 +267,7 @@ export function createProxyHandler(
           ...(body.encodeUrl !== undefined && { encodeUrl: body.encodeUrl }),
         },
         fetcher,
-        { allowLocalhost: isDev, allowPrivateIPs }
+        { allowLocalhost: isDev, allowPrivateIPs, signal: c.req.raw.signal }
       );
 
       if (!streamingResult.ok) {
@@ -311,7 +326,7 @@ export function createProxyHandler(
         ...(body.encodeUrl !== undefined && { encodeUrl: body.encodeUrl }),
       },
       fetcher,
-      { allowLocalhost: isDev, allowPrivateIPs }
+      { allowLocalhost: isDev, allowPrivateIPs, signal: c.req.raw.signal }
     );
 
     if (!result.ok) {

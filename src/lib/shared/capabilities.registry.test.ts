@@ -53,6 +53,7 @@ describe('capability registry shape', () => {
         "http.version",
         "http.streamingResponse",
         "http.auth.ntlm",
+        "http.auth.oauth2AuthCodePopup",
         "loadTesting.basic",
         "websocket.basic",
         "websocket.customHeaders",

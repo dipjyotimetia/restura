@@ -236,7 +236,11 @@ async function grade(
 }
 
 export class AgentSuiteRunner {
-  constructor(private readonly dependencies: AgentSuiteRunnerDependencies) {}
+  private readonly dependencies: AgentSuiteRunnerDependencies;
+
+  constructor(dependencies: AgentSuiteRunnerDependencies) {
+    this.dependencies = dependencies;
+  }
 
   async run(input: { suite: AgentSuite; signal?: AbortSignal }): Promise<AgentSuiteReport> {
     const results: SuiteTrialResult[] = [];

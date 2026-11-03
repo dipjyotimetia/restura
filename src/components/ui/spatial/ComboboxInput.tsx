@@ -1,6 +1,14 @@
 'use client';
 
-import * as React from 'react';
+import {
+  forwardRef,
+  type InputHTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+} from 'react';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { cn } from '@/lib/shared/utils';
@@ -11,7 +19,7 @@ export interface ComboboxSuggestion {
 }
 
 export interface ComboboxInputProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
   value: string;
   onChange: (next: string) => void;
   suggestions: ReadonlyArray<ComboboxSuggestion>;
@@ -39,7 +47,7 @@ export interface ComboboxInputProps
  * layout without needing a wrapping container. Use inside grid cells without
  * disturbing column sizing.
  */
-export const ComboboxInput = React.forwardRef<HTMLInputElement, ComboboxInputProps>(
+export const ComboboxInput = forwardRef<HTMLInputElement, ComboboxInputProps>(
   function ComboboxInput(
     {
       value,
@@ -56,18 +64,18 @@ export const ComboboxInput = React.forwardRef<HTMLInputElement, ComboboxInputPro
     },
     ref
   ) {
-    const [open, setOpen] = React.useState(false);
-    const [activeIdx, setActiveIdx] = React.useState(0);
-    const listboxId = React.useId();
-    const optionPrefix = React.useId();
+    const [open, setOpen] = useState(false);
+    const [activeIdx, setActiveIdx] = useState(0);
+    const listboxId = useId();
+    const optionPrefix = useId();
 
-    const filtered = React.useMemo(() => {
+    const filtered = useMemo(() => {
       const q = value.trim().toLowerCase();
       if (!q) return suggestions.slice(0, maxItems);
       return suggestions.filter((s) => s.value.toLowerCase().includes(q)).slice(0, maxItems);
     }, [value, suggestions, maxItems]);
 
-    React.useEffect(() => {
+    useEffect(() => {
       // Keep the highlight in bounds when the filtered list shrinks.
       if (activeIdx >= filtered.length) {
         setActiveIdx(filtered.length > 0 ? filtered.length - 1 : 0);
@@ -80,7 +88,7 @@ export const ComboboxInput = React.forwardRef<HTMLInputElement, ComboboxInputPro
       setOpen(false);
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const handleKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
       onKeyDown?.(e);
       if (e.defaultPrevented) return;
 

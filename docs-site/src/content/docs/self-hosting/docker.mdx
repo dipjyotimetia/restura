@@ -53,6 +53,7 @@ The repo ships a [`docker-compose.yml`](https://github.com/dipjyotimetia/restura
 | `RESTURA_STATIC_ROOT` | Path to the SPA bundle | `/app/dist/web` |
 | `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | Outbound proxy for upstream requests (lowercase variants also work); `NO_PROXY` hosts bypass it. A per-request upstream proxy set in the app takes precedence | unset = direct |
 | `RATE_LIMITER` | Rate-limiter backend. Use `map` (the Node default) or omit it. `binding` and `binding-shadow` need Cloudflare's Rate Limiting binding, so the Node server **exits at startup** if you set them | `map` |
+| `TRUST_PROXY` | If `true`, rate limiting keys on the client-IP header (`CF-Connecting-IP` / `True-Client-IP`) instead of the socket peer. Set only behind a reverse proxy that overwrites that header | `false` |
 | `DEV_BYPASS_AUTH` | Local development only — skips auth when `ENVIRONMENT=development`. **Never set this in production** | unset |
 
 ## Auth modes
@@ -77,7 +78,7 @@ This will be revisited in a future release.
 
 ## Rate limiting
 
-Per-replica in-memory token bucket. For multi-replica deployments, put a rate limiter (Cloudflare, nginx, Envoy) in front.
+Per-replica in-memory token bucket, keyed by client IP plus the authenticated principal. The client IP is the socket peer unless `TRUST_PROXY=true`, so behind a reverse proxy set `TRUST_PROXY=true` and have the proxy overwrite `True-Client-IP` (and strip any client-sent `CF-Connecting-IP`, which is read first) — otherwise every client shares the proxy's bucket. For multi-replica deployments, put a rate limiter (Cloudflare, nginx, Envoy) in front.
 
 <Aside title="Canonical docs">
 The full self-hosting guide — including reverse proxy snippets and the multi-replica caveat — lives in [`docs/SELF_HOSTING.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/SELF_HOSTING.md).

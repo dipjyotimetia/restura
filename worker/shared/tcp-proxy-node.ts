@@ -20,16 +20,29 @@
  *     as a follow-up).
  *   - Body bytes are returned as a Buffer and forwarded to Response without
  *     UTF-8 lossy-decoding, so binary/gzipped upstreams pass through intact.
- *   - Request bytes use the same TextEncoder()/UTF-8 the Cloudflare twin
- *     uses, so non-ASCII header values are byte-identical across backends.
- *   - Headers may arrive as a Record or a `Headers` instance (the redirect-
- *     follower always passes a Headers); normalised here via `toRecord`.
+ *   - Request framing, body serialisation, head parsing and Response building
+ *     come from `./http-framing` (shared with the Cloudflare twin), so the
+ *     wire bytes are identical across backends; only socket I/O lives here.
  */
 import { Buffer } from 'node:buffer';
 import net from 'node:net';
 import tls from 'node:tls';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { assertNodeHostnameSafe, type NodeDnsGuardOptions } from './dns-guard-node';
+import {
+  assertCompleteAtEof,
+  encodeRequest,
+  type FinalHead,
+  findFinalHead,
+  frameBody,
+  isBodyComplete,
+  parseResponseHead,
+  parseStatusCode,
+  type ResponseHead,
+  sliceBody,
+  toRecord,
+  toResponse,
+} from './http-framing';
 import type { UpstreamProxy } from './tcp-proxy';
 
 const ENCODER = new TextEncoder();
@@ -47,52 +60,8 @@ function buildProxyAuthHeader(auth?: { username: string; password: string }): st
   return `Proxy-Authorization: ${proxyAuthValue(auth)}\r\n`;
 }
 
-/**
- * Normalise a HeadersInit (Record | Headers | [k,v][]) into a plain Record.
- * `Object.entries` on a Headers instance yields [], silently dropping every
- * header — the redirect-follower hands us a Headers instance, so this is
- * load-bearing for redirected upstream-proxy hops.
- */
-function toRecord(input: RequestInit['headers']): Record<string, string> {
-  if (!input) return {};
-  if (input instanceof Headers) {
-    const out: Record<string, string> = {};
-    input.forEach((v, k) => {
-      out[k] = v;
-    });
-    return out;
-  }
-  if (Array.isArray(input)) {
-    const out: Record<string, string> = {};
-    for (const [k, v] of input) out[k] = v;
-    return out;
-  }
-  return { ...(input as Record<string, string>) };
-}
-
-function parseStatusCode(statusLine: string): number {
-  // `HTTP/1.1 200 OK` → 200. Exact-match the second token rather than
-  // substring-matching '200' anywhere in the line (a 502 reason phrase
-  // like "Backend 200 unavailable" would otherwise falsely succeed).
-  const token = statusLine.split(' ')[1];
-  if (!token) return 502;
-  const n = parseInt(token, 10);
-  return Number.isNaN(n) ? 502 : n;
-}
-
-interface ParsedConnectResponse {
-  statusLine: string;
-  headers: Record<string, string>;
-}
-
-interface ParsedHttpResponse extends ParsedConnectResponse {
-  /**
-   * Every header field in wire order, duplicates kept. `headers` collapses
-   * repeats (last wins), which loses all but one `Set-Cookie` (#855) — build
-   * the `Response` from this list instead.
-   */
-  headerList: Array<[string, string]>;
-  body: Buffer;
+interface ParsedHttpResponse extends FinalHead {
+  body: Uint8Array;
 }
 
 function attachAbort(signal: AbortSignal, fail: (err: Error) => void): () => void {
@@ -116,7 +85,7 @@ function attachAbort(signal: AbortSignal, fail: (err: Error) => void): () => voi
 function readConnectResponse(
   socket: net.Socket | tls.TLSSocket,
   signal: AbortSignal
-): Promise<ParsedConnectResponse> {
+): Promise<ResponseHead> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
@@ -128,7 +97,7 @@ function readConnectResponse(
       socket.removeListener('error', onError);
       detachAbort();
     };
-    const finish = (v: ParsedConnectResponse) => {
+    const finish = (v: ResponseHead) => {
       if (done) return;
       done = true;
       cleanup();
@@ -156,21 +125,12 @@ function readConnectResponse(
       const split = buf.indexOf(Buffer.from('\r\n\r\n'));
       if (split === -1) return;
 
-      const headBytes = Buffer.from(buf.subarray(0, split)).toString('latin1');
-      const lines = headBytes.split('\r\n');
-      const statusLine = lines[0] ?? '';
-      const headers: Record<string, string> = {};
-      for (const line of lines.slice(1)) {
-        const colon = line.indexOf(':');
-        if (colon !== -1) {
-          headers[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
-        }
-      }
+      const head = parseResponseHead(Buffer.from(buf.subarray(0, split)).toString('latin1'));
       // Push any leftover body bytes back onto the socket so subsequent
       // reads see them. unshift() is the Node-supported way to do this.
       const leftover = buf.subarray(split + 4);
       if (leftover.byteLength > 0) socket.unshift(leftover);
-      finish({ statusLine, headers });
+      finish(head);
     };
 
     socket.on('data', onData);
@@ -180,13 +140,14 @@ function readConnectResponse(
 }
 
 /**
- * Read a full HTTP/1.1 response over the socket. Resolution rule:
+ * Read a full HTTP/1.1 response over the socket — same rule as the Cloudflare
+ * twin (framing helpers shared in `http-framing`):
+ *   - interim 1xx heads are skipped; 204 / 304 stop at the final head.
  *   - Content-Length present: read exactly N body bytes.
- *   - Content-Length absent (and no Transfer-Encoding: chunked): read until
- *     the server closes the connection ('end'). This matches RFC 7230 §3.3.3
- *     for HTTP/1.0-style responses and bodyless 1xx/204/304 codes.
+ *   - otherwise: read until the server closes the connection ('end').
  *   - Transfer-Encoding: chunked is NOT decoded here — caller receives the
  *     raw chunked framing as the body (parity with the Cloudflare twin).
+ * 'end' short of Content-Length rejects; abort rejects.
  */
 function readHttpResponseBody(
   socket: net.Socket | tls.TLSSocket,
@@ -195,12 +156,7 @@ function readHttpResponseBody(
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
-    let headerBodySplit = -1;
-    let headers: Record<string, string> = {};
-    let headerList: Array<[string, string]> = [];
-    let statusLine = '';
-    let contentLength: number | null = null;
-    let bodyless = false;
+    let head: FinalHead | null = null;
     let done = false;
 
     const cleanup = () => {
@@ -209,54 +165,27 @@ function readHttpResponseBody(
       socket.removeListener('error', onError);
       detachAbort();
     };
-    const finish = (body: Buffer) => {
+    const finish = (response: ParsedHttpResponse) => {
       if (done) return;
       done = true;
       cleanup();
-      resolve({ statusLine, headers, headerList, body });
+      resolve(response);
     };
-    const fail = (err: Error) => {
+    const fail = (err: unknown) => {
       if (done) return;
       done = true;
       cleanup();
-      reject(err);
+      reject(err instanceof Error ? err : new Error(String(err)));
     };
 
     const detachAbort = attachAbort(signal, fail);
     if (done) return;
 
-    const onError = (err: Error) => fail(err);
-
-    const parseHeadersFromBuffer = (buf: Buffer): void => {
-      const split = buf.indexOf(Buffer.from('\r\n\r\n'));
-      if (split === -1) return;
-      headerBodySplit = split;
-      const headBytes = Buffer.from(buf.subarray(0, split)).toString('latin1');
-      const lines = headBytes.split('\r\n');
-      statusLine = lines[0] ?? '';
-      headers = {};
-      headerList = [];
-      for (const line of lines.slice(1)) {
-        const colon = line.indexOf(':');
-        if (colon !== -1) {
-          const name = line.slice(0, colon).trim().toLowerCase();
-          const value = line.slice(colon + 1).trim();
-          headers[name] = value;
-          headerList.push([name, value]);
-        }
-      }
-      const cl = headers['content-length'];
-      if (cl !== undefined) {
-        const n = parseInt(cl, 10);
-        if (!Number.isNaN(n)) contentLength = n;
-      }
-      // 1xx, 204, 304 are bodyless per RFC. Also treat HEAD responses
-      // (status doesn't tell us — we'd need the request method here).
-      const code = parseStatusCode(statusLine);
-      if ((code >= 100 && code < 200) || code === 204 || code === 304) {
-        bodyless = true;
-      }
+    const collect = (): Buffer => {
+      const [only] = chunks;
+      return chunks.length === 1 && only ? only : Buffer.concat(chunks, total);
     };
+    const onError = (err: Error) => fail(err);
 
     const onData = (chunk: Buffer) => {
       total += chunk.byteLength;
@@ -264,43 +193,29 @@ function readHttpResponseBody(
         return fail(new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`));
       }
       chunks.push(chunk);
-
-      if (headerBodySplit === -1) {
-        parseHeadersFromBuffer(Buffer.concat(chunks));
-        if (headerBodySplit === -1) return;
-        if (bodyless) {
-          return finish(Buffer.alloc(0));
+      try {
+        // Until the head is found, keep one contiguous buffer to search.
+        if (!head) {
+          const all = collect();
+          chunks.length = 0;
+          chunks.push(all);
+          head = findFinalHead(all);
         }
+        if (head && isBodyComplete(head, total))
+          finish({ ...head, body: sliceBody(collect(), head) });
+      } catch (err) {
+        fail(err);
       }
-
-      if (contentLength !== null) {
-        const concat = Buffer.concat(chunks);
-        const bodyStart = headerBodySplit + 4;
-        const bodyBytesRead = concat.byteLength - bodyStart;
-        if (bodyBytesRead >= contentLength) {
-          finish(concat.subarray(bodyStart, bodyStart + contentLength));
-        }
-      }
-      // contentLength === null && !bodyless → keep reading until 'end'.
     };
 
     const onEnd = () => {
-      if (done) return;
-      if (headerBodySplit === -1) {
-        // Partial: try one last parse in case the final chunk completed headers.
-        parseHeadersFromBuffer(Buffer.concat(chunks));
-        if (headerBodySplit === -1) {
-          return fail(new Error('Upstream closed before response headers'));
-        }
-        if (bodyless) return finish(Buffer.alloc(0));
+      const final = head;
+      try {
+        assertCompleteAtEof(final, total, signal);
+        finish({ ...final, body: sliceBody(collect(), final) });
+      } catch (err) {
+        fail(err);
       }
-      const concat = Buffer.concat(chunks);
-      const bodyStart = headerBodySplit + 4;
-      const body =
-        contentLength !== null
-          ? concat.subarray(bodyStart, bodyStart + contentLength)
-          : concat.subarray(bodyStart);
-      finish(body);
     };
 
     socket.on('data', onData);
@@ -309,23 +224,9 @@ function readHttpResponseBody(
   });
 }
 
-function encodeRequest(
-  method: string,
-  url: URL,
-  headers: Record<string, string>,
-  bodyBytes?: Uint8Array
-): Buffer {
-  const path = url.pathname + url.search;
-  let raw = `${method} ${path} HTTP/1.1\r\nHost: ${url.host}\r\n`;
-  for (const [k, v] of Object.entries(headers)) {
-    raw += `${k}: ${v}\r\n`;
-  }
-  raw += '\r\n';
-  // Encode the request line + headers as UTF-8 (matching the Cloudflare
-  // twin's TextEncoder().encode behaviour for non-ASCII header values).
-  const head = Buffer.from(ENCODER.encode(raw));
-  if (!bodyBytes || bodyBytes.length === 0) return head;
-  return Buffer.concat([head, Buffer.from(bodyBytes)]);
+/** Zero-copy Buffer view over framed bytes, for socket.write. */
+function asBuffer(bytes: Uint8Array): Buffer {
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
 function connectTcp(host: string, port: number, signal: AbortSignal): Promise<net.Socket> {
@@ -379,25 +280,16 @@ export interface NodeTcpProxyOptions {
   dnsGuard?: NodeDnsGuardOptions;
 }
 
-async function buildTunneledRequest(
-  targetUrl: URL,
-  requestInit: RequestInit
-): Promise<{ wire: Buffer }> {
+async function buildTunneledRequest(targetUrl: URL, requestInit: RequestInit): Promise<Buffer> {
   // Verbatim (#857): the shared core already normalised known methods; extension
   // tokens are case-sensitive and must match what auth signers signed.
   const method = requestInit.method ?? 'GET';
+  // encodeRequest writes Host from the target authority and drops any
+  // caller-supplied (possibly stale) Host.
   const headers = toRecord(requestInit.headers);
-  // Force Host to the target authority so we round-trip the right header
-  // even if the caller supplied a stale value.
-  delete headers['host'];
-  delete headers['Host'];
-  headers['Host'] = targetUrl.hostname;
-
-  const bodyStr = typeof requestInit.body === 'string' ? requestInit.body : undefined;
-  const bodyBytes = bodyStr ? ENCODER.encode(bodyStr) : undefined;
-  if (bodyBytes) headers['Content-Length'] = String(bodyBytes.length);
-
-  return { wire: encodeRequest(method, targetUrl, headers, bodyBytes) };
+  const bodyBytes = await frameBody(requestInit.body, headers);
+  const target = targetUrl.pathname + targetUrl.search;
+  return asBuffer(encodeRequest(method, target, targetUrl.host, headers, bodyBytes));
 }
 
 export function createHttpsViaConnectProxy(dnsGuard?: NodeDnsGuardOptions) {
@@ -425,27 +317,25 @@ export function createHttpsViaConnectProxy(dnsGuard?: NodeDnsGuardOptions) {
       `\r\n`;
     socket.write(Buffer.from(ENCODER.encode(connectReq)));
 
-    const { statusLine } = await readConnectResponse(socket, signal);
-    if (parseStatusCode(statusLine) !== 200) {
+    // Until the TLS socket owns it, the proxy socket is ours to destroy on
+    // every failure path (bad reply, proxy hang-up, abort, handshake error).
+    let tlsSocket: tls.TLSSocket;
+    try {
+      const { statusLine } = await readConnectResponse(socket, signal);
+      if (parseStatusCode(statusLine) !== 200) {
+        throw new Error(`Proxy CONNECT failed: ${statusLine}`);
+      }
+      tlsSocket = await upgradeToTls(socket, targetUrl.hostname, signal);
+    } catch (err) {
       socket.destroy();
-      throw new Error(`Proxy CONNECT failed: ${statusLine}`);
+      throw err;
     }
 
-    const tlsSocket = await upgradeToTls(socket, targetUrl.hostname, signal);
-
     try {
-      const { wire } = await buildTunneledRequest(targetUrl, requestInit);
-      tlsSocket.write(wire);
+      tlsSocket.write(await buildTunneledRequest(targetUrl, requestInit));
 
-      const {
-        statusLine: respStatusLine,
-        headerList: respHeaderList,
-        body: respBody,
-      } = await readHttpResponseBody(tlsSocket, signal);
-      return new Response(respBody, {
-        status: parseStatusCode(respStatusLine),
-        headers: respHeaderList,
-      });
+      const response = await readHttpResponseBody(tlsSocket, signal);
+      return toResponse(response.statusLine, response.headerList, response.body);
     } finally {
       tlsSocket.destroy();
     }
@@ -469,37 +359,17 @@ export function createHttpViaProxy(dnsGuard?: NodeDnsGuardOptions) {
       // tokens are case-sensitive and must match what auth signers signed.
       const method = requestInit.method ?? 'GET';
       const headers = toRecord(requestInit.headers);
-      delete headers['host'];
-      delete headers['Host'];
-      headers['Host'] = targetUrl.hostname;
       if (proxy.auth) {
         headers['Proxy-Authorization'] = proxyAuthValue(proxy.auth);
       }
+      const bodyBytes = await frameBody(requestInit.body, headers);
 
-      const bodyStr = typeof requestInit.body === 'string' ? requestInit.body : undefined;
-      const bodyBytes = bodyStr ? ENCODER.encode(bodyStr) : undefined;
-      if (bodyBytes) headers['Content-Length'] = String(bodyBytes.length);
+      // An HTTP proxy takes the absolute-form request target.
+      const wire = encodeRequest(method, targetUrl.toString(), targetUrl.host, headers, bodyBytes);
+      socket.write(asBuffer(wire));
 
-      // HTTP proxy uses absolute URI in the request-line.
-      let raw = `${method} ${targetUrl.toString()} HTTP/1.1\r\nHost: ${targetUrl.host}\r\n`;
-      for (const [k, v] of Object.entries(headers)) {
-        if (k.toLowerCase() !== 'host') raw += `${k}: ${v}\r\n`;
-      }
-      raw += '\r\n';
-
-      const head = Buffer.from(ENCODER.encode(raw));
-      const wire = bodyBytes ? Buffer.concat([head, Buffer.from(bodyBytes)]) : head;
-      socket.write(wire);
-
-      const {
-        statusLine,
-        headerList: respHeaderList,
-        body: respBody,
-      } = await readHttpResponseBody(socket, signal);
-      return new Response(respBody, {
-        status: parseStatusCode(statusLine),
-        headers: respHeaderList,
-      });
+      const response = await readHttpResponseBody(socket, signal);
+      return toResponse(response.statusLine, response.headerList, response.body);
     } finally {
       socket.destroy();
     }

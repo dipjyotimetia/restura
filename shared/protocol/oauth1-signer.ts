@@ -98,7 +98,7 @@ export function buildOAuth1Header(
   method: string,
   url: string,
   authConfig: OAuth1Config,
-  bodyParams: Record<string, string> = {}
+  bodyParams: Record<string, string | string[]> = {}
 ): string {
   if (!authConfig.consumerKey) {
     throw new Error('OAuth1 requires consumerKey');

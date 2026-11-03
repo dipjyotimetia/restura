@@ -175,8 +175,16 @@ export function restoreRedactedPatch(saved: Request, patch: RequestPatch): Outco
     }
   }
 
-  const rowsOf = (key: 'headers' | 'params' | 'metadata'): KeyValue[] | undefined =>
-    key in saved ? ((saved as unknown as Record<string, KeyValue[]>)[key] ?? undefined) : undefined;
+  const rowsOf = (key: 'headers' | 'params' | 'metadata'): KeyValue[] | undefined => {
+    switch (key) {
+      case 'headers':
+        return 'headers' in saved ? (saved.headers ?? undefined) : undefined;
+      case 'params':
+        return 'params' in saved ? (saved.params ?? undefined) : undefined;
+      case 'metadata':
+        return 'metadata' in saved ? (saved.metadata ?? undefined) : undefined;
+    }
+  };
   for (const key of ['headers', 'params', 'metadata'] as const) {
     const rows = restoreRows(key, patch[key], rowsOf(key));
     if (!rows.ok) return rows;

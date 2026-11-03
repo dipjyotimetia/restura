@@ -4,7 +4,13 @@ import {
   type SecretResolver,
   type SigV4Signer,
 } from './auth-signer';
-import { bytesToBase64, getHeaderCI, isBinaryContentType, readStreamToBytes } from './binary';
+import {
+  bytesToBase64,
+  getHeaderCI,
+  isBinaryContentType,
+  readBoundedText,
+  readStreamToBytes,
+} from './binary';
 import { buildRequestBody } from './body-builder';
 import { type DigestRetryOptions, followRedirectsWithDigest } from './digest-auth';
 import {
@@ -14,7 +20,7 @@ import {
 } from './header-policy';
 import { checkHttpMethod } from './http-method';
 import { MAX_RESPONSE_SIZE } from './proxy-limits';
-import { RedirectPolicyError } from './redirect-follower';
+import { discardBody, RedirectPolicyError } from './redirect-follower';
 import type {
   ConnectionTimings,
   ExecuteResult,
@@ -27,10 +33,6 @@ import { validateURL } from './url-validation';
 export { MAX_RESPONSE_SIZE, PROXY_STREAM_MARKER_HEADER } from './proxy-limits';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-
-function byteLength(s: string): number {
-  return new Blob([s]).size;
-}
 
 /**
  * Builds the URL that will go on the wire. When `spec.encodeUrl` is true (or
@@ -214,6 +216,7 @@ export async function executeHttpProxy(
 
     const headersAt = performance.now();
     if (response.contentLengthHeader && Number(response.contentLengthHeader) > MAX_RESPONSE_SIZE) {
+      await discardBody(response);
       return {
         ok: false,
         status: 413,
@@ -226,9 +229,11 @@ export async function executeHttpProxy(
 
     // Binary content types are base64-encoded so the raw bytes survive the
     // JSON transport to the renderer (text() would UTF-8-decode and corrupt
-    // them). Read the bytes via arrayBuffer() when the fetcher exposes it (the
-    // reliable read across workerd / Miniflare / undici), else the raw stream;
-    // both share the body, so only one read happens.
+    // them). Both branches read the body stream under the byte cap when the
+    // fetcher surfaces one — a body without Content-Length (chunked, or a
+    // decompressed upstream) must 413 at the cap, not buffer whole first —
+    // and fall back to the buffered arrayBuffer()/text() only when it doesn't.
+    // Stream and buffered reads share the body, so only one read happens.
     const binary = isBinaryContentType(getHeaderCI(responseHeaders, 'content-type'));
     const tooLarge = {
       ok: false as const,
@@ -242,14 +247,14 @@ export async function executeHttpProxy(
 
     let binaryBytes: Uint8Array | null = null;
     if (binary) {
-      if (response.arrayBuffer) {
-        const buf = await response.arrayBuffer();
-        if (buf.byteLength > MAX_RESPONSE_SIZE) return tooLarge;
-        binaryBytes = new Uint8Array(buf);
-      } else if (response.body) {
+      if (response.body) {
         const bytes = await readStreamToBytes(response.body, MAX_RESPONSE_SIZE);
         if (bytes === null) return tooLarge;
         binaryBytes = bytes;
+      } else if (response.arrayBuffer) {
+        const buf = await response.arrayBuffer();
+        if (buf.byteLength > MAX_RESPONSE_SIZE) return tooLarge;
+        binaryBytes = new Uint8Array(buf);
       }
     }
 
@@ -259,10 +264,10 @@ export async function executeHttpProxy(
       bodyEncoding = 'base64';
     } else {
       // Text content type, or a binary type the fetcher couldn't read as bytes.
-      const text = await response.text();
-      if (text.length > MAX_RESPONSE_SIZE) return tooLarge;
-      responseBody = text;
-      responseSize = byteLength(text);
+      const bounded = await readBoundedText(response, MAX_RESPONSE_SIZE);
+      if (bounded === null) return tooLarge;
+      responseBody = bounded.text;
+      responseSize = bounded.bytes;
     }
 
     const normalized: ExecuteResult = {
@@ -385,7 +390,7 @@ export async function executeHttpProxyStreaming(
 
   const timeout = spec.timeout ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
-  // Caller cancellation (optional; the Worker passes none). Unlike the buffered
+  // Caller cancellation (the Worker passes the client request's signal). Unlike the buffered
   // variant the listener stays attached on success — the stream outlives this
   // call and must still be abortable; it's `once` and dropped with the signal.
   const abortFromCaller = () => controller.abort();

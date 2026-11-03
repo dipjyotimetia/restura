@@ -32,6 +32,7 @@ export function generateRequestCode(
     values,
     secretNames,
     maskSecrets: options.maskSecrets,
+    ...(options.settings ? { settings: options.settings } : {}),
   });
   const notes = [...prepared.notes];
   if (prepared.formData && !FORM_DATA_LANGUAGES.has(language)) {
@@ -39,9 +40,6 @@ export function generateRequestCode(
       'The multipart form-data body isn’t generated for this language; see the cURL snippet.'
     );
   }
-  const code = codeGenerators[language].generate({
-    ...prepared,
-    ...(options.settings ? { settings: options.settings } : {}),
-  });
+  const code = codeGenerators[language].generate(prepared);
   return withNotes(code, language, notes);
 }

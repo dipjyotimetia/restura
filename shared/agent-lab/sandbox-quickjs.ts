@@ -27,7 +27,11 @@ class BoundedText {
   private bytes = 0;
   private truncated = false;
 
-  constructor(private readonly maxBytes: number) {}
+  private readonly maxBytes: number;
+
+  constructor(maxBytes: number) {
+    this.maxBytes = maxBytes;
+  }
 
   write(chunk: string): void {
     if (this.truncated) return;

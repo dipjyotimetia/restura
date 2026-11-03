@@ -150,7 +150,10 @@ export class McpClient {
   /** Protocol version negotiated by the last successful `initialize`. */
   private negotiatedVersion?: string;
 
-  constructor(private opts: McpClientOptions) {
+  private opts: McpClientOptions;
+
+  constructor(opts: McpClientOptions) {
+    this.opts = opts;
     this.web = new McpWebSession(
       {
         url: opts.url,

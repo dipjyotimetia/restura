@@ -20,10 +20,13 @@ export class CoalescingBuffer<T> {
   private readonly intervalMs: number;
   private readonly maxBuffered: number | undefined;
 
+  private readonly sink: (connectionId: string, batch: T[]) => void;
+
   constructor(
-    private readonly sink: (connectionId: string, batch: T[]) => void,
+    sink: (connectionId: string, batch: T[]) => void,
     { intervalMs, maxBuffered }: CoalescingBufferOptions
   ) {
+    this.sink = sink;
     this.intervalMs = intervalMs;
     this.maxBuffered = maxBuffered;
   }

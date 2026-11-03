@@ -51,6 +51,7 @@ timeline
              : 0039 — One variable token grammar
              : 0040 — Random install ID for Release Health
   2026-11-03 : 0041 — Desktop MCP control server
+             : 0042 — Rate-limit principal and trusted proxy
 ```
 
 <CardGrid>
@@ -258,6 +259,11 @@ timeline
     title="0041 — Desktop MCP control server"
     description="The running desktop app hosts a loopback MCP server whose tools run in the renderer against the real stores; Restura --mcp-server is a stdio relay. Consent per collection and environment, in-app approvals, user-typed secrets and redaction."
     href="/architecture/adrs/0041-mcp-control-server/"
+  />
+  <LinkCard
+    title="0042 — Rate-limit principal and trusted proxy"
+    description="The rate-limit bucket is client IP plus the principal the auth middleware verified; self-host Node keys on the socket peer unless TRUST_PROXY=true."
+    href="/architecture/adrs/0042-rate-limit-principal-and-trusted-proxy/"
   />
 </CardGrid>
 

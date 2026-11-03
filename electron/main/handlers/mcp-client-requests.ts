@@ -86,11 +86,11 @@ export interface McpClientRequestCancelledEvent {
 
 /** Error carrying a JSON-RPC code; the SDK serialises `code` verbatim into the error response. */
 export class McpClientRequestError extends Error {
-  constructor(
-    readonly code: number,
-    message: string
-  ) {
+  readonly code: number;
+
+  constructor(code: number, message: string) {
     super(message);
+    this.code = code;
     this.name = 'McpClientRequestError';
   }
 }
@@ -133,11 +133,16 @@ export class McpClientRequestBridge implements McpSdkClientRequestHandlers {
   private readonly timeoutMs: number;
   readonly ownerKey: string;
 
+  readonly connectionId: string;
+  readonly webContentsId: number;
+
   constructor(
-    readonly connectionId: string,
-    readonly webContentsId: number,
+    connectionId: string,
+    webContentsId: number,
     options: McpClientRequestBridgeOptions = {}
   ) {
+    this.connectionId = connectionId;
+    this.webContentsId = webContentsId;
     this.timeoutMs = options.timeoutMs ?? MCP_CLIENT_REQUEST_TIMEOUT_MS;
     this.ownerKey = ownerScopedKey(connectionId, webContentsId);
     let bridges = liveBridges.get(this.ownerKey);

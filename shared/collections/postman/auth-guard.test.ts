@@ -139,3 +139,24 @@ describe('postmanBlockedReasonFor', () => {
     );
   });
 });
+
+describe('refusal wording names the tool the collection came from', () => {
+  it('says Hoppscotch / Bruno instead of Postman for importer-set markers', () => {
+    expect(
+      describePostmanAuthBlock({ kind: 'unsupported', type: 'bruno:akamai-edgegrid' }, 'Restura')
+    ).toMatch(/^not sent: Bruno auth type "akamai-edgegrid"/);
+    const noauth = describePostmanAuthBlock(
+      { kind: 'noauth', source: 'API', origin: 'hoppscotch' },
+      'Restura'
+    );
+    expect(noauth).toMatch(/^not sent: Hoppscotch auth is "No Auth"/);
+    expect(noauth).toContain('a credential Hoppscotch would not send');
+    expect(noauth).not.toContain('Postman');
+  });
+
+  it('keeps the Postman wording for Postman markers', () => {
+    expect(describePostmanAuthBlock({ kind: 'unsupported', type: 'hawk' }, 'Restura')).toMatch(
+      /^not sent: Postman auth type "hawk"/
+    );
+  });
+});

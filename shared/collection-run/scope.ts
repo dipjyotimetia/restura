@@ -139,11 +139,15 @@ export class IterationScope {
   /** Collection unsets: hidden from lower scopes until this iteration ends (app). */
   private readonly unset = new Set<string>();
 
-  constructor(
-    private readonly run: RunScope,
-    private readonly row: Readonly<VarMap>,
-    private readonly layers: ScopeLayers
-  ) {}
+  private readonly run: RunScope;
+  private readonly row: Readonly<VarMap>;
+  private readonly layers: ScopeLayers;
+
+  constructor(run: RunScope, row: Readonly<VarMap>, layers: ScopeLayers) {
+    this.run = run;
+    this.row = row;
+    this.layers = layers;
+  }
 
   /** The variable map a request starts with. `folder` is its merged folder variables. */
   requestVars(folder: Readonly<VarMap> = {}): VarMap {

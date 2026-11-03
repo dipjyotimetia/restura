@@ -16,10 +16,13 @@ class MockWebSocket {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
 
-  constructor(
-    public url: string,
-    public protocols?: string | string[]
-  ) {}
+  public url: string;
+  public protocols?: string | string[];
+
+  constructor(url: string, protocols?: string | string[]) {
+    this.url = url;
+    this.protocols = protocols;
+  }
 
   send = vi.fn();
   close = vi.fn();
@@ -243,6 +246,21 @@ describe('WebSocketManager', () => {
       expect(useWebSocketStore.getState().connections[connectionId]?.status).toBe('disconnected');
       await vi.advanceTimersByTimeAsync(60_000);
       expect(websocketManager.getConnection(connectionId)).toBeUndefined();
+    });
+
+    it('a connect timeout settles disconnected even when the browser then fires close 1006', async () => {
+      websocketManager.connect(connectionId, 'ws://localhost:8080');
+      const ws = websocketManager.getConnection(connectionId) as unknown as MockWebSocket;
+      // A real browser fires close(1006) after close() on a CONNECTING socket.
+      ws.close.mockImplementation(() => {
+        ws.onclose?.({ code: 1006, reason: '' } as CloseEvent);
+      });
+      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(60_000);
+      const state = useWebSocketStore.getState().connections[connectionId];
+      expect(state?.status).toBe('disconnected');
+      expect(state?.messages.some((m) => m.content.startsWith('Reconnecting'))).toBe(false);
+      expect(state?.messages.some((m) => m.content.startsWith('Connection timeout'))).toBe(true);
     });
 
     it('sends the heartbeat on the browser socket once open', async () => {

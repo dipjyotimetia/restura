@@ -98,6 +98,8 @@ function viaProxy(
         { signal: controller.signal }
       );
       if (!response.ok) {
+        // Release the unread error body (and its connection) before settling.
+        response.body?.cancel().catch(() => {});
         settle(() => sink.error(new Error(`HTTP ${response.status} ${response.statusText}`)));
         return;
       }

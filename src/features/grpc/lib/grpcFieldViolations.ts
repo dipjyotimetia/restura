@@ -108,7 +108,7 @@ export function resolveViolationPath(
   for (const seg of segments) {
     if (mapField) {
       const key = String(seg);
-      if (!isPlainObject(node) || !(key in node)) return { path, exact: false };
+      if (!isPlainObject(node) || !Object.hasOwn(node, key)) return { path, exact: false };
       path.push(key);
       node = node[key];
       desc =

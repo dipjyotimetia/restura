@@ -470,6 +470,23 @@ test.describe('Auth — Digest (RFC 7616)', () => {
     expect(json).toEqual({ authenticated: true, user: 'alice' });
   });
 
+  test('valid digest computed for a different uri → 401', async ({ servers }) => {
+    const url = `${servers.http.url}/digest-auth/alice/secret`;
+    const challenge = (await fetch(url)).headers.get('www-authenticate') ?? '';
+    const realm = /realm="([^"]+)"/.exec(challenge)![1]!;
+    const nonce = /nonce="([^"]+)"/.exec(challenge)![1]!;
+    const md5 = (s: string) => createHash('md5').update(s).digest('hex');
+    const cnonce = randomBytes(8).toString('hex');
+    const nc = '00000001';
+    const wrongUri = '/digest-auth/alice/other';
+    const response = md5(
+      `${md5(`alice:${realm}:secret`)}:${nonce}:${nc}:${cnonce}:auth:${md5(`GET:${wrongUri}`)}`
+    );
+    const auth = `Digest username="alice", realm="${realm}", nonce="${nonce}", uri="${wrongUri}", qop=auth, nc=${nc}, cnonce="${cnonce}", response="${response}"`;
+    const res = await fetch(url, { headers: { authorization: auth } });
+    expect(res.status).toBe(401);
+  });
+
   test('wrong digest response → 401', async ({ servers }) => {
     const auth = `Digest username="alice", realm="restura-mock", nonce="nope", uri="/digest-auth/alice/secret", response="${'0'.repeat(32)}"`;
     const res = await fetch(`${servers.http.url}/digest-auth/alice/secret`, {

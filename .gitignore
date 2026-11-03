@@ -68,6 +68,7 @@ yarn-error.log*
 
 # git worktrees
 .worktrees/
+.claude/worktrees/
 
 # Superpowers transient SDD reports
 .superpowers/sdd/

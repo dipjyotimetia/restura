@@ -103,6 +103,77 @@ describe('useOwsWorkflowExecution', () => {
     expect(result.current.result?.status).toBe('success');
   });
 
+  it('persists a refreshed OAuth2 token the saved request owns and reuses it on the next step', async () => {
+    const oauth2 = {
+      accessToken: 'at-0',
+      refreshToken: 'rt-0',
+      tokenUrl: 'https://idp.test/token',
+    };
+    useCollectionStore.setState((state) => ({
+      collections: state.collections.map((collection) => ({
+        ...collection,
+        items: collection.items.map((item) =>
+          item.request
+            ? { ...item, request: { ...item.request, auth: { type: 'oauth2', oauth2 } } }
+            : item
+        ),
+      })),
+    }));
+    const sent: Array<string | undefined> = [];
+    let generation = 0;
+    runRequest.mockImplementation(
+      async (
+        request: { auth: { oauth2?: { refreshToken?: string } } },
+        ctx: { onAuthRefreshed?: (auth: unknown) => void }
+      ) => {
+        sent.push(request.auth.oauth2?.refreshToken);
+        generation += 1;
+        ctx.onAuthRefreshed?.({
+          type: 'oauth2',
+          oauth2: { ...oauth2, accessToken: `at-${generation}`, refreshToken: `rt-${generation}` },
+        });
+        return { status: 200, headers: {}, body: 'ok', size: 2, time: 1 };
+      }
+    );
+    const twoSteps: OwsStoredWorkflow = {
+      ...workflow,
+      document: {
+        ...workflow.document,
+        do: [
+          {
+            first: {
+              call: 'http',
+              with: { method: 'GET', endpoint: { uri: 'restura://saved-request' } },
+            },
+          },
+          {
+            second: {
+              call: 'http',
+              with: { method: 'GET', endpoint: { uri: 'restura://saved-request' } },
+            },
+          },
+        ],
+      },
+      bindings: {
+        version: 1,
+        tasks: {
+          '/do/0/first': { kind: 'saved-request', call: 'http', resourceId: 'Saved%20request' },
+          '/do/1/second': { kind: 'saved-request', call: 'http', resourceId: 'Saved%20request' },
+        },
+      },
+    };
+    const { result } = renderHook(() => useOwsWorkflowExecution());
+
+    await act(async () => {
+      await result.current.run(twoSteps);
+    });
+
+    expect(sent).toEqual(['rt-0', 'rt-1']);
+    const stored = useCollectionStore.getState().collections[0]?.items[0]?.request;
+    if (stored?.type !== 'http') throw new Error('expected the saved HTTP request');
+    expect(stored.auth.oauth2?.refreshToken).toBe('rt-2');
+  });
+
   it('names secret variables from every scope to the protocol adapter', async () => {
     runRequest.mockResolvedValue({ status: 200, headers: {}, body: 'ok', size: 2, time: 1 });
     useEnvironmentStore.setState({

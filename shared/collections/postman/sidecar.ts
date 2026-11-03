@@ -58,6 +58,12 @@ export interface PostmanSidecar {
    * substituted), and makes Postman export write `noauth` explicitly.
    */
   noauth?: true;
+  /**
+   * The tool the explicit `noauth` came from when it was not Postman (the
+   * Hoppscotch and Bruno importers reuse this marker). Only changes the
+   * wording of the send guard's refusal; absent means Postman.
+   */
+  noauthOrigin?: 'hoppscotch' | 'bruno';
   /** v3 broker options with no preset equivalent (extra topics / messages, stopAfter). */
   leftovers?: unknown;
   /** Folder / gRPC / MCP description (those Restura models have none). */

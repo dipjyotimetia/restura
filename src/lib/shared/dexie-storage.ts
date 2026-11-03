@@ -7,11 +7,18 @@
 import type { PersistStorage, StorageValue } from 'zustand/middleware';
 import { db } from './database';
 import { decryptValue, encryptValue, isEncrypted } from './encryption';
-import { getKeyProvider, type KeyProvider } from './keyProvider';
+import {
+  getKeyProvider,
+  type KeyProvider,
+  resetKeyProviderCache,
+  StorageKeyUnavailableError,
+} from './keyProvider';
 import { getElectronAPI, isElectron } from './platform';
 
-// Singleton encryption key cache
+// Singleton encryption key cache, plus the in-flight load so concurrent first
+// callers share one provider round-trip (and therefore one key).
 let cachedEncryptionKey: string | null = null;
+let encryptionKeyLoading: Promise<string> | null = null;
 
 // Suffix for the backup key holding an undecryptable row's original ciphertext.
 // Quarantining (vs. deleting) keeps the data recoverable if the key is later
@@ -28,17 +35,56 @@ const QUARANTINE_SUFFIX = '__undecryptable';
  *
  * Caches the key locally to avoid repeated provider/IPC round-trips.
  */
-async function getEncryptionKey(): Promise<string> {
-  if (cachedEncryptionKey) return cachedEncryptionKey;
-  if (typeof window === 'undefined') return 'server-fallback-key';
+function getEncryptionKey(): Promise<string> {
+  if (cachedEncryptionKey) return Promise.resolve(cachedEncryptionKey);
+  if (typeof window === 'undefined') return Promise.resolve('server-fallback-key');
   // No fallback to a generated ephemeral key. Phase 3.4 deleted "ephemeral
   // encryption" precisely because a session-scoped key corrupts data on tab
   // close. If the provider can't return a key, surface that as an error so
   // the storage adapter returns null and the caller sees the failure —
   // better than silently writing data the user can never read back.
-  const key = await getKeyProvider().getKey();
-  cachedEncryptionKey = key;
-  return key;
+  if (encryptionKeyLoading === null) {
+    const attempt: Promise<string> = getKeyProvider()
+      .getKey()
+      .then(
+        (key) => {
+          // Skip publishing if clearDexieStorage() reset the cache meanwhile.
+          if (encryptionKeyLoading === attempt) cachedEncryptionKey = key;
+          return key;
+        },
+        (error: unknown) => {
+          if (encryptionKeyLoading === attempt) encryptionKeyLoading = null;
+          throw error;
+        }
+      );
+    encryptionKeyLoading = attempt;
+  }
+  return encryptionKeyLoading;
+}
+
+/** Window event raised when persisted data cannot be read or written because the key is unreadable. */
+export const STORAGE_KEY_UNAVAILABLE_EVENT = 'restura:storage-key-unavailable';
+
+/**
+ * The adapters below log and swallow failures (persistence is best-effort), so
+ * an unreadable key would otherwise hydrate every store empty and drop every
+ * write without a word. Raise an event the app shell turns into a blocking
+ * notice instead.
+ */
+let storageKeyUnavailable = false;
+
+/**
+ * Latched once the key was found unreadable. Stores hydrate at module load,
+ * before any listener mounts, so the notice also reads this on mount.
+ */
+export function isStorageKeyUnavailable(): boolean {
+  return storageKeyUnavailable;
+}
+
+function signalKeyUnavailable(error: unknown): void {
+  if (!(error instanceof StorageKeyUnavailableError)) return;
+  storageKeyUnavailable = true;
+  window.dispatchEvent(new CustomEvent(STORAGE_KEY_UNAVAILABLE_EVENT, { bubbles: true }));
 }
 
 /**
@@ -221,6 +267,7 @@ export function createDexieStorage<T = unknown>(config: DexieStorageConfig): Per
         }
         return parsed as StorageValue<T>;
       } catch (error) {
+        signalKeyUnavailable(error);
         console.error(`Failed to get item ${name} from Dexie:`, error);
         return null;
       }
@@ -260,6 +307,7 @@ export function createDexieStorage<T = unknown>(config: DexieStorageConfig): Per
             new CustomEvent('restura:storage-quota-exceeded', { bubbles: true })
           );
         }
+        signalKeyUnavailable(error);
         console.error(`Failed to set item ${name} in Dexie:`, error);
       }
     },
@@ -411,7 +459,10 @@ export async function checkDexieStorageHealth(): Promise<{
  */
 export async function clearDexieStorage(): Promise<void> {
   await db.clearAllData();
-  cachedEncryptionKey = null;
+  // Drop both key caches before the stores are wiped and again after: a
+  // persist write that lands while store.clear() is in flight must not be
+  // encrypted with the key that is being deleted.
+  resetEncryptionKeyCaches();
   if (isElectron()) {
     const api = getElectronAPI();
     if (api) {
@@ -425,6 +476,14 @@ export async function clearDexieStorage(): Promise<void> {
       ]);
     }
   }
+  resetEncryptionKeyCaches();
+}
+
+/** Forget the Dexie-level key and the provider's; the next write re-reads it. */
+function resetEncryptionKeyCaches(): void {
+  cachedEncryptionKey = null;
+  encryptionKeyLoading = null;
+  resetKeyProviderCache();
 }
 
 /**

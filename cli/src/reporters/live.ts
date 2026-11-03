@@ -1,3 +1,4 @@
+import { stripControl } from '@shared/protocol/mcp-conformance-text';
 import { formatRequestLine, formatSummaryLine } from './format.js';
 import type { Reporter, RequestRunResult, RunMeta, RunResult } from './types.js';
 
@@ -9,7 +10,7 @@ import type { Reporter, RequestRunResult, RunMeta, RunResult } from './types.js'
  */
 export class LiveReporter implements Reporter {
   onStart(meta: RunMeta): void {
-    console.log(`▶ Running ${meta.collectionName}`);
+    console.log(`▶ Running ${stripControl(meta.collectionName)}`);
   }
 
   onRequestComplete(result: RequestRunResult): void {

@@ -64,7 +64,11 @@ export class StreamMessageBuffer<T> {
   private dropped = 0;
   private received = 0;
 
-  constructor(private readonly limits: StreamRetentionLimits = DEFAULT_LIMITS) {}
+  private readonly limits: StreamRetentionLimits;
+
+  constructor(limits: StreamRetentionLimits = DEFAULT_LIMITS) {
+    this.limits = limits;
+  }
 
   push(item: T, size: number, seq?: number): void {
     this.received += 1;

@@ -26,11 +26,11 @@ export type McpConformanceRunResult =
   | { ok: false; error: string };
 
 class McpRpcError extends Error {
-  constructor(
-    message: string,
-    readonly code?: number
-  ) {
+  readonly code?: number;
+
+  constructor(message: string, code?: number) {
     super(message);
+    this.code = code;
   }
 }
 

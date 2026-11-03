@@ -5,7 +5,7 @@ import {
   type PostmanV3FileMap,
 } from '@shared/collections/postman';
 import { collectPostmanFolderFiles } from '@shared/collections/postman/v3-folder';
-import * as yaml from 'js-yaml';
+import { load } from 'js-yaml';
 import type { ImportWarning } from '@/features/collections/lib/importers/types';
 import { getElectronAPI, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
 
@@ -223,10 +223,17 @@ export function detectImportFormat(text: string, fileName: string): ParsedImport
   try {
     data = JSON.parse(text);
   } catch {
-    data = yaml.load(text);
+    data = load(text);
   }
   if (!data || typeof data !== 'object')
     throw new Error('Remote import format could not be detected.');
+  // Hoppscotch "Export all collections" writes a top-level array.
+  if (Array.isArray(data)) {
+    if (data.length > 0 && data.every(isHoppscotchCollectionShape)) return 'hoppscotch';
+    throw new Error(
+      'This file is not a supported collection, environment, or specification format.'
+    );
+  }
   const record = data as Record<string, unknown>;
   if (
     record.log &&
@@ -241,9 +248,14 @@ export function detectImportFormat(text: string, fileName: string): ParsedImport
   // Postman v3 logical tree (single JSON / YAML file).
   if (record.$kind === 'collection') return 'postman';
   if (record._type === 'export' || Array.isArray(record.resources)) return 'insomnia';
-  if ('v' in record && (Array.isArray(record.requests) || Array.isArray(record.folders)))
-    return 'hoppscotch';
+  if (isHoppscotchCollectionShape(record)) return 'hoppscotch';
   throw new Error('This file is not a supported collection, environment, or specification format.');
+}
+
+function isHoppscotchCollectionShape(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return 'v' in record && (Array.isArray(record.requests) || Array.isArray(record.folders));
 }
 
 export async function fetchRemoteArtifact(url: string): Promise<string> {

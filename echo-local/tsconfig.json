@@ -1,13 +1,13 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
+    "verbatimModuleSyntax": true,
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "lib": ["ESNext", "DOM"],
     "types": ["node"],
     "noEmit": true,
-    "isolatedModules": true,
     "exactOptionalPropertyTypes": false
   },
   "include": ["**/*.ts", "../e2e/mocks/**/*.ts", "../e2e/utils/**/*.ts"],

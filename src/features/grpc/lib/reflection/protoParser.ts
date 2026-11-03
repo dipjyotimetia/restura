@@ -42,7 +42,7 @@ export function getCachedEnumSchema(typeName: string): EnumSchema | undefined {
 export function parseFileDescriptor(encodedProto: string): FileDescriptorProto {
   const binaryStr = atob(encodedProto);
   const bytes = Uint8Array.from({ length: binaryStr.length }, (_, i) => binaryStr.charCodeAt(i));
-  const descriptor = fromBinary(FileDescriptorProtoSchema, bytes) as unknown as FileDescriptorProto;
+  const descriptor: FileDescriptorProto = fromBinary(FileDescriptorProtoSchema, bytes);
   if (descriptor.name) {
     addToCache(fileDescriptorCache, descriptor.name, descriptor, MAX_FILE_DESCRIPTOR_CACHE);
   }

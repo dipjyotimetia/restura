@@ -18,7 +18,6 @@ import {
   skipVerdict,
 } from '@shared/collection-run/verdict';
 import { v4 as uuidv4 } from 'uuid';
-import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { grpcRunOptionsFromRequest } from '@/features/grpc/lib/grpcSchemaSnapshot';
 import type { McpClient } from '@/features/mcp/lib/mcpClient';
 import { disposeMcpClientPool, MCP_CLIENT_POOL_OPTION } from '@/features/mcp/lib/mcpRunRequest';
@@ -35,6 +34,7 @@ import type {
   HttpRequest,
   Request,
 } from '@/types';
+import { createRunAuthSession } from './collectionRunnerAuth';
 import type { IterationRow } from './dataLoader';
 import type { RunnableRequest } from './flattenRunnables';
 
@@ -256,6 +256,8 @@ async function runCollectionWithPool(
     collection: collectionVars,
   });
 
+  const runAuth = createRunAuthSession(collection.id);
+
   const beginIteration = (iter: number, row: IterationRow): IterationHost<RunnableRequest> => {
     const iterScope = scope.beginIteration(row);
 
@@ -312,7 +314,9 @@ async function runCollectionWithPool(
 
       // Auth inheritance: nearest ancestor folder's auth (threaded by
       // flattenRunnables), falling back to collection-level auth.
-      const authed = withEffectiveAuth(runnable.request, runnable.inheritedAuth ?? collection.auth);
+      // A token refreshed earlier in the run (owned or inherited) is reused.
+      const inheritedAuth = runnable.inheritedAuth ?? collection.auth;
+      const authed = runAuth.authed(runnable.request, inheritedAuth);
       const requestVars = iterScope.requestVars(
         buildValueMap({ folders: runnable.folderVariables })
       );
@@ -332,6 +336,7 @@ async function runCollectionWithPool(
         onTransportError: (message: string) => {
           transportError = message;
         },
+        onAuthRefreshed: runAuth.onRefreshed(runnable.request, inheritedAuth),
         protocolOptions: {
           collectionVars: { ...collectionVars },
           iterationData: { ...row },

@@ -18,12 +18,15 @@ export type ExternalSecretErrorCode =
 
 /** A stable, renderer-safe provider error. Never retain a provider's raw text. */
 export class ExternalSecretError extends Error {
-  constructor(
-    public readonly code: ExternalSecretErrorCode,
-    public readonly provider: ExternalSecretProviderName,
-    public readonly label?: string
-  ) {
+  public readonly code: ExternalSecretErrorCode;
+  public readonly provider: ExternalSecretProviderName;
+  public readonly label?: string;
+
+  constructor(code: ExternalSecretErrorCode, provider: ExternalSecretProviderName, label?: string) {
     super(`${providerDisplayName(provider)} ${messageFor(code, label)}.`);
+    this.code = code;
+    this.provider = provider;
+    this.label = label;
     this.name = 'ExternalSecretError';
   }
 }

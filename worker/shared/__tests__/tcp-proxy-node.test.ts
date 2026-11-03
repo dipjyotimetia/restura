@@ -28,6 +28,8 @@ class FakeSocket extends EventEmitter {
 const state = {
   nextNetSocket: null as FakeSocket | null,
   nextTlsSocket: null as FakeSocket | null,
+  /** When set, the fake TLS handshake fails with this error instead of connecting. */
+  tlsError: null as Error | null,
 };
 
 vi.mock('node:dns/promises', () => {
@@ -50,7 +52,8 @@ vi.mock('node:tls', () => {
   const connect = vi.fn(() => {
     const sock = state.nextTlsSocket;
     if (!sock) throw new Error('test forgot to seed nextTlsSocket');
-    queueMicrotask(() => sock.emit('secureConnect'));
+    const tlsError = state.tlsError;
+    queueMicrotask(() => (tlsError ? sock.emit('error', tlsError) : sock.emit('secureConnect')));
     return sock;
   });
   return { connect, default: { connect } };
@@ -61,6 +64,7 @@ import { createHttpsViaConnectProxy, createHttpViaProxy } from '../tcp-proxy-nod
 beforeEach(() => {
   state.nextNetSocket = null;
   state.nextTlsSocket = null;
+  state.tlsError = null;
 });
 
 describe('httpsViaConnectProxy — CONNECT response handling (Fix #2)', () => {
@@ -213,5 +217,167 @@ describe('response header parsing keeps repeated Set-Cookie fields (#855)', () =
       'csrf=xyz; Expires=Wed, 21 Oct 2026 07:28:00 GMT',
       'pref=dark',
     ]);
+  });
+});
+
+/** Seed a CONNECT tunnel whose proxy answers 200. */
+function seedTunnel(): { proxySock: FakeSocket; tlsSock: FakeSocket } {
+  const proxySock = new FakeSocket();
+  const tlsSock = new FakeSocket();
+  state.nextNetSocket = proxySock;
+  state.nextTlsSocket = tlsSock;
+  proxySock.onWrite = (s) => {
+    s.emit('data', Buffer.from('HTTP/1.1 200 Connection established\r\n\r\n'));
+  };
+  return { proxySock, tlsSock };
+}
+
+const replyEmpty200 = (s: FakeSocket) => {
+  s.emit('data', Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n'));
+};
+
+describe('tunnelled request framing (parity with tcp-proxy.ts)', () => {
+  it('httpsViaConnectProxy sends exactly one Host header (the target authority)', async () => {
+    const { tlsSock } = seedTunnel();
+    tlsSock.onWrite = replyEmpty200;
+    await createHttpsViaConnectProxy({ allowPrivateIPs: false })(
+      new URL('https://example.com:8443/x'),
+      { host: 'proxy.example', port: 8080 },
+      { method: 'GET', headers: { host: 'stale.example', Accept: '*/*' } },
+      new AbortController().signal
+    );
+    const hosts = Buffer.concat(tlsSock.written)
+      .toString('utf-8')
+      .match(/^host:[^\r\n]*/gim);
+    expect(hosts).toEqual(['Host: example.com:8443']);
+  });
+
+  it('httpsViaConnectProxy forwards a binary (Uint8Array) body with a byte Content-Length', async () => {
+    const { tlsSock } = seedTunnel();
+    tlsSock.onWrite = replyEmpty200;
+    await createHttpsViaConnectProxy({ allowPrivateIPs: false })(
+      new URL('https://example.com/upload'),
+      { host: 'proxy.example', port: 8080 },
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: new Uint8Array([0x00, 0xff, 0x10, 0x80]),
+      },
+      new AbortController().signal
+    );
+    const all = Buffer.concat(tlsSock.written);
+    expect(Array.from(all.subarray(-4))).toEqual([0x00, 0xff, 0x10, 0x80]);
+    expect(all.toString('latin1')).toMatch(/\r\nContent-Length: 4\r\n/);
+  });
+
+  it('httpViaProxy forwards a FormData body as multipart with its boundary Content-Type', async () => {
+    const sock = new FakeSocket();
+    state.nextNetSocket = sock;
+    sock.onWrite = replyEmpty200;
+    const fd = new FormData();
+    fd.append('field', 'value-123');
+    await createHttpViaProxy({ allowPrivateIPs: false })(
+      new URL('http://example.com/form'),
+      { host: 'proxy.example', port: 8080 },
+      { method: 'POST', body: fd },
+      new AbortController().signal
+    );
+    const text = Buffer.concat(sock.written).toString('utf-8');
+    expect(text).toMatch(/\r\nContent-Type: multipart\/form-data; boundary=[^\r]+\r\n/i);
+    const split = text.indexOf('\r\n\r\n');
+    const body = text.slice(split + 4);
+    expect(body).toContain('value-123');
+    expect(text.slice(0, split)).toContain(`\r\nContent-Length: ${Buffer.byteLength(body)}`);
+  });
+
+  it('returns a 204 without throwing on the null-body Response', async () => {
+    const sock = new FakeSocket();
+    state.nextNetSocket = sock;
+    sock.onWrite = (s) => {
+      s.emit('data', Buffer.from('HTTP/1.1 204 No Content\r\n\r\n'));
+    };
+    const res = await createHttpViaProxy({ allowPrivateIPs: false })(
+      new URL('http://example.com/'),
+      { host: 'proxy.example', port: 8080 },
+      { method: 'DELETE' },
+      new AbortController().signal
+    );
+    expect(res.status).toBe(204);
+  });
+});
+
+describe('httpsViaConnectProxy — proxy socket is destroyed on every failure path', () => {
+  it('destroys the proxy socket when the CONNECT reply never completes', async () => {
+    const proxySock = new FakeSocket();
+    state.nextNetSocket = proxySock;
+    proxySock.onWrite = (s) => s.emit('end');
+    await expect(
+      createHttpsViaConnectProxy({ allowPrivateIPs: false })(
+        new URL('https://example.com/'),
+        { host: 'proxy.example', port: 8080 },
+        { method: 'GET' },
+        new AbortController().signal
+      )
+    ).rejects.toThrow(/closed before CONNECT/);
+    expect(proxySock.destroyed).toBe(true);
+  });
+
+  it('destroys the proxy socket when the TLS upgrade fails', async () => {
+    const { proxySock, tlsSock } = seedTunnel();
+    state.tlsError = new Error('certificate has expired');
+    await expect(
+      createHttpsViaConnectProxy({ allowPrivateIPs: false })(
+        new URL('https://example.com/'),
+        { host: 'proxy.example', port: 8080 },
+        { method: 'GET' },
+        new AbortController().signal
+      )
+    ).rejects.toThrow(/certificate has expired/);
+    expect(tlsSock.written).toEqual([]);
+    expect(proxySock.destroyed).toBe(true);
+  });
+});
+
+describe('response framing parity with the Cloudflare twin', () => {
+  const viaHttp = (init: RequestInit = { method: 'GET' }) =>
+    createHttpViaProxy({ allowPrivateIPs: false })(
+      new URL('http://example.com/'),
+      { host: 'proxy.example', port: 8080 },
+      init,
+      new AbortController().signal
+    );
+
+  it('rejects when the upstream ends before Content-Length bytes arrived', async () => {
+    const sock = new FakeSocket();
+    state.nextNetSocket = sock;
+    sock.onWrite = (s) => {
+      s.emit('data', Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc'));
+      s.emit('end');
+    };
+    await expect(viaHttp()).rejects.toThrow(/3 of 10 body bytes/);
+  });
+
+  it('skips 1xx interim heads and returns the final response', async () => {
+    const sock = new FakeSocket();
+    state.nextNetSocket = sock;
+    sock.onWrite = (s) => {
+      s.emit('data', Buffer.from('HTTP/1.1 100 Continue\r\n\r\n'));
+      s.emit('data', Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok'));
+    };
+    const res = await viaHttp({ method: 'POST', body: 'x' });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ok');
+  });
+
+  it('refuses a header that would inject a line onto the proxy socket, writing nothing', async () => {
+    const sock = new FakeSocket();
+    state.nextNetSocket = sock;
+    sock.onWrite = (s) =>
+      s.emit('data', Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n'));
+    await expect(
+      viaHttp({ method: 'GET', headers: { 'X-A': 'v\r\nX-Injected: 1' } })
+    ).rejects.toThrow(/Invalid request header/);
+    expect(sock.written).toEqual([]);
+    expect(sock.destroyed).toBe(true);
   });
 });

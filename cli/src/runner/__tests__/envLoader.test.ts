@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadEnv } from '../envLoader';
 
 describe('loadEnv', () => {
@@ -82,11 +82,26 @@ describe('loadEnv', () => {
     }
   });
 
-  it('expands missing env vars to empty string', async () => {
+  it('expands missing env vars to empty string, warning once per unset name on stderr', async () => {
     delete process.env.RESTURA_DEFINITELY_UNSET;
     const file = join(dir, 'env.json');
-    await writeFile(file, JSON.stringify({ X: 'before-${RESTURA_DEFINITELY_UNSET}-after' }));
-    const env = await loadEnv(file, { expandEnvVars: true });
-    expect(env).toEqual({ X: 'before--after' });
+    await writeFile(
+      file,
+      JSON.stringify({
+        X: 'before-${RESTURA_DEFINITELY_UNSET}-after',
+        Y: '${RESTURA_DEFINITELY_UNSET}',
+      })
+    );
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const env = await loadEnv(file, { expandEnvVars: true });
+      expect(env).toEqual({ X: 'before--after', Y: '' });
+      expect(stderr.mock.calls.map((call) => String(call[0]))).toEqual([
+        '[restura] WARNING: ${RESTURA_DEFINITELY_UNSET} is not set in the environment; ' +
+          'it expanded to an empty string.\n',
+      ]);
+    } finally {
+      stderr.mockRestore();
+    }
   });
 });

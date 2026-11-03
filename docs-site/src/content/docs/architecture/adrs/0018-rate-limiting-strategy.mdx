@@ -9,6 +9,8 @@ import { Badge } from '@astrojs/starlight/components';
 
 <Badge text="Accepted · 2026-04-29" variant="success" />
 
+See [ADR 0042](/architecture/adrs/0042-rate-limit-principal-and-trusted-proxy/) for the Worker bucket key (client IP plus verified principal) and self-host `TRUST_PROXY`.
+
 ## Context
 
 Restura exposes two abuse surfaces that need throttling, and they are very different. The hosted Cloudflare Worker is internet-facing: it proxies arbitrary upstreams for anyone who can reach it, so it needs request-rate limiting to avoid being used as an open relay or DoS amplifier. The Electron main process is local but receives IPC calls from the renderer; a runaway renderer (or a misbehaving script) shouldn't be able to flood a handler and spawn unbounded upstream connections.

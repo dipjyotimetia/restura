@@ -78,12 +78,17 @@ interface Observed {
 }
 
 class CallError extends Error {
+  readonly code: Code;
+  readonly details: Array<{ kind: 'bad-request' | 'error-info'; field?: string }>;
+
   constructor(
-    readonly code: Code,
+    code: Code,
     message: string,
-    readonly details: Array<{ kind: 'bad-request' | 'error-info'; field?: string }>
+    details: Array<{ kind: 'bad-request' | 'error-info'; field?: string }>
   ) {
     super(message);
+    this.code = code;
+    this.details = details;
   }
 }
 

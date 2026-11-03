@@ -274,6 +274,47 @@ describe('importCurlCommand', () => {
       .request as HttpRequest;
     expect(request).toMatchObject({ url: 'https://api.example.com/' });
   });
+
+  it('keeps empty quoted arguments so the URL is not consumed as the -d value', () => {
+    for (const empty of ["''", '""']) {
+      const request = importCurlCommand(`curl -X POST -d ${empty} https://api.example.com/x`)
+        .collection.items[0]?.request as HttpRequest;
+      expect(request.url).toBe('https://api.example.com/x');
+      expect(request.method).toBe('POST');
+      expect(request.body.raw ?? '').toBe('');
+    }
+  });
+
+  it("decodes bash ANSI-C quoting ($'…') as Chrome DevTools emits it", () => {
+    const request = importCurlCommand(
+      "curl 'https://api.example.com/x' -H $'X-Note: it\\'s' --data-raw $'{\"a\":\"line1\\nline2\\ttab \\\\ \\x41\\u00e9\"}'"
+    ).collection.items[0]?.request as HttpRequest;
+    expect(request.headers.find((h) => h.key === 'X-Note')?.value).toBe("it's");
+    expect(request.body.raw).toBe('{"a":"line1\nline2\ttab \\ Aé"}');
+  });
+
+  it('treats a bare $ and $ inside quotes literally', () => {
+    const request = importCurlCommand(
+      "curl 'https://api.example.com/x' -H 'X-Cost: $5' -H \"X-Var: $'no'\""
+    ).collection.items[0]?.request as HttpRequest;
+    expect(request.headers.find((h) => h.key === 'X-Cost')?.value).toBe('$5');
+    expect(request.headers.find((h) => h.key === 'X-Var')?.value).toBe("$'no'");
+  });
+});
+
+describe('importCurlCommand --form-string', () => {
+  it('imports --form-string fields literally, never as files', () => {
+    const result = importCurlCommand(
+      "curl https://api.example.com/upload --form-string 'note=@not-a-file' --form-string 'empty='"
+    );
+    const request = result.collection.items[0]!.request as HttpRequest;
+    expect(request.body.type).toBe('form-data');
+    expect(request.body.formData?.map((f) => [f.key, f.value, f.type])).toEqual([
+      ['note', '@not-a-file', 'text'],
+      ['empty', '', 'text'],
+    ]);
+    expect(result.warnings).toEqual([]);
+  });
 });
 
 describe('parseCurlCommand', () => {

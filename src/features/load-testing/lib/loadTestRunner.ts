@@ -11,9 +11,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
-import { secretVariableNames } from '@/lib/shared/variableScopes';
+import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
+import { buildValueMap } from '@/lib/shared/variableScopes';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { HttpRequest } from '@/types';
 
@@ -36,30 +39,43 @@ export interface LoadProgress {
   done: boolean;
 }
 
-function buildExecutorOptions(request: HttpRequest) {
-  // Apply folder/collection auth inheritance — the same rule the collection,
-  // workflow, and interactive Send paths use. `executeRequest` does NOT resolve
-  // inheritance itself; without this, a load test of a request that inherits
-  // ancestor auth would fire every iteration unauthenticated (mismatching a
-  // real send, which this runner's contract promises to match).
-  // Throws for a Postman-guard-blocked request (#1232); see runLoadTest.
+/**
+ * Snapshot everything a send needs, resolved exactly as the interactive Send
+ * (`useHttpRequestPage.sendRequest`) does: every variable scope of the active
+ * request (globals, the parent/sub environment chain, collection and folder
+ * variables, SecretRef handles and the names that must stay secret), the
+ * owning collection's `pm.collectionVariables`, and folder/collection auth
+ * inheritance. Taken once per run so a tab switch mid-run cannot change what
+ * later iterations send.
+ *
+ * Throws for a Postman-guard-blocked request (#1232); see runLoadTest.
+ */
+function buildExecutorOptions(request: HttpRequest, signal: AbortSignal) {
+  // `executeRequest` does NOT resolve inheritance itself; without this, a load
+  // test of a request that inherits ancestor auth would fire unauthenticated.
   const inherited = resolveInheritedAuthForSend(request);
   const effectiveRequest = withEffectiveAuth(request, inherited?.auth);
+  const { values, secretVariables, sendSecretNames } = buildActiveRequestVariableResolution();
+  const savedRequestId = useRequestStore.getState().getActiveTab()?.savedRequestId;
+  const collection = savedRequestId
+    ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)
+    : undefined;
+  const collectionVars = buildValueMap({ collection: collection?.variables });
   const envStore = useEnvironmentStore.getState();
-  const activeEnv = envStore.getActiveEnvironment();
-  const envVars: Record<string, string> = {};
-  activeEnv?.variables
-    .filter((v) => v.enabled)
-    .forEach((v) => {
-      envVars[v.key] = v.value;
-    });
-  return {
+  const globalSettings = useSettingsStore.getState().settings;
+  // Fresh maps per iteration: the executor mutates `envVars` (and the
+  // collection map) with pre-request script writes.
+  return () => ({
     request: effectiveRequest,
-    envVars,
-    secretNames: secretVariableNames(activeEnv?.variables),
-    globalSettings: useSettingsStore.getState().settings,
+    envVars: { ...values },
+    secretVariables,
+    secretNames: sendSecretNames,
+    globalSettings,
     resolveVariables: (text: string) => envStore.resolveVariables(text),
-  };
+    collectionVars: { ...collectionVars },
+    // Stop must cancel requests already on the wire, not just stop launching.
+    signal,
+  });
 }
 
 export async function runLoadTest(
@@ -70,7 +86,7 @@ export async function runLoadTest(
 ): Promise<LoadProgress> {
   // Fail fast: a Postman-guard-blocked request (#1232) throws here, before any
   // iteration, instead of being swallowed per-iteration as status-0 samples.
-  buildExecutorOptions(request);
+  const executorOptions = buildExecutorOptions(request, signal);
   const samples: LoadSample[] = [];
   const total = Math.max(1, options.iterations);
   const concurrency = Math.max(1, options.concurrency);
@@ -92,13 +108,15 @@ export async function runLoadTest(
     while (launched < total && !signal.aborted) {
       launched++;
       try {
-        const { response } = await executeRequest(buildExecutorOptions(request));
+        const { response } = await executeRequest(executorOptions());
         samples.push({
           timeMs: response.time,
           status: response.status,
           ok: response.status >= 200 && response.status < 400,
         });
       } catch {
+        // A request cancelled by Stop is not a failure sample.
+        if (signal.aborted) break;
         samples.push({ timeMs: 0, status: 0, ok: false });
       }
       emit(false);

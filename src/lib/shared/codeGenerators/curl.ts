@@ -1,5 +1,10 @@
-import { unwrapSecret } from '@/lib/shared/secretRef';
-import { escapeShell, type GenerateOptions, shellMethodWord, urlWithVariables } from './types';
+import {
+  escapeShell,
+  type GenerateOptions,
+  proxyUrlOf,
+  shellMethodWord,
+  urlWithVariables,
+} from './types';
 
 export const generateCurl = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams, settings, formData } = options;
@@ -23,23 +28,21 @@ export const generateCurl = (options: GenerateOptions): string => {
 
   if (formData) {
     for (const field of formData) {
-      const part =
-        field.type === 'file' ? `${field.key}=@${field.value}` : `${field.key}=${field.value}`;
-      curl += ` \\\n  -F ${escapeShell(part)}`;
+      // `-F` treats a leading `@`/`<` and `;type=` as directives; only files
+      // want that. Text fields go through `--form-string`, which is literal.
+      curl +=
+        field.type === 'file'
+          ? ` \\\n  -F ${escapeShell(`${field.key}=@${field.value}`)}`
+          : ` \\\n  --form-string ${escapeShell(`${field.key}=${field.value}`)}`;
     }
   } else if (request.body.type !== 'none' && request.body.raw) {
-    curl += ` \\\n  -d ${escapeShell(request.body.raw)}`;
+    // `-d @file` reads a file; `--data-raw` sends the body verbatim.
+    curl += ` \\\n  --data-raw ${escapeShell(request.body.raw)}`;
   }
 
   const proxyConfig = settings?.proxy;
   if (proxyConfig?.enabled && proxyConfig.host) {
-    let proxyUrl = `${proxyConfig.type}://`;
-    const proxyPassword = proxyConfig.auth ? unwrapSecret(proxyConfig.auth.password) : '';
-    if (proxyConfig.auth?.username && proxyPassword) {
-      proxyUrl += `${proxyConfig.auth.username}:${proxyPassword}@`;
-    }
-    proxyUrl += `${proxyConfig.host}:${proxyConfig.port}`;
-    curl += ` \\\n  --proxy ${escapeShell(proxyUrl)}`;
+    curl += ` \\\n  --proxy ${escapeShell(proxyUrlOf(proxyConfig))}`;
   }
 
   if (settings?.timeout) {
@@ -50,10 +53,13 @@ export const generateCurl = (options: GenerateOptions): string => {
     curl += ` \\\n  --insecure`;
   }
 
+  // The app follows redirects unless told not to; curl does not by default,
+  // and `--max-redirs` is inert without `-L`.
   if (settings?.followRedirects === false) {
     curl += ` \\\n  --no-location`;
-  } else if (settings?.maxRedirects) {
-    curl += ` \\\n  --max-redirs ${settings.maxRedirects}`;
+  } else {
+    curl += ` \\\n  -L`;
+    if (settings?.maxRedirects) curl += ` \\\n  --max-redirs ${settings.maxRedirects}`;
   }
 
   return curl;

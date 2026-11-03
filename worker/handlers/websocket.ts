@@ -17,6 +17,9 @@ import { isLocalDevBypass, allowPrivateIPs as readAllowPrivateIPs } from '../sha
 import { consumeTicket } from './ws-ticket';
 
 const MAX_FRAME_BYTES = 1 * 1024 * 1024; // mirror Electron's MAX_MESSAGE_SIZE
+
+import { closeReason, errorText, relayCloseCode } from '../shared/ws-relay';
+
 // Hoisted: TextEncoder is stateless, allocating one per frame would churn GC.
 const TEXT_ENCODER = new TextEncoder();
 
@@ -81,7 +84,7 @@ export async function websocketHandler(c: Context<{ Bindings: Env }>): Promise<R
   try {
     upstreamRes = await fetch(upstreamUrl, { headers: sanitisedHeaders, redirect: 'manual' });
   } catch (err) {
-    server.close(1011, `Upstream connect failed: ${(err as Error).message}`);
+    server.close(1011, closeReason(`Upstream connect failed: ${errorText(err)}`));
     return upgradeResponse();
   }
   const upstream = upstreamRes.webSocket as CfWebSocket | null;
@@ -116,7 +119,7 @@ export async function websocketHandler(c: Context<{ Bindings: Env }>): Promise<R
     });
     src.addEventListener('close', (ev) => {
       try {
-        dst.close(ev.code, ev.reason);
+        dst.close(relayCloseCode(ev.code), closeReason(ev.reason));
       } catch {
         /* already closed */
       }

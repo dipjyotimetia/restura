@@ -8,6 +8,7 @@ import type {
   HttpRequest,
   KeyValue,
   OpenAPIDocument,
+  OpenAPIMediaType,
   OpenAPIOperation,
   OpenAPIParameter,
   OpenAPISchema,
@@ -78,6 +79,8 @@ export async function importOpenAPICollection(
   }
 
   const securitySchemes = isSwagger2 ? api.securityDefinitions : api.components?.securitySchemes;
+  // Swagger 2 media types: an operation's `consumes` overrides the document's.
+  const documentConsumes = isSwagger2 ? api.consumes : undefined;
 
   const collection: Collection = {
     id: uuidv4(),
@@ -114,6 +117,12 @@ export async function importOpenAPICollection(
         operation,
         allParams,
         baseUrl,
+        {
+          // Operation-level `security` overrides the root requirement; an
+          // explicit `security: []` opts the operation out of auth.
+          security: operation.security ?? api.security,
+          consumes: operation.consumes ?? documentConsumes,
+        },
         securitySchemes,
         isSwagger2 ? api.definitions : api.components?.schemas
       );
@@ -149,6 +158,10 @@ function convertOpenAPIOperation(
   operation: OpenAPIOperation,
   parameters: OpenAPIParameter[],
   baseUrl: string,
+  inherited: {
+    security: OpenAPIOperation['security'];
+    consumes: string[] | undefined;
+  },
   securitySchemes?: Record<string, OpenAPISecurityScheme>,
   schemas?: Record<string, OpenAPISchema>
 ): HttpRequest {
@@ -181,7 +194,7 @@ function convertOpenAPIOperation(
     });
   }
 
-  const body = convertOpenAPIBody(operation, parameters, schemas);
+  const body = convertOpenAPIBody(operation, parameters, inherited.consumes, schemas);
 
   const contentTypeMap: Record<string, string> = {
     json: 'application/json',
@@ -206,7 +219,7 @@ function convertOpenAPIOperation(
     headers,
     params: convertOpenAPIParams(queryParams),
     body,
-    auth: convertOpenAPISecurity(operation.security, securitySchemes),
+    auth: convertOpenAPISecurity(inherited.security, securitySchemes),
   };
 }
 
@@ -240,16 +253,46 @@ function convertOpenAPIHeaders(params: OpenAPIParameter[]): KeyValue[] {
   }));
 }
 
+/**
+ * Normalises a media-type key for matching: lower-cased, parameters
+ * (`; charset=utf-8`) stripped. `Application/JSON; charset=utf-8` →
+ * `application/json`.
+ */
+function essenceOf(mediaType: string): string {
+  return (mediaType.split(';')[0] ?? '').trim().toLowerCase();
+}
+
+/** `application/json`, `text/json` and any structured-syntax `+json` suffix. */
+function isJsonMediaType(mediaType: string): boolean {
+  const essence = essenceOf(mediaType);
+  return essence === 'application/json' || essence === 'text/json' || essence.endsWith('+json');
+}
+
+/** First media type in `content` whose key satisfies `matches`. */
+function findMediaType(
+  content: Record<string, OpenAPIMediaType>,
+  matches: (mediaType: string) => boolean
+): OpenAPIMediaType | undefined {
+  for (const [key, mediaType] of Object.entries(content)) {
+    if (matches(key)) return mediaType;
+  }
+  return undefined;
+}
+
 function convertOpenAPIBody(
   operation: OpenAPIOperation,
   parameters: OpenAPIParameter[],
+  consumes: string[] | undefined,
   schemas?: Record<string, OpenAPISchema>
 ): HttpRequest['body'] {
   if (operation.requestBody?.content) {
     const content = operation.requestBody.content;
+    const byEssence = (...essences: string[]) =>
+      findMediaType(content, (key) => essences.includes(essenceOf(key)));
 
-    if (content['application/json']) {
-      const mediaType = content['application/json'];
+    const jsonMediaType = findMediaType(content, isJsonMediaType);
+    if (jsonMediaType) {
+      const mediaType = jsonMediaType;
       const example =
         mediaType.example ||
         (mediaType.examples && Object.values(mediaType.examples)[0]?.value) ||
@@ -257,30 +300,33 @@ function convertOpenAPIBody(
       return { type: 'json', raw: example ? JSON.stringify(example, null, 2) : '' };
     }
 
-    if (content['application/xml'] || content['text/xml']) {
-      const mediaType = content['application/xml'] ?? content['text/xml'];
-      return { type: 'xml', raw: mediaType?.example?.toString() || '' };
+    const xmlMediaType = byEssence('application/xml', 'text/xml');
+    if (xmlMediaType) {
+      return { type: 'xml', raw: xmlMediaType.example?.toString() || '' };
     }
 
-    if (content['multipart/form-data']) {
+    const multipartMediaType = byEssence('multipart/form-data');
+    if (multipartMediaType) {
       return {
         type: 'form-data',
-        formData: generateFormDataFromSchema(content['multipart/form-data'].schema),
+        formData: generateFormDataFromSchema(multipartMediaType.schema),
       };
     }
 
-    if (content['application/x-www-form-urlencoded']) {
+    const urlencodedMediaType = byEssence('application/x-www-form-urlencoded');
+    if (urlencodedMediaType) {
       return {
         type: 'x-www-form-urlencoded',
-        formData: generateFormDataFromSchema(content['application/x-www-form-urlencoded'].schema),
+        formData: generateFormDataFromSchema(urlencodedMediaType.schema),
       };
     }
 
-    if (content['text/plain']) {
-      return { type: 'text', raw: content['text/plain'].example?.toString() || '' };
+    const textMediaType = byEssence('text/plain');
+    if (textMediaType) {
+      return { type: 'text', raw: textMediaType.example?.toString() || '' };
     }
 
-    if (content['application/octet-stream']) {
+    if (byEssence('application/octet-stream')) {
       return { type: 'binary' };
     }
   }
@@ -292,9 +338,15 @@ function convertOpenAPIBody(
     return { type: 'json', raw: example ? JSON.stringify(example, null, 2) : '' };
   }
 
-  // Swagger 2.0 formData parameters
+  // Swagger 2.0 formData parameters. `consumes` decides the encoding: the
+  // spec allows either urlencoded or multipart, and multipart is only the
+  // right default when the operation declares it (or declares nothing).
   const formDataParams = parameters.filter((p) => p.in === 'formData');
   if (formDataParams.length > 0) {
+    const essences = (consumes ?? []).map(essenceOf);
+    const urlencoded =
+      essences.includes('application/x-www-form-urlencoded') &&
+      !essences.includes('multipart/form-data');
     const formData: FormDataItem[] = formDataParams.map((param) => ({
       id: uuidv4(),
       key: param.name,
@@ -303,7 +355,7 @@ function convertOpenAPIBody(
       description: param.description,
       type: 'text' as const,
     }));
-    return { type: 'form-data', formData };
+    return { type: urlencoded ? 'x-www-form-urlencoded' : 'form-data', formData };
   }
 
   return { type: 'none' };
@@ -339,19 +391,45 @@ function generateSimpleValue(schema: OpenAPISchema): string {
   }
 }
 
+/**
+ * Deepest schema nesting an example is generated for. Deeper (non-cyclic)
+ * schemas are truncated rather than producing a multi-megabyte body.
+ */
+const MAX_EXAMPLE_DEPTH = 32;
+
+/**
+ * Builds an example value from a (dereferenced) schema.
+ *
+ * Cycle detection tracks only the schemas on the *current* path: after
+ * `SwaggerParser.dereference`, two sibling `$ref`s to the same component
+ * are the same object, so a global ancestors set would hand the second one an
+ * empty `{}`. A schema is only a cycle when it is its own ancestor.
+ */
 export function generateExampleFromSchema(
   schema: OpenAPISchema | undefined,
   schemas?: Record<string, OpenAPISchema>,
-  visited: WeakSet<object> = new WeakSet()
+  ancestors: Set<OpenAPISchema> = new Set()
 ): unknown {
   if (!schema) return undefined;
-  if (visited.has(schema)) return {};
-  visited.add(schema);
+  if (ancestors.has(schema)) return {};
+  if (ancestors.size >= MAX_EXAMPLE_DEPTH) return undefined;
+  ancestors.add(schema);
+  try {
+    return exampleForSchema(schema, schemas, ancestors);
+  } finally {
+    ancestors.delete(schema);
+  }
+}
 
+function exampleForSchema(
+  schema: OpenAPISchema,
+  schemas: Record<string, OpenAPISchema> | undefined,
+  ancestors: Set<OpenAPISchema>
+): unknown {
   if (schema.$ref && schemas) {
     const refName = schema.$ref.split('/').pop();
-    if (refName && schemas[refName])
-      return generateExampleFromSchema(schemas[refName], schemas, visited);
+    if (refName && Object.hasOwn(schemas, refName))
+      return generateExampleFromSchema(schemas[refName], schemas, ancestors);
     return undefined;
   }
 
@@ -361,28 +439,28 @@ export function generateExampleFromSchema(
   if (schema.allOf && Array.isArray(schema.allOf)) {
     const merged: Record<string, unknown> = {};
     for (const subSchema of schema.allOf) {
-      const result = generateExampleFromSchema(subSchema, schemas, visited);
+      const result = generateExampleFromSchema(subSchema, schemas, ancestors);
       if (result && typeof result === 'object' && !Array.isArray(result))
         Object.assign(merged, result);
     }
     return merged;
   }
 
-  if (schema.oneOf?.length) return generateExampleFromSchema(schema.oneOf[0], schemas, visited);
-  if (schema.anyOf?.length) return generateExampleFromSchema(schema.anyOf[0], schemas, visited);
+  if (schema.oneOf?.length) return generateExampleFromSchema(schema.oneOf[0], schemas, ancestors);
+  if (schema.anyOf?.length) return generateExampleFromSchema(schema.anyOf[0], schemas, ancestors);
 
   switch (schema.type) {
     case 'object':
       if (schema.properties) {
         const obj: Record<string, unknown> = {};
         for (const [key, prop] of Object.entries(schema.properties)) {
-          obj[key] = generateExampleFromSchema(prop, schemas, visited);
+          obj[key] = generateExampleFromSchema(prop, schemas, ancestors);
         }
         return obj;
       }
       return {};
     case 'array':
-      return schema.items ? [generateExampleFromSchema(schema.items, schemas, visited)] : [];
+      return schema.items ? [generateExampleFromSchema(schema.items, schemas, ancestors)] : [];
     case 'string':
       if (schema.enum) return schema.enum[0];
       if (schema.format === 'date') return '2024-01-01';

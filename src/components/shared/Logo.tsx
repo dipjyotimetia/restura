@@ -1,4 +1,4 @@
-import * as React from 'react';
+import { useId } from 'react';
 import { cn } from '@/lib/shared/utils';
 import { BRAND_MARK } from './lib/brandMark';
 
@@ -25,7 +25,7 @@ interface LogoProps {
  * page without DOM-id collisions.
  */
 export function Logo({ size = 32, withWordmark = false, className }: LogoProps) {
-  const reactId = React.useId();
+  const reactId = useId();
   const gradId = `logo-grad-${reactId}`;
   const { viewBox, paths, strokeWidth, node, gradient, tileRadiusRatio, highlight } = BRAND_MARK;
   const rx = viewBox * tileRadiusRatio;

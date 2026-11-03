@@ -13,136 +13,119 @@ import {
 } from '@shared/collections/postman/redaction';
 import { getPostmanSidecar } from '@shared/collections/postman/sidecar';
 import type { AuthConfig, Collection, CollectionItem, Request } from '@/types';
+import { SECRET_FIELDS_BY_AUTH_BLOCK } from './auth-secret-fields';
 import { getElectronAPI, isElectron } from './platform';
 import { coerceToInlineSecret, isInlineSecretRef } from './secretRef';
 
-/** Internal: only include the field if the source had it (preserves optional-undefined shape). */
-function pickSecret<K extends string>(
-  source: Record<string, unknown>,
-  key: K
-): Partial<Record<K, ReturnType<typeof coerceToInlineSecret>>> {
-  return source[key] !== undefined
-    ? ({ [key]: coerceToInlineSecret(source[key]) } as Record<
-        K,
-        ReturnType<typeof coerceToInlineSecret>
-      >)
-    : {};
+type SecretBlock = keyof typeof SECRET_FIELDS_BY_AUTH_BLOCK;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
-function pickString<K extends string>(
-  source: Record<string, unknown>,
-  key: K
-): Partial<Record<K, string>> {
-  return typeof source[key] === 'string'
-    ? ({ [key]: source[key] as string } as Record<K, string>)
-    : {};
+function str(value: unknown): string {
+  return typeof value === 'string' ? value : '';
 }
 
 /**
- * Walk an AuthConfig and rewrap the 14 sensitive fields (see ADR-0007) as
+ * Copy EVERY key of an auth block and re-wrap only its secret fields (the
+ * shared `SECRET_FIELDS_BY_AUTH_BLOCK` map) as inline SecretValues. Carrying
+ * non-secret keys through by spread means a newly added field (e.g.
+ * `oauth2.issuer`) can never be silently dropped by this migration again.
+ * Optional secrets stay absent when the source lacks them.
+ */
+function rewrapSecrets(
+  source: Record<string, unknown>,
+  block: SecretBlock
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...source };
+  for (const field of SECRET_FIELDS_BY_AUTH_BLOCK[block]) {
+    if (source[field] !== undefined) out[field] = coerceToInlineSecret(source[field]);
+  }
+  return out;
+}
+
+/**
+ * Walk an AuthConfig and rewrap its sensitive fields (see ADR-0007) as
  * `{ kind: 'inline', value }`. Non-sensitive metadata (usernames, region,
- * realm, URLs, etc.) is untouched. Idempotent — running twice is safe.
+ * realm, URLs, issuer, etc.) is carried through untouched; required fields
+ * are defaulted so the result satisfies `AuthConfig`. Idempotent.
  */
 export function migrateAuthConfigToSecretRef(auth: unknown): AuthConfig | undefined {
-  if (!auth || typeof auth !== 'object') return undefined;
-  const a = auth as Partial<AuthConfig> & Record<string, unknown>;
+  const a = asRecord(auth);
+  if (!a) return undefined;
   const out: AuthConfig = { type: (a.type as AuthConfig['type']) ?? 'none' };
 
-  if (a.basic && typeof a.basic === 'object') {
-    const b = a.basic as { username?: unknown; password?: unknown };
+  const basic = asRecord(a.basic);
+  if (basic) {
     out.basic = {
-      username: typeof b.username === 'string' ? b.username : '',
-      password: coerceToInlineSecret(b.password),
+      ...rewrapSecrets(basic, 'basic'),
+      username: str(basic.username),
+      password: coerceToInlineSecret(basic.password),
     };
   }
-  if (a.bearer && typeof a.bearer === 'object') {
-    out.bearer = { token: coerceToInlineSecret((a.bearer as { token?: unknown }).token) };
+  const bearer = asRecord(a.bearer);
+  if (bearer) {
+    out.bearer = { ...rewrapSecrets(bearer, 'bearer'), token: coerceToInlineSecret(bearer.token) };
   }
-  if (a.apiKey && typeof a.apiKey === 'object') {
-    const k = a.apiKey as { key?: unknown; value?: unknown; in?: unknown };
+  const apiKey = asRecord(a.apiKey);
+  if (apiKey) {
     out.apiKey = {
-      key: typeof k.key === 'string' ? k.key : '',
-      value: coerceToInlineSecret(k.value),
-      in: k.in === 'query' ? 'query' : 'header',
+      ...rewrapSecrets(apiKey, 'apiKey'),
+      key: str(apiKey.key),
+      value: coerceToInlineSecret(apiKey.value),
+      in: apiKey.in === 'query' ? 'query' : 'header',
     };
   }
-  if (a.oauth2 && typeof a.oauth2 === 'object') {
-    const o = a.oauth2 as Record<string, unknown>;
+  const oauth2 = asRecord(a.oauth2);
+  if (oauth2) {
     out.oauth2 = {
-      accessToken: coerceToInlineSecret(o.accessToken),
-      ...pickString(o, 'tokenType'),
-      ...pickSecret(o, 'refreshToken'),
-      ...(typeof o.expiresAt === 'number' ? { expiresAt: o.expiresAt } : {}),
-      ...(Array.isArray(o.scopes) ? { scopes: o.scopes as string[] } : {}),
-      ...(typeof o.grantType === 'string'
-        ? {
-            grantType: o.grantType as
-              | 'authorization_code'
-              | 'client_credentials'
-              | 'password'
-              | 'device_code',
-          }
-        : {}),
-      ...pickString(o, 'clientId'),
-      ...pickSecret(o, 'clientSecret'),
-      ...pickString(o, 'authorizationUrl'),
-      ...pickString(o, 'tokenUrl'),
-      ...pickString(o, 'deviceAuthorizationUrl'),
-      ...pickString(o, 'scope'),
-      ...pickString(o, 'redirectUri'),
-      ...pickString(o, 'username'),
-      ...pickSecret(o, 'password'),
+      ...rewrapSecrets(oauth2, 'oauth2'),
+      accessToken: coerceToInlineSecret(oauth2.accessToken),
     };
   }
-  if (a.digest && typeof a.digest === 'object') {
-    const d = a.digest as { username?: unknown; password?: unknown };
+  const digest = asRecord(a.digest);
+  if (digest) {
     out.digest = {
-      username: typeof d.username === 'string' ? d.username : '',
-      password: coerceToInlineSecret(d.password),
+      ...rewrapSecrets(digest, 'digest'),
+      username: str(digest.username),
+      password: coerceToInlineSecret(digest.password),
     };
   }
-  if (a.awsSignature && typeof a.awsSignature === 'object') {
-    const s = a.awsSignature as Record<string, unknown>;
+  const aws = asRecord(a.awsSignature);
+  if (aws) {
     out.awsSignature = {
-      accessKey: typeof s.accessKey === 'string' ? s.accessKey : '',
-      secretKey: coerceToInlineSecret(s.secretKey),
-      region: typeof s.region === 'string' ? s.region : '',
-      service: typeof s.service === 'string' ? s.service : '',
+      ...rewrapSecrets(aws, 'awsSignature'),
+      accessKey: str(aws.accessKey),
+      secretKey: coerceToInlineSecret(aws.secretKey),
+      region: str(aws.region),
+      service: str(aws.service),
     };
   }
-  if (a.oauth1 && typeof a.oauth1 === 'object') {
-    const o = a.oauth1 as Record<string, unknown>;
+  const oauth1 = asRecord(a.oauth1);
+  if (oauth1) {
     out.oauth1 = {
-      consumerKey: typeof o.consumerKey === 'string' ? o.consumerKey : '',
-      consumerSecret: coerceToInlineSecret(o.consumerSecret),
-      ...pickSecret(o, 'accessToken'),
-      ...pickSecret(o, 'accessTokenSecret'),
-      ...(typeof o.signatureMethod === 'string'
-        ? { signatureMethod: o.signatureMethod as 'HMAC-SHA1' | 'HMAC-SHA256' | 'PLAINTEXT' }
-        : {}),
-      ...pickString(o, 'realm'),
-      ...pickString(o, 'nonce'),
-      ...pickString(o, 'timestamp'),
-      ...(typeof o.addParamsToBody === 'boolean' ? { addParamsToBody: o.addParamsToBody } : {}),
+      ...rewrapSecrets(oauth1, 'oauth1'),
+      consumerKey: str(oauth1.consumerKey),
+      consumerSecret: coerceToInlineSecret(oauth1.consumerSecret),
     };
   }
-  if (a.ntlm && typeof a.ntlm === 'object') {
-    const n = a.ntlm as Record<string, unknown>;
+  const ntlm = asRecord(a.ntlm);
+  if (ntlm) {
     out.ntlm = {
-      username: typeof n.username === 'string' ? n.username : '',
-      password: coerceToInlineSecret(n.password),
-      ...pickString(n, 'domain'),
-      ...pickString(n, 'workstation'),
+      ...rewrapSecrets(ntlm, 'ntlm'),
+      username: str(ntlm.username),
+      password: coerceToInlineSecret(ntlm.password),
     };
   }
-  if (a.wsse && typeof a.wsse === 'object') {
-    const w = a.wsse as Record<string, unknown>;
+  const wsse = asRecord(a.wsse);
+  if (wsse) {
     out.wsse = {
-      username: typeof w.username === 'string' ? w.username : '',
-      password: coerceToInlineSecret(w.password),
-      ...(typeof w.passwordType === 'string'
-        ? { passwordType: w.passwordType as 'PasswordDigest' | 'PasswordText' }
-        : {}),
+      ...rewrapSecrets(wsse, 'wsse'),
+      username: str(wsse.username),
+      password: coerceToInlineSecret(wsse.password),
     };
   }
 

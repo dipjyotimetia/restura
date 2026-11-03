@@ -1,10 +1,10 @@
-import * as yaml from 'js-yaml';
+import { dump, JSON_SCHEMA, load } from 'js-yaml';
 import { assertBoundedDocument, type OpenCollection, openCollectionSchema } from './schemas';
 
 export function parseOpenCollectionYAML(raw: string): OpenCollection {
   let doc: unknown;
   try {
-    doc = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
+    doc = load(raw, { schema: JSON_SCHEMA });
   } catch (err) {
     throw new Error(`Invalid YAML: ${(err as Error).message}`);
   }
@@ -18,7 +18,7 @@ export function parseOpenCollectionYAML(raw: string): OpenCollection {
 }
 
 export function serializeOpenCollectionYAML(oc: OpenCollection): string {
-  return yaml.dump(oc, {
+  return dump(oc, {
     indent: 2,
     lineWidth: 120,
     noRefs: true,

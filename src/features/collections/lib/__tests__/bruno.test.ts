@@ -1,3 +1,5 @@
+import { findInheritedAuth } from '@shared/auth/inheritance';
+import { postmanBlockedReasonFor } from '@shared/collections/postman/auth-guard';
 import { describe, expect, it } from 'vitest';
 import type { CollectionItem, HttpRequest } from '@/types';
 import type { BrunoSource } from '../importers';
@@ -689,5 +691,375 @@ body:form-urlencoded {
         expect.objectContaining({ key: 'k2', value: 'v2' }),
       ]);
     });
+  });
+});
+
+describe('Bruno round-2 regressions', () => {
+  // A Bruno workspace as written by Bruno v1.x/v2.x: collection.bru and
+  // folder.bru carry auth (`auth { mode }` + `auth:<mode>`), headers,
+  // scripts and docs; requests opt into them with `auth: inherit`.
+  const workspace: BrunoSource = {
+    kind: 'directory',
+    entries: [
+      {
+        relativePath: 'bruno.json',
+        content: JSON.stringify({ version: '1', name: 'Shop API', type: 'collection' }),
+      },
+      {
+        relativePath: 'collection.bru',
+        content: `headers {
+  X-Client: bruno
+  ~X-Debug: 1
+}
+
+auth {
+  mode: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  tenant: acme
+}
+
+script:pre-request {
+  bru.setVar("ts", Date.now());
+}
+
+docs {
+  Collection docs
+}
+`,
+      },
+      {
+        relativePath: 'admin/folder.bru',
+        content: `meta {
+  name: Admin
+  seq: 1
+}
+
+headers {
+  X-Scope: admin
+  X-Client: admin-console
+}
+
+auth {
+  mode: basic
+}
+
+auth:basic {
+  username: {{adminUser}}
+  password: {{adminPass}}
+}
+
+tests {
+  test("admin ok", () => {});
+}
+
+docs {
+  Admin-only endpoints
+}
+`,
+      },
+      {
+        relativePath: 'admin/stats.bru',
+        content: `meta {
+  name: Stats
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base}}/admin/stats
+  body: none
+  auth: inherit
+}
+
+headers {
+  Accept: application/json
+}
+`,
+      },
+      {
+        relativePath: 'users/get-post.bru',
+        content: `meta {
+  name: Get Post
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base}}/users/:userId/posts/:postId?expand=author
+  body: none
+  auth: inherit
+}
+
+params:query {
+  expand: author
+}
+
+params:path {
+  userId: 42
+  postId: {{postId}}
+}
+`,
+      },
+      {
+        relativePath: 'users/unresolved.bru',
+        content: `meta {
+  name: Unresolved
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base}}/users/:userId
+  body: none
+  auth: none
+}
+
+params:path {
+  userId:
+}
+`,
+      },
+    ],
+  };
+
+  function folderNamed(items: CollectionItem[], name: string): CollectionItem {
+    const folder = items.find((i) => i.type === 'folder' && i.name === name);
+    if (!folder) throw new Error(`no folder named ${name}`);
+    return folder;
+  }
+
+  function requestNamed(items: CollectionItem[], name: string): HttpRequest {
+    const item = findRequest(items, name);
+    if (item?.request?.type !== 'http') throw new Error(`no HTTP request named ${name}`);
+    return item.request;
+  }
+
+  it('maps collection.bru auth, headers and scripts onto the collection (I7)', async () => {
+    const { collection } = await importBrunoCollection(workspace);
+    expect(collection.auth).toEqual({ type: 'bearer', bearer: { token: '{{token}}' } });
+    expect(collection.preRequestScript).toBe('bru.setVar("ts", Date.now());');
+    expect(collection.description).toBe('Collection docs');
+    expect(collection.variables).toEqual([
+      expect.objectContaining({ key: 'tenant', value: 'acme', enabled: true }),
+    ]);
+  });
+
+  it('maps folder.bru auth, name and tests onto the folder (I7)', async () => {
+    const { collection } = await importBrunoCollection(workspace);
+    const admin = folderNamed(collection.items, 'Admin');
+    expect(admin.auth).toEqual({
+      type: 'basic',
+      basic: { username: '{{adminUser}}', password: '{{adminPass}}' },
+    });
+    expect(admin.testScript).toBe('test("admin ok", () => {});');
+  });
+
+  it('inherits auth and collection/folder headers on `auth: inherit` requests (I7)', async () => {
+    const { collection, warnings } = await importBrunoCollection(workspace);
+    const stats = requestNamed(collection.items, 'Stats');
+    expect(stats.auth.type).toBe('none');
+    expect(findInheritedAuth(collection, stats.id)?.type).toBe('basic');
+    // Collection → folder → request; the closest scope wins per header.
+    expect(stats.headers.map((h) => [h.key, h.value, h.enabled])).toEqual([
+      ['X-Scope', 'admin', true],
+      ['X-Client', 'admin-console', true],
+      ['Accept', 'application/json', true],
+    ]);
+    const getPost = requestNamed(collection.items, 'Get Post');
+    expect(findInheritedAuth(collection, getPost.id)?.type).toBe('bearer');
+    expect(getPost.headers.map((h) => [h.key, h.value])).toEqual([['X-Client', 'bruno']]);
+    expect(warnings.filter((w) => w.kind === 'unsupported-auth')).toEqual([]);
+  });
+
+  it('warns about collection/folder constructs it cannot model (I7)', async () => {
+    const { warnings } = await importBrunoCollection(workspace);
+    expect(warnings).toContainEqual(
+      expect.objectContaining({
+        kind: 'unmodelled-construct',
+        construct: 'docs',
+        requestName: 'Admin',
+      })
+    );
+    // An explicit `auth: none` under an authenticated collection would inherit.
+    expect(warnings).toContainEqual(
+      expect.objectContaining({
+        kind: 'unmodelled-construct',
+        construct: 'explicit-no-auth',
+        requestName: 'Unresolved',
+      })
+    );
+  });
+
+  it('substitutes params:path values into :name URL segments (I8)', async () => {
+    const { collection, warnings } = await importBrunoCollection(workspace);
+    const getPost = requestNamed(collection.items, 'Get Post');
+    expect(getPost.url).toBe('{{base}}/users/42/posts/{{postId}}?expand=author');
+    expect(getPost.params.map((p) => [p.key, p.value])).toEqual([['expand', 'author']]);
+
+    // An empty path value cannot be substituted: the segment stays and is reported.
+    const unresolved = requestNamed(collection.items, 'Unresolved');
+    expect(unresolved.url).toBe('{{base}}/users/:userId');
+    expect(warnings).toContainEqual(
+      expect.objectContaining({
+        kind: 'unmodelled-construct',
+        construct: 'path-variables',
+        requestName: 'Unresolved',
+      })
+    );
+  });
+
+  it('substitutes path params in single-file mode too (I8)', async () => {
+    const { collection } = await importBrunoCollection({
+      kind: 'single',
+      content: `meta {
+  name: One
+  type: http
+}
+
+delete {
+  url: https://api.example.com/items/:itemId
+}
+
+params:path {
+  itemId: abc-1
+}
+`,
+    });
+    expect(requestNamed(collection.items, 'One').url).toBe('https://api.example.com/items/abc-1');
+  });
+});
+
+describe('Bruno explicit no auth below an authenticated parent', () => {
+  const bru = (name: string, mode: string) => `meta {
+  name: ${name}
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base}}/x
+  body: none
+  auth: ${mode}
+}
+`;
+  const entries = (withCollectionAuth: boolean): BrunoSource => ({
+    kind: 'directory',
+    entries: [
+      { relativePath: 'bruno.json', content: JSON.stringify({ version: '1', name: 'Guarded' }) },
+      {
+        relativePath: 'collection.bru',
+        content: withCollectionAuth
+          ? 'auth {\n  mode: bearer\n}\n\nauth:bearer {\n  token: {{token}}\n}\n'
+          : 'headers {\n  X-A: 1\n}\n',
+      },
+      { relativePath: 'explicit-none.bru', content: bru('Explicit none', 'none') },
+      { relativePath: 'inheriting.bru', content: bru('Inheriting', 'inherit') },
+      {
+        relativePath: 'public/folder.bru',
+        content: 'meta {\n  name: Public\n}\n\nauth {\n  mode: none\n}\n',
+      },
+      { relativePath: 'public/child.bru', content: bru('Under none folder', 'inherit') },
+    ],
+  });
+
+  function idOf(items: CollectionItem[], name: string): string {
+    const item = findRequest(items, name);
+    return item?.request?.id ?? '';
+  }
+
+  it('refuses to send the parent credential to an explicit no-auth request or folder', async () => {
+    const { collection } = await importBrunoCollection(entries(true));
+    for (const name of ['Explicit none', 'Under none folder']) {
+      const id = idOf(collection.items, name);
+      expect(id).not.toBe('');
+      const reason = postmanBlockedReasonFor(collection, id, 'test');
+      expect(reason).toMatch(/^not sent: Bruno auth is "No Auth"/);
+      expect(reason).not.toContain('Postman');
+    }
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Inheriting'), 'test')
+    ).toBeUndefined();
+  });
+
+  it('does not mark explicit no-auth when nothing above it is configured', async () => {
+    const { collection } = await importBrunoCollection(entries(false));
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Explicit none'), 'test')
+    ).toBeUndefined();
+    expect(JSON.stringify(collection)).not.toContain('noauth');
+  });
+});
+
+describe('Bruno unsupported auth below an authenticated parent', () => {
+  const bru = (name: string, mode: string) => `meta {
+  name: ${name}
+  type: http
+  seq: 1
+}
+
+get {
+  url: https://api.example.com/x
+  body: none
+  auth: ${mode}
+}
+`;
+  const source = (withCollectionAuth: boolean): BrunoSource => ({
+    kind: 'directory',
+    entries: [
+      {
+        relativePath: 'bruno.json',
+        content: JSON.stringify({ version: '1', name: 'Unsupported' }),
+      },
+      {
+        relativePath: 'collection.bru',
+        content: withCollectionAuth
+          ? 'auth {\n  mode: bearer\n}\n\nauth:bearer {\n  token: parent\n}\n'
+          : 'headers {\n  X-A: 1\n}\n',
+      },
+      { relativePath: 'magic.bru', content: bru('Magic call', 'magic') },
+      { relativePath: 'inheriting.bru', content: bru('Inheriting', 'inherit') },
+      {
+        relativePath: 'edge/folder.bru',
+        content: 'meta {\n  name: Edge\n}\n\nauth {\n  mode: akamai-edgegrid\n}\n',
+      },
+      { relativePath: 'edge/child.bru', content: bru('Under edge folder', 'inherit') },
+    ],
+  });
+
+  function idOf(items: CollectionItem[], name: string): string {
+    return findRequest(items, name)?.request?.id ?? '';
+  }
+
+  it('refuses to send the parent credential instead of the unsupported auth', async () => {
+    const { collection, warnings } = await importBrunoCollection(source(true));
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Magic call'), 'test')
+    ).toMatch(/magic/);
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Under edge folder'), 'test')
+    ).toMatch(/akamai-edgegrid/);
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Inheriting'), 'test')
+    ).toBeUndefined();
+    expect(warnings).toContainEqual(
+      expect.objectContaining({ kind: 'unsupported-auth', authType: 'magic' })
+    );
+  });
+
+  it('leaves an unsupported auth with nothing configured above sendable', async () => {
+    const { collection } = await importBrunoCollection(source(false));
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Magic call'), 'test')
+    ).toBeUndefined();
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Under edge folder'), 'test')
+    ).toBeUndefined();
+    expect(JSON.stringify(collection)).not.toContain('_postman');
   });
 });

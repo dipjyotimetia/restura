@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { affectsEveryProject, describePlan, planFor } from '../type-check-related.mjs';
+import {
+  affectsEveryProject,
+  changedSinceMergeBase,
+  describePlan,
+  planFor,
+} from '../type-check-related.mjs';
 
 test('renderer-only changes run just the renderer check', () => {
   const plan = planFor(['src/features/grpc/lib/x.ts', 'src/components/A.tsx', 'README.md']);
@@ -68,4 +77,30 @@ test('non-typed files never add projects and Windows separators are normalised',
   ]);
   assert.match(describePlan(planFor(['shared/a.ts'])), /every project/);
   assert.match(describePlan(planFor(['cli/a.ts'])), /renderer, cli/);
+});
+
+test('changedSinceMergeBase includes deleted files and both sides of a rename', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tcr-'));
+  const git = (...args) =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      cwd: dir,
+      encoding: 'utf8',
+    });
+  try {
+    git('init', '-q', '-b', 'main');
+    mkdirSync(join(dir, 'worker'));
+    writeFileSync(join(dir, 'worker/gone.ts'), 'export const a = 1;\n'.repeat(20));
+    writeFileSync(join(dir, 'worker/old.ts'), 'export const b = 2;\n'.repeat(20));
+    git('add', '.');
+    git('commit', '-q', '-m', 'base');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('rm', '-q', 'worker/gone.ts');
+    git('mv', 'worker/old.ts', 'worker/new.ts');
+    git('commit', '-q', '-m', 'change');
+    const files = changedSinceMergeBase(dir);
+    assert.deepEqual(files?.sort(), ['worker/gone.ts', 'worker/new.ts', 'worker/old.ts']);
+    assert.ok(planFor(files ?? []).projects.includes('worker'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

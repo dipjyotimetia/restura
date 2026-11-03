@@ -25,6 +25,7 @@ import {
   resolveMethod,
 } from '@shared/protocol/grpc-registry';
 import { normalizeBinaryMetadata } from '@shared/protocol/grpc-request-policy';
+import { toGrpcStatusCode } from '@shared/protocol/grpc-status';
 import { connectErrorDetails, type GrpcStatusDetail } from '@shared/protocol/grpc-status-details';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
@@ -329,7 +330,7 @@ function startConnectServerStream<TIn, TOut>(
       resolveDone({
         headers: flattenHeaders(header),
         trailers: flattenHeaders(trailer ?? ce.metadata),
-        status: ce.code as unknown as GrpcStatusCode,
+        status: toGrpcStatusCode(ce.code),
         statusMessage: ce.rawMessage,
         ...(statusDetails ? { statusDetails } : {}),
       });

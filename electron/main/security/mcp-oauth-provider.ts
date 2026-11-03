@@ -223,10 +223,12 @@ export class McpOAuthSession {
   private hadRecord = false;
   private readonly carveOut: McpOAuthCarveOut;
 
-  constructor(
-    private readonly config: McpOAuthConfig,
-    private readonly deps: McpOAuthDeps = {}
-  ) {
+  private readonly config: McpOAuthConfig;
+  private readonly deps: McpOAuthDeps;
+
+  constructor(config: McpOAuthConfig, deps: McpOAuthDeps = {}) {
+    this.config = config;
+    this.deps = deps;
     if (config.redirectUrl) parseLoopbackRedirect(config.redirectUrl);
     this.carveOut = config.carveOut ?? mcpOAuthCarveOut(config.serverUrl);
     this.fetchFn =

@@ -16,16 +16,23 @@ import {
 } from '@shared/protocol/grpc-request-policy';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import { base64ToBytes, bytesToBase64 } from '@shared/protocol/grpc-web-framing';
-import { collectGrpcWebEvents, executeGrpcWebProxy } from '@shared/protocol/grpc-web-proxy';
+import {
+  collectGrpcWebEvents,
+  executeGrpcWebProxy,
+  type GrpcWebEndEvent,
+  type GrpcWebEvent,
+} from '@shared/protocol/grpc-web-proxy';
 import type { Fetcher } from '@shared/protocol/types';
 import type { GrpcRequest, GrpcSchemaSnapshot } from '@shared/types';
 import { hasVariableToken } from '@shared/variables/tokens';
 import type { LoadedRequest } from '../collectionLoader';
 import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
-import { applyAuthHeaders, resolveOAuth2Token } from './auth';
+import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
+import { sharedCoreFailure, thrownOutcome } from './failure';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
+import { preflightRefusal, refusedOutcome } from './variable-guard';
 
 /**
  * gRPC executor. Honours the request's pinned `wireProtocol` (#914):
@@ -58,14 +65,10 @@ export async function executeGrpc(
   opts: ExecuteOptions
 ): Promise<ExecuteOutcome> {
   if (item.type !== 'grpc') {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: `gRPC executor received non-grpc request: ${item.type}`,
-    };
+    return refusedOutcome(`gRPC executor received non-grpc request: ${item.type}`);
   }
+  const refused = preflightRefusal(item, opts.vars);
+  if (refused) return refused;
   const raw = item.request as GrpcRequest;
   // Service / method may be templated like the URL (`{{svc}}`), as in the app;
   // every path below builds `/{service}/{method}` from the resolved names.
@@ -75,13 +78,9 @@ export async function executeGrpc(
     method: resolveVarsDeep(raw.method ?? '', opts.vars),
   };
   if (req.methodType && req.methodType !== 'unary') {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: `The CLI does not support ${req.methodType} gRPC methods yet (unary only). Run streaming methods from the desktop app.`,
-    };
+    return refusedOutcome(
+      `The CLI does not support ${req.methodType} gRPC methods yet (unary only). Run streaming methods from the desktop app.`
+    );
   }
   const unsupportedAuth = grpcUnsupportedAuthMessage(req.auth);
   if (unsupportedAuth) {
@@ -112,13 +111,9 @@ export async function executeGrpc(
     try {
       parsedMessage = JSON.parse(message);
     } catch (err) {
-      return {
-        status: 0,
-        passed: false,
-        durationMs: 0,
-        bodyBytes: 0,
-        errorMessage: `Invalid gRPC message JSON: ${err instanceof Error ? err.message : String(err)}`,
-      };
+      return refusedOutcome(
+        `Invalid gRPC message JSON: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 
@@ -133,9 +128,11 @@ export async function executeGrpc(
       varResolvedAuth,
       opts.externalSecretResolver
     );
-    const resolvedAuth = await resolveOAuth2Token(externalMaterializedAuth, opts.vars, {
-      allowLocalhost: opts.allowLocalhost,
-    });
+    const resolvedAuth = await resolveOAuth2Token(
+      externalMaterializedAuth,
+      opts.vars,
+      oauth2TokenOptions(opts)
+    );
     applyAuthHeaders(resolvedAuth, metadata, {});
     // `*-bin` values travel base64-encoded (same rule as the app).
     Object.assign(metadata, normalizeBinaryMetadata(metadata));
@@ -190,6 +187,9 @@ export async function executeGrpc(
       };
     }
     const payload = result.payload;
+    // `ok: false` is the shared core's own verdict, never a server answer
+    // (a Connect error the server sent comes back `ok: true`).
+    const failure = sharedCoreFailure(result.status);
     if ('error' in payload) {
       return {
         status: result.status,
@@ -197,6 +197,7 @@ export async function executeGrpc(
         durationMs,
         bodyBytes: 0,
         errorMessage: payload.error,
+        ...failure,
       };
     }
     return {
@@ -208,15 +209,10 @@ export async function executeGrpc(
       responseTrailers: payload.trailers,
       grpcStatus: { code: payload.grpcStatus, message: payload.grpcStatusText },
       errorMessage: connectFailureMessage(payload.grpcStatusText, payload.data, req.wireProtocol),
+      ...failure,
     };
   } catch (err) {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: Date.now() - start,
-      bodyBytes: 0,
-      errorMessage: err instanceof Error ? err.message : String(err),
-    };
+    return thrownOutcome(err, Date.now() - start);
   }
 }
 
@@ -258,6 +254,28 @@ function grpcFailure(code: GrpcStatusCode, message: string, durationMs = 0): Exe
     grpcStatus: { code, message: name },
     errorMessage: `gRPC ${name}: ${message}`,
   };
+}
+
+/**
+ * Classify a gRPC-Web end the shared core produced itself: no HTTP answer and
+ * UNAVAILABLE / DEADLINE_EXCEEDED is a transport failure; RESOURCE_EXHAUSTED
+ * with no trailers is the CLI's response-size cap (a server-sent status always
+ * carries `grpc-status` in its trailers), a refusal.
+ */
+function grpcWebFailure(
+  end: GrpcWebEndEvent,
+  answered: boolean
+): Pick<ExecuteOutcome, 'refused' | 'transportError'> {
+  const coreVerdict = Object.keys(end.trailers).length === 0;
+  if (
+    !answered &&
+    (end.grpcStatus === GrpcStatusCode.UNAVAILABLE ||
+      end.grpcStatus === GrpcStatusCode.DEADLINE_EXCEEDED)
+  ) {
+    return { transportError: true };
+  }
+  if (coreVerdict && end.grpcStatus === GrpcStatusCode.RESOURCE_EXHAUSTED) return { refused: true };
+  return {};
 }
 
 const NO_SCHEMA =
@@ -335,13 +353,23 @@ async function executeGrpcWeb(
       durationMs: Date.now() - start,
       bodyBytes: 0,
       errorMessage: result.payload.error,
+      ...sharedCoreFailure(result.status),
     };
   }
   const onAbort = () => result.cancel();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
   let collected: Awaited<ReturnType<typeof collectGrpcWebEvents>>;
+  // A `headers` event means the server answered over HTTP; without one, an
+  // UNAVAILABLE / DEADLINE_EXCEEDED end is the core's own transport verdict.
+  let answered = false;
+  async function* tapAnswered(events: AsyncIterable<GrpcWebEvent>) {
+    for await (const event of events) {
+      if (event.type === 'headers') answered = true;
+      yield event;
+    }
+  }
   try {
-    collected = await collectGrpcWebEvents(result.events);
+    collected = await collectGrpcWebEvents(tapAnswered(result.events));
   } finally {
     opts.signal?.removeEventListener('abort', onAbort);
   }
@@ -367,6 +395,7 @@ async function executeGrpcWeb(
   }
   const passed = end.grpcStatus === GrpcStatusCode.OK;
   return {
+    ...grpcWebFailure(end, answered),
     status: passed ? 200 : 500,
     passed,
     durationMs,

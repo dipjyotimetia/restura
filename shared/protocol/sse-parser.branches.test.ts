@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { isReconnectableSseResponse, MAX_SSE_EVENT_CHARS, SseParser } from './sse-parser';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  isReconnectableSseResponse,
+  MAX_SSE_EVENT_CHARS,
+  type SseEvent,
+  SseParser,
+} from './sse-parser';
 
 const enc = new TextEncoder();
 const bytes = (s: string) => enc.encode(s);
@@ -102,7 +107,56 @@ describe('SseParser edge cases', () => {
       for (let i = 0; i <= MAX_SSE_EVENT_CHARS / chunk.length + 1; i++) p.feed(bytes(chunk));
     }).toThrow(/exceeds/);
   });
+
+  it('completes a frame whose `\\n\\n` (or CRLF pair) straddles chunks', () => {
+    const p = new SseParser();
+    expect(p.feed(bytes('data: a\n'))).toEqual([]);
+    expect(p.feed(bytes('\ndata: b\r'))).toEqual([{ data: 'a' }]);
+    expect(p.feed(bytes('\n'))).toEqual([]);
+    expect(p.feed(bytes('\r\n'))).toEqual([{ data: 'b' }]);
+  });
+
+  it('scans only newly fed text for the frame delimiter (linear, not quadratic)', () => {
+    const p = new SseParser();
+    const chunk = bytes('x'.repeat(16 * 1024));
+    const feeds = 128;
+    const events: SseEvent[] = [];
+    // No delimiter in the new text → the buffered tail is not searched at all
+    // (searching it would also force V8 to flatten the whole rope).
+    const whileUnterminated = charsScannedByIndexOf(() => {
+      p.feed(bytes('data: '));
+      for (let i = 0; i < feeds; i++) events.push(...p.feed(chunk));
+    });
+    expect(whileUnterminated).toBe(0);
+    const scanned = charsScannedByIndexOf(() => {
+      events.push(...p.feed(bytes('\n\nda')), ...p.feed(bytes('ta: tail\n')));
+      events.push(...p.feed(bytes('\n')));
+    });
+    expect(events.map((e) => e.data.length)).toEqual([feeds * chunk.length, 4]);
+    // Each char is scanned O(1) times; the old full-tail rescan was ~feeds/2 × input.
+    expect(scanned).toBeLessThan(4 * feeds * chunk.length);
+  });
 });
+
+/** Total chars `String.prototype.indexOf` examined while `run` executes. */
+function charsScannedByIndexOf(run: () => void): number {
+  let scanned = 0;
+  const original = String.prototype.indexOf;
+  const spy = vi.spyOn(String.prototype, 'indexOf').mockImplementation(function (
+    this: string,
+    search: string,
+    from?: number
+  ) {
+    scanned += Math.max(0, this.length - (from ?? 0));
+    return original.call(this, search, from);
+  });
+  try {
+    run();
+  } finally {
+    spy.mockRestore();
+  }
+  return scanned;
+}
 
 describe('isReconnectableSseResponse', () => {
   it.each([
