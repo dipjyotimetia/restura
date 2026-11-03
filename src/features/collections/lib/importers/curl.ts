@@ -296,9 +296,9 @@ function lexPosix(source: string): string[] {
       if (char === "'") {
         quote = undefined;
       } else if (char === '\\' && i + 1 < source.length) {
-        const escape = decodeAnsiCEscape(source, i);
-        current += escape.text;
-        i = escape.end;
+        const decoded = decodeAnsiCEscape(source, i);
+        current += decoded.text;
+        i = decoded.end;
       } else {
         current += char;
       }
