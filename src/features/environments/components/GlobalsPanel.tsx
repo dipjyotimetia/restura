@@ -37,7 +37,7 @@ export function varsToRows(vars: Record<string, string>, previous: readonly Row[
   const kept = previous.flatMap((row, index) => {
     const key = row.key.trim();
     if (!key) return [row];
-    if (!(key in vars)) return [];
+    if (!Object.hasOwn(vars, key)) return [];
     return [winner.get(key) === index ? { ...row, value: vars[key] ?? row.value } : row];
   });
   const present = new Set(kept.map((row) => row.key.trim()));

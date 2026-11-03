@@ -36,7 +36,7 @@ export const useGlobalsStore = create<GlobalsState>()(
 
       unset: (key) =>
         set((state) => {
-          if (!(key in state.vars)) return state;
+          if (!Object.hasOwn(state.vars, key)) return state;
           const next = { ...state.vars };
           delete next[key];
           return { vars: next };
@@ -52,7 +52,7 @@ export const useGlobalsStore = create<GlobalsState>()(
           const next = { ...state.vars };
           for (const [k, v] of Object.entries(mutations)) {
             if (v === null) {
-              if (k in next) {
+              if (Object.hasOwn(next, k)) {
                 delete next[k];
                 changed = true;
               }

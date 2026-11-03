@@ -306,6 +306,16 @@ describe('map fields resolved through the descriptor', () => {
     });
   });
 
+  it('does not treat an Object.prototype member as a present map key', () => {
+    expect(
+      resolveViolationPath(
+        parseFieldPath('items_by_sku["constructor"].display_name'),
+        doc,
+        mapInput
+      )
+    ).toEqual({ path: ['itemsBySku'], exact: false });
+  });
+
   it('reports a path that runs through a scalar on the scalar itself', () => {
     expect(resolveViolationPath(parseFieldPath('count.value'), doc, mapInput)).toEqual({
       path: ['count'],

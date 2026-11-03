@@ -29,6 +29,14 @@ describe('globals rows', () => {
     ]);
   });
 
+  it('drops a row whose key is only an Object.prototype member, never adopting it as a value', () => {
+    const rows = varsToRows({ host: 'x' }, [
+      { id: 'proto', key: 'constructor', value: 'mine' },
+      { id: 'h', key: 'host', value: 'old' },
+    ]);
+    expect(rows.map((r) => [r.id, r.key, r.value])).toEqual([['h', 'host', 'x']]);
+  });
+
   it('keeps row ids by key when rebuilding from the store', () => {
     const rows = varsToRows({ host: 'x', token: 'y' }, [{ id: 'keep', key: 'host', value: 'old' }]);
     expect(rows.find((r) => r.key === 'host')?.id).toBe('keep');

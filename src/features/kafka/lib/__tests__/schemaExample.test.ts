@@ -8,6 +8,16 @@ const example = (type: 'AVRO' | 'JSON', schema: unknown) => {
 };
 
 describe('generateSchemaExample — Avro', () => {
+  it('treats a type named like an Object.prototype member as an unknown reference', () => {
+    expect(
+      example('AVRO', {
+        type: 'record',
+        name: 'R',
+        fields: [{ name: 'x', type: 'toString' }],
+      })
+    ).toEqual({ x: null });
+  });
+
   it('builds a record from primitives, defaults, enums, arrays, maps and unions', () => {
     expect(
       example('AVRO', {
