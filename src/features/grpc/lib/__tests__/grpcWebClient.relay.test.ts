@@ -65,7 +65,8 @@ function request(overrides: Partial<GrpcRequest> = {}): GrpcRequest {
 const end = (grpcStatus: number, extra: Record<string, unknown> = {}) => ({
   type: 'end',
   grpcStatus,
-  grpcStatusText: GrpcStatusCode[grpcStatus] ?? 'UNKNOWN',
+  grpcStatusText:
+    Object.entries(GrpcStatusCode).find(([, value]) => value === grpcStatus)?.[0] ?? 'UNKNOWN',
   trailers: {},
   size: 0,
   ...extra,

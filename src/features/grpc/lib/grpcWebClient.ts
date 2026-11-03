@@ -18,6 +18,7 @@ import {
   registryFromProtoText,
   resolveMethod,
 } from '@shared/protocol/grpc-registry';
+import { toGrpcStatusCode } from '@shared/protocol/grpc-status';
 import {
   type GrpcStatusDetail,
   statusDetailsFromStatusBin,
@@ -307,7 +308,7 @@ export async function makeGrpcWebRequest(
       size: end.size || new Blob([body]).size,
       time: Date.now() - startTime,
       timestamp: Date.now(),
-      grpcStatus: end.grpcStatus,
+      grpcStatus: toGrpcStatusCode(end.grpcStatus),
       grpcStatusText: end.grpcStatusText,
       trailers: end.trailers,
       ...(messageStrs ? { messages: messageStrs, isStreaming: true } : {}),

@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  GrpcRequest,
-  GrpcResponse,
-  ReflectionMethodInfo,
-  ReflectionServiceInfo,
+import {
+  type GrpcRequest,
+  type GrpcResponse,
+  GrpcStatusCode,
+  type ReflectionMethodInfo,
+  type ReflectionServiceInfo,
 } from '@/types';
 
 const runnerMocks = vi.hoisted(() => ({
@@ -256,7 +257,11 @@ describe('GrpcRequestBuilder request completion routing', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Invoke gRPC method' }));
     await waitFor(() => expect(cancels).toHaveLength(2));
-    const stale = { ...makeResponse('request-origin'), id: 'stale', grpcStatus: 1 };
+    const stale = {
+      ...makeResponse('request-origin'),
+      id: 'stale',
+      grpcStatus: GrpcStatusCode.CANCELLED,
+    };
     await act(async () => {
       settles[0]?.({ response: stale, durationMs: 1 });
     });

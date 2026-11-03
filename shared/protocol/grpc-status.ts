@@ -1,21 +1,31 @@
-export enum GrpcStatusCode {
-  OK = 0,
-  CANCELLED = 1,
-  UNKNOWN = 2,
-  INVALID_ARGUMENT = 3,
-  DEADLINE_EXCEEDED = 4,
-  NOT_FOUND = 5,
-  ALREADY_EXISTS = 6,
-  PERMISSION_DENIED = 7,
-  RESOURCE_EXHAUSTED = 8,
-  FAILED_PRECONDITION = 9,
-  ABORTED = 10,
-  OUT_OF_RANGE = 11,
-  UNIMPLEMENTED = 12,
-  INTERNAL = 13,
-  UNAVAILABLE = 14,
-  DATA_LOSS = 15,
-  UNAUTHENTICATED = 16,
+export const GrpcStatusCode = {
+  OK: 0,
+  CANCELLED: 1,
+  UNKNOWN: 2,
+  INVALID_ARGUMENT: 3,
+  DEADLINE_EXCEEDED: 4,
+  NOT_FOUND: 5,
+  ALREADY_EXISTS: 6,
+  PERMISSION_DENIED: 7,
+  RESOURCE_EXHAUSTED: 8,
+  FAILED_PRECONDITION: 9,
+  ABORTED: 10,
+  OUT_OF_RANGE: 11,
+  UNIMPLEMENTED: 12,
+  INTERNAL: 13,
+  UNAVAILABLE: 14,
+  DATA_LOSS: 15,
+  UNAUTHENTICATED: 16,
+} as const;
+
+export type GrpcStatusCode = (typeof GrpcStatusCode)[keyof typeof GrpcStatusCode];
+
+/** Narrow an arbitrary number (e.g. a Connect `Code`) to a gRPC status; anything unrecognised is UNKNOWN. */
+export function toGrpcStatusCode(n: number): GrpcStatusCode {
+  for (const code of Object.values(GrpcStatusCode)) {
+    if (code === n) return code;
+  }
+  return GrpcStatusCode.UNKNOWN;
 }
 
 /**
@@ -25,7 +35,7 @@ export enum GrpcStatusCode {
  * status pills/classification, the response status badge) where a code needs an
  * HTTP-range equivalent. Unknown/out-of-range codes fall back to 500.
  */
-const GRPC_TO_HTTP_STATUS: Record<GrpcStatusCode, number> = {
+const GRPC_TO_HTTP_STATUS = {
   [GrpcStatusCode.OK]: 200,
   [GrpcStatusCode.CANCELLED]: 499, // nginx "Client Closed Request"
   [GrpcStatusCode.UNKNOWN]: 500,
@@ -43,14 +53,14 @@ const GRPC_TO_HTTP_STATUS: Record<GrpcStatusCode, number> = {
   [GrpcStatusCode.UNAVAILABLE]: 503,
   [GrpcStatusCode.DATA_LOSS]: 500,
   [GrpcStatusCode.UNAUTHENTICATED]: 401,
-};
+} satisfies Record<GrpcStatusCode, number>;
 
 /** Map a gRPC status code onto its HTTP-status equivalent (grpc-gateway mapping). */
 export function grpcStatusToHttpStatus(code: number): number {
   return GRPC_TO_HTTP_STATUS[code as GrpcStatusCode] ?? 500;
 }
 
-export const GrpcStatusCodeName: Record<GrpcStatusCode, string> = {
+export const GrpcStatusCodeName = {
   [GrpcStatusCode.OK]: 'OK',
   [GrpcStatusCode.CANCELLED]: 'CANCELLED',
   [GrpcStatusCode.UNKNOWN]: 'UNKNOWN',
@@ -68,7 +78,7 @@ export const GrpcStatusCodeName: Record<GrpcStatusCode, string> = {
   [GrpcStatusCode.UNAVAILABLE]: 'UNAVAILABLE',
   [GrpcStatusCode.DATA_LOSS]: 'DATA_LOSS',
   [GrpcStatusCode.UNAUTHENTICATED]: 'UNAUTHENTICATED',
-};
+} satisfies Record<GrpcStatusCode, string>;
 
 /**
  * HTTP status → gRPC status for a response that carries no gRPC status of its
