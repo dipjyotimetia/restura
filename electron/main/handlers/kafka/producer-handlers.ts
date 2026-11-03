@@ -20,6 +20,7 @@ import {
   KafkaTransactionEndSchema,
 } from '../../ipc/ipc-validators';
 import { decodeWirePayload, encodeSchemaField } from '../kafka-serde';
+import { addTopicPartition } from './partition-pause';
 import { type KafkaRegistryClient, resolveFieldSchemaId } from './registry';
 
 export type AppProducer = KafkaLib.Producer<Buffer, Buffer, Buffer, Buffer>;
@@ -31,7 +32,11 @@ type KafkaRecordConfig = KafkaProduceConfig['record'];
 export interface KafkaProducerEntry {
   producer: AppProducer;
   producerStream?: AppProducerStream;
+  /** Why the last producer stream failed; cleared by the next open/close. */
+  producerStreamError?: string;
   transaction?: AppTransaction;
+  /** A beginTransaction is awaiting the broker (guards concurrent begins). */
+  transactionStarting?: boolean;
   idempotent: boolean;
   transactionalId?: string;
   registry?: KafkaRegistryClient;
@@ -88,24 +93,102 @@ async function encodeProduceRecord(
   };
 }
 
+/**
+ * One ack per record, in record order. ProduceResult carries one base offset
+ * per partition; records sent to the same partition in one request occupy
+ * consecutive offsets in send order, so a record's offset is that base plus
+ * its position among the batch's records for that partition. A record without
+ * an explicit partition is attributable only when its topic resolved to a
+ * single partition; otherwise the per-partition base offsets are returned
+ * unchanged (one ack per partition, not per record).
+ */
 function acknowledgements(
   records: KafkaRecordConfig[],
   result: KafkaLib.ProduceResult
 ): KafkaAck[] {
+  const now = Date.now();
   if (!result.offsets?.length) {
     return records.map((record) => ({
       topic: record.topic,
       partition: record.partition ?? -1,
       offset: '-1',
-      timestamp: Date.now(),
+      timestamp: now,
     }));
   }
-  return result.offsets.map((offset) => ({
-    topic: offset.topic,
-    partition: offset.partition,
-    offset: offset.offset.toString(),
-    timestamp: Date.now(),
-  }));
+  const perPartition = (): KafkaAck[] =>
+    (result.offsets ?? []).map((offset) => ({
+      topic: offset.topic,
+      partition: offset.partition,
+      offset: offset.offset.toString(),
+      timestamp: now,
+    }));
+  const base = new Map<string, bigint>();
+  const partitionsByTopic = new Map<string, number[]>();
+  for (const { topic, partition, offset } of result.offsets) {
+    base.set(`${topic}:${partition}`, offset);
+    addTopicPartition(partitionsByTopic, topic, partition);
+  }
+  const seen = new Map<string, bigint>();
+  const acks: KafkaAck[] = [];
+  for (const record of records) {
+    const only = partitionsByTopic.get(record.topic);
+    const partition = record.partition ?? (only?.length === 1 ? only[0] : undefined);
+    if (partition === undefined) return perPartition();
+    const key = `${record.topic}:${partition}`;
+    const start = base.get(key);
+    if (start === undefined || start < 0n) return perPartition();
+    const index = seen.get(key) ?? 0n;
+    seen.set(key, index + 1n);
+    acks.push({
+      topic: record.topic,
+      partition,
+      offset: (start + index).toString(),
+      timestamp: now,
+    });
+  }
+  return acks;
+}
+
+/** Bound on flushing an open producer stream during disconnect. */
+const PRODUCER_STREAM_DRAIN_MS = 10_000;
+
+/** The stream's failure once the library destroyed it (a failed batch does). */
+function streamFailure(stream: AppProducerStream): Error | undefined {
+  if (stream.errored) return stream.errored;
+  return stream.destroyed ? new Error('The producer stream was closed.') : undefined;
+}
+
+/**
+ * End the stream and wait until its buffered records are flushed. Resolves at
+ * once for a stream the library already destroyed (after a failed batch
+ * 'finish' never comes) and also on 'close', so it cannot hang.
+ */
+function endProducerStream(stream: AppProducerStream, timeoutMs?: number): Promise<void> {
+  if (stream.destroyed || stream.writableFinished) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = (err?: Error | null) => {
+      if (timer) clearTimeout(timer);
+      stream.removeListener('finish', onFinish);
+      stream.removeListener('error', onError);
+      stream.removeListener('close', onClose);
+      if (err) reject(err);
+      else resolve();
+    };
+    const onFinish = () => settle();
+    const onError = (err: Error) => settle(err);
+    const onClose = () => settle(stream.errored);
+    stream.once('finish', onFinish);
+    stream.once('error', onError);
+    stream.once('close', onClose);
+    if (timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        settle(new Error('Flushing the producer stream timed out.'));
+        stream.destroy();
+      }, timeoutMs);
+    }
+    stream.end();
+  });
 }
 
 async function sendRecords(
@@ -145,18 +228,23 @@ export async function closeKafkaProducerSessions(entry: KafkaProducerEntry): Pro
     }
     entry.transaction = undefined;
   }
-  if (entry.producerStream) {
+  const stream = entry.producerStream;
+  entry.producerStream = undefined;
+  entry.producerStreamError = undefined;
+  if (stream) {
+    // Let buffered records reach the broker before the producer closes.
     try {
-      entry.producerStream.end();
+      await endProducerStream(stream, PRODUCER_STREAM_DRAIN_MS);
     } catch {
-      /* ignore */
+      /* ignore — the producer is closing anyway */
     }
-    entry.producerStream = undefined;
   }
 }
 
-export function registerKafkaProducerHandlers(
-  getEntry: (connectionId: string, ownerId: number) => KafkaProducerEntry | undefined
+export function registerKafkaProducerHandlers<E extends KafkaProducerEntry>(
+  getEntry: (connectionId: string, ownerId: number) => E | undefined,
+  /** Report a producer-stream failure that happened outside any IPC call. */
+  onStreamError: (entry: E, err: Error) => void = () => {}
 ): void {
   ipcMain.handle(
     IPC.kafka.produce,
@@ -199,7 +287,7 @@ export function registerKafkaProducerHandlers(
         if (entry.producerStream) {
           return { success: false, error: 'A producer stream is already open.' };
         }
-        entry.producerStream = entry.producer.asStream({
+        const stream = entry.producer.asStream({
           acks: entry.idempotent ? -1 : cfg.acks,
           ...(cfg.compression && cfg.compression !== 'none'
             ? { compression: cfg.compression }
@@ -209,6 +297,17 @@ export function registerKafkaProducerHandlers(
           ...(cfg.batchTime !== undefined ? { batchTime: cfg.batchTime } : {}),
           reportMode: 'batch',
         });
+        // A failed batch makes the library destroy the stream with the error.
+        // Without a listener that is an uncaughtException in main, and the dead
+        // stream would keep "accepting" writes that never reach the broker.
+        stream.on('error', (err: Error) => {
+          if (entry.producerStream !== stream) return;
+          entry.producerStream = undefined;
+          entry.producerStreamError = errorMessage(err);
+          onStreamError(entry, err);
+        });
+        entry.producerStream = stream;
+        entry.producerStreamError = undefined;
         return { success: true };
       }
     )
@@ -222,10 +321,20 @@ export function registerKafkaProducerHandlers(
       async (cfg: KafkaProducerStreamWriteConfig, event) => {
         const entry = getEntry(cfg.connectionId, event.sender.id);
         if (!entry) return { success: false, error: 'Not connected' };
-        if (!entry.producerStream) return { success: false, error: 'No producer stream is open.' };
         const encoded = await encodeProduceRecord(entry, cfg.record);
         if ('error' in encoded) return { success: false, error: encoded.error };
-        return { success: true, accepted: entry.producerStream.write(encoded.message) };
+        const stream = entry.producerStream;
+        // The library destroys the stream synchronously but emits 'error' a tick later.
+        const failure = stream ? streamFailure(stream)?.message : entry.producerStreamError;
+        if (failure) {
+          return {
+            success: false,
+            error: `The producer stream failed: ${failure.replace(/\.$/, '')}. Close it and open a new one.`,
+          };
+        }
+        if (!stream) return { success: false, error: 'No producer stream is open.' };
+        // false = buffered past the high-water mark (backpressure), not dropped.
+        return { success: true, accepted: stream.write(encoded.message) };
       }
     )
   );
@@ -239,14 +348,16 @@ export function registerKafkaProducerHandlers(
         const entry = getEntry(cfg.connectionId, event.sender.id);
         if (!entry) return { success: false, error: 'Not connected' };
         const stream = entry.producerStream;
+        // A stream that already failed was reported on the Kafka error channel.
+        entry.producerStreamError = undefined;
         if (!stream) return { success: true };
         entry.producerStream = undefined;
-        await new Promise<void>((resolve, reject) => {
-          stream.once('finish', resolve);
-          stream.once('error', reject);
-          stream.end();
-        });
-        return { success: true };
+        try {
+          await endProducerStream(stream);
+          return { success: true };
+        } catch (err) {
+          return { success: false, error: errorMessage(err) };
+        }
       }
     )
   );
@@ -265,9 +376,34 @@ export function registerKafkaProducerHandlers(
         if (entry.producerStream)
           return { success: false, error: 'Close the producer stream first.' };
         if (entry.transaction) return { success: false, error: 'A transaction is already active.' };
-        const transaction = await entry.producer.beginTransaction({ idempotent: true, acks: -1 });
-        entry.transaction = transaction;
-        return { success: true, transactionId: transaction.id };
+        // While a begin awaits FindCoordinator / InitProducerId, a second one
+        // would get the library's "already active" error and its failure path
+        // would cancel the first, in-flight transaction.
+        if (entry.transactionStarting) {
+          return { success: false, error: 'A transaction is already being started.' };
+        }
+        entry.transactionStarting = true;
+        try {
+          const transaction = await entry.producer.beginTransaction({ idempotent: true, acks: -1 });
+          entry.transaction = transaction;
+          return { success: true, transactionId: transaction.id };
+        } catch (err) {
+          // The library records its transaction before FindCoordinator /
+          // InitProducerId run, so a failed prepare would leave the producer
+          // "in use by a transaction" until reconnect. Nothing is open on the
+          // broker yet, so cancelling (local state only) is enough.
+          const stale = entry.producer.transaction;
+          if (stale && !stale.completed) {
+            try {
+              await stale.cancel();
+            } catch {
+              /* ignore — reconnecting also clears it */
+            }
+          }
+          return { success: false, error: errorMessage(err) };
+        } finally {
+          entry.transactionStarting = false;
+        }
       }
     )
   );
@@ -282,13 +418,36 @@ export function registerKafkaProducerHandlers(
         if (!entry) return { success: false, error: 'Not connected' };
         const transaction = entry.transaction;
         if (!transaction) return { success: false, error: 'No transaction is active.' };
-        entry.transaction = undefined;
+        // The library releases its transaction only once EndTxn succeeds, so
+        // ours stays too: a failed commit can be retried or aborted.
         try {
           if (cfg.action === 'commit') await transaction.commit();
           else await transaction.abort();
+          if (entry.transaction === transaction) entry.transaction = undefined;
           return { success: true };
         } catch (err) {
-          return { success: false, error: errorMessage(err) };
+          if (transaction.completed) {
+            if (entry.transaction === transaction) entry.transaction = undefined;
+            return { success: false, error: errorMessage(err) };
+          }
+          // Fenced (e.g. INVALID_PRODUCER_EPOCH after the broker timed the
+          // transaction out): the library dropped it without marking it
+          // completed, and every retry would fail "in use by another transaction".
+          if (entry.producer.transaction !== transaction) {
+            if (entry.transaction === transaction) entry.transaction = undefined;
+            return {
+              success: false,
+              error: `${errorMessage(err)} The broker aborted the transaction (fenced or timed out); its records were not committed. Begin a new transaction; if the broker still refuses the transactional ID (it can hold a fenced ID for a while), reconnect or use a different transactional ID.`,
+            };
+          }
+          const next =
+            cfg.action === 'commit'
+              ? 'Retry the commit or abort it.'
+              : 'Retry the abort, or reconnect to reset the producer.';
+          return {
+            success: false,
+            error: `${errorMessage(err)} The transaction is still open. ${next}`,
+          };
         }
       }
     )
