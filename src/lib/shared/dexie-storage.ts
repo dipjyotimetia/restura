@@ -7,7 +7,12 @@
 import type { PersistStorage, StorageValue } from 'zustand/middleware';
 import { db } from './database';
 import { decryptValue, encryptValue, isEncrypted } from './encryption';
-import { getKeyProvider, type KeyProvider, resetKeyProviderCache } from './keyProvider';
+import {
+  getKeyProvider,
+  type KeyProvider,
+  resetKeyProviderCache,
+  StorageKeyUnavailableError,
+} from './keyProvider';
 import { getElectronAPI, isElectron } from './platform';
 
 // Singleton encryption key cache, plus the in-flight load so concurrent first
@@ -55,6 +60,31 @@ function getEncryptionKey(): Promise<string> {
     encryptionKeyLoading = attempt;
   }
   return encryptionKeyLoading;
+}
+
+/** Window event raised when persisted data cannot be read or written because the key is unreadable. */
+export const STORAGE_KEY_UNAVAILABLE_EVENT = 'restura:storage-key-unavailable';
+
+/**
+ * The adapters below log and swallow failures (persistence is best-effort), so
+ * an unreadable key would otherwise hydrate every store empty and drop every
+ * write without a word. Raise an event the app shell turns into a blocking
+ * notice instead.
+ */
+let storageKeyUnavailable = false;
+
+/**
+ * Latched once the key was found unreadable. Stores hydrate at module load,
+ * before any listener mounts, so the notice also reads this on mount.
+ */
+export function isStorageKeyUnavailable(): boolean {
+  return storageKeyUnavailable;
+}
+
+function signalKeyUnavailable(error: unknown): void {
+  if (!(error instanceof StorageKeyUnavailableError)) return;
+  storageKeyUnavailable = true;
+  window.dispatchEvent(new CustomEvent(STORAGE_KEY_UNAVAILABLE_EVENT, { bubbles: true }));
 }
 
 /**
@@ -237,6 +267,7 @@ export function createDexieStorage<T = unknown>(config: DexieStorageConfig): Per
         }
         return parsed as StorageValue<T>;
       } catch (error) {
+        signalKeyUnavailable(error);
         console.error(`Failed to get item ${name} from Dexie:`, error);
         return null;
       }
@@ -276,6 +307,7 @@ export function createDexieStorage<T = unknown>(config: DexieStorageConfig): Per
             new CustomEvent('restura:storage-quota-exceeded', { bubbles: true })
           );
         }
+        signalKeyUnavailable(error);
         console.error(`Failed to set item ${name} in Dexie:`, error);
       }
     },

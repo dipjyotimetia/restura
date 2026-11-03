@@ -199,13 +199,24 @@ export class ElectronSafeStorageKeyProvider implements KeyProvider {
       // The key exists but could not be read (main's store.get swallows
       // errors). Regenerating would overwrite the real key and orphan every
       // encrypted row, so fail closed instead.
-      throw new Error(
-        'The stored encryption key exists but could not be read; refusing to replace it.'
-      );
+      throw new StorageKeyUnavailableError();
     }
     const fresh = generateLocalEncryptionKey();
     await this.ipc.set(this.storeKey, fresh);
     return fresh;
+  }
+}
+
+/**
+ * The stored encryption key exists but could not be read (e.g. the OS keychain
+ * is locked or main's store read failed). Fail-closed: the key is never
+ * regenerated. The storage adapter turns this into the
+ * `restura:storage-key-unavailable` event so the UI can block and explain.
+ */
+export class StorageKeyUnavailableError extends Error {
+  constructor() {
+    super('The stored encryption key exists but could not be read; refusing to replace it.');
+    this.name = 'StorageKeyUnavailableError';
   }
 }
 

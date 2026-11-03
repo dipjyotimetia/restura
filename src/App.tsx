@@ -10,6 +10,8 @@ import { CaptureImportListener } from '@/components/shared/CaptureImportListener
 import { DeepLinkCoordinator } from '@/components/shared/DeepLinkCoordinator';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeychainStatusBanner } from '@/components/shared/KeychainStatusBanner';
+import { RouteErrorBoundary } from '@/components/shared/RouteErrorBoundary';
+import { StorageKeyUnavailableNotice } from '@/components/shared/StorageKeyUnavailableNotice';
 import { UpdateNotification } from '@/components/shared/UpdateNotification';
 import { MotionProvider } from '@/components/ui/motion';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
@@ -39,12 +41,12 @@ const router = createHashRouter([
   {
     path: '/',
     element: <Home />,
-    errorElement: <NotFound />,
+    errorElement: <RouteErrorBoundary />,
   },
   {
     path: '/ai-lab',
     element: <AiLabWorkspace />,
-    errorElement: <NotFound />,
+    errorElement: <RouteErrorBoundary />,
   },
   {
     path: '*',
@@ -129,6 +131,7 @@ export default function App() {
               <PlatformProvider>
                 <UpdateNotification />
                 <KeychainStatusBanner />
+                <StorageKeyUnavailableNotice />
                 <CaptureImportListener />
                 {isElectronEnvironment() && <McpControlBridge />}
                 <DeepLinkCoordinator />
