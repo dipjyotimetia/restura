@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { test } from 'node:test';
 import {
   checkInstallScripts,
   checkLockfileSources,
+  DEFAULT_LOCKFILES,
   hasDecision,
   packageNameFromKey,
   registryName,
@@ -147,4 +149,12 @@ test('checkInstallScripts keys on the published name, not a spoofable `name` fie
 test('checkInstallScripts does not count an approval pinned to another version', () => {
   const lock = lockfile({ 'node_modules/esbuild': entry('esbuild', { hasInstallScript: true }) });
   assert.equal(checkInstallScripts(lock, { 'esbuild@0.0.1': true }).length, 1);
+});
+
+test('DEFAULT_LOCKFILES lists exactly the lockfiles tracked by git', () => {
+  const tracked = execFileSync('git', ['ls-files', '*package-lock.json'], { encoding: 'utf8' })
+    .split('\n')
+    .filter(Boolean)
+    .sort();
+  assert.deepEqual([...DEFAULT_LOCKFILES].sort(), tracked);
 });

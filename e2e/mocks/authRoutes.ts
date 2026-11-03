@@ -111,6 +111,7 @@ export function resetAuthState(): void {
   state.devices.clear();
   state.challengeCount = 0;
   state.tokenIssueCount = 0;
+  issuedDigestNonces.clear();
 }
 
 /**
@@ -379,21 +380,47 @@ function parseDigest(header: string): Record<string, string> {
   return out;
 }
 
-function verifyDigest(req: IncomingMessage, expectedUser: string, expectedPass: string): boolean {
+export const DIGEST_REALM = 'restura-mock';
+
+/** Nonces the digest route has issued (a response must echo one of them). */
+const issuedDigestNonces = new Set<string>();
+const MAX_DIGEST_NONCES = 1000;
+
+function issueDigestNonce(): string {
+  const nonce = randomBytes(16).toString('hex');
+  if (issuedDigestNonces.size >= MAX_DIGEST_NONCES) {
+    const oldest = issuedDigestNonces.values().next().value;
+    if (oldest !== undefined) issuedDigestNonces.delete(oldest);
+  }
+  issuedDigestNonces.add(nonce);
+  return nonce;
+}
+
+/**
+ * Verify a Digest Authorization header the way a real server does: the uri must
+ * equal the request target, the realm must be the one issued, the nonce must be
+ * one this mock issued, and (the challenge offers qop=auth) qop=auth with nc and
+ * cnonce is required.
+ */
+export function verifyDigest(
+  req: Pick<IncomingMessage, 'method' | 'url' | 'headers'>,
+  expectedUser: string,
+  expectedPass: string,
+  isIssuedNonce: (nonce: string) => boolean = (n) => issuedDigestNonces.has(n)
+): boolean {
   const auth = String(req.headers.authorization ?? '');
   const m = /^Digest\s+(.+)$/.exec(auth);
   if (!m) return false;
   const params = parseDigest(m[1]!);
   if (params['username'] !== expectedUser) return false;
   if (!params['realm'] || !params['nonce'] || !params['response']) return false;
+  if (params['realm'] !== DIGEST_REALM) return false;
+  if (params['uri'] !== req.url) return false;
+  if (!isIssuedNonce(params['nonce'])) return false;
+  if (params['qop'] !== 'auth' || !params['nc'] || !params['cnonce']) return false;
   const ha1 = md5(`${expectedUser}:${params['realm']}:${expectedPass}`);
   const ha2 = md5(`${req.method ?? 'GET'}:${params['uri']}`);
-  let expected: string;
-  if (params['qop'] === 'auth' && params['nc'] && params['cnonce']) {
-    expected = md5(`${ha1}:${params['nonce']}:${params['nc']}:${params['cnonce']}:auth:${ha2}`);
-  } else {
-    expected = md5(`${ha1}:${params['nonce']}:${ha2}`);
-  }
+  const expected = md5(`${ha1}:${params['nonce']}:${params['nc']}:${params['cnonce']}:auth:${ha2}`);
   return constantTimeEq(params['response'] ?? '', expected);
 }
 
@@ -851,10 +878,10 @@ const digestEndpoint: AuthRoute = {
     const authHeader = String(req.headers.authorization ?? '');
     if (!authHeader.startsWith('Digest ')) {
       state.challengeCount += 1;
-      const nonce = randomBytes(16).toString('hex');
+      const nonce = issueDigestNonce();
       res.writeHead(401, {
         'content-type': 'application/json',
-        'www-authenticate': `Digest realm="restura-mock", qop="auth", algorithm=MD5, nonce="${nonce}", opaque="restura"`,
+        'www-authenticate': `Digest realm="${DIGEST_REALM}", qop="auth", algorithm=MD5, nonce="${nonce}", opaque="restura"`,
       });
       res.end(JSON.stringify({ authenticated: false }));
       return;

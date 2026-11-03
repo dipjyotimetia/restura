@@ -84,13 +84,38 @@ export function parseIntegrationArgs(argv) {
       const value = argv[++index];
       if (!value || value.startsWith('--')) throw new Error('--gates needs a comma list');
       options.gates = value.split(',').filter(Boolean);
-    } else if (arg.startsWith('--gates='))
+      if (options.gates.length === 0) throw new Error('--gates needs at least one gate');
+    } else if (arg.startsWith('--gates=')) {
       options.gates = arg.slice('--gates='.length).split(',').filter(Boolean);
-    else if (arg.startsWith('--')) throw new Error(`Unknown option: ${arg}`);
+      if (options.gates.length === 0) throw new Error('--gates needs at least one gate');
+    } else if (arg.startsWith('--')) throw new Error(`Unknown option: ${arg}`);
     else options.branches.push(arg);
   }
   if (options.branches.length === 0) throw new Error('Give at least one branch to integrate.');
   return options;
+}
+
+/**
+ * Whether the merged tree's lockfile differs from the one the linked
+ * node_modules was installed from, so gates would run against stale deps.
+ * A missing merged lock needs nothing; a missing installed lock cannot be
+ * trusted. Line endings are normalised so CRLF checkouts do not false-positive.
+ * @param {string | null | undefined} mergedLock
+ * @param {string | null | undefined} installedLock
+ */
+export function needsFreshInstall(mergedLock, installedLock) {
+  if (mergedLock == null) return false;
+  if (installedLock == null) return true;
+  const norm = (text) => text.replace(/\r\n/g, '\n').trim();
+  return norm(mergedLock) !== norm(installedLock);
+}
+
+function readIfExists(file) {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -281,6 +306,25 @@ export function integrate(options, log = console.log) {
 
     if (!failed || options.continueOnConflict) {
       setupWorktree(worktree, () => {});
+      // setupWorktree links the main checkout's node_modules; a merged lockfile
+      // that differs means the gates would test against the wrong dependencies.
+      if (
+        needsFreshInstall(
+          readIfExists(path.join(worktree, 'package-lock.json')),
+          readIfExists(path.join(repo, 'package-lock.json'))
+        )
+      ) {
+        failed = true;
+        results.push([
+          'dependencies',
+          'FAIL',
+          'merged package-lock.json differs from the installed one: run `npm ci` in the main checkout (or merge the lockfile change first) and re-run',
+        ]);
+        log(
+          '\nMerged package-lock.json differs from the installed lockfile; gates would run against stale node_modules. Run `npm ci`, then re-run integration-check.'
+        );
+        return { failed, results, overlaps, generated };
+      }
       const gates = options.gates ?? [...DEFAULT_GATES, ...(options.e2e ? E2E_GATES : [])];
       for (const gate of gates) {
         const steps = Array.isArray(gate) ? gate : [gate];
