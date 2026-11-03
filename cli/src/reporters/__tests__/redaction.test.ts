@@ -36,6 +36,32 @@ function result(): RunResult {
   };
 }
 
+const UPSTREAM_COOKIE = 'sid=UPSTREAM-SESSION-789; Path=/; HttpOnly';
+const UPSTREAM_AUTH = 'Bearer UPSTREAM-ECHOED-TOKEN';
+
+function resultWithResponse(): RunResult {
+  const base = result();
+  const [first] = base.requests;
+  if (!first) throw new Error('fixture has one request');
+  return {
+    ...base,
+    requests: [
+      {
+        ...first,
+        setCookies: [UPSTREAM_COOKIE, 'theme=dark'],
+        responseHeaders: {
+          'Set-Cookie': UPSTREAM_COOKIE,
+          'set-cookie2': UPSTREAM_COOKIE,
+          Authorization: UPSTREAM_AUTH,
+          'proxy-authorization': UPSTREAM_AUTH,
+          'content-type': 'application/json',
+        },
+        streamEvents: [{ event: 'tick', data: 'payload-1', timestamp: 1 }],
+      },
+    ],
+  };
+}
+
 describe('report redaction', () => {
   it('the JSON report carries no inline auth secret or request cookie', async () => {
     const out = join(mkdtempSync(join(tmpdir(), 'restura-redact-')), 'r.json');
@@ -62,5 +88,26 @@ describe('report redaction', () => {
     expect(html).not.toContain(TOKEN);
     expect(html).not.toContain(COOKIE);
     expect(html).toContain('Users/Get');
+  });
+
+  it('response cookies and credential headers are redacted; other headers and stream events are kept', async () => {
+    const out = join(mkdtempSync(join(tmpdir(), 'restura-redact-')), 'r.json');
+    await new JsonReporter(out).onEnd(resultWithResponse());
+    const text = readFileSync(out, 'utf-8');
+    const html = renderHtml(resultWithResponse());
+    for (const artifact of [text, html]) {
+      expect(artifact).not.toContain('UPSTREAM-SESSION-789');
+      expect(artifact).not.toContain('UPSTREAM-ECHOED-TOKEN');
+    }
+    const reported = JSON.parse(text).requests[0];
+    expect(reported.setCookies).toEqual(['sid=[redacted]', 'theme=[redacted]']);
+    expect(reported.responseHeaders).toEqual({
+      'Set-Cookie': '[redacted]',
+      'set-cookie2': '[redacted]',
+      Authorization: '[redacted]',
+      'proxy-authorization': '[redacted]',
+      'content-type': 'application/json',
+    });
+    expect(reported.streamEvents).toEqual([{ event: 'tick', data: 'payload-1', timestamp: 1 }]);
   });
 });

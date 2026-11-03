@@ -9,6 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import type { Reporter } from '../../reporters/types';
 import type { LoadedRequest } from '../collectionLoader';
 import { executeRequest } from '../executors/dispatch';
+import { executeSse } from '../executors/sse';
 import { runCollection } from '../runner';
 
 /**
@@ -148,4 +149,16 @@ describe('CLI unresolvable-variable guard', () => {
       expect(supplied.errorMessage).toContain('stub network failure');
     }
   );
+});
+
+describe('executor type-mismatch refusal', () => {
+  it('the SSE executor refuses a non-SSE item as a deterministic refusal', async () => {
+    const outcome = await executeSse(httpItem({}), {
+      vars: {},
+      timeoutMs: 1000,
+      allowLocalhost: false,
+    });
+    expect(outcome).toMatchObject({ passed: false, refused: true, status: 0 });
+    expect(outcome.errorMessage).toBe('SSE executor received non-sse request: http');
+  });
 });

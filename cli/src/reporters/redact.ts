@@ -5,10 +5,15 @@ import type { RequestRunResult, RunResult } from './types.js';
 
 /**
  * File reports (JSON, HTML) are CI artifacts: they must not carry credential
- * material. A request is reported as a projection — identity, method, URL and
- * its auth with every secret field (the shared `SECRET_FIELDS_BY_AUTH_BLOCK`
- * map) redacted. Headers, bodies, scripts and variables (which can hold session
- * cookies or tokens) are left out.
+ * material. What is redacted, at this one seam:
+ *  - the request is a projection — identity, method, URL and its auth with
+ *    every secret field (the shared `SECRET_FIELDS_BY_AUTH_BLOCK` map) set to
+ *    `[redacted]`; request headers, bodies, scripts and variables are left out;
+ *  - every `setCookies` entry keeps its cookie name only (`sid=[redacted]`);
+ *  - response headers named `set-cookie`, `set-cookie2`, `authorization` or
+ *    `proxy-authorization` (any case) are set to `[redacted]`.
+ * Still written as received: the status, timings, assertions, error messages,
+ * every other response header and SSE/WebSocket stream events.
  */
 
 export const REDACTED = '[redacted]';
@@ -30,11 +35,38 @@ export type ReportedRunResult = Omit<RunResult, 'requests'> & {
   requests: Array<Omit<RequestRunResult, 'request'> & { request: ReportedRequest }>;
 };
 
+const CREDENTIAL_RESPONSE_HEADERS: ReadonlySet<string> = new Set([
+  'set-cookie',
+  'set-cookie2',
+  'authorization',
+  'proxy-authorization',
+]);
+
 export function redactRunResult(result: RunResult): ReportedRunResult {
   return {
     ...result,
-    requests: result.requests.map((r) => ({ ...r, request: reportedRequest(r.request) })),
+    requests: result.requests.map((r) => ({
+      ...r,
+      request: reportedRequest(r.request),
+      ...(r.setCookies ? { setCookies: r.setCookies.map(redactSetCookie) } : {}),
+      ...(r.responseHeaders ? { responseHeaders: redactResponseHeaders(r.responseHeaders) } : {}),
+    })),
   };
+}
+
+/** `sid=abc; Path=/` → `sid=[redacted]`: the name stays so a report can show the cookie was set. */
+function redactSetCookie(cookie: string): string {
+  const eq = cookie.indexOf('=');
+  const name = (eq === -1 ? '' : cookie.slice(0, eq)).trim();
+  return name ? `${name}=${REDACTED}` : REDACTED;
+}
+
+function redactResponseHeaders(headers: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    out[name] = CREDENTIAL_RESPONSE_HEADERS.has(name.toLowerCase()) ? REDACTED : value;
+  }
+  return out;
 }
 
 function reportedRequest(item: LoadedRequest): ReportedRequest {

@@ -26,13 +26,7 @@ export async function executeSse(
   opts: ExecuteOptions
 ): Promise<ExecuteOutcome> {
   if (item.type !== 'sse') {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: `SSE executor received non-sse request: ${item.type}`,
-    };
+    return refusedOutcome(`SSE executor received non-sse request: ${item.type}`);
   }
   const refused = preflightRefusal(item, opts.vars);
   if (refused) return refused;
