@@ -116,12 +116,17 @@ export function parseConnectError(
 } {
   try {
     const error = JSON.parse(body);
-    if (error && typeof error.code === 'string' && CONNECT_CODE_TO_GRPC[error.code] !== undefined) {
+    // Own-property lookup: an upstream `code` is untrusted (e.g. "constructor").
+    const known =
+      error && typeof error.code === 'string' && Object.hasOwn(CONNECT_CODE_TO_GRPC, error.code)
+        ? (CONNECT_CODE_TO_GRPC[error.code] as GrpcStatusCode)
+        : undefined;
+    if (known !== undefined) {
       // Rich error model: Connect carries google.rpc.Status details as
       // `details: [{ type, value (base64), debug? }]` (#883).
       const details = statusDetailsFromConnectJson(error.details);
       return {
-        code: CONNECT_CODE_TO_GRPC[error.code] ?? GrpcStatusCode.UNKNOWN,
+        code: known,
         message: typeof error.message === 'string' && error.message ? error.message : error.code,
         ...(details.length > 0 ? { details } : {}),
       };

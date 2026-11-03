@@ -427,3 +427,22 @@ describe('executeGrpcProxy — Connect protocol conformance', () => {
     expect(fetcher.mock.calls[0]?.[0]?.url).toBe(`https://example.com/${svc}/get_item`);
   });
 });
+
+describe('parseConnectError — untrusted `code` values', () => {
+  it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty'])(
+    'a Connect error code of %j falls back to the HTTP mapping, never an Object.prototype member',
+    async (code) => {
+      const r = await executeGrpcProxy(
+        { url: 'https://example.com', service: 'a.B', method: 'C', timeout: 1000 },
+        makeFetcher(JSON.stringify({ code, message: 'weird' }), 403, {
+          'content-type': 'application/json',
+        }),
+        { allowLocalhost: false }
+      );
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(typeof r.response.grpcStatus).toBe('number');
+      expect(r.response.grpcStatus).toBe(GrpcStatusCode.PERMISSION_DENIED);
+    }
+  );
+});
