@@ -426,7 +426,7 @@ export function registerKafkaProducerHandlers<E extends KafkaProducerEntry>(
             if (entry.transaction === transaction) entry.transaction = undefined;
             return {
               success: false,
-              error: `${errorMessage(err)} The broker aborted the transaction (fenced or timed out); its records were not committed. Begin a new transaction.`,
+              error: `${errorMessage(err)} The broker aborted the transaction (fenced or timed out); its records were not committed. Begin a new transaction; if the broker still refuses the transactional ID (it can hold a fenced ID for a while), reconnect or use a different transactional ID.`,
             };
           }
           const next =
