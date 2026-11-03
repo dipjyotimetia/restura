@@ -6,8 +6,10 @@
  * bags (`_oc`, `_postman` — see `PASSTHROUGH_BAG_KEYS`) go stale:
  *
  *  - `_oc` is the verbatim imported node; once a descendant changes the cached
- *    subtree is stale and re-export must rebuild it from the live model, so
- *    every ancestor on the edit path loses its bags.
+ *    subtree is stale and re-export must rebuild it from the live model. A
+ *    request on the edit path loses its bag; a folder keeps a metadata-only
+ *    stale bag (description, docs, request defaults the model cannot hold) so
+ *    the exporter rebuilds it without dropping them (`opencollection/stale-bag`).
  *  - The Postman send-guard markers (`_postman.noauth`, the unsupported auth
  *    TYPE) survive on every node whose OWN auth was not edited. Dropping them
  *    would silently re-enable auth inheritance for the whole subtree.
@@ -18,6 +20,7 @@
  */
 
 import { readKey } from '../object-keys';
+import { OC_STALE_KEY, staleFolderBag } from '../opencollection/stale-bag';
 import type { Collection, CollectionItem } from '../types';
 import {
   deletePassthroughBags,
@@ -32,18 +35,38 @@ function sameValue(a: unknown, b: unknown): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
 
+/** Delete every bag (and the stale-bag marker) from `node` in place. */
+function deleteBags<T extends object>(node: T): T {
+  Reflect.deleteProperty(node, OC_STALE_KEY);
+  return deletePassthroughBags(node);
+}
+
 /** Drop every bag from a (copied) node. */
 function dropBags(item: CollectionItem): CollectionItem {
   if (!hasPassthroughBag(item)) return item;
-  return deletePassthroughBags({ ...item });
+  return deleteBags({ ...item });
 }
 
 /** Drop every bag except the Postman send-guard markers. */
 function dropBagsKeepingGuard<T extends object>(item: T): T {
   if (!hasPassthroughBag(item)) return item;
   const markers = postmanGuardMarkers(item);
-  const stripped = deletePassthroughBags({ ...item });
+  const stripped = deleteBags({ ...item });
   return markers ? attachPostmanSidecar(stripped, markers) : stripped;
+}
+
+/**
+ * Make a node's bags stale after an edit on or below it. Bags are dropped as
+ * before (guard markers kept when `keepGuard`), except that a folder's OC bag
+ * becomes a metadata-only stale bag: the exporter rebuilds the folder from it
+ * instead of from nothing, so its description, docs and request defaults
+ * survive, and never emits it verbatim.
+ */
+function markStale(item: CollectionItem, keepGuard: boolean): CollectionItem {
+  const stale = item.type === 'folder' ? staleFolderBag(readKey(item, '_oc')) : undefined;
+  const dropped = keepGuard ? dropBagsKeepingGuard(item) : dropBags(item);
+  if (!stale) return dropped;
+  return Object.assign({ ...dropped }, { _oc: stale, [OC_STALE_KEY]: true });
 }
 
 /** Whether `updates` changes the item's own auth (folder `auth` or `request.auth`). */
@@ -76,11 +99,11 @@ function ancestorPath(
 
 // Past MAX_COLLECTION_TREE_DEPTH the walk leaves deeper subtrees untouched
 // rather than risking a stack overflow inside a store update.
-function stripBagsByIds(items: CollectionItem[], ids: Set<string>, depth = 0): CollectionItem[] {
+function staleBagsByIds(items: CollectionItem[], ids: Set<string>, depth = 0): CollectionItem[] {
   if (depth > MAX_COLLECTION_TREE_DEPTH) return items;
   return items.map((i) => {
-    const withChildren = i.items ? { ...i, items: stripBagsByIds(i.items, ids, depth + 1) } : i;
-    return ids.has(i.id) ? dropBagsKeepingGuard(withChildren) : withChildren;
+    const withChildren = i.items ? { ...i, items: staleBagsByIds(i.items, ids, depth + 1) } : i;
+    return ids.has(i.id) ? markStale(withChildren, true) : withChildren;
   });
 }
 
@@ -166,7 +189,7 @@ export function addItem(col: Collection, item: CollectionItem, parentId?: string
     });
   const withItem = addToParent(col.items);
   const staleIds = new Set<string>(ancestorPath(withItem, item.id) ?? []);
-  return { ...col, items: stripBagsByIds(withItem, staleIds) };
+  return { ...col, items: staleBagsByIds(withItem, staleIds) };
 }
 
 /**
@@ -189,13 +212,13 @@ export function updateItem(
         }
         changed = true;
         const merged = { ...i, ...updates };
-        return editsOwnAuth(i, updates) ? dropBags(merged) : dropBagsKeepingGuard(merged);
+        return markStale(merged, !editsOwnAuth(i, updates));
       }
       if (i.items) {
         const res = walk(i.items);
         if (res.changed) {
           changed = true;
-          return dropBagsKeepingGuard({ ...i, items: res.items });
+          return markStale({ ...i, items: res.items }, true);
         }
       }
       return i;
@@ -215,7 +238,7 @@ export function removeItem(col: Collection, itemId: string): Collection {
   // surviving sibling keeps its bag is not covered here: that needs a
   // root-shortcut staleness change.)
   const staleIds = new Set<string>(ancestorPath(col.items, itemId) ?? []);
-  return { ...col, items: stripBagsByIds(removeIn(col.items), staleIds) };
+  return { ...col, items: staleBagsByIds(removeIn(col.items), staleIds) };
 }
 
 /**
@@ -259,7 +282,7 @@ export function moveItem(
   // can land the item in another folder) and root drops resolve uniformly.
   const targetAncestors = ancestorPath(inserted, itemId) ?? [];
   const staleIds = new Set<string>([itemId, ...sourceAncestors, ...targetAncestors]);
-  return { ...col, items: stripBagsByIds(inserted, staleIds) };
+  return { ...col, items: staleBagsByIds(inserted, staleIds) };
 }
 
 /** Collection fields whose edit makes the root `_postman` sidecar stale. */
@@ -290,7 +313,7 @@ export function updateRoot(col: Collection, updates: Partial<Collection>): Colle
  */
 export function stripForDuplicate<T extends object>(node: T): T {
   const markers = postmanGuardMarkers(node);
-  deletePassthroughBags(node);
+  deleteBags(node);
   return markers ? attachPostmanSidecar(node, markers) : node;
 }
 
