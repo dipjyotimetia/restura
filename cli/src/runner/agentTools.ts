@@ -14,7 +14,7 @@ import type { AgentRuntimeManifest } from '../commands/agentRuntime.js';
 import { connectCliMcpClient } from './agentMcpClient.js';
 import { AgentPreflightError } from './agentPreflightError.js';
 import type { LoadedRequest } from './collectionLoader.js';
-import type { ExecuteOptions, ExecuteOutcome } from './executors/types.js';
+import type { ExecuteOptions, ExecuteOutcome, OAuth2TokenCache } from './executors/types.js';
 import { createPinnedMcpFetchSession } from './pinnedMcpFetch.js';
 
 export interface CliAgentToolDependencies {
@@ -76,6 +76,8 @@ export async function resolveCliAgentTools(
   const a2aSources = sources.filter(
     (source): source is Extract<ToolSource, { kind: 'a2a' }> => source.kind === 'a2a'
   );
+  // client_credentials tokens are reused across this agent session's tools only.
+  const oauth2TokenCache: OAuth2TokenCache = new Map();
   const pinnedHttpSession =
     requestedIds.size > 0 || mcpSources.length > 0 || a2aSources.length > 0
       ? createPinnedMcpFetchSession(options.allowLocalhost)
@@ -135,6 +137,7 @@ export async function resolveCliAgentTools(
             signal: context.signal,
             fetcher: pinnedHttpSession?.fetcher,
             oauthFetch: pinnedHttpSession?.fetch,
+            oauth2TokenCache,
           });
           return outcomeToContent(requestId, outcome, context.signal.aborted);
         },

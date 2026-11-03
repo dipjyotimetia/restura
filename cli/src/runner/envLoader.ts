@@ -19,7 +19,8 @@ export interface EnvLoadOptions {
  *
  * When `expandEnvVars` is set, `${VAR}` references in values are resolved from
  * `process.env`, so secrets can come from CI env vars instead of being
- * committed to the env file.
+ * committed to the env file. An unset variable expands to an empty string
+ * and is named once in a stderr warning.
  */
 export async function loadEnv(
   filePath: string,
@@ -44,9 +45,17 @@ export async function loadEnv(
     ? postmanEntries(parsed.values)
     : Object.entries(parsed as Record<string, unknown>);
   const out: Record<string, string> = {};
+  const unset = new Set<string>();
   for (const [k, v] of entries) {
     if (typeof v !== 'string') continue;
-    out[k] = options.expandEnvVars ? expandEnvVars(v) : v;
+    out[k] = options.expandEnvVars ? expandEnvVars(v, unset) : v;
+  }
+  // Expanding an unset variable to '' is kept (exit codes unchanged), but never
+  // silently: a missing CI secret is named once on stderr.
+  for (const name of unset) {
+    process.stderr.write(
+      `[restura] WARNING: \${${name}} is not set in the environment; it expanded to an empty string.\n`
+    );
   }
   return out;
 }
@@ -80,8 +89,11 @@ function postmanEntries(values: unknown[]): Array<[string, unknown]> {
   return out;
 }
 
-function expandEnvVars(value: string): string {
+/** Expand `${VAR}` from `process.env`; an unset name expands to '' and is added to `unset`. */
+function expandEnvVars(value: string, unset: Set<string>): string {
   return value.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/gi, (_match, name: string) => {
-    return process.env[name] ?? '';
+    const resolved = process.env[name];
+    if (resolved === undefined) unset.add(name);
+    return resolved ?? '';
   });
 }

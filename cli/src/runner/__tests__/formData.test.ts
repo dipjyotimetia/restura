@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Reporter } from '../../reporters/types';
 import { runCollection } from '../runner';
+import { createUndiciFetcher } from '../undiciFetcher';
 
 let server: Server;
 let baseUrl: string;
@@ -84,5 +85,25 @@ describe('runCollection — multipart/form-data', () => {
     expect(received!.body).toContain('name="upload"; filename="a.txt"');
     expect(received!.body).toContain('Content-Type: text/plain');
     expect(received!.body).toContain('hello');
+  });
+});
+
+describe('multipart Content-Disposition escaping', () => {
+  it('escapes quote, CR and LF in field names and filenames as browsers / undici do', async () => {
+    const fd = new FormData();
+    fd.append('a"b\r\nX-Injected: 1', 'v');
+    fd.append('f', new Blob(['data']), 'evil".txt\r\nContent-Type: text/html');
+    await createUndiciFetcher()({
+      url: `${baseUrl}/upload`,
+      method: 'POST',
+      headers: {},
+      body: fd,
+    });
+    const body = received?.body ?? '';
+    expect(body).toContain('Content-Disposition: form-data; name="a%22b%0D%0AX-Injected: 1"\r\n');
+    expect(body).toContain(
+      'Content-Disposition: form-data; name="f"; filename="evil%22.txt%0D%0AContent-Type: text/html"\r\n'
+    );
+    expect(body).not.toMatch(/\r\nX-Injected: 1/);
   });
 });

@@ -3,8 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { OwsBindings, OwsLayout } from '@shared/ows/bindings';
 import { saveOwsWorkflowArtifact } from '@shared/ows/node/workspace';
+import type { Fetcher } from '@shared/protocol/types';
+import type { HttpRequest } from '@shared/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LoadedCollection, LoadedRequest } from '../collectionLoader';
+import { executeHttp } from '../executors/http';
 import { runOwsWorkspaceWorkflow } from '../owsWorkspaceRunner';
 
 const roots: string[] = [];
@@ -345,5 +348,38 @@ describe('runOwsWorkspaceWorkflow', () => {
       )
     ).rejects.toThrow('--allow-mutations');
     expect(executeHttp).not.toHaveBeenCalled();
+  });
+});
+
+describe('runOwsWorkspaceWorkflow unresolvable variables', () => {
+  it('refuses a saved request using a private variable with no value; nothing is fetched', async () => {
+    const root = await createWorkspace();
+    const fetcher = vi.fn<Fetcher>();
+    const privateRequest: LoadedRequest = {
+      ...request,
+      request: {
+        ...(request.request as HttpRequest),
+        headers: [{ id: 'h', key: 'Authorization', value: 'Bearer {{token}}', enabled: true }],
+      },
+      privateVariableNames: ['token'],
+    };
+
+    const result = await runOwsWorkspaceWorkflow(
+      root,
+      'billing',
+      { variables: {}, timeoutMs: 1_000, allowLocalhost: false, fetcher },
+      {
+        loadCollection: vi
+          .fn()
+          .mockResolvedValue({ ...loadedCollection, requests: [privateRequest] }),
+        executeHttp,
+      }
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: 'failed',
+      steps: [{ taskPath: '/do/0/getBilling', status: 'failed' }],
+    });
+    expect(result.steps[0]?.error).toMatch(/Private variable "token" is unavailable/);
   });
 });

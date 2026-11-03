@@ -1,9 +1,13 @@
 import type { ToolSource } from '@shared/agent-lab';
+import type { Fetcher } from '@shared/protocol/types';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentRuntimeManifest } from '../../commands/agentRuntime.js';
 import { connectCliMcpClient } from '../agentMcpClient.js';
 import { AgentPreflightError } from '../agentPreflightError.js';
 import { resolveCliAgentTools } from '../agentTools.js';
+import type { LoadedRequest } from '../collectionLoader.js';
+import { executeHttp } from '../executors/http.js';
+import type { ExecuteOptions } from '../executors/types.js';
 
 vi.mock('../agentMcpClient.js', () => ({ connectCliMcpClient: vi.fn() }));
 
@@ -233,5 +237,48 @@ describe('resolveCliAgentTools MCP annotations', () => {
     const { tools } = await resolveCliAgentTools(source, mcpRuntime, options, dependencies());
 
     expect(tools.map((tool) => tool.permissionClass)).toEqual(['read', 'read']);
+  });
+});
+
+describe('resolveCliAgentTools unresolvable variables', () => {
+  it('refuses a saved request using a private variable with no value; nothing is fetched', async () => {
+    const fetcher = vi.fn<Fetcher>();
+    const deps = {
+      loadCollection: vi.fn().mockResolvedValue({
+        requests: [
+          {
+            relativePath: 'Orders/Get orders',
+            folderPath: ['Orders'],
+            type: 'http',
+            request: {
+              id: 'get-orders',
+              name: 'Get orders',
+              type: 'http',
+              method: 'GET',
+              url: 'https://api.example.test/orders',
+              headers: [
+                { id: 'h', key: 'Authorization', value: 'Bearer {{token}}', enabled: true },
+              ],
+              params: [],
+              body: { type: 'none' },
+              auth: { type: 'none' },
+            },
+            privateVariableNames: ['token'],
+          },
+        ],
+      }),
+      // The real HTTP executor, with only the transport swapped for a spy.
+      executeHttp: (item: LoadedRequest, options: ExecuteOptions) =>
+        executeHttp(item, { ...options, fetcher }),
+    };
+    const { tools } = await resolveCliAgentTools(
+      [{ kind: 'restura-request', requestId: 'get-orders' }],
+      runtime,
+      { variables: {}, environment: {}, timeoutMs: 5_000, allowLocalhost: false },
+      deps
+    );
+    const output = await tools[0]?.execute({}, { signal: new AbortController().signal });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(JSON.stringify(output)).toContain('Private variable \\"token\\" is unavailable');
   });
 });

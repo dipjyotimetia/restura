@@ -1,19 +1,13 @@
+import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@shared/secrets/auth-fields';
 import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
 import type { AuthConfig } from '@shared/types';
 
 type SecretCarrier = { [key: string]: unknown };
 
-const SECRET_FIELDS: ReadonlyArray<[keyof AuthConfig, readonly string[]]> = [
-  ['basic', ['password']],
-  ['bearer', ['token']],
-  ['apiKey', ['value']],
-  ['oauth2', ['accessToken', 'refreshToken', 'clientSecret', 'password']],
-  ['digest', ['password']],
-  ['awsSignature', ['secretKey']],
-  ['oauth1', ['consumerSecret', 'accessToken', 'accessTokenSecret']],
-  ['ntlm', ['password']],
-  ['wsse', ['password']],
-];
+/** Every secret-bearing auth field, from the shared map every redactor uses. */
+const SECRET_FIELDS = Object.entries(SECRET_FIELDS_BY_AUTH_BLOCK) as ReadonlyArray<
+  [keyof typeof SECRET_FIELDS_BY_AUTH_BLOCK, readonly string[]]
+>;
 
 async function materializeValue(
   value: unknown,

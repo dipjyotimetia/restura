@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ExecuteOutcome } from '../executors/types';
-import { parseRetryOn, withRetry } from '../retry';
+import {
+  MAX_RETRY_AFTER_MS,
+  parseRetryOn,
+  type RetryOptions,
+  retryDelayMs,
+  withRetry,
+} from '../retry';
 
 function outcome(status: number, errorMessage?: string, passed = false): ExecuteOutcome {
   return {
@@ -73,6 +79,54 @@ describe('withRetry', () => {
       baseDelayMs: 1,
     });
     expect(result.durationMs).toBe(15); // 3 * 5
+  });
+});
+
+describe('retry semantics', () => {
+  async function attempts(
+    o: ExecuteOutcome,
+    retryOn: RetryOptions['retryOn'] = ['network', '5xx']
+  ): Promise<number> {
+    let calls = 0;
+    await withRetry(
+      () => {
+        calls++;
+        return Promise.resolve(o);
+      },
+      { retries: 2, retryOn, baseDelayMs: 1 }
+    );
+    return calls;
+  }
+
+  it.each([
+    ['an SSE 404', outcome(404, 'SSE upstream returned 404')],
+    ['an SSRF/validation refusal with an HTTP status', outcome(403, 'Blocked private address')],
+    [
+      'a gRPC application error',
+      { ...outcome(0, 'gRPC NOT_FOUND'), grpcStatus: { code: 5, message: 'x' } },
+    ],
+  ])('network does not retry %s', async (_label, o) => {
+    expect(await attempts(o, ['network'])).toBe(1);
+  });
+
+  it('never retries a pre-I/O refusal, whatever the rules', async () => {
+    const refused: ExecuteOutcome = { ...outcome(0, 'NTLM is desktop-only'), refused: true };
+    expect(await attempts(refused, ['network', '5xx', '4xx', 0])).toBe(1);
+  });
+
+  it('honours Retry-After (seconds or HTTP-date, capped) on 429 and 503', () => {
+    const now = Date.parse('2026-01-01T00:00:00Z');
+    const withHeader = (status: number, value: string): ExecuteOutcome => ({
+      ...outcome(status),
+      responseHeaders: { 'retry-after': value },
+    });
+    expect(retryDelayMs(withHeader(429, '2'), 0, 250, now)).toBe(2000);
+    expect(retryDelayMs(withHeader(503, 'Thu, 01 Jan 2026 00:00:03 GMT'), 0, 250, now)).toBe(3000);
+    expect(retryDelayMs(withHeader(503, '99999'), 0, 250, now)).toBe(MAX_RETRY_AFTER_MS);
+    // A past date retries now; garbage, or a status that does not carry it: backoff.
+    expect(retryDelayMs(withHeader(429, 'Wed, 31 Dec 2025 00:00:00 GMT'), 1, 250, now)).toBe(0);
+    expect(retryDelayMs(withHeader(429, 'soon'), 1, 250, now)).toBe(500);
+    expect(retryDelayMs(withHeader(500, '5'), 2, 250, now)).toBe(1000);
   });
 });
 

@@ -43,7 +43,22 @@ export interface ExecuteOutcome {
   protocolError?: string;
   grpcStatus?: GrpcStatusInfo;
   streamEvents?: StreamEvent[];
+  /**
+   * Set when the request was refused before any I/O (blocked at load, an
+   * unresolvable variable, an auth scheme or URL the CLI will not send). The
+   * refusal is deterministic, so it is never retried.
+   */
+  refused?: true;
 }
+
+/** A cached OAuth2 token: `expiresAt` epoch ms, undefined = no expiry info. */
+export interface CachedOAuth2Token {
+  accessToken: string;
+  tokenType: string;
+  expiresAt?: number;
+}
+
+export type OAuth2TokenCache = Map<string, CachedOAuth2Token>;
 
 export interface ExecuteOptions {
   vars: Record<string, string>;
@@ -69,6 +84,11 @@ export interface ExecuteOptions {
   fetcher?: Fetcher;
   /** DNS-pinned fetch for OAuth token exchange in security-sensitive agent tools. */
   oauthFetch?: typeof globalThis.fetch;
+  /**
+   * Run-scoped OAuth2 client_credentials token cache (one per run, shared by
+   * its requests). Absent = no reuse: every request fetches its own token.
+   */
+  oauth2TokenCache?: OAuth2TokenCache;
   /** Run-scoped MCP sessions: initialize once per server, closed at run end. */
   mcpSessions?: CliMcpSessionPool;
   /** Explicit external-secret resolver; omitted profiles fail closed. */

@@ -55,8 +55,14 @@ beforeAll(async () => {
   if (!hasOpenssl) return;
   const dir = mkdtempSync(join(tmpdir(), 'restura-tls-'));
   pem = makeCert(dir);
-  const handler = (_req: IncomingMessage, res: ServerResponse) => {
-    res.statusCode = 200;
+  const handler = (req: IncomingMessage, res: ServerResponse) => {
+    if (req.url === '/token') {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ access_token: 'TLS_TOKEN', token_type: 'Bearer' }));
+      return;
+    }
+    res.statusCode =
+      req.url === '/needs-token' && req.headers.authorization !== 'Bearer TLS_TOKEN' ? 401 : 200;
     res.end('secure-ok');
   };
   plainServer = createHttpsServer({ key: pem.key, cert: pem.cert }, handler);
@@ -131,5 +137,27 @@ describe.skipIf(!hasOpenssl)('runCollection — TLS', () => {
     const result = await run(mtlsUrl, { ca: pem.cert, cert: pem.cert, key: pem.key });
     expect(result.requests[0]!.passed).toBe(true);
     expect(result.requests[0]!.status).toBe(200);
+  });
+});
+
+describe.skipIf(!hasOpenssl)('runCollection — TLS for the OAuth2 token endpoint', () => {
+  it('--ca also applies to a self-signed client_credentials token endpoint', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'restura-tlsoauth-'));
+    const file = join(dir, 'c.yaml');
+    writeFileSync(
+      file,
+      `opencollection: "1.0.0"\ninfo:\n  name: TLS\n  version: "0.1.0"\nbundled: true\n` +
+        `request:\n  auth:\n    type: oauth2\n    clientId: C\n    clientSecret: S\n` +
+        `    tokenUrl: "${baseUrl}/token"\n    scope: tls-ca\n` +
+        `items:\n  - info: { type: http, name: Secure, seq: 1 }\n    http: { method: GET, url: "${baseUrl}/needs-token" }\n`,
+      'utf-8'
+    );
+    const result = await runCollection(
+      file,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true, tls: { ca: pem.cert } },
+      new NoopReporter()
+    );
+    expect(result.requests[0]?.errorMessage).toBeUndefined();
+    expect(result.requests[0]?.status).toBe(200);
   });
 });

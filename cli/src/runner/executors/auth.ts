@@ -1,8 +1,11 @@
+import { createHash } from 'node:crypto';
 import { fetchClientCredentialsToken, tokenExpiresAt } from '@shared/auth/oauth2';
 import { buildAuthCredential, type CredentialHost } from '@shared/protocol/request-spec';
 import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/types';
 import { validateURL } from '@shared/protocol/url-validation';
 import type { AuthConfig } from '@shared/types';
+import { type Dispatcher, request as undiciRequest } from 'undici';
+import type { ExecuteOptions, OAuth2TokenCache } from './types';
 
 /**
  * Auth helpers shared by every CLI executor.
@@ -73,29 +76,86 @@ export function applyAuthHeaders(
   Object.assign(params, credential.params);
 }
 
-interface CachedToken {
-  accessToken: string;
-  tokenType: string;
-  /** epoch ms; undefined = no expiry info, reuse for the whole run. */
-  expiresAt?: number;
+/** How the CLI fetches an OAuth2 token: built from the run by `oauth2TokenOptions`. */
+export interface OAuth2TokenOptions {
+  allowLocalhost?: boolean;
+  fetch?: typeof globalThis.fetch;
+  signal?: AbortSignal;
+  /** Run-scoped cache; absent = fetch a token for this call only. */
+  cache?: OAuth2TokenCache;
 }
-const oauth2TokenCache = new Map<string, CachedToken>();
+
+/**
+ * The one factory every executor uses for the token request, so HTTP, SSE,
+ * gRPC and MCP fetch tokens identically: the run's undici dispatcher (`--ca`,
+ * `--insecure`, `--cert/--key`, `--proxy`), bounded by `--timeout` and the
+ * caller's cancellation, with the run's token cache. A caller-supplied
+ * `oauthFetch` (agent tools' DNS-pinned fetch) replaces the transport only.
+ */
+export function oauth2TokenOptions(
+  opts: Pick<
+    ExecuteOptions,
+    'allowLocalhost' | 'timeoutMs' | 'signal' | 'dispatcher' | 'oauthFetch' | 'oauth2TokenCache'
+  >
+): OAuth2TokenOptions {
+  const timeout = AbortSignal.timeout(opts.timeoutMs);
+  return {
+    allowLocalhost: opts.allowLocalhost,
+    fetch: opts.oauthFetch ?? createTokenFetch(opts.dispatcher),
+    signal: opts.signal ? AbortSignal.any([timeout, opts.signal]) : timeout,
+    ...(opts.oauth2TokenCache ? { cache: opts.oauth2TokenCache } : {}),
+  };
+}
 
 /**
  * The token request carries the client secret, and `validateURL` checked only
  * the URL as written: following a redirect would POST that secret to a host
  * the SSRF guard never saw (e.g. `307 → http://169.254.169.254/`). A token
- * endpoint has no reason to redirect, so a 3xx is refused.
+ * endpoint has no reason to redirect, so a 3xx is refused (undici `request`
+ * never follows one itself).
  */
-const noRedirectFetch: typeof globalThis.fetch = async (input, init) => {
-  const response = await globalThis.fetch(input, { ...init, redirect: 'manual' });
-  if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-    throw new Error(
-      `OAuth2 token endpoint answered with a redirect (${response.status}); refusing to follow it with the client credentials.`
-    );
-  }
-  return response;
-};
+function createTokenFetch(dispatcher: Dispatcher | undefined): typeof globalThis.fetch {
+  return async (input, init) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (init?.body != null && typeof init.body !== 'string') {
+      throw new Error('OAuth2 token request body must be a string');
+    }
+    const headers: Record<string, string> = {};
+    new Headers(init?.headers).forEach((value, key) => {
+      headers[key] = value;
+    });
+    const response = await undiciRequest(url, {
+      method: (init?.method ?? 'GET') as Dispatcher.HttpMethod,
+      headers,
+      ...(typeof init?.body === 'string' ? { body: init.body } : {}),
+      ...(init?.signal ? { signal: init.signal } : {}),
+      ...(dispatcher ? { dispatcher } : {}),
+    });
+    if (response.statusCode >= 300 && response.statusCode < 400) {
+      await response.body.dump();
+      throw new Error(
+        `OAuth2 token endpoint answered with a redirect (${response.statusCode}); refusing to follow it with the client credentials.`
+      );
+    }
+    const text = await response.body.text();
+    const nullBodyStatus = response.statusCode === 204 || response.statusCode === 205;
+    const responseHeaders = new Headers();
+    for (const [name, value] of Object.entries(response.headers)) {
+      if (value === undefined) continue;
+      for (const item of Array.isArray(value) ? value : [value]) responseHeaders.append(name, item);
+    }
+    return new Response(nullBodyStatus ? null : text, {
+      status: response.statusCode,
+      headers: responseHeaders,
+    });
+  };
+}
+
+/** Cache key: the secret is hashed so a rotated secret never reuses the old token. */
+function tokenCacheKey(tokenUrl: string, clientId: string, scope = '', secret = ''): string {
+  const secretHash = createHash('sha256').update(secret).digest('hex');
+  return `${tokenUrl}|${clientId}|${scope}|${secretHash}`;
+}
 
 /**
  * For an OAuth2 auth that has a token endpoint + client id but no access token,
@@ -106,14 +166,15 @@ const noRedirectFetch: typeof globalThis.fetch = async (input, init) => {
  * that already has a token, or one declaring an interactive grant
  * (authorization_code / password / device_code). OpenCollection import drops
  * `grantType`, so an unset grantType with a token endpoint is treated as
- * client_credentials. Tokens are cached (per token-url + client + scope) so a
- * collection of N requests hits the token endpoint once, not N times.
+ * client_credentials. Tokens are cached in the run's cache (per token-url +
+ * client + scope + secret hash) so a run of N requests hits the token endpoint
+ * once, not N times.
  */
 export async function resolveOAuth2Token(
   auth: AuthConfig | undefined,
   /** @deprecated Unused — pass auth already resolved with `resolveAuthVariables`. */
   _vars: Record<string, string>,
-  opts: { allowLocalhost?: boolean; fetch?: typeof globalThis.fetch; signal?: AbortSignal } = {}
+  opts: OAuth2TokenOptions = {}
 ): Promise<AuthConfig | undefined> {
   if (auth?.type !== 'oauth2' || !auth.oauth2) return auth;
   const o = auth.oauth2;
@@ -130,9 +191,10 @@ export async function resolveOAuth2Token(
   const clientSecret = secretString(o.clientSecret) || undefined;
   const scope = o.scope || undefined;
 
-  const cacheKey = `${tokenUrl}|${clientId}|${scope ?? ''}`;
+  const cache = opts.cache;
+  const cacheKey = tokenCacheKey(tokenUrl, clientId, scope, clientSecret);
   const now = Date.now();
-  const cached = oauth2TokenCache.get(cacheKey);
+  const cached = cache?.get(cacheKey);
   if (cached && (cached.expiresAt === undefined || cached.expiresAt > now + 5000)) {
     return withAccessToken(auth, o, cached.accessToken, cached.tokenType);
   }
@@ -153,13 +215,13 @@ export async function resolveOAuth2Token(
       ...(scope !== undefined ? { scope } : {}),
     },
     {
-      fetch: opts.fetch ?? noRedirectFetch,
+      fetch: opts.fetch ?? createTokenFetch(undefined),
       ...(opts.signal ? { signal: opts.signal } : {}),
     }
   );
   const tokenType = token.token_type ?? 'Bearer';
   const expiresAt = tokenExpiresAt(now, token.expires_in);
-  oauth2TokenCache.set(cacheKey, {
+  cache?.set(cacheKey, {
     accessToken: token.access_token,
     tokenType,
     ...(expiresAt !== undefined ? { expiresAt } : {}),

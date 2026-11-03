@@ -6,6 +6,15 @@ import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/
 import { Agent, type Dispatcher, ProxyAgent, request as undiciRequest } from 'undici';
 
 /**
+ * Escape a field name or filename for a quoted `Content-Disposition` parameter
+ * the way browsers and undici's FormData encoder do (LF → %0A, CR → %0D,
+ * `"` → %22), so a name cannot close the quote or inject header lines.
+ */
+export function escapeDispositionToken(value: string): string {
+  return value.replace(/\n/g, '%0A').replace(/\r/g, '%0D').replace(/"/g, '%22');
+}
+
+/**
  * Serialise a WHATWG `FormData` to a `multipart/form-data` body. undici's
  * low-level `request` does not encode FormData itself, so the shared body
  * builder's FormData (text fields + file Blobs) is turned into raw bytes here.
@@ -21,14 +30,19 @@ async function serializeMultipart(
   for (const [name, value] of fd as unknown as Iterable<[string, string | File]>) {
     parts.push(enc.encode(`--${boundary}\r\n`));
     if (typeof value === 'string') {
-      parts.push(enc.encode(`Content-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`));
+      parts.push(
+        enc.encode(
+          `Content-Disposition: form-data; name="${escapeDispositionToken(name)}"\r\n\r\n${value}\r\n`
+        )
+      );
     } else {
       const file = value as File;
       const ct = file.type || 'application/octet-stream';
       const filename = file.name || 'file';
       parts.push(
         enc.encode(
-          `Content-Disposition: form-data; name="${name}"; filename="${filename}"\r\n` +
+          `Content-Disposition: form-data; name="${escapeDispositionToken(name)}"; ` +
+            `filename="${escapeDispositionToken(filename)}"\r\n` +
             `Content-Type: ${ct}\r\n\r\n`
         )
       );

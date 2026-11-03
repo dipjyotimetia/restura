@@ -5,9 +5,10 @@ import type { SseRequest } from '@shared/types';
 import { request as undiciRequest } from 'undici';
 import type { LoadedRequest } from '../collectionLoader';
 import { resolveVarsDeep } from '../varResolver';
-import { applyAuthHeaders, resolveOAuth2Token } from './auth';
+import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import type { ExecuteOptions, ExecuteOutcome, StreamEvent } from './types';
+import { preflightRefusal, refusedOutcome } from './variable-guard';
 
 const DEFAULT_DURATION_MS = 5000;
 
@@ -33,6 +34,8 @@ export async function executeSse(
       errorMessage: `SSE executor received non-sse request: ${item.type}`,
     };
   }
+  const refused = preflightRefusal(item, opts.vars);
+  if (refused) return refused;
   const req = item.request as SseRequest;
   const url = resolveVarsDeep(req.url, opts.vars);
   const validation = validateURL(url, {
@@ -40,13 +43,7 @@ export async function executeSse(
     allowLocalhost: opts.allowLocalhost,
   });
   if (!validation.valid) {
-    return {
-      status: 400,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: `Invalid URL: ${validation.error ?? 'unknown'}`,
-    };
+    return { ...refusedOutcome(`Invalid URL: ${validation.error ?? 'unknown'}`), status: 400 };
   }
 
   const headers: Record<string, string> = { Accept: 'text/event-stream' };
@@ -86,9 +83,11 @@ export async function executeSse(
       varResolvedAuth,
       opts.externalSecretResolver
     );
-    const resolvedAuth = await resolveOAuth2Token(externalMaterializedAuth, opts.vars, {
-      allowLocalhost: opts.allowLocalhost,
-    });
+    const resolvedAuth = await resolveOAuth2Token(
+      externalMaterializedAuth,
+      opts.vars,
+      oauth2TokenOptions(opts)
+    );
     applyAuthHeaders(resolvedAuth, headers, params);
     const finalUrl = appendQuery(url, params);
     timer = setTimeout(() => controller.abort(), durationMs);

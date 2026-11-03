@@ -57,6 +57,17 @@ export interface LoadedRequest {
    * the iteration row, matching the app's collection runner.
    */
   folderVariables?: Record<string, string>;
+  /**
+   * Private variable names (collection-level) the CLI cannot resolve: a request
+   * using one with no `--env` value is refused (see `executors/variable-guard.ts`).
+   */
+  privateVariableNames?: readonly string[];
+  /**
+   * Secret, private or handle-backed variables declared value-less on the
+   * collection or on a folder above this request: sending the request with no
+   * value for one fails it, before any I/O.
+   */
+  secretVariableNames?: readonly string[];
 }
 
 export type CollectionFormat =
@@ -108,6 +119,38 @@ export interface LoadedCollection {
 export async function loadCollection(
   target: string,
   options: LoadCollectionOptions = {}
+): Promise<LoadedCollection> {
+  return withUnavailableVariableNames(await loadCollectionByFormat(target, options));
+}
+
+/**
+ * Stamp every request with the variable names the CLI cannot resolve (collection
+ * private and secret names, plus the folder-level secret names `flattenInternal`
+ * recorded), so the executor preflight refuses an unresolved one from any entry
+ * point. The collection arrays are shared, not copied, per request.
+ */
+function withUnavailableVariableNames(collection: LoadedCollection): LoadedCollection {
+  const privateNames = collection.meta.privateVariableNames ?? [];
+  const collectionSecrets = collection.meta.secretVariableNames ?? [];
+  if (privateNames.length === 0 && collectionSecrets.length === 0) return collection;
+  return {
+    ...collection,
+    requests: collection.requests.map((request) => {
+      const secretNames = request.secretVariableNames
+        ? [...new Set([...collectionSecrets, ...request.secretVariableNames])]
+        : collectionSecrets;
+      return {
+        ...request,
+        ...(privateNames.length > 0 ? { privateVariableNames: privateNames } : {}),
+        ...(secretNames.length > 0 ? { secretVariableNames: secretNames } : {}),
+      };
+    }),
+  };
+}
+
+async function loadCollectionByFormat(
+  target: string,
+  options: LoadCollectionOptions
 ): Promise<LoadedCollection> {
   const info = await stat(target);
   const limits = options.postmanLimits ?? {};
@@ -212,8 +255,7 @@ function splitCollectionVariables(
   const variables: Array<{ key: string; value: string; enabled?: boolean }> = [];
   const secretNames: string[] = [];
   for (const v of vars ?? []) {
-    const flags = v as { secret?: unknown; private?: unknown; secretRef?: unknown };
-    if (flags.secret === true || flags.private === true || flags.secretRef !== undefined) {
+    if (isValueLessVariable(v)) {
       if (v.key) secretNames.push(v.key);
       continue;
     }
@@ -301,6 +343,7 @@ function flattenInternal(c: Collection): LoadedRequest[] {
     // Folder variables, outer → inner (inner wins), as the app's runner
     // layers them (`flattenRunnables` + `buildValueMap({ folders })`).
     const folderVars = Object.assign({}, ...leaf.folderVariables.map(folderVariableValues));
+    const folderSecrets = [...new Set(leaf.folderVariables.flatMap(folderSecretVariableNames))];
     return {
       relativePath: [...leaf.folderPath, item.name].join('/') || item.name,
       folderPath: leaf.folderPath,
@@ -308,6 +351,7 @@ function flattenInternal(c: Collection): LoadedRequest[] {
       request: effective,
       ...(leaf.blocked ? { blocked: leaf.blocked } : {}),
       ...(Object.keys(folderVars).length > 0 ? { folderVariables: folderVars } : {}),
+      ...(folderSecrets.length > 0 ? { secretVariableNames: folderSecrets } : {}),
     };
   });
 }
@@ -339,12 +383,29 @@ function folderVariableValues(
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const v of vars ?? []) {
-    const flags = v as { secret?: unknown; private?: unknown; secretRef?: unknown };
-    if (!v.key || v.enabled === false) continue;
-    if (flags.secret === true || flags.private === true || flags.secretRef !== undefined) continue;
+    if (!v.key || v.enabled === false || isValueLessVariable(v)) continue;
     out[v.key] = v.value;
   }
   return out;
+}
+
+/**
+ * The enabled folder variables `folderVariableValues` leaves out as value-less:
+ * a request sent with no value for one fails (secret semantics), never with a
+ * literal `{{name}}`.
+ */
+function folderSecretVariableNames(
+  vars: ReadonlyArray<{ key: string; value: string; enabled?: boolean }> | undefined
+): string[] {
+  return (vars ?? [])
+    .filter((v) => v.key && v.enabled !== false && isValueLessVariable(v))
+    .map((v) => v.key);
+}
+
+/** Secret (value-less Postman vault), private or handle-backed: no usable value on disk. */
+function isValueLessVariable(v: object): boolean {
+  const flags = v as { secret?: unknown; private?: unknown; secretRef?: unknown };
+  return flags.secret === true || flags.private === true || flags.secretRef !== undefined;
 }
 
 function reportSkippedPlaceholder(path: string): void {
