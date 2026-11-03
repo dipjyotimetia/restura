@@ -3,7 +3,8 @@ import type { OwsExecutionResult, OwsExecutionStep } from '@shared/ows/executor'
 import { executeOwsWorkflow } from '@shared/ows/executor';
 import { getGraphqlResponseErrors } from '@shared/ows/graphql-operation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { findInheritedAuth, withEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import { findInheritedAuth } from '@/features/auth/lib/authInheritance';
+import { createRunAuthSession } from '@/features/collections/lib/collectionRunnerAuth';
 import { protocolRegistry } from '@/features/registry/registry';
 import { findAncestorFolderVariables } from '@/lib/shared/activeRequestScopes';
 import { buildValueMap, secretVariableNames } from '@/lib/shared/variableScopes';
@@ -112,6 +113,9 @@ export function useOwsWorkflowExecution() {
         subEnvironment: subEnvironment?.variables,
         collection: collection.variables,
       });
+      // A token refreshed by one step is reused by later steps and persisted
+      // onto the saved request when it owns that OAuth2 auth.
+      const runAuth = createRunAuthSession(collection.id);
       const controller = new AbortController();
       controllerRef.current = controller;
       const runGeneration = ++runGenerationRef.current;
@@ -161,7 +165,8 @@ export function useOwsWorkflowExecution() {
               const blocked = postmanBlockedReasonFor(collection, request.id, 'Restura');
               if (blocked) throw new Error(blocked);
               // Nearest folder auth, else the collection auth (single-send rule).
-              const authed = withEffectiveAuth(request, findInheritedAuth(collection, request.id));
+              const inheritedAuth = findInheritedAuth(collection, request.id);
+              const authed = runAuth.authed(request, inheritedAuth);
               const incomingVariables = stringVariables(variables);
               const folderVariables = buildValueMap({
                 folders: findAncestorFolderVariables(collection.items, binding.resourceId),
@@ -192,6 +197,7 @@ export function useOwsWorkflowExecution() {
                 signal,
                 variables: resolvedVariables,
                 secretNames,
+                onAuthRefreshed: runAuth.onRefreshed(request, inheritedAuth),
               });
               if (graphql) {
                 const errors = getGraphqlResponseErrors(response.body);

@@ -117,8 +117,10 @@ export const httpProtocol: ProtocolModule = {
       ctx.onScriptResult(result.scriptResult);
     }
     reportTransportError(result, ctx);
-    // Persist a refreshed OAuth2 token (same seam as GraphQL); without this
-    // every registry / runner send refreshes again with a stale token.
+    // Hand a refreshed OAuth2 token to the caller (same seam as GraphQL). Only
+    // callers that pass `onAuthRefreshed` keep it: useRequestRunner, the
+    // collection runner and OWS workflows (`createRunAuthSession`); any other
+    // caller refreshes again on its next send.
     if (ctx.onAuthRefreshed && result.refreshedAuth) {
       ctx.onAuthRefreshed(result.refreshedAuth);
     }
