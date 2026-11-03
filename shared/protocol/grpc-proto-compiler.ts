@@ -68,15 +68,17 @@ export interface ProtoSourceFile {
 
 /** An `import` that could not be resolved against the uploaded files, WKTs, or bundled protos. */
 export class ProtoImportError extends Error {
-  constructor(
-    public readonly importPath: string,
-    public readonly importedBy: string
-  ) {
+  public readonly importPath: string;
+  public readonly importedBy: string;
+
+  constructor(importPath: string, importedBy: string) {
     super(
       `Cannot resolve import "${importPath}" (imported by ${importedBy}). ` +
         'Upload the imported file alongside it (select several files or a folder), ' +
         'upload a FileDescriptorSet (.binpb / .protoset), or use server reflection.'
     );
+    this.importPath = importPath;
+    this.importedBy = importedBy;
     this.name = 'ProtoImportError';
   }
 }

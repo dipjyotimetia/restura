@@ -29,11 +29,12 @@ const wsMock = vi.hoisted(() => {
     terminate = vi.fn();
     close = vi.fn();
     private listeners = new Map<string, Array<(...args: unknown[]) => void>>();
-    constructor(
-      public url: string,
-      _protocols?: unknown,
-      public options?: { headers?: Record<string, string> }
-    ) {
+    public url: string;
+    public options?: { headers?: Record<string, string> };
+
+    constructor(url: string, _protocols?: unknown, options?: { headers?: Record<string, string> }) {
+      this.url = url;
+      this.options = options;
       if (FakeWebSocket.throwOnConstruct) throw FakeWebSocket.throwOnConstruct;
       FakeWebSocket.instances.push(this);
     }

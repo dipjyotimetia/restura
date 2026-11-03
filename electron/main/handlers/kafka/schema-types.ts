@@ -24,7 +24,11 @@ export interface AvscTypeLike {
 
 /** An integer literal beyond 2^53, kept as its exact decimal text. */
 export class BigIntLiteral {
-  constructor(readonly source: string) {}
+  readonly source: string;
+
+  constructor(source: string) {
+    this.source = source;
+  }
   /** The value for a non-integer (double) target. */
   toNumber(): number {
     return Number(this.source);

@@ -26,13 +26,20 @@ export class DeliveredOffsetCommitter {
   #chain: Promise<void> = Promise.resolve();
   #failing = false;
 
+  private readonly commit: (offsets: CommitPartition[]) => Promise<void>;
+  private readonly onError: (err: Error) => void;
+  private readonly owned?: () => ReadonlySet<string> | undefined;
+
   constructor(
-    private readonly commit: (offsets: CommitPartition[]) => Promise<void>,
+    commit: (offsets: CommitPartition[]) => Promise<void>,
     intervalMs: number,
-    private readonly onError: (err: Error) => void,
+    onError: (err: Error) => void,
     /** Partitions this member currently owns; others are dropped at flush, never retried. */
-    private readonly owned?: () => ReadonlySet<string> | undefined
+    owned?: () => ReadonlySet<string> | undefined
   ) {
+    this.commit = commit;
+    this.onError = onError;
+    this.owned = owned;
     this.#timer = setInterval(() => void this.flush(), intervalMs);
     this.#timer.unref?.();
   }

@@ -70,10 +70,13 @@ class OpenAIDecoder implements StreamDecoder {
   // each new `id` so parallel calls don't collapse onto one bucket.
   private autoToolIdx = -1;
 
-  constructor(
-    private readonly model: string,
-    private readonly models: ModelInfo[]
-  ) {}
+  private readonly model: string;
+  private readonly models: ModelInfo[];
+
+  constructor(model: string, models: ModelInfo[]) {
+    this.model = model;
+    this.models = models;
+  }
 
   feed(rawData: string): ChatStreamEvent[] {
     if (rawData === '[DONE]') {

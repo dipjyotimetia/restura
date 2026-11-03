@@ -158,15 +158,15 @@ export function describeUnknownFields(fields: readonly UnknownJsonField[]): stri
  * than an opaque UNKNOWN.
  */
 export class GrpcUnknownFieldsError extends ConnectError {
-  constructor(
-    public readonly fields: UnknownJsonField[],
-    messageType: string
-  ) {
+  public readonly fields: UnknownJsonField[];
+
+  constructor(fields: UnknownJsonField[], messageType: string) {
     super(
       `Unknown field(s) in ${messageType} request message: ${describeUnknownFields(fields)}. ` +
         'Fix them, or set Settings → Requests → gRPC "Unknown request fields" to Warn or Off to send without them.',
       Code.InvalidArgument
     );
+    this.fields = fields;
     // `name` stays "ConnectError" so `instanceof ConnectError` / ConnectError.from
     // keep working; this subclass check uses the ordinary prototype chain
     // (ConnectError's own [Symbol.hasInstance] is duck-typed).

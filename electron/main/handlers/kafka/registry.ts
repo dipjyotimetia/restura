@@ -245,11 +245,11 @@ function headerMiddleware(headers: Record<string, string>, timeout: number): Reg
 
 /** A registry HTTP error that keeps the status for cache decisions. */
 export class RegistryHttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string
-  ) {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
     this.name = 'RegistryHttpError';
   }
 }

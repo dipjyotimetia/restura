@@ -88,10 +88,13 @@ export class ToolCallBridge {
    */
   private ready = false;
 
-  constructor(
-    private readonly emit: ToolCallEmitter,
-    private readonly timeoutMs: number = TOOL_CALL_TIMEOUT_MS
-  ) {}
+  private readonly emit: ToolCallEmitter;
+  private readonly timeoutMs: number;
+
+  constructor(emit: ToolCallEmitter, timeoutMs: number = TOOL_CALL_TIMEOUT_MS) {
+    this.emit = emit;
+    this.timeoutMs = timeoutMs;
+  }
 
   setOwner(webContentsId: number | null): void {
     if (this.ownerId !== null && this.ownerId !== webContentsId) {

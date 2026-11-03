@@ -58,7 +58,10 @@ export interface CallbackProviderAdapterOptions {
 export class CallbackProviderAdapter implements ProviderAdapter {
   readonly id: string;
 
-  constructor(private readonly options: CallbackProviderAdapterOptions) {
+  private readonly options: CallbackProviderAdapterOptions;
+
+  constructor(options: CallbackProviderAdapterOptions) {
+    this.options = options;
     this.id = options.id;
   }
 

@@ -27,11 +27,11 @@ export function ensureDirectoryAllowed(rawPath: string): string {
 }
 
 export class GitError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string = 'error'
-  ) {
+  public readonly code: string;
+
+  constructor(message: string, code: string = 'error') {
     super(message);
+    this.code = code;
     this.name = 'GitError';
   }
 }

@@ -32,7 +32,11 @@ vi.mock('@/features/grpc/lib/grpcClient', async (importActual) => ({
 vi.mock('@/features/grpc/lib/grpcReflection', async (importActual) => ({
   ...(await importActual<typeof import('@/features/grpc/lib/grpcReflection')>()),
   GrpcReflectionClient: class {
-    constructor(public url: string) {}
+    public url: string;
+
+    constructor(url: string) {
+      this.url = url;
+    }
     discoverServices() {
       return discoverServices(this.url);
     }

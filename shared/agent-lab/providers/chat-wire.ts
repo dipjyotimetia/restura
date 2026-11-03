@@ -111,7 +111,10 @@ const CREDENTIAL_HANDLE = 'agent-credential';
 export class ChatWireProviderAdapter implements ProviderAdapter {
   readonly id: ChatWireProviderId;
 
-  constructor(private readonly options: ChatWireProviderAdapterOptions) {
+  private readonly options: ChatWireProviderAdapterOptions;
+
+  constructor(options: ChatWireProviderAdapterOptions) {
+    this.options = options;
     this.id = options.id;
   }
 
