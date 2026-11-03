@@ -11,7 +11,7 @@ import type {
   RequestBody,
 } from '@/types';
 import { type BrunoLangModule, loadBrunoLang } from '../bruno-lang';
-import { markExplicitNoAuth, mergeInheritedHeaders } from './hoppscotch';
+import { guardLostAuth, type LostAuth, mergeInheritedHeaders } from './hoppscotch';
 import { applyEnvironmentSecretPolicy, type EnvironmentImportOptions } from './postman-environment';
 import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
 
@@ -151,13 +151,13 @@ function bruContainer(
   fields: BrunoContainerFields;
   scope: BrunoScope;
   description?: string;
-  /** Set when an explicit `mode: none` sits below this configured ancestor. */
-  noAuthSource?: string;
+  /** Why this node's auth was lost on import (explicit `none` / unsupported mode). */
+  lostAuth?: LostAuth;
 } {
   const authBlock = isRecord(bru.auth) ? bru.auth : undefined;
   const mode = typeof authBlock?.mode === 'string' ? authBlock.mode : undefined;
   const auth = bruAuthToInternal(authBlock, mode, name, warnings);
-  const noAuthSource = mode === 'none' ? parent.authSource : undefined;
+  const lostAuth = bruLostAuth(mode, auth);
 
   const variables = extractCollectionVariables(bru);
   const vars = isRecord(bru.vars) ? bru.vars : undefined;
@@ -193,8 +193,18 @@ function bruContainer(
       authSource: configured ? name : parent.authSource,
     },
     ...(docs && isCollection ? { description: docs } : {}),
-    ...(noAuthSource ? { noAuthSource } : {}),
+    ...(lostAuth ? { lostAuth } : {}),
   };
+}
+
+/**
+ * Why a Bruno auth mode that converted to `none` is lossy: an explicit
+ * `none`, or a mode Restura does not support (already reported as
+ * `unsupported-auth`). `inherit` is exactly Restura's semantics.
+ */
+function bruLostAuth(mode: string | undefined, converted: AuthConfig): LostAuth | undefined {
+  if (!mode || mode === 'inherit' || converted.type !== 'none') return undefined;
+  return mode === 'none' ? { kind: 'explicit-none' } : { kind: 'unsupported', type: mode };
 }
 
 function unmodelled(construct: string, requestName: string, detail: string): ImportWarning {
@@ -379,13 +389,9 @@ function treeToItems(
       ...(container?.fields ?? {}),
       items: treeToItems(folder, container?.scope ?? scope, warnings),
     };
-    // `auth { mode: none }` on a folder below a configured ancestor: refuse
-    // to send that ancestor's credential to the folder's requests.
-    out.push(
-      container?.noAuthSource
-        ? markExplicitNoAuth(item, 'Bruno', name, container.noAuthSource, warnings)
-        : item
-    );
+    // An explicit `none` or unsupported folder auth below a configured
+    // ancestor: refuse to send that ancestor's credential to its requests.
+    out.push(guardLostAuth(item, container?.lostAuth, 'Bruno', name, scope.authSource, warnings));
   }
   for (const r of node.requests) {
     out.push(bruRequestToItem(r.bru, r.name, scope, warnings));
@@ -414,18 +420,16 @@ function bruRequestToItem(
       requestName: name,
     });
   }
-  const item: CollectionItem = {
-    id: uuid(),
-    name,
-    type: 'request',
-    request: bruToHttpRequest(bru, name, scope, warnings),
-  };
-  // `auth: inherit` is exactly Restura's semantics; an explicit `auth: none`
-  // below a configured ancestor is marked so the send guard refuses it.
+  const request = bruToHttpRequest(bru, name, scope, warnings);
+  const item: CollectionItem = { id: uuid(), name, type: 'request', request };
+  // An explicit `auth: none` or unsupported mode below a configured ancestor
+  // is marked so the send guard refuses it instead of inheriting.
   const declaredAuth = isRecord(bru.http) ? bru.http.auth : undefined;
-  return declaredAuth === 'none' && scope.authSource
-    ? markExplicitNoAuth(item, 'Bruno', name, scope.authSource, warnings)
-    : item;
+  const lost = bruLostAuth(
+    typeof declaredAuth === 'string' ? declaredAuth : undefined,
+    request.auth
+  );
+  return guardLostAuth(item, lost, 'Bruno', name, scope.authSource, warnings);
 }
 
 function bruToHttpRequest(

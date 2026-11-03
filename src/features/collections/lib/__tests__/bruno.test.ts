@@ -993,3 +993,71 @@ get {
     expect(JSON.stringify(collection)).not.toContain('noauth');
   });
 });
+
+describe('Bruno unsupported auth below an authenticated parent', () => {
+  const bru = (name: string, mode: string) => `meta {
+  name: ${name}
+  type: http
+  seq: 1
+}
+
+get {
+  url: https://api.example.com/x
+  body: none
+  auth: ${mode}
+}
+`;
+  const source = (withCollectionAuth: boolean): BrunoSource => ({
+    kind: 'directory',
+    entries: [
+      {
+        relativePath: 'bruno.json',
+        content: JSON.stringify({ version: '1', name: 'Unsupported' }),
+      },
+      {
+        relativePath: 'collection.bru',
+        content: withCollectionAuth
+          ? 'auth {\n  mode: bearer\n}\n\nauth:bearer {\n  token: parent\n}\n'
+          : 'headers {\n  X-A: 1\n}\n',
+      },
+      { relativePath: 'magic.bru', content: bru('Magic call', 'magic') },
+      { relativePath: 'inheriting.bru', content: bru('Inheriting', 'inherit') },
+      {
+        relativePath: 'edge/folder.bru',
+        content: 'meta {\n  name: Edge\n}\n\nauth {\n  mode: akamai-edgegrid\n}\n',
+      },
+      { relativePath: 'edge/child.bru', content: bru('Under edge folder', 'inherit') },
+    ],
+  });
+
+  function idOf(items: CollectionItem[], name: string): string {
+    return findRequest(items, name)?.request?.id ?? '';
+  }
+
+  it('refuses to send the parent credential instead of the unsupported auth', async () => {
+    const { collection, warnings } = await importBrunoCollection(source(true));
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Magic call'), 'test')
+    ).toMatch(/magic/);
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Under edge folder'), 'test')
+    ).toMatch(/akamai-edgegrid/);
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Inheriting'), 'test')
+    ).toBeUndefined();
+    expect(warnings).toContainEqual(
+      expect.objectContaining({ kind: 'unsupported-auth', authType: 'magic' })
+    );
+  });
+
+  it('leaves an unsupported auth with nothing configured above sendable', async () => {
+    const { collection } = await importBrunoCollection(source(false));
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Magic call'), 'test')
+    ).toBeUndefined();
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Under edge folder'), 'test')
+    ).toBeUndefined();
+    expect(JSON.stringify(collection)).not.toContain('_postman');
+  });
+});

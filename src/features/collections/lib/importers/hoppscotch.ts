@@ -356,7 +356,7 @@ export function mergeInheritedHeaders(inherited: KeyValue[], own: KeyValue[]): K
  * every send path) refuses it, and say so. Callers invoke this only when a
  * configured auth sits above the node — with nothing above, nothing can leak.
  */
-export function markExplicitNoAuth<T extends object>(
+function markExplicitNoAuth<T extends object>(
   node: T,
   format: string,
   name: string,
@@ -373,17 +373,59 @@ export function markExplicitNoAuth<T extends object>(
 }
 
 /**
- * The configured ancestor an explicit Hoppscotch "None" (or disabled auth)
- * would inherit from, or undefined. `inherit` is exactly Restura's semantics.
+ * An unsupported auth type (imported as `none`, already reported as
+ * `unsupported-auth`) below an authenticated ancestor would inherit that
+ * ancestor's credential instead. Record the source TYPE NAME only — never a
+ * credential — in the shared sidecar shape the send guard recognises
+ * (`hasUnsupportedPostmanAuth`), so the request is refused. The type is
+ * namespaced (`hoppscotch:hawk`) so the Postman exporter never mistakes it for
+ * a Postman auth type: it exports as `noauth` and is reported.
  */
-function explicitNoAuthSource(
+function markUnsupportedAuth<T extends object>(node: T, format: string, authType: string): T {
+  return attachPostmanSidecar(node, {
+    auth: { type: `${format.toLowerCase()}:${authType.slice(0, 64)}` },
+  });
+}
+
+/** How a node's source auth was lost when it imported as Restura `none`. */
+export type LostAuth = { kind: 'explicit-none' } | { kind: 'unsupported'; type: string };
+
+/**
+ * Guard a node whose source auth was lost on import: only when a configured
+ * auth sits above it (`authSource`) can Restura's inherit-on-`none`
+ * substitute a credential the source tool would not send. With nothing above,
+ * the node stays sendable (Postman semantics).
+ */
+export function guardLostAuth<T extends object>(
+  node: T,
+  lost: LostAuth | undefined,
+  format: string,
+  name: string,
+  authSource: string | undefined,
+  warnings: ImportWarning[]
+): T {
+  if (!lost || !authSource) return node;
+  return lost.kind === 'explicit-none'
+    ? markExplicitNoAuth(node, format, name, authSource, warnings)
+    : markUnsupportedAuth(node, format, lost.type);
+}
+
+/**
+ * Why a Hoppscotch auth that converted to `none` is lossy: an explicit "None"
+ * or disabled auth, or an unsupported type. `inherit` is exactly Restura's
+ * semantics and loses nothing.
+ */
+function hoppLostAuth(
   rawAuth: Record<string, unknown> | undefined,
-  parent: HoppScope
-): string | undefined {
-  if (!rawAuth || !parent.authSource) return undefined;
-  return rawAuth.authType === 'none' || rawAuth.authActive === false
-    ? parent.authSource
-    : undefined;
+  converted: AuthConfig | undefined
+): LostAuth | undefined {
+  if (!rawAuth || (converted && converted.type !== 'none')) return undefined;
+  if (rawAuth.authType === 'none' || rawAuth.authActive === false) return { kind: 'explicit-none' };
+  if (rawAuth.authType === 'inherit') return undefined;
+  return {
+    kind: 'unsupported',
+    type: typeof rawAuth.authType === 'string' ? rawAuth.authType : 'unknown',
+  };
 }
 
 function childItems(
@@ -410,10 +452,8 @@ function folderToItem(
     ...(auth ? { auth } : {}),
     items: childItems(folder, childScope(folder, auth, parent), warnings),
   };
-  const noAuthSource = auth ? undefined : explicitNoAuthSource(folder.auth, parent);
-  return noAuthSource
-    ? markExplicitNoAuth(item, 'Hoppscotch', folder.name, noAuthSource, warnings)
-    : item;
+  const lost = hoppLostAuth(folder.auth, auth);
+  return guardLostAuth(item, lost, 'Hoppscotch', folder.name, parent.authSource, warnings);
 }
 
 function requestToItem(
@@ -424,11 +464,8 @@ function requestToItem(
 ): CollectionItem {
   const request = requestToInternal(rq, parent, scope, warnings);
   const item: CollectionItem = { id: uuid(), name: rq.name, type: 'request', request };
-  const noAuthSource =
-    request.auth.type === 'none' ? explicitNoAuthSource(rq.auth, scope) : undefined;
-  return noAuthSource
-    ? markExplicitNoAuth(item, 'Hoppscotch', rq.name, noAuthSource, warnings)
-    : item;
+  const lost = hoppLostAuth(rq.auth, request.auth);
+  return guardLostAuth(item, lost, 'Hoppscotch', rq.name, scope.authSource, warnings);
 }
 
 function requestToInternal(

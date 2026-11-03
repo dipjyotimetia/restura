@@ -1,6 +1,8 @@
 import { findInheritedAuth } from '@shared/auth/inheritance';
+import { exportPostmanV21 } from '@shared/collections/postman';
 import { postmanBlockedReasonFor } from '@shared/collections/postman/auth-guard';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import type { CollectionItem, HttpRequest } from '@/types';
 import {
   importHoppscotchCollection,
@@ -667,5 +669,135 @@ describe('Hoppscotch explicit No Auth below an authenticated parent', () => {
     const id = idOf(collection.items, 'Explicit none');
     expect(postmanBlockedReasonFor(collection, id, 'test')).toBeUndefined();
     expect(JSON.stringify(collection)).not.toContain('noauth');
+  });
+});
+
+describe('Hoppscotch unsupported auth below an authenticated parent', () => {
+  const request = (name: string, auth: Record<string, unknown>) => ({
+    v: '6',
+    endpoint: 'https://api.example.com/x',
+    name,
+    params: [],
+    headers: [],
+    method: 'GET',
+    auth,
+    preRequestScript: '',
+    testScript: '',
+    body: { contentType: null, body: null },
+    requestVariables: [],
+  });
+  const fixture = (withParentAuth: boolean) => ({
+    v: 2,
+    name: 'Unsupported',
+    folders: [
+      {
+        v: 2,
+        name: 'Hawk folder',
+        folders: [],
+        requests: [request('Under hawk folder', { authType: 'inherit', authActive: true })],
+        auth: { authType: 'hawk', authActive: true, authId: 'id', authKey: 'k-secret' },
+        headers: [],
+      },
+    ],
+    requests: [
+      request('Magic call', { authType: 'magic-token', authActive: true, token: 'm-secret' }),
+      request('Inheriting', { authType: 'inherit', authActive: true }),
+    ],
+    ...(withParentAuth ? { auth: { authType: 'bearer', authActive: true, token: 'parent' } } : {}),
+    headers: [],
+  });
+
+  function idOf(items: CollectionItem[] | undefined, name: string): string {
+    for (const item of items ?? []) {
+      if (item.type === 'request' && item.name === name && item.request) return item.request.id;
+      const nested = item.items ? idOf(item.items, name) : '';
+      if (nested) return nested;
+    }
+    return '';
+  }
+
+  it('refuses to send the parent credential instead of the unsupported auth', () => {
+    const { collection, warnings } = importHoppscotchCollection(fixture(true));
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Magic call'), 'test')
+    ).toMatch(/magic-token/);
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Under hawk folder'), 'test')
+    ).toMatch(/hawk/);
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Inheriting'), 'test')
+    ).toBeUndefined();
+    // The unsupported-auth warning is kept; no credential value reaches the marker.
+    expect(warnings).toContainEqual(
+      expect.objectContaining({ kind: 'unsupported-auth', authType: 'magic-token' })
+    );
+    expect(JSON.stringify(collection)).not.toMatch(/m-secret|k-secret/);
+  });
+
+  it('leaves an unsupported auth with nothing configured above sendable', () => {
+    const { collection } = importHoppscotchCollection(fixture(false));
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Magic call'), 'test')
+    ).toBeUndefined();
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Under hawk folder'), 'test')
+    ).toBeUndefined();
+    expect(JSON.stringify(collection)).not.toContain('_postman');
+  });
+
+  it('keeps the marker through the store migration (migrateCollectionAuth)', () => {
+    const { collection } = importHoppscotchCollection(fixture(true));
+    useCollectionStore.getState().addCollection(collection);
+    const stored = useCollectionStore.getState().collections.find((c) => c.id === collection.id);
+    if (!stored) throw new Error('collection was not stored');
+    expect(postmanBlockedReasonFor(stored, idOf(stored.items, 'Magic call'), 'test')).toMatch(
+      /magic-token/
+    );
+    useCollectionStore.getState().removeCollection(collection.id);
+  });
+
+  it('keeps the marker through desktop secret-handle conversion', async () => {
+    vi.resetModules();
+    let n = 0;
+    vi.doMock('@/lib/shared/platform', () => ({
+      isElectron: () => true,
+      getElectronAPI: () => ({
+        secrets: { store: async () => ({ ok: true as const, id: `h-${++n}` }) },
+      }),
+    }));
+    try {
+      const { convertCollectionSecretsToHandles } = await import(
+        '@/lib/shared/secretRef-migrations'
+      );
+      const { collection } = importHoppscotchCollection(fixture(true));
+      const converted = await convertCollectionSecretsToHandles(collection);
+      expect(converted.auth?.bearer?.token).toEqual(expect.objectContaining({ kind: 'handle' }));
+      expect(
+        postmanBlockedReasonFor(converted, idOf(converted.items, 'Magic call'), 'test')
+      ).toMatch(/magic-token/);
+      expect(
+        postmanBlockedReasonFor(converted, idOf(converted.items, 'Inheriting'), 'test')
+      ).toBeUndefined();
+    } finally {
+      vi.doUnmock('@/lib/shared/platform');
+    }
+  });
+
+  it('exports the unsupported node to Postman as noauth, never as a Postman auth type', () => {
+    const { collection } = importHoppscotchCollection(fixture(true));
+    const { collection: v21 } = exportPostmanV21(collection);
+    // Round-trip through JSON: assert on the wire shape, not the export types.
+    const doc: unknown = JSON.parse(JSON.stringify(v21));
+    const json = JSON.stringify(doc);
+    expect(json).not.toMatch(/hoppscotch:|"hawk"|magic-token/);
+    expect(doc).toMatchObject({
+      item: expect.arrayContaining([
+        expect.objectContaining({ name: 'Hawk folder', auth: { type: 'noauth' } }),
+        expect.objectContaining({
+          name: 'Magic call',
+          request: expect.objectContaining({ auth: { type: 'noauth' } }),
+        }),
+      ]),
+    });
   });
 });
