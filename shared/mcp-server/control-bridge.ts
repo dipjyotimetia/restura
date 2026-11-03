@@ -28,11 +28,11 @@ export const APPROVAL_TIMEOUT_MS = 5 * 60_000;
 /** Concurrent in-flight tool calls main will park before refusing new ones. */
 export const MAX_IN_FLIGHT_TOOL_CALLS = 16;
 
-export const ToolCallClientSchema = z.object({
-  name: z.string().max(200),
-  version: z.string().max(100).optional(),
-});
-export type ToolCallClient = z.infer<typeof ToolCallClientSchema>;
+/** Self-reported MCP client identity — display only, never trusted. */
+export interface ToolCallClient {
+  name: string;
+  version?: string;
+}
 
 /** Payload of the main → renderer `mcp-control:tool-call` event. */
 export interface ToolCallEvent {
@@ -43,29 +43,29 @@ export interface ToolCallEvent {
   client?: ToolCallClient;
 }
 
-export const ToolResultSchema = z.discriminatedUnion('ok', [
-  z.object({ ok: z.literal(true), data: z.unknown() }),
-  z.object({ ok: z.literal(false), error: z.string().max(10_000) }),
-]);
-export type ControlToolResult = z.infer<typeof ToolResultSchema>;
+/** Largest error message carried back from the renderer. */
+export const MAX_TOOL_ERROR_CHARS = 10_000;
 
-/** Payload of the renderer → main `mcp-control:tool-result` invoke. */
-export const ToolCallResultPayloadSchema = z.object({
-  callId: z.string().uuid(),
-  result: ToolResultSchema,
-});
-export type ToolCallResultPayload = z.infer<typeof ToolCallResultPayloadSchema>;
+export type ControlToolResult = { ok: true; data: unknown } | { ok: false; error: string };
 
-/** Payload of `mcp-control:start`. */
-export const ControlServerStartSchema = z.object({
-  preferredPort: z.number().int().min(1024).max(65535).optional(),
+/**
+ * Payload of the renderer → main `mcp-control:tool-result` invoke. Validated
+ * in main by `ToolCallResultPayloadSchema` (electron/main/ipc/validators/mcp-control.ts).
+ */
+export interface ToolCallResultPayload {
+  callId: string;
+  result: ControlToolResult;
+}
+
+/** Payload of `mcp-control:start` (validated by `ControlServerStartSchema`). */
+export interface ControlServerStartOptions {
+  preferredPort?: number;
   /**
    * Restart with a new bearer token, invalidating configured HTTP clients.
    * (Every start mints a fresh token; this just forces a restart now.)
    */
-  rotateToken: z.boolean().optional(),
-});
-export type ControlServerStartOptions = z.infer<typeof ControlServerStartSchema>;
+  rotateToken?: boolean;
+}
 
 export interface ControlServerStatus {
   running: boolean;

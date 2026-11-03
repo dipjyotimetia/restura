@@ -15,7 +15,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { toNodeHandler } from '@modelcontextprotocol/node';
-import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import { CLIENT_INFO_META_KEY, createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import {
   CONTROL_SERVER_PATH,
   type ControlToolResult,
@@ -87,7 +87,10 @@ export function registerControlTools(
         inputSchema: unknown;
         annotations: ControlToolAnnotations;
       },
-      cb: (args: unknown, ctx: { mcpReq: { signal: AbortSignal } }) => Promise<CallToolContent>
+      cb: (
+        args: unknown,
+        ctx: { mcpReq: { signal: AbortSignal; _meta?: Record<string, unknown> } }
+      ) => Promise<CallToolContent>
     ) => void;
     register(
       tool.name,
@@ -98,7 +101,9 @@ export function registerControlTools(
         annotations: tool.annotations,
       },
       async (args, ctx) => {
-        const client = getClient();
+        // 2026-07-28-era clients send their initialize identity on every
+        // request; prefer it to the transport-level guess.
+        const client = clientFromMeta(ctx.mcpReq._meta) ?? getClient();
         return handle({
           tool: tool.name,
           input: args ?? {},
@@ -108,6 +113,25 @@ export function registerControlTools(
       }
     );
   }
+}
+
+/** The `io.modelcontextprotocol/clientInfo` request meta, when well-formed. */
+export function clientFromMeta(
+  meta: Record<string, unknown> | undefined
+): ToolCallClient | undefined {
+  const info = meta?.[CLIENT_INFO_META_KEY];
+  if (!info || typeof info !== 'object') return undefined;
+  const { name, version } = info as { name?: unknown; version?: unknown };
+  if (typeof name !== 'string' || name.trim() === '') return undefined;
+  const clean = (v: string) =>
+    v
+      .replace(/[^\x20-\x7e]/g, '')
+      .trim()
+      .slice(0, 120);
+  return {
+    name: clean(name),
+    ...(typeof version === 'string' && version ? { version: clean(version).slice(0, 40) } : {}),
+  };
 }
 
 /** A fresh control server instance whose tools answer through `handle`. */
@@ -135,6 +159,9 @@ export function contentHandlerFor(dispatch: ControlToolDispatcher): ControlToolC
 
 /** How long close() lets in-flight responses flush before cutting sockets. */
 const CLOSE_DRAIN_MS = 1_000;
+
+/** Largest request body the listener parses (import_collection documents). */
+export const MAX_CONTROL_REQUEST_BYTES = 24 * 1024 * 1024;
 
 /** Requests per minute the listener accepts (all clients together). */
 export const CONTROL_HTTP_RATE_LIMIT = 600;
@@ -194,6 +221,9 @@ export async function startControlHttpServer(
     },
     {
       onerror: (error) => log.warn('control server request error', { message: error.message }),
+      // Sized for the largest import_collection document plus JSON escaping;
+      // anything bigger is answered 413 before it is parsed.
+      maxRequestBodySize: MAX_CONTROL_REQUEST_BYTES,
     }
   );
   const nodeHandler = toNodeHandler(handler);

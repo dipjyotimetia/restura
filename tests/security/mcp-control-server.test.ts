@@ -262,6 +262,39 @@ describe('MCP control server: no read tool leaks a secret', () => {
   });
 });
 
+describe('MCP control server: masks never overwrite secrets', () => {
+  it.each(['i-basic', 'i-gql', 'i-form', 'i-grpc', 'i-mcp'])(
+    'get_request %s → update_request with every field copied back keeps every secret',
+    async (requestId) => {
+      useSettingsStore.getState().updateSettings({
+        mcpServer: {
+          ...DEFAULT_MCP_SERVER_SETTINGS,
+          enabled: true,
+          approvalMode: 'auto-approve-edits',
+          consent: { ...DEFAULT_MCP_SERVER_SETTINGS.consent, defaultLevel: 'edit' },
+        },
+      });
+      const before = JSON.stringify(useCollectionStore.getState().collections);
+      const read = await runControlTool(call('get_request', { requestId }));
+      if (!read.ok) throw new Error(read.error);
+      const d = read.data as Record<string, unknown>;
+      const patch: Record<string, unknown> = {};
+      for (const key of ['url', 'headers', 'params', 'metadata', 'message', 'defaultParams'])
+        if (d[key] !== undefined) patch[key] = d[key];
+      if (d.body) patch.body = d.body;
+      const write = await runControlTool(call('update_request', { requestId, patch }));
+      // Either the copy-back is accepted with real values kept, or refused.
+      if (write.ok) {
+        const after = JSON.stringify(useCollectionStore.getState().collections);
+        for (const secret of SECRETS) {
+          if (before.includes(secret)) expect(after, secret).toContain(secret);
+        }
+        expect(after).not.toMatch(/\(redacted\)|%28secret%29|\(secret\)/);
+      }
+    }
+  );
+});
+
 describe('MCP control server: no self-escalation', () => {
   const TOOLS_DIR = path.resolve(__dirname, '../../src/features/mcp-server/lib/tools');
 
@@ -273,7 +306,10 @@ describe('MCP control server: no self-escalation', () => {
   });
 
   it('the only consent writes grant edit on the id that was just created', () => {
-    const source = readFileSync(path.join(TOOLS_DIR, 'editTools.ts'), 'utf8');
+    const source = readdirSync(TOOLS_DIR)
+      .filter((file) => file.endsWith('.ts'))
+      .map((file) => readFileSync(path.join(TOOLS_DIR, file), 'utf8'))
+      .join('\n');
     const grants = source.match(/grant\(\(c\) => [^)]*\)/g) ?? [];
     expect(grants.sort()).toEqual(
       [

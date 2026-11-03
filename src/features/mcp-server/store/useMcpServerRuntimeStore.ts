@@ -53,17 +53,26 @@ export interface ActivityEntry {
 
 export const MAX_ACTIVITY_ENTRIES = 200;
 
+/** How an agent launches `--mcp-server` for this install (from main). */
+export interface AgentLaunch {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
 interface McpServerRuntimeState {
   status: ControlServerStatus;
   /** Bearer token, memory only — for the copyable HTTP client config. */
   token: string | null;
   lastError: string | null;
+  launch: AgentLaunch | null;
   approvals: PendingApproval[];
   secretPrompts: PendingSecretPrompt[];
   activity: ActivityEntry[];
 
   setStatus: (status: ControlServerStatus, token?: string | null) => void;
   setLastError: (message: string | null) => void;
+  setLaunch: (launch: AgentLaunch) => void;
   pushActivity: (entry: ActivityEntry) => void;
   updateActivity: (id: string, patch: Partial<ActivityEntry>) => void;
   clearActivity: () => void;
@@ -76,6 +85,7 @@ export const useMcpServerRuntimeStore = create<McpServerRuntimeState>()((set) =>
   status: { running: false, inFlight: 0 },
   token: null,
   lastError: null,
+  launch: null,
   approvals: [],
   secretPrompts: [],
   activity: [],
@@ -83,6 +93,7 @@ export const useMcpServerRuntimeStore = create<McpServerRuntimeState>()((set) =>
   setStatus: (status, token) =>
     set((state) => ({ status, token: token === undefined ? state.token : token })),
   setLastError: (lastError) => set({ lastError }),
+  setLaunch: (launch) => set({ launch }),
   pushActivity: (entry) =>
     set((state) => ({ activity: [entry, ...state.activity].slice(0, MAX_ACTIVITY_ENTRIES) })),
   updateActivity: (id, patch) =>

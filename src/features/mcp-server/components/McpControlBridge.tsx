@@ -9,12 +9,22 @@
  *  - renders the approval and secret-prompt dialogs.
  */
 
+import type { ControlToolResult } from '@shared/mcp-server/control-bridge';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { cancelAllControlToolCalls, cancelControlToolCall, runControlTool } from '../lib/runtime';
-import { getMcpServerSettings, useMcpServerSettings } from '../lib/settings';
+import {
+  boundedError,
+  cancelAllControlToolCalls,
+  cancelControlToolCall,
+  runControlTool,
+} from '../lib/runtime';
+import {
+  getFreshMcpServerSettings,
+  getMcpServerSettings,
+  useMcpServerSettings,
+} from '../lib/settings';
 import { useMcpServerRuntimeStore } from '../store/useMcpServerRuntimeStore';
 import { McpApprovalDialog } from './McpApprovalDialog';
 import { McpSecretPromptDialog } from './McpSecretPromptDialog';
@@ -43,47 +53,104 @@ function useSettingsHydrated(): boolean {
   return hydrated;
 }
 
+function reportIpcError(action: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  useMcpServerRuntimeStore.getState().setLastError(`${action}: ${message}`);
+}
+
+/** Refresh status, token and the launch command from main. Never throws. */
+export async function refreshMcpControlStatus(): Promise<void> {
+  const api = getElectronAPI()?.mcpControl;
+  if (!api) return;
+  try {
+    const res = await api.status();
+    const store = useMcpServerRuntimeStore.getState();
+    store.setStatus(res.status, res.status.running ? (res.token ?? null) : null);
+    store.setLaunch(res.launch);
+  } catch (err) {
+    reportIpcError('Could not read the MCP server status', err);
+  }
+}
+
 /** Start / stop the main-process server. Exported for the Settings screen. */
 export async function startMcpControlServer(options: { rotateToken?: boolean } = {}) {
   const api = getElectronAPI()?.mcpControl;
   if (!api) return;
   const { preferredPort } = getMcpServerSettings();
-  const res = await api.start({
-    ...(preferredPort !== undefined ? { preferredPort } : {}),
-    ...(options.rotateToken ? { rotateToken: true } : {}),
-  });
   const store = useMcpServerRuntimeStore.getState();
-  if (res.ok) {
-    store.setStatus(res.status, res.token);
-    store.setLastError(null);
-  } else {
-    store.setLastError(res.error);
-    toast.error('Could not start the MCP server', { description: res.error });
+  try {
+    const res = await api.start({
+      ...(preferredPort !== undefined ? { preferredPort } : {}),
+      ...(options.rotateToken ? { rotateToken: true } : {}),
+    });
+    if (res.ok) {
+      store.setStatus(res.status, res.token);
+      store.setLaunch(res.launch);
+      store.setLastError(null);
+    } else {
+      store.setLastError(res.error);
+      toast.error('Could not start the MCP server', { description: res.error });
+    }
+  } catch (err) {
+    reportIpcError('Could not start the MCP server', err);
   }
 }
 
 /**
  * Adopt a server that is already running (another window, or this one before
  * a reload) instead of restarting it — a restart would move ownership and
- * cancel in-flight calls. Start one only when none is running.
+ * cancel in-flight calls. Start one only when none is running AND the newest
+ * settings (possibly written by another window) still say enabled.
  */
 async function ensureMcpControlServer() {
   const api = getElectronAPI()?.mcpControl;
   if (!api) return;
-  const current = await api.status();
-  if (current.ok && current.status.running) {
-    useMcpServerRuntimeStore.getState().setStatus(current.status);
+  try {
+    const current = await api.status();
+    if (current.status.running) {
+      const store = useMcpServerRuntimeStore.getState();
+      store.setStatus(current.status, current.token ?? null);
+      store.setLaunch(current.launch);
+      return;
+    }
+  } catch (err) {
+    reportIpcError('Could not read the MCP server status', err);
     return;
   }
-  await startMcpControlServer();
+  // Another window may have turned the server off: never restart it from a
+  // stale in-memory copy of the setting.
+  const fresh = await getFreshMcpServerSettings();
+  if (fresh.enabled) await startMcpControlServer();
 }
 
 export async function stopMcpControlServer() {
   const api = getElectronAPI()?.mcpControl;
   if (!api) return;
   cancelAllControlToolCalls();
-  const res = await api.stop();
-  useMcpServerRuntimeStore.getState().setStatus(res.status, null);
+  try {
+    const res = await api.stop();
+    useMcpServerRuntimeStore.getState().setStatus(res.status, null);
+  } catch (err) {
+    reportIpcError('Could not stop the MCP server', err);
+  }
+}
+
+/** Answer one call; if main rejects the answer, still release the agent with a short error. */
+async function answer(
+  api: NonNullable<ReturnType<typeof getElectronAPI>>['mcpControl'],
+  callId: string,
+  result: ControlToolResult
+): Promise<void> {
+  try {
+    await api.sendToolResult({ callId, result });
+  } catch {
+    await api
+      .sendToolResult({
+        callId,
+        result: { ok: false, error: 'Restura could not return this result. Try a narrower call.' },
+      })
+      .catch(() => undefined);
+  }
 }
 
 export function McpControlBridge() {
@@ -98,12 +165,8 @@ export function McpControlBridge() {
     if (!api) return;
     const offCall = api.onToolCall((call) => {
       void runControlTool(call)
-        .catch((err: unknown) => ({
-          ok: false as const,
-          error: err instanceof Error ? err.message : String(err),
-        }))
-        .then((result) => api.sendToolResult({ callId: call.callId, result }))
-        .catch(() => undefined);
+        .catch((err: unknown) => ({ ok: false as const, error: boundedError(err) }))
+        .then((result) => answer(api, call.callId, result));
     });
     const offCancel = api.onToolCancelled(({ callId }) => cancelControlToolCall(callId));
     return () => {
@@ -120,15 +183,18 @@ export function McpControlBridge() {
     if (!settings.enabled && running) void stopMcpControlServer();
   }, [settings.enabled, hydrated, running]);
 
-  // Status (port, in-flight, last call) while running.
+  // Launch command for the Settings snippets (even while the server is off).
+  useEffect(() => {
+    if (isElectron()) void refreshMcpControlStatus();
+  }, []);
+
+  // While running: status (port, in-flight, last call), and the newest
+  // settings, so a change made in another window shows up and takes effect.
   useEffect(() => {
     if (!isElectron() || !running) return;
-    const api = getElectronAPI()?.mcpControl;
-    if (!api) return;
     const id = setInterval(() => {
-      void api.status().then((res) => {
-        if (res.ok) useMcpServerRuntimeStore.getState().setStatus(res.status);
-      });
+      void refreshMcpControlStatus();
+      void getFreshMcpServerSettings();
     }, STATUS_POLL_MS);
     return () => clearInterval(id);
   }, [running]);

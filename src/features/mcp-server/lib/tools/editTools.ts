@@ -5,15 +5,7 @@
  * to its state just before the change.
  */
 
-import {
-  canCreateCollection,
-  canCreateEnvironment,
-  canEdit,
-  canEditEnvironment,
-  type McpServerConsent,
-  setCollectionConsent,
-  setEnvironmentConsent,
-} from '@shared/mcp-server/consent';
+import { canCreateCollection, canEdit, setCollectionConsent } from '@shared/mcp-server/consent';
 import { type ControlToolInput, MAX_AGENT_SCRIPT_CHARS } from '@shared/mcp-server/control-tools';
 import * as yaml from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
@@ -31,13 +23,15 @@ import { importPostmanWithReport } from '@/features/collections/lib/importers/po
 import { makeFolderItem } from '@/features/collections/lib/itemFactory';
 import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useFileCollectionStore } from '@/store/useFileCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
-import type { Collection, CollectionItem, Environment } from '@/types';
+import { useWorkflowStore } from '@/store/useWorkflowStore';
+import type { Collection, CollectionItem } from '@/types';
 import { isBrokerRequest } from '@/types';
 import { applyRequestPatch, buildRequestFromInput } from '../requestInput';
-import { updateMcpConsent } from '../settings';
+import { containsPlaceholder, restoreRedactedPatch } from '../savedRedaction';
 import { collectItemIds, isDescendant, locateItem, someItem } from '../tree';
+import { fingerprint, grant, UndoConflictError } from './editShared';
 import { clip, refuse, SETTINGS_HINT, scriptDetails, type ToolEnv, type ToolImpl } from './types';
 
 // ---------------------------------------------------------------------------
@@ -62,34 +56,33 @@ function editableItem(itemId: string, env: ToolEnv) {
   return located;
 }
 
-function editableEnvironment(environmentId: string, env: ToolEnv) {
-  const environment = useEnvironmentStore
-    .getState()
-    .environments.find((e) => e.id === environmentId);
-  if (!environment || !canEditEnvironment(env.settings.consent, environment.id)) {
-    return refuse(
-      `Environment not found or not shared for editing: ${environmentId}. ${SETTINGS_HINT}`
-    );
-  }
-  return environment;
-}
-
-/** Undo by restoring the whole collection as it was before the change. */
-function restoreCollection(snapshot: Collection): () => void {
-  return () => {
+const currentCollection = (id: string) => useCollectionStore.getState().getCollectionById(id);
+/**
+ * Undo for a collection change. Must be created right AFTER the change: it
+ * records the post-change state and only restores `before` while the
+ * collection is still exactly that, so it can never wipe later edits. `before`
+ * undefined means the change created the collection; a missing collection
+ * after the change means it deleted it.
+ */
+function restoreCollection(
+  before: Collection | undefined,
+  id: string = before?.id ?? ''
+): () => Promise<void> {
+  const after = fingerprint(currentCollection(id));
+  return async () => {
+    if (fingerprint(currentCollection(id)) !== after) {
+      throw new UndoConflictError(
+        `Collection “${before?.name ?? currentCollection(id)?.name ?? id}”`
+      );
+    }
     const store = useCollectionStore.getState();
-    if (store.getCollectionById(snapshot.id)) store.updateCollection(snapshot.id, snapshot);
-    else store.addCollection(snapshot);
-  };
-}
-
-function restoreEnvironment(snapshot: Environment): () => void {
-  return () => {
-    const store = useEnvironmentStore.getState();
-    if (store.environments.some((e) => e.id === snapshot.id)) {
-      store.updateEnvironment(snapshot.id, snapshot);
+    if (!before) {
+      const result = await deleteCollectionWithCleanup(id);
+      if (!result.success) throw new Error(result.error ?? 'Could not remove the collection.');
+    } else if (store.getCollectionById(id)) {
+      store.updateCollection(id, before);
     } else {
-      store.addEnvironment(snapshot);
+      store.addCollection(before);
     }
   };
 }
@@ -101,20 +94,6 @@ function folderInCollection(collection: Collection, folderId: string | undefined
     return { ok: false as const, error: `Folder not found in this collection: ${folderId}` };
   }
   return { ok: true as const };
-}
-
-/**
- * Give the agent edit access to something it just created — and nothing else —
- * so it can keep working in it. Undoing the create removes the thing itself;
- * a dangling override for a deleted id grants nothing.
- */
-function grant(update: (consent: McpServerConsent) => McpServerConsent): void {
-  updateMcpConsent(update);
-}
-
-/** Binds an approval to the exact collection / environment state the user saw. */
-function fingerprint(value: unknown): string {
-  return JSON.stringify(value);
 }
 
 type MaybeScripted = { preRequestScript?: string; testScript?: string } | undefined;
@@ -173,9 +152,7 @@ const createCollection: ToolImpl<ControlToolInput<'create_collection'>> = (input
       return {
         data: { collectionId: collection.id, name: collection.name },
         summary: `Created collection “${collection.name}”`,
-        undo: async () => {
-          await deleteCollectionWithCleanup(collection.id);
-        },
+        undo: restoreCollection(undefined, collection.id),
       };
     },
   };
@@ -210,6 +187,11 @@ const createRequest: ToolImpl<ControlToolInput<'create_request'>> = (input, env)
   if ('refused' in collection) return collection;
   const parent = folderInCollection(collection, input.parentFolderId);
   if (!parent.ok) return refuse(parent.error);
+  if (containsPlaceholder(input.request)) {
+    return refuse(
+      'The request contains a redaction placeholder such as "(redacted)". Use a {{variable}} for secrets instead of copying redacted values.'
+    );
+  }
   const request = buildRequestFromInput(input.request);
   const scripts = [
     ...scriptDetails('Pre-request script', input.request.preRequestScript),
@@ -268,7 +250,15 @@ const updateRequest: ToolImpl<ControlToolInput<'update_request'>> = (input, env)
   if (!['http', 'grpc', 'sse', 'mcp'].includes(saved.type)) {
     return refuse('Connection presets (Kafka, MQTT, WebSocket, Socket.IO) are edited in Restura.');
   }
-  const patched = applyRequestPatch(saved as Parameters<typeof applyRequestPatch>[0], input.patch);
+  // Values copied back from get_request keep their real saved value; any
+  // other redaction placeholder is refused so it can never overwrite a secret.
+  const savedRequest = saved as Parameters<typeof applyRequestPatch>[0];
+  const safePatch = restoreRedactedPatch(savedRequest, input.patch);
+  if (!safePatch.ok) return refuse(safePatch.error);
+  const patched = applyRequestPatch(
+    saved as Parameters<typeof applyRequestPatch>[0],
+    safePatch.value
+  );
   if (!patched.ok) return refuse(patched.error);
   return {
     title: `Update request “${located.item.name}”`,
@@ -445,169 +435,7 @@ const importCollection: ToolImpl<ControlToolInput<'import_collection'>> = async 
           skippedEnvironments: result.environments?.length ?? 0,
         },
         summary: `Imported “${collection.name}” (${countRequests(collection.items)} requests)`,
-        undo: async () => {
-          await deleteCollectionWithCleanup(collection.id);
-        },
-      };
-    },
-  };
-};
-
-// ---------------------------------------------------------------------------
-// Environments
-// ---------------------------------------------------------------------------
-
-const createEnvironment: ToolImpl<ControlToolInput<'create_environment'>> = (input, env) => {
-  if (!canCreateEnvironment(env.settings.consent)) {
-    return refuse(
-      `Creating environments is not allowed: no environment is shared for editing. ${SETTINGS_HINT}`
-    );
-  }
-  const variables = input.variables ?? [];
-  return {
-    title: `Create environment “${input.name}”`,
-    details: variables.length > 0 ? [`Variables: ${variables.map((v) => v.key).join(', ')}`] : [],
-    run: () => {
-      const store = useEnvironmentStore.getState();
-      const environment: Environment = {
-        ...store.createNewEnvironment(input.name),
-        variables: variables.map((v) => ({
-          id: uuidv4(),
-          key: v.key,
-          value: v.value,
-          enabled: true,
-        })),
-      };
-      store.addEnvironment(environment);
-      grant((c) => setEnvironmentConsent(c, environment.id, 'edit'));
-      return {
-        data: { environmentId: environment.id, name: environment.name },
-        summary: `Created environment “${environment.name}”`,
-        undo: () => useEnvironmentStore.getState().removeEnvironment(environment.id),
-      };
-    },
-  };
-};
-
-const setEnvironmentVariable: ToolImpl<ControlToolInput<'set_environment_variable'>> = (
-  input,
-  env
-) => {
-  const environment = editableEnvironment(input.environmentId, env);
-  if ('refused' in environment) return environment;
-  const existing = environment.variables.find((v) => v.key === input.key);
-  if (existing?.secret || existing?.secretRef) {
-    return refuse(
-      `“${input.key}” is a secret variable. Use request_secret_variable so the user types the value.`
-    );
-  }
-  return {
-    title: `${existing ? 'Update' : 'Add'} variable “${input.key}”`,
-    details: [`In environment “${environment.name}”`, `Value: ${clip(input.value)}`],
-    fingerprint: fingerprint(environment),
-    run: () => {
-      const snapshot = structuredClone(environment);
-      const store = useEnvironmentStore.getState();
-      if (existing) {
-        store.updateVariable(environment.id, existing.id, {
-          value: input.value,
-          ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
-        });
-      } else {
-        store.addVariable(environment.id, {
-          id: uuidv4(),
-          key: input.key,
-          value: input.value,
-          enabled: input.enabled ?? true,
-        });
-      }
-      return {
-        data: { environmentId: environment.id, key: input.key },
-        summary: `Set “${input.key}” in “${environment.name}”`,
-        undo: restoreEnvironment(snapshot),
-      };
-    },
-  };
-};
-
-const requestSecretVariable: ToolImpl<ControlToolInput<'request_secret_variable'>> = (
-  input,
-  env
-) => {
-  const environment = editableEnvironment(input.environmentId, env);
-  if ('refused' in environment) return environment;
-  const existing = environment.variables.find((v) => v.key === input.key);
-  if (existing?.secretRef) {
-    return refuse(
-      `“${input.key}” is stored in the desktop keychain; the user manages it in Restura.`
-    );
-  }
-  return {
-    title: `Secret “${input.key}” for “${environment.name}”`,
-    details: [input.reason],
-    secretPrompt: { environmentName: environment.name, key: input.key, reason: input.reason },
-    run: ({ secretValue }) => {
-      if (secretValue === undefined) throw new Error('No value was entered.');
-      const snapshot = structuredClone(environment);
-      const store = useEnvironmentStore.getState();
-      if (existing) {
-        store.updateVariable(environment.id, existing.id, {
-          value: secretValue,
-          secret: true,
-          enabled: true,
-        });
-      } else {
-        store.addVariable(environment.id, {
-          id: uuidv4(),
-          key: input.key,
-          value: secretValue,
-          enabled: true,
-          secret: true,
-        });
-      }
-      return {
-        // The value never goes back to the agent.
-        data: {
-          environmentId: environment.id,
-          key: input.key,
-          set: true,
-          reference: `{{${input.key}}}`,
-        },
-        summary: `User set secret “${input.key}” in “${environment.name}”`,
-        undo: restoreEnvironment(snapshot),
-      };
-    },
-  };
-};
-
-const setActiveEnvironment: ToolImpl<ControlToolInput<'set_active_environment'>> = (input, env) => {
-  const store = useEnvironmentStore.getState();
-  const target = input.environmentId
-    ? store.environments.find((e) => e.id === input.environmentId)
-    : undefined;
-  // Switching changes which credentials the user's own next Send uses, so it
-  // needs edit access — on the target, and on the environment it replaces.
-  if (input.environmentId && (!target || !canEditEnvironment(env.settings.consent, target.id))) {
-    return refuse(
-      `Environment not found or not shared for editing: ${input.environmentId}. ${SETTINGS_HINT}`
-    );
-  }
-  const active = store.activeEnvironmentId;
-  if (active && active !== target?.id && !canEditEnvironment(env.settings.consent, active)) {
-    return refuse(
-      `The active environment is not shared for editing, so it cannot be switched. ${SETTINGS_HINT}`
-    );
-  }
-  return {
-    title: target ? `Switch to environment “${target.name}”` : 'Clear the active environment',
-    details: [],
-    run: () => {
-      const previous = useEnvironmentStore.getState().activeEnvironmentId;
-      useEnvironmentStore.getState().setActiveEnvironment(target?.id ?? null);
-      return {
-        data: { activeEnvironmentId: target?.id ?? null },
-        summary: target ? `Switched to “${target.name}”` : 'Cleared the active environment',
-        undo: () => useEnvironmentStore.getState().setActiveEnvironment(previous),
+        undo: restoreCollection(undefined, collection.id),
       };
     },
   };
@@ -656,42 +484,36 @@ const deleteCollection: ToolImpl<ControlToolInput<'delete_collection'>> = (input
       'This collection contains Kafka/MQTT presets with stored credentials; ask the user to delete it in Restura.'
     );
   }
+  // A file-backed collection is unlinked from its folder on delete; undo
+  // could not re-link it, so it is offered without one and the card says so.
+  const fileBacked = useFileCollectionStore.getState().getFileInfo(collection.id) !== undefined;
+  const workflows = useWorkflowStore.getState().getWorkflowsByCollectionId(collection.id);
   return {
     title: `Delete collection “${collection.name}”`,
-    details: [`${countRequests(collection.items)} request(s) will be removed`],
-    fingerprint: fingerprint(collection),
+    details: [
+      `${countRequests(collection.items)} request(s) will be removed`,
+      ...(workflows.length > 0 ? [`${workflows.length} workflow(s) will be removed`] : []),
+      ...(fileBacked ? ['Linked to a folder on disk: this cannot be undone in Restura'] : []),
+    ],
+    fingerprint: fingerprint([collection, workflows, fileBacked]),
     run: async () => {
       const snapshot = structuredClone(collection);
+      const savedWorkflows = structuredClone(workflows);
       const result = await deleteCollectionWithCleanup(collection.id);
       if (!result.success) throw new Error(result.error ?? 'Delete failed');
+      const restore = restoreCollection(snapshot);
       return {
         data: { deleted: collection.id },
         summary: `Deleted collection “${collection.name}”`,
-        undo: restoreCollection(snapshot),
-      };
-    },
-  };
-};
-
-const deleteEnvironmentVariable: ToolImpl<ControlToolInput<'delete_environment_variable'>> = (
-  input,
-  env
-) => {
-  const environment = editableEnvironment(input.environmentId, env);
-  if ('refused' in environment) return environment;
-  const variable = environment.variables.find((v) => v.key === input.key);
-  if (!variable) return refuse(`No variable “${input.key}” in “${environment.name}”`);
-  return {
-    title: `Delete variable “${input.key}”`,
-    details: [`From environment “${environment.name}”`],
-    fingerprint: fingerprint(environment),
-    run: () => {
-      const snapshot = structuredClone(environment);
-      useEnvironmentStore.getState().removeVariable(environment.id, variable.id);
-      return {
-        data: { deleted: input.key },
-        summary: `Deleted “${input.key}” from “${environment.name}”`,
-        undo: restoreEnvironment(snapshot),
+        ...(fileBacked
+          ? {}
+          : {
+              undo: async () => {
+                await restore();
+                const store = useWorkflowStore.getState();
+                for (const workflow of savedWorkflows) store.addWorkflow(workflow);
+              },
+            }),
       };
     },
   };
@@ -705,11 +527,6 @@ export const EDIT_TOOLS = {
   rename_item: renameItem,
   move_item: moveItem,
   import_collection: importCollection,
-  create_environment: createEnvironment,
-  set_environment_variable: setEnvironmentVariable,
-  request_secret_variable: requestSecretVariable,
-  set_active_environment: setActiveEnvironment,
   delete_item: deleteItem,
   delete_collection: deleteCollection,
-  delete_environment_variable: deleteEnvironmentVariable,
 } as const;

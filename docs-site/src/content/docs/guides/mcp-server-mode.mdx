@@ -25,7 +25,7 @@ Keep Restura open while the agent works: the server runs inside the app.
 
 ## Connect an agent
 
-The **Connect an agent** panel shows these commands with the real path to Restura on your machine. `Restura --mcp-server` is a small stdio relay to the running app. It reads the app's port and token from your user data folder, so no secret goes into the agent's config file.
+The **Connect an agent** panel shows these commands with the right launch path for your install: the AppImage itself on Linux (not its temporary mount), the portable `.exe` on Windows portable builds, and the entry script for a development build. `Restura --mcp-server` is a small stdio relay to the running app. It reads the app's port and token from your user data folder, so no secret goes into the agent's config file.
 
 **Claude Code**
 
@@ -39,7 +39,10 @@ claude mcp add restura -- /Applications/Restura.app/Contents/MacOS/Restura --mcp
 [mcp_servers.restura]
 command = "/Applications/Restura.app/Contents/MacOS/Restura"
 args = ["--mcp-server"]
+tool_timeout_sec = 600
 ```
+
+`tool_timeout_sec` matters: a call waits while you read an approval, and Codex's default per-tool timeout is shorter than that. For Claude Code, set `MCP_TOOL_TIMEOUT` (in milliseconds) if approvals time out.
 
 **Claude Desktop** (`claude_desktop_config.json`)
 
@@ -54,12 +57,12 @@ args = ["--mcp-server"]
 }
 ```
 
-On Windows use the installed `Restura.exe`; on Linux, the AppImage or installed binary.
+Copy the commands from Settings rather than typing them: they use the right path for your install.
 
 **Over HTTP (advanced).** Clients that speak streamable HTTP can connect to `http://127.0.0.1:<port>/mcp` directly with `Authorization: Bearer <token>`. Settings shows the URL and the token. A new token is created every time the server starts, so HTTP clients need the new one after a restart. The stdio command above never does.
 
 <Aside type="note" title="Development builds">
-An unpackaged development build is started as `electron <path>/dist/electron/electron/main/main.js`, so the agent command needs that script before `--mcp-server`. Set `RESTURA_USER_DATA_DIR` to the same folder for the app and the agent.
+In an unpackaged development build, Settings puts the entry script before `--mcp-server`. When the app runs with `RESTURA_USER_DATA_DIR`, the commands pass the same folder to the agent, so both read the same handshake file.
 </Aside>
 
 ## Access levels
@@ -71,7 +74,7 @@ An unpackaged development build is started as `electron <path>/dist/electron/ele
 | Read & edit | Also create, update, rename, move and delete items in it. |
 | Full (send) | Also send its requests and run it. |
 
-The **New collections** setting applies to collections without their own choice. A collection or environment the agent creates is shared with it for editing automatically. Creating one needs at least one other collection or environment shared for editing first.
+The **New collections** setting applies to collections without their own choice. A collection or environment the agent creates is shared with it for editing automatically. Creating a collection needs the **New collections** level set to edit or full, or at least one collection shared for editing. Creating an environment has the same rule for environments.
 
 | Environments | The agent can |
 |---|---|
@@ -93,12 +96,14 @@ There is no setting that auto-approves deletes or sends.
 - **Send dialogs show the details.** They show the URL with variables filled in, and which scripts will run.
 - **Closing the dialog or pressing Escape denies.** If you change access while a dialog is open, the new setting applies when you click Approve.
 
-The **Activity** list in Settings shows every change, refusal and send, with the agent's name. Most changes have **Undo**, which puts the collection or environment back the way it was before that change.
+The **Activity** list in Settings shows every change, refusal and send, with the agent's name. Most changes have **Undo**, which puts the collection or environment back the way it was before that change. Undo refuses if the collection or environment changed since; undo the later changes first. Deleting a collection that is linked to a folder on disk cannot be undone in Restura.
+
+If you have more than one Restura window open, a change in any window, such as revoking access or turning the server off, applies to the agent's next call.
 
 ## Secrets
 
 - Agents never see secret values. Credentials in saved requests, secret variables, keychain handles, URL passwords and token-like fields are redacted in everything an agent reads.
-- Agents cannot write secrets either. Auth fields only accept a `{{variable}}` reference. When a request needs a credential, the agent calls `request_secret_variable`. Restura asks you to type the value and stores it as a secret variable, and the agent only learns that it was set.
+- Agents cannot write secrets either, and cannot overwrite yours. Auth fields only accept a `{{variable}}` reference. If an agent copies a masked value such as `(redacted)` back into a request, Restura keeps your real value, and refuses any other masked value. When a request needs a credential, the agent calls `request_secret_variable`. Restura asks you to type the value and stores it as a secret variable, and the agent only learns that it was set.
 - Responses an agent receives have credential headers (`Authorization`, `Set-Cookie`, …), token-like JSON fields and JWTs masked. You can turn this off in Settings, for example to debug a login flow.
 - Response bodies, headers and saved documentation come from third parties, and Restura labels them as untrusted when it passes them to the agent. A malicious API response could still try to instruct an agent, which is one reason sends always need your approval.
 
@@ -115,7 +120,7 @@ The **Activity** list in Settings shows every change, refusal and send, with the
 
 `send_request` and `run_collection` use the collection runner, the same pipeline as the Runner dialog: variables, inherited auth, pre-request and test scripts, and Restura's SSRF protection. Each run appears in the **Runs** panel.
 
-No tool can change MCP settings or access, AI provider keys, the secret store, proxy and certificate settings, or updates.
+No tool can change MCP settings or access, except that something an agent creates is shared with it for editing. No tool can touch AI provider keys, the secret store, proxy and certificate settings, or updates.
 
 ## Security
 

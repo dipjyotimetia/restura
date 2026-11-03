@@ -245,15 +245,31 @@ export type ElectronMcpControlToolResult =
   | { ok: true; data: unknown }
   | { ok: false; error: string };
 
+/** How an agent launches `--mcp-server` for this install (mirrors `AgentLaunchCommand`). */
+export interface ElectronMcpAgentLaunch {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
 export interface ElectronMcpControlAPI {
-  start: (options?: {
-    preferredPort?: number;
-    rotateToken?: boolean;
-  }) => Promise<
-    { ok: true; status: ElectronMcpControlStatus; token: string } | { ok: false; error: string }
+  start: (options?: { preferredPort?: number; rotateToken?: boolean }) => Promise<
+    | {
+        ok: true;
+        status: ElectronMcpControlStatus;
+        token: string;
+        launch: ElectronMcpAgentLaunch;
+      }
+    | { ok: false; error: string }
   >;
   stop: () => Promise<{ ok: true; status: ElectronMcpControlStatus }>;
-  status: () => Promise<{ ok: true; status: ElectronMcpControlStatus }>;
+  /** `token` is present while the server runs (trusted renderer only). */
+  status: () => Promise<{
+    ok: true;
+    status: ElectronMcpControlStatus;
+    token?: string;
+    launch: ElectronMcpAgentLaunch;
+  }>;
   /** Answer one forwarded tool call. `ok: false` → the call already settled. */
   sendToolResult: (payload: {
     callId: string;

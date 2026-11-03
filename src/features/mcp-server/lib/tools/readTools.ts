@@ -16,19 +16,14 @@ import {
 } from '@shared/mcp-server/consent';
 import type { ControlToolInput } from '@shared/mcp-server/control-tools';
 import { dispatchTool, type McpDispatchContext } from '@shared/mcp-server/dispatch';
-import {
-  REDACTED,
-  redactBodyForAgent,
-  redactHeadersForAgent,
-  redactSecretsDeep,
-  redactUrlCredentials,
-} from '@shared/mcp-server/redaction';
+import { redactSecretsDeep, redactUrlCredentials } from '@shared/mcp-server/redaction';
 import { openCollectionItem } from '@/features/collections/lib/openCollectionItem';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
-import type { CollectionItem, KeyValue } from '@/types';
+import type { CollectionItem } from '@/types';
+import { redactKeyValues, redactSavedText } from '../savedRedaction';
 import { locateItem, type TreeNode } from '../tree';
 import { refuse, SETTINGS_HINT, type ToolEnv, type ToolImpl } from './types';
 
@@ -41,33 +36,29 @@ export function snapshotContext(env: ToolEnv): McpDispatchContext {
   };
 }
 
+/**
+ * "Hidden" and "missing" must read the same, so an agent cannot confirm a
+ * hidden collection or environment exists by probing ids.
+ */
+function uniformRefusal(name: string, input: unknown, error: string): string {
+  if (!/hidden from MCP agents|not found/i.test(error)) return error;
+  const ids = input as { collectionId?: string; id?: string } | undefined;
+  if (name === 'list_requests' && !/Folder path/.test(error)) {
+    return `Collection not found or not shared: ${ids?.collectionId ?? ''}. ${SETTINGS_HINT}`;
+  }
+  if (name === 'get_environment') {
+    return `Environment not found or not shared: ${ids?.id ?? ''}. ${SETTINGS_HINT}`;
+  }
+  return error;
+}
+
 /** Wrap a pure-dispatcher tool as a (read-tier) control tool. */
 function viaDispatcher(name: string, summary: string): ToolImpl<unknown> {
   return (input, env) => {
     const result = dispatchTool(name, input, snapshotContext(env));
-    if (!result.ok) return refuse(result.error);
+    if (!result.ok) return refuse(uniformRefusal(name, input, result.error));
     return { title: summary, details: [], run: () => ({ data: result.data, summary }) };
   };
-}
-
-const TOKENISH_KEY = /(token|secret|password|passwd|api[-_]?key|auth|session|cookie|signature)/i;
-const VARIABLE_ONLY = /^\s*\{\{[^{}]+\}\}\s*$/;
-
-/** Redact header / param / metadata rows: credential names keep only `{{var}}` references. */
-export function redactKeyValues(rows: readonly KeyValue[] | undefined) {
-  const sensitiveHeaders = redactHeadersForAgent(
-    Object.fromEntries((rows ?? []).map((r) => [r.key, r.value]))
-  );
-  return (rows ?? []).map((row) => {
-    const masked =
-      sensitiveHeaders[row.key] === REDACTED ||
-      (TOKENISH_KEY.test(row.key) && !VARIABLE_ONLY.test(row.value));
-    return {
-      key: row.key,
-      value: masked && !VARIABLE_ONLY.test(row.value) ? REDACTED : row.value,
-      enabled: row.enabled,
-    };
-  });
 }
 
 function itemSummary(item: CollectionItem): TreeNode {
@@ -92,10 +83,7 @@ function itemSummary(item: CollectionItem): TreeNode {
   };
 }
 
-/** Saved body-like text (JSON, form pairs, JWTs) with credentials masked. */
-function redactText(text: string): string {
-  return redactBodyForAgent(text, { redact: true, maxChars: 100_000 }).text;
-}
+const redactText = redactSavedText;
 
 /** The full, redacted, agent-visible definition of a saved request. */
 export function describeSavedRequest(item: CollectionItem, path: string[]) {
@@ -134,7 +122,8 @@ export function describeSavedRequest(item: CollectionItem, path: string[]) {
             ? { formFields: req.body.formData.map((f) => ({ key: f.key, type: f.type })) }
             : {}),
         },
-        ...(req.description ? { description: req.description } : {}),
+        // Saved docs are often imported from third-party specs: untrusted.
+        ...(req.description ? { untrustedContent: { description: req.description } } : {}),
       };
     case 'grpc':
       return {
@@ -242,7 +231,9 @@ const getCollectionTree: ToolImpl<ControlToolInput<'get_collection_tree'>> = (in
   const data = {
     id: collection.id,
     name: collection.name,
-    ...(collection.description ? { description: collection.description } : {}),
+    ...(collection.description
+      ? { untrustedContent: { description: collection.description } }
+      : {}),
     editable: canEdit(env.settings.consent, collection.id),
     sendable: canExecute(env.settings.consent, collection.id),
     items: collection.items.map(itemSummary),

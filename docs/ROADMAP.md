@@ -92,6 +92,8 @@ These are things that are clearly needed and will happen, roughly in order of ho
 
 **WebSocket bidirectional scripting** — the scripting sandbox currently works for HTTP request/response. Extending it to WebSocket (run a script on each incoming message) is on the list.
 
+**MCP server: full coverage** — agents can already build and send HTTP, GraphQL, gRPC, SSE and MCP requests, environments and imports. Next: WebSocket/Socket.IO/Kafka/MQTT connection presets, HAR import and collection export, workflows and more read tools, inline sends, MCP resources and prompts, and reverting a whole agent session at once ([ADR 0041](adr/0041-mcp-control-server.md), Scope).
+
 **AI on web** — the AI assistant currently only works on the desktop app because there's no `/api/ai` route in the Worker. Adding web support requires some care around API key handling in the browser, but it's wanted.
 
 **Passphrase-protected web storage** — the key provider exists; it needs a Settings screen to set and unlock a passphrase.

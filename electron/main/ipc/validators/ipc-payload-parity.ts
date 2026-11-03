@@ -16,10 +16,6 @@
  * `export type` line at the bottom. A deliberate, documented difference gets a
  * `// drift:` comment and the third `PayloadParity` argument (schema-only keys).
  */
-import type {
-  ControlServerStartSchema,
-  ToolCallResultPayloadSchema,
-} from '@shared/mcp-server/control-bridge';
 import type { z } from 'zod';
 import type { ElectronAPI } from '../../../types/electron-api';
 import type {
@@ -34,6 +30,7 @@ import type {
   WsSendSchema,
 } from './core';
 import type { KafkaConnectSchema, KafkaProduceSchema, KafkaSubscribeSchema } from './kafka';
+import type { ControlServerStartSchema, ToolCallResultPayloadSchema } from './mcp-control';
 import type { McpStdioConnectSchema } from './mcp-stdio';
 import type {
   MqttConnectSchema,

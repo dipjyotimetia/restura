@@ -1,0 +1,167 @@
+/**
+ * Redaction of *saved* request fields for agents, and its inverse guard.
+ *
+ * `get_request` masks credentials in what it returns (`(redacted)`,
+ * `(redacted-jwt)`, `%28secret%29`, `(secret)`). An agent that copies those
+ * values back into `update_request` / `create_request` must never overwrite a
+ * real secret with a placeholder. So the write path recognises the exact
+ * redacted form of what is saved and keeps the original value, and refuses any
+ * other value that still contains a placeholder.
+ */
+
+import type { RequestPatch } from '@shared/mcp-server/control-tools';
+import {
+  REDACTED,
+  redactBodyForAgent,
+  redactHeadersForAgent,
+  redactUrlCredentials,
+} from '@shared/mcp-server/redaction';
+import type { KeyValue, Request } from '@/types';
+
+const TOKENISH_KEY = /(token|secret|password|passwd|api[-_]?key|auth|session|cookie|signature)/i;
+const VARIABLE_ONLY = /^\s*\{\{[^{}]+\}\}\s*$/;
+
+/** Every placeholder an agent can receive from a read tool. */
+export const PLACEHOLDER_PATTERN = /\(redacted(?:-jwt)?\)|\(secret\)|%28secret%29|%28redacted%29/i;
+
+export function containsPlaceholder(value: unknown): boolean {
+  if (typeof value === 'string') return PLACEHOLDER_PATTERN.test(value);
+  if (Array.isArray(value)) return value.some(containsPlaceholder);
+  if (value && typeof value === 'object') return Object.values(value).some(containsPlaceholder);
+  return false;
+}
+
+export interface AgentKeyValue {
+  key: string;
+  value: string;
+  enabled: boolean;
+}
+
+/** Header / param / metadata rows: credential names keep only `{{var}}` references. */
+export function redactKeyValues(rows: readonly KeyValue[] | undefined): AgentKeyValue[] {
+  const sensitiveHeaders = redactHeadersForAgent(
+    Object.fromEntries((rows ?? []).map((r) => [r.key, r.value]))
+  );
+  return (rows ?? []).map((row) => {
+    const masked =
+      !VARIABLE_ONLY.test(row.value) &&
+      (sensitiveHeaders[row.key] === REDACTED || TOKENISH_KEY.test(row.key));
+    return { key: row.key, value: masked ? REDACTED : row.value, enabled: row.enabled };
+  });
+}
+
+/** Saved body-like text (JSON, form pairs, JWTs) with credentials masked. */
+export function redactSavedText(text: string): string {
+  return redactBodyForAgent(text, { redact: true, maxChars: 100_000 }).text;
+}
+
+export function redactSavedUrl(url: string): string {
+  return redactUrlCredentials(url) ?? url;
+}
+
+type Outcome<T> = { ok: true; value: T } | { ok: false; error: string };
+
+const refuse = (field: string): Outcome<never> => ({
+  ok: false,
+  error: `${field} contains a redaction placeholder such as "(redacted)". Restura never stores those: leave the field out to keep the saved value, keep the row exactly as get_request returned it, or use a {{variable}} for the secret.`,
+});
+
+/** A text field: the unchanged redacted form keeps the saved value. */
+function restoreText(
+  field: string,
+  incoming: string | undefined,
+  saved: string | undefined,
+  redact: (s: string) => string
+): Outcome<string | undefined> {
+  if (incoming === undefined || !PLACEHOLDER_PATTERN.test(incoming)) {
+    return { ok: true, value: incoming };
+  }
+  if (saved !== undefined && redact(saved) === incoming) return { ok: true, value: saved };
+  return refuse(field);
+}
+
+/**
+ * Rows: a row whose value equals the redacted form of the saved row with the
+ * same key keeps the saved value; any other placeholder is refused.
+ */
+function restoreRows(
+  field: string,
+  incoming: RequestPatch['headers'],
+  saved: readonly KeyValue[] | undefined
+): Outcome<RequestPatch['headers']> {
+  if (!incoming) return { ok: true, value: incoming };
+  const redactedSaved = redactKeyValues(saved);
+  const out = [];
+  for (const row of incoming) {
+    if (!PLACEHOLDER_PATTERN.test(row.value)) {
+      out.push(row);
+      continue;
+    }
+    const index = redactedSaved.findIndex(
+      (r) => r.key.toLowerCase() === row.key.toLowerCase() && r.value === row.value
+    );
+    const original = index >= 0 ? saved?.[index] : undefined;
+    if (!original) return refuse(`${field} “${row.key}”`);
+    out.push({ ...row, value: original.value });
+  }
+  return { ok: true, value: out };
+}
+
+/** Make an `update_request` patch safe to apply over `saved`. */
+export function restoreRedactedPatch(saved: Request, patch: RequestPatch): Outcome<RequestPatch> {
+  const next: RequestPatch = { ...patch };
+  const savedUrl = 'url' in saved ? saved.url : undefined;
+  if (patch.url !== undefined && savedUrl !== undefined && patch.url === redactSavedUrl(savedUrl)) {
+    // URL redaction can *remove* credentials (userinfo) rather than mask them,
+    // so the unchanged redacted URL carries no placeholder at all: keep the
+    // saved URL instead of silently dropping its credentials.
+    next.url = savedUrl;
+  } else {
+    const url = restoreText('url', patch.url, savedUrl, redactSavedUrl);
+    if (!url.ok) return url;
+    if (patch.url !== undefined) next.url = url.value as string;
+  }
+
+  const rowsOf = (key: 'headers' | 'params' | 'metadata'): KeyValue[] | undefined =>
+    key in saved ? ((saved as unknown as Record<string, KeyValue[]>)[key] ?? undefined) : undefined;
+  for (const key of ['headers', 'params', 'metadata'] as const) {
+    const rows = restoreRows(key, patch[key], rowsOf(key));
+    if (!rows.ok) return rows;
+    if (patch[key] !== undefined) next[key] = rows.value;
+  }
+
+  if (patch.body) {
+    const savedRaw = saved.type === 'http' ? saved.body.raw : undefined;
+    const savedVars = saved.type === 'http' ? saved.body.graphqlVariables : undefined;
+    const content = restoreText('body', patch.body.content, savedRaw, redactSavedText);
+    if (!content.ok) return content;
+    const vars = restoreText(
+      'graphqlVariables',
+      patch.body.graphqlVariables,
+      savedVars,
+      redactSavedText
+    );
+    if (!vars.ok) return vars;
+    next.body = {
+      ...patch.body,
+      ...(content.value !== undefined ? { content: content.value } : {}),
+      ...(vars.value !== undefined ? { graphqlVariables: vars.value } : {}),
+    };
+  }
+
+  const savedMessage = saved.type === 'grpc' ? saved.message : undefined;
+  const message = restoreText('message', patch.message, savedMessage, redactSavedText);
+  if (!message.ok) return message;
+  if (patch.message !== undefined) next.message = message.value as string;
+
+  const savedParams = saved.type === 'mcp' ? saved.defaultParams : undefined;
+  const params = restoreText('defaultParams', patch.defaultParams, savedParams, redactSavedText);
+  if (!params.ok) return params;
+  if (patch.defaultParams !== undefined) next.defaultParams = params.value as string;
+
+  // Fields that are never redacted on read must not carry placeholders either.
+  for (const key of ['name', 'description', 'preRequestScript', 'testScript'] as const) {
+    if (containsPlaceholder(patch[key])) return refuse(key);
+  }
+  return { ok: true, value: next };
+}

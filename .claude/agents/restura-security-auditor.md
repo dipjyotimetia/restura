@@ -272,11 +272,30 @@ Only report what the diff introduces or makes reachable. Pre-existing issues the
   - HTTP MCP goes through the `'mcp'` header policy and the SSRF guard on every hop.
   - OAuth (ADR-0031) runs in main: a pinned `http://127.0.0.1:<port>` redirect URI, `assertOAuthEndpointUrl` before `openExternal`, tokens kept as `internal:` handles, and `ReauthRequired` in non-interactive sessions.
   - Stdio rules are in section A.
-- **Server mode (ADR-0011):**
-  - stdio only via `--mcp-server`, with no network listener; a future HTTP transport needs loopback plus a one-time token;
-  - read-only tools only, and `execute_request` keeps refusing until a new ADR covers it;
-  - consent defaults to `hidden`, and every tool checks `canRead*`;
-  - every result goes through `postProcessResult` deep redaction.
+- **Server mode (ADR-0041, superseding ADR-0011's hosting):**
+  - **Transport.** The running app hosts a streamable-HTTP listener bound to `127.0.0.1` only (`electron/main/handlers/mcp-control-server.ts`).
+    - Every request needs the bearer token. It is minted fresh on every start and compared in constant time.
+    - `rejectControlRequest` refuses any `Origin`, `Sec-Fetch-Site` or `Sec-Fetch-Dest` header and any non-loopback `Host`. A diff that relaxes this, binds another interface, or serves the token over HTTP is a must-fix.
+  - **Shim.** `--mcp-server` is a stdio shim that reads port and token from the `0600` handshake file (`mcp-control-protocol.ts`).
+    - It retries only on `ECONNREFUSED`, so a send never runs twice.
+    - A stale `running` handshake is reset at launch, and a PID it cannot signal counts as not running.
+  - **Policy lives in the owning renderer** (`src/features/mcp-server/lib/runtime.ts`), never in main.
+    - Main forwards calls only to the window that started the server (`ToolCallBridge`). On reload or crash it answers parked calls immediately.
+    - The runtime re-validates input, then decides with the newest settings across windows (`getFreshMcpServerSettings`).
+  - **Consent.**
+    - Collections: `hidden / read-only / edit / full`. Environments: `hidden / read-only / edit`. Sending with an environment needs its own per-environment flag, and the parent's flag for a sub-environment.
+    - Everything defaults to hidden. Refusals must not let an agent tell a hidden id from a missing one.
+  - **Approvals.**
+    - Deletes, sends, and any change that adds or edits a script always ask, and the card shows the full script. Edits ask unless the user chose auto-approve.
+    - After approval the runtime re-prepares and compares a fingerprint of the state the call depends on. Any change refuses the call.
+    - A diff that lets a send, delete or script change through without a card, or skips the fingerprint check, is a must-fix.
+  - **Secrets.**
+    - Credential fields an agent writes accept only a `{{variable}}`. Secret values are typed by the user (`request_secret_variable`), never passed through the agent.
+    - Redaction placeholders copied back from `get_request` must never overwrite a saved value (`savedRedaction.ts`).
+    - Read results go through `postProcessResult`, and main runs `redactSecretsDeep` again.
+    - Response bodies, headers and saved docs reach the agent under `untrustedContent`.
+  - **No self-escalation.** No tool may read or change MCP settings, consent (beyond granting edit on what it just created), AI keys, the vault, proxy or TLS settings, or the updater (`tests/security/mcp-control-server.test.ts`).
+  - **Undo** only restores a target that has not changed since the agent's change.
 
 ## I. CLI (`cli/src/runner/`)
 

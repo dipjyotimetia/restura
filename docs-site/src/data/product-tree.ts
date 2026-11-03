@@ -628,6 +628,29 @@ export const features: Feature[] = [
   ),
   entry(
     'ai',
+    'mcp-server-next',
+    'MCP server: full coverage',
+    'Extend the agent tools to the rest of Restura: connection presets, workflows, exports and more read tools.',
+    'planned',
+    desktop,
+    '/guides/mcp-server-mode/',
+    ['mcp-server'],
+    {
+      today:
+        'Agents can build, edit, delete and send HTTP, GraphQL, gRPC, SSE and MCP requests, environments and imports. The items below are not exposed to agents yet (ADR 0041, Scope).',
+      milestones: [
+        todo(
+          'WebSocket, Socket.IO, Kafka and MQTT connection presets, with keychain-safe credentials'
+        ),
+        todo('HAR import, export_collection and deleting environments'),
+        todo('Workflows, active tab, last response and capabilities tools'),
+        todo('Inline (unsaved) sends and MCP resources and prompts'),
+        todo('Revert a whole agent session at once, and an "agent connected" status indicator'),
+      ],
+    }
+  ),
+  entry(
+    'ai',
     'ai-web',
     'AI assistant on web',
     'Bring request-aware assistance to the browser with careful API-key handling.',

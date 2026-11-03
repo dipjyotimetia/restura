@@ -6,16 +6,17 @@
 
 ADR 0011 shipped Restura-as-an-MCP-server as a headless process (`Restura --mcp-server`) with five read-only tools over a snapshot. That process could never see any data: collections, environments and history live in the renderer's IndexedDB, which another process cannot read, so `mcp-context-loader.ts` returned an empty context and every call was refused. It also could not change anything, and its `execute_request` stub left open whether main should run its own executor.
 
-The goal now is broader: let an agent (Claude Code, Claude Desktop, Codex, Cursor) do what the user does in the app — build collections, folders and requests for every protocol, manage environments, import specs, send requests and run collections — while the user stays in control.
+The goal now is broader: let an agent (Claude Code, Claude Desktop, Codex, Cursor) do what the user does in the app — build collections, folders and requests, manage environments, import specs, send requests and run collections — while the user stays in control. The exploration spec (`docs/superpowers/specs/2026-11-03-mcp-control-server-exploration.md`) phases that work; this ADR records what ships now and what is deferred (see Scope).
 
 ## Decision
 
 **Host the server in the running app; the renderer runs every tool.**
 
-- Electron main hosts a streamable-HTTP MCP server on `127.0.0.1` (`electron/main/handlers/mcp-control-server.ts`). Each tool call is forwarded over IPC to the one renderer that turned the server on, parked until that renderer answers (`mcp-control-handler.ts`, `ToolCallBridge`), and bounded by a timeout, an in-flight cap and the agent's own cancellation.
+- Electron main hosts a streamable-HTTP MCP server on `127.0.0.1` (`electron/main/handlers/mcp-control-server.ts`). Each tool call is forwarded over IPC to the one renderer that turned the server on, parked until that renderer answers (`mcp-control-handler.ts`, `ToolCallBridge`), and bounded by a timeout, an in-flight cap and the agent's own cancellation. A reload or crash of that renderer answers parked calls at once; the reloaded page adopts the running server.
+- Every window keeps its own in-memory settings, so the owning window decides with the newest settings across windows (`getFreshMcpServerSettings`, by `updatedAt`). A change made in any window, such as revoking access or turning the server off, applies to the next call.
 - The renderer is the single source of truth and the single writer. Tools (`src/features/mcp-server/lib/tools/`) call the same store actions as the UI, so persistence, migrations and validation are shared, and the user watches changes appear. There is no second copy of user data in main.
 - Sends go through the collection runner, the same path as the Runner dialog (protocol registry, real executors, SSRF guard, wire-level auth signing, inherited auth, scripts and tests). This settles ADR 0011's open question: main never executes requests for agents.
-- `Restura --mcp-server` becomes a stdio shim (`mcp-server-handler.ts`). It exposes the same catalogue and relays each call to the running app, reading the port and token from a `0600` handshake file under userData, so no token goes into an agent's config. It skips the single-instance lock (it must run alongside the app), never opens a store, and retries a call only when the connection was refused, because a send is not idempotent.
+- `Restura --mcp-server` becomes a stdio shim (`mcp-server-handler.ts`). It exposes the same catalogue and relays each call to the running app, reading the port and token from a `0600` handshake file under userData, so no token goes into an agent's config. It skips the single-instance lock (it must run alongside the app), never opens a store, and retries a call only when the connection was refused, because a send is not idempotent. Main computes the command the agent should launch (`agentLaunchCommand`): the AppImage or Windows portable launcher rather than their temporary extraction paths, the entry script for an unpackaged build, and a custom `RESTURA_USER_DATA_DIR` when one is set.
 
 **One shared catalogue.** `shared/mcp-server/control-tools.ts` defines each tool once: name, title, description, Zod input schema, tier and honest MCP annotations. Main registers it with the SDK (which validates arguments), the shim re-exposes it, and the renderer re-validates before running. Tiers: `read`, `ui`, `edit`, `destructive`, `execute`.
 
@@ -28,16 +29,17 @@ The goal now is broader: let an agent (Claude Code, Claude Desktop, Codex, Curso
 - **The cards show what will happen.** Update cards show the new values, and send cards show the resolved URL and the scripts that will run.
 - **The dialog resists mistakes.** Closing it denies, and Deny is the focused button. Approve is disabled briefly whenever a new card comes to the front.
 
-Every edit, delete and send is logged with the client name, and reversible changes get Undo.
+Every edit, delete and send is logged with the client name (from the client's `initialize` identity: forwarded by the stdio shim, or sent per request by 2026-07-28 clients; older HTTP clients fall back to `User-Agent`). Reversible changes get Undo, which restores the target only while it is still exactly as the agent left it. If anything changed since, the undo refuses rather than discarding the later changes, and undoing in reverse order works. Deleting a collection that is linked to a folder on disk cannot be undone.
 
 **Secrets.**
 
 - Credential fields an agent writes accept only a `{{variable}}` reference.
 - Secret values are typed by the user in Restura (`request_secret_variable`) and are never returned to the agent.
 - Read tools redact auth descriptors, credential headers and params, URL userinfo, secret variables, SecretRef handle ids and token-like body fields.
+- A placeholder such as `(redacted)` that an agent copies back into `update_request` keeps the real saved value when it matches what `get_request` returned. Any other placeholder is refused, so a secret is never overwritten with a mask (`src/features/mcp-server/lib/savedRedaction.ts`).
 - Send results mask credential headers and token-like JSON fields and JWTs (on by default), and cap the body.
 - Imported documents have their credentials turned into keychain handles.
-- No tool reads or writes MCP settings, AI keys, the vault, proxy or TLS settings, or the updater. A test checks that tool modules never touch settings.
+- No tool changes MCP settings or access, apart from granting `edit` on a collection or environment it has just created. No tool touches AI keys, the vault, proxy or TLS settings, or the updater. A test checks that tool modules never write settings directly.
 
 **Transport security.**
 
@@ -46,6 +48,26 @@ Every edit, delete and send is logged with the client name, and reversible chang
 - It refuses non-loopback `Host` headers, which blocks DNS rebinding.
 - It rate-limits requests and bounds request read time.
 - A fresh token is minted on every start, so a token captured by another local user squatting the port while Restura is closed is useless. A handshake left `running` by a crash is marked stopped when the app starts, and the shim treats a PID it cannot signal (another user's process) as not running. The port is reused when free, and the shim re-reads the handshake on every call.
+
+## Scope
+
+**Shipped now:**
+- Read, build, edit, delete and send collections, folders and requests for HTTP, GraphQL, gRPC, SSE and MCP (streamable-HTTP and HTTP+SSE transports).
+- Environments and their variables.
+- Imports from OpenAPI, Postman, Insomnia, OpenCollection and curl.
+- Collection runs.
+
+**Deferred from the exploration spec** and tracked on the roadmap (`mcp-server-next`):
+- Creating WebSocket, Socket.IO, Kafka and MQTT connection presets. Their credentials live in the keychain and need their own consent flow.
+- HAR import and `export_collection`, plus deleting whole environments.
+- Further read tools: the active tab, the last response, capabilities and workflows. Workflows themselves, inline (unsaved) sends, and MCP resources and prompts.
+- Reverting a whole session's or turn's changes at once. Undo is per change.
+- A status-bar "agent connected" indicator. Status is shown in Settings only.
+
+**Decided against for now:**
+- Merging this tool set with the built-in assistant's tools (`src/features/ai/agent/tools.ts`). The assistant's tools act on the active tab with propose-and-apply in its chat panel; these act on saved items with consent and approval cards. Sharing the request builders is the first step if they converge.
+- A CLI host (`restura mcp serve`).
+- A "trust this session" mode.
 
 ## Consequences
 

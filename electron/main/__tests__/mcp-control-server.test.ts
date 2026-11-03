@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type ControlHttpServerHandle,
   type ControlToolCall,
+  clientFromMeta,
   startControlHttpServer,
 } from '../handlers/mcp-control-server';
 
@@ -234,5 +235,17 @@ describe('control server transport security', () => {
     handles.splice(handles.indexOf(second), 1);
     const third = await start(async () => ({ ok: true, data: null }), { preferredPort: port });
     expect(third.port).toBe(port);
+  });
+});
+
+describe('clientFromMeta', () => {
+  it('reads the 2026-07-28 clientInfo request meta and cleans it', () => {
+    expect(
+      clientFromMeta({
+        'io.modelcontextprotocol/clientInfo': { name: 'codex\u0007', version: '0.9' },
+      })
+    ).toEqual({ name: 'codex', version: '0.9' });
+    expect(clientFromMeta({ 'io.modelcontextprotocol/clientInfo': { name: '' } })).toBeUndefined();
+    expect(clientFromMeta(undefined)).toBeUndefined();
   });
 });

@@ -37,6 +37,12 @@ export const McpServerSettingsSchema = z.object({
   redactResponseBodies: z.boolean(),
   /** Preferred loopback port. Absent = reuse the last port, else a random one. */
   preferredPort: z.number().int().min(1024).max(65535).optional(),
+  /**
+   * When these settings last changed (ms since epoch). Each app window holds
+   * its own in-memory copy; the newest copy — in memory or persisted — wins,
+   * so a change made in one window reaches the window running the server.
+   */
+  updatedAt: z.number().optional(),
 });
 export type McpServerSettings = z.infer<typeof McpServerSettingsSchema>;
 
@@ -57,4 +63,5 @@ export const McpServerSettingsCatchSchema = z.object({
   consent: McpServerConsentSchema.catch(DEFAULT_CONSENT),
   redactResponseBodies: z.boolean().catch(true),
   preferredPort: z.number().int().min(1024).max(65535).optional().catch(undefined),
+  updatedAt: z.number().optional().catch(undefined),
 });

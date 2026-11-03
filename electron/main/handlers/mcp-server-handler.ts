@@ -18,7 +18,7 @@
 
 import { Client, ProtocolError, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { McpServer } from '@modelcontextprotocol/server';
-import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { StdioServerTransport, serveStdio } from '@modelcontextprotocol/server/stdio';
 import type { HandshakeFile, ToolCallClient } from '@shared/mcp-server/control-bridge';
 import { createLogger } from '@shared/runtime/logger';
 import { isProcessAlive, readHandshake } from './mcp-control-protocol';
@@ -27,6 +27,7 @@ import {
   type ControlServerIdentity,
   type ControlToolCall,
   createControlMcpServer,
+  MAX_CONTROL_REQUEST_BYTES,
 } from './mcp-control-server';
 
 const log = createLogger('mcp-server');
@@ -199,6 +200,11 @@ export function startStdioMcpServer(options: StdioShimOptions): McpServerHandle 
   const relay = createShimRelay(options);
   const handle = serveStdio(() => createShimServer(options.identity, relay.relay), {
     legacy: 'serve',
+    // Large enough for the biggest import_collection document (the default
+    // 10 MB would close the stream on a large spec).
+    transport: new StdioServerTransport(undefined, undefined, {
+      maxBufferSize: MAX_CONTROL_REQUEST_BYTES,
+    }),
     onerror: (error) => {
       log.error('stdio server error', { message: error.message });
     },

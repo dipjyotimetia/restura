@@ -97,7 +97,7 @@ foundation guarantees the migration is purely mechanical.
 ## MCP-server interim policy
 
 Until the per-descriptor migration is complete, the MCP server's
-`get_environment` / `list_collections` / `execute_request` tools redact
+`get_environment` / `list_collections` / `get_request` / `send_request` tools (ADR 0041) redact
 secret fields at the tool-output boundary using `redactSecret()` and a
 well-known field-name list. This means an agent sees the structure of
 the auth descriptor (so it knows what to ask the user for) but never

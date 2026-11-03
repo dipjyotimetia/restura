@@ -182,7 +182,8 @@ function listCollections(
   const summaries = visible.map((c) => ({
     id: c.id,
     name: c.name,
-    description: c.description ?? '',
+    // Collection docs are often imported from third-party specs: untrusted.
+    ...(c.description ? { untrustedContent: { description: c.description } } : {}),
     requestCount: countRequests(c.items),
     editable: canEdit(ctx.consent, c.id),
     executable: canExecute(ctx.consent, c.id),

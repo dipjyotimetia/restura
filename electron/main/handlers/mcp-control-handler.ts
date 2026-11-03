@@ -19,9 +19,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import {
   type ControlServerStartOptions,
-  ControlServerStartSchema,
   type ControlServerStatus,
   type ControlToolResult,
   MAX_IN_FLIGHT_TOOL_CALLS,
@@ -29,7 +29,6 @@ import {
   TOOL_CALL_TIMEOUT_MS,
   type ToolCallEvent,
   type ToolCallResultPayload,
-  ToolCallResultPayloadSchema,
 } from '@shared/mcp-server/control-bridge';
 import { isControlToolName } from '@shared/mcp-server/control-tools';
 import { createLogger } from '@shared/runtime/logger';
@@ -38,9 +37,11 @@ import { EVENT, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
+  ControlServerStartSchema,
   createValidatedEventHandler,
   createValidatedHandler,
   NoInputSchema,
+  ToolCallResultPayloadSchema,
 } from '../ipc/ipc-validators';
 import { mintToken, readHandshake, writeHandshake } from './mcp-control-protocol';
 import {
@@ -195,6 +196,42 @@ interface ActiveServer {
   token: string;
   owner: WebContents;
   onOwnerDestroyed: () => void;
+  /** Reload / crash of the owner's document: the webContents survives. */
+  onOwnerReset: () => void;
+}
+
+/** How an agent launches the stdio relay for *this* install. */
+export interface AgentLaunchCommand {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+/**
+ * The stable command for the `--mcp-server` relay. `process.execPath` is not
+ * stable for every target: an AppImage runs from a per-launch
+ * `/tmp/.mount_*` directory and a Windows portable build from a temp
+ * extraction folder, so their launchers' own paths are used instead. An
+ * unpackaged (dev / e2e) build also needs the entry it was started with, and a
+ * custom user data folder must be passed on, or the relay reads another
+ * install's handshake.
+ */
+export function agentLaunchCommand(
+  env: NodeJS.ProcessEnv = process.env,
+  packaged: boolean = app.isPackaged,
+  argv: readonly string[] = process.argv,
+  execPath: string = process.execPath
+): AgentLaunchCommand {
+  const command = env.APPIMAGE || env.PORTABLE_EXECUTABLE_FILE || execPath;
+  const entry = argv[1];
+  const devEntry = !packaged && entry && !entry.startsWith('-') ? [path.resolve(entry)] : [];
+  return {
+    command,
+    args: [...devEntry, '--mcp-server'],
+    ...(env.RESTURA_USER_DATA_DIR
+      ? { env: { RESTURA_USER_DATA_DIR: env.RESTURA_USER_DATA_DIR } }
+      : {}),
+  };
 }
 
 const bridge = new ToolCallBridge((id, channel, payload) => emitTo(id, channel, payload));
@@ -247,8 +284,21 @@ async function startInternal(
   const onOwnerDestroyed = () => {
     void serialised(() => stopInternal('The Restura window closed.'));
   };
+  // A reload or renderer crash replaces the document but keeps the
+  // webContents (no 'destroyed'): the new page knows nothing about calls the
+  // old one was handling, so answer them now instead of after the 10-minute
+  // timeout. The server keeps running; the reloaded page adopts it.
+  const onOwnerReset = () => {
+    bridge.disposeAll('The Restura window reloaded before answering. Call the tool again.');
+  };
   owner.once('destroyed', onOwnerDestroyed);
-  active = { handle, token, owner, onOwnerDestroyed };
+  if (typeof owner.on === 'function') {
+    // Same events as bindRendererCleanup: committed main-frame navigations
+    // only — hash-route changes emit 'did-navigate-in-page' and never get here.
+    owner.on('did-navigate', onOwnerReset);
+    owner.on('render-process-gone', onOwnerReset);
+  }
+  active = { handle, token, owner, onOwnerDestroyed, onOwnerReset };
   bridge.setOwner(owner.id);
 
   try {
@@ -275,6 +325,8 @@ async function stopInternal(reason: string): Promise<ControlServerStatus> {
   bridge.setOwner(null);
   if (!current.owner.isDestroyed()) {
     current.owner.removeListener('destroyed', current.onOwnerDestroyed);
+    current.owner.removeListener('did-navigate', current.onOwnerReset);
+    current.owner.removeListener('render-process-gone', current.onOwnerReset);
   }
   await current.handle.close();
   try {
@@ -297,8 +349,11 @@ export function stopMcpControlServer(): Promise<ControlServerStatus> {
   return serialised(() => stopInternal('Restura is quitting.'));
 }
 
-// Lifecycle IPC is human-paced; results follow agent traffic.
+// Start/stop are human-paced; status is polled (every 5 s per window), so it
+// gets its own budget and can never starve a stop. Results follow agent
+// traffic.
 const lifecycleRateLimiter = createKeyedRateLimiter(30, 60_000);
+const statusRateLimiter = createKeyedRateLimiter(240, 60_000);
 const resultRateLimiter = createKeyedRateLimiter(1_200, 60_000);
 
 /**
@@ -314,9 +369,12 @@ export async function markStaleHandshakeStopped(userDataDir: string): Promise<vo
 }
 
 export function registerMcpControlIPC(): void {
-  void markStaleHandshakeStopped(app.getPath('userData')).catch((err: unknown) => {
-    log.warn('could not reset a stale MCP handshake file', { error: errorMessage(err) });
-  });
+  // Serialised with start/stop so it can never overwrite a fresh handshake.
+  void serialised(() => markStaleHandshakeStopped(app.getPath('userData'))).catch(
+    (err: unknown) => {
+      log.warn('could not reset a stale MCP handshake file', { error: errorMessage(err) });
+    }
+  );
 
   ipcMain.handle(
     IPC.mcpControl.start,
@@ -332,7 +390,7 @@ export function registerMcpControlIPC(): void {
             );
             // The token goes only to the trusted renderer, for the copyable
             // HTTP client config; it is never served over the listener.
-            return { ok: true as const, status, token };
+            return { ok: true as const, status, token, launch: agentLaunchCommand() };
           } catch (err) {
             log.error('MCP control server failed to start', { error: errorMessage(err) });
             return { ok: false as const, error: errorMessage(err) };
@@ -356,10 +414,14 @@ export function registerMcpControlIPC(): void {
   ipcMain.handle(
     IPC.mcpControl.status,
     rateLimited(
-      lifecycleRateLimiter,
+      statusRateLimiter,
       createValidatedHandler(IPC.mcpControl.status, NoInputSchema, () => ({
         ok: true as const,
         status: getControlServerStatus(),
+        // To the trusted renderer only (a window that adopts a running server
+        // needs it for the HTTP client config); never over the listener.
+        ...(active ? { token: active.token } : {}),
+        launch: agentLaunchCommand(),
       }))
     )
   );

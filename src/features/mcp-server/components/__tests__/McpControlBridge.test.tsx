@@ -32,12 +32,18 @@ import { McpSecretPromptDialog } from '../McpSecretPromptDialog';
 
 const RUNNING = { running: true, port: 4100, url: 'http://127.0.0.1:4100/mcp', inFlight: 0 };
 const STOPPED = { running: false, inFlight: 0 };
+const LAUNCH = { command: '/opt/Restura/restura', args: ['--mcp-server'] };
 
 beforeEach(() => {
   h.api = {
-    start: vi.fn(async () => ({ ok: true, status: RUNNING, token: 't'.repeat(43) })),
+    start: vi.fn(async () => ({
+      ok: true,
+      status: RUNNING,
+      token: 't'.repeat(43),
+      launch: LAUNCH,
+    })),
     stop: vi.fn(async () => ({ ok: true, status: STOPPED })),
-    status: vi.fn(async () => ({ ok: true, status: STOPPED })),
+    status: vi.fn(async () => ({ ok: true, status: STOPPED, launch: LAUNCH })),
     sendToolResult: vi.fn(async () => ({ ok: true })),
     onToolCall: vi.fn((cb: ToolCallListener) => {
       h.onCall = cb;
@@ -82,13 +88,71 @@ describe('McpControlBridge', () => {
   });
 
   it('adopts a server another window already runs instead of restarting it', async () => {
-    h.api.status!.mockResolvedValue({ ok: true, status: RUNNING });
+    h.api.status!.mockResolvedValue({
+      ok: true,
+      status: RUNNING,
+      token: 'adopted',
+      launch: LAUNCH,
+    });
     useSettingsStore.getState().updateSettings({
       mcpServer: { ...DEFAULT_MCP_SERVER_SETTINGS, enabled: true },
     });
     render(<McpControlBridge />);
     await waitFor(() => expect(useMcpServerRuntimeStore.getState().status.running).toBe(true));
     expect(h.api.start).not.toHaveBeenCalled();
+    // The adopting window gets the token (HTTP config) and the launch command.
+    expect(useMcpServerRuntimeStore.getState().token).toBe('adopted');
+    expect(useMcpServerRuntimeStore.getState().launch).toEqual(LAUNCH);
+  });
+
+  it('does not restart a server another window turned off (newer persisted setting)', async () => {
+    useSettingsStore.getState().updateSettings({
+      mcpServer: { ...DEFAULT_MCP_SERVER_SETTINGS, enabled: true, updatedAt: 1 },
+    });
+    const { dexieStorageAdapters } = await import('@/lib/shared/dexie-storage');
+    const spy = vi.spyOn(dexieStorageAdapters, 'settings').mockReturnValue({
+      getItem: async () => ({
+        state: {
+          settings: { mcpServer: { ...DEFAULT_MCP_SERVER_SETTINGS, enabled: false, updatedAt: 2 } },
+        },
+        version: 4,
+      }),
+      setItem: async () => undefined,
+      removeItem: async () => undefined,
+    } as never);
+    try {
+      render(<McpControlBridge />);
+      await waitFor(() =>
+        expect(useSettingsStore.getState().settings.mcpServer?.enabled).toBe(false)
+      );
+      expect(h.api.start).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('still releases the agent when main rejects a result', async () => {
+    h.api.sendToolResult!.mockRejectedValueOnce(new Error('Invalid IPC payload'));
+    render(<McpControlBridge />);
+    await act(async () => {
+      h.onCall?.({ callId: 'c-2', tool: 'describe_access', input: {} });
+    });
+    await waitFor(() => expect(h.api.sendToolResult).toHaveBeenCalledTimes(2));
+    expect(h.api.sendToolResult!.mock.calls[1]![0]).toEqual({
+      callId: 'c-2',
+      result: { ok: false, error: expect.stringMatching(/could not return/) },
+    });
+  });
+
+  it('a failing status call never throws out of the bridge', async () => {
+    h.api.status!.mockRejectedValue(new Error('Rate limit exceeded'));
+    useSettingsStore.getState().updateSettings({
+      mcpServer: { ...DEFAULT_MCP_SERVER_SETTINGS, enabled: true },
+    });
+    render(<McpControlBridge />);
+    await waitFor(() =>
+      expect(useMcpServerRuntimeStore.getState().lastError).toMatch(/Rate limit exceeded/)
+    );
   });
 
   it('answers every forwarded tool call with the runtime result', async () => {

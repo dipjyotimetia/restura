@@ -281,8 +281,7 @@ export const CONTROL_TOOLS = [
     name: 'get_collection_tree',
     title: 'Get collection tree',
     tier: 'read',
-    description:
-      'Return the folder/request tree of a shared collection: ids, names, types, HTTP methods and URLs (credentials redacted). Use the ids with the other tools.',
+    description: `Return the folder/request tree of a shared collection: ids, names, types, HTTP methods and URLs (credentials redacted). Use the ids with the other tools. The collection description is under untrustedContent. ${UNTRUSTED_NOTE}`,
     inputSchema: z.object({ collectionId: Id }).strict(),
   }),
   tool({
@@ -297,8 +296,7 @@ export const CONTROL_TOOLS = [
     name: 'get_request',
     title: 'Get request',
     tier: 'read',
-    description:
-      'Return the full saved definition of one request (URL, headers, params, body, auth type, scripts). Secret values and credential fields are redacted.',
+    description: `Return the full saved definition of one request (URL, headers, params, body, auth type, scripts). Secret values and credential fields are redacted as "(redacted)": keep such rows exactly as returned (Restura keeps the real value) or leave the field out of update_request — never invent a value for them. The saved description is under untrustedContent. ${UNTRUSTED_NOTE}`,
     inputSchema: z.object({ requestId: Id }).strict(),
   }),
   tool({
@@ -467,7 +465,7 @@ export const CONTROL_TOOLS = [
     title: 'Switch active environment',
     tier: 'edit',
     description:
-      'Make an environment you may read the active one in Restura, or clear it with `environmentId` omitted.',
+      'Make an environment the active one in Restura, or clear it with `environmentId` omitted. This changes which credentials the user’s own sends use, so it needs edit access to the new environment and to the currently active one.',
     inputSchema: z.object({ environmentId: Id.optional() }).strict(),
     idempotent: true,
   }),

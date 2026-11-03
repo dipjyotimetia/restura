@@ -23,6 +23,13 @@ vi.mock('@modelcontextprotocol/server/stdio', () => ({
     stdioState.options = options;
     return { close: stdioState.close };
   }),
+  StdioServerTransport: class {
+    constructor(
+      _stdin: unknown,
+      _stdout: unknown,
+      readonly opts: { maxBufferSize?: number }
+    ) {}
+  },
 }));
 
 import { mintToken, writeHandshake } from '../handlers/mcp-control-protocol';
@@ -254,6 +261,11 @@ describe('stdio shim', () => {
   it('serves stdio through the v2 compatibility transport with isolated server instances', async () => {
     const handle = startStdioMcpServer({ identity: IDENTITY, userDataDir: dir });
     expect(stdioState.options).toMatchObject({ legacy: 'serve' });
+    // Big enough for the largest import_collection document.
+    expect(
+      (stdioState.options as unknown as { transport: { opts: { maxBufferSize: number } } })
+        .transport.opts.maxBufferSize
+    ).toBeGreaterThanOrEqual(20 * 1024 * 1024);
     expect(stdioState.factory).toBeTypeOf('function');
     expect(stdioState.factory?.()).not.toBe(stdioState.factory?.());
     await handle.stop();

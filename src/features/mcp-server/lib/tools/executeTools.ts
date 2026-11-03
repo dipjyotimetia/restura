@@ -13,13 +13,13 @@ import {
 } from '@shared/mcp-server/consent';
 import type { ControlToolInput } from '@shared/mcp-server/control-tools';
 import { redactBodyForAgent, redactHeadersForAgent } from '@shared/mcp-server/redaction';
-import { resolveRunVariables } from '@/features/collections/hooks/useCollectionRun';
 import {
   type CollectionRunResult,
   type RequestCompleteInfo,
   runCollection,
 } from '@/features/collections/lib/collectionRunner';
 import { flattenRunnables } from '@/features/collections/lib/flattenRunnables';
+import { resolveRunVariables } from '@/features/collections/lib/runVariables';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';

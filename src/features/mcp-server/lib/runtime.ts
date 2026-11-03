@@ -20,12 +20,13 @@ import {
   type ToolCallEvent,
 } from '@shared/mcp-server/control-bridge';
 import {
+  type ControlToolDefinition,
   type ControlToolName,
   getControlTool,
   type ToolTier,
 } from '@shared/mcp-server/control-tools';
-import { redactSecretsDeep } from '@shared/mcp-server/redaction';
-import type { McpApprovalMode } from '@shared/mcp-server/settings';
+import { postProcessResult } from '@shared/mcp-server/dispatch';
+import type { McpApprovalMode, McpServerSettings } from '@shared/mcp-server/settings';
 import { v4 as uuidv4 } from 'uuid';
 import {
   type ActivityEntry,
@@ -37,8 +38,9 @@ import {
   settleSecretPrompt,
   useMcpServerRuntimeStore,
 } from '../store/useMcpServerRuntimeStore';
-import { getMcpServerSettings } from './settings';
+import { getFreshMcpServerSettings } from './settings';
 import { EDIT_TOOLS } from './tools/editTools';
+import { ENVIRONMENT_TOOLS } from './tools/environmentTools';
 import { EXECUTE_TOOLS } from './tools/executeTools';
 import { READ_TOOLS } from './tools/readTools';
 import { isRefusal, type PreparedCall, type ToolEnv, type ToolImpl } from './tools/types';
@@ -50,6 +52,7 @@ type AnyToolImpl = ToolImpl<any>;
 export const TOOL_IMPLEMENTATIONS = {
   ...READ_TOOLS,
   ...EDIT_TOOLS,
+  ...ENVIRONMENT_TOOLS,
   ...EXECUTE_TOOLS,
 } satisfies Record<ControlToolName, AnyToolImpl>;
 
@@ -112,6 +115,14 @@ function fingerprintOf(call: PreparedCall): string {
   return call.fingerprint ?? JSON.stringify([call.title, call.details]);
 }
 
+/** Error text for the agent, kept well under main's result-schema cap. */
+export function boundedError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.length > MAX_ERROR_CHARS ? `${message.slice(0, MAX_ERROR_CHARS)}…` : message;
+}
+
+const MAX_ERROR_CHARS = 2_000;
+
 const DENIED: Record<'denied' | 'timeout' | 'cancelled', string> = {
   denied: 'The user denied this in Restura. Do not retry it unless they ask you to.',
   timeout: 'Nobody approved this in Restura in time, so it was not done.',
@@ -131,7 +142,26 @@ export async function runControlTool(
   const impl = implementations[event.tool];
   if (!def || !impl) return { ok: false, error: `Unknown tool: ${event.tool}` };
 
-  const settings = getMcpServerSettings();
+  // Register before the first await, so a cancel from main is never missed.
+  const controller = new AbortController();
+  inFlight.set(event.callId, controller);
+  try {
+    return await runRegistered(event, def, impl, controller, options);
+  } finally {
+    inFlight.delete(event.callId);
+  }
+}
+
+async function runRegistered(
+  event: ToolCallEvent,
+  def: ControlToolDefinition,
+  impl: AnyToolImpl,
+  controller: AbortController,
+  options: RunOptions
+): Promise<ControlToolResult> {
+  // Newest settings across windows: a change made in another window (access
+  // revoked, server turned off) must apply here too.
+  const settings = await getFreshMcpServerSettings();
   if (!settings.enabled) {
     return { ok: false, error: 'The Restura MCP server is turned off.' };
   }
@@ -140,11 +170,10 @@ export async function runControlTool(
   if (!parsed.success) {
     return { ok: false, error: `Invalid input: ${formatZodIssues(parsed.error)}` };
   }
+  if (controller.signal.aborted) return { ok: false, error: DENIED.cancelled };
 
-  const controller = new AbortController();
-  inFlight.set(event.callId, controller);
   const client = clientLabel(event);
-  const envFor = (s = getMcpServerSettings()): ToolEnv => ({
+  const envFor = (s: McpServerSettings): ToolEnv => ({
     settings: s,
     signal: controller.signal,
     ...(client ? { client } : {}),
@@ -158,6 +187,9 @@ export async function runControlTool(
       }
       return { ok: false, error: prepared.refused };
     }
+    // Cancelled while an async prepare (e.g. an import being parsed) ran:
+    // never show a card or a secret prompt for a call nobody is waiting on.
+    if (controller.signal.aborted) return { ok: false, error: DENIED.cancelled };
 
     let secretValue: string | undefined;
     const timeoutMs = options.approvalTimeoutMs ?? APPROVAL_TIMEOUT_MS;
@@ -207,7 +239,7 @@ export async function runControlTool(
     }
 
     // Time of use: re-read settings + consent and re-prepare.
-    const fresh = getMcpServerSettings();
+    const fresh = await getFreshMcpServerSettings();
     if (!fresh.enabled) return { ok: false, error: 'The Restura MCP server is turned off.' };
     const current = await impl(parsed.data, envFor(fresh));
     if (isRefusal(current)) {
@@ -231,13 +263,12 @@ export async function runControlTool(
     if (def.tier !== 'read') {
       log(event, def.tier, 'applied', outcome.summary, outcome.undo ? { undo: outcome.undo } : {});
     }
-    return { ok: true, data: redactSecretsDeep(outcome.data) };
+    // The one redaction entry point every result passes (main redacts again).
+    return postProcessResult({ ok: true, data: outcome.data }) as ControlToolResult;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = boundedError(err);
     log(event, def.tier, 'failed', def.title, { detail: message });
     return { ok: false, error: controller.signal.aborted ? DENIED.cancelled : message };
-  } finally {
-    inFlight.delete(event.callId);
   }
 }
 
@@ -253,14 +284,24 @@ export function cancelAllControlToolCalls(): void {
   for (const controller of inFlight.values()) controller.abort();
 }
 
-/** Revert one logged change. Returns false when it can no longer be undone. */
-export async function undoActivity(activityId: string): Promise<boolean> {
+export type UndoResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Revert one logged change. Refuses (and stays available) when the target
+ * changed since — undoing would also discard the later changes; undo those
+ * first. Never throws.
+ */
+export async function undoActivity(activityId: string): Promise<UndoResult> {
   const undo = undoActions.get(activityId);
-  if (!undo) return false;
+  if (!undo) return { ok: false, error: 'This change can no longer be undone.' };
+  try {
+    await undo();
+  } catch (err) {
+    return { ok: false, error: boundedError(err) };
+  }
   undoActions.delete(activityId);
-  await undo();
   useMcpServerRuntimeStore
     .getState()
     .updateActivity(activityId, { status: 'undone', undoable: false });
-  return true;
+  return { ok: true };
 }

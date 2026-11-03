@@ -19,7 +19,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
-  app: { getPath: () => h.userData, getVersion: () => '1.2.3' },
+  app: { getPath: () => h.userData, getVersion: () => '1.2.3', isPackaged: true },
   ipcMain: {
     handle: (channel: string, fn: (event: unknown, ...args: unknown[]) => Promise<unknown>) =>
       h.handlers.set(channel, fn),
@@ -33,6 +33,7 @@ vi.mock('../ipc/ipc-utils', () => ({
 }));
 
 import {
+  agentLaunchCommand,
   disposeMcpControlIPC,
   markStaleHandshakeStopped,
   registerMcpControlIPC,
@@ -53,8 +54,14 @@ function fakeWebContents(id: number) {
     once(event: string, fn: () => void) {
       listeners.set(event, fn);
     },
+    on(event: string, fn: () => void) {
+      listeners.set(event, fn);
+    },
     removeListener(event: string) {
       listeners.delete(event);
+    },
+    emit(event: string) {
+      listeners.get(event)?.();
     },
     destroy() {
       this.destroyed = true;
@@ -247,6 +254,95 @@ describe('mcp-control IPC lifecycle', () => {
     await expect(
       fn({ sender: fakeWebContents(1), senderFrame: { url: 'https://evil.example', parent: null } })
     ).rejects.toThrow(/untrusted frame/);
+  });
+});
+
+describe('mcp-control renderer lifecycle', () => {
+  beforeEach(async () => {
+    h.userData = await mkdtemp(path.join(tmpdir(), 'restura-mcp-reload-'));
+    h.emitted.length = 0;
+    h.handlers.clear();
+    registerMcpControlIPC();
+  });
+  afterEach(async () => {
+    await Promise.allSettled(clients.splice(0).map((c) => c.close()));
+    await disposeMcpControlIPC();
+    await rm(h.userData, { recursive: true, force: true });
+  });
+
+  it.each(['did-navigate', 'render-process-gone'])(
+    '%s answers parked calls at once and keeps the server for the reloaded page',
+    async (event) => {
+      const owner = fakeWebContents(8);
+      const started = (await invoke('mcp-control:start', owner)) as {
+        status: { url: string };
+        token: string;
+      };
+      const client = await connect(started.status.url, started.token);
+      const pending = client.callTool({ name: 'describe_access', arguments: {} });
+      await waitFor(() => toolCalls()[0]);
+
+      owner.emit(event);
+      const result = await pending;
+      expect(result.isError).toBe(true);
+      expect((result.content as Array<{ text: string }>)[0]!.text).toMatch(/reloaded/);
+
+      const status = (await invoke('mcp-control:status', owner)) as {
+        status: { running: boolean; inFlight: number };
+        token?: string;
+      };
+      expect(status.status).toMatchObject({ running: true, inFlight: 0 });
+      // The adopting page gets the token for the HTTP config.
+      expect(status.token).toBe(started.token);
+    }
+  );
+
+  it('status works even when start/stop are rate-limited (separate budget)', async () => {
+    const owner = fakeWebContents(9);
+    for (let i = 0; i < 40; i += 1) {
+      await invoke('mcp-control:status', owner);
+    }
+    await expect(invoke('mcp-control:stop', owner)).resolves.toMatchObject({ ok: true });
+  });
+});
+
+describe('agentLaunchCommand', () => {
+  it('uses the AppImage / portable launcher instead of the transient executable path', () => {
+    expect(
+      agentLaunchCommand(
+        { APPIMAGE: '/home/u/Restura.AppImage' },
+        true,
+        ['/tmp/.mount_x/restura'],
+        '/tmp/.mount_x/restura'
+      )
+    ).toEqual({ command: '/home/u/Restura.AppImage', args: ['--mcp-server'] });
+    expect(
+      agentLaunchCommand(
+        { PORTABLE_EXECUTABLE_FILE: 'D:\\Restura.exe' },
+        true,
+        ['x'],
+        'C:\\Temp\\x\\Restura.exe'
+      ).command
+    ).toBe('D:\\Restura.exe');
+    expect(agentLaunchCommand({}, true, ['/opt/Restura/restura'], '/opt/Restura/restura')).toEqual({
+      command: '/opt/Restura/restura',
+      args: ['--mcp-server'],
+    });
+  });
+
+  it('an unpackaged build passes its entry and a custom user data folder on', () => {
+    expect(
+      agentLaunchCommand(
+        { RESTURA_USER_DATA_DIR: '/tmp/profile' },
+        false,
+        ['/repo/node_modules/electron/dist/electron', 'dist/electron/electron/main/main.js'],
+        '/repo/node_modules/electron/dist/electron'
+      )
+    ).toEqual({
+      command: '/repo/node_modules/electron/dist/electron',
+      args: [path.resolve('dist/electron/electron/main/main.js'), '--mcp-server'],
+      env: { RESTURA_USER_DATA_DIR: '/tmp/profile' },
+    });
   });
 });
 

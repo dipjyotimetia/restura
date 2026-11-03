@@ -38,6 +38,7 @@ describe('public product tree', () => {
       'external-secrets',
     ]);
     expect(findFeatures('', 'planned', 'ai').map((feature) => feature.id)).toEqual([
+      'mcp-server-next',
       'ai-web',
       'decision-models',
     ]);
