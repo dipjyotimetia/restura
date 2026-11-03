@@ -20,16 +20,25 @@
  *     as a follow-up).
  *   - Body bytes are returned as a Buffer and forwarded to Response without
  *     UTF-8 lossy-decoding, so binary/gzipped upstreams pass through intact.
- *   - Request bytes use the same TextEncoder()/UTF-8 the Cloudflare twin
- *     uses, so non-ASCII header values are byte-identical across backends.
- *   - Headers may arrive as a Record or a `Headers` instance (the redirect-
- *     follower always passes a Headers); normalised here via `toRecord`.
+ *   - Request framing, body serialisation, head parsing and Response building
+ *     come from `./http-framing` (shared with the Cloudflare twin), so the
+ *     wire bytes are identical across backends; only socket I/O lives here.
  */
 import { Buffer } from 'node:buffer';
 import net from 'node:net';
 import tls from 'node:tls';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { assertNodeHostnameSafe, type NodeDnsGuardOptions } from './dns-guard-node';
+import {
+  encodeRequest,
+  frameBody,
+  isBodylessStatus,
+  parseResponseHead,
+  parseStatusCode,
+  type ResponseHead,
+  toRecord,
+  toResponse,
+} from './http-framing';
 import type { UpstreamProxy } from './tcp-proxy';
 
 const ENCODER = new TextEncoder();
@@ -47,51 +56,7 @@ function buildProxyAuthHeader(auth?: { username: string; password: string }): st
   return `Proxy-Authorization: ${proxyAuthValue(auth)}\r\n`;
 }
 
-/**
- * Normalise a HeadersInit (Record | Headers | [k,v][]) into a plain Record.
- * `Object.entries` on a Headers instance yields [], silently dropping every
- * header — the redirect-follower hands us a Headers instance, so this is
- * load-bearing for redirected upstream-proxy hops.
- */
-function toRecord(input: RequestInit['headers']): Record<string, string> {
-  if (!input) return {};
-  if (input instanceof Headers) {
-    const out: Record<string, string> = {};
-    input.forEach((v, k) => {
-      out[k] = v;
-    });
-    return out;
-  }
-  if (Array.isArray(input)) {
-    const out: Record<string, string> = {};
-    for (const [k, v] of input) out[k] = v;
-    return out;
-  }
-  return { ...(input as Record<string, string>) };
-}
-
-function parseStatusCode(statusLine: string): number {
-  // `HTTP/1.1 200 OK` → 200. Exact-match the second token rather than
-  // substring-matching '200' anywhere in the line (a 502 reason phrase
-  // like "Backend 200 unavailable" would otherwise falsely succeed).
-  const token = statusLine.split(' ')[1];
-  if (!token) return 502;
-  const n = parseInt(token, 10);
-  return Number.isNaN(n) ? 502 : n;
-}
-
-interface ParsedConnectResponse {
-  statusLine: string;
-  headers: Record<string, string>;
-}
-
-interface ParsedHttpResponse extends ParsedConnectResponse {
-  /**
-   * Every header field in wire order, duplicates kept. `headers` collapses
-   * repeats (last wins), which loses all but one `Set-Cookie` (#855) — build
-   * the `Response` from this list instead.
-   */
-  headerList: Array<[string, string]>;
+interface ParsedHttpResponse extends ResponseHead {
   body: Buffer;
 }
 
@@ -116,7 +81,7 @@ function attachAbort(signal: AbortSignal, fail: (err: Error) => void): () => voi
 function readConnectResponse(
   socket: net.Socket | tls.TLSSocket,
   signal: AbortSignal
-): Promise<ParsedConnectResponse> {
+): Promise<ResponseHead> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
@@ -128,7 +93,7 @@ function readConnectResponse(
       socket.removeListener('error', onError);
       detachAbort();
     };
-    const finish = (v: ParsedConnectResponse) => {
+    const finish = (v: ResponseHead) => {
       if (done) return;
       done = true;
       cleanup();
@@ -156,21 +121,12 @@ function readConnectResponse(
       const split = buf.indexOf(Buffer.from('\r\n\r\n'));
       if (split === -1) return;
 
-      const headBytes = Buffer.from(buf.subarray(0, split)).toString('latin1');
-      const lines = headBytes.split('\r\n');
-      const statusLine = lines[0] ?? '';
-      const headers: Record<string, string> = {};
-      for (const line of lines.slice(1)) {
-        const colon = line.indexOf(':');
-        if (colon !== -1) {
-          headers[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
-        }
-      }
+      const head = parseResponseHead(Buffer.from(buf.subarray(0, split)).toString('latin1'));
       // Push any leftover body bytes back onto the socket so subsequent
       // reads see them. unshift() is the Node-supported way to do this.
       const leftover = buf.subarray(split + 4);
       if (leftover.byteLength > 0) socket.unshift(leftover);
-      finish({ statusLine, headers });
+      finish(head);
     };
 
     socket.on('data', onData);
@@ -196,9 +152,7 @@ function readHttpResponseBody(
     const chunks: Buffer[] = [];
     let total = 0;
     let headerBodySplit = -1;
-    let headers: Record<string, string> = {};
-    let headerList: Array<[string, string]> = [];
-    let statusLine = '';
+    let head: ResponseHead = { statusLine: '', headers: {}, headerList: [] };
     let contentLength: number | null = null;
     let bodyless = false;
     let done = false;
@@ -213,7 +167,7 @@ function readHttpResponseBody(
       if (done) return;
       done = true;
       cleanup();
-      resolve({ statusLine, headers, headerList, body });
+      resolve({ ...head, body });
     };
     const fail = (err: Error) => {
       if (done) return;
@@ -231,31 +185,14 @@ function readHttpResponseBody(
       const split = buf.indexOf(Buffer.from('\r\n\r\n'));
       if (split === -1) return;
       headerBodySplit = split;
-      const headBytes = Buffer.from(buf.subarray(0, split)).toString('latin1');
-      const lines = headBytes.split('\r\n');
-      statusLine = lines[0] ?? '';
-      headers = {};
-      headerList = [];
-      for (const line of lines.slice(1)) {
-        const colon = line.indexOf(':');
-        if (colon !== -1) {
-          const name = line.slice(0, colon).trim().toLowerCase();
-          const value = line.slice(colon + 1).trim();
-          headers[name] = value;
-          headerList.push([name, value]);
-        }
-      }
-      const cl = headers['content-length'];
+      head = parseResponseHead(Buffer.from(buf.subarray(0, split)).toString('latin1'));
+      const cl = head.headers['content-length'];
       if (cl !== undefined) {
         const n = parseInt(cl, 10);
         if (!Number.isNaN(n)) contentLength = n;
       }
-      // 1xx, 204, 304 are bodyless per RFC. Also treat HEAD responses
-      // (status doesn't tell us — we'd need the request method here).
-      const code = parseStatusCode(statusLine);
-      if ((code >= 100 && code < 200) || code === 204 || code === 304) {
-        bodyless = true;
-      }
+      // HEAD responses aren't detected: the status doesn't say, only the method.
+      bodyless = isBodylessStatus(parseStatusCode(head.statusLine));
     };
 
     const onData = (chunk: Buffer) => {
@@ -309,79 +246,9 @@ function readHttpResponseBody(
   });
 }
 
-function hasHeader(headers: Record<string, string>, name: string): boolean {
-  for (const k of Object.keys(headers)) if (k.toLowerCase() === name) return true;
-  return false;
-}
-
-function deleteHeader(headers: Record<string, string>, name: string): void {
-  for (const k of Object.keys(headers)) if (k.toLowerCase() === name) delete headers[k];
-}
-
-/**
- * Serialise a fetch body to the exact bytes framed on the wire, and set the
- * matching Content-Length (and Content-Type when the caller set none).
- * Strings and byte views pass through without a copy; anything else
- * (FormData, Blob, URLSearchParams, streams) goes through `new Response(body)`,
- * which yields the bytes and the Content-Type fetch() would have sent — for
- * FormData that is the multipart boundary. Twin of tcp-proxy.ts.
- */
-async function frameBody(
-  body: RequestInit['body'],
-  headers: Record<string, string>
-): Promise<Uint8Array | undefined> {
-  if (body == null) return undefined;
-  let bytes: Uint8Array;
-  if (typeof body === 'string') {
-    bytes = ENCODER.encode(body);
-  } else if (body instanceof Uint8Array) {
-    bytes = body;
-  } else if (body instanceof ArrayBuffer) {
-    bytes = new Uint8Array(body);
-  } else {
-    const serialised = new Response(body);
-    const contentType = serialised.headers.get('content-type');
-    if (contentType && !hasHeader(headers, 'content-type')) headers['Content-Type'] = contentType;
-    bytes = new Uint8Array(await serialised.arrayBuffer());
-  }
-  deleteHeader(headers, 'content-length');
-  headers['Content-Length'] = String(bytes.byteLength);
-  return bytes;
-}
-
-/** Build the Response; a null-body status must not be given a body (the constructor throws). */
-function toResponse(
-  statusLine: string,
-  headerList: Array<[string, string]>,
-  body: Uint8Array
-): Response {
-  const status = parseStatusCode(statusLine);
-  const nullBody = status === 101 || status === 204 || status === 205 || status === 304;
-  return new Response(nullBody ? null : body, { status, headers: headerList });
-}
-
-/**
- * Frame request line + headers + body. `Host` is always the target authority
- * written here; any caller-supplied Host (any case) is dropped so the wire
- * never carries two Host fields.
- */
-function encodeRequest(
-  method: string,
-  url: URL,
-  headers: Record<string, string>,
-  bodyBytes?: Uint8Array
-): Buffer {
-  const path = url.pathname + url.search;
-  let raw = `${method} ${path} HTTP/1.1\r\nHost: ${url.host}\r\n`;
-  for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase() !== 'host') raw += `${k}: ${v}\r\n`;
-  }
-  raw += '\r\n';
-  // Encode the request line + headers as UTF-8 (matching the Cloudflare
-  // twin's TextEncoder().encode behaviour for non-ASCII header values).
-  const head = Buffer.from(ENCODER.encode(raw));
-  if (!bodyBytes || bodyBytes.length === 0) return head;
-  return Buffer.concat([head, Buffer.from(bodyBytes)]);
+/** Zero-copy Buffer view over framed bytes, for socket.write. */
+function asBuffer(bytes: Uint8Array): Buffer {
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
 function connectTcp(host: string, port: number, signal: AbortSignal): Promise<net.Socket> {
@@ -435,10 +302,7 @@ export interface NodeTcpProxyOptions {
   dnsGuard?: NodeDnsGuardOptions;
 }
 
-async function buildTunneledRequest(
-  targetUrl: URL,
-  requestInit: RequestInit
-): Promise<{ wire: Buffer }> {
+async function buildTunneledRequest(targetUrl: URL, requestInit: RequestInit): Promise<Buffer> {
   // Verbatim (#857): the shared core already normalised known methods; extension
   // tokens are case-sensitive and must match what auth signers signed.
   const method = requestInit.method ?? 'GET';
@@ -446,8 +310,8 @@ async function buildTunneledRequest(
   // caller-supplied (possibly stale) Host.
   const headers = toRecord(requestInit.headers);
   const bodyBytes = await frameBody(requestInit.body, headers);
-
-  return { wire: encodeRequest(method, targetUrl, headers, bodyBytes) };
+  const target = targetUrl.pathname + targetUrl.search;
+  return asBuffer(encodeRequest(method, target, targetUrl.host, headers, bodyBytes));
 }
 
 export function createHttpsViaConnectProxy(dnsGuard?: NodeDnsGuardOptions) {
@@ -490,15 +354,10 @@ export function createHttpsViaConnectProxy(dnsGuard?: NodeDnsGuardOptions) {
     }
 
     try {
-      const { wire } = await buildTunneledRequest(targetUrl, requestInit);
-      tlsSocket.write(wire);
+      tlsSocket.write(await buildTunneledRequest(targetUrl, requestInit));
 
-      const {
-        statusLine: respStatusLine,
-        headerList: respHeaderList,
-        body: respBody,
-      } = await readHttpResponseBody(tlsSocket, signal);
-      return toResponse(respStatusLine, respHeaderList, respBody);
+      const response = await readHttpResponseBody(tlsSocket, signal);
+      return toResponse(response.statusLine, response.headerList, response.body);
     } finally {
       tlsSocket.destroy();
     }
@@ -527,23 +386,12 @@ export function createHttpViaProxy(dnsGuard?: NodeDnsGuardOptions) {
       }
       const bodyBytes = await frameBody(requestInit.body, headers);
 
-      // HTTP proxy uses absolute URI in the request-line.
-      let raw = `${method} ${targetUrl.toString()} HTTP/1.1\r\nHost: ${targetUrl.host}\r\n`;
-      for (const [k, v] of Object.entries(headers)) {
-        if (k.toLowerCase() !== 'host') raw += `${k}: ${v}\r\n`;
-      }
-      raw += '\r\n';
+      // An HTTP proxy takes the absolute-form request target.
+      const wire = encodeRequest(method, targetUrl.toString(), targetUrl.host, headers, bodyBytes);
+      socket.write(asBuffer(wire));
 
-      const head = Buffer.from(ENCODER.encode(raw));
-      const wire = bodyBytes ? Buffer.concat([head, Buffer.from(bodyBytes)]) : head;
-      socket.write(wire);
-
-      const {
-        statusLine,
-        headerList: respHeaderList,
-        body: respBody,
-      } = await readHttpResponseBody(socket, signal);
-      return toResponse(statusLine, respHeaderList, respBody);
+      const response = await readHttpResponseBody(socket, signal);
+      return toResponse(response.statusLine, response.headerList, response.body);
     } finally {
       socket.destroy();
     }

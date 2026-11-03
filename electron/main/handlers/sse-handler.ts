@@ -1,6 +1,7 @@
 import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
 import { isReconnectableSseResponse } from '@shared/protocol/sse-parser';
+import type { Fetcher } from '@shared/protocol/types';
 import { createLogger } from '@shared/runtime/logger';
 import { ipcMain } from 'electron';
 import { EVENT_PREFIX, IPC } from '../../shared/channels';
@@ -21,7 +22,7 @@ import {
   type PolicyTransportConfig,
   resolvePolicyTransport,
 } from '../security/policy-transport';
-import { resolveSafeAddress } from '../security/safe-connect';
+import { resolveSafeAddress, type SafeAddress } from '../security/safe-connect';
 import {
   materializeStreamingAuth,
   needsWsHandshakeMaterialization,
@@ -78,6 +79,32 @@ const connections = new StreamRegistry<ActiveSse, SseClaimFields>({
   },
   disposeClaim: (claim) => claim.abort?.abort(),
 });
+
+/**
+ * One DNS-pinned connection per request the shared streaming core issues.
+ * Requests to the pre-flight origin dial the address already validated for it;
+ * a redirect hop to another origin gets that origin's transport policy
+ * (per-host TLS material, proxy check) and is re-resolved through the DNS guard
+ * and re-pinned before dialling. `redirect: 'manual'` keeps the shared follower
+ * in charge of redirect policy and per-hop URL validation (Worker parity).
+ */
+function createSseHopFetcher(
+  config: PolicyTransportConfig,
+  policyConfig: PolicyTransportConfig,
+  pinned: SafeAddress
+): Fetcher {
+  const origin = new URL(policyConfig.url).origin;
+  return async (req) => {
+    let hopPolicy = policyConfig;
+    let hopAddress = pinned;
+    if (new URL(req.url).origin !== origin) {
+      hopPolicy = resolveSseExecutionPolicy({ ...config, url: req.url });
+      hopAddress = await resolveSafeAddress(req.url, { ...getExecutionPolicy().security });
+    }
+    const fetchImpl = createPolicyPinnedFetch(hopPolicy, hopAddress);
+    return makeFetchFetcher({ redirect: 'manual', fetchImpl })(req);
+  };
+}
 
 function redactSseEvent(e: ParsedSseEvent, redact: SecretRedactor): ParsedSseEvent {
   // Every string field (data, event, lastEventId, …) — not a fixed list, so a
@@ -281,19 +308,8 @@ export function registerSseHandlerIPC(): void {
       }
       claimedEntry = entry;
 
-      // `redirect: 'manual'` so followRedirects can validate every hop (matches
-      // the Worker proxy's policy — Location pointing at metadata IPs etc. is
-      // rejected before we connect). `fetchImpl` is DNS-pinned to the address we
-      // just validated so the connect can't be rebound out from under us.
-      const sseFetcher = makeFetchFetcher({
-        redirect: 'manual',
-        fetchImpl: createPolicyPinnedFetch(policyConfig, pinned),
-      });
-
-      // Same orchestrator as the HTTP handler so SSE inherits the SSRF /
-      // header / redirect / auth pipeline. resolveSafeAddress above validated
-      // the address and the pinned fetcher dials it directly, so the rebind
-      // window the URL parse can't cover is now closed.
+      // Same orchestrator as the HTTP handler: SSE inherits the SSRF / header /
+      // redirect / auth pipeline; every hop is dialled DNS-pinned.
       const result = await executeHttpProxyStreaming(
         {
           // graphql-sse (#889) POSTs its operation; plain SSE stays a GET.
@@ -312,7 +328,7 @@ export function registerSseHandlerIPC(): void {
               ? { redirectPolicy: { stripOnOriginChange: config.stripOnOriginChange } }
               : {}),
         },
-        sseFetcher,
+        createSseHopFetcher(config, policyConfig, pinned),
         // Same outbound-network policy as every other desktop transport
         // (Settings → Security), so localhost/private-IP rules stay consistent.
         // `signal` lets disconnect / renderer destroy / teardown abort the

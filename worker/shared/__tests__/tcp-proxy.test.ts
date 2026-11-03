@@ -11,6 +11,7 @@ interface FakeCfSocket {
   writable: WritableStream<Uint8Array>;
   written: Uint8Array[];
   closed: boolean;
+  closeCount: number;
   onWrite: ((s: FakeCfSocket) => void) | null;
   tls: FakeCfSocket | null;
   push(chunk: string): void;
@@ -39,6 +40,7 @@ function fakeSocket(): FakeCfSocket {
     }),
     written: [],
     closed: false,
+    closeCount: 0,
     onWrite: null,
     tls: null,
     push(chunk) {
@@ -53,6 +55,7 @@ function fakeSocket(): FakeCfSocket {
     },
     async close() {
       sock.closed = true;
+      sock.closeCount += 1;
     },
   };
   return sock;
@@ -66,6 +69,10 @@ vi.mock('cloudflare:sockets', () => ({
     return state.next;
   }),
 }));
+
+// A small response cap so the too-large paths are cheap to reach.
+const MAX = 1024;
+vi.mock('@shared/protocol/http-proxy', () => ({ MAX_RESPONSE_SIZE: 1024 }));
 
 import { httpsViaConnectProxy, httpViaProxy } from '../tcp-proxy';
 
@@ -212,5 +219,72 @@ describe('httpsViaConnectProxy — tunnelled request framing', () => {
     const head = text.slice(0, split);
     const body = text.slice(split + 4);
     expect(head).toMatch(new RegExp(`\\r\\nContent-Length: ${ENC.encode(body).byteLength}(\\r|$)`));
+  });
+});
+
+describe('socket cleanup on every failure path (Node twin parity)', () => {
+  const signal = () => new AbortController().signal;
+  const https = () =>
+    httpsViaConnectProxy(new URL('https://example.com/'), PROXY, { method: 'GET' }, signal());
+  const http = () =>
+    httpViaProxy(new URL('http://example.com/'), PROXY, { method: 'GET' }, signal());
+
+  it('closes the proxy socket once when it hangs up before the CONNECT reply', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    sock.onWrite = (s) => s.end();
+    await expect(https()).rejects.toThrow('closed before CONNECT response headers');
+    expect(sock.closeCount).toBe(1);
+  });
+
+  it('closes the proxy socket once when the CONNECT reply is too large', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    sock.onWrite = (s) => s.push(`HTTP/1.1 200 OK\r\nX-Pad: ${'a'.repeat(MAX)}`);
+    await expect(https()).rejects.toThrow('Response too large');
+    expect(sock.closeCount).toBe(1);
+  });
+
+  it('closes the proxy socket once when the TLS upgrade throws', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    sock.onWrite = (s) => s.push('HTTP/1.1 200 Connection established\r\n\r\n');
+    await expect(https()).rejects.toThrow('test forgot to seed tls socket');
+    expect(sock.closeCount).toBe(1);
+  });
+
+  it('still closes once on a non-200 CONNECT reply', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    sock.onWrite = (s) => s.push('HTTP/1.1 407 Proxy Authentication Required\r\n\r\n');
+    await expect(https()).rejects.toThrow('Proxy CONNECT failed');
+    expect(sock.closeCount).toBe(1);
+  });
+
+  it('httpViaProxy closes the socket once when the response is too large', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    sock.onWrite = (s) => s.push(`HTTP/1.1 200 OK\r\n\r\n${'b'.repeat(MAX)}`);
+    await expect(http()).rejects.toThrow('Response too large');
+    expect(sock.closeCount).toBe(1);
+  });
+
+  it('httpViaProxy closes the socket once when upstream ends before the headers', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    sock.onWrite = (s) => {
+      s.push('HTTP/1.1 200 OK\r\n');
+      s.end();
+    };
+    await expect(http()).rejects.toThrow('Upstream closed before response headers');
+    expect(sock.closeCount).toBe(1);
+  });
+
+  it('httpViaProxy closes the socket once on success', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    sock.onWrite = (s) => s.push('HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok');
+    expect(await (await http()).text()).toBe('ok');
+    expect(sock.closeCount).toBe(1);
   });
 });

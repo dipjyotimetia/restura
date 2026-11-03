@@ -83,6 +83,18 @@ describe('Insomnia export of field-based bodies', () => {
     });
   });
 
+  it('round-trips a multipart file field through the importer as a file with its fileName', () => {
+    const { collection } = importInsomniaCollection(exportToInsomnia(multipart));
+    const body = (collection.items[0]?.request as HttpRequest).body;
+    expect(body.type).toBe('form-data');
+    expect(body.formData?.map((f) => [f.key, f.type, f.value, f.fileName, f.enabled])).toEqual([
+      ['title', 'text', 'hello', undefined, true],
+      ['off', 'text', 'x', undefined, false],
+      // Bytes are not portable through Insomnia; the field and its name are.
+      ['doc', 'file', '', 'a.pdf', true],
+    ]);
+  });
+
   it('emits urlencoded fields as params and round-trips through the importer', () => {
     expect(insomniaBody(urlencoded)?.params).toEqual([
       { name: 'q', value: 'a b', disabled: false },

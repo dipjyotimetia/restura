@@ -1,3 +1,15 @@
+/**
+ * One multipart / urlencoded field of an Insomnia body (`body.params`). A file
+ * field carries `type: 'file'` and its `fileName`; its bytes are not portable.
+ */
+export interface InsomniaBodyParam {
+  name: string;
+  value: string;
+  disabled?: boolean;
+  type?: 'file';
+  fileName?: string;
+}
+
 // Insomnia Collection Format (simplified)
 export interface InsomniaResource {
   _id: string;
@@ -19,6 +31,7 @@ export interface InsomniaResource {
   body?: {
     mimeType: string;
     text: string;
+    params?: InsomniaBodyParam[];
   };
   authentication?: {
     /** Absent for no-auth — Insomnia's native export uses an empty object. */
@@ -55,7 +68,7 @@ export interface InsomniaV5Item {
   body?: {
     mimeType?: string;
     text?: string;
-    params?: Array<{ name: string; value: string; disabled?: boolean }>;
+    params?: InsomniaBodyParam[];
   };
   authentication?: {
     type?: string;
