@@ -200,6 +200,33 @@ describe('grpc stream ownership', () => {
     expect(nonOwner.send).not.toHaveBeenCalled();
   });
 
+  it('fails the stream (not a silent truncation) when pending writes overflow', async () => {
+    const owner = makeEvent();
+    const dns = deferred<typeof pinnedDial>();
+    const controls = makeControls();
+    mockResolveGrpcDialAddress.mockReturnValueOnce(dns.promise);
+    mockRunConnectStream.mockReturnValueOnce(controls);
+
+    listenerFor(IPC.grpc.startStream)(owner.event, validStream('flood'));
+    for (let i = 0; i < 257; i++) {
+      listenerFor(IPC.grpc.sendMessage)(owner.event, 'flood', { text: `m${i}` });
+    }
+    listenerFor(IPC.grpc.endStream)(owner.event, 'flood');
+
+    dns.resolve(pinnedDial);
+    await waitForStreamCount(1);
+
+    // Nothing of the truncated stream is sent, the call is aborted, and the
+    // renderer gets one terminal RESOURCE_EXHAUSTED explaining why.
+    expect(controls.write).not.toHaveBeenCalled();
+    expect(controls.end).not.toHaveBeenCalled();
+    expect(controls.cancel).toHaveBeenCalled();
+    const errors = owner.send.mock.calls.filter(([ch]) => String(ch).includes('flood'));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.[1]).toMatchObject({ status: 8 });
+    expect(String((errors[0]?.[1] as { details: string }).details)).toMatch(/256 messages/);
+  });
+
   it('does not let controls for an unknown id seed a future owner pending buffer', async () => {
     const attacker = makeEvent();
     const owner = makeEvent();
@@ -593,6 +620,18 @@ describe('grpc:request deadlines', () => {
     await invoke({ ...validStream('u2'), methodType: 'unary', timeoutMs: 5000 });
     const args = mockExecuteConnectUnary.mock.calls[0]![0] as { timeoutMs?: number };
     expect(args.timeoutMs).toBe(5000);
+  });
+
+  it('labels a setup failure with the real name of code 2 (UNKNOWN)', async () => {
+    mockExecuteConnectUnary.mockRejectedValueOnce(new Error('Service "x" not found in proto'));
+    const res = (await invoke({ ...validStream('u3'), methodType: 'unary' })) as {
+      status: number;
+      statusText: string;
+      error: string;
+    };
+    expect(res.status).toBe(2);
+    expect(res.statusText).toBe('UNKNOWN');
+    expect(res.error).toMatch(/not found in proto/);
   });
 
   it('never runs a buffered server-stream collect without a deadline', async () => {

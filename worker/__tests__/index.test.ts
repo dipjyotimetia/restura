@@ -1,4 +1,9 @@
 // @vitest-environment node
+
+import {
+  MAX_GRPC_PROXY_BODY_BYTES,
+  MAX_GRPC_REFLECTION_BODY_BYTES,
+} from '@shared/protocol/grpc-schema';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../env';
 import { MAX_GRPC_WEB_BODY_BYTES } from '../handlers/grpc-web';
@@ -84,6 +89,31 @@ describe('worker api middleware', () => {
     });
     const res = await app.request(
       '/api/grpc-web',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'X-Restura-Proxy-Token': 'secret-token' },
+        body,
+        duplex: 'half',
+      } as RequestInit,
+      { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret-token' }
+    );
+    expect(res.status).toBe(413);
+  });
+
+  it.each([
+    ['/api/grpc', MAX_GRPC_PROXY_BODY_BYTES],
+    ['/api/grpc/reflection', MAX_GRPC_REFLECTION_BODY_BYTES],
+  ])('%s caps an unsized (streamed) body before the handler parses it', async (path, cap) => {
+    const chunk = new Uint8Array(256 * 1024).fill(0x61);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent++ > cap / chunk.length + 1) controller.close();
+        else controller.enqueue(chunk);
+      },
+    });
+    const res = await app.request(
+      path,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'X-Restura-Proxy-Token': 'secret-token' },

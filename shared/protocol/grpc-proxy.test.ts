@@ -315,3 +315,115 @@ describe('executeGrpcProxy timeout handling', () => {
     expect(aborted).toBe(false);
   });
 });
+
+describe('executeGrpcProxy — Connect protocol conformance', () => {
+  const spec = { url: 'https://example.com', service: 'svc.Foo', method: 'Bar', timeout: 1500 };
+
+  it.each([
+    [404, 'text/html', '<html>Not Found</html>', GrpcStatusCode.UNIMPLEMENTED],
+    [415, 'text/plain', 'unsupported media type', GrpcStatusCode.UNKNOWN],
+    [401, 'text/plain', '', GrpcStatusCode.UNAUTHENTICATED],
+    [403, 'application/json', '{"error":"nope"}', GrpcStatusCode.PERMISSION_DENIED],
+    [503, 'text/plain', 'overloaded', GrpcStatusCode.UNAVAILABLE],
+    [400, 'text/plain', 'bad', GrpcStatusCode.INTERNAL],
+  ])(
+    'maps a non-Connect HTTP %i (%s) error via the HTTP status',
+    async (status, ct, body, code) => {
+      const r = await executeGrpcProxy(spec, makeFetcher(body, status, { 'content-type': ct }), {
+        allowLocalhost: false,
+      });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.response.grpcStatus).toBe(code);
+      const msg = (r.response.data as { error: string }).error;
+      expect(msg).toMatch(new RegExp(`^HTTP ${status}`));
+      // An HTML error page is never dumped into the message.
+      expect(msg).not.toContain('<html>');
+    }
+  );
+
+  it('still honours a Connect JSON error body over the HTTP status', async () => {
+    const r = await executeGrpcProxy(
+      spec,
+      makeFetcher('{"code":"not_found","message":"no such user"}', 404, {
+        'content-type': 'application/json',
+      }),
+      { allowLocalhost: false }
+    );
+    expect(r.ok && r.response.grpcStatus).toBe(GrpcStatusCode.NOT_FOUND);
+    expect(r.ok && (r.response.data as { error: string }).error).toBe('no such user');
+  });
+
+  it('propagates the deadline as Connect-Timeout-Ms', async () => {
+    const fetcher = vi.fn(makeFetcher('{}', 200, { 'content-type': 'application/json' }));
+    await executeGrpcProxy(spec, fetcher, { allowLocalhost: false });
+    const headers = fetcher.mock.calls[0]?.[0]?.headers as Record<string, string>;
+    expect(headers['Connect-Timeout-Ms']).toBe('1500');
+  });
+
+  it('drops user metadata that would override Connect protocol headers', async () => {
+    const fetcher = vi.fn(makeFetcher('{}', 200, { 'content-type': 'application/json' }));
+    await executeGrpcProxy(
+      {
+        ...spec,
+        metadata: {
+          'content-type': 'application/grpc',
+          'connect-timeout-ms': '999999',
+          'Connect-Protocol-Version': '7',
+          'x-tenant': 'acme',
+        },
+      },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    const headers = fetcher.mock.calls[0]?.[0]?.headers as Record<string, string>;
+    const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+    expect(lower['content-type']).toBe('application/json');
+    expect(lower['connect-timeout-ms']).toBe('1500');
+    expect(lower['connect-protocol-version']).toBe('1');
+    expect(lower['x-tenant']).toBe('acme');
+    expect(Object.keys(headers).filter((k) => k.toLowerCase() === 'content-type')).toHaveLength(1);
+  });
+
+  it('a caller abort ends as CANCELLED (499), not DEADLINE_EXCEEDED', async () => {
+    const caller = new AbortController();
+    const fetcher: Fetcher = (req) =>
+      new Promise((_, reject) => {
+        req.signal?.addEventListener('abort', () =>
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+        );
+        setTimeout(() => caller.abort(), 5);
+      });
+    const r = await executeGrpcProxy({ ...spec, timeout: 10_000 }, fetcher, {
+      allowLocalhost: false,
+      signal: caller.signal,
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.status).toBe(499);
+    expect((r.payload as { grpcStatus: number }).grpcStatus).toBe(GrpcStatusCode.CANCELLED);
+  });
+
+  it('the deadline still ends as DEADLINE_EXCEEDED when a caller signal is present', async () => {
+    const fetcher: Fetcher = (req) =>
+      new Promise((_, reject) => {
+        req.signal?.addEventListener('abort', () =>
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+        );
+      });
+    const r = await executeGrpcProxy({ ...spec, timeout: 20 }, fetcher, {
+      allowLocalhost: false,
+      signal: new AbortController().signal,
+    });
+    expect(!r.ok && r.status).toBe(504);
+  });
+
+  it.each(['Company.Orders.OrderService', 'Greeter'])('accepts service name %s', async (svc) => {
+    const fetcher = vi.fn(makeFetcher('{}', 200, { 'content-type': 'application/json' }));
+    const r = await executeGrpcProxy({ ...spec, service: svc, method: 'get_item' }, fetcher, {
+      allowLocalhost: false,
+    });
+    expect(r.ok).toBe(true);
+    expect(fetcher.mock.calls[0]?.[0]?.url).toBe(`https://example.com/${svc}/get_item`);
+  });
+});

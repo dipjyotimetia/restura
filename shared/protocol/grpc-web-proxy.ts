@@ -17,7 +17,8 @@
  * reported in-band as an `end` event carrying a gRPC status.
  */
 
-import { GrpcStatusCode, GrpcStatusCodeName } from './grpc-status';
+import { isValidGrpcMethodName, isValidGrpcServiceName } from './grpc-names';
+import { GrpcStatusCode, GrpcStatusCodeName, grpcStatusFromHttpStatus } from './grpc-status';
 import { type GrpcStatusDetail, statusDetailsFromStatusBin } from './grpc-status-details';
 import {
   base64ToBytes,
@@ -98,8 +99,6 @@ export interface ExecuteGrpcWebOptions {
 /** gRPC's conventional default max message size. */
 export const MAX_GRPC_WEB_REQUEST_BYTES = 4 * 1024 * 1024;
 
-const SERVICE_RE = /^[a-zA-Z][a-zA-Z0-9_.]*$/;
-const METHOD_RE = /^[A-Za-z][a-zA-Z0-9]*$/;
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 /** Protocol headers the caller's metadata must not override. */
@@ -114,26 +113,7 @@ const RESERVED_REQUEST_HEADERS = new Set([
 ]);
 
 /** HTTP → gRPC status mapping for non-200 responses without grpc-status. */
-export function grpcWebStatusFromHttp(httpStatus: number): GrpcStatusCode {
-  // https://github.com/grpc/grpc/blob/master/doc/http-grpc-status-mapping.md
-  switch (httpStatus) {
-    case 400:
-      return GrpcStatusCode.INTERNAL;
-    case 401:
-      return GrpcStatusCode.UNAUTHENTICATED;
-    case 403:
-      return GrpcStatusCode.PERMISSION_DENIED;
-    case 404:
-      return GrpcStatusCode.UNIMPLEMENTED;
-    case 429:
-    case 502:
-    case 503:
-    case 504:
-      return GrpcStatusCode.UNAVAILABLE;
-    default:
-      return GrpcStatusCode.UNKNOWN;
-  }
-}
+export const grpcWebStatusFromHttp = grpcStatusFromHttpStatus;
 
 function endEvent(
   code: number,
@@ -220,10 +200,10 @@ export function executeGrpcWebProxy(
   if (!urlValidation.valid) {
     return { ok: false, status: 400, payload: { error: `Invalid URL: ${urlValidation.error}` } };
   }
-  if (!spec.service || !SERVICE_RE.test(spec.service)) {
+  if (!spec.service || !isValidGrpcServiceName(spec.service)) {
     return { ok: false, status: 400, payload: { error: 'Invalid service name format' } };
   }
-  if (!spec.method || !METHOD_RE.test(spec.method)) {
+  if (!spec.method || !isValidGrpcMethodName(spec.method)) {
     return { ok: false, status: 400, payload: { error: 'Invalid method name format' } };
   }
   if (typeof spec.message !== 'string' || !isBase64(spec.message)) {

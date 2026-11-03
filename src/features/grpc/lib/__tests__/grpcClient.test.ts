@@ -20,6 +20,7 @@ import {
   makeProxyGrpcRequest,
   parseProtoFile,
   prepareGrpcRequest,
+  relayErrorStatus,
   validateGrpcUrl,
   validateMethodName,
   validateServiceName,
@@ -215,6 +216,30 @@ describe('grpcClient', () => {
       const result = validateGrpcUrl('not a valid url');
       expect(result.valid).toBe(false);
     });
+
+    it('defers a {{variable}} URL to send time instead of blocking Send', () => {
+      expect(validateGrpcUrl('{{baseUrl}}').valid).toBe(true);
+      expect(validateGrpcUrl('{{scheme}}://{{host}}:50051').valid).toBe(true);
+    });
+
+    it('accepts grpc:// and grpcs:// on desktop', () => {
+      Object.defineProperty(window, 'electron', {
+        value: { isElectron: true },
+        writable: true,
+        configurable: true,
+      });
+      try {
+        expect(validateGrpcUrl('grpc://localhost:50051').valid).toBe(true);
+        expect(validateGrpcUrl('grpcs://api.example.com').valid).toBe(true);
+        expect(validateGrpcUrl('ftp://x').valid).toBe(false);
+      } finally {
+        Object.defineProperty(window, 'electron', {
+          value: undefined,
+          writable: true,
+          configurable: true,
+        });
+      }
+    });
   });
 
   describe('validateServiceName', () => {
@@ -233,9 +258,21 @@ describe('grpcClient', () => {
       expect(result.valid).toBe(false);
     });
 
-    it('should reject service without package', () => {
-      const result = validateServiceName('GreetService');
-      expect(result.valid).toBe(false);
+    // protobuf allows package-less services and any-case package segments
+    // (C# protos use `Company.Orders`); the shared relays accept them too.
+    it.each(['GreetService', 'Company.Orders.OrderService', 'acme.v1.Order_Service'])(
+      'should accept valid protobuf service name %s',
+      (name) => {
+        expect(validateServiceName(name).valid).toBe(true);
+      }
+    );
+
+    it.each(['a..B', '.Svc', 'a/B', 'a.B.'])('should reject malformed service name %j', (name) => {
+      expect(validateServiceName(name).valid).toBe(false);
+    });
+
+    it('defers a {{variable}} service name to send time', () => {
+      expect(validateServiceName('{{svc}}').valid).toBe(true);
     });
 
     it('should reject service with invalid characters', () => {
@@ -260,14 +297,12 @@ describe('grpcClient', () => {
       expect(result.valid).toBe(false);
     });
 
-    it('should reject lowercase method name', () => {
-      const result = validateMethodName('sayHello');
-      expect(result.valid).toBe(false);
+    it.each(['sayHello', 'Say_Hello', 'get_item'])('should accept method name %s', (name) => {
+      expect(validateMethodName(name).valid).toBe(true);
     });
 
-    it('should reject method with underscores', () => {
-      const result = validateMethodName('Say_Hello');
-      expect(result.valid).toBe(false);
+    it.each(['Say.Hello', 'Say-Hello', '9Lives', 'a/b'])('should reject method name %j', (name) => {
+      expect(validateMethodName(name).valid).toBe(false);
     });
   });
 
@@ -663,37 +698,40 @@ message PingRequest
     });
   });
 
+  // Upstream replies without a gRPC status: gRPC http-grpc-status-mapping.
   describe('httpStatusToGrpcStatus', () => {
-    it('should map 200 to OK', () => {
-      expect(httpStatusToGrpcStatus(200)).toBe(GrpcStatusCode.OK);
+    it.each([
+      [400, GrpcStatusCode.INTERNAL],
+      [401, GrpcStatusCode.UNAUTHENTICATED],
+      [403, GrpcStatusCode.PERMISSION_DENIED],
+      [404, GrpcStatusCode.UNIMPLEMENTED],
+      [429, GrpcStatusCode.UNAVAILABLE],
+      [502, GrpcStatusCode.UNAVAILABLE],
+      [503, GrpcStatusCode.UNAVAILABLE],
+      [504, GrpcStatusCode.UNAVAILABLE],
+      [500, GrpcStatusCode.UNKNOWN],
+      [418, GrpcStatusCode.UNKNOWN],
+      // A success status with no gRPC status is not an OK call.
+      [200, GrpcStatusCode.UNKNOWN],
+    ])('maps HTTP %i to gRPC %i', (http, code) => {
+      expect(httpStatusToGrpcStatus(http)).toBe(code);
     });
+  });
 
-    it('should map 400 to INVALID_ARGUMENT', () => {
-      expect(httpStatusToGrpcStatus(400)).toBe(GrpcStatusCode.INVALID_ARGUMENT);
-    });
-
-    it('should map 401 to UNAUTHENTICATED', () => {
-      expect(httpStatusToGrpcStatus(401)).toBe(GrpcStatusCode.UNAUTHENTICATED);
-    });
-
-    it('should map 403 to PERMISSION_DENIED', () => {
-      expect(httpStatusToGrpcStatus(403)).toBe(GrpcStatusCode.PERMISSION_DENIED);
-    });
-
-    it('should map 404 to NOT_FOUND', () => {
-      expect(httpStatusToGrpcStatus(404)).toBe(GrpcStatusCode.NOT_FOUND);
-    });
-
-    it('should map 500 to INTERNAL', () => {
-      expect(httpStatusToGrpcStatus(500)).toBe(GrpcStatusCode.INTERNAL);
-    });
-
-    it('should map 503 to UNAVAILABLE', () => {
-      expect(httpStatusToGrpcStatus(503)).toBe(GrpcStatusCode.UNAVAILABLE);
-    });
-
-    it('should map unknown status to UNKNOWN', () => {
-      expect(httpStatusToGrpcStatus(418)).toBe(GrpcStatusCode.UNKNOWN);
+  // The relay's own rejections describe our request to it, not an upstream reply.
+  describe('relayErrorStatus', () => {
+    it.each([
+      [400, GrpcStatusCode.INVALID_ARGUMENT],
+      [401, GrpcStatusCode.UNAUTHENTICATED],
+      [403, GrpcStatusCode.PERMISSION_DENIED],
+      [413, GrpcStatusCode.RESOURCE_EXHAUSTED],
+      [429, GrpcStatusCode.RESOURCE_EXHAUSTED],
+      [499, GrpcStatusCode.CANCELLED],
+      [503, GrpcStatusCode.UNAVAILABLE],
+      [504, GrpcStatusCode.DEADLINE_EXCEEDED],
+      [500, GrpcStatusCode.UNKNOWN],
+    ])('maps relay HTTP %i to gRPC %i', (http, code) => {
+      expect(relayErrorStatus(http)).toBe(code);
     });
   });
 

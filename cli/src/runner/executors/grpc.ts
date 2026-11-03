@@ -12,6 +12,7 @@ import {
 import {
   grpcMetadataSizeError,
   grpcUnsupportedAuthMessage,
+  normalizeBinaryMetadata,
 } from '@shared/protocol/grpc-request-policy';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import { base64ToBytes, bytesToBase64 } from '@shared/protocol/grpc-web-framing';
@@ -28,7 +29,10 @@ import type { ExecuteOptions, ExecuteOutcome } from './types';
 /**
  * gRPC executor. Honours the request's pinned `wireProtocol` (#914):
  *  - absent / `connect` → the shared `executeGrpcProxy` (Connect JSON over
- *    HTTP — schema-less, so the persisted `schema` snapshot is unused).
+ *    HTTP — schema-less, so the persisted `schema` snapshot is unused). Unlike
+ *    desktop "auto" there is no native-gRPC attempt; when a server refuses the
+ *    Connect protocol (HTTP 404/415, no Connect error body) the failure says so
+ *    explicitly instead of passing as a generic UNKNOWN.
  *  - `grpc-web` / `grpc-web-text` → the shared `executeGrpcWebProxy`, encoding
  *    and decoding protobuf with the request's persisted `schema` snapshot
  *    (reflection descriptors or an uploaded `.proto`, #871). No schema →
@@ -118,6 +122,8 @@ export async function executeGrpc(
       allowLocalhost: opts.allowLocalhost,
     });
     applyAuthHeaders(resolvedAuth, metadata, {});
+    // `*-bin` values travel base64-encoded (same rule as the app).
+    Object.assign(metadata, normalizeBinaryMetadata(metadata));
     const metadataError = grpcMetadataSizeError(metadata);
     if (metadataError) return grpcFailure(GrpcStatusCode.INVALID_ARGUMENT, metadataError);
 
@@ -138,7 +144,7 @@ export async function executeGrpc(
         timeout: req.timeout && req.timeout > 0 ? req.timeout : opts.timeoutMs,
       },
       fetcher,
-      { allowLocalhost: opts.allowLocalhost }
+      { allowLocalhost: opts.allowLocalhost, ...(opts.signal ? { signal: opts.signal } : {}) }
     );
     const durationMs = Date.now() - start;
 
@@ -157,7 +163,15 @@ export async function executeGrpc(
             ? result.response.data
             : JSON.stringify(result.response.data),
         grpcStatus: { code: grpcCode, message: result.response.grpcStatusText },
-        ...(passed ? {} : { errorMessage: `gRPC ${result.response.grpcStatusText}` }),
+        ...(passed
+          ? {}
+          : {
+              errorMessage: connectFailureMessage(
+                result.response.grpcStatusText,
+                result.response.data,
+                req.wireProtocol
+              ),
+            }),
       };
     }
     const payload = result.payload;
@@ -178,7 +192,7 @@ export async function executeGrpc(
       responseHeaders: payload.headers,
       responseTrailers: payload.trailers,
       grpcStatus: { code: payload.grpcStatus, message: payload.grpcStatusText },
-      errorMessage: `gRPC ${payload.grpcStatusText}`,
+      errorMessage: connectFailureMessage(payload.grpcStatusText, payload.data, req.wireProtocol),
     };
   } catch (err) {
     return {
@@ -189,6 +203,29 @@ export async function executeGrpc(
       errorMessage: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * `gRPC <STATUS>: <reason>` for a failed Connect call. A refusal of the
+ * Connect protocol itself (HTTP 404/415 with no Connect error body) on an
+ * *auto* request names the parity gap: the desktop app would have dialled
+ * native gRPC, which the CLI cannot.
+ */
+function connectFailureMessage(
+  statusText: string,
+  data: unknown,
+  wireProtocol: GrpcRequest['wireProtocol']
+): string {
+  const reason =
+    data && typeof data === 'object' && typeof (data as { error?: unknown }).error === 'string'
+      ? (data as { error: string }).error
+      : '';
+  const refusedConnect = /^HTTP (404|415)\b/.test(reason);
+  const note =
+    refusedConnect && !wireProtocol
+      ? ' The CLI sends "auto" requests over the Connect protocol only; this server looks native-gRPC-only (desktop "auto" would dial native gRPC). Pin the request to gRPC-Web if the server supports it, or run it from the desktop app.'
+      : '';
+  return `gRPC ${statusText}${reason ? `: ${reason}` : ''}${note}`;
 }
 
 function grpcFailure(code: GrpcStatusCode, message: string, durationMs = 0): ExecuteOutcome {

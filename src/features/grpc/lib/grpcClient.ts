@@ -1,4 +1,5 @@
 import { FieldDescriptorProto_Type } from '@bufbuild/protobuf/wkt';
+import { isValidGrpcMethodName, isValidGrpcServiceName } from '@shared/protocol/grpc-names';
 import { normalizeProtoPath } from '@shared/protocol/grpc-proto-compiler';
 import {
   listServices,
@@ -7,9 +8,11 @@ import {
 } from '@shared/protocol/grpc-registry';
 import {
   grpcMetadataSizeError,
+  normalizeBinaryMetadata,
   grpcUnsupportedAuthMessage as sharedGrpcUnsupportedAuthMessage,
 } from '@shared/protocol/grpc-request-policy';
 import { GRPC_PROXY_MAX_TIMEOUT_MS } from '@shared/protocol/grpc-schema';
+import { grpcStatusFromHttpStatus } from '@shared/protocol/grpc-status';
 import {
   type GrpcStatusDetail,
   redecodeRawStatusDetails,
@@ -203,15 +206,41 @@ export function parseProtoFile(content: string, fileName = 'schema.proto'): Prot
   return { fileName, package: pkg, services, messages };
 }
 
-// Validate gRPC URL format
+/** True when `text` holds a `{{variable}}` reference resolved at send time. */
+export function hasTemplateVariable(text: string): boolean {
+  return /\{\{[^{}]+\}\}/.test(text);
+}
+
+const DESKTOP_GRPC_SCHEMES = ['grpc://', 'grpcs://'];
+
+/**
+ * Validate a gRPC server URL. `http(s)://` everywhere; `grpc://` / `grpcs://`
+ * on desktop (the Electron dialer accepts them). A URL holding a
+ * `{{variable}}` is checked after resolution, at send time — the builder can't
+ * know its value, so it isn't rejected here.
+ */
 export function validateGrpcUrl(url: string): { valid: boolean; error?: string } {
   if (!url) {
     return { valid: false, error: 'URL is required' };
   }
+  if (hasTemplateVariable(url)) return { valid: true };
 
-  // gRPC-Web typically uses HTTP/HTTPS
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    return { valid: false, error: 'gRPC-Web URL must start with http:// or https://' };
+  const lower = url.toLowerCase();
+  const isHttp = lower.startsWith('http://') || lower.startsWith('https://');
+  const isGrpcScheme = DESKTOP_GRPC_SCHEMES.some((s) => lower.startsWith(s));
+  if (isGrpcScheme && !isElectron()) {
+    return {
+      valid: false,
+      error: 'grpc:// and grpcs:// URLs need the desktop app — use http:// or https:// on the web',
+    };
+  }
+  if (!isHttp && !isGrpcScheme) {
+    return {
+      valid: false,
+      error: isElectron()
+        ? 'gRPC URL must start with http://, https://, grpc:// or grpcs://'
+        : 'gRPC URL must start with http:// or https://',
+    };
   }
 
   try {
@@ -222,72 +251,74 @@ export function validateGrpcUrl(url: string): { valid: boolean; error?: string }
   }
 }
 
-// Validate service name format
+/**
+ * Validate a fully-qualified service name against protobuf identifier rules
+ * (shared with every relay): any-case package segments, optional package.
+ */
 export function validateServiceName(service: string): { valid: boolean; error?: string } {
   if (!service) {
     return { valid: false, error: 'Service name is required' };
   }
-
-  // Service name should be in format: package.ServiceName
-  const servicePattern = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*\.[A-Z][a-zA-Z0-9]*$/;
-  if (!servicePattern.test(service)) {
+  if (hasTemplateVariable(service)) return { valid: true };
+  if (!isValidGrpcServiceName(service)) {
     return {
       valid: false,
-      error: 'Service name should be in format: package.ServiceName (e.g., greet.v1.GreetService)',
+      error:
+        'Service name must be a fully-qualified protobuf name, e.g. greet.v1.GreetService (letters, digits and _ per segment)',
     };
   }
-
   return { valid: true };
 }
 
-// Validate method name format
+/** Validate a method name: one protobuf identifier (any case, e.g. SayHello or get_item). */
 export function validateMethodName(method: string): { valid: boolean; error?: string } {
   if (!method) {
     return { valid: false, error: 'Method name is required' };
   }
-
-  // Method name should be PascalCase
-  const methodPattern = /^[A-Z][a-zA-Z0-9]*$/;
-  if (!methodPattern.test(method)) {
-    return { valid: false, error: 'Method name should be PascalCase (e.g., SayHello)' };
+  if (hasTemplateVariable(method)) return { valid: true };
+  if (!isValidGrpcMethodName(method)) {
+    return {
+      valid: false,
+      error: 'Method name must be a protobuf identifier, e.g. SayHello (letters, digits and _)',
+    };
   }
-
   return { valid: true };
 }
 
-// Convert HTTP status to gRPC status
+/**
+ * HTTP status → gRPC status for an *upstream* response that carried no gRPC
+ * status (gRPC http-grpc-status-mapping; shared with every relay).
+ */
 export function httpStatusToGrpcStatus(httpStatus: number): GrpcStatusCode {
-  // Standard HTTP to gRPC status mapping
-  // https://github.com/grpc/grpc/blob/master/doc/http-grpc-status-mapping.md
+  return grpcStatusFromHttpStatus(httpStatus);
+}
+
+/**
+ * gRPC status for an error the Restura relay itself returned (`/api/grpc*`):
+ * a rejected request body (400), the relay's own auth (401/403), its size cap
+ * (413) or rate limit (429). These describe *our* request to the relay, not
+ * an upstream reply, so they map by meaning rather than the upstream table.
+ */
+export function relayErrorStatus(httpStatus: number): GrpcStatusCode {
   switch (httpStatus) {
-    case 200:
-      return GrpcStatusCode.OK;
     case 400:
+    case 422:
       return GrpcStatusCode.INVALID_ARGUMENT;
     case 401:
       return GrpcStatusCode.UNAUTHENTICATED;
     case 403:
       return GrpcStatusCode.PERMISSION_DENIED;
-    case 404:
-      return GrpcStatusCode.NOT_FOUND;
-    case 409:
-      return GrpcStatusCode.ABORTED;
+    case 413:
     case 429:
       return GrpcStatusCode.RESOURCE_EXHAUSTED;
     case 499:
       return GrpcStatusCode.CANCELLED;
-    case 500:
-      return GrpcStatusCode.INTERNAL;
-    case 501:
-      return GrpcStatusCode.UNIMPLEMENTED;
-    case 503:
-      return GrpcStatusCode.UNAVAILABLE;
     case 504:
       return GrpcStatusCode.DEADLINE_EXCEEDED;
+    case 502:
+    case 503:
+      return GrpcStatusCode.UNAVAILABLE;
     default:
-      if (httpStatus >= 200 && httpStatus < 300) {
-        return GrpcStatusCode.OK;
-      }
       return GrpcStatusCode.UNKNOWN;
   }
 }
@@ -342,6 +373,8 @@ export function prepareGrpcRequest(
   // Add auth metadata (may override user metadata)
   const authMetadata = buildAuthMetadata(request.auth);
   Object.assign(metadata, authMetadata);
+  // `*-bin` values travel base64-encoded on every gRPC wire protocol.
+  Object.assign(metadata, normalizeBinaryMetadata(metadata));
 
   // Validate the aggregate metadata size (#895) — shared policy with the CLI.
   const metadataSizeError = grpcMetadataSizeError(metadata);
@@ -430,7 +463,24 @@ export async function makeElectronGrpcRequest(
 
     const endTime = Date.now();
 
-    const bodyStr = JSON.stringify(response.message || response.messages || {}, null, 2);
+    // A non-OK call carries no message: show why it failed (the server's
+    // grpc-message, a URL-policy refusal, a fallback summary) — the same
+    // `{ error }` body the web relay returns, so scripts see one shape.
+    const failed = response.status !== GrpcStatusCode.OK;
+    const errorBody =
+      failed && response.message === undefined && !response.messages?.length
+        ? {
+            error: response.error || response.statusText || 'gRPC call failed',
+            ...(response.details && response.details !== response.error
+              ? { details: response.details }
+              : {}),
+          }
+        : undefined;
+    const bodyStr = JSON.stringify(
+      errorBody ?? response.message ?? response.messages ?? {},
+      null,
+      2
+    );
     const messagesStrs = response.messages
       ? response.messages.map((m: unknown) => JSON.stringify(m))
       : undefined;
@@ -654,23 +704,60 @@ export async function makeProxyGrpcRequest(
       }),
     });
 
-    const result = await response.json();
+    let result: Record<string, unknown> & {
+      grpcStatus?: unknown;
+      grpcStatusText?: string;
+      data?: unknown;
+      headers?: Record<string, string>;
+      trailers?: Record<string, string>;
+      size?: number;
+      statusDetails?: GrpcStatusDetail[];
+      error?: unknown;
+    };
+    try {
+      result = await response.json();
+    } catch {
+      return createErrorResponse(
+        request.id,
+        new GrpcClientError(
+          `gRPC proxy returned a non-JSON HTTP ${response.status} response`,
+          relayErrorStatus(response.status)
+        ),
+        startTime
+      );
+    }
+    // The relay's own rejections (bad request, relay auth, rate limit) are a
+    // bare `{ error }` with no gRPC status — surface them, don't render `{}`.
+    if (typeof result.grpcStatus !== 'number') {
+      const message =
+        typeof result.error === 'string' && result.error
+          ? result.error
+          : `gRPC proxy returned HTTP ${response.status}`;
+      return createErrorResponse(
+        request.id,
+        new GrpcClientError(message, relayErrorStatus(response.status)),
+        startTime
+      );
+    }
     const endTime = Date.now();
 
     const bodyStr = JSON.stringify(result.data || {}, null, 2);
 
+    const grpcStatus = result.grpcStatus as GrpcStatusCode;
+    const grpcStatusText =
+      result.grpcStatusText ?? GrpcStatusCodeName[grpcStatus] ?? GrpcStatusCodeName[2];
     return {
       id: uuidv4(),
       requestId: request.id,
-      status: result.grpcStatus,
-      statusText: result.grpcStatusText,
+      status: grpcStatus,
+      statusText: grpcStatusText,
       headers: result.headers || {},
       body: bodyStr,
       size: result.size || new Blob([bodyStr]).size,
       time: endTime - startTime,
       timestamp: Date.now(),
-      grpcStatus: result.grpcStatus,
-      grpcStatusText: result.grpcStatusText,
+      grpcStatus,
+      grpcStatusText,
       trailers: result.trailers || {},
       ...(Array.isArray(result.statusDetails) && result.statusDetails.length > 0
         ? { statusDetails: decodeWithSchema(result.statusDetails, request.schema) }

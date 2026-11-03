@@ -151,9 +151,11 @@ test.describe('Real gRPC server (Connect-RPC SDK)', () => {
 
     await expect(page.getByRole('tab', { name: /Web Stream/i })).toBeVisible();
 
-    await page.getByRole('textbox', { name: 'gRPC server URL' }).fill(servers.grpc.url);
+    // Service + method before the URL: a URL change starts auto-discovery,
+    // which can swap the Method textbox for a picker mid-test.
     await page.getByPlaceholder(/Service \(e\.g\./i).fill('echo.v1.EchoService');
     await page.getByPlaceholder(/Method \(e\.g\./i).fill('ServerStreamingEcho');
+    await page.getByRole('textbox', { name: 'gRPC server URL' }).fill(servers.grpc.url);
 
     await page.getByRole('tab', { name: /Web Stream/i }).click();
     await expect(page.getByRole('button', { name: /Start stream/i })).toBeVisible();

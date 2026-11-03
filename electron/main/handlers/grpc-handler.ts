@@ -83,6 +83,8 @@ interface PendingStreamFields {
   writes: unknown[];
   end: boolean;
   createdAt: number;
+  /** More than MAX_PENDING_WRITES raced ahead — the stream is failed on registration. */
+  overflowed: boolean;
 }
 
 const MAX_PENDING_WRITES = 256;
@@ -105,10 +107,16 @@ const reservePendingStream = (
   if (activeCalls.has(id, sender.id) || activeCalls.pendingCount() >= MAX_PENDING_STREAMS) {
     return undefined;
   }
-  return activeCalls.reserveClaim(id, sender, { writes: [], end: false, createdAt: Date.now() });
+  return activeCalls.reserveClaim(id, sender, {
+    writes: [],
+    end: false,
+    createdAt: Date.now(),
+    overflowed: false,
+  });
 };
 
 const GRPC_CANCELLED = 1;
+const GRPC_RESOURCE_EXHAUSTED = 8;
 
 /**
  * A live stream with no traffic in either direction for this long is treated as
@@ -239,6 +247,15 @@ const addActiveCall = (
   // PendingStreamFields). For server-streaming write/end are no-ops, so this
   // is harmless there.
   activeCalls.releaseClaim(claim);
+  // Dropping the excess would send a silently truncated client stream; fail it
+  // instead so the renderer sees why.
+  if (claim.overflowed) {
+    call.terminate(
+      GRPC_RESOURCE_EXHAUSTED,
+      `More than ${MAX_PENDING_WRITES} messages were sent before the stream opened`
+    );
+    return true;
+  }
   for (const msg of claim.writes) call.write(msg);
   if (claim.end) call.end();
   return true;
@@ -310,7 +327,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return {
       status: 2,
-      statusText: 'Internal Error',
+      statusText: 'UNKNOWN', // code 2 — matches GrpcStatusCodeName
       headers: {},
       trailers: {},
       error: `gRPC setup failed: ${detail}`,
@@ -344,7 +361,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return {
       status: 2,
-      statusText: 'Internal Error',
+      statusText: 'UNKNOWN', // code 2 — matches GrpcStatusCodeName
       headers: {},
       trailers: {},
       error: `gRPC setup failed: ${detail}`,
@@ -390,7 +407,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     // client/bidi aren't buffered — they run live via grpc:start-stream.
     return {
       status: 2,
-      statusText: 'Internal Error',
+      statusText: 'UNKNOWN', // code 2 — matches GrpcStatusCodeName
       headers: {},
       trailers: {},
       error: `Method type ${config.methodType} not supported in synchronous mode`,
@@ -399,7 +416,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     const error = err instanceof Error ? err : new Error(String(err));
     return {
       status: 2,
-      statusText: 'Internal Error',
+      statusText: 'UNKNOWN', // code 2 — matches GrpcStatusCodeName
       headers: {},
       trailers: {},
       error: `gRPC setup failed: ${sanitizeErrorMessage(error.message)}`,
@@ -708,7 +725,9 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         // Stream not registered yet — start-stream is still resolving DNS.
         // Buffer only for the renderer that reserved the stream id.
         const pending = activeCalls.claimFor(requestId, event.sender.id);
-        if (pending && pending.writes.length < MAX_PENDING_WRITES) pending.writes.push(message);
+        if (!pending) return;
+        if (pending.writes.length < MAX_PENDING_WRITES) pending.writes.push(message);
+        else pending.overflowed = true;
       }
     )
   );

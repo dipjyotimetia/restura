@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package edge.v1;
+
+import "google/protobuf/any.proto";
+
+// EdgeService covers schema shapes the echo service doesn't: a
+// google.protobuf.Any payload (needs the type registry to encode/decode as
+// JSON) and a method name that isn't PascalCase (legal protobuf).
+service EdgeService {
+  // Echoes the envelope back unchanged (Any included).
+  rpc Wrap(Envelope) returns (Envelope);
+  // Lower/snake-case method name.
+  rpc get_item(Envelope) returns (Envelope);
+}
+
+message Inner {
+  string x = 1;
+}
+
+message Envelope {
+  string note = 1;
+  google.protobuf.Any payload = 2;
+}

@@ -41,8 +41,12 @@ describe('validateServiceField', () => {
     expect(validateServiceField('greet.v1.GreetService')).toEqual({ valid: true });
   });
 
+  it('accepts an all-lowercase protobuf service name (valid proto)', () => {
+    expect(validateServiceField('lower.case.service').valid).toBe(true);
+  });
+
   it('rejects a malformed service name', () => {
-    const result = validateServiceField('lower.case.service');
+    const result = validateServiceField('lower..service');
     expect(result.valid).toBe(false);
     expect(result.error).toBeDefined();
   });
@@ -57,8 +61,12 @@ describe('validateMethodField', () => {
     expect(validateMethodField('SayHello')).toEqual({ valid: true });
   });
 
-  it('rejects a non-PascalCase method name', () => {
-    const result = validateMethodField('say_hello');
+  it('accepts a non-PascalCase method name (valid proto)', () => {
+    expect(validateMethodField('say_hello').valid).toBe(true);
+  });
+
+  it('rejects a method name that is not an identifier', () => {
+    const result = validateMethodField('say-hello');
     expect(result.valid).toBe(false);
     expect(result.error).toBeDefined();
   });

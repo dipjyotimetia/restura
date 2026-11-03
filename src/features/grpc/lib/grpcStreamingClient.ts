@@ -109,11 +109,21 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   // block and inherited Bearer/Basic was silently dropped from streams.
   // Refuses a Postman-guard-blocked request (#1232).
   const inherited = resolveInheritedAuthForSend(rawArgs.request);
-  const args: StartGrpcStreamArgs = inherited
-    ? { ...rawArgs, request: withEffectiveAuth(rawArgs.request, inherited.auth) }
-    : rawArgs;
-  // Basic validation — leverage existing helpers
-  const urlCheck = validateGrpcUrl(args.request.url);
+  const authed = inherited ? withEffectiveAuth(rawArgs.request, inherited.auth) : rawArgs.request;
+  // Every transport below builds `/{service}/{method}` from these fields, so a
+  // templated `{{service}}` is resolved once here (the URL is resolved by
+  // prepareGrpcRequest / the IPC path).
+  const args: StartGrpcStreamArgs = {
+    ...rawArgs,
+    request: {
+      ...authed,
+      service: rawArgs.resolveVariables(authed.service),
+      method: rawArgs.resolveVariables(authed.method),
+    },
+  };
+  // Basic validation of what will actually be dialled — `{{variables}}`
+  // resolved first, so a templated URL/service/method is checked by value.
+  const urlCheck = validateGrpcUrl(args.resolveVariables(args.request.url));
   if (!urlCheck.valid) {
     throw new Error(urlCheck.error ?? 'Invalid gRPC URL');
   }

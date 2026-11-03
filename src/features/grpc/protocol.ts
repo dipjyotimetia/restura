@@ -329,6 +329,9 @@ export const grpcProtocol: ProtocolModule = {
     let streamMessages: unknown[] | undefined;
     const resolve = (text: string) =>
       resolveMapText(text, scriptEnvVars, ctx.secretNames, defaultResolveVariables);
+    // Service / method may be templated like the URL (`{{service}}`); every
+    // transport below builds `/{service}/{method}` from these fields.
+    request = { ...request, service: resolve(request.service), method: resolve(request.method) };
     // Electron needs a schema; a request without one (e.g. a saved request run
     // from a collection with no snapshot) falls back to server reflection,
     // which throws an actionable error ("reflect or upload a .proto").

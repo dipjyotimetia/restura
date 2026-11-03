@@ -1,10 +1,13 @@
+import { readFileSync } from 'node:fs';
+import type { IncomingHttpHeaders } from 'node:http';
 import { createServer as createHttp1Server } from 'node:http';
 import {
   createServer as createH2cServer,
   type Http2Server,
   type ServerHttp2Session,
 } from 'node:http2';
-import { create } from '@bufbuild/protobuf';
+import { resolve as resolvePath } from 'node:path';
+import { create, type DescService } from '@bufbuild/protobuf';
 import {
   Code,
   ConnectError,
@@ -12,6 +15,7 @@ import {
   type HandlerContext,
 } from '@connectrpc/connect';
 import { connectNodeAdapter } from '@connectrpc/connect-node';
+import { registryFromProtoText } from '../../shared/protocol/grpc-registry';
 import {
   applyCors,
   bindLocalhost,
@@ -30,6 +34,15 @@ export interface MockGrpcServerHandle {
   port: number;
   url: string;
   h2cUrl: string;
+  /** Same services mounted under {@link GRPC_PATH_PREFIX} (path-routed gateway). */
+  prefixedUrl: string;
+  /**
+   * An endpoint that behaves like a native-gRPC-only server (grpc-go): any
+   * non-`application/grpc` request gets HTTP 415 with a text body.
+   */
+  nativeOnlyUrl: string;
+  /** Request headers of the most recent RPC (lower-cased, as Node reports them). */
+  lastRequestHeaders: () => IncomingHttpHeaders;
   close: () => Promise<void>;
   unaryCount: () => number;
   serverStreamCount: () => number;
@@ -172,6 +185,24 @@ function registerRoutes(router: ConnectRouterType, counters: Counters): void {
   });
 }
 
+/** Path prefix the prefixed mount answers under (see `prefixedUrl`). */
+export const GRPC_PATH_PREFIX = '/api/rpc';
+const NATIVE_ONLY_PREFIX = '/native-only';
+
+/** `edge.v1.EdgeService` — compiled at runtime from `proto/edge.proto`. */
+export const EDGE_PROTO = readFileSync(resolvePath(__dirname, 'proto/edge.proto'), 'utf8');
+export const EDGE_SERVICE = 'edge.v1.EdgeService';
+const edgeRegistry = registryFromProtoText(EDGE_PROTO, 'edge.proto');
+const EdgeService = edgeRegistry.getService(EDGE_SERVICE) as DescService;
+const EdgeEnvelope = edgeRegistry.getMessage('edge.v1.Envelope')!;
+
+function registerEdgeRoutes(router: ConnectRouterType): void {
+  router.service(EdgeService, {
+    wrap: (req: unknown) => req,
+    get_item: (req: { note: string }) => create(EdgeEnvelope, { note: `got ${req.note}` }),
+  } as never);
+}
+
 const REFLECTION_PATHS = [
   '/grpc.reflection.v1.ServerReflection/ServerReflectionInfo',
   '/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo',
@@ -184,9 +215,33 @@ function isReflectionPath(url: string): boolean {
 export async function startMockGrpcServer(): Promise<MockGrpcServerHandle> {
   const counters: Counters = { unary: 0, serverStream: 0, clientStream: 0, bidi: 0, reflection: 0 };
 
-  const connectHandler = connectNodeAdapter({
-    routes: (router) => registerRoutes(router, counters),
+  const allRoutes = (router: ConnectRouterType) => {
+    registerRoutes(router, counters);
+    registerEdgeRoutes(router);
+  };
+  const plainHandler = connectNodeAdapter({ routes: allRoutes });
+  const prefixedHandler = connectNodeAdapter({
+    routes: allRoutes,
+    requestPathPrefix: GRPC_PATH_PREFIX,
   });
+  let lastHeaders: IncomingHttpHeaders = {};
+  type AnyReq = Parameters<typeof plainHandler>[0];
+  type AnyRes = Parameters<typeof plainHandler>[1];
+  const connectHandler = (req: AnyReq, res: AnyRes) => {
+    lastHeaders = { ...req.headers };
+    const url = req.url ?? '/';
+    if (url.startsWith(`${NATIVE_ONLY_PREFIX}/`)) {
+      const ct = String(req.headers['content-type'] ?? '');
+      if (!ct.startsWith('application/grpc') || ct.startsWith('application/grpc-web')) {
+        const r = res as unknown as import('node:http').ServerResponse;
+        r.writeHead(415, { 'content-type': 'text/plain' });
+        r.end(`invalid gRPC request content-type "${ct}"`);
+        return;
+      }
+    }
+    const handler = url.startsWith(`${GRPC_PATH_PREFIX}/`) ? prefixedHandler : plainHandler;
+    handler(req, res);
+  };
 
   // The Connect router has no ServerReflection service, so intercept reflection
   // POSTs and answer with the minimal `listServicesResponse` the UI needs. The
@@ -296,6 +351,9 @@ export async function startMockGrpcServer(): Promise<MockGrpcServerHandle> {
     port,
     url: `http://127.0.0.1:${port}`,
     h2cUrl: `http://127.0.0.1:${h2cPort}`,
+    prefixedUrl: `http://127.0.0.1:${port}${GRPC_PATH_PREFIX}`,
+    nativeOnlyUrl: `http://127.0.0.1:${port}${NATIVE_ONLY_PREFIX}`,
+    lastRequestHeaders: () => lastHeaders,
     close: async () => {
       // Stop tracking new sessions; destroy any that arrive during shutdown immediately.
       h2c.removeAllListeners('session');
@@ -322,6 +380,7 @@ export async function startMockGrpcServer(): Promise<MockGrpcServerHandle> {
     bidiCount: () => counters.bidi,
     reflectionCount: () => counters.reflection,
     reset: () => {
+      lastHeaders = {};
       counters.unary = 0;
       counters.serverStream = 0;
       counters.clientStream = 0;

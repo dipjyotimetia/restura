@@ -37,6 +37,7 @@ Adopt **ConnectRPC** as the single gRPC stack across every backend, driven by on
 - `@connectrpc/connect`, `connect-node`, and `connect-web` are added dependencies.
 - Web and desktop have different streaming capabilities (web can't do client/bidi over `fetch`) — recorded in the capability matrix, not hidden.
 - The desktop Connect fallback means a gRPC call can land on either native gRPC or the Connect protocol depending on the server; the negotiated path is surfaced in the response, but it is one more thing to reason about.
+- The fallback re-sends the call, so it only fires on answers that mean the RPC was *refused, not run*: HTTP 4xx except 408/429, plus 501/505, or a non-gRPC content type. Transient 5xx (a load balancer's 502/503/504) is surfaced as-is. An origin is memoised as Connect-only only after a Connect attempt actually answered, and a memoised origin still tries native gRPC when Connect is refused, so a wrong or stale memo heals itself.
 
 ## Alternatives considered
 
