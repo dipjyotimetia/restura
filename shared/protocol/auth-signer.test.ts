@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { applyAuth } from './auth-signer';
+import { Sha256 } from '@aws-crypto/sha256-js';
+import { HttpRequest } from '@smithy/protocol-http';
+import { SignatureV4 } from '@smithy/signature-v4';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { applyAuth, signSigV4 } from './auth-signer';
 import { hmacSha1Base64 } from './oauth1-signer';
 
 describe('applyAuth', () => {
@@ -323,5 +326,92 @@ describe('extension-method signing (#857)', () => {
     const base = `M%21X&${enc('https://api.example.com/x')}&${enc(params)}`;
     const expected = enc(hmacSha1Base64(base, 'cs&'));
     expect(await oauth1('m!x')).toBe(expected);
+  });
+});
+
+describe('SigV4 canonical query string (parity with @smithy/signature-v4)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-31T12:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const creds = {
+    accessKey: 'AKIDEXAMPLE',
+    secretKey: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
+    region: 'us-east-1',
+    service: 'execute-api',
+  };
+
+  async function smithySignature(rawUrl: string): Promise<string | undefined> {
+    const url = new URL(rawUrl);
+    const query: Record<string, string | string[]> = {};
+    for (const key of new Set(url.searchParams.keys())) {
+      const all = url.searchParams.getAll(key);
+      query[key] = all.length > 1 ? all : (all[0] ?? '');
+    }
+    const signer = new SignatureV4({
+      credentials: { accessKeyId: creds.accessKey, secretAccessKey: creds.secretKey },
+      region: creds.region,
+      service: creds.service,
+      sha256: Sha256,
+    });
+    const signed = await signer.sign(
+      new HttpRequest({
+        method: 'GET',
+        protocol: url.protocol,
+        hostname: url.hostname,
+        path: url.pathname,
+        query,
+        headers: { host: url.host },
+      })
+    );
+    const auth = signed.headers.authorization ?? signed.headers.Authorization ?? '';
+    return /Signature=([0-9a-f]{64})/.exec(auth)?.[1];
+  }
+
+  async function builtInSignature(url: string): Promise<string | undefined> {
+    const headers = await signSigV4({ method: 'GET', url, headers: {}, body: undefined }, creds);
+    return /Signature=([0-9a-f]{64})/.exec(headers.Authorization ?? '')?.[1];
+  }
+
+  it.each([
+    ['a plain query (harness sanity)', 'https://api.example.com/p?a=1&c=2'],
+    ['mixed-case and underscore keys', 'https://api.example.com/p?b=1&B=2&_x=3'],
+    ['duplicate keys ordered by value', 'https://api.example.com/p?k=z&k=a&k=m'],
+    ['RFC 3986 sub-delims in values', "https://api.example.com/p?filter=a(b)&q=it's!*"],
+  ])('matches smithy for %s', async (_label, url) => {
+    const expected = await smithySignature(url);
+    expect(expected).toMatch(/^[0-9a-f]{64}$/);
+    expect(await builtInSignature(url)).toBe(expected);
+  });
+});
+
+describe('OAuth1 form-body params with repeated keys (RFC 5849 §3.4.1.3)', () => {
+  it('signs every value of a repeated form key', async () => {
+    const enc = (s: string) =>
+      encodeURIComponent(s).replace(
+        /[!'()*]/g,
+        (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+      );
+    const { headers } = await applyAuth(
+      {
+        type: 'oauth1',
+        oauth1: {
+          consumerKey: 'ck',
+          consumerSecret: 'cs',
+          signatureMethod: 'HMAC-SHA1',
+          nonce: 'n0nce',
+          timestamp: '1700000000',
+          addParamsToBody: true,
+        },
+      },
+      { method: 'POST', url: 'https://api.example.com/x', headers: {}, body: 'tag=b&tag=a' }
+    );
+    const params =
+      'oauth_consumer_key=ck&oauth_nonce=n0nce&oauth_signature_method=HMAC-SHA1&oauth_timestamp=1700000000&oauth_version=1.0&tag=a&tag=b';
+    const base = `POST&${enc('https://api.example.com/x')}&${enc(params)}`;
+    const signature = /oauth_signature="([^"]+)"/.exec(headers.Authorization ?? '')?.[1];
+    expect(signature).toBe(enc(hmacSha1Base64(base, 'cs&')));
   });
 });
