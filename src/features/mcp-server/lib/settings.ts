@@ -65,16 +65,7 @@ export async function updateMcpConsentFresh(
   updateMcpConsent(update);
 }
 
-interface SettingsPersistApi {
-  getOptions: () => {
-    name?: string;
-    storage?: { getItem: (name: string) => unknown | Promise<unknown> };
-  };
-  rehydrate: () => Promise<void> | void;
-}
-
-const persistApi = (): SettingsPersistApi | undefined =>
-  (useSettingsStore as unknown as { persist?: SettingsPersistApi }).persist;
+const persistApi = () => useSettingsStore.persist;
 
 /**
  * The persisted MCP settings, read through the settings store's own persist

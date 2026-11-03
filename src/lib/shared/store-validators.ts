@@ -7,7 +7,7 @@ import {
   ArenaRunReportSchema,
 } from '@/features/ai-lab/run-engine/reportEnvelope';
 import { ConsoleNativeDraftSchema } from '@/lib/shared/console-store-schemas';
-import type { Collection, Environment, Request, SpatialAccent } from '@/types';
+import type { Collection, Environment, Request } from '@/types';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
 import {
   collectionSchema,
@@ -699,10 +699,7 @@ export const appSettingsSchema = z
       .object({ errorsEnabled: z.boolean().catch(true) })
       .optional()
       .catch(undefined),
-    accent: z
-      .enum(SPATIAL_ACCENT_PRESETS as unknown as [SpatialAccent, ...SpatialAccent[]])
-      .optional()
-      .catch(undefined),
+    accent: z.enum(SPATIAL_ACCENT_PRESETS).optional().catch(undefined),
     autoUpdate: z
       .object({
         autoDownload: z.boolean().catch(true),

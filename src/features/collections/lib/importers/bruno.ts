@@ -127,11 +127,6 @@ function buildItemsFromEntries(
   bruToJsonV2: (s: string) => unknown,
   warnings: ImportWarning[]
 ): CollectionItem[] {
-  type TreeNode = {
-    name: string;
-    folders: Map<string, TreeNode>;
-    requests: Array<{ name: string; bru: Record<string, unknown> }>;
-  };
   const root: TreeNode = { name: '', folders: new Map(), requests: [] };
 
   for (const e of entries) {
@@ -171,31 +166,20 @@ function buildItemsFromEntries(
   return treeToItems(root, warnings);
 }
 
-function treeToItems(
-  node: {
-    name: string;
-    folders: Map<string, { name: string; folders: Map<string, unknown>; requests: unknown[] }>;
-    requests: Array<{ name: string; bru: Record<string, unknown> }>;
-  },
-  warnings: ImportWarning[]
-): CollectionItem[] {
+type TreeNode = {
+  name: string;
+  folders: Map<string, TreeNode>;
+  requests: Array<{ name: string; bru: Record<string, unknown> }>;
+};
+
+function treeToItems(node: TreeNode, warnings: ImportWarning[]): CollectionItem[] {
   const out: CollectionItem[] = [];
   for (const folder of node.folders.values()) {
     out.push({
       id: uuid(),
       name: folder.name,
       type: 'folder',
-      items: treeToItems(
-        folder as unknown as {
-          name: string;
-          folders: Map<
-            string,
-            { name: string; folders: Map<string, unknown>; requests: unknown[] }
-          >;
-          requests: Array<{ name: string; bru: Record<string, unknown> }>;
-        },
-        warnings
-      ),
+      items: treeToItems(folder, warnings),
     });
   }
   for (const r of node.requests) {
