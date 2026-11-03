@@ -119,7 +119,8 @@ class ScriptExecutor {
    *
    * **Contract**: the interrupt handler and the async pump skip
    * enforcement whenever this is `0` — that's how `initialize()`'s
-   * trusted bundle / pm.* / setup evals run untimed. Anything that
+   * trusted bundle / pm.* / setup evals run untimed. For the same reason
+   * host settles and job drains never touch the VM while it is `0`. Anything that
    * calls `vm.evalCode(...)` directly outside `eval()` runs without a
    * timeout. If you add such a call site, decide explicitly whether it
    * should be bounded and set `evalStartTime` accordingly before the
@@ -178,11 +179,27 @@ class ScriptExecutor {
     }
     this.pendingHostCleanups.clear();
     // Drain so any .then() chains waiting on the rejected deferreds run
-    // (and short-circuit out via `!this.runtime` in the settle handlers).
-    if (this.runtime) {
-      const pending = this.runtime.executePendingJobs();
-      if (pending.error) pending.error.dispose();
-    }
+    // (only inside a timed eval; from dispose() they are freed undrained).
+    this.drainJobs();
+  }
+
+  /**
+   * Run queued jobs only inside `eval()`, where the interrupt handler bounds
+   * them; a host op settling after its eval (started by a handler during the
+   * timeout drain) leaves its reactions queued for the next eval's deadline.
+   */
+  private drainJobs(): void {
+    if (!this.runtime || this.evalStartTime === 0) return;
+    const pending = this.runtime.executePendingJobs();
+    if (pending.error) pending.error.dispose();
+  }
+
+  /**
+   * A host settle may touch the VM only for a live op inside an eval: resolve
+   * can hit a user `then` getter and the callback is user code.
+   */
+  private canSettle(cleanup: () => void): boolean {
+    return this.evalStartTime !== 0 && !!this.runtime && this.pendingHostCleanups.has(cleanup);
   }
 
   private executionCeilingMs(): number {
@@ -470,7 +487,7 @@ class ScriptExecutor {
           // handle below (vm, deferred, cbHandle) is owned by the runtime
           // and was already freed. Note: `errH = vm.null` / `nullH = vm.null`
           // are shared QuickJS singletons — never call `.dispose()` on them.
-          if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
+          if (!this.canSettle(cleanup)) return;
           const respJs = makeJSValue(vm, sandboxResponse(response));
           deferred.resolve(respJs);
           if (cbHandle) {
@@ -482,7 +499,7 @@ class ScriptExecutor {
           respJs.dispose();
         })
         .catch((err: unknown) => {
-          if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
+          if (!this.canSettle(cleanup)) return;
           const msg = err instanceof Error ? err.message : String(err);
           const errObj = makeJSValue(vm, { message: msg });
           deferred.reject(errObj);
@@ -497,15 +514,11 @@ class ScriptExecutor {
         .finally(() => {
           this.pendingHostOps--;
           // If we already cleaned up (timeout / dispose) this is a no-op.
-          // Otherwise run the cleanup now (drains microtasks, disposes
-          // cbHandle). The deferred is already settled by then so its
-          // dispose() inside cleanup is a no-op.
+          // Otherwise run the cleanup now (disposes cbHandle; rejects the
+          // deferred if a settle outside eval left it pending).
           cleanup();
-          // Drain microtasks the .then() callback queued.
-          if (this.runtime) {
-            const pending = this.runtime.executePendingJobs();
-            if (pending.error) pending.error.dispose();
-          }
+          // Drain microtasks the .then() callback queued (inside eval only).
+          this.drainJobs();
         });
 
       return deferred.handle;
@@ -514,11 +527,6 @@ class ScriptExecutor {
     fn.dispose();
   }
 
-  /**
-   * Build pm.vault namespace — three async methods returning QuickJS
-   * Promises that resolve when the host async work completes. The
-   * Promise / pending-counter pattern matches pm.sendRequest above.
-   */
   /**
    * Shared async-host-op machinery for `pm.vault` / `rs.judge` (and any
    * future host bridge that returns a host-resolved promise). Creates a
@@ -561,13 +569,13 @@ class ScriptExecutor {
       .then((value) => {
         // Bail if dispose() ran during host work — every handle below
         // is owned by the vm that's now gone.
-        if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
+        if (!this.canSettle(cleanup)) return;
         const h = onResolve(value);
         deferred.resolve(h);
         h.dispose();
       })
       .catch((err: unknown) => {
-        if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
+        if (!this.canSettle(cleanup)) return;
         const msg = err instanceof Error ? err.message : String(err);
         const e = makeJSValue(vm, { message: msg });
         deferred.reject(e);
@@ -576,10 +584,7 @@ class ScriptExecutor {
       .finally(() => {
         this.pendingHostOps--;
         cleanup();
-        if (this.runtime) {
-          const pending = this.runtime.executePendingJobs();
-          if (pending.error) pending.error.dispose();
-        }
+        this.drainJobs();
       });
     return deferred.handle;
   }
@@ -754,10 +759,7 @@ class ScriptExecutor {
       // a hung host promise runs none, so we flip `evalInterrupted` ourselves.
       const ceiling = this.executionCeilingMs();
       const deadline = this.evalStartTime + ceiling;
-      if (this.runtime) {
-        const pending = this.runtime.executePendingJobs();
-        if (pending.error) pending.error.dispose();
-      }
+      this.drainJobs();
       while (this.pendingHostOps > 0 && !this.evalInterrupted) {
         if (Date.now() >= deadline) {
           this.evalInterrupted = true;
@@ -767,10 +769,7 @@ class ScriptExecutor {
         // attached by pm.sendRequest can fire. setImmediate isn't available
         // in browsers; setTimeout(0) is the portable equivalent.
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
-        if (this.runtime) {
-          const pending = this.runtime.executePendingJobs();
-          if (pending.error) pending.error.dispose();
-        }
+        this.drainJobs();
       }
       if (this.evalInterrupted) {
         this.addLog('error', `Script execution timed out after ${ceiling}ms`);

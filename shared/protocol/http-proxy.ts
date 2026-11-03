@@ -20,7 +20,7 @@ import {
 } from './header-policy';
 import { checkHttpMethod } from './http-method';
 import { MAX_RESPONSE_SIZE } from './proxy-limits';
-import { RedirectPolicyError } from './redirect-follower';
+import { discardBody, RedirectPolicyError } from './redirect-follower';
 import type {
   ConnectionTimings,
   ExecuteResult,
@@ -216,6 +216,7 @@ export async function executeHttpProxy(
 
     const headersAt = performance.now();
     if (response.contentLengthHeader && Number(response.contentLengthHeader) > MAX_RESPONSE_SIZE) {
+      await discardBody(response);
       return {
         ok: false,
         status: 413,
@@ -389,7 +390,7 @@ export async function executeHttpProxyStreaming(
 
   const timeout = spec.timeout ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
-  // Caller cancellation (optional; the Worker passes none). Unlike the buffered
+  // Caller cancellation (the Worker passes the client request's signal). Unlike the buffered
   // variant the listener stays attached on success — the stream outlives this
   // call and must still be abortable; it's `once` and dropped with the signal.
   const abortFromCaller = () => controller.abort();

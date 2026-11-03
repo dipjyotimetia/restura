@@ -113,7 +113,7 @@ describe('Node WebSocket relay — close codes that cannot be sent', () => {
       upstreamSockets[0]?.once('close', (code) => resolve(code))
     );
     events.onClose?.(new CloseEvent('close', { code: 1006, reason: '' }), client.ws);
-    await expect(upstreamClosed).resolves.toBe(1000);
+    await expect(upstreamClosed).resolves.toBe(1011);
   });
 });
 

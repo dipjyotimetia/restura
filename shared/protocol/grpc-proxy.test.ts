@@ -458,3 +458,30 @@ describe('parseConnectError — untrusted `code` values', () => {
     }
   );
 });
+
+describe('executeGrpcProxy oversize Content-Length', () => {
+  it('cancels the unread body before answering 413', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fetcher: Fetcher = async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      text: async () => '',
+      body,
+      contentLengthHeader: String(100 * 1024 * 1024),
+    });
+    const r = await executeGrpcProxy(
+      { url: 'https://example.com', service: 'svc.Foo', method: 'Bar', timeout: 5000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(413);
+    expect(cancelled).toBe(true);
+  });
+});

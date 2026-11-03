@@ -14,7 +14,7 @@ interface FakeCfSocket {
   closeCount: number;
   onWrite: ((s: FakeCfSocket) => void) | null;
   tls: FakeCfSocket | null;
-  push(chunk: string): void;
+  push(chunk: string | Uint8Array): void;
   end(): void;
   startTls(): FakeCfSocket;
   close(): Promise<void>;
@@ -25,6 +25,7 @@ const DEC = new TextDecoder();
 
 function fakeSocket(): FakeCfSocket {
   let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+  let ended = false;
   const sock: FakeCfSocket = {
     readable: new ReadableStream<Uint8Array>({
       start(c) {
@@ -44,18 +45,22 @@ function fakeSocket(): FakeCfSocket {
     onWrite: null,
     tls: null,
     push(chunk) {
-      controller?.enqueue(ENC.encode(chunk));
+      if (!ended) controller?.enqueue(typeof chunk === 'string' ? ENC.encode(chunk) : chunk);
     },
     end() {
+      if (ended) return;
+      ended = true;
       controller?.close();
     },
     startTls() {
       if (!sock.tls) throw new Error('test forgot to seed tls socket');
       return sock.tls;
     },
+    // Like a real socket, closing ends the readable: a pending read resolves done.
     async close() {
       sock.closed = true;
       sock.closeCount += 1;
+      sock.end();
     },
   };
   return sock;
@@ -285,6 +290,110 @@ describe('socket cleanup on every failure path (Node twin parity)', () => {
     state.next = sock;
     sock.onWrite = (s) => s.push('HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok');
     expect(await (await http()).text()).toBe('ok');
+    expect(sock.closeCount).toBe(1);
+  });
+});
+
+describe('a truncated response is an error, never a partial 200', () => {
+  const get = (url: string, signal: AbortSignal) =>
+    url.startsWith('https:')
+      ? httpsViaConnectProxy(new URL(url), PROXY, { method: 'GET' }, signal)
+      : httpViaProxy(new URL(url), PROXY, { method: 'GET' }, signal);
+
+  it('httpViaProxy rejects when aborted mid-body (read-to-EOF response)', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    const ac = new AbortController();
+    sock.onWrite = (s) => {
+      s.push('HTTP/1.1 200 OK\r\n\r\npart');
+      setTimeout(() => ac.abort(), 5);
+    };
+    await expect(get('http://example.com/', ac.signal)).rejects.toThrow(/Aborted/);
+  });
+
+  it('httpsViaConnectProxy closes the TLS socket on abort after the upgrade', async () => {
+    const tlsSock = seedTunnel();
+    const ac = new AbortController();
+    tlsSock.onWrite = (s) => {
+      s.push('HTTP/1.1 200 OK\r\n\r\npart');
+      setTimeout(() => ac.abort(), 5);
+    };
+    await expect(get('https://example.com/', ac.signal)).rejects.toThrow(/Aborted/);
+    expect(tlsSock.closed).toBe(true);
+  }, 2_000);
+
+  it('rejects an already-aborted signal without dialling', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    sock.onWrite = (s) => s.push('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
+    await expect(get('http://example.com/', AbortSignal.abort())).rejects.toThrow(/Aborted/);
+    expect(sock.written).toEqual([]);
+  });
+
+  it('rejects when the upstream closes before Content-Length bytes arrived', async () => {
+    const tlsSock = seedTunnel();
+    tlsSock.onWrite = (s) => {
+      s.push('HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc');
+      s.end();
+    };
+    await expect(get('https://example.com/', new AbortController().signal)).rejects.toThrow(
+      /3 of 10 body bytes/
+    );
+  });
+});
+
+describe('response head is framed on raw bytes (Node twin parity)', () => {
+  it('skips a 100 Continue / 103 Early Hints head and returns the final response', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    sock.onWrite = (s) => {
+      s.push('HTTP/1.1 100 Continue\r\n\r\n');
+      s.push('HTTP/1.1 103 Early Hints\r\nLink: </a.css>\r\n\r\n');
+      s.push('HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok');
+    };
+    const res = await httpViaProxy(
+      new URL('http://example.com/'),
+      PROXY,
+      { method: 'POST', body: 'x' },
+      new AbortController().signal
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ok');
+  });
+
+  it('keeps the body offset right when a header carries non-ASCII octets', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    sock.onWrite = (s) => {
+      s.push(
+        ENC.encode('HTTP/1.1 200 OK\r\nX-Name: café\r\nX-Euro: €\r\nContent-Length: 2\r\n\r\nok')
+      );
+    };
+    const res = await httpViaProxy(
+      new URL('http://example.com/'),
+      PROXY,
+      { method: 'GET' },
+      new AbortController().signal
+    );
+    expect(await res.text()).toBe('ok');
+    // Latin-1 view of the UTF-8 octets, exactly what the Node twin produces.
+    expect(res.headers.get('x-name')).toBe('cafÃ©');
+    expect(res.headers.get('x-euro')).toBe('â\u0082¬');
+  });
+
+  it('refuses a header that would inject a line onto the proxy socket, writing nothing', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    sock.onWrite = (s) => s.push('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
+    await expect(
+      httpViaProxy(
+        new URL('http://example.com/'),
+        PROXY,
+        { method: 'GET', headers: { 'X-A': 'v\r\nX-Injected: 1' } },
+        new AbortController().signal
+      )
+    ).rejects.toThrow(/Invalid request header/);
+    expect(sock.written).toEqual([]);
     expect(sock.closeCount).toBe(1);
   });
 });

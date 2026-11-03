@@ -4,6 +4,7 @@ import { GrpcStatusCode, GrpcStatusCodeName, grpcStatusFromHttpStatus } from './
 import { type GrpcStatusDetail, statusDetailsFromConnectJson } from './grpc-status-details';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
 import { MAX_RESPONSE_SIZE } from './http-proxy';
+import { discardBody } from './redirect-follower';
 import type { Fetcher } from './types';
 import { validateURL } from './url-validation';
 
@@ -210,6 +211,7 @@ export async function executeGrpcProxy(
 
     const tooLargeMsg = `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`;
     if (response.contentLengthHeader && Number(response.contentLengthHeader) > MAX_RESPONSE_SIZE) {
+      await discardBody(response);
       return {
         ok: false,
         status: 413,

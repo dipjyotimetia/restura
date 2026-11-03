@@ -10,12 +10,15 @@ const MAX_CLOSE_REASON_BYTES = 123;
  * Map a close code received from one side to one the other side may send.
  * 1004/1005/1006/1015 (and anything outside 1000–1014 / 3000–4999) can be
  * observed but never sent: `ws` throws TypeError and workerd rejects them, and
- * a swallowed throw leaves the peer open. Such codes relay as 1000. Shared by
- * the Cloudflare and Node relays.
+ * a swallowed throw leaves the peer open. An abnormal drop (1006) or TLS
+ * failure (1015) relays as 1011 so the peer does not see a clean close; "no
+ * status" (1005) and anything else unsendable relays as 1000. Shared by the
+ * Cloudflare and Node relays.
  */
 export function relayCloseCode(code: number): number {
+  if (code === 1006 || code === 1015) return 1011;
   const sendable =
-    (code >= 1000 && code <= 1014 && code !== 1004 && code !== 1005 && code !== 1006) ||
+    (code >= 1000 && code <= 1014 && code !== 1004 && code !== 1005) ||
     (code >= 3000 && code <= 4999);
   return sendable ? code : 1000;
 }

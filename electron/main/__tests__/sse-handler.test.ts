@@ -15,6 +15,7 @@ vi.mock('../ipc/ipc-rate-limiter', () => ({
 vi.mock('../security/safe-connect', () => ({
   resolveSafeAddress: mockResolveSafe,
   createPinnedFetch: () => vi.fn(),
+  createClosablePinnedFetch: () => ({ fetch: vi.fn(), close: async () => {} }),
 }));
 // Validators reduced to passthrough so the test drives the handler logic directly.
 vi.mock('../ipc/ipc-validators', () => ({

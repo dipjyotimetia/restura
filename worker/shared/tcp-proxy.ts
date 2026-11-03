@@ -1,12 +1,14 @@
 import { connect } from 'cloudflare:sockets';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import {
+  assertCompleteAtEof,
   encodeRequest,
+  type FinalHead,
+  findFinalHead,
   frameBody,
-  isBodylessStatus,
-  parseResponseHead,
+  isBodyComplete,
   parseStatusCode,
-  type ResponseHead,
+  sliceBody,
   toRecord,
   toResponse,
 } from './http-framing';
@@ -53,6 +55,19 @@ function tooLarge(): Error {
   return new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`);
 }
 
+type CfSocket = ReturnType<typeof connect>;
+
+/** Close `socket` when `signal` aborts (now, if it already has); returns the detach. */
+function closeOnAbort(signal: AbortSignal, socket: CfSocket): () => void {
+  const onAbort = () => void closeQuietly(socket);
+  if (signal.aborted) {
+    onAbort();
+    return () => undefined;
+  }
+  signal.addEventListener('abort', onAbort, { once: true });
+  return () => signal.removeEventListener('abort', onAbort);
+}
+
 /**
  * Read only the CONNECT reply's header section. A CONNECT 200 has no body and
  * the proxy holds the socket open for the tunnel, so reading to EOF would hang.
@@ -82,32 +97,25 @@ async function readConnectResponse(
 
 /**
  * Read a full HTTP/1.1 response — same resolution rule as the Node twin's
- * `readHttpResponseBody`:
- *   - 1xx / 204 / 304: stop at the headers (bodyless).
+ * `readHttpResponseBody` (framing helpers shared in `http-framing`):
+ *   - interim 1xx heads are skipped; 204 / 304 stop at the final head.
  *   - Content-Length present: read exactly N body bytes.
  *   - otherwise: read until the server closes the stream. Transfer-Encoding:
  *     chunked is not decoded; the raw framing is the body (Node parity).
+ * EOF on an aborted signal or short of Content-Length throws.
  */
 async function readHttpResponse(
-  readable: ReadableStream<Uint8Array>
-): Promise<ResponseHead & { body: Uint8Array }> {
+  readable: ReadableStream<Uint8Array>,
+  signal: AbortSignal
+): Promise<FinalHead & { body: Uint8Array }> {
   const reader = readable.getReader();
-  const decoder = new TextDecoder();
-  // Keep the body as raw bytes so binary responses (images, PDFs, gzip) survive
-  // the proxy untouched. Only the header section is decoded as text — HTTP
-  // headers are ASCII, so the char index of \r\n\r\n equals its byte offset.
   const chunks: Uint8Array[] = [];
   let totalBytes = 0;
-  let headerText = '';
-  let headerByteLen = -1; // bytes up to and including the \r\n\r\n terminator
-  let head: ResponseHead = { statusLine: '', headers: {}, headerList: [] };
-  let contentLength: number | null = null;
-  let bodyless = false;
-
-  const bodyFrom = (all: Uint8Array): Uint8Array =>
-    contentLength !== null
-      ? all.subarray(headerByteLen, headerByteLen + contentLength)
-      : all.subarray(headerByteLen);
+  let head: FinalHead | null = null;
+  const collect = (): Uint8Array => {
+    const [only] = chunks;
+    return chunks.length === 1 && only ? only : concatChunks(chunks, totalBytes);
+  };
 
   try {
     while (true) {
@@ -116,34 +124,23 @@ async function readHttpResponse(
       totalBytes += value.byteLength;
       if (totalBytes > MAX_RESPONSE_SIZE) throw tooLarge();
       chunks.push(value);
-
-      if (headerByteLen === -1) {
-        headerText += decoder.decode(value, { stream: true });
-        const idx = headerText.indexOf('\r\n\r\n');
-        if (idx === -1) continue;
-        headerByteLen = idx + 4;
-        head = parseResponseHead(headerText.slice(0, idx));
-
-        const cl = head.headers['content-length'];
-        if (cl !== undefined) {
-          const n = parseInt(cl, 10);
-          if (!Number.isNaN(n)) contentLength = n;
-        }
-        bodyless = isBodylessStatus(parseStatusCode(head.statusLine));
+      // Until the head is found, keep one contiguous buffer to search.
+      if (!head) {
+        const all = collect();
+        chunks.length = 0;
+        chunks.push(all);
+        head = findFinalHead(all);
       }
-
-      if (bodyless) return { ...head, body: new Uint8Array(0) };
-      if (contentLength !== null && totalBytes - headerByteLen >= contentLength) {
-        return { ...head, body: bodyFrom(concatChunks(chunks, totalBytes)) };
+      if (head && isBodyComplete(head, totalBytes)) {
+        return { ...head, body: sliceBody(collect(), head) };
       }
-      // No Content-Length → keep reading until the server closes the stream.
     }
   } finally {
     reader.releaseLock();
   }
 
-  if (headerByteLen === -1) throw new Error('Upstream closed before response headers');
-  return { ...head, body: bodyFrom(concatChunks(chunks, totalBytes)) };
+  assertCompleteAtEof(head, totalBytes, signal);
+  return { ...head, body: sliceBody(collect(), head) };
 }
 
 export async function httpsViaConnectProxy(
@@ -152,12 +149,12 @@ export async function httpsViaConnectProxy(
   requestInit: RequestInit,
   signal: AbortSignal
 ): Promise<Response> {
+  if (signal.aborted) throw new Error('Aborted');
   const socket = connect(
     { hostname: proxy.host, port: proxy.port },
     { secureTransport: 'starttls', allowHalfOpen: false }
   );
-
-  signal.addEventListener('abort', () => void socket.close(), { once: true });
+  let detachAbort = closeOnAbort(signal, socket);
 
   const targetPort = targetUrl.port || '443';
   const writer = socket.writable.getWriter();
@@ -175,9 +172,14 @@ export async function httpsViaConnectProxy(
     }
     tlsSocket = socket.startTls({ expectedServerHostname: targetUrl.hostname });
   } catch (err) {
+    detachAbort();
     await closeQuietly(socket);
     throw err;
   }
+  // The TLS socket now owns the connection: abort must close it, not the
+  // pre-upgrade socket (whose close would leave the tunnel read hanging).
+  detachAbort();
+  detachAbort = closeOnAbort(signal, tlsSocket);
 
   try {
     // Verbatim (#857): the shared core already normalised known methods; extension
@@ -191,10 +193,11 @@ export async function httpsViaConnectProxy(
     await tlsWriter.write(encodeRequest(method, target, targetUrl.host, headers, bodyBytes));
     tlsWriter.releaseLock();
 
-    const response = await readHttpResponse(tlsSocket.readable);
+    const response = await readHttpResponse(tlsSocket.readable, signal);
     return toResponse(response.statusLine, response.headerList, response.body);
   } finally {
-    await tlsSocket.close();
+    detachAbort();
+    await closeQuietly(tlsSocket);
   }
 }
 
@@ -204,9 +207,9 @@ export async function httpViaProxy(
   requestInit: RequestInit,
   signal: AbortSignal
 ): Promise<Response> {
+  if (signal.aborted) throw new Error('Aborted');
   const socket = connect({ hostname: proxy.host, port: proxy.port });
-
-  signal.addEventListener('abort', () => void socket.close(), { once: true });
+  const detachAbort = closeOnAbort(signal, socket);
 
   try {
     // Verbatim (#857): the shared core already normalised known methods; extension
@@ -225,9 +228,10 @@ export async function httpViaProxy(
     );
     writer.releaseLock();
 
-    const response = await readHttpResponse(socket.readable);
+    const response = await readHttpResponse(socket.readable, signal);
     return toResponse(response.statusLine, response.headerList, response.body);
   } finally {
+    detachAbort();
     await closeQuietly(socket);
   }
 }

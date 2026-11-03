@@ -93,4 +93,39 @@ describe('ScriptExecutor reuse across evals', () => {
       executor.dispose();
     }
   }, 20_000);
+
+  // A host promise that settles after its eval timed out must not run the
+  // user's queued reaction jobs outside any deadline. `spin` stays finite (2s)
+  // so a regression fails this test instead of hanging the run; in production
+  // it is `while (true) {}`.
+  it('never drains user jobs without a deadline when a host promise settles late', async () => {
+    const settle: Array<() => void> = [];
+    const executor = new ScriptExecutor({
+      host: {
+        sendRequest: () =>
+          new Promise((_resolve, reject) => settle.push(() => reject(new Error('late')))),
+      },
+    });
+    await executor.initialize();
+    executor.__setCeilingsForTest(50, 50);
+    try {
+      const spin = `var end = Date.now() + 2000; while (Date.now() < end) {} pm.environment.set('late', 'ran');`;
+      // The timeout rejects request a; its handler starts request b, which
+      // outlives the eval and is rejected later by the host.
+      const first = await executor.eval(
+        `pm.sendRequest('https://a.example/').catch(function () {
+           pm.sendRequest('https://b.example/').catch(function () { ${spin} });
+         });`
+      );
+      expect(first.errors).toContain(timedOut);
+
+      const started = Date.now();
+      for (const s of settle) s();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(Date.now() - started).toBeLessThan(1_000);
+      expect(executor.getVariables().late).toBeUndefined();
+    } finally {
+      executor.dispose();
+    }
+  }, 20_000);
 });

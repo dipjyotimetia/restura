@@ -337,3 +337,47 @@ describe('httpsViaConnectProxy — proxy socket is destroyed on every failure pa
     expect(proxySock.destroyed).toBe(true);
   });
 });
+
+describe('response framing parity with the Cloudflare twin', () => {
+  const viaHttp = (init: RequestInit = { method: 'GET' }) =>
+    createHttpViaProxy({ allowPrivateIPs: false })(
+      new URL('http://example.com/'),
+      { host: 'proxy.example', port: 8080 },
+      init,
+      new AbortController().signal
+    );
+
+  it('rejects when the upstream ends before Content-Length bytes arrived', async () => {
+    const sock = new FakeSocket();
+    state.nextNetSocket = sock;
+    sock.onWrite = (s) => {
+      s.emit('data', Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc'));
+      s.emit('end');
+    };
+    await expect(viaHttp()).rejects.toThrow(/3 of 10 body bytes/);
+  });
+
+  it('skips 1xx interim heads and returns the final response', async () => {
+    const sock = new FakeSocket();
+    state.nextNetSocket = sock;
+    sock.onWrite = (s) => {
+      s.emit('data', Buffer.from('HTTP/1.1 100 Continue\r\n\r\n'));
+      s.emit('data', Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok'));
+    };
+    const res = await viaHttp({ method: 'POST', body: 'x' });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ok');
+  });
+
+  it('refuses a header that would inject a line onto the proxy socket, writing nothing', async () => {
+    const sock = new FakeSocket();
+    state.nextNetSocket = sock;
+    sock.onWrite = (s) =>
+      s.emit('data', Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n'));
+    await expect(
+      viaHttp({ method: 'GET', headers: { 'X-A': 'v\r\nX-Injected: 1' } })
+    ).rejects.toThrow(/Invalid request header/);
+    expect(sock.written).toEqual([]);
+    expect(sock.destroyed).toBe(true);
+  });
+});

@@ -724,3 +724,30 @@ describe('executeHttpProxy — response cap without Content-Length', () => {
     }
   });
 });
+
+describe('413 on an oversize Content-Length releases the upstream body', () => {
+  it('cancels the unread body before answering 413', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fetcher: Fetcher = async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'application/octet-stream' },
+      text: async () => '',
+      body,
+      contentLengthHeader: String(MAX_RESPONSE_SIZE + 1),
+    });
+    const r = await executeHttpProxy(
+      { method: 'GET', url: 'https://example.com/', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(413);
+    expect(cancelled).toBe(true);
+  });
+});

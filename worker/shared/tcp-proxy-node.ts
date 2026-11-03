@@ -30,12 +30,16 @@ import tls from 'node:tls';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { assertNodeHostnameSafe, type NodeDnsGuardOptions } from './dns-guard-node';
 import {
+  assertCompleteAtEof,
   encodeRequest,
+  type FinalHead,
+  findFinalHead,
   frameBody,
-  isBodylessStatus,
+  isBodyComplete,
   parseResponseHead,
   parseStatusCode,
   type ResponseHead,
+  sliceBody,
   toRecord,
   toResponse,
 } from './http-framing';
@@ -56,8 +60,8 @@ function buildProxyAuthHeader(auth?: { username: string; password: string }): st
   return `Proxy-Authorization: ${proxyAuthValue(auth)}\r\n`;
 }
 
-interface ParsedHttpResponse extends ResponseHead {
-  body: Buffer;
+interface ParsedHttpResponse extends FinalHead {
+  body: Uint8Array;
 }
 
 function attachAbort(signal: AbortSignal, fail: (err: Error) => void): () => void {
@@ -136,13 +140,14 @@ function readConnectResponse(
 }
 
 /**
- * Read a full HTTP/1.1 response over the socket. Resolution rule:
+ * Read a full HTTP/1.1 response over the socket — same rule as the Cloudflare
+ * twin (framing helpers shared in `http-framing`):
+ *   - interim 1xx heads are skipped; 204 / 304 stop at the final head.
  *   - Content-Length present: read exactly N body bytes.
- *   - Content-Length absent (and no Transfer-Encoding: chunked): read until
- *     the server closes the connection ('end'). This matches RFC 7230 §3.3.3
- *     for HTTP/1.0-style responses and bodyless 1xx/204/304 codes.
+ *   - otherwise: read until the server closes the connection ('end').
  *   - Transfer-Encoding: chunked is NOT decoded here — caller receives the
  *     raw chunked framing as the body (parity with the Cloudflare twin).
+ * 'end' short of Content-Length rejects; abort rejects.
  */
 function readHttpResponseBody(
   socket: net.Socket | tls.TLSSocket,
@@ -151,10 +156,7 @@ function readHttpResponseBody(
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
-    let headerBodySplit = -1;
-    let head: ResponseHead = { statusLine: '', headers: {}, headerList: [] };
-    let contentLength: number | null = null;
-    let bodyless = false;
+    let head: FinalHead | null = null;
     let done = false;
 
     const cleanup = () => {
@@ -163,37 +165,27 @@ function readHttpResponseBody(
       socket.removeListener('error', onError);
       detachAbort();
     };
-    const finish = (body: Buffer) => {
+    const finish = (response: ParsedHttpResponse) => {
       if (done) return;
       done = true;
       cleanup();
-      resolve({ ...head, body });
+      resolve(response);
     };
-    const fail = (err: Error) => {
+    const fail = (err: unknown) => {
       if (done) return;
       done = true;
       cleanup();
-      reject(err);
+      reject(err instanceof Error ? err : new Error(String(err)));
     };
 
     const detachAbort = attachAbort(signal, fail);
     if (done) return;
 
-    const onError = (err: Error) => fail(err);
-
-    const parseHeadersFromBuffer = (buf: Buffer): void => {
-      const split = buf.indexOf(Buffer.from('\r\n\r\n'));
-      if (split === -1) return;
-      headerBodySplit = split;
-      head = parseResponseHead(Buffer.from(buf.subarray(0, split)).toString('latin1'));
-      const cl = head.headers['content-length'];
-      if (cl !== undefined) {
-        const n = parseInt(cl, 10);
-        if (!Number.isNaN(n)) contentLength = n;
-      }
-      // HEAD responses aren't detected: the status doesn't say, only the method.
-      bodyless = isBodylessStatus(parseStatusCode(head.statusLine));
+    const collect = (): Buffer => {
+      const [only] = chunks;
+      return chunks.length === 1 && only ? only : Buffer.concat(chunks, total);
     };
+    const onError = (err: Error) => fail(err);
 
     const onData = (chunk: Buffer) => {
       total += chunk.byteLength;
@@ -201,43 +193,29 @@ function readHttpResponseBody(
         return fail(new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`));
       }
       chunks.push(chunk);
-
-      if (headerBodySplit === -1) {
-        parseHeadersFromBuffer(Buffer.concat(chunks));
-        if (headerBodySplit === -1) return;
-        if (bodyless) {
-          return finish(Buffer.alloc(0));
+      try {
+        // Until the head is found, keep one contiguous buffer to search.
+        if (!head) {
+          const all = collect();
+          chunks.length = 0;
+          chunks.push(all);
+          head = findFinalHead(all);
         }
+        if (head && isBodyComplete(head, total))
+          finish({ ...head, body: sliceBody(collect(), head) });
+      } catch (err) {
+        fail(err);
       }
-
-      if (contentLength !== null) {
-        const concat = Buffer.concat(chunks);
-        const bodyStart = headerBodySplit + 4;
-        const bodyBytesRead = concat.byteLength - bodyStart;
-        if (bodyBytesRead >= contentLength) {
-          finish(concat.subarray(bodyStart, bodyStart + contentLength));
-        }
-      }
-      // contentLength === null && !bodyless → keep reading until 'end'.
     };
 
     const onEnd = () => {
-      if (done) return;
-      if (headerBodySplit === -1) {
-        // Partial: try one last parse in case the final chunk completed headers.
-        parseHeadersFromBuffer(Buffer.concat(chunks));
-        if (headerBodySplit === -1) {
-          return fail(new Error('Upstream closed before response headers'));
-        }
-        if (bodyless) return finish(Buffer.alloc(0));
+      const final = head;
+      try {
+        assertCompleteAtEof(final, total, signal);
+        finish({ ...final, body: sliceBody(collect(), final) });
+      } catch (err) {
+        fail(err);
       }
-      const concat = Buffer.concat(chunks);
-      const bodyStart = headerBodySplit + 4;
-      const body =
-        contentLength !== null
-          ? concat.subarray(bodyStart, bodyStart + contentLength)
-          : concat.subarray(bodyStart);
-      finish(body);
     };
 
     socket.on('data', onData);
