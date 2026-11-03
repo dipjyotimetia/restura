@@ -173,70 +173,103 @@ export async function followRedirects(
     named.has(name) ||
     (isCredentialHeaderName(name) && !(name === 'authorization' && options.followAuthHeader));
 
-  while (isRedirect(response.status)) {
-    if (hops >= maxHops) {
-      throw new RedirectPolicyError(`Too many redirects (>${maxHops})`);
+  // Every 3xx we do not return is released before moving on: an unread body
+  // pins its connection (workerd caps concurrent subrequests at 6; undici holds
+  // the pooled socket) for the rest of the chain.
+  try {
+    while (isRedirect(response.status)) {
+      const next = nextHop(req, response, hops, maxHops, stripOnOriginChange, options);
+      if (!next) break;
+      await discardBody(response);
+      response = await fetcher(next);
+      req = next;
+      hops++;
     }
-    const location = getLocationHeader(response.headers);
-    if (!location) break;
-
-    let nextUrl: string;
-    try {
-      nextUrl = new URL(location, req.url).toString();
-    } catch {
-      throw new RedirectPolicyError(`Invalid redirect Location header: ${location}`);
-    }
-
-    const nextValidation = validateURL(nextUrl, {
-      allowPrivateIPs: options.allowPrivateIPs === true,
-      allowLocalhost: options.allowLocalhost,
-    });
-    if (!nextValidation.valid) {
-      throw new RedirectPolicyError(
-        `Redirect blocked: ${nextValidation.error ?? 'invalid URL'} (private/internal target)`
-      );
-    }
-
-    const fromOrigin = new URL(req.url).origin;
-    const toOrigin = new URL(nextUrl).origin;
-    const headers = headersFromRequest(req);
-    if (fromOrigin !== toOrigin) {
-      for (const name of [...headers.keys()]) {
-        if (stripOnOriginChange(name)) headers.delete(name);
-      }
-    }
-    if (options.stripReferer) {
-      headers.delete('referer');
-    }
-
-    // 303 always rewrites to GET (universal HTTP semantics — POST/PUT result
-    // pointing to a GET-able resource). 301/302 historically downgrade
-    // non-HEAD to GET; followOriginalMethod opts into RFC-compliant
-    // preservation. 307/308 always preserve method.
-    const nextMethod =
-      response.status === 303
-        ? 'GET'
-        : (response.status === 301 || response.status === 302) &&
-            req.method !== 'HEAD' &&
-            !options.followOriginalMethod
-          ? 'GET'
-          : req.method;
-
-    // 307/308 preserve method; method-changing redirects drop the body.
-    const preservesBody = nextMethod === req.method;
-
-    const nextReq: FetcherRequest = {
-      ...req,
-      url: nextUrl,
-      method: nextMethod,
-      headers,
-      body: preservesBody ? req.body : undefined,
-    };
-
-    response = await fetcher(nextReq);
-    req = nextReq;
-    hops++;
+  } catch (error) {
+    await discardBody(response);
+    throw error;
   }
 
   return response;
+}
+
+/** Best-effort cancel of a response body the caller will never read. */
+export async function discardBody(response: FetcherResponse): Promise<void> {
+  try {
+    if (response.body) await response.body.cancel();
+  } catch {
+    // Best effort — the stream may already be closed.
+  }
+}
+
+/**
+ * The request for the hop `response` redirects to, or `undefined` when it has
+ * no `Location` (the 3xx is then the final response). Throws on policy violations.
+ */
+function nextHop(
+  req: FetcherRequest,
+  response: FetcherResponse,
+  hops: number,
+  maxHops: number,
+  stripOnOriginChange: (name: string) => boolean,
+  options: FollowRedirectsOptions
+): FetcherRequest | undefined {
+  if (hops >= maxHops) {
+    throw new RedirectPolicyError(`Too many redirects (>${maxHops})`);
+  }
+  const location = getLocationHeader(response.headers);
+  if (!location) return undefined;
+
+  let nextUrl: string;
+  try {
+    nextUrl = new URL(location, req.url).toString();
+  } catch {
+    throw new RedirectPolicyError(`Invalid redirect Location header: ${location}`);
+  }
+
+  const nextValidation = validateURL(nextUrl, {
+    allowPrivateIPs: options.allowPrivateIPs === true,
+    allowLocalhost: options.allowLocalhost,
+  });
+  if (!nextValidation.valid) {
+    throw new RedirectPolicyError(
+      `Redirect blocked: ${nextValidation.error ?? 'invalid URL'} (private/internal target)`
+    );
+  }
+
+  const fromOrigin = new URL(req.url).origin;
+  const toOrigin = new URL(nextUrl).origin;
+  const headers = headersFromRequest(req);
+  if (fromOrigin !== toOrigin) {
+    for (const name of [...headers.keys()]) {
+      if (stripOnOriginChange(name)) headers.delete(name);
+    }
+  }
+  if (options.stripReferer) {
+    headers.delete('referer');
+  }
+
+  // 303 always rewrites to GET (universal HTTP semantics — POST/PUT result
+  // pointing to a GET-able resource). 301/302 historically downgrade
+  // non-HEAD to GET; followOriginalMethod opts into RFC-compliant
+  // preservation. 307/308 always preserve method.
+  const nextMethod =
+    response.status === 303
+      ? 'GET'
+      : (response.status === 301 || response.status === 302) &&
+          req.method !== 'HEAD' &&
+          !options.followOriginalMethod
+        ? 'GET'
+        : req.method;
+
+  // 307/308 preserve method; method-changing redirects drop the body.
+  const preservesBody = nextMethod === req.method;
+
+  return {
+    ...req,
+    url: nextUrl,
+    method: nextMethod,
+    headers,
+    body: preservesBody ? req.body : undefined,
+  };
 }
