@@ -134,6 +134,28 @@ describe('importedSchemaToResult', () => {
     expect(validate(executable, parse('{ user(id: "1") { email } }'))[0]?.message).toMatch(/email/);
   });
 
+  it('exposes the introspection __schema shape and keeps it stable across calls', () => {
+    const rich = /* GraphQL */ `
+      scalar Date @specifiedBy(url: "https://example.com/date")
+      interface Node { id: ID! }
+      type User implements Node { id: ID! tags(first: Int = 3): [String!]! @deprecated(reason: "old") }
+      union Hit = User
+      enum Role { ADMIN @deprecated USER }
+      input Filter @oneOf { role: Role q: String }
+      directive @tag(name: String!) repeatable on FIELD_DEFINITION
+      type Query { node(f: Filter): Node hit: Hit when: Date }
+    `;
+    const imported = { sdl: rich, source: 'sdl' as const, importedAt: 1 };
+    const result = importedSchemaToResult(imported, 'https://api.example/graphql');
+    const expected = introspectionFromSchema(buildSchema(rich)).__schema;
+    // Every member of the introspection result is kept; the view only adds the
+    // `ofType: null` the flat explorer types declare for named types/refs.
+    expect(JSON.parse(JSON.stringify(result.schema))).toMatchObject(
+      JSON.parse(JSON.stringify(expected))
+    );
+    expect(importedSchemaToResult(imported, 'x').schema).toBe(result.schema);
+  });
+
   it('returns a failed result when the stored SDL no longer parses', () => {
     const result = importedSchemaToResult(
       { sdl: 'type Query {', source: 'sdl', importedAt: 1 },
