@@ -147,19 +147,45 @@ function createTokenFetch(dispatcher: Dispatcher | undefined): typeof globalThis
       ...(init?.signal ? { signal: init.signal } : {}),
       ...(dispatcher ? { dispatcher } : {}),
     });
-    const text = await response.body.text();
     const nullBodyStatus = [204, 205, 304].includes(response.statusCode);
     const responseHeaders = new Headers();
     for (const [name, value] of Object.entries(response.headers)) {
       if (value === undefined) continue;
       for (const item of Array.isArray(value) ? value : [value]) responseHeaders.append(name, item);
     }
-    return new Response(nullBodyStatus ? null : text, {
+    // Stream the body through so the shared reader's byte cap applies before
+    // anything is held in memory (a hostile endpoint cannot make us buffer it).
+    if (nullBodyStatus) {
+      await response.body.dump();
+      return new Response(null, { status: response.statusCode, headers: responseHeaders });
+    }
+    return new Response(toWebStream(response.body), {
       status: response.statusCode,
       headers: responseHeaders,
     });
   };
 }
+
+/**
+ * Wrap a Node readable as a web ReadableStream (global, so Response accepts it
+ * without a cast). Backpressure comes from pull(); cancel() ends the source.
+ */
+function toWebStream(body: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array> {
+  const iterator = body[Symbol.asyncIterator]();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await iterator.next();
+      if (next.done) controller.close();
+      else controller.enqueue(next.value);
+    },
+    async cancel() {
+      await iterator.return?.();
+    },
+  });
+}
+
+/** A token response is a small JSON document; anything larger is refused, not buffered. */
+const MAX_TOKEN_RESPONSE_BYTES = 256 * 1024;
 
 /** Cache key: the secret is hashed so a rotated secret never reuses the old token. */
 function tokenCacheKey(tokenUrl: string, clientId: string, scope = '', secret = ''): string {
@@ -226,6 +252,7 @@ export async function resolveOAuth2Token(
     },
     {
       fetch: refusingTokenRedirects(opts.fetch ?? createTokenFetch(undefined)),
+      maxResponseBytes: MAX_TOKEN_RESPONSE_BYTES,
       ...(opts.signal ? { signal: opts.signal } : {}),
     }
   );

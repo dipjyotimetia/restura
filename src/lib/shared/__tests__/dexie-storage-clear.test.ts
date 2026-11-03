@@ -44,7 +44,9 @@ describe('clearDexieStorage', () => {
     setKeyProvider(provider);
     try {
       await clearDexieStorage();
-      expect(resetCache).toHaveBeenCalledOnce();
+      // Once before the stores are wiped, once after: a write that lands
+      // mid-clear must not reuse the key being deleted.
+      expect(resetCache).toHaveBeenCalledTimes(2);
     } finally {
       __resetKeyProviderForTests();
     }

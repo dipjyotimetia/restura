@@ -127,9 +127,14 @@ export function encodeRequest(
   headers: Record<string, string>,
   bodyBytes?: Uint8Array
 ): Uint8Array {
-  let raw = `${method} ${target} HTTP/1.1\r\nHost: ${authority}\r\n`;
+  // Each tunnel carries exactly one request. `Connection: close` makes the
+  // upstream end the connection after the response, which is what the
+  // no-Content-Length read path (read to EOF) relies on; without it a
+  // keep-alive server never closes and the request waits for the timeout.
+  let raw = `${method} ${target} HTTP/1.1\r\nHost: ${authority}\r\nConnection: close\r\n`;
   for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase() !== 'host') raw += `${k}: ${v}\r\n`;
+    const name = k.toLowerCase();
+    if (name !== 'host' && name !== 'connection') raw += `${k}: ${v}\r\n`;
   }
   raw += '\r\n';
   const head = ENCODER.encode(raw);
@@ -151,6 +156,10 @@ export function toResponse(
   body: Uint8Array
 ): Response {
   const status = parseStatusCode(statusLine);
+  // Fetch's null-body statuses (Response() throws on a body for these). This
+  // differs from isBodylessStatus on purpose: that one is the HTTP message
+  // rule (1xx/204/304 carry no body on the wire), this one is what Response
+  // accepts (205 included, 1xx cannot be constructed at all).
   const nullBody = status === 101 || status === 204 || status === 205 || status === 304;
   return new Response(nullBody ? null : body, { status, headers: headerList });
 }

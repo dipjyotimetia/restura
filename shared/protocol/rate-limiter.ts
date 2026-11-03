@@ -63,9 +63,10 @@ function resolveClientIp(c: Context): string {
   return `noip:${crypto.randomUUID()}`;
 }
 
-// Fast sync hash for the no-IP fingerprint path. Collision risk is
-// acceptable because the bucket key also includes the (separately hashed)
-// token fingerprint — a djb2 collision alone can't merge two distinct buckets.
+// Fast sync hash for the no-IP fingerprint path. Only reached when no client
+// address exists at all (self-host pins the socket peer; Cloudflare sets
+// CF-Connecting-IP), so a djb2 collision merges two address-less clients into
+// one bucket in the worst case — never into a client that has an address.
 function djb2Hash(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i);
@@ -87,8 +88,9 @@ export function createBindingRateLimiter(
     const result = await binding.limit({ key });
     if (!result.success) {
       if (opts.shadow) {
-        // Single-line JSON for `wrangler tail` correlation. No bucket key
-        // because it includes a (hashed) token fingerprint we'd rather not log.
+        // Single-line JSON for `wrangler tail` correlation. No bucket key:
+        // it carries the client address and the Access subject, which stay
+        // out of logs.
         console.log(JSON.stringify({ kind: 'ratelimit.shadow-deny', ts: Date.now() }));
         return next();
       }

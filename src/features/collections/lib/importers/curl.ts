@@ -130,14 +130,17 @@ export function parseCurlCommand(source: string): {
         break;
       }
       case '-F':
-      case '--form': {
+      case '--form':
+      case '--form-string': {
         const value = take(i, token);
         const equal = value.indexOf('=');
         const key = equal === -1 ? value : value.slice(0, equal);
         const formValue = equal === -1 ? '' : value.slice(equal + 1);
-        const filePath = formValue.startsWith('@')
-          ? formValue.slice(1).split(';', 1)[0]!
-          : undefined;
+        // --form-string is literal: a leading '@' or '<' is data, never a file.
+        const filePath =
+          token !== '--form-string' && formValue.startsWith('@')
+            ? formValue.slice(1).split(';', 1)[0]!
+            : undefined;
         if (filePath) warnings.push({ kind: 'unresolved-file', option: token, path: filePath });
         formData.push({
           id: uuid(),

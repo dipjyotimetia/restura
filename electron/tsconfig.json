@@ -14,7 +14,6 @@
     "rootDir": "..",
     "moduleResolution": "nodenext",
     "declaration": false,
-    "declarationMap": false,
     "sourceMap": true,
     "types": ["node", "vitest/globals"],
     "paths": {

@@ -444,10 +444,9 @@ function GrpcRequestBuilder() {
       let { response, scriptResult } = await runOnce();
       let grpcResponse = response as GrpcResponse;
 
-      // Retry on non-OK status if retry policy configured. We bypass the
-      // runner's history hook on retry attempts by re-running the full
-      // pipeline — addHistoryItem dedups on (request,response) timestamp
-      // so each attempt shows up. Mirrors the previous inline behavior.
+      // Retry on non-OK status if retry policy configured. Each attempt
+      // re-runs the full pipeline, so every attempt gets its own history
+      // entry (ids are uuids). Mirrors the previous inline behavior.
       for (
         let attempt = 2;
         attempt <= retryMaxAttempts && grpcResponse.grpcStatus !== 0;

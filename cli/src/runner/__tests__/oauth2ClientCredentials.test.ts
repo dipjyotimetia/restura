@@ -18,6 +18,22 @@ const seenAuth: string[] = [];
 beforeAll(async () => {
   server = createServer((req: IncomingMessage, res: ServerResponse) => {
     if (req.url === '/token-hang') return; // accept, never answer
+    if (req.url === '/token-huge') {
+      // Stream well past the token-response cap without a Content-Length.
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      const chunk = Buffer.alloc(64 * 1024, 'x');
+      let sent = 0;
+      const push = () => {
+        while (sent < 4 * 1024 * 1024) {
+          sent += chunk.length;
+          if (!res.write(chunk)) return res.once('drain', push);
+        }
+        res.end();
+      };
+      push();
+      return;
+    }
     if ((req.url ?? '').startsWith('/token')) {
       tokenFetches++;
       let body = '';
@@ -124,6 +140,17 @@ describe('OAuth2 client_credentials token fetch honours the run options', () => 
     expect(Date.now() - started).toBeLessThan(3000);
     expect(result.requests[0]?.passed).toBe(false);
     expect(result.requests[0]?.errorMessage).toMatch(/abort|timeout/i);
+    expect(seenAuth).toEqual([]);
+  });
+
+  it('an oversized token response is refused instead of buffered', async () => {
+    const result = await runCollection(
+      makeCollection(1, 'huge', '/token-huge'),
+      RUN_OPTS,
+      new NoopReporter()
+    );
+    expect(result.requests[0]?.passed).toBe(false);
+    expect(result.requests[0]?.errorMessage).toMatch(/size limit/i);
     expect(seenAuth).toEqual([]);
   });
 

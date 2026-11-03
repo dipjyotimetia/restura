@@ -93,16 +93,22 @@ function createSseHopFetcher(
   policyConfig: PolicyTransportConfig,
   pinned: SafeAddress
 ): Fetcher {
-  const origin = new URL(policyConfig.url).origin;
+  // One pinned fetch (one undici Agent) per origin: same-origin hops and
+  // every request of the stream reuse it instead of allocating a pool per hop.
+  const byOrigin = new Map<string, Fetcher>();
+  const fetcherFor = (policy: PolicyTransportConfig, address: SafeAddress): Fetcher =>
+    makeFetchFetcher({ redirect: 'manual', fetchImpl: createPolicyPinnedFetch(policy, address) });
+  byOrigin.set(new URL(policyConfig.url).origin, fetcherFor(policyConfig, pinned));
   return async (req) => {
-    let hopPolicy = policyConfig;
-    let hopAddress = pinned;
-    if (new URL(req.url).origin !== origin) {
-      hopPolicy = resolveSseExecutionPolicy({ ...config, url: req.url });
-      hopAddress = await resolveSafeAddress(req.url, { ...getExecutionPolicy().security });
+    const origin = new URL(req.url).origin;
+    let fetcher = byOrigin.get(origin);
+    if (!fetcher) {
+      const hopPolicy = resolveSseExecutionPolicy({ ...config, url: req.url });
+      const hopAddress = await resolveSafeAddress(req.url, { ...getExecutionPolicy().security });
+      fetcher = fetcherFor(hopPolicy, hopAddress);
+      byOrigin.set(origin, fetcher);
     }
-    const fetchImpl = createPolicyPinnedFetch(hopPolicy, hopAddress);
-    return makeFetchFetcher({ redirect: 'manual', fetchImpl })(req);
+    return fetcher(req);
   };
 }
 

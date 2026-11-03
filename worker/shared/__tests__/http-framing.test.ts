@@ -88,12 +88,22 @@ describe('http-framing', () => {
         new TextEncoder().encode('body')
       )
     );
-    expect(wire).toBe('POST /p?q=1 HTTP/1.1\r\nHost: target.example:8443\r\nX-A: 1\r\n\r\nbody');
+    expect(wire).toBe(
+      'POST /p?q=1 HTTP/1.1\r\nHost: target.example:8443\r\nConnection: close\r\nX-A: 1\r\n\r\nbody'
+    );
     expect(wire.match(/^host:/gim)).toHaveLength(1);
   });
 
+  it('encodeRequest always asks the upstream to close after the single response', () => {
+    const text = new TextDecoder().decode(
+      encodeRequest('GET', '/', 'h.example', { Connection: 'keep-alive', 'X-A': '1' })
+    );
+    const lines = text.split('\r\n').filter((l) => /^connection:/i.test(l));
+    expect(lines).toEqual(['Connection: close']);
+  });
+
   it('encodeRequest emits only the head for an absent or empty body', () => {
-    const head = 'GET http://t.example/ HTTP/1.1\r\nHost: t.example\r\n\r\n';
+    const head = 'GET http://t.example/ HTTP/1.1\r\nHost: t.example\r\nConnection: close\r\n\r\n';
     expect(text(encodeRequest('GET', 'http://t.example/', 't.example', {}))).toBe(head);
     expect(text(encodeRequest('GET', 'http://t.example/', 't.example', {}, new Uint8Array()))).toBe(
       head

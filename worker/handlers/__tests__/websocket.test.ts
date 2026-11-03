@@ -3,7 +3,8 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../env';
-import { closeReason, relayCloseCode, websocketHandler } from '../websocket';
+import { closeReason, relayCloseCode } from '../../shared/ws-relay';
+import { websocketHandler } from '../websocket';
 import { wsTicket } from '../ws-ticket';
 
 const BYTES = (s: string) => new TextEncoder().encode(s).byteLength;

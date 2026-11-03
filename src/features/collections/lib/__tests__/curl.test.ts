@@ -302,6 +302,21 @@ describe('importCurlCommand', () => {
   });
 });
 
+describe('importCurlCommand --form-string', () => {
+  it('imports --form-string fields literally, never as files', () => {
+    const result = importCurlCommand(
+      "curl https://api.example.com/upload --form-string 'note=@not-a-file' --form-string 'empty='"
+    );
+    const request = result.collection.items[0]!.request as HttpRequest;
+    expect(request.body.type).toBe('form-data');
+    expect(request.body.formData?.map((f) => [f.key, f.value, f.type])).toEqual([
+      ['note', '@not-a-file', 'text'],
+      ['empty', '', 'text'],
+    ]);
+    expect(result.warnings).toEqual([]);
+  });
+});
+
 describe('parseCurlCommand', () => {
   it('reports only the settings the command\u2019s flags set', () => {
     expect(parseCurlCommand("curl 'https://x.dev'").explicitSettings).toEqual({});

@@ -427,8 +427,10 @@ export async function checkDexieStorageHealth(): Promise<{
  */
 export async function clearDexieStorage(): Promise<void> {
   await db.clearAllData();
-  cachedEncryptionKey = null;
-  encryptionKeyLoading = null;
+  // Drop both key caches before the stores are wiped and again after: a
+  // persist write that lands while store.clear() is in flight must not be
+  // encrypted with the key that is being deleted.
+  resetEncryptionKeyCaches();
   if (isElectron()) {
     const api = getElectronAPI();
     if (api) {
@@ -442,8 +444,13 @@ export async function clearDexieStorage(): Promise<void> {
       ]);
     }
   }
-  // The provider still caches the key store.clear() just deleted; drop it so
-  // writes before the reload re-read (or regenerate) the stored key.
+  resetEncryptionKeyCaches();
+}
+
+/** Forget the Dexie-level key and the provider's; the next write re-reads it. */
+function resetEncryptionKeyCaches(): void {
+  cachedEncryptionKey = null;
+  encryptionKeyLoading = null;
   resetKeyProviderCache();
 }
 

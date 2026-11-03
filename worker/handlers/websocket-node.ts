@@ -30,7 +30,7 @@ import WebSocket from 'ws';
 import type { Env } from '../env';
 import { assertNodeHostnameSafe, type NodeDnsGuardOptions } from '../shared/dns-guard-node';
 import { isLocalDevBypass, allowPrivateIPs as readAllowPrivateIPs } from '../shared/env';
-import { closeReason, errorText, relayCloseCode } from './websocket';
+import { closeReason, errorText, relayCloseCode } from '../shared/ws-relay';
 import { consumeTicket } from './ws-ticket';
 
 const MAX_FRAME_BYTES = 1 * 1024 * 1024;

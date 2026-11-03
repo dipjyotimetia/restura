@@ -11,7 +11,7 @@
     "noEmit": false,
     "declaration": false,
     "verbatimModuleSyntax": true,
-    "isolatedModules": true,
+    "erasableSyntaxOnly": true,
     "paths": {
       "@shared/*": ["../shared/*"]
     }
