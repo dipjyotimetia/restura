@@ -165,12 +165,16 @@ export function KafkaProducerPanel({
     if (!Array.isArray(parsed)) throw new Error('Batch JSON must be an array of typed records.');
     return parsed as KafkaRecordIpc[];
   };
-  const run = async (operation: () => Promise<{ success: boolean; error?: string }>) => {
+  const run = async (
+    operation: () => Promise<{ success: boolean; error?: string; message?: string }>
+  ) => {
     setSessionBusy(true);
     try {
       const result = await operation();
       setSessionMessage(
-        result.success ? 'Operation completed.' : (result.error ?? 'Operation failed.')
+        result.success
+          ? (result.message ?? 'Operation completed.')
+          : (result.error ?? 'Operation failed.')
       );
       return result.success;
     } catch (error) {
@@ -426,11 +430,9 @@ export function KafkaProducerPanel({
                 disabled={!api || transactionActive || sessionBusy}
                 onClick={async () => {
                   if (streamOpen) {
-                    if (
-                      await run(() => api!.closeProducerStream({ connectionId: connection.id }))
-                    ) {
-                      setStreamOpen(false);
-                    }
+                    // Main drops the stream on close even when its final flush fails.
+                    await run(() => api!.closeProducerStream({ connectionId: connection.id }));
+                    setStreamOpen(false);
                   } else if (
                     await run(() =>
                       api!.openProducerStream({
@@ -454,14 +456,25 @@ export function KafkaProducerPanel({
                 disabled={!api || !streamOpen || sessionBusy}
                 onClick={() =>
                   void run(async () => {
-                    for (const record of parseRecords()) {
+                    const records = parseRecords();
+                    let buffered = 0;
+                    for (const record of records) {
                       const result = await api!.writeProducerStream({
                         connectionId: connection.id,
                         record,
                       });
                       if (!result.success) return result;
+                      // accepted=false: queued past the stream's high-water mark, not yet sent.
+                      if (result.accepted === false) buffered += 1;
                     }
-                    return { success: true };
+                    const total = `${records.length} record${records.length === 1 ? '' : 's'}`;
+                    return {
+                      success: true,
+                      message:
+                        buffered > 0
+                          ? `Backpressure: ${buffered} of ${total} queued; they send as the stream drains.`
+                          : `${total} written to the stream.`,
+                    };
                   })
                 }
               >
