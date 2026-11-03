@@ -369,7 +369,11 @@ function markExplicitNoAuth<T extends object>(
     requestName: name,
     detail: `${format} "No Auth" cannot override the auth of "${authSource}" in Restura; it will not be sent until its auth is configured`,
   });
-  return attachPostmanSidecar(node, { noauth: true });
+  const origin = format.toLowerCase();
+  return attachPostmanSidecar(node, {
+    noauth: true,
+    ...(origin === 'hoppscotch' || origin === 'bruno' ? { noauthOrigin: origin } : {}),
+  });
 }
 
 /**

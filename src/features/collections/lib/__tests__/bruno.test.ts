@@ -978,7 +978,9 @@ get {
     for (const name of ['Explicit none', 'Under none folder']) {
       const id = idOf(collection.items, name);
       expect(id).not.toBe('');
-      expect(postmanBlockedReasonFor(collection, id, 'test')).toMatch(/not sent/);
+      const reason = postmanBlockedReasonFor(collection, id, 'test');
+      expect(reason).toMatch(/^not sent: Bruno auth is "No Auth"/);
+      expect(reason).not.toContain('Postman');
     }
     expect(
       postmanBlockedReasonFor(collection, idOf(collection.items, 'Inheriting'), 'test')

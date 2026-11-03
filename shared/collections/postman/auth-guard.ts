@@ -51,13 +51,34 @@ export interface PostmanAuthGuard {
   /** The nearest auth-bearing container is an unsupported Postman auth. */
   unsupported?: { type: string; owner: string };
   /** The nearest auth-bearing container is an explicit Postman `noauth`. */
-  noauth?: { owner: string };
+  noauth?: { owner: string; origin?: NoauthOrigin };
   /** The nearest container with a configured auth (what Restura would substitute). */
   configured?: { owner: string };
 }
 
 function hasNoauthMarker(node: object): boolean {
   return getPostmanSidecar(node)?.noauth === true;
+}
+
+type NoauthOrigin = NonNullable<PostmanSidecar['noauthOrigin']>;
+
+/** `{ origin }` when a non-Postman importer set the explicit-noauth marker. */
+function noauthOriginOf(node: object): { origin?: NoauthOrigin } {
+  const origin = getPostmanSidecar(node)?.noauthOrigin;
+  return origin ? { origin } : {};
+}
+
+const ORIGIN_LABEL: Record<NoauthOrigin, string> = { hoppscotch: 'Hoppscotch', bruno: 'Bruno' };
+
+/** Tool label + bare type for an unsupported type; importers namespace theirs (`bruno:x`). */
+function sourceOfType(type: string): { label: string; type: string } {
+  for (const origin of Object.keys(ORIGIN_LABEL) as NoauthOrigin[]) {
+    const prefix = `${origin}:`;
+    if (type.startsWith(prefix) && type.length > prefix.length) {
+      return { label: ORIGIN_LABEL[origin], type: type.slice(prefix.length) };
+    }
+  }
+  return { label: 'Postman', type };
 }
 
 /** The guard a container (collection / folder) hands its children. */
@@ -71,14 +92,15 @@ export function nextPostmanAuthGuard(
   if (type) return { unsupported: { type, owner: name }, ...configured };
   if (isConfiguredAuth((node as { auth?: AuthConfig }).auth))
     return { configured: { owner: name } };
-  if (hasNoauthMarker(node)) return { noauth: { owner: name }, ...configured };
+  if (hasNoauthMarker(node))
+    return { noauth: { owner: name, ...noauthOriginOf(node) }, ...configured };
   return guard;
 }
 
 /** Why a request must not be sent, as a machine-readable cause. */
 export type PostmanAuthBlock =
   | { kind: 'unsupported'; type: string; owner?: string }
-  | { kind: 'noauth'; source: string; owner?: string };
+  | { kind: 'noauth'; source: string; owner?: string; origin?: NoauthOrigin };
 
 /**
  * Why `item` must not be sent, or `undefined`. `ownAuth` overrides the
@@ -98,9 +120,12 @@ export function postmanAuthBlock(
     return { kind: 'unsupported', type: guard.unsupported.type, owner: guard.unsupported.owner };
   }
   if (!guard.configured) return undefined;
-  if (hasNoauthMarker(item)) return { kind: 'noauth', source: guard.configured.owner };
+  if (hasNoauthMarker(item)) {
+    return { kind: 'noauth', source: guard.configured.owner, ...noauthOriginOf(item) };
+  }
   if (guard.noauth) {
-    return { kind: 'noauth', source: guard.configured.owner, owner: guard.noauth.owner };
+    const { owner, origin } = guard.noauth;
+    return { kind: 'noauth', source: guard.configured.owner, owner, ...(origin ? { origin } : {}) };
   }
   return undefined;
 }
@@ -109,14 +134,16 @@ export function postmanAuthBlock(
 export function describePostmanAuthBlock(block: PostmanAuthBlock, sender: string): string {
   const from = block.owner ? ` (inherited from "${block.owner}")` : '';
   if (block.kind === 'unsupported') {
+    const { label, type } = sourceOfType(block.type);
     return (
-      `not sent: Postman auth type "${block.type}"${from} is not supported by Restura (imported as no auth); ` +
+      `not sent: ${label} auth type "${type}"${from} is not supported by Restura (imported as no auth); ` +
       `${sender} will not send it unauthenticated. Configure a supported auth or exclude the request.`
     );
   }
+  const label = block.origin ? ORIGIN_LABEL[block.origin] : 'Postman';
   return (
-    `not sent: Postman auth is "No Auth"${from}, but Restura would substitute the auth of "${block.source}"; ` +
-    `${sender} will not send a credential Postman would not send. Configure this request's auth or exclude the request.`
+    `not sent: ${label} auth is "No Auth"${from}, but Restura would substitute the auth of "${block.source}"; ` +
+    `${sender} will not send a credential ${label} would not send. Configure this request's auth or exclude the request.`
   );
 }
 
@@ -177,7 +204,12 @@ export function postmanGuardMarkers(node: object): PostmanSidecar | undefined {
   );
   const markers: PostmanSidecar = {
     ...(unsupported ? { auth: { type: unsupported } } : {}),
-    ...(sidecar.noauth === true && !configured ? { noauth: true as const } : {}),
+    ...(sidecar.noauth === true && !configured
+      ? {
+          noauth: true as const,
+          ...(sidecar.noauthOrigin ? { noauthOrigin: sidecar.noauthOrigin } : {}),
+        }
+      : {}),
   };
   return Object.keys(markers).length > 0 ? markers : undefined;
 }
