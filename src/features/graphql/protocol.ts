@@ -24,7 +24,9 @@ import {
   normalizeGraphQLResponse,
 } from '@/features/graphql/lib/graphqlHttp';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
+import { reportTransportError } from '@/features/http/lib/transportOutcome';
 import type { ProtocolModule } from '@/features/registry/types';
+import { readPmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { withoutSecretNames } from '@/lib/shared/resolveRequestScope';
@@ -165,6 +167,9 @@ export const graphqlProtocol: ProtocolModule = {
     const globalSettings = useSettingsStore.getState().settings;
     const variables = ctx.variables ?? {};
     const executable = toExecutable(request as HttpRequest);
+    // Collection-run context (`pm.collectionVariables`, `pm.iterationData`,
+    // `pm.info`, `pm.execution.location`, `skipRequest`), as the HTTP module does.
+    const opts = readPmRunContextOptions(ctx.protocolOptions);
     const onMessage = ctx.stream?.onMessage;
     const progress = onMessage ? createIncrementalProgress(onMessage) : undefined;
     let result: Awaited<ReturnType<typeof executeRequest>>;
@@ -180,6 +185,11 @@ export const graphqlProtocol: ProtocolModule = {
           defaultResolveVariables(text, withoutSecretNames(variables, ctx.secretNames ?? [])),
         ...(ctx.secretVariables ? { secretVariables: ctx.secretVariables } : {}),
         ...(ctx.secretNames ? { secretNames: ctx.secretNames } : {}),
+        ...(opts.collectionVars ? { collectionVars: opts.collectionVars } : {}),
+        ...(opts.iterationData ? { iterationData: opts.iterationData } : {}),
+        ...(opts.info ? { info: opts.info } : {}),
+        ...(opts.location ? { location: opts.location } : {}),
+        ...(opts.honorSkipRequest ? { honorSkipRequest: true } : {}),
         // `multipart/mixed` incremental (@defer / @stream) responses are folded
         // into one result before test scripts and history see them; a live
         // caller additionally gets (coalesced) merged snapshots as parts arrive.
@@ -193,6 +203,7 @@ export const graphqlProtocol: ProtocolModule = {
     if (ctx.onScriptResult && result.scriptResult) {
       ctx.onScriptResult(result.scriptResult);
     }
+    reportTransportError(result, ctx);
     // The Builder maps error locations against the substituted query text.
     // A GraphQL GET carries the query in the URL, not the body: report it in
     // the same `{ query }` envelope shape so location mapping works for both.

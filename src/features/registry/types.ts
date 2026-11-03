@@ -46,6 +46,13 @@ export interface RunContext {
    */
   onAuthRefreshed?: (auth: AuthConfig) => void;
   /**
+   * Optional sink for a transport-level failure (DNS, connect, TLS, proxy
+   * refusal): the protocol still resolves with a status-0 placeholder so the
+   * test script can run, but a Collection run must never score it a pass,
+   * whatever the scripts asserted (CLI parity: `settleVerdict.transportError`).
+   */
+  onTransportError?: (message: string) => void;
+  /**
    * Per-protocol options that don't fit on the `Request` shape itself —
    * e.g. gRPC's transient proto content, or future cert overrides. Each
    * protocol defines its own keys; cross-protocol callers ignore unknown

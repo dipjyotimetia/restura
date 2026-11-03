@@ -143,15 +143,19 @@ export async function executeSse(
     }
   } catch (err) {
     // AbortError from our duration timer is expected — not a failure.
+    // Only once the stream opened: an abort before any response headers means
+    // the server never answered, which is a failure, not an empty 200 stream.
     if (!(err instanceof Error && err.name === 'AbortError')) {
       errorMessage = err instanceof Error ? err.message : String(err);
+    } else if (status === 0) {
+      errorMessage = `SSE upstream sent no response within ${durationMs}ms`;
     }
   } finally {
     clearTimeout(timer);
   }
 
   const outcome: ExecuteOutcome = {
-    status: status || 200,
+    status,
     passed: errorMessage === undefined,
     durationMs: Date.now() - start,
     bodyBytes,

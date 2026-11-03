@@ -82,6 +82,22 @@ interface CachedToken {
 const oauth2TokenCache = new Map<string, CachedToken>();
 
 /**
+ * The token request carries the client secret, and `validateURL` checked only
+ * the URL as written: following a redirect would POST that secret to a host
+ * the SSRF guard never saw (e.g. `307 → http://169.254.169.254/`). A token
+ * endpoint has no reason to redirect, so a 3xx is refused.
+ */
+const noRedirectFetch: typeof globalThis.fetch = async (input, init) => {
+  const response = await globalThis.fetch(input, { ...init, redirect: 'manual' });
+  if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+    throw new Error(
+      `OAuth2 token endpoint answered with a redirect (${response.status}); refusing to follow it with the client credentials.`
+    );
+  }
+  return response;
+};
+
+/**
  * For an OAuth2 auth that has a token endpoint + client id but no access token,
  * fetch one via the **client_credentials** grant — the only non-interactive
  * grant appropriate for CI — and return a copy of the auth carrying the token.
@@ -137,7 +153,7 @@ export async function resolveOAuth2Token(
       ...(scope !== undefined ? { scope } : {}),
     },
     {
-      ...(opts.fetch ? { fetch: opts.fetch } : {}),
+      fetch: opts.fetch ?? noRedirectFetch,
       ...(opts.signal ? { signal: opts.signal } : {}),
     }
   );

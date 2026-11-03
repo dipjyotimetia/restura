@@ -185,7 +185,7 @@ Collection, folder and request scripts of one phase run in order, each in its ow
 Layered sources, in order of precedence (later wins):
 
 1. `--globals` file, then the `--env` file
-2. Collection variables (declared in `opencollection.yml` or `_collection.yaml`, or the Postman collection's variables)
+2. Collection variables (declared in `opencollection.yml` or `_collection.yaml`, or the Postman collection's variables). A `pm.collectionVariables.set` in a script updates this layer for later requests in the run, as in Newman and the app (the file on disk is not changed). A secret collection variable has no value in the file: supply it with `--env`, `--env-var` or a `--data` row, or set it from an earlier script. A request that is about to be sent while it still has no value is reported as not sent and fails; the rest of the run carries on.
 3. Folder variables of the folders above the request, outer → inner
 4. `--env-var` values
 5. Values a script set in an earlier iteration

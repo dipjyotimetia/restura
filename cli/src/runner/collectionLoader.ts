@@ -17,7 +17,14 @@ import {
 } from '@shared/opencollection/node/fs-reader';
 import { ocToInternal } from '@shared/opencollection/to-internal';
 import { resolveMcpEffectiveAuth } from '@shared/protocol/mcp-auth';
-import type { Collection, GrpcRequest, HttpRequest, McpRequest, SseRequest } from '@shared/types';
+import type {
+  AuthConfig,
+  Collection,
+  GrpcRequest,
+  HttpRequest,
+  McpRequest,
+  SseRequest,
+} from '@shared/types';
 import * as yaml from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -70,6 +77,11 @@ export interface LoadedCollection {
     description?: string;
     variables?: Array<{ key: string; value: string; enabled?: boolean }>;
     privateVariableNames?: string[];
+    /**
+     * Secret collection variables (value-less in the file): a request that is
+     * sent with no value for one fails, the rest of the run carries on.
+     */
+    secretVariableNames?: string[];
   };
   requests: LoadedRequest[];
   /** Format detected at load time — used for deprecation warnings and reporters. */
@@ -185,19 +197,39 @@ async function loadOpenCollectionDir(dir: string): Promise<LoadedCollection> {
   };
 }
 
+/**
+ * Collection variables as the run's values. A secret, private or handle-backed
+ * variable carries no usable value in a file (`secret: true` exports
+ * value-less), so it is never folded in as an empty string — that would sit
+ * above `--env` and go out silently. Its name is returned instead: the runner
+ * fails a request that still has no value for it when that request is sent
+ * (`--env`, a `--data` row or an earlier script can supply one). It is not a
+ * private name, which would refuse the whole run before a script could set it.
+ */
+function splitCollectionVariables(
+  vars: ReadonlyArray<{ key: string; value: string; enabled?: boolean }> | undefined
+): { variables: Array<{ key: string; value: string; enabled?: boolean }>; secretNames: string[] } {
+  const variables: Array<{ key: string; value: string; enabled?: boolean }> = [];
+  const secretNames: string[] = [];
+  for (const v of vars ?? []) {
+    const flags = v as { secret?: unknown; private?: unknown; secretRef?: unknown };
+    if (flags.secret === true || flags.private === true || flags.secretRef !== undefined) {
+      if (v.key) secretNames.push(v.key);
+      continue;
+    }
+    const item: { key: string; value: string; enabled?: boolean } = { key: v.key, value: v.value };
+    if (v.enabled !== undefined) item.enabled = v.enabled;
+    variables.push(item);
+  }
+  return { variables, secretNames };
+}
+
 function extractMeta(c: Collection): LoadedCollection['meta'] {
   const out: LoadedCollection['meta'] = { name: c.name };
   if (c.description) out.description = c.description;
-  if (c.variables && c.variables.length > 0) {
-    out.variables = c.variables.map((v) => {
-      const item: { key: string; value: string; enabled?: boolean } = {
-        key: v.key,
-        value: v.value,
-      };
-      if (v.enabled !== undefined) item.enabled = v.enabled;
-      return item;
-    });
-  }
+  const split = splitCollectionVariables(c.variables);
+  if (split.variables.length > 0) out.variables = split.variables;
+  if (split.secretNames.length > 0) out.secretVariableNames = split.secretNames;
   const privateVariables = (c as Collection & { _oc?: { extensions?: Record<string, unknown> } })
     ._oc?.extensions?.['x-restura-private-variables'];
   if (Array.isArray(privateVariables)) {
@@ -391,18 +423,27 @@ async function loadLegacyFileCollection(directoryPath: string): Promise<LoadedCo
   // Stable ordering — readdir order is filesystem-dependent.
   requests.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 
+  // `_collection.yaml` auth is the collection-level auth: a request whose own
+  // auth is `none` inherits it, as in the app and the OpenCollection path.
+  const metaAuth = meta.auth as AuthConfig | undefined;
+  if (isConfiguredAuth(metaAuth)) {
+    const collectionAuth = metaAuth;
+    for (const r of requests) {
+      const req = r.request as { auth?: AuthConfig };
+      const own = req.auth ?? { type: 'none' };
+      // MCP skips an inherited scheme it can't carry (shared policy, #896).
+      req.auth =
+        r.type === 'mcp'
+          ? (resolveMcpEffectiveAuth(own, collectionAuth).auth ?? own)
+          : resolveEffectiveAuth(own, collectionAuth);
+    }
+  }
+
   const outMeta: LoadedCollection['meta'] = { name: meta.name };
   if (meta.description !== undefined) outMeta.description = meta.description;
-  if (meta.variables) {
-    outMeta.variables = meta.variables.map((v) => {
-      const item: { key: string; value: string; enabled?: boolean } = {
-        key: v.key,
-        value: v.value,
-      };
-      if (v.enabled !== undefined) item.enabled = v.enabled;
-      return item;
-    });
-  }
+  const split = splitCollectionVariables(meta.variables);
+  if (split.variables.length > 0) outMeta.variables = split.variables;
+  if (split.secretNames.length > 0) outMeta.secretVariableNames = split.secretNames;
 
   return { meta: outMeta, requests, format: 'legacy-dir' };
 }

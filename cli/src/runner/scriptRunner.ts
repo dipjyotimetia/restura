@@ -14,8 +14,17 @@ export interface RunScriptResult {
   logs: ScriptResult['logs'];
   /** Errors captured from the QuickJS evaluator (uncaught throws). */
   errors: string[];
-  /** Final variable map after any `pm.environment.set` / `pm.variables.set` calls. */
+  /**
+   * The variable map for the rest of THIS request: the script's map layered
+   * over the one it started with, so a key it `unset` keeps its value here, as
+   * in the app (`runScriptPhase` absorbs with `Object.assign`).
+   */
   variables: Record<string, string>;
+  /**
+   * The executor's map as the script left it (an `unset` key is absent). Fold
+   * this into the run scope, so later requests see the unset.
+   */
+  scriptVariables: Record<string, string>;
   /** `pm.execution` flow-control sentinel (setNextRequest), when the script set it. */
   execution?: ScriptResult['execution'];
   /** `pm.collectionVariables.set/unset` mutations, when the script touched them. */
@@ -185,13 +194,16 @@ function toRunScriptResult(
   result: ScriptResult,
   originalVars: Record<string, string>
 ): RunScriptResult {
-  // The executor returns only the variables it touched; layer them over the
-  // originals so callers get the full, merge-ready map (script changes win).
+  // The executor returns the full map as the script left it (an `unset` key is
+  // absent). This request keeps the merged map (app parity); the run scope
+  // gets the raw one so the unset reaches later requests.
+  const scriptVariables = result.variables ? { ...result.variables } : { ...originalVars };
   return {
     assertions: result.tests ?? [],
     logs: result.logs,
     errors: result.errors,
-    variables: { ...originalVars, ...result.variables },
+    variables: { ...originalVars, ...scriptVariables },
+    scriptVariables,
     ...(result.execution ? { execution: result.execution } : {}),
     ...(result.collectionMutations ? { collectionMutations: result.collectionMutations } : {}),
     ...(result.requestMetadata ? { requestMetadata: result.requestMetadata } : {}),

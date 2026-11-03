@@ -16,10 +16,11 @@
  *
  * A script write this iteration therefore beats the data row, and a write from
  * an earlier iteration sits below the next row. The two hosts differ on where
- * those earlier writes sit relative to folder and collection variables, and on
- * whether a `pm.collectionVariables` write is substituted into `{{var}}`. Both
- * are named in {@link RunScopePolicy}; the exported policies state which host
- * has which.
+ * those earlier writes sit relative to folder and collection variables (both
+ * now substitute a `pm.collectionVariables` write into later `{{var}}`s, as
+ * Newman does; `collectionWritesSubstitute` stays a policy knob). The
+ * differences are named in {@link RunScopePolicy}; the exported policies state
+ * which host has which.
  */
 import { applyVarMutations } from '../collections/variable-mutations';
 
@@ -56,7 +57,9 @@ export const APP_SCOPE_POLICY: RunScopePolicy = {
 /** The CLI's Collection run. */
 export const CLI_SCOPE_POLICY: RunScopePolicy = {
   carriedWrites: 'above-folder',
-  collectionWritesSubstitute: false,
+  // Newman and the app both substitute a `pm.collectionVariables.set` into the
+  // `{{var}}`s of later requests (the login → token chaining pattern).
+  collectionWritesSubstitute: true,
   retainWrites: true,
 };
 
@@ -180,6 +183,15 @@ export class IterationScope {
         if (value === phase.before[key]) continue;
         this.writes[key] = value;
         if (this.layers.policy.retainWrites) this.layers.retained[key] = value;
+      }
+      // `pm.variables.unset(key)`: the phase ended without a key it started
+      // with. Drop the run's own write of it, so the value from its scope
+      // (environment, collection, folder, row) shows again.
+      for (const key of Object.keys(phase.before)) {
+        if (Object.hasOwn(phase.after, key)) continue;
+        delete this.writes[key];
+        delete this.layers.retained[key];
+        delete this.layers.carried[key];
       }
       if (phase.collectionMutations) Object.assign(collectionMutations, phase.collectionMutations);
       if (phase.globalsMutations && this.layers.globals) {

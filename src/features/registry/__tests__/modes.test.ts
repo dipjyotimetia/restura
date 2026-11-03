@@ -49,6 +49,7 @@ describe('MODE_DESCRIPTORS', () => {
     ]);
     expect(MODES_IN_MENU_ORDER.filter((m) => MODE_DESCRIPTORS[m].honorsSkipRequest)).toEqual([
       'http',
+      'graphql',
       'grpc',
       'mcp',
     ]);
