@@ -108,7 +108,10 @@ describe('SettingsDrawer', () => {
 
   it('MCP Server section on web explains it needs the desktop app', async () => {
     render(<SettingsDrawer open onOpenChange={vi.fn()} initialSection="mcp" />);
-    expect(await screen.findByText(/runs inside the Restura desktop app/i)).toBeInTheDocument();
+    // The section is lazy-loaded; its first import can take over findBy's 1s default.
+    expect(
+      await screen.findByText(/runs inside the Restura desktop app/i, {}, { timeout: 5_000 })
+    ).toBeInTheDocument();
   });
 
   it('Secrets section on web shows DesktopOnlyBadge instead of the stub copy', () => {

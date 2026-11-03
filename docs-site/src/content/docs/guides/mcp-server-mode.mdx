@@ -93,7 +93,7 @@ There is no setting that auto-approves deletes or sends.
 
 - **Scripts always ask.** A change that adds or edits a pre-request or test script, including an import that contains scripts, asks in every mode and shows the full script, because scripts run with full access to your variables on every send.
 - **Approval covers exactly what you saw.** If the request, its collection, the environment or the globals change while a dialog is open (for example because the agent made another change), the call is refused and the agent has to ask again.
-- **Send dialogs show the details.** They show the URL with variables filled in, and which scripts will run.
+- **Send dialogs show the details.** A single send shows the URL with variables filled in, and which scripts will run. A collection run lists every host it will send to, with each request's method and auth type, so a request the agent pointed somewhere new stands out.
 - **Closing the dialog or pressing Escape denies.** If you change access while a dialog is open, the new setting applies when you click Approve.
 
 The **Activity** list in Settings shows every change, refusal and send, with the agent's name. Most changes have **Undo**, which puts the collection or environment back the way it was before that change. Undo refuses if the collection or environment changed since; undo the later changes first. Deleting a collection that is linked to a folder on disk cannot be undone in Restura.

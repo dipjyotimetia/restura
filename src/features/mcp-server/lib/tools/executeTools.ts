@@ -19,7 +19,10 @@ import {
   type RequestCompleteInfo,
   runCollection,
 } from '@/features/collections/lib/collectionRunner';
-import { flattenRunnables } from '@/features/collections/lib/flattenRunnables';
+import {
+  flattenRunnables,
+  type RunnableRequest,
+} from '@/features/collections/lib/flattenRunnables';
 import { resolveRunVariables } from '@/features/collections/lib/runVariables';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -92,6 +95,37 @@ function sendFingerprint(collection: Collection, environment: Environment | null
 /** `{{name}}` substituted from the run's variables, for the approval card only. */
 function resolvedForDisplay(text: string, vars: Record<string, string>): string {
   return text.replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, (match, name: string) => vars[name] ?? match);
+}
+
+/** Most distinct destinations a run_collection card lists before "+N more". */
+const MAX_CARD_DESTINATIONS = 8;
+
+/**
+ * Where a run will send, for the approval card: each distinct method,
+ * `scheme://host` (variables resolved as for send_request) and auth type.
+ * A run of "13 requests" alone would hide that an agent pointed one of them,
+ * with credentials, at a new host.
+ */
+function runDestinations(runnables: RunnableRequest[], vars: Record<string, string>): string[] {
+  const seen = new Set<string>();
+  for (const r of runnables) {
+    const req = r.request;
+    const url = resolvedForDisplay(
+      'url' in req && typeof req.url === 'string' ? req.url : '',
+      vars
+    );
+    const verb = req.type === 'http' ? req.method : req.type;
+    // scheme://host only: never userinfo (a saved password) or the path.
+    const m = /^([a-z][a-z0-9+.-]*:\/\/)(?:[^/?#@]*@)?([^/?#]*)/i.exec(url);
+    const origin = m ? `${m[1]}${m[2]}` : url || '(no URL)';
+    const own = req.auth?.type ?? 'none';
+    const auth = own === 'none' && r.inheritedAuth ? r.inheritedAuth.type : own;
+    seen.add(`${verb} ${origin}${auth !== 'none' ? ` (auth: ${auth})` : ''}`);
+  }
+  const all = [...seen];
+  const shown = all.slice(0, MAX_CARD_DESTINATIONS);
+  if (all.length > shown.length) shown.push(`+${all.length - shown.length} more destination(s)`);
+  return shown.map((line) => `Sends to: ${line}`);
 }
 
 /** Card lines naming every script that will run for one request. */
@@ -323,6 +357,10 @@ const runCollectionTool: ToolImpl<ControlToolInput<'run_collection'>> = (input, 
     fingerprint: sendFingerprint(collection, environment),
     details: [
       `${runnables.length} request(s) × ${iterations} iteration(s)`,
+      ...runDestinations(
+        runnables,
+        resolveRunVariables(environment?.id ?? 'none', collection).baseVars
+      ),
       environment ? `Environment “${environment.name}”` : 'No environment',
       input.stopOnFailure ? 'Stops at the first failure' : 'Runs every request',
       (() => {

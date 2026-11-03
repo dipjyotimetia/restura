@@ -68,9 +68,10 @@ test.describe('Desktop MCP control server', () => {
     const agent = new Client({ name: 'e2e-agent', version: '1.0.0' }, { capabilities: {} });
     const transport = new StdioClientTransport({
       command: electronBinary as unknown as string,
-      // Playwright adds --no-sandbox for the app it launches; a root CI
-      // container needs it for this second Electron process too.
-      args: [MAIN_JS, '--mcp-server', ...(process.getuid?.() === 0 ? ['--no-sandbox'] : [])],
+      // Playwright's _electron.launch adds --no-sandbox on Linux for the app;
+      // this second Electron process needs the same, or it dies at startup on
+      // runners that restrict unprivileged user namespaces (Ubuntu 24.04).
+      args: [MAIN_JS, '--mcp-server', ...(process.platform === 'linux' ? ['--no-sandbox'] : [])],
       cwd: ROOT,
       env: {
         ...(process.env as Record<string, string>),
@@ -80,7 +81,16 @@ test.describe('Desktop MCP control server', () => {
       },
       stderr: 'pipe',
     });
-    await agent.connect(transport);
+    // Keep the shim's stderr so a crash at startup explains itself.
+    let shimStderr = '';
+    transport.stderr?.on('data', (chunk: Buffer) => {
+      shimStderr = (shimStderr + chunk.toString()).slice(-8_000);
+    });
+    try {
+      await agent.connect(transport);
+    } catch (err) {
+      throw new Error(`The --mcp-server shim did not start: ${String(err)}\n${shimStderr}`);
+    }
     try {
       const { tools } = await agent.listTools();
       expect(tools.map((t) => t.name)).toEqual(

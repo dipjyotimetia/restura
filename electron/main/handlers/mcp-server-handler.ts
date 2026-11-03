@@ -129,14 +129,34 @@ function errorContent(text: string): CallToolContent {
 export function createShimRelay(options: StdioShimOptions) {
   const connect = options.connect ?? connectRemoteSession;
   const isAlive = options.isAlive ?? isProcessAlive;
-  let session: { key: string; promise: Promise<RemoteControlSession> } | null = null;
+  type SessionSlot = { key: string; promise: Promise<RemoteControlSession> };
+  let session: SessionSlot | null = null;
 
   const notRunning = (): CallToolContent => errorContent(APP_NOT_RUNNING_MESSAGE);
 
-  async function dropSession(): Promise<void> {
+  const closeSlot = (slot: SessionSlot): Promise<void> =>
+    slot.promise.then((s) => s.close()).catch(() => undefined);
+
+  /**
+   * Drop the current session (or only `expected`, when given, so a failed
+   * call never drops a newer session another call already opened). The slot
+   * is detached synchronously, before any await, so concurrent callers never
+   * both see "no session" and each open one.
+   */
+  async function dropSession(expected?: SessionSlot): Promise<void> {
     const current = session;
+    if (!current || (expected && current !== expected)) return;
     session = null;
-    if (current) await current.promise.then((s) => s.close()).catch(() => undefined);
+    await closeSlot(current);
+  }
+
+  /** The session for `key`, opened (and the stale one closed) without yielding. */
+  function sessionFor(key: string, handshake: HandshakeFile, client: ToolCallClient | undefined) {
+    if (session && session.key === key) return session;
+    const stale = session;
+    session = { key, promise: connect(handshake, client) };
+    if (stale) void closeSlot(stale);
+    return session;
   }
 
   async function relay(call: ControlToolCall, client: ToolCallClient | undefined) {
@@ -147,17 +167,14 @@ export function createShimRelay(options: StdioShimOptions) {
     }
     const key = `${handshake.port}:${handshake.token}`;
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      if (!session || session.key !== key) {
-        await dropSession();
-        session = { key, promise: connect(handshake, client) };
-      }
+      const slot = sessionFor(key, handshake, client);
       let remote: RemoteControlSession;
       try {
-        remote = await session.promise;
+        remote = await slot.promise;
       } catch (err) {
         // Connecting failed: nothing was sent, so a retry is safe.
         log.warn('could not connect to Restura', { attempt, message: String(err) });
-        await dropSession();
+        await dropSession(slot);
         continue;
       }
       try {
@@ -168,7 +185,7 @@ export function createShimRelay(options: StdioShimOptions) {
           // The app answered with a JSON-RPC error; the session is fine.
           return errorContent(err.message.replace(/^MCP error -?\d+:\s*/, ''));
         }
-        await dropSession();
+        await dropSession(slot);
         if (isConnectionRefused(err)) continue;
         log.warn('relay to Restura failed', { message: String(err) });
         return errorContent(

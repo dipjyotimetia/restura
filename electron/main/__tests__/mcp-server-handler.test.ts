@@ -228,6 +228,105 @@ describe('stdio shim', () => {
     expect(text(result)).toMatch(/may or may not have completed/);
   });
 
+  it('concurrent first calls share one session instead of orphaning a connection', async () => {
+    await writeHandshake(dir, {
+      version: 1,
+      running: true,
+      port: 1,
+      token: mintToken(),
+      pid: process.pid,
+      updatedAt: 0,
+    });
+    const close = vi.fn(async () => undefined);
+    const connect = vi.fn<RemoteSessionFactory>(async () => ({
+      callTool: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+      close,
+    }));
+    const relay = createShimRelay({ identity: IDENTITY, userDataDir: dir, connect });
+    cleanups.push(() => relay.close());
+    const call = () =>
+      relay.relay(
+        { tool: 'describe_access', input: {}, signal: new AbortController().signal },
+        undefined
+      );
+    const results = await Promise.all([call(), call(), call()]);
+    expect(results.map(text)).toEqual(['ok', 'ok', 'ok']);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it('concurrent calls after an app restart open one new session, not two', async () => {
+    const handshake = {
+      version: 1 as const,
+      running: true,
+      port: 1,
+      token: mintToken(),
+      pid: process.pid,
+      updatedAt: 0,
+    };
+    await writeHandshake(dir, handshake);
+    const sessions: Array<{ closed: boolean }> = [];
+    const connect = vi.fn<RemoteSessionFactory>(async () => {
+      const state = { closed: false };
+      sessions.push(state);
+      return {
+        callTool: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+        // Closing the old session takes a while (a real HTTP DELETE).
+        close: async () => {
+          await new Promise((r) => setTimeout(r, 20));
+          state.closed = true;
+        },
+      };
+    });
+    const relay = createShimRelay({ identity: IDENTITY, userDataDir: dir, connect });
+    cleanups.push(() => relay.close());
+    const call = () =>
+      relay.relay(
+        { tool: 'describe_access', input: {}, signal: new AbortController().signal },
+        undefined
+      );
+    await call();
+    // The app restarted: new token in the handshake.
+    await writeHandshake(dir, { ...handshake, token: mintToken() });
+    await Promise.all([call(), call()]);
+    expect(connect).toHaveBeenCalledTimes(2);
+    await relay.close();
+    // Every session that was opened was also closed: none was orphaned.
+    expect(sessions.map((x) => x.closed)).toEqual([true, true]);
+  });
+
+  it('a failed call drops only its own session, not a newer one', async () => {
+    await writeHandshake(dir, {
+      version: 1,
+      running: true,
+      port: 1,
+      token: mintToken(),
+      pid: process.pid,
+      updatedAt: 0,
+    });
+    const closes: number[] = [];
+    let n = 0;
+    const connect = vi.fn<RemoteSessionFactory>(async () => {
+      const id = ++n;
+      return {
+        callTool: async () => {
+          if (id === 1) throw new Error('socket hang up');
+          return { content: [{ type: 'text', text: `s${id}` }] };
+        },
+        close: async () => {
+          closes.push(id);
+        },
+      };
+    });
+    const relay = createShimRelay({ identity: IDENTITY, userDataDir: dir, connect });
+    const client = await agentOver(relay);
+    const failed = await client.callTool({ name: 'describe_access', arguments: {} });
+    expect(failed.isError).toBe(true);
+    const next = await client.callTool({ name: 'describe_access', arguments: {} });
+    expect(text(next)).toBe('s2');
+    expect(closes).toEqual([1]);
+  });
+
   it('passes a JSON-RPC error from the app through without retrying', async () => {
     await writeHandshake(dir, {
       version: 1,
