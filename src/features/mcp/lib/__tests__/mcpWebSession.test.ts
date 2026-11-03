@@ -255,6 +255,19 @@ describe('web initialize handshake (#862)', () => {
     expect('error' in caps && caps.error).toMatch(/notifications\/initialized failed/);
   });
 
+  it('reports a non-JSON error page as an HTTP failure, not a parse error', async () => {
+    route(
+      () =>
+        new Response('<html><body>Bad Gateway</body></html>', {
+          status: 502,
+          headers: { 'Content-Type': 'text/html' },
+        })
+    );
+    const caps = await makeClient().discoverCapabilities();
+    expect('error' in caps && caps.error).toMatch(/HTTP 502/);
+    expect('error' in caps && caps.error).not.toMatch(/JSON|Unexpected token/);
+  });
+
   it('does not run the handshake when initialize itself fails', async () => {
     route(() => json({ error: 'nope' }, 502));
     const caps = await makeClient().discoverCapabilities();

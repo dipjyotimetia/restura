@@ -150,6 +150,25 @@ describe('socketioManager (desktop IPC path)', () => {
     expect(conn().events.length).toBe(count);
   });
 
+  it('logs a refused or rejected emit and settles its pending ack', async () => {
+    socketioManager.connect(id);
+    api.socketio.emit.mockResolvedValueOnce({ success: false, error: 'Not connected' } as {
+      success: boolean;
+    });
+    socketioManager.emit(id, 'q', ['x'], true);
+    const ackId = (api.socketio.emit.mock.calls[0]?.[0] as { ackId: string }).ackId;
+    await vi.waitFor(() =>
+      expect(conn().events.some((e) => e.args[0] === 'Emit failed: Not connected')).toBe(true)
+    );
+    expect(conn().events.find((e) => e.direction === 'sent' && e.ackId === ackId)).toMatchObject({
+      ackStatus: 'timeout',
+    });
+
+    api.socketio.emit.mockRejectedValueOnce(new Error('ipc gone'));
+    socketioManager.emit(id, 'plain', [1]);
+    await vi.waitFor(() => expect(lastEvent()?.args[0]).toBe('Emit failed: ipc gone'));
+  });
+
   it('emits without ack or modifiers sends a bare IPC payload', () => {
     socketioManager.connect(id);
     socketioManager.emit(id, 'plain', [1]);

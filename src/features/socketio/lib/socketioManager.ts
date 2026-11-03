@@ -201,14 +201,30 @@ class SocketIOManager {
         ...logged,
         ...(ackId ? { ackId } : {}),
       });
-      void api.socketio.emit({
-        connectionId,
-        eventName,
-        args,
-        ...(ackId ? { ackId, ackTimeoutMs } : {}),
-        ...(options.volatile ? { volatile: true } : {}),
-        ...(options.compress === false ? { compress: false } : {}),
-      });
+      // Main may refuse the emit (not connected, emit threw): say so and
+      // settle the ack, which main never registered and so never answers.
+      const failEmit = (reason: string) => {
+        const state = useSocketIOStore.getState();
+        state.addEvent(connectionId, {
+          direction: 'system',
+          eventName: '<system>',
+          args: [`Emit failed: ${reason}`],
+        });
+        if (ackId) state.resolveAck(connectionId, ackId, [], 'timeout');
+      };
+      api.socketio
+        .emit({
+          connectionId,
+          eventName,
+          args,
+          ...(ackId ? { ackId, ackTimeoutMs } : {}),
+          ...(options.volatile ? { volatile: true } : {}),
+          ...(options.compress === false ? { compress: false } : {}),
+        })
+        .then((res) => {
+          if (!res?.success) failEmit(res?.error ?? 'unknown error');
+        })
+        .catch((err: unknown) => failEmit(err instanceof Error ? err.message : 'IPC error'));
       return;
     }
 

@@ -91,4 +91,11 @@ export const HTTP_CAPABILITIES = {
     notes:
       'NTLMv2 handshake (type 1 → 2 → 3) on one pinned HTTP/1.1 connection, only for the requested origin; fails explicitly if the server drops the connection or HTTP/2 is required. Web and self-host send the request without authentication and the editor says so; the CLI refuses NTLM requests (#1069)',
   },
+  'http.auth.oauth2AuthCodePopup': {
+    label: 'OAuth 2.0 Authorization Code (PKCE) "Get token" flow',
+    web: true,
+    desktop: false,
+    notes:
+      'Web opens the authorization URL in a popup and reads the redirect. Desktop denies renderer popups (the IdP would open in the system browser, where the redirect cannot be captured), so the editor disables the button and says so; use client credentials, password or device code, or paste a token. Desktop support needs a main-process loopback redirect like MCP OAuth (ADR 0031). Other grant types work on both',
+  },
 } as const satisfies Record<string, CapabilityRow>;

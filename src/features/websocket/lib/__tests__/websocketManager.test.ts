@@ -245,6 +245,21 @@ describe('WebSocketManager', () => {
       expect(websocketManager.getConnection(connectionId)).toBeUndefined();
     });
 
+    it('a connect timeout settles disconnected even when the browser then fires close 1006', async () => {
+      websocketManager.connect(connectionId, 'ws://localhost:8080');
+      const ws = websocketManager.getConnection(connectionId) as unknown as MockWebSocket;
+      // A real browser fires close(1006) after close() on a CONNECTING socket.
+      ws.close.mockImplementation(() => {
+        ws.onclose?.({ code: 1006, reason: '' } as CloseEvent);
+      });
+      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.advanceTimersByTimeAsync(60_000);
+      const state = useWebSocketStore.getState().connections[connectionId];
+      expect(state?.status).toBe('disconnected');
+      expect(state?.messages.some((m) => m.content.startsWith('Reconnecting'))).toBe(false);
+      expect(state?.messages.some((m) => m.content.startsWith('Connection timeout'))).toBe(true);
+    });
+
     it('sends the heartbeat on the browser socket once open', async () => {
       useWebSocketStore.getState().setHeartbeatConfig(connectionId, 1000, 'hb');
       websocketManager.connect(connectionId, 'ws://localhost:8080');

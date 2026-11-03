@@ -117,6 +117,11 @@ export const httpProtocol: ProtocolModule = {
       ctx.onScriptResult(result.scriptResult);
     }
     reportTransportError(result, ctx);
+    // Persist a refreshed OAuth2 token (same seam as GraphQL); without this
+    // every registry / runner send refreshes again with a stale token.
+    if (ctx.onAuthRefreshed && result.refreshedAuth) {
+      ctx.onAuthRefreshed(result.refreshedAuth);
+    }
     return result.response;
   },
 };

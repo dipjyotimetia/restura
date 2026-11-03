@@ -158,3 +158,35 @@ describe('findOperationById', () => {
     expect(findOperationById(minimalSpec, 'noSuchOp')).toBeNull();
   });
 });
+
+describe('matchOperation specificity and server prefixes', () => {
+  const ok = { '200': { description: 'ok' } };
+  const shadowSpec: AnyOpenAPISpec = {
+    openapi: '3.0.0',
+    info: { title: 'test', version: '1' },
+    servers: [{ url: 'https://api.example.com/v1' }],
+    paths: {
+      '/users/{id}': { get: { operationId: 'getUser', responses: ok } },
+      '/users/me': { get: { operationId: 'getMe', responses: ok } },
+      '/{kind}/{id}/posts': { get: { operationId: 'anyPosts', responses: ok } },
+      '/users/{id}/posts': { get: { operationId: 'userPosts', responses: ok } },
+    },
+  };
+  const base = 'https://api.example.com/v1';
+
+  it('prefers a concrete path over a templated one declared earlier', () => {
+    expect(matchOperation(shadowSpec, 'GET', `${base}/users/me`)?.operationId).toBe('getMe');
+    expect(matchOperation(shadowSpec, 'GET', `${base}/users/42`)?.operationId).toBe('getUser');
+  });
+
+  it('prefers the template with more literal segments', () => {
+    expect(matchOperation(shadowSpec, 'GET', `${base}/users/42/posts`)?.operationId).toBe(
+      'userPosts'
+    );
+  });
+
+  it('strips a server base path only on a segment boundary', () => {
+    expect(extractPath('https://api.example.com/v10/users', minimalSpec)).toBe('/v10/users');
+    expect(extractPath('https://api.example.com/v1/', minimalSpec)).toBe('/');
+  });
+});

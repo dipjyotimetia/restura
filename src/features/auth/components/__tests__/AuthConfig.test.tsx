@@ -17,6 +17,8 @@ vi.mock('@/features/auth/lib/oauth2', () => ({
   authorizeWithPopup: vi.fn(),
   fetchDeviceCode: vi.fn(),
   pollForDeviceToken: vi.fn(),
+  tokenExpiresAt: (nowMs: number, expiresInSeconds?: number) =>
+    expiresInSeconds ? nowMs + expiresInSeconds * 1000 : undefined,
 }));
 
 import * as oauth2 from '@/features/auth/lib/oauth2';
@@ -190,6 +192,93 @@ describe('AuthConfiguration — new auth variants', () => {
       rerender(<AuthConfiguration auth={oauth2Auth} onChange={onChange} />);
 
       expect(screen.getByRole('alert')).toHaveTextContent('Token endpoint unavailable');
+    });
+
+    const clientCredentials = (extra: Record<string, unknown> = {}): AuthConfigType => ({
+      type: 'oauth2',
+      oauth2: {
+        grantType: 'client_credentials',
+        clientId: 'client-id',
+        tokenUrl: 'https://auth.example.com/token',
+        accessToken: '',
+        ...extra,
+      },
+    });
+
+    it('stores the issued refresh token and expiry so auto-refresh can run', async () => {
+      const onChange = vi.fn();
+      const user = userEvent.setup();
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+      vi.mocked(oauth2.fetchClientCredentialsToken).mockResolvedValueOnce({
+        access_token: 'at-1',
+        token_type: 'Bearer',
+        refresh_token: 'rt-1',
+        expires_in: 3600,
+      });
+      render(<AuthConfiguration auth={clientCredentials()} onChange={onChange} />);
+
+      try {
+        await user.click(screen.getByRole('button', { name: 'Get New Access Token' }));
+        await vi.waitFor(() => expect(onChange).toHaveBeenCalled());
+      } finally {
+        nowSpy.mockRestore();
+      }
+      const next = onChange.mock.calls.at(-1)?.[0] as AuthConfigType;
+      expect(next.oauth2?.accessToken).toEqual({ kind: 'inline', value: 'at-1' });
+      expect(next.oauth2?.refreshToken).toEqual({ kind: 'inline', value: 'rt-1' });
+      expect(next.oauth2?.expiresAt).toBe(1_000_000 + 3_600_000);
+    });
+
+    it('clears a stale refresh token and expiry when the new token has none', async () => {
+      const onChange = vi.fn();
+      const user = userEvent.setup();
+      vi.mocked(oauth2.fetchClientCredentialsToken).mockResolvedValueOnce({
+        access_token: 'at-2',
+      });
+      render(
+        <AuthConfiguration
+          auth={clientCredentials({ refreshToken: 'consumed', expiresAt: 5 })}
+          onChange={onChange}
+        />
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Get New Access Token' }));
+
+      await vi.waitFor(() => expect(onChange).toHaveBeenCalled());
+      const next = onChange.mock.calls.at(-1)?.[0] as AuthConfigType;
+      expect(next.oauth2?.accessToken).toEqual({ kind: 'inline', value: 'at-2' });
+      expect(next.oauth2).not.toHaveProperty('refreshToken');
+      expect(next.oauth2).not.toHaveProperty('expiresAt');
+    });
+
+    it('reports the authorization-code popup flow as unavailable on desktop', async () => {
+      vi.mocked(platform.isElectron).mockReturnValue(true);
+      const user = userEvent.setup();
+      const open = vi.spyOn(window, 'open');
+      render(
+        <AuthConfiguration
+          auth={{
+            type: 'oauth2',
+            oauth2: {
+              grantType: 'authorization_code',
+              clientId: 'client-id',
+              authorizationUrl: 'https://auth.example.com/authorize',
+              tokenUrl: 'https://auth.example.com/token',
+              accessToken: '',
+            },
+          }}
+          onChange={vi.fn()}
+        />
+      );
+
+      expect(screen.getByTestId('oauth2-authcode-unavailable')).toBeInTheDocument();
+      const button = screen.getByRole('button', { name: 'Get New Access Token' });
+      expect(button).toBeDisabled();
+      await user.click(button);
+      expect(oauth2.buildAuthorizationUrl).not.toHaveBeenCalled();
+      expect(oauth2.authorizeWithPopup).not.toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalled();
+      open.mockRestore();
     });
   });
 

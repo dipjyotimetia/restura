@@ -86,10 +86,13 @@ export class McpWebSession {
   /** Bumped per `initialize` handshake; only the newest handshake may set session state. */
   private initGen = 0;
 
-  constructor(
-    private readonly opts: McpWebSessionOptions,
-    private readonly nextId: () => number
-  ) {}
+  private readonly opts: McpWebSessionOptions;
+  private readonly nextId: () => number;
+
+  constructor(opts: McpWebSessionOptions, nextId: () => number) {
+    this.opts = opts;
+    this.nextId = nextId;
+  }
 
   /** Version negotiated by the last successful `initialize`, if any. */
   get negotiatedProtocolVersion(): string | undefined {
@@ -257,7 +260,17 @@ export class McpWebSession {
     } finally {
       signal?.removeEventListener('abort', onAbort);
     }
-    const body = (await response.json()) as ProxyBody;
+    let body: ProxyBody;
+    try {
+      body = (await response.json()) as ProxyBody;
+    } catch {
+      // A non-JSON body (an HTML 502 page from a gateway) is an HTTP failure,
+      // not a parse error to surface raw.
+      return {
+        ok: false,
+        error: response.ok ? 'Invalid response from the MCP proxy' : `HTTP ${response.status}`,
+      };
+    }
     if (body.sessionId) {
       if (epoch === this.epoch && (!isInitialize || gen === this.initGen))
         this.sessionId = body.sessionId;

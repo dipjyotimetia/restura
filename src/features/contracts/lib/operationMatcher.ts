@@ -10,7 +10,10 @@
  *    full origin (the spec stores paths relative to `servers`). We strip
  *    these before matching.
  *  - `servers` may declare multiple base paths. Try them in order; the
- *    first match wins.
+ *    first one that is a whole-segment prefix of the request path wins.
+ *  - Several templates can match one path (`/users/me` and `/users/{id}`).
+ *    The most specific wins — the one with the most literal segments, so a
+ *    concrete path is never shadowed by a templated one; ties keep spec order.
  *  - Per-operation overrides exist (`paths[<path>].servers`) but are rare —
  *    handled as a fallback.
  *
@@ -52,7 +55,8 @@ export function matchOperation(
   const requestPath = extractPath(url, spec);
   if (requestPath === null) return null;
 
-  // Walk every path/operation pair in the spec; first match wins.
+  // Walk every path/operation pair in the spec; the most specific match wins.
+  let best: { match: OperationMatch; literals: number } | null = null;
   for (const [pathTemplate, pathItem] of Object.entries(spec.paths ?? {})) {
     if (!pathItem) continue;
     const op = (pathItem as Record<string, unknown>)[methodLower] as
@@ -62,17 +66,26 @@ export function matchOperation(
     if (!op) continue;
 
     const match = matchPathTemplate(pathTemplate, requestPath);
-    if (match) {
-      return {
+    if (!match) continue;
+    const literals = literalSegmentCount(pathTemplate);
+    if (best && best.literals >= literals) continue;
+    best = {
+      literals,
+      match: {
         operationId: op.operationId ?? syntheticId(methodLower, pathTemplate),
         pathTemplate,
         method: methodLower,
         pathParams: match,
         operation: op,
-      };
-    }
+      },
+    };
   }
-  return null;
+  return best?.match ?? null;
+}
+
+/** Segments of a path template that are not `{param}` placeholders. */
+function literalSegmentCount(template: string): number {
+  return template.split('/').filter((seg) => seg !== '' && extractParamName(seg) === null).length;
 }
 
 /**
@@ -192,7 +205,8 @@ export function extractPath(url: string, spec: AnyOpenAPISpec): string | null {
     }
     serverPath = stripTrailingSlash(serverPath);
     if (serverPath === '/' || serverPath === '') continue;
-    if (pathname.startsWith(serverPath)) {
+    // Whole segments only: a `/v1` base must not swallow the start of `/v10/…`.
+    if (pathname === serverPath || pathname.startsWith(`${serverPath}/`)) {
       return pathname.slice(serverPath.length) || '/';
     }
   }

@@ -94,6 +94,7 @@ function GrpcRequestBuilder() {
   const currentRequest = useActiveRequest('grpc');
   const activeTabId = useActiveTab()?.id;
   const updateRequest = useRequestStore((s) => s.updateRequest);
+  const updateRequestForTab = useRequestStore((s) => s.updateRequestForTab);
   const setLoading = useRequestStore((s) => s.setLoading);
   const setCurrentResponseForTab = useRequestStore((s) => s.setCurrentResponseForTab);
   const setScriptResultForTab = useRequestStore((s) => s.setScriptResultForTab);
@@ -147,15 +148,17 @@ function GrpcRequestBuilder() {
   }, []);
 
   // Apply parent-side effects when the reflection hook surfaces a service
-  // selection — push to the request store and re-run validators.
+  // selection — push to the request store and re-run validators. Writes target
+  // the tab this callback was created for, never whichever tab is active now.
   const handleReflectionServiceSelected = useCallback(
     (service: ReflectionServiceInfo) => {
-      updateRequest({ service: service.fullName });
+      if (!activeTabId) return;
+      updateRequestForTab(activeTabId, { service: service.fullName });
       validateService(service.fullName);
       // Snapshot the reflected descriptors (#871); a changed schema is held as drift (#937).
       schemaDrift.onServiceReflected(service);
     },
-    [updateRequest, validateService, schemaDrift.onServiceReflected]
+    [activeTabId, updateRequestForTab, validateService, schemaDrift.onServiceReflected]
   );
 
   // Apply parent-side effects when the reflection hook surfaces a method
@@ -167,11 +170,13 @@ function GrpcRequestBuilder() {
     (method: ReflectionMethodInfo) => {
       // Snapshot the request *before* writing — the same-method check below
       // must see the previous selection, not the one written just after.
-      const state = useRequestStore.getState();
-      const prevRequest = state.tabs.find((t) => t.id === state.activeTabId)?.request;
+      if (!activeTabId) return;
+      const prevRequest = useRequestStore
+        .getState()
+        .tabs.find((t) => t.id === activeTabId)?.request;
       const prevMethod = prevRequest?.type === 'grpc' ? prevRequest.method : undefined;
       const prevMessage = prevRequest?.type === 'grpc' ? prevRequest.message.trim() : '';
-      updateRequest({ method: method.name });
+      updateRequestForTab(activeTabId, { method: method.name });
       validateMethod(method.name);
       let methodType: GrpcMethodType = 'unary';
       if (method.clientStreaming && method.serverStreaming) {
@@ -181,7 +186,7 @@ function GrpcRequestBuilder() {
       } else if (method.clientStreaming) {
         methodType = 'client-streaming';
       }
-      updateRequest({ methodType });
+      updateRequestForTab(activeTabId, { methodType });
       if (method.inputMessageSchema && method.inputMessageSchema.fields.length > 0) {
         // Auto-discovery re-selects the current method after every remount
         // (tab switches included). Only regenerate the template when the
@@ -191,16 +196,17 @@ function GrpcRequestBuilder() {
           validateMessage(prevMessage);
         } else {
           const template = generateRequestTemplate(method.inputMessageSchema);
-          updateRequest({ message: template });
+          updateRequestForTab(activeTabId, { message: template });
           validateMessage(template);
         }
       }
     },
-    [updateRequest, validateMethod, validateMessage]
+    [activeTabId, updateRequestForTab, validateMethod, validateMessage]
   );
 
   const reflection = useGrpcReflection({
     url: grpcUrl,
+    scopeKey: activeTabId,
     ...(currentRequest && { request: currentRequest }), // reflection sends its metadata/auth
     autoDiscover: !!currentRequest,
     onServiceSelected: handleReflectionServiceSelected,

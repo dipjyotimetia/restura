@@ -46,6 +46,12 @@ export interface UseGrpcReflectionOptions {
    * auto-discovery.
    */
   request?: GrpcRequest;
+  /**
+   * Identity of what the discovery is for (the active tab id). A discovery
+   * that resolves after this changed is dropped, so a slow server can never
+   * write its services into the tab the user switched to.
+   */
+  scopeKey?: string | undefined;
 }
 
 export interface UseGrpcReflectionResult {
@@ -96,6 +102,7 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
     currentServiceName,
     currentMethodName,
     request,
+    scopeKey,
   } = options;
   // Latest-value ref: the request changes on every metadata keystroke, and
   // `discover` (an auto-discover effect dep) must not churn with it.
@@ -103,6 +110,13 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
   useEffect(() => {
     requestRef.current = request;
   }, [request]);
+  // Latest scope + a per-call sequence number: only the newest discovery for
+  // the still-current scope may apply its result.
+  const scopeKeyRef = useRef(scopeKey);
+  useEffect(() => {
+    scopeKeyRef.current = scopeKey;
+  }, [scopeKey]);
+  const discoverSeqRef = useRef(0);
 
   const [result, setResult] = useState<ReflectionResult | null>(null);
   const [selectedService, setSelectedService] = useState<ReflectionServiceInfo | null>(null);
@@ -154,6 +168,9 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
       }
 
       lastAttemptedUrlRef.current = rawUrl;
+      const seq = ++discoverSeqRef.current;
+      const scope = scopeKeyRef.current;
+      const isStale = () => seq !== discoverSeqRef.current || scopeKeyRef.current !== scope;
       setLoading(true);
       if (!silent) {
         setResult(null);
@@ -178,6 +195,7 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
         }
         const client = new GrpcReflectionClient(spec.url, undefined, spec.credentials);
         const discoveryResult = await client.discoverServices();
+        if (isStale()) return;
 
         if (discoveryResult.success) {
           setResult(discoveryResult);
@@ -232,6 +250,7 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
           }
         }
       } catch (error) {
+        if (isStale()) return;
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
         setResult({
           success: false,
@@ -244,7 +263,8 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
           toast.error('Discovery failed', { description: errorMessage });
         }
       } finally {
-        setLoading(false);
+        // An older call must not clear the spinner of the newer one in flight.
+        if (seq === discoverSeqRef.current) setLoading(false);
       }
     },
     [url, selectService, selectMethod, currentServiceName, currentMethodName]
