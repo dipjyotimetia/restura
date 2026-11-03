@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertSecretValue,
+  coerceToInlineSecret,
   describeSecret,
   handleSecret,
   inlineSecret,
@@ -112,6 +113,44 @@ describe('secretRef — assertSecretValue', () => {
     expect(() => assertSecretValue({ kind: 'inline' }, 'pw')).toThrow();
     expect(() => assertSecretValue({ kind: 'handle' }, 'pw')).toThrow();
     expect(() => assertSecretValue({ kind: 'rogue', id: 'x' }, 'pw')).toThrow();
+  });
+
+  it('never echoes the rejected value into the error message', () => {
+    let message = '';
+    try {
+      assertSecretValue({ kind: 'inline', value: 42, note: 'hunter2-plaintext' }, 'pw');
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toMatchInlineSnapshot(`"pw: expected string or SecretRef"`);
+  });
+});
+
+describe('secretRef — coerceToInlineSecret', () => {
+  it('keeps strings and well-formed refs', () => {
+    expect(coerceToInlineSecret('pw')).toEqual({ kind: 'inline', value: 'pw' });
+    expect(coerceToInlineSecret({ kind: 'inline', value: 'x' })).toEqual({
+      kind: 'inline',
+      value: 'x',
+    });
+    expect(coerceToInlineSecret({ kind: 'handle', id: 'id-1', label: 'L' })).toEqual({
+      kind: 'handle',
+      id: 'id-1',
+      label: 'L',
+    });
+  });
+
+  it('coerces malformed refs to an empty inline secret', () => {
+    for (const malformed of [
+      { kind: 'inline', value: 123 },
+      { kind: 'handle' },
+      { kind: 'external', provider: 'aws-secrets-manager' },
+      42,
+      null,
+      undefined,
+    ]) {
+      expect(coerceToInlineSecret(malformed)).toEqual({ kind: 'inline', value: '' });
+    }
   });
 });
 

@@ -170,53 +170,28 @@ export function externalSecret(
 /**
  * Coerce an arbitrary persisted value into a canonical `SecretValue`:
  *  - string → `{kind:'inline', value}`
- *  - existing SecretRef → unchanged
- *  - anything else (undefined, number, malformed) → `{kind:'inline', value:''}`
+ *  - a SecretRef that passes `secretValueSchema` → that ref (unknown keys dropped)
+ *  - anything else (undefined, number, malformed ref) → `{kind:'inline', value:''}`
  *
  * Used by Zustand store migrations to widen legacy plaintext fields without
  * data loss. Idempotent — safe to apply twice.
  */
 export function coerceToInlineSecret(value: unknown): SecretValue {
   if (typeof value === 'string') return { kind: 'inline', value };
-  if (
-    isInlineSecretRef(value as SecretValue) ||
-    isSecretHandle(value as SecretValue) ||
-    isExternalSecretRef(value as SecretValue)
-  ) {
-    return value as SecretValue;
-  }
-  return { kind: 'inline', value: '' };
+  const parsed = secretValueSchema.safeParse(value);
+  return parsed.success ? parsed.data : { kind: 'inline', value: '' };
 }
 
 /**
- * Zod-style runtime guard for the SecretRef shape — used by IPC validators
- * and store-validators to gate persisted state. Returns the value unchanged
- * if valid; throws otherwise.
+ * Runtime guard for the SecretValue shape (validated by `secretValueSchema`)
+ * — used by IPC validators and store-validators to gate persisted state.
+ * Throws otherwise. The message never includes the value: a near-miss shape
+ * can still carry plaintext, and this error ends up in logs.
  */
 export function assertSecretValue(value: unknown, fieldName: string): asserts value is SecretValue {
-  if (typeof value === 'string') return;
-  if (value && typeof value === 'object') {
-    const v = value as {
-      kind?: unknown;
-      value?: unknown;
-      id?: unknown;
-      provider?: unknown;
-      profileId?: unknown;
-      secretId?: unknown;
-    };
-    if (v.kind === 'inline' && typeof v.value === 'string') return;
-    if (v.kind === 'handle' && typeof v.id === 'string') return;
-    if (
-      v.kind === 'external' &&
-      (v.provider === 'aws-secrets-manager' ||
-        v.provider === 'google-secret-manager' ||
-        v.provider === 'azure-key-vault') &&
-      typeof v.profileId === 'string' &&
-      typeof v.secretId === 'string'
-    )
-      return;
+  if (!secretValueSchema.safeParse(value).success) {
+    throw new TypeError(`${fieldName}: expected string or SecretRef`);
   }
-  throw new TypeError(`${fieldName}: expected string or SecretRef, got ${JSON.stringify(value)}`);
 }
 
 /**
