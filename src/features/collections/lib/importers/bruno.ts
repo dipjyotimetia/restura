@@ -11,7 +11,7 @@ import type {
   RequestBody,
 } from '@/types';
 import { type BrunoLangModule, loadBrunoLang } from '../bruno-lang';
-import { explicitNoAuthWarning, mergeInheritedHeaders } from './hoppscotch';
+import { markExplicitNoAuth, mergeInheritedHeaders } from './hoppscotch';
 import { applyEnvironmentSecretPolicy, type EnvironmentImportOptions } from './postman-environment';
 import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
 
@@ -147,11 +147,17 @@ function bruContainer(
   parent: BrunoScope,
   isCollection: boolean,
   warnings: ImportWarning[]
-): { fields: BrunoContainerFields; scope: BrunoScope; description?: string } {
+): {
+  fields: BrunoContainerFields;
+  scope: BrunoScope;
+  description?: string;
+  /** Set when an explicit `mode: none` sits below this configured ancestor. */
+  noAuthSource?: string;
+} {
   const authBlock = isRecord(bru.auth) ? bru.auth : undefined;
   const mode = typeof authBlock?.mode === 'string' ? authBlock.mode : undefined;
   const auth = bruAuthToInternal(authBlock, mode, name, warnings);
-  if (mode === 'none') warnIfNoAuthIsInherited(name, parent, warnings);
+  const noAuthSource = mode === 'none' ? parent.authSource : undefined;
 
   const variables = extractCollectionVariables(bru);
   const vars = isRecord(bru.vars) ? bru.vars : undefined;
@@ -187,20 +193,12 @@ function bruContainer(
       authSource: configured ? name : parent.authSource,
     },
     ...(docs && isCollection ? { description: docs } : {}),
+    ...(noAuthSource ? { noAuthSource } : {}),
   };
 }
 
 function unmodelled(construct: string, requestName: string, detail: string): ImportWarning {
   return { kind: 'unmodelled-construct', construct, requestName, detail };
-}
-
-/** `auth: inherit` is exactly Restura's semantics; only an explicit `none` is lossy. */
-function warnIfNoAuthIsInherited(
-  name: string,
-  parent: BrunoScope,
-  warnings: ImportWarning[]
-): void {
-  if (parent.authSource) warnings.push(explicitNoAuthWarning('Bruno', name, parent.authSource));
 }
 
 function bruHeaders(raw: unknown): KeyValue[] {
@@ -374,13 +372,20 @@ function treeToItems(
     const container = folder.settings
       ? bruContainer(folder.settings, name, scope, false, warnings)
       : undefined;
-    out.push({
+    const item: CollectionItem = {
       id: uuid(),
       name,
       type: 'folder',
       ...(container?.fields ?? {}),
       items: treeToItems(folder, container?.scope ?? scope, warnings),
-    });
+    };
+    // `auth { mode: none }` on a folder below a configured ancestor: refuse
+    // to send that ancestor's credential to the folder's requests.
+    out.push(
+      container?.noAuthSource
+        ? markExplicitNoAuth(item, 'Bruno', name, container.noAuthSource, warnings)
+        : item
+    );
   }
   for (const r of node.requests) {
     out.push(bruRequestToItem(r.bru, r.name, scope, warnings));
@@ -409,12 +414,18 @@ function bruRequestToItem(
       requestName: name,
     });
   }
-  return {
+  const item: CollectionItem = {
     id: uuid(),
     name,
     type: 'request',
     request: bruToHttpRequest(bru, name, scope, warnings),
   };
+  // `auth: inherit` is exactly Restura's semantics; an explicit `auth: none`
+  // below a configured ancestor is marked so the send guard refuses it.
+  const declaredAuth = isRecord(bru.http) ? bru.http.auth : undefined;
+  return declaredAuth === 'none' && scope.authSource
+    ? markExplicitNoAuth(item, 'Bruno', name, scope.authSource, warnings)
+    : item;
 }
 
 function bruToHttpRequest(
@@ -493,8 +504,8 @@ function bruToHttpRequest(
   const declaredAuthType = typeof httpMeta.auth === 'string' ? httpMeta.auth : undefined;
   const authBlocks = isRecord(bru.auth) ? bru.auth : undefined;
   // `inherit` → 'none', which Restura resolves to the nearest configured
-  // ancestor (shared/auth/inheritance.ts); an explicit `none` cannot opt out.
-  if (declaredAuthType === 'none') warnIfNoAuthIsInherited(name, scope, warnings);
+  // ancestor (shared/auth/inheritance.ts); explicit `none` is guarded in
+  // bruRequestToItem.
 
   return {
     id: uuid(),

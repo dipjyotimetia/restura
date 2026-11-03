@@ -1,4 +1,5 @@
 import { findInheritedAuth } from '@shared/auth/inheritance';
+import { postmanBlockedReasonFor } from '@shared/collections/postman/auth-guard';
 import { describe, expect, it } from 'vitest';
 import type { CollectionItem, HttpRequest } from '@/types';
 import type { BrunoSource } from '../importers';
@@ -931,5 +932,64 @@ params:path {
 `,
     });
     expect(requestNamed(collection.items, 'One').url).toBe('https://api.example.com/items/abc-1');
+  });
+});
+
+describe('Bruno explicit no auth below an authenticated parent', () => {
+  const bru = (name: string, mode: string) => `meta {
+  name: ${name}
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base}}/x
+  body: none
+  auth: ${mode}
+}
+`;
+  const entries = (withCollectionAuth: boolean): BrunoSource => ({
+    kind: 'directory',
+    entries: [
+      { relativePath: 'bruno.json', content: JSON.stringify({ version: '1', name: 'Guarded' }) },
+      {
+        relativePath: 'collection.bru',
+        content: withCollectionAuth
+          ? 'auth {\n  mode: bearer\n}\n\nauth:bearer {\n  token: {{token}}\n}\n'
+          : 'headers {\n  X-A: 1\n}\n',
+      },
+      { relativePath: 'explicit-none.bru', content: bru('Explicit none', 'none') },
+      { relativePath: 'inheriting.bru', content: bru('Inheriting', 'inherit') },
+      {
+        relativePath: 'public/folder.bru',
+        content: 'meta {\n  name: Public\n}\n\nauth {\n  mode: none\n}\n',
+      },
+      { relativePath: 'public/child.bru', content: bru('Under none folder', 'inherit') },
+    ],
+  });
+
+  function idOf(items: CollectionItem[], name: string): string {
+    const item = findRequest(items, name);
+    return item?.request?.id ?? '';
+  }
+
+  it('refuses to send the parent credential to an explicit no-auth request or folder', async () => {
+    const { collection } = await importBrunoCollection(entries(true));
+    for (const name of ['Explicit none', 'Under none folder']) {
+      const id = idOf(collection.items, name);
+      expect(id).not.toBe('');
+      expect(postmanBlockedReasonFor(collection, id, 'test')).toMatch(/not sent/);
+    }
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Inheriting'), 'test')
+    ).toBeUndefined();
+  });
+
+  it('does not mark explicit no-auth when nothing above it is configured', async () => {
+    const { collection } = await importBrunoCollection(entries(false));
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Explicit none'), 'test')
+    ).toBeUndefined();
+    expect(JSON.stringify(collection)).not.toContain('noauth');
   });
 });

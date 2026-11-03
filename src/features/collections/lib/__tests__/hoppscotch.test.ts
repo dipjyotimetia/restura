@@ -1,4 +1,5 @@
 import { findInheritedAuth } from '@shared/auth/inheritance';
+import { postmanBlockedReasonFor } from '@shared/collections/postman/auth-guard';
 import { describe, expect, it } from 'vitest';
 import type { CollectionItem, HttpRequest } from '@/types';
 import {
@@ -601,5 +602,70 @@ describe('Hoppscotch round-2 regressions', () => {
     );
     importHoppscotchCollection(hostile);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+describe('Hoppscotch explicit No Auth below an authenticated parent', () => {
+  const request = (name: string, auth: Record<string, unknown>) => ({
+    v: '6',
+    endpoint: '<<baseUrl>>/x',
+    name,
+    params: [],
+    headers: [],
+    method: 'GET',
+    auth,
+    preRequestScript: '',
+    testScript: '',
+    body: { contentType: null, body: null },
+    requestVariables: [],
+  });
+  const fixture = {
+    v: 2,
+    name: 'Guarded',
+    folders: [
+      {
+        v: 2,
+        name: 'Public folder',
+        folders: [],
+        requests: [request('Under none folder', { authType: 'inherit', authActive: true })],
+        auth: { authType: 'none', authActive: true },
+        headers: [],
+      },
+    ],
+    requests: [
+      request('Explicit none', { authType: 'none', authActive: true }),
+      request('Disabled auth', { authType: 'bearer', authActive: false, token: 'x' }),
+      request('Inheriting', { authType: 'inherit', authActive: true }),
+    ],
+    auth: { authType: 'bearer', authActive: true, token: '<<token>>' },
+    headers: [],
+  };
+
+  function idOf(items: CollectionItem[] | undefined, name: string): string {
+    for (const item of items ?? []) {
+      if (item.type === 'request' && item.name === name && item.request) return item.request.id;
+      const nested = item.items ? idOf(item.items, name) : '';
+      if (nested) return nested;
+    }
+    return '';
+  }
+
+  it('refuses to send the parent credential to an explicit no-auth request or folder', () => {
+    const { collection } = importHoppscotchCollection(fixture);
+    for (const name of ['Explicit none', 'Disabled auth', 'Under none folder']) {
+      const id = idOf(collection.items, name);
+      expect(id).not.toBe('');
+      expect(postmanBlockedReasonFor(collection, id, 'test')).toMatch(/not sent/);
+    }
+    expect(
+      postmanBlockedReasonFor(collection, idOf(collection.items, 'Inheriting'), 'test')
+    ).toBeUndefined();
+  });
+
+  it('does not mark an explicit no-auth request when nothing above it is configured', () => {
+    const { collection } = importHoppscotchCollection({ ...fixture, auth: undefined });
+    const id = idOf(collection.items, 'Explicit none');
+    expect(postmanBlockedReasonFor(collection, id, 'test')).toBeUndefined();
+    expect(JSON.stringify(collection)).not.toContain('noauth');
   });
 });

@@ -1,3 +1,4 @@
+import { attachPostmanSidecar } from '@shared/collections/postman/sidecar';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
@@ -287,7 +288,7 @@ export function importHoppscotchCollection(data: unknown): ImportResult {
   const roots = Array.isArray(r.data) ? r.data : [r.data];
   const [only] = roots;
   if (only && roots.length === 1) {
-    const auth = containerAuth(only, ROOT_SCOPE, warnings);
+    const auth = containerAuth(only, warnings);
     const collection: Collection = {
       id: uuid(),
       name: only.name,
@@ -308,18 +309,12 @@ export function importHoppscotchCollection(data: unknown): ImportResult {
 
 /**
  * Auth a collection/folder contributes to its descendants, or undefined when
- * it inherits (or sets none — see `warnIfNoAuthIsInherited`).
+ * it inherits or sets none (see `markExplicitNoAuth`).
  */
-function containerAuth(
-  node: HoppCollection,
-  parent: HoppScope,
-  warnings: ImportWarning[]
-): AuthConfig | undefined {
+function containerAuth(node: HoppCollection, warnings: ImportWarning[]): AuthConfig | undefined {
   if (!node.auth) return undefined;
   const auth = hoppAuthToInternal(node.auth, node.name, warnings);
-  if (auth.type !== 'none') return auth;
-  warnIfNoAuthIsInherited(node.auth, node.name, parent, warnings);
-  return undefined;
+  return auth.type !== 'none' ? auth : undefined;
 }
 
 function childScope(
@@ -353,32 +348,42 @@ export function mergeInheritedHeaders(inherited: KeyValue[], own: KeyValue[]): K
 }
 
 /**
- * An explicit "no auth" under an authenticated ancestor cannot be modelled:
- * Restura treats unconfigured auth as inheriting (shared/auth/inheritance.ts),
- * so the ancestor's credentials will be sent. Importers report it with this.
+ * An explicit "no auth" request or folder below an authenticated ancestor has
+ * no Restura model: `{ type: 'none' }` means *inherit* (shared/auth/
+ * inheritance.ts), so the ancestor's credential would be sent to an endpoint
+ * the user deliberately left unauthenticated. Mark the node with the shared
+ * explicit-noauth marker so the send guard (`postmanBlockedReasonFor`, used by
+ * every send path) refuses it, and say so. Callers invoke this only when a
+ * configured auth sits above the node — with nothing above, nothing can leak.
  */
-export function explicitNoAuthWarning(
+export function markExplicitNoAuth<T extends object>(
+  node: T,
   format: string,
-  requestName: string,
-  authSource: string
-): ImportWarning {
-  return {
+  name: string,
+  authSource: string,
+  warnings: ImportWarning[]
+): T {
+  warnings.push({
     kind: 'unmodelled-construct',
     construct: 'explicit-no-auth',
-    requestName,
-    detail: `${format} "No Auth" cannot override an ancestor's auth in Restura; the auth from "${authSource}" will be used`,
-  };
+    requestName: name,
+    detail: `${format} "No Auth" cannot override the auth of "${authSource}" in Restura; it will not be sent until its auth is configured`,
+  });
+  return attachPostmanSidecar(node, { noauth: true });
 }
 
-/** `inherit` is exactly Restura's semantics and needs no warning. */
-function warnIfNoAuthIsInherited(
-  rawAuth: Record<string, unknown>,
-  name: string,
-  parent: HoppScope,
-  warnings: ImportWarning[]
-): void {
-  if (rawAuth.authType === 'inherit' || !parent.authSource) return;
-  warnings.push(explicitNoAuthWarning('Hoppscotch', name, parent.authSource));
+/**
+ * The configured ancestor an explicit Hoppscotch "None" (or disabled auth)
+ * would inherit from, or undefined. `inherit` is exactly Restura's semantics.
+ */
+function explicitNoAuthSource(
+  rawAuth: Record<string, unknown> | undefined,
+  parent: HoppScope
+): string | undefined {
+  if (!rawAuth || !parent.authSource) return undefined;
+  return rawAuth.authType === 'none' || rawAuth.authActive === false
+    ? parent.authSource
+    : undefined;
 }
 
 function childItems(
@@ -397,14 +402,18 @@ function folderToItem(
   parent: HoppScope,
   warnings: ImportWarning[]
 ): CollectionItem {
-  const auth = containerAuth(folder, parent, warnings);
-  return {
+  const auth = containerAuth(folder, warnings);
+  const item: CollectionItem = {
     id: uuid(),
     name: folder.name,
     type: 'folder',
     ...(auth ? { auth } : {}),
     items: childItems(folder, childScope(folder, auth, parent), warnings),
   };
+  const noAuthSource = auth ? undefined : explicitNoAuthSource(folder.auth, parent);
+  return noAuthSource
+    ? markExplicitNoAuth(item, 'Hoppscotch', folder.name, noAuthSource, warnings)
+    : item;
 }
 
 function requestToItem(
@@ -413,12 +422,13 @@ function requestToItem(
   scope: HoppScope,
   warnings: ImportWarning[]
 ): CollectionItem {
-  return {
-    id: uuid(),
-    name: rq.name,
-    type: 'request',
-    request: requestToInternal(rq, parent, scope, warnings),
-  };
+  const request = requestToInternal(rq, parent, scope, warnings);
+  const item: CollectionItem = { id: uuid(), name: rq.name, type: 'request', request };
+  const noAuthSource =
+    request.auth.type === 'none' ? explicitNoAuthSource(rq.auth, scope) : undefined;
+  return noAuthSource
+    ? markExplicitNoAuth(item, 'Hoppscotch', rq.name, noAuthSource, warnings)
+    : item;
 }
 
 function requestToInternal(
@@ -429,7 +439,6 @@ function requestToInternal(
 ): HttpRequest {
   const url = rq.endpoint ?? rq.url ?? '';
   const auth = hoppAuthToInternal(rq.auth, rq.name, warnings);
-  if (rq.auth && auth.type === 'none') warnIfNoAuthIsInherited(rq.auth, rq.name, scope, warnings);
   const collectionPre = parent.preRequestScript ?? '';
   const collectionTest = parent.testScript ?? '';
   const reqPre = rq.preRequestScript ?? '';
