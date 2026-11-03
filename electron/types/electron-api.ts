@@ -13,6 +13,7 @@ import type {
   ElectronGitAPI,
   ElectronKeychainAPI,
   ElectronLogAPI,
+  ElectronMcpControlAPI,
   ElectronMockAPI,
   ElectronNotificationAPI,
   ElectronOwsWorkspaceAPI,
@@ -63,6 +64,7 @@ export interface ElectronAPI {
   git: ElectronGitAPI;
   mock: ElectronMockAPI;
   capture: ElectronCaptureAPI;
+  mcpControl: ElectronMcpControlAPI;
   deepLinks: ElectronDeepLinkAPI;
   secrets: ElectronSecretsAPI;
   externalSecrets: ElectronExternalSecretsAPI;

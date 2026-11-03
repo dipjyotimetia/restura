@@ -18,7 +18,7 @@ import {
   registerMcpConformanceIPC,
   stopMcpConformanceCleanup,
 } from './handlers/mcp-conformance-handler';
-import { loadMcpDispatchContext } from './handlers/mcp-context-loader';
+import { disposeMcpControlIPC, registerMcpControlIPC } from './handlers/mcp-control-handler';
 import { registerMcpHandlerIPC, stopMcpCleanup } from './handlers/mcp-handler';
 import { registerMcpImportIPC, unregisterMcpImportIPC } from './handlers/mcp-import-handler';
 import { startStdioMcpServer } from './handlers/mcp-server-handler';
@@ -117,14 +117,12 @@ if (require('electron-squirrel-startup')) {
 
 /**
  * Headless MCP-server mode: when invoked as `restura --mcp-server`, we don't
- * create a window. Instead we wire the MCP SDK to stdio and stream JSON-RPC
- * tool calls into the pure dispatcher. The launcher (Claude Desktop, Cursor,
- * Windsurf) parents the process and sends MCP-protocol messages over stdin.
- *
- * The user is in control of which surfaces are exposed via the per-collection /
- * per-environment / history consent settings persisted in the electron-store
- * `restura-encrypted-store`. `loadMcpDispatchContext()` reads those off disk
- * each tool call so the headless server always sees the latest user choices.
+ * create a window. This process is a stdio shim (ADR 0041): the launcher
+ * (Claude Code, Claude Desktop, Codex, Cursor) parents it and speaks MCP over
+ * stdin/stdout, and every tool call is relayed to the *running* desktop app's
+ * loopback control server, which owns the data and enforces the user's
+ * consent and approvals. The shim reads the port + token from the handshake
+ * file under userData; it holds no user data of its own.
  * (`isMcpServerMode` is computed near the top, before initLogging.)
  */
 
@@ -134,16 +132,21 @@ if (require('electron-squirrel-startup')) {
 // stale reference to the first one we created.
 const getMainWindow = (): BrowserWindow | null => getActiveWindow();
 
-// Single instance lock — must be before app.whenReady()
-const gotTheLock = app.requestSingleInstanceLock();
-if (!gotTheLock) {
-  app.quit();
-}
+// Single instance lock — must be before app.whenReady(). The MCP stdio shim is
+// exempt: it must run *alongside* the desktop app it relays to (and several
+// agents may each spawn one), and it must not trigger the running app's
+// `second-instance` handler.
+if (!isMcpServerMode) {
+  const gotTheLock = app.requestSingleInstanceLock();
+  if (!gotTheLock) {
+    app.quit();
+  }
 
-// Register deep-link handler before app.whenReady() so open-url / second-instance
-// events can fire even before the window is created
-// (requires single-instance lock to be requested before calling this)
-registerDeepLinkHandler(getMainWindow);
+  // Register deep-link handler before app.whenReady() so open-url / second-instance
+  // events can fire even before the window is created
+  // (requires single-instance lock to be requested before calling this)
+  registerDeepLinkHandler(getMainWindow);
+}
 
 // Register security measures early so all web-contents are protected from creation
 setupSecurityMeasures();
@@ -227,6 +230,8 @@ const IPC_MODULES: IpcModule[] = [
       unregisterCaptureBridgeIPC();
     },
   },
+  // MCP control server (ADR 0041): loopback listener + renderer tool bridge.
+  { register: () => registerMcpControlIPC(), dispose: () => disposeMcpControlIPC() },
 ];
 
 // Register all IPC handlers
@@ -335,23 +340,17 @@ function setupSecurityMeasures(): void {
 
 // Initialize the application
 app.whenReady().then(async () => {
-  // Derive every store key (async safeStorage) before anything can open a store —
-  // including the headless MCP branch below, which reads secret handles.
-  try {
-    await Promise.all([primeStoreKeys(), primeStdioConsentMacKey()]);
-  } catch (err) {
-    log.error('failed to prime store keys', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-
   if (isMcpServerMode) {
-    // Headless: no window, no tray, no auto-updater. The MCP SDK owns stdio.
-    // Anything that would log to stdout (`console.log`, banners) corrupts the
-    // JSON-RPC stream — keep this branch minimal and route everything else to
-    // stderr (which Claude Desktop captures into its log file).
+    // Headless: no window, no tray, no auto-updater, no store keys (the shim
+    // opens no store — priming would cost a keychain prompt per agent launch).
+    // The MCP SDK owns stdio. Anything that would log to stdout
+    // (`console.log`, banners) corrupts the JSON-RPC stream — keep this branch
+    // minimal and route everything else to stderr (which agents capture).
     try {
-      const handle = startStdioMcpServer(() => loadMcpDispatchContext());
+      const handle = startStdioMcpServer({
+        identity: { name: 'restura', version: app.getVersion() },
+        userDataDir: app.getPath('userData'),
+      });
       // Tear the server down on quit so the parent process sees a clean EOF.
       // `preventDefault` + `app.exit()` after `handle.stop()` resolves
       // guarantees the stdio transport flushes before process exit — a
@@ -383,6 +382,15 @@ app.whenReady().then(async () => {
       app.quit();
     }
     return;
+  }
+
+  // Derive every store key (async safeStorage) before anything can open a store.
+  try {
+    await Promise.all([primeStoreKeys(), primeStdioConsentMacKey()]);
+  } catch (err) {
+    log.error('failed to prime store keys', {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   setupContentSecurityPolicy();

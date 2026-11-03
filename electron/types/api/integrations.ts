@@ -224,6 +224,45 @@ export interface ElectronCaptureAPI {
   onReceived: (callback: (doc: unknown) => void) => () => void;
 }
 
+/** Status of the desktop MCP control server (ADR 0041). Mirrors `ControlServerStatus`. */
+export interface ElectronMcpControlStatus {
+  running: boolean;
+  port?: number;
+  url?: string;
+  lastCallAt?: number;
+  inFlight: number;
+}
+
+/** A tool call an agent made; mirrors `ToolCallEvent` in shared/mcp-server/control-bridge. */
+export interface ElectronMcpControlToolCall {
+  callId: string;
+  tool: string;
+  input: unknown;
+  client?: { name: string; version?: string };
+}
+
+export type ElectronMcpControlToolResult =
+  | { ok: true; data: unknown }
+  | { ok: false; error: string };
+
+export interface ElectronMcpControlAPI {
+  start: (options?: {
+    preferredPort?: number;
+    rotateToken?: boolean;
+  }) => Promise<
+    { ok: true; status: ElectronMcpControlStatus; token: string } | { ok: false; error: string }
+  >;
+  stop: () => Promise<{ ok: true; status: ElectronMcpControlStatus }>;
+  status: () => Promise<{ ok: true; status: ElectronMcpControlStatus }>;
+  /** Answer one forwarded tool call. `ok: false` → the call already settled. */
+  sendToolResult: (payload: {
+    callId: string;
+    result: ElectronMcpControlToolResult;
+  }) => Promise<{ ok: boolean }>;
+  onToolCall: (callback: (call: ElectronMcpControlToolCall) => void) => () => void;
+  onToolCancelled: (callback: (payload: { callId: string }) => void) => () => void;
+}
+
 export interface ElectronDeepLinkAPI {
   subscribe: (callback: (payload: DeepLinkPayload) => void) => () => void;
   acknowledge: (id: string) => Promise<{ ok: true }>;

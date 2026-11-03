@@ -10,6 +10,7 @@ type IntegrationApi = Pick<
   | 'git'
   | 'mock'
   | 'capture'
+  | 'mcpControl'
   | 'deepLinks'
   | 'secrets'
   | 'externalSecrets'
@@ -86,6 +87,14 @@ export const integrationApi: IntegrationApi = {
     stopBridge: invoke<ElectronAPI['capture']['stopBridge']>(IPC.captureBridge.stop),
     bridgeStatus: invoke<ElectronAPI['capture']['bridgeStatus']>(IPC.captureBridge.status),
     onReceived: (callback) => subscribe(EVENT.captureReceived, callback),
+  },
+  mcpControl: {
+    start: (options) => ipcRenderer.invoke(IPC.mcpControl.start, options),
+    stop: invoke<ElectronAPI['mcpControl']['stop']>(IPC.mcpControl.stop),
+    status: invoke<ElectronAPI['mcpControl']['status']>(IPC.mcpControl.status),
+    sendToolResult: (payload) => ipcRenderer.invoke(IPC.mcpControl.toolResult, payload),
+    onToolCall: (callback) => subscribe(EVENT.mcpControlToolCall, callback),
+    onToolCancelled: (callback) => subscribe(EVENT.mcpControlToolCancelled, callback),
   },
   deepLinks: {
     subscribe: (callback) => {

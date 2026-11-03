@@ -10,21 +10,24 @@
  * Electron / SDK / transport machinery lets us cover it 100% in
  * Vitest without needing a real Electron process or MCP client.
  *
- * v1 exposes read-only tools:
+ * This module owns the read-only, snapshot-shaped tools:
  *   - list_collections
  *   - list_requests
  *   - get_history
  *   - get_environment
  *   - list_environments
  *
- * `execute_request` is deferred — it needs an architectural decision
- * about whether main proxies the call back to the renderer or runs its
- * own copy of the request executor. See ADR-0011 (MCP server mode).
+ * The desktop control server (ADR 0041) runs these in the renderer against a
+ * live snapshot of the stores, next to the write/execute tools in
+ * `src/features/mcp-server/`. Execution lives there too: main proxies every
+ * tool call to the renderer, which sends through the real request pipeline —
+ * there is no second executor in main.
  */
 
 import { z } from 'zod';
 import type { Collection, CollectionItem, Environment, HistoryItem, HttpRequest } from '../types';
 import {
+  canEdit,
   canExecute,
   canRead,
   canReadEnvironment,
@@ -81,14 +84,14 @@ export const TOOLS = {
   list_collections: {
     name: 'list_collections',
     description:
-      'List collections the user has shared with the agent. Returns id, name, request count, and the consent level. Hidden collections are filtered out.',
+      'List collections the user has shared with the agent. Returns id, name, request count, and whether the agent may edit (`editable`) or send (`executable`) its requests. Hidden collections are filtered out.',
     inputSchema: ListCollectionsInputSchema,
   } satisfies McpToolDefinition<z.infer<typeof ListCollectionsInputSchema>>,
 
   list_requests: {
     name: 'list_requests',
     description:
-      'List requests inside a collection. Optionally filter by folder path (e.g. "users/auth"). Returns request metadata only — no plaintext secrets.',
+      'List requests inside a collection. Optionally filter by folder path (e.g. "users/auth"). Returns request metadata only (id, name, folder path, type, method, URL, auth type) — no plaintext secrets. Use get_request for the full definition.',
     inputSchema: ListRequestsInputSchema,
   } satisfies McpToolDefinition<z.infer<typeof ListRequestsInputSchema>>,
 
@@ -147,13 +150,6 @@ export function dispatchTool(name: string, rawInput: unknown, ctx: McpDispatchCo
       return getEnvironment(GetEnvironmentInputSchema, rawInput, ctx);
     case 'list_environments':
       return listEnvironments(ListEnvironmentsInputSchema, rawInput, ctx);
-    case 'execute_request':
-      // Future tool — gated by `canExecute`. v1 always refuses.
-      return {
-        ok: false,
-        error:
-          'execute_request is not enabled in this build. The MCP server v1 ships read-only tools; subscribe to the v2 milestone for execution support.',
-      };
     default:
       return { ok: false, error: `Unknown tool: ${name}` };
   }
@@ -188,6 +184,7 @@ function listCollections(
     name: c.name,
     description: c.description ?? '',
     requestCount: countRequests(c.items),
+    editable: canEdit(ctx.consent, c.id),
     executable: canExecute(ctx.consent, c.id),
   }));
   return { ok: true, data: { collections: summaries } };

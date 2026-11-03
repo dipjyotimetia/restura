@@ -394,7 +394,7 @@ describe('dispatchTool — environment tools', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Unknown tool / execute_request stub
+// Unknown tool
 // ---------------------------------------------------------------------------
 
 describe('dispatchTool — error paths', () => {
@@ -405,7 +405,7 @@ describe('dispatchTool — error paths', () => {
     expect(r.error).toMatch(/Unknown tool/);
   });
 
-  it('execute_request always refuses in v1 (deferred)', () => {
+  it('the pure snapshot dispatcher never executes: send tools live in the renderer runtime', () => {
     const r = dispatchTool(
       'execute_request',
       { collectionId: sampleCollection.id, requestId: 'i-1' },
@@ -413,7 +413,7 @@ describe('dispatchTool — error paths', () => {
     );
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.error).toMatch(/not enabled/);
+    expect(r.error).toMatch(/Unknown tool/);
   });
 });
 

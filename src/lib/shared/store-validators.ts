@@ -1,5 +1,6 @@
 import { AgentSuiteSchema } from '@shared/agent-lab';
 import { AgentTelemetryConfigSchema } from '@shared/agent-lab/telemetry-config';
+import { McpServerSettingsCatchSchema } from '@shared/mcp-server/settings';
 import { z } from 'zod';
 import {
   AiLabReportEnvelopeSchema,
@@ -724,6 +725,7 @@ export const appSettingsSchema = z
       .catch(undefined),
     nativeAppDownloadBannerDismissedUntil: z.number().int().positive().optional().catch(undefined),
     grpcUnknownFields: z.enum(['warn', 'block', 'off']).optional().catch(undefined),
+    mcpServer: McpServerSettingsCatchSchema.optional().catch(undefined),
   })
   .passthrough();
 

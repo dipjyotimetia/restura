@@ -16,6 +16,10 @@
  * `export type` line at the bottom. A deliberate, documented difference gets a
  * `// drift:` comment and the third `PayloadParity` argument (schema-only keys).
  */
+import type {
+  ControlServerStartSchema,
+  ToolCallResultPayloadSchema,
+} from '@shared/mcp-server/control-bridge';
 import type { z } from 'zod';
 import type { ElectronAPI } from '../../../types/electron-api';
 import type {
@@ -156,4 +160,10 @@ export type McpConnectStdioParity = Assert<
 >;
 export type McpRequestParity = Assert<
   PayloadParity<Arg0<Api['mcp']['request']>, typeof McpRequestSchema>
+>;
+export type McpControlStartParity = Assert<
+  PayloadParity<NonNullable<Arg0<Api['mcpControl']['start']>>, typeof ControlServerStartSchema>
+>;
+export type McpControlToolResultParity = Assert<
+  PayloadParity<Arg0<Api['mcpControl']['sendToolResult']>, typeof ToolCallResultPayloadSchema>
 >;

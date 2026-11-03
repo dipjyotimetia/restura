@@ -1,3 +1,4 @@
+import type { McpServerSettings } from '@shared/mcp-server/settings';
 import type { Provider } from '@shared/protocol/ai/types';
 import type {
   CaCert,
@@ -75,6 +76,10 @@ export interface AppSettings {
   // `warn` (default) lints them live and sends without them, `block` refuses
   // the send, `off` drops them silently.
   grpcUnknownFields?: GrpcUnknownFieldsMode;
+  // Desktop MCP control server (ADR 0041): on/off, approval mode and the
+  // per-collection / per-environment consent agents are held to. Absent =
+  // DEFAULT_MCP_SERVER_SETTINGS (off, everything hidden).
+  mcpServer?: McpServerSettings;
 }
 
 /** How unknown gRPC request fields are handled. Absent = `warn`. */
