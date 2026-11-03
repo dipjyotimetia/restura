@@ -4,18 +4,119 @@
  * These functions are deliberately framework-free so they can be reused from
  * components, hooks, scripts, or tests without dragging in React.
  *
- * Field-shape validators (URL / service / method name) are thin re-exports
- * from `grpcClient.ts` to keep one source of truth for those rules; the
- * message-payload validation lives here because it was previously inlined
- * inside the GrpcRequestBuilder component.
+ * Field-shape validators (URL / service / method name) live here — the one
+ * source of truth for those rules, used by the builder and the send paths —
+ * alongside the message-payload validation.
  */
-import {
-  validateGrpcUrl,
-  validateMethodName,
-  validateServiceName,
-} from '@/features/grpc/lib/grpcClient';
+import { isValidGrpcMethodName, isValidGrpcServiceName } from '@shared/protocol/grpc-names';
+import { hasVariableToken } from '@shared/variables/tokens';
+import { isElectron } from '@/lib/shared/platform';
 
-export { validateGrpcUrl, validateMethodName, validateServiceName };
+/**
+ * Builder-time validation accepts a `{{variable}}` reference (resolved at send
+ * time, shared variable grammar — ADR-0039). Send paths validate the RESOLVED
+ * value with `allowTemplates: false`, so a reference that didn't resolve is
+ * refused instead of being sent as a relative URL / literal name.
+ */
+export interface GrpcFieldValidationOptions {
+  allowTemplates?: boolean;
+}
+
+function templateCheck(
+  text: string,
+  options: GrpcFieldValidationOptions,
+  field: string
+): { valid: boolean; error?: string } | null {
+  if (!hasVariableToken(text)) return null;
+  if (options.allowTemplates !== false) return { valid: true };
+  return { valid: false, error: `The ${field} holds an unresolved {{variable}}: ${text}` };
+}
+
+const DESKTOP_GRPC_SCHEMES = ['grpc://', 'grpcs://'];
+
+/**
+ * Validate a gRPC server URL. `http(s)://` everywhere; `grpc://` / `grpcs://`
+ * on desktop (the Electron dialer accepts them). A URL holding a
+ * `{{variable}}` is checked after resolution, at send time — the builder can't
+ * know its value, so it isn't rejected here.
+ */
+export function validateGrpcUrl(
+  url: string,
+  options: GrpcFieldValidationOptions = {}
+): { valid: boolean; error?: string } {
+  if (!url) {
+    return { valid: false, error: 'URL is required' };
+  }
+  const template = templateCheck(url, options, 'URL');
+  if (template) return template;
+
+  const lower = url.toLowerCase();
+  const isHttp = lower.startsWith('http://') || lower.startsWith('https://');
+  const isGrpcScheme = DESKTOP_GRPC_SCHEMES.some((s) => lower.startsWith(s));
+  if (isGrpcScheme && !isElectron()) {
+    return {
+      valid: false,
+      error: 'grpc:// and grpcs:// URLs need the desktop app — use http:// or https:// on the web',
+    };
+  }
+  if (!isHttp && !isGrpcScheme) {
+    return {
+      valid: false,
+      error: isElectron()
+        ? 'gRPC URL must start with http://, https://, grpc:// or grpcs://'
+        : 'gRPC URL must start with http:// or https://',
+    };
+  }
+
+  try {
+    new URL(url);
+    return { valid: true };
+  } catch {
+    return { valid: false, error: 'Invalid URL format' };
+  }
+}
+
+/**
+ * Validate a fully-qualified service name against protobuf identifier rules
+ * (shared with every relay): any-case package segments, optional package.
+ */
+export function validateServiceName(
+  service: string,
+  options: GrpcFieldValidationOptions = {}
+): { valid: boolean; error?: string } {
+  if (!service) {
+    return { valid: false, error: 'Service name is required' };
+  }
+  const template = templateCheck(service, options, 'service name');
+  if (template) return template;
+  if (!isValidGrpcServiceName(service)) {
+    return {
+      valid: false,
+      error:
+        'Service name must be a fully-qualified protobuf name, e.g. greet.v1.GreetService (letters, digits and _ per segment)',
+    };
+  }
+  return { valid: true };
+}
+
+/** Validate a method name: one protobuf identifier (any case, e.g. SayHello or get_item). */
+export function validateMethodName(
+  method: string,
+  options: GrpcFieldValidationOptions = {}
+): { valid: boolean; error?: string } {
+  if (!method) {
+    return { valid: false, error: 'Method name is required' };
+  }
+  const template = templateCheck(method, options, 'method name');
+  if (template) return template;
+  if (!isValidGrpcMethodName(method)) {
+    return {
+      valid: false,
+      error: 'Method name must be a protobuf identifier, e.g. SayHello (letters, digits and _)',
+    };
+  }
+  return { valid: true };
+}
 
 export interface GrpcFieldValidation {
   valid: boolean;

@@ -14,11 +14,6 @@
 import type { DescMethod, Registry } from '@bufbuild/protobuf';
 import { ConnectError, createClient, type Transport } from '@connectrpc/connect';
 import {
-  compressionGzip,
-  createConnectTransport,
-  createGrpcTransport,
-} from '@connectrpc/connect-node';
-import {
   callKindOf,
   inputFromJson,
   outputToJson,
@@ -32,19 +27,20 @@ import { flattenHeaders } from '@shared/protocol/header-utils';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { resolveUrlHostnameSafe } from '../security/dns-guard';
 import { getExecutionPolicy } from '../security/execution-policy';
-import { buildTlsClientMaterial } from '../security/tls-material';
 import type { GrpcTlsConfig } from './grpc-credentials';
-import { pinnedTransportPlan, type WireProtocolArgs } from './grpc-wire-protocol';
+import {
+  combinedErrorMessage,
+  isProtocolRejectionError,
+  noteRejection,
+  noteSettled,
+  type PinnedDial,
+  type TransportAttempt,
+  transportPlan,
+} from './grpc-transport';
+import type { WireProtocolArgs } from './grpc-wire-protocol';
 
 // gRPC URL schemes the SSRF guard accepts (renderer + reflection emit grpc://).
 const GRPC_ALLOWED_SCHEMES = ['http:', 'https:', 'grpc:', 'grpcs:'];
-
-/** A DNS-validated, pinned dial target. */
-export interface PinnedDial {
-  ip: string;
-  port: number;
-  family: 4 | 6;
-}
 
 /**
  * SSRF pre-flight: resolve + validate the hostname and return a pinned dial (IP
@@ -77,181 +73,10 @@ export interface ConnectCallResult {
   statusDetails?: GrpcStatusDetail[] | undefined; // decoded google.rpc.Status details
 }
 
-// Custom DNS lookup that pins every resolution to the pre-validated IP, closing
-// the TTL=0 DNS-rebind window. Node 24's net.connect calls lookup with
-// `{ all: true }` and expects an array of { address, family }; the positional
-// (err, address, family) form is only used otherwise — support both.
-function pinnedLookup(dial: PinnedDial) {
-  return (
-    _hostname: string,
-    opts: { all?: boolean } | undefined,
-    cb: (err: Error | null, address: unknown, family?: number) => void
-  ): void => {
-    if (opts?.all) cb(null, [{ address: dial.ip, family: dial.family }]);
-    else cb(null, dial.ip, dial.family);
-  };
-}
-
-/** Canonical http(s) base URL for a dial target — also the fallback-memo key. */
-function transportBaseUrl(url: string, dial: PinnedDial): string {
-  const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
-  return `${useTls ? 'https' : 'http'}://${new URL(url).hostname}:${dial.port}`;
-}
-
-// Shared baseUrl + Node http2/tls options + size caps for every transport flavour. The
-// request's trust material (custom CA / mTLS / verify toggle) maps onto Node's options, with
-// SNI + cert hostname check kept on the real hostname. readMaxBytes (SEC-G1, #929) replaces
-// connect's ~4 GiB default: checked per message on the envelope length prefix BEFORE
-// buffering, and handed to gzip/brotli as maxOutputLength (bombs) → RESOURCE_EXHAUSTED.
-function buildNodeTransportBase(url: string, dial: PinnedDial, tls?: GrpcTlsConfig) {
-  const host = new URL(url).hostname;
-  const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
-  const baseUrl = transportBaseUrl(url, dial);
-
-  const nodeOptions: Record<string, unknown> = { lookup: pinnedLookup(dial) };
-  if (useTls) {
-    nodeOptions.servername = host; // SNI + cert hostname check stay on the hostname
-    if (tls?.verifySsl === false) nodeOptions.rejectUnauthorized = false;
-    // mTLS client cert (PKCS#12 or cert+key, with a main-resolved passphrase) +
-    // custom CA. Shared with the HTTP handler so cert/CA handling can't drift.
-    if (tls) Object.assign(nodeOptions, buildTlsClientMaterial(tls));
-  }
-  return {
-    baseUrl,
-    nodeOptions,
-    readMaxBytes: MAX_RESPONSE_SIZE,
-    writeMaxBytes: MAX_RESPONSE_SIZE,
-  };
-}
-
-// Build a connect-node native-gRPC transport that dials the pinned IP.
-// Exported for tests (transport options aren't observable through a live call).
-export function buildConnectTransport(
-  url: string,
-  dial: PinnedDial,
-  tls?: GrpcTlsConfig,
-  useCompression?: boolean
-): Transport {
-  return createGrpcTransport({
-    ...buildNodeTransportBase(url, dial, tls),
-    // Parity with the old grpc.default_compression_algorithm=gzip channel arg.
-    ...(useCompression ? { sendCompression: compressionGzip } : {}),
-  });
-}
-
-/**
- * Connect-protocol transport over the same pinned dial + TLS options — the
- * fallback for servers (or edges, e.g. Cloudflare in front of a Worker) that
- * reject native gRPC at the HTTP level but speak the Connect protocol.
- */
-export function buildConnectFallbackTransport(
-  url: string,
-  dial: PinnedDial,
-  tls?: GrpcTlsConfig,
-  useCompression?: boolean
-): Transport {
-  return createConnectTransport({
-    ...buildNodeTransportBase(url, dial, tls),
-    httpVersion: '2',
-    ...(useCompression ? { sendCompression: compressionGzip } : {}),
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Native-gRPC → Connect-protocol fallback
-// ---------------------------------------------------------------------------
-
-// Matches ONLY errors thrown by connect's protocol-grpc validateResponse —
-// "HTTP <status>" (status ≠ 200) or "unsupported content type <mime>" — i.e.
-// the peer answered HTTP but not native gRPC. A conformant gRPC server always
-// returns HTTP 200 and carries errors in grpc-status trailers, whose
-// ConnectError keeps the server's own message, so genuine gRPC statuses
-// (including a real PERMISSION_DENIED) never match.
-const HTTP_REJECTION_RE = /^HTTP [1-9]\d{2}$/;
-
-export function isProtocolRejectionError(err: unknown): boolean {
-  if (!(err instanceof ConnectError)) return false; // socket/TLS errors → no fallback
-  return (
-    HTTP_REJECTION_RE.test(err.rawMessage) || err.rawMessage.startsWith('unsupported content type ')
-  );
-}
-
-// Per-origin memo of "this server needs the Connect fallback" so reflection
-// round-trips and later RPCs skip the doomed native attempt (bounded LRU Set).
-const CONNECT_PREFERRED_MAX = 100;
-const connectPreferred = new Set<string>();
-
-function prefersConnect(baseUrl: string): boolean {
-  if (!connectPreferred.has(baseUrl)) return false;
-  connectPreferred.delete(baseUrl);
-  connectPreferred.add(baseUrl);
-  return true;
-}
-
-function noteConnectPreferred(baseUrl: string): void {
-  connectPreferred.delete(baseUrl);
-  connectPreferred.add(baseUrl);
-  if (connectPreferred.size > CONNECT_PREFERRED_MAX) {
-    const oldest = connectPreferred.values().next().value;
-    if (oldest !== undefined) connectPreferred.delete(oldest);
-  }
-}
-
-export function resetProtocolFallbackStateForTests(): void {
-  connectPreferred.clear();
-}
-
-interface TransportAttempt {
-  protocol: 'grpc' | 'connect' | 'grpc-web';
-  transport: Transport;
-}
-
-// Ordered transports for one call: a pinned wireProtocol (#914) is the sole attempt;
-// injected (test) transports skip the implicit fallback; known-rejecting origins skip native.
-function transportPlan(t: TransportArgs): TransportAttempt[] {
-  if (t.wireProtocol) return pinnedTransportPlan(t, buildNodeTransportBase) ?? [];
-  if (t.transport) {
-    const attempts: TransportAttempt[] = [{ protocol: 'grpc', transport: t.transport }];
-    if (t.fallbackTransport) attempts.push({ protocol: 'connect', transport: t.fallbackTransport });
-    return attempts;
-  }
-  const connect: TransportAttempt = {
-    protocol: 'connect',
-    transport: buildConnectFallbackTransport(t.url, t.dial, t.tls, t.useCompression),
-  };
-  if (prefersConnect(transportBaseUrl(t.url, t.dial))) return [connect];
-  return [
-    { protocol: 'grpc', transport: buildConnectTransport(t.url, t.dial, t.tls, t.useCompression) },
-    connect,
-  ];
-}
-
-// Record the fallback preference for a live (non-injected) rejected attempt.
-function noteRejection(t: TransportArgs): void {
-  if (!t.transport) noteConnectPreferred(transportBaseUrl(t.url, t.dial));
-}
-
-function combinedErrorMessage(rejection: ConnectError | null, final: ConnectError): string {
-  if (!rejection) return final.rawMessage;
-  return `Server rejected native gRPC (${rejection.rawMessage}); Connect protocol fallback also failed: ${final.rawMessage}`;
-}
-
 function buildRegistry(descriptors?: string[], protoContent?: string): Registry {
   if (descriptors && descriptors.length > 0) return registryFromDescriptors(descriptors);
   if (protoContent) return registryFromProtoText(protoContent);
   throw new Error('No proto source: provide reflection descriptors or proto content');
-}
-
-interface TransportArgs extends WireProtocolArgs {
-  url: string;
-  dial: PinnedDial;
-  tls?: GrpcTlsConfig;
-  /** Gzip-compress outbound messages (`sendCompression: compressionGzip`). */
-  useCompression?: boolean;
-  /** Inject a transport for tests (e.g. createRouterTransport). */
-  transport?: Transport;
-  /** Inject the Connect-fallback transport for tests (second attempt). */
-  fallbackTransport?: Transport;
 }
 
 // Resolve a method off a registry and return the dynamic client method bound
@@ -304,7 +129,7 @@ export interface ConnectUnaryArgs extends WireProtocolArgs {
 export async function executeConnectUnary(args: ConnectUnaryArgs): Promise<ConnectCallResult> {
   const registry = buildRegistry(args.descriptors, args.protoContent);
   const attempts = transportPlan(args);
-  let rejection: ConnectError | null = null;
+  let rejection: { protocol: TransportAttempt['protocol']; error: ConnectError } | null = null;
 
   for (let i = 0; i < attempts.length; i++) {
     const attempt = attempts[i] as TransportAttempt;
@@ -327,6 +152,7 @@ export async function executeConnectUnary(args: ConnectUnaryArgs): Promise<Conne
         onHeader: (h: Headers) => Object.assign(headers, flattenHeaders(h)),
         onTrailer: (t: Headers) => Object.assign(trailers, flattenHeaders(t)),
       });
+      noteSettled(args, attempt, rejection?.protocol === 'grpc');
       return {
         status: 0,
         statusText: 'OK',
@@ -335,10 +161,11 @@ export async function executeConnectUnary(args: ConnectUnaryArgs): Promise<Conne
         message: outputToJson(method, res),
       };
     } catch (err) {
-      if (i < attempts.length - 1 && isProtocolRejectionError(err)) {
-        rejection = ConnectError.from(err);
-        noteRejection(args);
-        continue; // retry over the Connect protocol with fresh headers/trailers
+      const refused = isProtocolRejectionError(err);
+      if (refused) noteRejection(args, attempt);
+      if (i < attempts.length - 1 && refused) {
+        rejection = { protocol: attempt.protocol, error: ConnectError.from(err) };
+        continue; // retry over the other protocol with fresh headers/trailers
       }
       // Connect's Code enum is numerically identical to the gRPC status codes.
       const ce = ConnectError.from(err);
@@ -471,7 +298,7 @@ export function runConnectStream(
   let ended = false;
   let inboundDelivered = false;
   let attemptIndex = 0;
-  let rejection: ConnectError | null = null;
+  let rejection: { protocol: TransportAttempt['protocol']; error: ConnectError } | null = null;
   let currentQueue: InputQueue<unknown> | null = null;
   let currentMethod: DescMethod | null = null;
 
@@ -480,14 +307,12 @@ export function runConnectStream(
       handlers.onCancelled();
       return;
     }
-    const canRetry =
-      attemptIndex < attempts.length - 1 &&
-      isProtocolRejectionError(err) &&
-      !inboundDelivered &&
-      !replayOverflow;
+    const attempt = attempts[attemptIndex] as TransportAttempt;
+    const refused = isProtocolRejectionError(err) && !inboundDelivered;
+    if (refused) noteRejection(args, attempt);
+    const canRetry = attemptIndex < attempts.length - 1 && refused && !replayOverflow;
     if (canRetry) {
-      rejection = ConnectError.from(err);
-      noteRejection(args);
+      rejection = { protocol: attempt.protocol, error: ConnectError.from(err) };
       attemptIndex++;
       startAttempt();
       return;
@@ -550,6 +375,7 @@ export function runConnectStream(
           flushHeld();
           handlers.onMessage(outputToJson(method, msg));
         }
+        noteSettled(args, attempt, rejection?.protocol === 'grpc');
         flushHeld();
         handlers.onClose(0, 'OK');
       } catch (err) {
@@ -573,6 +399,7 @@ export function runConnectStream(
       const p = invoke(queue, callOpts) as Promise<unknown>;
       p.then((res) => {
         inboundDelivered = true;
+        noteSettled(args, attempt, rejection?.protocol === 'grpc');
         flushHeld();
         handlers.onMessage(outputToJson(method, res));
         handlers.onClose(0, 'OK');
@@ -774,7 +601,7 @@ export async function executeConnectReflection(
   const registry = registryFromProtoText(reflectionProto(args.version));
   const serviceName = `grpc.reflection.${args.version}.ServerReflection`;
   const attempts = transportPlan(args);
-  let rejection: ConnectError | null = null;
+  let rejection: { protocol: TransportAttempt['protocol']; error: ConnectError } | null = null;
 
   for (let i = 0; i < attempts.length; i++) {
     const attempt = attempts[i] as TransportAttempt;
@@ -795,15 +622,18 @@ export async function executeConnectReflection(
       const callOptions = { timeoutMs: args.timeoutMs, headers: args.metadata };
       const stream = invoke(once(), callOptions) as AsyncIterable<unknown>;
       for await (const resp of stream) {
+        noteSettled(args, attempt, rejection?.protocol === 'grpc');
         // Returning breaks the for-await, which cancels the bidi after the single
         // response — exactly what the grpc-js path did with write()+end()+first data.
         return mapReflectionResponse(outputToJson(method, resp) as ReflectionResponseJson);
       }
+      noteSettled(args, attempt, rejection?.protocol === 'grpc');
       return {};
     } catch (err) {
-      if (i < attempts.length - 1 && isProtocolRejectionError(err)) {
-        rejection = ConnectError.from(err);
-        noteRejection(args);
+      const refused = isProtocolRejectionError(err);
+      if (refused) noteRejection(args, attempt);
+      if (i < attempts.length - 1 && refused) {
+        rejection = { protocol: attempt.protocol, error: ConnectError.from(err) };
         continue;
       }
       if (rejection) {

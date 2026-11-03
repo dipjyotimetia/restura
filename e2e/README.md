@@ -48,12 +48,17 @@ e2e/
 │   ├── proxyServer.ts        # CONNECT-tunneling HTTP proxy server
 │   ├── socksProxyServer.ts   # SOCKS5 proxy (desktop + echo-local)
 │   ├── grpcServer.ts         # Connect-RPC JSON server (echo + reflection)
+│   ├── conformanceServer.ts  # gRPC conformance service on connect-node (gRPC/Connect/gRPC-Web) AND grpc-js,
+│   │                         #   plus an Envoy-style grpc-web-text front; checks auth + metadata server-side
+│   ├── conformanceFixtures.ts # Shared complex payload + bufbuild oracle for every conformance suite
 │   ├── wsServer.ts           # WebSocket echo / chat / graphql-transport-ws
 │   ├── socketioServer.ts     # Socket.IO server (namespaces /, /chat, /admin)
 │   ├── mcpServer.ts          # Streamable-HTTP MCP server
 │   ├── mcpV2Server.ts        # MCP server on the v2 SDK (used by the e2e-electron suite)
 │   ├── mcpOAuthServer.ts     # OAuth 2.1 AS for the MCP auth flow (#856); pairs with mcpServer's oauth mode
 │   ├── mcpLegacySessionServer.ts # Sessionful 2025-era MCP that pushes resources/updated + list_changed
+│   ├── proto/conformance.proto # Every proto3 shape + WKTs; `buf generate` → proto/gen/ (protoc-gen-es)
+│   ├── proto/google/rpc/     # Vendored googleapis status + error_details (Apache-2.0) for rich errors
 │   └── proto/echo.proto      # Reference IDL for the mock gRPC service
 ├── utils/
 │   ├── selectors.ts          # Stable role/label selectors for common controls

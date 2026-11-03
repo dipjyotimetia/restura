@@ -1,3 +1,4 @@
+import { normalizeBinaryMetadata } from '@shared/protocol/grpc-request-policy';
 import type { GrpcStatusDetail } from '@shared/protocol/grpc-status-details';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { createLogger } from '@shared/runtime/logger';
@@ -19,15 +20,23 @@ import { materializeExternalProtocolAuth } from '../security/external-secret-mat
 import {
   executeConnectServerStreamCollect,
   executeConnectUnary,
-  type PinnedDial,
   resolveGrpcDialAddress,
   runConnectStream,
 } from './grpc-connect';
 import { type GrpcTlsConfig, resolveGrpcExecutionPolicy } from './grpc-credentials';
+import type { PinnedDial } from './grpc-transport';
 
 const log = createLogger('grpc');
 
-export const grpcRateLimiter = createKeyedRateLimiter(30, 60_000);
+// Unary / buffered `grpc:request` sends. Same rationale and ceiling as the
+// HTTP limiter: the renderer is trusted, and collection runs, retries and
+// load-style runs fire many calls a minute — 30/min turned a 31-request gRPC
+// collection run into self-inflicted "Rate limit exceeded" failures. The
+// limiter only backstops runaway loops.
+export const grpcRateLimiter = createKeyedRateLimiter(6000, 60_000);
+// Live stream opens (`grpc:start-stream`): each holds an HTTP/2 stream open,
+// so a lower ceiling — still well above interactive and collection-run use.
+export const grpcStreamRateLimiter = createKeyedRateLimiter(600, 60_000);
 
 // Belt-and-braces guard on the stream id used to key activeCalls.
 const SAFE_GRPC_ID_RE = /^[a-zA-Z0-9_-]+$/;
@@ -83,6 +92,8 @@ interface PendingStreamFields {
   writes: unknown[];
   end: boolean;
   createdAt: number;
+  /** More than MAX_PENDING_WRITES raced ahead — the stream is failed on registration. */
+  overflowed: boolean;
 }
 
 const MAX_PENDING_WRITES = 256;
@@ -105,10 +116,16 @@ const reservePendingStream = (
   if (activeCalls.has(id, sender.id) || activeCalls.pendingCount() >= MAX_PENDING_STREAMS) {
     return undefined;
   }
-  return activeCalls.reserveClaim(id, sender, { writes: [], end: false, createdAt: Date.now() });
+  return activeCalls.reserveClaim(id, sender, {
+    writes: [],
+    end: false,
+    createdAt: Date.now(),
+    overflowed: false,
+  });
 };
 
 const GRPC_CANCELLED = 1;
+const GRPC_RESOURCE_EXHAUSTED = 8;
 
 /**
  * A live stream with no traffic in either direction for this long is treated as
@@ -239,6 +256,15 @@ const addActiveCall = (
   // PendingStreamFields). For server-streaming write/end are no-ops, so this
   // is harmless there.
   activeCalls.releaseClaim(claim);
+  // Dropping the excess would send a silently truncated client stream; fail it
+  // instead so the renderer sees why.
+  if (claim.overflowed) {
+    call.terminate(
+      GRPC_RESOURCE_EXHAUSTED,
+      `More than ${MAX_PENDING_WRITES} messages were sent before the stream opened`
+    );
+    return true;
+  }
   for (const msg of claim.writes) call.write(msg);
   if (claim.end) call.end();
   return true;
@@ -279,7 +305,8 @@ export function mergeMainSideAuth(
   if (Object.keys(headers).length === 0) return metadata;
   const merged = { ...metadata };
   for (const [k, v] of Object.entries(headers)) merged[k.toLowerCase()] = v;
-  return merged;
+  // A main-resolved credential on a `-bin` key travels base64 like any other.
+  return normalizeBinaryMetadata(merged);
 }
 
 // Build the connect-node call args (shared by the unary / streaming executors)
@@ -310,7 +337,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return {
       status: 2,
-      statusText: 'Internal Error',
+      statusText: 'UNKNOWN', // code 2 — matches GrpcStatusCodeName
       headers: {},
       trailers: {},
       error: `gRPC setup failed: ${detail}`,
@@ -344,7 +371,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return {
       status: 2,
-      statusText: 'Internal Error',
+      statusText: 'UNKNOWN', // code 2 — matches GrpcStatusCodeName
       headers: {},
       trailers: {},
       error: `gRPC setup failed: ${detail}`,
@@ -390,7 +417,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     // client/bidi aren't buffered — they run live via grpc:start-stream.
     return {
       status: 2,
-      statusText: 'Internal Error',
+      statusText: 'UNKNOWN', // code 2 — matches GrpcStatusCodeName
       headers: {},
       trailers: {},
       error: `Method type ${config.methodType} not supported in synchronous mode`,
@@ -399,7 +426,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     const error = err instanceof Error ? err : new Error(String(err));
     return {
       status: 2,
-      statusText: 'Internal Error',
+      statusText: 'UNKNOWN', // code 2 — matches GrpcStatusCodeName
       headers: {},
       trailers: {},
       error: `gRPC setup failed: ${sanitizeErrorMessage(error.message)}`,
@@ -461,7 +488,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           }
         };
 
-        if (!grpcRateLimiter.check(event.sender.id)) {
+        if (!grpcStreamRateLimiter.check(event.sender.id)) {
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 14,
             details: 'Rate limit exceeded',
@@ -708,7 +735,9 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         // Stream not registered yet — start-stream is still resolving DNS.
         // Buffer only for the renderer that reserved the stream id.
         const pending = activeCalls.claimFor(requestId, event.sender.id);
-        if (pending && pending.writes.length < MAX_PENDING_WRITES) pending.writes.push(message);
+        if (!pending) return;
+        if (pending.writes.length < MAX_PENDING_WRITES) pending.writes.push(message);
+        else pending.overflowed = true;
       }
     )
   );

@@ -34,13 +34,17 @@ The same policy applies to collection runs and to every message of a stream. Pre
 
 The request's **Settings → Wire Protocol** selector is saved with the request (and in OpenCollection exports):
 
-- **Auto** (default) — desktop dials native gRPC and falls back to Connect when the server rejects it; web sends Connect JSON through the Worker (unary, no schema needed).
+- **Auto** (default) — desktop dials native gRPC and falls back to Connect only when the server *refuses* native gRPC (HTTP 4xx other than 408/429, or 501/505 — e.g. a 415 or an edge refusing the gRPC content type). A transient 502/503/504 or a 429 is reported as-is and the call is never re-sent over another protocol. A server that needed the fallback is remembered (desktop session), but native gRPC is still tried if the Connect path is later refused, so the memo heals itself. Web sends Connect JSON through the Worker (unary, no schema needed). The CLI's Auto is Connect only; a native-gRPC-only server fails with an explicit message saying so.
 - **gRPC** <Badge text="desktop" variant="caution" /> — native gRPC over HTTP/2 only, no fallback.
 - **gRPC-Web** — binary `application/grpc-web+proto`, for servers behind an Envoy `grpc_web` filter, grpcwebproxy, or any Connect/gRPC-Web server. Unary and server streaming work on web (relayed by the Worker's `/api/grpc-web`, messages streamed as they arrive) and desktop. Needs the schema — reflect or upload a `.proto` first.
 - **gRPC-Web text** <Badge text="web" variant="note" /> — the base64 `application/grpc-web-text` variant.
 - **Connect** — Connect protocol only.
 
 gRPC-Web has no request streaming, so client and bidirectional streaming need native gRPC on desktop.
+
+**Path prefixes** are kept on every wire protocol and target: `https://gateway.example.com/grpc/` calls `/grpc/pkg.Service/Method`. URLs may use `http://` / `https://` everywhere and `grpc://` / `grpcs://` on desktop.
+
+**Status codes for non-gRPC replies** — when something other than a gRPC server answers (an HTML 404 from a gateway, a native-gRPC-only server's 415), the status comes from the HTTP code per the gRPC/Connect mapping (404 → `UNIMPLEMENTED`, 401 → `UNAUTHENTICATED`, 403 → `PERMISSION_DENIED`, 429/502/503/504 → `UNAVAILABLE`, others → `UNKNOWN`), and the error names the HTTP status instead of echoing the page. The Connect relay sends your deadline as `Connect-Timeout-Ms`.
 
 ### Schema drift
 
@@ -60,7 +64,9 @@ Each snapshot records a content hash and the time it was captured. When you refl
 - **Response** — the **Body** tab offers Pretty / Raw / Tree views, a JSONPath query, find, copy, and download (a streamed response's frames appear as one JSON array, indexed by frame). **Headers** shows the server's leading metadata and **Trailers** the `grpc-status` / `grpc-message` and any trailing metadata.
 - **Rich error details** — when an error carries `google.rpc.Status` details (from the `grpc-status-details-bin` trailer or Connect's error JSON), an **Error details** tab decodes them: `BadRequest`, `ErrorInfo`, `RetryInfo`, `QuotaFailure`, `PreconditionFailure`, `DebugInfo`, `RequestInfo`, `ResourceInfo`, `Help` and `LocalizedMessage` as JSON, types from your loaded schema likewise, and anything else as its type plus raw base64 (Connect's `debug` rendering is shown too). Test scripts read the same list as `pm.response.statusDetails`. Works on web, self-hosted and desktop, unary and streaming, over every wire protocol (gRPC-Web included).
 - **Field violations in the editor** — when those details include a `google.rpc.BadRequest`, each rejected field is underlined in the request message with the server's description (nested and repeated paths such as `book.authors[1].email_address` are mapped to the JSON keys you wrote, using the request's schema when one is loaded). The Error details tab lists the violations; click one to jump to the field. A field that is missing from the message is marked on its parent object.
-- **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from globals, the environment, the collection and its folders at call time.
+- **`{{variables}}` in the URL, service and method** — autocompleted and highlighted (unresolved names are flagged). Resolved from globals, the environment, the collection and its folders at call time; the builder validates the resolved value when you send, not the template.
+- **Names** — service and method names follow protobuf identifier rules on every target: any-case package segments (`Company.Orders.OrderService`), package-less services, and non-PascalCase methods (`get_item`).
+- **`google.protobuf.Any`** — fields of type `Any` are encoded and decoded as JSON (`{"@type": "type.googleapis.com/pkg.Type", …}`) for any type in the loaded schema, on every wire protocol.
 
 ### Deadlines and long-lived streams
 
@@ -84,10 +90,11 @@ Two more settings live elsewhere:
 
 ## Authentication
 
-**Bearer**, **Basic**, **API Key** (header placement) and **OAuth 2.0** are sent as lowercase metadata. Keychain-stored secrets are resolved in the main process on desktop. The app's gRPC rule for Basic requires both a username and a password. In the CLI, external secret references on gRPC items resolve like HTTP and fail the item explicitly when no resolver is available.
+Pick the method in the request's **Auth** tab (**No Auth** reads **Inherit (…)** when a folder or collection supplies one). **Bearer**, **Basic**, **API Key** (header placement) and **OAuth 2.0** are sent as lowercase metadata; `{{variables}}` in their fields resolve at send time, like the URL and metadata. Keychain-stored secrets are resolved in the main process on desktop. The app's gRPC rule for Basic requires both a username and a password. In the CLI, external secret references on gRPC items resolve like HTTP and fail the item explicitly when no resolver is available.
 
 - **Not supported for gRPC yet:** AWS SigV4, OAuth 1.0, WSSE, Digest and NTLM. These need the exact wire bytes or a challenge round-trip that the gRPC transports don't do. The auth tab shows a warning, and Send is blocked with an error rather than sending the call without credentials. As a workaround, set Auth to **No Auth** (on the request and on any folder or collection it inherits from) and put a pre-computed credential in a metadata entry. Inherited folder/collection auth is checked the same way as the request's own, for unary and streaming calls.
-- **Custom metadata** — gRPC uses metadata in place of HTTP headers; edit it in the same table as HTTP headers, with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row. Values resolve `{{variables}}`. There is no per-entry size limit (multi-KB bearer JWTs are fine); total metadata, including auth, is capped at 16 KiB.
+- **Custom metadata** — gRPC uses metadata in place of HTTP headers; edit it in the same table as HTTP headers, with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row. Values resolve `{{variables}}`. There is no per-entry size limit (multi-KB bearer JWTs are fine); total metadata, including auth, is capped at 16 KiB. Protocol headers the relay owns (`content-type`, `connect-*`, `grpc-timeout`, …) can't be overridden from metadata.
+- **Binary metadata** — keys ending in `-bin` travel base64-encoded on every wire protocol. A value that is already valid base64 (standard or URL-safe, padded or not) is sent as typed; any other value is treated as UTF-8 text and encoded for you. Short words made only of base64 characters (`test`, `user1`) are valid base64 too, so for text values in a `-bin` key enter the base64 yourself.
 
 ## Scripts
 

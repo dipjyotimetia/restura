@@ -15,11 +15,7 @@ export {
   makeProxyGrpcRequest,
   parseProtoFile,
   prepareGrpcRequest,
-  validateGrpcUrl,
-  validateMethodName,
-  validateServiceName,
 } from './lib/grpcClient';
-
 // Lib - Reflection
 export {
   clearReflectionCache,
@@ -27,3 +23,4 @@ export {
   generateRequestTemplate,
   validateRequestAgainstSchema,
 } from './lib/grpcReflection';
+export { validateGrpcUrl, validateMethodName, validateServiceName } from './lib/grpcValidation';

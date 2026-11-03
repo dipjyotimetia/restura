@@ -8,7 +8,7 @@ export const GRPC_CAPABILITIES = {
     web: true,
     desktop: true,
     notes:
-      'Web uses Connect transport (unary via /api/grpc; server-streaming connects directly, CORS permitting) — client/bidi streaming is desktop-only; desktop uses native gRPC with automatic Connect-protocol fallback',
+      'Web uses Connect transport (unary via /api/grpc; server-streaming connects directly, CORS permitting) — client/bidi streaming is desktop-only; desktop uses native gRPC with a Connect-protocol fallback only when the server refuses native gRPC (4xx except 408/429, 501, 505 — never on transient 5xx); the CLI auto mode is Connect-only and says so when a server refuses it',
   },
   'grpc.reflection': {
     label: 'gRPC reflection',

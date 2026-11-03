@@ -12,6 +12,17 @@ import { MAX_GRPC_METADATA_BYTES } from './header-policy';
  * `ReflectionRequest` interface in `worker/handlers/grpc-reflection.ts`.
  */
 
+/**
+ * Byte cap on the JSON body POSTed to `/api/grpc`: the renderer's 10 MiB
+ * message limit plus metadata and the envelope. Enforced while streaming
+ * (Hono `bodyLimit`), so a chunked body can't be materialised unbounded on
+ * the Node self-host server.
+ */
+export const MAX_GRPC_PROXY_BODY_BYTES = 12 * 1024 * 1024;
+
+/** Byte cap on the `/api/grpc/reflection` JSON body (a query + ≤16 KiB metadata). */
+export const MAX_GRPC_REFLECTION_BODY_BYTES = 256 * 1024;
+
 /** Max per-call deadline (ms) the Worker relays (`/api/grpc`, `/api/grpc-web`) accept. */
 export const GRPC_PROXY_MAX_TIMEOUT_MS = 300_000;
 

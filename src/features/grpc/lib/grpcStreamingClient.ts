@@ -15,6 +15,7 @@
 import type { DescMethod, DescService, Registry } from '@bufbuild/protobuf';
 import { ConnectError, createClient, type Transport } from '@connectrpc/connect';
 import { createConnectTransport } from '@connectrpc/connect-web';
+import { resolveAuthVariables } from '@shared/auth/resolve-variables';
 import {
   callKindOf,
   inputFromJson,
@@ -23,6 +24,7 @@ import {
   registryFromProtoText,
   resolveMethod,
 } from '@shared/protocol/grpc-registry';
+import { normalizeBinaryMetadata } from '@shared/protocol/grpc-request-policy';
 import { connectErrorDetails, type GrpcStatusDetail } from '@shared/protocol/grpc-status-details';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
@@ -37,12 +39,10 @@ import {
   GrpcClientError,
   grpcAuthNeedsMainSideApply,
   prepareGrpcRequest,
-  validateGrpcUrl,
-  validateMethodName,
-  validateServiceName,
   webWireProtocolError,
 } from './grpcClient';
 import { resolveGrpcTls } from './grpcTls';
+import { validateGrpcUrl, validateMethodName, validateServiceName } from './grpcValidation';
 import {
   decodeGrpcWebMessage,
   grpcWebStatusDetails,
@@ -109,19 +109,31 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   // block and inherited Bearer/Basic was silently dropped from streams.
   // Refuses a Postman-guard-blocked request (#1232).
   const inherited = resolveInheritedAuthForSend(rawArgs.request);
-  const args: StartGrpcStreamArgs = inherited
-    ? { ...rawArgs, request: withEffectiveAuth(rawArgs.request, inherited.auth) }
-    : rawArgs;
-  // Basic validation — leverage existing helpers
-  const urlCheck = validateGrpcUrl(args.request.url);
+  const authed = inherited ? withEffectiveAuth(rawArgs.request, inherited.auth) : rawArgs.request;
+  // Every transport below builds `/{service}/{method}` from these fields, so a
+  // templated `{{service}}` is resolved once here, as are auth fields (the URL
+  // is resolved by prepareGrpcRequest / the IPC path).
+  const args: StartGrpcStreamArgs = {
+    ...rawArgs,
+    request: {
+      ...authed,
+      service: rawArgs.resolveVariables(authed.service),
+      method: rawArgs.resolveVariables(authed.method),
+      auth: resolveAuthVariables(authed.auth, rawArgs.resolveVariables),
+    },
+  };
+  // Basic validation of what will actually be dialled — `{{variables}}`
+  // resolved first, so a templated URL/service/method is checked by value.
+  const strict = { allowTemplates: false } as const;
+  const urlCheck = validateGrpcUrl(args.resolveVariables(args.request.url), strict);
   if (!urlCheck.valid) {
     throw new Error(urlCheck.error ?? 'Invalid gRPC URL');
   }
-  const serviceCheck = validateServiceName(args.request.service);
+  const serviceCheck = validateServiceName(args.request.service, strict);
   if (!serviceCheck.valid) {
     throw new Error(serviceCheck.error ?? 'Invalid service name');
   }
-  const methodCheck = validateMethodName(args.request.method);
+  const methodCheck = validateMethodName(args.request.method, strict);
   if (!methodCheck.valid) {
     throw new Error(methodCheck.error ?? 'Invalid method name');
   }
@@ -209,7 +221,11 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   }
 
   const baseUrl = prepared.url.endsWith('/') ? prepared.url.slice(0, -1) : prepared.url;
-  const transport = args.transport ?? createConnectTransport({ baseUrl, useBinaryFormat: false });
+  // Connect JSON needs the schema's registry to (de)serialise
+  // google.protobuf.Any payloads (`@type`), on the request and the replies.
+  const transport =
+    args.transport ??
+    createConnectTransport({ baseUrl, useBinaryFormat: false, jsonOptions: { registry } });
 
   return startConnectServerStream<TIn, TOut>({
     transport,
@@ -219,7 +235,11 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
     input: inputFromJson(method, prepared.message, {
       ignoreUnknownFields: grpcUnknownFieldsMode() !== 'block',
     }),
-    headers: { ...prepared.metadata, ...buildAuthMetadata(args.request.auth) },
+    // `-bin` normalisation covers the auth headers too (as prepareGrpcRequest does).
+    headers: normalizeBinaryMetadata({
+      ...prepared.metadata,
+      ...buildAuthMetadata(args.request.auth),
+    }),
     timeoutMs: args.timeoutMs ?? DEFAULT_TIMEOUT,
   });
 }
@@ -606,7 +626,7 @@ function startElectronInteractiveStream<TIn, TOut>(
       service: args.request.service,
       method: args.request.method,
       methodType: args.request.methodType,
-      metadata: { ...prepared.metadata, ...authMetadata },
+      metadata: normalizeBinaryMetadata({ ...prepared.metadata, ...authMetadata }),
       message: withoutUnknownFields(lenientInput, prepared.message),
       // Send descriptors (reflection) and/or proto text (upload); the main
       // process prefers descriptors. One of them must be present.

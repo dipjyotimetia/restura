@@ -5,13 +5,13 @@
  * failures and cancellation while the body is being read.
  */
 import { describe, expect, it } from 'vitest';
+import { grpcStatusFromHttpStatus } from './grpc-status';
 import { bytesToBase64, encodeGrpcWebFrame, GRPC_WEB_TRAILER_FLAG } from './grpc-web-framing';
 import {
   collectGrpcWebEvents,
   executeGrpcWebProxy,
   type GrpcWebEvent,
   type GrpcWebSpec,
-  grpcWebStatusFromHttp,
 } from './grpc-web-proxy';
 import type { Fetcher, FetcherResponse } from './types';
 
@@ -134,7 +134,7 @@ describe('executeGrpcWebProxy — statuses and failures', () => {
   });
 
   it('maps rate limiting to UNAVAILABLE', () => {
-    expect(grpcWebStatusFromHttp(429)).toBe(14);
+    expect(grpcStatusFromHttpStatus(429)).toBe(14);
   });
 
   it('reports a non-Error fetch rejection generically', async () => {

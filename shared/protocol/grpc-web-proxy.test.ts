@@ -2,6 +2,7 @@
 import { BinaryWriter, base64Encode } from '@bufbuild/protobuf/wire';
 import { describe, expect, it, vi } from 'vitest';
 import { type Equals, expectTypeEqual } from '../../tests/helpers/typeEquality';
+import { grpcStatusFromHttpStatus } from './grpc-status';
 import {
   bytesToBase64,
   encodeGrpcWebFrame,
@@ -13,7 +14,6 @@ import {
   type ExecuteGrpcWebOptions,
   executeGrpcWebProxy,
   type GrpcWebSpec,
-  grpcWebStatusFromHttp,
   MAX_GRPC_WEB_REQUEST_BYTES,
 } from './grpc-web-proxy';
 import { type GrpcWebProxyRequestBody, GrpcWebProxyRequestBodySchema } from './grpc-web-schema';
@@ -386,14 +386,14 @@ describe('executeGrpcWebProxy — response parsing', () => {
   });
 });
 
-describe('grpcWebStatusFromHttp', () => {
+describe('grpcStatusFromHttpStatus', () => {
   it('follows the gRPC HTTP-status mapping', () => {
-    expect(grpcWebStatusFromHttp(400)).toBe(13);
-    expect(grpcWebStatusFromHttp(401)).toBe(16);
-    expect(grpcWebStatusFromHttp(403)).toBe(7);
-    expect(grpcWebStatusFromHttp(404)).toBe(12);
-    expect(grpcWebStatusFromHttp(503)).toBe(14);
-    expect(grpcWebStatusFromHttp(418)).toBe(2);
+    expect(grpcStatusFromHttpStatus(400)).toBe(13);
+    expect(grpcStatusFromHttpStatus(401)).toBe(16);
+    expect(grpcStatusFromHttpStatus(403)).toBe(7);
+    expect(grpcStatusFromHttpStatus(404)).toBe(12);
+    expect(grpcStatusFromHttpStatus(503)).toBe(14);
+    expect(grpcStatusFromHttpStatus(418)).toBe(2);
   });
 });
 

@@ -1,5 +1,6 @@
 import { readBoundedText } from './binary';
-import { GrpcStatusCode, GrpcStatusCodeName } from './grpc-status';
+import { isValidGrpcMethodName, isValidGrpcServiceName } from './grpc-names';
+import { GrpcStatusCode, GrpcStatusCodeName, grpcStatusFromHttpStatus } from './grpc-status';
 import { type GrpcStatusDetail, statusDetailsFromConnectJson } from './grpc-status-details';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
 import { MAX_RESPONSE_SIZE } from './http-proxy';
@@ -38,10 +39,32 @@ export interface ExecuteGrpcOptions {
   allowLocalhost: boolean;
   /** Self-hosted opt-in for RFC 1918 / link-local / CGNAT targets. */
   allowPrivateIPs?: boolean;
+  /**
+   * Caller cancellation (client disconnect, CLI abort). Distinct from the
+   * deadline: an abort through this signal ends as CANCELLED, not
+   * DEADLINE_EXCEEDED.
+   */
+  signal?: AbortSignal;
 }
 
-const SERVICE_RE = /^[a-zA-Z][a-zA-Z0-9_.]*$/;
-const METHOD_RE = /^[A-Za-z][a-zA-Z0-9]*$/;
+/**
+ * Connect-protocol headers the proxy owns. A user metadata entry with one of
+ * these names would otherwise merge into ours (`content-type: application/json,
+ * application/grpc`) or override the deadline the proxy enforces.
+ */
+const RESERVED_REQUEST_HEADERS = new Set([
+  'content-type',
+  'content-encoding',
+  'accept-encoding',
+  'connect-protocol-version',
+  'connect-timeout-ms',
+  'connect-content-encoding',
+  'connect-accept-encoding',
+]);
+
+/** Longest slice of a non-Connect error body quoted in the error message. */
+const MAX_ERROR_SNIPPET_CHARS = 200;
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 const CONNECT_CODE_TO_GRPC: Record<string, GrpcStatusCode> = {
@@ -74,27 +97,51 @@ function emptyGrpcResponse(code: GrpcStatusCode, error: string): GrpcNormalizedR
   };
 }
 
-function parseConnectError(body: string): {
+/**
+ * Status of a non-2xx Connect unary response. A Connect server answers with a
+ * JSON error body `{ code, message, details }`; anything else (an HTML 404 from
+ * a gateway, a native-gRPC-only server's 415, a load balancer's 503) carries no
+ * gRPC status, so the code comes from the HTTP status (Connect spec "HTTP to
+ * Error Code" mapping) and the message names the HTTP status rather than
+ * dumping the page.
+ */
+export function parseConnectError(
+  httpStatus: number,
+  body: string,
+  contentType: string | null | undefined
+): {
   code: GrpcStatusCode;
   message: string;
   details?: GrpcStatusDetail[];
 } {
   try {
     const error = JSON.parse(body);
-    if (error.code && typeof error.code === 'string') {
+    // Own-property lookup: an upstream `code` is untrusted (e.g. "constructor").
+    const known =
+      error && typeof error.code === 'string' && Object.hasOwn(CONNECT_CODE_TO_GRPC, error.code)
+        ? (CONNECT_CODE_TO_GRPC[error.code] as GrpcStatusCode)
+        : undefined;
+    if (known !== undefined) {
       // Rich error model: Connect carries google.rpc.Status details as
       // `details: [{ type, value (base64), debug? }]` (#883).
       const details = statusDetailsFromConnectJson(error.details);
       return {
-        code: CONNECT_CODE_TO_GRPC[error.code] ?? GrpcStatusCode.UNKNOWN,
-        message: error.message || 'Unknown error',
+        code: known,
+        message: typeof error.message === 'string' && error.message ? error.message : error.code,
         ...(details.length > 0 ? { details } : {}),
       };
     }
-    return { code: GrpcStatusCode.UNKNOWN, message: error.message || body };
   } catch {
-    return { code: GrpcStatusCode.UNKNOWN, message: body };
+    // Not JSON — fall through to the HTTP-status mapping.
   }
+  const code = grpcStatusFromHttpStatus(httpStatus);
+  const isHtml = (contentType ?? '').toLowerCase().includes('html');
+  const snippet = isHtml ? '' : body.trim().slice(0, MAX_ERROR_SNIPPET_CHARS);
+  const hint =
+    httpStatus === 415 || httpStatus === 404
+      ? ' — the server may not speak the Connect protocol (native gRPC needs the desktop app, or pin gRPC-Web)'
+      : '';
+  return { code, message: `HTTP ${httpStatus}${snippet ? `: ${snippet}` : ''}${hint}` };
 }
 
 export async function executeGrpcProxy(
@@ -109,28 +156,42 @@ export async function executeGrpcProxy(
   if (!urlValidation.valid) {
     return { ok: false, status: 400, payload: { error: `Invalid URL: ${urlValidation.error}` } };
   }
-  if (!spec.service || !SERVICE_RE.test(spec.service)) {
+  if (!spec.service || !isValidGrpcServiceName(spec.service)) {
     return { ok: false, status: 400, payload: { error: 'Invalid service name format' } };
   }
-  if (!spec.method || !METHOD_RE.test(spec.method)) {
+  if (!spec.method || !isValidGrpcMethodName(spec.method)) {
     return { ok: false, status: 400, payload: { error: 'Invalid method name format' } };
   }
 
   const baseUrl = spec.url.endsWith('/') ? spec.url.slice(0, -1) : spec.url;
   const connectUrl = `${baseUrl}/${spec.service}/${spec.method}`;
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'Connect-Protocol-Version': '1',
-    ...sanitizeRequestHeaders(spec.metadata),
-  };
-
   const timeout =
     typeof spec.timeout === 'number' && Number.isFinite(spec.timeout) && spec.timeout > 0
       ? spec.timeout
       : DEFAULT_TIMEOUT_MS;
+
+  const userHeaders: Record<string, string> = {};
+  for (const [k, v] of Object.entries(sanitizeRequestHeaders(spec.metadata))) {
+    if (!RESERVED_REQUEST_HEADERS.has(k.toLowerCase())) userHeaders[k] = v;
+  }
+  const headers: Record<string, string> = {
+    ...userHeaders,
+    'Content-Type': 'application/json',
+    'Connect-Protocol-Version': '1',
+    // Propagate the deadline so the server stops work we've stopped waiting for.
+    'Connect-Timeout-Ms': String(Math.ceil(timeout)),
+  };
+
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeout);
+  const onCallerAbort = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener('abort', onCallerAbort, { once: true });
 
   try {
     const response = await fetcher({
@@ -177,7 +238,13 @@ export async function executeGrpcProxy(
     let data: unknown = {};
     let statusDetails: GrpcStatusDetail[] | undefined;
     if (response.status < 200 || response.status >= 300) {
-      const info = parseConnectError(text);
+      const info = parseConnectError(
+        response.status,
+        text,
+        response.headers instanceof Headers
+          ? response.headers.get('content-type')
+          : headerValue(response.headers, 'content-type')
+      );
       grpcStatus = info.code;
       grpcStatusText = GrpcStatusCodeName[grpcStatus] ?? 'UNKNOWN';
       data = { error: info.message };
@@ -205,6 +272,13 @@ export async function executeGrpcProxy(
   } catch (err) {
     const isAbort =
       controller.signal.aborted || (err instanceof Error && err.name === 'AbortError');
+    if (isAbort && !timedOut && options.signal?.aborted === true) {
+      return {
+        ok: false,
+        status: 499,
+        payload: emptyGrpcResponse(GrpcStatusCode.CANCELLED, 'Call cancelled'),
+      };
+    }
     if (isAbort) {
       return {
         ok: false,
@@ -223,5 +297,17 @@ export async function executeGrpcProxy(
     };
   } finally {
     clearTimeout(timer);
+    options.signal?.removeEventListener('abort', onCallerAbort);
   }
+}
+
+function headerValue(
+  headers: Record<string, string | string[]> | undefined,
+  name: string
+): string | undefined {
+  if (!headers) return undefined;
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === name) return Array.isArray(v) ? v.join(', ') : v;
+  }
+  return undefined;
 }

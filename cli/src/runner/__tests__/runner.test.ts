@@ -258,10 +258,12 @@ describe('runCollection', () => {
 
     expect(result.summary.total).toBe(1);
     expect(result.requests[0]?.passed).toBe(false);
-    // The 404 from the local HTTP server is reinterpreted as a gRPC UNKNOWN
-    // status — confirms the executor ran and the shared proxy was reached.
-    expect(result.requests[0]?.grpcStatus).toEqual({ code: 2, message: 'UNKNOWN' });
-    expect(result.requests[0]?.errorMessage).toMatch(/gRPC UNKNOWN/);
+    // The 404 from the local HTTP server maps to UNIMPLEMENTED (gRPC / Connect
+    // HTTP-status mapping) — confirms the executor ran and the shared proxy
+    // was reached — and, for an auto request, names the Connect-only CLI path.
+    expect(result.requests[0]?.grpcStatus).toEqual({ code: 12, message: 'UNIMPLEMENTED' });
+    expect(result.requests[0]?.errorMessage).toMatch(/^gRPC UNIMPLEMENTED: HTTP 404/);
+    expect(result.requests[0]?.errorMessage).toContain('Connect protocol only');
   });
 
   it('resolves env vars and collection variables (env first, collection wins)', async () => {

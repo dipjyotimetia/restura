@@ -58,3 +58,33 @@ export function grpcMetadataSizeError(metadata: Record<string, string>): string 
   if (total <= MAX_GRPC_METADATA_BYTES) return null;
   return `Total metadata size (${total} bytes) exceeds maximum of ${MAX_GRPC_METADATA_BYTES} bytes`;
 }
+
+// Standard or URL-safe base64, padded or not (gRPC receivers MUST accept both).
+const BASE64_VALUE_RE = /^(?:[A-Za-z0-9+/]+|[A-Za-z0-9_-]+)={0,2}$/;
+
+/** True when `value` is already a base64 encoding a gRPC receiver can decode. */
+export function isBase64MetadataValue(value: string): boolean {
+  if (value === '') return true;
+  const unpadded = value.replace(/=+$/, '');
+  // A single trailing base64 char can never complete a byte.
+  return BASE64_VALUE_RE.test(value) && unpadded.length % 4 !== 1;
+}
+
+/**
+ * Binary metadata (`*-bin` keys) travels base64-encoded on every gRPC wire
+ * protocol (gRPC, gRPC-Web and Connect). A value that is already base64 is
+ * sent unchanged; anything else is treated as UTF-8 text and encoded, so a
+ * typed `trace-bin: hello world` reaches the server as those bytes instead of
+ * as an undecodable header the server rejects.
+ */
+export function normalizeBinaryMetadata(metadata: Record<string, string>): Record<string, string> {
+  let out: Record<string, string> | undefined;
+  for (const [key, value] of Object.entries(metadata)) {
+    if (!key.toLowerCase().endsWith('-bin') || isBase64MetadataValue(value)) continue;
+    out ??= { ...metadata };
+    let bin = '';
+    for (const b of new TextEncoder().encode(value)) bin += String.fromCharCode(b);
+    out[key] = btoa(bin);
+  }
+  return out ?? metadata;
+}
