@@ -114,6 +114,7 @@
       "style": {
         "useImportType": "error",
         "noEnum": "error",
+        "noParameterProperties": "error",
         "noNamespace": "error",
         "useConst": "error"
       },
