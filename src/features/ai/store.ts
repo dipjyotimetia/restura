@@ -45,6 +45,34 @@ export interface Conversation {
 }
 
 /**
+ * Persistence caps. Every debounced flush re-encrypts and rewrites the whole
+ * persisted chat state, so an unbounded history grows the write (and the
+ * Dexie row) forever. Only the persisted copy is capped: the newest
+ * conversations by `updatedAt` (the active one always survives) and the latest
+ * messages of each. The in-memory session keeps everything until reload.
+ */
+export const MAX_PERSISTED_CONVERSATIONS = 50;
+export const MAX_PERSISTED_MESSAGES = 200;
+
+function capPersistedConversations(
+  conversations: Record<string, Conversation>,
+  activeId: string | null
+): Record<string, Conversation> {
+  const newestFirst = Object.values(conversations).sort((a, b) => b.updatedAt - a.updatedAt);
+  const active = activeId ? conversations[activeId] : undefined;
+  const kept = newestFirst.slice(0, MAX_PERSISTED_CONVERSATIONS);
+  if (active && !kept.includes(active)) kept.splice(MAX_PERSISTED_CONVERSATIONS - 1, 1, active);
+  return Object.fromEntries(
+    kept.map((conv) => [
+      conv.id,
+      conv.messages.length > MAX_PERSISTED_MESSAGES
+        ? { ...conv, messages: conv.messages.slice(-MAX_PERSISTED_MESSAGES) }
+        : conv,
+    ])
+  );
+}
+
+/**
  * A one-shot chat action queued from an inline UI button (e.g. "Fix request").
  * Ephemeral — never persisted. `forceTools` advertises the agent tools for this
  * send regardless of the user's `agentToolsEnabled` preference, so an inline
@@ -278,7 +306,7 @@ export const useAiChatStore = create<AiChatState>()(
       storage: debouncedStorage(dexieStorageAdapters.aiChat(), 400, 2000),
       version: 1,
       partialize: (state) => ({
-        conversations: state.conversations,
+        conversations: capPersistedConversations(state.conversations, state.activeConversationId),
         activeConversationId: state.activeConversationId,
         panelOpen: state.panelOpen,
         panelWidth: state.panelWidth,
