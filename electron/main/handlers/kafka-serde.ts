@@ -81,7 +81,8 @@ export function isConfluentEncoded(buf: Uint8Array): boolean {
 // this module stays electron-free and lib-import-free (and unit-testable with a
 // tiny fake registry).
 export interface SchemaEncoder {
-  encode(registryId: number, payload: unknown): Promise<Buffer>;
+  /** Encode JSON text (each codec parses it without losing integer precision). */
+  encode(registryId: number, json: string): Promise<Buffer>;
 }
 export interface SchemaDecoder {
   decode(buffer: Buffer): Promise<unknown>;
@@ -90,8 +91,8 @@ export interface SchemaDecoder {
 }
 
 /**
- * ENCODE one produce field (key or value) with a registry schema: parse the raw
- * string as JSON, then Confluent-encode it. Returns the wire Buffer, or an error
+ * ENCODE one produce field (key or value) with a registry schema: check the raw
+ * string is JSON, then Confluent-encode the text. Returns the wire Buffer, or an error
  * (invalid JSON, or the registry encode threw). `field` shapes the error text.
  */
 export async function encodeSchemaField(
@@ -100,10 +101,12 @@ export async function encodeSchemaField(
   raw: string,
   field: 'key' | 'value'
 ): Promise<{ value: Buffer } | { error: string }> {
+  // Parsed only for the friendly "must be valid JSON" error: the codecs get the
+  // text, because this parse rounds integers beyond 2^53.
   const parsed = parseSchemaJson(raw, field);
   if ('error' in parsed) return parsed;
   try {
-    return { value: await registry.encode(schemaId, parsed.value) };
+    return { value: await registry.encode(schemaId, raw) };
   } catch (err) {
     const label = field === 'key' ? 'Key' : 'Value';
     return {

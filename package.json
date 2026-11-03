@@ -177,6 +177,7 @@
     "@usebruno/lang": "^0.41.0",
     "@xyflow/react": "^12.12.0",
     "ajv": "^8.20.0",
+    "ajv-draft-04": "^1.0.0",
     "axios": "^1.21.0",
     "buffer": "^6.0.3",
     "chokidar": "^6.0.0",
