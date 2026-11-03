@@ -237,6 +237,8 @@ const folder: z.ZodType<unknown> = z.lazy(() =>
     info: z.object({
       name: z.string().min(1),
       description: description.optional(),
+      // Sibling position; the directory writer stamps it (fs-writer.ts).
+      seq: z.number().optional(),
     }),
     items: z.array(item).optional(),
     request: z.unknown().optional(),

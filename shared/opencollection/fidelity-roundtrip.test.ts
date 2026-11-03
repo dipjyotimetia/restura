@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { addItem, moveItem, removeItem, updateItem, updateRoot } from '../collections/tree-edit';
 import {
   countCollectionInlineSecrets,
   redactCollectionSecrets,
@@ -822,5 +823,216 @@ describe('HTTP extension methods round-trip (#857)', () => {
   it('normalises a lower-case known method to upper case on import', () => {
     const r = findRequest(roundTrip(withMethod('post')).items, HTTP_FIXTURE.name);
     expect((r as HttpRequest).method).toBe('POST');
+  });
+});
+
+describe('folder metadata survives edits on and below the folder (B1)', () => {
+  const FOLDER_YAML = `
+opencollection: "1.0.0"
+info:
+  name: C
+items:
+  - info:
+      name: F
+      description: Outer folder
+    docs: Long outer docs
+    request:
+      headers:
+        - name: X-Tenant
+          value: acme
+      settings:
+        timeout: 5000
+    items:
+      - info:
+          name: G
+          description: Inner folder
+        docs: Long inner docs
+        request:
+          headers:
+            - name: X-Inner
+              value: "1"
+        items:
+          - info:
+              type: http
+              name: R
+            http:
+              method: GET
+              url: "http://x"
+          - info:
+              type: http
+              name: S
+            http:
+              method: GET
+              url: "http://s"
+  - info:
+      name: H
+      description: Target folder
+    docs: Target docs
+    items: []
+`;
+
+  type OcNode = {
+    info: { name: string; description?: unknown };
+    docs?: unknown;
+    request?: { headers?: unknown; settings?: unknown };
+    items?: OcNode[];
+    http?: { url?: string };
+  };
+
+  const load = () => ocToInternal(parseOpenCollectionYAML(FOLDER_YAML));
+  const exportNodes = (c: WithOC<Collection>): OcNode[] =>
+    parseOpenCollectionYAML(serializeOpenCollectionYAML(internalToOC(c))).items as OcNode[];
+  const node = (nodes: OcNode[] | undefined, name: string): OcNode => {
+    const n = (nodes ?? []).find((i) => i.info.name === name);
+    if (!n) throw new Error(`node ${name} not found`);
+    return n;
+  };
+  const idOf = (c: Collection, ...path: string[]): string => {
+    let items: CollectionItem[] | undefined = c.items;
+    let found: CollectionItem | undefined;
+    for (const name of path) {
+      found = (items ?? []).find((i) => i.name === name);
+      items = found?.items;
+    }
+    if (!found) throw new Error(`item ${path.join('/')} not found`);
+    return found.id;
+  };
+  const expectFolderMetadata = (nodes: OcNode[]) => {
+    const f = node(nodes, 'F');
+    expect(f.info.description).toBe('Outer folder');
+    expect(f.docs).toBe('Long outer docs');
+    expect(f.request?.headers).toEqual([{ name: 'X-Tenant', value: 'acme' }]);
+    expect(f.request?.settings).toEqual({ timeout: 5000 });
+    const g = node(f.items, 'G');
+    expect(g.info.description).toBe('Inner folder');
+    expect(g.docs).toBe('Long inner docs');
+    expect(g.request?.headers).toEqual([{ name: 'X-Inner', value: '1' }]);
+  };
+
+  it('editing a nested request keeps every ancestor folder description, docs and defaults', () => {
+    const c = load();
+    const r = c.items[0]?.items?.[0]?.items?.[0];
+    if (!r?.request) throw new Error('fixture');
+    const edited = updateItem(c, r.id, { request: { ...r.request, url: 'http://y' } as never });
+    const nodes = exportNodes(edited);
+    expectFolderMetadata(nodes);
+    expect(node(node(node(nodes, 'F').items, 'G').items, 'R').http?.url).toBe('http://y');
+  });
+
+  it('renaming a folder keeps its description, docs and defaults', () => {
+    const c = load();
+    const edited = updateItem(c, idOf(c, 'F', 'G'), { name: 'G2' });
+    const f = node(exportNodes(edited), 'F');
+    expect(f.docs).toBe('Long outer docs');
+    const g = node(f.items, 'G2');
+    expect(g.info.description).toBe('Inner folder');
+    expect(g.docs).toBe('Long inner docs');
+    expect(g.request?.headers).toEqual([{ name: 'X-Inner', value: '1' }]);
+  });
+
+  it('add / remove / move keep source and target folder metadata and never re-emit stale children', () => {
+    const c = load();
+    const removed = removeItem(c, idOf(c, 'F', 'G', 'S'));
+    const afterRemove = exportNodes(removed);
+    expectFolderMetadata(afterRemove);
+    expect(node(node(afterRemove, 'F').items, 'G').items?.map((i) => i.info.name)).toEqual(['R']);
+
+    const moved = moveItem(removed, idOf(removed, 'F', 'G', 'R'), { parentId: idOf(c, 'H') });
+    const afterMove = exportNodes(moved);
+    expectFolderMetadata(afterMove);
+    expect(node(node(afterMove, 'F').items, 'G').items ?? []).toEqual([]);
+    const h = node(afterMove, 'H');
+    expect(h.info.description).toBe('Target folder');
+    expect(h.docs).toBe('Target docs');
+    expect(h.items?.map((i) => i.info.name)).toEqual(['R']);
+
+    const added = addItem(
+      c,
+      reqItem({ ...HTTP_FIXTURE, auth: { type: 'none' } }, 'added'),
+      idOf(c, 'F', 'G')
+    );
+    const afterAdd = exportNodes(added);
+    expectFolderMetadata(afterAdd);
+    expect(node(node(afterAdd, 'F').items, 'G').items?.map((i) => i.info.name)).toEqual([
+      'R',
+      'S',
+      HTTP_FIXTURE.name,
+    ]);
+  });
+
+  it('a stale folder survives a full export -> import -> edit -> export cycle', () => {
+    const c = load();
+    const r = c.items[0]?.items?.[0]?.items?.[0];
+    if (!r?.request) throw new Error('fixture');
+    const once = roundTrip(updateItem(c, r.id, { name: 'R renamed' }));
+    expectFolderMetadata(exportNodes(once));
+  });
+});
+
+describe('request fields the exporter used to drop (B2, B3)', () => {
+  it('exports the description of a GraphQL-body request (B2)', () => {
+    const gql: HttpRequest = {
+      ...HTTP_FIXTURE,
+      auth: { type: 'none' },
+      description: 'Fetches the viewer',
+      body: { type: 'graphql', raw: 'query Q { me { id } }', graphqlVariables: '{}' },
+    };
+    const back = findRequest(
+      roundTrip({ id: 'c', name: 'G', items: [reqItem(gql, 'root')] }).items,
+      gql.name
+    ) as HttpRequest;
+    expect(back.body.type).toBe('graphql');
+    expect(back.description).toBe('Fetches the viewer');
+  });
+
+  it.each<[string, HttpRequest['body']]>([
+    ['protobuf', { type: 'protobuf', raw: 'name: "Ada"' }],
+    [
+      'multipart-mixed',
+      {
+        type: 'multipart-mixed',
+        multipartParts: [
+          { id: 'p1', contentType: 'application/json', content: '{"a":1}' },
+          {
+            id: 'p2',
+            contentType: 'text/plain',
+            content: 'hello',
+            headers: { 'Content-ID': '<part2>' },
+          },
+        ],
+      },
+    ],
+  ])('round-trips a %s body (B3)', (_label, body) => {
+    const r: HttpRequest = { ...HTTP_FIXTURE, auth: { type: 'none' }, body: structuredClone(body) };
+    const back = findRequest(
+      roundTrip({ id: 'c', name: 'B', items: [reqItem(r, 'root')] }).items,
+      r.name
+    ) as HttpRequest;
+    expect(back.body).toEqual(body);
+  });
+});
+
+describe('root byte-stability with private variables (P1)', () => {
+  it('adding a private variable keeps an unchanged import byte-identical', () => {
+    const yaml = serializeOpenCollectionYAML(
+      parseOpenCollectionYAML(`
+opencollection: "1.0.0"
+info:
+  name: P
+docs: Root docs only
+config:
+  environments:
+    - name: default
+      variables:
+        - name: base
+          value: "https://api.example.test"
+items: []
+`)
+    );
+    const imported = ocToInternal(parseOpenCollectionYAML(yaml));
+    const withPrivate = updateRoot(imported, {
+      variables: [...(imported.variables ?? []), { ...kv('localToken', 'abc'), private: true }],
+    });
+    expect(serializeOpenCollectionYAML(internalToOC(withPrivate))).toBe(yaml);
   });
 });

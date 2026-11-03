@@ -25,7 +25,9 @@ import { buildGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-e
 import { buildGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
 import { buildHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
 import { kvFromInternal } from './key-value';
+import { multipartMixedToOC } from './multipart-mixed-body';
 import type { OpenCollection } from './schemas';
+import { isOcBagStale, isOcFolderBag } from './stale-bag';
 import {
   buildWebSocketExtension,
   SOCKETIO_EXTENSION_KEY,
@@ -80,15 +82,16 @@ type WithOC<T> = T & { _oc?: unknown };
 export function internalToOC(c: WithOC<Collection>): OpenCollection {
   // Strategy 1 — whole-collection shortcut. Gated on three kinds of freshness:
   //  - bag presence (allItemsHaveOcBag): an edited/added item drops its bag,
-  //    and `useCollectionStore` strips the `_oc` bag of every ancestor folder
-  //    on edit/add/remove/move — so any nested change defeats this.
+  //    and `tree-edit` drops or stales (stale-bag.ts) the `_oc` bag of every
+  //    ancestor folder on edit/add/remove/move — so any nested change defeats
+  //    this.
   //  - auth (authUnchanged / allFolderAuthsUnchanged): default auth lives on the
   //    root/folder bags, so an in-app auth edit must defeat the shortcut.
   //  - root structure (rootStructureUnchanged): a ROOT-level removal strips no
   //    bag (the store's ancestorPath is empty at root) and every survivor keeps
   //    its bag, so only a root count reconciliation sees the deletion. Without
   //    it the cached document re-emits the removed item (GH #278). Nested
-  //    removals are already covered by the ancestor-strip above, so no folder
+  //    removals are already covered by the ancestor staling above, so no folder
   //    structural check is needed here.
   //  - scripts (scriptsUnchanged / allFolderScriptsUnchanged): collection/folder
   //    pre-request/test scripts live on the root/folder bags, so an in-app
@@ -216,7 +219,7 @@ function allItemsHaveOcBag(items: CollectionItem[] | undefined): boolean {
   if (!items) return true;
   return items.every((it) => {
     const wit = it as WithOC<CollectionItem>;
-    if (wit._oc === undefined) return false;
+    if (wit._oc === undefined || isOcBagStale(wit)) return false;
     if (it.type === 'folder') return allItemsHaveOcBag(it.items);
     return true;
   });
@@ -282,20 +285,28 @@ function folderFromInternal(
   folderPath: string[],
   lists: ExtensionLists
 ): unknown {
-  // Verbatim shortcut only while the folder's default auth AND scripts still
-  // match the cached bag — an in-app edit to either forces a rebuild (children
-  // still fall back to their own _oc bags below, so unmodified requests stay
+  // Verbatim shortcut only while the folder's subtree is untouched (no stale
+  // bag, see stale-bag.ts) and its default auth AND scripts still match the
+  // cached bag — an in-app edit to either forces a rebuild (children still
+  // fall back to their own _oc bags below, so unmodified requests stay
   // verbatim).
+  const stale = isOcBagStale(it);
   const authSame = authUnchanged(it._oc, it.auth);
   const scriptsSame = scriptsUnchanged(it._oc, it.preRequestScript, it.testScript);
   const variablesSame = folderVariablesUnchanged(it._oc, it.variables);
-  if (it._oc && authSame && scriptsSame && variablesSame) {
+  if (it._oc && !stale && authSame && scriptsSame && variablesSame) {
     collectNestedStreamItems(it.items, folderPath, lists);
     return it._oc;
   }
-  const out: Record<string, unknown> = it._oc
-    ? { ...(it._oc as Record<string, unknown>) }
+  // A rebuild starts from the cached bag (stale or not) so folder metadata the
+  // internal model does not hold — info.description, docs, request headers /
+  // settings — survives; only a missing or non-folder stale bag starts empty.
+  const base = stale && !isOcFolderBag(it._oc) ? undefined : it._oc;
+  const out: Record<string, unknown> = base
+    ? { ...(base as Record<string, unknown>) }
     : { info: { name: it.name } };
+  // A stale bag predates a possible rename (the bag used to be dropped then).
+  if (base && stale) out.info = { ...(out.info as Record<string, unknown>), name: it.name };
   const childItems: unknown[] = [];
   for (const child of it.items ?? []) {
     const wchild = child as WithOC<CollectionItem>;
@@ -337,7 +348,9 @@ function requestFromInternal(name: string, r: CollectionRequest): unknown {
         if (hr.headers?.length) graphql.headers = hr.headers.map(kvFromInternal);
         const auth = authFromInternal(hr.auth);
         if (auth) graphql.auth = auth;
-        const out: Record<string, unknown> = { info: { type: 'graphql', name }, graphql };
+        const info: Record<string, unknown> = { type: 'graphql', name };
+        if (hr.description) info.description = hr.description;
+        const out: Record<string, unknown> = { info, graphql };
         const runtime = runtimeFromInternal(hr.preRequestScript, hr.testScript);
         if (runtime) out.runtime = runtime;
         return out;
@@ -406,6 +419,11 @@ function bodyFromInternal(body: RequestBody): unknown {
       return { raw: { format: 'xml', value: body.raw ?? '' } };
     case 'text':
       return { raw: { format: 'text', value: body.raw ?? '' } };
+    case 'protobuf':
+      // Text-format protobuf message; `bodyToInternal` maps the raw format back.
+      return { raw: { format: 'protobuf', value: body.raw ?? '' } };
+    case 'multipart-mixed':
+      return multipartMixedToOC(body.multipartParts);
     case 'graphql':
       // Without _oc, the only safe representation is JSON-encoded raw.
       return { raw: { format: 'json', value: body.raw ?? '' } };
@@ -425,8 +443,17 @@ function bodyFromInternal(body: RequestBody): unknown {
       }
       return { file: f };
     }
-    default:
+    case 'none':
       return undefined;
+    default: {
+      // Compile-time exhaustiveness: a new BodyType must choose an export shape
+      // here instead of being silently omitted. Only data outside the BodyType
+      // union reaches this at runtime; failing the whole save for it would be
+      // worse than omitting that one body.
+      const exhaustive: never = body.type;
+      console.warn(`[opencollection] body type ${exhaustive as string} has no export shape`);
+      return undefined;
+    }
   }
 }
 
@@ -498,7 +525,7 @@ function allFolderAuthsUnchanged(items: CollectionItem[] | undefined): boolean {
  * (NOT `c._oc.items`), so the two partitions reconcile separately.
  * Count is sufficient: adds are already caught by `allItemsHaveOcBag` (the new
  * item lacks a bag); only a removal strictly drops the count. Nested removals
- * are handled by ancestor `_oc`-stripping in the store, so this stays root-only.
+ * are handled by ancestor `_oc` staling in tree-edit, so this stays root-only.
  */
 const EXTENSION_REQUEST_TYPES = new Set(['sse', 'mcp', 'kafka', 'mqtt', 'socketio']);
 
@@ -557,8 +584,10 @@ function rootMetadataUnchanged(c: WithOC<Collection>): boolean {
     cached.info.name === c.name &&
     (cached.info.summary ?? (typeof cached.docs === 'string' ? cached.docs : '')) ===
       (c.description ?? '') &&
+    // Private variables never export (variablesFromInternal), so they cannot
+    // make the cached document stale.
     JSON.stringify(comparableVariables(cachedVariables)) ===
-      JSON.stringify(comparableVariables(c.variables ?? [])) &&
+      JSON.stringify(comparableVariables((c.variables ?? []).filter((v) => !v.private))) &&
     JSON.stringify(cachedContract) === JSON.stringify(c.contractSpec)
   );
 }
