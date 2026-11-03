@@ -32,12 +32,17 @@ describe('collection consent levels', () => {
   });
 
   it('creating a collection needs an edit grant somewhere', () => {
-    expect(canCreateCollection(DEFAULT_CONSENT)).toBe(false);
-    expect(canCreateCollection(setCollectionConsent(DEFAULT_CONSENT, 'c', 'read-only'))).toBe(
+    const ids = new Set(['c']);
+    expect(canCreateCollection(DEFAULT_CONSENT, ids)).toBe(false);
+    expect(canCreateCollection(setCollectionConsent(DEFAULT_CONSENT, 'c', 'read-only'), ids)).toBe(
       false
     );
-    expect(canCreateCollection(setCollectionConsent(DEFAULT_CONSENT, 'c', 'edit'))).toBe(true);
-    expect(canCreateCollection({ ...DEFAULT_CONSENT, defaultLevel: 'full' })).toBe(true);
+    expect(canCreateCollection(setCollectionConsent(DEFAULT_CONSENT, 'c', 'edit'), ids)).toBe(true);
+    // An edit grant left behind for a deleted collection grants nothing.
+    expect(canCreateCollection(setCollectionConsent(DEFAULT_CONSENT, 'gone', 'edit'), ids)).toBe(
+      false
+    );
+    expect(canCreateCollection({ ...DEFAULT_CONSENT, defaultLevel: 'full' }, new Set())).toBe(true);
   });
 });
 
@@ -49,8 +54,9 @@ describe('environment consent levels', () => {
     const ed = setEnvironmentConsent(DEFAULT_CONSENT, 'e', 'edit');
     expect(canReadEnvironment(ed, 'e')).toBe(true);
     expect(canEditEnvironment(ed, 'e')).toBe(true);
-    expect(canCreateEnvironment(ed)).toBe(true);
-    expect(canCreateEnvironment(ro)).toBe(false);
+    expect(canCreateEnvironment(ed, new Set(['e']))).toBe(true);
+    expect(canCreateEnvironment(ed, new Set())).toBe(false);
+    expect(canCreateEnvironment(ro, new Set(['e']))).toBe(false);
   });
 
   it('execute-with-environment is a separate per-environment opt-in', () => {

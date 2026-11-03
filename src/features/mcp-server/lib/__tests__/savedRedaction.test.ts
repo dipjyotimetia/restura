@@ -100,3 +100,72 @@ describe('containsPlaceholder', () => {
     expect(containsPlaceholder(value)).toBe(expected);
   });
 });
+
+describe('restoreRedactedPatch — round 2 edge cases', () => {
+  it('rows sharing a key each keep their own secret, in order', () => {
+    const saved: HttpRequest = {
+      ...SAVED,
+      headers: [
+        { id: 'a', key: 'Authorization', value: 'Bearer dev', enabled: false },
+        { id: 'b', key: 'Authorization', value: 'Bearer prod', enabled: true },
+      ],
+    };
+    const rows = redactKeyValues(saved.headers);
+    expect(rows.map((r) => r.value)).toEqual(['(redacted)', '(redacted)']);
+    const out = restoreRedactedPatch(
+      saved,
+      patch({ headers: [...rows, { key: 'A', value: '1' }] })
+    );
+    if (!out.ok) throw new Error(out.error);
+    expect(out.value.headers?.map((h) => h.value)).toEqual(['Bearer dev', 'Bearer prod', '1']);
+  });
+
+  it('a third masked row with only two saved ones is refused, not guessed', () => {
+    const saved: HttpRequest = {
+      ...SAVED,
+      headers: [{ id: 'a', key: 'Authorization', value: 'Bearer dev', enabled: true }],
+    };
+    const row = redactKeyValues(saved.headers)[0]!;
+    expect(restoreRedactedPatch(saved, patch({ headers: [row, row] })).ok).toBe(false);
+  });
+
+  it('an edited URL on the same host keeps the saved user:pass; another host gets none', () => {
+    const sameHost = restoreRedactedPatch(
+      SAVED,
+      patch({ url: 'https://api.example.com/v2/login' })
+    );
+    expect(sameHost).toMatchObject({
+      ok: true,
+      value: { url: 'https://admin:pw@api.example.com/v2/login' },
+    });
+    const otherHost = restoreRedactedPatch(SAVED, patch({ url: 'https://evil.example/login' }));
+    expect(otherHost).toMatchObject({ ok: true, value: { url: 'https://evil.example/login' } });
+    // Templated hosts work too.
+    const templated: HttpRequest = { ...SAVED, url: 'https://u:p@{{host}}/a' };
+    expect(restoreRedactedPatch(templated, patch({ url: 'https://{{host}}/b' }))).toMatchObject({
+      ok: true,
+      value: { url: 'https://u:p@{{host}}/b' },
+    });
+  });
+
+  it('a body longer than get_request shows cannot be edited from the truncated copy', () => {
+    const big: HttpRequest = {
+      ...SAVED,
+      body: { type: 'json', raw: JSON.stringify({ items: 'x'.repeat(150_000) }) },
+    };
+    const shown = redactSavedText(big.body.raw!);
+    expect(shown.length).toBe(100_000);
+    // Copied back unchanged: keeps the full saved body.
+    expect(
+      restoreRedactedPatch(big, patch({ body: { type: 'json', content: shown } }))
+    ).toMatchObject({ ok: true, value: { body: { content: big.body.raw } } });
+    // Edited from the truncated copy: refused.
+    expect(
+      restoreRedactedPatch(big, patch({ body: { type: 'json', content: `${shown}"}` } }))
+    ).toMatchObject({ ok: false, error: expect.stringMatching(/longer than get_request shows/) });
+    // Replaced outright: allowed.
+    expect(
+      restoreRedactedPatch(big, patch({ body: { type: 'json', content: '{"new":true}' } })).ok
+    ).toBe(true);
+  });
+});

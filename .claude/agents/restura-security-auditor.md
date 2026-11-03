@@ -280,8 +280,8 @@ Only report what the diff introduces or makes reachable. Pre-existing issues the
     - It retries only on `ECONNREFUSED`, so a send never runs twice.
     - A stale `running` handshake is reset at launch, and a PID it cannot signal counts as not running.
   - **Policy lives in the owning renderer** (`src/features/mcp-server/lib/runtime.ts`), never in main.
-    - Main forwards calls only to the window that started the server (`ToolCallBridge`). On reload or crash it answers parked calls immediately.
-    - The runtime re-validates input, then decides with the newest settings across windows (`getFreshMcpServerSettings`).
+    - Main forwards calls only to the window that started the server (`ToolCallBridge`). On reload or crash it answers parked calls immediately and refuses new ones until that window's new page asks for status.
+    - The runtime re-validates input, then decides with the newest settings across windows (`getFreshMcpServerSettings`). It adopts another window's newer settings via `persist.rehydrate()`, never a `setState` that would write a stale blob back.
   - **Consent.**
     - Collections: `hidden / read-only / edit / full`. Environments: `hidden / read-only / edit`. Sending with an environment needs its own per-environment flag, and the parent's flag for a sub-environment.
     - Everything defaults to hidden. Refusals must not let an agent tell a hidden id from a missing one.
@@ -291,7 +291,7 @@ Only report what the diff introduces or makes reachable. Pre-existing issues the
     - A diff that lets a send, delete or script change through without a card, or skips the fingerprint check, is a must-fix.
   - **Secrets.**
     - Credential fields an agent writes accept only a `{{variable}}`. Secret values are typed by the user (`request_secret_variable`), never passed through the agent.
-    - Redaction placeholders copied back from `get_request` must never overwrite a saved value (`savedRedaction.ts`).
+    - Redaction placeholders copied back from `get_request` must never overwrite a saved value (`savedRedaction.ts`). That covers same-key rows (matched in order), URL userinfo (re-attached only on the same host) and bodies longer than the read shows.
     - Read results go through `postProcessResult`, and main runs `redactSecretsDeep` again.
     - Response bodies, headers and saved docs reach the agent under `untrustedContent`.
   - **No self-escalation.** No tool may read or change MCP settings, consent (beyond granting edit on what it just created), AI keys, the vault, proxy or TLS settings, or the updater (`tests/security/mcp-control-server.test.ts`).

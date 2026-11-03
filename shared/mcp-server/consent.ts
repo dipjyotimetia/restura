@@ -109,9 +109,15 @@ export function canExecute(consent: McpServerConsent, collectionId: string): boo
  * collection is then given an explicit `edit` override by the host so the agent
  * can keep working in what it created — and nothing else.
  */
-export function canCreateCollection(consent: McpServerConsent): boolean {
+export function canCreateCollection(
+  consent: McpServerConsent,
+  /** Ids that still exist: an override left behind for a deleted collection grants nothing. */
+  existingIds: ReadonlySet<string>
+): boolean {
   if (consent.defaultLevel === 'edit' || consent.defaultLevel === 'full') return true;
-  return Object.values(consent.perCollection).some((l) => l === 'edit' || l === 'full');
+  return Object.entries(consent.perCollection).some(
+    ([id, l]) => existingIds.has(id) && (l === 'edit' || l === 'full')
+  );
 }
 
 /** Set the consent level for a specific collection. */
@@ -158,9 +164,14 @@ export function canEditEnvironment(consent: McpServerConsent, environmentId: str
 }
 
 /** Same rule as {@link canCreateCollection}, for environments. */
-export function canCreateEnvironment(consent: McpServerConsent): boolean {
+export function canCreateEnvironment(
+  consent: McpServerConsent,
+  existingIds: ReadonlySet<string>
+): boolean {
   if (consent.environmentsDefaultLevel === 'edit') return true;
-  return Object.values(consent.perEnvironment ?? {}).some((l) => l === 'edit');
+  return Object.entries(consent.perEnvironment ?? {}).some(
+    ([id, l]) => existingIds.has(id) && l === 'edit'
+  );
 }
 
 /**

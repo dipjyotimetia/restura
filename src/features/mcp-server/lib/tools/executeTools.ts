@@ -9,6 +9,7 @@
 import {
   canExecute,
   canExecuteWithEnvironment,
+  canRead,
   canReadEnvironment,
 } from '@shared/mcp-server/consent';
 import type { ControlToolInput } from '@shared/mcp-server/control-tools';
@@ -223,7 +224,10 @@ async function runScope(options: {
 
 const sendRequest: ToolImpl<ControlToolInput<'send_request'>> = (input, env) => {
   const located = locateItem(useCollectionStore.getState().collections, input.requestId);
-  if (!located) return refuse(`Request not found: ${input.requestId}`);
+  // Hidden and missing must read the same: a hidden collection's ids are not confirmable.
+  if (!located || !canRead(env.settings.consent, located.collection.id)) {
+    return refuse(`Request not found: ${input.requestId}`);
+  }
   const collection = sendableCollection(located.collection.id, env);
   if ('refused' in collection) return collection;
   if (located.item.type !== 'request' || !located.item.request) {

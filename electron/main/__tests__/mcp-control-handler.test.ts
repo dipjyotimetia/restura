@@ -297,6 +297,38 @@ describe('mcp-control renderer lifecycle', () => {
     }
   );
 
+  it('after a crash, new calls are refused at once until the page asks for status again', async () => {
+    const owner = fakeWebContents(10);
+    const started = (await invoke('mcp-control:start', owner)) as {
+      status: { url: string };
+      token: string;
+    };
+    const client = await connect(started.status.url, started.token);
+    owner.emit('render-process-gone');
+
+    const startedAt = Date.now();
+    const refused = await client.callTool({ name: 'describe_access', arguments: {} });
+    expect(refused.isError).toBe(true);
+    expect((refused.content as Array<{ text: string }>)[0]!.text).toMatch(/reloading/);
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(toolCalls()).toHaveLength(0);
+
+    // Another window asking for status does not re-arm the owner…
+    await invoke('mcp-control:status', fakeWebContents(11));
+    const stillRefused = await client.callTool({ name: 'describe_access', arguments: {} });
+    expect(stillRefused.isError).toBe(true);
+
+    // …the owner's reloaded page does.
+    await invoke('mcp-control:status', owner);
+    const pending = client.callTool({ name: 'describe_access', arguments: {} });
+    const call = await waitFor(() => toolCalls()[0]);
+    await invoke('mcp-control:tool-result', owner, {
+      callId: call.payload.callId,
+      result: { ok: true, data: 'back' },
+    });
+    expect((await pending).isError).toBeFalsy();
+  });
+
   it('status works even when start/stop are rate-limited (separate budget)', async () => {
     const owner = fakeWebContents(9);
     for (let i = 0; i < 40; i += 1) {

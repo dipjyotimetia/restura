@@ -21,6 +21,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
+  type AgentLaunchCommand,
   type ControlServerStartOptions,
   type ControlServerStatus,
   type ControlToolResult,
@@ -80,6 +81,12 @@ function serialisedLength(value: unknown): number {
 export class ToolCallBridge {
   private readonly pending = new Map<string, PendingCall>();
   private ownerId: number | null = null;
+  /**
+   * False from the owner page's reload / crash until the new page asks for
+   * status: calls are refused at once instead of being sent to a document
+   * that cannot answer (they would otherwise wait the full timeout).
+   */
+  private ready = false;
 
   constructor(
     private readonly emit: ToolCallEmitter,
@@ -91,6 +98,22 @@ export class ToolCallBridge {
       this.disposeAll('The Restura window that owned the MCP server went away.');
     }
     this.ownerId = webContentsId;
+    this.ready = webContentsId !== null;
+  }
+
+  /** The owner's document went away (reload / crash): answer and refuse until it is back. */
+  ownerReset(reason: string): void {
+    this.ready = false;
+    this.disposeAll(reason);
+  }
+
+  /** The owner's (new) document is listening again. */
+  markReady(senderId: number): void {
+    if (senderId === this.ownerId) this.ready = true;
+  }
+
+  get isReady(): boolean {
+    return this.ready;
   }
 
   get owner(): number | null {
@@ -107,6 +130,12 @@ export class ToolCallBridge {
       return Promise.resolve({
         ok: false,
         error: 'The Restura window is not ready. Open Restura and try again.',
+      });
+    }
+    if (!this.ready) {
+      return Promise.resolve({
+        ok: false,
+        error: 'The Restura window is reloading. Retry in a few seconds.',
       });
     }
     if (!isControlToolName(call.tool)) {
@@ -200,13 +229,6 @@ interface ActiveServer {
   onOwnerReset: () => void;
 }
 
-/** How an agent launches the stdio relay for *this* install. */
-export interface AgentLaunchCommand {
-  command: string;
-  args: string[];
-  env?: Record<string, string>;
-}
-
 /**
  * The stable command for the `--mcp-server` relay. `process.execPath` is not
  * stable for every target: an AppImage runs from a per-launch
@@ -225,9 +247,18 @@ export function agentLaunchCommand(
   const command = env.APPIMAGE || env.PORTABLE_EXECUTABLE_FILE || execPath;
   const entry = argv[1];
   const devEntry = !packaged && entry && !entry.startsWith('-') ? [path.resolve(entry)] : [];
+  // macOS App Translocation runs a quarantined app (opened from Downloads or
+  // a disk image) from a random per-launch path: no command survives that.
+  const translocated = /\/AppTranslocation\//.test(execPath);
   return {
     command,
     args: [...devEntry, '--mcp-server'],
+    ...(translocated
+      ? {
+          warning:
+            'Restura is running from a temporary macOS location. Move it to Applications and reopen it, then copy the command again.',
+        }
+      : {}),
     ...(env.RESTURA_USER_DATA_DIR
       ? { env: { RESTURA_USER_DATA_DIR: env.RESTURA_USER_DATA_DIR } }
       : {}),
@@ -289,15 +320,13 @@ async function startInternal(
   // old one was handling, so answer them now instead of after the 10-minute
   // timeout. The server keeps running; the reloaded page adopts it.
   const onOwnerReset = () => {
-    bridge.disposeAll('The Restura window reloaded before answering. Call the tool again.');
+    bridge.ownerReset('The Restura window reloaded before answering. Retry in a few seconds.');
   };
   owner.once('destroyed', onOwnerDestroyed);
-  if (typeof owner.on === 'function') {
-    // Same events as bindRendererCleanup: committed main-frame navigations
-    // only — hash-route changes emit 'did-navigate-in-page' and never get here.
-    owner.on('did-navigate', onOwnerReset);
-    owner.on('render-process-gone', onOwnerReset);
-  }
+  // Same events as bindRendererCleanup: committed main-frame navigations
+  // only — hash-route changes emit 'did-navigate-in-page' and never get here.
+  owner.on('did-navigate', onOwnerReset);
+  owner.on('render-process-gone', onOwnerReset);
   active = { handle, token, owner, onOwnerDestroyed, onOwnerReset };
   bridge.setOwner(owner.id);
 
@@ -415,14 +444,19 @@ export function registerMcpControlIPC(): void {
     IPC.mcpControl.status,
     rateLimited(
       statusRateLimiter,
-      createValidatedHandler(IPC.mcpControl.status, NoInputSchema, () => ({
-        ok: true as const,
-        status: getControlServerStatus(),
-        // To the trusted renderer only (a window that adopts a running server
-        // needs it for the HTTP client config); never over the listener.
-        ...(active ? { token: active.token } : {}),
-        launch: agentLaunchCommand(),
-      }))
+      createValidatedEventHandler(IPC.mcpControl.status, NoInputSchema, (_input, event) => {
+        // The owner's page asks for status once its listeners are attached
+        // (McpControlBridge mount): it can take calls again after a reload.
+        bridge.markReady(event.sender.id);
+        return {
+          ok: true as const,
+          status: getControlServerStatus(),
+          // To the trusted renderer only (a window that adopts a running server
+          // needs it for the HTTP client config); never over the listener.
+          ...(active ? { token: active.token } : {}),
+          launch: agentLaunchCommand(),
+        };
+      })
     )
   );
 

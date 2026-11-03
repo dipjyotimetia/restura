@@ -12,7 +12,7 @@ import {
 import type { McpServerSettings } from '@shared/mcp-server/settings';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { updateMcpConsent } from '../../lib/settings';
+import { updateMcpConsentFresh } from '../../lib/settings';
 import { LevelSelect, type SettingsPrimitives } from './primitives';
 
 const COLLECTION_LEVELS: Array<{ value: CollectionConsentLevel; label: string }> = [
@@ -46,7 +46,9 @@ export function AccessGroups({
               value={settings.consent.defaultLevel}
               options={COLLECTION_LEVELS}
               ariaLabel="Default access for collections"
-              onChange={(level) => updateMcpConsent((c) => ({ ...c, defaultLevel: level }))}
+              onChange={(level) =>
+                void updateMcpConsentFresh((c) => ({ ...c, defaultLevel: level }))
+              }
             />
           }
         />
@@ -60,7 +62,7 @@ export function AccessGroups({
                 options={COLLECTION_LEVELS}
                 ariaLabel={`Agent access for collection ${collection.name}`}
                 onChange={(level) =>
-                  updateMcpConsent((c) => setCollectionConsent(c, collection.id, level))
+                  void updateMcpConsentFresh((c) => setCollectionConsent(c, collection.id, level))
                 }
               />
             }
@@ -85,7 +87,7 @@ export function AccessGroups({
                     checked={executable}
                     aria-label={`Agents may send with ${environment.name}`}
                     onChange={(e) =>
-                      updateMcpConsent((c) =>
+                      void updateMcpConsentFresh((c) =>
                         setEnvironmentExecutable(c, environment.id, e.target.checked)
                       )
                     }
@@ -105,7 +107,9 @@ export function AccessGroups({
                   options={ENVIRONMENT_LEVELS}
                   ariaLabel={`Agent access for environment ${environment.name}`}
                   onChange={(level) =>
-                    updateMcpConsent((c) => setEnvironmentConsent(c, environment.id, level))
+                    void updateMcpConsentFresh((c) =>
+                      setEnvironmentConsent(c, environment.id, level)
+                    )
                   }
                 />
               }

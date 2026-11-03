@@ -67,6 +67,11 @@ export function ConnectAgent({ Group }: Pick<SettingsPrimitives, 'Group'>) {
 
   return (
     <Group label="Connect an agent">
+      {launch?.warning && (
+        <p className="py-3 text-sp-12 text-amber-600 dark:text-amber-400" role="alert">
+          {launch.warning}
+        </p>
+      )}
       <CopyBlock label="Claude Code" text={configs.claudeCode} testId="mcp-config-claude-code" />
       <CopyBlock label="Codex (~/.codex/config.toml)" text={configs.codex} />
       <CopyBlock label="Claude Desktop (claude_desktop_config.json)" text={configs.claudeDesktop} />
@@ -81,7 +86,7 @@ export function ConnectAgent({ Group }: Pick<SettingsPrimitives, 'Group'>) {
               variant="ghost"
               size="sm"
               onClick={() => {
-                void startMcpControlServer({ rotateToken: true }).then(() =>
+                void startMcpControlServer().then(() =>
                   toast.success('Token rotated — reconnect HTTP clients')
                 );
               }}

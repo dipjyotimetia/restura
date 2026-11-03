@@ -109,17 +109,35 @@ describe('McpControlBridge', () => {
     useSettingsStore.getState().updateSettings({
       mcpServer: { ...DEFAULT_MCP_SERVER_SETTINGS, enabled: true, updatedAt: 1 },
     });
-    const { dexieStorageAdapters } = await import('@/lib/shared/dexie-storage');
-    const spy = vi.spyOn(dexieStorageAdapters, 'settings').mockReturnValue({
-      getItem: async () => ({
+    // "Another window" persisted enabled: false later, via the store's own
+    // persist storage (name, version and storage from getOptions()).
+    const persist = (
+      useSettingsStore as unknown as {
+        persist: {
+          getOptions: () => { name: string; version?: number; storage?: unknown };
+          setOptions: (o: { storage: unknown }) => void;
+        };
+      }
+    ).persist;
+    const options = persist.getOptions();
+    const saved = JSON.parse(
+      JSON.stringify({
         state: {
-          settings: { mcpServer: { ...DEFAULT_MCP_SERVER_SETTINGS, enabled: false, updatedAt: 2 } },
+          settings: {
+            ...useSettingsStore.getState().settings,
+            mcpServer: { ...DEFAULT_MCP_SERVER_SETTINGS, enabled: false, updatedAt: 2 },
+          },
         },
-        version: 4,
-      }),
-      setItem: async () => undefined,
-      removeItem: async () => undefined,
-    } as never);
+        version: options.version ?? 0,
+      })
+    );
+    persist.setOptions({
+      storage: {
+        getItem: (key: string) => (key === options.name ? structuredClone(saved) : null),
+        setItem: () => undefined,
+        removeItem: () => undefined,
+      },
+    });
     try {
       render(<McpControlBridge />);
       await waitFor(() =>
@@ -127,7 +145,7 @@ describe('McpControlBridge', () => {
       );
       expect(h.api.start).not.toHaveBeenCalled();
     } finally {
-      spy.mockRestore();
+      persist.setOptions({ storage: options.storage });
     }
   });
 

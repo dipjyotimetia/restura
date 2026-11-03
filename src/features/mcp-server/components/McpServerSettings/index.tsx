@@ -8,7 +8,7 @@
 import { setHistoryConsent } from '@shared/mcp-server/consent';
 import type { McpApprovalMode } from '@shared/mcp-server/settings';
 import { Bot } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import {
   Select,
   SelectContent,
@@ -19,8 +19,9 @@ import {
 import { ToggleField } from '@/components/ui/spatial';
 import { isElectron } from '@/lib/shared/platform';
 import {
-  updateMcpConsent,
-  updateMcpServerSettings,
+  getFreshMcpServerSettings,
+  updateMcpConsentFresh,
+  updateMcpServerSettingsFresh,
   useMcpServerSettings,
 } from '../../lib/settings';
 import { useMcpServerRuntimeStore } from '../../store/useMcpServerRuntimeStore';
@@ -43,6 +44,11 @@ function relativeTime(at: number | undefined): string {
 
 export function McpServerSettings({ Header, Group, Row }: McpServerSettingsProps) {
   const settings = useMcpServerSettings();
+  // Show (and edit on top of) the newest settings, even if another window
+  // changed them since this one last looked.
+  useEffect(() => {
+    void getFreshMcpServerSettings();
+  }, []);
   const status = useMcpServerRuntimeStore((s) => s.status);
   const lastError = useMcpServerRuntimeStore((s) => s.lastError);
 
@@ -88,7 +94,7 @@ export function McpServerSettings({ Header, Group, Row }: McpServerSettingsProps
           control={
             <ToggleField
               checked={settings.enabled}
-              onChange={(value) => updateMcpServerSettings({ enabled: value })}
+              onChange={(value) => void updateMcpServerSettingsFresh({ enabled: value })}
               ariaLabel="Enable MCP server"
             />
           }
@@ -99,7 +105,9 @@ export function McpServerSettings({ Header, Group, Row }: McpServerSettingsProps
           control={
             <Select
               value={settings.approvalMode}
-              onValueChange={(v) => updateMcpServerSettings({ approvalMode: v as McpApprovalMode })}
+              onValueChange={(v) =>
+                void updateMcpServerSettingsFresh({ approvalMode: v as McpApprovalMode })
+              }
             >
               <SelectTrigger className="h-7 w-[190px] text-xs" aria-label="Approval mode">
                 <SelectValue />
@@ -121,7 +129,9 @@ export function McpServerSettings({ Header, Group, Row }: McpServerSettingsProps
           control={
             <ToggleField
               checked={settings.redactResponseBodies}
-              onChange={(value) => updateMcpServerSettings({ redactResponseBodies: value })}
+              onChange={(value) =>
+                void updateMcpServerSettingsFresh({ redactResponseBodies: value })
+              }
               ariaLabel="Redact responses sent to agents"
             />
           }
@@ -133,7 +143,9 @@ export function McpServerSettings({ Header, Group, Row }: McpServerSettingsProps
             <ToggleField
               checked={settings.consent.historyLevel === 'read-only'}
               onChange={(value) =>
-                updateMcpConsent((c) => setHistoryConsent(c, value ? 'read-only' : 'hidden'))
+                void updateMcpConsentFresh((c) =>
+                  setHistoryConsent(c, value ? 'read-only' : 'hidden')
+                )
               }
               ariaLabel="Share request history with agents"
             />

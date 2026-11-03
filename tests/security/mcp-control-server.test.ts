@@ -283,14 +283,13 @@ describe('MCP control server: masks never overwrite secrets', () => {
         if (d[key] !== undefined) patch[key] = d[key];
       if (d.body) patch.body = d.body;
       const write = await runControlTool(call('update_request', { requestId, patch }));
-      // Either the copy-back is accepted with real values kept, or refused.
-      if (write.ok) {
-        const after = JSON.stringify(useCollectionStore.getState().collections);
-        for (const secret of SECRETS) {
-          if (before.includes(secret)) expect(after, secret).toContain(secret);
-        }
-        expect(after).not.toMatch(/\(redacted\)|%28secret%29|\(secret\)/);
+      // A verbatim copy-back is accepted, and keeps every real value.
+      expect(write, JSON.stringify(write)).toMatchObject({ ok: true });
+      const after = JSON.stringify(useCollectionStore.getState().collections);
+      for (const secret of SECRETS) {
+        if (before.includes(secret)) expect(after, secret).toContain(secret);
       }
+      expect(after).not.toMatch(/\(redacted\)|%28secret%29|\(secret\)/);
     }
   );
 });

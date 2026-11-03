@@ -9,7 +9,7 @@
  * Zustand state, so state stays serialisable and devtools-safe.
  */
 
-import type { ControlServerStatus } from '@shared/mcp-server/control-bridge';
+import type { AgentLaunchCommand, ControlServerStatus } from '@shared/mcp-server/control-bridge';
 import type { ToolTier } from '@shared/mcp-server/control-tools';
 import { create } from 'zustand';
 
@@ -54,11 +54,7 @@ export interface ActivityEntry {
 export const MAX_ACTIVITY_ENTRIES = 200;
 
 /** How an agent launches `--mcp-server` for this install (from main). */
-export interface AgentLaunch {
-  command: string;
-  args: string[];
-  env?: Record<string, string>;
-}
+export type AgentLaunch = AgentLaunchCommand;
 
 interface McpServerRuntimeState {
   status: ControlServerStatus;

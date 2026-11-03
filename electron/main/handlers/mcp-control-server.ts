@@ -19,6 +19,7 @@ import { CLIENT_INFO_META_KEY, createMcpHandler, McpServer } from '@modelcontext
 import {
   CONTROL_SERVER_PATH,
   type ControlToolResult,
+  sanitizeLabel,
   type ToolCallClient,
 } from '@shared/mcp-server/control-bridge';
 import {
@@ -123,14 +124,9 @@ export function clientFromMeta(
   if (!info || typeof info !== 'object') return undefined;
   const { name, version } = info as { name?: unknown; version?: unknown };
   if (typeof name !== 'string' || name.trim() === '') return undefined;
-  const clean = (v: string) =>
-    v
-      .replace(/[^\x20-\x7e]/g, '')
-      .trim()
-      .slice(0, 120);
   return {
-    name: clean(name),
-    ...(typeof version === 'string' && version ? { version: clean(version).slice(0, 40) } : {}),
+    name: sanitizeLabel(name),
+    ...(typeof version === 'string' && version ? { version: sanitizeLabel(version, 40) } : {}),
   };
 }
 
@@ -161,7 +157,7 @@ export function contentHandlerFor(dispatch: ControlToolDispatcher): ControlToolC
 const CLOSE_DRAIN_MS = 1_000;
 
 /** Largest request body the listener parses (import_collection documents). */
-export const MAX_CONTROL_REQUEST_BYTES = 24 * 1024 * 1024;
+export const MAX_CONTROL_REQUEST_BYTES = 40 * 1024 * 1024;
 
 /** Requests per minute the listener accepts (all clients together). */
 export const CONTROL_HTTP_RATE_LIMIT = 600;
@@ -226,7 +222,9 @@ export async function startControlHttpServer(
       maxRequestBodySize: MAX_CONTROL_REQUEST_BYTES,
     }
   );
-  const nodeHandler = toNodeHandler(handler);
+  // The Node adapter enforces its own body bound *before* the handler (4 MiB
+  // by default), so the same limit must be given to both.
+  const nodeHandler = toNodeHandler(handler, { maxRequestBodySize: MAX_CONTROL_REQUEST_BYTES });
 
   const server = http.createServer((req, res) => {
     const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;

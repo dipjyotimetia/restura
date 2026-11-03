@@ -50,9 +50,12 @@ export function redactKeyValues(rows: readonly KeyValue[] | undefined): AgentKey
   });
 }
 
+/** Longest saved body-like text `get_request` returns in full. */
+export const MAX_SAVED_TEXT_CHARS = 100_000;
+
 /** Saved body-like text (JSON, form pairs, JWTs) with credentials masked. */
 export function redactSavedText(text: string): string {
-  return redactBodyForAgent(text, { redact: true, maxChars: 100_000 }).text;
+  return redactBodyForAgent(text, { redact: true, maxChars: MAX_SAVED_TEXT_CHARS }).text;
 }
 
 export function redactSavedUrl(url: string): string {
@@ -66,17 +69,31 @@ const refuse = (field: string): Outcome<never> => ({
   error: `${field} contains a redaction placeholder such as "(redacted)". Restura never stores those: leave the field out to keep the saved value, keep the row exactly as get_request returned it, or use a {{variable}} for the secret.`,
 });
 
-/** A text field: the unchanged redacted form keeps the saved value. */
+/**
+ * A text field: the unchanged redacted form keeps the saved value; any other
+ * value with a placeholder is refused. A saved value too long for get_request
+ * to have shown in full can only be kept or replaced without placeholders —
+ * never "edited" from a truncated copy.
+ */
 function restoreText(
   field: string,
   incoming: string | undefined,
   saved: string | undefined,
   redact: (s: string) => string
 ): Outcome<string | undefined> {
-  if (incoming === undefined || !PLACEHOLDER_PATTERN.test(incoming)) {
-    return { ok: true, value: incoming };
-  }
+  if (incoming === undefined) return { ok: true, value: incoming };
   if (saved !== undefined && redact(saved) === incoming) return { ok: true, value: saved };
+  if (
+    saved !== undefined &&
+    saved.length > MAX_SAVED_TEXT_CHARS &&
+    incoming.startsWith(redact(saved).slice(0, 1_000))
+  ) {
+    return {
+      ok: false,
+      error: `${field} is longer than get_request shows (${MAX_SAVED_TEXT_CHARS.toLocaleString()} characters), so it cannot be edited from that copy. Ask the user to edit it in Restura.`,
+    };
+  }
+  if (!PLACEHOLDER_PATTERN.test(incoming)) return { ok: true, value: incoming };
   return refuse(field);
 }
 
@@ -91,6 +108,10 @@ function restoreRows(
 ): Outcome<RequestPatch['headers']> {
   if (!incoming) return { ok: true, value: incoming };
   const redactedSaved = redactKeyValues(saved);
+  // Each saved row restores at most one incoming row, in order: rows that
+  // share a key (two Authorization headers, one disabled) each get their own
+  // value back instead of all getting the first one.
+  const used = new Set<number>();
   const out = [];
   for (const row of incoming) {
     if (!PLACEHOLDER_PATTERN.test(row.value)) {
@@ -98,13 +119,38 @@ function restoreRows(
       continue;
     }
     const index = redactedSaved.findIndex(
-      (r) => r.key.toLowerCase() === row.key.toLowerCase() && r.value === row.value
+      (r, i) =>
+        !used.has(i) && r.key.toLowerCase() === row.key.toLowerCase() && r.value === row.value
     );
     const original = index >= 0 ? saved?.[index] : undefined;
     if (!original) return refuse(`${field} “${row.key}”`);
+    used.add(index);
     out.push({ ...row, value: original.value });
   }
   return { ok: true, value: out };
+}
+
+const AUTHORITY = /^([a-z][a-z0-9+.-]*:\/\/)([^/?#@\s]*@)?([^/?#\s]*)(.*)$/is;
+
+/**
+ * `get_request` strips `user:pass@` from URLs (no placeholder), so an edited
+ * URL arrives without them. Put the saved userinfo back when the edit kept
+ * the same scheme and host — the credential was never shown to the agent and
+ * still belongs to that host. A URL pointed at another host keeps none: the
+ * saved credential must not follow it there.
+ */
+function reattachUserinfo(incoming: string, saved: string | undefined): string {
+  if (!saved) return incoming;
+  const [, sScheme = '', sUser = '', sHost = ''] = AUTHORITY.exec(saved) ?? [];
+  const [, iScheme = '', iUser = '', iHost = '', iRest = ''] = AUTHORITY.exec(incoming) ?? [];
+  if (!sUser || !iScheme || iUser) return incoming;
+  if (
+    sScheme.toLowerCase() !== iScheme.toLowerCase() ||
+    sHost.toLowerCase() !== iHost.toLowerCase()
+  ) {
+    return incoming;
+  }
+  return `${iScheme}${sUser}${iHost}${iRest}`;
 }
 
 /** Make an `update_request` patch safe to apply over `saved`. */
@@ -119,7 +165,9 @@ export function restoreRedactedPatch(saved: Request, patch: RequestPatch): Outco
   } else {
     const url = restoreText('url', patch.url, savedUrl, redactSavedUrl);
     if (!url.ok) return url;
-    if (patch.url !== undefined) next.url = url.value as string;
+    if (patch.url !== undefined) {
+      next.url = reattachUserinfo(url.value as string, savedUrl);
+    }
   }
 
   const rowsOf = (key: 'headers' | 'params' | 'metadata'): KeyValue[] | undefined =>

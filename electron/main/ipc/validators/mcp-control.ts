@@ -24,5 +24,4 @@ export const ToolCallResultPayloadSchema = z.object({
 /** `mcp-control:start`. */
 export const ControlServerStartSchema = z.object({
   preferredPort: z.number().int().min(1024).max(65535).optional(),
-  rotateToken: z.boolean().optional(),
 }) satisfies z.ZodType<ControlServerStartOptions>;

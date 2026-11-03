@@ -18,7 +18,8 @@ export function fingerprint(value: unknown): string {
 /**
  * Give the agent edit access to something it just created — and nothing else —
  * so it can keep working in it. Undoing the create removes the thing itself;
- * a dangling override for a deleted id grants nothing.
+ * a dangling override for a deleted id grants nothing (canCreate* only count
+ * overrides for ids that still exist).
  */
 export function grant(update: (consent: McpServerConsent) => McpServerConsent): void {
   updateMcpConsent(update);

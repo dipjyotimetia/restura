@@ -5,6 +5,7 @@ import type {
   GitMergeOutcome,
   GitMergeState,
 } from '@shared/git-types';
+import type { AgentLaunchCommand } from '@shared/mcp-server/control-bridge';
 import type { ProtocolSecretValue } from './protocols';
 
 export interface ElectronNotificationAPI {
@@ -245,15 +246,12 @@ export type ElectronMcpControlToolResult =
   | { ok: true; data: unknown }
   | { ok: false; error: string };
 
-/** How an agent launches `--mcp-server` for this install (mirrors `AgentLaunchCommand`). */
-export interface ElectronMcpAgentLaunch {
-  command: string;
-  args: string[];
-  env?: Record<string, string>;
-}
+/** How an agent launches `--mcp-server` for this install. */
+export type ElectronMcpAgentLaunch = AgentLaunchCommand;
 
 export interface ElectronMcpControlAPI {
-  start: (options?: { preferredPort?: number; rotateToken?: boolean }) => Promise<
+  /** Every start mints a fresh token, so calling it again rotates the token. */
+  start: (options?: { preferredPort?: number }) => Promise<
     | {
         ok: true;
         status: ElectronMcpControlStatus;

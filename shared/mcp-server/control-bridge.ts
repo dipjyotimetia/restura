@@ -57,14 +57,29 @@ export interface ToolCallResultPayload {
   result: ControlToolResult;
 }
 
-/** Payload of `mcp-control:start` (validated by `ControlServerStartSchema`). */
+/**
+ * Payload of `mcp-control:start` (validated by `ControlServerStartSchema`).
+ * Every start mints a fresh bearer token, so starting again also rotates it.
+ */
 export interface ControlServerStartOptions {
   preferredPort?: number;
-  /**
-   * Restart with a new bearer token, invalidating configured HTTP clients.
-   * (Every start mints a fresh token; this just forces a restart now.)
-   */
-  rotateToken?: boolean;
+}
+
+/** How an agent launches the `--mcp-server` relay for *this* install. */
+export interface AgentLaunchCommand {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  /** Shown next to the configs when the command will not survive a restart. */
+  warning?: string;
+}
+
+/** Printable ASCII, trimmed, bounded — for client labels shown in the UI. */
+export function sanitizeLabel(value: string, max = 120): string {
+  return value
+    .replace(/[^\x20-\x7e]/g, '')
+    .trim()
+    .slice(0, max);
 }
 
 export interface ControlServerStatus {

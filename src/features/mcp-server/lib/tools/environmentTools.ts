@@ -23,7 +23,12 @@ import {
 import { clip, refuse, SETTINGS_HINT, type ToolImpl } from './types';
 
 const createEnvironment: ToolImpl<ControlToolInput<'create_environment'>> = (input, env) => {
-  if (!canCreateEnvironment(env.settings.consent)) {
+  if (
+    !canCreateEnvironment(
+      env.settings.consent,
+      new Set(useEnvironmentStore.getState().environments.map((e) => e.id))
+    )
+  ) {
     return refuse(
       `Creating environments is not allowed: no environment is shared for editing. ${SETTINGS_HINT}`
     );

@@ -165,6 +165,26 @@ describe('control server over streamable HTTP', () => {
   });
 });
 
+describe('control server body size', () => {
+  it('accepts an import document larger than the SDK’s 4 MiB default', async () => {
+    const dispatch = vi.fn(async (call: ControlToolCall) => ({
+      ok: true as const,
+      data: { chars: (call.input as { content: string }).content.length },
+    }));
+    const handle = await start(dispatch);
+    const client = await connect(handle.url);
+    const content = `curl https://x.example/${'a'.repeat(4_800_000)}`;
+    const result = await client.callTool({
+      name: 'import_collection',
+      arguments: { format: 'curl', content },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text)).toEqual({
+      chars: content.length,
+    });
+  });
+});
+
 describe('control server transport security', () => {
   it('401s without or with a wrong bearer token', async () => {
     const handle = await start(async () => ({ ok: true, data: null }));

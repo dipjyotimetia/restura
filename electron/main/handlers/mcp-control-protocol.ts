@@ -21,6 +21,7 @@ import {
   HANDSHAKE_FILE_NAME,
   type HandshakeFile,
   HandshakeFileSchema,
+  sanitizeLabel,
 } from '@shared/mcp-server/control-bridge';
 import { type IncomingHeaders, isAuthorized } from './capture-bridge-protocol';
 
@@ -67,8 +68,8 @@ export function clientLabelFromHeaders(headers: IncomingHeaders): string | undef
   const raw = headerString(headers['x-restura-mcp-client']) ?? headerString(headers['user-agent']);
   if (!raw) return undefined;
   // Printable ASCII only, bounded: this ends up in the UI.
-  const cleaned = raw.replace(/[^\x20-\x7e]/g, '').trim();
-  return cleaned.length > 0 ? cleaned.slice(0, 120) : undefined;
+  const cleaned = sanitizeLabel(raw);
+  return cleaned.length > 0 ? cleaned : undefined;
 }
 
 export function mintToken(): string {

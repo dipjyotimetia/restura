@@ -40,6 +40,7 @@ import {
   TOOL_IMPLEMENTATIONS,
   undoActivity,
 } from '../runtime';
+import { updateMcpServerSettingsFresh } from '../settings';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -110,6 +111,46 @@ const STAGING: Environment = {
     { id: 'v2', key: 'apiKey', value: 'super-secret', enabled: true, secret: true },
   ],
 };
+
+/**
+ * Point the settings store's persist layer at an in-memory storage for one
+ * test (the real seam: the store's own name, version and storage), standing
+ * in for "what another window wrote".
+ */
+async function withMemorySettingsStorage(
+  fn: (
+    mem: Map<string, unknown> & { writes: number },
+    name: string,
+    version: number
+  ) => Promise<void>
+) {
+  const persist = (
+    useSettingsStore as unknown as {
+      persist: {
+        getOptions: () => { name: string; version?: number; storage?: unknown };
+        setOptions: (o: { storage: unknown }) => void;
+      };
+    }
+  ).persist;
+  const options = persist.getOptions();
+  const mem = Object.assign(new Map<string, unknown>(), { writes: 0 });
+  persist.setOptions({
+    storage: {
+      // JSON round-trip, like the real (Dexie, JSON-encoded) storage.
+      getItem: (key: string) => (mem.has(key) ? JSON.parse(JSON.stringify(mem.get(key))) : null),
+      setItem: (key: string, value: unknown) => {
+        mem.writes += 1;
+        mem.set(key, JSON.parse(JSON.stringify(value)));
+      },
+      removeItem: (key: string) => mem.delete(key),
+    },
+  });
+  try {
+    await fn(mem, options.name, options.version ?? 0);
+  } finally {
+    persist.setOptions({ storage: options.storage });
+  }
+}
 
 let callSeq = 0;
 function call(tool: string, input: unknown = {}): ToolCallEvent {
@@ -369,9 +410,10 @@ describe('edit tools', () => {
     const entry = useMcpServerRuntimeStore.getState().activity[0]!;
     const savedRequest = () =>
       useCollectionStore.getState().getCollectionById(ORDERS.id)!.items[0]!.items![0]!.request;
+    // Same host: the saved user:pw@ (never shown to the agent) is kept.
     expect(savedRequest()).toMatchObject({
       method: 'HEAD',
-      url: 'https://api.example.com/v2/orders',
+      url: 'https://user:pw@api.example.com/v2/orders',
     });
     expect(await undoActivity(entry.id)).toEqual({ ok: true });
     expect(savedRequest()).toMatchObject({
@@ -921,63 +963,95 @@ describe('review round 1 regressions', () => {
     expect(useMcpServerRuntimeStore.getState().activity[0]?.undoable).toBe(true);
   });
 
-  it('a change made in another window (persisted, newer) wins over this window’s copy', async () => {
+  it('another window’s newer change wins, through the store’s real persist storage', async () => {
     grant((c) => setCollectionConsent(c, ORDERS.id, 'read-only'));
-    const local = useSettingsStore.getState().settings.mcpServer!;
-    const newer = {
-      ...local,
-      consent: setCollectionConsent(local.consent, ORDERS.id, 'hidden'),
-      updatedAt: (local.updatedAt ?? 0) + 1_000,
-    };
-    const { dexieStorageAdapters } = await import('@/lib/shared/dexie-storage');
-    const spy = vi.spyOn(dexieStorageAdapters, 'settings').mockReturnValue({
-      getItem: async () => ({ state: { settings: { mcpServer: newer } }, version: 4 }),
-      setItem: async () => undefined,
-      removeItem: async () => undefined,
-    } as never);
-    try {
+    await withMemorySettingsStorage(async (mem, name, version) => {
+      const local = useSettingsStore.getState().settings;
+      // "Window B": revoked the collection AND changed an unrelated setting.
+      mem.set(name, {
+        state: {
+          settings: {
+            ...local,
+            theme: 'light',
+            mcpServer: {
+              ...local.mcpServer!,
+              consent: setCollectionConsent(local.mcpServer!.consent, ORDERS.id, 'hidden'),
+              updatedAt: (local.mcpServer!.updatedAt ?? 0) + 1_000,
+            },
+          },
+        },
+        version,
+      });
+      const writesBefore = mem.writes;
+
       const r = await runControlTool(call('get_collection_tree', { collectionId: ORDERS.id }));
       expect(r.ok).toBe(false);
-      // …and this window adopted the newer settings.
-      expect(useSettingsStore.getState().settings.mcpServer?.updatedAt).toBe(newer.updatedAt);
+      // This window adopted B's settings — including the unrelated change —
+      // and did not write its own stale copy back over them.
+      expect(useSettingsStore.getState().settings.theme).toBe('light');
+      expect(mem.writes).toBe(writesBefore);
+      expect(
+        (mem.get(name) as { state: { settings: { theme: string } } }).state.settings.theme
+      ).toBe('light');
 
-      spy.mockReturnValue({
-        getItem: async () => ({
-          state: {
-            settings: { mcpServer: { ...newer, enabled: false, updatedAt: newer.updatedAt + 1 } },
+      // B turns the server off.
+      const persisted = mem.get(name) as { state: { settings: { mcpServer: McpServerSettings } } };
+      mem.set(name, {
+        state: {
+          settings: {
+            ...persisted.state.settings,
+            mcpServer: {
+              ...persisted.state.settings.mcpServer,
+              enabled: false,
+              updatedAt: (persisted.state.settings.mcpServer.updatedAt ?? 0) + 1,
+            },
           },
-          version: 4,
-        }),
-        setItem: async () => undefined,
-        removeItem: async () => undefined,
-      } as never);
+        },
+        version,
+      });
       expect(await runControlTool(call('describe_access'))).toEqual({
         ok: false,
         error: 'The Restura MCP server is turned off.',
       });
-    } finally {
-      spy.mockRestore();
-    }
+    });
   });
 
   it('an older persisted copy never overrides this window’s newer change', async () => {
     grant((c) => setCollectionConsent(c, ORDERS.id, 'read-only'));
-    // A real change stamps updatedAt (updateMcpServerSettings).
     setSettings({ updatedAt: Date.now() });
-    const { dexieStorageAdapters } = await import('@/lib/shared/dexie-storage');
-    const spy = vi.spyOn(dexieStorageAdapters, 'settings').mockReturnValue({
-      getItem: async () => ({
+    await withMemorySettingsStorage(async (mem, name, version) => {
+      mem.set(name, {
         state: { settings: { mcpServer: { ...DEFAULT_MCP_SERVER_SETTINGS, updatedAt: 1 } } },
-        version: 4,
-      }),
-      setItem: async () => undefined,
-      removeItem: async () => undefined,
-    } as never);
-    try {
+        version,
+      });
       ok(await runControlTool(call('get_collection_tree', { collectionId: ORDERS.id })));
-    } finally {
-      spy.mockRestore();
-    }
+    });
+  });
+
+  it('a user edit in a stale window builds on the newest copy, not its own', async () => {
+    grant((c) => setCollectionConsent(c, ORDERS.id, 'edit'));
+    await withMemorySettingsStorage(async (mem, name, version) => {
+      const local = useSettingsStore.getState().settings;
+      // Window A revoked the collection; this window (B) has not seen it.
+      mem.set(name, {
+        state: {
+          settings: {
+            ...local,
+            mcpServer: {
+              ...local.mcpServer!,
+              consent: setCollectionConsent(local.mcpServer!.consent, ORDERS.id, 'hidden'),
+              updatedAt: (local.mcpServer!.updatedAt ?? 0) + 1_000,
+            },
+          },
+        },
+        version,
+      });
+      await updateMcpServerSettingsFresh({ approvalMode: 'auto-approve-edits' });
+      const after = useSettingsStore.getState().settings.mcpServer!;
+      expect(after.approvalMode).toBe('auto-approve-edits');
+      // The revoke survives B's unrelated edit.
+      expect(after.consent.perCollection[ORDERS.id]).toBe('hidden');
+    });
   });
 
   it('a call cancelled during an async prepare never shows a card', async () => {
@@ -1024,5 +1098,22 @@ describe('review round 1 regressions', () => {
   it('error text sent back to main stays under the schema cap', async () => {
     const { boundedError } = await import('../runtime');
     expect(boundedError(new Error('x'.repeat(50_000))).length).toBeLessThanOrEqual(2_001);
+  });
+});
+
+describe('review round 2 regressions', () => {
+  it('send_request: hidden and missing read the same', async () => {
+    const hidden = await runControlTool(call('send_request', { requestId: 'req-list' }));
+    const missing = await runControlTool(call('send_request', { requestId: 'nope' }));
+    expect(!hidden.ok && hidden.error.replace('req-list', 'X')).toBe(
+      !missing.ok && missing.error.replace('nope', 'X')
+    );
+  });
+
+  it('an edit grant left on a deleted collection does not allow creating collections', async () => {
+    grant((c) => setCollectionConsent(c, 'deleted-collection', 'edit'));
+    setSettings({ approvalMode: 'auto-approve-edits' });
+    const r = await runControlTool(call('create_collection', { name: 'X' }));
+    expect(r.ok).toBe(false);
   });
 });

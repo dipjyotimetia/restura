@@ -73,16 +73,14 @@ export async function refreshMcpControlStatus(): Promise<void> {
 }
 
 /** Start / stop the main-process server. Exported for the Settings screen. */
-export async function startMcpControlServer(options: { rotateToken?: boolean } = {}) {
+/** Start (or restart) the server. Every start mints a fresh token, so this also rotates it. */
+export async function startMcpControlServer() {
   const api = getElectronAPI()?.mcpControl;
   if (!api) return;
   const { preferredPort } = getMcpServerSettings();
   const store = useMcpServerRuntimeStore.getState();
   try {
-    const res = await api.start({
-      ...(preferredPort !== undefined ? { preferredPort } : {}),
-      ...(options.rotateToken ? { rotateToken: true } : {}),
-    });
+    const res = await api.start(preferredPort !== undefined ? { preferredPort } : {});
     if (res.ok) {
       store.setStatus(res.status, res.token);
       store.setLaunch(res.launch);

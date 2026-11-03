@@ -105,6 +105,9 @@ function scriptLines(label: string, node: MaybeScripted): string[] {
   ];
 }
 
+const existingCollectionIds = () =>
+  new Set(useCollectionStore.getState().collections.map((c) => c.id));
+
 /** Every non-empty script in a collection (collection, folders, requests), labelled. */
 function scriptsIn(collection: Collection): string[] {
   const out = scriptLines('Collection', collection);
@@ -133,7 +136,7 @@ function describeRequestLine(request: { type: string; method?: string; url?: str
 // ---------------------------------------------------------------------------
 
 const createCollection: ToolImpl<ControlToolInput<'create_collection'>> = (input, env) => {
-  if (!canCreateCollection(env.settings.consent)) {
+  if (!canCreateCollection(env.settings.consent, existingCollectionIds())) {
     return refuse(
       `Creating collections is not allowed: no collection is shared for editing. ${SETTINGS_HINT}`
     );
@@ -378,7 +381,7 @@ function countRequests(items: CollectionItem[]): number {
 }
 
 const importCollection: ToolImpl<ControlToolInput<'import_collection'>> = async (input, env) => {
-  if (!canCreateCollection(env.settings.consent)) {
+  if (!canCreateCollection(env.settings.consent, existingCollectionIds())) {
     return refuse(
       `Importing is not allowed: no collection is shared for editing. ${SETTINGS_HINT}`
     );

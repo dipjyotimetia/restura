@@ -57,7 +57,7 @@ tool_timeout_sec = 600
 }
 ```
 
-Copy the commands from Settings rather than typing them: they use the right path for your install.
+Copy the commands from Settings rather than typing them: they use the right path for your install. On macOS, if Restura is running straight from Downloads or a disk image, Settings asks you to move it to Applications first, because macOS runs such apps from a temporary location that changes on every launch.
 
 **Over HTTP (advanced).** Clients that speak streamable HTTP can connect to `http://127.0.0.1:<port>/mcp` directly with `Authorization: Bearer <token>`. Settings shows the URL and the token. A new token is created every time the server starts, so HTTP clients need the new one after a restart. The stdio command above never does.
 
@@ -103,7 +103,7 @@ If you have more than one Restura window open, a change in any window, such as r
 ## Secrets
 
 - Agents never see secret values. Credentials in saved requests, secret variables, keychain handles, URL passwords and token-like fields are redacted in everything an agent reads.
-- Agents cannot write secrets either, and cannot overwrite yours. Auth fields only accept a `{{variable}}` reference. If an agent copies a masked value such as `(redacted)` back into a request, Restura keeps your real value, and refuses any other masked value. When a request needs a credential, the agent calls `request_secret_variable`. Restura asks you to type the value and stores it as a secret variable, and the agent only learns that it was set.
+- Agents cannot write secrets either, and cannot overwrite yours. Auth fields only accept a `{{variable}}` reference. If an agent copies a masked value such as `(redacted)` back into a request, Restura keeps your real value, and refuses any other masked value. A URL's `user:password@` is kept when the agent changes the path but not the host. A body too long for the agent to see in full can't be edited by it. When a request needs a credential, the agent calls `request_secret_variable`. Restura asks you to type the value and stores it as a secret variable, and the agent only learns that it was set.
 - Responses an agent receives have credential headers (`Authorization`, `Set-Cookie`, …), token-like JSON fields and JWTs masked. You can turn this off in Settings, for example to debug a login flow.
 - Response bodies, headers and saved documentation come from third parties, and Restura labels them as untrusted when it passes them to the agent. A malicious API response could still try to instruct an agent, which is one reason sends always need your approval.
 
