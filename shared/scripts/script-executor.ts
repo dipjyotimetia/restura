@@ -218,7 +218,7 @@ class ScriptExecutor {
     runtime.setInterruptHandler(() => {
       // Only enforce timeouts during USER-script eval. `evalStartTime`
       // is set by `eval()` before running the user script and reset to
-      // 0 at construction. During `initialize()` (library bundle load,
+      // 0 once that script settles (and at construction). During `initialize()` (library bundle load,
       // pm.* native setup, PM_EXPECT bootstrap) we must NOT interrupt
       // — those run trusted code we authored, and the 2MB library
       // bundle can take a couple of seconds to parse on slower devices.
@@ -733,59 +733,57 @@ class ScriptExecutor {
     this.bindRequestResponse(vm, context);
     this.evalStartTime = Date.now();
     this.evalInterrupted = false;
-
-    const result = vm.evalCode(trimmedScript, 'user-script.js');
-    if (result.error) {
-      const errorValue = vm.dump(result.error);
-      const errorMsg = typeof errorValue === 'string' ? errorValue : JSON.stringify(errorValue);
-      this.addLog('error', `Script execution error: ${errorMsg}`);
-      result.error.dispose();
-    } else {
-      result.value.dispose();
-    }
-    // Drain microtasks the script queued (await / .then / promise chains).
-    // For sync-only scripts this is a single immediate call. For scripts
-    // that called pm.sendRequest, we loop: pump QuickJS microtasks, yield
-    // to the host event loop so the in-flight Promise can resolve, then
-    // pump again — until no host-side work is outstanding OR the wall-clock
-    // deadline is hit.
-    //
-    // The wall-clock guard is the load-bearing safety net. QuickJS's
-    // interrupt handler only fires while JS bytecode runs; a script that
-    // awaits a hung host promise queues NO bytecode while waiting, so
-    // `evalInterrupted` never flips on its own. We compute the same
-    // ceiling the interrupt handler uses and flip `evalInterrupted`
-    // ourselves when the deadline passes.
-    const ceiling = this.executionCeilingMs();
-    const deadline = this.evalStartTime + ceiling;
-    if (this.runtime) {
-      const pending = this.runtime.executePendingJobs();
-      if (pending.error) pending.error.dispose();
-    }
-    while (this.pendingHostOps > 0 && !this.evalInterrupted) {
-      if (Date.now() >= deadline) {
-        this.evalInterrupted = true;
-        break;
+    // Reset to 0 once the user script settles, so a reused executor's trusted
+    // evals (sentinels, bindings) before the next user script stay untimed.
+    try {
+      const result = vm.evalCode(trimmedScript, 'user-script.js');
+      if (result.error) {
+        const errorValue = vm.dump(result.error);
+        const errorMsg = typeof errorValue === 'string' ? errorValue : JSON.stringify(errorValue);
+        this.addLog('error', `Script execution error: ${errorMsg}`);
+        result.error.dispose();
+      } else {
+        result.value.dispose();
       }
-      // Yield once to the host so any pending Promise.then() callbacks
-      // attached by pm.sendRequest can fire. setImmediate isn't available
-      // in browsers; setTimeout(0) is the portable equivalent.
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      // Drain microtasks the script queued (await / .then / promise chains):
+      // pump QuickJS jobs, yield to the host so in-flight host Promises (e.g.
+      // pm.sendRequest) resolve, and repeat until no host work is outstanding
+      // OR the wall-clock deadline is hit. That guard is load-bearing: the
+      // interrupt handler only fires while bytecode runs, and a script awaiting
+      // a hung host promise runs none, so we flip `evalInterrupted` ourselves.
+      const ceiling = this.executionCeilingMs();
+      const deadline = this.evalStartTime + ceiling;
       if (this.runtime) {
         const pending = this.runtime.executePendingJobs();
         if (pending.error) pending.error.dispose();
       }
-    }
-    if (this.evalInterrupted) {
-      this.addLog('error', `Script execution timed out after ${ceiling}ms`);
-      this.errors.push(`Script execution timed out after ${ceiling}ms`);
-      // Reject + dispose any still-pending host-promise deferreds. The
-      // host-side Promises they wrap are still running (we can't cancel
-      // an arbitrary host promise), but their QuickJS-side deferred is
-      // freed so the runtime can be disposed cleanly. The host promise's
-      // own .then/.catch/.finally will short-circuit on `!this.runtime`
-      // once it eventually settles.
-      this.releasePendingHostOps();
+      while (this.pendingHostOps > 0 && !this.evalInterrupted) {
+        if (Date.now() >= deadline) {
+          this.evalInterrupted = true;
+          break;
+        }
+        // Yield once to the host so any pending Promise.then() callbacks
+        // attached by pm.sendRequest can fire. setImmediate isn't available
+        // in browsers; setTimeout(0) is the portable equivalent.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        if (this.runtime) {
+          const pending = this.runtime.executePendingJobs();
+          if (pending.error) pending.error.dispose();
+        }
+      }
+      if (this.evalInterrupted) {
+        this.addLog('error', `Script execution timed out after ${ceiling}ms`);
+        this.errors.push(`Script execution timed out after ${ceiling}ms`);
+        // Reject + dispose any still-pending host-promise deferreds. The
+        // host-side Promises they wrap are still running (we can't cancel
+        // an arbitrary host promise), but their QuickJS-side deferred is
+        // freed so the runtime can be disposed cleanly. The host promise's
+        // own .then/.catch/.finally will short-circuit on `!this.runtime`
+        // once it eventually settles.
+        this.releasePendingHostOps();
+      }
+    } finally {
+      this.evalStartTime = 0;
     }
 
     // Harvest the per-eval sentinels back into the result shape. Both are
