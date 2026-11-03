@@ -628,3 +628,58 @@ describe('useHttpRequestPage — paste cURL', () => {
     ]);
   });
 });
+
+describe('useHttpRequestPage — clearing a settings override key', () => {
+  beforeEach(() => vi.resetModules());
+
+  it('clears caCert / httpVersion while keeping every other setting', async () => {
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab1',
+          isDirty: false,
+          request: {
+            id: 'req-1',
+            name: 'Existing',
+            type: 'http',
+            method: 'GET',
+            url: 'https://old.dev',
+            headers: [],
+            params: [],
+            body: { type: 'none' },
+            auth: { type: 'none' },
+            settings: {
+              timeout: 60_000,
+              followRedirects: true,
+              maxRedirects: 3,
+              verifySsl: true,
+              caCert: { pem: 'PEM' },
+              httpVersion: 'http2',
+            },
+          },
+        },
+      ],
+      activeTabId: 'tab1',
+      isLoading: false,
+    });
+    const { useHttpRequestPage } = await import('../useHttpRequestPage');
+    const { result } = renderHook(() => useHttpRequestPage());
+    const settings = () => {
+      const request = useRequestStore.getState().tabs[0]?.request;
+      return request?.type === 'http' ? request.settings : undefined;
+    };
+
+    act(() => result.current.handlers.changeSettings({ caCert: undefined }));
+    expect(settings()?.caCert).toBeUndefined();
+    expect(settings()?.httpVersion).toBe('http2');
+
+    act(() => result.current.handlers.changeSettings({ httpVersion: undefined }));
+    expect(settings()).toEqual({
+      timeout: 60_000,
+      followRedirects: true,
+      maxRedirects: 3,
+      verifySsl: true,
+    });
+  });
+});
