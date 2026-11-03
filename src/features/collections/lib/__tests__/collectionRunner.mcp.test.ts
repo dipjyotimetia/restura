@@ -26,7 +26,10 @@ const wire = vi.hoisted(() => ({
 
 vi.mock('@/features/mcp/lib/mcpClient', () => ({
   McpClient: class {
-    constructor(public opts: { url: string; headers: Record<string, string> }) {
+    public opts: { url: string; headers: Record<string, string> };
+
+    constructor(opts: { url: string; headers: Record<string, string> }) {
+      this.opts = opts;
       wire.instances.push(this);
     }
     async connect() {

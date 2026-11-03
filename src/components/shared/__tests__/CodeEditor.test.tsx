@@ -149,10 +149,13 @@ describe('CodeEditor Monaco lifecycle', () => {
     };
     const monaco = {
       Range: class {
-        constructor(
-          public startLine: number,
-          public startColumn: number
-        ) {}
+        public startLine: number;
+        public startColumn: number;
+
+        constructor(startLine: number, startColumn: number) {
+          this.startLine = startLine;
+          this.startColumn = startColumn;
+        }
       },
     };
 

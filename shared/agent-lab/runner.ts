@@ -171,7 +171,10 @@ export class AgentRunner {
   private readonly now: () => number;
   private readonly id: () => string;
 
-  constructor(private readonly dependencies: AgentRunnerDependencies) {
+  private readonly dependencies: AgentRunnerDependencies;
+
+  constructor(dependencies: AgentRunnerDependencies) {
+    this.dependencies = dependencies;
     this.now = dependencies.now ?? Date.now;
     this.id = dependencies.id ?? (() => crypto.randomUUID());
   }

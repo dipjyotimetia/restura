@@ -24,11 +24,11 @@ vi.mock('@modelcontextprotocol/server/stdio', () => ({
     return { close: stdioState.close };
   }),
   StdioServerTransport: class {
-    constructor(
-      _stdin: unknown,
-      _stdout: unknown,
-      readonly opts: { maxBufferSize?: number }
-    ) {}
+    readonly opts: { maxBufferSize?: number };
+
+    constructor(_stdin: unknown, _stdout: unknown, opts: { maxBufferSize?: number }) {
+      this.opts = opts;
+    }
   },
 }));
 

@@ -10,8 +10,7 @@
     "noUncheckedIndexedAccess": true,
     "noUncheckedSideEffectImports": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "esModuleInterop": true,
+    "isolatedModules": true,
     "resolveJsonModule": true
   }
 }

@@ -87,11 +87,11 @@ async function readTokenJson(
 
 /** Carries the machine-readable RFC 6749 error code alongside the human-readable message. */
 export class OAuth2TokenError extends Error {
-  constructor(
-    public readonly errorCode: string,
-    message: string
-  ) {
+  public readonly errorCode: string;
+
+  constructor(errorCode: string, message: string) {
     super(message);
+    this.errorCode = errorCode;
     this.name = 'OAuth2TokenError';
   }
 }

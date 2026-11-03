@@ -68,7 +68,11 @@ class AnthropicDecoder implements StreamDecoder {
   // single tool_call on content_block_stop.
   private toolBlocks = new Map<number, { id: string; name: string; json: string }>();
 
-  constructor(private readonly model: string) {}
+  private readonly model: string;
+
+  constructor(model: string) {
+    this.model = model;
+  }
 
   feed(rawData: string, eventName?: string): ChatStreamEvent[] {
     let parsed: unknown;

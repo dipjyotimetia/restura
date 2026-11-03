@@ -22,10 +22,12 @@ class FakeSocket implements SubscriptionSocket {
   onmessage: SubscriptionSocket['onmessage'] = null;
   onerror: SubscriptionSocket['onerror'] = null;
   onclose: SubscriptionSocket['onclose'] = null;
-  constructor(
-    readonly url = '',
-    readonly protocols: string | string[] = []
-  ) {
+  readonly url: string;
+  readonly protocols: string | string[];
+
+  constructor(url = '', protocols: string | string[] = []) {
+    this.url = url;
+    this.protocols = protocols;
     FakeSocket.instances.push(this);
   }
   send(data: string): void {

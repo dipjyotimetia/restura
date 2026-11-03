@@ -32,11 +32,19 @@ export class OrderedDelivery<M extends QueuedRecord> {
   #chain: Promise<void> = Promise.resolve();
   #closing: Promise<void> | undefined;
 
+  private readonly deliver: DeliverRecord<M>;
+  private readonly onError: (err: Error) => void;
+  private readonly decodeTimeoutMs: number;
+
   constructor(
-    private readonly deliver: DeliverRecord<M>,
-    private readonly onError: (err: Error) => void,
-    private readonly decodeTimeoutMs = DEFAULT_DECODE_TIMEOUT_MS
-  ) {}
+    deliver: DeliverRecord<M>,
+    onError: (err: Error) => void,
+    decodeTimeoutMs = DEFAULT_DECODE_TIMEOUT_MS
+  ) {
+    this.deliver = deliver;
+    this.onError = onError;
+    this.decodeTimeoutMs = decodeTimeoutMs;
+  }
 
   /** Settles once every record queued so far has been forwarded, skipped or aborted. */
   get idle(): Promise<void> {

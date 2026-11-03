@@ -163,7 +163,11 @@ export interface AnthropicMessagesAdapterOptions {
 export class AnthropicMessagesAdapter implements ProviderAdapter {
   readonly id = 'anthropic.messages';
 
-  constructor(private readonly options: AnthropicMessagesAdapterOptions) {}
+  private readonly options: AnthropicMessagesAdapterOptions;
+
+  constructor(options: AnthropicMessagesAdapterOptions) {
+    this.options = options;
+  }
 
   async discoverModels(_context: ProviderDiscoveryContext = {}): Promise<DiscoveredAgentModel[]> {
     // Anthropic does not expose a public model-list endpoint suitable for this

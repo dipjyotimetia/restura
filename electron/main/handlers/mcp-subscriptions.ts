@@ -56,10 +56,16 @@ export class McpSubscriptionManager {
   private listChangedStream: McpSubscription | undefined;
   private closed = false;
 
+  private readonly host: McpSubscriptionHost;
+  private readonly emit: (notification: McpSubscriptionClosedNotification) => void;
+
   constructor(
-    private readonly host: McpSubscriptionHost,
-    private readonly emit: (notification: McpSubscriptionClosedNotification) => void
-  ) {}
+    host: McpSubscriptionHost,
+    emit: (notification: McpSubscriptionClosedNotification) => void
+  ) {
+    this.host = host;
+    this.emit = emit;
+  }
 
   private isModern(): boolean {
     return this.host.getProtocolEra() === 'modern';

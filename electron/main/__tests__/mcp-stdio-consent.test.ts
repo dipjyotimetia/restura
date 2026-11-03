@@ -90,6 +90,17 @@ describe('stdioConsentKey', () => {
     expect(stdioConsentKey(spec)).toBe(expected);
   });
 
+  it('serialises env entries in UTF-16 code-unit order (pinned: part of the HMAC input)', () => {
+    const canonical = JSON.parse(
+      canonicalStdioLaunch({ ...spec, env: { b: plain('2'), Z: plain('1'), a: plain('3') } })
+    ) as { env: [string, string][] };
+    expect(canonical.env).toEqual([
+      ['Z', 'v:1'],
+      ['a', 'v:3'],
+      ['b', 'v:2'],
+    ]);
+  });
+
   it('differs from an unkeyed hash a renderer could compute', () => {
     const unkeyed = crypto.createHash('sha256').update(canonicalStdioLaunch(spec)).digest('hex');
     expect(stdioConsentKey(spec)).not.toBe(unkeyed);

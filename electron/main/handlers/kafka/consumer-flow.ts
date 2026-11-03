@@ -29,12 +29,18 @@ export class ConsumerFlowControl {
   #backpressurePaused = false;
   #pending = 0;
 
+  private readonly highWater: number;
+  private readonly lowWater: number;
+
   constructor(
-    private readonly highWater = EMIT_QUEUE_HIGH_WATER,
-    private readonly lowWater = highWater === EMIT_QUEUE_HIGH_WATER
+    highWater = EMIT_QUEUE_HIGH_WATER,
+    lowWater = highWater === EMIT_QUEUE_HIGH_WATER
       ? EMIT_QUEUE_LOW_WATER
       : Math.floor(highWater / 2)
-  ) {}
+  ) {
+    this.highWater = highWater;
+    this.lowWater = lowWater;
+  }
 
   get userPaused(): boolean {
     return this.#userPaused;

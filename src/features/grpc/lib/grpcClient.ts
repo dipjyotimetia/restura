@@ -11,6 +11,7 @@ import {
   grpcUnsupportedAuthMessage as sharedGrpcUnsupportedAuthMessage,
 } from '@shared/protocol/grpc-request-policy';
 import { GRPC_PROXY_MAX_TIMEOUT_MS } from '@shared/protocol/grpc-schema';
+import { toGrpcStatusCode } from '@shared/protocol/grpc-status';
 import {
   type GrpcStatusDetail,
   redecodeRawStatusDetails,
@@ -413,7 +414,7 @@ export async function makeElectronGrpcRequest(
       size: totalSize,
       time: endTime - startTime,
       timestamp: Date.now(),
-      grpcStatus: response.status,
+      grpcStatus: toGrpcStatusCode(response.status),
       grpcStatusText: response.statusText,
       trailers: response.trailers,
       messages: messagesStrs,

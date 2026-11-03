@@ -195,9 +195,10 @@ function envFingerprint(value: StdioConsentEnvValue): string {
 
 /** Canonical, order-insensitive (for env) serialisation. Args stay ordered. */
 export function canonicalStdioLaunch(spec: StdioLaunchSpec): string {
-  const env = Object.keys(spec.env)
-    .sort()
-    .map((name) => [name, envFingerprint(spec.env[name]!)]);
+  // Default `.sort()` order (UTF-16 code units) must be preserved: it is part of the HMAC input.
+  const env = Object.entries(spec.env)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([name, value]) => [name, envFingerprint(value)]);
   return JSON.stringify({
     v: CONSENT_KEY_VERSION,
     path: spec.resolvedPath,

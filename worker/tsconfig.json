@@ -1,13 +1,13 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
+    "verbatimModuleSyntax": true,
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ESNext"],
     "types": ["@cloudflare/workers-types", "node"],
     "noEmit": true,
-    "isolatedModules": true,
     "exactOptionalPropertyTypes": false,
     "paths": {
       "@shared/*": ["../shared/*"]

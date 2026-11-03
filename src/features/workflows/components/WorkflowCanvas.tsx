@@ -156,11 +156,11 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
   );
   const selected = model.blocks.find((block) => block.id === selectedId);
   const terminalPositions = useMemo(() => {
-    if (model.blocks.length === 0) {
+    const first = model.blocks[0];
+    const last = model.blocks.at(-1);
+    if (!first || !last) {
       return { start: { x: 310, y: 72 }, end: { x: 310, y: 250 } };
     }
-    const first = model.blocks[0]!;
-    const last = model.blocks.at(-1)!;
     const terminalX = Math.max(0, first.position.x + 35);
     return {
       start: { x: terminalX, y: Math.max(0, first.position.y - 108) },
