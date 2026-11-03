@@ -181,7 +181,7 @@ export function describeVariables(inputs: ScopeInputs): VariableDetail[] {
     secret: secret[name] ?? false,
   }));
   for (const name of inputs.scriptSetKeys ?? []) {
-    if (!(name in values)) details.push({ name, source: 'script', secret: false });
+    if (!Object.hasOwn(values, name)) details.push({ name, source: 'script', secret: false });
   }
   return details.sort((a, b) => a.name.localeCompare(b.name));
 }

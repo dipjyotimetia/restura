@@ -77,6 +77,11 @@ export interface UseGrpcReflectionResult {
   discover: (silent?: boolean) => Promise<void>;
 }
 
+/** Identity of one discovery attempt: the tab scope plus the raw URL. */
+function attemptKey(scope: string | undefined, rawUrl: string): string {
+  return `${scope ?? ''}\u0000${rawUrl}`;
+}
+
 /**
  * Encapsulates gRPC server reflection state: discovery, selection, schema
  * panel toggle, and the debounced auto-discovery effect that fires when the
@@ -90,8 +95,9 @@ export interface UseGrpcReflectionResult {
  *    service (and its first method) auto-selects to populate the form.
  *  - When discovery fails, a toast surfaces the error unless `silent`.
  *  - When the URL is invalid or empty, auto-discovery is a no-op.
- *  - Auto-discovery is skipped if the most recent result already targeted
- *    the same URL — prevents thrashing when the parent re-renders.
+ *  - Auto-discovery is skipped if the most recent attempt already targeted
+ *    the same URL for the same tab scope — prevents thrashing when the parent
+ *    re-renders.
  */
 export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcReflectionResult {
   const {
@@ -123,12 +129,14 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
   const [selectedMethod, setSelectedMethod] = useState<ReflectionMethodInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [showSchema, setShowSchema] = useState(false);
-  // Raw URL of the most recent discovery attempt (success or failure). The
-  // auto-discover effect compares against this — not result.serverUrl, which
-  // reports the resolved/normalized URL the client actually contacted and
-  // would mismatch raw URLs containing {{vars}} or a trailing slash, re-firing
-  // discovery every debounce tick.
-  const lastAttemptedUrlRef = useRef<string | null>(null);
+  // Tab scope + raw URL of the most recent discovery attempt (success or
+  // failure). The auto-discover effect compares against this — not
+  // result.serverUrl, which reports the resolved/normalized URL the client
+  // actually contacted and would mismatch raw URLs containing {{vars}} or a
+  // trailing slash, re-firing discovery every debounce tick. The scope is part
+  // of the key: an attempt dropped as stale after a tab switch must not
+  // suppress discovery for the now-active tab with the same URL.
+  const lastAttemptedKeyRef = useRef<string | null>(null);
 
   const selectService = useCallback(
     (service: ReflectionServiceInfo) => {
@@ -167,9 +175,9 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
         return;
       }
 
-      lastAttemptedUrlRef.current = rawUrl;
-      const seq = ++discoverSeqRef.current;
       const scope = scopeKeyRef.current;
+      lastAttemptedKeyRef.current = attemptKey(scope, rawUrl);
+      const seq = ++discoverSeqRef.current;
       const isStale = () => seq !== discoverSeqRef.current || scopeKeyRef.current !== scope;
       setLoading(true);
       if (!silent) {
@@ -234,7 +242,7 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
           // Record the failure even on the silent auto-discover path so the
           // persistent reflection banner shows *why* (e.g. a TLS / certificate
           // error) instead of nothing. (Re-fire suppression for the same URL
-          // is handled by lastAttemptedUrlRef, set before the attempt.)
+          // is handled by lastAttemptedKeyRef, set before the attempt.)
           // The toast stays manual-only to avoid spam while the user types.
           setResult({
             success: false,
@@ -281,13 +289,13 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
     if (!valid) return;
 
     const timer = setTimeout(() => {
-      if (lastAttemptedUrlRef.current !== rawUrl) {
+      if (lastAttemptedKeyRef.current !== attemptKey(scopeKey, rawUrl)) {
         void discover(true);
       }
     }, AUTO_DISCOVER_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [url, autoDiscover, discover]);
+  }, [url, autoDiscover, discover, scopeKey]);
 
   return {
     result,

@@ -13,6 +13,28 @@ describe('useEnvironmentStore', () => {
     localStorage.clear();
   });
 
+  describe('rehydration', () => {
+    it('drops persisted environments that fail the schema and keeps valid ones intact', () => {
+      const merge = useEnvironmentStore.persist.getOptions().merge;
+      if (!merge) throw new Error('expected a merge option');
+      const valid = {
+        id: 'ok',
+        name: 'Prod',
+        variables: [{ id: 'v', key: 'token', value: 't', enabled: true, secret: true }],
+      };
+      const merged = merge(
+        {
+          environments: [valid, { id: 'bad', variables: [{ key: 'port', value: 8080 }] }],
+          activeEnvironmentId: 'ok',
+        },
+        useEnvironmentStore.getState()
+      );
+      expect(merged.environments).toEqual([valid]);
+      expect(merged.activeEnvironmentId).toBe('ok');
+      expect(typeof merged.addEnvironment).toBe('function');
+    });
+  });
+
   describe('initial state', () => {
     it('should start with empty environments', () => {
       const state = useEnvironmentStore.getState();

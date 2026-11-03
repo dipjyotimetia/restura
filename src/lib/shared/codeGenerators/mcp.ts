@@ -1,4 +1,5 @@
 import type { McpRequest } from '@/types';
+import { escapeShell } from './types';
 
 export interface McpGenerateOptions {
   request: McpRequest;
@@ -35,12 +36,12 @@ function generateCurl(opts: McpGenerateOptions): string {
     Accept: 'application/json, text/event-stream',
     ...enabledHeaders(opts.request),
   })
-    .map(([k, v]) => `  -H ${JSON.stringify(`${k}: ${v}`)}`)
+    .map(([k, v]) => `  -H ${escapeShell(`${k}: ${v}`)}`)
     .join(' \\\n');
   return `curl -X POST \\
 ${headerArgs} \\
-  -d ${JSON.stringify(body)} \\
-  ${JSON.stringify(opts.request.url)}`;
+  --data-raw ${escapeShell(body)} \\
+  ${escapeShell(opts.request.url)}`;
 }
 
 function generateTypeScriptSdk(opts: McpGenerateOptions): string {

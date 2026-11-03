@@ -1,4 +1,4 @@
-import { escapeJson } from './types';
+import { escapeJson, escapeShell } from './types';
 
 export interface GraphQLGenerateOptions {
   url: string;
@@ -12,18 +12,17 @@ export const generateGraphQLCurl = (options: GraphQLGenerateOptions): string => 
   const { url, query, variables, headers } = options;
 
   const body = JSON.stringify({ query, variables: variables ?? {} });
-  const escapedBody = body.replace(/'/g, "'\\''");
 
-  let cmd = `curl -X POST '${url}' \\\n`;
+  let cmd = `curl -X POST ${escapeShell(url)} \\\n`;
   cmd += `  -H 'Content-Type: application/json'`;
 
   if (headers) {
     for (const [key, value] of Object.entries(headers)) {
-      cmd += ` \\\n  -H '${key}: ${value}'`;
+      cmd += ` \\\n  -H ${escapeShell(`${key}: ${value}`)}`;
     }
   }
 
-  cmd += ` \\\n  -d '${escapedBody}'`;
+  cmd += ` \\\n  --data-raw ${escapeShell(body)}`;
   return cmd;
 };
 

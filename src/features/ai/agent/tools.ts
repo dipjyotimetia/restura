@@ -48,6 +48,56 @@ function toKeyValues(pairs?: Array<{ key: string; value: string }>): KeyValue[] 
 }
 
 /**
+ * What redaction writes in place of a secret before the context reaches the
+ * model (`shared/protocol/ai/redaction.ts`, promptBuilder). A proposed value
+ * carrying it is a stand-in for a value the model never saw, never a value to
+ * write: the original is kept.
+ */
+const REDACTION_PLACEHOLDER = '[REDACTED]';
+const carriesPlaceholder = (value: string): boolean => value.includes(REDACTION_PLACEHOLDER);
+
+/**
+ * Apply a model-proposed key/value list onto the current rows. The model only
+ * saw the enabled rows, with secrets redacted, so: disabled rows stay as they
+ * are; enabled rows are matched by key (in order) and keep their id,
+ * description and flags, and their value when the proposal carries the
+ * placeholder; enabled rows the proposal omits are removed; unmatched
+ * proposals are appended, except a placeholder value (nothing to restore).
+ */
+function mergeKeyValues(
+  current: readonly KeyValue[],
+  proposed: ReadonlyArray<{ key: string; value: string }>,
+  keyOf: (key: string) => string
+): KeyValue[] {
+  const pending = new Map<string, Array<{ key: string; value: string }>>();
+  for (const pair of proposed) {
+    const k = keyOf(pair.key);
+    const queue = pending.get(k);
+    if (queue) queue.push(pair);
+    else pending.set(k, [pair]);
+  }
+  const merged: KeyValue[] = [];
+  for (const row of current) {
+    if (!row.enabled) {
+      merged.push(row);
+      continue;
+    }
+    const match = pending.get(keyOf(row.key))?.shift();
+    if (!match) continue;
+    merged.push(carriesPlaceholder(match.value) ? row : { ...row, value: match.value });
+  }
+  for (const queue of pending.values()) {
+    for (const pair of queue) {
+      if (!carriesPlaceholder(pair.value)) merged.push(...toKeyValues([pair]));
+    }
+  }
+  return merged;
+}
+
+const headerKey = (key: string): string => key.trim().toLowerCase();
+const paramKey = (key: string): string => key.trim();
+
+/**
  * The active tab, narrowed to an HTTP request, or null. Shared by the tools
  * that mutate the request currently in focus so the `type === 'http'` guard
  * (and its error message) lives in one place.
@@ -166,9 +216,11 @@ const updateHttpRequest: AgentTool = {
     description:
       'Update fields of the ACTIVE HTTP request in place — used to fix a broken request. ' +
       'Only include the fields you want to change; omitted fields are left untouched. ' +
-      'Supplying `headers` or `params` REPLACES that list entirely, so include every ' +
-      'entry that should remain. Supplying `body` replaces the raw body text (the body ' +
-      'type is preserved for json/text/xml/graphql; other types become json).',
+      'Supplying `headers` or `params` replaces the enabled entries of that list, matched ' +
+      'by key, so include every entry that should remain; disabled entries are kept. A ' +
+      'value containing [REDACTED] keeps the current value. Supplying `body` replaces the ' +
+      'raw body text (the body type is preserved for json/text/xml/graphql; other types ' +
+      'become json) unless it contains [REDACTED], which keeps the current body.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -177,7 +229,7 @@ const updateHttpRequest: AgentTool = {
         name: { type: 'string', description: 'New request/tab name' },
         headers: {
           type: 'array',
-          description: 'Full replacement header list',
+          description: 'Header list; enabled entries are replaced, matched by key',
           items: {
             type: 'object',
             properties: { key: { type: 'string' }, value: { type: 'string' } },
@@ -186,7 +238,7 @@ const updateHttpRequest: AgentTool = {
         },
         params: {
           type: 'array',
-          description: 'Full replacement query-parameter list',
+          description: 'Query-parameter list; enabled entries are replaced, matched by key',
           items: {
             type: 'object',
             properties: { key: { type: 'string' }, value: { type: 'string' } },
@@ -211,11 +263,21 @@ const updateHttpRequest: AgentTool = {
       if (!method.ok) return { ok: false, error: method.error };
       update.method = method.method;
     }
-    if (input.url !== undefined) update.url = input.url;
+    const kept: string[] = [];
+    if (input.url !== undefined) {
+      if (carriesPlaceholder(input.url)) kept.push('url');
+      else update.url = input.url;
+    }
     if (input.name !== undefined) update.name = input.name;
-    if (input.headers !== undefined) update.headers = toKeyValues(input.headers);
-    if (input.params !== undefined) update.params = toKeyValues(input.params);
-    if (input.body !== undefined) {
+    if (input.headers !== undefined) {
+      update.headers = mergeKeyValues(active.request.headers, input.headers, headerKey);
+    }
+    if (input.params !== undefined) {
+      update.params = mergeKeyValues(active.request.params, input.params, paramKey);
+    }
+    if (input.body !== undefined && carriesPlaceholder(input.body)) {
+      kept.push('body');
+    } else if (input.body !== undefined) {
       // Preserve the current body type for raw-text bodies instead of forcing
       // json — clobbering an xml/graphql/text body's type silently changed how
       // it serialised. Non-raw bodies (form-data/binary/multipart/none) have no
@@ -227,6 +289,13 @@ const updateHttpRequest: AgentTool = {
         : { type: 'json', raw: input.body };
     }
 
+    if (Object.keys(update).length === 0) {
+      return {
+        ok: false,
+        error: `Nothing was applied: the proposed ${kept.join(' and ')} contained the ${REDACTION_PLACEHOLDER} placeholder, so the current value was kept`,
+      };
+    }
+
     // updateRequest validates the merged request and returns false if it was
     // rejected (e.g. an unsupported method) — don't report success in that case,
     // or Agent Mode would advance on a change that never landed.
@@ -235,7 +304,9 @@ const updateHttpRequest: AgentTool = {
       return { ok: false, error: 'The update was rejected as invalid (check the method/fields)' };
     }
     const changed = Object.keys(update).join(', ');
-    return { ok: true, summary: `Updated the active request (${changed})` };
+    const keptNote =
+      kept.length > 0 ? `; kept the current ${kept.join(' and ')} (redacted in the proposal)` : '';
+    return { ok: true, summary: `Updated the active request (${changed})${keptNote}` };
   },
 };
 

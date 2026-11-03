@@ -55,6 +55,32 @@ describe('captureActive', () => {
     expect(snap.environment?.baseUrl).toBe('https://api');
   });
 
+  it('caps request and response bodies with a visible truncation marker', () => {
+    const big = 'x'.repeat(300_000);
+    vi.mocked(useRequestStore.getState).mockReturnValue({
+      activeTabId: 't1',
+      tabs: [
+        {
+          id: 't1',
+          request: {
+            type: 'http',
+            method: 'POST',
+            url: 'https://api/upload',
+            headers: [],
+            body: { type: 'text', raw: big },
+          },
+          response: { status: 200, statusText: 'OK', headers: {}, body: big },
+        },
+      ],
+    } as never);
+    const snap = captureActive();
+    for (const body of [snap.request?.body ?? '', snap.response?.body ?? '']) {
+      expect(body.length).toBeLessThan(33_000);
+      expect(body.startsWith('x'.repeat(32_768))).toBe(true);
+      expect(body).toMatch(/\[truncated: 267232 more characters\]$/);
+    }
+  });
+
   it('returns kind: request when the active tab has no response yet', () => {
     vi.mocked(useRequestStore.getState).mockReturnValue({
       activeTabId: 't1',

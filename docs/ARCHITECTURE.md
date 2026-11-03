@@ -542,9 +542,9 @@ The `ENVIRONMENT=development` var in `.dev.vars` enables localhost proxying for 
 
 `useRequestStore.updateRequest` hard-fails on validator rejection. Invalid updates are not applied; the user sees a `toast.error` with the validation message.
 
-All stores are validated with Zod schemas on hydration from persisted storage — Dexie (web) or electron-store (desktop) — via `src/lib/shared/store-validators.ts`.
+Persisted state read from Dexie (web) or electron-store (desktop) is Zod-validated on hydration only where the store wires a validator from `src/lib/shared/store-validators.ts` (for example environments, console entries and the AI chat / AI Lab stores). Not every store does yet: collections, for instance, are validated when added or updated, not on hydration.
 
-Stores built with `createPersistedStore` (`src/lib/shared/persistence/createPersistedStore.ts`: connection protocols, GraphQL/proto, console, collection runs, globals) validate on every hydration, including a same-version row: zustand only calls `migrate` on a version mismatch, so `merge` checks the schema too. A rejected row is quarantined and the store keeps its current state. The multi-version stores (collections, history, settings, request, environment, workflow, cookies) still hand-roll `persist`.
+Stores built with `createPersistedStore` (`src/lib/shared/persistence/createPersistedStore.ts`: connection protocols, GraphQL/proto, console, collection runs, globals) check a row against the `schema` of their `MigrationDescriptor` on every hydration, including a same-version row: zustand only calls `migrate` on a version mismatch, so `merge` checks the schema too, and a rejected row is quarantined while the store keeps its current state. This merge-time check applies **only when the descriptor declares `schema`**; with no `schema`, `merge` overlays the row unchecked. No descriptor declares one today, so for these stores merge-time validation is currently a no-op. The multi-version stores (collections, history, settings, request, environment, workflow, cookies) still hand-roll `persist`.
 
 ### Electron hardening
 
