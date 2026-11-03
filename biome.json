@@ -112,7 +112,10 @@
         "usePlaywrightValidDescribeCallback": "off"
       },
       "style": {
-        "useImportType": "error"
+        "useImportType": "error",
+        "noEnum": "error",
+        "noNamespace": "error",
+        "useConst": "error"
       },
       "suspicious": {
         "noExplicitAny": "error",
