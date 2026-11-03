@@ -39,7 +39,7 @@ function computeLabel(s: RequestStoreShape): string {
  * mutation (the store churns on every keystroke in the URL/body/header editors).
  */
 export function ContextPill() {
-  const label = useRequestStore((s) => computeLabel(s as unknown as RequestStoreShape));
+  const label = useRequestStore((s) => computeLabel(s));
 
   return (
     <div className="bg-sp-surface border-sp-line mx-3 mt-2 truncate rounded-md border px-2 py-1 text-[11px] text-muted-foreground">

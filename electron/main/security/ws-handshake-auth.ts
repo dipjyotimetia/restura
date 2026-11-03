@@ -43,19 +43,25 @@ type HeaderAuth = ProtocolAuthConfig & {
  * key's `key` is a header / query-param NAME and is deliberately left alone —
  * a secret-derived name could otherwise surface in header errors.
  */
+/** An inline SecretRef (`{ kind: 'inline', value }`) whose value is text. */
+function isInlineWithText(v: unknown): v is { kind: 'inline'; value: string } {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'kind' in v &&
+    v.kind === 'inline' &&
+    'value' in v &&
+    typeof v.value === 'string'
+  );
+}
+
 function replaceInAuth(auth: HeaderAuth, values: Record<string, string>): HeaderAuth {
   // Plain strings and inline SecretRefs (`{ kind: 'inline', value }`, which the
   // renderer sends verbatim) carry `{{tokens}}`; handle / external refs don't.
   const sub = <T>(v: T): T => {
     if (typeof v === 'string') return replaceSecretVariableTokens(v, values) as T;
-    if (
-      v &&
-      typeof v === 'object' &&
-      (v as { kind?: unknown }).kind === 'inline' &&
-      typeof (v as { value?: unknown }).value === 'string'
-    ) {
-      const inline = v as unknown as { kind: 'inline'; value: string };
-      return { ...inline, value: replaceSecretVariableTokens(inline.value, values) } as T;
+    if (isInlineWithText(v)) {
+      return { ...v, value: replaceSecretVariableTokens(v.value, values) } as T;
     }
     return v;
   };
