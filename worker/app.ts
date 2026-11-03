@@ -120,6 +120,29 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+/**
+ * Rate-limit principal for a CF Access assertion that has ALREADY been
+ * verified: its `sub` (else `email`). Reading claims is safe only after
+ * verification — the signature is what makes them the user's, not the client's.
+ */
+function cfAccessPrincipal(verifiedAssertion: string): string {
+  const payload = verifiedAssertion.split('.')[1] ?? '';
+  try {
+    const claims: unknown = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    if (claims && typeof claims === 'object') {
+      if ('sub' in claims && typeof claims.sub === 'string' && claims.sub) {
+        return `access:${claims.sub}`;
+      }
+      if ('email' in claims && typeof claims.email === 'string' && claims.email) {
+        return `access:${claims.email}`;
+      }
+    }
+  } catch {
+    /* verified but unparseable claims: fall through to the shared principal */
+  }
+  return 'access';
+}
+
 export async function proxyAuthMiddleware(
   c: Context<{ Bindings: Env }>,
   next: Next
@@ -134,6 +157,8 @@ export async function proxyAuthMiddleware(
       c.req.header('X-Restura-Proxy-Token') ??
       c.req.header('Authorization')?.replace(/^Bearer\s+/i, '');
     if (providedToken && timingSafeEqual(providedToken, configuredToken)) {
+      // Only one token value can pass, so the principal is constant.
+      c.set('authPrincipal', 'proxy-token');
       return next();
     }
     return c.json({ error: 'Unauthorized' }, 401);
@@ -147,7 +172,9 @@ export async function proxyAuthMiddleware(
         503
       );
     }
-    if (await verifyCfAccessAssertion(c.req.header('Cf-Access-Jwt-Assertion'), access)) {
+    const assertion = c.req.header('Cf-Access-Jwt-Assertion');
+    if (assertion && (await verifyCfAccessAssertion(assertion, access))) {
+      c.set('authPrincipal', cfAccessPrincipal(assertion));
       return next();
     }
     return c.json({ error: 'Cloudflare Access authentication required' }, 401);

@@ -13,8 +13,27 @@ import {
   createIsolateRateLimiter,
   type RateLimitBinding,
 } from '@shared/protocol/rate-limiter';
-import type { Context, Next } from 'hono';
+import type { Context, MiddlewareHandler, Next } from 'hono';
 import type { Env } from '../env';
+
+/**
+ * Self-host (Node) only: pin the rate-limit client address to the socket peer
+ * unless the operator runs a trusted reverse proxy (`TRUST_PROXY=true`).
+ * Nothing strips `CF-Connecting-IP` / `True-Client-IP` on Node, so trusting
+ * them by default lets a client choose a fresh bucket per request.
+ */
+export function socketClientIpMiddleware(
+  remoteAddress: (c: Context) => string | undefined,
+  trustProxy: boolean
+): MiddlewareHandler {
+  return async (c, next) => {
+    if (!trustProxy) {
+      const address = remoteAddress(c);
+      if (address) c.set('clientIp', address);
+    }
+    await next();
+  };
+}
 
 const isolateLimiter = createIsolateRateLimiter();
 export const resetRateLimiter = isolateLimiter.reset;
