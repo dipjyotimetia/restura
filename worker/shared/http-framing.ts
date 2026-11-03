@@ -74,6 +74,103 @@ export function parseResponseHead(headText: string): ResponseHead {
   return { statusLine: lines[0] ?? '', headers, headerList };
 }
 
+/** Cap on the bytes before the final head ends (interim 1xx heads included). */
+const MAX_HEAD_BYTES = 64 * 1024;
+
+/** The final (non-1xx) response head plus where and how its body is framed. */
+export interface FinalHead extends ResponseHead {
+  /** Byte offset of the first body byte. */
+  bodyStart: number;
+  contentLength: number | null;
+  /** 204 / 304: nothing follows the head. */
+  bodyless: boolean;
+}
+
+/** Offset of the first CRLFCRLF at or after `from`, or -1. */
+function indexOfHeadEnd(bytes: Uint8Array, from: number): number {
+  for (let i = from; i + 3 < bytes.length; i++) {
+    if (bytes[i] === 13 && bytes[i + 1] === 10 && bytes[i + 2] === 13 && bytes[i + 3] === 10) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * ISO-8859-1: each octet becomes the code point of the same value (Node's
+ * 'latin1'). `TextDecoder('latin1')` is windows-1252 and would map 0x80–0x9F
+ * above U+00FF, which Headers rejects.
+ */
+function decodeLatin1(bytes: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 0x2000) {
+    out += String.fromCharCode(...bytes.subarray(i, i + 0x2000));
+  }
+  return out;
+}
+
+/**
+ * Find the final response head in the bytes received so far, or null while it
+ * is incomplete. The delimiter is found on raw bytes and the head decoded as
+ * Latin-1, so non-ASCII header octets neither shift the body offset nor
+ * become code points Headers rejects. Interim 1xx heads (100 Continue, 103
+ * Early Hints) are skipped; 101 fails, since the request never asks to upgrade.
+ */
+export function findFinalHead(bytes: Uint8Array): FinalHead | null {
+  let start = 0;
+  for (;;) {
+    const end = indexOfHeadEnd(bytes, start);
+    if (end === -1) {
+      if (bytes.length > MAX_HEAD_BYTES) throw new Error('Upstream response head too large');
+      return null;
+    }
+    const head = parseResponseHead(decodeLatin1(bytes.subarray(start, end)));
+    const status = parseStatusCode(head.statusLine);
+    if (status === 101) throw new Error('Upstream switched protocols (101) without an upgrade');
+    if (status >= 200 || status < 100) {
+      const cl = head.headers['content-length'];
+      const n = cl === undefined ? Number.NaN : Number.parseInt(cl, 10);
+      return {
+        ...head,
+        bodyStart: end + 4,
+        contentLength: Number.isNaN(n) ? null : n,
+        bodyless: isBodylessStatus(status),
+      };
+    }
+    start = end + 4;
+  }
+}
+
+/** Whether `received` bytes (head included) complete the response before EOF. */
+export function isBodyComplete(head: FinalHead, received: number): boolean {
+  if (head.bodyless) return true;
+  return head.contentLength !== null && received - head.bodyStart >= head.contentLength;
+}
+
+/** The body inside `all` (head + body bytes); a view, not a copy. */
+export function sliceBody(all: Uint8Array, head: FinalHead): Uint8Array {
+  if (head.bodyless) return new Uint8Array(0);
+  const end = head.contentLength === null ? undefined : head.bodyStart + head.contentLength;
+  return all.subarray(head.bodyStart, end);
+}
+
+/**
+ * At EOF: a cancelled read, a missing head or a body shorter than its
+ * Content-Length is an error, never a partial response.
+ */
+export function assertCompleteAtEof(
+  head: FinalHead | null,
+  received: number,
+  signal: AbortSignal
+): asserts head is FinalHead {
+  if (signal.aborted) throw new Error('Aborted');
+  if (!head) throw new Error('Upstream closed before response headers');
+  const got = received - head.bodyStart;
+  if (!head.bodyless && head.contentLength !== null && got < head.contentLength) {
+    throw new Error(`Upstream closed after ${got} of ${head.contentLength} body bytes`);
+  }
+}
+
 function hasHeader(headers: Record<string, string>, name: string): boolean {
   return Object.keys(headers).some((k) => k.toLowerCase() === name);
 }
@@ -115,10 +212,12 @@ export async function frameBody(
 }
 
 /**
- * Frame `METHOD target HTTP/1.1`, headers and body as UTF-8 bytes. `target`
- * is origin-form (`/path?q`) through a tunnel or absolute-form through an
- * HTTP proxy. `Host` is always `authority`, written first; any caller Host
- * (any case) is skipped so the wire never carries two Host fields.
+ * Frame `METHOD target HTTP/1.1`, headers and body. `target` is origin-form
+ * (`/path?q`) through a tunnel or absolute-form through an HTTP proxy. `Host`
+ * is always `authority`, written first; any caller Host (any case) is skipped
+ * so the wire never carries two Host fields. Every header goes through
+ * `Headers` validation first (token name; no CR/LF/NUL; octets only) and the
+ * head is written as Latin-1, the bytes fetch() itself would send.
  */
 export function encodeRequest(
   method: string,
@@ -134,10 +233,10 @@ export function encodeRequest(
   let raw = `${method} ${target} HTTP/1.1\r\nHost: ${authority}\r\nConnection: close\r\n`;
   for (const [k, v] of Object.entries(headers)) {
     const name = k.toLowerCase();
-    if (name !== 'host' && name !== 'connection') raw += `${k}: ${v}\r\n`;
+    if (name !== 'host' && name !== 'connection') raw += `${k}: ${checkedHeaderValue(k, v)}\r\n`;
   }
   raw += '\r\n';
-  const head = ENCODER.encode(raw);
+  const head = encodeLatin1(raw);
   if (!bodyBytes || bodyBytes.length === 0) return head;
   const wire = new Uint8Array(head.length + bodyBytes.length);
   wire.set(head);
@@ -146,9 +245,30 @@ export function encodeRequest(
 }
 
 /**
- * Build the fetch Response from a parsed reply. Null-body statuses (101, 204,
- * 205, 304) get a null body — the Response constructor throws otherwise.
- * Headers come from the ordered list so repeated fields survive.
+ * The value `Headers` would store for one field (edge whitespace trimmed), or
+ * throw if the name is not a token or the value carries CR/LF/NUL or code
+ * points above U+00FF — anything that could forge lines on the proxy socket.
+ * The message names the header only: the value may be a credential.
+ */
+function checkedHeaderValue(name: string, value: string): string {
+  try {
+    return new Headers([[name, value]]).get(name) ?? '';
+  } catch {
+    throw new Error(`Invalid request header "${name}": not a valid HTTP field`);
+  }
+}
+
+/** Code points ≤ U+00FF to the same octets (inputs are Headers-validated). */
+function encodeLatin1(text: string): Uint8Array {
+  const out = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i);
+  return out;
+}
+
+/**
+ * Build the fetch Response from a parsed reply. Null-body statuses (204, 205,
+ * 304) get a null body — the Response constructor throws otherwise. Headers
+ * come from the ordered list so repeated fields survive.
  */
 export function toResponse(
   statusLine: string,
@@ -159,7 +279,7 @@ export function toResponse(
   // Fetch's null-body statuses (Response() throws on a body for these). This
   // differs from isBodylessStatus on purpose: that one is the HTTP message
   // rule (1xx/204/304 carry no body on the wire), this one is what Response
-  // accepts (205 included, 1xx cannot be constructed at all).
-  const nullBody = status === 101 || status === 204 || status === 205 || status === 304;
+  // accepts (205 included). 1xx never gets here: findFinalHead skips it.
+  const nullBody = status === 204 || status === 205 || status === 304;
   return new Response(nullBody ? null : body, { status, headers: headerList });
 }

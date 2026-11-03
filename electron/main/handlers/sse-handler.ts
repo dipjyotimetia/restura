@@ -18,11 +18,15 @@ import { StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
-  createPolicyPinnedFetch,
+  createClosablePolicyPinnedFetch,
   type PolicyTransportConfig,
   resolvePolicyTransport,
 } from '../security/policy-transport';
-import { resolveSafeAddress, type SafeAddress } from '../security/safe-connect';
+import {
+  type ClosablePinnedFetch,
+  resolveSafeAddress,
+  type SafeAddress,
+} from '../security/safe-connect';
 import {
   materializeStreamingAuth,
   needsWsHandshakeMaterialization,
@@ -88,27 +92,37 @@ const connections = new StreamRegistry<ActiveSse, SseClaimFields>({
  * and re-pinned before dialling. `redirect: 'manual'` keeps the shared follower
  * in charge of redirect policy and per-hop URL validation (Worker parity).
  */
-function createSseHopFetcher(
+function createSseHopTransport(
   config: PolicyTransportConfig,
   policyConfig: PolicyTransportConfig,
   pinned: SafeAddress
-): Fetcher {
+): { fetcher: Fetcher; close: () => void } {
   // One pinned fetch (one undici Agent) per origin: same-origin hops and
   // every request of the stream reuse it instead of allocating a pool per hop.
+  // `close` releases every Agent once the stream ends, fails or is aborted.
   const byOrigin = new Map<string, Fetcher>();
-  const fetcherFor = (policy: PolicyTransportConfig, address: SafeAddress): Fetcher =>
-    makeFetchFetcher({ redirect: 'manual', fetchImpl: createPolicyPinnedFetch(policy, address) });
+  const pools: ClosablePinnedFetch[] = [];
+  const fetcherFor = (policy: PolicyTransportConfig, address: SafeAddress): Fetcher => {
+    const pool = createClosablePolicyPinnedFetch(policy, address);
+    pools.push(pool);
+    return makeFetchFetcher({ redirect: 'manual', fetchImpl: pool.fetch });
+  };
   byOrigin.set(new URL(policyConfig.url).origin, fetcherFor(policyConfig, pinned));
-  return async (req) => {
-    const origin = new URL(req.url).origin;
-    let fetcher = byOrigin.get(origin);
-    if (!fetcher) {
-      const hopPolicy = resolveSseExecutionPolicy({ ...config, url: req.url });
-      const hopAddress = await resolveSafeAddress(req.url, { ...getExecutionPolicy().security });
-      fetcher = fetcherFor(hopPolicy, hopAddress);
-      byOrigin.set(origin, fetcher);
-    }
-    return fetcher(req);
+  return {
+    fetcher: async (req) => {
+      const origin = new URL(req.url).origin;
+      let fetcher = byOrigin.get(origin);
+      if (!fetcher) {
+        const hopPolicy = resolveSseExecutionPolicy({ ...config, url: req.url });
+        const hopAddress = await resolveSafeAddress(req.url, { ...getExecutionPolicy().security });
+        fetcher = fetcherFor(hopPolicy, hopAddress);
+        byOrigin.set(origin, fetcher);
+      }
+      return fetcher(req);
+    },
+    close: () => {
+      for (const pool of pools.splice(0)) pool.close().catch(() => {});
+    },
   };
 }
 
@@ -232,6 +246,9 @@ export function registerSseHandlerIPC(): void {
     if (!claim) return { success: false, error: 'Not connected' };
 
     let claimedEntry: ActiveSse | undefined;
+    // Released in `finally` unless the background read loop takes it over.
+    let transport: ReturnType<typeof createSseHopTransport> | undefined;
+    let transportHandedOff = false;
     // Scrubs resolved plaintext from replies, events and logs for this connect.
     let redact: SecretRedactor = (text) => text;
     try {
@@ -316,6 +333,7 @@ export function registerSseHandlerIPC(): void {
 
       // Same orchestrator as the HTTP handler: SSE inherits the SSRF / header /
       // redirect / auth pipeline; every hop is dialled DNS-pinned.
+      transport = createSseHopTransport(config, policyConfig, pinned);
       const result = await executeHttpProxyStreaming(
         {
           // graphql-sse (#889) POSTs its operation; plain SSE stays a GET.
@@ -334,7 +352,7 @@ export function registerSseHandlerIPC(): void {
               ? { redirectPolicy: { stripOnOriginChange: config.stripOnOriginChange } }
               : {}),
         },
-        createSseHopFetcher(config, policyConfig, pinned),
+        transport.fetcher,
         // Same outbound-network policy as every other desktop transport
         // (Settings → Security), so localhost/private-IP rules stay consistent.
         // `signal` lets disconnect / renderer destroy / teardown abort the
@@ -376,11 +394,12 @@ export function registerSseHandlerIPC(): void {
       const contentType = Object.entries(response.headers ?? {}).find(
         ([k]) => k.toLowerCase() === 'content-type'
       )?.[1];
+      transportHandedOff = true;
       void readStream(
         entry,
         response.body ?? null,
         isReconnectableSseResponse(response.status, contentType ?? null)
-      );
+      ).finally(transport.close);
       return { success: true };
     } catch (err) {
       if (claimedEntry && connections.get(connectionId, webContentsId) === claimedEntry) {
@@ -395,6 +414,7 @@ export function registerSseHandlerIPC(): void {
       log.warn('connect failed', { connectionId, error: message });
       return { success: false, error: message };
     } finally {
+      if (!transportHandedOff) transport?.close();
       connections.releaseClaim(claim);
     }
   });

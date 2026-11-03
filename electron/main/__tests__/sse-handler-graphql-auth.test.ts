@@ -23,6 +23,7 @@ vi.mock('../ipc/ipc-utils', () => ({ emitTo: mockEmitTo }));
 vi.mock('../security/safe-connect', () => ({
   resolveSafeAddress: mockResolveSafe,
   createPinnedFetch: () => vi.fn(),
+  createClosablePinnedFetch: () => ({ fetch: vi.fn(), close: async () => {} }),
 }));
 vi.mock('@shared/protocol/http-proxy', () => ({ executeHttpProxyStreaming: mockStreaming }));
 vi.mock('../security/secret-handle-store', () => ({

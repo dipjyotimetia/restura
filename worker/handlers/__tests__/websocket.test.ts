@@ -16,10 +16,14 @@ describe('relayCloseCode', () => {
     }
   });
 
-  it('maps reserved / received-only codes to 1000', () => {
-    for (const code of [0, 999, 1004, 1005, 1006, 1015, 1016, 2999, 5000]) {
+  it('maps "no status" (1005) and other unsendable codes to 1000', () => {
+    for (const code of [0, 999, 1004, 1005, 1016, 2999, 5000]) {
       expect(relayCloseCode(code)).toBe(1000);
     }
+  });
+
+  it('maps an abnormal close (1006) or TLS failure (1015) to 1011, not a normal closure', () => {
+    for (const code of [1006, 1015]) expect(relayCloseCode(code)).toBe(1011);
   });
 });
 
@@ -122,10 +126,10 @@ async function relay(): Promise<{ server: FakeCfSocket; upstream: FakeCfSocket }
 }
 
 describe('Cloudflare WebSocket relay — close forwarding', () => {
-  it('forwards an upstream 1006 to the client as 1000 instead of throwing', async () => {
+  it('forwards an upstream 1006 to the client as 1011 instead of throwing', async () => {
     const { server, upstream } = await relay();
     upstream.fire('close', { code: 1006, reason: '' });
-    expect(server.closes).toEqual([{ code: 1000, reason: '' }]);
+    expect(server.closes).toEqual([{ code: 1011, reason: '' }]);
   });
 
   it('forwards a client 1005 to the upstream as 1000 instead of throwing', async () => {

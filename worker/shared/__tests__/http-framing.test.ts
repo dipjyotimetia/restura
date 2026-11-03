@@ -1,11 +1,15 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import {
+  assertCompleteAtEof,
   encodeRequest,
+  findFinalHead,
   frameBody,
+  isBodyComplete,
   isBodylessStatus,
   parseResponseHead,
   parseStatusCode,
+  sliceBody,
   toRecord,
   toResponse,
 } from '../http-framing';
@@ -110,7 +114,7 @@ describe('http-framing', () => {
     );
   });
 
-  it('toResponse gives 101/204/205/304 a null body and keeps repeated headers', async () => {
+  it('toResponse gives 204/205/304 a null body and keeps repeated headers', async () => {
     for (const status of [204, 205, 304]) {
       const res = toResponse(`HTTP/1.1 ${status} X`, [], new Uint8Array([1]));
       expect(res.status).toBe(status);
@@ -126,5 +130,105 @@ describe('http-framing', () => {
     );
     expect(await res.text()).toBe('ok');
     expect(res.headers.getSetCookie()).toEqual(['a=1', 'b=2']);
+  });
+
+  it('encodeRequest rejects header names and values that would inject lines onto the socket', () => {
+    const cases: Array<Record<string, string>> = [
+      { 'X-A': 'v\r\nX-Injected: 1' },
+      { 'X-A': 'v\nX-Injected: 1' },
+      { 'X-A\r\nX-Injected': '1' },
+      { 'Bad Name': '1' },
+      { 'X-A': 'v\u0000' },
+      { 'X-A': 'v€' },
+    ];
+    for (const headers of cases) {
+      expect(() => encodeRequest('GET', '/', 'h.example', headers)).toThrow(
+        /Invalid request header/
+      );
+    }
+  });
+
+  it('encodeRequest writes header octets as-is (Latin-1), like fetch, and trims edge whitespace', () => {
+    const wire = encodeRequest('GET', '/', 'h.example', { 'X-Name': ' café ' });
+    const line = 'X-Name: café\r\n';
+    const at = text(wire).indexOf('X-Name:');
+    expect(Array.from(wire.subarray(at, at + line.length))).toEqual(
+      Array.from(line, (c) => c.charCodeAt(0))
+    );
+  });
+});
+
+describe('response head on raw bytes (both twins)', () => {
+  const bytes = (...parts: Array<string | number[]>) =>
+    Uint8Array.from(
+      parts.flatMap((p) => (typeof p === 'string' ? Array.from(p, (c) => c.charCodeAt(0)) : p))
+    );
+
+  it('returns null until the head is complete', () => {
+    expect(findFinalHead(bytes('HTTP/1.1 200 OK\r\nA: 1\r\n'))).toBeNull();
+  });
+
+  it('decodes the head as Latin-1 and keeps the body offset in bytes', () => {
+    // "café" as UTF-8 (2 bytes for é) and a 0x80 obs-text octet.
+    const all = bytes(
+      'HTTP/1.1 200 OK\r\nX-Name: caf',
+      [0xc3, 0xa9],
+      '\r\nX-Raw: ',
+      [0x80],
+      '\r\nContent-Length: 2\r\n\r\nok'
+    );
+    const head = findFinalHead(all);
+    expect(head?.headers['x-name']).toBe('cafÃ©');
+    expect(head?.headers['x-raw']).toBe('\u0080');
+    expect(head && text(sliceBody(all, head))).toBe('ok');
+    expect(
+      () => head && toResponse(head.statusLine, head.headerList, sliceBody(all, head))
+    ).not.toThrow();
+  });
+
+  it('skips 1xx interim heads and returns the final one', () => {
+    const all = bytes(
+      'HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\nLink: </a.css>\r\n\r\n',
+      'HTTP/1.1 201 Created\r\nContent-Length: 1\r\n\r\nx'
+    );
+    const head = findFinalHead(all);
+    expect(head?.statusLine).toBe('HTTP/1.1 201 Created');
+    expect(head?.headers.link).toBeUndefined();
+    expect(head && text(sliceBody(all, head))).toBe('x');
+    expect(findFinalHead(bytes('HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200'))).toBeNull();
+  });
+
+  it('fails on 101 — the request never asked to switch protocols', () => {
+    expect(() => findFinalHead(bytes('HTTP/1.1 101 Switching Protocols\r\n\r\n'))).toThrow(/101/);
+  });
+
+  it('fails when no final head arrives within the head size cap', () => {
+    expect(() => findFinalHead(bytes(`HTTP/1.1 200 OK\r\nX: ${'a'.repeat(70_000)}`))).toThrow(
+      /head too large/
+    );
+  });
+
+  it('knows when a body is complete before EOF', () => {
+    const all = bytes('HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\no');
+    const head = findFinalHead(all);
+    if (!head) throw new Error('head expected');
+    expect(isBodyComplete(head, all.byteLength)).toBe(false);
+    expect(isBodyComplete(head, all.byteLength + 1)).toBe(true);
+    const bodyless = findFinalHead(bytes('HTTP/1.1 304 Not Modified\r\n\r\n'));
+    expect(bodyless && isBodyComplete(bodyless, 0)).toBe(true);
+  });
+
+  it('fails at EOF on abort, a missing head or a short Content-Length body', () => {
+    const live = new AbortController().signal;
+    const all = bytes('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nab');
+    const head = findFinalHead(all);
+    expect(() => assertCompleteAtEof(head, all.byteLength, live)).toThrow(/2 of 5 body bytes/);
+    expect(() => assertCompleteAtEof(null, 0, live)).toThrow(/before response headers/);
+    const aborted = AbortSignal.abort();
+    const full = bytes('HTTP/1.1 200 OK\r\n\r\nbody');
+    expect(() => assertCompleteAtEof(findFinalHead(full), full.byteLength, aborted)).toThrow(
+      /Aborted/
+    );
+    expect(() => assertCompleteAtEof(findFinalHead(full), full.byteLength, live)).not.toThrow();
   });
 });

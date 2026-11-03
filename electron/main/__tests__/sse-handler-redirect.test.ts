@@ -23,13 +23,14 @@ const mockResolveSafe = vi.hoisted(() =>
   })
 );
 const dialled = vi.hoisted((): Array<{ url: string; pinnedTo: string }> => []);
-const upstream = vi.hoisted(() => vi.fn<(url: string) => Response>());
+const upstream = vi.hoisted(() => vi.fn<(url: string, init?: RequestInit) => Response>());
+/** Hostnames whose pinned Agent was closed, in close order. */
+const closedAgents = vi.hoisted((): string[] => []);
 
 vi.mock('electron', () => ({ ipcMain: { handle: mockHandle, removeHandler: vi.fn() } }));
 vi.mock('../ipc/ipc-utils', () => ({ emitTo: mockEmitTo }));
-vi.mock('../security/safe-connect', () => ({
-  resolveSafeAddress: mockResolveSafe,
-  createPinnedFetch:
+vi.mock('../security/safe-connect', () => {
+  const pinnedFetch =
     (host: string, ip: string) =>
     async (input: string | URL, init?: RequestInit): Promise<Response> => {
       const url = String(input);
@@ -41,9 +42,19 @@ vi.mock('../security/safe-connect', () => ({
       }
       expect(init?.redirect).toBe('manual');
       dialled.push({ url, pinnedTo: ip });
-      return upstream(url);
-    },
-}));
+      return upstream(url, init);
+    };
+  return {
+    resolveSafeAddress: mockResolveSafe,
+    createPinnedFetch: pinnedFetch,
+    createClosablePinnedFetch: (host: string, ip: string) => ({
+      fetch: pinnedFetch(host, ip),
+      close: async () => {
+        closedAgents.push(host);
+      },
+    }),
+  };
+});
 
 import { IPC } from '../../shared/channels';
 import { registerSseHandlerIPC, stopSseCleanup } from '../handlers/sse-handler';
@@ -85,6 +96,7 @@ describe('sse:connect — redirects on desktop', () => {
     mockResolveSafe.mockClear();
     upstream.mockReset();
     dialled.length = 0;
+    closedAgents.length = 0;
     registerSseHandlerIPC();
   });
   afterEach(() => stopSseCleanup());
@@ -128,5 +140,55 @@ describe('sse:connect — redirects on desktop', () => {
     expect(res.success).toBe(false);
     expect(res.error).toContain('DNS guard rejected internal.corp.example');
     expect(dialled.map((d) => d.url)).toEqual(['https://api.example.com/events']);
+  });
+
+  it('closes every per-origin Agent once the stream ends', async () => {
+    upstream.mockImplementation((url) =>
+      url.startsWith('https://api.example.com/')
+        ? new Response(null, {
+            status: 302,
+            headers: { Location: 'https://stream.example-cdn.com/events?t=1' },
+          })
+        : eventStream()
+    );
+    const res = await connect({ connectionId: 'r3', url: 'https://api.example.com/events' });
+    expect(res).toEqual({ success: true });
+    await flush();
+    expect(closedAgents.sort()).toEqual(['api.example.com', 'stream.example-cdn.com']);
+  });
+
+  it('closes the Agent when the connect fails', async () => {
+    upstream.mockImplementation(
+      () =>
+        new Response(null, {
+          status: 302,
+          headers: { Location: 'https://internal.corp.example/events' },
+        })
+    );
+    const res = await connect({ connectionId: 'r4', url: 'https://api.example.com/events' });
+    expect(res.success).toBe(false);
+    expect(closedAgents).toEqual(['api.example.com']);
+  });
+
+  it('closes the Agent when a live stream is aborted by disconnect', async () => {
+    // Like undici, aborting the request errors the open body.
+    upstream.mockImplementation(
+      (_url, init) =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(c) {
+              init?.signal?.addEventListener('abort', () => c.error(new Error('aborted')));
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+        )
+    );
+    const res = await connect({ connectionId: 'r5', url: 'https://api.example.com/events' });
+    expect(res).toEqual({ success: true });
+    await flush();
+    expect(closedAgents).toEqual([]);
+    stopSseCleanup();
+    await flush();
+    expect(closedAgents).toEqual(['api.example.com']);
   });
 });
