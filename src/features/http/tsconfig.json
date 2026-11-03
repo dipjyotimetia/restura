@@ -2,6 +2,7 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
     "exactOptionalPropertyTypes": true,
     "noEmit": true,
     "target": "ES2022",
