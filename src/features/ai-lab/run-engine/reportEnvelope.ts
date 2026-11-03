@@ -258,21 +258,18 @@ export const ArenaRunReportSchema = z.object({
   interrupted: z.boolean().optional(),
 });
 
-export const AiLabReportEnvelopeSchema: z.ZodType<AiLabReportEnvelope> = z.discriminatedUnion(
-  'kind',
-  [
-    ReportBaseSchema.extend({ kind: z.literal('eval'), payload: EvalRunReportSchema }),
-    ReportBaseSchema.extend({
-      kind: z.literal('agent-suite'),
-      payload: AgentSuiteReportSchema,
-      suite: AgentSuiteSchema,
-    }),
-    ReportBaseSchema.extend({
-      kind: z.literal('arena'),
-      payload: ArenaRunReportSchema,
-    }),
-  ]
-);
+export const AiLabReportEnvelopeSchema = z.discriminatedUnion('kind', [
+  ReportBaseSchema.extend({ kind: z.literal('eval'), payload: EvalRunReportSchema }),
+  ReportBaseSchema.extend({
+    kind: z.literal('agent-suite'),
+    payload: AgentSuiteReportSchema,
+    suite: AgentSuiteSchema,
+  }),
+  ReportBaseSchema.extend({
+    kind: z.literal('arena'),
+    payload: ArenaRunReportSchema,
+  }),
+]) as unknown as z.ZodType<AiLabReportEnvelope>;
 
 export function adaptEvalRunReport(run: EvalRun): AiLabReportEnvelope {
   const { status, reason } = evalStatus(run);
