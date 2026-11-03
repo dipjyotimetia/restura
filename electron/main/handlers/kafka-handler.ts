@@ -32,12 +32,14 @@ import { buildClientOptions, type KafkaClientOptions } from './kafka/client-opti
 import { guardKafkaConnect, resolveKafkaConnect } from './kafka/connect-preflight';
 import { registerKafkaConsumerControlHandlers } from './kafka/consumer-control-handlers';
 import {
+  assignedKeys,
   type ConsumerStreamHooks,
   fallbackModeValue,
   type KafkaConsumerSession,
   subscriptionSession,
 } from './kafka/consumer-session';
 import { type OrderedDelivery, UNSUBSCRIBE_DRAIN_MS } from './kafka/ordered-delivery';
+import { partitionKey } from './kafka/partition-pause';
 import {
   type AppProducer,
   closeKafkaProducerSessions,
@@ -46,6 +48,7 @@ import {
 } from './kafka/producer-handlers';
 import { createKafkaRegistryClient, type KafkaRegistryClient } from './kafka/registry';
 import { registerKafkaRegistryHandlers } from './kafka/registry-handlers';
+import { timestampStartOffsets } from './kafka/timestamp-start';
 import { decodeDisplayField, headersFromMap } from './kafka-serde';
 
 const log = createLogger('kafka');
@@ -208,6 +211,17 @@ async function emitConsumedMessage(
   });
   return true;
 }
+/** Drop manual-commit tokens for partitions a rebalance took from this member. */
+function pruneRevokedCommitTokens(entry: ActiveKafka): void {
+  const assigned = entry.consumer ? assignedKeys(entry.consumer) : undefined;
+  if (!assigned) return;
+  for (const [token, message] of entry.pendingCommits) {
+    if (!assigned.has(partitionKey(message.topic, message.partition))) {
+      entry.pendingCommits.delete(token);
+    }
+  }
+}
+
 function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
   const isCurrent = () => activeConnections.get(entry.connectionId, entry.webContentsId) === entry;
   const emit = (prefix: KafkaChannelPrefix, payload: unknown): void => {
@@ -221,8 +235,15 @@ function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
 }
 
 export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
-  registerKafkaProducerHandlers((connectionId, ownerId) =>
-    activeConnections.getForOwner(connectionId, ownerId)
+  registerKafkaProducerHandlers(
+    (connectionId, ownerId) => activeConnections.getForOwner(connectionId, ownerId),
+    (entry, err) => {
+      if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
+      emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.ERROR, entry.connectionId), {
+        scope: 'producer',
+        message: `Producer stream failed: ${err.message}`,
+      });
+    }
   );
   ipcMain.handle(IPC.kafka.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.kafka.connect, event);
@@ -470,17 +491,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
             await closeConsumerQuietly(consumer);
             return { success: false, error: 'A timestamp is required for timestamp mode' };
           }
-          // Resolve the first available offset at/after the timestamp per partition.
-          const resolved = await consumer.listOffsetsWithTimestamps({
-            topics: cfg.topics,
-            timestamp: BigInt(cfg.timestamp),
-          });
-          offsets = [];
-          for (const [topic, partitions] of resolved) {
-            for (const [partition, { offset }] of partitions) {
-              if (offset >= 0n) offsets.push({ topic, partition, offset });
-            }
-          }
+          // First offset at/after the timestamp per partition; the end when none is.
+          offsets = await timestampStartOffsets(consumer, kafka, cfg.topics, BigInt(cfg.timestamp));
           if (offsets.length === 0) {
             await closeConsumerQuietly(consumer);
             return {
@@ -516,6 +528,9 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         entry.session.bind(entry, stream);
         entry.manualCommit = cfg.commitPolicy === 'manual';
         consumer.on('consumer:group:join', (payload) => {
+          // The broker accepts a commit for a partition this member no longer
+          // owns, so a stale token could rewind the new owner's position.
+          pruneRevokedCommitTokens(entry);
           emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
             state: 'joined',
             ...payload,
@@ -570,6 +585,15 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         if (!entry?.consumer) return { success: false, error: 'No consumer is active.' };
         const message = entry.pendingCommits.get(cfg.commitToken);
         if (!message) return { success: false, error: 'Commit token is unknown or expired.' };
+        // Re-check ownership: the assignment may have moved before the join event ran.
+        const assigned = assignedKeys(entry.consumer);
+        if (assigned && !assigned.has(partitionKey(message.topic, message.partition))) {
+          entry.pendingCommits.delete(cfg.commitToken);
+          return {
+            success: false,
+            error: `Partition ${message.topic}:${message.partition} is no longer assigned to this consumer, so its offset cannot be committed.`,
+          };
+        }
         try {
           await Promise.resolve(message.commit());
           entry.pendingCommits.delete(cfg.commitToken);

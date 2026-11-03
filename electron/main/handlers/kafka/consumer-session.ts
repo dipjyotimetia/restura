@@ -40,6 +40,12 @@ export interface ConsumerSessionOptions {
   swapTimeoutMs?: number;
   /** Upper bound on decoding + sending one record before it is skipped. */
   decodeTimeoutMs?: number;
+  /**
+   * The subscribe-time stream runs in MANUAL mode (explicit offsets or a
+   * timestamp start), which never reads committed offsets, so rebalances are
+   * handled as after a swap from the start.
+   */
+  manualStart?: boolean;
 }
 
 const DEFAULT_SWAP_TIMEOUT_MS = 30_000;
@@ -83,7 +89,8 @@ export function assignedKeys(consumer: SessionConsumer): Set<string> | undefined
  *     topics stay tracked, so the consumer does not rejoin its group;
  *  4. bind the replacement, hand it the current pause reasons, close the old.
  * A MANUAL stream would keep stale positions across a rebalance, so after a
- * swap every group join repositions newly assigned partitions to the group's
+ * swap (or a MANUAL-mode subscribe: explicit offsets or a timestamp start)
+ * every group join repositions newly assigned partitions to the group's
  * committed offset (or the fallback), keeping explicit positions only for
  * partitions this member still owns.
  */
@@ -93,7 +100,10 @@ export class KafkaConsumerSession {
   #exclusive: Promise<unknown> = Promise.resolve();
   #entry: ConsumerSessionEntry | undefined;
   #committer: DeliveredOffsetCommitter | undefined;
-  /** Partitions positioned by the last swap; undefined while the stream runs in its subscribe mode. */
+  /**
+   * Partitions positioned by the last swap (or by a MANUAL-mode subscribe);
+   * undefined while a committed/earliest/latest subscribe stream runs.
+   */
   #positioned: Set<string> | undefined;
   #closed = false;
   #closing: Promise<void> | undefined;
@@ -248,6 +258,9 @@ export class KafkaConsumerSession {
     this.#entry = entry;
     const consumer = entry.consumer;
     if (!consumer) return;
+    // A MANUAL-mode subscribe keeps stale positions across rebalances, like a
+    // swapped stream: what is assigned now is positioned; later gains are not.
+    if (this.options.manualStart) this.#positioned = assignedKeys(consumer) ?? new Set();
     consumer.on('consumer:group:join', this.#onGroupJoin);
     if (this.options.autoCommitIntervalMs !== undefined) {
       this.#committer = new DeliveredOffsetCommitter(
@@ -285,7 +298,7 @@ export class KafkaConsumerSession {
     if (!assigned) return;
     this.partitions.retain(assigned);
     this.#committer?.retain(assigned);
-    // Before any swap the library's own subscribe mode restores positions itself.
+    // Before any swap a non-MANUAL subscribe stream restores positions itself.
     const positioned = this.#positioned;
     if (!positioned) return;
     const added = [...assigned].filter((key) => !positioned.has(key));
@@ -374,6 +387,7 @@ async function closeQuietly(stream: SessionStream): Promise<void> {
 export function subscriptionSession(
   cfg: {
     topics: string[];
+    mode?: string;
     fallbackMode?: ConsumerFallback;
     commitPolicy?: 'auto' | 'manual';
     autoCommitIntervalMs?: number;
@@ -385,6 +399,8 @@ export function subscriptionSession(
     {
       topics: cfg.topics,
       kafka,
+      // Both start the library stream in MANUAL mode (see the subscribe handler).
+      ...(cfg.mode === 'manual' || cfg.mode === 'timestamp' ? { manualStart: true } : {}),
       ...(cfg.fallbackMode ? { fallback: cfg.fallbackMode } : {}),
       ...(cfg.commitPolicy === 'manual'
         ? {}

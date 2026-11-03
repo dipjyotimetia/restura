@@ -181,6 +181,44 @@ describe('KafkaProducerPanel', () => {
     });
   });
 
+  it('reports stream backpressure instead of "Operation completed"', async () => {
+    api.openProducerStream.mockResolvedValueOnce({ success: true });
+    api.writeProducerStream
+      .mockResolvedValueOnce({ success: true, accepted: true })
+      .mockResolvedValueOnce({ success: true, accepted: false });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByRole('tab', { name: 'Stream' }));
+    fireEvent.change(screen.getByLabelText('Kafka typed record batch'), {
+      target: {
+        value:
+          '[{"topic":"orders","value":{"encoding":"utf8","data":"one"}},{"topic":"orders","value":{"encoding":"utf8","data":"two"}}]',
+      },
+    });
+    await user.click(screen.getByRole('button', { name: 'Open stream' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close stream' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Write batch to stream' }));
+
+    const status = await screen.findByRole('status');
+    await waitFor(() => expect(status).toHaveTextContent(/1 of 2 records.*buffered/i));
+    expect(status).not.toHaveTextContent('Operation completed');
+  });
+
+  it('marks the stream closed even when closing reports a failure', async () => {
+    api.openProducerStream.mockResolvedValueOnce({ success: true });
+    api.closeProducerStream.mockResolvedValueOnce({ success: false, error: 'flush failed' });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByRole('tab', { name: 'Stream' }));
+    await user.click(screen.getByRole('button', { name: 'Open stream' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close stream' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Close stream' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open stream' })).toBeEnabled());
+    expect(screen.getByRole('status')).toHaveTextContent('flush failed');
+  });
+
   it('reports invalid stream batch JSON without writing a record', async () => {
     api.openProducerStream.mockResolvedValueOnce({ success: true });
     api.writeProducerStream.mockClear();
