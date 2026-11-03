@@ -1,6 +1,5 @@
 import { Database, Download, type LucideIcon, Trash2, Upload } from 'lucide-react';
-import * as React from 'react';
-import { useCallback, useState } from 'react';
+import { type ChangeEvent, type ReactNode, useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Floater } from '@/components/ui/spatial';
@@ -39,7 +38,7 @@ function DataButton({
   disabled?: boolean;
   icon: LucideIcon;
   danger?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button
@@ -70,7 +69,7 @@ export function DataSection() {
   });
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<null | 'clear' | 'secure'>(null);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const run = useCallback(
     async (action: () => Promise<void>, success: string, failPrefix: string): Promise<boolean> => {
@@ -111,7 +110,7 @@ export function DataSection() {
       if (ok && !backupIsEncrypted()) toast.warning(UNENCRYPTED_BACKUP_WARNING);
     });
 
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImport = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;

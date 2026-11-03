@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import * as yaml from 'js-yaml';
+import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 import { assertBoundedDocument, openCollectionSchema } from '../schemas';
 
@@ -8,7 +8,7 @@ const FIXTURES = 'tests/fixtures/opencollection';
 describe('openCollectionSchema', () => {
   it('parses simple-http.yaml', () => {
     const raw = readFileSync(`${FIXTURES}/simple-http.yaml`, 'utf8');
-    const parsed = yaml.load(raw);
+    const parsed = load(raw);
     const result = openCollectionSchema.safeParse(parsed);
     if (!result.success) console.error(result.error.format());
     expect(result.success).toBe(true);
@@ -16,7 +16,7 @@ describe('openCollectionSchema', () => {
 
   it('parses multi-protocol.yaml including SSE in extensions', () => {
     const raw = readFileSync(`${FIXTURES}/multi-protocol.yaml`, 'utf8');
-    const parsed = yaml.load(raw);
+    const parsed = load(raw);
     const result = openCollectionSchema.safeParse(parsed);
     expect(result.success).toBe(true);
   });

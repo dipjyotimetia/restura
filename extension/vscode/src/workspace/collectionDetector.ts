@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import * as yaml from 'js-yaml';
+import { JSON_SCHEMA, load } from 'js-yaml';
 import { isRecord, isRootFilename } from '../util/oc';
 
 /**
@@ -71,7 +71,7 @@ export function classifyOcFile(filePath: string, raw: string): ClassifiedFile {
 
   let doc: unknown;
   try {
-    doc = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
+    doc = load(raw, { schema: JSON_SCHEMA });
   } catch {
     return { kind: 'unknown' };
   }

@@ -1,4 +1,4 @@
-import * as yaml from 'js-yaml';
+import { dump as dumpYaml } from 'js-yaml';
 import { arr, isObj, type Raw } from './common';
 import { UNSAFE_OBJECT_KEYS } from './redaction';
 import type { PostmanV3FileMap } from './v3-container';
@@ -77,7 +77,7 @@ class NameSet {
 export const ORDER_STEP = 1000;
 
 function dump(doc: Raw): string {
-  return yaml.dump(doc, { lineWidth: -1, noRefs: true, sortKeys: false });
+  return dumpYaml(doc, { lineWidth: -1, noRefs: true, sortKeys: false });
 }
 
 /** `[{ key, value }]` → `{ key: value }` when that loses nothing (the migrate CLI's shorthand). */

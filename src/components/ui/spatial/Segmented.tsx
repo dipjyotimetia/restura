@@ -1,10 +1,10 @@
-import * as React from 'react';
+import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useRef } from 'react';
 import { cn } from '@/lib/shared/utils';
 
 export interface SegmentedOption<T extends string> {
   value: T;
-  label: React.ReactNode;
-  icon?: React.ReactNode;
+  label: ReactNode;
+  icon?: ReactNode;
 }
 
 export interface SegmentedProps<T extends string> {
@@ -26,7 +26,7 @@ export function Segmented<T extends string>({
   className,
   ariaLabel,
 }: SegmentedProps<T>) {
-  const refs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const refs = useRef<Array<HTMLButtonElement | null>>([]);
   // Index that owns the single tab stop (roving tabindex). The checked radio
   // owns it; if nothing is checked, the first option does — so a radiogroup is
   // one Tab stop and arrow keys move within it (WAI-ARIA radiogroup pattern).
@@ -45,7 +45,7 @@ export function Segmented<T extends string>({
     refs.current[next]?.focus();
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+  const handleKeyDown = (e: ReactKeyboardEvent, index: number) => {
     switch (e.key) {
       case 'ArrowRight':
       case 'ArrowDown':

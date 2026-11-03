@@ -8,7 +8,7 @@ import {
   type Transition,
   type Variants,
 } from 'framer-motion';
-import * as React from 'react';
+import { forwardRef, type ReactNode } from 'react';
 
 import { cn } from '@/lib/shared/utils';
 
@@ -19,7 +19,7 @@ import { cn } from '@/lib/shared/utils';
  * user's OS reduced-motion preference for all framer-driven animation (CSS
  * animations are already covered by the global media query in globals.css).
  */
-export function MotionProvider({ children }: { children: React.ReactNode }) {
+export function MotionProvider({ children }: { children: ReactNode }) {
   return (
     <LazyMotion features={domAnimation}>
       <MotionConfig reducedMotion="user">{children}</MotionConfig>
@@ -98,10 +98,10 @@ export const fastTransition: Transition = {
 
 // Motion components
 interface MotionDivProps extends HTMLMotionProps<'div'> {
-  children?: React.ReactNode;
+  children?: ReactNode;
 }
 
-export const MotionDiv = React.forwardRef<HTMLDivElement, MotionDivProps>(
+export const MotionDiv = forwardRef<HTMLDivElement, MotionDivProps>(
   ({ className, ...props }, ref) => <m.div ref={ref} className={cn(className)} {...props} />
 );
 MotionDiv.displayName = 'MotionDiv';
@@ -111,7 +111,7 @@ interface FadeProps extends MotionDivProps {
   show?: boolean;
 }
 
-export const Fade = React.forwardRef<HTMLDivElement, FadeProps>(
+export const Fade = forwardRef<HTMLDivElement, FadeProps>(
   ({ show = true, children, ...props }, ref) => (
     <AnimatePresence>
       {show && (
@@ -138,7 +138,7 @@ interface SlideProps extends MotionDivProps {
   direction?: 'up' | 'down' | 'left' | 'right';
 }
 
-export const Slide = React.forwardRef<HTMLDivElement, SlideProps>(
+export const Slide = forwardRef<HTMLDivElement, SlideProps>(
   ({ show = true, direction = 'up', children, ...props }, ref) => {
     const variants = {
       up: slideUp,
@@ -173,7 +173,7 @@ interface ScaleProps extends MotionDivProps {
   show?: boolean;
 }
 
-export const Scale = React.forwardRef<HTMLDivElement, ScaleProps>(
+export const Scale = forwardRef<HTMLDivElement, ScaleProps>(
   ({ show = true, children, ...props }, ref) => (
     <AnimatePresence>
       {show && (
@@ -199,7 +199,7 @@ interface StaggerProps extends MotionDivProps {
   show?: boolean;
 }
 
-export const Stagger = React.forwardRef<HTMLDivElement, StaggerProps>(
+export const Stagger = forwardRef<HTMLDivElement, StaggerProps>(
   ({ show = true, children, ...props }, ref) => (
     <AnimatePresence>
       {show && (
@@ -220,7 +220,7 @@ export const Stagger = React.forwardRef<HTMLDivElement, StaggerProps>(
 Stagger.displayName = 'Stagger';
 
 // Stagger item for use inside Stagger
-export const StaggerItem = React.forwardRef<HTMLDivElement, MotionDivProps>(
+export const StaggerItem = forwardRef<HTMLDivElement, MotionDivProps>(
   ({ children, ...props }, ref) => (
     <MotionDiv ref={ref} variants={staggerItem} transition={smoothTransition} {...props}>
       {children}
@@ -234,7 +234,7 @@ interface HoverScaleProps extends MotionDivProps {
   scale?: number;
 }
 
-export const HoverScale = React.forwardRef<HTMLDivElement, HoverScaleProps>(
+export const HoverScale = forwardRef<HTMLDivElement, HoverScaleProps>(
   ({ scale: hoverScale = 1.02, children, ...props }, ref) => (
     <MotionDiv
       ref={ref}
@@ -250,7 +250,7 @@ export const HoverScale = React.forwardRef<HTMLDivElement, HoverScaleProps>(
 HoverScale.displayName = 'HoverScale';
 
 // Tap feedback
-export const TapFeedback = React.forwardRef<HTMLDivElement, MotionDivProps>(
+export const TapFeedback = forwardRef<HTMLDivElement, MotionDivProps>(
   ({ children, ...props }, ref) => (
     <MotionDiv ref={ref} whileTap={{ scale: 0.97 }} transition={fastTransition} {...props}>
       {children}
@@ -260,7 +260,7 @@ export const TapFeedback = React.forwardRef<HTMLDivElement, MotionDivProps>(
 TapFeedback.displayName = 'TapFeedback';
 
 // Page transition wrapper
-export const PageTransition = React.forwardRef<HTMLDivElement, MotionDivProps>(
+export const PageTransition = forwardRef<HTMLDivElement, MotionDivProps>(
   ({ children, ...props }, ref) => (
     <MotionDiv
       ref={ref}
@@ -283,20 +283,11 @@ export const tabFade: Variants = {
   exit: { opacity: 0, transition: { duration: 0.08, ease: 'easeIn' } },
 };
 
-export const FadeTab = React.forwardRef<HTMLDivElement, MotionDivProps>(
-  ({ children, ...props }, ref) => (
-    <MotionDiv
-      ref={ref}
-      initial="hidden"
-      animate="visible"
-      exit="exit"
-      variants={tabFade}
-      {...props}
-    >
-      {children}
-    </MotionDiv>
-  )
-);
+export const FadeTab = forwardRef<HTMLDivElement, MotionDivProps>(({ children, ...props }, ref) => (
+  <MotionDiv ref={ref} initial="hidden" animate="visible" exit="exit" variants={tabFade} {...props}>
+    {children}
+  </MotionDiv>
+));
 FadeTab.displayName = 'FadeTab';
 
 // Re-export AnimatePresence for convenience. `m` is aliased as `motion` so

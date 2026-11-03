@@ -19,6 +19,7 @@ import {
   REFERENCE_ONLY_VALUE,
   redactUrlCredentialsForStorage,
 } from '../collections/postman/text-redaction';
+import { readKey, withKey } from '../object-keys';
 import type { AuthConfig, Collection, CollectionItem } from '../types';
 import { redactAuthConfigSecrets, redactOcBag } from './collection-redaction';
 import { redactSecretKeyValues, type SecretableRow } from './key-value-redaction';
@@ -46,18 +47,25 @@ function isReference(v: unknown): boolean {
  * `{{var}}` reference survive (they hold no secret). Everything else is
  * blanked exactly as before.
  */
+/** Puts `value` back at `auth[group][field]` (copying the block), leaving other fields alone. */
+function restoreField<K extends 'bearer' | 'basic' | 'apiKey' | 'oauth2'>(
+  auth: AuthConfig,
+  group: K,
+  field: string,
+  value: unknown
+): void {
+  const block = auth[group];
+  if (block) auth[group] = withKey(block, field, value);
+}
+
 function redactAuthPreservingReferences(auth: AuthConfig): AuthConfig {
   const redacted = redactAuthConfigSecrets(auth);
-  const a = auth as unknown as Record<string, Record<string, unknown> | undefined>;
-  const out = redacted as unknown as Record<string, Record<string, unknown> | undefined>;
   for (const group of ['bearer', 'basic', 'apiKey', 'oauth2'] as const) {
-    const src = a[group];
-    const dst = out[group];
-    if (!src || !dst) continue;
+    const src = auth[group];
+    if (!src || !redacted[group]) continue;
     for (const field of ['token', 'password', 'value', 'accessToken']) {
-      if (field in src && isReference(src[field])) {
-        out[group] = { ...out[group], [field]: src[field] };
-      }
+      const value = readKey(src, field);
+      if (field in src && isReference(value)) restoreField(redacted, group, field, value);
     }
   }
   return redacted;

@@ -1,4 +1,4 @@
-import * as yaml from 'js-yaml';
+import { dump, JSON_SCHEMA, load } from 'js-yaml';
 import {
   assertBoundedDocument,
   folderSchema,
@@ -37,7 +37,7 @@ export function parseOpenCollectionMergeFile(
 ): unknown {
   let document: unknown;
   try {
-    document = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
+    document = load(raw, { schema: JSON_SCHEMA });
   } catch (error) {
     throw new Error(`Invalid YAML in ${relativePath}: ${(error as Error).message}`);
   }
@@ -64,7 +64,7 @@ export function parseOpenCollectionMergeFile(
 }
 
 export function serializeOpenCollectionMergeFile(document: unknown): string {
-  return yaml.dump(document, {
+  return dump(document, {
     indent: 2,
     lineWidth: 120,
     noRefs: true,
@@ -76,7 +76,7 @@ export function serializeOpenCollectionMergeFile(document: unknown): string {
 
 function isValidRequest(raw: string): boolean {
   try {
-    const document = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
+    const document = load(raw, { schema: JSON_SCHEMA });
     assertBoundedDocument(document);
     return REQUEST_SCHEMAS.some((schema) => schema.safeParse(document).success);
   } catch {

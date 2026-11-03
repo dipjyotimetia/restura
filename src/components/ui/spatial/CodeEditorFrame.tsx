@@ -1,7 +1,7 @@
-import * as React from 'react';
+import { forwardRef, type HTMLAttributes } from 'react';
 import { cn } from '@/lib/shared/utils';
 
-export interface CodeEditorFrameProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface CodeEditorFrameProps extends HTMLAttributes<HTMLDivElement> {
   gutter?: boolean;
   lineCount?: number;
 }
@@ -11,7 +11,7 @@ export interface CodeEditorFrameProps extends React.HTMLAttributes<HTMLDivElemen
  * `<pre>`) the Spatial Depth look: dark `code` background, mono 11.5 type, optional
  * 40px line-number gutter. Children render to the right of the gutter.
  */
-export const CodeEditorFrame = React.forwardRef<HTMLDivElement, CodeEditorFrameProps>(
+export const CodeEditorFrame = forwardRef<HTMLDivElement, CodeEditorFrameProps>(
   ({ gutter = true, lineCount = 0, className, children, ...props }, ref) => {
     return (
       <div

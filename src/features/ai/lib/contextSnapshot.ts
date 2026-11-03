@@ -79,7 +79,7 @@ export function captureActive(): RawSnapshot {
     return { contextRef: { kind: 'none', capturedAt: Date.now() } };
   }
 
-  const request = tab.request as unknown as RequestLike;
+  const request: RequestLike = tab.request;
   const reqHeaders = Array.isArray(request.headers)
     ? keyValuePairsToRecord(request.headers as KeyValue[])
     : {};

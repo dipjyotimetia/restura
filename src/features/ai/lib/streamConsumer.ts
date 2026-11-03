@@ -23,7 +23,7 @@ export function consumeStream(streamId: string): AsyncIterable<ChatStreamEvent> 
   }
 
   const queue: ChatStreamEvent[] = [];
-  let resolveNext: ((ev: IteratorResult<ChatStreamEvent>) => void) | null = null;
+  let resolveNext: ((ev: IteratorResult<ChatStreamEvent, undefined>) => void) | null = null;
   let finished = false;
 
   const offChunk = ai.onChunk(streamId, (ev) => {
@@ -41,31 +41,31 @@ export function consumeStream(streamId: string): AsyncIterable<ChatStreamEvent> 
     if (resolveNext) {
       const r = resolveNext;
       resolveNext = null;
-      r({ value: undefined as unknown as ChatStreamEvent, done: true });
+      r({ value: undefined, done: true });
     }
     offChunk();
     offEnd();
   });
 
   return {
-    [Symbol.asyncIterator]() {
+    [Symbol.asyncIterator](): AsyncIterator<ChatStreamEvent, undefined> {
       return {
-        next(): Promise<IteratorResult<ChatStreamEvent>> {
+        next(): Promise<IteratorResult<ChatStreamEvent, undefined>> {
           const head = queue.shift();
           if (head !== undefined) {
             return Promise.resolve({ value: head, done: false });
           }
           if (finished) {
-            return Promise.resolve({ value: undefined as unknown as ChatStreamEvent, done: true });
+            return Promise.resolve({ value: undefined, done: true });
           }
           return new Promise((res) => {
             resolveNext = res;
           });
         },
-        return(): Promise<IteratorResult<ChatStreamEvent>> {
+        return(): Promise<IteratorResult<ChatStreamEvent, undefined>> {
           offChunk();
           offEnd();
-          return Promise.resolve({ value: undefined as unknown as ChatStreamEvent, done: true });
+          return Promise.resolve({ value: undefined, done: true });
         },
       };
     },

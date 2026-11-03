@@ -3,13 +3,27 @@ import {
   buildSchema,
   type GraphQLSchema as GQLSchema,
   GraphQLError,
+  type IntrospectionEnumValue,
+  type IntrospectionField,
+  type IntrospectionInputValue,
   type IntrospectionQuery,
+  type IntrospectionSchema,
+  type IntrospectionType,
+  type IntrospectionTypeRef,
   introspectionFromSchema,
   printSchema,
   validateSchema,
 } from 'graphql';
 import type { GraphQLImportedSchema } from '@/types';
-import type { GraphQLSchema, IntrospectionResult } from '../types';
+import type {
+  GraphQLEnumValue,
+  GraphQLField,
+  GraphQLInputValue,
+  GraphQLSchema,
+  GraphQLType,
+  GraphQLTypeRef,
+  IntrospectionResult,
+} from '../types';
 
 /** Upper bound on pasted/loaded schema text, in UTF-8 bytes (introspection JSON can be large). */
 export const MAX_SCHEMA_SOURCE_BYTES = 20 * 1024 * 1024;
@@ -43,15 +57,122 @@ function countUserTypes(schema: GQLSchema): number {
     .length;
 }
 
+/**
+ * Shape check only: `buildClientSchema` validates the rest of the introspection
+ * result and throws a readable error, which the caller surfaces.
+ */
+function isIntrospectionQuery(value: unknown): value is IntrospectionQuery {
+  if (typeof value !== 'object' || value === null || !('__schema' in value)) return false;
+  return typeof value.__schema === 'object' && value.__schema !== null;
+}
+
 /** `raw` is a parsed JSON object or array (the caller only parses `{`/`[` text). */
 function extractIntrospection(raw: object): IntrospectionQuery | null {
-  const obj = raw as Record<string, unknown>;
-  if (obj.__schema && typeof obj.__schema === 'object') return obj as unknown as IntrospectionQuery;
-  const data = obj.data as Record<string, unknown> | undefined;
-  if (data && typeof data === 'object' && data.__schema && typeof data.__schema === 'object') {
-    return data as unknown as IntrospectionQuery;
+  if (isIntrospectionQuery(raw)) return raw;
+  const data = 'data' in raw ? raw.data : undefined;
+  return isIntrospectionQuery(data) ? data : null;
+}
+
+/*
+ * graphql-js types the introspection result per kind (a scalar has no `fields`
+ * key, a named ref no `ofType`), while the explorer/autocomplete read the
+ * flat wire shape where absent members are `null`. Executing the introspection
+ * query always yields that flat shape, so this view only restates it in the
+ * flat types; unknown extra members (e.g. `isDeprecated` on directives) are kept.
+ */
+function typeRefView(ref: IntrospectionTypeRef): GraphQLTypeRef {
+  if (ref.kind === 'LIST' || ref.kind === 'NON_NULL') {
+    return { ...ref, name: null, ofType: typeRefView(ref.ofType) };
   }
-  return null;
+  return { ...ref, ofType: null };
+}
+
+function inputValueView(value: IntrospectionInputValue): GraphQLInputValue {
+  const { deprecationReason, ...rest } = value;
+  return {
+    ...rest,
+    description: value.description ?? null,
+    type: typeRefView(value.type),
+    defaultValue: value.defaultValue ?? null,
+    ...(deprecationReason === undefined ? {} : { deprecationReason }),
+  };
+}
+
+function fieldView(field: IntrospectionField): GraphQLField {
+  return {
+    ...field,
+    description: field.description ?? null,
+    args: field.args.map(inputValueView),
+    type: typeRefView(field.type),
+    deprecationReason: field.deprecationReason ?? null,
+  };
+}
+
+function enumValueView(value: IntrospectionEnumValue): GraphQLEnumValue {
+  return {
+    ...value,
+    description: value.description ?? null,
+    deprecationReason: value.deprecationReason ?? null,
+  };
+}
+
+/** Kind-specific members of a named type; every member the kind lacks is `null`. */
+function namedTypeMembers(
+  type: IntrospectionType
+): Pick<GraphQLType, 'fields' | 'inputFields' | 'interfaces' | 'enumValues' | 'possibleTypes'> {
+  const none = {
+    fields: null,
+    inputFields: null,
+    interfaces: null,
+    enumValues: null,
+    possibleTypes: null,
+  };
+  switch (type.kind) {
+    case 'OBJECT':
+      return {
+        ...none,
+        fields: type.fields.map(fieldView),
+        interfaces: type.interfaces.map(typeRefView),
+      };
+    case 'INTERFACE':
+      return {
+        ...none,
+        fields: type.fields.map(fieldView),
+        interfaces: type.interfaces.map(typeRefView),
+        possibleTypes: type.possibleTypes.map(typeRefView),
+      };
+    case 'UNION':
+      return { ...none, possibleTypes: type.possibleTypes.map(typeRefView) };
+    case 'ENUM':
+      return { ...none, enumValues: type.enumValues.map(enumValueView) };
+    case 'INPUT_OBJECT':
+      return { ...none, inputFields: type.inputFields.map(inputValueView) };
+    default:
+      return none;
+  }
+}
+
+function namedTypeView(type: IntrospectionType): GraphQLType {
+  const view = { description: type.description ?? null, ...namedTypeMembers(type), ofType: null };
+  if (type.kind !== 'SCALAR') return { ...type, ...view };
+  const { specifiedByURL, ...scalar } = type;
+  return { ...scalar, ...view, ...(specifiedByURL === undefined ? {} : { specifiedByURL }) };
+}
+
+function introspectionSchemaView(schema: IntrospectionSchema): GraphQLSchema {
+  return {
+    ...schema,
+    queryType: typeRefView(schema.queryType),
+    mutationType: schema.mutationType ? typeRefView(schema.mutationType) : null,
+    subscriptionType: schema.subscriptionType ? typeRefView(schema.subscriptionType) : null,
+    types: schema.types.map(namedTypeView),
+    directives: schema.directives.map((directive) => ({
+      ...directive,
+      description: directive.description ?? null,
+      locations: [...directive.locations],
+      args: directive.args.map(inputValueView),
+    })),
+  };
 }
 
 /**
@@ -130,8 +251,18 @@ export function describeSchemaProvenance(schema: GraphQLImportedSchema): string 
 }
 
 export type LoadedImportedSchema =
-  | { ok: true; executable: GQLSchema; introspection: IntrospectionQuery }
+  | { ok: true; executable: GQLSchema; introspection: IntrospectionQuery; view: GraphQLSchema }
   | { ok: false; error: string };
+
+function loadedFrom(executable: GQLSchema): LoadedImportedSchema {
+  const introspection = introspectionFromSchema(executable);
+  return {
+    ok: true,
+    executable,
+    introspection,
+    view: introspectionSchemaView(introspection.__schema),
+  };
+}
 
 /**
  * Module-level LRU of built schemas keyed by SDL content. The GraphQL builder,
@@ -156,11 +287,7 @@ function rememberImportedSchema(sdl: string, loaded: LoadedImportedSchema): Load
 /** Seed the cache with a schema graphql-js has already built for this SDL. */
 function rememberBuiltSchema(sdl: string, executable: GQLSchema): void {
   if (importedSchemaCache.has(sdl)) return;
-  rememberImportedSchema(sdl, {
-    ok: true,
-    executable,
-    introspection: introspectionFromSchema(executable),
-  });
+  rememberImportedSchema(sdl, loadedFrom(executable));
 }
 
 /**
@@ -172,8 +299,7 @@ export function loadImportedSchema(sdl: string): LoadedImportedSchema {
   if (cached) return rememberImportedSchema(sdl, cached);
   let loaded: LoadedImportedSchema;
   try {
-    const executable = buildSchema(sdl);
-    loaded = { ok: true, executable, introspection: introspectionFromSchema(executable) };
+    loaded = loadedFrom(buildSchema(sdl));
   } catch (error) {
     loaded = { ok: false, error: describeError(error) };
   }
@@ -201,7 +327,7 @@ export function importedSchemaToResult(
   }
   return {
     success: true,
-    schema: loaded.introspection.__schema as unknown as GraphQLSchema,
+    schema: loaded.view,
     introspection: loaded.introspection,
     endpoint,
     timestamp: imported.importedAt,

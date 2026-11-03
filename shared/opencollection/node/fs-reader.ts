@@ -1,6 +1,6 @@
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import { basename, join, relative, sep } from 'node:path';
-import * as yaml from 'js-yaml';
+import { JSON_SCHEMA, load } from 'js-yaml';
 import type { OpenCollection } from '../schemas';
 import {
   assertBoundedDocument,
@@ -100,7 +100,7 @@ async function readItems(dir: string, rootDir: string, managedFiles: string[]): 
     if (!entry.name.endsWith('.yaml') && !entry.name.endsWith('.yml')) continue;
 
     const raw = await readFile(fullPath, 'utf8');
-    const parsed = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
+    const parsed = load(raw, { schema: JSON_SCHEMA });
     if (!isOpenCollectionRequestItem(parsed)) continue;
     managedFiles.push(relative(rootDir, fullPath).split(sep).join('/'));
     indexed.push({ item: parsed, sortName: entry.name });
@@ -131,7 +131,7 @@ async function readFolder(
     const metaStat = await lstat(metaPath);
     if (!metaStat.isFile()) throw new Error('Folder metadata must be a regular file');
     const raw = await readFile(metaPath, 'utf8');
-    meta = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
+    meta = load(raw, { schema: JSON_SCHEMA });
     assertBoundedDocument(meta);
     if (!folderSchema.safeParse(meta).success) {
       throw new Error('Invalid OpenCollection folder metadata');

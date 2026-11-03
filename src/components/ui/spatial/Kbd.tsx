@@ -1,7 +1,7 @@
-import * as React from 'react';
+import { forwardRef, type HTMLAttributes } from 'react';
 import { cn } from '@/lib/shared/utils';
 
-export interface KbdProps extends React.HTMLAttributes<HTMLSpanElement> {
+export interface KbdProps extends HTMLAttributes<HTMLSpanElement> {
   size?: 'xs' | 'sm';
 }
 
@@ -9,7 +9,7 @@ export interface KbdProps extends React.HTMLAttributes<HTMLSpanElement> {
  * Spatial Depth keyboard chip. Distinct from the legacy src/components/ui/kbd.tsx
  * which uses shadcn-style tokens; new chrome should import from here.
  */
-export const Kbd = React.forwardRef<HTMLSpanElement, KbdProps>(
+export const Kbd = forwardRef<HTMLSpanElement, KbdProps>(
   ({ className, size = 'sm', children, ...props }, ref) => {
     return (
       <span

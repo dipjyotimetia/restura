@@ -1,7 +1,7 @@
 import type { Dirent } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import * as yaml from 'js-yaml';
+import { JSON_SCHEMA, load } from 'js-yaml';
 import { infoName, isRootFilename, ROOT_FILENAMES } from '../util/oc';
 import { classifyOcFile, type OcRequestType, REQUEST_CAPABILITIES } from './collectionDetector';
 
@@ -25,7 +25,7 @@ const FOLDER_META = '_folder.yaml';
 async function folderDisplayName(dir: string): Promise<string> {
   try {
     const raw = await readFile(join(dir, FOLDER_META), 'utf8');
-    return infoName(yaml.load(raw, { schema: yaml.JSON_SCHEMA })) ?? basename(dir);
+    return infoName(load(raw, { schema: JSON_SCHEMA })) ?? basename(dir);
   } catch {
     // _folder.yaml optional → fall back to basename
     return basename(dir);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useTheme } from 'next-themes';
-import * as React from 'react';
+import { type ReactNode, useEffect } from 'react';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { SpatialAccent } from '@/types';
 
@@ -52,11 +52,11 @@ const ALPHAS_DARK = [
  * curve is tuned per theme so dark mode doesn't dim focus rings after an
  * accent change.
  */
-export function AccentProvider({ children }: { children: React.ReactNode }) {
+export function AccentProvider({ children }: { children: ReactNode }) {
   const accent = useSettingsStore((s) => s.settings.accent) ?? ('#2e91ff' as SpatialAccent);
   const { resolvedTheme } = useTheme();
 
-  React.useEffect(() => {
+  useEffect(() => {
     const root = document.documentElement;
     const rgb = hexToRgb(accent);
     const alphas = resolvedTheme === 'dark' ? ALPHAS_DARK : ALPHAS_LIGHT;

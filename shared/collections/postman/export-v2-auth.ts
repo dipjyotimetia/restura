@@ -97,7 +97,7 @@ function toV21Auth(
       return attrType === undefined ? { key, value } : { key, value, type: attrType };
     });
   const auth: PostmanV21Auth = { type };
-  (auth as unknown as Record<string, unknown>)[type] = attributes;
+  auth[type] = attributes;
   return auth;
 }
 

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, parse as parsePath } from 'node:path';
-import * as yaml from 'js-yaml';
+import { JSON_SCHEMA, load } from 'js-yaml';
 import { isRecord, ROOT_FILENAMES } from '../util/oc';
 
 /**
@@ -31,7 +31,7 @@ export function loadDefaultEnvVars(collectionDir: string): Record<string, string
     const p = join(collectionDir, f);
     if (!existsSync(p)) continue;
     try {
-      const doc = yaml.load(readFileSync(p, 'utf8'), { schema: yaml.JSON_SCHEMA });
+      const doc = load(readFileSync(p, 'utf8'), { schema: JSON_SCHEMA });
       if (!isRecord(doc) || !isRecord(doc.config)) return {};
       const envs = doc.config.environments;
       if (!Array.isArray(envs) || envs.length === 0) return {};

@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
+import type { RequestSettingsPatch } from '@/features/http/lib/settingsPatch';
 import { CAPABILITIES, isCapableHere } from '@/lib/shared/capabilities';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
@@ -36,7 +37,7 @@ const HTTP_VERSION_OPTIONS: ReadonlyArray<{ value: HttpVersionPreference; label:
 interface RequestSettingsEditorProps {
   settings: RequestSettingsOverride | undefined;
   globalSettings: GlobalSettings;
-  onSettingsChange: (updates: Partial<RequestSettings>) => void;
+  onSettingsChange: (updates: RequestSettingsPatch) => void;
   onToggleOverride: (enabled: boolean) => void;
   onProxyOverrideChange: (useOverride: boolean) => void;
 }
@@ -90,20 +91,13 @@ export default function RequestSettingsEditor({
 
   const handleCaOverrideToggle = (enabled: boolean) => {
     onSettingsChange(
-      enabled
-        ? { caCert: { pem: settings?.caCert?.pem ?? '' } }
-        : // EOPT: explicit undefined signals "clear this key" (see cert toggle).
-          ({ caCert: undefined } as unknown as Partial<RequestSettings>)
+      enabled ? { caCert: { pem: settings?.caCert?.pem ?? '' } } : { caCert: undefined }
     );
   };
 
   const handleCertOverrideToggle = (enabled: boolean) => {
     if (!enabled) {
-      // EOPT(maintainability): callers interpret an explicit `undefined` as a
-      // "clear this key" signal — Partial<T> doesn't model that under EOPT.
-      // Cast to unknown then back so the intent is preserved without widening
-      // the public type.
-      onSettingsChange({ clientCert: undefined } as unknown as Partial<RequestSettings>);
+      onSettingsChange({ clientCert: undefined });
     } else {
       onSettingsChange({ clientCert: { format: settings?.clientCert?.format ?? 'pfx' } });
     }
@@ -245,10 +239,7 @@ export default function RequestSettingsEditor({
                 disabled={!httpVersionCapable}
                 onValueChange={(value) => {
                   if (value === 'auto') {
-                    // EOPT: explicit undefined clears the key (see minTlsVersion).
-                    onSettingsChange({
-                      httpVersion: undefined,
-                    } as unknown as Partial<RequestSettings>);
+                    onSettingsChange({ httpVersion: undefined });
                   } else {
                     onSettingsChange({ httpVersion: value as HttpVersionPreference });
                   }
@@ -359,9 +350,7 @@ export default function RequestSettingsEditor({
                     value={getEffectiveSettings().minTlsVersion ?? 'default'}
                     onValueChange={(value) => {
                       if (value === 'default') {
-                        onSettingsChange({
-                          minTlsVersion: undefined,
-                        } as unknown as Partial<RequestSettings>);
+                        onSettingsChange({ minTlsVersion: undefined });
                       } else {
                         onSettingsChange({ minTlsVersion: value as MinTlsVersion });
                       }
