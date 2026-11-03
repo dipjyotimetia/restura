@@ -43,6 +43,17 @@ export function AuthTypePicker({ request, groups, onChange, ariaLabel }: AuthTyp
                 )}
                 aria-pressed={selected}
               >
+                {selected && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r-full"
+                    style={{
+                      background: 'var(--sp-accent)',
+                      boxShadow: '0 0 8px var(--sp-accent-glow-88)',
+                    }}
+                  />
+                )}
+                {/* 'No Auth' means "inherit" when a parent defines auth. */}
                 {opt.value === 'none' && inheritedAuth
                   ? `Inherit (${authTypeLabel(inheritedAuth.auth.type)})`
                   : opt.label}

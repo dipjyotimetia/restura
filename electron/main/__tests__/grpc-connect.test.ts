@@ -17,11 +17,13 @@ import {
   executeConnectReflection,
   executeConnectServerStreamCollect,
   executeConnectUnary,
-  isProtocolRejectionError,
   reflectionProto,
-  resetProtocolFallbackStateForTests,
   runConnectStream,
 } from '../handlers/grpc-connect';
+import {
+  isProtocolRejectionError,
+  resetProtocolFallbackStateForTests,
+} from '../handlers/grpc-transport';
 
 beforeEach(resetProtocolFallbackStateForTests);
 

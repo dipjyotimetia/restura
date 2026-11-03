@@ -308,3 +308,19 @@ describe('gRPC streaming through the protocol runner (#917)', () => {
     ).rejects.toThrow(/Invalid JSON/);
   });
 });
+
+describe('stream variable resolution happens once (inside startGrpcStream)', () => {
+  it('hands the stream the unresolved service / method / auth, with a resolver', async () => {
+    const req = grpcReq({
+      service: '{{tenant}}.v1.Svc',
+      method: 'Watch',
+      auth: { type: 'bearer', bearer: { token: '{{tenant}}' } },
+    });
+    await run(req);
+    const args = startCalls[0];
+    // Resolving here too would expand a value that itself contains `{{…}}` twice.
+    expect(args?.request.service).toBe('{{tenant}}.v1.Svc');
+    expect(args?.request.auth).toEqual({ type: 'bearer', bearer: { token: '{{tenant}}' } });
+    expect(args?.resolveVariables('{{tenant}}')).toBe('acme');
+  });
+});

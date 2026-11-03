@@ -12,11 +12,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Segmented, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
-import {
-  authTypeLabel,
-  InheritedAuthHint,
-  useInheritedAuth,
-} from '@/features/auth/components/InheritedAuthHint';
+import { type AuthTypeGroup, AuthTypePicker } from '@/features/auth/components/AuthTypePicker';
+import { InheritedAuthHint, useInheritedAuth } from '@/features/auth/components/InheritedAuthHint';
 import RequestBodyEditor, { bodyEditorFills } from '@/features/http/components/RequestBodyEditor';
 import RequestSettingsEditor from '@/features/http/components/RequestSettingsEditor';
 import type { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
@@ -39,10 +36,7 @@ interface RequestBuilderTabsProps {
   handlers: Handlers;
 }
 
-const AUTH_GROUPS: ReadonlyArray<{
-  label: string;
-  options: ReadonlyArray<{ value: AuthType; label: string }>;
-}> = [
+const AUTH_GROUPS: ReadonlyArray<AuthTypeGroup> = [
   {
     label: 'Common',
     options: [
@@ -330,45 +324,13 @@ export function RequestBuilderTabs({
 
         {activeTab === 'auth' && (
           <div className="grid grid-cols-[190px_1fr] min-h-full">
-            <div className="border-r border-sp-line p-2 flex flex-col gap-2 bg-sp-surface-lo/40 overflow-y-auto">
-              {AUTH_GROUPS.map((group) => (
-                <div key={group.label} className="flex flex-col gap-0.5">
-                  <span className="sp-label px-2 py-1">{group.label}</span>
-                  {group.options.map((opt) => {
-                    const selected = request.auth.type === opt.value;
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => handlers.changeAuth({ ...request.auth, type: opt.value })}
-                        className={cn(
-                          'relative text-left px-3 py-1.5 rounded-sp-btn text-sp-12 transition-colors',
-                          'hover:bg-sp-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent/40',
-                          selected
-                            ? 'bg-sp-active text-sp-text font-semibold'
-                            : 'text-sp-muted hover:text-sp-text'
-                        )}
-                        aria-pressed={selected}
-                      >
-                        {selected && (
-                          <span
-                            aria-hidden="true"
-                            className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r-full"
-                            style={{
-                              background: 'var(--sp-accent)',
-                              boxShadow: '0 0 8px var(--sp-accent-glow-88)',
-                            }}
-                          />
-                        )}
-                        {/* 'No Auth' means "inherit" when a parent defines auth. */}
-                        {opt.value === 'none' && inheritedAuth
-                          ? `Inherit (${authTypeLabel(inheritedAuth.auth.type)})`
-                          : opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+            <div className="border-r border-sp-line p-2 bg-sp-surface-lo/40 overflow-y-auto">
+              <AuthTypePicker
+                request={request}
+                groups={AUTH_GROUPS}
+                onChange={handlers.changeAuth}
+                ariaLabel="Authentication type"
+              />
             </div>
             <div className="p-5 overflow-auto">
               <InheritedAuthHint request={request} />

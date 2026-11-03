@@ -1,5 +1,4 @@
 import { FieldDescriptorProto_Type } from '@bufbuild/protobuf/wkt';
-import { isValidGrpcMethodName, isValidGrpcServiceName } from '@shared/protocol/grpc-names';
 import { normalizeProtoPath } from '@shared/protocol/grpc-proto-compiler';
 import {
   listServices,
@@ -12,13 +11,11 @@ import {
   grpcUnsupportedAuthMessage as sharedGrpcUnsupportedAuthMessage,
 } from '@shared/protocol/grpc-request-policy';
 import { GRPC_PROXY_MAX_TIMEOUT_MS } from '@shared/protocol/grpc-schema';
-import { grpcStatusFromHttpStatus } from '@shared/protocol/grpc-status';
 import {
   type GrpcStatusDetail,
   redecodeRawStatusDetails,
 } from '@shared/protocol/grpc-status-details';
 import { MAX_GRPC_METADATA_BYTES } from '@shared/protocol/header-policy';
-import { hasVariableToken } from '@shared/variables/tokens';
 import { v4 as uuidv4 } from 'uuid';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import {
@@ -205,96 +202,6 @@ export function parseProtoFile(content: string, fileName = 'schema.proto'): Prot
     pkg = firstService.fullName.slice(0, Math.max(0, firstService.fullName.lastIndexOf('.')));
   }
   return { fileName, package: pkg, services, messages };
-}
-
-/**
- * True when `text` holds a `{{variable}}` reference resolved at send time —
- * the shared variable grammar (ADR-0039), never a local regex.
- */
-export function hasTemplateVariable(text: string): boolean {
-  return hasVariableToken(text);
-}
-
-const DESKTOP_GRPC_SCHEMES = ['grpc://', 'grpcs://'];
-
-/**
- * Validate a gRPC server URL. `http(s)://` everywhere; `grpc://` / `grpcs://`
- * on desktop (the Electron dialer accepts them). A URL holding a
- * `{{variable}}` is checked after resolution, at send time — the builder can't
- * know its value, so it isn't rejected here.
- */
-export function validateGrpcUrl(url: string): { valid: boolean; error?: string } {
-  if (!url) {
-    return { valid: false, error: 'URL is required' };
-  }
-  if (hasTemplateVariable(url)) return { valid: true };
-
-  const lower = url.toLowerCase();
-  const isHttp = lower.startsWith('http://') || lower.startsWith('https://');
-  const isGrpcScheme = DESKTOP_GRPC_SCHEMES.some((s) => lower.startsWith(s));
-  if (isGrpcScheme && !isElectron()) {
-    return {
-      valid: false,
-      error: 'grpc:// and grpcs:// URLs need the desktop app — use http:// or https:// on the web',
-    };
-  }
-  if (!isHttp && !isGrpcScheme) {
-    return {
-      valid: false,
-      error: isElectron()
-        ? 'gRPC URL must start with http://, https://, grpc:// or grpcs://'
-        : 'gRPC URL must start with http:// or https://',
-    };
-  }
-
-  try {
-    new URL(url);
-    return { valid: true };
-  } catch {
-    return { valid: false, error: 'Invalid URL format' };
-  }
-}
-
-/**
- * Validate a fully-qualified service name against protobuf identifier rules
- * (shared with every relay): any-case package segments, optional package.
- */
-export function validateServiceName(service: string): { valid: boolean; error?: string } {
-  if (!service) {
-    return { valid: false, error: 'Service name is required' };
-  }
-  if (hasTemplateVariable(service)) return { valid: true };
-  if (!isValidGrpcServiceName(service)) {
-    return {
-      valid: false,
-      error:
-        'Service name must be a fully-qualified protobuf name, e.g. greet.v1.GreetService (letters, digits and _ per segment)',
-    };
-  }
-  return { valid: true };
-}
-
-/** Validate a method name: one protobuf identifier (any case, e.g. SayHello or get_item). */
-export function validateMethodName(method: string): { valid: boolean; error?: string } {
-  if (!method) {
-    return { valid: false, error: 'Method name is required' };
-  }
-  if (hasTemplateVariable(method)) return { valid: true };
-  if (!isValidGrpcMethodName(method)) {
-    return {
-      valid: false,
-      error: 'Method name must be a protobuf identifier, e.g. SayHello (letters, digits and _)',
-    };
-  }
-  return { valid: true };
-}
-
-/**
- * HTTP status → gRPC status for an *upstream* response that carried no gRPC
- * status (gRPC http-grpc-status-mapping; shared with every relay).
- */
-export function httpStatusToGrpcStatus(httpStatus: number): GrpcStatusCode {
-  return grpcStatusFromHttpStatus(httpStatus);
 }
 
 /**

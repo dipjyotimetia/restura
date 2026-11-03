@@ -249,11 +249,6 @@ export function resolveMethod(
 // Weak: a registry evicted from the build cache is not kept alive by this.
 const methodRegistries = new WeakMap<DescMethod, Registry>();
 
-/** The registry `method` was resolved from via `resolveMethod`, if any. */
-export function registryOfMethod(method: DescMethod): Registry | undefined {
-  return methodRegistries.get(method);
-}
-
 /** A service as listed for the method picker (type names fully qualified, no leading dot). */
 export interface RegistryServiceInfo {
   name: string;

@@ -112,9 +112,6 @@ const RESERVED_REQUEST_HEADERS = new Set([
   'te',
 ]);
 
-/** HTTP → gRPC status mapping for non-200 responses without grpc-status. */
-export const grpcWebStatusFromHttp = grpcStatusFromHttpStatus;
-
 function endEvent(
   code: number,
   message: string | undefined,
@@ -310,7 +307,7 @@ export function executeGrpcWebProxy(
         return;
       }
       if (res.status !== 200) {
-        yield endEvent(grpcWebStatusFromHttp(res.status), `HTTP ${res.status}`, {}, 0);
+        yield endEvent(grpcStatusFromHttpStatus(res.status), `HTTP ${res.status}`, {}, 0);
         return;
       }
       const ct = (responseHeaders['content-type'] ?? '').toLowerCase();

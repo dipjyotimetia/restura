@@ -408,6 +408,17 @@ describe('mergeMainSideAuth (SecretRef handle resolution)', () => {
     expect(merged['x-api-key']).toBe('resolved-secret');
   });
 
+  it('base64-encodes a main-applied api-key credential placed on a -bin key', () => {
+    const merged = mergeMainSideAuth(
+      {},
+      {
+        type: 'api-key',
+        apiKey: { key: 'x-token-bin', value: 'opaque token ✓', in: 'header' },
+      }
+    );
+    expect(merged['x-token-bin']).toBe(Buffer.from('opaque token ✓').toString('base64'));
+  });
+
   it('does not mutate the input metadata object', () => {
     const original = { traceparent: 'x' };
     const merged = mergeMainSideAuth(original, {

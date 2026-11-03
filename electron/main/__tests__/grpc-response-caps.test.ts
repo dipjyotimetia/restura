@@ -24,9 +24,9 @@ import {
   type ConnectStreamHandlers,
   executeConnectServerStreamCollect,
   executeConnectUnary,
-  resetProtocolFallbackStateForTests,
   runConnectStream,
 } from '../handlers/grpc-connect';
+import { resetProtocolFallbackStateForTests } from '../handlers/grpc-transport';
 
 const ECHO_PROTO = readFileSync(resolve(__dirname, '../../../e2e/mocks/proto/echo.proto'), 'utf8');
 const SERVICE = 'echo.v1.EchoService';

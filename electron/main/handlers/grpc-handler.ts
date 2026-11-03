@@ -1,3 +1,4 @@
+import { normalizeBinaryMetadata } from '@shared/protocol/grpc-request-policy';
 import type { GrpcStatusDetail } from '@shared/protocol/grpc-status-details';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { createLogger } from '@shared/runtime/logger';
@@ -19,11 +20,11 @@ import { materializeExternalProtocolAuth } from '../security/external-secret-mat
 import {
   executeConnectServerStreamCollect,
   executeConnectUnary,
-  type PinnedDial,
   resolveGrpcDialAddress,
   runConnectStream,
 } from './grpc-connect';
 import { type GrpcTlsConfig, resolveGrpcExecutionPolicy } from './grpc-credentials';
+import type { PinnedDial } from './grpc-transport';
 
 const log = createLogger('grpc');
 
@@ -304,7 +305,8 @@ export function mergeMainSideAuth(
   if (Object.keys(headers).length === 0) return metadata;
   const merged = { ...metadata };
   for (const [k, v] of Object.entries(headers)) merged[k.toLowerCase()] = v;
-  return merged;
+  // A main-resolved credential on a `-bin` key travels base64 like any other.
+  return normalizeBinaryMetadata(merged);
 }
 
 // Build the connect-node call args (shared by the unary / streaming executors)

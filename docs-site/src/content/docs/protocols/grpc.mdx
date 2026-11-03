@@ -94,7 +94,7 @@ Pick the method in the request's **Auth** tab (**No Auth** reads **Inherit (…)
 
 - **Not supported for gRPC yet:** AWS SigV4, OAuth 1.0, WSSE, Digest and NTLM. These need the exact wire bytes or a challenge round-trip that the gRPC transports don't do. The auth tab shows a warning, and Send is blocked with an error rather than sending the call without credentials. As a workaround, set Auth to **No Auth** (on the request and on any folder or collection it inherits from) and put a pre-computed credential in a metadata entry. Inherited folder/collection auth is checked the same way as the request's own, for unary and streaming calls.
 - **Custom metadata** — gRPC uses metadata in place of HTTP headers; edit it in the same table as HTTP headers, with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row. Values resolve `{{variables}}`. There is no per-entry size limit (multi-KB bearer JWTs are fine); total metadata, including auth, is capped at 16 KiB. Protocol headers the relay owns (`content-type`, `connect-*`, `grpc-timeout`, …) can't be overridden from metadata.
-- **Binary metadata** — keys ending in `-bin` travel base64-encoded on every wire protocol. A value that is already base64 (standard or URL-safe, padded or not) is sent as typed; any other value is treated as UTF-8 text and encoded for you.
+- **Binary metadata** — keys ending in `-bin` travel base64-encoded on every wire protocol. A value that is already valid base64 (standard or URL-safe, padded or not) is sent as typed; any other value is treated as UTF-8 text and encoded for you. Short words made only of base64 characters (`test`, `user1`) are valid base64 too, so for text values in a `-bin` key enter the base64 yourself.
 
 ## Scripts
 

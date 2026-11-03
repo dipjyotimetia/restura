@@ -14,7 +14,7 @@ import { FileDescriptorProtoSchema } from '@bufbuild/protobuf/wkt';
 import { buildSync } from 'esbuild';
 import * as protobuf from 'protobufjs';
 import { describe, expect, it } from 'vitest';
-import { compileProtoFiles, mapEntryName } from './grpc-proto-compiler';
+import { compileProtoFiles, mapEntryName, toJsonName } from './grpc-proto-compiler';
 import { registryFromProtoFiles } from './grpc-registry';
 
 const RICH = `syntax = "proto3";
@@ -277,5 +277,60 @@ describe('user type names that shadow Object.prototype members', () => {
         },
       ])
     ).not.toThrow();
+  });
+});
+
+describe('extensions', () => {
+  it('does not emit `extend` declarations as regular fields of the extended message', () => {
+    const files = compileProtoFiles([
+      {
+        path: 'ext/p.proto',
+        content: `syntax = "proto2"; package p;
+          message Foo { optional string a = 1; extensions 100 to 199; }
+          extend Foo { optional int32 ext = 100; }
+          message Holder { message Inner { extend Foo { optional int32 inner_ext = 101; } } optional Foo foo = 1; }`,
+      },
+    ]);
+    const p = files.find((f) => f.name === 'ext/p.proto')!;
+    const foo = p.messageType.find((m) => m.name === 'Foo')!;
+    expect(foo.field.map((f) => f.name)).toEqual(['a']);
+    const inner = p.messageType
+      .find((m) => m.name === 'Holder')!
+      .nestedType.find((n) => n.name === 'Inner')!;
+    expect(inner.field).toHaveLength(0);
+    expect(() =>
+      registryFromProtoFiles([
+        {
+          path: 'ext/p2.proto',
+          content:
+            'syntax = "proto2"; package p2; message Foo { optional string a = 1; extensions 100 to 199; } extend Foo { optional int32 ext = 100; }',
+        },
+      ])
+    ).not.toThrow();
+  });
+});
+
+describe('JSON names follow protoc', () => {
+  it.each([
+    ['foo_bar', 'fooBar'],
+    ['foo_1bar', 'foo1bar'],
+    ['a__b', 'aB'],
+    ['_leading', 'Leading'],
+    ['trailing_', 'trailing'],
+    ['already', 'already'],
+  ])('%s → %s', (name, json) => {
+    expect(toJsonName(name)).toBe(json);
+  });
+
+  it('honours an explicit [json_name] option', () => {
+    const registry = registryFromProtoFiles([
+      {
+        path: 'jn/x.proto',
+        content:
+          'syntax = "proto3"; package jn; message M { string a = 1 [json_name = "NAME"]; string foo_1bar = 2; }',
+      },
+    ]);
+    const m = registry.getMessage('jn.M')!;
+    expect(m.fields.map((f) => f.jsonName)).toEqual(['NAME', 'foo1bar']);
   });
 });

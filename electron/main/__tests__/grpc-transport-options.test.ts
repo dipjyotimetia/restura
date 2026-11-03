@@ -21,7 +21,7 @@ import {
   buildConnectFallbackTransport,
   buildConnectTransport,
   type PinnedDial,
-} from '../handlers/grpc-connect';
+} from '../handlers/grpc-transport';
 import { createPinnedTransport, type GrpcWireProtocolChoice } from '../handlers/grpc-wire-protocol';
 
 interface CapturedOptions {

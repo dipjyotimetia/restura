@@ -19,6 +19,7 @@ import { base64ToBytes, bytesToBase64 } from '@shared/protocol/grpc-web-framing'
 import { collectGrpcWebEvents, executeGrpcWebProxy } from '@shared/protocol/grpc-web-proxy';
 import type { Fetcher } from '@shared/protocol/types';
 import type { GrpcRequest, GrpcSchemaSnapshot } from '@shared/types';
+import { hasVariableToken } from '@shared/variables/tokens';
 import type { LoadedRequest } from '../collectionLoader';
 import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
@@ -65,7 +66,14 @@ export async function executeGrpc(
       errorMessage: `gRPC executor received non-grpc request: ${item.type}`,
     };
   }
-  const req = item.request as GrpcRequest;
+  const raw = item.request as GrpcRequest;
+  // Service / method may be templated like the URL (`{{svc}}`), as in the app;
+  // every path below builds `/{service}/{method}` from the resolved names.
+  const req: GrpcRequest = {
+    ...raw,
+    service: resolveVarsDeep(raw.service ?? '', opts.vars),
+    method: resolveVarsDeep(raw.method ?? '', opts.vars),
+  };
   if (req.methodType && req.methodType !== 'unary') {
     return {
       status: 0,
@@ -87,6 +95,13 @@ export async function executeGrpc(
     );
   }
   const url = resolveVarsDeep(req.url, opts.vars);
+  const unresolved = [req.service, req.method].find((name) => hasVariableToken(name));
+  if (unresolved) {
+    return grpcFailure(
+      GrpcStatusCode.INVALID_ARGUMENT,
+      `"${unresolved}" holds a {{variable}} that has no value in this run — define it in the collection or the --env file.`
+    );
+  }
   const metadata: Record<string, string> = {};
   for (const m of req.metadata ?? []) {
     if (m.enabled && m.key) metadata[m.key] = resolveVarsDeep(m.value, opts.vars);

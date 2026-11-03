@@ -22,12 +22,11 @@ vi.mock('../security/secret-handle-store', () => ({
   unwrapSecretValueMain: (v: unknown) => (typeof v === 'string' ? v : undefined),
 }));
 
+import { executeConnectServerStreamCollect, executeConnectUnary } from '../handlers/grpc-connect';
 import {
-  executeConnectServerStreamCollect,
-  executeConnectUnary,
   isConnectPreferredForTests,
   resetProtocolFallbackStateForTests,
-} from '../handlers/grpc-connect';
+} from '../handlers/grpc-transport';
 
 const PROTO = `syntax = "proto3";
 package live.v1;
@@ -46,7 +45,7 @@ const EDGE = registry.getService('live.v1.Edge') as DescService;
 const envelope = registry.getMessage('live.v1.Envelope')!;
 const INNER_ANY = { '@type': 'type.googleapis.com/live.v1.Inner', x: 'hi' };
 
-type Gate = 'open' | 'native-only' | 'connect-only' | 'http503' | 'refuse-all';
+type Gate = 'open' | 'native-only' | 'connect-only' | 'http503' | 'refuse-all' | 'connect-hangs';
 
 interface Seen {
   path: string;
@@ -91,6 +90,14 @@ function startUpstream() {
     if (state.gate === 'http503') {
       r.writeHead(503, { 'content-type': 'text/plain' });
       r.end('upstream overloaded');
+      return;
+    }
+    if (state.gate === 'connect-hangs') {
+      if (wire === 'grpc') {
+        r.writeHead(403, { 'content-type': 'text/html' });
+        r.end('<html>forbidden</html>');
+      }
+      // Connect: never answer (the client's deadline fires).
       return;
     }
     if (state.gate === 'refuse-all') {
@@ -240,6 +247,23 @@ describe('native gRPC → Connect fallback (live)', () => {
     expect(r.error).toBe(
       'Server rejected native gRPC (HTTP 404); Connect protocol fallback also failed: HTTP 404'
     );
+    expect(upstream.state.seen.map((s) => s.wire)).toEqual(['grpc', 'connect']);
+    expect(isConnectPreferredForTests(`http://localhost:${h2Port}`, dialFor())).toBe(false);
+  });
+
+  it('does not memoise Connect when the fallback attempt times out', async () => {
+    upstream.state.gate = 'connect-hangs';
+    const r = await executeConnectUnary({
+      url: `http://localhost:${h2Port}`,
+      dial: dialFor(),
+      service: 'live.v1.Edge',
+      method: 'Wrap',
+      protoContent: PROTO,
+      message: { note: 't' },
+      metadata: {},
+      timeoutMs: 300,
+    });
+    expect(r.status).toBe(Code.DeadlineExceeded);
     expect(upstream.state.seen.map((s) => s.wire)).toEqual(['grpc', 'connect']);
     expect(isConnectPreferredForTests(`http://localhost:${h2Port}`, dialFor())).toBe(false);
   });

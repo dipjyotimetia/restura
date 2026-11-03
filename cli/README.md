@@ -276,7 +276,7 @@ The `live` reporter (also what CI logs get) prints one line per request:
 - **`not sent: Postman auth type "…" is not supported`** — the Postman request (or a folder above it) uses an auth type Restura cannot sign. Switch it to a supported auth in the app, or `--exclude` it.
 - **`Invalid URL`** — the URL after `{{var}}` resolution isn't a valid absolute URL. Check that `--env` is loaded and your var names match.
 - **`Localhost URLs are not allowed`** — add `--allow-localhost` for local upstreams. Off by default to prevent SSRF in shared CI.
-- **gRPC requests return `UNKNOWN`** — the upstream likely doesn't speak Connect protocol. On auto / Connect the CLI uses Connect-over-HTTP, not gRPC-over-HTTP/2 binary framing; set the request's wire protocol to gRPC-Web for a gRPC-Web endpoint (e.g. Envoy `grpc_web`).
+- **gRPC `UNIMPLEMENTED` / `UNKNOWN` / `UNAVAILABLE` with "sends \"auto\" requests over the Connect protocol only"** — the upstream doesn't speak the Connect protocol (a 404 / 415 reply, or an HTTP/2-only native gRPC server). On auto / Connect the CLI uses Connect-over-HTTP, not gRPC-over-HTTP/2 binary framing; set the request's wire protocol to gRPC-Web for a gRPC-Web endpoint (e.g. Envoy `grpc_web`), or run it from the desktop app.
 - **`auth uses a desktop-only secret handle…`** — your auth references a secret handle that only the desktop app can decrypt. The request is errored (not sent unauthenticated); re-export the collection with inline secret values for CI use.
 
 ## Agent eval

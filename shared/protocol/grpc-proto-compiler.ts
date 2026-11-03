@@ -122,7 +122,19 @@ export interface DescriptorLike {
 
 /** proto3 canonical lowerCamelCase JSON name (matches protoc / the spec). */
 export function toJsonName(protoName: string): string {
-  return protoName.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+  // protoc's ToJsonName: drop each `_` and upper-case the next character
+  // (only a-z changes), so `foo_1bar` → `foo1bar` and `a__b` → `aB`.
+  let out = '';
+  let upperNext = false;
+  for (const c of protoName) {
+    if (c === '_') {
+      upperNext = true;
+    } else {
+      out += upperNext ? c.toUpperCase() : c;
+      upperNext = false;
+    }
+  }
+  return out;
 }
 
 /**
@@ -153,7 +165,7 @@ function repairDescriptor(
       (mt.nestedType ?? []).filter((n) => n.options?.mapEntry).map((n) => n.name)
     );
     for (const f of mt.field ?? []) {
-      if (f.name) f.jsonName = toJsonName(f.name);
+      if (f.name && !f.jsonName) f.jsonName = toJsonName(f.name);
       if (f.typeName && mapEntries.has(f.typeName)) {
         // A map field references its synthetic `XxxEntry` type, which must be
         // qualified as nested in this message (not as the map's value type).
@@ -304,7 +316,12 @@ function fieldOptions(
  */
 function messageDescriptor(type: protobuf.Type, syntax: 'proto2' | 'proto3'): DescriptorProto {
   // Resolve every field (and map value) type before reading resolvedType.
-  for (const f of type.fieldsArray) f.resolve();
+  // `extend` declarations become "sister" fields on the extended type (named
+  // `.pkg.ext`, `declaringField` set) — extensions, not fields of this message.
+  const ownFields = type.fieldsArray.filter(
+    (f) => !(f as protobuf.Field & { declaringField?: unknown }).declaringField
+  );
+  for (const f of ownFields) f.resolve();
 
   const oneofs = type.oneofsArray;
   const isSynthetic = (o: protobuf.OneOf) =>
@@ -314,8 +331,14 @@ function messageDescriptor(type: protobuf.Type, syntax: 'proto2' | 'proto3'): De
 
   const nestedType: DescriptorProto[] = [];
   const field: FieldDescriptorProto[] = [];
-  for (const f of type.fieldsArray) {
-    const init: FieldInit = { name: f.name, number: f.id, jsonName: toJsonName(f.name) };
+  for (const f of ownFields) {
+    // An explicit `[json_name = "…"]` wins, as in protoc.
+    const explicitJson = (f.options as Record<string, unknown> | undefined)?.json_name;
+    const init: FieldInit = {
+      name: f.name,
+      number: f.id,
+      jsonName: typeof explicitJson === 'string' ? explicitJson : toJsonName(f.name),
+    };
     if (f instanceof protobuf.MapField) {
       const entry = mapEntryName(f.name);
       init.type = TYPE_MESSAGE;

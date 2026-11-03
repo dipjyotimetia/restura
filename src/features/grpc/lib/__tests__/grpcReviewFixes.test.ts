@@ -227,3 +227,27 @@ describe('{{variable}} service / method on the unary send path', () => {
     });
   });
 });
+
+describe('stream URL validation after resolution', () => {
+  it('refuses a URL whose {{variable}} did not resolve (never sends it as a relative URL)', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    await expect(
+      startGrpcStream({
+        request: { ...base, methodType: 'server-streaming', url: '{{missingBase}}' },
+        // A resolver that leaves unknown names as written (the scope resolver's behaviour).
+        resolveVariables: (t) => t,
+      })
+    ).rejects.toThrow(/unresolved|must start with/i);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('refuses a service name that still holds an unresolved {{variable}}', async () => {
+    await expect(
+      startGrpcStream({
+        request: { ...base, methodType: 'server-streaming', service: '{{svc}}' },
+        resolveVariables: (t) => t,
+      })
+    ).rejects.toThrow(/service/i);
+  });
+});

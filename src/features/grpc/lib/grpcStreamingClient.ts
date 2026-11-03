@@ -24,6 +24,7 @@ import {
   registryFromProtoText,
   resolveMethod,
 } from '@shared/protocol/grpc-registry';
+import { normalizeBinaryMetadata } from '@shared/protocol/grpc-request-policy';
 import { connectErrorDetails, type GrpcStatusDetail } from '@shared/protocol/grpc-status-details';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
@@ -38,12 +39,10 @@ import {
   GrpcClientError,
   grpcAuthNeedsMainSideApply,
   prepareGrpcRequest,
-  validateGrpcUrl,
-  validateMethodName,
-  validateServiceName,
   webWireProtocolError,
 } from './grpcClient';
 import { resolveGrpcTls } from './grpcTls';
+import { validateGrpcUrl, validateMethodName, validateServiceName } from './grpcValidation';
 import {
   decodeGrpcWebMessage,
   grpcWebStatusDetails,
@@ -125,15 +124,16 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   };
   // Basic validation of what will actually be dialled — `{{variables}}`
   // resolved first, so a templated URL/service/method is checked by value.
-  const urlCheck = validateGrpcUrl(args.resolveVariables(args.request.url));
+  const strict = { allowTemplates: false } as const;
+  const urlCheck = validateGrpcUrl(args.resolveVariables(args.request.url), strict);
   if (!urlCheck.valid) {
     throw new Error(urlCheck.error ?? 'Invalid gRPC URL');
   }
-  const serviceCheck = validateServiceName(args.request.service);
+  const serviceCheck = validateServiceName(args.request.service, strict);
   if (!serviceCheck.valid) {
     throw new Error(serviceCheck.error ?? 'Invalid service name');
   }
-  const methodCheck = validateMethodName(args.request.method);
+  const methodCheck = validateMethodName(args.request.method, strict);
   if (!methodCheck.valid) {
     throw new Error(methodCheck.error ?? 'Invalid method name');
   }
@@ -235,7 +235,11 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
     input: inputFromJson(method, prepared.message, {
       ignoreUnknownFields: grpcUnknownFieldsMode() !== 'block',
     }),
-    headers: { ...prepared.metadata, ...buildAuthMetadata(args.request.auth) },
+    // `-bin` normalisation covers the auth headers too (as prepareGrpcRequest does).
+    headers: normalizeBinaryMetadata({
+      ...prepared.metadata,
+      ...buildAuthMetadata(args.request.auth),
+    }),
     timeoutMs: args.timeoutMs ?? DEFAULT_TIMEOUT,
   });
 }
@@ -622,7 +626,7 @@ function startElectronInteractiveStream<TIn, TOut>(
       service: args.request.service,
       method: args.request.method,
       methodType: args.request.methodType,
-      metadata: { ...prepared.metadata, ...authMetadata },
+      metadata: normalizeBinaryMetadata({ ...prepared.metadata, ...authMetadata }),
       message: withoutUnknownFields(lenientInput, prepared.message),
       // Send descriptors (reflection) and/or proto text (upload); the main
       // process prefers descriptors. One of them must be present.

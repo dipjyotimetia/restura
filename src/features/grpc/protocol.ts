@@ -331,12 +331,13 @@ export const grpcProtocol: ProtocolModule = {
     let streamMessages: unknown[] | undefined;
     const resolve = (text: string) =>
       resolveMapText(text, scriptEnvVars, ctx.secretNames, defaultResolveVariables);
-    // Service / method may be templated like the URL (`{{service}}`); every
-    // transport below builds `/{service}/{method}` from these fields.
-    // Auth fields resolve `{{vars}}` with the same scope as the URL / metadata
-    // (secret-variable tokens and keychain handles stay opaque), as HTTP,
-    // GraphQL, MCP, gRPC reflection and the CLI already do.
-    request = {
+    // The unary request as sent: service / method may be templated like the
+    // URL (`{{service}}`), and auth fields resolve `{{vars}}` with the same
+    // scope as the URL / metadata (secret-variable tokens and keychain handles
+    // stay opaque), as HTTP, GraphQL, MCP, gRPC reflection and the CLI do.
+    // Streams resolve the same fields once, inside startGrpcStream (which the
+    // streaming panel also calls directly), so they get the unresolved request.
+    const send: GrpcRequest = {
       ...request,
       service: resolve(request.service),
       method: resolve(request.method),
@@ -349,7 +350,7 @@ export const grpcProtocol: ProtocolModule = {
     if (isElectron() && !descriptors && (!opts.protoContent || !opts.protoFileName)) {
       descriptors = await discoverDescriptorsForRequest(
         resolve(request.url),
-        request.service,
+        send.service,
         reflectionCredentialsFor(request, resolve)
       );
     }
@@ -361,9 +362,9 @@ export const grpcProtocol: ProtocolModule = {
     // `.proto` text reconstructed from reflection. Streams apply the same
     // policy per message inside the streaming client.
     const policy: ReturnType<typeof applyUnknownFieldPolicy> = isStream
-      ? { request }
+      ? { request: send }
       : applyUnknownFieldPolicy(
-          request,
+          send,
           descriptors ? { descriptors } : schemaSourceFromSnapshot(request.schema),
           resolve
         );
@@ -391,7 +392,7 @@ export const grpcProtocol: ProtocolModule = {
         opts.useCompression ?? false,
         descriptors
       );
-    } else if (isGrpcWebWire(request.wireProtocol)) {
+    } else if (isGrpcWebWire(send.wireProtocol)) {
       // gRPC-Web through the Worker's /api/grpc-web relay — needs the schema
       // to encode/decode protobuf (live builder state or the saved snapshot).
       response = await makeGrpcWebRequest(policy.request, resolve, timeoutMs, {

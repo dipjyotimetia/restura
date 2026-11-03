@@ -13,7 +13,6 @@ import {
   getSuggestedAction,
   grpcAuthNeedsMainSideApply,
   grpcUnsupportedAuthMessage,
-  httpStatusToGrpcStatus,
   isGrpcError,
   MAX_GRPC_METADATA_BYTES,
   makeElectronGrpcRequest,
@@ -21,10 +20,8 @@ import {
   parseProtoFile,
   prepareGrpcRequest,
   relayErrorStatus,
-  validateGrpcUrl,
-  validateMethodName,
-  validateServiceName,
 } from '../grpcClient';
+import { validateGrpcUrl, validateMethodName, validateServiceName } from '../grpcValidation';
 
 const UNSUPPORTED_AUTHS: AuthConfig[] = [
   { type: 'digest', digest: { username: 'user', password: 'pass' } },
@@ -695,26 +692,6 @@ message PingRequest
 
       expect(result.isStreaming).toBe(true);
       expect(result.messages).toEqual(messages);
-    });
-  });
-
-  // Upstream replies without a gRPC status: gRPC http-grpc-status-mapping.
-  describe('httpStatusToGrpcStatus', () => {
-    it.each([
-      [400, GrpcStatusCode.INTERNAL],
-      [401, GrpcStatusCode.UNAUTHENTICATED],
-      [403, GrpcStatusCode.PERMISSION_DENIED],
-      [404, GrpcStatusCode.UNIMPLEMENTED],
-      [429, GrpcStatusCode.UNAVAILABLE],
-      [502, GrpcStatusCode.UNAVAILABLE],
-      [503, GrpcStatusCode.UNAVAILABLE],
-      [504, GrpcStatusCode.UNAVAILABLE],
-      [500, GrpcStatusCode.UNKNOWN],
-      [418, GrpcStatusCode.UNKNOWN],
-      // A success status with no gRPC status is not an OK call.
-      [200, GrpcStatusCode.UNKNOWN],
-    ])('maps HTTP %i to gRPC %i', (http, code) => {
-      expect(httpStatusToGrpcStatus(http)).toBe(code);
     });
   });
 

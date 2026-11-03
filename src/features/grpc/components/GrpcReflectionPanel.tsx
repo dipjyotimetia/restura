@@ -12,12 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { validateGrpcUrl } from '@/features/grpc/lib/grpcClient';
 import {
   formatMessageSchemaForDisplay,
   GrpcReflectionClient,
   generateRequestTemplate,
 } from '@/features/grpc/lib/grpcReflection';
+import { validateGrpcUrl } from '@/features/grpc/lib/grpcValidation';
 import { resolveGrpcReflectionConnect } from '@/lib/shared/connectSpec';
 import type {
   GrpcMethodType,

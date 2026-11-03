@@ -691,7 +691,7 @@ function GrpcRequestBuilder() {
             )}
 
             {activeTab === 'auth' && (
-              <div className="grid grid-cols-[170px_1fr] min-h-full">
+              <div className="grid grid-cols-[190px_1fr] min-h-full">
                 <div className="border-r border-sp-line p-2 bg-sp-surface-lo/40 overflow-y-auto">
                   <AuthTypePicker
                     request={grpcRequest}

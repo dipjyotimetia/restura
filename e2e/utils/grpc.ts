@@ -48,16 +48,20 @@ async function chooseOrFill(page: Page, which: 'service' | 'method', value: stri
   // follows the service control, so it is the last combobox, service the first.
   const pickers = page.getByRole('combobox');
   const picker = which === 'service' ? pickers.first() : pickers.last();
+  // Picker options carry a call-type suffix ("ServerStreamingEcho(server
+  // stream)"), and the trigger may too: match the name as a whole word.
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const named = new RegExp(`^\\s*${escaped}(?![A-Za-z0-9_])`);
   await expect(async () => {
     if (await field.isVisible()) {
       await field.fill(value, { timeout: 2_000 });
       await expect(field).toHaveValue(value, { timeout: 1_000 });
     } else {
-      if (((await picker.textContent()) ?? '').trim() !== value) {
+      if (!named.test((await picker.textContent()) ?? '')) {
         await picker.click({ timeout: 2_000 });
-        await page.getByRole('option', { name: value, exact: true }).click({ timeout: 2_000 });
+        await page.getByRole('option', { name: named }).first().click({ timeout: 2_000 });
       }
-      await expect(picker).toHaveText(value, { timeout: 1_000 });
+      await expect(picker).toHaveText(named, { timeout: 1_000 });
     }
   }).toPass({ timeout: 20_000 });
 }

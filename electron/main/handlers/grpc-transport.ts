@@ -157,7 +157,7 @@ export function isProtocolRejectionError(err: unknown): boolean {
 
 // Per-origin memo of "this server needs the Connect fallback" so reflection
 // round-trips and later RPCs skip the doomed native attempt (bounded LRU Set).
-// Recorded only once a Connect attempt has actually completed after native
+// Recorded only once a Connect attempt has actually succeeded after native
 // gRPC was refused — never on the refusal alone — and cleared as soon as the
 // Connect path is itself refused or native gRPC works again, so it can't pin a
 // healthy native-gRPC server to the wrong protocol.
@@ -224,9 +224,10 @@ export function noteRejection(t: TransportArgs, attempt: TransportAttempt): void
   if (attempt.protocol === 'connect') connectPreferred.delete(transportBaseUrl(t.url, t.dial));
 }
 
-// An attempt that got a real answer (success, or a status from a server that
-// speaks the protocol). Connect answering after native was refused → memoise;
-// native answering → the origin speaks native gRPC, forget any memo.
+// An attempt that SUCCEEDED. Connect succeeding after native was refused →
+// memoise; native succeeding → the origin speaks native gRPC, forget any memo.
+// Errors (a timeout, a reset, a server status) never touch the memo: they
+// don't prove which protocol the origin speaks.
 export function noteSettled(
   t: TransportArgs,
   attempt: TransportAttempt,

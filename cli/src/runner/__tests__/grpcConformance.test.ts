@@ -198,3 +198,34 @@ describe('CLI · native gRPC', () => {
     expect(out.errorMessage).toContain('sends "auto" requests over the Connect protocol only');
   });
 });
+
+describe('CLI · {{variables}} in service / method (parity with the app)', () => {
+  const templated = {
+    ...opts,
+    vars: { ...opts.vars, svc: 'conformance.v1.ConformanceService', rpc: 'Unary' },
+  };
+
+  it.each(MODES)('$label resolves them before building the path', async (mode) => {
+    const out = await executeGrpc(
+      item({
+        url: mode.url(),
+        ...(mode.wire ? { wireProtocol: mode.wire } : {}),
+        service: '{{svc}}',
+        method: '{{rpc}}',
+        message: '{"payload":{"fString":"templated"}}',
+      }),
+      templated
+    );
+    expect(out.passed, out.errorMessage).toBe(true);
+    expect(
+      (JSON.parse(out.responseBody ?? '{}') as { payload: { fString: string } }).payload.fString
+    ).toBe('templated');
+  });
+});
+
+it('CLI · an unresolved {{variable}} in the service fails explicitly, naming it', async () => {
+  const out = await executeGrpc(item({ service: '{{nope}}' }), opts);
+  expect(out.passed).toBe(false);
+  expect(out.grpcStatus?.code).toBe(Code.InvalidArgument);
+  expect(out.errorMessage).toContain('{{nope}}');
+});

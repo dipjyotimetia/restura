@@ -352,7 +352,7 @@ jobs:
 | `No recognised collection layout` | Target needs `opencollection.yml` / `.yaml` or legacy `_collection.yaml`. Re-export from the Restura app. |
 | `Invalid URL` | URL after `{{var}}` resolution isn't a valid absolute URL. Check `--env` is loaded and names match. |
 | `Localhost URLs are not allowed` | Add `--allow-localhost` for local upstreams. Off by default to prevent SSRF in shared CI. |
-| gRPC requests return `UNKNOWN` | Upstream doesn't speak the Connect protocol. The CLI sends auto / Connect requests as Connect-over-HTTP and has no HTTP/2 gRPC transport; switch the request to gRPC-Web if the server supports it. |
+| gRPC fails with "sends \"auto\" requests over the Connect protocol only" (`UNIMPLEMENTED`, `UNKNOWN` or `UNAVAILABLE`) | Upstream doesn't speak the Connect protocol (404 / 415, or an HTTP/2-only native gRPC server). The CLI sends auto / Connect requests as Connect-over-HTTP and has no HTTP/2 gRPC transport; switch the request to gRPC-Web if the server supports it. |
 | `auth uses a desktop-only secret handle…` | Your auth references a secret handle only the desktop app can decrypt. The request errors (it is not sent unauthenticated); re-export with inline values for CI use. |
 
 ## Development

@@ -39,17 +39,6 @@ import {
 } from './grpc-transport';
 import type { WireProtocolArgs } from './grpc-wire-protocol';
 
-// Transport + fallback-policy surface, re-exported for existing importers.
-export {
-  buildConnectFallbackTransport,
-  buildConnectTransport,
-  isConnectPreferredForTests,
-  isProtocolRejectionError,
-  type PinnedDial,
-  resetProtocolFallbackStateForTests,
-  transportBaseUrl,
-} from './grpc-transport';
-
 // gRPC URL schemes the SSRF guard accepts (renderer + reflection emit grpc://).
 const GRPC_ALLOWED_SCHEMES = ['http:', 'https:', 'grpc:', 'grpcs:'];
 
@@ -178,7 +167,6 @@ export async function executeConnectUnary(args: ConnectUnaryArgs): Promise<Conne
         rejection = { protocol: attempt.protocol, error: ConnectError.from(err) };
         continue; // retry over the other protocol with fresh headers/trailers
       }
-      if (!refused) noteSettled(args, attempt, rejection?.protocol === 'grpc');
       // Connect's Code enum is numerically identical to the gRPC status codes.
       const ce = ConnectError.from(err);
       ce.metadata.forEach((value, key) => {
@@ -329,7 +317,6 @@ export function runConnectStream(
       startAttempt();
       return;
     }
-    if (!refused) noteSettled(args, attempt, rejection?.protocol === 'grpc');
     flushHeld();
     const ce = ConnectError.from(err);
     handlers.onTrailers(flattenHeaders(ce.metadata));
@@ -649,7 +636,6 @@ export async function executeConnectReflection(
         rejection = { protocol: attempt.protocol, error: ConnectError.from(err) };
         continue;
       }
-      if (!refused) noteSettled(args, attempt, rejection?.protocol === 'grpc');
       if (rejection) {
         throw new Error(combinedErrorMessage(rejection, ConnectError.from(err)));
       }
