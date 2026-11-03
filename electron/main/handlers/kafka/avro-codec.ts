@@ -8,9 +8,9 @@
 // - bytes / fixed (incl. decimal) are strings of code points 0-255 in both
 //   directions (Avro JSON encoding), so a consumed record re-produces as-is.
 // - long uses the full 64-bit range: safe integers stay numbers, anything
-//   larger is a decimal string. Exception: a union that mixes long with
-//   another number or string branch keeps avsc's native long, because an
-//   abstract long there makes avsc reject every value as ambiguous.
+//   larger is a decimal string. A union that mixes long with another number
+//   or string branch is built wrapped ({"long": …}), as avsc does for
+//   ambiguous unions.
 // - unions accept the avsc form (unwrapped when unambiguous) and the Avro JSON
 //   wrapped form ({"string": "x"}, {"ns.Record": {…}}, or the short name). A
 //   single-key object naming a branch is read as the wrapped form first; a bare
@@ -21,7 +21,10 @@ import { createRequire } from 'node:module';
 import { type AvscTypeLike, BigIntLiteral } from './schema-types';
 
 type AvscModule = {
-  types: { LongType: { __with(methods: Record<string, unknown>): unknown } };
+  types: {
+    LongType: { __with(methods: Record<string, unknown>): unknown };
+    WrappedUnionType: new (schema: unknown, opts?: Record<string, unknown>) => unknown;
+  };
   Type: { forSchema(schema: unknown, opts?: Record<string, unknown>): unknown };
 };
 
@@ -80,10 +83,18 @@ export function int64LongType(): unknown {
   return _longType;
 }
 
-/** Marks a union's long branch that must stay avsc's native long (see below). */
-const NATIVE_LONG = 'x-restura-native-long';
 /** Branch types a JSON number or string could also be read as. */
 const LONG_CONFLICTS = new Set(['int', 'float', 'double', 'string', 'enum', 'bytes', 'fixed']);
+const AVRO_PRIMITIVES = new Set([
+  'null',
+  'boolean',
+  'int',
+  'long',
+  'float',
+  'double',
+  'bytes',
+  'string',
+]);
 
 function primitiveOf(branch: unknown): string | undefined {
   if (typeof branch === 'string') return branch;
@@ -98,34 +109,36 @@ function isLongSchema(schema: unknown): boolean {
   return primitiveOf(schema) === 'long';
 }
 
+/** Does this branch compete with `long` for a JSON number or string? */
+function conflictsWithLong(branch: unknown, opts: Record<string, unknown> | undefined): boolean {
+  const kind = primitiveOf(branch);
+  if (kind === undefined || isLongSchema(branch)) return false;
+  if (LONG_CONFLICTS.has(kind)) return true;
+  if (typeof branch !== 'string' || AVRO_PRIMITIVES.has(kind)) return false;
+  // A named type referenced by name: look it up in the types parsed so far
+  // (references included). Unknown names count as conflicts, to be safe.
+  const registry = (opts?.registry ?? {}) as Record<string, { typeName?: string }>;
+  const namespace = typeof opts?.namespace === 'string' ? opts.namespace : '';
+  const named =
+    registry[branch] ??
+    (namespace && !branch.includes('.') ? registry[`${namespace}.${branch}`] : undefined);
+  return named === undefined || named.typeName === 'enum' || named.typeName === 'fixed';
+}
+
 /**
  * avsc typeHook: every `long` (incl. logical types over long) uses
- * {@link int64LongType}, except inside a union that mixes long with another
- * number/string branch — there the abstract type would make avsc throw
- * "ambiguous conversion" for every value, so that union is rebuilt with a
- * native long branch (values beyond 2^53 cannot be told apart from doubles in
- * JSON anyway).
+ * {@link int64LongType}. A union that mixes long with another number/string
+ * branch would make avsc reject every value as ambiguous with that abstract
+ * type, so it is built as a wrapped union instead (the form avsc itself uses
+ * for ambiguous unions), keeping the full 64-bit range.
  */
 export function avroTypeHook(schema: unknown, opts?: Record<string, unknown>): unknown {
   if (Array.isArray(schema)) {
-    if (schema.some((b) => b && typeof b === 'object' && NATIVE_LONG in (b as object))) {
-      return undefined;
-    }
-    const hasLong = schema.some(isLongSchema);
-    const conflicts = schema.some(
-      (b) => !isLongSchema(b) && LONG_CONFLICTS.has(primitiveOf(b) ?? '')
-    );
-    if (hasLong && conflicts) {
-      const marked = schema.map((b) =>
-        isLongSchema(b)
-          ? { ...(typeof b === 'string' ? { type: b } : (b as object)), [NATIVE_LONG]: true }
-          : b
-      );
-      return avsc().Type.forSchema(marked, opts);
+    if (schema.some(isLongSchema) && schema.some((b) => conflictsWithLong(b, opts))) {
+      return new (avsc().types.WrappedUnionType)(schema, opts);
     }
     return undefined;
   }
-  if (schema && typeof schema === 'object' && NATIVE_LONG in (schema as object)) return undefined;
   return isLongSchema(schema) ? int64LongType() : undefined;
 }
 
@@ -195,14 +208,17 @@ function coerceUnion(type: AvscTypeLike, value: unknown, depth: number): unknown
 function coerceAvroValue(type: AvscTypeLike, value: unknown, depth: number): unknown {
   if (depth > 64) return value;
   const name = type.typeName;
-  if (name === 'bytes' || name === 'fixed') {
-    // Avro JSON encoding: bytes/fixed are strings of code points 0-255.
-    return typeof value === 'string' ? Buffer.from(value, 'latin1') : value;
-  }
+  // Unions pick their branch first; the branch then resolves the value.
+  if (name.startsWith('union') && type.types) return coerceUnion(type, value, depth);
   if (value instanceof BigIntLiteral) {
     // An integer literal beyond 2^53: exact text for longs, a number otherwise.
     const base = baseTypeName(type);
     return base === 'long' || base.startsWith('abstract') ? value.source : value.toNumber();
+  }
+
+  if (name === 'bytes' || name === 'fixed') {
+    // Avro JSON encoding: bytes/fixed are strings of code points 0-255.
+    return typeof value === 'string' ? Buffer.from(value, 'latin1') : value;
   }
   if ((name === 'record' || name === 'error') && value && typeof value === 'object') {
     const out: Record<string, unknown> = { ...(value as Record<string, unknown>) };

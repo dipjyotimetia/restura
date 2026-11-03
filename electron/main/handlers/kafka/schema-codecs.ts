@@ -9,6 +9,7 @@
 
 import { fromBinary } from '@bufbuild/protobuf';
 import { FileDescriptorProtoSchema } from '@bufbuild/protobuf/wkt';
+import { createLogger } from '@shared/runtime/logger';
 import { coerceAvroPayload, normalizeAvroDecoded } from './avro-codec';
 import { buildJsonSchemaCodec } from './json-schema-codec';
 import {
@@ -51,6 +52,7 @@ interface RegistryReference {
   version: number;
 }
 
+const log = createLogger('kafka');
 const MAX_REFERENCES = 100;
 const MAX_REFERENCE_DEPTH = 16;
 const MAX_CODECS = 256;
@@ -167,8 +169,15 @@ export function createSchemaCodecs(deps: SchemaCodecDeps): SchemaCodecs {
       // Prefer the registry's own descriptors (exact message indexes); fall
       // back to compiling the text when the registry cannot serve them.
       const codec =
-        (await protobufFromDescriptors(id).catch(() => undefined)) ??
-        buildProtobufCodec(raw.schema, await textReferences(raw));
+        (await protobufFromDescriptors(id).catch((err: unknown) => {
+          // Expected for registries without `format=serialized`; anything else
+          // (a descriptor-repair bug) must not disappear silently.
+          log.warn('schema registry descriptors unusable; compiling schema text', {
+            schemaId: id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return undefined;
+        })) ?? buildProtobufCodec(raw.schema, await textReferences(raw));
       return { type, encode: (j, m) => codec.encode(j, m), decode: (b) => codec.decode(b) };
     }
     const codec = buildJsonSchemaCodec(raw.schema, await textReferences(raw));

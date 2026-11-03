@@ -44,6 +44,7 @@ import {
 import { BinaryReader, BinaryWriter } from '@bufbuild/protobuf/wire';
 import {
   type DescriptorProto,
+  FieldDescriptorProto_Type,
   type FileDescriptorProto,
   FileDescriptorSetSchema,
 } from '@bufbuild/protobuf/wkt';
@@ -106,81 +107,106 @@ const INT64_SCALARS = new Set<ScalarType>([
 ]);
 const INT64_WRAPPERS = new Set(['google.protobuf.Int64Value', 'google.protobuf.UInt64Value']);
 
+type MessageLookup = (typeName: string) => DescMessage | undefined;
+
 /**
  * Resolve {@link BigIntLiteral}s against the message type: exact text for
  * 64-bit integer fields (fromJson accepts decimal strings), a number anywhere
- * else (double/float, Struct/Value, unknown keys).
+ * else (double/float, Struct/Value, unknown keys). `google.protobuf.Any`
+ * resolves against its `@type`.
  */
-function resolveLiterals(desc: DescMessage | undefined, value: unknown, depth = 0): unknown {
+function resolveLiterals(
+  desc: DescMessage | undefined,
+  value: unknown,
+  lookup: MessageLookup,
+  depth = 0
+): unknown {
   if (value instanceof BigIntLiteral) return value.toNumber();
   if (depth > 64 || !value || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map((v) => resolveLiterals(undefined, v, depth + 1));
+  if (Array.isArray(value))
+    return value.map((v) => resolveLiterals(undefined, v, lookup, depth + 1));
+  if (desc?.typeName === 'google.protobuf.Any') return resolveAny(value, lookup, depth);
   const typed = desc && !desc.typeName.startsWith('google.protobuf.') ? desc : undefined;
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
     const field = typed?.fields.find((f) => f.name === key || f.jsonName === key);
     out[key] = field
-      ? resolveField(field, child, depth + 1)
-      : resolveLiterals(undefined, child, depth + 1);
+      ? resolveField(field, child, lookup, depth + 1)
+      : resolveLiterals(undefined, child, lookup, depth + 1);
   }
   return out;
 }
 
-function resolveScalar(scalar: ScalarType, value: unknown, depth: number): unknown {
-  if (value instanceof BigIntLiteral)
-    return INT64_SCALARS.has(scalar) ? value.source : value.toNumber();
-  return resolveLiterals(undefined, value, depth);
+/** Any JSON: `{"@type": "…/pkg.Type", …fields}`, or `{"@type", "value"}` for WKTs. */
+function resolveAny(value: object, lookup: MessageLookup, depth: number): unknown {
+  const { '@type': url, ...rest } = value as Record<string, unknown>;
+  const target = typeof url === 'string' ? lookup(url.slice(url.lastIndexOf('/') + 1)) : undefined;
+  if (target?.typeName.startsWith('google.protobuf.') && 'value' in rest) {
+    return { '@type': url, ...rest, value: resolveMessage(target, rest.value, lookup, depth + 1) };
+  }
+  return { '@type': url, ...(resolveLiterals(target, rest, lookup, depth + 1) as object) };
 }
 
-function resolveMessage(desc: DescMessage, value: unknown, depth: number): unknown {
+function resolveScalar(scalar: ScalarType, value: unknown, lookup: MessageLookup, depth: number) {
+  if (value instanceof BigIntLiteral) {
+    return INT64_SCALARS.has(scalar) ? value.source : value.toNumber();
+  }
+  return resolveLiterals(undefined, value, lookup, depth);
+}
+
+function resolveMessage(desc: DescMessage, value: unknown, lookup: MessageLookup, depth: number) {
   if (value instanceof BigIntLiteral) {
     return INT64_WRAPPERS.has(desc.typeName) ? value.source : value.toNumber();
   }
-  return resolveLiterals(desc, value, depth);
+  return resolveLiterals(desc, value, lookup, depth);
 }
 
-function resolveField(field: DescField, value: unknown, depth: number): unknown {
+/** One list element or map value of `field`. */
+function resolveElement(field: DescField, value: unknown, lookup: MessageLookup, depth: number) {
+  if (field.fieldKind !== 'list' && field.fieldKind !== 'map') {
+    return resolveLiterals(undefined, value, lookup, depth);
+  }
+  const kind = field.fieldKind === 'list' ? field.listKind : field.mapKind;
+  if (kind === 'scalar' && field.scalar !== undefined) {
+    return resolveScalar(field.scalar, value, lookup, depth);
+  }
+  if (kind === 'message' && field.message)
+    return resolveMessage(field.message, value, lookup, depth);
+  return resolveLiterals(undefined, value, lookup, depth);
+}
+
+function resolveField(field: DescField, value: unknown, lookup: MessageLookup, depth: number) {
   switch (field.fieldKind) {
     case 'scalar':
-      return resolveScalar(field.scalar, value, depth);
+      return resolveScalar(field.scalar, value, lookup, depth);
     case 'message':
-      return resolveMessage(field.message, value, depth);
+      return resolveMessage(field.message, value, lookup, depth);
     case 'list':
       return Array.isArray(value)
-        ? value.map((v) =>
-            field.listKind === 'scalar'
-              ? resolveScalar(field.scalar, v, depth + 1)
-              : field.listKind === 'message'
-                ? resolveMessage(field.message, v, depth + 1)
-                : resolveLiterals(undefined, v, depth + 1)
-          )
-        : resolveLiterals(undefined, value, depth);
+        ? value.map((v) => resolveElement(field, v, lookup, depth + 1))
+        : resolveLiterals(undefined, value, lookup, depth);
     case 'map':
       return value && typeof value === 'object' && !Array.isArray(value)
         ? Object.fromEntries(
-            Object.entries(value).map(([k, v]) => [
-              k,
-              field.mapKind === 'scalar'
-                ? resolveScalar(field.scalar, v, depth + 1)
-                : field.mapKind === 'message'
-                  ? resolveMessage(field.message, v, depth + 1)
-                  : resolveLiterals(undefined, v, depth + 1),
-            ])
+            Object.entries(value).map(([k, v]) => [k, resolveElement(field, v, lookup, depth + 1)])
           )
-        : resolveLiterals(undefined, value, depth);
+        : resolveLiterals(undefined, value, lookup, depth);
     default:
-      return resolveLiterals(undefined, value, depth);
+      return resolveLiterals(undefined, value, lookup, depth);
   }
 }
 
 const isWellKnown = (name: string) => wellKnownFileProto(name) !== undefined;
 
-const TYPE_GROUP = 10;
-const TYPE_MESSAGE = 11;
-const TYPE_ENUM = 14;
+const TYPE_GROUP = FieldDescriptorProto_Type.GROUP;
+const TYPE_MESSAGE = FieldDescriptorProto_Type.MESSAGE;
+const TYPE_ENUM = FieldDescriptorProto_Type.ENUM;
 
 /** Fully-qualified (leading-dot) message and enum names a file declares. */
-function declaredTypes(file: FileDescriptorProto, out: Map<string, number>): void {
+function declaredTypes(
+  file: FileDescriptorProto,
+  out: Map<string, FieldDescriptorProto_Type>
+): void {
   const pkg = file.package ? `.${file.package}` : '';
   const walk = (types: readonly DescriptorProto[], prefix: string) => {
     for (const type of types) {
@@ -198,7 +224,7 @@ function declaredTypes(file: FileDescriptorProto, out: Map<string, number>): voi
 function qualifyTypeName(
   typeName: string,
   scope: string,
-  known: Map<string, number>
+  known: Map<string, FieldDescriptorProto_Type>
 ): string | undefined {
   if (typeName.startsWith('.')) return known.has(typeName) ? typeName : undefined;
   for (let at = scope; ; at = at.slice(0, Math.max(0, at.lastIndexOf('.')))) {
@@ -217,7 +243,7 @@ function qualifyTypeName(
 function repairDescriptor(
   types: readonly DescriptorProto[],
   scope: string,
-  known: Map<string, number>
+  known: Map<string, FieldDescriptorProto_Type>
 ): void {
   for (const type of types) {
     const name = `${scope}.${type.name}`;
@@ -227,7 +253,7 @@ function repairDescriptor(
       const qualified = qualifyTypeName(field.typeName, name, known);
       if (!qualified) continue;
       field.typeName = qualified;
-      const kind = known.get(qualified) as number;
+      const kind = known.get(qualified) as FieldDescriptorProto_Type;
       if (field.type !== TYPE_GROUP && field.type !== kind) field.type = kind;
     }
     repairDescriptor(type.nestedType, name, known);
@@ -252,7 +278,7 @@ export function buildProtobufCodecFromDescriptors(
   }
   main.name = MAIN_FILE;
   const resolve = (name: string) => wellKnownFileProto(name) ?? byName.get(name);
-  const known = new Map<string, number>();
+  const known = new Map<string, FieldDescriptorProto_Type>();
   const seenFiles = new Set<string>();
   const collect = (file: FileDescriptorProto) => {
     if (seenFiles.has(file.name)) return;
@@ -350,7 +376,9 @@ function codecFor(registry: FileRegistry, explicitNestedFirst: boolean): Protobu
     encode(json, messageName) {
       const path = resolvePath(messageName);
       const desc = messageAt(path);
-      const payload = resolveLiterals(desc, parseJsonExact(json));
+      const payload = resolveLiterals(desc, parseJsonExact(json), (name) =>
+        registry.getMessage(name)
+      );
       const unknown = findUnknownJsonFields(desc, payload);
       if (unknown.length > 0) {
         throw new Error(`Unknown field(s) in ${desc.typeName}: ${describeUnknownFields(unknown)}`);

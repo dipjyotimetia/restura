@@ -365,7 +365,25 @@ function cases(): Case[] {
         payload: undefined,
         text: '{"id": 9007199254740993, "tags": ["x"]}',
         expected: undefined,
-        expectedText: '{"id": 9007199254740993, "tags": ["x"]}',
+        // Produced compact, digits intact.
+        expectedText: '{"id":9007199254740993,"tags":["x"]}',
+      },
+    },
+    {
+      name: 'avro-mixed-long-union-wrapped',
+      value: {
+        subject: subject('avro-mixed'),
+        payload: undefined,
+        text: '{"v": 9007199254740993}',
+        expected: { v: { long: '9007199254740993' } },
+      },
+    },
+    {
+      name: 'json-cross-subject-reference',
+      value: {
+        subject: subject('json-person'),
+        payload: { home: { city: 'c' } },
+        expected: { home: { city: 'c' } },
       },
     },
     {
@@ -415,6 +433,28 @@ describe.skipIf(!RUN)('Kafka Schema Registry matrix — live through the IPC han
       schemaType: 'PROTOBUF',
       schema: PROTO_SHOP,
       references: [{ name: 'money.proto', subject: subject('proto-money'), version: 1 }],
+    });
+    ids['avro-mixed'] = await register(subject('avro-mixed'), {
+      schema: JSON.stringify({
+        type: 'record',
+        name: 'Mixed',
+        namespace: 'matrix.mixed',
+        fields: [{ name: 'v', type: ['null', 'long', 'string'], default: null }],
+      }),
+    });
+    await register(subject('json-address'), {
+      schemaType: 'JSON',
+      schema: JSON.stringify({
+        type: 'object',
+        required: ['city'],
+        properties: { city: { type: 'string' } },
+      }),
+    });
+    ids['json-person'] = await register(subject('json-person'), {
+      schemaType: 'JSON',
+      // Redpanda stores this $ref as "/address.json".
+      schema: JSON.stringify({ type: 'object', properties: { home: { $ref: 'address.json' } } }),
+      references: [{ name: 'address.json', subject: subject('json-address'), version: 1 }],
     });
     ids['proto-key'] = await register(subject('proto-key'), {
       schemaType: 'PROTOBUF',
@@ -532,6 +572,7 @@ describe.skipIf(!RUN)('Kafka Schema Registry matrix — live through the IPC han
       [subject('proto-shop'), { delta: 2 ** 31 }],
       [subject('json-event'), { id: 'x' }],
       [subject('json-event'), { id: 1, extra: true }],
+      [subject('json-person'), { home: {} }], // the referenced schema requires city
     ];
     for (const [subj, payload] of bad) {
       const res = await handlerFor(IPC.kafka.produce)(event, {

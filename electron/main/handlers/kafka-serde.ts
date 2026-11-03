@@ -101,6 +101,8 @@ export async function encodeSchemaField(
   raw: string,
   field: 'key' | 'value'
 ): Promise<{ value: Buffer } | { error: string }> {
+  // Parsed only for the friendly "must be valid JSON" error: the codecs get the
+  // text, because this parse rounds integers beyond 2^53.
   const parsed = parseSchemaJson(raw, field);
   if ('error' in parsed) return parsed;
   try {

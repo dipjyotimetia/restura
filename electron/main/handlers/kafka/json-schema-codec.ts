@@ -12,12 +12,12 @@
 // serializer does), so it never blocks a produce.
 //
 // Wire body after magic byte + schema id is the UTF-8 JSON document. Produce
-// validates and then writes the user's JSON text as-is, and consume returns
-// the record's text as-is, so integers beyond 2^53 (or any other number
-// formatting) survive in both directions — JSON.parse/stringify would round
-// them. Consume does not validate: a client used to inspect topics should show
+// validates and writes compact JSON re-printed without rounding, and consume
+// returns the record's text as-is, so integers beyond 2^53 survive in both
+// directions — JSON.parse/stringify would round them. Consume does not validate: a client used to inspect topics should show
 // a non-conforming record rather than hide it.
 
+import { reformatJsonLossless } from '@shared/text/lossless-json';
 import type AjvCore from 'ajv';
 import type { ValidateFunction } from 'ajv';
 import type { SchemaReference } from './schema-types';
@@ -34,19 +34,34 @@ function load(path: string): AjvClass {
   return mod.default ?? mod;
 }
 
-function ajvFor(schema: unknown): AjvCore {
+function withoutIdKeyword(ajv: AjvCore): AjvCore {
+  ajv.removeKeyword('id');
+  return ajv;
+}
+
+function dialectOf(schema: unknown): string {
   const dialect =
     schema && typeof schema === 'object' ? (schema as { $schema?: unknown }).$schema : undefined;
-  const id = typeof dialect === 'string' ? dialect : '';
-  const opts = { strict: false, allErrors: true, validateFormats: false, logger: false };
-  if (id.includes('2020-12')) return new (load('ajv/dist/2020'))(opts);
-  if (id.includes('2019-09')) return new (load('ajv/dist/2019'))(opts);
-  if (id.includes('draft-04')) return new (load('ajv-draft-04'))(opts);
-  const ajv = new (load('ajv'))(opts);
-  if (id.includes('draft-06')) {
-    ajv.addMetaSchema(require('ajv/dist/refs/json-schema-draft-06.json'));
-  }
-  return ajv;
+  return typeof dialect === 'string' ? dialect : '';
+}
+
+function ajvFor(dialect: string): AjvCore {
+  const opts = {
+    strict: false,
+    allErrors: true,
+    validateFormats: false,
+    // The registry already accepted the schema. Meta-validation would only
+    // reject dialect URL spellings this build has no meta-schema for
+    // (https://…draft-07…, custom metas) and references in another dialect.
+    validateSchema: false,
+    logger: false,
+  };
+  if (dialect.includes('2020-12')) return withoutIdKeyword(new (load('ajv/dist/2020'))(opts));
+  if (dialect.includes('2019-09')) return withoutIdKeyword(new (load('ajv/dist/2019'))(opts));
+  if (dialect.includes('draft-04')) return new (load('ajv-draft-04'))(opts);
+  // Outside draft-04 `id` is not an identifier, just an unknown keyword, but
+  // Ajv refuses it outright; let non-strict mode ignore it like other unknowns.
+  return withoutIdKeyword(new (load('ajv'))(opts));
 }
 
 function parseJson(text: string, what: string): unknown {
@@ -57,11 +72,30 @@ function parseJson(text: string, what: string): unknown {
   }
 }
 
-function schemaId(schema: unknown): string | undefined {
+/** The schema's absolute identifier: `$id`, or `id` in draft-04 only. */
+function schemaId(schema: unknown, inheritedDialect: string): string | undefined {
   if (!schema || typeof schema !== 'object') return undefined;
   const s = schema as { $id?: unknown; id?: unknown };
-  const id = typeof s.$id === 'string' ? s.$id : typeof s.id === 'string' ? s.id : undefined;
+  const dialect = dialectOf(schema) || inheritedDialect;
+  const id =
+    typeof s.$id === 'string'
+      ? s.$id
+      : dialect.includes('draft-04') && typeof s.id === 'string'
+        ? s.id
+        : undefined;
   return id && URL.canParse(id) ? id : undefined;
+}
+
+/** Names a `$ref` to this reference may use. */
+function referenceKeys(name: string, base: string | undefined): Set<string> {
+  const keys = new Set([name]);
+  if (!URL.canParse(name)) {
+    // Redpanda stores reference $refs root-relative ("other.json" → "/other.json").
+    keys.add(name.startsWith('/') ? name.slice(1) : `/${name}`);
+    // Relative names resolve against the main schema's $id.
+    if (base) keys.add(new URL(name, base).href);
+  }
+  return keys;
 }
 
 export function buildJsonSchemaCodec(
@@ -69,30 +103,33 @@ export function buildJsonSchemaCodec(
   references: readonly SchemaReference[] = []
 ): JsonSchemaCodec {
   const schema = parseJson(schemaText, 'JSON Schema');
-  const ajv = ajvFor(schema);
-  const base = schemaId(schema);
-  const added = new Set<string>();
-  for (const ref of references) {
-    if (added.has(ref.name)) continue;
-    added.add(ref.name);
-    const refSchema = parseJson(ref.schema, `Referenced JSON Schema "${ref.name}"`);
-    const own = schemaId(refSchema);
-    // `$ref` uses the reference name; relative names resolve against the
-    // main schema's $id, so register that absolute URL too.
-    const keys = new Set([ref.name]);
-    if (base && !URL.canParse(ref.name)) keys.add(new URL(ref.name, base).href);
-    if (own) {
-      // Ajv indexes the schema under its own absolute id; alias the other keys to it.
-      keys.delete(own);
-      ajv.addSchema(refSchema as Record<string, unknown>);
-      for (const key of keys) ajv.addSchema({ $ref: own }, key);
-    } else {
-      for (const key of keys)
-        ajv.addSchema(structuredClone(refSchema) as Record<string, unknown>, key);
-    }
-  }
+  const dialect = dialectOf(schema);
+  const ajv = ajvFor(dialect);
+  const base = schemaId(schema, dialect);
+  const registeredKeys = new Set<string>();
+  const registeredIds = new Set<string>();
   let validate: ValidateFunction;
   try {
+    for (const ref of references) {
+      const refSchema = parseJson(ref.schema, `Referenced JSON Schema "${ref.name}"`);
+      const own = schemaId(refSchema, dialect);
+      const keys = [...referenceKeys(ref.name, base)].filter(
+        (k) => k !== own && !registeredKeys.has(k)
+      );
+      if (own) {
+        // Ajv indexes a schema under its own id; alias every other name to it.
+        if (!registeredIds.has(own)) {
+          ajv.addSchema(refSchema as Record<string, unknown>);
+          registeredIds.add(own);
+        }
+        for (const key of keys) ajv.addSchema({ $ref: own }, key);
+      } else {
+        for (const key of keys) {
+          ajv.addSchema(structuredClone(refSchema) as Record<string, unknown>, key);
+        }
+      }
+      for (const key of keys) registeredKeys.add(key);
+    }
     validate = ajv.compile(schema as Record<string, unknown>);
   } catch (err) {
     throw new Error(
@@ -107,7 +144,9 @@ export function buildJsonSchemaCodec(
           `Payload does not match the JSON Schema: ${ajv.errorsText(validate.errors?.slice(0, 10), { dataVar: 'value' })}`
         );
       }
-      return Buffer.from(json.trim(), 'utf8');
+      // Compact JSON, keeping integer literals beyond 2^53 exactly. (Validation
+      // sees the parsed value, where such integers are rounded.)
+      return Buffer.from(reformatJsonLossless(json), 'utf8');
     },
     decode(body) {
       const text = body.toString('utf8');

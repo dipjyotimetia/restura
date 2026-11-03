@@ -25,7 +25,7 @@ import {
   encodeMessageIndexes,
 } from '../handlers/kafka/protobuf-codec';
 import { createSchemaCodecs } from '../handlers/kafka/schema-codecs';
-import type { AvscTypeLike } from '../handlers/kafka/schema-types';
+import { type AvscTypeLike, parseJsonExact } from '../handlers/kafka/schema-types';
 
 const J = JSON.stringify;
 
@@ -277,6 +277,25 @@ describe('Protobuf codec from schema text', () => {
     }
   });
 
+  it('keeps exact digits for 64-bit integers inside google.protobuf.Any', () => {
+    const any = buildProtobufCodec(
+      `syntax = "proto3"; package p; import "google/protobuf/any.proto"; import "google/protobuf/wrappers.proto";
+       message Outer { google.protobuf.Any a = 1; repeated google.protobuf.Any list = 2; } message N { int64 v = 1; double d = 2; }`
+    );
+    const out = any.decode(
+      any.encode(
+        '{"a": {"@type": "type.googleapis.com/p.N", "v": 9007199254740993, "d": 1e20},' +
+          ' "list": [{"@type": "type.googleapis.com/google.protobuf.Int64Value", "value": 9007199254740993}]}'
+      )
+    );
+    expect(out).toEqual({
+      a: { '@type': 'type.googleapis.com/p.N', v: '9007199254740993', d: 1e20 },
+      list: [
+        { '@type': 'type.googleapis.com/google.protobuf.Int64Value', value: '9007199254740993' },
+      ],
+    });
+  });
+
   it('ignores registry references for well-known files (skip.known.types=false)', () => {
     const codec2 = buildProtobufCodec(
       'syntax = "proto3"; package w; import "google/protobuf/timestamp.proto"; message E { google.protobuf.Timestamp t = 1; }',
@@ -373,22 +392,25 @@ describe('buildJsonSchemaCodec', () => {
         required: ['id'],
       })
     );
-    expect(codec.encode('{"id":1,"at":"whenever"}').toString()).toBe('{"id":1,"at":"whenever"}');
+    expect(codec.encode('{"id": 1, "at": "whenever"}').toString()).toBe('{"id":1,"at":"whenever"}');
     expect(() => codec.encode(J({ id: 'x' }))).toThrow(/must be integer/);
     expect(() => codec.encode('{}')).toThrow(/required property 'id'/);
     expect(() => codec.encode('{nope')).toThrow(/not valid JSON/);
   });
 
-  it('keeps the record text exactly in both directions (large integers, formatting)', () => {
+  it('keeps large integers exactly in both directions', () => {
     const codec = buildJsonSchemaCodec(
       J({ type: 'object', properties: { id: { type: 'integer' } } })
     );
-    const text = '{"id": 9007199254740993, "x": 1.0}';
-    expect(codec.encode(text).toString()).toBe(text);
-    expect(codec.decode(Buffer.from(text))).toBe(text);
-    // Confluent-produced record: decoded text re-encodes to the same body.
+    // Produce writes compact JSON with the original digits; consume shows the record text as sent.
+    expect(codec.encode('{\n  "id": 9007199254740993,\n  "x": [1, 2]\n}').toString()).toBe(
+      '{"id":9007199254740993,"x":[1,2]}'
+    );
+    expect(codec.decode(Buffer.from('{"id": 9007199254740993}'))).toBe('{"id": 9007199254740993}');
     const body = CONFLUENT_JSON.subarray(5);
-    expect(codec.encode(codec.decode(body) as string)).toEqual(body);
+    expect(JSON.parse(codec.encode(codec.decode(body) as string).toString())).toEqual(
+      JSON.parse(body.toString())
+    );
   });
 
   it('picks the dialect from $schema (draft-04, draft-06, 2019-09, 2020-12)', () => {
@@ -431,6 +453,60 @@ describe('buildJsonSchemaCodec', () => {
     expect(() => v2020.encode('["a",1]')).not.toThrow();
     expect(() => v2020.encode('["a","b"]')).toThrow();
     expect(() => v2020.encode('["a",1,2]')).toThrow();
+  });
+
+  it('compiles dialect URL spellings and mixed-dialect references the registry accepted', () => {
+    for (const dialect of [
+      'https://json-schema.org/draft-07/schema#',
+      'https://json-schema.org/draft-06/schema#',
+      'http://json-schema.org/draft-07/schema',
+      'https://example.com/custom-meta',
+    ]) {
+      const codec = buildJsonSchemaCodec(J({ $schema: dialect, type: 'object', required: ['a'] }));
+      expect(() => codec.encode('{"a":1}'), dialect).not.toThrow();
+      expect(() => codec.encode('{}'), dialect).toThrow(/required/);
+    }
+    const mixed = buildJsonSchemaCodec(
+      J({
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        properties: { r: { $ref: 'r.json' } },
+      }),
+      [
+        {
+          name: 'r.json',
+          schema: J({ $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'string' }),
+        },
+      ]
+    );
+    expect(() => mixed.encode('{"r":"x"}')).not.toThrow();
+    expect(() => mixed.encode('{"r":1}')).toThrow(/string/);
+  });
+
+  it('resolves references the way registries store them', () => {
+    const ref = (schema: object) => [{ name: 'other.json', schema: J(schema) }];
+    const strict = { type: 'object', required: ['n'] };
+    const cases: [object, ReturnType<typeof ref>][] = [
+      // Redpanda rewrites a reference $ref to root-relative when storing it.
+      [{ properties: { o: { $ref: '/other.json' } } }, ref(strict)],
+      // A draft-07 reference with a stray root `id` (not an identifier there).
+      [{ properties: { o: { $ref: 'other.json' } } }, ref({ ...strict, id: 'https://ex.com/x' })],
+    ];
+    for (const [main, refs] of cases) {
+      const codec = buildJsonSchemaCodec(J(main), refs);
+      expect(() => codec.encode('{"o":{"n":1}}'), J(main)).not.toThrow();
+      expect(() => codec.encode('{"o":{}}'), J(main)).toThrow(/required/);
+    }
+    // The same schema reached under two reference names.
+    const shared = J({ $id: 'https://ex.com/a.json', type: 'integer' });
+    const twice = buildJsonSchemaCodec(
+      J({ properties: { x: { $ref: 'a.json' }, y: { $ref: 'https://ex.com/a.json' } } }),
+      [
+        { name: 'a.json', schema: shared },
+        { name: 'https://ex.com/a.json', schema: shared },
+      ]
+    );
+    expect(() => twice.encode('{"x":1,"y":2}')).not.toThrow();
+    expect(() => twice.encode('{"x":"no"}')).toThrow(/integer/);
   });
 
   it('validates oneOf / anyOf / if-then-else', () => {
@@ -516,18 +592,46 @@ describe('Avro JSON mapping', () => {
     expect(bodies[2]).toEqual(bodies[0]);
   });
 
-  it('encodes unions mixing long with other numbers or strings', () => {
+  it('encodes unions mixing long with other numbers or strings, in full int64 range', () => {
+    // Such unions are ambiguous in JSON, so they use avsc's wrapped form.
     const cases: [unknown, unknown, unknown][] = [
       [['null', 'int', 'long'], { long: 5 }, { long: 5 }],
       [['null', 'int', 'long'], { int: 5 }, { int: 5 }],
       [['null', 'long', 'double'], { long: 7 }, { long: 7 }],
       [['null', 'long', 'double'], { double: 1.5 }, { double: 1.5 }],
-      [['null', 'long', 'string'], '123', '123'],
-      [['null', 'long', 'string'], 5, 5],
+      [['null', 'long', 'string'], '123', { string: '123' }],
+      [['null', 'long', 'string'], 5, { long: 5 }],
+      [['null', 'long', 'string'], null, null],
       [['long', 'int'], { long: 3 }, { long: 3 }],
+      [['null', 'long', 'string'], { long: '9007199254740993' }, { long: '9007199254740993' }],
     ];
     for (const [schema, input, expected] of cases) {
       expect(avroRoundTrip(avro(schema), input), J([schema, input])).toEqual(expected);
+    }
+    // A large literal (as parsed by schema-codecs) lands on the long branch exactly.
+    const t = avro(['null', 'long', 'double']);
+    expect(
+      normalizeAvroDecoded(t.fromBuffer(avroBytes(t, parseJsonExact('9007199254740993'))))
+    ).toEqual({
+      long: '9007199254740993',
+    });
+  });
+
+  it('treats enum and fixed branches referenced by name as long conflicts', () => {
+    const t = avro({
+      type: 'record',
+      name: 'R',
+      namespace: 'en',
+      fields: [
+        { name: 'e', type: { type: 'enum', name: 'E', symbols: ['A', 'B'] } },
+        { name: 'f', type: ['null', 'long', 'E'] },
+      ],
+    });
+    for (const f of [{ long: '9007199254740993' }, { long: '5' }, { 'en.E': 'B' }]) {
+      const out = avroRoundTrip(t, { e: 'A', f }) as { f: unknown };
+      expect(out.f, J(f)).toEqual(
+        'long' in f ? { long: f.long === '5' ? 5 : f.long } : { 'en.E': 'B' }
+      );
     }
   });
 
@@ -615,7 +719,11 @@ describe('Avro JSON mapping', () => {
       list: [null, 'x', 7],
       byKey: { a: 1.5, b: null },
     };
-    expect(avroRoundTrip(t, value)).toEqual(value);
+    // ['null','string','long'] is ambiguous in JSON, so it decodes wrapped.
+    expect(avroRoundTrip(t, value)).toEqual({
+      ...value,
+      list: [null, { string: 'x' }, { long: 7 }],
+    });
   });
 
   it('tells same-named records in different namespaces apart by full name', () => {
@@ -648,7 +756,9 @@ describe('createSchemaCodecs', () => {
     expect(await codecs.encode(18, J(refund), 'interop.shop.Refund')).toEqual(CONFLUENT_REFUND);
     const json = await codecs.decode(CONFLUENT_JSON);
     expect(json).toBe('{"id": 5, "at": "2024-01-01T00:00:00Z"}');
-    expect(await codecs.encode(19, json as string)).toEqual(CONFLUENT_JSON);
+    expect((await codecs.encode(19, json as string)).subarray(5).toString()).toBe(
+      '{"id":5,"at":"2024-01-01T00:00:00Z"}'
+    );
     await expect(codecs.encode(19, '{"id":"no"}')).rejects.toThrow(/must be integer/);
     await expect(codecs.encode(17, J({ ...(payment as object), kind: 'Z' }))).rejects.toThrow(
       /Avro schema at: kind/
