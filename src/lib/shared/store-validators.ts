@@ -188,6 +188,24 @@ export function validateEnvironment(env: unknown): Environment {
 }
 
 /**
+ * Zod-gate environments (e.g. from an import) before any reaches the store;
+ * throws the first validation error. Gate only: the schema strips fields it
+ * does not model (e.g. `secret`), so the caller stores its own object.
+ */
+export function assertValidEnvironments(environments: readonly unknown[] | undefined): void {
+  for (const environment of environments ?? []) validateEnvironment(environment);
+}
+
+/**
+ * Type guard over the environment schema, for gating persisted or imported
+ * environments without replacing them with the parsed copy (the schema strips
+ * fields it does not model, such as a variable's `secret` flag).
+ */
+export function isValidEnvironment(env: unknown): env is Environment {
+  return environmentSchema.safeParse(env).success;
+}
+
+/**
  * Validates a collection object
  */
 export function validateCollection(collection: unknown): Collection {
