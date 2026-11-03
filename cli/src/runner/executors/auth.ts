@@ -90,7 +90,8 @@ export interface OAuth2TokenOptions {
  * gRPC and MCP fetch tokens identically: the run's undici dispatcher (`--ca`,
  * `--insecure`, `--cert/--key`, `--proxy`), bounded by `--timeout` and the
  * caller's cancellation, with the run's token cache. A caller-supplied
- * `oauthFetch` (agent tools' DNS-pinned fetch) replaces the transport only.
+ * `oauthFetch` (agent tools' DNS-pinned fetch) replaces the transport only:
+ * the redirect refusal is applied to every transport by `resolveOAuth2Token`.
  */
 export function oauth2TokenOptions(
   opts: Pick<
@@ -111,9 +112,24 @@ export function oauth2TokenOptions(
  * The token request carries the client secret, and `validateURL` checked only
  * the URL as written: following a redirect would POST that secret to a host
  * the SSRF guard never saw (e.g. `307 → http://169.254.169.254/`). A token
- * endpoint has no reason to redirect, so a 3xx is refused (undici `request`
- * never follows one itself).
+ * endpoint has no reason to redirect, so a 3xx is refused. The one refusal for
+ * every token transport (the run's undici transport, agent tools' DNS-pinned
+ * fetch): the transport is asked not to follow, and a 3xx answer is an error.
  */
+function refusingTokenRedirects(transport: typeof globalThis.fetch): typeof globalThis.fetch {
+  return async (input, init) => {
+    const response = await transport(input, { ...init, redirect: 'manual' });
+    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(
+        `OAuth2 token endpoint answered with a redirect (${response.status}); refusing to follow it with the client credentials.`
+      );
+    }
+    return response;
+  };
+}
+
+/** The run's token transport: undici `request` (never follows a redirect) on the run dispatcher. */
 function createTokenFetch(dispatcher: Dispatcher | undefined): typeof globalThis.fetch {
   return async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -131,14 +147,8 @@ function createTokenFetch(dispatcher: Dispatcher | undefined): typeof globalThis
       ...(init?.signal ? { signal: init.signal } : {}),
       ...(dispatcher ? { dispatcher } : {}),
     });
-    if (response.statusCode >= 300 && response.statusCode < 400) {
-      await response.body.dump();
-      throw new Error(
-        `OAuth2 token endpoint answered with a redirect (${response.statusCode}); refusing to follow it with the client credentials.`
-      );
-    }
     const text = await response.body.text();
-    const nullBodyStatus = response.statusCode === 204 || response.statusCode === 205;
+    const nullBodyStatus = [204, 205, 304].includes(response.statusCode);
     const responseHeaders = new Headers();
     for (const [name, value] of Object.entries(response.headers)) {
       if (value === undefined) continue;
@@ -215,7 +225,7 @@ export async function resolveOAuth2Token(
       ...(scope !== undefined ? { scope } : {}),
     },
     {
-      fetch: opts.fetch ?? createTokenFetch(undefined),
+      fetch: refusingTokenRedirects(opts.fetch ?? createTokenFetch(undefined)),
       ...(opts.signal ? { signal: opts.signal } : {}),
     }
   );

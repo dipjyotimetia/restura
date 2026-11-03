@@ -136,7 +136,7 @@ export async function resolveCliAgentTools(
             allowLocalhost: options.allowLocalhost,
             signal: context.signal,
             fetcher: pinnedHttpSession?.fetcher,
-            oauthFetch: pinnedHttpSession?.fetch,
+            oauthFetch: pinnedHttpSession?.manualRedirectFetch,
             oauth2TokenCache,
           });
           return outcomeToContent(requestId, outcome, context.signal.aborted);

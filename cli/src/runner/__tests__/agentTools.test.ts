@@ -1,3 +1,5 @@
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import type { ToolSource } from '@shared/agent-lab';
 import type { Fetcher } from '@shared/protocol/types';
 import { describe, expect, it, vi } from 'vitest';
@@ -280,5 +282,66 @@ describe('resolveCliAgentTools unresolvable variables', () => {
     const output = await tools[0]?.execute({}, { signal: new AbortController().signal });
     expect(fetcher).not.toHaveBeenCalled();
     expect(JSON.stringify(output)).toContain('Private variable \\"token\\" is unavailable');
+  });
+});
+
+describe('resolveCliAgentTools OAuth2 token redirect', () => {
+  it('refuses a 3xx from the token endpoint on the DNS-pinned path, like the CLI token fetch', async () => {
+    const hits: string[] = [];
+    const server = createServer((req, res) => {
+      hits.push(req.url ?? '');
+      if (req.url === '/token') {
+        res.writeHead(307, { location: '/token-target' });
+        return res.end();
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"access_token":"STOLEN","token_type":"Bearer"}');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const deps = {
+        loadCollection: vi.fn().mockResolvedValue({
+          requests: [
+            {
+              relativePath: 'Orders/Get orders',
+              folderPath: ['Orders'],
+              type: 'http',
+              request: {
+                id: 'get-orders',
+                name: 'Get orders',
+                type: 'http',
+                method: 'GET',
+                url: `${base}/orders`,
+                headers: [],
+                params: [],
+                body: { type: 'none' },
+                auth: {
+                  type: 'oauth2',
+                  oauth2: { clientId: 'C', clientSecret: 'S', tokenUrl: `${base}/token` },
+                },
+              },
+            },
+          ],
+        }),
+        // The real executor and the real pinned session transport (oauthFetch).
+        executeHttp,
+      };
+      const { tools, dispose } = await resolveCliAgentTools(
+        [{ kind: 'restura-request', requestId: 'get-orders' }],
+        runtime,
+        { variables: {}, environment: {}, timeoutMs: 5_000, allowLocalhost: true },
+        deps
+      );
+      const output = await tools[0]?.execute({}, { signal: new AbortController().signal });
+      await dispose?.();
+      expect(hits).toEqual(['/token']);
+      expect(JSON.stringify(output)).toContain(
+        'OAuth2 token endpoint answered with a redirect (307); refusing to follow it with the client credentials.'
+      );
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
