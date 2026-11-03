@@ -172,10 +172,13 @@ class FakeConsumer extends EventEmitter {
   });
   close = vi.fn(async () => {});
   startLagMonitoring = vi.fn();
+  /** Overrides the assignment the next consumers start with (null = not yet applied). */
+  static initialAssignments: Array<{ topic: string; partitions: number[] }> | null | undefined;
   /** Partitions the group assigned to this member. */
-  assignments: Array<{ topic: string; partitions: number[] }> | null = [
-    { topic: 'orders', partitions: [0, 1, 2] },
-  ];
+  assignments: Array<{ topic: string; partitions: number[] }> | null =
+    FakeConsumer.initialAssignments !== undefined
+      ? FakeConsumer.initialAssignments
+      : [{ topic: 'orders', partitions: [0, 1, 2] }];
   commit = vi.fn(async (_options: { offsets: unknown[] }) => {});
   committed = new Map<string, bigint[]>([['orders', [-1n, -1n, -1n, -1n]]]);
   listCommittedOffsets = vi.fn(async (_options: unknown) => this.committed);
@@ -301,6 +304,7 @@ describe('kafka-handler', () => {
     FakeAdmin.instances.length = 0;
     FakeConsumer.instances.length = 0;
     FakeConsumer.timestampOffsets = null;
+    FakeConsumer.initialAssignments = undefined;
     setExecutionPolicy({
       security: { allowLocalhost: true, allowPrivateIPs: true },
       proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
@@ -1260,6 +1264,30 @@ describe('kafka-handler', () => {
           offsets: expect.arrayContaining([{ topic: 'orders', partition: 3, offset: 15n }]),
         })
       );
+    });
+
+    it('under the consumer protocol, the first assignment after a manual start keeps the requested offsets', async () => {
+      // KIP-848: consume() resolves before the assignment is applied, so the
+      // stream binds with no assignment and it lands on a later heartbeat.
+      FakeConsumer.initialAssignments = null;
+      const { consumer } = await live('manual-848-late', 'auto', {
+        groupProtocol: 'consumer',
+        mode: 'manual',
+        offsets: [{ topic: 'orders', partition: 0, offset: '5' }],
+      });
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1] }];
+      consumer.emit('consumer:heartbeat:end');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(consumer.consume).toHaveBeenCalledTimes(1);
+      expect(consumer.listCommittedOffsets).not.toHaveBeenCalled();
+      // A later gain still repositions.
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1, 3] }];
+      consumer.committed = new Map([['orders', [-1n, -1n, -1n, 15n]]]);
+      consumer.emit('consumer:heartbeat:end');
+      await vi.waitFor(() => expect(consumer.consume).toHaveBeenCalledTimes(2));
+      expect(consumer.listCommittedOffsets).toHaveBeenCalledWith({
+        topics: [{ topic: 'orders', partitions: [3] }],
+      });
     });
 
     it('a classic rebalance followed by its join repositions once', async () => {

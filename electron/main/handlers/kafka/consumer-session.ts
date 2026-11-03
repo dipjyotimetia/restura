@@ -118,6 +118,8 @@ export class KafkaConsumerSession {
   #assignmentGeneration = 0;
   /** Sorted `topic:partition` keys of the assignment last acted on. */
   #assignmentSignature: string | undefined;
+  /** MANUAL start bound before any assignment existed (KIP-848 timing). */
+  #awaitingBaseline = false;
   /** Bumped by every successful stream swap. */
   #streamGeneration = 0;
   /**
@@ -273,7 +275,13 @@ export class KafkaConsumerSession {
     // A MANUAL-mode subscribe keeps stale positions across rebalances, like a
     // swapped stream: what is assigned now is positioned; later gains are not.
     const assigned = assignedKeys(consumer);
-    if (this.options.manualStart) this.#positioned = assigned ?? new Set();
+    if (this.options.manualStart) {
+      // Under KIP-848 consume() can resolve before the first assignment is
+      // applied; that first assignment is then what the stream was positioned
+      // for, not a gain (see #onAssignmentEvent).
+      if (assigned) this.#positioned = assigned;
+      else this.#awaitingBaseline = true;
+    }
     this.#assignmentSignature = assigned && assignmentSignature(assigned);
     // Classic applies a new assignment before group:join (and, cooperatively,
     // before group:rebalance). The consumer protocol (KIP-848) applies it
@@ -313,6 +321,13 @@ export class KafkaConsumerSession {
     const signature = assignmentSignature(assigned);
     if (signature === this.#assignmentSignature) return;
     this.#assignmentSignature = signature;
+    if (this.#awaitingBaseline) {
+      // The manual start's own offsets apply to this first assignment.
+      this.#awaitingBaseline = false;
+      this.#positioned = assigned;
+      this.hooks.onAssignment?.(assigned);
+      return;
+    }
     this.#assignmentGeneration += 1;
     this.hooks.onAssignment?.(assigned);
     void this.runExclusive(() => this.#rebalanced()).catch((err: unknown) => {
