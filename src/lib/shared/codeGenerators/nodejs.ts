@@ -1,6 +1,5 @@
 import { isKnownHttpMethod, normalizeHttpMethod } from '@shared/protocol/http-method';
-import { unwrapSecret } from '@/lib/shared/secretRef';
-import { escapeJson, type GenerateOptions } from './types';
+import { escapeJson, type GenerateOptions, proxyCredentials } from './types';
 
 export const generateNodeJS = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams, settings } = options;
@@ -49,11 +48,11 @@ export const generateNodeJS = (options: GenerateOptions): string => {
     node += `    protocol: "${proxyConfig.type}",\n`;
     node += `    host: "${escapeJson(proxyConfig.host)}",\n`;
     node += `    port: ${proxyConfig.port},\n`;
-    const proxyPassword = proxyConfig.auth ? unwrapSecret(proxyConfig.auth.password) : '';
-    if (proxyConfig.auth?.username && proxyPassword) {
+    const creds = proxyCredentials(proxyConfig);
+    if (creds) {
       node += `    auth: {\n`;
-      node += `      username: "${escapeJson(proxyConfig.auth.username)}",\n`;
-      node += `      password: "${escapeJson(proxyPassword)}",\n`;
+      node += `      username: "${escapeJson(creds.username)}",\n`;
+      node += `      password: "${escapeJson(creds.password)}",\n`;
       node += `    },\n`;
     }
     node += `  },\n`;

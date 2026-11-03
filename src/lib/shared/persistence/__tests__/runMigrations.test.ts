@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { runMigrations } from '../runMigrations';
-import type { MigrationDescriptor } from '../types';
+import type { MigrationDescriptor, MigrationStep } from '../types';
 
 const exampleDescriptor: MigrationDescriptor<{ count: number; label: string }> = {
   store: 'settings',
@@ -34,6 +34,16 @@ const exampleDescriptor: MigrationDescriptor<{ count: number; label: string }> =
   ],
   schema: z.object({ count: z.number(), label: z.string() }),
 };
+
+/** Identity step that records the version it ran from. */
+const trackedStep = (ran: number[], name: string, fromVersion: number): MigrationStep => ({
+  name,
+  fromVersion,
+  apply: (state) => {
+    ran.push(fromVersion);
+    return { state };
+  },
+});
 
 describe('runMigrations', () => {
   it('returns noop for empty persisted state', () => {
@@ -118,6 +128,56 @@ describe('runMigrations', () => {
     expect(result.kind).toBe('quarantined');
     if (result.kind !== 'quarantined') throw new Error('unreachable');
     expect(result.reason).toMatch(/migration graph gap/);
+  });
+
+  it('quarantines on a middle gap without running the later step on stale data', () => {
+    const ran: number[] = [];
+    const gapped: MigrationDescriptor<{ count: number; label: string }> = {
+      ...exampleDescriptor,
+      schema: undefined,
+      version: 4,
+      // No 2 → 3 step.
+      steps: [trackedStep(ran, 'one-to-two', 1), trackedStep(ran, 'three-to-four', 3)],
+    };
+    const result = runMigrations(gapped, { count: 1, label: 'x' }, 1);
+    expect(result.kind).toBe('quarantined');
+    if (result.kind !== 'quarantined') throw new Error('unreachable');
+    expect(result.reason).toMatch(/migration graph gap: no step from v2/);
+    expect(ran).toEqual([1]);
+  });
+
+  it('quarantines on a leading gap (first applicable step is ahead of the data)', () => {
+    const ran: number[] = [];
+    const gapped: MigrationDescriptor<{ count: number; label: string }> = {
+      ...exampleDescriptor,
+      schema: undefined,
+      version: 3,
+      steps: [trackedStep(ran, 'two-to-three', 2)],
+    };
+    const result = runMigrations(gapped, { count: 1, label: 'x' }, 1);
+    expect(result.kind).toBe('quarantined');
+    if (result.kind !== 'quarantined') throw new Error('unreachable');
+    expect(result.reason).toMatch(/migration graph gap: no step from v1/);
+    expect(ran).toEqual([]);
+  });
+
+  it('adopts a pre-framework v0 blob as v1 when no v0 step exists, but not past a later gap', () => {
+    const ran: number[] = [];
+    const fromOne: MigrationDescriptor<{ count: number; label: string }> = {
+      ...exampleDescriptor,
+      schema: undefined,
+      version: 2,
+      steps: [trackedStep(ran, 'one-to-two', 1)],
+    };
+    expect(runMigrations(fromOne, { count: 1, label: 'x' }, 0).kind).toBe('ok');
+    expect(ran).toEqual([1]);
+
+    const gapAfterV1: MigrationDescriptor<{ count: number; label: string }> = {
+      ...fromOne,
+      version: 3,
+      steps: [trackedStep(ran, 'two-to-three', 2)],
+    };
+    expect(runMigrations(gapAfterV1, { count: 1, label: 'x' }, 0).kind).toBe('quarantined');
   });
 
   it('passes lossy events through', () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decryptValue, encryptValue, generateLocalEncryptionKey, isEncrypted } from '../encryption';
 
 describe('Encryption Utilities', () => {
@@ -129,6 +129,30 @@ describe('Encryption Utilities', () => {
       expect(key1).toMatch(/^[a-f0-9]{64}$/);
       expect(key2).toMatch(/^[a-f0-9]{64}$/);
       expect(key1).not.toBe(key2);
+    });
+  });
+
+  describe('without Web Crypto (fail closed)', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('encryptValue throws instead of returning plaintext', async () => {
+      vi.stubGlobal('crypto', undefined);
+      await expect(encryptValue('secret', testPassword)).rejects.toThrow(/Web Crypto/);
+    });
+
+    it('decryptValue throws on ciphertext instead of returning it as the value', async () => {
+      const encrypted = await encryptValue('secret', testPassword);
+      vi.stubGlobal('crypto', undefined);
+      await expect(decryptValue(encrypted, testPassword)).rejects.toThrow(/Web Crypto/);
+      // Non-encrypted legacy values still pass through untouched.
+      await expect(decryptValue('plain', testPassword)).resolves.toBe('plain');
+    });
+
+    it('generateLocalEncryptionKey throws instead of falling back to Math.random', () => {
+      vi.stubGlobal('crypto', undefined);
+      expect(() => generateLocalEncryptionKey()).toThrow(/Web Crypto/);
     });
   });
 

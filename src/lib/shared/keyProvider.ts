@@ -15,6 +15,11 @@ export interface KeyProvider {
    * web default. See `docs/security.md` for policy.
    */
   isEncrypted(): boolean;
+  /**
+   * Drop any in-memory key (and in-flight load) so the next getKey() re-reads
+   * the backing store. Called after the backing store is wiped.
+   */
+  resetCache?(): void;
 }
 
 /**
@@ -144,28 +149,62 @@ export interface SecureKeyIpc {
 export class ElectronSafeStorageKeyProvider implements KeyProvider {
   readonly isHardwareBacked = true;
   readonly label = 'OS keychain (secure storage)';
+  private readonly ipc: SecureKeyIpc;
+  private readonly storeKey = 'restura-encryption-key';
   private cached: string | null = null;
-  private storeKey = 'restura-encryption-key';
+  /**
+   * The in-flight load, memoised so concurrent first callers share ONE
+   * has/get/set round-trip. Without it two stores writing in the same tick on
+   * a fresh install each generate a key; the last set wins and the other
+   * store's rows become undecryptable on the next launch.
+   */
+  private loading: Promise<string> | null = null;
 
-  constructor(private ipc: SecureKeyIpc) {}
+  constructor(ipc: SecureKeyIpc) {
+    this.ipc = ipc;
+  }
 
   isEncrypted(): boolean {
     return true;
   }
 
-  async getKey(): Promise<string> {
-    if (this.cached !== null) return this.cached;
-    const exists = await this.ipc.has(this.storeKey);
-    if (exists) {
-      const v = await this.ipc.get(this.storeKey);
-      if (v) {
-        this.cached = v;
-        return v;
-      }
+  resetCache(): void {
+    this.cached = null;
+    this.loading = null;
+  }
+
+  getKey(): Promise<string> {
+    if (this.cached !== null) return Promise.resolve(this.cached);
+    if (this.loading === null) {
+      const attempt: Promise<string> = this.load().then(
+        (key) => {
+          // Publish only if no resetCache() happened while loading.
+          if (this.loading === attempt) this.cached = key;
+          return key;
+        },
+        (error: unknown) => {
+          if (this.loading === attempt) this.loading = null;
+          throw error;
+        }
+      );
+      this.loading = attempt;
+    }
+    return this.loading;
+  }
+
+  private async load(): Promise<string> {
+    if (await this.ipc.has(this.storeKey)) {
+      const existing = await this.ipc.get(this.storeKey);
+      if (existing) return existing;
+      // The key exists but could not be read (main's store.get swallows
+      // errors). Regenerating would overwrite the real key and orphan every
+      // encrypted row, so fail closed instead.
+      throw new Error(
+        'The stored encryption key exists but could not be read; refusing to replace it.'
+      );
     }
     const fresh = generateLocalEncryptionKey();
     await this.ipc.set(this.storeKey, fresh);
-    this.cached = fresh;
     return fresh;
   }
 }
@@ -214,6 +253,15 @@ export function getKeyProvider(): KeyProvider {
 
 export function setKeyProvider(provider: KeyProvider): void {
   activeProvider = provider;
+}
+
+/**
+ * Drop the active provider's in-memory key so the next getKey() re-reads the
+ * backing store. Call after wiping that store (see clearDexieStorage) so
+ * writes before the reload are not encrypted with a deleted key.
+ */
+export function resetKeyProviderCache(): void {
+  activeProvider?.resetCache?.();
 }
 
 /** Test-only: clear the cached provider so the next getKeyProvider() re-resolves. */

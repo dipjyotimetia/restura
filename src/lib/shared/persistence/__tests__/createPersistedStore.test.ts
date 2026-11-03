@@ -75,6 +75,39 @@ describe('createPersistedStore', () => {
     expect(quarantined.length).toBeGreaterThan(0);
   });
 
+  it('merge quarantines a same-version row the schema rejects (migrate is skipped by zustand)', async () => {
+    const opts = createPersistedStore<DemoState>({
+      store: 'globals',
+      persistName: 'demo',
+      version: 1,
+      steps: [],
+      schema: z.object({ value: z.number() }),
+    });
+    const current: DemoState = { value: 1 };
+    expect(opts.merge?.({ value: 'not-a-number' }, current)).toEqual(current);
+    await vi.waitFor(async () => {
+      const quarantined = await db.metadata
+        .filter((m) => m.key.startsWith('quarantine:globals:demo:'))
+        .toArray();
+      expect(quarantined).toHaveLength(1);
+    });
+  });
+
+  it('merge overlays a valid persisted row onto current state', () => {
+    const opts = createPersistedStore<DemoState & { extra?: string }>({
+      store: 'globals',
+      persistName: 'demo',
+      version: 1,
+      steps: [],
+      schema: z.object({ value: z.number() }),
+    });
+    expect(opts.merge?.({ value: 9 }, { value: 1, extra: 'kept' })).toEqual({
+      value: 9,
+      extra: 'kept',
+    });
+    expect(opts.merge?.(undefined, { value: 1 })).toEqual({ value: 1 });
+  });
+
   it('onRehydrate runs on the happy path with the state', () => {
     const onRehydrate = vi.fn();
     const opts = createPersistedStore<DemoState>({

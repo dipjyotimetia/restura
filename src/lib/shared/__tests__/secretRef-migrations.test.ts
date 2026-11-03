@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { AuthConfig } from '@/types';
 import { migrateAuthConfigToSecretRef } from '../secretRef-migrations';
 
 describe('migrateAuthConfigToSecretRef', () => {
@@ -6,6 +7,61 @@ describe('migrateAuthConfigToSecretRef', () => {
     expect(migrateAuthConfigToSecretRef(undefined)).toBeUndefined();
     expect(migrateAuthConfigToSecretRef(null)).toBeUndefined();
     expect(migrateAuthConfigToSecretRef('not an object')).toBeUndefined();
+  });
+
+  it('round-trips every AuthConfig field (incl. oauth2.issuer) and stays idempotent', () => {
+    const s = (value: string) => ({ kind: 'inline' as const, value });
+    const full: AuthConfig = {
+      type: 'oauth2',
+      basic: { username: 'bu', password: s('bp') },
+      bearer: { token: s('bt') },
+      apiKey: { key: 'X-Key', value: s('kv'), in: 'query' },
+      oauth2: {
+        accessToken: s('at'),
+        tokenType: 'Bearer',
+        refreshToken: s('rt'),
+        expiresAt: 123,
+        scopes: ['a', 'b'],
+        grantType: 'client_credentials',
+        clientId: 'cid',
+        clientSecret: s('cs'),
+        authorizationUrl: 'https://as.example/authorize',
+        tokenUrl: 'https://as.example/token',
+        deviceAuthorizationUrl: 'https://as.example/device',
+        scope: 'a b',
+        redirectUri: 'https://app.example/cb',
+        issuer: 'https://as.example',
+        username: 'ou',
+        password: s('op'),
+      },
+      digest: { username: 'du', password: s('dp') },
+      awsSignature: { accessKey: 'AKIA', secretKey: s('sk'), region: 'eu-west-1', service: 's3' },
+      oauth1: {
+        consumerKey: 'ck',
+        consumerSecret: s('cs1'),
+        accessToken: s('at1'),
+        accessTokenSecret: s('ats1'),
+        signatureMethod: 'HMAC-SHA256',
+        realm: 'r',
+        nonce: 'n',
+        timestamp: '1',
+        addParamsToBody: true,
+      },
+      ntlm: { username: 'nu', password: s('np'), domain: 'D', workstation: 'W' },
+      wsse: { username: 'wu', password: s('wp'), passwordType: 'PasswordText' },
+    };
+    const once = migrateAuthConfigToSecretRef(full);
+    expect(once).toEqual(full);
+    expect(migrateAuthConfigToSecretRef(once)).toEqual(full);
+  });
+
+  it('keeps oauth2.issuer when wrapping plaintext secrets', () => {
+    const out = migrateAuthConfigToSecretRef({
+      type: 'oauth2',
+      oauth2: { accessToken: '', clientSecret: 'shh', issuer: 'https://as.example' },
+    });
+    expect(out?.oauth2?.issuer).toBe('https://as.example');
+    expect(out?.oauth2?.clientSecret).toEqual({ kind: 'inline', value: 'shh' });
   });
 
   it('preserves type and non-sensitive metadata', () => {

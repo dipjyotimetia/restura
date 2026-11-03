@@ -53,7 +53,8 @@ export function parseCurlCommand(source: string): {
 
   const take = (index: number, option: string, allowLeadingDash = false): string => {
     const value = tokens[index + 1];
-    if (!value || (!allowLeadingDash && value.startsWith('-')))
+    // An empty quoted argument (`-d ''`) is a real, empty value.
+    if (value === undefined || (!allowLeadingDash && value.startsWith('-')))
       throw new Error(`cURL option ${option} requires a value.`);
     return value;
   };
@@ -245,16 +246,64 @@ export function parseCurlCommand(source: string): {
   };
 }
 
+const ANSI_C_SIMPLE_ESCAPES: Readonly<Record<string, string>> = {
+  n: '\n',
+  t: '\t',
+  r: '\r',
+  '\\': '\\',
+  "'": "'",
+  '"': '"',
+};
+
+/**
+ * Decode one bash ANSI-C (`$'…'`) escape whose backslash sits at `start`.
+ * Returns the decoded text and the index of the escape's last character.
+ * Unknown escapes are kept verbatim (backslash included), as bash does.
+ */
+function decodeAnsiCEscape(source: string, start: number): { text: string; end: number } {
+  const kind = source[start + 1] ?? '';
+  const simple = ANSI_C_SIMPLE_ESCAPES[kind];
+  if (simple !== undefined) return { text: simple, end: start + 1 };
+  const width = kind === 'x' ? 2 : kind === 'u' ? 4 : 0;
+  if (width > 0) {
+    const digits = /^[0-9a-fA-F]+/.exec(source.slice(start + 2, start + 2 + width))?.[0];
+    if (digits) {
+      return {
+        text: String.fromCodePoint(Number.parseInt(digits, 16)),
+        end: start + 1 + digits.length,
+      };
+    }
+  }
+  return { text: `\\${kind}`, end: start + 1 };
+}
+
 function lexPosix(source: string): string[] {
   const tokens: string[] = [];
   let current = '';
-  let quote: "'" | '"' | undefined;
+  // `ansi` is bash's `$'…'` quoting (Chrome DevTools "Copy as cURL" emits it).
+  let quote: "'" | '"' | 'ansi' | undefined;
+  // A quoted-but-empty word (`-d ''`) is still an argument; without this flag
+  // it would vanish and the next word (the URL) would become the option value.
+  let quoted = false;
   const push = () => {
-    if (current) tokens.push(current);
+    if (current || quoted) tokens.push(current);
     current = '';
+    quoted = false;
   };
   for (let i = 0; i < source.length; i++) {
     const char = source[i]!;
+    if (quote === 'ansi') {
+      if (char === "'") {
+        quote = undefined;
+      } else if (char === '\\' && i + 1 < source.length) {
+        const escape = decodeAnsiCEscape(source, i);
+        current += escape.text;
+        i = escape.end;
+      } else {
+        current += char;
+      }
+      continue;
+    }
     if (quote) {
       if (char === quote) {
         quote = undefined;
@@ -264,8 +313,15 @@ function lexPosix(source: string): string[] {
       else current += char;
       continue;
     }
+    if (char === '$' && source[i + 1] === "'") {
+      quote = 'ansi';
+      quoted = true;
+      i++;
+      continue;
+    }
     if (char === "'" || char === '"') {
       quote = char;
+      quoted = true;
       continue;
     }
     if (char === '`')
