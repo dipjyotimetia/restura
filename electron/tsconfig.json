@@ -13,10 +13,9 @@
     "outDir": "../dist/electron",
     "rootDir": "..",
     "moduleResolution": "nodenext",
-    "declaration": true,
-    "declarationMap": true,
+    "declaration": false,
+    "declarationMap": false,
     "sourceMap": true,
-    "allowSyntheticDefaultImports": true,
     "types": ["node", "vitest/globals"],
     "paths": {
       "@shared/*": ["../shared/*"]

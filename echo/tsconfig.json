@@ -7,7 +7,6 @@
     "lib": ["ESNext"],
     "types": ["@cloudflare/workers-types"],
     "noEmit": true,
-    "isolatedModules": true,
     "exactOptionalPropertyTypes": false,
     "paths": {
       "@shared/*": ["../shared/*"]

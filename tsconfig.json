@@ -2,22 +2,19 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": ["dom", "esnext"],
     "allowJs": false,
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "module": "esnext",
     "moduleResolution": "bundler",
-    "isolatedModules": true,
     "jsx": "react-jsx",
-    "incremental": true,
     "types": ["vite/client", "node"],
     "paths": {
       "@/*": ["./src/*"],
       "@shared/*": ["./shared/*"]
     },
     "allowUnusedLabels": false,
-    "allowUnreachableCode": false,
     "exactOptionalPropertyTypes": false
   },
   "include": ["**/*.ts", "**/*.tsx", "vite.config.mts", "electron/types/**/*.ts", "shared/**/*.ts"],

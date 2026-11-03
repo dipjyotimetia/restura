@@ -15,7 +15,8 @@
     "dist/electron/**/*",
     "electron/resources/**/*",
     "package.json",
-    "!**/*.map"
+    "!**/*.map",
+    "!**/*.d.ts"
   ],
   "extraMetadata": {
     "main": "dist/electron/electron/main/main.js"
