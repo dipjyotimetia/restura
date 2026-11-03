@@ -248,10 +248,21 @@ function getGroup(
   return group;
 }
 
+/**
+ * Headers the transport owns rather than the request author. HTTP/2 and
+ * HTTP/3 captures list pseudo-headers (`:authority`, `:method`, `:path`,
+ * `:scheme`) as ordinary headers — `fetch` rejects them as invalid names —
+ * and a recorded `content-length` goes stale the moment the body is edited.
+ */
+function isTransportManagedHeader(name: string): boolean {
+  return name.startsWith(':') || name.toLowerCase() === 'content-length';
+}
+
 function toHeaders(raw: unknown, requestName: string, warnings: ImportWarning[]): KeyValue[] {
   if (!Array.isArray(raw)) return [];
   if (raw.length > MAX_HEADERS) throw new Error(`${requestName} exceeds ${MAX_HEADERS} headers`);
-  return raw.flatMap((entry) => {
+  const transportManaged: string[] = [];
+  const headers = raw.flatMap((entry) => {
     if (!isRecord(entry) || typeof entry.name !== 'string' || typeof entry.value !== 'string') {
       warnings.push({ kind: 'har-field-discarded', requestName, field: 'malformed header' });
       return [];
@@ -259,8 +270,20 @@ function toHeaders(raw: unknown, requestName: string, warnings: ImportWarning[])
     if (entry.name.length > 1024 || entry.value.length > 64 * 1024) {
       throw new Error(`${requestName} contains an oversized header`);
     }
+    if (isTransportManagedHeader(entry.name)) {
+      transportManaged.push(entry.name);
+      return [];
+    }
     return [{ id: uuid(), key: entry.name, value: entry.value, enabled: true }];
   });
+  if (transportManaged.length > 0) {
+    warnings.push({
+      kind: 'har-field-discarded',
+      requestName,
+      field: `transport-managed headers (${transportManaged.join(', ')})`,
+    });
+  }
+  return headers;
 }
 
 function toCapturedBody(raw: unknown, requestName: string, warnings: ImportWarning[]) {

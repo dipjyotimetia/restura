@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
-import type { AuthConfig, HttpRequest } from '@/types';
+import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
+import { handleSecret } from '@/lib/shared/secretRef';
+import type { AuthConfig, Collection, HttpRequest } from '@/types';
 import { runLoadTest } from '../loadTestRunner';
 
 // The runner reuses the real send path + several stores. We only care about its
@@ -27,9 +29,31 @@ vi.mock('@/store/useConsoleStore', () => ({
 vi.mock('@/features/auth/lib/resolveInheritedAuthFor', () => ({
   resolveInheritedAuthForSend: vi.fn(() => undefined),
 }));
+// Variable scopes an interactive send resolves (env chain, globals, collection,
+// folders, SecretRef handles) — controllable per test.
+vi.mock('@/lib/shared/activeRequestScopes', () => ({
+  buildActiveRequestVariableResolution: vi.fn(() => ({
+    values: {},
+    secretVariables: {},
+    secretNames: [],
+    sendSecretNames: [],
+  })),
+}));
+const { activeCollection } = vi.hoisted(() => ({
+  activeCollection: { current: undefined as Collection | undefined },
+}));
+vi.mock('@/store/useRequestStore', () => ({
+  useRequestStore: { getState: () => ({ getActiveTab: () => ({ savedRequestId: 'saved-1' }) }) },
+}));
+vi.mock('@/store/useCollectionStore', () => ({
+  useCollectionStore: {
+    getState: () => ({ getCollectionByItemId: () => activeCollection.current }),
+  },
+}));
 
 const mockExec = vi.mocked(executeRequest);
 const mockInherit = vi.mocked(resolveInheritedAuthForSend);
+const mockResolution = vi.mocked(buildActiveRequestVariableResolution);
 
 function req(): HttpRequest {
   return {
@@ -199,6 +223,71 @@ describe('runLoadTest', () => {
     );
 
     expect(mockExec.mock.calls[0]?.[0].request.auth).toEqual(ownBearer);
+  });
+
+  it('passes the abort signal so Stop cancels in-flight requests (L1)', async () => {
+    const controller = new AbortController();
+    let started = () => {};
+    const inFlight = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    mockExec.mockImplementation(
+      ({ signal }) =>
+        new Promise((resolve, reject) => {
+          started();
+          // A real transport rejects with AbortError once its signal fires.
+          // Without the signal the request would only settle at its timeout.
+          const timer = setTimeout(() => resolve(ok()), 60_000);
+          signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(new DOMException('aborted', 'AbortError'));
+          });
+        })
+    );
+
+    const run = runLoadTest(req(), { iterations: 3, concurrency: 1 }, vi.fn(), controller.signal);
+    await inFlight;
+    controller.abort();
+    const final = await run;
+
+    expect(mockExec).toHaveBeenCalledTimes(1);
+    expect(mockExec.mock.calls[0]?.[0].signal).toBe(controller.signal);
+    expect(final.done).toBe(true);
+    // The cancelled request is not counted as a failure.
+    expect(final.samples).toEqual([]);
+  });
+
+  it('resolves variables exactly like an interactive send (L2)', async () => {
+    const secretRef = handleSecret('handle-1');
+    mockResolution.mockReturnValue({
+      values: { baseUrl: 'https://col.test', folderVar: 'f' },
+      secretVariables: { apiKey: secretRef },
+      secretNames: [],
+      sendSecretNames: ['apiKey', 'token'],
+    });
+    activeCollection.current = {
+      id: 'c1',
+      name: 'C',
+      items: [],
+      variables: [{ id: 'v1', key: 'colVar', value: 'cv', enabled: true }],
+    };
+
+    await runLoadTest(
+      req(),
+      { iterations: 2, concurrency: 1 },
+      vi.fn(),
+      new AbortController().signal
+    );
+
+    expect(mockExec).toHaveBeenCalledTimes(2);
+    const [first, second] = mockExec.mock.calls.map((call) => call[0]);
+    expect(first?.envVars).toEqual({ baseUrl: 'https://col.test', folderVar: 'f' });
+    expect(first?.secretVariables).toEqual({ apiKey: secretRef });
+    expect(first?.secretNames).toEqual(['apiKey', 'token']);
+    expect(first?.collectionVars).toEqual({ colVar: 'cv' });
+    // The executor mutates envVars with pre-request writes: never share one map.
+    expect(first?.envVars).not.toBe(second?.envVars);
+    activeCollection.current = undefined;
   });
 
   it('pushes exactly one aggregate summary to the console', async () => {

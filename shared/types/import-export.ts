@@ -106,6 +106,9 @@ export interface OpenAPIDocument {
   components?: OpenAPIComponents;
   definitions?: Record<string, OpenAPISchema>; // Swagger 2.0
   securityDefinitions?: Record<string, OpenAPISecurityScheme>; // Swagger 2.0
+  consumes?: string[]; // Swagger 2.0 — default request media types
+  /** Root security requirement; operations inherit it unless they set their own. */
+  security?: Array<Record<string, string[]>>;
   tags?: OpenAPITag[];
 }
 
@@ -153,6 +156,7 @@ export interface OpenAPIOperation {
   requestBody?: OpenAPIRequestBody;
   responses?: Record<string, OpenAPIResponse>;
   security?: Array<Record<string, string[]>>;
+  consumes?: string[]; // Swagger 2.0 — overrides the document's `consumes`
   deprecated?: boolean;
 }
 

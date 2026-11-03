@@ -28,6 +28,20 @@ describe('detectImportFormat', () => {
     expect(() => detectImportFormat(JSON.stringify({ hello: 1 }), 'x.json')).toThrow(
       /not a supported/
     );
+    expect(() => detectImportFormat(JSON.stringify([]), 'x.json')).toThrow(/not a supported/);
+    expect(() => detectImportFormat(JSON.stringify([{ hello: 1 }]), 'x.json')).toThrow(
+      /not a supported/
+    );
+  });
+
+  it('detects a Hoppscotch "export all collections" array (I6)', () => {
+    const exportAll = [
+      { v: 2, name: 'Petstore', folders: [], requests: [], auth: { authType: 'inherit' } },
+      { v: 2, name: 'Billing', folders: [], requests: [] },
+    ];
+    expect(detectImportFormat(JSON.stringify(exportAll), 'hoppscotch-collections.json')).toBe(
+      'hoppscotch'
+    );
   });
 });
 
