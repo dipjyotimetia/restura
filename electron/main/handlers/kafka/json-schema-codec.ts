@@ -125,7 +125,14 @@ export function buildJsonSchemaCodec(
         for (const key of keys) ajv.addSchema({ $ref: own }, key);
       } else {
         for (const key of keys) {
-          ajv.addSchema(structuredClone(refSchema) as Record<string, unknown>, key);
+          // A relative root id only restates where the schema lives (its
+          // registry name); copies registered under each name must not all
+          // claim it, or Ajv refuses the duplicate.
+          const copy = structuredClone(refSchema) as Record<string, unknown>;
+          if (typeof copy.$id === 'string') delete copy.$id;
+          if (typeof copy.id === 'string' && (dialectOf(copy) || dialect).includes('draft-04'))
+            delete copy.id;
+          ajv.addSchema(copy, key);
         }
       }
       for (const key of keys) registeredKeys.add(key);

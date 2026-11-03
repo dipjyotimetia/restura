@@ -490,6 +490,9 @@ describe('buildJsonSchemaCodec', () => {
       [{ properties: { o: { $ref: '/other.json' } } }, ref(strict)],
       // A draft-07 reference with a stray root `id` (not an identifier there).
       [{ properties: { o: { $ref: 'other.json' } } }, ref({ ...strict, id: 'https://ex.com/x' })],
+      // Confluent-style: the reference declares its own name as a relative $id.
+      [{ properties: { o: { $ref: 'other.json' } } }, ref({ ...strict, $id: 'other.json' })],
+      [{ properties: { o: { $ref: '/other.json' } } }, ref({ ...strict, $id: 'other.json' })],
     ];
     for (const [main, refs] of cases) {
       const codec = buildJsonSchemaCodec(J(main), refs);
