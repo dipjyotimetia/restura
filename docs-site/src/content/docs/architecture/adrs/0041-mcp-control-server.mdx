@@ -30,7 +30,14 @@ The goal now is broader: let an agent (Claude Code, Claude Desktop, Codex, Curso
 
 **Consent, extended.** Collections get `hidden / read-only / edit / full`; `full` adds sending. Environments get `hidden / read-only / edit`, plus a separate per-environment "agents may send with this environment" flag with no default level. History stays `hidden / read-only`. Everything defaults to hidden and the server defaults to off. Creating a collection or environment needs an existing edit grant, and the new item gets an `edit` grant for itself only.
 
-**Approval.** Reads never ask. Edits ask unless the user picks "auto-approve edits". Deletes and sends always ask, and there is no mode that changes that. Closing the dialog denies, and Deny is the focused button. After approval the runtime re-reads settings and consent and prepares the call again, so revoking access while a card is open wins. Every edit, delete and send is logged with the client name, and reversible changes get Undo.
+**Approval.** Reads never ask. Edits ask unless the user picks "auto-approve edits". Deletes and sends always ask, and there is no mode that changes that.
+
+- **Scripts always ask.** Any edit or import that adds or changes a pre-request or test script asks in every mode, and the card shows the full code. Agent scripts are capped at 20,000 characters so the card can always show them whole. A script runs with full script powers (variables, vault, cookies, network) on every later send, so the user approves the code itself.
+- **Approval is bound to what runs.** Every prepared call carries a fingerprint of the state it depends on: the target collection or environment, and for sends also the environment chain and globals. After approval the runtime re-reads settings and consent, prepares again and compares fingerprints. If anything changed while the card was open, including a change made by a concurrent agent call, the call is refused rather than run.
+- **The cards show what will happen.** Update cards show the new values, and send cards show the resolved URL and the scripts that will run.
+- **The dialog resists mistakes.** Closing it denies, and Deny is the focused button. Approve is disabled briefly whenever a new card comes to the front.
+
+Every edit, delete and send is logged with the client name, and reversible changes get Undo.
 
 **Secrets.**
 
@@ -47,7 +54,7 @@ The goal now is broader: let an agent (Claude Code, Claude Desktop, Codex, Curso
 - It refuses any request with an `Origin`, `Sec-Fetch-Site` or `Sec-Fetch-Dest` header, which blocks browser CSRF. Node's `fetch` sends only `Sec-Fetch-Mode`, which is allowed.
 - It refuses non-loopback `Host` headers, which blocks DNS rebinding.
 - It rate-limits requests and bounds request read time.
-- The token and port persist across restarts so configured clients keep working. Rotating the token is an explicit action.
+- A fresh token is minted on every start, so a token captured by another local user squatting the port while Restura is closed is useless. A handshake left `running` by a crash is marked stopped when the app starts, and the shim treats a PID it cannot signal (another user's process) as not running. The port is reused when free, and the shim re-reads the handshake on every call.
 
 ## Consequences
 
@@ -64,6 +71,8 @@ The goal now is broader: let an agent (Claude Code, Claude Desktop, Codex, Curso
 - Response bodies are a residual leak path. Redaction is pattern-based, so a credential in an unusual field name can still reach the agent. The approval card and the per-environment send flag are the primary controls, and redaction is defence in depth.
 - Response bodies, headers and saved docs are untrusted input to the agent (prompt injection). They are labelled `untrustedContent`, and the approval gates are the real control.
 - Saved scripts are returned verbatim, so a secret hard-coded in a script is visible to an agent with read access.
+- An approved agent script runs with the same powers as the user's own scripts. The controls are that the user reads the full script before approving, and that every send also needs approval.
+- HTTP-transport clients must update their token after every restart. The stdio shim is the recommended setup.
 
 ## References
 

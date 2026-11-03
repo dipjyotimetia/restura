@@ -23,8 +23,9 @@ import { flattenRunnables } from '@/features/collections/lib/flattenRunnables';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { Response as ApiResponse, Collection, Environment } from '@/types';
-import { locateItem } from '../tree';
+import { ancestorFolders, locateItem } from '../tree';
 import { refuse, SETTINGS_HINT, type ToolEnv, type ToolImpl, type ToolRefusal } from './types';
 
 /** Default response body characters returned to the agent. */
@@ -61,7 +62,53 @@ function sendEnvironment(
   if (environment.collectionId !== undefined && environment.collectionId !== collection.id) {
     return refuse('That environment belongs to a different collection.');
   }
+  // A sub-environment inherits its parent's variables (and credentials), so
+  // the parent must be opted in for sending too.
+  if (
+    environment.parentId !== undefined &&
+    !canExecuteWithEnvironment(env.settings.consent, environment.parentId)
+  ) {
+    return refuse(
+      `This environment inherits from a parent environment that agents may not send with. ${SETTINGS_HINT}`
+    );
+  }
   return environment;
+}
+
+/**
+ * Everything a send depends on: the collection (requests, folder auth and
+ * scripts, collection vars), the environment chain and the globals. An
+ * approval is only valid while this is unchanged.
+ */
+function sendFingerprint(collection: Collection, environment: Environment | null): string {
+  const environments = useEnvironmentStore.getState().environments;
+  const parent = environment?.parentId
+    ? environments.find((e) => e.id === environment.parentId)
+    : undefined;
+  return JSON.stringify([collection, environment, parent, useGlobalsStore.getState().vars]);
+}
+
+/** `{{name}}` substituted from the run's variables, for the approval card only. */
+function resolvedForDisplay(text: string, vars: Record<string, string>): string {
+  return text.replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, (match, name: string) => vars[name] ?? match);
+}
+
+/** Card lines naming every script that will run for one request. */
+function scriptsForRequest(collection: Collection, itemId: string): string[] {
+  const named: string[] = [];
+  const add = (
+    label: string,
+    node: { preRequestScript?: string; testScript?: string } | undefined
+  ) => {
+    if (node?.preRequestScript?.trim()) named.push(`${label} pre-request`);
+    if (node?.testScript?.trim()) named.push(`${label} test`);
+  };
+  add('collection', collection);
+  for (const folder of ancestorFolders(collection.items, itemId) ?? [])
+    add(`folder “${folder.name}”`, folder);
+  const item = locateItem([collection], itemId)?.item;
+  add('request', item?.request as { preRequestScript?: string; testScript?: string } | undefined);
+  return named;
 }
 
 function rootsOf(collection: Collection) {
@@ -185,16 +232,24 @@ const sendRequest: ToolImpl<ControlToolInput<'send_request'>> = (input, env) => 
   const environment = sendEnvironment(input.environmentId, collection, env);
   if (environment && 'refused' in environment) return environment;
   const req = located.item.request;
-  const line =
-    req.type === 'http' ? `${req.method} ${req.url}` : `${req.type} ${'url' in req ? req.url : ''}`;
+  const url = 'url' in req && typeof req.url === 'string' ? req.url : '';
+  const verb = req.type === 'http' ? req.method : req.type;
+  const resolved = resolvedForDisplay(
+    url,
+    resolveRunVariables(environment?.id ?? 'none', collection).baseVars
+  );
+  const scripts = scriptsForRequest(collection, located.item.id);
 
   return {
     title: `Send “${located.item.name}”`,
     details: [
-      line,
+      `${verb} ${url}`,
+      ...(resolved !== url ? [`Resolves to: ${verb} ${resolved}`] : []),
       `Collection “${collection.name}”`,
       environment ? `Environment “${environment.name}”` : 'No environment',
+      scripts.length > 0 ? `Runs scripts: ${scripts.join(', ')}` : 'No scripts',
     ],
+    fingerprint: sendFingerprint(collection, environment),
     run: async () => {
       let captured: RequestCompleteInfo | undefined;
       const run = await runScope({
@@ -245,7 +300,7 @@ const runCollectionTool: ToolImpl<ControlToolInput<'run_collection'>> = (input, 
   if ('refused' in collection) return collection;
   if (input.folderId !== undefined) {
     const folder = locateItem([collection], input.folderId);
-    if (!folder || folder.item.type !== 'folder') {
+    if (folder?.item.type !== 'folder') {
       return refuse(`Folder not found in this collection: ${input.folderId}`);
     }
   }
@@ -261,10 +316,17 @@ const runCollectionTool: ToolImpl<ControlToolInput<'run_collection'>> = (input, 
   const iterations = input.iterations ?? 1;
   return {
     title: `Run ${input.folderId ? 'folder' : 'collection'} in “${collection.name}”`,
+    fingerprint: sendFingerprint(collection, environment),
     details: [
       `${runnables.length} request(s) × ${iterations} iteration(s)`,
       environment ? `Environment “${environment.name}”` : 'No environment',
       input.stopOnFailure ? 'Stops at the first failure' : 'Runs every request',
+      (() => {
+        const scripted = runnables.filter(
+          (r) => scriptsForRequest(collection, r.itemId).length > 0
+        ).length;
+        return scripted > 0 ? `${scripted} request(s) run scripts` : 'No scripts';
+      })(),
     ],
     run: async () => {
       const run = await runScope({

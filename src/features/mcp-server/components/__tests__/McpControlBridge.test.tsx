@@ -126,6 +126,9 @@ describe('McpApprovalDialog', () => {
     expect(await screen.findByText('Delete request “x”')).toBeInTheDocument();
     expect(screen.getByText('From collection “Orders”')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Deny' })).toHaveFocus());
+    // Approve is briefly disarmed when a card appears.
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     await expect(decision).resolves.toBe('approved');
     expect(screen.queryByText('Delete request “x”')).not.toBeInTheDocument();

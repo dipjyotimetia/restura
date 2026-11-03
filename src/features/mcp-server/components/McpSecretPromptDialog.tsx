@@ -6,7 +6,7 @@
  */
 
 import { KeyRound } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -17,19 +17,21 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { settleSecretPrompt, useMcpServerRuntimeStore } from '../store/useMcpServerRuntimeStore';
+import {
+  type PendingSecretPrompt,
+  settleSecretPrompt,
+  useMcpServerRuntimeStore,
+} from '../store/useMcpServerRuntimeStore';
 
 export function McpSecretPromptDialog() {
-  const prompts = useMcpServerRuntimeStore((s) => s.secretPrompts);
-  const current = prompts[0];
-  const [value, setValue] = useState('');
-
-  // Never carry a typed value over to the next prompt.
-  useEffect(() => {
-    setValue('');
-  }, [current?.callId]);
-
+  const current = useMcpServerRuntimeStore((s) => s.secretPrompts[0]);
   if (!current) return null;
+  // Keyed by call so a typed value is never carried over to the next prompt.
+  return <SecretPrompt key={current.callId} prompt={current} />;
+}
+
+function SecretPrompt({ prompt: current }: { prompt: PendingSecretPrompt }) {
+  const [value, setValue] = useState('');
   const decline = () => settleSecretPrompt(current.callId, null);
 
   return (

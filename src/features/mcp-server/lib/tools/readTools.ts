@@ -92,6 +92,11 @@ function itemSummary(item: CollectionItem): TreeNode {
   };
 }
 
+/** Saved body-like text (JSON, form pairs, JWTs) with credentials masked. */
+function redactText(text: string): string {
+  return redactBodyForAgent(text, { redact: true, maxChars: 100_000 }).text;
+}
+
 /** The full, redacted, agent-visible definition of a saved request. */
 export function describeSavedRequest(item: CollectionItem, path: string[]) {
   const req = item.request;
@@ -119,11 +124,11 @@ export function describeSavedRequest(item: CollectionItem, path: string[]) {
           type: req.body.type,
           ...(req.body.raw !== undefined
             ? {
-                content: redactBodyForAgent(req.body.raw, { redact: true, maxChars: 100_000 }).text,
+                content: redactText(req.body.raw),
               }
             : {}),
           ...(req.body.graphqlVariables !== undefined
-            ? { graphqlVariables: req.body.graphqlVariables }
+            ? { graphqlVariables: redactText(req.body.graphqlVariables) }
             : {}),
           ...(req.body.formData
             ? { formFields: req.body.formData.map((f) => ({ key: f.key, type: f.type })) }
@@ -138,7 +143,7 @@ export function describeSavedRequest(item: CollectionItem, path: string[]) {
         service: req.service,
         method: req.method,
         methodType: req.methodType,
-        message: redactBodyForAgent(req.message, { redact: true, maxChars: 100_000 }).text,
+        message: redactText(req.message),
         metadata: redactKeyValues(req.metadata),
       };
     case 'sse':
@@ -155,7 +160,7 @@ export function describeSavedRequest(item: CollectionItem, path: string[]) {
         transport: req.transport,
         headers: redactKeyValues(req.headers),
         ...(req.defaultMethod ? { defaultMethod: req.defaultMethod } : {}),
-        ...(req.defaultParams ? { defaultParams: req.defaultParams } : {}),
+        ...(req.defaultParams ? { defaultParams: redactText(req.defaultParams) } : {}),
       };
     default:
       // Kafka / MQTT / WebSocket / Socket.IO connection presets: identity only.

@@ -140,7 +140,7 @@ export function createShimRelay(options: StdioShimOptions) {
 
   async function relay(call: ControlToolCall, client: ToolCallClient | undefined) {
     const handshake = await readHandshake(options.userDataDir);
-    if (!handshake || !handshake.running || !isAlive(handshake.pid)) {
+    if (!handshake?.running || !isAlive(handshake.pid)) {
       await dropSession();
       return notRunning();
     }

@@ -41,7 +41,7 @@ import { getMcpServerSettings } from './settings';
 import { EDIT_TOOLS } from './tools/editTools';
 import { EXECUTE_TOOLS } from './tools/executeTools';
 import { READ_TOOLS } from './tools/readTools';
-import { isRefusal, type ToolEnv, type ToolImpl } from './tools/types';
+import { isRefusal, type PreparedCall, type ToolEnv, type ToolImpl } from './tools/types';
 
 // biome-ignore lint/suspicious/noExplicitAny: each impl is typed against its own schema; the runtime parses first
 type AnyToolImpl = ToolImpl<any>;
@@ -108,6 +108,10 @@ function formatZodIssues(error: { issues: Array<{ path: PropertyKey[]; message: 
     .join('; ');
 }
 
+function fingerprintOf(call: PreparedCall): string {
+  return call.fingerprint ?? JSON.stringify([call.title, call.details]);
+}
+
 const DENIED: Record<'denied' | 'timeout' | 'cancelled', string> = {
   denied: 'The user denied this in Restura. Do not retry it unless they ask you to.',
   timeout: 'Nobody approved this in Restura in time, so it was not done.',
@@ -147,7 +151,7 @@ export async function runControlTool(
   });
 
   try {
-    const prepared = impl(parsed.data, envFor(settings));
+    const prepared = await impl(parsed.data, envFor(settings));
     if (isRefusal(prepared)) {
       if (def.tier !== 'read' && def.tier !== 'ui') {
         log(event, def.tier, 'refused', def.title, { detail: prepared.refused });
@@ -177,7 +181,7 @@ export async function runControlTool(
         };
       }
       secretValue = value;
-    } else if (needsApproval(def.tier, settings.approvalMode)) {
+    } else if (prepared.alwaysAsk || needsApproval(def.tier, settings.approvalMode)) {
       const decision = await enqueueApproval(
         {
           callId: event.callId,
@@ -205,10 +209,21 @@ export async function runControlTool(
     // Time of use: re-read settings + consent and re-prepare.
     const fresh = getMcpServerSettings();
     if (!fresh.enabled) return { ok: false, error: 'The Restura MCP server is turned off.' };
-    const current = impl(parsed.data, envFor(fresh));
+    const current = await impl(parsed.data, envFor(fresh));
     if (isRefusal(current)) {
       log(event, def.tier, 'refused', prepared.title, { detail: current.refused });
       return { ok: false, error: current.refused };
+    }
+    if (fingerprintOf(current) !== fingerprintOf(prepared)) {
+      // The target changed while the card was open (possibly by another
+      // agent call): never run something other than what was approved.
+      const detail = 'Changed while waiting for approval';
+      log(event, def.tier, 'refused', prepared.title, { detail });
+      return {
+        ok: false,
+        error:
+          'What this call would change or send was modified while it waited for approval, so it was not run. Call it again so the user can review the current version.',
+      };
     }
     if (controller.signal.aborted) return { ok: false, error: DENIED.cancelled };
 

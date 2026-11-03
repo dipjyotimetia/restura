@@ -111,13 +111,17 @@ export async function writeHandshake(userDataDir: string, data: HandshakeFile): 
   await fs.chmod(target, 0o600).catch(() => undefined);
 }
 
-/** True when `pid` names a live process (signal 0 probes without signalling). */
+/**
+ * True when `pid` names a live process *this user may signal* (signal 0
+ * probes without signalling). EPERM — a process owned by another user — is
+ * not the Restura that wrote the handshake (a reused pid), so it counts as
+ * not alive.
+ */
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (err) {
-    // EPERM: the process exists but belongs to someone else.
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  } catch {
+    return false;
   }
 }

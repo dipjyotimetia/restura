@@ -63,8 +63,12 @@ const Id = z.string().min(1).max(200);
 const Name = z.string().trim().min(1).max(200);
 const Url = z.string().trim().min(1).max(8_192);
 const ShortText = z.string().max(10_000);
-/** Script bodies (pre-request / test) — same order of magnitude the editor accepts. */
-const Script = z.string().max(200_000);
+/**
+ * Script bodies (pre-request / test). Capped so the approval card can always
+ * show an agent-written script in full — the user approves the code itself.
+ */
+export const MAX_AGENT_SCRIPT_CHARS = 20_000;
+const Script = z.string().max(MAX_AGENT_SCRIPT_CHARS);
 /** Request bodies an agent may author. */
 const BodyText = z.string().max(1_000_000);
 
@@ -366,7 +370,7 @@ export const CONTROL_TOOLS = [
     title: 'Create request',
     tier: 'edit',
     description:
-      'Save a new request in a collection (at the root, or inside `parentFolderId`). `request.type` is http, graphql, grpc, sse or mcp. Use {{variable}} references for hosts and credentials; credential fields only accept a {{variable}} reference. Returns its id.',
+      'Save a new request in a collection (at the root, or inside `parentFolderId`). `request.type` is http, graphql, grpc, sse or mcp. Use {{variable}} references for hosts and credentials; credential fields only accept a {{variable}} reference. Adding a pre-request or test script always needs the user’s approval. Returns its id.',
     inputSchema: z
       .object({ collectionId: Id, parentFolderId: Id.optional(), request: NewRequestInputSchema })
       .strict(),
@@ -376,7 +380,7 @@ export const CONTROL_TOOLS = [
     title: 'Update request',
     tier: 'edit',
     description:
-      'Change fields of a saved request. Only the fields you pass change. Lists (headers, params, metadata) are replaced as a whole. Fields that do not apply to the request type are refused.',
+      'Change fields of a saved request. Only the fields you pass change. Lists (headers, params, metadata) are replaced as a whole. Fields that do not apply to the request type are refused. Changing a script always needs the user’s approval.',
     inputSchema: z.object({ requestId: Id, patch: RequestPatchSchema }).strict(),
     idempotent: true,
   }),

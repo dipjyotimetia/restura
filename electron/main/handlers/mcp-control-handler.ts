@@ -227,9 +227,11 @@ async function startInternal(
   await stopInternal('The MCP server restarted.');
   const userData = app.getPath('userData');
   const previous = await readHandshake(userData);
-  // Keep the token (and port) stable across restarts so configured clients
-  // keep working; rotating is an explicit user action.
-  const token = !options.rotateToken && previous ? previous.token : mintToken();
+  // A fresh token on every start: a long-lived token could be captured by
+  // another local user squatting the port while Restura is closed. The stdio
+  // shim re-reads the handshake on every call, so it never notices; only
+  // direct HTTP configs need the new token. The port is kept when free.
+  const token = mintToken();
   const preferredPort = options.preferredPort ?? previous?.port;
 
   const handle = await startControlHttpServer({
@@ -299,7 +301,23 @@ export function stopMcpControlServer(): Promise<ControlServerStatus> {
 const lifecycleRateLimiter = createKeyedRateLimiter(30, 60_000);
 const resultRateLimiter = createKeyedRateLimiter(1_200, 60_000);
 
+/**
+ * At app start no control server can be running (the app is single-instance),
+ * so a handshake still saying `running: true` is left over from a crash.
+ * Mark it stopped so the shim reports "not running" instead of dialling a
+ * port someone else may now hold.
+ */
+export async function markStaleHandshakeStopped(userDataDir: string): Promise<void> {
+  const previous = await readHandshake(userDataDir);
+  if (!previous?.running || previous.pid === process.pid) return;
+  await writeHandshake(userDataDir, { ...previous, running: false, updatedAt: Date.now() });
+}
+
 export function registerMcpControlIPC(): void {
+  void markStaleHandshakeStopped(app.getPath('userData')).catch((err: unknown) => {
+    log.warn('could not reset a stale MCP handshake file', { error: errorMessage(err) });
+  });
+
   ipcMain.handle(
     IPC.mcpControl.start,
     rateLimited(

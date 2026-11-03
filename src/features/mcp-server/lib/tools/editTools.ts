@@ -10,12 +10,11 @@ import {
   canCreateEnvironment,
   canEdit,
   canEditEnvironment,
-  canReadEnvironment,
   type McpServerConsent,
   setCollectionConsent,
   setEnvironmentConsent,
 } from '@shared/mcp-server/consent';
-import type { ControlToolInput } from '@shared/mcp-server/control-tools';
+import { type ControlToolInput, MAX_AGENT_SCRIPT_CHARS } from '@shared/mcp-server/control-tools';
 import * as yaml from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
 import { deleteCollectionWithCleanup } from '@/features/collections/lib/deleteCollection';
@@ -39,7 +38,7 @@ import { isBrokerRequest } from '@/types';
 import { applyRequestPatch, buildRequestFromInput } from '../requestInput';
 import { updateMcpConsent } from '../settings';
 import { collectItemIds, isDescendant, locateItem, someItem } from '../tree';
-import { refuse, SETTINGS_HINT, type ToolEnv, type ToolImpl } from './types';
+import { clip, refuse, SETTINGS_HINT, scriptDetails, type ToolEnv, type ToolImpl } from './types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -98,7 +97,7 @@ function restoreEnvironment(snapshot: Environment): () => void {
 function folderInCollection(collection: Collection, folderId: string | undefined) {
   if (folderId === undefined) return { ok: true as const };
   const located = locateItem([collection], folderId);
-  if (!located || located.item.type !== 'folder') {
+  if (located?.item.type !== 'folder') {
     return { ok: false as const, error: `Folder not found in this collection: ${folderId}` };
   }
   return { ok: true as const };
@@ -111,6 +110,38 @@ function folderInCollection(collection: Collection, folderId: string | undefined
  */
 function grant(update: (consent: McpServerConsent) => McpServerConsent): void {
   updateMcpConsent(update);
+}
+
+/** Binds an approval to the exact collection / environment state the user saw. */
+function fingerprint(value: unknown): string {
+  return JSON.stringify(value);
+}
+
+type MaybeScripted = { preRequestScript?: string; testScript?: string } | undefined;
+
+function scriptLines(label: string, node: MaybeScripted): string[] {
+  return [
+    ...scriptDetails(`${label} pre-request script`, node?.preRequestScript),
+    ...scriptDetails(`${label} test script`, node?.testScript),
+  ];
+}
+
+/** Every non-empty script in a collection (collection, folders, requests), labelled. */
+function scriptsIn(collection: Collection): string[] {
+  const out = scriptLines('Collection', collection);
+  const walk = (items: CollectionItem[], path: string) => {
+    for (const item of items) {
+      const label = path ? `${path} / ${item.name}` : item.name;
+      if (item.type === 'folder') {
+        out.push(...scriptLines(`Folder “${label}”`, item));
+        walk(item.items ?? [], label);
+      } else {
+        out.push(...scriptLines(`Request “${label}”`, item.request as MaybeScripted));
+      }
+    }
+  };
+  walk(collection.items, '');
+  return out;
 }
 
 function describeRequestLine(request: { type: string; method?: string; url?: string }): string {
@@ -158,6 +189,7 @@ const createFolder: ToolImpl<ControlToolInput<'create_folder'>> = (input, env) =
   return {
     title: `Create folder “${input.name}”`,
     details: [`In collection “${collection.name}”`],
+    fingerprint: fingerprint(collection),
     run: () => {
       const snapshot = structuredClone(collection);
       const folder = makeFolderItem(input.name);
@@ -179,12 +211,22 @@ const createRequest: ToolImpl<ControlToolInput<'create_request'>> = (input, env)
   const parent = folderInCollection(collection, input.parentFolderId);
   if (!parent.ok) return refuse(parent.error);
   const request = buildRequestFromInput(input.request);
+  const scripts = [
+    ...scriptDetails('Pre-request script', input.request.preRequestScript),
+    ...scriptDetails('Test script', input.request.testScript),
+  ];
   return {
     title: `Create request “${request.name}”`,
     details: [
       `In collection “${collection.name}”`,
-      describeRequestLine(request as { type: string; method?: string; url?: string }),
+      clip(describeRequestLine(request as { type: string; method?: string; url?: string })),
+      ...scripts,
     ],
+    // A script runs with full script powers (variables, vault, cookies,
+    // network) on every later send: always shown in full and always asked.
+    alwaysAsk: scripts.length > 0,
+    // Request ids are minted per prepare; bind to the collection instead.
+    fingerprint: fingerprint([collection, input]),
     run: () => {
       const snapshot = structuredClone(collection);
       const item: CollectionItem = { id: uuidv4(), name: request.name, type: 'request', request };
@@ -197,6 +239,24 @@ const createRequest: ToolImpl<ControlToolInput<'create_request'>> = (input, env)
     },
   };
 };
+
+/** One card line per changed field, with its new value (scripts in full). */
+function describePatch(patch: ControlToolInput<'update_request'>['patch']): string[] {
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(patch)) {
+    if (key === 'preRequestScript' || key === 'testScript') {
+      const label = key === 'preRequestScript' ? 'New pre-request script' : 'New test script';
+      lines.push(
+        ...(String(value).trim() === ''
+          ? [`${label}: (removed)`]
+          : scriptDetails(label, String(value)))
+      );
+    } else {
+      lines.push(`${key} → ${clip(typeof value === 'string' ? value : JSON.stringify(value))}`);
+    }
+  }
+  return lines;
+}
 
 const updateRequest: ToolImpl<ControlToolInput<'update_request'>> = (input, env) => {
   const located = editableItem(input.requestId, env);
@@ -212,10 +272,9 @@ const updateRequest: ToolImpl<ControlToolInput<'update_request'>> = (input, env)
   if (!patched.ok) return refuse(patched.error);
   return {
     title: `Update request “${located.item.name}”`,
-    details: [
-      `In collection “${located.collection.name}”`,
-      `Changes: ${Object.keys(input.patch).join(', ')}`,
-    ],
+    details: [`In collection “${located.collection.name}”`, ...describePatch(input.patch)],
+    alwaysAsk: input.patch.preRequestScript !== undefined || input.patch.testScript !== undefined,
+    fingerprint: fingerprint(located.collection),
     run: () => {
       const snapshot = structuredClone(located.collection);
       useCollectionStore.getState().updateCollectionItem(located.collection.id, located.item.id, {
@@ -239,6 +298,7 @@ const renameItem: ToolImpl<ControlToolInput<'rename_item'>> = (input, env) => {
   return {
     title: `Rename “${located.item.name}” → “${input.name}”`,
     details: [`In collection “${located.collection.name}”`],
+    fingerprint: fingerprint(located.collection),
     run: () => {
       const snapshot = structuredClone(located.collection);
       const updates: Partial<CollectionItem> = { name: input.name };
@@ -268,6 +328,7 @@ const moveItem: ToolImpl<ControlToolInput<'move_item'>> = (input, env) => {
   }
   return {
     title: `Move “${located.item.name}”`,
+    fingerprint: fingerprint(located.collection),
     details: [
       `In collection “${located.collection.name}”`,
       input.targetFolderId ? 'Into another folder' : 'To the collection root',
@@ -326,21 +387,43 @@ function countRequests(items: CollectionItem[]): number {
   );
 }
 
-const importCollection: ToolImpl<ControlToolInput<'import_collection'>> = (input, env) => {
+const importCollection: ToolImpl<ControlToolInput<'import_collection'>> = async (input, env) => {
   if (!canCreateCollection(env.settings.consent)) {
     return refuse(
       `Importing is not allowed: no collection is shared for editing. ${SETTINGS_HINT}`
     );
   }
+  // Parse before asking, so the card can show what the document contains —
+  // in particular any scripts, which would run on every later send.
+  let result: ImportResult;
+  try {
+    result = await parseImport(input.format, input.content);
+  } catch (err) {
+    return refuse(
+      `Could not parse the ${input.format} document: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+  const validation = validateImportedCollection(result.collection);
+  if (!validation.ok) {
+    return refuse(`Imported collection failed validation — ${validation.issues.join('; ')}`);
+  }
+  const scripts = scriptsIn(result.collection);
+  if (scripts.join('\n').length > MAX_AGENT_SCRIPT_CHARS) {
+    return refuse(
+      'This document contains more script code than can be shown for review. Ask the user to import it from Restura’s Import dialog instead.'
+    );
+  }
+  const name = input.name ?? result.collection.name;
   return {
-    title: `Import ${input.format} collection${input.name ? ` “${input.name}”` : ''}`,
-    details: [`${input.content.length.toLocaleString()} characters of ${input.format}`],
+    title: `Import ${input.format} collection “${name}”`,
+    details: [
+      `${countRequests(result.collection.items)} request(s)`,
+      ...(scripts.length > 0 ? scripts : ['No scripts']),
+    ],
+    alwaysAsk: scripts.length > 0,
+    // Imports mint fresh ids per parse; bind to the document itself.
+    fingerprint: fingerprint(['import', input.format, input.content, input.name]),
     run: async () => {
-      const result = await parseImport(input.format, input.content);
-      const validation = validateImportedCollection(result.collection);
-      if (!validation.ok) {
-        throw new Error(`Imported collection failed validation — ${validation.issues.join('; ')}`);
-      }
       const named = input.name ? { ...result.collection, name: input.name } : result.collection;
       // Credentials inside the imported document become desktop keychain
       // handles, so they are neither readable by the agent nor stored in
@@ -420,7 +503,8 @@ const setEnvironmentVariable: ToolImpl<ControlToolInput<'set_environment_variabl
   }
   return {
     title: `${existing ? 'Update' : 'Add'} variable “${input.key}”`,
-    details: [`In environment “${environment.name}”`, `Value: ${input.value}`],
+    details: [`In environment “${environment.name}”`, `Value: ${clip(input.value)}`],
+    fingerprint: fingerprint(environment),
     run: () => {
       const snapshot = structuredClone(environment);
       const store = useEnvironmentStore.getState();
@@ -501,8 +585,18 @@ const setActiveEnvironment: ToolImpl<ControlToolInput<'set_active_environment'>>
   const target = input.environmentId
     ? store.environments.find((e) => e.id === input.environmentId)
     : undefined;
-  if (input.environmentId && (!target || !canReadEnvironment(env.settings.consent, target.id))) {
-    return refuse(`Environment not found or not shared: ${input.environmentId}. ${SETTINGS_HINT}`);
+  // Switching changes which credentials the user's own next Send uses, so it
+  // needs edit access — on the target, and on the environment it replaces.
+  if (input.environmentId && (!target || !canEditEnvironment(env.settings.consent, target.id))) {
+    return refuse(
+      `Environment not found or not shared for editing: ${input.environmentId}. ${SETTINGS_HINT}`
+    );
+  }
+  const active = store.activeEnvironmentId;
+  if (active && active !== target?.id && !canEditEnvironment(env.settings.consent, active)) {
+    return refuse(
+      `The active environment is not shared for editing, so it cannot be switched. ${SETTINGS_HINT}`
+    );
   }
   return {
     title: target ? `Switch to environment “${target.name}”` : 'Clear the active environment',
@@ -536,6 +630,7 @@ const deleteItem: ToolImpl<ControlToolInput<'delete_item'>> = (input, env) => {
     located.item.type === 'request' ? 1 : countRequests(located.item.items ?? []);
   return {
     title: `Delete ${located.item.type} “${located.item.name}”`,
+    fingerprint: fingerprint(located.collection),
     details: [
       `From collection “${located.collection.name}”`,
       located.item.type === 'folder' ? `Includes ${requestCount} request(s)` : '',
@@ -564,6 +659,7 @@ const deleteCollection: ToolImpl<ControlToolInput<'delete_collection'>> = (input
   return {
     title: `Delete collection “${collection.name}”`,
     details: [`${countRequests(collection.items)} request(s) will be removed`],
+    fingerprint: fingerprint(collection),
     run: async () => {
       const snapshot = structuredClone(collection);
       const result = await deleteCollectionWithCleanup(collection.id);
@@ -588,6 +684,7 @@ const deleteEnvironmentVariable: ToolImpl<ControlToolInput<'delete_environment_v
   return {
     title: `Delete variable “${input.key}”`,
     details: [`From environment “${environment.name}”`],
+    fingerprint: fingerprint(environment),
     run: () => {
       const snapshot = structuredClone(environment);
       useEnvironmentStore.getState().removeVariable(environment.id, variable.id);

@@ -64,3 +64,15 @@ export interface TreeNode {
   url?: string;
   children?: TreeNode[];
 }
+
+/** Folders from the collection root down to (not including) `itemId`. */
+export function ancestorFolders(items: CollectionItem[], itemId: string): CollectionItem[] | null {
+  for (const item of items) {
+    if (item.id === itemId) return [];
+    if (item.type === 'folder' && item.items) {
+      const below = ancestorFolders(item.items, itemId);
+      if (below) return [item, ...below];
+    }
+  }
+  return null;
+}

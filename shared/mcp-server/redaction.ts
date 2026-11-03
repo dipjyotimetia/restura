@@ -297,6 +297,27 @@ function redactJsonValue(value: unknown, depth: number, counter: RedactCounter):
   return value;
 }
 
+/**
+ * `key=value` pairs (x-www-form-urlencoded bodies, query strings) whose key is
+ * token-like get their value masked: `user=a&password=x` → `user=a&password=(redacted)`.
+ */
+function redactFormPairs(text: string, counter: RedactCounter): string {
+  return text.replace(
+    /(^|[&?\s;])([^=&?\s;]+)=([^&\s;]*)/g,
+    (match, sep: string, key: string, value: string) => {
+      let decoded = key;
+      try {
+        decoded = decodeURIComponent(key.replace(/\+/g, ' '));
+      } catch {
+        decoded = key;
+      }
+      if (value === '' || !isTokenLikeKey(decoded)) return match;
+      counter.count += 1;
+      return `${sep}${key}=${REDACTED}`;
+    }
+  );
+}
+
 export interface AgentBody {
   /** Body text the agent sees: redacted (when enabled), then truncated. */
   text: string;
@@ -337,7 +358,7 @@ export function redactBodyForAgent(body: string | undefined, options: AgentBodyO
         handled = false;
       }
     }
-    if (!handled) text = redactJwts(source, counter);
+    if (!handled) text = redactJwts(redactFormPairs(source, counter), counter);
   }
   const truncated = text.length > options.maxChars;
   return {

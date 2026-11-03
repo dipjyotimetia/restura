@@ -56,7 +56,7 @@ args = ["--mcp-server"]
 
 On Windows use the installed `Restura.exe`; on Linux, the AppImage or installed binary.
 
-**Over HTTP (advanced).** Clients that speak streamable HTTP can connect to `http://127.0.0.1:<port>/mcp` directly with `Authorization: Bearer <token>`. Settings shows the URL and the token and can rotate it. The token and port stay the same across restarts until you rotate the token.
+**Over HTTP (advanced).** Clients that speak streamable HTTP can connect to `http://127.0.0.1:<port>/mcp` directly with `Authorization: Bearer <token>`. Settings shows the URL and the token. A new token is created every time the server starts, so HTTP clients need the new one after a restart. The stdio command above never does.
 
 <Aside type="note" title="Development builds">
 An unpackaged development build is started as `electron <path>/dist/electron/electron/main/main.js`, so the agent command needs that script before `--mcp-server`. Set `RESTURA_USER_DATA_DIR` to the same folder for the app and the agent.
@@ -86,7 +86,12 @@ Sending with an environment is a separate checkbox, **Agents may send with this 
 - **Ask for every change** (default): every create, update, delete and send opens an approval dialog in Restura.
 - **Auto-approve edits**: creates and updates apply immediately. Deletes and sends still ask.
 
-There is no setting that auto-approves deletes or sends. Closing the dialog or pressing Escape denies. If you change access while a dialog is open, the new setting applies when you click Approve.
+There is no setting that auto-approves deletes or sends.
+
+- **Scripts always ask.** A change that adds or edits a pre-request or test script, including an import that contains scripts, asks in every mode and shows the full script, because scripts run with full access to your variables on every send.
+- **Approval covers exactly what you saw.** If the request, its collection, the environment or the globals change while a dialog is open (for example because the agent made another change), the call is refused and the agent has to ask again.
+- **Send dialogs show the details.** They show the URL with variables filled in, and which scripts will run.
+- **Closing the dialog or pressing Escape denies.** If you change access while a dialog is open, the new setting applies when you click Approve.
 
 The **Activity** list in Settings shows every change, refusal and send, with the agent's name. Most changes have **Undo**, which puts the collection or environment back the way it was before that change.
 
@@ -104,7 +109,7 @@ The **Activity** list in Settings shows every change, refusal and send, with the
 | `describe_access`, `list_collections`, `get_collection_tree`, `list_requests`, `get_request`, `list_environments`, `get_environment`, `get_history`, `list_collection_runs` | Read |
 | `open_request` | Opens a tab |
 | `create_collection`, `create_folder`, `create_request`, `update_request`, `rename_item`, `move_item`, `import_collection` (OpenAPI, Postman, Insomnia, OpenCollection, curl) | Edit |
-| `create_environment`, `set_environment_variable`, `request_secret_variable`, `set_active_environment` | Edit |
+| `create_environment`, `set_environment_variable`, `request_secret_variable`, `set_active_environment` (needs edit access) | Edit |
 | `delete_item`, `delete_collection`, `delete_environment_variable` | Delete — always asks |
 | `send_request`, `run_collection` | Send — always asks |
 

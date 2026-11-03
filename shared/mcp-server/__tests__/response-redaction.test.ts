@@ -81,3 +81,20 @@ describe('redactBodyForAgent', () => {
     });
   });
 });
+
+describe('redactBodyForAgent — form-encoded pairs', () => {
+  it('masks token-like keys in urlencoded bodies and keeps the rest', () => {
+    const out = redactBodyForAgent('user=ada&password=hunter2&client_secret=s3&q=1', {
+      redact: true,
+      maxChars: 1000,
+    });
+    expect(out.text).toBe('user=ada&password=(redacted)&client_secret=(redacted)&q=1');
+    expect(out.redactions).toBe(2);
+  });
+
+  it('decodes percent-encoded keys before matching', () => {
+    expect(redactBodyForAgent('api%5Fkey=abc', { redact: true, maxChars: 100 }).text).toBe(
+      'api%5Fkey=(redacted)'
+    );
+  });
+});

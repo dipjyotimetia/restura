@@ -34,10 +34,11 @@ vi.mock('../ipc/ipc-utils', () => ({
 
 import {
   disposeMcpControlIPC,
+  markStaleHandshakeStopped,
   registerMcpControlIPC,
   ToolCallBridge,
 } from '../handlers/mcp-control-handler';
-import { readHandshake } from '../handlers/mcp-control-protocol';
+import { readHandshake, writeHandshake } from '../handlers/mcp-control-protocol';
 
 const TRUSTED_FRAME = { url: 'file:///app/dist/web/index.html', parent: null };
 
@@ -172,30 +173,37 @@ describe('mcp-control IPC lifecycle', () => {
     ).rejects.toThrow(/Invalid IPC payload/);
   });
 
-  it('keeps the token and port across restarts; rotateToken mints a new token', async () => {
+  it('mints a fresh token on every start, keeps the port, and the old token stops working', async () => {
     const owner = fakeWebContents(1);
     const first = (await invoke('mcp-control:start', owner)) as {
       status: { port: number };
       token: string;
     };
     await invoke('mcp-control:stop', owner);
-    const stopped = await readHandshake(h.userData);
-    expect(stopped).toMatchObject({ running: false, token: first.token });
+    expect(await readHandshake(h.userData)).toMatchObject({ running: false });
 
     const second = (await invoke('mcp-control:start', owner)) as {
-      status: { port: number };
+      status: { port: number; url: string };
       token: string;
     };
-    expect(second.token).toBe(first.token);
+    expect(second.token).not.toBe(first.token);
     expect(second.status.port).toBe(first.status.port);
+    expect(await readHandshake(h.userData)).toMatchObject({ running: true, token: second.token });
+    await expect(connect(second.status.url, first.token)).rejects.toThrow();
+    await expect(connect(second.status.url, second.token)).resolves.toBeDefined();
+  });
 
-    const rotated = (await invoke('mcp-control:start', owner, { rotateToken: true })) as {
-      token: string;
-    };
-    expect(rotated.token).not.toBe(first.token);
-    // The old token no longer works.
-    const status = (await invoke('mcp-control:status', owner)) as { status: { url: string } };
-    await expect(connect(status.status.url, first.token)).rejects.toThrow();
+  it('marks a handshake left running by a crashed instance as stopped', async () => {
+    await writeHandshake(h.userData, {
+      version: 1,
+      running: true,
+      port: 4321,
+      token: 'x'.repeat(43),
+      pid: 999_999,
+      updatedAt: 0,
+    });
+    await markStaleHandshakeStopped(h.userData);
+    expect(await readHandshake(h.userData)).toMatchObject({ running: false, port: 4321 });
   });
 
   it('stopping cancels parked calls and tells the renderer to drop their cards', async () => {

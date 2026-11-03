@@ -26,18 +26,20 @@ interface PersistApi {
   onFinishHydration: (fn: () => void) => () => void;
 }
 
+/** Zustand persist API of the settings store (module-stable). */
+const settingsPersist = (useSettingsStore as unknown as { persist?: PersistApi }).persist;
+
 /** True once the persisted settings are loaded, so a default `enabled: false` never stops a server. */
 function useSettingsHydrated(): boolean {
-  const persistApi = (useSettingsStore as unknown as { persist?: PersistApi }).persist;
-  const [hydrated, setHydrated] = useState(() => persistApi?.hasHydrated() ?? true);
+  const [hydrated, setHydrated] = useState(() => settingsPersist?.hasHydrated() ?? true);
   useEffect(() => {
-    if (hydrated || !persistApi) return;
-    if (persistApi.hasHydrated()) {
+    if (hydrated || !settingsPersist) return;
+    if (settingsPersist.hasHydrated()) {
       setHydrated(true);
       return;
     }
-    return persistApi.onFinishHydration(() => setHydrated(true));
-  }, [hydrated, persistApi]);
+    return settingsPersist.onFinishHydration(() => setHydrated(true));
+  }, [hydrated]);
   return hydrated;
 }
 

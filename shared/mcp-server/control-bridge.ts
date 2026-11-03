@@ -59,7 +59,10 @@ export type ToolCallResultPayload = z.infer<typeof ToolCallResultPayloadSchema>;
 /** Payload of `mcp-control:start`. */
 export const ControlServerStartSchema = z.object({
   preferredPort: z.number().int().min(1024).max(65535).optional(),
-  /** Mint a new bearer token, invalidating every configured client. */
+  /**
+   * Restart with a new bearer token, invalidating configured HTTP clients.
+   * (Every start mints a fresh token; this just forces a restart now.)
+   */
   rotateToken: z.boolean().optional(),
 });
 export type ControlServerStartOptions = z.infer<typeof ControlServerStartSchema>;

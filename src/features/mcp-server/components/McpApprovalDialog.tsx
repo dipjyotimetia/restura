@@ -6,6 +6,7 @@
  */
 
 import { Bot, Send, ShieldAlert, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -30,10 +31,25 @@ const TIER_COPY = {
   ui: { verb: 'Allow', label: 'wants to open a tab', tone: 'accent' as const, icon: Bot },
 };
 
+/**
+ * Approve stays disabled briefly whenever a new card comes to the front, so a
+ * click meant for one card can never land on the next (e.g. when an agent
+ * cancels the front card just as the user clicks).
+ */
+export const APPROVE_ARMING_MS = 600;
+
 export function McpApprovalDialog() {
   const approvals = useMcpServerRuntimeStore((s) => s.approvals);
   const current = approvals[0];
+  const [armedFor, setArmedFor] = useState<string | null>(null);
+  const callId = current?.callId;
+  useEffect(() => {
+    if (!callId) return;
+    const timer = setTimeout(() => setArmedFor(callId), APPROVE_ARMING_MS);
+    return () => clearTimeout(timer);
+  }, [callId]);
   if (!current) return null;
+  const armed = armedFor === current.callId;
   const copy = TIER_COPY[current.tier];
   const who = current.client ?? 'An MCP agent';
 
@@ -61,7 +77,7 @@ export function McpApprovalDialog() {
         </DialogHeader>
 
         {current.details.length > 0 && (
-          <ul className="mt-2 space-y-1 rounded-md border border-sp-line bg-sp-surface-lo p-3 text-sp-12 font-mono text-sp-text break-all">
+          <ul className="mt-2 max-h-80 space-y-1 overflow-y-auto whitespace-pre-wrap rounded-md border border-sp-line bg-sp-surface-lo p-3 text-sp-12 font-mono text-sp-text break-all">
             {current.details.map((line) => (
               <li key={line}>{line}</li>
             ))}
@@ -92,6 +108,7 @@ export function McpApprovalDialog() {
             <Button
               variant={current.tier === 'destructive' ? 'destructive' : 'default'}
               data-testid="mcp-approval-approve"
+              disabled={!armed}
               onClick={() => settleApproval(current.callId, 'approved')}
             >
               {copy.verb}

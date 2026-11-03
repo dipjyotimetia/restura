@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clientLabelFromHeaders,
   handshakePath,
@@ -147,5 +147,16 @@ describe('isProcessAlive', () => {
   it('detects this process and rejects an impossible pid', () => {
     expect(isProcessAlive(process.pid)).toBe(true);
     expect(isProcessAlive(2 ** 22 + 12345)).toBe(false);
+  });
+
+  it('treats a process owned by another user (EPERM) as not ours', () => {
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
+    });
+    try {
+      expect(isProcessAlive(1)).toBe(false);
+    } finally {
+      kill.mockRestore();
+    }
   });
 });

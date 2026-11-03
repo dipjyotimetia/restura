@@ -365,7 +365,7 @@ export function McpServerSettings({ Header, Group, Row }: McpServerSettingsProps
           <Info size={13} className="mt-0.5 shrink-0 text-sp-accent" aria-hidden="true" />
           The stdio command relays to this running app and reads its token from your user data
           folder, so no secret goes into the agent&rsquo;s config. Keep Restura open while the agent
-          works.
+          works. The HTTP token changes every time the server starts.
         </p>
       </Group>
 
