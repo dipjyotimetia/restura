@@ -620,23 +620,11 @@ export const features: Feature[] = [
     'ai',
     'mcp-server',
     'Restura as an MCP server',
-    'Let agents like Claude read your collections through a local MCP server you control. The server runs today but exposes nothing until data sync and consent controls land.',
-    'in-progress',
+    'Let Claude Code, Codex and other MCP agents build, configure and send your collections through a local server in the desktop app, within the access you grant and with your approval.',
+    'shipped',
     desktop,
     '/guides/mcp-server-mode/',
-    ['collections'],
-    {
-      today:
-        'Launching the desktop app with --mcp-server starts a stdio MCP server with read-only, redacted tools. It deliberately sees no collections, environments, or history yet, so every tool call is refused.',
-      milestones: [
-        done('Headless stdio server (restura --mcp-server)'),
-        done('Read-only tools with input validation and deep redaction'),
-        done('Fail-closed consent model: every surface hidden by default'),
-        todo('Sync collections, environments, and history to the headless server'),
-        todo('Settings screen for per-collection and per-surface consent'),
-        todo('Optional local HTTP transport with a one-time token'),
-      ],
-    }
+    ['collections']
   ),
   entry(
     'ai',

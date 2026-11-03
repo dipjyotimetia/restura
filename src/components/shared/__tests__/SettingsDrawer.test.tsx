@@ -85,13 +85,14 @@ describe('SettingsDrawer', () => {
     expect(green).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('renders all twelve nav sections', () => {
+  it('renders all thirteen nav sections', () => {
     render(<SettingsDrawer open onOpenChange={vi.fn()} />);
     const nav = screen.getByRole('navigation', { name: /settings sections/i });
     const buttons = nav.querySelectorAll('button');
-    // 12 sections per SECTIONS array (general, appearance, requests, proxy,
-    // certificates, security, secrets, ai, data, updates, shortcuts, about).
-    expect(buttons).toHaveLength(12);
+    // 13 sections per SECTIONS array (general, appearance, requests, proxy,
+    // certificates, security, secrets, ai, mcp, data, updates, shortcuts, about).
+    expect(buttons).toHaveLength(13);
+    expect(screen.getByRole('button', { name: /^MCP Server$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^AI$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Data$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Security$/i })).toBeInTheDocument();
@@ -103,6 +104,11 @@ describe('SettingsDrawer', () => {
     expect(screen.getByText(/PFX \/ P12/i)).toBeInTheDocument();
     // …and the CA paste textarea is wired.
     expect(screen.getByLabelText(/paste a PEM bundle/i)).toBeInTheDocument();
+  });
+
+  it('MCP Server section on web explains it needs the desktop app', async () => {
+    render(<SettingsDrawer open onOpenChange={vi.fn()} initialSection="mcp" />);
+    expect(await screen.findByText(/runs inside the Restura desktop app/i)).toBeInTheDocument();
   });
 
   it('Secrets section on web shows DesktopOnlyBadge instead of the stub copy', () => {

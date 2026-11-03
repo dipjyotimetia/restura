@@ -126,7 +126,13 @@ For the hosted web app, `/api/telemetry/error` is a redacted, rate-limited, allo
 
 ## MCP server mode
 
-When Restura acts as an MCP server, every tool response is run through a redactor (`shared/mcp-server/redaction.ts` (applied by `postProcessResult` in `electron/main/handlers/mcp-server-handler.ts`)) that strips secrets by name. `SecretRef` handles are never resolved for the MCP surface — agents see metadata, not plaintext.
+When Restura acts as an MCP server ([ADR 0041](/architecture/adrs/0041-mcp-control-server/)), the agent is treated as an untrusted consumer:
+
+- **Transport.** The server listens on `127.0.0.1` only, requires a 256-bit bearer token (kept in a `0600` handshake file the stdio relay reads), and refuses requests carrying browser `Origin` / `Sec-Fetch-Site` headers or a non-loopback `Host` (CSRF and DNS rebinding).
+- **Policy in the data owner.** Every call is forwarded to the renderer, which re-validates the input, checks per-collection / per-environment consent, asks for approval (always for deletes and sends), and re-checks consent right before acting.
+- **Redaction.** Read tools strip auth descriptors, credential headers and params, URL userinfo and secret variables. `SecretRef` handles are never resolved. Send results mask credential headers, token-like JSON fields and JWTs, and every result passes a final deep redaction in main (`shared/mcp-server/redaction.ts`).
+- **No secrets in, no self-escalation.** Credential fields accept only `{{variable}}` references, secrets are typed by the user, and no tool can read or change MCP settings, keys, the vault, or proxy and TLS configuration.
+- **Residual risk.** Response bodies are third-party data: pattern-based redaction can miss an unusually named credential, and a response can attempt prompt injection. Sends are always approved by the user for that reason.
 
 ## Worker auth gate
 

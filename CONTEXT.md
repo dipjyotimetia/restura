@@ -97,7 +97,7 @@ A Request in which Restura acts as an MCP client, calling a tool, resource or pr
 _Avoid_: MCP call, MCP connection
 
 **MCP server mode**:
-Restura acting as an MCP server, exposing its own collections and actions to an external agent.
+Restura acting as an MCP server, exposing its own collections and actions to an external agent. Hosted by the running desktop app; `Restura --mcp-server` is a stdio relay to it (ADR 0041). An agent's access is set by **MCP consent** (per collection / environment), and its changes and sends wait for **approval** in the app.
 _Avoid_: MCP integration, MCP plugin
 
 ### AI

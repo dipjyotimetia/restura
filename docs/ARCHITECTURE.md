@@ -454,7 +454,8 @@ main.ts (entry — owns the IPC_MODULES register/dispose registry)
   │     ├── mqtt-handler.ts      # IPC: MQTT pub/sub
   │     ├── ai-handler.ts        # IPC: AI chat streaming
   │     ├── ai-lab-handler.ts    # IPC: AI Lab eval/complete
-  │     ├── mcp-server-handler.ts# IPC: Restura-as-MCP-server
+  │     ├── mcp-server-handler.ts# `--mcp-server` stdio relay to the running app (ADR 0041)
+  │     ├── mcp-control-*.ts     # 127.0.0.1 MCP control server + renderer tool bridge (ADR 0041)
   │     ├── mock-server-handler.ts
   │     ├── git-handler.ts
   │     └── capture-bridge-handler.ts  # 127.0.0.1 capture receiver (ADR 0024)

@@ -60,6 +60,22 @@ export async function startMcpControlServer(options: { rotateToken?: boolean } =
   }
 }
 
+/**
+ * Adopt a server that is already running (another window, or this one before
+ * a reload) instead of restarting it — a restart would move ownership and
+ * cancel in-flight calls. Start one only when none is running.
+ */
+async function ensureMcpControlServer() {
+  const api = getElectronAPI()?.mcpControl;
+  if (!api) return;
+  const current = await api.status();
+  if (current.ok && current.status.running) {
+    useMcpServerRuntimeStore.getState().setStatus(current.status);
+    return;
+  }
+  await startMcpControlServer();
+}
+
 export async function stopMcpControlServer() {
   const api = getElectronAPI()?.mcpControl;
   if (!api) return;
@@ -98,7 +114,7 @@ export function McpControlBridge() {
   // Keep the server in step with the setting.
   useEffect(() => {
     if (!isElectron() || !hydrated) return;
-    if (settings.enabled && !running) void startMcpControlServer();
+    if (settings.enabled && !running) void ensureMcpControlServer();
     if (!settings.enabled && running) void stopMcpControlServer();
   }, [settings.enabled, hydrated, running]);
 

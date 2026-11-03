@@ -1,21 +1,47 @@
 ---
 title: MCP server mode
-description: Run the Restura desktop app as a local MCP server for agents like Claude — how it launches, what it exposes, and what is still being built.
+description: Let Claude Code, Codex, Claude Desktop and other MCP agents build, configure and run your Restura collections — only what you share, with your approval.
 ---
 
 import { Badge, Aside } from '@astrojs/starlight/components';
 
-<Badge text="desktop only" variant="caution" /> <Badge text="in progress" variant="note" />
+<Badge text="desktop only" variant="caution" />
 
-Restura can act as an MCP server so an agent can discover your saved requests through a curated, redacted, read-only view. The server and its safety model ship today; the step that hands it your data does not yet.
+The Restura desktop app can act as an MCP server. An agent can then do what you do in the app: browse collections, write requests for HTTP, GraphQL, gRPC, SSE and MCP, set up environments, import an OpenAPI spec, send requests and run collections. You decide what it can see and change, and nothing is edited, deleted or sent without your approval unless you allow it.
 
-<Aside type="caution" title="Current status">
-The headless server starts and answers MCP requests, but it deliberately sees **no collections, environments, or history yet** — every tool call is refused as hidden. Syncing your data to the server and a Settings screen for consent are the next milestones. Follow progress on the [delivery plan](/overview/delivery-plan/#plan-mcp-server).
-</Aside>
+Example prompts:
 
-## How it runs
+- "Import `openapi.yaml` into Restura and add a status-code test to every GET request."
+- "Create `staging` and `prod` environments for the Orders collection. Ask me for the API token."
+- "Run the Orders collection against staging and fix the requests that fail."
 
-The desktop app has a headless mode. Launched with `--mcp-server`, it opens no window and speaks MCP over **stdio**, so the agent starts it as a subprocess — there is no network port.
+## Turn it on
+
+1. Open **Settings → MCP Server** and switch on **Enable MCP server**. The status line shows `Listening on 127.0.0.1:<port>`.
+2. Under **Collections agents may use** and **Environments agents may use**, choose what to share (see [Access levels](#access-levels)). Everything starts hidden.
+3. Copy the config for your agent from **Connect an agent**.
+
+Keep Restura open while the agent works: the server runs inside the app.
+
+## Connect an agent
+
+The **Connect an agent** panel shows these commands with the real path to Restura on your machine. `Restura --mcp-server` is a small stdio relay to the running app. It reads the app's port and token from your user data folder, so no secret goes into the agent's config file.
+
+**Claude Code**
+
+```sh
+claude mcp add restura -- /Applications/Restura.app/Contents/MacOS/Restura --mcp-server
+```
+
+**Codex** (`~/.codex/config.toml`)
+
+```toml
+[mcp_servers.restura]
+command = "/Applications/Restura.app/Contents/MacOS/Restura"
+args = ["--mcp-server"]
+```
+
+**Claude Desktop** (`claude_desktop_config.json`)
 
 ```json
 {
@@ -28,34 +54,75 @@ The desktop app has a headless mode. Launched with `--mcp-server`, it opens no w
 }
 ```
 
-Use the path to the Restura executable on your platform (on Windows, the installed `Restura.exe`; on Linux, the AppImage or installed binary). Logs go to stderr, which agents such as Claude Desktop capture in their own log files.
+On Windows use the installed `Restura.exe`; on Linux, the AppImage or installed binary.
 
-## What it exposes
+**Over HTTP (advanced).** Clients that speak streamable HTTP can connect to `http://127.0.0.1:<port>/mcp` directly with `Authorization: Bearer <token>`. Settings shows the URL and the token and can rotate it. The token and port stay the same across restarts until you rotate the token.
 
-| Tool | What it does |
+<Aside type="note" title="Development builds">
+An unpackaged development build is started as `electron <path>/dist/electron/electron/main/main.js`, so the agent command needs that script before `--mcp-server`. Set `RESTURA_USER_DATA_DIR` to the same folder for the app and the agent.
+</Aside>
+
+## Access levels
+
+| Collections | The agent can |
 |---|---|
-| `list_collections` | Enumerate collections you have shared with the agent. |
-| `list_requests` | Browse requests in a shared collection (filterable by folder). |
-| `list_environments` | List shared environments. |
-| `get_environment` | Fetch one environment's details — secrets redacted. |
-| `get_history` | Query past request executions, if you share history. |
+| Hidden | Nothing. It cannot tell the collection exists. |
+| Read | List and read its folders and requests (credentials redacted). |
+| Read & edit | Also create, update, rename, move and delete items in it. |
+| Full (send) | Also send its requests and run it. |
 
-The tool surface is read-only and metadata-shaped: an agent can ask *what* requests exist, but cannot send them or change saved state.
+The **New collections** setting applies to collections without their own choice. A collection or environment the agent creates is shared with it for editing automatically. Creating one needs at least one other collection or environment shared for editing first.
 
-## Consent and redaction
+| Environments | The agent can |
+|---|---|
+| Hidden | Nothing. |
+| Read | See variable names and non-secret values. Secret values show as `(secret)`. |
+| Read & edit | Also add, change and delete variables. |
 
-- **Everything is hidden by default.** Collections (hidden / read-only / full), environments, and history each have their own consent level, and all start hidden.
-- Tool input is validated against strict schemas, and every response is deeply redacted before it leaves the process.
-- Secret values stay in the desktop secret store; the same [`SecretRef`](/architecture/adrs/0007-secret-ref-pattern/) machinery that protects [auth](/guides/auth/) credentials keeps them out of tool output.
+Sending with an environment is a separate checkbox, **Agents may send with this environment**, so you can let an agent read `prod` without letting it send requests with prod credentials. **Request history** has its own switch.
 
-## What's next
+## Approvals
 
-1. Sync collections, environments, and history to the headless server.
-2. A Settings screen to choose what each agent may see.
-3. An optional local HTTP transport bound to `127.0.0.1` with a one-time token.
+- **Ask for every change** (default): every create, update, delete and send opens an approval dialog in Restura.
+- **Auto-approve edits**: creates and updates apply immediately. Deletes and sends still ask.
+
+There is no setting that auto-approves deletes or sends. Closing the dialog or pressing Escape denies. If you change access while a dialog is open, the new setting applies when you click Approve.
+
+The **Activity** list in Settings shows every change, refusal and send, with the agent's name. Most changes have **Undo**, which puts the collection or environment back the way it was before that change.
+
+## Secrets
+
+- Agents never see secret values. Credentials in saved requests, secret variables, keychain handles, URL passwords and token-like fields are redacted in everything an agent reads.
+- Agents cannot write secrets either. Auth fields only accept a `{{variable}}` reference. When a request needs a credential, the agent calls `request_secret_variable`. Restura asks you to type the value and stores it as a secret variable, and the agent only learns that it was set.
+- Responses an agent receives have credential headers (`Authorization`, `Set-Cookie`, …), token-like JSON fields and JWTs masked. You can turn this off in Settings, for example to debug a login flow.
+- Response bodies, headers and saved documentation come from third parties, and Restura labels them as untrusted when it passes them to the agent. A malicious API response could still try to instruct an agent, which is one reason sends always need your approval.
+
+## Tools
+
+| Tool | Tier |
+|---|---|
+| `describe_access`, `list_collections`, `get_collection_tree`, `list_requests`, `get_request`, `list_environments`, `get_environment`, `get_history`, `list_collection_runs` | Read |
+| `open_request` | Opens a tab |
+| `create_collection`, `create_folder`, `create_request`, `update_request`, `rename_item`, `move_item`, `import_collection` (OpenAPI, Postman, Insomnia, OpenCollection, curl) | Edit |
+| `create_environment`, `set_environment_variable`, `request_secret_variable`, `set_active_environment` | Edit |
+| `delete_item`, `delete_collection`, `delete_environment_variable` | Delete — always asks |
+| `send_request`, `run_collection` | Send — always asks |
+
+`send_request` and `run_collection` use the collection runner, the same pipeline as the Runner dialog: variables, inherited auth, pre-request and test scripts, and Restura's SSRF protection. Each run appears in the **Runs** panel.
+
+No tool can change MCP settings or access, AI provider keys, the secret store, proxy and certificate settings, or updates.
+
+## Security
+
+- The server listens on `127.0.0.1` only and needs a 256-bit token on every request.
+- Requests from web browsers are refused (any `Origin` or `Sec-Fetch-Site` header), as is any `Host` that isn't loopback, so a website cannot reach it through your browser or a rebound DNS name.
+- The token is kept in a file only your user can read, under the app's data folder.
+- Turning the server off, or closing the window that owns it, ends every pending call.
+
+See [ADR 0041](/architecture/adrs/0041-mcp-control-server/) for the design.
 
 ## Related
 
 - [MCP protocol](/protocols/mcp/) — Restura *as a client* of other MCP servers.
 - [AI assistant](/guides/ai-assistant/) — the built-in chat panel.
-- [Roadmap](/roadmap/#mcp-server) — where this sits among other AI features.
+- [Collections](/guides/collections/) and [Environments](/guides/environments/).

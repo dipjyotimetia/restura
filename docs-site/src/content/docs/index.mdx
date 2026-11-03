@@ -61,7 +61,7 @@ I got tired of opening a different tool for every protocol. Postman for HTTP, a 
     In the desktop app, the AI assistant can see the current request and response — useful for explaining errors, writing test assertions, or generating follow-up requests. Secrets in headers and bodies are redacted before anything reaches the model; the request URL is sent as written. [Web support is planned](/overview/delivery-plan/#plan-ai-web).
   </Card>
   <Card title="Debug MCP servers" icon="puzzle">
-    Connect to any MCP server as a client to inspect what's being sent and returned. Restura can also run as a local MCP server for agents like Claude — the server ships today, and [collection sharing is being built](/overview/delivery-plan/#plan-mcp-server) with consent controls first.
+    Connect to any MCP server as a client to inspect what's being sent and returned. Restura can also run as a local [MCP server](/guides/mcp-server-mode/) that agents like Claude Code and Codex use to build and run your collections — only what you share, with your approval.
   </Card>
   <Card title="Tested like it matters" icon="approve-check">
     A layered suite of unit, integration, security, and end-to-end tests — plus API-contract checks that run the shared protocol core against Worker-style and Node-style fetchers — runs against every change, across the web, desktop, and self-hosted builds. [See how it's tested](/testing/overview/).
