@@ -154,4 +154,44 @@ items:
     expect(result.summary.passed).toBe(3);
     expect(hits.map((h) => h.url)).toEqual(['/set', '/use?x=script', '/after?x=env']);
   });
+
+  it('a pre-request pm.variables.unset keeps the value for THIS request (app parity)', async () => {
+    const file = ocFile(`items:
+  - info: { type: http, name: Unset, seq: 1 }
+    http: { method: GET, url: "${baseUrl}/u?x={{x}}" }
+    runtime:
+      scripts:
+        - type: before-request
+          code: "pm.variables.unset('x');"
+`);
+    const result = await runCollection(file, { ...RUN, envVars: { x: 'env' } }, new Quiet());
+    expect(result.summary.passed).toBe(1);
+    expect(hits.map((h) => h.url)).toEqual(['/u?x=env']);
+  });
+
+  it('a legacy _collection.yaml secret variable does not shadow --env with an empty value', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'restura-legacy-secret-'));
+    writeFileSync(
+      join(dir, '_collection.yaml'),
+      'name: Legacy\nvariables:\n  - key: token\n    value: ""\n    enabled: true\n    secret: true\n'
+    );
+    writeFileSync(
+      join(dir, 'get.http.yaml'),
+      [
+        'name: Get',
+        'method: GET',
+        `url: "${baseUrl}/leg?t={{token}}"`,
+        'headers: []',
+        'params: []',
+        'body:',
+        '  type: none',
+        'auth:',
+        '  type: none',
+        '',
+      ].join('\n')
+    );
+    const result = await runCollection(dir, { ...RUN, envVars: { token: 'ENV' } }, new Quiet());
+    expect(result.requests[0]?.passed, result.requests[0]?.errorMessage).toBe(true);
+    expect(hits.map((h) => h.url)).toEqual(['/leg?t=ENV']);
+  });
 });

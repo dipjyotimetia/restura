@@ -82,18 +82,6 @@ interface CachedToken {
 const oauth2TokenCache = new Map<string, CachedToken>();
 
 /**
- * For an OAuth2 auth that has a token endpoint + client id but no access token,
- * fetch one via the **client_credentials** grant — the only non-interactive
- * grant appropriate for CI — and return a copy of the auth carrying the token.
- *
- * Everything else is returned unchanged: a non-oauth2 auth, an oauth2 config
- * that already has a token, or one declaring an interactive grant
- * (authorization_code / password / device_code). OpenCollection import drops
- * `grantType`, so an unset grantType with a token endpoint is treated as
- * client_credentials. Tokens are cached (per token-url + client + scope) so a
- * collection of N requests hits the token endpoint once, not N times.
- */
-/**
  * The token request carries the client secret, and `validateURL` checked only
  * the URL as written: following a redirect would POST that secret to a host
  * the SSRF guard never saw (e.g. `307 → http://169.254.169.254/`). A token
@@ -109,6 +97,18 @@ const noRedirectFetch: typeof globalThis.fetch = async (input, init) => {
   return response;
 };
 
+/**
+ * For an OAuth2 auth that has a token endpoint + client id but no access token,
+ * fetch one via the **client_credentials** grant — the only non-interactive
+ * grant appropriate for CI — and return a copy of the auth carrying the token.
+ *
+ * Everything else is returned unchanged: a non-oauth2 auth, an oauth2 config
+ * that already has a token, or one declaring an interactive grant
+ * (authorization_code / password / device_code). OpenCollection import drops
+ * `grantType`, so an unset grantType with a token endpoint is treated as
+ * client_credentials. Tokens are cached (per token-url + client + scope) so a
+ * collection of N requests hits the token endpoint once, not N times.
+ */
 export async function resolveOAuth2Token(
   auth: AuthConfig | undefined,
   /** @deprecated Unused — pass auth already resolved with `resolveAuthVariables`. */

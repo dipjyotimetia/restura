@@ -16,10 +16,11 @@
  *
  * A script write this iteration therefore beats the data row, and a write from
  * an earlier iteration sits below the next row. The two hosts differ on where
- * those earlier writes sit relative to folder and collection variables, and on
- * whether a `pm.collectionVariables` write is substituted into `{{var}}`. Both
- * are named in {@link RunScopePolicy}; the exported policies state which host
- * has which.
+ * those earlier writes sit relative to folder and collection variables (both
+ * now substitute a `pm.collectionVariables` write into later `{{var}}`s, as
+ * Newman does; `collectionWritesSubstitute` stays a policy knob). The
+ * differences are named in {@link RunScopePolicy}; the exported policies state
+ * which host has which.
  */
 import { applyVarMutations } from '../collections/variable-mutations';
 

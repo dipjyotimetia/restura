@@ -328,7 +328,7 @@ describe('CLI cross-protocol collection run (real servers)', () => {
     // Five servers, two iterations: well past the 5s default on a loaded runner.
   }, 30_000);
 
-  it('a secret collection variable never goes out empty: --env supplies it, absent it fails loudly', async () => {
+  it('a secret collection variable never goes out empty: --env, a data row or a script supplies it, absent it fails that item', async () => {
     const collection: Collection = {
       id: 'sec',
       name: 'Secret',
@@ -364,26 +364,70 @@ describe('CLI cross-protocol collection run (real servers)', () => {
     expect(ok.summary.passed).toBe(1);
     expect(seen.at(-1)?.url).toBe('/cleanup?k=real');
 
-    await expect(
-      runCollection(
-        file,
-        { envVars: { baseUrl: httpUrl }, bail: false, timeoutMs: 5000, allowLocalhost: true },
-        new Recorder()
-      )
-    ).rejects.toThrow(/apiKey/);
-
-    // A request the filters leave out never runs, so it cannot refuse the run.
-    const filteredOut = await runCollection(
+    // A --data row supplies it.
+    const fromRow = await runCollection(
       file,
       {
         envVars: { baseUrl: httpUrl },
         bail: false,
         timeoutMs: 5000,
         allowLocalhost: true,
-        filter: { exclude: ['Keyed'] },
+        iterations: [{ apiKey: 'row' }],
       },
       new Recorder()
     );
-    expect(filteredOut.summary.total).toBe(0);
+    expect(fromRow.summary.passed).toBe(1);
+    expect(seen.at(-1)?.url).toBe('/cleanup?k=row');
+
+    // Nobody supplies it: that item is not sent and fails; the run still completes.
+    const before = seen.length;
+    const missing = await runCollection(
+      file,
+      { envVars: { baseUrl: httpUrl }, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new Recorder()
+    );
+    expect(seen.length).toBe(before);
+    expect(missing.requests[0]).toMatchObject({ passed: false, notSent: true });
+    expect(missing.requests[0]?.errorMessage).toMatch(/secret variable "apiKey" has no value/);
+  });
+
+  it('a secret collection variable set by an earlier script chains like any other (login -> token)', async () => {
+    const http = (id: string, name: string, url: string, testScript?: string) =>
+      req({
+        id,
+        name,
+        type: 'http',
+        method: 'GET',
+        url,
+        headers: [],
+        params: [],
+        body: { type: 'none' },
+        auth: { type: 'none' },
+        ...(testScript ? { testScript } : {}),
+      });
+    const collection: Collection = {
+      id: 'sec-chain',
+      name: 'Secret chain',
+      variables: [{ id: 'v', key: 'token', value: '', enabled: true, secret: true } as never],
+      items: [
+        http(
+          'l',
+          'Login',
+          '{{baseUrl}}/cleanup?step=login',
+          "pm.collectionVariables.set('token', 'from-script');"
+        ),
+        http('u', 'Use', '{{baseUrl}}/cleanup?t={{token}}'),
+      ],
+    };
+    const file = join(tmp, 'secret-chain.yml');
+    await writeFile(file, serializeOpenCollectionYAML(internalToOC(collection)), 'utf-8');
+    seen.length = 0;
+    const result = await runCollection(
+      file,
+      { envVars: { baseUrl: httpUrl }, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new Recorder()
+    );
+    expect(result.summary.passed).toBe(2);
+    expect(seen.map((s) => s.url)).toEqual(['/cleanup?step=login', '/cleanup?t=from-script']);
   });
 });

@@ -40,7 +40,11 @@ export const fileCollectionMetaSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   auth: authConfigSchema.optional(),
-  variables: z.array(keyValueSchema.omit({ id: true })).optional(),
+  // `secret` must survive the parse: a value-less secret would otherwise load
+  // as an empty plaintext value and shadow the one supplied at run time.
+  variables: z
+    .array(keyValueSchema.omit({ id: true }).extend({ secret: z.boolean().optional() }))
+    .optional(),
 });
 
 export type FileCollectionMeta = z.infer<typeof fileCollectionMetaSchema>;

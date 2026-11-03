@@ -146,6 +146,7 @@ async function runCollectionWithSessions(
   }
   Object.assign(baseVars, options.overrideVars);
   const filtered = options.filter ? applyFilters(loaded.requests, options.filter) : loaded.requests;
+  const secretNames = new Set(loaded.meta.secretVariableNames ?? []);
   assertCliSecretsAvailable(
     // A blocked request is never sent, and one the filters dropped never runs,
     // so neither one's variables can abort the run.
@@ -243,7 +244,7 @@ async function runCollectionWithSessions(
           iterScope.absorb([
             {
               before: preVars,
-              after: pre.variables,
+              after: pre.scriptVariables,
               collectionMutations: pre.collectionMutations,
             },
           ]);
@@ -279,6 +280,28 @@ async function runCollectionWithSessions(
           next: preResult.execution.nextRequest,
           badJump: 'ignore',
         };
+      }
+
+      // A secret collection variable with no value by now (no `--env`, row or
+      // earlier script supplied one) fails this item before anything is sent:
+      // never an empty or literal `{{name}}` on the wire.
+      const missingSecret = missingSecretVariable(sendItem.request, perRequestVars, secretNames);
+      if (missingSecret !== undefined) {
+        const result: RequestRunResult = {
+          request: item,
+          status: 0,
+          passed: false,
+          durationMs: 0,
+          bodyBytes: 0,
+          errorMessage:
+            `not sent: secret variable "${missingSecret}" has no value; ` +
+            'provide it with --env, --env-var or --data, or set it in an earlier script.',
+          notSent: true,
+          ...(isDataDriven ? { iteration: iter } : {}),
+        };
+        results.push(result);
+        await reporter.onRequestComplete?.(result);
+        return { failed: true, sent: false };
       }
 
       // A refusal thrown while resolving a value written at run time fails this
@@ -319,7 +342,7 @@ async function runCollectionWithSessions(
           iterScope.absorb([
             {
               before: perRequestVars,
-              after: test.variables,
+              after: test.scriptVariables,
               collectionMutations: test.collectionMutations,
             },
           ]);
@@ -426,6 +449,22 @@ async function runCollectionWithSessions(
   };
   await reporter.onEnd(final);
   return final;
+}
+
+/** The first secret collection variable the request uses that has no value yet. */
+function missingSecretVariable(
+  request: unknown,
+  vars: Record<string, string>,
+  secretNames: ReadonlySet<string>
+): string | undefined {
+  if (secretNames.size === 0) return undefined;
+  for (const text of stringLeaves(request)) {
+    if (!text.includes('{{')) continue;
+    for (const { name } of scanVariableTokens(text)) {
+      if (secretNames.has(name) && lookupVariable([vars], name) === undefined) return name;
+    }
+  }
+  return undefined;
 }
 
 /** Every string in a request, object keys included: a header map can hold a token as a key. */

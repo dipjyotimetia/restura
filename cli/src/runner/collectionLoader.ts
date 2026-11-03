@@ -77,6 +77,11 @@ export interface LoadedCollection {
     description?: string;
     variables?: Array<{ key: string; value: string; enabled?: boolean }>;
     privateVariableNames?: string[];
+    /**
+     * Secret collection variables (value-less in the file): a request that is
+     * sent with no value for one fails, the rest of the run carries on.
+     */
+    secretVariableNames?: string[];
   };
   requests: LoadedRequest[];
   /** Format detected at load time — used for deprecation warnings and reporters. */
@@ -196,26 +201,27 @@ async function loadOpenCollectionDir(dir: string): Promise<LoadedCollection> {
  * Collection variables as the run's values. A secret, private or handle-backed
  * variable carries no usable value in a file (`secret: true` exports
  * value-less), so it is never folded in as an empty string — that would sit
- * above `--env` and go out silently. Its name becomes private instead, so a
- * request that uses it without a value fails explicitly
- * (`assertCliSecretsAvailable`), the same rule as folder variables.
+ * above `--env` and go out silently. Its name is returned instead: the runner
+ * fails a request that still has no value for it when that request is sent
+ * (`--env`, a `--data` row or an earlier script can supply one). It is not a
+ * private name, which would refuse the whole run before a script could set it.
  */
 function splitCollectionVariables(
   vars: ReadonlyArray<{ key: string; value: string; enabled?: boolean }> | undefined
-): { variables: Array<{ key: string; value: string; enabled?: boolean }>; privateNames: string[] } {
+): { variables: Array<{ key: string; value: string; enabled?: boolean }>; secretNames: string[] } {
   const variables: Array<{ key: string; value: string; enabled?: boolean }> = [];
-  const privateNames: string[] = [];
+  const secretNames: string[] = [];
   for (const v of vars ?? []) {
     const flags = v as { secret?: unknown; private?: unknown; secretRef?: unknown };
     if (flags.secret === true || flags.private === true || flags.secretRef !== undefined) {
-      if (v.key) privateNames.push(v.key);
+      if (v.key) secretNames.push(v.key);
       continue;
     }
     const item: { key: string; value: string; enabled?: boolean } = { key: v.key, value: v.value };
     if (v.enabled !== undefined) item.enabled = v.enabled;
     variables.push(item);
   }
-  return { variables, privateNames };
+  return { variables, secretNames };
 }
 
 function extractMeta(c: Collection): LoadedCollection['meta'] {
@@ -223,19 +229,16 @@ function extractMeta(c: Collection): LoadedCollection['meta'] {
   if (c.description) out.description = c.description;
   const split = splitCollectionVariables(c.variables);
   if (split.variables.length > 0) out.variables = split.variables;
-  if (split.privateNames.length > 0) out.privateVariableNames = split.privateNames;
+  if (split.secretNames.length > 0) out.secretVariableNames = split.secretNames;
   const privateVariables = (c as Collection & { _oc?: { extensions?: Record<string, unknown> } })
     ._oc?.extensions?.['x-restura-private-variables'];
   if (Array.isArray(privateVariables)) {
-    out.privateVariableNames = [
-      ...(out.privateVariableNames ?? []),
-      ...privateVariables.flatMap((entry) => {
-        const names = (entry as { names?: unknown }).names;
-        return Array.isArray(names)
-          ? names.filter((name): name is string => typeof name === 'string')
-          : [];
-      }),
-    ];
+    out.privateVariableNames = privateVariables.flatMap((entry) => {
+      const names = (entry as { names?: unknown }).names;
+      return Array.isArray(names)
+        ? names.filter((name): name is string => typeof name === 'string')
+        : [];
+    });
   }
   return out;
 }
@@ -440,7 +443,7 @@ async function loadLegacyFileCollection(directoryPath: string): Promise<LoadedCo
   if (meta.description !== undefined) outMeta.description = meta.description;
   const split = splitCollectionVariables(meta.variables);
   if (split.variables.length > 0) outMeta.variables = split.variables;
-  if (split.privateNames.length > 0) outMeta.privateVariableNames = split.privateNames;
+  if (split.secretNames.length > 0) outMeta.secretVariableNames = split.secretNames;
 
   return { meta: outMeta, requests, format: 'legacy-dir' };
 }
