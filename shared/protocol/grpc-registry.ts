@@ -239,8 +239,15 @@ export function resolveMethod(
   if (!method) {
     throw new Error(`Method "${methodName}" not found on service "${serviceName}"`);
   }
+  methodRegistries.set(method, registry);
   return { service, method };
 }
+
+// The registry a method was resolved from. protobuf JSON needs it to resolve
+// `google.protobuf.Any` payloads (`@type`) — without it `toJson`/`fromJson`
+// throw "… is not in the type registry" on any message carrying an Any.
+// Weak: a registry evicted from the build cache is not kept alive by this.
+const methodRegistries = new WeakMap<DescMethod, Registry>();
 
 /** A service as listed for the method picker (type names fully qualified, no leading dot). */
 export interface RegistryServiceInfo {
@@ -309,18 +316,25 @@ export function inputFromJson(
   options: GrpcJsonOptions = {}
 ): unknown {
   const value = (json ?? {}) as JsonValue;
+  const registry = options.registry ?? methodRegistries.get(method);
+  const typeRegistry = registry ? { registry } : {};
   if (options.ignoreUnknownFields) {
-    return fromJson(method.input, value, { ignoreUnknownFields: true });
+    return fromJson(method.input, value, { ignoreUnknownFields: true, ...typeRegistry });
   }
   const unknown = findUnknownJsonFields(method.input, value);
   if (unknown.length > 0) throw new GrpcUnknownFieldsError(unknown, method.input.typeName);
-  return fromJson(method.input, value);
+  return fromJson(method.input, value, typeRegistry);
 }
 
-/** Options for `inputFromJson`. */
+/** Options for `inputFromJson` / `outputToJson`. */
 export interface GrpcJsonOptions {
   /** Drop keys the input type doesn't define instead of rejecting them. */
   ignoreUnknownFields?: boolean;
+  /**
+   * Type registry for `google.protobuf.Any` payloads. Defaults to the registry
+   * the method was resolved from (`resolveMethod`).
+   */
+  registry?: Registry;
 }
 
 /**
@@ -329,8 +343,14 @@ export interface GrpcJsonOptions {
  * output so the rendered response shows every field, matching what users expect
  * from a gRPC response viewer rather than proto3's default-omitting JSON.
  */
-export function outputToJson(method: DescMethod, message: unknown): JsonValue {
+export function outputToJson(
+  method: DescMethod,
+  message: unknown,
+  options: Pick<GrpcJsonOptions, 'registry'> = {}
+): JsonValue {
+  const registry = options.registry ?? methodRegistries.get(method);
   return toJson(method.output, message as Parameters<typeof toJson>[1], {
     alwaysEmitImplicit: true,
+    ...(registry ? { registry } : {}),
   });
 }

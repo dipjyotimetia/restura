@@ -69,3 +69,31 @@ export const GrpcStatusCodeName: Record<GrpcStatusCode, string> = {
   [GrpcStatusCode.DATA_LOSS]: 'DATA_LOSS',
   [GrpcStatusCode.UNAUTHENTICATED]: 'UNAUTHENTICATED',
 };
+
+/**
+ * HTTP status → gRPC status for a response that carries no gRPC status of its
+ * own (no `grpc-status`, no Connect error body) — i.e. an intermediary or a
+ * non-gRPC server answered. One table for every wire protocol, per
+ * https://github.com/grpc/grpc/blob/master/doc/http-grpc-status-mapping.md
+ * (identical to the Connect spec's "HTTP to Error Code" table). 2xx maps to
+ * UNKNOWN: a success status without a gRPC status is still not an OK call.
+ */
+export function grpcStatusFromHttpStatus(httpStatus: number): GrpcStatusCode {
+  switch (httpStatus) {
+    case 400:
+      return GrpcStatusCode.INTERNAL;
+    case 401:
+      return GrpcStatusCode.UNAUTHENTICATED;
+    case 403:
+      return GrpcStatusCode.PERMISSION_DENIED;
+    case 404:
+      return GrpcStatusCode.UNIMPLEMENTED;
+    case 429:
+    case 502:
+    case 503:
+    case 504:
+      return GrpcStatusCode.UNAVAILABLE;
+    default:
+      return GrpcStatusCode.UNKNOWN;
+  }
+}

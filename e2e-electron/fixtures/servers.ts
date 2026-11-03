@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import path from 'node:path';
+import { type MockGrpcServerHandle, startMockGrpcServer } from '../../e2e/mocks/grpcServer';
 import { type MockHttpServerHandle, startMockHttpServer } from '../../e2e/mocks/httpServer';
 import { type MockMcpServerHandle, startMockMcpServer } from '../../e2e/mocks/mcpServer';
 import { type MockMcpV2ServerHandle, startMockMcpV2Server } from '../../e2e/mocks/mcpV2Server';
@@ -82,6 +83,12 @@ export interface DesktopMockServers {
   mcpV2: MockMcpV2ServerHandle;
   socketio: MockSocketIOServerHandle;
   grpc: NativeGrpcServerHandle;
+  /**
+   * The Connect-RPC mock (`e2e/mocks/grpcServer.ts`): its `h2cUrl` speaks
+   * native gRPC + Connect, and it hosts `edge.v1.EdgeService` (Any payloads,
+   * a non-PascalCase method) plus a path-prefixed mount.
+   */
+  connectGrpc: MockGrpcServerHandle;
 }
 
 interface ServerFixtures {
@@ -92,16 +99,18 @@ interface ServerFixtures {
 export const test = electronTest.extend<ServerFixtures, { _servers: DesktopMockServers }>({
   _servers: [
     async ({}, use) => {
-      const [http, ws, mcp, mcpV2, socketio, grpc] = await Promise.all([
+      const [http, ws, mcp, mcpV2, socketio, grpc, connectGrpc] = await Promise.all([
         startMockHttpServer(),
         startMockWsServer(),
         startMockMcpServer(),
         startMockMcpV2Server(),
         startMockSocketIOServer(),
         startNativeGrpcServer(),
+        startMockGrpcServer(),
       ]);
-      await use({ http, ws, mcp, mcpV2, socketio, grpc });
+      await use({ http, ws, mcp, mcpV2, socketio, grpc, connectGrpc });
       await Promise.all([
+        connectGrpc.close(),
         http.close(),
         ws.close(),
         mcp.close(),
@@ -118,6 +127,7 @@ export const test = electronTest.extend<ServerFixtures, { _servers: DesktopMockS
     _servers.ws.reset();
     _servers.mcp.reset();
     _servers.socketio.reset();
+    _servers.connectGrpc.reset();
     await use(_servers);
   },
 });

@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package conformance.v1;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+// ConformanceService drives Restura's gRPC clients through every call type
+// with a payload that touches every proto3 shape, over native gRPC, Connect
+// and gRPC-Web, with authentication and custom metadata. Two independent
+// servers implement it: connect-node (all three protocols) and grpc-js
+// (native gRPC). See e2e/mocks/conformanceServer.ts.
+service ConformanceService {
+  // Echoes the payload and reports what the server observed (auth, metadata).
+  rpc Unary(ConformanceRequest) returns (ConformanceResponse);
+  // Streams `repeat` echoes (default 3).
+  rpc ServerStream(ConformanceRequest) returns (stream ConformanceResponse);
+  // Returns the last payload and how many messages arrived.
+  rpc ClientStream(stream ConformanceRequest) returns (ConformanceResponse);
+  // Echoes each inbound message as it arrives.
+  rpc BidiStream(stream ConformanceRequest) returns (stream ConformanceResponse);
+  // Like Unary but requires valid credentials (UNAUTHENTICATED + ErrorInfo otherwise).
+  rpc Secure(ConformanceRequest) returns (ConformanceResponse);
+}
+
+enum Priority {
+  PRIORITY_UNSPECIFIED = 0;
+  PRIORITY_LOW = 1;
+  PRIORITY_HIGH = 2;
+}
+
+message Address {
+  string street = 1;
+  string city = 2;
+  repeated string tags = 3;
+}
+
+message Contact {
+  string name = 1;
+  Address address = 2;
+  repeated Address previous = 3;
+  Priority priority = 4;
+
+  message Phone {
+    string number = 1;
+    bool primary = 2;
+  }
+  repeated Phone phones = 5;
+}
+
+message Payload {
+  double f_double = 1;
+  float f_float = 2;
+  int64 f_int64 = 3;
+  uint64 f_uint64 = 4;
+  int32 f_int32 = 5;
+  fixed64 f_fixed64 = 6;
+  fixed32 f_fixed32 = 7;
+  bool f_bool = 8;
+  string f_string = 9;
+  bytes f_bytes = 10;
+  uint32 f_uint32 = 11;
+  sfixed32 f_sfixed32 = 12;
+  sfixed64 f_sfixed64 = 13;
+  sint32 f_sint32 = 14;
+  sint64 f_sint64 = 15;
+
+  Priority priority = 16;
+  Contact contact = 17;
+  repeated Contact contacts = 18;
+  repeated int64 ids = 19;
+  map<string, Contact> contacts_by_id = 20;
+  map<int64, string> labels = 21;
+  map<string, Priority> priorities = 22;
+
+  oneof target {
+    string email = 23;
+    Address postal = 24;
+    int64 user_id = 25;
+  }
+  optional int32 retry_count = 26;
+
+  google.protobuf.Timestamp created_at = 27;
+  google.protobuf.Duration ttl = 28;
+  google.protobuf.Struct attributes = 29;
+  google.protobuf.Value dynamic = 30;
+  google.protobuf.Any extension = 31;
+  google.protobuf.StringValue nickname = 32;
+  google.protobuf.Int64Value quota = 33;
+  google.protobuf.FieldMask update_mask = 34;
+  repeated google.protobuf.Any attachments = 35;
+}
+
+message ConformanceRequest {
+  Payload payload = 1;
+  // ServerStream: number of responses (default 3, max 50).
+  int32 repeat = 2;
+  // A gRPC status name (e.g. "INVALID_ARGUMENT") to fail with, carrying
+  // google.rpc.BadRequest + ErrorInfo details.
+  string fail_with = 3;
+}
+
+// What the server saw on the wire — lets the client assert that auth and
+// metadata really arrived, not just that the call succeeded.
+message CallInfo {
+  // "bearer" | "basic" | "api-key" | "" (no credentials).
+  string auth_scheme = 1;
+  // Authenticated principal ("" when none).
+  string principal = 2;
+  // Inbound `x-*` request metadata (lower-cased keys).
+  map<string, string> metadata = 3;
+  // Decoded bytes of the `trace-bin` binary metadata entry, if sent.
+  bytes trace_bin = 4;
+  // Wire protocol the server observed: "grpc" | "grpc-web" | "connect".
+  string protocol = 5;
+  // ClientStream / BidiStream: messages received so far.
+  int32 message_count = 6;
+  // Deadline the server received, in ms (0 = none).
+  int64 deadline_ms = 7;
+}
+
+message ConformanceResponse {
+  Payload payload = 1;
+  CallInfo call = 2;
+  int32 index = 3;
+}

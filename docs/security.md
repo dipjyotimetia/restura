@@ -70,7 +70,9 @@ responses itself.
 
 ### gRPC response limits (desktop)
 
-Both connect-node transports in `electron/main/handlers/grpc-connect.ts` set
+Every connect-node transport (native gRPC, the Connect fallback and the pinned
+gRPC / Connect / gRPC-Web ones) gets its options from `buildNodeTransportBase` in
+`electron/main/handlers/grpc-transport.ts`, which sets
 `readMaxBytes` (and `writeMaxBytes`) to the same 10 MB `MAX_RESPONSE_SIZE`
 instead of connect's ~4 GiB default. The limit applies per message: it is
 checked against the envelope length prefix before the payload is buffered, and

@@ -23,8 +23,8 @@ import { cors } from 'hono/cors';
 import type { AppDeps } from './adapters';
 import type { Env } from './env';
 import { featureFlags } from './handlers/feature-flags';
-import { createGrpcHandler } from './handlers/grpc';
-import { createGrpcReflectionHandler } from './handlers/grpc-reflection';
+import { createGrpcHandler, grpcBodyLimit } from './handlers/grpc';
+import { createGrpcReflectionHandler, grpcReflectionBodyLimit } from './handlers/grpc-reflection';
 import { createGrpcWebHandler, grpcWebBodyLimit } from './handlers/grpc-web';
 import { createMcpHandler } from './handlers/mcp';
 import { createMcpTerminateHandler } from './handlers/mcp-terminate';
@@ -203,9 +203,10 @@ export function createApp(
 
   app.post('/api/proxy', createProxyHandler(deps.tcpProxy, deps.nodeHostnameGuard));
   app.post('/api/import/fetch', createRemoteImportHandler(deps.nodeHostnameGuard));
-  app.post('/api/grpc', createGrpcHandler(deps.nodeHostnameGuard));
+  app.post('/api/grpc', grpcBodyLimit, createGrpcHandler(deps.nodeHostnameGuard));
   app.post(
     '/api/grpc/reflection',
+    grpcReflectionBodyLimit,
     createGrpcReflectionHandler(deps.nodeHostnameGuard, deps.grpcReflectionFetch)
   );
   app.post('/api/grpc-web', grpcWebBodyLimit, createGrpcWebHandler(deps.nodeHostnameGuard));

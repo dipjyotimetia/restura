@@ -42,6 +42,9 @@ export const SPEC_SECONDS = {
   'real-graphql-http.spec.ts': 19,
   'real-graphql.spec.ts': 10,
   'real-grpc-advanced.spec.ts': 6,
+  // Measured on CI 2026-11-03 (PR #1338): 20 browser tests × ~9.5 s.
+  'real-grpc-conformance.spec.ts': 190,
+  'real-grpc-protocol-review.spec.ts': 48,
   'real-grpc.spec.ts': 12,
   'real-http-advanced.spec.ts': 3,
   'real-http.spec.ts': 24,

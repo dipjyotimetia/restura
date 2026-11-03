@@ -5,7 +5,7 @@ import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../shared/channels';
 import { gitRateLimiter } from './handlers/git-handler';
-import { grpcRateLimiter } from './handlers/grpc-handler';
+import { grpcRateLimiter, grpcStreamRateLimiter } from './handlers/grpc-handler';
 import { httpRateLimiter } from './handlers/http-handler';
 import { kafkaRateLimiter } from './handlers/kafka-handler';
 import {
@@ -225,6 +225,7 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
     [
       httpRateLimiter,
       grpcRateLimiter,
+      grpcStreamRateLimiter,
       wsRateLimiter,
       wsPingRateLimiter,
       socketIoRateLimiter,

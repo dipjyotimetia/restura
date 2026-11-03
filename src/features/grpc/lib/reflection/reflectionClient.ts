@@ -4,8 +4,8 @@ import { GrpcStatusCode } from '@/types';
 import {
   GrpcClientError,
   grpcAuthNeedsMainSideApply,
-  httpStatusToGrpcStatus,
   prepareGrpcRequest,
+  relayErrorStatus,
 } from '../grpcClient';
 import { type GrpcTlsOptions, resolveGrpcTls } from '../grpcTls';
 import { cacheMessageTypes, parseFileDescriptor } from './protoParser';
@@ -292,7 +292,7 @@ export class GrpcReflectionClient {
         const errorData = (await response.json().catch(() => ({}))) as { error?: string };
         throw new GrpcClientError(
           errorData.error || `Reflection request failed: ${response.statusText}`,
-          httpStatusToGrpcStatus(response.status)
+          relayErrorStatus(response.status)
         );
       }
 

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { create } from '@bufbuild/protobuf';
+import { create, toBinary } from '@bufbuild/protobuf';
+import { FileDescriptorProtoSchema } from '@bufbuild/protobuf/wkt';
 import * as protobuf from 'protobufjs';
 import descriptorExt from 'protobufjs/ext/descriptor';
 import { describe, expect, it } from 'vitest';
@@ -138,5 +139,42 @@ describe('grpc-registry: registryFromDescriptors', () => {
     // EchoSummary has `message_count`; proto3 JSON must emit `messageCount`.
     const summary = create(method.output, { messageCount: 3, concatenated: 'a|b|c' });
     expect(outputToJson(method, summary)).toEqual({ messageCount: 3, concatenated: 'a|b|c' });
+  });
+});
+
+// google.protobuf.Any needs the type registry to (de)serialise its `@type`
+// payload; without it every call whose message carries an Any threw.
+describe('google.protobuf.Any JSON round-trip', () => {
+  const ANY_PROTO = `syntax = "proto3";
+package anyt.v1;
+import "google/protobuf/any.proto";
+message Inner { string x = 1; }
+message Envelope { google.protobuf.Any payload = 1; repeated google.protobuf.Any extra = 2; }
+service AnyService { rpc Wrap(Envelope) returns (Envelope); }`;
+  const INNER = { '@type': 'type.googleapis.com/anyt.v1.Inner', x: 'hi' };
+
+  it('decodes an Any-bearing response with the resolved method registry', () => {
+    const registry = registryFromProtoText(ANY_PROTO);
+    const { method } = resolveMethod(registry, 'anyt.v1.AnyService', 'Wrap');
+    const msg = inputFromJson(method, { payload: INNER, extra: [INNER] });
+    expect(outputToJson(method, msg)).toEqual({ payload: INNER, extra: [INNER] });
+  });
+
+  it('decodes Any with an explicit registry when the method was not resolved', () => {
+    const registry = registryFromProtoText(ANY_PROTO);
+    const method = registry.getService('anyt.v1.AnyService')!.methods[0]!;
+    const msg = inputFromJson(method, { payload: INNER }, { registry });
+    expect(outputToJson(method, msg, { registry })).toEqual({ payload: INNER, extra: [] });
+  });
+
+  it('works for descriptors from reflection too', () => {
+    const registry = registryFromProtoText(ANY_PROTO);
+    const file = registry.getService('anyt.v1.AnyService')!.file;
+    const fromReflection = registryFromDescriptors([
+      btoa(String.fromCharCode(...toBinary(FileDescriptorProtoSchema, file.proto))),
+    ]);
+    const { method } = resolveMethod(fromReflection, 'anyt.v1.AnyService', 'Wrap');
+    const msg = inputFromJson(method, { payload: INNER });
+    expect(outputToJson(method, msg)).toMatchObject({ payload: INNER });
   });
 });

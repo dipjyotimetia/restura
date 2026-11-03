@@ -1,7 +1,11 @@
 import { executeGrpcReflectionProxy } from '@shared/protocol/grpc-reflection-proxy';
-import { GrpcReflectionRequestBodySchema } from '@shared/protocol/grpc-schema';
+import {
+  GrpcReflectionRequestBodySchema,
+  MAX_GRPC_REFLECTION_BODY_BYTES,
+} from '@shared/protocol/grpc-schema';
 import type { Fetcher } from '@shared/protocol/types';
 import type { Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import type { NodeHostnameGuard } from '../adapters';
 import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
@@ -49,12 +53,20 @@ function buildFetcher(
   };
 }
 
+/** Streaming body cap for `/api/grpc/reflection` (see `grpcBodyLimit`). */
+export const grpcReflectionBodyLimit = bodyLimit({
+  maxSize: MAX_GRPC_REFLECTION_BODY_BYTES,
+  onError: (c) => c.json({ error: 'Request body too large' }, 413),
+});
+
 export function createGrpcReflectionHandler(
   nodeHostnameGuard?: NodeHostnameGuard,
   fetchImpl?: ReflectionFetch
 ) {
   return async function grpcReflectionHandler(c: Context<{ Bindings: Env }>) {
-    const parsed = await parseJsonBody(c.req.raw, GrpcReflectionRequestBodySchema);
+    const parsed = await parseJsonBody(c.req.raw, GrpcReflectionRequestBodySchema, {
+      maxBytes: MAX_GRPC_REFLECTION_BODY_BYTES,
+    });
     if (!parsed.ok) {
       return c.json({ error: parsed.error }, parsed.status);
     }

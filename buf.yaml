@@ -8,6 +8,9 @@ lint:
     # Vendored canonical gRPC reflection proto — its names predate buf's
     # STANDARD rules and must not be changed.
     - e2e/mocks/proto/grpc/reflection/v1/reflection.proto
+    # Vendored canonical googleapis google.rpc protos (see their README) —
+    # unversioned `google.rpc` package by design; must not be changed.
+    - e2e/mocks/proto/google/rpc
 breaking:
   use:
     - FILE

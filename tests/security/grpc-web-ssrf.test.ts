@@ -4,6 +4,8 @@
  * path must inherit the shared SSRF guard and header policy, never follow
  * redirects, and run the Node DNS guard on the self-host backend.
  */
+
+import { executeGrpcProxy } from '@shared/protocol/grpc-proxy';
 import { bytesToBase64, encodeGrpcWebFrame } from '@shared/protocol/grpc-web-framing';
 import { collectGrpcWebEvents, executeGrpcWebProxy } from '@shared/protocol/grpc-web-proxy';
 import type { Fetcher, FetcherRequest } from '@shared/protocol/types';
@@ -105,3 +107,72 @@ describe('gRPC-Web header policy', () => {
 // The Worker fetcher's redirect: 'manual' + Node DNS-guard checks live in
 // worker/handlers/__tests__/grpc-web.test.ts (the renderer tsconfig that
 // covers tests/ must not pull in worker/ sources).
+
+// Service / method names become the upstream path `/{service}/{method}` on
+// both relays. The shared identifier rules (grpc-names.ts) must never let a
+// name traverse, inject a query/fragment, or smuggle an encoded slash.
+describe('gRPC relay path construction rejects hostile names', () => {
+  const hostileServices = [
+    '../admin',
+    'a/../../b',
+    'a%2fb',
+    'a?x=1',
+    'a#frag',
+    'a..b',
+    '.a',
+    'a.',
+    '',
+  ];
+  const hostileMethods = ['../x', 'a/b', 'a%2Fb', 'x?y', 'x#y', 'a.b', ''];
+
+  it.each(hostileServices)('gRPC-Web relay refuses service %j', (service) => {
+    const fetcher = vi.fn<Fetcher>();
+    const r = executeGrpcWebProxy({ ...base, url: 'https://api.example.com', service }, fetcher, {
+      allowLocalhost: false,
+    });
+    expect(r.ok).toBe(false);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each(hostileMethods)('gRPC-Web relay refuses method %j', (method) => {
+    const fetcher = vi.fn<Fetcher>();
+    const r = executeGrpcWebProxy({ ...base, url: 'https://api.example.com', method }, fetcher, {
+      allowLocalhost: false,
+    });
+    expect(r.ok).toBe(false);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([...hostileServices.map((s) => [s, 'M']), ...hostileMethods.map((m) => ['a.B', m])])(
+    'Connect relay refuses service %j / method %j',
+    async (service, method) => {
+      const fetcher = vi.fn<Fetcher>();
+      const r = await executeGrpcProxy(
+        { url: 'https://api.example.com', service: service as string, method: method as string },
+        fetcher,
+        { allowLocalhost: false }
+      );
+      expect(r.ok).toBe(false);
+      expect(fetcher).not.toHaveBeenCalled();
+    }
+  );
+
+  it('accepts a leading underscore and builds the exact path', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'application/json' },
+      text: async () => '{}',
+      contentLengthHeader: '2',
+    }));
+    const r = await executeGrpcProxy(
+      { url: 'https://api.example.com/base', service: '_pkg.Svc', method: '_do_it' },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(true);
+    expect((fetcher.mock.calls[0]?.[0] as FetcherRequest).url).toBe(
+      'https://api.example.com/base/_pkg.Svc/_do_it'
+    );
+  });
+});

@@ -3,6 +3,7 @@ import { createClient } from '@connectrpc/connect';
 import { createConnectTransport, createGrpcTransport } from '@connectrpc/connect-node';
 import { expect, test } from './fixtures/servers';
 import { EchoRequestSchema, EchoService } from './mocks/proto/gen/echo_pb';
+import { setGrpcTarget } from './utils/grpc';
 import { switchMode } from './utils/selectors';
 
 /**
@@ -151,9 +152,11 @@ test.describe('Real gRPC server (Connect-RPC SDK)', () => {
 
     await expect(page.getByRole('tab', { name: /Web Stream/i })).toBeVisible();
 
-    await page.getByRole('textbox', { name: 'gRPC server URL' }).fill(servers.grpc.url);
-    await page.getByPlaceholder(/Service \(e\.g\./i).fill('echo.v1.EchoService');
-    await page.getByPlaceholder(/Method \(e\.g\./i).fill('ServerStreamingEcho');
+    await setGrpcTarget(page, {
+      url: servers.grpc.url,
+      service: 'echo.v1.EchoService',
+      method: 'ServerStreamingEcho',
+    });
 
     await page.getByRole('tab', { name: /Web Stream/i }).click();
     await expect(page.getByRole('button', { name: /Start stream/i })).toBeVisible();

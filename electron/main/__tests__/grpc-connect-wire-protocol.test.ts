@@ -8,11 +8,8 @@ vi.mock('../security/secret-handle-store', () => ({
   unwrapSecretValueMain: (v: unknown) => (typeof v === 'string' ? v : undefined),
 }));
 
-import {
-  executeConnectServerStreamCollect,
-  executeConnectUnary,
-  resetProtocolFallbackStateForTests,
-} from '../handlers/grpc-connect';
+import { executeConnectServerStreamCollect, executeConnectUnary } from '../handlers/grpc-connect';
+import { resetProtocolFallbackStateForTests } from '../handlers/grpc-transport';
 
 /**
  * Per-request wire protocol pinning on desktop (#914), against a real server

@@ -17,11 +17,13 @@ import {
   executeConnectReflection,
   executeConnectServerStreamCollect,
   executeConnectUnary,
-  isProtocolRejectionError,
   reflectionProto,
-  resetProtocolFallbackStateForTests,
   runConnectStream,
 } from '../handlers/grpc-connect';
+import {
+  isProtocolRejectionError,
+  resetProtocolFallbackStateForTests,
+} from '../handlers/grpc-transport';
 
 beforeEach(resetProtocolFallbackStateForTests);
 
@@ -553,7 +555,19 @@ describe('isProtocolRejectionError', () => {
     expect(isProtocolRejectionError(new ConnectError('HTTP 403', Code.PermissionDenied))).toBe(
       true
     );
-    expect(isProtocolRejectionError(new ConnectError('HTTP 502', Code.Unavailable))).toBe(true);
+  });
+
+  it.each([400, 403, 404, 405, 406, 415, 426, 501, 505])(
+    'treats HTTP %i as "refused, not run" (safe to retry over Connect)',
+    (status) => {
+      expect(isProtocolRejectionError(new ConnectError(`HTTP ${status}`, Code.Unknown))).toBe(true);
+    }
+  );
+
+  // Transient or possibly-processed responses must not be replayed over another
+  // protocol (duplicate side effects) nor memoise the origin as Connect-only.
+  it.each([408, 429, 500, 502, 503, 504])('does NOT treat HTTP %i as a protocol rejection', (s) => {
+    expect(isProtocolRejectionError(new ConnectError(`HTTP ${s}`, Code.Unavailable))).toBe(false);
   });
 
   it('matches the unsupported-content-type rejection', () => {
