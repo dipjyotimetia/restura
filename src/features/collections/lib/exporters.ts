@@ -8,14 +8,26 @@ import { isKnownHttpMethod, normalizeHttpMethod } from '@shared/protocol/http-me
 import { v4 as uuidv4 } from 'uuid';
 import { internalToOC, serializeOpenCollectionYAML } from '@/lib/opencollection';
 import type { SecretValue } from '@/lib/shared/secretRef';
+import { urlEncodedRaw } from '@/lib/shared/urlEncodedBody';
 import type {
   AuthConfig,
+  AuthType,
   Collection,
   CollectionItem,
   Environment,
+  FormDataItem,
   HttpRequest,
   InsomniaResource,
 } from '@/types';
+
+/** Auth types `convertAuthToInsomnia` cannot carry; they export as no-auth. */
+const INSOMNIA_DROPPED_AUTH: Partial<Record<AuthType, string>> = {
+  digest: 'Digest',
+  oauth1: 'OAuth 1.0',
+  ntlm: 'NTLM',
+  'aws-signature': 'AWS Signature',
+  wsse: 'WSSE',
+};
 
 /**
  * Formats that still report through string warnings. Postman v2.1 / v3 use
@@ -60,6 +72,13 @@ export function getCollectionExportWarnings(
             `${item.request.type.toUpperCase()} requests are exported as non-runnable stubs`
           );
         }
+      }
+      const droppedAuth =
+        format === 'insomnia' && item.request.type === 'http'
+          ? INSOMNIA_DROPPED_AUTH[item.request.auth.type]
+          : undefined;
+      if (droppedAuth) {
+        warnings.add(`Insomnia export omits ${droppedAuth} auth (exported without authentication)`);
       }
       const scripted =
         'preRequestScript' in item.request &&
@@ -217,7 +236,26 @@ export function exportToInsomnia(collection: Collection): {
   };
 }
 
-function convertBodyToInsomnia(body: HttpRequest['body']): { mimeType: string; text: string } {
+/** Insomnia body; `params` carries multipart / urlencoded fields (Insomnia's native shape). */
+interface InsomniaBody {
+  mimeType: string;
+  text: string;
+  params?: Array<{
+    name: string;
+    value: string;
+    disabled: boolean;
+    type?: 'file';
+    fileName?: string;
+  }>;
+}
+
+/** Field-based bodies keep their fields in `formData`; `raw` is empty or stale. */
+function fieldBodyItems(body: HttpRequest['body']): FormDataItem[] | null {
+  if (body.type !== 'form-data' && body.type !== 'x-www-form-urlencoded') return null;
+  return body.formData?.length ? body.formData : null;
+}
+
+function convertBodyToInsomnia(body: HttpRequest['body']): InsomniaBody {
   if (body.type === 'none') return { mimeType: 'text/plain', text: '' };
 
   const mimeTypeMap: Record<string, string> = {
@@ -228,9 +266,27 @@ function convertBodyToInsomnia(body: HttpRequest['body']): { mimeType: string; t
     'form-data': 'multipart/form-data',
   };
 
+  const fields = fieldBodyItems(body);
   return {
     mimeType: mimeTypeMap[body.type] || 'text/plain',
     text: body.raw || '',
+    ...(fields
+      ? {
+          params: fields.map((f) =>
+            f.type === 'file'
+              ? // The file's bytes (base64 in `value`) are not portable; Insomnia
+                // references files by name.
+                {
+                  name: f.key,
+                  value: '',
+                  fileName: f.fileName ?? '',
+                  type: 'file' as const,
+                  disabled: !f.enabled,
+                }
+              : { name: f.key, value: f.value, disabled: !f.enabled }
+          ),
+        }
+      : {}),
   };
 }
 
@@ -335,7 +391,32 @@ export function exportToHAR(collection: Collection): object {
   };
 }
 
-function buildHarPostData(body: HttpRequest['body']): { mimeType: string; text: string } | null {
+interface HarPostData {
+  mimeType: string;
+  text?: string;
+  params?: Array<{ name: string; value?: string; fileName?: string; contentType?: string }>;
+}
+
+function buildHarPostData(body: HttpRequest['body']): HarPostData | null {
+  const fields = fieldBodyItems(body)?.filter((f) => f.enabled && f.key);
+  if (fields?.length) {
+    const params = fields.map((f) =>
+      f.type === 'file'
+        ? {
+            name: f.key,
+            fileName: f.fileName ?? '',
+            ...(f.contentType ? { contentType: f.contentType } : {}),
+          }
+        : { name: f.key, value: f.value }
+    );
+    return body.type === 'x-www-form-urlencoded'
+      ? {
+          mimeType: 'application/x-www-form-urlencoded',
+          params,
+          text: urlEncodedRaw(fields.filter((f) => f.type !== 'file')),
+        }
+      : { mimeType: 'multipart/form-data', params };
+  }
   if (body.type === 'none' || !body.raw) return null;
 
   const mimeTypeMap: Record<string, string> = {

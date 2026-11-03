@@ -19,7 +19,7 @@
 import type { PersistOptions, PersistStorage } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { quarantineState } from './quarantine';
-import { runMigrations } from './runMigrations';
+import { runMigrations, validatePersistedState } from './runMigrations';
 import { migrationTelemetry } from './telemetry';
 import type { MigrationDescriptor } from './types';
 
@@ -44,6 +44,22 @@ export function createPersistedStore<T>(descriptor: MigrationDescriptor<T>): Per
         return persistedState as T;
       }
       return outcome.state as T;
+    },
+    // zustand only calls `migrate` on a version mismatch, so a same-version row
+    // reaches the store through `merge` alone. Gate it on the schema here too;
+    // a rejected row is quarantined and the store keeps its current state.
+    // The validated row overlays current state exactly like zustand's default
+    // shallow merge (the parsed copy is not used, so a partial schema never
+    // strips fields on every launch).
+    merge: (persistedState: unknown, currentState: T): T => {
+      if (typeof persistedState !== 'object' || persistedState === null) return currentState;
+      const validated = validatePersistedState(descriptor, persistedState, descriptor.version);
+      if (validated.kind === 'quarantined') {
+        migrationTelemetry.emit(validated);
+        void quarantineState(validated.quarantineKey, persistedState, validated.reason);
+        return currentState;
+      }
+      return { ...currentState, ...persistedState };
     },
     onRehydrateStorage: () => (state, error) => {
       if (error) {

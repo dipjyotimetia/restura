@@ -4,8 +4,19 @@
  * The core encrypt/decrypt helpers back the Dexie/IndexedDB storage adapter.
  */
 
-// Check if Web Crypto API is available
-const isCryptoAvailable = typeof window !== 'undefined' && window.crypto && window.crypto.subtle;
+/**
+ * Return the Web Crypto API or throw. Fails closed: there is no plaintext or
+ * Math.random fallback, because either would silently weaken data at rest.
+ * Checked per call (not cached at module load) so the guard reflects the
+ * runtime actually executing the operation.
+ */
+function requireCrypto(): Crypto {
+  const c: Crypto | undefined = globalThis.crypto;
+  if (!c?.subtle || typeof c.getRandomValues !== 'function') {
+    throw new Error('Web Crypto API is not available; refusing to handle data without encryption.');
+  }
+  return c;
+}
 
 // Encryption key derivation settings
 const PBKDF2_ITERATIONS = 100000;
@@ -80,10 +91,7 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
  * Encrypt a string value
  */
 export async function encryptValue(value: string, password: string): Promise<string> {
-  if (!isCryptoAvailable) {
-    console.warn('Web Crypto API not available, storing data unencrypted');
-    return value;
-  }
+  requireCrypto();
 
   try {
     const encoder = new TextEncoder();
@@ -117,16 +125,13 @@ export async function encryptValue(value: string, password: string): Promise<str
  * Decrypt a string value
  */
 export async function decryptValue(encryptedValue: string, password: string): Promise<string> {
-  if (!isCryptoAvailable) {
-    console.warn('Web Crypto API not available');
-    return encryptedValue;
-  }
-
   // Check if data is encrypted
   if (!encryptedValue.startsWith('ENC:')) {
     // Data is not encrypted, return as-is
     return encryptedValue;
   }
+
+  requireCrypto();
 
   try {
     const base64Data = encryptedValue.substring(4); // Remove 'ENC:' prefix
@@ -154,12 +159,7 @@ export async function decryptValue(encryptedValue: string, password: string): Pr
  * Generate a secure random password for local encryption
  */
 export function generateLocalEncryptionKey(): string {
-  if (!isCryptoAvailable) {
-    // Fallback for environments without Web Crypto
-    return `fallback-key-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  }
-
-  return Array.from(crypto.getRandomValues(new Uint8Array(32)))
+  return Array.from(requireCrypto().getRandomValues(new Uint8Array(32)))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }

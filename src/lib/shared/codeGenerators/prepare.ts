@@ -1,7 +1,11 @@
-import type { AuthConfig, HttpRequest } from '@/types';
-import { isSecretHandle, type SecretValue } from '../secretRef';
+import type { AuthConfig, HttpRequest, RequestSettings } from '@/types';
+import { isExternalSecretRef, isSecretHandle, type SecretValue } from '../secretRef';
 import { serializeUrlEncoded } from '../urlEncodedBody';
-import type { GenerateOptions } from './types';
+import { type GenerateOptions, PROXY_PASSWORD_PLACEHOLDER } from './types';
+
+/** A secret the renderer cannot (handle) or must not (external ref) resolve. */
+const isOpaqueSecret = (value: SecretValue): boolean =>
+  isSecretHandle(value) || isExternalSecretRef(value);
 
 export interface CodegenInput {
   request: HttpRequest;
@@ -13,6 +17,8 @@ export interface CodegenInput {
   secretNames: ReadonlySet<string>;
   /** Replace secrets and credentials with placeholders (default in the UI). */
   maskSecrets: boolean;
+  /** Transport settings; the proxy password is masked here like any other secret. */
+  settings?: RequestSettings;
 }
 
 /**
@@ -23,12 +29,15 @@ export interface CodegenInput {
  */
 export function prepareCodegen(input: CodegenInput): GenerateOptions & { notes: string[] } {
   const { request, auth, values, secretNames, maskSecrets } = input;
+  // Own-property lookup: `name in values` would resolve `{{constructor}}` to
+  // Object.prototype's function source.
+  const hasValue = (name: string): boolean => Object.hasOwn(values, name);
   const notes: string[] = [];
 
   const resolve = (text: string): string =>
     text.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (token, name: string) => {
-      if (secretNames.has(name) && (maskSecrets || !(name in values))) return token;
-      return name in values ? (values[name] as string) : token;
+      if (secretNames.has(name) && (maskSecrets || !hasValue(name))) return token;
+      return hasValue(name) ? (values[name] ?? token) : token;
     });
 
   const resolvedHeaders: Record<string, string> = {};
@@ -39,7 +48,7 @@ export function prepareCodegen(input: CodegenInput): GenerateOptions & { notes: 
 
   const secret = (value: SecretValue | undefined, placeholder: string): string => {
     if (value === undefined) return '';
-    if (isSecretHandle(value) || maskSecrets) return placeholder;
+    if (isOpaqueSecret(value) || maskSecrets) return placeholder;
     return resolve(typeof value === 'string' ? value : value.kind === 'inline' ? value.value : '');
   };
   const hasHeader = (name: string) =>
@@ -52,7 +61,7 @@ export function prepareCodegen(input: CodegenInput): GenerateOptions & { notes: 
     case 'basic': {
       const user = resolve(auth.basic?.username ?? '');
       const password = auth.basic?.password;
-      const masked = maskSecrets || (password !== undefined && isSecretHandle(password));
+      const masked = maskSecrets || (password !== undefined && isOpaqueSecret(password));
       setAuthorization(
         masked
           ? 'Basic <base64(username:password)>'
@@ -127,13 +136,36 @@ export function prepareCodegen(input: CodegenInput): GenerateOptions & { notes: 
     resolvedHeaders['Content-Type'] = 'application/xml';
   }
 
+  const settings = input.settings ? withMaskedProxyPassword(input.settings, secret) : undefined;
+
   return {
     request: resolvedRequest,
     resolvedUrl: resolve(request.url),
     resolvedHeaders,
     resolvedParams,
     ...(formData ? { formData } : {}),
+    ...(settings ? { settings } : {}),
     notes,
+  };
+}
+
+/**
+ * Settings with the proxy password run through the same secret policy as
+ * auth: a placeholder when masking (or for a handle/external ref), otherwise
+ * the resolved plaintext. Generators percent-encode it when building a URL.
+ */
+function withMaskedProxyPassword(
+  settings: RequestSettings,
+  secret: (value: SecretValue | undefined, placeholder: string) => string
+): RequestSettings {
+  const proxy = settings.proxy;
+  if (!proxy?.auth) return settings;
+  return {
+    ...settings,
+    proxy: {
+      ...proxy,
+      auth: { ...proxy.auth, password: secret(proxy.auth.password, PROXY_PASSWORD_PLACEHOLDER) },
+    },
   };
 }
 

@@ -5,6 +5,7 @@ import {
   EphemeralKeyProvider,
   getKeyProvider,
   PlaintextKeyProvider,
+  resetKeyProviderCache,
   setKeyProvider,
   WebSessionPassphraseProvider,
 } from './keyProvider';
@@ -151,14 +152,42 @@ describe('ElectronSafeStorageKeyProvider', () => {
     expect(has).toHaveBeenCalledTimes(1);
   });
 
-  it('falls through to generation if has() is true but get() returns undefined', async () => {
+  it('rejects without overwriting when has() is true but get() returns undefined', async () => {
     const get = vi.fn().mockResolvedValue(undefined);
     const has = vi.fn().mockResolvedValue(true);
     const set = vi.fn();
     const p = new ElectronSafeStorageKeyProvider({ get, set, has });
-    const k = await p.getKey();
-    expect(k.length).toBeGreaterThan(32);
-    expect(set).toHaveBeenCalledWith('restura-encryption-key', k);
+    await expect(p.getKey()).rejects.toThrow(/could not be read/i);
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it('concurrent first calls share one generation (key set once, equal keys)', async () => {
+    const get = vi.fn();
+    const has = vi.fn().mockResolvedValue(false);
+    const set = vi.fn().mockResolvedValue(undefined);
+    const p = new ElectronSafeStorageKeyProvider({ get, set, has });
+    const [a, b] = await Promise.all([p.getKey(), p.getKey()]);
+    expect(a).toBe(b);
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(has).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries after a failed load instead of caching the rejection', async () => {
+    const get = vi.fn().mockResolvedValue('persisted');
+    const has = vi.fn().mockRejectedValueOnce(new Error('ipc down')).mockResolvedValue(true);
+    const set = vi.fn();
+    const p = new ElectronSafeStorageKeyProvider({ get, set, has });
+    await expect(p.getKey()).rejects.toThrow('ipc down');
+    await expect(p.getKey()).resolves.toBe('persisted');
+  });
+
+  it('resetCache() forces the next getKey() to re-read the store', async () => {
+    const get = vi.fn().mockResolvedValueOnce('old').mockResolvedValue('new');
+    const has = vi.fn().mockResolvedValue(true);
+    const p = new ElectronSafeStorageKeyProvider({ get, set: vi.fn(), has });
+    expect(await p.getKey()).toBe('old');
+    p.resetCache();
+    expect(await p.getKey()).toBe('new');
   });
 
   it('isHardwareBacked returns true', () => {
@@ -232,5 +261,19 @@ describe('getKeyProvider / setKeyProvider', () => {
     expect(after).toBe(replacement);
     expect(after).not.toBe(original);
     expect(after.isEncrypted()).toBe(true);
+  });
+
+  it('resetKeyProviderCache() drops the active provider key cache but keeps the provider', async () => {
+    const get = vi.fn().mockResolvedValueOnce('old').mockResolvedValue('new');
+    const provider = new ElectronSafeStorageKeyProvider({
+      get,
+      set: vi.fn(),
+      has: vi.fn().mockResolvedValue(true),
+    });
+    setKeyProvider(provider);
+    expect(await getKeyProvider().getKey()).toBe('old');
+    resetKeyProviderCache();
+    expect(getKeyProvider()).toBe(provider);
+    expect(await getKeyProvider().getKey()).toBe('new');
   });
 });

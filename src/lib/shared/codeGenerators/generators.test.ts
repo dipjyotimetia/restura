@@ -31,7 +31,7 @@ const settings = (over: Partial<RequestSettings> = {}): RequestSettings => ({
     type: 'http',
     host: 'proxy.local',
     port: 8080,
-    auth: { username: 'u', password: 'p' },
+    auth: { username: 'u ser', password: 'p@ss:w/rd' },
   },
   ...over,
 });
@@ -49,8 +49,9 @@ describe('generateCurl', () => {
     const out = generateCurl(opts({ settings: settings() }));
     expect(out).toContain("curl -X PUT 'https://api.dev/x?q=a+b'");
     expect(out).toContain("-H 'Accept: application/json'");
-    expect(out).toContain(`-d '{"a":1}'`);
-    expect(out).toContain("--proxy 'http://u:p@proxy.local:8080'");
+    expect(out).toContain(`--data-raw '{"a":1}'`);
+    // Credentials are percent-encoded so `@ : /` in a password cannot break the URL.
+    expect(out).toContain("--proxy 'http://u%20ser:p%40ss%3Aw%2Frd@proxy.local:8080'");
     expect(out).toContain('--max-time 5');
     expect(out).toContain('--insecure');
     expect(out).toContain('--no-location');
@@ -60,8 +61,12 @@ describe('generateCurl', () => {
     const following = generateCurl(
       opts({ settings: settings({ followRedirects: true, verifySsl: true, timeout: 0 }) })
     );
+    expect(following).toContain('-L');
     expect(following).toContain('--max-redirs 5');
     expect(following).not.toContain('--insecure');
+    // The app follows redirects unless told not to, so the snippet does too.
+    expect(generateCurl(opts())).toContain('-L');
+    expect(generateCurl(opts({ settings: settings() }))).not.toMatch(/ -L\b/);
     expect(generateCurl(opts({ resolvedUrl: '{{base}}/x', resolvedParams: {} }))).toContain(
       "'{{base}}/x'"
     );
@@ -69,14 +74,39 @@ describe('generateCurl', () => {
   });
 });
 
+describe('generateCurl body safety', () => {
+  it('uses --data-raw so a body starting with @ is not read as a file', () => {
+    const out = generateCurl(opts({ request: request({ type: 'text', raw: '@/etc/passwd' }) }));
+    expect(out).toContain("--data-raw '@/etc/passwd'");
+    expect(out).not.toMatch(/ -d /);
+  });
+
+  it('sends text form fields with --form-string and keeps -F for files', () => {
+    const out = generateCurl(
+      opts({
+        request: request({ type: 'form-data' }),
+        formData: [
+          { key: 'note', value: '@notes.txt;type=text/plain', type: 'text' },
+          { key: 'lt', value: '<in.txt', type: 'text' },
+          { key: 'doc', value: 'a.pdf', type: 'file' },
+        ],
+      })
+    );
+    expect(out).toContain("--form-string 'note=@notes.txt;type=text/plain'");
+    expect(out).toContain("--form-string 'lt=<in.txt'");
+    expect(out).toContain("-F 'doc=@a.pdf'");
+  });
+});
+
 describe('generatePython', () => {
   it('emits params, headers, json body and settings', () => {
     const out = generatePython(opts({ settings: settings() }));
-    expect(out).toContain('json_data = {"a":1}');
+    expect(out).toContain('import json');
+    expect(out).toContain(`json_data = json.loads("{\\"a\\":1}")`);
     expect(out).toContain('params=params');
     expect(out).toContain('headers=headers');
     expect(out).toContain('json=json_data');
-    expect(out).toContain('"https": "http://u:p@proxy.local:8080"');
+    expect(out).toContain('"https": "http://u%20ser:p%40ss%3Aw%2Frd@proxy.local:8080"');
     expect(out).toContain('timeout=5');
     expect(out).toContain('verify=False');
     expect(out).toContain('allow_redirects=False');
@@ -90,10 +120,26 @@ describe('generatePython', () => {
         resolvedParams: {},
       })
     );
-    expect(out).toContain('data = """hello"""');
+    expect(out).toContain('data = "hello"');
+    expect(out).not.toContain('import json');
     expect(out).toContain('data=data');
     expect(out).not.toContain('params=params');
     expect(out).not.toContain('headers=headers');
+  });
+
+  it('parses JSON bodies at runtime so true/null are not Python NameErrors', () => {
+    const out = generatePython(
+      opts({ request: request({ type: 'json', raw: '{"a":true,"b":null}' }) })
+    );
+    expect(out).toContain(`json_data = json.loads("{\\"a\\":true,\\"b\\":null}")`);
+    expect(out).not.toMatch(/json_data = \{/);
+  });
+
+  it('escapes quotes, backslashes and newlines in text bodies', () => {
+    const out = generatePython(
+      opts({ request: request({ type: 'text', raw: 'say """hi""" \\ end\nnext' }) })
+    );
+    expect(out).toContain('data = "say \\"\\"\\"hi\\"\\"\\" \\\\ end\\nnext"');
   });
 
   it('builds multipart data and files from form fields', () => {

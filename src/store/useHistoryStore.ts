@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
@@ -66,7 +67,8 @@ export const useHistoryStore = create<HistoryState>()(
           const cap = Math.max(1, settings.maxHistoryItems ?? DEFAULT_MAX_HISTORY_ITEMS);
 
           const newItem: HistoryItem = {
-            id: `history-${Date.now()}`,
+            // A timestamp alone collides for two sends in one millisecond.
+            id: `history-${uuidv4()}`,
             request: toHistoryRequest(request),
             ...(response !== undefined && { response }),
             ...(resolvedUrl !== undefined && { resolvedUrl }),

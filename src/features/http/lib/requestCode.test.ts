@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import type { HttpRequest } from '@/types';
+import type { HttpRequest, RequestSettings } from '@/types';
 import { generateRequestCode } from './requestCode';
 
 const request: HttpRequest = {
@@ -45,6 +45,32 @@ describe('generateRequestCode', () => {
     });
     const out = generateRequestCode(request, 'curl', { variables, maskSecrets: false });
     expect(out).toContain('Authorization: Bearer tok');
+  });
+
+  it('masks the proxy password in every language when maskSecrets is on', () => {
+    const settings: RequestSettings = {
+      timeout: 0,
+      followRedirects: true,
+      maxRedirects: 5,
+      verifySsl: true,
+      proxy: {
+        enabled: true,
+        type: 'http',
+        host: 'proxy.local',
+        port: 8080,
+        auth: { username: 'u', password: 'p' },
+      },
+    };
+    for (const language of ['curl', 'python', 'nodejs'] as const) {
+      const out = generateRequestCode(request, language, {
+        variables,
+        maskSecrets: true,
+        settings,
+      });
+      expect(out).not.toContain(':p@');
+      expect(out).not.toContain('"p"');
+      expect(out).toContain('<proxy-password>');
+    }
   });
 
   it('notes multipart bodies for languages without form-data support', () => {

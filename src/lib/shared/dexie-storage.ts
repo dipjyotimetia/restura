@@ -7,11 +7,13 @@
 import type { PersistStorage, StorageValue } from 'zustand/middleware';
 import { db } from './database';
 import { decryptValue, encryptValue, isEncrypted } from './encryption';
-import { getKeyProvider, type KeyProvider } from './keyProvider';
+import { getKeyProvider, type KeyProvider, resetKeyProviderCache } from './keyProvider';
 import { getElectronAPI, isElectron } from './platform';
 
-// Singleton encryption key cache
+// Singleton encryption key cache, plus the in-flight load so concurrent first
+// callers share one provider round-trip (and therefore one key).
 let cachedEncryptionKey: string | null = null;
+let encryptionKeyLoading: Promise<string> | null = null;
 
 // Suffix for the backup key holding an undecryptable row's original ciphertext.
 // Quarantining (vs. deleting) keeps the data recoverable if the key is later
@@ -28,17 +30,31 @@ const QUARANTINE_SUFFIX = '__undecryptable';
  *
  * Caches the key locally to avoid repeated provider/IPC round-trips.
  */
-async function getEncryptionKey(): Promise<string> {
-  if (cachedEncryptionKey) return cachedEncryptionKey;
-  if (typeof window === 'undefined') return 'server-fallback-key';
+function getEncryptionKey(): Promise<string> {
+  if (cachedEncryptionKey) return Promise.resolve(cachedEncryptionKey);
+  if (typeof window === 'undefined') return Promise.resolve('server-fallback-key');
   // No fallback to a generated ephemeral key. Phase 3.4 deleted "ephemeral
   // encryption" precisely because a session-scoped key corrupts data on tab
   // close. If the provider can't return a key, surface that as an error so
   // the storage adapter returns null and the caller sees the failure —
   // better than silently writing data the user can never read back.
-  const key = await getKeyProvider().getKey();
-  cachedEncryptionKey = key;
-  return key;
+  if (encryptionKeyLoading === null) {
+    const attempt: Promise<string> = getKeyProvider()
+      .getKey()
+      .then(
+        (key) => {
+          // Skip publishing if clearDexieStorage() reset the cache meanwhile.
+          if (encryptionKeyLoading === attempt) cachedEncryptionKey = key;
+          return key;
+        },
+        (error: unknown) => {
+          if (encryptionKeyLoading === attempt) encryptionKeyLoading = null;
+          throw error;
+        }
+      );
+    encryptionKeyLoading = attempt;
+  }
+  return encryptionKeyLoading;
 }
 
 /**
@@ -412,6 +428,7 @@ export async function checkDexieStorageHealth(): Promise<{
 export async function clearDexieStorage(): Promise<void> {
   await db.clearAllData();
   cachedEncryptionKey = null;
+  encryptionKeyLoading = null;
   if (isElectron()) {
     const api = getElectronAPI();
     if (api) {
@@ -425,6 +442,9 @@ export async function clearDexieStorage(): Promise<void> {
       ]);
     }
   }
+  // The provider still caches the key store.clear() just deleted; drop it so
+  // writes before the reload re-read (or regenerate) the stored key.
+  resetKeyProviderCache();
 }
 
 /**
