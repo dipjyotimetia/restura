@@ -1,3 +1,4 @@
+import { reformatJsonLossless } from '@shared/text/lossless-json';
 import { Activity, Pause, Play, RefreshCw, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { LogExportMenu } from '@/components/shared/messageLog/MessageLogControls';
@@ -59,9 +60,10 @@ function PartitionMiniPill({ partition }: { partition: number }) {
   );
 }
 
+/** Pretty-print JSON values; integers beyond 2^53 keep their exact digits. */
 function tryFormatJson(value: string): string {
   try {
-    return JSON.stringify(JSON.parse(value), null, 2);
+    return reformatJsonLossless(value, 2);
   } catch {
     return value;
   }
