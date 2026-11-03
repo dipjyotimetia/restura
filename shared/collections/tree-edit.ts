@@ -17,6 +17,7 @@
  * items). Runtime-neutral — no renderer imports.
  */
 
+import { readKey } from '../object-keys';
 import type { Collection, CollectionItem } from '../types';
 import {
   deletePassthroughBags,
@@ -183,9 +184,9 @@ export function updateItem(
     let changed = false;
     const next = items.map((i) => {
       if (i.id === itemId) {
-        const current = i as unknown as Record<string, unknown>;
-        const supplied = updates as Record<string, unknown>;
-        if (Object.keys(supplied).every((k) => sameValue(supplied[k], current[k]))) return i;
+        if (Object.keys(updates).every((k) => sameValue(readKey(updates, k), readKey(i, k)))) {
+          return i;
+        }
         changed = true;
         const merged = { ...i, ...updates };
         return editsOwnAuth(i, updates) ? dropBags(merged) : dropBagsKeepingGuard(merged);

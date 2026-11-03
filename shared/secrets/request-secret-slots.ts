@@ -2,6 +2,7 @@ import {
   countUrlStringSecrets,
   redactUrlCredentialsForStorage,
 } from '../collections/postman/text-redaction';
+import { readKey, withKey, writeKey } from '../object-keys';
 import type { AuthConfig, CollectionRequest } from '../types';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from './auth-fields';
 import { BROKER_PRESET_SLOTS } from './broker-preset-redaction';
@@ -20,15 +21,10 @@ import { STREAM_PRESET_SLOTS } from './stream-preset-redaction';
  * secret-bearing field is one entry in {@link REQUEST_SECRET_SLOTS}: the export
  * blanking and the export warning both read this list, so neither can miss it.
  *
- * Fields of untyped requests are read loosely on purpose: saved collections can
+ * Fields of untyped requests are read loosely on purpose (`readKey`): saved collections can
  * hold shapes the types do not describe, and the slots below decide what each
  * action does with them.
  */
-
-type LooseRequest = Record<string, unknown>;
-
-const loose = (request: CollectionRequest) => request as unknown as LooseRequest;
-const typed = (request: LooseRequest) => request as unknown as CollectionRequest;
 
 /** True for a non-empty plaintext secret (inline or bare string); handles never count. */
 function isInlineWithValue(value: SecretValue | undefined): boolean {
@@ -65,14 +61,14 @@ export function redactAuthConfigSecrets(auth: AuthConfig): AuthConfig {
         copy[field] = redactSecret(copy[field] as SecretValue | undefined);
       }
     }
-    (next as unknown as Record<string, unknown>)[block] = copy;
+    writeKey(next, block, copy);
   }
   const urls = oauth2UrlValues(next);
   if (urls.length > 0) {
-    (next as unknown as Record<string, unknown>).oauth2 = {
+    writeKey(next, 'oauth2', {
       ...next.oauth2,
       ...Object.fromEntries(urls.map(([k, v]) => [k, redactUrlCredentialsForStorage(v)])),
-    };
+    });
   }
   return next;
 }
@@ -103,11 +99,12 @@ function rowListSlot(field: 'headers' | 'params' | 'metadata'): SecretSlot {
   return {
     name: field,
     blank(request) {
-      const rows = loose(request)[field];
+      const rows = readKey(request, field);
       if (!Array.isArray(rows)) return request;
-      return typed({ ...loose(request), [field]: redactSecretKeyValues(rows as SecretableRow[]) });
+      return withKey(request, field, redactSecretKeyValues(rows as SecretableRow[]));
     },
-    count: (request) => countSecretKeyValues(loose(request)[field] as SecretableRow[] | undefined),
+    count: (request) =>
+      countSecretKeyValues(readKey(request, field) as SecretableRow[] | undefined),
   };
 }
 
@@ -122,31 +119,30 @@ const FORM_BODY_TYPES = new Set(['form-data', 'x-www-form-urlencoded']);
 
 type FormRow = SecretableRow & { type?: unknown };
 
-function formBodyRows(request: CollectionRequest): FormRow[] | undefined {
-  const body = loose(request).body as { type?: unknown; formData?: unknown } | undefined;
-  if (!body || !FORM_BODY_TYPES.has(String(body.type)) || !Array.isArray(body.formData)) {
+function formBodyOf(request: CollectionRequest): { body: object; rows: FormRow[] } | undefined {
+  const body = readKey(request, 'body');
+  if (typeof body !== 'object' || body === null) return undefined;
+  const rows = readKey(body, 'formData');
+  if (!FORM_BODY_TYPES.has(String(readKey(body, 'type'))) || !Array.isArray(rows)) {
     return undefined;
   }
-  return body.formData as FormRow[];
+  return { body, rows: rows as FormRow[] };
 }
 
 const FORM_BODY_SLOT: SecretSlot = {
   name: 'formBody',
   blank(request) {
-    const rows = formBodyRows(request);
-    if (!rows) return request;
-    return typed({
-      ...loose(request),
-      body: {
-        ...(loose(request).body as object),
-        formData: rows.map((row) =>
-          row.type === 'file' ? row : (redactSecretKeyValues([row])?.[0] ?? row)
-        ),
-      },
+    const form = formBodyOf(request);
+    if (!form) return request;
+    return withKey(request, 'body', {
+      ...form.body,
+      formData: form.rows.map((row) =>
+        row.type === 'file' ? row : (redactSecretKeyValues([row])?.[0] ?? row)
+      ),
     });
   },
   count: (request) =>
-    countSecretKeyValues(formBodyRows(request)?.filter((row) => row.type !== 'file')),
+    countSecretKeyValues(formBodyOf(request)?.rows.filter((row) => row.type !== 'file')),
 };
 
 /**
@@ -157,12 +153,12 @@ const FORM_BODY_SLOT: SecretSlot = {
 const URL_SLOT: SecretSlot = {
   name: 'url',
   blank(request) {
-    const url = loose(request).url;
+    const url = readKey(request, 'url');
     if (typeof url !== 'string') return request;
-    return typed({ ...loose(request), url: redactUrlCredentialsForStorage(url) });
+    return withKey(request, 'url', redactUrlCredentialsForStorage(url));
   },
   count(request) {
-    const url = loose(request).url;
+    const url = readKey(request, 'url');
     return url === undefined || url === null ? 0 : countUrlStringSecrets(url as string);
   },
 };
@@ -171,7 +167,7 @@ const AUTH_SLOT: SecretSlot = {
   name: 'auth',
   blank: (request) =>
     'auth' in request
-      ? typed({ ...loose(request), auth: redactAuthConfigSecrets(request.auth as AuthConfig) })
+      ? withKey(request, 'auth', redactAuthConfigSecrets(request.auth as AuthConfig))
       : request,
   count: (request) =>
     'auth' in request ? countAuthInlineSecrets(request.auth as AuthConfig | undefined) : 0,
@@ -181,14 +177,13 @@ const AUTH_SLOT: SecretSlot = {
 const STDIO_ENV_SLOT: SecretSlot = {
   name: 'stdioEnv',
   blank(request) {
-    const env = stdioEnvOf(loose(request));
-    if (!env) return request;
-    return typed({
-      ...loose(request),
-      stdio: { ...(loose(request).stdio as object), env: redactStdioEnvRows(env) },
-    });
+    const stdio = readKey(request, 'stdio');
+    const env = stdioEnvOf({ stdio });
+    // A non-empty env implies an object `stdio`; the second check only narrows.
+    if (!env || typeof stdio !== 'object' || stdio === null) return request;
+    return withKey(request, 'stdio', { ...stdio, env: redactStdioEnvRows(env) });
   },
-  count: (request) => countStdioEnvInlineSecrets(stdioEnvOf(loose(request))),
+  count: (request) => countStdioEnvInlineSecrets(stdioEnvOf({ stdio: readKey(request, 'stdio') })),
 };
 
 export const REQUEST_SECRET_SLOTS: readonly SecretSlot[] = [
