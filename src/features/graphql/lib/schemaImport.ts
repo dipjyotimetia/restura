@@ -88,11 +88,13 @@ function typeRefView(ref: IntrospectionTypeRef): GraphQLTypeRef {
 }
 
 function inputValueView(value: IntrospectionInputValue): GraphQLInputValue {
+  const { deprecationReason, ...rest } = value;
   return {
-    ...value,
+    ...rest,
     description: value.description ?? null,
     type: typeRefView(value.type),
     defaultValue: value.defaultValue ?? null,
+    ...(deprecationReason === undefined ? {} : { deprecationReason }),
   };
 }
 
@@ -151,12 +153,10 @@ function namedTypeMembers(
 }
 
 function namedTypeView(type: IntrospectionType): GraphQLType {
-  return {
-    ...type,
-    description: type.description ?? null,
-    ...namedTypeMembers(type),
-    ofType: null,
-  };
+  const view = { description: type.description ?? null, ...namedTypeMembers(type), ofType: null };
+  if (type.kind !== 'SCALAR') return { ...type, ...view };
+  const { specifiedByURL, ...scalar } = type;
+  return { ...scalar, ...view, ...(specifiedByURL === undefined ? {} : { specifiedByURL }) };
 }
 
 function introspectionSchemaView(schema: IntrospectionSchema): GraphQLSchema {
