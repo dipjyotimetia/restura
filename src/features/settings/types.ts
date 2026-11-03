@@ -9,6 +9,7 @@ export type SectionId =
   | 'security'
   | 'secrets'
   | 'ai'
+  | 'mcp'
   | 'data'
   | 'updates'
   | 'shortcuts'

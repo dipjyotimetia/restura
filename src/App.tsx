@@ -28,6 +28,13 @@ import {
 // tree stays out of the main entry chunk.
 const AiLabWorkspace = lazyComponent(() => import('@/features/ai-lab/components/AiLabWorkspace'));
 
+// MCP control server bridge (ADR 0041): desktop-only, so the tool runtime is
+// lazy-loaded and never enters the web entry chunk.
+const McpControlBridge = lazyComponent(async () => {
+  const m = await import('@/features/mcp-server/components/McpControlBridge');
+  return { default: m.McpControlBridge };
+});
+
 const router = createHashRouter([
   {
     path: '/',
@@ -123,6 +130,7 @@ export default function App() {
                 <UpdateNotification />
                 <KeychainStatusBanner />
                 <CaptureImportListener />
+                {isElectronEnvironment() && <McpControlBridge />}
                 <DeepLinkCoordinator />
                 <RouterProvider router={router} />
               </PlatformProvider>

@@ -233,14 +233,14 @@ function annotationsFor(
   };
 }
 
-function tool<TSchema extends z.ZodType>(def: {
-  name: string;
+function tool<const N extends string, TSchema extends z.ZodType>(def: {
+  name: N;
   title: string;
   description: string;
   tier: ToolTier;
   inputSchema: TSchema;
   idempotent?: boolean;
-}): ControlToolDefinition<TSchema> {
+}): ControlToolDefinition<TSchema> & { name: N } {
   const idempotent = def.idempotent ?? (def.tier === 'read' || def.tier === 'ui');
   return {
     name: def.name,

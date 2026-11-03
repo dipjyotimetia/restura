@@ -50,6 +50,52 @@ export function buildBaseVars(
   });
 }
 
+export interface RunVariables {
+  selectedEnvironment: Environment | null;
+  /** Base environment first, then the selected sub-environment (when distinct). */
+  environmentChain: Environment[];
+  globalVars: Record<string, string>;
+  baseVars: Record<string, string>;
+  environmentVars: Record<string, string>;
+  secretNames: string[];
+}
+
+/**
+ * Variables for a run against `environmentId` ('none' or unknown ⇒ no
+ * environment): globals < base env < sub env < collection. Shared by the
+ * runner dialog and the MCP control server's send tools so both resolve
+ * exactly the same values.
+ */
+export function resolveRunVariables(environmentId: string, collection: Collection): RunVariables {
+  const allEnvironments = useEnvironmentStore.getState().environments;
+  const selectedEnvironment = allEnvironments.find((e) => e.id === environmentId) ?? null;
+  const baseEnvironment = selectedEnvironment?.parentId
+    ? (allEnvironments.find((environment) => environment.id === selectedEnvironment.parentId) ??
+      null)
+    : selectedEnvironment;
+  const environmentChain =
+    baseEnvironment && selectedEnvironment && baseEnvironment.id !== selectedEnvironment.id
+      ? [baseEnvironment, selectedEnvironment]
+      : baseEnvironment
+        ? [baseEnvironment]
+        : [];
+  const globalVars = useGlobalsStore.getState().vars;
+  return {
+    selectedEnvironment,
+    environmentChain,
+    globalVars,
+    baseVars: buildBaseVars(globalVars, environmentChain, collection),
+    environmentVars: buildValueMap({
+      baseEnvironment: environmentChain[0]?.variables,
+      subEnvironment: environmentChain[1]?.variables,
+    }),
+    secretNames: secretVariableNames(
+      environmentChain[0]?.variables,
+      environmentChain[1]?.variables
+    ),
+  };
+}
+
 /** Mirror a finished runner request into the Console, tagged by run. */
 function pushConsoleEntry(info: RequestCompleteInfo): void {
   if (!info.response) return; // skipped / never-ran requests don't get a network entry
@@ -123,28 +169,8 @@ export function useCollectionRun() {
     const runGeneration = ++runGenerationRef.current;
     const isCurrent = () => mountedRef.current && runGeneration === runGenerationRef.current;
 
-    const selectedEnvironment =
-      useEnvironmentStore.getState().environments.find((e) => e.id === args.environmentId) ?? null;
-    const allEnvironments = useEnvironmentStore.getState().environments;
-    const baseEnvironment = selectedEnvironment?.parentId
-      ? (allEnvironments.find((environment) => environment.id === selectedEnvironment.parentId) ??
-        null)
-      : selectedEnvironment;
-    const environmentChain =
-      baseEnvironment && selectedEnvironment && baseEnvironment.id !== selectedEnvironment.id
-        ? [baseEnvironment, selectedEnvironment]
-        : baseEnvironment
-          ? [baseEnvironment]
-          : [];
-    const baseVars = buildBaseVars(
-      useGlobalsStore.getState().vars,
-      environmentChain,
-      args.collection
-    );
-    const environmentVars = buildValueMap({
-      baseEnvironment: environmentChain[0]?.variables,
-      subEnvironment: environmentChain[1]?.variables,
-    });
+    const { selectedEnvironment, globalVars, baseVars, environmentVars, secretNames } =
+      resolveRunVariables(args.environmentId, args.collection);
 
     void runCollection(
       {
@@ -152,12 +178,9 @@ export function useCollectionRun() {
         scopeName: args.scopeName,
         runnables: args.runnables,
         baseVars,
-        globalVars: useGlobalsStore.getState().vars,
+        globalVars,
         environmentVars,
-        secretNames: secretVariableNames(
-          environmentChain[0]?.variables,
-          environmentChain[1]?.variables
-        ),
+        secretNames,
         iterations: args.iterations,
         dataRows: args.dataRows,
         delayMs: args.delayMs,
