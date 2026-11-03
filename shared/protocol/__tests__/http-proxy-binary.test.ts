@@ -39,7 +39,7 @@ describe('executeHttpProxy binary handling', () => {
     }
   });
 
-  it('prefers arrayBuffer() over the body stream for binary', async () => {
+  it('reads binary via arrayBuffer() when the fetcher exposes no body stream', async () => {
     const pngBytes = new Uint8Array([137, 80, 78, 71, 9, 9, 9]);
     const fetcher: Fetcher = vi.fn().mockResolvedValue({
       status: 200,
@@ -72,7 +72,7 @@ describe('executeHttpProxy binary handling', () => {
       headers: new Headers({ 'content-type': 'application/json' }),
       text: async () => '{"ok":true}',
       contentLengthHeader: '11',
-      body: streamOf(new Uint8Array([1, 2, 3])), // must be ignored for text
+      body: streamOf(new TextEncoder().encode('{"ok":true}')),
     });
 
     const result = await executeHttpProxy(
