@@ -71,31 +71,36 @@ const refuse = (field: string): Outcome<never> => ({
 
 /**
  * A text field: the unchanged redacted form keeps the saved value; any other
- * value with a placeholder is refused. A saved value too long for get_request
- * to have shown in full can only be kept or replaced without placeholders —
- * never "edited" from a truncated copy.
+ * value with a placeholder is refused. When get_request showed the saved value
+ * truncated (`truncated`), the agent never saw all of it, so any change is
+ * refused — whether it edits the shown prefix, re-indents it, or replaces it.
+ * Only copying the shown text back unchanged (which keeps the saved value) or
+ * leaving the field out is allowed.
  */
 function restoreText(
   field: string,
   incoming: string | undefined,
   saved: string | undefined,
-  redact: (s: string) => string
+  show: (s: string) => { text: string; truncated: boolean }
 ): Outcome<string | undefined> {
   if (incoming === undefined) return { ok: true, value: incoming };
-  if (saved !== undefined && redact(saved) === incoming) return { ok: true, value: saved };
-  if (
-    saved !== undefined &&
-    saved.length > MAX_SAVED_TEXT_CHARS &&
-    incoming.startsWith(redact(saved).slice(0, 1_000))
-  ) {
-    return {
-      ok: false,
-      error: `${field} is longer than get_request shows (${MAX_SAVED_TEXT_CHARS.toLocaleString()} characters), so it cannot be edited from that copy. Ask the user to edit it in Restura.`,
-    };
+  if (saved !== undefined) {
+    const shown = show(saved);
+    if (shown.text === incoming) return { ok: true, value: saved };
+    if (shown.truncated) {
+      return {
+        ok: false,
+        error: `${field} is longer than get_request shows (${MAX_SAVED_TEXT_CHARS.toLocaleString()} characters), so an agent cannot change it. Leave the field out, or ask the user to edit it in Restura.`,
+      };
+    }
   }
   if (!PLACEHOLDER_PATTERN.test(incoming)) return { ok: true, value: incoming };
   return refuse(field);
 }
+
+const showSavedText = (text: string) =>
+  redactBodyForAgent(text, { redact: true, maxChars: MAX_SAVED_TEXT_CHARS });
+const showSavedUrl = (url: string) => ({ text: redactSavedUrl(url), truncated: false });
 
 /**
  * Rows: a row whose value equals the redacted form of the saved row with the
@@ -163,7 +168,7 @@ export function restoreRedactedPatch(saved: Request, patch: RequestPatch): Outco
     // saved URL instead of silently dropping its credentials.
     next.url = savedUrl;
   } else {
-    const url = restoreText('url', patch.url, savedUrl, redactSavedUrl);
+    const url = restoreText('url', patch.url, savedUrl, showSavedUrl);
     if (!url.ok) return url;
     if (patch.url !== undefined) {
       next.url = reattachUserinfo(url.value as string, savedUrl);
@@ -181,13 +186,13 @@ export function restoreRedactedPatch(saved: Request, patch: RequestPatch): Outco
   if (patch.body) {
     const savedRaw = saved.type === 'http' ? saved.body.raw : undefined;
     const savedVars = saved.type === 'http' ? saved.body.graphqlVariables : undefined;
-    const content = restoreText('body', patch.body.content, savedRaw, redactSavedText);
+    const content = restoreText('body', patch.body.content, savedRaw, showSavedText);
     if (!content.ok) return content;
     const vars = restoreText(
       'graphqlVariables',
       patch.body.graphqlVariables,
       savedVars,
-      redactSavedText
+      showSavedText
     );
     if (!vars.ok) return vars;
     next.body = {
@@ -198,12 +203,12 @@ export function restoreRedactedPatch(saved: Request, patch: RequestPatch): Outco
   }
 
   const savedMessage = saved.type === 'grpc' ? saved.message : undefined;
-  const message = restoreText('message', patch.message, savedMessage, redactSavedText);
+  const message = restoreText('message', patch.message, savedMessage, showSavedText);
   if (!message.ok) return message;
   if (patch.message !== undefined) next.message = message.value as string;
 
   const savedParams = saved.type === 'mcp' ? saved.defaultParams : undefined;
-  const params = restoreText('defaultParams', patch.defaultParams, savedParams, redactSavedText);
+  const params = restoreText('defaultParams', patch.defaultParams, savedParams, showSavedText);
   if (!params.ok) return params;
   if (patch.defaultParams !== undefined) next.defaultParams = params.value as string;
 

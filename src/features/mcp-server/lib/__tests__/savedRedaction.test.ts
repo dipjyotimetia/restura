@@ -163,9 +163,43 @@ describe('restoreRedactedPatch — round 2 edge cases', () => {
     expect(
       restoreRedactedPatch(big, patch({ body: { type: 'json', content: `${shown}"}` } }))
     ).toMatchObject({ ok: false, error: expect.stringMatching(/longer than get_request shows/) });
-    // Replaced outright: allowed.
+    // Replaced outright: also refused — the agent never saw what it replaces.
     expect(
-      restoreRedactedPatch(big, patch({ body: { type: 'json', content: '{"new":true}' } })).ok
-    ).toBe(true);
+      restoreRedactedPatch(big, patch({ body: { type: 'json', content: '{"new":true}' } }))
+    ).toMatchObject({ ok: false, error: expect.stringMatching(/longer than get_request shows/) });
+    // Left out: the saved body stays.
+    expect(restoreRedactedPatch(big, patch({ name: 'renamed' })).ok).toBe(true);
+  });
+
+  it('an edit near the top of a truncated body is refused, whatever its length', () => {
+    const big: HttpRequest = {
+      ...SAVED,
+      body: { type: 'json', raw: JSON.stringify({ a: 1, items: 'x'.repeat(150_000) }) },
+    };
+    const shown = redactSavedText(big.body.raw!);
+    const edited = shown.replace('"a":1', '"a":2');
+    expect(edited).not.toBe(shown);
+    expect(edited.length).toBeLessThanOrEqual(100_000);
+    expect(
+      restoreRedactedPatch(big, patch({ body: { type: 'json', content: edited } }))
+    ).toMatchObject({ ok: false, error: expect.stringMatching(/longer than get_request shows/) });
+  });
+
+  it('a minified body that only passes the cap once re-indented by redaction is still guarded', () => {
+    // ~93k characters saved, but masking the password re-indents it past 100k.
+    const rows = Array.from({ length: 3_500 }, (_, i) => ({ id: i, v: 'abcdefgh' }));
+    const raw = JSON.stringify({ password: 'hunter2', rows });
+    expect(raw.length).toBeLessThan(100_000);
+    const big: HttpRequest = { ...SAVED, body: { type: 'json', raw } };
+    const shown = redactSavedText(raw);
+    expect(shown.length).toBe(100_000);
+    // Unchanged copy keeps the real password.
+    expect(
+      restoreRedactedPatch(big, patch({ body: { type: 'json', content: shown } }))
+    ).toMatchObject({ ok: true, value: { body: { content: raw } } });
+    // Any change, including a "fixed up" valid JSON, is refused.
+    expect(
+      restoreRedactedPatch(big, patch({ body: { type: 'json', content: '{"rows":[]}' } }))
+    ).toMatchObject({ ok: false });
   });
 });

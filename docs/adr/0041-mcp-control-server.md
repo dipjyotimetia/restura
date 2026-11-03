@@ -42,7 +42,7 @@ Every edit, delete and send is logged with the client name (from the client's `i
 - A placeholder such as `(redacted)` that an agent copies back into `update_request` keeps the real saved value when it matches what `get_request` returned. Any other placeholder is refused, so a secret is never overwritten with a mask (`src/features/mcp-server/lib/savedRedaction.ts`).
   - Rows that share a key are matched in order, each saved row at most once.
   - Saved `user:pass@` (which reads strip without a mask) is re-attached to an edited URL only when the scheme and host are unchanged.
-  - A saved body longer than `get_request` shows (100,000 characters) cannot be edited from the truncated copy.
+  - When `get_request` showed a body truncated (over 100,000 characters after redaction), the agent cannot change it: copying the shown text back keeps the saved body, and any other value is refused.
 - Send results mask credential headers and token-like JSON fields and JWTs (on by default), and cap the body.
 - Imported documents have their credentials turned into keychain handles.
 - No tool changes MCP settings or access, apart from granting `edit` on a collection or environment it has just created. No tool touches AI keys, the vault, proxy or TLS settings, or the updater. A test checks that tool modules never write settings directly.
@@ -91,6 +91,7 @@ Every edit, delete and send is logged with the client name (from the client's `i
 - Response bodies, headers and saved docs are untrusted input to the agent (prompt injection). They are labelled `untrustedContent`, and the approval gates are the real control.
 - Saved scripts are returned verbatim, so a secret hard-coded in a script is visible to an agent with read access.
 - An approved agent script runs with the same powers as the user's own scripts. The controls are that the user reads the full script before approving, and that every send also needs approval.
+- Adopting newer settings from another window re-reads the whole persisted settings blob. A setting this window changed in the same instant, before its own write was persisted, can be replaced by the other window's copy. The window is a few milliseconds and the user sees the result in Settings.
 - HTTP-transport clients must update their token after every restart. The stdio shim is the recommended setup.
 
 ## References
