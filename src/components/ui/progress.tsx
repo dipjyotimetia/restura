@@ -2,7 +2,7 @@
 
 import * as ProgressPrimitive from '@radix-ui/react-progress';
 import { cva, type VariantProps } from 'class-variance-authority';
-import * as React from 'react';
+import { type ComponentPropsWithoutRef, type ComponentRef, forwardRef } from 'react';
 
 import { cn } from '@/lib/shared/utils';
 
@@ -22,10 +22,10 @@ const progressVariants = cva('h-full w-full flex-1 transition-all duration-500 e
 });
 
 export interface ProgressProps
-  extends React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Root>,
+  extends ComponentPropsWithoutRef<typeof ProgressPrimitive.Root>,
     VariantProps<typeof progressVariants> {}
 
-const Progress = React.forwardRef<React.ComponentRef<typeof ProgressPrimitive.Root>, ProgressProps>(
+const Progress = forwardRef<ComponentRef<typeof ProgressPrimitive.Root>, ProgressProps>(
   ({ className, value, variant, ...props }, ref) => (
     <ProgressPrimitive.Root
       ref={ref}

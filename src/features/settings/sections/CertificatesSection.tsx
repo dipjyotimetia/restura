@@ -1,5 +1,5 @@
 import { Info, ShieldCheck, Trash2, Upload } from 'lucide-react';
-import * as React from 'react';
+import { type ChangeEvent, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Floater } from '@/components/ui/spatial';
@@ -15,11 +15,11 @@ export function CertificatesSection() {
   const settings = useSettingsStore((s) => s.settings);
   const setClientCert = useSettingsStore((s) => s.setClientCert);
   const setCaCert = useSettingsStore((s) => s.setCaCert);
-  const [caFileName, setCaFileName] = React.useState('');
-  const [pastedCa, setPastedCa] = React.useState(settings.caCert?.pem ?? '');
-  const caFileInputRef = React.useRef<HTMLInputElement>(null);
+  const [caFileName, setCaFileName] = useState('');
+  const [pastedCa, setPastedCa] = useState(settings.caCert?.pem ?? '');
+  const caFileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleCaFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCaFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {

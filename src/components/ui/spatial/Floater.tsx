@@ -1,10 +1,10 @@
-import * as React from 'react';
+import { forwardRef, type HTMLAttributes } from 'react';
 import { cn } from '@/lib/shared/utils';
 
 export type FloaterRadius = 'chip' | 'btn' | 'pill' | 'panel' | 'window';
 export type FloaterElevation = 'float' | 'float-lg' | 'inset' | 'none';
 
-export interface FloaterProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface FloaterProps extends HTMLAttributes<HTMLDivElement> {
   radius?: FloaterRadius;
   elevation?: FloaterElevation;
   asChild?: boolean;
@@ -28,7 +28,7 @@ const elevationMap: Record<FloaterElevation, string> = {
   none: '',
 };
 
-export const Floater = React.forwardRef<HTMLDivElement, FloaterProps>(
+export const Floater = forwardRef<HTMLDivElement, FloaterProps>(
   ({ radius = 'panel', elevation = 'float', className, ...props }, ref) => {
     return (
       <div

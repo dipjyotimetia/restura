@@ -1,4 +1,4 @@
-import * as React from 'react';
+import { type HTMLAttributes, type ReactNode, useEffect, useRef } from 'react';
 import { useOverflowFade } from '@/lib/shared/useOverflowFade';
 import { cn } from '@/lib/shared/utils';
 
@@ -11,7 +11,7 @@ export interface SubTab<T extends string> {
   title?: string;
 }
 
-export interface SubTabPanelProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface SubTabPanelProps extends HTMLAttributes<HTMLDivElement> {
   /** Current tab value — the panel remounts (replaying the fade) when it changes. */
   tabKey: string;
 }
@@ -34,7 +34,7 @@ export interface SubTabBarProps<T extends string> {
   tabs: ReadonlyArray<SubTab<T>>;
   value: T;
   onChange: (value: T) => void;
-  right?: React.ReactNode;
+  right?: ReactNode;
   className?: string;
 }
 
@@ -46,12 +46,12 @@ export function SubTabBar<T extends string>({
   className,
 }: SubTabBarProps<T>) {
   const fadeRef = useOverflowFade<HTMLDivElement>();
-  const selectedRef = React.useRef<HTMLButtonElement | null>(null);
+  const selectedRef = useRef<HTMLButtonElement | null>(null);
 
   // Keep the selected tab visible when the row overflows (e.g. "Timeline"
   // cropped behind the body-format controls). `nearest` avoids jumps when the
   // tab is already fully in view. Optional call — jsdom lacks scrollIntoView.
-  React.useEffect(() => {
+  useEffect(() => {
     selectedRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }, [value]);
 

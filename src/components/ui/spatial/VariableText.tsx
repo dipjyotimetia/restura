@@ -1,4 +1,4 @@
-import * as React from 'react';
+import { Fragment, type HTMLAttributes, type Ref } from 'react';
 import { cn } from '@/lib/shared/utils';
 import { findVariableTokens, tokenDisplayStatus } from '@/lib/shared/variableTokens';
 
@@ -8,7 +8,7 @@ export { hasVariableToken } from '@/lib/shared/variableTokens';
 
 export type VariableStatus = 'resolved' | 'unresolved';
 
-export interface VariableTextProps extends React.HTMLAttributes<HTMLSpanElement> {
+export interface VariableTextProps extends HTMLAttributes<HTMLSpanElement> {
   text: string;
   emptyLabel?: string;
   /**
@@ -19,7 +19,7 @@ export interface VariableTextProps extends React.HTMLAttributes<HTMLSpanElement>
    * that does not read as one (`{{#if a}}`) renders as plain text.
    */
   getStatus?: (varName: string) => VariableStatus;
-  ref?: React.Ref<HTMLSpanElement>;
+  ref?: Ref<HTMLSpanElement>;
 }
 
 /**
@@ -64,7 +64,7 @@ export function VariableText({
   return (
     <span ref={ref} className={cn('whitespace-pre-wrap break-all', className)} {...props}>
       {segments.map((seg, i) => {
-        if (seg.name === undefined) return <React.Fragment key={i}>{seg.text}</React.Fragment>;
+        if (seg.name === undefined) return <Fragment key={i}>{seg.text}</Fragment>;
         const { unresolved } = seg;
         return (
           <span

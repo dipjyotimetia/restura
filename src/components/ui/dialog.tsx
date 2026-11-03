@@ -2,7 +2,12 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { type LucideIcon, X } from 'lucide-react';
-import * as React from 'react';
+import {
+  type ComponentPropsWithoutRef,
+  type ComponentRef,
+  forwardRef,
+  type HTMLAttributes,
+} from 'react';
 
 import { cn } from '@/lib/shared/utils';
 
@@ -14,9 +19,9 @@ export const DialogPortal = DialogPrimitive.Portal;
 
 export const DialogClose = DialogPrimitive.Close;
 
-export const DialogOverlay = React.forwardRef<
-  React.ComponentRef<typeof DialogPrimitive.Overlay>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
+export const DialogOverlay = forwardRef<
+  ComponentRef<typeof DialogPrimitive.Overlay>,
+  ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
     ref={ref}
@@ -29,9 +34,9 @@ export const DialogOverlay = React.forwardRef<
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
-export const DialogContent = React.forwardRef<
-  React.ComponentRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
+export const DialogContent = forwardRef<
+  ComponentRef<typeof DialogPrimitive.Content>,
+  ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
 >(({ className, children, style, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
@@ -87,7 +92,7 @@ const DIALOG_HEADER_TONES = {
   },
 } as const;
 
-interface DialogHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
+interface DialogHeaderProps extends HTMLAttributes<HTMLDivElement> {
   /** When set, renders the Spatial Depth icon-badge header (accent gradient tile
    *  + title/description column) used by the Settings / Environments / Import
    *  hubs. Omit for a plain left-aligned title block. */
@@ -127,7 +132,7 @@ export const DialogHeader = ({
 };
 DialogHeader.displayName = 'DialogHeader';
 
-export const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+export const DialogFooter = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn('flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2', className)}
     {...props}
@@ -135,9 +140,9 @@ export const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLD
 );
 DialogFooter.displayName = 'DialogFooter';
 
-export const DialogTitle = React.forwardRef<
-  React.ComponentRef<typeof DialogPrimitive.Title>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
+export const DialogTitle = forwardRef<
+  ComponentRef<typeof DialogPrimitive.Title>,
+  ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
@@ -147,9 +152,9 @@ export const DialogTitle = React.forwardRef<
 ));
 DialogTitle.displayName = DialogPrimitive.Title.displayName;
 
-export const DialogDescription = React.forwardRef<
-  React.ComponentRef<typeof DialogPrimitive.Description>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+export const DialogDescription = forwardRef<
+  ComponentRef<typeof DialogPrimitive.Description>,
+  ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}

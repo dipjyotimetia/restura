@@ -2,13 +2,13 @@
 
 import * as CheckboxPrimitive from '@radix-ui/react-checkbox';
 import { Check } from 'lucide-react';
-import * as React from 'react';
+import { type ComponentPropsWithoutRef, type ComponentRef, forwardRef } from 'react';
 
 import { cn } from '@/lib/shared/utils';
 
-const Checkbox = React.forwardRef<
-  React.ComponentRef<typeof CheckboxPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>
+const Checkbox = forwardRef<
+  ComponentRef<typeof CheckboxPrimitive.Root>,
+  ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>
 >(({ className, ...props }, ref) => (
   <CheckboxPrimitive.Root
     ref={ref}
