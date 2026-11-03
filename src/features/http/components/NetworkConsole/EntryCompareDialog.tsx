@@ -15,6 +15,7 @@ import {
   getStatusTextColor,
   httpLikeStatus,
 } from '@/lib/shared/console-format';
+import type { HeaderValues } from '@/lib/shared/http-headers';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { diffLines, type LineDiffEntry } from '@/lib/shared/line-diff';
 import { cn } from '@/lib/shared/utils';
@@ -39,11 +40,8 @@ interface HeaderDiffRow {
   changed: boolean;
 }
 
-function diffHeaders(
-  a: Record<string, string | string[]>,
-  b: Record<string, string | string[]>
-): HeaderDiffRow[] {
-  const flat = (h: Record<string, string | string[]>) => {
+function diffHeaders(a: HeaderValues, b: HeaderValues): HeaderDiffRow[] {
+  const flat = (h: HeaderValues) => {
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(h)) {
       out[k.toLowerCase()] = Array.isArray(v) ? v.join(', ') : v;
@@ -71,10 +69,7 @@ export default function EntryCompareDialog({
 }: EntryCompareDialogProps) {
   const requestHeaderDiff = useMemo(() => {
     if (!left || !right) return [];
-    return diffHeaders(
-      left.request.headers as unknown as Record<string, string | string[]>,
-      right.request.headers as unknown as Record<string, string | string[]>
-    );
+    return diffHeaders(left.request.headers, right.request.headers);
   }, [left, right]);
 
   const responseHeaderDiff = useMemo(() => {

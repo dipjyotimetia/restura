@@ -4,6 +4,7 @@ import {
   sanitizeConsoleEntry,
   sanitizeConsoleFrame,
 } from '@/lib/shared/console-sanitization';
+import type { HeaderValues } from '@/lib/shared/http-headers';
 import {
   type ConsoleEntry,
   type ConsoleFrame,
@@ -60,7 +61,7 @@ interface HarEntry {
   timings: { send: number; wait: number; receive: number };
 }
 
-function headersToHar(headers: Record<string, string | string[]>): HarHeader[] {
+function headersToHar(headers: HeaderValues): HarHeader[] {
   const out: HarHeader[] = [];
   for (const [name, value] of Object.entries(headers)) {
     if (isConsoleCredentialHeader(name)) continue;
@@ -86,7 +87,7 @@ function queryStringFromUrl(url: string): HarHeader[] {
   }
 }
 
-function contentTypeFromHeaders(headers: Record<string, string | string[]>): string {
+function contentTypeFromHeaders(headers: HeaderValues): string {
   for (const [key, value] of Object.entries(headers)) {
     if (key.toLowerCase() === 'content-type') {
       return Array.isArray(value) ? (value[0] ?? '') : value;
@@ -102,10 +103,7 @@ export function entriesToHar(entries: ConsoleEntry[]): HarLog {
       creator: { name: 'Restura', version: '1.0' },
       entries: entries.filter(isHttpExportCompatible).map((rawEntry) => {
         const entry = { ...sanitizeConsoleEntry(rawEntry), id: rawEntry.id };
-        const reqContentType = contentTypeFromHeaders(
-          // sentHeaders is Record<string, string>; HAR helper accepts the wider shape.
-          entry.request.headers as unknown as Record<string, string | string[]>
-        );
+        const reqContentType = contentTypeFromHeaders(entry.request.headers);
         const har: HarEntry = {
           startedDateTime: new Date(entry.timestamp).toISOString(),
           time: entry.response.time,
@@ -113,9 +111,7 @@ export function entriesToHar(entries: ConsoleEntry[]): HarLog {
             method: entry.request.method,
             url: entry.resolvedUrl ?? entry.request.url,
             httpVersion: 'HTTP/1.1',
-            headers: headersToHar(
-              entry.request.headers as unknown as Record<string, string | string[]>
-            ),
+            headers: headersToHar(entry.request.headers),
             queryString: queryStringFromUrl(entry.resolvedUrl ?? entry.request.url),
             cookies: [],
             headersSize: -1,
