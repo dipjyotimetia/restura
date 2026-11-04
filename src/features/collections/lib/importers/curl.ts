@@ -135,7 +135,7 @@ function parseArgs(tokens: readonly string[]): { options: ParsedOption[]; urls: 
   };
 
   for (let i = 1; i < tokens.length; i++) {
-    const token = tokens[i]!;
+    const token = tokens[i] ?? '';
     if (token === '--') {
       urls.push(...tokens.slice(i + 1));
       break;
@@ -162,7 +162,7 @@ function parseArgs(tokens: readonly string[]): { options: ParsedOption[]; urls: 
     }
     if (token.startsWith('-') && token.length > 1) {
       for (let j = 1; j < token.length; j++) {
-        const letter = token[j]!;
+        const letter = token.charAt(j);
         const flag = `-${letter}`;
         const name = SHORT_OPTIONS[letter];
         if (!name) {
@@ -377,9 +377,13 @@ export function parseCurlCommand(source: string): {
         // --form-string is literal: a leading '@' or '<' is data, never a file.
         const literal = name === 'form-string';
         const filePath =
-          !literal && formValue.startsWith('@') ? formValue.slice(1).split(';', 1)[0]! : undefined;
+          !literal && formValue.startsWith('@')
+            ? (formValue.slice(1).split(';', 1)[0] ?? '')
+            : undefined;
         const contentPath =
-          !literal && formValue.startsWith('<') ? formValue.slice(1).split(';', 1)[0]! : undefined;
+          !literal && formValue.startsWith('<')
+            ? (formValue.slice(1).split(';', 1)[0] ?? '')
+            : undefined;
         if (filePath) warnings.push({ kind: 'unresolved-file', option: flag, path: filePath });
         if (contentPath)
           warnings.push({ kind: 'unresolved-file', option: flag, path: contentPath });
@@ -440,7 +444,7 @@ export function parseCurlCommand(source: string): {
       (joined, part, index) =>
         index === 0
           ? part.text
-          : `${joined}${part.json && dataParts[index - 1]!.json ? '' : '&'}${part.text}`,
+          : `${joined}${part.json && dataParts[index - 1]?.json ? '' : '&'}${part.text}`,
       ''
     );
 
@@ -586,7 +590,7 @@ function lexPosix(source: string): string[] {
     quoted = false;
   };
   for (let i = 0; i < source.length; i++) {
-    const char = source[i]!;
+    const char = source.charAt(i);
     if (quote === 'ansi') {
       if (char === "'") {
         quote = undefined;
@@ -608,7 +612,7 @@ function lexPosix(source: string): string[] {
         // A backslash-newline inside double quotes is a line continuation.
         if (source[i + 1] === '\n') i++;
         else if (source[i + 1] === '\r' && source[i + 2] === '\n') i += 2;
-        else current += source[++i]!;
+        else current += source.charAt(++i);
       } else current += char;
       continue;
     }
@@ -635,7 +639,7 @@ function lexPosix(source: string): string[] {
         i += 2;
         continue;
       }
-      if (i + 1 < source.length) current += source[++i]!;
+      if (i + 1 < source.length) current += source.charAt(++i);
       continue;
     }
     if (/\s/.test(char)) {
@@ -646,7 +650,7 @@ function lexPosix(source: string): string[] {
       push();
       const next = source[i + 1];
       tokens.push(
-        next === char && (char === '|' || char === '&') ? `${char}${source[++i]!}` : char
+        next === char && (char === '|' || char === '&') ? `${char}${source.charAt(++i)}` : char
       );
       continue;
     }
@@ -686,7 +690,7 @@ function parseProxy(value: string): ProxyConfig {
 
 /** Split a query string into rows without decoding values (see the caller). */
 function parseRawQuery(query: string): Array<{ key: string; value: string }> {
-  const unescape = (text: string, isKey: boolean) => {
+  const unescapeQueryPart = (text: string, isKey: boolean) => {
     const out = text.replace(/%26/g, '&').replace(/%23/g, '#');
     return isKey ? out.replace(/%3D/gi, '=') : out;
   };
@@ -696,7 +700,10 @@ function parseRawQuery(query: string): Array<{ key: string; value: string }> {
     .map((pair) => {
       const eq = pair.indexOf('=');
       return eq === -1
-        ? { key: unescape(pair, true), value: '' }
-        : { key: unescape(pair.slice(0, eq), true), value: unescape(pair.slice(eq + 1), false) };
+        ? { key: unescapeQueryPart(pair, true), value: '' }
+        : {
+            key: unescapeQueryPart(pair.slice(0, eq), true),
+            value: unescapeQueryPart(pair.slice(eq + 1), false),
+          };
     });
 }

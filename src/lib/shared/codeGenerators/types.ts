@@ -80,8 +80,13 @@ export const escapeJson = (str: string): string =>
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
 
-/** Ruby double-quoted literal: JSON escapes, with `#` escaped so `#{…}` never interpolates. */
-export const rubyString = (str: string): string => `"${escapeJson(str).replace(/#/g, '\\#')}"`;
+/**
+ * Ruby double-quoted literal: JSON escapes (backslashes included), then every
+ * `#` escaped so `#{…}` never interpolates. `\#` in the input becomes `\\\#`:
+ * an escaped backslash followed by an escaped `#`.
+ */
+export const rubyString = (str: string): string =>
+  `"${Array.from(escapeJson(str), (char) => (char === '#' ? '\\#' : char)).join('')}"`;
 
 /**
  * A JSON body as a JavaScript expression. Strict JSON is also a JavaScript

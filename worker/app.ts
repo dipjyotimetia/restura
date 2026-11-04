@@ -154,11 +154,12 @@ function cfAccessPrincipal(verifiedAssertion: string): string {
 export async function requireJsonContentTypeMiddleware(
   c: Context<{ Bindings: Env }>,
   next: Next
-): Promise<Response | void> {
+): Promise<Response | undefined> {
   if (c.req.method === 'POST' && !isJsonContentType(c.req.header('Content-Type'))) {
     return c.json({ error: 'Content-Type must be application/json' }, 415);
   }
-  return next();
+  await next();
+  return undefined;
 }
 
 /**
