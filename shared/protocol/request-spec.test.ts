@@ -7,6 +7,8 @@ import {
   buildProxyBody,
   buildProxyFormFields,
   type CredentialHost,
+  collectEnabledHeaders,
+  collectEnabledRowPairs,
   collectEnabledRows,
   DEFERRED_SECRET,
   isSendableRow,
@@ -228,5 +230,43 @@ describe('buildAuthCredential', () => {
     expect(
       buildAuthCredential({ type: 'basic', basic: { username: 'u', password: 'p' } }, host).headers
     ).toEqual({ Authorization: 'Basic b64(u:p)' });
+  });
+});
+
+describe('request-spec edge cases', () => {
+  const kv = (key: string, value: string, enabled = true) => ({ key, value, enabled });
+
+  it('collectEnabledRowPairs keeps repeated keys in order and skips unsendable rows', () => {
+    expect(
+      collectEnabledRowPairs(
+        [kv('a', '1'), kv('b', 'x', false), kv('', 'blank'), kv('a', '2')],
+        (r) => r.value
+      )
+    ).toEqual([
+      ['a', '1'],
+      ['a', '2'],
+    ]);
+  });
+
+  it('collectEnabledHeaders: an empty repeated value neither adds a joiner nor erases the prior one', () => {
+    expect(
+      collectEnabledHeaders([kv('X-A', ''), kv('x-a', 'v'), kv('X-A', '')], (r) => r.value)
+    ).toEqual({ 'X-A': 'v' });
+    expect(
+      collectEnabledHeaders([kv('Cookie', 'a=1'), kv('cookie', 'b=2')], (r) => r.value)
+    ).toEqual({ Cookie: 'a=1; b=2' });
+  });
+
+  it('appendQueryPairs adds no extra separator after a trailing ? or &', () => {
+    expect(appendQueryPairs('https://x.test/r?', [['a', '1']])).toBe('https://x.test/r?a=1');
+    expect(appendQueryPairs('https://x.test/r?x=1&', [['a', '1']])).toBe(
+      'https://x.test/r?x=1&a=1'
+    );
+  });
+
+  it('basic auth with a username and no password encodes an empty password', () => {
+    expect(buildAuthCredential({ type: 'basic', basic: { username: 'u' } } as never, host)).toEqual(
+      { headers: { Authorization: 'Basic b64(u:)' }, params: {} }
+    );
   });
 });

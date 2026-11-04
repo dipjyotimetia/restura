@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyChainCookies,
+  buildCookieHopsSideChannel,
   buildSetCookieSideChannel,
   combineSetCookieHeader,
+  cookieMatchesUrl,
+  decodeCookieHopsSideChannel,
   decodeSetCookieSideChannel,
+  defaultCookiePath,
   encodeSetCookieSideChannel,
   parseResponseSetCookies,
   parseSetCookie,
+  RedirectCookieChain,
+  resolveSetCookie,
   responseHeaderEntries,
   responseSetCookies,
   SET_COOKIE_OMITTED_HEADER,
@@ -191,5 +198,223 @@ describe('set-cookie side channel size cap', () => {
     ]);
     expect(omitted).toBe(1);
     expect(decodeSetCookieSideChannel(value)).toEqual(['a=1', 'b=2']);
+  });
+});
+
+describe('cookie-hops side channel', () => {
+  const hop = (url: string, ...setCookies: string[]) => ({ url, setCookies });
+
+  it('carries nothing when there is no final URL and no hop', () => {
+    expect(buildCookieHopsSideChannel({})).toEqual({ value: undefined, omitted: 0 });
+    expect(buildCookieHopsSideChannel({ cookieHops: [] })).toEqual({
+      value: undefined,
+      omitted: 0,
+    });
+  });
+
+  it('round-trips the final URL and every hop when it fits', () => {
+    const fields = {
+      finalUrl: 'https://b.test/done',
+      cookieHops: [hop('https://a.test/', 'a=1'), hop('https://b.test/', 'b=2', 'c=3')],
+    };
+    const { value, omitted } = buildCookieHopsSideChannel(fields);
+    expect(omitted).toBe(0);
+    expect(decodeCookieHopsSideChannel(value)).toEqual(fields);
+  });
+
+  it('drops cookies that do not fit (and a hop left empty) without a final URL', () => {
+    const big = `big=${'x'.repeat(400)}`;
+    const { value, omitted } = buildCookieHopsSideChannel(
+      { cookieHops: [hop('https://a.test/', big), hop('https://b.test/', 'b=2')] },
+      200
+    );
+    expect(omitted).toBe(1);
+    expect(decodeCookieHopsSideChannel(value)).toEqual({
+      cookieHops: [hop('https://b.test/', 'b=2')],
+    });
+  });
+
+  it('carries nothing when the final URL alone exceeds the cap', () => {
+    expect(
+      buildCookieHopsSideChannel({ finalUrl: `https://a.test/${'p'.repeat(300)}` }, 100)
+    ).toEqual({ value: undefined, omitted: 0 });
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['empty', ''],
+    ['not URI-encoded JSON', '%E0%A4%A'],
+    ['a JSON array', encodeURIComponent('[1]')],
+    ['a JSON scalar', encodeURIComponent('5')],
+    ['JSON null', encodeURIComponent('null')],
+  ])('decodes a malformed (%s) value as empty', (_label, value) => {
+    expect(decodeCookieHopsSideChannel(value)).toEqual({});
+  });
+
+  it('keeps only well-formed hops and string cookies when decoding', () => {
+    const value = encodeURIComponent(
+      JSON.stringify({
+        finalUrl: 42,
+        cookieHops: [
+          null,
+          { url: 1, setCookies: ['x=1'] },
+          { url: 'https://a.test/', setCookies: 'x=1' },
+          { url: 'https://a.test/', setCookies: [1, 'ok=1'] },
+          { url: 'https://b.test/', setCookies: [2] },
+        ],
+      })
+    );
+    expect(decodeCookieHopsSideChannel(value)).toEqual({
+      cookieHops: [hop('https://a.test/', 'ok=1')],
+    });
+  });
+
+  it('omits cookieHops entirely when no hop survives decoding', () => {
+    const value = encodeURIComponent(JSON.stringify({ finalUrl: 'u', cookieHops: [{}] }));
+    expect(decodeCookieHopsSideChannel(value)).toEqual({ finalUrl: 'u' });
+  });
+});
+
+describe('resolveSetCookie (RFC 6265 storage model)', () => {
+  const now = Date.UTC(2030, 0, 1);
+
+  it('refuses a field with no name=value pair and an unparseable request URL', () => {
+    expect(resolveSetCookie('novalue', 'https://a.test/', now)).toEqual({
+      ok: false,
+      reason: 'no name=value pair',
+    });
+    expect(resolveSetCookie('a=1', 'not a url', now)).toEqual({
+      ok: false,
+      reason: 'invalid request URL',
+    });
+  });
+
+  it('keeps SameSite, Secure and HttpOnly and defaults the path to the request directory', () => {
+    const r = resolveSetCookie(
+      'sid=1; SameSite=Lax; Secure; HttpOnly',
+      'https://API.a.test/v1/users/me',
+      now
+    );
+    expect(r).toEqual({
+      ok: true,
+      cookie: {
+        name: 'sid',
+        value: '1',
+        domain: 'api.a.test',
+        hostOnly: true,
+        path: '/v1/users',
+        secure: true,
+        httpOnly: true,
+        sameSite: 'Lax',
+      },
+    });
+  });
+
+  it('a relative Path attribute falls back to the default path', () => {
+    const r = resolveSetCookie('a=1; Path=relative', 'https://a.test/x/y', now);
+    expect(r.ok && r.cookie.path).toBe('/x');
+  });
+
+  it('refuses a Domain the host does not match and a single-label public suffix', () => {
+    expect(resolveSetCookie('a=1; Domain=other.test', 'https://a.test/', now)).toMatchObject({
+      ok: false,
+      reason: 'Domain=other.test does not match a.test',
+    });
+    expect(resolveSetCookie('a=1; Domain=test', 'https://a.test/', now)).toMatchObject({
+      ok: false,
+      reason: 'Domain=test is a public suffix',
+    });
+  });
+
+  it('Max-Age wins over Expires; Max-Age<=0 deletes; an unparseable Expires is a session cookie', () => {
+    const expiresIn = (raw: string) => {
+      const r = resolveSetCookie(raw, 'https://a.test/', now);
+      return r.ok ? r.cookie.expiresAt : 'refused';
+    };
+    expect(expiresIn('a=1; Max-Age=60; Expires=Wed, 21 Oct 2037 07:28:00 GMT')).toBe(now + 60_000);
+    expect(expiresIn('a=1; Max-Age=0')).toBe(Number.NEGATIVE_INFINITY);
+    expect(expiresIn('a=1; Expires=Wed, 21 Oct 2037 07:28:00 GMT')).toBe(
+      Date.UTC(2037, 9, 21, 7, 28)
+    );
+    expect(expiresIn('a=1; Expires=someday')).toBeUndefined();
+  });
+});
+
+describe('cookie path and URL matching edge cases', () => {
+  it('a URL whose path is not absolute defaults to the root path', () => {
+    expect(defaultCookiePath(new URL('urn:example:thing'))).toBe('/');
+  });
+
+  it('an empty URL path matches a root-path cookie', () => {
+    const cookie = { domain: 'host', hostOnly: true, path: '/', secure: false };
+    expect(cookieMatchesUrl(cookie, new URL('foo://host'), 0)).toBe(true);
+  });
+});
+
+describe('applyChainCookies', () => {
+  it('replaces a repeated outgoing name once with the chain value', () => {
+    expect(applyChainCookies('a=1; b=2; a=3', [{ name: 'a', value: 'new' }], new Set())).toBe(
+      'a=new; b=2'
+    );
+  });
+
+  it('drops deleted names, keeps others and appends chain-only cookies', () => {
+    expect(
+      applyChainCookies(
+        'gone=1; keep=2;;',
+        [
+          { name: 'x', value: 'long-path' },
+          { name: 'x', value: 'short-path' },
+        ],
+        new Set(['gone'])
+      )
+    ).toBe('keep=2; x=long-path');
+  });
+
+  it('builds a header from chain cookies alone', () => {
+    expect(applyChainCookies(undefined, [{ name: 'a', value: '1' }], new Set())).toBe('a=1');
+  });
+});
+
+describe('RedirectCookieChain', () => {
+  const now = Date.UTC(2030, 0, 1);
+
+  it('skips unresolvable fields but still records the hop', () => {
+    const chain = new RedirectCookieChain();
+    chain.record('https://a.test/', ['novalue', 'a=1; Domain=evil.test'], now);
+    expect(chain.hops).toEqual([
+      { url: 'https://a.test/', setCookies: ['novalue', 'a=1; Domain=evil.test'] },
+    ]);
+    expect(chain.matching('https://a.test/', now)).toEqual([]);
+    expect(chain.responses).toBe(1);
+  });
+
+  it('keeps same-name cookies with different paths or domains apart, longest path first', () => {
+    const chain = new RedirectCookieChain();
+    chain.record(
+      'https://www.a.test/app/page',
+      ['a=root; Path=/', 'a=app; Path=/app', 'a=dom; Domain=a.test; Path=/'],
+      now
+    );
+    chain.record('https://www.a.test/app/next', ['a=app2; Path=/app'], now);
+    expect(chain.matching('https://www.a.test/app/x', now).map((c) => c.value)).toEqual([
+      'app2',
+      'root',
+      'dom',
+    ]);
+    expect(chain.lastUrl).toBe('https://www.a.test/app/next');
+  });
+
+  it('reports a deleted cookie for matching URLs only, and forgets it when re-set', () => {
+    const chain = new RedirectCookieChain();
+    expect(chain.deletedNames('https://a.test/')).toEqual(new Set());
+    chain.record('https://a.test/', ['s=1', 's=; Max-Age=0'], now);
+    expect(chain.deletedNames('https://a.test/x')).toEqual(new Set(['s']));
+    expect(chain.deletedNames('https://other.test/')).toEqual(new Set());
+    expect(chain.deletedNames('not a url')).toEqual(new Set());
+    expect(chain.matching('https://a.test/', now)).toEqual([]);
+    chain.record('https://a.test/', ['s=2'], now);
+    expect(chain.deletedNames('https://a.test/')).toEqual(new Set());
+    expect(chain.matching('not a url', now)).toEqual([]);
   });
 });

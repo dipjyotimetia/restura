@@ -103,3 +103,64 @@ describe('OAuth1 through the proxy (sign = send)', () => {
     expect(sig).toBe(createHmac('sha1', 'cs&').update(base).digest('base64'));
   });
 });
+
+describe('OAuth1 signer edge cases', () => {
+  const header = (h: string) =>
+    Object.fromEntries(
+      [...h.matchAll(/(\w+)="([^"]*)"/g)].map((m) => [m[1], decodeURIComponent(m[2] ?? '')])
+    );
+
+  it('hashes a signing key longer than the HMAC block size first (RFC 2104)', () => {
+    const consumerSecret = 'k'.repeat(80);
+    const config = {
+      consumerKey: 'ck',
+      consumerSecret,
+      nonce: 'n',
+      timestamp: '1',
+      signatureMethod: 'HMAC-SHA256' as const,
+    };
+    const signed = header(buildOAuth1Header('GET', 'https://api.test/r', config));
+    const base = buildOAuth1BaseString('GET', 'https://api.test/r', [
+      ['oauth_consumer_key', 'ck'],
+      ['oauth_nonce', 'n'],
+      ['oauth_signature_method', 'HMAC-SHA256'],
+      ['oauth_timestamp', '1'],
+      ['oauth_version', '1.0'],
+    ]);
+    const expected = createHmac('sha256', `${consumerSecret}&`).update(base).digest('base64');
+    expect(signed.oauth_signature).toBe(expected);
+  });
+
+  it('PLAINTEXT with no consumer secret signs with "&tokenSecret"', () => {
+    const signed = header(
+      // A config read from storage may lack the consumer secret entirely.
+      buildOAuth1Header('GET', 'https://api.test/r', {
+        consumerKey: 'ck',
+        accessTokenSecret: 'ts',
+        signatureMethod: 'PLAINTEXT',
+      } as Parameters<typeof buildOAuth1Header>[2])
+    );
+    expect(signed.oauth_signature).toBe('&ts');
+  });
+
+  it('refuses an unknown signature method', () => {
+    expect(() =>
+      buildOAuth1Header('GET', 'https://api.test/r', {
+        consumerKey: 'ck',
+        consumerSecret: 'cs',
+        signatureMethod: 'RSA-SHA1' as never,
+      })
+    ).toThrow(/Unsupported OAuth1 signature method: RSA-SHA1/);
+  });
+
+  it('base string: keeps a non-default port, treats a bare query name as empty, skips realm/signature', () => {
+    const base = buildOAuth1BaseString('get', 'HTTPS://API.test:8443/r?flag&b=2&b=1', [
+      ['realm', 'x'],
+      ['oauth_signature', 'sig'],
+      ['b', '1'],
+    ]);
+    expect(base).toBe(
+      `GET&${oauth1PercentEncode('https://api.test:8443/r')}&${oauth1PercentEncode('b=1&b=1&b=2&flag=')}`
+    );
+  });
+});

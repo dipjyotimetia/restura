@@ -106,3 +106,57 @@ describe('responseCookieHops', () => {
     ).toEqual([{ url: 'https://b.example/x', setCookies: ['a=1'] }]);
   });
 });
+
+describe('cookie jar edge cases', () => {
+  const cookie = (fields: Partial<CookieItem>): CookieItem => ({
+    id: fields.key ?? 'c',
+    key: 'c',
+    value: 'v',
+    domain: 'api.example.com',
+    path: '/',
+    secure: false,
+    httpOnly: false,
+    ...fields,
+  });
+
+  it('treats a missing path as the root path and sorts it after longer paths', () => {
+    const jar = [cookie({ key: 'root', path: '' }), cookie({ key: 'deep', path: '/v1' })];
+    expect(cookiesForUrl(jar, 'https://api.example.com/v1/x', 0).map((c) => c.key)).toEqual([
+      'deep',
+      'root',
+    ]);
+    expect(
+      cookiesForUrl(
+        [cookie({ key: 'a', path: '' }), cookie({ key: 'b', path: '' })],
+        'https://api.example.com/',
+        0
+      )
+    ).toHaveLength(2);
+  });
+
+  it('an unparseable expiry is a session cookie; a past one is not sent', () => {
+    const now = Date.UTC(2030, 0, 1);
+    const jar = [
+      cookie({ key: 'session', expires: 'not a date' }),
+      cookie({ key: 'gone', expires: new Date(now - 1000).toISOString() }),
+    ];
+    expect(cookiesForUrl(jar, 'https://api.example.com/', now).map((c) => c.key)).toEqual([
+      'session',
+    ]);
+  });
+
+  it('a response with neither hops nor Set-Cookie fields has no cookie hops', () => {
+    expect(responseCookieHops({}, 'https://a.test/')).toEqual([]);
+    expect(responseCookieHops({ cookieHops: [], setCookies: ['a=1'] }, 'https://a.test/')).toEqual([
+      { url: 'https://a.test/', setCookies: ['a=1'] },
+    ]);
+  });
+
+  it('withJarCookies returns the headers untouched when the jar has nothing to add', () => {
+    const headers = { cookie: 'mine=1' };
+    expect(withJarCookies(headers, [])).toBe(headers);
+    expect(withJarCookies(headers, [{ key: 'jar', value: '2' }])).toEqual({
+      cookie: 'mine=1; jar=2',
+    });
+  });
+});

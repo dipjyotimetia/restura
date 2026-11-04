@@ -582,3 +582,68 @@ describe('importCurlCommand option table (curl(1))', () => {
     });
   });
 });
+
+describe('importCurlCommand — less common option forms', () => {
+  it('reports an unknown short switch as unsupported and keeps parsing the cluster', () => {
+    const { request, warnings } = importOne("curl -@L -H 'X-A: 1' https://x.dev");
+    expect(warnings).toContainEqual({ kind: 'unsupported-option', option: '-@' });
+    expect(header(request, 'X-A')).toBe('1');
+  });
+
+  it.each([
+    ['--basic', 'basic'],
+    ['--digest', 'digest'],
+    ['--ntlm', 'ntlm'],
+  ] as const)('%s selects the scheme for -u credentials', (flag, type) => {
+    const { request } = importOne(`curl ${flag} -u alice:pw https://x.dev`);
+    expect(request.auth).toEqual({ type, [type]: { username: 'alice', password: 'pw' } });
+  });
+
+  it('--url-query appends a +literal part verbatim and url-encodes the rest', () => {
+    const { request } = importOne(
+      "curl --url-query '+raw=a+b' --url-query 'q=hello world' 'https://x.dev/s?flag&x=1'"
+    );
+    expect(request.params.map(({ key, value }) => [key, value])).toEqual([
+      ['flag', ''],
+      ['x', '1'],
+      ['raw', 'a+b'],
+      ['q', 'hello%20world'],
+    ]);
+  });
+
+  it('-F name=<file reads part content from a file: warned, never read, sent empty', () => {
+    const { request, warnings } = importOne(
+      "curl -F 'notes=<./notes.txt;type=text/plain' https://x.dev"
+    );
+    expect(warnings).toContainEqual({
+      kind: 'unresolved-file',
+      option: '-F',
+      path: './notes.txt',
+    });
+    expect(request.body.formData).toEqual([
+      expect.objectContaining({ key: 'notes', value: '', type: 'text' }),
+    ]);
+  });
+
+  it('keeps -d data form-encoded under an explicit x-www-form-urlencoded header', () => {
+    const { request } = importOne(
+      "curl -H 'Content-Type: application/x-www-form-urlencoded; charset=utf-8' -d 'a=1' https://x.dev"
+    );
+    expect(request.body).toMatchObject({ type: 'x-www-form-urlencoded', raw: 'a=1' });
+  });
+
+  it('decodes bash ANSI-C quoting, keeping unknown and dangling escapes verbatim', () => {
+    const { request } = importOne("curl -H $'X-A: a\\qb' -H $'X-B: \\x41\\u00e9' https://x.dev");
+    expect(header(request, 'X-A')).toBe('a\\qb');
+    expect(header(request, 'X-B')).toBe('Aé');
+  });
+
+  it('treats backslash-newline (LF or CRLF) inside double quotes as a line continuation', () => {
+    const { request } = importOne(
+      'curl -H "X-A: one\\\ntwo" -H "X-B: a\\\r\nb" -H "X-C: \\$x" https://x.dev'
+    );
+    expect(header(request, 'X-A')).toBe('onetwo');
+    expect(header(request, 'X-B')).toBe('ab');
+    expect(header(request, 'X-C')).toBe('$x');
+  });
+});

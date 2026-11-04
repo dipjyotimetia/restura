@@ -571,3 +571,202 @@ describe('importInsomniaCollection — Nunjucks templates', () => {
     });
   });
 });
+
+describe('importInsomniaCollection — defaults and sparse exports', () => {
+  it('rejects a v4 export without a resources array', () => {
+    expect(() =>
+      importInsomniaCollection({ _type: 'export', __export_format: 4 } as unknown)
+    ).toThrow(/missing "resources" array/);
+  });
+
+  it('names unnamed v4 resources and nests folders and environments by parent', () => {
+    const result = importInsomniaCollection(
+      makeFixture([
+        { _id: 'wrk', _type: 'workspace' },
+        { _id: 'env_base', _type: 'environment', parentId: 'wrk', data: { host: 'h' } },
+        { _id: 'env_sub', _type: 'environment', parentId: 'env_base' },
+        { _id: 'env_orphan', _type: 'environment', parentId: 'missing', data: { n: null } },
+        { _id: 'fld_outer', _type: 'request_group' },
+        { _id: 'fld_inner', _type: 'request_group', parentId: 'fld_outer' },
+        { _id: 'req_1', _type: 'request', parentId: 'fld_inner' },
+        { _id: 'req_2', _type: 'request', parentId: 'nowhere', method: 'GET', url: 'https://x' },
+      ] as InsomniaCollection['resources'])
+    );
+    expect(result.collection.name).toBe('Imported Collection');
+    // Loose requests are placed before top-level folders.
+    const [loose, outer] = result.collection.items;
+    expect(loose).toMatchObject({ name: 'Unnamed Request', type: 'request' });
+    expect(outer).toMatchObject({ name: 'Unnamed Folder', type: 'folder' });
+    const inner = outer?.items?.[0];
+    expect(inner).toMatchObject({ name: 'Unnamed Folder', type: 'folder' });
+    expect(inner?.items?.[0]).toMatchObject({ name: 'Unnamed Request' });
+    const unnested = requestOf(inner?.items?.[0]) as HttpRequest;
+    expect(unnested).toMatchObject({ url: '', headers: [], params: [], body: { type: 'none' } });
+
+    const envs = result.environments ?? [];
+    expect(envs.map((e) => e.name)).toEqual([
+      'Imported Environment',
+      'Imported Environment',
+      'Imported Environment',
+    ]);
+    const [base, sub, orphan] = envs;
+    expect(base?.parentId).toBeUndefined();
+    expect(sub?.parentId).toBe(base?.id);
+    expect(orphan?.parentId).toBeUndefined();
+    expect(sub?.variables).toEqual([]);
+    expect(orphan?.variables.map((v) => [v.key, v.value])).toEqual([['n', '']]);
+  });
+
+  it('a v4 export without environments yields none', () => {
+    const result = importInsomniaCollection(
+      makeFixture([{ _id: 'req', _type: 'request', name: 'R', method: 'GET', url: 'u' }] as never)
+    );
+    expect(result.environments).toBeUndefined();
+  });
+
+  it('defaults v5 names, flattens nested environment data and keeps arrays as JSON', () => {
+    const doc = {
+      type: 'collection.insomnia.rest/5.0',
+      collection: [{ children: [{ method: 'GET', url: 'https://x' }] }],
+      environments: {
+        data: { api: { host: 'h', port: 1 }, list: [1, 2], none: null },
+        subEnvironments: [{ data: 'not an object' }, { name: 'Prod', data: { a: 'b' } }],
+      },
+    } as unknown as InsomniaV5Document;
+    const result = importInsomniaCollection(doc);
+    expect(result.collection.name).toBe('Imported Collection');
+    expect(result.collection.items[0]).toMatchObject({ name: 'Unnamed Folder', type: 'folder' });
+    expect(result.collection.items[0]?.items?.[0]).toMatchObject({ name: 'Unnamed Request' });
+    const [base, sub1, sub2] = result.environments ?? [];
+    expect(base?.name).toBe('Base environment');
+    expect(base?.variables.map((v) => [v.key, v.value])).toEqual([
+      ['api.host', 'h'],
+      ['api.port', '1'],
+      ['list', '[1,2]'],
+      ['none', ''],
+    ]);
+    expect(sub1).toMatchObject({ name: 'Imported Environment', parentId: base?.id, variables: [] });
+    expect(sub2).toMatchObject({ name: 'Prod', parentId: base?.id });
+  });
+
+  it('a v5 export with no collection or environments is empty', () => {
+    const result = importInsomniaCollection({ type: 'collection.insomnia.rest/5.0' });
+    expect(result.collection.items).toEqual([]);
+    expect(result.environments).toBeUndefined();
+  });
+});
+
+describe('importInsomniaCollection — request bodies and auth details', () => {
+  const importRequest = (fields: Record<string, unknown>) => {
+    const result = importInsomniaCollection(
+      makeFixture([
+        { _id: 'req', _type: 'request', name: 'R', method: 'POST', url: 'u', ...fields },
+      ] as never)
+    );
+    return {
+      request: requestOf(result.collection.items[0]) as HttpRequest,
+      warnings: result.warnings,
+    };
+  };
+
+  it('an unknown or missing mime type is a text body', () => {
+    expect(
+      importRequest({ body: { mimeType: 'application/x-custom', text: 't' } }).request.body
+    ).toEqual({
+      type: 'text',
+      raw: 't',
+    });
+    expect(importRequest({ body: { text: 't' } }).request.body).toEqual({ type: 'text', raw: 't' });
+  });
+
+  it('a form body without params keeps its raw text', () => {
+    expect(
+      importRequest({ body: { mimeType: 'application/x-www-form-urlencoded', text: 'a=1' } })
+        .request.body
+    ).toEqual({ type: 'x-www-form-urlencoded', raw: 'a=1' });
+  });
+
+  it('a urlencoded file param stays text; a multipart file param without a name has no fileName', () => {
+    const url = importRequest({
+      body: {
+        mimeType: 'application/x-www-form-urlencoded',
+        params: [{ name: 'f', value: 'v', type: 'file', disabled: true }],
+      },
+    }).request.body;
+    expect(url.formData).toEqual([
+      expect.objectContaining({ key: 'f', value: 'v', type: 'text', enabled: false }),
+    ]);
+    const multi = importRequest({
+      body: {
+        mimeType: 'multipart/form-data',
+        params: [{ name: 'f', value: '/tmp/x', type: 'file' }],
+      },
+    }).request.body;
+    expect(multi.formData?.[0]).toMatchObject({ type: 'file', value: '' });
+    expect(multi.formData?.[0]).not.toHaveProperty('fileName');
+  });
+
+  it.each([
+    ['not JSON', 'query { a }', { type: 'graphql', raw: 'query { a }' }],
+    ['a JSON array', '[1]', { type: 'graphql', raw: '[1]' }],
+    ['JSON null', 'null', { type: 'graphql', raw: 'null' }],
+    ['missing', undefined, { type: 'graphql', raw: '' }],
+    [
+      'no query, null variables',
+      '{"variables":null,"operationName":""}',
+      { type: 'graphql', raw: '' },
+    ],
+    [
+      'string variables',
+      '{"query":"q","variables":"{\\"a\\":1}"}',
+      { type: 'graphql', raw: 'q', graphqlVariables: '{"a":1}' },
+    ],
+  ])('a GraphQL body that is %s', (_label, text, body) => {
+    expect(importRequest({ body: { mimeType: 'application/graphql', text } }).request.body).toEqual(
+      body
+    );
+  });
+
+  it('explicit "none" auth and empty auth fields import without warnings', () => {
+    expect(importRequest({ authentication: { type: 'none' } })).toMatchObject({
+      request: { auth: { type: 'none' } },
+      warnings: [],
+    });
+    expect(importRequest({ authentication: { type: 'basic', username: 3 } }).request.auth).toEqual({
+      type: 'basic',
+      basic: { username: '', password: '' },
+    });
+    expect(importRequest({ authentication: { type: 'bearer' } }).request.auth).toEqual({
+      type: 'bearer',
+      bearer: { token: '' },
+    });
+    expect(
+      importRequest({ authentication: { type: 'apikey', key: 'k', value: 'v' } }).request.auth
+    ).toEqual({
+      type: 'api-key',
+      apiKey: { key: 'k', value: 'v', in: 'header' },
+    });
+  });
+
+  it('OAuth2: maps each supported grant, tokenUrl / redirectUrl aliases, and drops unknown grants', () => {
+    const oauth2 = (fields: Record<string, unknown>) =>
+      importRequest({ authentication: { type: 'oauth2', ...fields } }).request.auth.oauth2;
+    expect(oauth2({ grantType: 'authorization_code', tokenUrl: 't', redirectUrl: 'r' })).toEqual({
+      accessToken: '',
+      grantType: 'authorization_code',
+      tokenUrl: 't',
+      redirectUri: 'r',
+    });
+    expect(oauth2({ grantType: 'client_credentials' })?.grantType).toBe('client_credentials');
+    expect(oauth2({ grantType: 'implicit' })).toEqual({ accessToken: '' });
+  });
+
+  it('v4 scripts are migrated to rs.*; blank scripts are not attached', () => {
+    const { request } = importRequest({
+      preRequestScript: "pm.environment.set('a', '1');",
+      afterResponseScript: '   ',
+    });
+    expect(request.preRequestScript).toContain("rs.environment.set('a', '1')");
+    expect(request.testScript).toBeUndefined();
+  });
+});

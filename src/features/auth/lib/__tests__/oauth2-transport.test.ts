@@ -92,4 +92,52 @@ describe('proxiedTokenFetch', () => {
     await proxiedTokenFetch('https://idp/token', { method: 'POST', signal: controller.signal });
     expect(executeProxiedRequestMock.mock.calls[0]?.[1]).toEqual({ signal: controller.signal });
   });
+
+  it('accepts a URL object or a Request as input and defaults to GET with no body', async () => {
+    executeProxiedRequestMock.mockResolvedValue({ status: 200, headers: {}, data: null });
+    const res = await proxiedTokenFetch(new URL('https://idp/a'));
+    expect(await res.text()).toBe('');
+    expect(res.statusText).toBe('');
+    expect(executeProxiedRequestMock.mock.calls[0]?.[0]).toEqual({
+      method: 'GET',
+      url: 'https://idp/a',
+      headers: {},
+      redirectPolicy: { maxRedirects: 0 },
+    });
+    await proxiedTokenFetch(new Request('https://idp/b'), { body: null });
+    expect(executeProxiedRequestMock.mock.calls[1]?.[0]).toMatchObject({ url: 'https://idp/b' });
+    expect(executeProxiedRequestMock.mock.calls[1]?.[0]).not.toHaveProperty('data');
+  });
+
+  it('refuses a non-string body rather than sending it mangled', async () => {
+    await expect(
+      proxiedTokenFetch('https://idp/token', { method: 'POST', body: new URLSearchParams('a=1') })
+    ).rejects.toThrow(TypeError);
+    expect(executeProxiedRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the app defaults when the request has no desktop transport settings', async () => {
+    executeProxiedRequestMock.mockResolvedValue({ status: 200, headers: {}, data: 'ok' });
+    await createProxiedTokenFetch(() => undefined)('https://idp/token');
+    expect(executeProxiedRequestMock.mock.calls[0]).toHaveLength(2);
+  });
+
+  it('serialises an object body, skips headers Fetch refuses, maps a bogus status to 502', async () => {
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 0,
+      headers: { 'bad header name': 'x', 'x-ok': 'y' },
+      data: { error: 'upstream' },
+    });
+    const res = await proxiedTokenFetch('https://idp/token');
+    expect(res.status).toBe(502);
+    expect(res.headers.get('x-ok')).toBe('y');
+    expect(await res.json()).toEqual({ error: 'upstream' });
+  });
+
+  it('a response without headers carries only the Fetch default content type', async () => {
+    executeProxiedRequestMock.mockResolvedValue({ status: 200, data: 'x' });
+    const res = await proxiedTokenFetch('https://idp/token');
+    expect([...res.headers.keys()]).toEqual(['content-type']);
+    expect(await res.text()).toBe('x');
+  });
 });

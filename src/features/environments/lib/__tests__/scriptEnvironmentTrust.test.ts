@@ -9,8 +9,10 @@ vi.mock('sonner', () => ({ toast: { warning: toastWarning } }));
 
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import {
+  persistScriptEnvironmentMutations,
   resetScriptEnvironmentApprovals,
   saveScriptEnvironmentWrites,
+  warnSkippedSecretWrites,
 } from '../scriptEnvironmentMutations';
 
 const values = (id: string) =>
@@ -98,5 +100,39 @@ describe('script environment writes: trust', () => {
     });
     toastWarning.mock.calls[0]?.[1]?.cancel?.onClick();
     expect(values('shared')).toEqual({ apiBase: 'https://api.mine' });
+  });
+});
+
+describe('script environment writes: no-ops and secret warnings', () => {
+  it.each([
+    ['no target environment', { environmentId: undefined, mutations: { a: '1' } }],
+    ['no mutations', { environmentId: 'shared', mutations: undefined }],
+    ['empty mutations', { environmentId: 'shared', mutations: {} }],
+    ['an environment that no longer exists', { environmentId: 'deleted', mutations: { a: '1' } }],
+  ])('does nothing for %s', (_label, input) => {
+    const before = useEnvironmentStore.getState().environments;
+    saveScriptEnvironmentWrites({ collectionId: undefined, ...input });
+    expect(useEnvironmentStore.getState().environments).toBe(before);
+    expect(toastWarning).not.toHaveBeenCalled();
+  });
+
+  it('persists nothing for a missing environment or empty mutations', () => {
+    expect(persistScriptEnvironmentMutations('deleted', { a: '1' })).toEqual([]);
+    expect(persistScriptEnvironmentMutations(undefined, { a: '1' })).toEqual([]);
+    expect(persistScriptEnvironmentMutations('shared', {})).toEqual([]);
+    expect(values('shared')).toEqual({ apiBase: 'https://api.mine' });
+  });
+
+  it('names every skipped secret, pluralised, and stays silent when none were skipped', () => {
+    warnSkippedSecretWrites([]);
+    expect(toastWarning).not.toHaveBeenCalled();
+    warnSkippedSecretWrites(['apiKey']);
+    expect(toastWarning).toHaveBeenLastCalledWith(
+      'Script did not change secret environment variable: apiKey'
+    );
+    warnSkippedSecretWrites(['apiKey', 'token']);
+    expect(toastWarning).toHaveBeenLastCalledWith(
+      'Script did not change secret environment variables: apiKey, token'
+    );
   });
 });
