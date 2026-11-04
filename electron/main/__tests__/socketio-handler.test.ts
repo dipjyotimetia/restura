@@ -18,6 +18,10 @@ const mockResolveSafe = vi.hoisted(() =>
 const sioMock = vi.hoisted(() => {
   type Listener = (...args: unknown[]) => void;
   class FakeManager {
+    reconnecting = true;
+    reconnection(): boolean {
+      return this.reconnecting;
+    }
     private listeners = new Map<string, Listener[]>();
     on(evt: string, cb: Listener): this {
       const arr = this.listeners.get(evt) ?? [];
@@ -33,6 +37,7 @@ const sioMock = vi.hoisted(() => {
     static instances: FakeSocket[] = [];
     id: string;
     connected = true;
+    active = true;
     io = new FakeManager();
     url: string;
     opts: unknown;
@@ -244,6 +249,22 @@ describe('socketio-handler', () => {
     socket.fire('connect_error', new Error('boom'));
     expect(mockEmitTo).toHaveBeenCalledWith(senderId, socketioChannels.error('c1'), {
       message: 'boom',
+      willRetry: true,
+    });
+
+    // A middleware refusal deactivates the socket; reconnection off never retries.
+    socket.active = false;
+    socket.fire('connect_error', new Error('unauthorized'));
+    expect(mockEmitTo).toHaveBeenLastCalledWith(senderId, socketioChannels.error('c1'), {
+      message: 'unauthorized',
+      willRetry: false,
+    });
+    socket.active = true;
+    socket.io.reconnecting = false;
+    socket.fire('connect_error', new Error('xhr poll error'));
+    expect(mockEmitTo).toHaveBeenLastCalledWith(senderId, socketioChannels.error('c1'), {
+      message: 'xhr poll error',
+      willRetry: false,
     });
 
     socket.io.fire('reconnect_attempt', 2);

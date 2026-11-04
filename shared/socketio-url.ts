@@ -7,8 +7,8 @@
  * serialisation means both always see the same host.
  *
  * Socket.IO joins a namespace by appending it to the URL's path, so a
- * non-default namespace replaces any path on the base URL. Throws when `rawUrl`
- * doesn't parse.
+ * non-default namespace replaces any path on the base URL; the query string is
+ * kept. Throws when `rawUrl` doesn't parse.
  */
 export function socketIoConnectUrl(rawUrl: string, namespace: string | undefined): string {
   const url = new URL(rawUrl);
@@ -16,5 +16,8 @@ export function socketIoConnectUrl(rawUrl: string, namespace: string | undefined
   const ns = namespace.startsWith('/') ? namespace : `/${namespace}`;
   // Concatenate rather than resolve: `new URL('//other.host', origin)` would
   // treat the namespace as a protocol-relative URL and change the host.
-  return new URL(`${url.origin}${ns}`).href;
+  const joined = new URL(`${url.origin}${ns}`);
+  // The query (e.g. `?token=…`) rides the engine.io handshake; keep it.
+  joined.search = url.search;
+  return joined.href;
 }
