@@ -13,8 +13,9 @@
  *     `/api/ws`, including non-upgrade probes; consuming there would burn
  *     the one-shot ticket without opening a WebSocket.
  *   - DNS-resolution SSRF guard runs on the upstream hostname before the
- *     `new WebSocket(...)` call. Defends against attacker-controlled DNS
- *     resolving a public name to RFC 1918 / metadata IPs.
+ *     `new WebSocket(...)` call, and the dial is pinned to the address it
+ *     validated. Defends against attacker-controlled DNS resolving a public
+ *     name to RFC 1918 / metadata IPs, including a rebind between the two.
  *   - `maxPayload: MAX_FRAME_BYTES` is set on the upstream WebSocket so the
  *     `ws` library refuses oversized frames at the receiver — without this,
  *     a hostile upstream can buffer multi-GB frames before our onMessage
@@ -22,6 +23,8 @@
  */
 
 import { Buffer } from 'node:buffer';
+import type { LookupAddress } from 'node:dns';
+import type { LookupFunction } from 'node:net';
 import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
 import { validateWsUrl } from '@shared/protocol/websocket-proxy';
 import type { Context, MiddlewareHandler } from 'hono';
@@ -63,6 +66,21 @@ function normaliseRawData(data: WebSocket.RawData): Buffer {
   if (Array.isArray(data)) return Buffer.concat(data);
   if (data instanceof ArrayBuffer) return Buffer.from(data);
   return data;
+}
+
+/**
+ * A `net`/`http` lookup that answers `host` with the one validated address and
+ * refuses any other name (the relay never follows redirects; fail closed).
+ */
+function pinnedLookup(host: string, pinned: LookupAddress): LookupFunction {
+  return (hostname, options, callback) => {
+    if (hostname !== host) {
+      callback(new Error(`pinned lookup refused unexpected hostname "${hostname}"`), '', 4);
+      return;
+    }
+    if (options.all) callback(null, [pinned]);
+    else callback(null, pinned.address, pinned.family);
+  };
 }
 
 export function createNodeWebsocketHandler(
@@ -134,13 +152,18 @@ export function createNodeWebsocketHandler(
         closeBoth(1008, 'Invalid upstream URL');
         return;
       }
+      let pinned: LookupAddress | undefined;
       try {
-        await assertNodeHostnameSafe(upstreamHostname, perRequestDnsGuard);
+        [pinned] = await assertNodeHostnameSafe(upstreamHostname, perRequestDnsGuard);
       } catch (err) {
         closeBoth(1008, `Upstream DNS guard failed: ${errorText(err)}`);
         return;
       }
       if (closed) return;
+      if (!pinned) {
+        closeBoth(1008, `Upstream DNS guard failed: no address for ${upstreamHostname}`);
+        return;
+      }
 
       const sanitisedHeaders = sanitizeRequestHeaders({
         ...(spec.headers ?? {}),
@@ -156,6 +179,9 @@ export function createNodeWebsocketHandler(
           // buffers each entire frame (no client default cap) and an
           // attacker-controlled upstream can OOM the process.
           maxPayload: MAX_FRAME_BYTES,
+          // Dial the address the guard validated: a second resolution here
+          // would reopen the DNS-rebinding window. Host/SNI keep the name.
+          lookup: pinnedLookup(upstreamHostname, pinned),
         });
       } catch (err) {
         closeBoth(1011, `Upstream connect failed: ${errorText(err)}`);

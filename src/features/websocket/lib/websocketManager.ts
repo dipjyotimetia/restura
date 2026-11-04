@@ -301,10 +301,22 @@ class WebSocketManager {
           return false;
         }
         const hexString = this.arrayBufferToHex(message);
-        api.websocket.send({ connectionId, message: encoded, binary: true });
+        reportRefusedSend(
+          connectionId,
+          api.websocket.send({ connectionId, message: encoded, binary: true })
+        );
         state.addMessage(connectionId, 'sent', options.display ?? hexString, 'binary', message);
       } else {
-        api.websocket.send({ connectionId, message });
+        if (message.length > WS_IPC_MAX_MESSAGE_LENGTH) {
+          // Same ws:send cap as binary: main's schema would reject it.
+          state.addMessage(
+            connectionId,
+            'system',
+            `Text frame too large to send (${message.length} characters; desktop limit is ${WS_IPC_MAX_MESSAGE_LENGTH})`
+          );
+          return false;
+        }
+        reportRefusedSend(connectionId, api.websocket.send({ connectionId, message }));
         state.addMessage(connectionId, 'sent', options.display ?? message, 'text');
       }
       return true;
@@ -630,4 +642,25 @@ class WebSocketManager {
 }
 
 // Export singleton instance
+/**
+ * Main answers ws:send asynchronously; the frame is logged as sent when handed
+ * over (keeping transcript order), so a refusal — not connected, a payload the
+ * IPC schema rejects, a socket write error — is reported right after it.
+ */
+function reportRefusedSend(
+  connectionId: string,
+  result: Promise<{ success: boolean; error?: string }>
+): void {
+  const report = (reason: string) =>
+    useWebSocketStore
+      .getState()
+      .addMessage(connectionId, 'system', `Send failed: ${reason} — the frame above was not sent`);
+  Promise.resolve(result).then(
+    (res) => {
+      if (!res?.success) report(res?.error ?? 'refused by the desktop app');
+    },
+    (err: unknown) => report(err instanceof Error ? err.message : String(err))
+  );
+}
+
 export const websocketManager = new WebSocketManager();

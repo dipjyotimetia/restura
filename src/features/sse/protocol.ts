@@ -35,6 +35,7 @@ import {
 } from '@/lib/shared/streaming/streamSession';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
 import type { Request, SseRequest } from '@/types';
+import { sseUnsupportedAuthError } from './lib/sseAuth';
 import { buildSseStreamSpec } from './lib/sseManager';
 import { type ParsedSseEvent, SseParser } from './lib/sseParser';
 
@@ -127,7 +128,9 @@ async function sseStartStream(
     throw new Error('SSE request has no URL');
   }
 
-  // Header-based auth (basic/bearer/api-key/oauth2); sign-at-wire types no-op.
+  // Header-based auth (basic/bearer/api-key/oauth2); sign-at-wire types are refused.
+  const unsupported = sseUnsupportedAuthError(sseReq.auth);
+  if (unsupported) throw new Error(unsupported);
   const credential = buildAuthCredential(sseReq.auth);
   // Same rule as a live connect (`resolveSseConnect`): never connect without it.
   if (credential.requiresMainSideApply) {

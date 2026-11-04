@@ -133,13 +133,23 @@ class SocketIOManager {
       auth = keyValuePairsToRecord(connection.auth);
     }
 
+    // engine.io replaces the `query` option with a query string found in the
+    // URL, which would drop the Query-tab params: fold the URL's params into
+    // the option (the tab wins a clash) and connect to the bare URL.
+    const parsedUrl = new URL(url);
+    const query = {
+      ...Object.fromEntries(parsedUrl.searchParams),
+      ...keyValuePairsToRecord(connection.query),
+    };
+    parsedUrl.search = '';
+
     const d = SOCKETIO_CONNECTION_OPTION_DEFAULTS;
     const config: ConnectConfig = {
-      url,
+      url: url.includes('?') ? parsedUrl.href : url,
       namespace: connection.namespace || '/',
       path: connection.path || '/socket.io',
       auth,
-      query: keyValuePairsToRecord(connection.query),
+      query,
       extraHeaders: keyValuePairsToRecord(connection.extraHeaders),
       transports:
         connection.transports.length > 0 ? connection.transports : ['websocket', 'polling'],
@@ -450,11 +460,13 @@ class SocketIOManager {
     });
 
     socket.on('connect_error', (err: Error) => {
-      useSocketIOStore.getState().addEvent(connectionId, {
+      const s = useSocketIOStore.getState();
+      s.addEvent(connectionId, {
         direction: 'system',
         eventName: 'connect_error',
         args: [err.message],
       });
+      if (!socketWillRetry(socket)) s.updateConnectionStatus(connectionId, 'disconnected');
     });
 
     socket.io.on('reconnect_attempt', (attempt: number) => {
@@ -477,11 +489,14 @@ class SocketIOManager {
     });
 
     socket.io.on('reconnect_failed', () => {
-      useSocketIOStore.getState().addEvent(connectionId, {
+      const s = useSocketIOStore.getState();
+      s.addEvent(connectionId, {
         direction: 'system',
         eventName: 'reconnect_failed',
         args: [],
       });
+      // Attempts exhausted: nothing more will happen until the user connects.
+      s.updateConnectionStatus(connectionId, 'disconnected');
     });
 
     // Same shaping as the desktop handler: the server-requested ack callback
@@ -550,12 +565,15 @@ class SocketIOManager {
       },
 
       error: (payload) => {
-        const data = payload as { message?: string } | undefined;
-        useSocketIOStore.getState().addEvent(connectionId, {
+        const data = payload as { message?: string; willRetry?: boolean } | undefined;
+        const s = useSocketIOStore.getState();
+        s.addEvent(connectionId, {
           direction: 'system',
           eventName: 'connect_error',
           args: [data?.message ?? 'unknown error'],
         });
+        // Main says no retry follows (middleware refusal, reconnection off).
+        if (data?.willRetry === false) s.updateConnectionStatus(connectionId, 'disconnected');
       },
 
       reconnectAttempt: (payload) => {
@@ -581,11 +599,13 @@ class SocketIOManager {
       },
 
       reconnectFailed: () => {
-        useSocketIOStore.getState().addEvent(connectionId, {
+        const s = useSocketIOStore.getState();
+        s.addEvent(connectionId, {
           direction: 'system',
           eventName: 'reconnect_failed',
           args: [],
         });
+        s.updateConnectionStatus(connectionId, 'disconnected');
       },
 
       event: (payload) => {
@@ -657,6 +677,17 @@ class SocketIOManager {
     this.electronConnections.delete(connectionId);
     socketioEvents.unbind(connectionId);
   }
+}
+
+/**
+ * Whether socket.io-client retries after a `connect_error`. A server middleware
+ * refusal (`next(new Error(...))`) deactivates the socket, and with
+ * reconnection off a transport error isn't retried either: in both cases the
+ * connect is over, so the status must leave "connecting". Mirrored main-side
+ * in `electron/main/handlers/socketio-handler.ts` (`willRetry`).
+ */
+function socketWillRetry(socket: Socket): boolean {
+  return socket.active && socket.io.reconnection();
 }
 
 export const socketioManager = new SocketIOManager();

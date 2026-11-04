@@ -125,6 +125,24 @@ describe('socketioManager (desktop IPC path)', () => {
     expect(lastEvent()?.args).toEqual(['unknown']);
   });
 
+  it('stops connecting when main reports a connect error with no retry', () => {
+    socketioManager.connect(id);
+    expect(conn().status).toBe('connecting');
+    fire(socketioChannels.error(id), { message: 'retrying', willRetry: true });
+    expect(conn().status).toBe('connecting');
+    fire(socketioChannels.error(id), { message: 'unauthorized', willRetry: false });
+    expect(conn().status).toBe('disconnected');
+    expect(lastEvent()).toMatchObject({ eventName: 'connect_error', args: ['unauthorized'] });
+  });
+
+  it('leaves "reconnecting" once main reports reconnect_failed', () => {
+    socketioManager.connect(id);
+    fire(socketioChannels.reconnectAttempt(id), { attempt: 5 });
+    expect(conn().status).toBe('reconnecting');
+    fire(socketioChannels.reconnectFailed(id));
+    expect(conn().status).toBe('disconnected');
+  });
+
   it('resolves outbound acks, including timeouts, from the ack channel', () => {
     socketioManager.connect(id);
     socketioManager.emit(id, 'q', ['x'], true, undefined, {

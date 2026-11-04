@@ -143,10 +143,11 @@ describe('useSseStore branches', () => {
     expect(out.connections[id]).toMatchObject({
       status: 'disconnected',
       log: [],
-      lastEventId: '5',
       lastConnectedAt: 9,
       reconnectAttempts: 0,
     });
+    // The resume cursor is session-only: a fresh connect must not send it.
+    expect(out.connections[id]).not.toHaveProperty('lastEventId');
     expect(out.connections[id2]).not.toHaveProperty('lastEventId');
     expect(out.connections[id2]).not.toHaveProperty('lastConnectedAt');
   });

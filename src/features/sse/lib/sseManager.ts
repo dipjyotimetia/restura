@@ -152,6 +152,10 @@ class SseManager {
 
     store.updateConnectionStatus(connectionId, 'connecting');
     store.setReconnectAttempts(connectionId, 0);
+    // A user-initiated connect starts a new stream: Last-Event-ID resumes only
+    // the automatic reconnects of this session, never a cursor from an earlier
+    // one (which may have been for another URL).
+    store.setLastEventId(connectionId, undefined);
 
     const session: SseSession = {
       url,
@@ -219,7 +223,8 @@ class SseManager {
     session.attempt = attempt;
     session.timer = undefined;
 
-    // Resume from the last event ID; "" (an empty `id:` reset) sends none.
+    // Resume from this session's last event ID (cleared by `connect()`); ""
+    // (an empty `id:` reset) sends none.
     const lastEventId = useSseStore.getState().connections[connectionId]?.lastEventId;
     const headers: Record<string, string> = { ...session.headers };
     if (session.reconnectOnResume && lastEventId) headers['Last-Event-ID'] = lastEventId;

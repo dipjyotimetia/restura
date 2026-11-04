@@ -441,6 +441,36 @@ describe('mqtt-handler', () => {
     expect(after).toEqual({ success: false, error: 'Not connected' });
   });
 
+  it('ends and drops a connection the broker refused at CONNACK (no retry follows)', async () => {
+    const { event, senderId } = makeEvent();
+    await handlerFor(IPC.mqtt.connect)(event, validConnect('c1'));
+    const client = FakeMqttClient.instances[0]!;
+
+    // mqtt.js on a CONNACK refusal: suppresses reconnects, emits error, then close.
+    const refusal = Object.assign(new Error('Connection refused: Not authorized'), { code: 5 });
+    client.fire('error', refusal);
+    client.fire('close');
+    expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'mqtt:close:c1', {
+      refused: 'Connection refused: Not authorized',
+    });
+    expect(client.end).toHaveBeenCalled();
+    const after = await handlerFor(IPC.mqtt.publish)(event, validPublish('c1'));
+    expect(after).toEqual({ success: false, error: 'Not connected' });
+  });
+
+  it('keeps a connection after a network error close (mqtt.js retries it)', async () => {
+    const { event, senderId } = makeEvent();
+    await handlerFor(IPC.mqtt.connect)(event, validConnect('c1'));
+    const client = FakeMqttClient.instances[0]!;
+    client.fire(
+      'error',
+      Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })
+    );
+    client.fire('close');
+    expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'mqtt:close:c1', {});
+    expect(client.end).not.toHaveBeenCalled();
+  });
+
   it('reconnecting with the same id force-ends the previous client first', async () => {
     const { event } = makeEvent();
     await handlerFor(IPC.mqtt.connect)(event, validConnect('c1'));
