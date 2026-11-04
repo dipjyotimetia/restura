@@ -27,7 +27,9 @@ const UrlEncodedEditor = lazyComponent(() => import('@/features/http/components/
  * decision — keep in sync with the render branch below.
  */
 export function bodyEditorFills(type: RequestBody['type']): boolean {
-  return type !== 'none' && type !== 'graphql' && type !== 'form-data' && type !== 'binary';
+  // GraphQL fills too: its query editor is `flex-1` and collapses to one line
+  // in a content-height container.
+  return type !== 'none' && type !== 'form-data' && type !== 'binary';
 }
 
 interface RequestBodyEditorProps {

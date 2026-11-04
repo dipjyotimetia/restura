@@ -1,3 +1,5 @@
+import { injectGraphQLBody } from '@shared/graphql/inject';
+import { buildGraphQLWireRequest, graphqlEnvelopeFromBody } from '@shared/graphql/wire';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
   appendQueryPairs,
@@ -8,6 +10,7 @@ import {
   collectEnabledHeaders,
   collectQueryPairs,
   mapProxyBodyType,
+  type ProxyBody,
   type QueryPair,
 } from '@shared/protocol/request-spec';
 import { type CookieHop, responseSetCookies } from '@shared/protocol/set-cookie';
@@ -45,6 +48,7 @@ import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import { makeRendererScriptHost } from '@/features/scripts/lib/scriptPhaseHost.renderer';
+import { isElectron } from '@/lib/shared/platform';
 import { resolveRequestScopeText } from '@/lib/shared/resolveRequestScope';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import {
@@ -149,6 +153,11 @@ interface BuiltSpec {
   /** Query params as sent, one value per key (display / GraphQL GET read-back). */
   sentParams: Record<string, string>;
   /**
+   * The enabled user header rows with their values as sent (resolved), for the
+   * test script's `rs.request.headers` — the CLI hands the test phase the same.
+   */
+  scriptHeaders: Record<string, string>;
+  /**
    * Set only when OAuth2 refresh issued a new token: the request's template
    * auth with the issued token folded in (never resolved `{{var}}` values).
    */
@@ -175,13 +184,48 @@ export {
   resolveEffectiveSettings,
 };
 
+interface ShapedGraphQL {
+  request: HttpRequest;
+  /** The proxy body, built from already-resolved text (never resolved again). */
+  body: ProxyBody;
+  /** Query rows the wire builder added (GET), already resolved. */
+  builtParams: ReadonlySet<HttpRequest['params'][number]>;
+}
+
+/**
+ * Shape a `graphql` body for the wire with the shared builders, as the CLI
+ * runner does (`cli/src/runner/executors/http.ts` `shapeGraphQL`): JSON-safe
+ * `{{var}}` substitution in the document and variables, then the
+ * `{query, variables, operationName}` envelope (POST) or URL params (GET), plus
+ * the spec Accept / Content-Type. Throws for invalid variables JSON or a GET
+ * that cannot carry the operation — nothing is sent. Undefined for any other body.
+ */
+function shapeGraphQLBody(
+  request: HttpRequest,
+  resolve: (text: string) => string
+): ShapedGraphQL | undefined {
+  if (request.body.type !== 'graphql') return undefined;
+  const envelope = graphqlEnvelopeFromBody(injectGraphQLBody(request.body, resolve));
+  const wire = buildGraphQLWireRequest(request, envelope);
+  if (!wire.ok) throw new Error(wire.error);
+  const existing = new Set(request.params);
+  const builtParams = new Set(wire.request.params.filter((p) => !existing.has(p)));
+  const body: ProxyBody =
+    wire.method === 'GET'
+      ? { bodyType: 'none' }
+      : {
+          bodyType: 'json',
+          ...(wire.request.body.raw !== undefined ? { data: wire.request.body.raw } : {}),
+        };
+  return { request: wire.request, body, builtParams };
+}
+
 // Sign-at-wire auth (SigV4 / OAuth1 / WSSE) is intentionally NOT applied
 // here — the descriptor flows through `spec.auth` so the proxy signs
 // against the exact bytes it sends. Bearer / Basic / API-key / OAuth2 go
 // through `applyAuthHeaders` because they don't depend on body bytes.
 async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<BuiltSpec> {
-  const { request, envVars, globalSettings, resolveVariables, secretVariables, secretNames } =
-    options;
+  const { envVars, globalSettings, resolveVariables, secretVariables, secretNames } = options;
 
   // envVars is read per call: scripts have already written to it by this point.
   const resolveLocal = (text: string, field: string) =>
@@ -197,6 +241,13 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     const token = scanVariableTokens(text).find(({ name }) => Object.hasOwn(secretVariables, name));
     if (token) throw new SecretVariableReferenceError(source, token.name);
   };
+
+  // A GraphQL body (the HTTP tab's "GraphQL" type, or a saved request run by
+  // any renderer path) goes out as the GraphQL-over-HTTP wire request the
+  // GraphQL tab, collection runner and CLI send. A request already shaped by
+  // the GraphQL module arrives as `json` and passes through untouched.
+  const graphql = shapeGraphQLBody(options.request, (text) => resolveLocal(text, 'body'));
+  const request = graphql?.request ?? options.request;
 
   const resolvedUrl = resolveLocal(request.url, 'URL');
 
@@ -216,8 +267,10 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   // Electron main substitutes in; the proxy then escapes it in full). Pinned
   // trade-off (requestExecutor.queryWire.test.ts): such rows go after the
   // folded ones and a repeated name keeps its last row only.
+  // GraphQL GET params were built from already-resolved text: resolving them
+  // again would re-expand `{{…}}` inside the resolved document.
   const queryPairs = collectQueryPairs(request.params, (p) =>
-    resolveLocal(p.value, `query parameter "${p.key}"`)
+    graphql?.builtParams.has(p) ? p.value : resolveLocal(p.value, `query parameter "${p.key}"`)
   );
   const holdsSecretToken = (text: string) =>
     secretVariables !== undefined &&
@@ -230,16 +283,30 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     else foldedQuery.push(pair);
   }
   // Repeated header rows combine (`, `; Cookie `; `) instead of the last one winning.
+  // Each row's resolved value is kept for the test script (resolved once, so a
+  // dynamic like `{{$uuid}}` reads back the value that was sent).
+  const resolvedRows = new Map<HttpRequest['headers'][number], string>();
   const headers = applyBodyDefaultHeaders(
     request.body.type,
-    collectEnabledHeaders(request.headers, (h) => resolveLocal(h.value, `header "${h.key}"`))
+    collectEnabledHeaders(request.headers, (h) => {
+      const value = resolveLocal(h.value, `header "${h.key}"`);
+      resolvedRows.set(h, value);
+      return value;
+    })
+  );
+  const scriptHeaders: Record<string, string> = Object.fromEntries(
+    options.request.headers
+      .filter((h) => h.enabled)
+      .map((h) => [h.key, resolvedRows.get(h) ?? h.value])
   );
 
   // {{vars}} in the body resolve like the URL/params/headers do. Binary bodies
   // hold base64 bytes and are never touched; file parts likewise; desktop secret
   // handles stay opaque via resolveLocal. Built once, so a dynamic in the body is
   // the same value here and on the wire.
-  const builtBody = buildProxyBody(request.body, { resolve: (text) => resolveLocal(text, 'body') });
+  const builtBody =
+    graphql?.body ??
+    buildProxyBody(request.body, { resolve: (text) => resolveLocal(text, 'body') });
 
   // Resolve {{vars}} in every auth type with the same scope as the URL/headers/
   // body (secret-variable tokens and handle SecretRefs stay opaque for main).
@@ -278,6 +345,9 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     ? { headers, requiresMainSideApply: true }
     : await applyAuthHeaders(effectiveAuth, headers, resolvedUrl, request.method, builtBody.data);
   assertHandleSupported(headersWithAuth);
+  // The merged map is the whole header set: an auth header has already
+  // replaced a user row of the same name in any casing, so replace, not merge.
+  for (const key of Object.keys(headers)) delete headers[key];
   Object.assign(headers, headersWithAuth.headers);
 
   // An API key sent in the query replaces same-named query rows (it is not
@@ -365,6 +435,7 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     sentHeaders: headers,
     sentUrl: resolvedUrl,
     sentParams,
+    scriptHeaders,
     ...(refreshedAuth ? { refreshedAuth } : {}),
     ...(desktop ? { desktop } : {}),
   };
@@ -529,22 +600,31 @@ export async function executeRequest(
     };
   }
 
-  const { spec, effectiveSettings, sentHeaders, sentUrl, sentParams, refreshedAuth, desktop } =
-    await buildProxyRequestSpec(
-      requestToSend === request ? options : { ...options, request: requestToSend }
-    );
+  const {
+    spec,
+    effectiveSettings,
+    sentHeaders,
+    sentUrl,
+    sentParams,
+    scriptHeaders,
+    refreshedAuth,
+    desktop,
+  } = await buildProxyRequestSpec(
+    requestToSend === request ? options : { ...options, request: requestToSend }
+  );
 
   let responseData: ApiResponse;
   let transportOk = false;
   try {
     signal?.throwIfAborted();
-    const proxyResponse = options.onResponseProgress
-      ? await executeProxiedRequestWithProgress(
-          spec,
-          options.onResponseProgress,
-          signal ? { signal } : {},
-          desktop
-        )
+    // The web proxy answers a streaming Accept with a raw pass-through, not the
+    // buffered JSON envelope; read that stream to completion so the caller
+    // still gets the whole body (the interactive page streams it live instead).
+    const onProgress =
+      options.onResponseProgress ??
+      (!isElectron() && proxyStreamsAccept(spec.headers ?? {}) ? ignoreProgress : undefined);
+    const proxyResponse = onProgress
+      ? await executeProxiedRequestWithProgress(spec, onProgress, signal ? { signal } : {}, desktop)
       : await executeProxiedRequest(spec, signal ? { signal } : {}, desktop);
     signal?.throwIfAborted();
     transportOk = true;
@@ -602,12 +682,12 @@ export async function executeRequest(
     const test = await runScriptPhase({
       phase: 'test',
       script: request.testScript,
+      // The request as sent: resolved URL and header-row values, as the CLI
+      // gives its test phase (`cli/src/runner/scriptRunner.ts`).
       request: {
-        url: request.url,
+        url: sentUrl,
         method: request.method,
-        headers: Object.fromEntries(
-          requestToSend.headers.filter((h) => h.enabled).map((h) => [h.key, h.value])
-        ) as Record<string, string>,
+        headers: scriptHeaders,
         body: request.body.raw,
       },
       response: {
@@ -672,20 +752,43 @@ export async function executeRequest(
 // Streaming HTTP requests (SSE / NDJSON / raw byte streams)
 // ============================================================================
 
-/** Accept-header content types that route through the streaming pipeline. */
-const STREAMING_ACCEPT_TYPES = ['text/event-stream', 'application/x-ndjson', 'application/jsonl'];
+/** Accept-header content types the HTTP page renders as a live stream. */
+const STREAMING_ACCEPT_TYPES = new Set([
+  'text/event-stream',
+  'application/x-ndjson',
+  'application/jsonl',
+]);
+
+/**
+ * Accept media types the web proxy answers with a raw streaming pass-through
+ * (`worker/handlers/proxy.ts` `STREAMING_MEDIA_TYPES`) instead of the buffered
+ * JSON envelope. Keep in sync with the Worker.
+ */
+const PROXY_STREAMED_ACCEPT_TYPES = new Set([...STREAMING_ACCEPT_TYPES, 'application/grpc-web']);
+
+function acceptMediaTypes(headers: Record<string, string>): string[] {
+  const accept = Object.entries(headers).find(([k]) => k.toLowerCase() === 'accept')?.[1] ?? '';
+  return accept
+    .split(',')
+    .map((entry) => (entry.split(';')[0] ?? '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function proxyStreamsAccept(headers: Record<string, string>): boolean {
+  return acceptMediaTypes(headers).some((t) => PROXY_STREAMED_ACCEPT_TYPES.has(t));
+}
+
+function ignoreProgress(): void {}
 
 /**
  * Returns true when the supplied request headers ask for a streaming
  * content type (SSE / NDJSON / JSON Lines). Header lookup is
  * case-insensitive; compound Accept values (e.g. `text/event-stream,
- * application/json`) match if any element is a streaming type.
+ * application/json`) match if any element is a streaming type. Media types
+ * are matched exactly (parameters ignored), as the Worker does.
  */
 export function isStreamingAccept(headers: Record<string, string>): boolean {
-  const accept = headers['Accept'] ?? headers['accept'] ?? '';
-  if (!accept) return false;
-  const lower = accept.toLowerCase();
-  return STREAMING_ACCEPT_TYPES.some((t) => lower.includes(t));
+  return acceptMediaTypes(headers).some((t) => STREAMING_ACCEPT_TYPES.has(t));
 }
 
 export interface StreamingExecutionResult {
