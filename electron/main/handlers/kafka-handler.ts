@@ -329,6 +329,11 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         // Registry encodes/decodes both fields over a TLS-policy, SSRF-guarded agent.
         const security = getExecutionPolicy().security;
         registry = ready.registry && (await createKafkaRegistryClient(ready.registry, security));
+        // A kafka:disconnect while the guard / secret / registry awaits were
+        // pending cancels the claim: never build a producer for it.
+        if (!activeConnections.isClaimLive(claim)) {
+          return { success: false, error: 'Not connected' };
+        }
 
         // Registry payloads are encoded here; plain strings are UTF-8 encoded.
         const producerOptions = {
@@ -399,6 +404,11 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           const producer = claim.pendingProducer;
           claim.pendingProducer = undefined;
           await closeProducerQuietly(producer);
+        }
+        // Cancelled mid-probe (the disconnect closed the pending producer, so
+        // the probe rejects): report the cancellation, not the close error.
+        if (!activeConnections.isClaimLive(claim)) {
+          return { success: false, error: 'Not connected' };
         }
         const msg = errorMessage(err);
         log.warn('connect failed', { connectionId });
@@ -634,6 +644,10 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
   ipcMain.handle(
     IPC.kafka.disconnect,
     createValidatedEventHandler(IPC.kafka.disconnect, KafkaDisconnectSchema, async (cfg, event) => {
+      // A connect still pending (guard / DNS / metadata probe) is cancelled
+      // outright: disposeClaim closes its pending producer and the connect
+      // resolves { success:false } instead of flipping the UI back to connected.
+      activeConnections.cancelClaim(cfg.connectionId, event.sender.id);
       const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
       if (entry) {
         await closeConnection(entry);

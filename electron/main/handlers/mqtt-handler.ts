@@ -619,6 +619,9 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
   ipcMain.handle(
     IPC.mqtt.disconnect,
     createValidatedEventHandler(IPC.mqtt.disconnect, MqttDisconnectSchema, async (cfg, event) => {
+      // A connect still pending (TLS files / DNS guard) is cancelled outright so
+      // it never constructs a client after the renderer asked to disconnect.
+      activeConnections.cancelClaim(cfg.connectionId, event.sender.id);
       const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
       if (entry) {
         await endClient(entry, false);

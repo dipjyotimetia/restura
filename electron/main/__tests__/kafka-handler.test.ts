@@ -1989,6 +1989,36 @@ describe('kafka-handler', () => {
     expect(FakeAdmin.instances).toHaveLength(1); // no Admin built for an unknown id
   });
 
+  it('disconnect during the metadata probe cancels the pending connect', async () => {
+    const { event, senderId } = makeEvent();
+    const gate = deferred<void>();
+    FakeProducer.metadataGates.push(gate.promise);
+    const connect = handlerFor(IPC.kafka.connect)(event, validConnect('pending'));
+    await vi.waitFor(() => expect(FakeProducer.instances).toHaveLength(1));
+    const producer = FakeProducer.instances[0]!;
+
+    await handlerFor(IPC.kafka.disconnect)(event, { connectionId: 'pending' });
+    // The pending producer is closed by the disconnect itself, not left to the probe.
+    expect(producer.close).toHaveBeenCalled();
+    gate.resolve();
+
+    await expect(connect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(mockEmitTo).not.toHaveBeenCalledWith(senderId, 'kafka:connected:pending', expect.anything());
+    const produce = await handlerFor(IPC.kafka.produce)(event, validProduce('pending'));
+    expect(produce).toEqual({ success: false, error: 'Not connected' });
+  });
+
+  it('disconnect during the broker DNS guard prevents any producer being built', async () => {
+    const { event } = makeEvent();
+    const dns = deferred<undefined>();
+    mockBrokerHostsResolveSafe.mockImplementationOnce(() => dns.promise);
+    const connect = handlerFor(IPC.kafka.connect)(event, validConnect('pending-dns'));
+    await handlerFor(IPC.kafka.disconnect)(event, { connectionId: 'pending-dns' });
+    dns.resolve(undefined);
+    await expect(connect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(FakeProducer.instances).toHaveLength(0);
+  });
+
   it('explicit disconnect closes the producer, emits close, and drops the entry', async () => {
     const { event, senderId } = makeEvent();
     await handlerFor(IPC.kafka.connect)(event, validConnect('c1'));

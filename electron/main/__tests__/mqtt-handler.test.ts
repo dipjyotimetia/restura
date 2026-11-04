@@ -441,6 +441,20 @@ describe('mqtt-handler', () => {
     expect(after).toEqual({ success: false, error: 'Not connected' });
   });
 
+  it('disconnect during the broker DNS guard cancels the pending connect', async () => {
+    const { event } = makeEvent();
+    const dns = deferred<{ host: string; ip: string; port: number; family: number }>();
+    mockResolveBroker.mockImplementationOnce(() => dns.promise);
+    const connect = handlerFor(IPC.mqtt.connect)(event, validConnect('pending'));
+    await handlerFor(IPC.mqtt.disconnect)(event, { connectionId: 'pending' });
+    dns.resolve({ host: 'broker.example.com', ip: '203.0.113.7', port: 1883, family: 4 });
+
+    await expect(connect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(FakeMqttClient.instances).toHaveLength(0);
+    const after = await handlerFor(IPC.mqtt.publish)(event, validPublish('pending'));
+    expect(after).toEqual({ success: false, error: 'Not connected' });
+  });
+
   it('ends and drops a connection the broker refused at CONNACK (no retry follows)', async () => {
     const { event, senderId } = makeEvent();
     await handlerFor(IPC.mqtt.connect)(event, validConnect('c1'));
