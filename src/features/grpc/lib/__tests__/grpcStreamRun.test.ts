@@ -200,3 +200,11 @@ describe('runGrpcStreamCall', () => {
     expect(fake.handle.cancel).toHaveBeenCalled();
   });
 });
+
+describe('outboundMessages — 64-bit integer precision', () => {
+  it('keeps integers beyond 2^53 exact in every streamed message', () => {
+    expect(outboundMessages('[{"id": 9007199254740993}]', (s) => s)).toEqual([
+      { id: '9007199254740993' },
+    ]);
+  });
+});

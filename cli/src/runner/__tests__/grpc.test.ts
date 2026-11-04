@@ -57,3 +57,11 @@ describe('gRPC executor — per-request timeout (#921)', () => {
     expect(proxySpy.mock.calls[0]?.[0]).toMatchObject({ timeout: 5000 });
   });
 });
+
+describe('gRPC executor — 64-bit integer precision', () => {
+  it('sends an int64 entered as a JSON number beyond 2^53 without rounding', async () => {
+    proxySpy.mockClear();
+    await executeGrpc(grpcRequest('unary', { message: '{"big": 9007199254740993}' }), opts);
+    expect(proxySpy.mock.calls[0]?.[0]).toMatchObject({ message: { big: '9007199254740993' } });
+  });
+});

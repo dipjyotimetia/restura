@@ -54,9 +54,20 @@ function generateTemplateObject(
   visited.add(schema.fullName);
   const result: Record<string, unknown> = {};
 
+  // Proto3 JSON rejects a message that sets more than one member of a oneof,
+  // so only the first member of each oneof (incl. synthetic proto3 `optional`
+  // oneofs, which have exactly one member) is seeded.
+  const seededOneofs = new Set<number>();
   for (const field of schema.fields) {
+    if (field.oneofIndex !== undefined) {
+      if (seededOneofs.has(field.oneofIndex)) continue;
+      seededOneofs.add(field.oneofIndex);
+    }
     const fieldValue = generateFieldValue(field, maxDepth, currentDepth + 1, new Set(visited));
-    result[field.jsonName] = field.label === 'LABEL_REPEATED' ? [fieldValue] : fieldValue;
+    // Map fields are LABEL_REPEATED entries on the wire but a JSON object in
+    // proto3 JSON — generateFieldValue already returns `{key: value}`.
+    const isMap = field.mapKey !== undefined && field.mapValue !== undefined;
+    result[field.jsonName] = field.label === 'LABEL_REPEATED' && !isMap ? [fieldValue] : fieldValue;
   }
 
   return result;
@@ -79,16 +90,20 @@ function generateFieldValue(
     case 'TYPE_FLOAT':
       return 0.0;
 
+    // 64-bit integers are strings in canonical proto3 JSON (a JSON number
+    // loses precision past 2^53).
     case 'TYPE_INT64':
     case 'TYPE_UINT64':
-    case 'TYPE_INT32':
     case 'TYPE_FIXED64':
+    case 'TYPE_SFIXED64':
+    case 'TYPE_SINT64':
+      return '0';
+
+    case 'TYPE_INT32':
     case 'TYPE_FIXED32':
     case 'TYPE_UINT32':
     case 'TYPE_SFIXED32':
-    case 'TYPE_SFIXED64':
     case 'TYPE_SINT32':
-    case 'TYPE_SINT64':
       return 0;
 
     case 'TYPE_BOOL':
@@ -114,7 +129,9 @@ function generateFieldValue(
           case 'Duration':
             return '0s';
           case 'Any':
-            return { '@type': '', value: {} };
+            // An empty object is the only Any placeholder protobuf JSON accepts
+            // without a resolvable `@type` (the user fills in the type URL).
+            return {};
           case 'Value':
             return null;
           case 'Struct':
@@ -214,6 +231,17 @@ export function validateRequestAgainstSchema(
 }
 
 function validateFieldType(value: unknown, field: FieldSchema): string | null {
+  // Map fields are a JSON object in proto3 JSON, not an array of entries.
+  if (field.mapKey && field.mapValue) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return 'expected object';
+    }
+    for (const [key, entry] of Object.entries(value)) {
+      const entryError = validateSingleFieldType(entry, field.mapValue);
+      if (entryError) return `key "${key}": ${entryError}`;
+    }
+    return null;
+  }
   if (field.label === 'LABEL_REPEATED') {
     if (!Array.isArray(value)) return 'expected array';
     for (let i = 0; i < value.length; i++) {

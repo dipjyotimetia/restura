@@ -1,5 +1,6 @@
 import { fromBinary, toBinary } from '@bufbuild/protobuf';
 import { resolveAuthVariables } from '@shared/auth/resolve-variables';
+import { parseGrpcMessageJson } from '@shared/protocol/grpc-json';
 import { executeGrpcProxy } from '@shared/protocol/grpc-proxy';
 import {
   callKindOf,
@@ -109,7 +110,7 @@ export async function executeGrpc(
   let parsedMessage: unknown = {};
   if (message.trim().length > 0) {
     try {
-      parsedMessage = JSON.parse(message);
+      parsedMessage = parseGrpcMessageJson(message);
     } catch (err) {
       return refusedOutcome(
         `Invalid gRPC message JSON: ${err instanceof Error ? err.message : String(err)}`
