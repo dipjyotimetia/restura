@@ -42,6 +42,7 @@ describe('capability registry shape', () => {
         "graphql.basic",
         "graphql.incrementalDelivery",
         "http.proxy.socks",
+        "http.proxy.perRequest",
         "http.proxy.pac",
         "http.mtls",
         "http.customCa",

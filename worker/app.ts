@@ -36,6 +36,7 @@ import { rateLimitMiddleware } from './middleware/rateLimiter';
 import { requestIdMiddleware } from './middleware/requestId';
 import { readCfAccessConfig, verifyCfAccessAssertion } from './shared/cf-access';
 import { isLocalDevBypass } from './shared/env';
+import { isJsonContentType } from './shared/validate-body';
 
 // Build-time substituted by:
 //   - Vite (Cloudflare bundle): see `define` in vite.config.mts
@@ -143,11 +144,49 @@ function cfAccessPrincipal(verifiedAssertion: string): string {
   return 'access';
 }
 
+/**
+ * Every `/api/*` POST route takes a JSON body. Refuse any other Content-Type
+ * with 415 so a cross-site page cannot use a preflight-free "simple" request
+ * (`text/plain`, form encodings) to drive the proxy — see `isJsonContentType`.
+ * Runs before auth so the CSRF defence holds even when auth is bypassed.
+ */
+export async function requireJsonContentTypeMiddleware(
+  c: Context<{ Bindings: Env }>,
+  next: Next
+): Promise<Response | void> {
+  if (c.req.method === 'POST' && !isJsonContentType(c.req.header('Content-Type'))) {
+    return c.json({ error: 'Content-Type must be application/json' }, 415);
+  }
+  return next();
+}
+
+/**
+ * True when the request's Origin is the server's own origin (the self-host
+ * SPA is served by the same Node process that answers `/api/*`).
+ */
+function isSameOrigin(origin: string, requestUrl: string): boolean {
+  try {
+    return new URL(origin).origin === new URL(requestUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
 export async function proxyAuthMiddleware(
   c: Context<{ Bindings: Env }>,
   next: Next
 ): Promise<Response | void> {
-  if (c.req.method === 'OPTIONS' || PUBLIC_API_PATHS.has(c.req.path) || isLocalDevBypass(c.env)) {
+  if (c.req.method === 'OPTIONS' || PUBLIC_API_PATHS.has(c.req.path)) {
+    return next();
+  }
+  if (isLocalDevBypass(c.env)) {
+    // No credential stands between a browser and the proxy in bypass mode,
+    // so CORS alone (which only hides the reply) is not enough: refuse any
+    // browser request whose Origin is neither the server's own nor allowed.
+    const origin = c.req.header('Origin');
+    if (origin && !isSameOrigin(origin, c.req.url) && !resolveCorsOrigin(origin, c.env)) {
+      return c.json({ error: 'Origin not allowed' }, 403);
+    }
     return next();
   }
 
@@ -225,6 +264,7 @@ export function createApp(
     await next();
   });
   app.use('/api/*', requestIdMiddleware);
+  app.use('/api/*', requireJsonContentTypeMiddleware);
   app.use('/api/*', proxyAuthMiddleware);
   app.use('/api/*', rateLimitMiddleware);
 

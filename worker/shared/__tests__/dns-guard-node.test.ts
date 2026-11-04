@@ -90,3 +90,42 @@ describe('assertNodeHostnameSafe — DNS-resolved hostnames (Fix #3)', () => {
     await expect(assertNodeHostnameSafe('nope.invalid')).rejects.toThrow(/DNS lookup failed/);
   });
 });
+
+describe('assertNodeHostnameSafe — bracketed IPv6 literals from URL.hostname', () => {
+  // `new URL('http://[2606:4700::1111]/').hostname` keeps the brackets, so the
+  // guard must strip them before classifying (self-host parity with the
+  // Worker and Electron, which accept IPv6 literal upstreams).
+  it('permits a public IPv6 literal without a DNS lookup', async () => {
+    const hostname = new URL('http://[2606:4700::1111]/').hostname;
+    await expect(assertNodeHostnameSafe(hostname)).resolves.toEqual([
+      { address: '2606:4700::1111', family: 6 },
+    ]);
+    expect(dns.lookup).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bracketed loopback literal by default', async () => {
+    await expect(assertNodeHostnameSafe('[::1]')).rejects.toThrow(/private|loopback|blocked/i);
+    expect(dns.lookup).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bracketed ULA literal when allowPrivateIPs is false', async () => {
+    await expect(assertNodeHostnameSafe('[fd00::1]', { allowPrivateIPs: false })).rejects.toThrow(
+      /private|blocked/i
+    );
+    expect(dns.lookup).not.toHaveBeenCalled();
+  });
+
+  it('permits a bracketed ULA literal when allowPrivateIPs is true', async () => {
+    await expect(assertNodeHostnameSafe('[fd00::1]', { allowPrivateIPs: true })).resolves.toEqual([
+      { address: 'fd00::1', family: 6 },
+    ]);
+  });
+
+  it('rejects an IPv4-mapped metadata literal even with allowPrivateIPs', async () => {
+    const hostname = new URL('http://[::ffff:169.254.169.254]/').hostname;
+    await expect(assertNodeHostnameSafe(hostname, { allowPrivateIPs: true })).rejects.toThrow(
+      /metadata|blocked/i
+    );
+    expect(dns.lookup).not.toHaveBeenCalled();
+  });
+});

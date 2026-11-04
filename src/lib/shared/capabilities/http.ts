@@ -30,6 +30,13 @@ export const HTTP_CAPABILITIES = {
     desktop: true,
     notes: 'Browser fetch cannot route through SOCKS',
   },
+  'http.proxy.perRequest': {
+    label: 'Per-request proxy override (and the global HTTP proxy)',
+    web: false,
+    desktop: true,
+    notes:
+      'Desktop routes the request through the configured HTTP / HTTPS / SOCKS proxy. The web client ignores proxy settings — the browser and the Worker relay connect to the target directly',
+  },
   'http.proxy.pac': {
     label: 'PAC proxy script resolution',
     web: false,

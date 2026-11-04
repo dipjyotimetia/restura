@@ -6,7 +6,12 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - '${RESTURA_LOCAL_PORT:-3000}:3000'
+      # Loopback only. This stack runs with DEV_BYPASS_AUTH=true and
+      # ENVIRONMENT=development (localhost upstreams allowed), i.e. an
+      # unauthenticated proxy — publishing it on 0.0.0.0 would hand an open
+      # SSRF proxy to everyone on the LAN. Never widen this binding; for a
+      # shared deployment use docker-compose.yml with WORKER_PROXY_TOKEN.
+      - '127.0.0.1:${RESTURA_LOCAL_PORT:-3000}:3000'
     environment:
       NODE_ENV: production
       PORT: '3000'

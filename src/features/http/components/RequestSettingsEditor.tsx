@@ -417,7 +417,12 @@ export default function RequestSettingsEditor({
             <div className="space-y-4 rounded-lg border border-border p-4 bg-background">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label className="text-base font-medium">Custom Proxy for this Request</Label>
+                  <div className="flex items-center">
+                    <Label className="text-base font-medium">Custom Proxy for this Request</Label>
+                    {!isCapableHere('http.proxy.perRequest', isElectron()) && (
+                      <DesktopOnlyBadge title={CAPABILITIES['http.proxy.perRequest'].notes ?? ''} />
+                    )}
+                  </div>
                   <p className="text-sm text-muted-foreground">Override global proxy settings</p>
                 </div>
                 <Switch

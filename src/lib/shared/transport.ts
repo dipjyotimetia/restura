@@ -90,7 +90,8 @@ export async function executeProxiedRequest(
   }
   // Web path: `desktop` (proxy / mTLS / CA / TLS knobs) is intentionally
   // dropped — the Worker has no per-request TLS control and cert material
-  // must never leave the machine.
+  // must never leave the machine. Proxy settings (global and per-request) are
+  // declared desktop-only (`http.proxy.perRequest`) and badged in the UI.
   return executeViaWorker(spec, options.signal);
 }
 
