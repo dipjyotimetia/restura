@@ -30,13 +30,13 @@ import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
 import { assertPostmanSendable } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { persistableRefreshedAuth, refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
 import { responseCookieHops, withJarCookies } from '@/features/http/lib/cookieJar';
+import { buildDesktopTransportConfig } from '@/features/http/lib/desktopTransportConfig';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import {
   executeProxiedRequestWithProgress,
   type ResponseProgressHandler,
   readStreamSideChannels,
 } from '@/features/http/lib/progressTransport';
-import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
 import {
   type HttpStreamEvent,
   readStreamingResponse,
@@ -45,7 +45,6 @@ import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import { makeRendererScriptHost } from '@/features/scripts/lib/scriptPhaseHost.renderer';
-import { selectCertForUrl } from '@/lib/shared/certMatcher';
 import { resolveRequestScopeText } from '@/lib/shared/resolveRequestScope';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import {
@@ -169,76 +168,12 @@ interface BuiltSpec {
 // effectiveSettings.ts so the per-request editor can share it without pulling
 // this module's heavy deps. See globalSettingsToRequestSettings.
 // Same treatment: the shared request-to-spec step, under the names existing sites use.
+export { buildDesktopTransportConfig } from '@/features/http/lib/desktopTransportConfig';
 export {
   buildProxyFormFields as buildFormFields,
   mapProxyBodyType as mapBodyType,
   resolveEffectiveSettings,
 };
-
-/**
- * Assemble the desktop-only transport config from per-request settings,
- * falling back to global settings. Proxy precedence follows
- * `getEffectiveProxy` (per-request overrides global); a proxy whose host is
- * on its own bypass list is dropped for this URL. Cert / verifySsl / TLS
- * knobs prefer the per-request value and fall back to the global one.
- *
- * Returns undefined when nothing desktop-specific applies, so the web path
- * stays a pure no-op.
- *
- * Exported for unit testing — this is the precedence logic (per-request >
- * per-domain match > global) that the type system can't verify end-to-end.
- */
-export function buildDesktopTransportConfig(
-  effectiveSettings: RequestSettings,
-  globalSettings: AppSettings,
-  resolvedUrl: string
-): DesktopTransportConfig | undefined {
-  const out: DesktopTransportConfig = {};
-
-  const proxy = getEffectiveProxy(effectiveSettings, globalSettings.proxy);
-  if (
-    proxy?.enabled &&
-    proxy.type !== 'none' &&
-    proxy.host &&
-    !shouldBypassProxy(resolvedUrl, proxy.bypassList)
-  ) {
-    out.proxy = proxy;
-  }
-
-  const verifySsl = effectiveSettings.verifySsl ?? globalSettings.verifySsl;
-  if (verifySsl !== undefined) out.verifySsl = verifySsl;
-
-  // Cert precedence: explicit per-request override > per-domain match >
-  // global cert. The per-domain lists are matched most-specific-first.
-  const matchedClientCert = selectCertForUrl(resolvedUrl, globalSettings.clientCertificates);
-  const clientCert =
-    effectiveSettings.clientCert ?? matchedClientCert?.cert ?? globalSettings.clientCert;
-  if (clientCert) out.clientCert = clientCert;
-
-  const matchedCaCert = selectCertForUrl(resolvedUrl, globalSettings.caCertificates);
-  const caCert =
-    effectiveSettings.caCert ??
-    (matchedCaCert ? { pem: matchedCaCert.pem } : undefined) ??
-    globalSettings.caCert;
-  if (caCert) out.caCert = caCert;
-
-  const serverCipherOrder = effectiveSettings.serverCipherOrder ?? globalSettings.serverCipherOrder;
-  if (serverCipherOrder !== undefined) out.serverCipherOrder = serverCipherOrder;
-
-  const minTlsVersion = effectiveSettings.minTlsVersion ?? globalSettings.minTlsVersion;
-  if (minTlsVersion !== undefined) out.minTlsVersion = minTlsVersion;
-
-  const cipherSuites = effectiveSettings.cipherSuites ?? globalSettings.cipherSuites;
-  if (cipherSuites !== undefined) out.cipherSuites = cipherSuites;
-
-  // Per-request only (no workspace default). 'auto' is the handler default, so
-  // it isn't sent — keeps the IPC payload identical for untouched requests.
-  if (effectiveSettings.httpVersion && effectiveSettings.httpVersion !== 'auto') {
-    out.httpVersion = effectiveSettings.httpVersion;
-  }
-
-  return Object.keys(out).length > 0 ? out : undefined;
-}
 
 // Sign-at-wire auth (SigV4 / OAuth1 / WSSE) is intentionally NOT applied
 // here — the descriptor flows through `spec.auth` so the proxy signs
@@ -311,18 +246,16 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   // The resolved copy is what's applied to headers AND sent as `spec.auth`
   // for sign-at-wire schemes (SigV4 / OAuth1 / WSSE / Digest / NTLM).
   const resolvedAuth = resolveAuthVariables(request.auth, (text) => resolveLocal(text, 'auth'));
+  const effectiveSettings = resolveEffectiveSettings(request.settings, globalSettings);
   // A token refresh uses this request's transport settings (TLS, certs, proxy).
+  const tokenFetch = createProxiedTokenFetch((tokenUrl) =>
+    buildDesktopTransportConfig(effectiveSettings, globalSettings, tokenUrl)
+  );
   const effectiveAuth = await refreshOAuth2Auth(
     resolvedAuth,
     Date.now(),
     options.signal,
-    createProxiedTokenFetch((tokenUrl) =>
-      buildDesktopTransportConfig(
-        resolveEffectiveSettings(request.settings, globalSettings),
-        globalSettings,
-        tokenUrl
-      )
-    )
+    tokenFetch
   );
   // Only a real token refresh is reported for persistence — and it's folded
   // back onto the template so resolved variable values never get saved.
@@ -355,8 +288,6 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   if (authParamNames.length > 0) {
     foldedQuery = foldedQuery.filter(([key]) => !authParamNames.includes(key));
   }
-
-  const effectiveSettings = resolveEffectiveSettings(request.settings, globalSettings);
 
   // Cookie jar bypass: if disabled per-request, skip cookie reads entirely so
   // the request goes out with no Cookie header even if the jar has entries
