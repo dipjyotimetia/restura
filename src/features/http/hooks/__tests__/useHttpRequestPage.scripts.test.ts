@@ -80,4 +80,66 @@ describe('useHttpRequestPage — script environment writes', () => {
       user_id: 'u-7',
     });
   });
+
+  it('writes to the environment active at send time when the user switches mid-request', async () => {
+    const { useEnvironmentStore } = await import('@/store/useEnvironmentStore');
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    const axios = (await import('axios')).default as unknown as {
+      post: ReturnType<typeof vi.fn>;
+    };
+
+    useEnvironmentStore.setState({
+      environments: [
+        {
+          id: 'env-a',
+          name: 'A',
+          variables: [{ id: 'v1', key: 'baseUrl', value: 'https://a.example', enabled: true }],
+        },
+        {
+          id: 'env-b',
+          name: 'B',
+          variables: [{ id: 'v2', key: 'baseUrl', value: 'https://b.example', enabled: true }],
+        },
+      ],
+      activeEnvironmentId: 'env-a',
+    });
+    axios.post.mockImplementationOnce(async () => {
+      // The user switches environment while the request is in flight.
+      useEnvironmentStore.setState({ activeEnvironmentId: 'env-b' });
+      return { data: { status: 200, statusText: 'OK', headers: {}, data: { id: 'u-9' } } };
+    });
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab1',
+          isDirty: false,
+          request: {
+            id: 'req-1',
+            name: 'Login',
+            type: 'http',
+            method: 'GET',
+            url: '{{baseUrl}}/login',
+            headers: [],
+            params: [],
+            body: { type: 'none' },
+            auth: { type: 'none' },
+            testScript: `rs.environment.set('user_id', rs.response.json().id);`,
+          },
+        },
+      ],
+      activeTabId: 'tab1',
+      isLoading: false,
+    });
+
+    const { useHttpRequestPage } = await import('../useHttpRequestPage');
+    const { result } = renderHook(() => useHttpRequestPage());
+    await act(async () => {
+      await result.current.handlers.sendRequest();
+    });
+
+    const keys = Object.fromEntries(
+      useEnvironmentStore.getState().environments.map((e) => [e.id, e.variables.map((v) => v.key)])
+    );
+    expect(keys).toEqual({ 'env-a': ['baseUrl', 'user_id'], 'env-b': ['baseUrl'] });
+  });
 });

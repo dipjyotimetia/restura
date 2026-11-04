@@ -7,6 +7,7 @@
  * plaintext, and an unset would orphan the keychain entry. Those keys are
  * returned as `skipped` so the caller can say so.
  */
+import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { Environment } from '@/types';
@@ -70,12 +71,22 @@ export function mergeEnvironmentMutations(
  * The environment a single send's script writes go to: the active one, when it
  * applies to the request (a collection-scoped environment applies only to its
  * own collection's requests). Undefined when no environment is in scope.
+ * Capture it when the request is sent: the user may switch environment while
+ * it is in flight, and the writes belong to the one the request ran against.
  */
 export function scriptEnvironmentTargetId(collectionId: string | undefined): string | undefined {
   const active = useEnvironmentStore.getState().getActiveEnvironment();
   if (!active) return undefined;
   if (active.collectionId !== undefined && active.collectionId !== collectionId) return undefined;
   return active.id;
+}
+
+/** Tell the user which script writes were not applied because the variable is a secret handle. */
+export function warnSkippedSecretWrites(skipped: readonly string[]): void {
+  if (skipped.length === 0) return;
+  toast.warning(
+    `Script did not change secret environment variable${skipped.length > 1 ? 's' : ''}: ${skipped.join(', ')}`
+  );
 }
 
 /** Apply `mutations` to the stored environment `environmentId`. Returns the skipped keys. */

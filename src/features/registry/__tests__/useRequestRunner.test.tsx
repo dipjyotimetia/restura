@@ -81,6 +81,99 @@ describe('useRequestRunner', () => {
     });
   });
 
+  it('writes script env changes to the environment active at send time, not after a mid-request switch', async () => {
+    const { protocolRegistry } = await import('../registry');
+    const { useEnvironmentStore } = await import('@/store/useEnvironmentStore');
+    useEnvironmentStore.setState({
+      environments: [
+        { id: 'env-a', name: 'A', variables: [] },
+        { id: 'env-b', name: 'B', variables: [] },
+      ],
+      activeEnvironmentId: 'env-a',
+    } as never);
+    protocolRegistry.register({
+      id: 'fake-env-switch-test',
+      label: 'Fake',
+      tabType: 'grpc',
+      defaultRequest: () => ({}) as never,
+      runRequest: async (_req, ctx) => {
+        // The user switches environment while the request is in flight.
+        useEnvironmentStore.setState({ activeEnvironmentId: 'env-b' } as never);
+        ctx.onScriptResult?.({
+          test: {
+            success: true,
+            logs: [],
+            errors: [],
+            variables: {},
+            environmentMutations: { token: 't-1' },
+          },
+        } as never);
+        return { status: 0, statusText: 'OK', headers: {}, body: '', size: 0, time: 0 } as never;
+      },
+    });
+    const { useRequestRunner } = await import('../useRequestRunner');
+    const { result } = renderHook(() => useRequestRunner());
+    await act(async () => {
+      await result.current.run({ id: 'g1', type: 'grpc' } as never, 'fake-env-switch-test');
+    });
+    const byId = Object.fromEntries(
+      useEnvironmentStore.getState().environments.map((e) => [e.id, e.variables.map((v) => v.key)])
+    );
+    expect(byId).toEqual({ 'env-a': ['token'], 'env-b': [] });
+  });
+
+  it('warns when a script write to a secret environment variable was skipped', async () => {
+    const warning = vi.fn();
+    vi.doMock('sonner', () => ({ toast: { warning } }));
+    const { protocolRegistry } = await import('../registry');
+    const { useEnvironmentStore } = await import('@/store/useEnvironmentStore');
+    useEnvironmentStore.setState({
+      environments: [
+        {
+          id: 'env-1',
+          name: 'Dev',
+          variables: [
+            {
+              id: 'v1',
+              key: 'apiKey',
+              value: '',
+              enabled: true,
+              secretRef: { kind: 'handle', id: 'h' },
+            },
+          ],
+        },
+      ],
+      activeEnvironmentId: 'env-1',
+    } as never);
+    protocolRegistry.register({
+      id: 'fake-secret-skip-test',
+      label: 'Fake',
+      tabType: 'grpc',
+      defaultRequest: () => ({}) as never,
+      runRequest: async (_req, ctx) => {
+        ctx.onScriptResult?.({
+          test: {
+            success: true,
+            logs: [],
+            errors: [],
+            variables: {},
+            environmentMutations: { apiKey: 'leaked' },
+          },
+        } as never);
+        return { status: 0, statusText: 'OK', headers: {}, body: '', size: 0, time: 0 } as never;
+      },
+    });
+    const { useRequestRunner } = await import('../useRequestRunner');
+    const { result } = renderHook(() => useRequestRunner());
+    await act(async () => {
+      await result.current.run({ id: 'g1', type: 'grpc' } as never, 'fake-secret-skip-test');
+    });
+    vi.doUnmock('sonner');
+    expect(warning).toHaveBeenCalledWith(
+      'Script did not change secret environment variable: apiKey'
+    );
+  });
+
   it('throws when protocol id is unknown', async () => {
     const { useRequestRunner } = await import('../useRequestRunner');
     const { result } = renderHook(() => useRequestRunner());
