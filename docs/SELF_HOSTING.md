@@ -152,9 +152,14 @@ send this assertion: set `WORKER_PROXY_TOKEN` and have the gateway add
 `ENVIRONMENT=development` + `DEV_BYPASS_AUTH=true`. Auth is skipped, localhost
 upstreams are permitted. **Never** set this in a deployed environment.
 
-Two checks still guard the bypass against cross-site requests from other pages
+Three checks still guard the bypass against cross-site requests from other pages
 open in your browser:
 
+- The server answers bypassed requests only when addressed as `localhost`,
+  `127.0.0.1` or `[::1]` (the `Host` header); any other host name gets
+  `403`. This defeats DNS-rebinding pages, which keep their own name in `Host`.
+  Reach a dev-bypass server through a loopback address (an SSH tunnel or port
+  forward works); for any other host name, configure real auth instead.
 - A request whose `Origin` is neither the server's own origin nor allowed by
   `ALLOWED_ORIGIN` is refused with `403 {"error":"Origin not allowed"}`. Add a
   separately served UI's origin to `ALLOWED_ORIGIN` to let it through.
