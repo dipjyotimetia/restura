@@ -151,6 +151,22 @@ describe('sse-handler (StreamRegistry-backed)', () => {
     });
   });
 
+  it('forwards user Cookie and Origin headers upstream (web parity)', async () => {
+    mockStreaming.mockResolvedValue({
+      ok: true,
+      response: { status: 200, statusText: 'OK', body: singleEventBody() },
+    });
+    const { event } = makeEvent(7);
+    const res = await handlerFor('sse:connect')(event, {
+      connectionId: 'ck1',
+      url: 'https://example.com/s',
+      headers: { Cookie: 'session=abc', Origin: 'https://app.example.com' },
+    });
+    expect(res.success).toBe(true);
+    const spec = mockStreaming.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(spec.headers).toMatchObject({ Cookie: 'session=abc', Origin: 'https://app.example.com' });
+  });
+
   it('still runs the SSRF pre-flight for a jsonBody POST', async () => {
     mockResolveSafe.mockRejectedValueOnce(new Error('URL rejected by SSRF policy'));
     const { event } = makeEvent(7);
