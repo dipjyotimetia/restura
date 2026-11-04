@@ -77,6 +77,7 @@ class BedrockConverseDecoder implements StreamDecoder {
           ...(cacheRead > 0 ? { cacheReadTokens: cacheRead } : {}),
           ...(cacheWrite > 0 ? { cacheWriteTokens: cacheWrite } : {}),
           estimatedCostUSD: 0,
+          costUnknown: true,
         },
       });
     }

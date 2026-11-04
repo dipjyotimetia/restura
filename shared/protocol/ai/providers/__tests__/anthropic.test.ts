@@ -86,4 +86,27 @@ describe('anthropic decoder', () => {
     // Opus 5.5: $4 input + $0.20 cache read + $5 cache write + $20 output.
     expect(usage.usage.estimatedCostUSD).toBeCloseTo(29.2, 5);
   });
+
+  function usageFor(model: string) {
+    const decoder = anthropicModule.createDecoder(model);
+    decoder.feed(
+      JSON.stringify({ type: 'message_start', message: { usage: { input_tokens: 1_000_000 } } }),
+      'message_start'
+    );
+    decoder.feed(JSON.stringify({ type: 'message_stop' }), 'message_stop');
+    const usage = decoder.flush().find((e) => e.type === 'usage');
+    if (usage?.type !== 'usage') throw new Error('no usage event');
+    return usage.usage;
+  }
+
+  it('prices a dated model id at its base entry', () => {
+    const usage = usageFor('claude-opus-5-5-20260301');
+    expect(usage.estimatedCostUSD).toBeCloseTo(4, 5);
+    expect(usage.costUnknown).toBeUndefined();
+  });
+
+  it('marks a model with no price entry as unknown cost, never as free', () => {
+    const usage = usageFor('claude-unreleased-9');
+    expect(usage.costUnknown).toBe(true);
+  });
 });

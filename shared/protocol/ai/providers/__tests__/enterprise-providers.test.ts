@@ -113,7 +113,10 @@ describe('Gemini route (#1044)', () => {
       { type: 'delta', text: 'It is ' },
       { type: 'delta', text: 'sunny' },
       { type: 'tool_call', id: 'gemini-call-1', name: 'log', input: '{"a":1}' },
-      { type: 'usage', usage: { promptTokens: 10, completionTokens: 6, estimatedCostUSD: 0 } },
+      {
+        type: 'usage',
+        usage: { promptTokens: 10, completionTokens: 6, estimatedCostUSD: 0, costUnknown: true },
+      },
       { type: 'done' },
     ]);
   });
@@ -228,7 +231,13 @@ describe('Bedrock Converse route (#1044)', () => {
       { type: 'tool_call', id: 'tu-1', name: 'get_weather', input: '{"city":"Rome"}' },
       {
         type: 'usage',
-        usage: { promptTokens: 8, completionTokens: 7, cacheReadTokens: 3, estimatedCostUSD: 0 },
+        usage: {
+          promptTokens: 8,
+          completionTokens: 7,
+          cacheReadTokens: 3,
+          estimatedCostUSD: 0,
+          costUnknown: true,
+        },
       },
       { type: 'done' },
     ]);

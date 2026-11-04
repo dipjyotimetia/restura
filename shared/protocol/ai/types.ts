@@ -108,6 +108,12 @@ export interface Usage {
   promptTokens: number;
   completionTokens: number;
   estimatedCostUSD: number;
+  /**
+   * True when the provider has no price entry for this model, so
+   * `estimatedCostUSD` (0) is a placeholder, not a price: an unpriced model is
+   * never free. Omitted when the model is priced.
+   */
+  costUnknown?: boolean;
   /** Prompt tokens served from the provider's cache. Omitted when zero. */
   cacheReadTokens?: number;
   /** Prompt tokens written to the provider's cache. Omitted when zero. */

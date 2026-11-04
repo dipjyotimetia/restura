@@ -230,7 +230,7 @@ export function Playground() {
                   const cost =
                     m.cfg.provider === 'ollama'
                       ? 0
-                      : m.cfg.pricingKnown
+                      : m.cfg.pricingKnown && !ev.usage.costUnknown
                         ? ev.usage.estimatedCostUSD
                         : null;
                   return {

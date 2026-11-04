@@ -1,6 +1,7 @@
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import {
   estimateCostUSD,
+  findModelPrice,
   type ModelInfo,
   type ProviderModule,
   type StreamDecoder,
@@ -184,14 +185,12 @@ class OpenAIDecoder implements StreamDecoder {
           promptTokens: this.pendingUsage.promptTokens,
           completionTokens: this.pendingUsage.completionTokens,
           ...(this.pendingUsage.cached > 0 ? { cacheReadTokens: this.pendingUsage.cached } : {}),
-          estimatedCostUSD: estimateCostUSD(
-            this.models.find((m) => m.id === this.model),
-            {
-              input: this.pendingUsage.promptTokens - this.pendingUsage.cached,
-              cacheRead: this.pendingUsage.cached,
-              output: this.pendingUsage.completionTokens,
-            }
-          ),
+          ...(findModelPrice(this.models, this.model) ? {} : { costUnknown: true }),
+          estimatedCostUSD: estimateCostUSD(findModelPrice(this.models, this.model), {
+            input: this.pendingUsage.promptTokens - this.pendingUsage.cached,
+            cacheRead: this.pendingUsage.cached,
+            output: this.pendingUsage.completionTokens,
+          }),
         },
       });
       this.pendingUsage = null;

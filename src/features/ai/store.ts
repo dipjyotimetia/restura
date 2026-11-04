@@ -30,7 +30,13 @@ export interface ChatMessage {
   text: string;
   status: 'streaming' | 'done' | 'error';
   errorMessage?: string;
-  usage?: { promptTokens: number; completionTokens: number; estimatedCostUSD: number };
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    estimatedCostUSD: number;
+    /** No price entry for the model: the cost is unknown, not $0. */
+    costUnknown?: boolean;
+  };
   contextRef?: ContextRef;
   rawMode?: boolean;
   createdAt: number;

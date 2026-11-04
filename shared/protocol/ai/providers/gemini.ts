@@ -102,6 +102,7 @@ class GeminiDecoder implements StreamDecoder {
           completionTokens: this.usage.completion,
           ...(this.usage.cached > 0 ? { cacheReadTokens: this.usage.cached } : {}),
           estimatedCostUSD: 0,
+          costUnknown: true,
         },
       });
       this.usage = null;

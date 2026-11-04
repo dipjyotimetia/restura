@@ -1,6 +1,7 @@
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import {
   estimateCostUSD,
+  findModelPrice,
   type ModelInfo,
   type ProviderModule,
   type StreamDecoder,
@@ -50,7 +51,7 @@ const MODELS: ModelInfo[] = [
 ];
 
 function modelFor(id: string): ModelInfo | undefined {
-  return MODELS.find((m) => m.id === id);
+  return findModelPrice(MODELS, id);
 }
 
 interface AnthropicUsage {
@@ -192,6 +193,7 @@ class AnthropicDecoder implements StreamDecoder {
             cacheWrite: this.cacheWriteTokens,
             output: this.outputTokens,
           }),
+          ...(modelFor(this.model) ? {} : { costUnknown: true }),
         },
       });
       this.inputTokens = 0;
