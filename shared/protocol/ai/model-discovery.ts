@@ -271,12 +271,31 @@ async function fetchOpenAiModels(base: string, args: DiscoverArgs): Promise<Disc
  * `display_name` becomes `label` (so the UI shows "Claude 3.5 Sonnet" instead
  * of the dated slug), and `created_at` is kept as ISO. `vendor` is hardcoded
  * to "anthropic" — every model in their catalog is theirs.
+ *
+ * The list is paginated: follow `has_more` / `last_id` (as `after_id`) for at
+ * most {@link ANTHROPIC_MAX_PAGES} pages, so a server that never stops saying
+ * `has_more` cannot loop discovery forever.
  */
+const ANTHROPIC_PAGE_LIMIT = 1000;
+const ANTHROPIC_MAX_PAGES = 10;
+
 async function fetchAnthropicModels(base: string, args: DiscoverArgs): Promise<DiscoveredModel[]> {
-  const json = (await fetchJson(`${base}/v1/models`, args)) as {
-    data?: Array<{ id?: string; display_name?: string; created_at?: string }>;
-  };
-  const out = (json.data ?? [])
+  type Row = { id?: string; display_name?: string; created_at?: string };
+  const rows: Row[] = [];
+  let afterId: string | undefined;
+  for (let page = 0; page < ANTHROPIC_MAX_PAGES; page++) {
+    const query = `limit=${ANTHROPIC_PAGE_LIMIT}${afterId ? `&after_id=${encodeURIComponent(afterId)}` : ''}`;
+    const json = (await fetchJson(`${base}/v1/models?${query}`, args)) as {
+      data?: Row[];
+      has_more?: boolean;
+      last_id?: string | null;
+    };
+    rows.push(...(Array.isArray(json.data) ? json.data : []));
+    if (json.has_more !== true || typeof json.last_id !== 'string' || !json.last_id) break;
+    if (json.last_id === afterId) break; // no progress: stop rather than refetch
+    afterId = json.last_id;
+  }
+  const out = rows
     .filter(
       (m): m is { id: string; display_name?: string; created_at?: string } =>
         typeof m.id === 'string' && m.id.length > 0

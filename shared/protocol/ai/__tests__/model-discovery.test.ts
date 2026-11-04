@@ -245,9 +245,49 @@ describe('listModels', () => {
     expect((req.headers as Record<string, string>).Authorization).toBe('Bearer sk-test');
   });
 
+  it('follows Anthropic pagination (has_more / last_id) up to a page cap', async () => {
+    const fetcher = jsonFetcher({
+      'https://api.anthropic.com/v1/models?limit=1000': {
+        json: { data: [{ id: 'claude-a' }], has_more: true, last_id: 'claude-a' },
+      },
+      'https://api.anthropic.com/v1/models?limit=1000&after_id=claude-a': {
+        json: { data: [{ id: 'claude-b' }], has_more: false, last_id: 'claude-b' },
+      },
+    });
+    const models = await listModels({
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      apiKey: 'sk-ant-test',
+      fetcher,
+    });
+    expect(models.map((m) => m.id).sort()).toEqual(['claude-a', 'claude-b']);
+
+    // A server that always says has_more stops at the cap instead of looping.
+    let calls = 0;
+    const endless: Fetcher = vi.fn(async (): Promise<FetcherResponse> => {
+      calls += 1;
+      const body = { data: [{ id: `m-${calls}` }], has_more: true, last_id: `m-${calls}` };
+      return {
+        status: 200,
+        statusText: '200',
+        headers: new Headers(),
+        contentLengthHeader: null,
+        text: async () => JSON.stringify(body),
+      };
+    });
+    const capped = await listModels({
+      provider: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      apiKey: 'sk-ant-test',
+      fetcher: endless,
+    });
+    expect(calls).toBeLessThanOrEqual(10);
+    expect(capped.length).toBe(calls);
+  });
+
   it('discovers Anthropic models and uses `display_name` as label, `created_at` as ISO', async () => {
     const fetcher = jsonFetcher({
-      'https://api.anthropic.com/v1/models': {
+      'https://api.anthropic.com/v1/models?limit=1000': {
         json: {
           data: [
             {
