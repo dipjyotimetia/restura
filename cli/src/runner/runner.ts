@@ -119,29 +119,6 @@ export interface RunOptions {
 }
 
 /**
- * The script engine mirrors every failed `pm.test` into its error list as
- * `✗ <name>: <reason>` (a console.error). That entry is the assertion's own
- * failure, already carried in `assertions`; left in `errors` it makes the
- * verdict treat a failed assertion as a script error (live `ERR`, "errored"
- * count, JUnit `<error>`). Drop exactly those mirror entries so only real
- * script errors (a throw, a timeout, `console.error(...)`) remain errors.
- */
-function withoutAssertionLogs<
-  T extends {
-    assertions?: readonly { name: string; passed: boolean; error?: string }[];
-    errors?: readonly string[];
-  },
->(outcome: T | undefined): T | undefined {
-  if (!outcome?.errors?.length || !outcome.assertions?.length) return outcome;
-  const mirrored = new Set(
-    outcome.assertions
-      .filter((a) => !a.passed)
-      .map((a) => `✗ ${a.name}: ${a.error || 'Test failed'}`)
-  );
-  return { ...outcome, errors: outcome.errors.filter((e) => !mirrored.has(e)) };
-}
-
-/**
  * Execute every request in a Restura collection (OpenCollection or legacy).
  *
  * High-level orchestration:
@@ -317,7 +294,7 @@ async function runCollectionWithSessions(
       }
       const preSlot = {
         label: 'pre-request',
-        outcome: withoutAssertionLogs(preResult),
+        outcome: preResult,
         thrown: preThrown,
       };
 
@@ -419,7 +396,7 @@ async function runCollectionWithSessions(
       }
 
       const fold = foldScriptPhases(
-        [preSlot, { label: 'test', outcome: withoutAssertionLogs(testResult), thrown: testThrown }],
+        [preSlot, { label: 'test', outcome: testResult, thrown: testThrown }],
         { labelErrors: true }
       );
       // Assertions override the protocol's verdict; a transport-level failure

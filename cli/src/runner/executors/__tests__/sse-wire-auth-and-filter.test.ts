@@ -64,9 +64,10 @@ describe('executeSse — event filter', () => {
     expect(filtered.streamEvents?.map((e) => e.data)).toEqual(['named']);
 
     const withMessage = await run({ eventFilter: ['message'] } as Partial<SseRequest>);
+    // The trailing `data: tail` has no terminating blank line, so it is never
+    // dispatched (WHATWG; the app's SseStreamReader drops it too).
     expect(withMessage.streamEvents?.map((e) => [e.event, e.data])).toEqual([
       ['message', 'unnamed'],
-      ['message', 'tail'],
     ]);
   });
 });

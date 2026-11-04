@@ -1,6 +1,10 @@
 import { encodeBasicCredentials } from '@shared/auth/basic-credentials';
 import { fetchClientCredentialsToken, tokenExpiresAt } from '@shared/auth/oauth2';
-import { buildAuthCredential, type CredentialHost } from '@shared/protocol/request-spec';
+import {
+  buildAuthCredential,
+  type CredentialHost,
+  mergeAuthHeaders,
+} from '@shared/protocol/request-spec';
 import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/types';
 import { validateURL } from '@shared/protocol/url-validation';
 import type { AuthConfig } from '@shared/types';
@@ -73,7 +77,8 @@ export function applyAuthHeaders(
   params: Record<string, string>
 ): void {
   const credential = buildAuthCredential(auth, CLI_CREDENTIAL_HOST);
-  Object.assign(headers, credential.headers);
+  // An auth header replaces a same-name header row of any casing, as in the app.
+  mergeAuthHeaders(headers, credential.headers);
   Object.assign(params, credential.params);
 }
 
