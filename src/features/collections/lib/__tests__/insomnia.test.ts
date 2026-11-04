@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { InsomniaCollection, InsomniaV5Document } from '@/types';
+import type { HttpRequest, InsomniaCollection, InsomniaV5Document } from '@/types';
 import { requestOf } from '../../../../../tests/helpers/requestOf';
 import { getInsomniaVersion, importInsomniaCollection } from '../importers/insomnia';
 import { validateImportedCollection } from '../importers/validateImported';
@@ -473,5 +473,101 @@ describe('importInsomniaCollection — v5', () => {
     // otherwise collectionSchema.safeParse rejects and the whole import is lost.
     expect(auth?.oauth2?.grantType).toBeUndefined();
     expect(validateImportedCollection(result.collection)).toEqual({ ok: true });
+  });
+});
+
+describe('importInsomniaCollection — Nunjucks templates', () => {
+  const makeV5 = (collection: InsomniaV5Document['collection']): InsomniaV5Document => ({
+    type: 'collection.insomnia.rest/5.0',
+    name: 'V5',
+    collection,
+  });
+
+  it('translates {{ _.var }} forms to {{var}} across url, params, headers, body and auth', () => {
+    const result = importInsomniaCollection(
+      makeFixture([
+        { _id: 'wrk_1', _type: 'workspace', name: 'W' },
+        {
+          _id: 'env_1',
+          _type: 'environment',
+          name: 'Base',
+          parentId: 'wrk_1',
+          data: {
+            base_url: 'https://api.dev',
+            nested: { token: 'abc' },
+            ref: '{{ _.base_url }}/v1',
+          },
+        },
+        {
+          _id: 'req_1',
+          _type: 'request',
+          name: 'Templated',
+          method: 'POST',
+          url: '{{ _.base_url }}/users/{{_.id}}',
+          parentId: 'wrk_1',
+          parameters: [{ name: 'q', value: "{{ _['search term'] }}" }],
+          headers: [{ name: 'X-Key', value: '{{ _["api-key"] }}' }],
+          body: { mimeType: 'application/json', text: '{"name":"{{ _.name }}"}' },
+          authentication: { type: 'bearer', token: '{{ _.nested.token }}' },
+        },
+      ])
+    );
+    const request = requestOf(result.collection.items[0]) as HttpRequest;
+    expect(request.url).toBe('{{base_url}}/users/{{id}}');
+    expect(request.params[0]?.value).toBe('{{search term}}');
+    expect(request.headers[0]?.value).toBe('{{api-key}}');
+    expect(request.body.raw).toBe('{"name":"{{name}}"}');
+    expect(request.auth.bearer?.token).toBe('{{nested.token}}');
+    expect(result.environments?.[0]?.variables.map((v) => [v.key, v.value])).toEqual([
+      ['base_url', 'https://api.dev'],
+      ['nested.token', 'abc'],
+      ['ref', '{{base_url}}/v1'],
+    ]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('keeps unsupported template tags verbatim and warns', () => {
+    const result = importInsomniaCollection(
+      makeV5([
+        {
+          name: 'Tagged',
+          method: 'GET',
+          url: "{{ _.host }}/{% uuid 'v4' %}",
+          headers: [{ name: 'X-Up', value: '{{ _.name | upper }}' }],
+        },
+      ])
+    );
+    const request = requestOf(result.collection.items[0]) as HttpRequest;
+    expect(request.url).toBe("{{host}}/{% uuid 'v4' %}");
+    expect(request.headers[0]?.value).toBe('{{ _.name | upper }}');
+    expect(result.warnings).toEqual([
+      expect.objectContaining({ kind: 'unmodelled-construct', requestName: 'Tagged' }),
+    ]);
+  });
+
+  it('imports a GraphQL body envelope as query + variables', () => {
+    const result = importInsomniaCollection(
+      makeV5([
+        {
+          name: 'GQL',
+          method: 'POST',
+          url: 'https://g.dev',
+          body: {
+            mimeType: 'application/graphql',
+            text: JSON.stringify({
+              query: 'query Q($id: ID) { node(id: $id) { id } }',
+              variables: { id: '{{ _.id }}' },
+              operationName: 'Q',
+            }),
+          },
+        },
+      ])
+    );
+    expect((requestOf(result.collection.items[0]) as HttpRequest).body).toEqual({
+      type: 'graphql',
+      raw: 'query Q($id: ID) { node(id: $id) { id } }',
+      graphqlVariables: JSON.stringify({ id: '{{id}}' }, null, 2),
+      graphqlOperationName: 'Q',
+    });
   });
 });

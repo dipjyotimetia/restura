@@ -257,6 +257,8 @@ function fieldBodyItems(body: HttpRequest['body']): FormDataItem[] | null {
 
 function convertBodyToInsomnia(body: HttpRequest['body']): InsomniaBody {
   if (body.type === 'none') return { mimeType: 'text/plain', text: '' };
+  if (body.type === 'graphql')
+    return { mimeType: 'application/graphql', text: graphqlEnvelope(body) };
 
   const mimeTypeMap: Record<string, string> = {
     json: 'application/json',
@@ -288,6 +290,27 @@ function convertBodyToInsomnia(body: HttpRequest['body']): InsomniaBody {
         }
       : {}),
   };
+}
+
+/**
+ * Insomnia's GraphQL body: a JSON envelope of query, variables and operation.
+ * Variables that are not valid JSON (e.g. mid-edit) travel as their text.
+ */
+function graphqlEnvelope(body: HttpRequest['body']): string {
+  let variables: unknown;
+  const text = body.graphqlVariables?.trim();
+  if (text) {
+    try {
+      variables = JSON.parse(text);
+    } catch {
+      variables = text;
+    }
+  }
+  return JSON.stringify({
+    query: body.raw ?? '',
+    ...(variables !== undefined ? { variables } : {}),
+    ...(body.graphqlOperationName ? { operationName: body.graphqlOperationName } : {}),
+  });
 }
 
 function convertAuthToInsomnia(auth: AuthConfig): {
