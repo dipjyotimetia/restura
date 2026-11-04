@@ -6,7 +6,7 @@ vi.mock('@/lib/shared/transport', () => ({
 }));
 
 import { fetchClientCredentialsToken } from '../oauth2';
-import { proxiedTokenFetch } from '../oauth2-transport';
+import { createProxiedTokenFetch, proxiedTokenFetch } from '../oauth2-transport';
 
 describe('proxiedTokenFetch', () => {
   beforeEach(() => executeProxiedRequestMock.mockReset());
@@ -42,6 +42,25 @@ describe('proxiedTokenFetch', () => {
       },
       {}
     );
+  });
+
+  it('sends the token request with the transport settings of the request it is for', async () => {
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { access_token: 'at' },
+    });
+    const desktopFor = vi.fn(() => ({ verifySsl: false, caCert: { pem: 'CA' } }));
+    await createProxiedTokenFetch(desktopFor)('https://idp.internal/token', {
+      method: 'POST',
+      body: 'grant_type=client_credentials',
+    });
+    expect(desktopFor).toHaveBeenCalledWith('https://idp.internal/token');
+    expect(executeProxiedRequestMock.mock.calls[0]?.[2]).toEqual({
+      verifySsl: false,
+      caCert: { pem: 'CA' },
+    });
   });
 
   it('rebuilds the upstream response: status, joined headers, string and base64 bodies', async () => {

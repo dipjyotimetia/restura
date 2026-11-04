@@ -1,4 +1,8 @@
-import { executeProxiedRequest, type ProxyJsonResponse } from '@/lib/shared/transport';
+import {
+  type DesktopTransportConfig,
+  executeProxiedRequest,
+  type ProxyJsonResponse,
+} from '@/lib/shared/transport';
 
 /**
  * `fetch`-shaped adapter that sends an OAuth2 token / device-authorization
@@ -10,8 +14,25 @@ import { executeProxiedRequest, type ProxyJsonResponse } from '@/lib/shared/tran
  *
  * Redirects are not followed: a token endpoint that redirects would otherwise
  * re-POST the client secret to wherever it points.
+ *
+ * `desktopFor` gives the desktop transport settings (TLS verification, CA and
+ * client certificates, proxy) for a token URL — the same ones the request the
+ * token is for would use, so a private-CA or proxied IdP works like the API.
  */
-export const proxiedTokenFetch: typeof globalThis.fetch = async (input, init = {}) => {
+export function createProxiedTokenFetch(
+  desktopFor?: (url: string) => DesktopTransportConfig | undefined
+): typeof globalThis.fetch {
+  return (input, init) => sendTokenRequest(input, init, desktopFor);
+}
+
+/** Token fetch with the app-wide transport defaults (no per-request settings). */
+export const proxiedTokenFetch: typeof globalThis.fetch = createProxiedTokenFetch();
+
+async function sendTokenRequest(
+  input: Parameters<typeof globalThis.fetch>[0],
+  init: RequestInit = {},
+  desktopFor?: (url: string) => DesktopTransportConfig | undefined
+): Promise<Response> {
   const url =
     typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
   if (init.body !== undefined && init.body !== null && typeof init.body !== 'string') {
@@ -21,18 +42,20 @@ export const proxiedTokenFetch: typeof globalThis.fetch = async (input, init = {
   new Headers(init.headers).forEach((value, key) => {
     headers[key] = value;
   });
-  const reply = await executeProxiedRequest(
-    {
-      method: init.method ?? 'GET',
-      url,
-      headers,
-      ...(typeof init.body === 'string' ? { bodyType: 'raw' as const, data: init.body } : {}),
-      redirectPolicy: { maxRedirects: 0 },
-    },
-    init.signal ? { signal: init.signal } : {}
-  );
+  const spec = {
+    method: init.method ?? 'GET',
+    url,
+    headers,
+    ...(typeof init.body === 'string' ? { bodyType: 'raw' as const, data: init.body } : {}),
+    redirectPolicy: { maxRedirects: 0 },
+  };
+  const options = init.signal ? { signal: init.signal } : {};
+  const desktop = desktopFor?.(url);
+  const reply = desktop
+    ? await executeProxiedRequest(spec, options, desktop)
+    : await executeProxiedRequest(spec, options);
   return toResponse(reply);
-};
+}
 
 function bodyText(reply: ProxyJsonResponse): string {
   const { data } = reply;

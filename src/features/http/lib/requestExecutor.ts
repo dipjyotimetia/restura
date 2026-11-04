@@ -25,6 +25,7 @@ import {
   applyAuthHeaders,
   assertHandleSupported,
 } from '@/features/auth/lib/applyAuthHeaders';
+import { createProxiedTokenFetch } from '@/features/auth/lib/oauth2-transport';
 import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
 import { assertPostmanSendable } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { persistableRefreshedAuth, refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
@@ -310,7 +311,19 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   // The resolved copy is what's applied to headers AND sent as `spec.auth`
   // for sign-at-wire schemes (SigV4 / OAuth1 / WSSE / Digest / NTLM).
   const resolvedAuth = resolveAuthVariables(request.auth, (text) => resolveLocal(text, 'auth'));
-  const effectiveAuth = await refreshOAuth2Auth(resolvedAuth, Date.now(), options.signal);
+  // A token refresh uses this request's transport settings (TLS, certs, proxy).
+  const effectiveAuth = await refreshOAuth2Auth(
+    resolvedAuth,
+    Date.now(),
+    options.signal,
+    createProxiedTokenFetch((tokenUrl) =>
+      buildDesktopTransportConfig(
+        resolveEffectiveSettings(request.settings, globalSettings),
+        globalSettings,
+        tokenUrl
+      )
+    )
+  );
   // Only a real token refresh is reported for persistence — and it's folded
   // back onto the template so resolved variable values never get saved.
   const refreshedAuth =

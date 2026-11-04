@@ -20,11 +20,15 @@ import {
   pollForDeviceToken,
   tokenExpiresAt,
 } from '@/features/auth/lib/oauth2';
-import { proxiedTokenFetch } from '@/features/auth/lib/oauth2-transport';
+import { createProxiedTokenFetch } from '@/features/auth/lib/oauth2-transport';
 import { isRendererReadableSecret } from '@/features/auth/lib/readableSecret';
+import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
+import { buildDesktopTransportConfig } from '@/features/http/lib/requestExecutor';
 import { isCapableHere } from '@/lib/shared/capabilities';
 import { isElectron } from '@/lib/shared/platform';
 import { unwrapSecret } from '@/lib/shared/secretRef';
+import { useRequestStore } from '@/store/useRequestStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import type { AuthConfig } from '@/types';
 import SecretInput from '../SecretInput';
 import type { AuthEditorProps } from './types';
@@ -57,6 +61,19 @@ function withIssuedToken(
     }),
     ...(expiresAt !== undefined && { expiresAt }),
   };
+}
+
+/** Desktop transport settings of the open HTTP request, for a token URL. */
+function activeRequestTransport(tokenUrl: string) {
+  const { tabs, activeTabId } = useRequestStore.getState();
+  const request = tabs.find((tab) => tab.id === activeTabId)?.request;
+  const globalSettings = useSettingsStore.getState().settings;
+  const requestSettings = request?.type === 'http' ? request.settings : undefined;
+  return buildDesktopTransportConfig(
+    resolveEffectiveSettings(requestSettings, globalSettings),
+    globalSettings,
+    tokenUrl
+  );
 }
 
 export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
@@ -104,7 +121,9 @@ export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
 
     // Token requests go through the app's HTTP transport (Worker / desktop
     // IPC), not a direct renderer fetch: SSRF guard, no CORS, no renderer CSP.
-    const transport = { fetch: proxiedTokenFetch };
+    // On desktop they use the open request's TLS / certificate / proxy settings
+    // (workspace defaults when editing folder or collection auth).
+    const transport = { fetch: createProxiedTokenFetch(activeRequestTransport) };
 
     try {
       const config = {

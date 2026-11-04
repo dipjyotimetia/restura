@@ -3,13 +3,12 @@ import { sendButton, setUrl, switchMode } from '../../e2e/utils/selectors';
 import { expect, test } from '../fixtures/tls';
 
 /**
- * Desktop OAuth 2.0 (client-credentials), end-to-end. Unlike the sign-at-wire
- * auths, the token is fetched by a RENDERER `fetch()` (the packaged CSP allows
- * https: only), so the token endpoint runs on the https mock — reachable because
- * the e2e launch sets the test-only `--ignore-certificate-errors` switch (renderer
- * TLS only; see fixtures/electronApp.ts). The acquired JWT is then applied as a
- * bearer on the normal IPC send to /oauth/protected (verifySsl off so undici
- * accepts the private-CA leaf). A 200 proves fetch-token → apply → verify.
+ * Desktop OAuth 2.0 (client-credentials), end-to-end. The token is fetched
+ * through the app transport (`http:request` IPC, like the API call itself) with
+ * the open request's TLS settings, so turning SSL verification off for this
+ * request also lets the token request accept the https mock's private-CA leaf.
+ * The acquired JWT is then applied as a bearer on the normal IPC send to
+ * /oauth/protected. A 200 proves fetch-token → apply → verify.
  *
  * Also a regression guard for the schema bug fixed alongside this: oauth2's
  * `accessToken` was REQUIRED, so configuring the provider before fetching a token
@@ -47,7 +46,7 @@ test.describe('Desktop OAuth 2.0 (client credentials)', () => {
       .fill(`${tls.https.url}/oauth/token`);
 
     await page.getByRole('button', { name: 'Get New Access Token' }).click();
-    // The renderer fetch (https, cert ignored) stores the JWT in the field.
+    // The token request (IPC, verifySsl off like the request) stores the JWT.
     await expect(
       page.getByPlaceholder('Token will appear here after authorization')
     ).not.toHaveValue('', { timeout: 15_000 });

@@ -24,7 +24,9 @@ export function shouldRefreshOAuth2(auth: AuthConfig, nowMs = Date.now()): boole
 export async function refreshOAuth2Auth(
   auth: AuthConfig,
   nowMs = Date.now(),
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** Token fetch carrying the request's transport settings; app defaults otherwise. */
+  tokenFetch: typeof globalThis.fetch = proxiedTokenFetch
 ): Promise<AuthConfig> {
   if (!shouldRefreshOAuth2(auth, nowMs)) return auth;
   // shouldRefreshOAuth2 validates refreshToken, tokenUrl, clientId and expiresAt presence
@@ -39,7 +41,7 @@ export async function refreshOAuth2Auth(
       ...(clientSecretStr !== undefined &&
         clientSecretStr !== '' && { clientSecret: clientSecretStr }),
       ...(o.scope !== undefined && { scope: o.scope }),
-      fetch: proxiedTokenFetch,
+      fetch: tokenFetch,
     },
     signal
   );
