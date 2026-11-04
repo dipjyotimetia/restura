@@ -116,7 +116,7 @@ describe('grpcReflection handler', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('runs injected Node DNS guard before direct fetch', async () => {
+  it('routes the upstream call through the injected Node pinned fetch', async () => {
     const mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
     const guard = vi.fn().mockRejectedValue(new Error('DNS blocked'));
@@ -139,10 +139,16 @@ describe('grpcReflection handler', () => {
     );
 
     expect(res.status).toBe(500);
-    expect(guard).toHaveBeenCalledWith('attacker-controlled.example', {
-      allowLocalhost: false,
-      allowPrivateIPs: false,
-    });
+    expect(guard).toHaveBeenCalledWith(
+      expect.stringContaining('//attacker-controlled.example'),
+      expect.anything(),
+      {
+        allowLocalhost: false,
+        allowPrivateIPs: false,
+        // Reflection is bidi-streaming: Connect servers need HTTP/2.
+        http2: true,
+      }
+    );
     expect(mockFetch).not.toHaveBeenCalled();
   });
 

@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '../app';
 import type { Env } from '../env';
 
-const app = createApp({ tcpProxy: {} as never, websocketHandler: (c) => c.text('x') });
+const app = createApp({ tcpProxy: {} as never, websocketHandler: async (c) => c.text('x') });
 const DEV_BYPASS: Partial<Env> = { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' };
 
 function postWsTicket(url: string, headers: Record<string, string> = {}) {
@@ -28,11 +28,23 @@ function postWsTicket(url: string, headers: Record<string, string> = {}) {
 
 describe('dev-bypass Host allowlist (DNS rebinding)', () => {
   it.each([
-    ['rebound name, same-origin Origin', 'http://attacker.example:3000/api/ws-ticket', {
-      origin: 'http://attacker.example:3000',
-    }],
-    ['rebound name, no Origin (same-origin GET-style)', 'http://attacker.example:3000/api/ws-ticket', {}],
-    ['LAN IP Host', 'http://192.168.1.20:3000/api/ws-ticket', { origin: 'http://192.168.1.20:3000' }],
+    [
+      'rebound name, same-origin Origin',
+      'http://attacker.example:3000/api/ws-ticket',
+      {
+        origin: 'http://attacker.example:3000',
+      },
+    ],
+    [
+      'rebound name, no Origin (same-origin GET-style)',
+      'http://attacker.example:3000/api/ws-ticket',
+      {},
+    ],
+    [
+      'LAN IP Host',
+      'http://192.168.1.20:3000/api/ws-ticket',
+      { origin: 'http://192.168.1.20:3000' },
+    ],
   ])('refuses %s with 403', async (_label, url, headers) => {
     const res = await postWsTicket(url, headers);
     expect(res.status).toBe(403);

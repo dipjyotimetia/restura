@@ -198,17 +198,34 @@ RFC 1918, RFC 6598 (CGNAT), link-local 169.254/16, IPv6 unique-local, or any
 loopback / cloud-metadata endpoint.
 
 To proxy to internal services (Jenkins on `https://jenkins.corp.example`,
-internal APIs, etc.), set `ALLOW_PRIVATE_IPS=true`. The guard still blocks
-cloud-metadata endpoints (`169.254.169.254`, `metadata.google.internal`,
-etc.) — those remain hard-blocked regardless.
+internal APIs, etc.), set `ALLOW_PRIVATE_IPS=true`. Two things stay refused
+regardless:
 
-**Caveat — DNS rebind.** `ALLOW_PRIVATE_IPS=true` relaxes the pre-flight
-guard but does NOT mitigate a true DNS-rebind attack (TTL=0, address swapped
-between guard check and the actual TCP connect). If your environment includes
-endpoints that authenticate solely on private-IP source addresses, run
-Restura on a network segment where it can only reach explicitly intended
-upstreams. See `docs/adr/0006-electron-connection-and-dns-hardening.md` for
-the full threat model.
+- **Cloud metadata / credential endpoints** — `169.254.169.254` (AWS / Azure /
+  GCP / DigitalOcean metadata), `169.254.170.2` (AWS ECS task credentials),
+  `169.254.169.253` (AWS VPC DNS), `169.254.169.123` (AWS time sync),
+  `100.100.100.200` (Alibaba Cloud), `fd00:ec2::254` / `fd00:ec2::23` (AWS
+  IPv6), `fd20:ce::254` (GCE IPv6), `metadata.google.internal` and friends —
+  whether typed as a literal or reached through a DNS name that resolves to
+  them. The rest of `169.254.0.0/16` follows `ALLOW_PRIVATE_IPS`.
+- **Loopback** (`127.0.0.0/8`, `::1`, `0.0.0.0`) — permitted only in local
+  development (`ENVIRONMENT=development` + `DEV_BYPASS_AUTH=true`), again for
+  literals and DNS-resolved names alike.
+
+**DNS rebinding.** The server resolves each upstream name, validates every
+returned address, and dials only an address it validated: HTTP-shaped routes
+(proxy, gRPC, gRPC-Web, reflection, MCP, remote import, every redirect hop) go
+through a connection whose DNS lookup is the validating one, and the
+WebSocket relay and the upstream-proxy dial connect to the validated IP. A
+TTL=0 swap between check and connect therefore cannot reach an internal host.
+Two hops are resolved outside this process and are only pre-checked: targets
+sent through an operator `HTTP(S)_PROXY` (not `NO_PROXY`), and the target of a
+per-request upstream proxy (`CONNECT host:port` / absolute-form request) —
+those proxies do their own DNS. If your environment includes endpoints that
+authenticate solely on private-IP source addresses, still run Restura on a
+network segment where it can only reach intended upstreams. See
+`docs/adr/0006-electron-connection-and-dns-hardening.md` for the full threat
+model.
 
 ---
 

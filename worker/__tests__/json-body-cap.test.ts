@@ -10,7 +10,7 @@ import { createApp } from '../app';
 
 const app = createApp({
   tcpProxy: {} as never,
-  websocketHandler: (c) => c.text('x'),
+  websocketHandler: async (c) => c.text('x'),
 });
 
 const PROD_ENV = { WORKER_PROXY_TOKEN: 'tok' };
@@ -58,15 +58,14 @@ describe('JSON POST routes cap chunked bodies while streaming', () => {
     expect(state.pulled).toBeLessThan(10);
   });
 
-  it.each([
-    ['/api/ws-ticket'],
-    ['/api/import/fetch'],
-    ['/api/mcp/terminate'],
-  ])('%s refuses a large chunked body with 413', async (path) => {
-    const { res, state } = await postChunked(path, 16 * 1024, 2000);
-    expect(res.status).toBe(413);
-    expect(state.pulled).toBeLessThan(40);
-  });
+  it.each([['/api/ws-ticket'], ['/api/import/fetch'], ['/api/mcp/terminate']])(
+    '%s refuses a large chunked body with 413',
+    async (path) => {
+      const { res, state } = await postChunked(path, 16 * 1024, 2000);
+      expect(res.status).toBe(413);
+      expect(state.pulled).toBeLessThan(40);
+    }
+  );
 
   it.each([['/api/proxy'], ['/api/mcp']])(
     '%s is bounded by a default cap instead of buffering the whole body',

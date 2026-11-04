@@ -203,7 +203,9 @@ export async function proxyAuthMiddleware(
   if (isLocalDevBypass(c.env)) {
     if (!isLoopbackHost(c.req.url)) {
       return c.json(
-        { error: 'Host not allowed: the auth bypass answers only on localhost / 127.0.0.1 / [::1]' },
+        {
+          error: 'Host not allowed: the auth bypass answers only on localhost / 127.0.0.1 / [::1]',
+        },
         403
       );
     }
@@ -296,17 +298,17 @@ export function createApp(
   app.use('/api/*', proxyAuthMiddleware);
   app.use('/api/*', rateLimitMiddleware);
 
-  app.post('/api/proxy', createProxyHandler(deps.tcpProxy, deps.nodeHostnameGuard));
-  app.post('/api/import/fetch', createRemoteImportHandler(deps.nodeHostnameGuard));
-  app.post('/api/grpc', grpcBodyLimit, createGrpcHandler(deps.nodeHostnameGuard));
+  app.post('/api/proxy', createProxyHandler(deps.tcpProxy, deps.nodeFetch));
+  app.post('/api/import/fetch', createRemoteImportHandler(deps.nodeFetch));
+  app.post('/api/grpc', grpcBodyLimit, createGrpcHandler(deps.nodeFetch));
   app.post(
     '/api/grpc/reflection',
     grpcReflectionBodyLimit,
-    createGrpcReflectionHandler(deps.nodeHostnameGuard, deps.grpcReflectionFetch)
+    createGrpcReflectionHandler(deps.nodeFetch)
   );
-  app.post('/api/grpc-web', grpcWebBodyLimit, createGrpcWebHandler(deps.nodeHostnameGuard));
-  app.post('/api/mcp', createMcpHandler(deps.nodeHostnameGuard));
-  app.post('/api/mcp/terminate', createMcpTerminateHandler(deps.nodeHostnameGuard));
+  app.post('/api/grpc-web', grpcWebBodyLimit, createGrpcWebHandler(deps.nodeFetch));
+  app.post('/api/mcp', createMcpHandler(deps.nodeFetch));
+  app.post('/api/mcp/terminate', createMcpTerminateHandler(deps.nodeFetch));
   app.post('/api/telemetry/error', telemetryError);
   app.get('/api/feature-flags', featureFlags);
   app.post('/api/ws-ticket', wsTicket);

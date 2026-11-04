@@ -136,7 +136,7 @@ describe('mcp handler', () => {
     expect(json.jsonRpc).toMatchObject({ id: 1, result: { tools: [] } });
   });
 
-  it('runs injected Node DNS guard before direct fetch', async () => {
+  it('routes the upstream call through the injected Node pinned fetch', async () => {
     const mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
     const guard = vi.fn().mockRejectedValue(new Error('DNS blocked'));
@@ -160,10 +160,14 @@ describe('mcp handler', () => {
     );
 
     expect(res.status).toBe(502);
-    expect(guard).toHaveBeenCalledWith('attacker-controlled.example', {
-      allowLocalhost: false,
-      allowPrivateIPs: false,
-    });
+    expect(guard).toHaveBeenCalledWith(
+      expect.stringContaining('//attacker-controlled.example'),
+      expect.anything(),
+      {
+        allowLocalhost: false,
+        allowPrivateIPs: false,
+      }
+    );
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });

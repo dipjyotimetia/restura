@@ -52,13 +52,13 @@ Every `POST /api/*` must carry `Content-Type: application/json`; other content t
 | `CF_ACCESS_TEAM_DOMAIN` | Access team name, or `<team>.cloudflareaccess.com`. Required with `REQUIRE_CF_ACCESS` | |
 | `CF_ACCESS_AUD` | Access application audience (AUD) tag. Required with `REQUIRE_CF_ACCESS` | |
 | `ENVIRONMENT` | `development` allows localhost upstream; anything else enforces SSRF guard | unset (treated as production) |
-| `ALLOW_PRIVATE_IPS` | Allow RFC 1918 / link-local upstreams (still blocks cloud-metadata) | `false` |
+| `ALLOW_PRIVATE_IPS` | Allow RFC 1918 / link-local upstreams (still blocks cloud-metadata / credential endpoints and loopback) | `false` |
 | `ALLOWED_ORIGIN` | Comma-separated `Origin` allowlist (supports `*` wildcards). Under `DEV_BYPASS_AUTH` it is also the list of cross-origin browsers the bypass admits | unset = no cross-origin access (same-origin only) |
 | `RESTURA_STATIC_ROOT` | Path to the SPA bundle | `/app/dist/web` |
 | `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | Outbound proxy for upstream requests (lowercase variants also work); `NO_PROXY` hosts bypass it. A per-request upstream proxy set in the app takes precedence | unset = direct |
 | `RATE_LIMITER` | Rate-limiter backend. Use `map` (the Node default) or omit it. `binding` and `binding-shadow` need Cloudflare's Rate Limiting binding, so the Node server **exits at startup** if you set them | `map` |
 | `TRUST_PROXY` | If `true`, rate limiting keys on the client-IP header (`CF-Connecting-IP` / `True-Client-IP`) instead of the socket peer. Set only behind a reverse proxy that overwrites that header | `false` |
-| `DEV_BYPASS_AUTH` | Local development only — skips auth when `ENVIRONMENT=development`. Browser requests from a foreign `Origin` (not same-origin, not in `ALLOWED_ORIGIN`) are still refused with `403`. **Never set this in production** | unset |
+| `DEV_BYPASS_AUTH` | Local development only — skips auth when `ENVIRONMENT=development`. Requests addressed to any host other than `localhost` / `127.0.0.1` / `[::1]` (DNS-rebinding defence), and browser requests from a foreign `Origin` (not same-origin, not in `ALLOWED_ORIGIN`), are still refused with `403`. **Never set this in production** | unset |
 
 ## Auth modes
 
@@ -69,7 +69,7 @@ You have two options:
 
 ## Internal network access
 
-By default the SSRF guard blocks any RFC 1918 / link-local upstream — even from your self-hosted instance. If you genuinely want to proxy to internal services, set `ALLOW_PRIVATE_IPS=true`. The cloud-metadata blacklist (`169.254.169.254`) stays enforced regardless.
+By default the SSRF guard blocks any RFC 1918 / link-local upstream — even from your self-hosted instance. If you genuinely want to proxy to internal services, set `ALLOW_PRIVATE_IPS=true`. Cloud metadata and credential endpoints (`169.254.169.254`, ECS `169.254.170.2`, `169.254.169.253`, `169.254.169.123`, Alibaba `100.100.100.200`, AWS/GCE IPv6 metadata) stay blocked regardless, as does loopback outside local development — both for literal addresses and for DNS names that resolve to them. Each upstream connection is pinned to the address the guard validated, so DNS rebinding cannot swap in an internal address after the check.
 
 ## WebSocket constraints (v1)
 

@@ -37,7 +37,7 @@ beforeAll(async () => {
   await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', r));
   upstreamPort = (upstream.address() as AddressInfo).port;
 
-  const app = createApp({ tcpProxy: {} as never, websocketHandler: (c) => c.text('x') });
+  const app = createApp({ tcpProxy: {} as never, websocketHandler: async (c) => c.text('x') });
   proxyServer = serve({
     fetch: (req: Request) => app.fetch(req, { ...DEV_ENV }),
     port: 0,
