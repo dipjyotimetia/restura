@@ -646,7 +646,9 @@ export function getSuggestedAction(statusCode: GrpcStatusCode): string {
 export async function makeProxyGrpcRequest(
   request: GrpcRequest,
   resolveVariables: (text: string) => string,
-  timeoutMs: number = 30000
+  timeoutMs: number = 30000,
+  /** Cancels the relay fetch (response-panel Cancel / run abort). */
+  signal?: AbortSignal
 ): Promise<GrpcResponse> {
   const wireError = webWireProtocolError(request.wireProtocol);
   if (wireError) return createErrorResponse(request.id, wireError, Date.now());
@@ -689,6 +691,7 @@ export async function makeProxyGrpcRequest(
         message: prepared.message,
         timeout: timeoutMs,
       }),
+      ...(signal ? { signal } : {}),
     });
 
     let result: Record<string, unknown> & {

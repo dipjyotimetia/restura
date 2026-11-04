@@ -260,7 +260,9 @@ export async function makeGrpcWebRequest(
   request: GrpcRequest,
   resolveVariables: (text: string) => string,
   timeoutMs: number,
-  src: GrpcSchemaSource
+  src: GrpcSchemaSource,
+  /** Cancels the relay fetch (response-panel Cancel / run abort). */
+  signal?: AbortSignal
 ): Promise<GrpcResponse> {
   const startTime = Date.now();
   try {
@@ -274,7 +276,7 @@ export async function makeGrpcWebRequest(
     const messages: unknown[] = [];
     let decodeError: unknown;
     let end: GrpcWebEndEvent | undefined;
-    for await (const ev of streamGrpcWebViaWorker(spec)) {
+    for await (const ev of streamGrpcWebViaWorker(spec, signal)) {
       if (ev.type === 'headers') headers = ev.headers;
       else if (ev.type === 'message') {
         // Keep reading after a bad message so the terminal status and
