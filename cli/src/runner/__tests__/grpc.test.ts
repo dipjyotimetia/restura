@@ -65,3 +65,27 @@ describe('gRPC executor — 64-bit integer precision', () => {
     expect(proxySpy.mock.calls[0]?.[0]).toMatchObject({ message: { big: '9007199254740993' } });
   });
 });
+
+describe('gRPC executor — Struct numbers stay numbers (app parity)', () => {
+  const proto = `syntax = "proto3";
+package echo;
+import "google/protobuf/struct.proto";
+message EchoRequest { int64 big = 1; google.protobuf.Struct st = 2; }
+message EchoResponse {}
+service EchoService { rpc Echo (EchoRequest) returns (EchoResponse); }`;
+
+  it('quotes an unsafe int64 field but keeps a Struct value a JSON number', async () => {
+    proxySpy.mockClear();
+    await executeGrpc(
+      grpcRequest('unary', {
+        message: '{"big": 9007199254740993, "st": {"n": 12345678901234567890}}',
+        schema: { kind: 'proto', text: proto, fileName: 'echo.proto' },
+      }),
+      opts
+    );
+    const sent = (proxySpy.mock.calls[0]?.[0] as { message: { big: unknown; st: { n: unknown } } })
+      .message;
+    expect(sent.big).toBe('9007199254740993');
+    expect(typeof sent.st.n).toBe('number');
+  });
+});

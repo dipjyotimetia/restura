@@ -636,6 +636,11 @@ const SSE_HEADER_DENYLIST = new Set(
   [...STREAMING_HEADER_DENYLIST].filter((name) => name !== 'cookie' && name !== 'origin')
 );
 
+/** True for request headers a desktop SSE request (user or applied auth) must not set. */
+export function isDeniedSseHeader(name: string): boolean {
+  return SSE_HEADER_DENYLIST.has(name.toLowerCase());
+}
+
 export const SseConnectSchema = z.object({
   connectionId: SseConnectionIdSchema,
   stripOnOriginChange: z.array(z.string().max(1024)).max(256).optional(),

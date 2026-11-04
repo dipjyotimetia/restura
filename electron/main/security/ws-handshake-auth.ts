@@ -16,7 +16,7 @@
  */
 
 import type { ProtocolAuthConfig, ProtocolSecretValue } from '@shared/protocol/types';
-import { isDeniedStreamingHeader, isDeniedWsHeader } from '../ipc/validators/core';
+import { isDeniedSseHeader, isDeniedWsHeader } from '../ipc/validators/core';
 import { applyNonSignAtWireAuth } from './auth-applier';
 import { materializeExternalProtocolAuth } from './external-secret-materializer';
 import {
@@ -109,11 +109,11 @@ export const WS_HANDSHAKE_TRANSPORT: StreamingAuthTransport = {
   label: 'WebSocket',
 };
 
-/** graphql-sse POST: the SSE IPC denylist plus body-framing headers. */
+/** SSE / graphql-sse POST: the SSE IPC denylist (same as user headers) plus body-framing headers. */
 export const SSE_REQUEST_TRANSPORT: StreamingAuthTransport = {
   allowedSchemes: ['http:', 'https:'],
   isForbiddenHeader: (name) =>
-    isDeniedStreamingHeader(name) || /^(content-length|content-type)$/i.test(name),
+    isDeniedSseHeader(name) || /^(content-length|content-type)$/i.test(name),
   label: 'SSE',
 };
 
