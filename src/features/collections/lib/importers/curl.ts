@@ -449,11 +449,14 @@ export function parseCurlCommand(source: string): {
     queryParts.push(...dataParts.filter((part) => part.text !== '').map((part) => part.text));
   }
   const sendsBody = hasData && !useGet;
-  for (const part of queryParts) {
-    for (const [key, value] of new URLSearchParams(part)) parsedUrl.searchParams.append(key, value);
-  }
-  for (const [key, value] of parsedUrl.searchParams) {
-    params.push({ id: uuid(), key, value, enabled: true });
+  // Keep query values exactly as typed: the executor sends them byte-for-byte
+  // (Postman behaviour), so decoding here would turn a pasted `%2B` into a `+`
+  // the server reads as a space. Only `%26`/`%23` (and `%3D` in a key) are
+  // undone — the URL bar writes them again, so the wire bytes are unchanged.
+  for (const part of [parsedUrl.search.slice(1), ...queryParts]) {
+    for (const { key, value } of parseRawQuery(part)) {
+      params.push({ id: uuid(), key, value, enabled: true });
+    }
   }
   parsedUrl.search = '';
 
@@ -679,4 +682,21 @@ function parseProxy(value: string): ProxyConfig {
     host: url.hostname,
     port: Number(url.port || (type === 'https' ? 443 : 80)),
   };
+}
+
+/** Split a query string into rows without decoding values (see the caller). */
+function parseRawQuery(query: string): Array<{ key: string; value: string }> {
+  const unescape = (text: string, isKey: boolean) => {
+    const out = text.replace(/%26/g, '&').replace(/%23/g, '#');
+    return isKey ? out.replace(/%3D/gi, '=') : out;
+  };
+  return query
+    .split('&')
+    .filter((pair) => pair !== '')
+    .map((pair) => {
+      const eq = pair.indexOf('=');
+      return eq === -1
+        ? { key: unescape(pair, true), value: '' }
+        : { key: unescape(pair.slice(0, eq), true), value: unescape(pair.slice(eq + 1), false) };
+    });
 }

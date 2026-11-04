@@ -22,6 +22,21 @@ describe('importCurlCommand', () => {
     );
   });
 
+  it('keeps query values exactly as typed (+ and %2B are not decoded)', () => {
+    const result = importCurlCommand(
+      "curl 'https://api.example.com/s?q=a%2Bb&p=hello+world&r=x%20y&dup=1&dup=2'"
+    );
+    const request = result.collection.items[0]!.request as HttpRequest;
+    expect(request.url).toBe('https://api.example.com/s');
+    expect(request.params.map(({ key, value }) => [key, value])).toEqual([
+      ['q', 'a%2Bb'],
+      ['p', 'hello+world'],
+      ['r', 'x%20y'],
+      ['dup', '1'],
+      ['dup', '2'],
+    ]);
+  });
+
   it('maps auth, cookies, redirect, timeout, proxy, and insecure TLS options', () => {
     const result = importCurlCommand(
       'curl https://api.example.com/data -u ada:secret -b session=abc -L --max-redirs 3 --max-time 12 --proxy http://proxy.example.com:8080 --insecure'
@@ -450,7 +465,8 @@ describe('importCurlCommand body semantics (curl defaults)', () => {
     expect(request.params.map((p) => [p.key, p.value])).toEqual([
       ['x', '0'],
       ['q', '1'],
-      ['name', 'a b'],
+      // Stored as encoded, exactly as curl puts it on the wire.
+      ['name', 'a%20b'],
     ]);
   });
 
