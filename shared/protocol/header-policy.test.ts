@@ -174,4 +174,29 @@ describe('splitStreamForwardHeaders (#885)', () => {
       expect(STREAM_FORWARD_DENY.has(h)).toBe(true);
     }
   });
+
+  it('never forwards entity framing the fetch layer already undid (content-encoding / length)', () => {
+    const { forward, withheld } = splitStreamForwardHeaders({
+      'Content-Type': 'text/event-stream',
+      'Content-Encoding': 'gzip',
+      'Content-Length': '123',
+      'Transfer-Encoding': 'chunked',
+    });
+    expect(forward).toEqual({ 'Content-Type': 'text/event-stream' });
+    // Still visible to the renderer as upstream metadata.
+    expect(withheld).toEqual({ 'Content-Encoding': 'gzip', 'Content-Length': '123' });
+  });
+
+  it('never lets upstream CORS / timing headers override the proxy origin policy', () => {
+    const { forward, withheld } = splitStreamForwardHeaders({
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Credentials': 'true',
+      'Access-Control-Expose-Headers': 'x-secret',
+      'Access-Control-Some-Future-Header': 'x',
+      'Timing-Allow-Origin': '*',
+      'X-Custom': 'y',
+    });
+    expect(forward).toEqual({ 'X-Custom': 'y' });
+    expect(Object.keys(withheld)).toHaveLength(5);
+  });
 });
