@@ -30,6 +30,7 @@ import { connectErrorDetails, type GrpcStatusDetail } from '@shared/protocol/grp
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { checkBrowserSocketTargetFromSettings } from '@/lib/shared/browserSocketPolicy';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import type { GrpcRequest } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
@@ -225,6 +226,11 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
     throw new Error(`Method "${args.request.method}" is not a server-streaming method.`);
   }
 
+  // The browser connects to the upstream directly — the Worker's SSRF guard
+  // never sees it — so apply the same target policy as every other
+  // browser-direct socket (#898) before opening.
+  assertBrowserGrpcStreamTarget(prepared.url);
+
   const baseUrl = prepared.url.endsWith('/') ? prepared.url.slice(0, -1) : prepared.url;
   // Connect JSON needs the schema's registry to (de)serialise
   // google.protobuf.Any payloads (`@type`), on the request and the replies.
@@ -247,6 +253,33 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
     }),
     timeoutMs: args.timeoutMs ?? DEFAULT_TIMEOUT,
   });
+}
+
+function isDevBuild(): boolean {
+  try {
+    return import.meta.env?.DEV === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Web Connect server-streaming is a direct browser connection: refuse
+ * loopback / private / cloud-metadata targets per the user's Security
+ * settings (shared browser-socket policy), and explain up front that a
+ * production web build's CSP (`connect-src 'self' https: …`) blocks
+ * cleartext `http://` instead of failing with an opaque network error.
+ */
+export function assertBrowserGrpcStreamTarget(url: string): void {
+  if (isElectron()) return;
+  if (/^http:\/\//i.test(url) && !isDevBuild()) {
+    throw new Error(
+      'Server-streaming in the browser connects to the server directly, and the web app may only open https:// connections. ' +
+        'Use an https:// endpoint, switch the wire protocol to gRPC-Web (relayed by the Restura server), or use the desktop app.'
+    );
+  }
+  const target = checkBrowserSocketTargetFromSettings(url);
+  if (!target.ok) throw new Error(`Connection refused: ${target.error}`);
 }
 
 interface ConnectServerStreamArgs {
