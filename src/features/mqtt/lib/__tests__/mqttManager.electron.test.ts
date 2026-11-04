@@ -176,6 +176,22 @@ describe('mqttManager (Electron path)', () => {
     expect(useMqttStore.getState().connections[id]!.status).toBe('reconnecting');
   });
 
+  it('a CONNACK refusal ends the connection instead of showing reconnecting', async () => {
+    const { emit } = installElectronMock();
+    const id = useMqttStore.getState().createConnection();
+    expect(useMqttStore.getState().connections[id]!.autoReconnect).toBe(true);
+    await mqttManager.connect(useMqttStore.getState().connections[id]!);
+
+    emit(`mqtt:error:${id}`, { message: 'Connection refused: Not authorized', code: 5 });
+    emit(`mqtt:close:${id}`, { refused: 'Connection refused: Not authorized' });
+
+    const conn = useMqttStore.getState().connections[id]!;
+    expect(conn.status).toBe('disconnected');
+    const log = conn.messages.map((m) => m.payload);
+    expect(log).toContain('Connection refused: Not authorized');
+    expect(log.some((p) => p.includes('reconnecting'))).toBe(false);
+  });
+
   it('SUBSCRIBED event marks the subscription subscribed with granted QoS', async () => {
     const { emit } = installElectronMock();
     const id = useMqttStore.getState().createConnection();
