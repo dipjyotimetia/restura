@@ -296,18 +296,32 @@ export function isRfc1918Address(address: string): boolean {
   return v4 !== null && /^(?:10\.|172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.)/.test(v4);
 }
 
-const CLOUD_METADATA_IPV4 = '169.254.169.254';
-// AWS (fd00:ec2::254) and GCE (fd20:ce::254) IPv6 metadata endpoints, compared
-// as expanded groups so every textual form matches.
+/**
+ * Metadata / credential endpoints reachable from a cloud instance or container.
+ * Exact addresses rather than all of `169.254.0.0/16`: link-local can be a
+ * legitimate target for self-hosters under `ALLOW_PRIVATE_IPS`, but these
+ * never are.
+ */
+const CLOUD_METADATA_IPV4 = new Set([
+  '169.254.169.254', // AWS / Azure / GCP / DigitalOcean / OpenStack instance metadata
+  '169.254.170.2', // AWS ECS task-role credentials
+  '169.254.169.253', // AWS VPC DNS resolver (Route 53 Resolver)
+  '169.254.169.123', // AWS Time Sync
+  '100.100.100.200', // Alibaba Cloud metadata
+]);
+// AWS (fd00:ec2::254, Nitro fd00:ec2::23) and GCE (fd20:ce::254) IPv6
+// metadata endpoints, compared as expanded groups so every textual form matches.
 const CLOUD_METADATA_IPV6_GROUPS: readonly (readonly number[])[] = [
   [0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254],
+  [0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0023],
   [0xfd20, 0x00ce, 0, 0, 0, 0, 0, 0x0254],
 ];
 const CLOUD_METADATA_HOSTNAMES = ['metadata.google.internal', 'metadata', 'instance-data'];
 
 /**
- * Cloud-instance metadata endpoints: the link-local metadata IP
- * `169.254.169.254` (including IPv4-mapped-IPv6 and trailing-dot forms) and the
+ * Cloud-instance metadata / credential endpoints: the addresses in
+ * `CLOUD_METADATA_IPV4` / `CLOUD_METADATA_IPV6_GROUPS` (including
+ * IPv4-mapped/6to4/NAT64/Teredo wrappers and trailing-dot forms) and the
  * well-known metadata hostnames. Blocked UNCONDITIONALLY — even where private
  * IPs are otherwise permitted (Kafka/MQTT broker guards, the pinned
  * ws/socket.io/mcp transports that don't run `validateURL`) — because reaching
@@ -315,11 +329,12 @@ const CLOUD_METADATA_HOSTNAMES = ['metadata.google.internal', 'metadata', 'insta
  */
 export function isCloudMetadataHost(hostname: string): boolean {
   const h = stripBrackets(hostname).toLowerCase().replace(/\.+$/, '');
-  if (stripV4MappedPrefix(h) === CLOUD_METADATA_IPV4) return true;
+  if (CLOUD_METADATA_IPV4.has(stripV4MappedPrefix(h))) return true;
   if (h.includes(':')) {
     const groups = expandIPv6(h);
-    if (groups && embeddedV4FromGroups(groups) === CLOUD_METADATA_IPV4) return true;
-    if (groups && isTeredo(groups) && teredoClientV4(groups) === CLOUD_METADATA_IPV4) return true;
+    const embedded = groups ? embeddedV4FromGroups(groups) : null;
+    if (embedded && CLOUD_METADATA_IPV4.has(embedded)) return true;
+    if (groups && isTeredo(groups) && CLOUD_METADATA_IPV4.has(teredoClientV4(groups))) return true;
     if (groups && CLOUD_METADATA_IPV6_GROUPS.some((m) => m.every((g, i) => g === groups[i]))) {
       return true;
     }

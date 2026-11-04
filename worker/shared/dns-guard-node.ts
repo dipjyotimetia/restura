@@ -13,17 +13,7 @@
 import type { LookupAddress } from 'node:dns';
 import * as dns from 'node:dns/promises';
 import * as net from 'node:net';
-import { assertResolvedAddressAllowed } from '@shared/protocol/url-validation';
-
-/**
- * Cloud-metadata + cluster-control-plane IP addresses that MUST be rejected
- * even when the operator has opted in to private-IP access. Mirrors the
- * literal-IP entries in `BLOCKED_HOSTNAMES` (which `validateURL` consults
- * for the URL string but not for resolved addresses).
- */
-const HARD_BLOCKED_ADDRESSES = new Set([
-  '169.254.169.254', // AWS / Azure / DO instance-metadata
-]);
+import { assertResolvedAddressAllowed, isCloudMetadataHost } from '@shared/protocol/url-validation';
 
 export interface NodeDnsGuardOptions {
   /** Permit localhost / 127.0.0.1 / ::1 — typically only on `ENVIRONMENT=development`. */
@@ -31,8 +21,10 @@ export interface NodeDnsGuardOptions {
   /**
    * Permit any private address (RFC 1918 / link-local / CGNAT / IPv6 ULA).
    * Self-hosted enterprises set this via `ALLOW_PRIVATE_IPS=true` so they
-   * can reach internal services. Cloud-metadata endpoints stay hard-blocked
-   * regardless (see `assertResolvedAddressAllowed`).
+   * can reach internal services. Cloud-metadata / credential endpoints stay
+   * hard-blocked regardless (`isCloudMetadataHost`), and loopback is opened
+   * only by `allowLocalhost` — for literals and DNS-resolved names alike, the
+   * same as `validateURL`.
    */
   allowPrivateIPs?: boolean;
 }
@@ -66,12 +58,13 @@ export async function assertNodeHostnameSafe(
   const literal = /^\[.*\]$/.test(hostname) ? hostname.slice(1, -1) : hostname;
   const literalFamily = net.isIP(literal);
   if (literalFamily !== 0) {
-    if (HARD_BLOCKED_ADDRESSES.has(literal)) {
+    if (isCloudMetadataHost(literal)) {
       throw new Error(`Hostname ${literal} is hard-blocked (cloud-metadata endpoint)`);
     }
     assertResolvedAddressAllowed(literal, literal, {
       allowLocalhost,
       allowPrivateLiteralHost,
+      loopbackNeedsLocalhost: true,
     });
     return [{ address: literal, family: literalFamily === 6 ? 6 : 4 }];
   }
@@ -86,12 +79,15 @@ export async function assertNodeHostnameSafe(
   }
 
   for (const r of records) {
-    if (HARD_BLOCKED_ADDRESSES.has(r.address)) {
-      throw new Error(`DNS resolution for ${hostname} returned hard-blocked address ${r.address}`);
+    if (isCloudMetadataHost(r.address)) {
+      throw new Error(
+        `DNS resolution for ${hostname} returned hard-blocked address ${r.address} (cloud-metadata endpoint)`
+      );
     }
     assertResolvedAddressAllowed(hostname, r.address, {
       allowLocalhost,
       allowPrivateLiteralHost,
+      loopbackNeedsLocalhost: true,
     });
   }
   return records;

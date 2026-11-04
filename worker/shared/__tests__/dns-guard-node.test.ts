@@ -46,13 +46,18 @@ describe('assertNodeHostnameSafe — literal IPs (Fix #27)', () => {
     await expect(assertNodeHostnameSafe('127.0.0.1')).rejects.toThrow();
   });
 
-  it('permits literal loopback when allowPrivateIPs is true', async () => {
-    // 127.0.0.1 is in the private-address set; `allowLocalhost` alone
-    // (string-matching the literal "localhost") doesn't permit the IP form.
-    // `allowPrivateIPs` is the gate self-hosters use to permit RFC 1918 etc.
-    await expect(
-      assertNodeHostnameSafe('127.0.0.1', { allowPrivateIPs: true })
-    ).resolves.toBeTruthy();
+  it('refuses literal loopback under allowPrivateIPs alone (loopback needs allowLocalhost)', async () => {
+    // Parity with validateURL, which refuses a literal 127.0.0.1 unless
+    // allowLocalhost — ALLOW_PRIVATE_IPS opens RFC 1918 etc., not loopback.
+    await expect(assertNodeHostnameSafe('127.0.0.1', { allowPrivateIPs: true })).rejects.toThrow(
+      /loopback/i
+    );
+  });
+
+  it('permits literal loopback when allowLocalhost is true', async () => {
+    await expect(assertNodeHostnameSafe('127.0.0.1', { allowLocalhost: true })).resolves.toEqual([
+      { address: '127.0.0.1', family: 4 },
+    ]);
   });
 
   it('permits the "localhost" string when allowLocalhost is true (DNS resolves to 127.0.0.1)', async () => {
@@ -127,5 +132,49 @@ describe('assertNodeHostnameSafe — bracketed IPv6 literals from URL.hostname',
       /metadata|blocked/i
     );
     expect(dns.lookup).not.toHaveBeenCalled();
+  });
+});
+
+describe('assertNodeHostnameSafe — metadata / credential endpoints and loopback via DNS', () => {
+  const METADATA = [
+    '169.254.169.254', // AWS / Azure / GCP / DO IMDS
+    '169.254.170.2', // AWS ECS task credentials
+    '169.254.169.253', // AWS VPC DNS resolver
+    '169.254.169.123', // AWS time sync
+    '100.100.100.200', // Alibaba Cloud metadata
+    'fd00:ec2::254', // AWS IMDS IPv6
+    'fd00:ec2::23', // AWS IMDS IPv6 (Nitro)
+    '::ffff:169.254.170.2', // v4-mapped wrapper
+  ];
+
+  it.each(METADATA)('refuses a name resolving to %s even with allowPrivateIPs', async (address) => {
+    mockedLookup.mockResolvedValue([{ address, family: address.includes(':') ? 6 : 4 }]);
+    await expect(
+      assertNodeHostnameSafe('rebind.example', { allowPrivateIPs: true, allowLocalhost: true })
+    ).rejects.toThrow(/metadata|blocked/i);
+  });
+
+  it.each(METADATA)('refuses the literal %s even with allowPrivateIPs', async (address) => {
+    const host = address.includes(':') ? `[${address}]` : address;
+    await expect(
+      assertNodeHostnameSafe(host, { allowPrivateIPs: true, allowLocalhost: true })
+    ).rejects.toThrow(/metadata|blocked/i);
+  });
+
+  it.each(['127.0.0.1', '::1', '127.8.9.10', '::ffff:127.0.0.1', '0.0.0.0'])(
+    'refuses a name resolving to loopback %s under allowPrivateIPs without allowLocalhost',
+    async (address) => {
+      mockedLookup.mockResolvedValue([{ address, family: address.includes(':') ? 6 : 4 }]);
+      await expect(
+        assertNodeHostnameSafe('rebind.example', { allowPrivateIPs: true })
+      ).rejects.toThrow(/loopback/i);
+    }
+  );
+
+  it('still permits a name resolving to RFC 1918 under allowPrivateIPs', async () => {
+    mockedLookup.mockResolvedValue([{ address: '10.1.2.3', family: 4 }]);
+    await expect(
+      assertNodeHostnameSafe('jenkins.corp.example', { allowPrivateIPs: true })
+    ).resolves.toEqual([{ address: '10.1.2.3', family: 4 }]);
   });
 });
