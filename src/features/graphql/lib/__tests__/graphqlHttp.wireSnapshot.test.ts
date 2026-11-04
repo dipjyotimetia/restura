@@ -146,24 +146,28 @@ describe('buildGraphQLWireRequest — byte-identity snapshot', () => {
             },
             {
               "enabled": true,
+              "encodeFully": true,
               "id": "graphql-get-query",
               "key": "query",
               "value": "query Q($id: ID!) { node(id: $id) { id } }",
             },
             {
               "enabled": true,
+              "encodeFully": true,
               "id": "graphql-get-variables",
               "key": "variables",
               "value": "{"id":"42"}",
             },
             {
               "enabled": true,
+              "encodeFully": true,
               "id": "graphql-get-operationName",
               "key": "operationName",
               "value": "Q",
             },
             {
               "enabled": true,
+              "encodeFully": true,
               "id": "graphql-get-extensions",
               "key": "extensions",
               "value": "{"persistedQuery":{"version":1,"sha256Hash":"abc"}}",

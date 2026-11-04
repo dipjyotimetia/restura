@@ -91,6 +91,13 @@ export const HTTP_CAPABILITIES = {
     notes:
       'Web streams via the Worker proxy; Electron IPC buffers the full response (renderer falls back to the buffered path)',
   },
+  'http.getBody': {
+    label: 'Request body on GET',
+    web: false,
+    desktop: true,
+    notes:
+      'The Worker and self-host proxies send through fetch(), which forbids a GET body: they refuse it with an explicit 400 (an empty body editor sends no body and is allowed). Desktop sends it; the CLI sends it too',
+  },
   'http.auth.ntlm': {
     label: 'NTLM authentication',
     web: false,

@@ -71,7 +71,22 @@ function assertNoPlaintext(value: unknown): void {
 
 beforeAll(async () => {
   server = http.createServer((req, res) => {
-    received.push({ ...req.headers });
+    received.push({ ...req.headers, url: req.url });
+    const url = new URL(req.url ?? '/', 'http://local');
+    if (url.pathname === '/redir') {
+      // Keeps the query across the redirect, as many servers do (http → https).
+      res.statusCode = 302;
+      res.setHeader('Location', `/landing${url.search}`);
+      res.setHeader('Set-Cookie', 'sid=1; Path=/');
+      res.end();
+      return;
+    }
+    if (url.pathname === '/landing') {
+      res.statusCode = 200;
+      res.setHeader('Set-Cookie', 'seen=1; Path=/');
+      res.end('ok');
+      return;
+    }
     const basicOk =
       req.headers.authorization === `Basic ${Buffer.from(`alice:${SECRET}`).toString('base64')}`;
     const wsseOk = String(req.headers['x-wsse'] ?? '').includes(`PasswordText="${SECRET}"`);
@@ -135,6 +150,25 @@ describe('http:request — secret variables in auth fields', () => {
     expect(String(received[0]?.['x-wsse'])).not.toContain('{{pw}}');
     assertNoPlaintext(reply);
     assertNoPlaintext(logEntries);
+  });
+
+  it('keeps a secret materialized into the query out of finalUrl and cookieHops', async () => {
+    const reply = (await handler(event, {
+      requestId: nextRequestId(),
+      method: 'GET',
+      url: `${baseUrl}/redir?key={{pw}}`,
+      secretVariables,
+    })) as { status: number; finalUrl?: string; cookieHops?: Array<{ url: string }> };
+    expect(reply.status).toBe(200);
+    // The upstream did receive the materialized secret on both hops.
+    expect(received.map((r) => decodeURIComponent(String(r.url)))).toEqual([
+      `/redir?key=${SECRET}`,
+      `/landing?key=${SECRET}`,
+    ]);
+    expect(reply.finalUrl).toBe(`${baseUrl}/landing`);
+    expect(reply.cookieHops?.map((h) => h.url)).toEqual([`${baseUrl}/redir`, `${baseUrl}/landing`]);
+    assertNoPlaintext(reply);
+    expect(JSON.stringify(reply)).not.toContain(encodeURIComponent(SECRET));
   });
 
   it('keeps the plaintext out of transport errors and the request log', async () => {

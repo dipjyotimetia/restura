@@ -1,6 +1,6 @@
 import { isSecretFieldName } from '../secrets/key-value-redaction';
 import { extractSetCookies } from './header-policy';
-import { mergeCookieHeader, type RedirectCookieChain } from './set-cookie';
+import { applyChainCookies, type RedirectCookieChain } from './set-cookie';
 import type { Fetcher, FetcherRequest, FetcherResponse } from './types';
 import { validateURL } from './url-validation';
 
@@ -215,13 +215,19 @@ export async function followRedirects(
   return response;
 }
 
-/** Add the chain's cookies for the hop's URL to its (already origin-stripped) Cookie header. */
+/**
+ * Apply the chain's cookies for the hop's URL to its (already origin-stripped)
+ * Cookie header: a cookie set (or deleted) by an earlier hop of this chain wins
+ * over the same-named pair the request started with, as a browser would send it.
+ */
 function withChainCookies(next: FetcherRequest, chain: RedirectCookieChain): void {
   const cookies = chain.matching(next.url, Date.now());
-  if (cookies.length === 0) return;
+  const deleted = chain.deletedNames(next.url);
+  if (cookies.length === 0 && deleted.size === 0) return;
   const headers = next.headers instanceof Headers ? next.headers : new Headers(next.headers);
-  const merged = mergeCookieHeader(headers.get('cookie') ?? undefined, cookies);
-  headers.set('cookie', merged);
+  const merged = applyChainCookies(headers.get('cookie') ?? undefined, cookies, deleted);
+  if (merged === '') headers.delete('cookie');
+  else headers.set('cookie', merged);
   next.headers = headers;
 }
 

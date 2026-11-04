@@ -14,6 +14,7 @@ import {
   PROXY_UPSTREAM_STATUS_TEXT_HEADER,
 } from '@shared/protocol/proxy-limits';
 import {
+  COOKIE_HOPS_SIDE_CHANNEL_HEADER,
   SET_COOKIE_OMITTED_HEADER,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
 } from '@shared/protocol/set-cookie';
@@ -249,6 +250,7 @@ export function createApp(
       exposeHeaders: [
         SET_COOKIE_SIDE_CHANNEL_HEADER,
         SET_COOKIE_OMITTED_HEADER,
+        COOKIE_HOPS_SIDE_CHANNEL_HEADER,
         PROXY_CAPABILITY_HEADER,
         PROXY_STREAM_MARKER_HEADER,
         PROXY_UPSTREAM_STATUS_HEADER,

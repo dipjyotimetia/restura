@@ -104,13 +104,47 @@ export function encodeQueryComponent(text: string, isKey: boolean): string {
 }
 
 /**
+ * Marks a query row Restura built itself (GraphQL GET `query` / `variables` /
+ * …), as opposed to one a user typed. Its key and value are opaque data, so
+ * they go out fully percent-encoded (`encodeURIComponent`): the minimal
+ * "as typed" escaping would let WHATWG URL parsing strip TAB/LF/CR and leave
+ * `+` (read as space) and `%XX` (decoded) in the document.
+ */
+export interface BuiltQueryRow {
+  encodeFully: true;
+}
+
+export function isBuiltQueryRow(row: object): row is BuiltQueryRow {
+  return (row as Partial<BuiltQueryRow>).encodeFully === true;
+}
+
+/** An ordered query pair; a third element `true` marks opaque (fully encoded) data. */
+export type QueryPair = readonly [key: string, value: string, encodeFully?: boolean];
+
+/**
+ * Sendable query rows as ordered pairs (repeated keys kept), each flagged when
+ * it is a {@link BuiltQueryRow}.
+ */
+export function collectQueryPairs<T extends { enabled?: boolean; key: string }>(
+  rows: readonly T[],
+  getValue: (row: T) => string
+): Array<[string, string, boolean]> {
+  const out: Array<[string, string, boolean]> = [];
+  for (const row of rows) {
+    if (isSendableRow(row)) out.push([row.key, getValue(row), isBuiltQueryRow(row)]);
+  }
+  return out;
+}
+
+/**
  * Append ordered query pairs to `url` (before any `#fragment`). With
  * `encode: false` (the request's "encode URL automatically" turned off) the
- * pairs go out exactly as written.
+ * pairs go out exactly as written. A pair flagged `encodeFully` is always
+ * fully percent-encoded — it is data Restura built, not text a user typed.
  */
 export function appendQueryPairs(
   url: string,
-  pairs: ReadonlyArray<readonly [string, string]>,
+  pairs: ReadonlyArray<QueryPair>,
   options: { encode?: boolean } = {}
 ): string {
   if (pairs.length === 0) return url;
@@ -119,8 +153,12 @@ export function appendQueryPairs(
   const base = hash === -1 ? url : url.slice(0, hash);
   const fragment = hash === -1 ? '' : url.slice(hash);
   const tail = pairs
-    .map(([k, v]) =>
-      encode ? `${encodeQueryComponent(k, true)}=${encodeQueryComponent(v, false)}` : `${k}=${v}`
+    .map(([k, v, full]) =>
+      full
+        ? `${encodeURIComponent(k)}=${encodeURIComponent(v)}`
+        : encode
+          ? `${encodeQueryComponent(k, true)}=${encodeQueryComponent(v, false)}`
+          : `${k}=${v}`
     )
     .join('&');
   const joiner = !base.includes('?') ? '?' : base.endsWith('?') || base.endsWith('&') ? '' : '&';

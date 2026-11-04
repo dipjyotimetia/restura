@@ -196,8 +196,11 @@ interface HeaderRow {
  * Fold a pre-request script's header edits onto the request's header rows.
  * `before` is the map the script was given and `after` the map it left, so a
  * header the script did not touch keeps its row (and its `{{var}}` template).
- * A removed header's enabled rows are disabled, a changed one takes the new
- * value, and a new one is appended.
+ * Names match case-insensitively, as the maps were built
+ * (`collectEnabledHeaders` combines repeated rows into one entry). A removed
+ * header's enabled rows are all disabled; a changed one takes the new value on
+ * its first enabled row and its other same-named rows are disabled, so exactly
+ * one value goes out; a new one is appended.
  */
 export function applyScriptHeaderEdits<T extends HeaderRow>(
   rows: readonly T[],
@@ -205,19 +208,26 @@ export function applyScriptHeaderEdits<T extends HeaderRow>(
   after: Record<string, string>,
   newId: () => string
 ): T[] {
+  const byName = (map: Record<string, string>) =>
+    new Map(Object.entries(map).map(([key, value]) => [key.toLowerCase(), value] as const));
+  const was = byName(before);
+  const now = byName(after);
+  const set = new Set<string>();
   const next = rows.map((row) => {
     if (!row.enabled) return row;
-    if (Object.hasOwn(before, row.key) && !Object.hasOwn(after, row.key)) {
-      return { ...row, enabled: false };
-    }
-    if (Object.hasOwn(after, row.key) && after[row.key] !== before[row.key]) {
-      return { ...row, value: after[row.key] as string };
-    }
-    return row;
+    const name = row.key.toLowerCase();
+    if (!was.has(name)) return row;
+    const value = now.get(name);
+    if (value === undefined) return { ...row, enabled: false };
+    if (value === was.get(name)) return row;
+    if (set.has(name)) return { ...row, enabled: false };
+    set.add(name);
+    return { ...row, value };
   });
   for (const [key, value] of Object.entries(after)) {
-    if (Object.hasOwn(before, key)) continue;
-    if (next.some((row) => row.enabled && row.key === key)) continue;
+    const name = key.toLowerCase();
+    if (was.has(name)) continue;
+    if (next.some((row) => row.enabled && row.key.toLowerCase() === name)) continue;
     next.push({ id: newId(), key, value, enabled: true } as T);
   }
   return next;

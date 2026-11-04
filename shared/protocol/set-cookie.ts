@@ -203,6 +203,89 @@ export function decodeSetCookieSideChannel(value: string | null | undefined): st
   }
 }
 
+/**
+ * Streaming-path side channel for a followed redirect chain: `finalUrl` and
+ * every hop's Set-Cookie fields (see `NormalizedResponse.cookieHops`), so the
+ * renderer's jar stores each hop's cookies against the URL that set them. The
+ * value is `encodeURIComponent(JSON)` — always a valid header ByteString.
+ * Absent when the first response was final.
+ */
+export const COOKIE_HOPS_SIDE_CHANNEL_HEADER = 'x-restura-cookie-hops';
+
+export interface CookieHopsSideChannel {
+  finalUrl?: string;
+  cookieHops?: CookieHop[];
+}
+
+function encodeCookieHops(fields: CookieHopsSideChannel): string {
+  return encodeURIComponent(JSON.stringify(fields));
+}
+
+/**
+ * Encode `finalUrl` + the hops under `maxBytes`. Cookie fields that do not fit
+ * are dropped (in order; a later smaller one may still ride) and counted in
+ * `omitted`, like {@link buildSetCookieSideChannel}. `value` is undefined when
+ * there is nothing to carry.
+ */
+export function buildCookieHopsSideChannel(
+  fields: CookieHopsSideChannel,
+  maxBytes: number = SET_COOKIE_SIDE_CHANNEL_MAX_BYTES
+): { value: string | undefined; omitted: number } {
+  if (fields.finalUrl === undefined && !fields.cookieHops?.length) {
+    return { value: undefined, omitted: 0 };
+  }
+  const full = encodeCookieHops(fields);
+  if (full.length <= maxBytes) return { value: full, omitted: 0 };
+  const kept: CookieHop[] = [];
+  let omitted = 0;
+  const base: CookieHopsSideChannel = {
+    ...(fields.finalUrl !== undefined ? { finalUrl: fields.finalUrl } : {}),
+    cookieHops: kept,
+  };
+  for (const hop of fields.cookieHops ?? []) {
+    const slot: CookieHop = { url: hop.url, setCookies: [] };
+    kept.push(slot);
+    for (const cookie of hop.setCookies) {
+      slot.setCookies.push(cookie);
+      if (encodeCookieHops(base).length > maxBytes) {
+        slot.setCookies.pop();
+        omitted++;
+      }
+    }
+    if (slot.setCookies.length === 0) kept.pop();
+  }
+  const value = encodeCookieHops(base);
+  return { value: value.length <= maxBytes ? value : undefined, omitted };
+}
+
+/** Decode {@link COOKIE_HOPS_SIDE_CHANNEL_HEADER}; anything malformed → `{}`. */
+export function decodeCookieHopsSideChannel(
+  value: string | null | undefined
+): CookieHopsSideChannel {
+  if (!value) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodeURIComponent(value));
+  } catch {
+    return {};
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  const raw = parsed as { finalUrl?: unknown; cookieHops?: unknown };
+  const out: CookieHopsSideChannel = {};
+  if (typeof raw.finalUrl === 'string') out.finalUrl = raw.finalUrl;
+  if (Array.isArray(raw.cookieHops)) {
+    const hops: CookieHop[] = [];
+    for (const hop of raw.cookieHops) {
+      const h = hop as { url?: unknown; setCookies?: unknown } | null;
+      if (!h || typeof h.url !== 'string' || !Array.isArray(h.setCookies)) continue;
+      const setCookies = h.setCookies.filter((c): c is string => typeof c === 'string');
+      if (setCookies.length > 0) hops.push({ url: h.url, setCookies });
+    }
+    if (hops.length > 0) out.cookieHops = hops;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // RFC 6265 storage model (§5.1.3 domain match, §5.1.4 paths, §5.2/§5.3 storage)
 // ---------------------------------------------------------------------------
@@ -347,6 +430,8 @@ export function cookieMatchesUrl(
   return !cookie.secure || url.protocol === 'https:';
 }
 
+const cookiePairName = (pair: string) => (pair.split('=', 1)[0] ?? '').trim();
+
 /**
  * Combine an explicit Cookie header with jar cookies: every name the header
  * already carries wins, the jar adds only the names it does not.
@@ -359,10 +444,47 @@ export function mergeCookieHeader(
     .split(';')
     .map((s) => s.trim())
     .filter(Boolean);
-  const named = new Set(pairs.map((p) => (p.split('=', 1)[0] ?? '').trim()));
+  const named = new Set(pairs.map(cookiePairName));
   for (const c of jar) {
     if (named.has(c.name)) continue;
     named.add(c.name);
+    pairs.push(`${c.name}=${c.value}`);
+  }
+  return pairs.join('; ');
+}
+
+/**
+ * The Cookie header for the next hop of a redirect chain (browser semantics):
+ * a cookie a hop of this chain set replaces the same-named pair in the
+ * outgoing header (which carries the user's and the jar's cookies), and one a
+ * hop deleted is dropped. Other pairs keep their place.
+ */
+export function applyChainCookies(
+  outgoing: string | undefined,
+  set: ReadonlyArray<{ name: string; value: string }>,
+  deleted: ReadonlySet<string>
+): string {
+  // `set` is longest-path first: the first cookie of a name is the one sent.
+  const byName = new Map<string, string>();
+  for (const c of set) if (!byName.has(c.name)) byName.set(c.name, c.value);
+  const pairs: string[] = [];
+  const sent = new Set<string>();
+  for (const pair of (outgoing ?? '').split(';')) {
+    const trimmed = pair.trim();
+    if (!trimmed) continue;
+    const name = cookiePairName(trimmed);
+    const replacement = byName.get(name);
+    if (replacement === undefined) {
+      if (!deleted.has(name)) pairs.push(trimmed);
+      continue;
+    }
+    if (sent.has(name)) continue;
+    sent.add(name);
+    pairs.push(`${name}=${replacement}`);
+  }
+  for (const c of set) {
+    if (sent.has(c.name)) continue;
+    sent.add(c.name);
     pairs.push(`${c.name}=${c.value}`);
   }
   return pairs.join('; ');
@@ -381,6 +503,7 @@ export interface CookieHop {
  */
 export class RedirectCookieChain {
   private cookies: ResolvedCookie[] = [];
+  private deleted: ResolvedCookie[] = [];
   readonly hops: CookieHop[] = [];
   /** URL of the last response recorded — the final URL once the chain ends. */
   lastUrl: string | undefined;
@@ -395,11 +518,34 @@ export class RedirectCookieChain {
       const r = resolveSetCookie(raw, url, now);
       if (!r.ok) continue;
       const c = r.cookie;
-      this.cookies = this.cookies.filter(
-        (x) => !(x.name === c.name && x.domain === c.domain && x.path === c.path)
-      );
-      if (!isCookieExpired(c, now)) this.cookies.push(c);
+      const same = (x: ResolvedCookie) =>
+        x.name === c.name && x.domain === c.domain && x.path === c.path;
+      this.cookies = this.cookies.filter((x) => !same(x));
+      this.deleted = this.deleted.filter((x) => !same(x));
+      if (isCookieExpired(c, now)) this.deleted.push(c);
+      else this.cookies.push(c);
     }
+  }
+
+  /**
+   * Names of cookies a hop of this chain deleted (expired Set-Cookie) that
+   * would match `url` and that no live chain cookie re-sets.
+   */
+  deletedNames(url: string): Set<string> {
+    const out = new Set<string>();
+    if (this.deleted.length === 0) return out;
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return out;
+    }
+    for (const c of this.deleted) {
+      // Match on scope only: the deletion itself is what expired it.
+      const { expiresAt: _expired, ...scope } = c;
+      if (cookieMatchesUrl(scope, parsed, Number.NEGATIVE_INFINITY)) out.add(c.name);
+    }
+    return out;
   }
 
   /** Chain cookies for `url`, longest path first (RFC 6265 §5.4 step 2). */

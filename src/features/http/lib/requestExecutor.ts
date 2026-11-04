@@ -1,4 +1,3 @@
-import { PROXY_STREAM_MARKER_HEADER } from '@shared/protocol/proxy-limits';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
   appendQueryPairs,
@@ -7,15 +6,11 @@ import {
   buildProxyBody,
   buildProxyFormFields,
   collectEnabledHeaders,
-  collectEnabledRowPairs,
+  collectQueryPairs,
   mapProxyBodyType,
+  type QueryPair,
 } from '@shared/protocol/request-spec';
-import {
-  type CookieHop,
-  decodeSetCookieSideChannel,
-  responseSetCookies,
-  SET_COOKIE_SIDE_CHANNEL_HEADER,
-} from '@shared/protocol/set-cookie';
+import { type CookieHop, responseSetCookies } from '@shared/protocol/set-cookie';
 import { findScriptWrittenToken } from '@shared/scripts/grpc-script-metadata';
 import { applyScriptHeaderEdits } from '@shared/scripts/script-executor-request';
 import { runScriptPhase } from '@shared/scripts/script-phase';
@@ -38,6 +33,7 @@ import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings'
 import {
   executeProxiedRequestWithProgress,
   type ResponseProgressHandler,
+  readStreamSideChannels,
 } from '@/features/http/lib/progressTransport';
 import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
 import {
@@ -277,20 +273,25 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   }
 
   // Every query row is kept, repeated keys included, in table order: they are
-  // folded into `spec.url` (see below). A row whose value holds a desktop secret
-  // token stays in `params` instead: Electron main substitutes it there and the
-  // proxy then escapes the secret in full.
-  const queryPairs = collectEnabledRowPairs(request.params, (p) =>
+  // folded into `spec.url` (see below). User-typed rows go out as typed; rows
+  // Restura built (GraphQL GET params) are fully percent-encoded.
+  //
+  // A row whose value holds a desktop secret token stays in `params` (a Record
+  // Electron main substitutes in; the proxy then escapes it in full). Pinned
+  // trade-off (requestExecutor.queryWire.test.ts): such rows go after the
+  // folded ones and a repeated name keeps its last row only.
+  const queryPairs = collectQueryPairs(request.params, (p) =>
     resolveLocal(p.value, `query parameter "${p.key}"`)
   );
   const holdsSecretToken = (text: string) =>
     secretVariables !== undefined &&
     scanVariableTokens(text).some(({ name }) => Object.hasOwn(secretVariables, name));
   const params: Record<string, string> = {};
-  const foldedQuery: Array<[string, string]> = [];
-  for (const [key, value] of queryPairs) {
+  let foldedQuery: QueryPair[] = [];
+  for (const pair of queryPairs) {
+    const [key, value] = pair;
     if (holdsSecretToken(value)) params[key] = value;
-    else foldedQuery.push([key, value]);
+    else foldedQuery.push(pair);
   }
   // Repeated header rows combine (`, `; Cookie `; `) instead of the last one winning.
   const headers = applyBodyDefaultHeaders(
@@ -333,7 +334,14 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   assertHandleSupported(headersWithAuth);
   Object.assign(headers, headersWithAuth.headers);
 
-  Object.assign(params, applyApiKeyQueryParam(effectiveAuth, params));
+  // An API key sent in the query replaces same-named query rows (it is not
+  // sent next to them).
+  const authParams = applyApiKeyQueryParam(effectiveAuth, {});
+  const authParamNames = Object.keys(authParams);
+  Object.assign(params, authParams);
+  if (authParamNames.length > 0) {
+    foldedQuery = foldedQuery.filter(([key]) => !authParamNames.includes(key));
+  }
 
   const effectiveSettings = resolveEffectiveSettings(request.settings, globalSettings);
 
@@ -771,18 +779,11 @@ export async function executeStreamingRequest(
     options.signal ? { signal: options.signal } : {}
   );
 
-  // The Worker never forwards upstream Set-Cookie as a real header (the
-  // browser would store it on the Restura origin); every cookie arrives in the
-  // side channel instead.
-  const setCookies = decodeSetCookieSideChannel(
-    response.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER)
-  );
-  const headers: Record<string, string> = {};
-  for (const [k, v] of response.headers.entries()) {
-    if (k !== SET_COOKIE_SIDE_CHANNEL_HEADER && k !== PROXY_STREAM_MARKER_HEADER) headers[k] = v;
-  }
-  if (setCookies.length > 0 && !effectiveSettings.disableCookieJar) {
-    persistResponseCookies({ headers, setCookies }, spec.url);
+  // Cookies (and a followed chain's hop cookies) arrive in side channels;
+  // hop cookies are stored even when the final response set none.
+  const { headers, setCookies, finalUrl, cookieHops } = readStreamSideChannels(response);
+  if ((setCookies.length > 0 || cookieHops) && !effectiveSettings.disableCookieJar) {
+    persistResponseCookies({ headers, setCookies, cookieHops, finalUrl }, spec.url);
   }
   const responseMeta: StreamingExecutionResult['responseMeta'] = {
     status: response.status,

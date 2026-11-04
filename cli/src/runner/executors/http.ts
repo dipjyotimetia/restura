@@ -13,7 +13,7 @@ import {
   authHeaderNames,
   buildProxyBody,
   collectEnabledHeaders,
-  collectEnabledRowPairs,
+  collectQueryPairs,
   type ProxyBody,
 } from '@shared/protocol/request-spec';
 import type { RedirectPolicy } from '@shared/protocol/types';
@@ -73,13 +73,13 @@ export async function executeHttp(
   // them again would re-expand `{{…}}` text inside the resolved document.
   // Query rows go into the URL in order, repeated keys kept (as in the app);
   // `params` carries only what auth adds.
-  const url = appendQueryPairs(
-    resolveVarsDeep(req.url, opts.vars),
-    collectEnabledRowPairs(req.params, (p) =>
-      preResolvedParams.has(p) ? p.value : resolve(p.value)
-    ),
-    { encode: req.settings?.encodeUrlAutomatically !== false }
+  // User-typed rows go out as typed; GraphQL GET params are fully encoded.
+  const baseUrl = resolveVarsDeep(req.url, opts.vars);
+  const queryPairs = collectQueryPairs(req.params, (p) =>
+    preResolvedParams.has(p) ? p.value : resolve(p.value)
   );
+  const encodeUrl = { encode: req.settings?.encodeUrlAutomatically !== false };
+  const url = appendQueryPairs(baseUrl, queryPairs, encodeUrl);
   const params: Record<string, string> = {};
 
   // CLI-only, kept deliberately: a form field name and a binary body may hold a
@@ -141,6 +141,16 @@ export async function executeHttp(
       );
     }
     applyAuthHeaders(resolvedAuth, headers, params);
+    // An API key sent in the query replaces same-named query rows (as in the
+    // app), instead of going out next to them.
+    const wireUrl =
+      Object.keys(params).length > 0
+        ? appendQueryPairs(
+            baseUrl,
+            queryPairs.filter(([key]) => !Object.hasOwn(params, key)),
+            encodeUrl
+          )
+        : url;
     const proxyAuth = toProtocolAuth(resolvedAuth);
 
     // Per-request settings (legacy collections carry these) override the global
@@ -166,7 +176,7 @@ export async function executeHttp(
     const result = await executeHttpProxy(
       {
         method: req.method,
-        url,
+        url: wireUrl,
         headers,
         params,
         ...(built.bodyType !== 'none' ? { bodyType: built.bodyType } : {}),

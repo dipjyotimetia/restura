@@ -86,6 +86,24 @@ describe('CLI GraphQL wire shaping (#1109)', () => {
     expect(req.body).toBe('');
   });
 
+  it('GET sends the exact document and variables (newlines, tabs, +, %XX, &, #)', async () => {
+    const doc = '# c\nquery Q($phone: String) {\n\tid\n  name(x: "%41 & #y")\n}';
+    const variables = { phone: '+15551234', pct: '%41', amp: 'a&b=c', sp: 'a b' };
+    const outcome = await executeHttp(
+      graphqlItem('GET', {
+        params: [{ id: 'u', key: 'tag', value: 'a+b', enabled: true }],
+        body: { type: 'graphql', raw: doc, graphqlVariables: JSON.stringify(variables) },
+      }),
+      opts
+    );
+    expect(outcome.passed).toBe(true);
+    const req = seen[0]!;
+    expect(req.url.searchParams.get('query')).toBe(doc);
+    expect(JSON.parse(req.url.searchParams.get('variables') ?? 'null')).toEqual(variables);
+    // A user-typed row still goes out as typed (`+` is not escaped).
+    expect(req.url.search.startsWith('?tag=a+b&query=')).toBe(true);
+  });
+
   it('GET refuses a mutation without sending anything', async () => {
     const outcome = await executeHttp(
       graphqlItem('GET', { body: { type: 'graphql', raw: 'mutation { add }' } }),
@@ -128,5 +146,31 @@ describe('CLI GraphQL wire shaping (#1109)', () => {
       opts
     );
     expect(seen[0]!.headers.accept).toBe('application/json');
+  });
+});
+
+describe('CLI API key in query', () => {
+  it('replaces a same-named query row instead of sending the key twice', async () => {
+    const request: HttpRequest = {
+      id: 'k1',
+      name: 'Key',
+      type: 'http',
+      method: 'GET',
+      url: `${baseUrl}/x`,
+      headers: [],
+      params: [
+        { id: '1', key: 'api_key', value: 'stale', enabled: true },
+        { id: '2', key: 'other', value: '1', enabled: true },
+      ],
+      body: { type: 'none' },
+      auth: { type: 'api-key', apiKey: { key: 'api_key', value: 'fresh', in: 'query' } },
+    };
+    const outcome = await executeHttp(
+      { relativePath: 'k.json', folderPath: [], type: 'http', request },
+      opts
+    );
+    expect(outcome.passed).toBe(true);
+    expect(seen[0]!.url.searchParams.getAll('api_key')).toEqual(['fresh']);
+    expect(seen[0]!.url.searchParams.getAll('other')).toEqual(['1']);
   });
 });

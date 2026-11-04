@@ -1,4 +1,6 @@
 import {
+  buildCookieHopsSideChannel,
+  COOKIE_HOPS_SIDE_CHANNEL_HEADER,
   encodeSetCookieSideChannel,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
 } from '@shared/protocol/set-cookie';
@@ -583,6 +585,59 @@ describe('executeStreamingRequest — Set-Cookie side channel (#855)', () => {
       resolveVariables: (text) => text,
     });
     expect(responseMeta.headers['x-restura-set-cookies-omitted']).toBe('7');
+  });
+
+  it('stores redirect-hop cookies from the cookie-hops side channel, even with no final Set-Cookie', async () => {
+    executeProxiedStreamingRequestMock.mockResolvedValueOnce(
+      new Response('data: a\n\n', {
+        status: 200,
+        headers: {
+          'content-type': 'text/event-stream',
+          [COOKIE_HOPS_SIDE_CHANNEL_HEADER]: buildCookieHopsSideChannel({
+            finalUrl: 'https://auth.example.com/landing',
+            cookieHops: [
+              { url: 'https://api.example.com/resource', setCookies: ['hop=1; Path=/'] },
+              { url: 'https://auth.example.com/landing', setCookies: [] },
+            ],
+          }).value as string,
+        },
+      })
+    );
+    const { responseMeta } = await executeStreamingRequest({
+      request: makeRequest(),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+    });
+    expect(responseMeta.headers).not.toHaveProperty(COOKIE_HOPS_SIDE_CHANNEL_HEADER);
+    expect(responseMeta.setCookies).toBeUndefined();
+    expect(useCookieStore.getState().cookies.map((c) => [c.key, c.value, c.domain])).toEqual([
+      ['hop', '1', 'api.example.com'],
+    ]);
+  });
+
+  it('stores the final response cookies against finalUrl from the side channel', async () => {
+    executeProxiedStreamingRequestMock.mockResolvedValueOnce(
+      new Response('data: a\n\n', {
+        status: 200,
+        headers: {
+          'content-type': 'text/event-stream',
+          [SET_COOKIE_SIDE_CHANNEL_HEADER]: encodeSetCookieSideChannel(['fin=1']),
+          [COOKIE_HOPS_SIDE_CHANNEL_HEADER]: buildCookieHopsSideChannel({
+            finalUrl: 'https://auth.example.com/landing',
+          }).value as string,
+        },
+      })
+    );
+    await executeStreamingRequest({
+      request: makeRequest(),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+    });
+    expect(useCookieStore.getState().cookies.map((c) => [c.key, c.domain])).toEqual([
+      ['fin', 'auth.example.com'],
+    ]);
   });
 
   it('honours a disabled cookie jar', async () => {
