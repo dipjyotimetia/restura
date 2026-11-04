@@ -119,6 +119,29 @@ export interface RunOptions {
 }
 
 /**
+ * The script engine mirrors every failed `pm.test` into its error list as
+ * `✗ <name>: <reason>` (a console.error). That entry is the assertion's own
+ * failure, already carried in `assertions`; left in `errors` it makes the
+ * verdict treat a failed assertion as a script error (live `ERR`, "errored"
+ * count, JUnit `<error>`). Drop exactly those mirror entries so only real
+ * script errors (a throw, a timeout, `console.error(...)`) remain errors.
+ */
+function withoutAssertionLogs<
+  T extends {
+    assertions?: readonly { name: string; passed: boolean; error?: string }[];
+    errors?: readonly string[];
+  },
+>(outcome: T | undefined): T | undefined {
+  if (!outcome?.errors?.length || !outcome.assertions?.length) return outcome;
+  const mirrored = new Set(
+    outcome.assertions
+      .filter((a) => !a.passed)
+      .map((a) => `✗ ${a.name}: ${a.error || 'Test failed'}`)
+  );
+  return { ...outcome, errors: outcome.errors.filter((e) => !mirrored.has(e)) };
+}
+
+/**
  * Execute every request in a Restura collection (OpenCollection or legacy).
  *
  * High-level orchestration:
@@ -292,7 +315,11 @@ async function runCollectionWithSessions(
           preThrown = err instanceof Error ? err.message : String(err);
         }
       }
-      const preSlot = { label: 'pre-request', outcome: preResult, thrown: preThrown };
+      const preSlot = {
+        label: 'pre-request',
+        outcome: withoutAssertionLogs(preResult),
+        thrown: preThrown,
+      };
 
       if (preResult?.execution?.skipRequested) {
         // `pm.execution.skipRequest()`: Postman sends nothing and runs no test
@@ -392,7 +419,7 @@ async function runCollectionWithSessions(
       }
 
       const fold = foldScriptPhases(
-        [preSlot, { label: 'test', outcome: testResult, thrown: testThrown }],
+        [preSlot, { label: 'test', outcome: withoutAssertionLogs(testResult), thrown: testThrown }],
         { labelErrors: true }
       );
       // Assertions override the protocol's verdict; a transport-level failure
@@ -439,7 +466,7 @@ async function runCollectionWithSessions(
       },
       step,
       onFlowError: (item, errorMessage) => {
-        results.push({
+        const result: RequestRunResult = {
           request: item,
           status: 0,
           passed: false,
@@ -447,7 +474,12 @@ async function runCollectionWithSessions(
           bodyBytes: 0,
           errorMessage,
           ...(isDataDriven ? { iteration: iter } : {}),
-        });
+        };
+        results.push(result);
+        // Same as every other row: the live reporters must see it, or their
+        // list disagrees with the summary.
+        // The sequencer's hook is synchronous; reporters' callbacks are in practice.
+        void Promise.resolve(reporter.onRequestComplete?.(result)).catch(() => {});
       },
       onEnd: () => iterScope.end(),
     };

@@ -80,4 +80,14 @@ describe('formatLoadStatsReport', () => {
     const out = formatLoadStatsReport(grpcResult);
     expect(out).toContain('errors   1'); // only the code-14 one
   });
+
+  it('excludes skipped and not-sent requests from samples and errors', () => {
+    const base = result([10, 20, 0, 0], [200, 200, 0, 0]);
+    base.requests[2] = { ...base.requests[2]!, skipped: true };
+    base.requests[3] = { ...base.requests[3]!, passed: false, notSent: true, errorMessage: 'x' };
+    const out = formatLoadStatsReport(base);
+    expect(out).toContain('requests 2');
+    expect(out).toContain('errors   0');
+    expect(out).toContain('min      10.0 ms');
+  });
 });

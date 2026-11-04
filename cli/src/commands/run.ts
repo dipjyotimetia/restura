@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import type { Command } from 'commander';
 import { CompositeReporter } from '../reporters/composite.js';
 import { HtmlReporter } from '../reporters/html.js';
@@ -240,7 +241,7 @@ export async function executeRun(collectionPath: string, opts: RunOpts): Promise
  *   1. `--reporter-output <name>=<path>` (preferred for multi-reporter)
  *   2. `--output <path>` (legacy single-reporter shorthand)
  */
-function buildReporters(opts: RunOpts): Reporter {
+export function buildReporters(opts: RunOpts): Reporter {
   // Default reporter is TTY-aware: the live dashboard in an interactive
   // terminal, plain lines otherwise (piped output / CI logs).
   const spec = opts.reporter ?? (interactive ? 'tui' : 'live');
@@ -251,6 +252,23 @@ function buildReporters(opts: RunOpts): Reporter {
   if (names.length === 0) throw new Error('At least one reporter must be specified');
 
   const outputs = parseReporterOutputs(opts.reporterOutput);
+  // Two file reporters must never write the same file: the later one would
+  // silently clobber the earlier (`--reporter json,junit --output r.xml`).
+  const claimed = new Map<string, string>();
+  for (const name of names) {
+    if (!FILE_REPORTERS.has(name)) continue;
+    const path = outputs[name] ?? opts.output;
+    if (!path) continue;
+    const key = resolvePath(path);
+    const other = claimed.get(key);
+    if (other !== undefined) {
+      throw new Error(
+        `--reporter ${other} and ${name} would both write to ${path}. ` +
+          'Give each file reporter its own path with --reporter-output <name>=<path>.'
+      );
+    }
+    claimed.set(key, name);
+  }
   const reporters = names.map((name) => buildOne(name, outputs[name] ?? opts.output));
   return reporters.length === 1 ? reporters[0]! : new CompositeReporter(reporters);
 }
@@ -292,6 +310,8 @@ export function withIterationCount<T extends object>(rows: T[], count: number | 
   if (rows.length === 0) return Array.from({ length: count }, () => ({}) as T);
   return Array.from({ length: count }, (_, i) => rows[Math.min(i, rows.length - 1)]!);
 }
+
+const FILE_REPORTERS = new Set(['json', 'junit', 'html']);
 
 function parseReporterOutputs(pairs: string[] | undefined): Record<string, string> {
   const out: Record<string, string> = {};
