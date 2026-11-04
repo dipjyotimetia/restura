@@ -71,39 +71,60 @@ interface ResturaAssertion {
   };
 }
 
+/**
+ * A response assertion. Read it as a property (\`rs.response.to.be.ok;\`) or
+ * call it (\`rs.response.to.be.ok()\`): both assert.
+ */
+type ResturaPropertyAssertion = () => void;
+
+/** Response assertions (rs.response.to, and negated as rs.response.to.not). */
+interface ResturaResponseAssertions {
+  have: {
+    /** Assert the status code (a number) or the status text (a string). */
+    status(expected: number | string): void;
+    /** Assert a response header is present (optionally equal to value). */
+    header(key: string, value?: string): void;
+    /** Assert the body: non-empty, equal to a string, matching a RegExp, or deep-equal to an object (JSON). */
+    body(value?: string | RegExp | object): void;
+    /** Assert a JSON body; with a dotted path, that it exists (optionally equal to value). */
+    jsonBody(path?: string | object, value?: unknown): void;
+  };
+  be: {
+    /** Assert a 2xx status. */
+    readonly ok: ResturaPropertyAssertion;
+    /** Assert the body parses as JSON. */
+    readonly json: ResturaPropertyAssertion;
+    /** Assert an HTML content-type. */
+    readonly html: ResturaPropertyAssertion;
+    /** Assert a non-empty body. */
+    readonly withBody: ResturaPropertyAssertion;
+    /** Assert a 1xx status. */
+    readonly info: ResturaPropertyAssertion;
+    /** Assert a 2xx status. */
+    readonly success: ResturaPropertyAssertion;
+    /** Assert a 3xx status. */
+    readonly redirection: ResturaPropertyAssertion;
+    /** Assert a 4xx status. */
+    readonly clientError: ResturaPropertyAssertion;
+    /** Assert a 5xx status. */
+    readonly serverError: ResturaPropertyAssertion;
+    /** Assert a 4xx or 5xx status. */
+    readonly error: ResturaPropertyAssertion;
+    /** Assert 202 / 400 / 401 / 403 / 404 / 429. */
+    readonly accepted: ResturaPropertyAssertion;
+    readonly badRequest: ResturaPropertyAssertion;
+    readonly unauthorized: ResturaPropertyAssertion;
+    readonly forbidden: ResturaPropertyAssertion;
+    readonly notFound: ResturaPropertyAssertion;
+    readonly rateLimited: ResturaPropertyAssertion;
+  };
+}
+
 /** Response assertions and accessors (rs.response). */
 interface ResturaPmResponse {
-  to: {
-    have: {
-      /** Assert the HTTP status code equals \`code\`. */
-      status(code: number): void;
-      /** Assert a response header is present (optionally equal to value). */
-      header(key: string, value?: string): void;
-      /** Assert the raw body (optionally equal to value). */
-      body(value?: unknown): void;
-      /** Assert the JSON body, optionally at a path, equals value. */
-      jsonBody(path?: string, value?: unknown): void;
-    };
-    be: {
-      /** Assert a 2xx status. */
-      ok(): void;
-      /** Assert the body parses as JSON. */
-      json(): void;
-      /** Assert an HTML content-type. */
-      html(): void;
-      /** Assert a 1xx status. */
-      info(): void;
-      /** Assert a 2xx status. */
-      success(): void;
-      /** Assert a 3xx status. */
-      redirection(): void;
-      /** Assert a 4xx status. */
-      clientError(): void;
-      /** Assert a 5xx status. */
-      serverError(): void;
-      /** Assert a 4xx or 5xx status. */
-      error(): void;
-    };
+  to: ResturaResponseAssertions & {
+    /** Negate the next assertion. */
+    not: ResturaResponseAssertions;
   };
   time: {
     /** Assert the response time is below \`ms\` milliseconds. */
@@ -171,6 +192,22 @@ interface ResturaHeaderList {
   toObject(): Record<string, string>;
 }
 
+/** Outgoing request header methods (rs.request.headers). Names are case-insensitive. */
+interface ResturaRequestHeaderList {
+  /** Add a header (one value per name: an existing one is replaced). */
+  add(header: { key: string; value: string } | string): void;
+  /** Add or replace a header. */
+  upsert(header: { key: string; value: string }): void;
+  /** Remove a header. */
+  remove(name: string): void;
+  get(name: string): string | undefined;
+  has(name: string, value?: string): boolean;
+  all(): Array<{ key: string; value: string }>;
+  each(fn: (header: { key: string; value: string }) => void): void;
+  toObject(): Record<string, string>;
+  count(): number;
+}
+
 /** Cookies set by the response (rs.response.cookies). */
 interface ResturaResponseCookies {
   /** Value of the named cookie (last one wins). */
@@ -188,8 +225,11 @@ interface ResturaPmRequest {
   url: string;
   /** HTTP method. */
   method: string;
-  /** Request headers map (gRPC: alias of metadata). */
-  headers: Record<string, string>;
+  /**
+   * Request headers: a plain map plus Postman's HeaderList methods (gRPC:
+   * alias of metadata). Edits in a pre-request script are sent.
+   */
+  headers: Record<string, string> & ResturaRequestHeaderList;
   /** gRPC: outgoing metadata. Edits in a pre-request script are sent with the call. */
   metadata?: Record<string, string>;
   /** Request body (parsed when JSON, else raw). */

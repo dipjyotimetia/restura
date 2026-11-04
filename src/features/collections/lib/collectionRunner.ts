@@ -18,6 +18,10 @@ import {
   skipVerdict,
 } from '@shared/collection-run/verdict';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  mergeEnvironmentMutations,
+  persistScriptEnvironmentMutations,
+} from '@/features/environments/lib/scriptEnvironmentMutations';
 import { grpcRunOptionsFromRequest } from '@/features/grpc/lib/grpcSchemaSnapshot';
 import type { McpClient } from '@/features/mcp/lib/mcpClient';
 import { disposeMcpClientPool, MCP_CLIENT_POOL_OPTION } from '@/features/mcp/lib/mcpRunRequest';
@@ -409,6 +413,13 @@ async function runCollectionWithPool(
             .getState()
             .applyCollectionVarMutations(collection.id, collectionMutations);
         }
+        // `pm.environment.set/unset` persist to the run's environment as they
+        // happen (Postman semantics); within the run they already carry
+        // forward through the scope above. No environment: nothing persists.
+        persistScriptEnvironmentMutations(
+          options.environmentId,
+          mergeEnvironmentMutations(scripts?.preRequest, scripts?.test)
+        );
 
         // `pm.execution.skipRequest()`: nothing was sent and no test script ran.
         // A skipped row passes unless its pre-request script failed or asserted

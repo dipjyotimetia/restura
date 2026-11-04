@@ -20,7 +20,7 @@ the snippet — most gaps are quick to close.
 
 | Postman API                 | Status |
 | --------------------------- | ------ |
-| `pm.test(name, fn)`         | ✅     |
+| `pm.test(name, fn)`         | ✅ — `fn` may be `async` or return a promise; a rejection fails the test, and one still pending when the script ends fails as well |
 | Test results in Tests tab   | ✅     |
 | Aggregated pass/fail counts | ✅     |
 
@@ -45,12 +45,13 @@ the snippet — most gaps are quick to close.
 
 | Pattern                                                              | Status |
 | -------------------------------------------------------------------- | ------ |
-| `pm.response.to.have.status(code)`                                   | ✅     |
+| `pm.response.to.have.status(code)`, `.status('OK')` (status text)    | ✅     |
 | `pm.response.to.have.header(key)`, `.header(key, value)`             | ✅     |
-| `pm.response.to.have.body()`, `.body(value)`                         | ✅     |
-| `pm.response.to.have.jsonBody(path, value)`                          | ✅     |
-| `pm.response.to.be.ok`                                               | ✅     |
-| `pm.response.to.be.json`, `.html`                                    | ✅     |
+| `pm.response.to.have.body()`, `.body(text \| RegExp \| object)`      | ✅     |
+| `pm.response.to.have.jsonBody()`, `.jsonBody(path)`, `.jsonBody(path, value)` | ✅ ² |
+| `pm.response.to.be.ok`, `.success`, `.info`, `.redirection`, `.clientError`, `.serverError`, `.error`, `.accepted`, `.badRequest`, `.unauthorized`, `.forbidden`, `.notFound`, `.rateLimited`, `.withBody` | ✅ ³ |
+| `pm.response.to.be.json`, `.html`                                    | ✅ ³   |
+| `pm.response.to.not.*` (negates any of the above)                    | ✅     |
 | `pm.response.time.below(ms)`                                         | ✅     |
 | `pm.response.json()`                                                 | ✅     |
 | `pm.response.text()`                                                 | ✅     |
@@ -59,17 +60,27 @@ the snippet — most gaps are quick to close.
 | `pm.response.cookies.get/has/all/toJSON/each/toObject`               | ✅     |
 | `pm.response.statusDetails` (gRPC rich error details; Restura extension) | ✅  |
 
+² The body is parsed from the response text, the same on web, desktop and the CLI. With a path, the assertion fails when the path is missing.
+
+³ Property assertions assert when read, as in Postman (`pm.response.to.be.ok;`). The call form (`pm.response.to.be.ok()`) works too. `ok` passes any 2xx status.
+
+Test scripts get the response body as text everywhere (`response.body`, `pm.response.text()`); `pm.response.json()` parses it. `pm.response.code` is the numeric status, `pm.response.status` the status text (the CLI uses the standard reason phrase), and `pm.response.responseTime` a number in milliseconds. `pm.response.time` is not a number: it only carries `.below(ms)`.
+
 ¹ A response can carry several `Set-Cookie` headers. `pm.response.headers.get('Set-Cookie')` returns all of them joined with `", "` (Postman returns only the last). `all()` / `each()` give one row per cookie, and `has('Set-Cookie', v)` and `pm.response.to.have.header('Set-Cookie', v)` match any single cookie. The raw list is `response.setCookies` (`string[]`) and the parsed one `response.cookies`. Both behave the same on web, desktop and the CLI, and `pm.sendRequest` responses carry them too. `pm.response.cookies` covers only the cookies this response set; `pm.cookies` is the jar.
 
 ### Variable namespaces
 
 | Postman API                                | Status                                                                                           |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `pm.variables.get/set`                     | ✅                                                                                               |
-| `pm.environment.get/set/unset/has`         | ✅                                                                                               |
+| `pm.variables.get/set`                     | ✅ — local: the rest of this request (and of a collection run); never saved                     |
+| `pm.environment.get/set/unset/has`         | ✅ — writes from pre-request and test scripts are saved to the active environment (on single Send, and in a collection run to the run's environment) ⁴ |
 | `pm.collectionVariables.get/set/unset/has` | ✅ — reads/writes the request's owning collection and persists mutations back to it              |
 | `pm.globals.get/set`                       | ✅                                                                                               |
 | `pm.iterationData.get/set/has/toObject`    | ✅ — reflects the current CSV/JSON row during a data-driven collection run (empty on single send) |
+
+⁴ A variable stored as a desktop secret handle is never overwritten or removed by a script (the app says which keys it skipped). With no environment selected, writes last only for the request or run. The CLI has no environment file to write back: `pm.environment` writes carry through the run only.
+
+A script that throws keeps the variable writes it made before the error, and the request is still sent with them.
 
 ### Request context
 
@@ -77,7 +88,8 @@ the snippet — most gaps are quick to close.
 | ----------------------------------------------------------------- | ------------------------------------- |
 | `pm.info.requestName`, `requestId`, `iteration`, `iterationCount`, `eventName` | ✅                                    |
 | `pm.execution.location` (`collectionName`, `currentRequestName`, `folderPath`) | ✅ populated during collection runs   |
-| `pm.request.url`, `.method`, `.headers`, `.body` (read-only)                   | ✅ via the top-level `request` global |
+| `pm.request.url`, `.method`, `.body` (read-only)                              | ✅ via the top-level `request` global |
+| `pm.request.headers.add/upsert/remove/get/has/all/each/toObject`              | ✅ — edits in a pre-request script are sent for HTTP and GraphQL on web, desktop and the CLI (gRPC: the same methods edit the metadata; MCP ignores header edits). Names are case-insensitive and hold one value each, so `add` of an existing name replaces it |
 | `pm.request.metadata` (gRPC)                                                   | ✅ editable in pre-request scripts; `pm.request.headers` is the same object and edits are sent with the call |
 | `pm.response.metadata`, `pm.response.trailers` (gRPC)                          | ✅ `get/has/all/each/toObject`; raw maps on `response.headers` / `response.trailers` |
 | `pm.response.messages` (gRPC streams)                                          | ✅ `all/count/idx/each`; test scripts run once the stream ends              |

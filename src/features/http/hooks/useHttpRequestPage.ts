@@ -5,6 +5,10 @@ import { useRequestAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { parseCurlCommand } from '@/features/collections/lib/importers/curl';
+import {
+  persistScriptEnvironmentMutations,
+  scriptEnvironmentTargetId,
+} from '@/features/environments/lib/scriptEnvironmentMutations';
 import { executeRequest, resolveEffectiveSettings } from '@/features/http/lib/requestExecutor';
 import { applySettingsPatch, type RequestSettingsPatch } from '@/features/http/lib/settingsPatch';
 import { applyUrlInput } from '@/features/http/lib/urlQuery';
@@ -193,6 +197,20 @@ export function useHttpRequestPage() {
         useCollectionStore
           .getState()
           .applyCollectionVarMutations(collection.id, result.collectionVarsMutations);
+      }
+
+      // `pm.environment.set/unset` persist to the active environment (Postman
+      // semantics), so the next request sees them. Secret handles are left alone.
+      if (result.environmentMutations) {
+        const skipped = persistScriptEnvironmentMutations(
+          scriptEnvironmentTargetId(collection?.id),
+          result.environmentMutations
+        );
+        if (skipped.length > 0) {
+          toast.warning(
+            `Script did not change secret environment variable${skipped.length > 1 ? 's' : ''}: ${skipped.join(', ')}`
+          );
+        }
       }
 
       // Persist a refreshed OAuth2 token — but only when the auth belongs to

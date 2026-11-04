@@ -139,3 +139,29 @@ describe('round-trip', () => {
     expect(migrateScriptRsToPm(migrateScriptPmToRs(original))).toBe(original);
   });
 });
+
+describe('namespace collisions', () => {
+  it('leaves pm.* alone when the script binds its own `rs`', () => {
+    const src = [
+      'const rs = pm.response.json();',
+      'pm.test("id", () => pm.expect(rs.id).to.equal(1));',
+    ].join('\n');
+    expect(migrateScriptPmToRs(src)).toBe(src);
+  });
+
+  it('leaves pm.* alone when `rs` is a function parameter', () => {
+    const src = 'pm.response.json().items.forEach(function (rs) { pm.expect(rs.ok).to.be.true; });';
+    expect(migrateScriptPmToRs(src)).toBe(src);
+  });
+
+  it('still migrates when `rs` only appears inside strings or comments', () => {
+    expect(migrateScriptPmToRs('// rs is native\npm.test("rs", () => {});')).toBe(
+      '// rs is native\nrs.test("rs", () => {});'
+    );
+  });
+
+  it('leaves rs.* alone on export when the script binds its own `pm`', () => {
+    const src = 'const pm = rs.response.json();\nrs.expect(pm.id).to.equal(1);';
+    expect(migrateScriptRsToPm(src)).toBe(src);
+  });
+});
