@@ -471,11 +471,34 @@ class MqttManager {
     await getElectronAPI()?.mqtt.cancelRequest({ connectionId, requestId });
   }
 
-  async unsubscribe(connectionId: string, topicFilter: string): Promise<void> {
+  async unsubscribe(
+    connectionId: string,
+    topicFilter: string
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
     const api = getElectronAPI();
-    if (!api) return;
-    await api.mqtt.unsubscribe({ connectionId, topicFilter });
+    if (!api) return { ok: false, error: 'Electron API unavailable.' };
+    let result: Awaited<ReturnType<typeof api.mqtt.unsubscribe>>;
+    try {
+      result = await api.mqtt.unsubscribe({ connectionId, topicFilter });
+    } catch (err) {
+      result = { success: false, error: err instanceof Error ? err.message : 'Unsubscribe failed' };
+    }
+    if (!result.success) {
+      // The broker never confirmed it, so the subscription stays listed (it is
+      // still active); the failure is logged where the user sees it.
+      const msg = result.error ?? 'Unsubscribe failed';
+      useMqttStore.getState().addMessage(connectionId, {
+        direction: 'system',
+        topic: topicFilter,
+        payload: `Unsubscribe from ${topicFilter} failed: ${msg}`,
+        qos: 0,
+        retain: false,
+        error: msg,
+      });
+      return { ok: false, error: msg };
+    }
     // UNSUBSCRIBED channel removes the subscription from the store.
+    return { ok: true };
   }
 
   async disconnect(connectionId: string): Promise<void> {
