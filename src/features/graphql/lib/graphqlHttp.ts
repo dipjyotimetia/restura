@@ -7,8 +7,13 @@
  */
 
 import {
+  contentTypeOf,
+  incrementalPartsNotice,
+  mergeIncrementalGraphQLResponse,
+  withJsonContentType,
+} from '@shared/graphql/incremental-response';
+import {
   GraphQLIncrementalMerger,
-  mergeMultipartGraphQLBody,
   parseIncrementalPart,
 } from '@shared/protocol/graphql-incremental';
 import {
@@ -17,7 +22,6 @@ import {
   parseMultipartBoundary,
 } from '@shared/protocol/multipart-mixed-parser';
 import type { ResponseProgress } from '@/features/http/lib/progressTransport';
-import { base64ToBytes } from '@/lib/shared/binaryBody';
 import type { Response as ApiResponse } from '@/types';
 
 export {
@@ -33,74 +37,13 @@ export {
   hasIncrementalDirective,
 } from '@shared/graphql/wire';
 
-function bodyText(response: Pick<ApiResponse, 'body' | 'bodyEncoding'>): string {
-  if (response.bodyEncoding !== 'base64') return response.body;
-  try {
-    return new TextDecoder().decode(base64ToBytes(response.body));
-  } catch {
-    return '';
-  }
-}
-
-function contentTypeOf(headers: ApiResponse['headers']): string {
-  for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase() === 'content-type') return Array.isArray(v) ? (v[0] ?? '') : String(v);
-  }
-  return '';
-}
-
-/**
- * The merged body is JSON, so say so: downstream text/binary classification
- * (collection-run evidence, test scripts, the viewer) keys off Content-Type,
- * and `multipart/mixed` reads as binary. The notice records the original. The
- * multipart Content-Length is dropped: it measured the replaced body.
- */
-function withJsonContentType<T extends ApiResponse['headers']>(headers: T): T {
-  const out: Record<string, string | string[]> = {};
-  let replaced = false;
-  for (const [k, v] of Object.entries(headers)) {
-    const lower = k.toLowerCase();
-    // The multipart body's length no longer describes the merged JSON body.
-    if (lower === 'content-length') continue;
-    if (lower === 'content-type') {
-      out[k] = 'application/json; charset=utf-8';
-      replaced = true;
-    } else {
-      out[k] = v;
-    }
-  }
-  if (!replaced) out['content-type'] = 'application/json; charset=utf-8';
-  return out as T;
-}
-
-function partsNotice(parts: number, done: boolean): string {
-  const noun = parts === 1 ? 'part' : 'parts';
-  return done
-    ? `Incremental delivery: merged ${parts} multipart/mixed ${noun} (@defer / @stream) into one JSON result.`
-    : `Incremental delivery: ${parts} ${noun} received so far — more on the way…`;
-}
-
 /**
  * Fold a buffered `multipart/mixed` incremental GraphQL response into one
- * ordinary JSON result. Any other response is returned untouched.
+ * ordinary JSON result. Any other response is returned untouched. The merge
+ * itself is shared with the CLI (`shared/graphql/incremental-response.ts`).
  */
 export function normalizeGraphQLResponse(response: ApiResponse): ApiResponse {
-  const contentType = contentTypeOf(response.headers);
-  if (!isMultipartMixed(contentType)) return response;
-  try {
-    const merged = mergeMultipartGraphQLBody(bodyText(response), contentType);
-    if (!merged) return response;
-    const { bodyEncoding: _drop, ...rest } = response;
-    return {
-      ...rest,
-      headers: withJsonContentType(response.headers),
-      body: JSON.stringify(merged.result, null, 2),
-      bodyNotice: partsNotice(merged.parts, true),
-    };
-  } catch {
-    // A pathological body (e.g. nesting too deep to serialise): keep it raw.
-    return response;
-  }
+  return mergeIncrementalGraphQLResponse(response);
 }
 
 export interface IncrementalSnapshot {
@@ -232,7 +175,7 @@ export function snapshotToResponse(
     size: new Blob([body]).size,
     time: now - startedAt,
     timestamp: now,
-    bodyNotice: partsNotice(snapshot.parts, !snapshot.hasNext),
+    bodyNotice: incrementalPartsNotice(snapshot.parts, !snapshot.hasNext),
     partial: true,
   };
 }

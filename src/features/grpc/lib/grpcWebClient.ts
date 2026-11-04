@@ -27,7 +27,7 @@ import { base64ToBytes, bytesToBase64 } from '@shared/protocol/grpc-web-framing'
 import type { GrpcWebEndEvent, GrpcWebEvent, GrpcWebSpec } from '@shared/protocol/grpc-web-proxy';
 import { NdjsonParser } from '@shared/protocol/ndjson-parser';
 import { v4 as uuidv4 } from 'uuid';
-import { isElectron, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
+import { workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
 import type { GrpcRequest, GrpcResponse, GrpcSchemaSnapshot, GrpcWireProtocol } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import {
@@ -46,16 +46,16 @@ export function isGrpcWebWire(wire: GrpcWireProtocol | undefined): wire is GrpcW
 }
 
 /**
- * Whether the request carries a reflection-descriptor snapshot this platform
- * can load directly: Electron always; web only for gRPC-Web (which encodes
- * with the schema — the default Connect JSON path is schema-less).
+ * Whether the request carries a reflection-descriptor snapshot the builder can
+ * send with when live reflection is unavailable. Every platform and wire can
+ * use one: Electron and gRPC-Web encode with it, web Connect server-streaming
+ * needs it to (de)serialise, and web Connect unary (relayed as JSON) still
+ * checks the message's keys against it before sending.
  */
 export function canUseDescriptorSnapshot(
   request: GrpcRequest
 ): request is GrpcRequest & { schema: Extract<GrpcSchemaSnapshot, { kind: 'descriptors' }> } {
-  return (
-    request.schema?.kind === 'descriptors' && (isElectron() || isGrpcWebWire(request.wireProtocol))
-  );
+  return request.schema?.kind === 'descriptors' && request.schema.descriptors.length > 0;
 }
 
 /** Where the request schema can come from, most-lossless first. */

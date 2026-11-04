@@ -302,3 +302,70 @@ describe('graphqlProtocol envelope', () => {
     ).rejects.toThrow(/expects an HTTP request shape/);
   });
 });
+
+describe('graphqlProtocol saved variables (collection runs)', () => {
+  beforeEach(() => {
+    executeRequestMock.mockReset();
+    executeRequestMock.mockResolvedValue({ response: { status: 200 }, scriptResult: undefined });
+  });
+
+  function savedQuery(
+    graphqlVariables: string,
+    raw = 'query Q($name: String) { hi(name: $name) }'
+  ) {
+    const saved = gqlRequest(raw);
+    saved.body = { type: 'graphql', raw, graphqlVariables };
+    return saved;
+  }
+
+  it('substitutes a value holding quotes and backslashes without breaking the variables JSON', async () => {
+    const injected = graphqlProtocol.injectVariables!(savedQuery('{"name":"{{name}}"}'), {
+      name: 'O"Brien \\ x',
+    }) as HttpRequest;
+    await graphqlProtocol.runRequest(injected, {
+      signal: new AbortController().signal,
+      variables: {},
+    } as never);
+    const passed = executeRequestMock.mock.calls[0]![0] as { request: HttpRequest };
+    expect(JSON.parse(passed.request.body.raw!).variables).toEqual({ name: 'O"Brien \\ x' });
+  });
+
+  it('still resolves an unquoted placeholder (not JSON until substituted)', () => {
+    const injected = graphqlProtocol.injectVariables!(savedQuery('{"limit": {{limit}}}'), {
+      limit: '5',
+    }) as HttpRequest;
+    expect(JSON.parse(injected.body.graphqlVariables!)).toEqual({ limit: 5 });
+  });
+
+  it('fails the run explicitly on invalid variables JSON instead of sending {}', async () => {
+    await expect(
+      graphqlProtocol.runRequest(savedQuery('{"name": '), {
+        signal: new AbortController().signal,
+        variables: {},
+      } as never)
+    ).rejects.toThrow(/Invalid JSON in GraphQL variables/);
+    expect(executeRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('fails explicitly when variables are not a JSON object', async () => {
+    await expect(
+      graphqlProtocol.runRequest(savedQuery('[1, 2]'), {
+        signal: new AbortController().signal,
+        variables: {},
+      } as never)
+    ).rejects.toThrow(/must be a JSON object/);
+  });
+
+  it("blank variables text keeps a stored envelope's own variables", async () => {
+    const raw = JSON.stringify({
+      query: 'query Q($id: ID) { a(id: $id) }',
+      variables: { id: '7' },
+    });
+    await graphqlProtocol.runRequest(savedQuery('', raw), {
+      signal: new AbortController().signal,
+      variables: {},
+    } as never);
+    const passed = executeRequestMock.mock.calls[0]![0] as { request: HttpRequest };
+    expect(JSON.parse(passed.request.body.raw!).variables).toEqual({ id: '7' });
+  });
+});

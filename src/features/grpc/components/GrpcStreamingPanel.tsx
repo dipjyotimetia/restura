@@ -1,3 +1,4 @@
+import { parseGrpcMessageJson } from '@shared/protocol/grpc-json';
 import { ArrowDown, ArrowUp, Play, Send, Square, StopCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
@@ -163,7 +164,7 @@ export function GrpcStreamingPanel({
   const send = () => {
     let parsed: unknown;
     try {
-      parsed = JSON.parse(outboundDraft);
+      parsed = parseGrpcMessageJson(outboundDraft);
       setDraftError(null);
     } catch {
       setDraftError('Invalid JSON — fix before sending');

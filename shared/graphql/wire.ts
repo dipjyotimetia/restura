@@ -97,24 +97,51 @@ function hasEnabledHeader(headers: KeyValue[], name: string): boolean {
   return headers.some((h) => h.enabled && h.key.trim().toLowerCase() === name);
 }
 
+/** Saved GraphQL variables that cannot be sent (invalid JSON, or not an object). */
+export class GraphQLVariablesError extends Error {
+  constructor(detail: string) {
+    super(`Invalid JSON in GraphQL variables: ${detail}`);
+    this.name = 'GraphQLVariablesError';
+  }
+}
+
+/**
+ * Parse a saved variables JSON text. `undefined` = no variables (absent, blank
+ * or `null`); throws `GraphQLVariablesError` when it can't be sent as-is.
+ */
+export function parseGraphQLVariables(
+  text: string | undefined
+): Record<string, unknown> | undefined {
+  if (text === undefined || text.trim() === '') return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new GraphQLVariablesError(err instanceof Error ? err.message : String(err));
+  }
+  if (parsed === null) return undefined;
+  if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new GraphQLVariablesError('variables must be a JSON object');
+  }
+  return parsed as Record<string, unknown>;
+}
+
 /**
  * Turn a saved GraphQL body (`type: 'graphql'`, `raw` = query document or an
  * envelope, `graphqlVariables` = variables JSON) into the envelope the wire
  * builder sends. A plain document goes through `buildGraphQLRequestBody`, the
  * same builder interactive Send uses, so every path puts the same bytes on the
  * wire (including the derived `operationName`). Variable substitution is the
- * caller's job and must happen before this call.
+ * caller's job and must happen before this call (JSON-safe: `injectGraphQLBody`).
+ *
+ * Variables JSON that is invalid, or not an object, throws a
+ * `GraphQLVariablesError` — the same refusal interactive Send shows ("Invalid
+ * JSON in variables") — instead of silently sending `variables: {}`. A blank
+ * (or `null`) variables text means "no variables": a stored envelope keeps its
+ * own `variables`.
  */
 export function graphqlEnvelopeFromBody(body: HttpRequest['body']): GraphQLEnvelope {
-  const storedVariables = (() => {
-    if (body.graphqlVariables === undefined) return undefined;
-    try {
-      const parsed = JSON.parse(body.graphqlVariables ?? '{}');
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-      return {};
-    }
-  })();
+  const storedVariables = parseGraphQLVariables(body.graphqlVariables);
   const raw = body.raw ?? '';
   let envelope: Record<string, unknown> | undefined;
   try {

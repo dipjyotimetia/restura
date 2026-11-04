@@ -47,6 +47,41 @@ export function httpVersionWarning(requests: readonly LoadedRequest[]): string |
   );
 }
 
+/**
+ * Per-request TLS settings (verifySsl:false, caCert, clientCert, minTlsVersion,
+ * cipherSuites, serverCipherOrder) are applied on a dedicated connection — and,
+ * like `--ca` without `--proxy`, that connection does not go through the
+ * `HTTP(S)_PROXY` env vars. Returns the one warning to print when that applies
+ * (an env proxy is set, no `--proxy`), or undefined.
+ */
+export function requestTransportWarning(
+  requests: readonly LoadedRequest[],
+  env: Readonly<Record<string, string | undefined>>,
+  explicitProxy: string | undefined
+): string | undefined {
+  if (explicitProxy) return undefined;
+  if (!(env.HTTPS_PROXY || env.https_proxy || env.HTTP_PROXY || env.http_proxy)) return undefined;
+  const direct = requests.filter((r) => {
+    if (r.type !== 'http') return false;
+    const s = (r.request as HttpRequest).settings;
+    if (!s || s.proxy?.enabled) return false;
+    return (
+      s.verifySsl === false ||
+      !!s.caCert?.pem ||
+      !!(s.clientCert?.pfx || (s.clientCert?.cert && s.clientCert.key)) ||
+      !!s.minTlsVersion ||
+      !!s.cipherSuites ||
+      !!s.serverCipherOrder
+    );
+  }).length;
+  if (direct === 0) return undefined;
+  const noun = direct === 1 ? '1 request sets' : `${direct} requests set`;
+  return (
+    `[restura] WARNING: ${noun} ${direct === 1 ? 'its' : 'their'} own TLS options; they connect directly, ` +
+    'not through the HTTP_PROXY/HTTPS_PROXY env vars. Pass --proxy to route them through a proxy.\n'
+  );
+}
+
 export interface RunOptions {
   envVars: Record<string, string>;
   /**
@@ -156,6 +191,8 @@ async function runCollectionWithSessions(
   }
   const versionWarning = httpVersionWarning(filtered);
   if (versionWarning) process.stderr.write(versionWarning);
+  const transportWarning = requestTransportWarning(filtered, process.env, options.proxy);
+  if (transportWarning) process.stderr.write(transportWarning);
 
   // One iteration (with empty row vars) by default; multiple when --data is set.
   const iterations = resolveIterationRows({

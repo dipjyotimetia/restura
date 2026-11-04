@@ -1,4 +1,5 @@
 import { FieldDescriptorProto_Type } from '@bufbuild/protobuf/wkt';
+import { parseGrpcMessageJson } from '@shared/protocol/grpc-json';
 import { normalizeProtoPath } from '@shared/protocol/grpc-proto-compiler';
 import {
   listServices,
@@ -302,7 +303,7 @@ export function prepareGrpcRequest(
   let parsedMessage: unknown = {};
   if (request.message) {
     try {
-      parsedMessage = JSON.parse(resolveVariables(request.message));
+      parsedMessage = parseGrpcMessageJson(resolveVariables(request.message));
     } catch {
       throw new GrpcClientError(
         'Invalid JSON message',
