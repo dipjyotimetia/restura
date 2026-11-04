@@ -221,7 +221,10 @@ export function prepareGrpcWebCall(
     );
   }
   assertProxyDeadline(timeoutMs);
-  const prepared = prepareGrpcRequest(request, resolveVariables);
+  const prepared = prepareGrpcRequest(request, resolveVariables, {
+    descriptors: src.descriptors,
+    protoContent: src.protoContent,
+  });
   const { registry, method } = registryForGrpcWeb(
     { ...src, ...(request.schema ? { snapshot: request.schema } : {}) },
     request.service,

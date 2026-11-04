@@ -14,6 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { StreamRunHooks } from '@/features/registry/types';
 import type { GrpcRequest, GrpcResponse, GrpcStatusCode } from '@/types';
 import { GrpcStatusCodeName } from '@/types';
+import { type GrpcInputSchemaSource, lazyGrpcInputSchema } from './grpcClient';
 import { type GrpcStreamFinal, startGrpcStream } from './grpcStreamingClient';
 import { StreamMessageBuffer, utf8Bytes } from './streamRetention';
 
@@ -38,12 +39,23 @@ export interface GrpcStreamRunResult {
   messages: unknown[];
 }
 
-/** Outbound messages for a non-interactive client / bidi stream. */
-export function outboundMessages(message: string, resolve: (t: string) => string): unknown[] {
+/**
+ * Outbound messages for a non-interactive client / bidi stream. With `schema`
+ * (the request + its schema sources) 64-bit integers are placed precisely —
+ * Struct / Value numbers stay numbers (see parseGrpcMessageJson).
+ */
+export function outboundMessages(
+  message: string,
+  resolve: (t: string) => string,
+  schema?: { request: Pick<GrpcRequest, 'service' | 'method' | 'schema'> } & GrpcInputSchemaSource
+): unknown[] {
   if (!message.trim()) return [];
   let parsed: unknown;
   try {
-    parsed = parseGrpcMessageJson(resolve(message));
+    parsed = parseGrpcMessageJson(
+      resolve(message),
+      schema ? lazyGrpcInputSchema(schema.request, schema) : undefined
+    );
   } catch (err) {
     throw new Error(
       `Invalid JSON in request message: ${err instanceof Error ? err.message : String(err)}`
@@ -59,7 +71,14 @@ export async function runGrpcStreamCall(args: GrpcStreamRunArgs): Promise<GrpcSt
     request.methodType === 'client-streaming' || request.methodType === 'bidirectional-streaming';
   // Parse before opening so a bad body never leaves a half-open stream.
   const outbound =
-    !interactive && isClientSide ? outboundMessages(request.message, args.resolveVariables) : [];
+    !interactive && isClientSide
+      ? outboundMessages(request.message, args.resolveVariables, {
+          request,
+          descriptors: args.descriptors,
+          protoContent: args.protoContent,
+          protoFileName: args.protoFileName,
+        })
+      : [];
   if (signal.aborted) throw new DOMException('Request aborted', 'AbortError');
 
   const startedAt = Date.now();

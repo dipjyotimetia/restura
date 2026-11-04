@@ -184,7 +184,11 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   // a plain Error with the substring expected by callers.
   let prepared: ReturnType<typeof prepareGrpcRequest>;
   try {
-    prepared = prepareGrpcRequest(args.request, args.resolveVariables);
+    prepared = prepareGrpcRequest(args.request, args.resolveVariables, {
+      descriptors: args.descriptors,
+      protoContent: args.protoContent,
+      protoFileName: args.protoFileName,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Failed to prepare request';
     if (/json/i.test(msg)) {
@@ -543,7 +547,11 @@ function startElectronInteractiveStream<TIn, TOut>(
     doneResolve = res;
   });
 
-  const prepared = prepareGrpcRequest(args.request, args.resolveVariables);
+  const prepared = prepareGrpcRequest(args.request, args.resolveVariables, {
+    descriptors: args.descriptors,
+    protoContent: args.protoContent,
+    protoFileName: args.protoFileName,
+  });
   const authMetadata = buildAuthMetadata(args.request.auth);
   // #944: in warn / off mode unknown keys are dropped here, so main's strict
   // encoder only ever rejects them in block mode.
