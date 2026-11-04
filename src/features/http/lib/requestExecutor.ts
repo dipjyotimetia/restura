@@ -12,7 +12,9 @@ import {
   type QueryPair,
 } from '@shared/protocol/request-spec';
 import {
+  COOKIE_HOPS_SIDE_CHANNEL_HEADER,
   type CookieHop,
+  decodeCookieHopsSideChannel,
   decodeSetCookieSideChannel,
   responseSetCookies,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
@@ -793,12 +795,23 @@ export async function executeStreamingRequest(
   const setCookies = decodeSetCookieSideChannel(
     response.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER)
   );
+  // A followed redirect chain (final URL + each hop's cookies) rides its own
+  // side channel; hop cookies are stored even when the final response set none.
+  const { finalUrl, cookieHops } = decodeCookieHopsSideChannel(
+    response.headers.get(COOKIE_HOPS_SIDE_CHANNEL_HEADER)
+  );
   const headers: Record<string, string> = {};
   for (const [k, v] of response.headers.entries()) {
-    if (k !== SET_COOKIE_SIDE_CHANNEL_HEADER && k !== PROXY_STREAM_MARKER_HEADER) headers[k] = v;
+    if (
+      k !== SET_COOKIE_SIDE_CHANNEL_HEADER &&
+      k !== COOKIE_HOPS_SIDE_CHANNEL_HEADER &&
+      k !== PROXY_STREAM_MARKER_HEADER
+    ) {
+      headers[k] = v;
+    }
   }
-  if (setCookies.length > 0 && !effectiveSettings.disableCookieJar) {
-    persistResponseCookies({ headers, setCookies }, spec.url);
+  if ((setCookies.length > 0 || cookieHops) && !effectiveSettings.disableCookieJar) {
+    persistResponseCookies({ headers, setCookies, cookieHops, finalUrl }, spec.url);
   }
   const responseMeta: StreamingExecutionResult['responseMeta'] = {
     status: response.status,

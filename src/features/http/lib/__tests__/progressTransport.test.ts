@@ -1,4 +1,6 @@
 import {
+  buildCookieHopsSideChannel,
+  COOKIE_HOPS_SIDE_CHANNEL_HEADER,
   encodeSetCookieSideChannel,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
 } from '@shared/protocol/set-cookie';
@@ -76,6 +78,22 @@ describe('executeProxiedRequestWithProgress — web', () => {
     expect(out.headers).not.toHaveProperty('x-restura-proxy-stream');
     expect(out.headers).not.toHaveProperty(SET_COOKIE_SIDE_CHANNEL_HEADER);
     expect(out.bodyEncoding).toBeUndefined();
+  });
+
+  it('decodes finalUrl and cookieHops from the cookie-hops side channel and strips it', async () => {
+    const hops = {
+      finalUrl: 'https://auth.example.test/landing',
+      cookieHops: [{ url: 'https://api.example.test/graphql', setCookies: ['hop=1'] }],
+    };
+    streamingMock.mockResolvedValue(
+      upstream(['ok'], {
+        'content-type': 'text/plain',
+        [COOKIE_HOPS_SIDE_CHANNEL_HEADER]: buildCookieHopsSideChannel(hops).value as string,
+      })
+    );
+    const out = await executeProxiedRequestWithProgress(SPEC, () => {});
+    expect(out).toMatchObject(hops);
+    expect(out.headers).not.toHaveProperty(COOKIE_HOPS_SIDE_CHANNEL_HEADER);
   });
 
   it('base64-encodes binary content types, like the buffered Worker reply', async () => {

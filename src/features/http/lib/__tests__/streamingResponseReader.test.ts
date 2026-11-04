@@ -172,3 +172,20 @@ describe('readStreamingResponse — lifecycle', () => {
     expect(events[0]?.type).toBe('end');
   });
 });
+
+describe('readStreamingResponse — raw charset', () => {
+  it('decodes a raw stream with its declared charset (ISO-8859-1)', async () => {
+    // "café ü" in Latin-1: é = 0xE9, ü = 0xFC.
+    const latin1 = new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x20, 0xfc]);
+    const events = await collect(
+      readStreamingResponse(
+        makeResponse(streamFromChunks([latin1]), 'text/plain; charset=ISO-8859-1')
+      )
+    );
+    const text = events
+      .filter((e): e is Extract<HttpStreamEvent, { type: 'raw' }> => e.type === 'raw')
+      .map((e) => e.payload)
+      .join('');
+    expect(text).toBe('café ü');
+  });
+});

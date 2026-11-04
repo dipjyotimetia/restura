@@ -53,6 +53,7 @@ describe('capability registry shape', () => {
         "http.tls.minVersion",
         "http.version",
         "http.streamingResponse",
+        "http.getBody",
         "http.auth.ntlm",
         "http.auth.oauth2AuthCodePopup",
         "loadTesting.basic",

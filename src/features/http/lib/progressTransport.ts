@@ -26,6 +26,8 @@ import {
 } from '@shared/protocol/proxy-limits';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
+  COOKIE_HOPS_SIDE_CHANNEL_HEADER,
+  decodeCookieHopsSideChannel,
   decodeSetCookieSideChannel,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
 } from '@shared/protocol/set-cookie';
@@ -133,10 +135,15 @@ export async function executeProxiedRequestWithProgress(
   const setCookies = decodeSetCookieSideChannel(
     response.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER)
   );
+  // A followed redirect chain: final URL + each hop's cookies, for the jar.
+  const { finalUrl, cookieHops } = decodeCookieHopsSideChannel(
+    response.headers.get(COOKIE_HOPS_SIDE_CHANNEL_HEADER)
+  );
   const headers: Record<string, string> = {};
   for (const [k, v] of response.headers.entries()) {
     if (
       k === SET_COOKIE_SIDE_CHANNEL_HEADER ||
+      k === COOKIE_HOPS_SIDE_CHANNEL_HEADER ||
       k === PROXY_STREAM_MARKER_HEADER ||
       k === PROXY_CAPABILITY_HEADER
     ) {
@@ -190,6 +197,8 @@ export async function executeProxiedRequestWithProgress(
     statusText: response.statusText,
     headers,
     ...(setCookies.length > 0 ? { setCookies } : {}),
+    ...(finalUrl !== undefined ? { finalUrl } : {}),
+    ...(cookieHops ? { cookieHops } : {}),
     data: binary ? bytesToBase64(bytes) : textDecoderFor(contentType).decode(bytes),
     size,
     ...(binary ? { bodyEncoding: 'base64' as const } : {}),

@@ -11,7 +11,7 @@ import {
   readBoundedText,
   readStreamToBytes,
 } from './binary';
-import { buildRequestBody } from './body-builder';
+import { type BuildRequestBodyArgs, buildRequestBody } from './body-builder';
 import { type DigestRetryOptions, followRedirectsWithDigest } from './digest-auth';
 import {
   extractSetCookies,
@@ -123,8 +123,16 @@ function digestRetryFor(
       username: spec.auth.digest.username,
       password: resolve(spec.auth.digest.password),
     },
-    rebuildBody: () =>
-      buildRequestBody({ bodyType: spec.bodyType, data: spec.data, formData: spec.formData }).body,
+    rebuildBody: () => buildRequestBody(bodyArgs(spec)).body,
+  };
+}
+
+/** The spec's body fields, present ones only (clean under exactOptionalPropertyTypes). */
+function bodyArgs(spec: RequestSpec): BuildRequestBodyArgs {
+  return {
+    ...(spec.bodyType !== undefined ? { bodyType: spec.bodyType } : {}),
+    ...(spec.data !== undefined ? { data: spec.data } : {}),
+    ...(spec.formData !== undefined ? { formData: spec.formData } : {}),
   };
 }
 
@@ -147,11 +155,7 @@ function prepareRequest(
   method: string
 ): { headers: Record<string, string>; body: BodyInit | undefined } {
   const headers = sanitizeRequestHeaders(spec.headers);
-  const { body, contentType } = buildRequestBody({
-    bodyType: spec.bodyType,
-    data: spec.data,
-    formData: spec.formData,
-  });
+  const { body, contentType } = buildRequestBody(bodyArgs(spec));
 
   if (typeof FormData !== 'undefined' && body instanceof FormData) {
     for (const [name, value] of Object.entries(headers)) {

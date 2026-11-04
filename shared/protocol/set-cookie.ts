@@ -203,6 +203,89 @@ export function decodeSetCookieSideChannel(value: string | null | undefined): st
   }
 }
 
+/**
+ * Streaming-path side channel for a followed redirect chain: `finalUrl` and
+ * every hop's Set-Cookie fields (see `NormalizedResponse.cookieHops`), so the
+ * renderer's jar stores each hop's cookies against the URL that set them. The
+ * value is `encodeURIComponent(JSON)` — always a valid header ByteString.
+ * Absent when the first response was final.
+ */
+export const COOKIE_HOPS_SIDE_CHANNEL_HEADER = 'x-restura-cookie-hops';
+
+export interface CookieHopsSideChannel {
+  finalUrl?: string;
+  cookieHops?: CookieHop[];
+}
+
+function encodeCookieHops(fields: CookieHopsSideChannel): string {
+  return encodeURIComponent(JSON.stringify(fields));
+}
+
+/**
+ * Encode `finalUrl` + the hops under `maxBytes`. Cookie fields that do not fit
+ * are dropped (in order; a later smaller one may still ride) and counted in
+ * `omitted`, like {@link buildSetCookieSideChannel}. `value` is undefined when
+ * there is nothing to carry.
+ */
+export function buildCookieHopsSideChannel(
+  fields: CookieHopsSideChannel,
+  maxBytes: number = SET_COOKIE_SIDE_CHANNEL_MAX_BYTES
+): { value: string | undefined; omitted: number } {
+  if (fields.finalUrl === undefined && !fields.cookieHops?.length) {
+    return { value: undefined, omitted: 0 };
+  }
+  const full = encodeCookieHops(fields);
+  if (full.length <= maxBytes) return { value: full, omitted: 0 };
+  const kept: CookieHop[] = [];
+  let omitted = 0;
+  const base: CookieHopsSideChannel = {
+    ...(fields.finalUrl !== undefined ? { finalUrl: fields.finalUrl } : {}),
+    cookieHops: kept,
+  };
+  for (const hop of fields.cookieHops ?? []) {
+    const slot: CookieHop = { url: hop.url, setCookies: [] };
+    kept.push(slot);
+    for (const cookie of hop.setCookies) {
+      slot.setCookies.push(cookie);
+      if (encodeCookieHops(base).length > maxBytes) {
+        slot.setCookies.pop();
+        omitted++;
+      }
+    }
+    if (slot.setCookies.length === 0) kept.pop();
+  }
+  const value = encodeCookieHops(base);
+  return { value: value.length <= maxBytes ? value : undefined, omitted };
+}
+
+/** Decode {@link COOKIE_HOPS_SIDE_CHANNEL_HEADER}; anything malformed → `{}`. */
+export function decodeCookieHopsSideChannel(
+  value: string | null | undefined
+): CookieHopsSideChannel {
+  if (!value) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodeURIComponent(value));
+  } catch {
+    return {};
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  const raw = parsed as { finalUrl?: unknown; cookieHops?: unknown };
+  const out: CookieHopsSideChannel = {};
+  if (typeof raw.finalUrl === 'string') out.finalUrl = raw.finalUrl;
+  if (Array.isArray(raw.cookieHops)) {
+    const hops: CookieHop[] = [];
+    for (const hop of raw.cookieHops) {
+      const h = hop as { url?: unknown; setCookies?: unknown } | null;
+      if (!h || typeof h.url !== 'string' || !Array.isArray(h.setCookies)) continue;
+      const setCookies = h.setCookies.filter((c): c is string => typeof c === 'string');
+      if (setCookies.length > 0) hops.push({ url: h.url, setCookies });
+    }
+    if (hops.length > 0) out.cookieHops = hops;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // RFC 6265 storage model (§5.1.3 domain match, §5.1.4 paths, §5.2/§5.3 storage)
 // ---------------------------------------------------------------------------
