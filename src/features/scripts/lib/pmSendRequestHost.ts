@@ -25,6 +25,7 @@
 
 import { checkHttpMethod } from '@shared/protocol/http-method';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
+import { sendRequestHeaderMap } from '@shared/scripts/script-executor-values';
 import { SecretVariableReferenceError } from '@shared/variables/secret-variable-token';
 import { scanVariableTokens } from '@shared/variables/tokens';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
@@ -32,7 +33,120 @@ import { withoutSecretNames } from '@/lib/shared/resolveRequestScope';
 import { executeProxiedRequest } from '@/lib/shared/transport';
 import type { PmSendRequestInput, PmSubResponse } from './scriptExecutor';
 
-function inferBody(body: unknown): { bodyType?: ProxyRequestBody['bodyType']; data?: string } {
+interface SubRequestBody {
+  bodyType?: ProxyRequestBody['bodyType'];
+  data?: string;
+  formData?: Array<{ name: string; value: string }>;
+  /** Content-Type implied by a Postman raw body's `options.raw.language`. */
+  contentType?: string;
+}
+
+const POSTMAN_BODY_MODES = new Set(['raw', 'urlencoded', 'formdata', 'file', 'graphql', 'none']);
+
+/** Content-Type for a Postman raw body language (`json` is the bodyType's own). */
+const RAW_LANGUAGE_CONTENT_TYPES: Record<string, string> = {
+  javascript: 'application/javascript',
+  xml: 'application/xml',
+  html: 'text/html',
+  text: 'text/plain',
+};
+
+/** Resolve `{{var}}` in every string inside a plain JSON value. */
+function resolveDeep(value: unknown, resolve: (s: string) => string): unknown {
+  if (typeof value === 'string') return resolve(value);
+  if (Array.isArray(value)) return value.map((item) => resolveDeep(item, resolve));
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) out[key] = resolveDeep(item, resolve);
+    return out;
+  }
+  return value;
+}
+
+/** Postman `[{ key, value, disabled }]` rows as form fields, resolved. */
+function formRows(
+  rows: unknown,
+  resolve: (s: string) => string,
+  mode: string
+): Array<{ name: string; value: string }> {
+  if (!Array.isArray(rows)) return [];
+  const fields: Array<{ name: string; value: string }> = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const { key, value, disabled, type } = row as Record<string, unknown>;
+    if (disabled === true || typeof key !== 'string' || key === '') continue;
+    if (type === 'file') {
+      throw new Error(`pm.sendRequest: file fields in a ${mode} body are not supported`);
+    }
+    fields.push({
+      name: resolve(key),
+      value: resolve(value === undefined || value === null ? '' : String(value)),
+    });
+  }
+  return fields;
+}
+
+/**
+ * The body a `pm.sendRequest` input sends. A string or plain object keeps the
+ * existing heuristics (object → JSON, with `{{var}}` resolved in its strings);
+ * a Postman request body (`{ mode: 'raw' | 'urlencoded' | 'formdata' | 'graphql', ... }`)
+ * is sent the way Postman sends it.
+ */
+function buildSubRequestBody(body: unknown, resolve: (s: string) => string): SubRequestBody {
+  if (body == null) return {};
+  if (typeof body === 'string') return inferBody(resolve(body));
+  if (typeof body !== 'object' || Array.isArray(body)) return inferBody(resolveDeep(body, resolve));
+  const shaped = body as Record<string, unknown>;
+  const mode = shaped.mode;
+  if (typeof mode !== 'string' || !POSTMAN_BODY_MODES.has(mode)) {
+    return inferBody(resolveDeep(body, resolve));
+  }
+  switch (mode) {
+    case 'raw': {
+      const data = resolve(typeof shaped.raw === 'string' ? shaped.raw : String(shaped.raw ?? ''));
+      const options = shaped.options as { raw?: { language?: unknown } } | undefined;
+      const language =
+        typeof options?.raw?.language === 'string' ? options.raw.language.toLowerCase() : '';
+      if (language === 'json') return { bodyType: 'json', data };
+      const contentType = RAW_LANGUAGE_CONTENT_TYPES[language];
+      return { bodyType: 'raw', data, ...(contentType ? { contentType } : {}) };
+    }
+    case 'urlencoded':
+      if (typeof shaped.urlencoded === 'string') {
+        return { bodyType: 'form-urlencoded', data: resolve(shaped.urlencoded) };
+      }
+      return {
+        bodyType: 'form-urlencoded',
+        formData: formRows(shaped.urlencoded, resolve, mode),
+      };
+    case 'formdata':
+      return { bodyType: 'form-data', formData: formRows(shaped.formdata, resolve, mode) };
+    case 'graphql': {
+      const graphql = (shaped.graphql ?? {}) as { query?: unknown; variables?: unknown };
+      let variables: unknown = graphql.variables;
+      if (typeof variables === 'string') {
+        try {
+          variables = JSON.parse(resolve(variables));
+        } catch {
+          throw new Error('pm.sendRequest: graphql variables are not valid JSON');
+        }
+      }
+      return {
+        bodyType: 'json',
+        data: JSON.stringify({
+          query: resolve(typeof graphql.query === 'string' ? graphql.query : ''),
+          ...(variables !== undefined ? { variables: resolveDeep(variables, resolve) } : {}),
+        }),
+      };
+    }
+    case 'file':
+      throw new Error('pm.sendRequest: a file body is not supported');
+    default:
+      return {};
+  }
+}
+
+function inferBody(body: unknown): SubRequestBody {
   if (body == null) return {};
   if (typeof body === 'string') {
     // Heuristic: looks like JSON → tag as application/json so the
@@ -94,7 +208,7 @@ function resolveAll(
 ): Record<string, string> {
   if (!obj) return {};
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(obj)) out[k] = resolve(v);
+  for (const [k, v] of Object.entries(obj)) out[k] = resolve(String(v));
   return out;
 }
 
@@ -150,24 +264,31 @@ export function makeRendererSendRequest(
     // Merge order: inherited (lowest), user-supplied (highest). Inherited headers
     // already went through the parent's resolver and are sent as they are. The
     // script's own `"Bearer {{token}}"` is legitimate Postman idiom.
+    // A Postman header list (`[{ key, value, disabled }]`) is accepted as well.
+    const scriptHeaders = sendRequestHeaderMap(input.headers);
     const mergedHeaders: Record<string, string> = {
       ...inheritedHeaders,
-      ...resolveAll(input.headers, (text) => resolveText(text, 'a header')),
+      ...resolveAll(scriptHeaders, (text) => resolveText(text, 'a header')),
     };
     // Inherited headers follow a redirect only as far as they would be inherited.
-    const scriptSet = new Set(Object.keys(input.headers ?? {}).map((name) => name.toLowerCase()));
+    const scriptSet = new Set(Object.keys(scriptHeaders).map((name) => name.toLowerCase()));
     const inheritedOnly = Object.keys(inheritedHeaders).filter(
       (name) => !scriptSet.has(name.toLowerCase())
     );
-    const bodyShape = inferBody(
-      typeof input.body === 'string' ? resolveText(input.body, 'the body') : input.body
-    );
+    const bodyShape = buildSubRequestBody(input.body, (text) => resolveText(text, 'the body'));
+    if (
+      bodyShape.contentType &&
+      !Object.keys(mergedHeaders).some((name) => name.toLowerCase() === 'content-type')
+    ) {
+      mergedHeaders['Content-Type'] = bodyShape.contentType;
+    }
     const spec: ProxyRequestBody = {
       url,
       method,
       headers: mergedHeaders,
       ...(bodyShape.bodyType !== undefined && { bodyType: bodyShape.bodyType }),
       ...(bodyShape.data !== undefined && { data: bodyShape.data }),
+      ...(bodyShape.formData !== undefined && { formData: bodyShape.formData }),
       ...(inheritedOnly.length > 0 && {
         redirectPolicy: { stripOnOriginChange: inheritedOnly },
       }),

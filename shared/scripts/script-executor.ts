@@ -18,7 +18,12 @@ import {
   QUICKJS_MAX_MEMORY_BYTES,
   QUICKJS_MAX_STACK_BYTES,
 } from './sandbox-limits';
-import { bindPmCookies, buildKvNamespace } from './script-executor-namespaces';
+import {
+  bindPmCookies,
+  buildKvNamespace,
+  hasOwnKey,
+  readOwnKey,
+} from './script-executor-namespaces';
 import {
   bindRequestGlobal,
   readRequestHeaders,
@@ -55,6 +60,77 @@ const MAX_EXECUTION_TIME_MS = QUICKJS_MAX_EXECUTION_TIME_MS;
 const MAX_EXECUTION_TIME_MS_ASYNC = QUICKJS_MAX_EXECUTION_TIME_MS_ASYNC;
 const MAX_MEMORY_BYTES = QUICKJS_MAX_MEMORY_BYTES;
 const MAX_STACK_BYTES = QUICKJS_MAX_STACK_BYTES;
+
+/**
+ * The Postman surface of `pm.sendRequest(request, [callback])` over the native
+ * `pm.__sendRequestNative`. The response gets `json()`, `text()` and a
+ * case-insensitive `headers.get()` / `has()` (non-enumerable, so the response
+ * still serialises as before). With a callback, the host error goes to the
+ * callback rather than rejecting the returned promise, and anything the
+ * callback throws (or an async callback rejects with) is a script error.
+ */
+const SEND_REQUEST_WRAPPER = `(function () {
+  var nativeSend = pm.__sendRequestNative;
+  var report = globalThis.__rs_reportScriptError;
+  delete pm.__sendRequestNative;
+  delete globalThis.__rs_reportScriptError;
+  function describe(e) {
+    if (e && typeof e === 'object' && 'message' in e) {
+      return (e.name ? String(e.name) + ': ' : '') + String(e.message);
+    }
+    return String(e);
+  }
+  function hidden(target, name, fn) {
+    Object.defineProperty(target, name, { value: fn, enumerable: false, configurable: true, writable: true });
+  }
+  function decorate(res) {
+    if (!res || typeof res !== 'object') return res;
+    var body = res.body;
+    hidden(res, 'text', function () {
+      if (body === undefined || body === null) return '';
+      return typeof body === 'string' ? body : JSON.stringify(body);
+    });
+    hidden(res, 'json', function () {
+      return typeof body === 'string' ? JSON.parse(body) : body;
+    });
+    var headers = res.headers && typeof res.headers === 'object' ? res.headers : {};
+    function find(key) {
+      var lk = String(key).toLowerCase();
+      for (var k in headers) {
+        if (Object.prototype.hasOwnProperty.call(headers, k) && k.toLowerCase() === lk) return headers[k];
+      }
+      return undefined;
+    }
+    hidden(headers, 'get', find);
+    hidden(headers, 'has', function (key) { return find(key) !== undefined; });
+    hidden(headers, 'toObject', function () {
+      var out = {};
+      for (var k in headers) if (Object.prototype.hasOwnProperty.call(headers, k)) out[k] = headers[k];
+      return out;
+    });
+    return res;
+  }
+  function runCallback(callback, err, res) {
+    try {
+      var returned = callback(err, res);
+      if (returned && typeof returned.then === 'function') {
+        returned.then(undefined, function (e) {
+          report('pm.sendRequest callback error: ' + describe(e));
+        });
+      }
+    } catch (e) {
+      report('pm.sendRequest callback error: ' + describe(e));
+    }
+  }
+  pm.sendRequest = function (request, callback) {
+    var promise = nativeSend(request).then(decorate);
+    if (typeof callback !== 'function') return promise;
+    return promise.then(
+      function (res) { runCallback(callback, null, res); return res; },
+      function (err) { runCallback(callback, err, null); return undefined; }
+    );
+  };
+})();`;
 
 class ScriptExecutor {
   private envVars: Record<string, string>;
@@ -107,8 +183,18 @@ class ScriptExecutor {
   /** `pm.test` outcomes in call order, including async tests that settle later. */
   private readonly testRecorder = new PmTestRecorder(
     () => this.tests,
-    (type, message) => this.addLog(type, message)
+    (type, message) => this.pushLog(type, message)
   );
+  /**
+   * Keys `pm.variables.set` / `pm.environment.set|unset` wrote in this eval:
+   * their value in `envVars` is the script's own, above collection and globals.
+   */
+  private readonly scriptWrittenVars = new Set<string>();
+  /** Collection and globals values as each eval started (see {@link resolveVariable}). */
+  private scopeBaseline: { collection: Record<string, string>; globals: Record<string, string> } = {
+    collection: {},
+    globals: {},
+  };
   /**
    * Test-only override. Production code never sets this; tests inject a
    * short ceiling so the wall-clock-deadline path is exercised in
@@ -422,119 +508,34 @@ class ScriptExecutor {
   }
 
   /**
-   * Build `pm.sendRequest(input, [callback])` — the gateway from inside
-   * the sandbox to the renderer's HTTP execution path.
-   *
-   * Returns a QuickJS deferred promise so users can both `await` it AND
-   * pass a callback (Postman supports both styles since v9). The host
-   * call goes through `this.host.sendRequest`, which is supplied per
-   * harness — renderer hosts pass `executeProxiedRequest` (same SSRF
-   * guards as a top-level send); CLI hosts pass `undiciFetcher`.
-   *
-   * `pendingHostOps` is incremented before host work starts and
-   * decremented in `finally` so `eval()`'s pump loop knows when there's
-   * still work outstanding.
+   * Bind the native half of `pm.sendRequest`: `input` in, a QuickJS promise of
+   * the sub-response out. The Postman surface (the optional callback, the
+   * response's `json()` / `text()` / `headers.get()`) is the JS wrapper
+   * `SEND_REQUEST_WRAPPER` installs over it. The host call goes through
+   * `this.host.sendRequest`, supplied per harness (renderer hosts pass
+   * `executeProxiedRequest`, with the same SSRF guards as a top-level send).
+   * Bound on every host: without one the promise rejects with a clear error
+   * (the CLI has no sub-request path), never a `TypeError: not a function`.
    */
   private bindPmSendRequest(vm: QuickJSContext, pmObj: QuickJSHandle): void {
-    const fn = vm.newFunction('sendRequest', (inputHandle, callbackHandle) => {
-      const input = vm.dump(inputHandle) as unknown;
+    const fn = vm.newFunction('sendRequest', (inputHandle) => {
+      const input = inputHandle ? (vm.dump(inputHandle) as unknown) : undefined;
       const spec = normalizeSendRequestInput(input);
-      const deferred = vm.newPromise();
-      this.pendingHostOps++;
-
-      // Capture callback as a (cloned) handle if user passed one. We must
-      // call `.dup()` so the user's function survives past this native
-      // frame and stays alive for the settle.
-      let cbHandle: QuickJSHandle | undefined;
-      if (callbackHandle && vm.typeof(callbackHandle) === 'function') {
-        cbHandle = callbackHandle.dup();
-      }
-
-      // Cleanup registered for both happy-path completion and the
-      // wall-clock-timeout path. Idempotency: the cleanup checks
-      // `pendingHostCleanups` membership via Set semantics — once removed,
-      // a second call is a no-op.
-      const cleanup = (): void => {
-        if (!this.pendingHostCleanups.has(cleanup)) return;
-        this.pendingHostCleanups.delete(cleanup);
-        if (this.runtime) {
-          // Reject the still-pending deferred so any .then() chain in
-          // the user script propagates rather than hanging forever.
-          if (deferred.alive) {
-            try {
-              const err = vm.newError('Script execution interrupted');
-              deferred.reject(err);
-              err.dispose();
-            } catch {
-              // vm may already be in tear-down.
-            }
-          }
-        }
-        if (deferred.alive) {
-          try {
-            deferred.dispose();
-          } catch {
-            // already disposed
-          }
-        }
-        if (cbHandle?.alive) {
-          try {
-            cbHandle.dispose();
-          } catch {
-            // already disposed
-          }
-        }
-      };
-      this.pendingHostCleanups.add(cleanup);
-
       const sendRequest = this.host.sendRequest;
-      const promise = sendRequest
-        ? sendRequest(spec)
-        : Promise.reject(new Error('pm.sendRequest: host.sendRequest is not wired in'));
-
-      promise
-        .then((response) => {
-          // Bail if dispose() ran during the host-side work — every
-          // handle below (vm, deferred, cbHandle) is owned by the runtime
-          // and was already freed. Note: `errH = vm.null` / `nullH = vm.null`
-          // are shared QuickJS singletons — never call `.dispose()` on them.
-          if (!this.canSettle(cleanup)) return;
-          const respJs = makeJSValue(vm, sandboxResponse(response));
-          deferred.resolve(respJs);
-          if (cbHandle) {
-            const errH = vm.null;
-            const r = vm.callFunction(cbHandle, vm.undefined, errH, respJs);
-            if (r.error) r.error.dispose();
-            else r.value.dispose();
-          }
-          respJs.dispose();
-        })
-        .catch((err: unknown) => {
-          if (!this.canSettle(cleanup)) return;
-          const msg = err instanceof Error ? err.message : String(err);
-          const errObj = makeJSValue(vm, { message: msg });
-          deferred.reject(errObj);
-          if (cbHandle) {
-            const nullH = vm.null;
-            const r = vm.callFunction(cbHandle, vm.undefined, errObj, nullH);
-            if (r.error) r.error.dispose();
-            else r.value.dispose();
-          }
-          errObj.dispose();
-        })
-        .finally(() => {
-          this.pendingHostOps--;
-          // If we already cleaned up (timeout / dispose) this is a no-op.
-          // Otherwise run the cleanup now (disposes cbHandle; rejects the
-          // deferred if a settle outside eval left it pending).
-          cleanup();
-          // Drain microtasks the .then() callback queued (inside eval only).
-          this.drainJobs();
-        });
-
-      return deferred.handle;
+      return this.wrapAsyncHostOp(
+        vm,
+        () =>
+          sendRequest
+            ? sendRequest(spec)
+            : Promise.reject(
+                new Error(
+                  'pm.sendRequest is not available in this host: it has no sub-request path (the CLI sends none)'
+                )
+              ),
+        (response) => makeJSValue(vm, sandboxResponse(response))
+      );
     });
-    vm.setProp(pmObj, 'sendRequest', fn);
+    vm.setProp(pmObj, '__sendRequestNative', fn);
     fn.dispose();
   }
 
@@ -727,10 +728,16 @@ class ScriptExecutor {
     for (const k of Object.keys(this.collectionMutations)) delete this.collectionMutations[k];
     for (const k of Object.keys(this.environmentMutations)) delete this.environmentMutations[k];
     this.testRecorder.reset();
+    this.scriptWrittenVars.clear();
+    this.scopeBaseline = {
+      collection: { ...this.collectionVars },
+      globals: { ...this.globalVars },
+    };
     // The whole eval() is timed: the sentinel reset and bindings below can run
     // getters/setters an earlier user script installed. Reset on every exit.
     this.evalStartTime = Date.now();
     this.evalInterrupted = false;
+    let completion: { handle: QuickJSHandle; topLevelAwait: boolean } | undefined;
     try {
       // Reset the per-eval sentinels (execution flow control + visualizer).
       // We use a tiny eval rather than setProp so we don't have to manage
@@ -754,14 +761,16 @@ class ScriptExecutor {
 
       if (!this.evalInterrupted) this.bindRequestResponse(vm, context);
       if (!this.evalInterrupted) {
-        const result = vm.evalCode(trimmedScript, 'user-script.js');
+        const { source, topLevelAwait } = this.userScriptSource(vm, trimmedScript);
+        const result = vm.evalCode(source, 'user-script.js');
         if (result.error) {
-          const errorValue = vm.dump(result.error);
-          const errorMsg = typeof errorValue === 'string' ? errorValue : JSON.stringify(errorValue);
-          this.addLog('error', `Script execution error: ${errorMsg}`);
+          this.addLog('error', `Script execution error: ${this.describeError(vm, result.error)}`);
           result.error.dispose();
         } else {
-          result.value.dispose();
+          // A top-level-await script's completion is its async wrapper; any
+          // other script's is its last expression, which may be a floating
+          // promise (an async IIFE). Both are checked once the jobs drain.
+          completion = { handle: result.value, topLevelAwait };
         }
       }
       // Drain microtasks the script queued (await / .then / promise chains):
@@ -784,11 +793,13 @@ class ScriptExecutor {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
         this.drainJobs();
       }
+      if (completion && !this.evalInterrupted) this.reportCompletion(vm, completion);
       // An async `pm.test` still pending here can never settle: no host work is
       // outstanding to resolve it (or the deadline hit). Fail it rather than
       // report a pass for an assertion that never ran.
       this.testRecorder.failPending(
-        this.evalInterrupted ? `Test timed out after ${ceiling}ms` : 'Test promise never settled'
+        this.evalInterrupted ? `Test timed out after ${ceiling}ms` : 'Test promise never settled',
+        { timedOut: this.evalInterrupted }
       );
       if (this.evalInterrupted) {
         this.addLog('error', `Script execution timed out after ${ceiling}ms`);
@@ -834,8 +845,81 @@ class ScriptExecutor {
         ...(requestHeaders && { requestHeaders }),
       };
     } finally {
+      if (completion?.handle.alive) completion.handle.dispose();
       this.evalStartTime = 0;
     }
+  }
+
+  /**
+   * The source to evaluate. A script with a top-level `await` (a SyntaxError
+   * in global code) runs as the body of an async function, opened on the
+   * script's first line so line numbers stay the same; its `var` and function
+   * declarations are then local to the script, which a one-shot run cannot
+   * tell apart. Every other script, including one that does not compile at
+   * all, is evaluated exactly as written.
+   */
+  private userScriptSource(
+    vm: QuickJSContext,
+    script: string
+  ): { source: string; topLevelAwait: boolean } {
+    if (!/\bawait\b/.test(script)) return { source: script, topLevelAwait: false };
+    const asIs = vm.evalCode(script, 'user-script.js', { compileOnly: true });
+    if (!asIs.error) {
+      asIs.value.dispose();
+      return { source: script, topLevelAwait: false };
+    }
+    asIs.error.dispose();
+    const wrapped = `(async function () {${script}\n})()`;
+    const probe = vm.evalCode(wrapped, 'user-script.js', { compileOnly: true });
+    if (probe.error) {
+      probe.error.dispose();
+      return { source: script, topLevelAwait: false };
+    }
+    probe.value.dispose();
+    return { source: wrapped, topLevelAwait: true };
+  }
+
+  /**
+   * Report how the script's completion promise ended. A rejected top-level
+   * await is a script error, as is a rejected promise the script left as its
+   * last expression (an unhandled async IIFE); a top-level await that never
+   * settled means the rest of the script never ran.
+   *
+   * QuickJS's host rejection tracker is not exposed by quickjs-emscripten, so
+   * a rejected promise the script dropped anywhere else goes unreported.
+   */
+  private reportCompletion(
+    vm: QuickJSContext,
+    completion: { handle: QuickJSHandle; topLevelAwait: boolean }
+  ): void {
+    const state = vm.getPromiseState(completion.handle);
+    if (state.type === 'rejected') {
+      const message = this.describeError(vm, state.error);
+      state.error.dispose();
+      this.addLog(
+        'error',
+        completion.topLevelAwait
+          ? `Script execution error: ${message}`
+          : `Unhandled promise rejection: ${message}`
+      );
+      return;
+    }
+    if (state.type === 'pending') {
+      if (completion.topLevelAwait) {
+        this.addLog(
+          'error',
+          'Script execution error: a top-level await never settled, so the rest of the script did not run'
+        );
+      }
+      return;
+    }
+    if (!state.notAPromise) state.value.dispose();
+  }
+
+  /** The same text a synchronous script error has always been reported with. */
+  private describeError(vm: QuickJSContext, handle: QuickJSHandle): string {
+    const errorValue = vm.dump(handle);
+    return typeof errorValue === 'string' ? errorValue : JSON.stringify(errorValue);
   }
 
   /** Read `__pm_execution_state__` back into the typed sentinel shape. */
@@ -899,14 +983,58 @@ class ScriptExecutor {
   }
 
   private addLog(type: 'log' | 'error' | 'warn' | 'info', message: string) {
+    this.pushLog(type, message);
+    if (type === 'error') {
+      this.errors.push(message);
+    }
+  }
+
+  /** A console line that is not a script error (a failed `pm.test` line). */
+  private pushLog(type: 'log' | 'error' | 'warn' | 'info', message: string) {
     this.logs.push({
       type,
       message,
       timestamp: Date.now(),
     });
-    if (type === 'error') {
-      this.errors.push(message);
+  }
+
+  /**
+   * `pm.variables.get`: Postman precedence, local > iteration data >
+   * environment > collection > globals. `envVars` is the host's merged map (it
+   * already layers those scopes), so it answers first, except where this
+   * script wrote a lower scope and the merged value is that scope's own stale
+   * value (it equals the scope's value when the eval started).
+   */
+  private resolveVariable(key: string): string | undefined {
+    if (hasOwnKey(this.envVars, key)) {
+      const merged = this.envVars[key];
+      if (this.scriptWrittenVars.has(key)) return merged;
+      const fromCollection = hasOwnKey(this.scopeBaseline.collection, key);
+      if (
+        hasOwnKey(this.collectionMutations, key) &&
+        fromCollection &&
+        this.scopeBaseline.collection[key] === merged
+      ) {
+        return readOwnKey(this.collectionVars, key) ?? readOwnKey(this.globalVars, key);
+      }
+      if (
+        !fromCollection &&
+        hasOwnKey(this.globalsMutations, key) &&
+        readOwnKey(this.scopeBaseline.globals, key) === merged
+      ) {
+        return readOwnKey(this.globalVars, key);
+      }
+      return merged;
     }
+    if (this.scriptWrittenVars.has(key)) {
+      // Unset in this script's environment / local scope: lower scopes show through.
+      return readOwnKey(this.collectionVars, key) ?? readOwnKey(this.globalVars, key);
+    }
+    return (
+      readOwnKey(this.iterationData, key) ??
+      readOwnKey(this.collectionVars, key) ??
+      readOwnKey(this.globalVars, key)
+    );
   }
 
   // One-time setup of console / environment / globals / pm.* helpers
@@ -955,7 +1083,9 @@ class ScriptExecutor {
 
     // Top-level `environment` and `globals` namespaces. Both expose the
     // same get/set/unset/has surface as their `pm.*` aliases below.
-    const envObj = buildKvNamespace(vm, this.envVars, this.environmentMutations);
+    const envObj = buildKvNamespace(vm, this.envVars, this.environmentMutations, {
+      onWrite: (key) => this.scriptWrittenVars.add(key),
+    });
     vm.setProp(vm.global, 'environment', envObj);
     envObj.dispose();
 
@@ -980,16 +1110,28 @@ class ScriptExecutor {
     // the request's variable map with `pm.environment` (both show up in
     // `result.variables` for the rest of the request), but only
     // `pm.environment` writes are reported for persisting, as in Postman.
+    // `pm.variables.get/has` resolve across every scope (Postman precedence).
+    const markWritten = (key: string) => this.scriptWrittenVars.add(key);
     const kvBindings: Array<
-      [string, Record<string, string>, Record<string, string | null> | undefined]
+      [
+        string,
+        Record<string, string>,
+        Record<string, string | null> | undefined,
+        Parameters<typeof buildKvNamespace>[3],
+      ]
     > = [
-      ['variables', this.envVars, undefined],
-      ['globals', this.globalVars, this.globalsMutations],
-      ['environment', this.envVars, this.environmentMutations],
-      ['collectionVariables', this.collectionVars, this.collectionMutations],
+      [
+        'variables',
+        this.envVars,
+        undefined,
+        { read: (key) => this.resolveVariable(key), onWrite: markWritten },
+      ],
+      ['globals', this.globalVars, this.globalsMutations, {}],
+      ['environment', this.envVars, this.environmentMutations, { onWrite: markWritten }],
+      ['collectionVariables', this.collectionVars, this.collectionMutations, {}],
     ];
-    for (const [name, map, mutations] of kvBindings) {
-      const ns = buildKvNamespace(vm, map, mutations);
+    for (const [name, map, mutations, options] of kvBindings) {
+      const ns = buildKvNamespace(vm, map, mutations, options);
       vm.setProp(pmObj, name, ns);
       ns.dispose();
     }
@@ -1011,12 +1153,9 @@ class ScriptExecutor {
     // so `pm.cookies.get(name)` resolves against the active request URL.
     bindPmCookies(vm, pmObj, () => this.callCookieAdapter);
 
-    // pm.sendRequest — only bound when a host.sendRequest closure is
-    // wired in. The callback / promise machinery is non-trivial; see
-    // bindPmSendRequest for the deferred-promise + pending-counter dance.
-    if (this.host.sendRequest) {
-      this.bindPmSendRequest(vm, pmObj);
-    }
+    // pm.sendRequest — bound on every host (rejects clearly without one);
+    // its Postman surface is installed by SEND_REQUEST_WRAPPER below.
+    this.bindPmSendRequest(vm, pmObj);
 
     // rs.judge — LLM-as-judge semantic assertion. Bound unconditionally
     // (like pm.vault): when no host.judge closure is wired (web build / CLI
@@ -1045,6 +1184,24 @@ class ScriptExecutor {
     pmObj.dispose();
 
     installPmTest(vm);
+
+    // Errors the sandbox catches on the script's behalf (a throwing
+    // pm.sendRequest callback) are script errors.
+    const reportFn = vm.newFunction('reportScriptError', (messageHandle) => {
+      this.addLog('error', vm.getString(messageHandle));
+    });
+    vm.setProp(vm.global, '__rs_reportScriptError', reportFn);
+    reportFn.dispose();
+    const wrapper = vm.evalCode(SEND_REQUEST_WRAPPER);
+    if (wrapper.error) {
+      this.addLog(
+        'error',
+        `Failed to setup pm.sendRequest: ${this.stringify(vm.dump(wrapper.error))}`
+      );
+      wrapper.error.dispose();
+    } else {
+      wrapper.value.dispose();
+    }
 
     // pm.info — default empty; per-eval bindRequestResponse() overwrites with
     // the active request's name/id when available.

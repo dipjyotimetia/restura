@@ -7,17 +7,43 @@ import {
 import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten';
 import type { PmSendRequestInput } from './script-executor-types';
 
+/**
+ * A `pm.sendRequest` header input as a flat map: a `{ name: value }` object,
+ * or Postman's list form `[{ key, value, disabled }]` (disabled rows and rows
+ * without a key are dropped). Values are strings.
+ */
+export function sendRequestHeaderMap(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (Array.isArray(raw)) {
+    for (const row of raw) {
+      if (!row || typeof row !== 'object') continue;
+      const { key, value, disabled } = row as {
+        key?: unknown;
+        value?: unknown;
+        disabled?: unknown;
+      };
+      if (disabled === true || typeof key !== 'string' || key === '') continue;
+      out[key] = value === undefined || value === null ? '' : String(value);
+    }
+    return out;
+  }
+  if (raw && typeof raw === 'object') {
+    for (const [key, value] of Object.entries(raw)) {
+      if (value === undefined || value === null) continue;
+      out[key] = typeof value === 'string' ? value : String(value);
+    }
+  }
+  return out;
+}
+
 /** Normalize the two `pm.sendRequest` input forms accepted by Postman. */
 export function normalizeSendRequestInput(input: unknown): PmSendRequestInput {
   if (typeof input === 'string') return { url: input, method: 'GET' };
   if (input && typeof input === 'object') {
     const request = input as Record<string, unknown>;
-    const headers =
-      request.header && typeof request.header === 'object'
-        ? (request.header as Record<string, string>)
-        : request.headers && typeof request.headers === 'object'
-          ? (request.headers as Record<string, string>)
-          : {};
+    const headers = sendRequestHeaderMap(
+      request.header && typeof request.header === 'object' ? request.header : request.headers
+    );
     return {
       url: typeof request.url === 'string' ? request.url : '',
       method: typeof request.method === 'string' ? request.method : 'GET',

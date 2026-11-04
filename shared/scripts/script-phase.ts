@@ -72,6 +72,23 @@ export interface ScriptPhaseResult {
   skipRequested: boolean;
 }
 
+/**
+ * Fold the variable map a script left (`after`) into `into`: its writes are
+ * applied, and a key it `unset` (in `before`, the map it started with, but not
+ * in `after`) is removed, so `pm.environment.unset` / `pm.variables.unset` in a
+ * pre-request script reach the request being sent. Every host (app protocols
+ * and the CLI) folds this way.
+ */
+export function absorbScriptVariables(
+  into: Record<string, string>,
+  before: Record<string, string>,
+  after: Record<string, string>
+): void {
+  const removed = Object.keys(before).filter((key) => !Object.hasOwn(after, key));
+  Object.assign(into, after);
+  for (const key of removed) delete into[key];
+}
+
 export async function runScriptPhase(input: ScriptPhaseInput): Promise<ScriptPhaseResult> {
   const { host } = input;
   const globalVars = host.globals?.();
@@ -92,7 +109,7 @@ export async function runScriptPhase(input: ScriptPhaseInput): Promise<ScriptPha
 
   const { absorb } = input;
   if (absorb && (result.success || absorb.variables === 'always') && result.variables) {
-    Object.assign(absorb.into, result.variables);
+    absorbScriptVariables(absorb.into, input.envVars, result.variables);
   }
   if (result.globalsMutations) host.applyGlobalsMutations?.(result.globalsMutations);
   // The request is built after the pre-request phase, so collection writes must

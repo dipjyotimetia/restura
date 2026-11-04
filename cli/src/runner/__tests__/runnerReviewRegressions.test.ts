@@ -155,7 +155,7 @@ items:
     expect(hits.map((h) => h.url)).toEqual(['/set', '/use?x=script', '/after?x=env']);
   });
 
-  it('a pre-request pm.variables.unset keeps the value for THIS request (app parity)', async () => {
+  it('a pre-request pm.variables.unset removes the value for THIS request (app parity)', async () => {
     const file = ocFile(`items:
   - info: { type: http, name: Unset, seq: 1 }
     http: { method: GET, url: "${baseUrl}/u?x={{x}}" }
@@ -166,7 +166,7 @@ items:
 `);
     const result = await runCollection(file, { ...RUN, envVars: { x: 'env' } }, new Quiet());
     expect(result.summary.passed).toBe(1);
-    expect(hits.map((h) => h.url)).toEqual(['/u?x=env']);
+    expect(hits.map((h) => h.url)).toEqual(['/u?x={{x}}']);
   });
 
   it('a legacy _collection.yaml secret variable does not shadow --env with an empty value', async () => {
