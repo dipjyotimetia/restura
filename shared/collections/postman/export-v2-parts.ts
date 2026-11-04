@@ -1,5 +1,5 @@
 import type { HttpRequest, RequestSettingsOverride, ScopedVariable } from '../../types';
-import { arr, isObj, parseQueryString, type Raw, str } from './common';
+import { arr, isObj, parseQueryString, postmanVariableKey, type Raw, str } from './common';
 import { type ExportContext, kvRows } from './export-v3-shared';
 import type { PostmanSidecar } from './sidecar';
 import type {
@@ -161,9 +161,19 @@ const V21_VARIABLE_TYPES = new Set<unknown>(['string', 'boolean', 'any', 'number
  * style, imported value-less) has no v2.1 type: it is written as a plain
  * variable with an EMPTY value and reported, like a Restura secret variable.
  */
-function keptVariable(raw: Raw, owner: string, ctx: ExportContext): PostmanV21Variable {
+function keptVariable(
+  raw: Raw,
+  owner: string,
+  ctx: ExportContext,
+  { keyFromId = false }: { keyFromId?: boolean } = {}
+): PostmanV21Variable {
   const secret = raw.type === 'secret' || raw.secret === true;
-  const key = typeof raw.key === 'string' ? raw.key : undefined;
+  // A v2.0 path variable carries only `id`; v2.1 substitutes `:name` by `key`.
+  const key = keyFromId
+    ? postmanVariableKey(raw)
+    : typeof raw.key === 'string'
+      ? raw.key
+      : undefined;
   if (secret) ctx.report.emptied('secret-variable', owner, key ?? str(raw.id));
   const description =
     typeof raw.description === 'string' || isObj(raw.description)
@@ -234,8 +244,8 @@ function urlVariables(
 ): PostmanV21Variable[] {
   return arr(sidecar?.urlVariable)
     .filter(isObj)
-    .filter((v) => typeof v.key === 'string')
-    .map((v) => keptVariable(v, owner, ctx));
+    .filter((v) => postmanVariableKey(v) !== undefined)
+    .map((v) => keptVariable(v, owner, ctx, { keyFromId: true }));
 }
 
 /**
