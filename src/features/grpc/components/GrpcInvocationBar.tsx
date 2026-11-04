@@ -1,3 +1,4 @@
+import type { DescMessage } from '@bufbuild/protobuf';
 import { AlertCircle, Loader2, Play, X } from 'lucide-react';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,8 @@ interface StreamControl {
   sendMessage: (msg: unknown) => void;
   endStream: () => void;
   cancelStream: () => void;
+  /** Input schema for 64-bit-precise parsing of typed messages (parseGrpcMessageJson). */
+  inputSchema?: () => DescMessage | undefined;
 }
 
 export interface GrpcInvocationBarProps {

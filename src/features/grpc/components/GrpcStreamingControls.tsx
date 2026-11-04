@@ -1,5 +1,6 @@
 'use client';
 
+import type { DescMessage } from '@bufbuild/protobuf';
 import { parseGrpcMessageJson } from '@shared/protocol/grpc-json';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,8 @@ interface StreamControl {
   sendMessage: (msg: unknown) => void;
   endStream: () => void;
   cancelStream: () => void;
+  /** Input schema for 64-bit-precise parsing of typed messages (parseGrpcMessageJson). */
+  inputSchema?: () => DescMessage | undefined;
 }
 
 interface GrpcStreamingControlsProps {
@@ -34,7 +37,7 @@ export default function GrpcStreamingControls({
   const handleSend = () => {
     setSendError(null);
     try {
-      const parsed = parseGrpcMessageJson(messageInput);
+      const parsed = parseGrpcMessageJson(messageInput, streamControl.inputSchema);
       streamControl.sendMessage(parsed);
     } catch {
       setSendError('Invalid JSON — message not sent');

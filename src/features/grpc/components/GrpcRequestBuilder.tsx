@@ -61,7 +61,7 @@ import { GrpcStreamingMessages } from './GrpcStreamingControls';
 import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 import { GrpcUnknownFieldsLint } from './GrpcUnknownFieldsLint';
 import { GrpcUnsupportedAuthNotice } from './GrpcUnsupportedAuthNotice';
-import { runBuilderStream } from './runBuilderStream';
+import { type BuilderStreamControl, runBuilderStream } from './runBuilderStream';
 
 type GrpcSubTab =
   | 'message'
@@ -110,11 +110,7 @@ function GrpcRequestBuilder() {
   const [validation, setValidation] = useState<GrpcValidationState>(INITIAL_VALIDATION_STATE);
   const streamLog = useStreamMessageLog();
   const streamingMessages = streamLog.messages;
-  const [streamControl, setStreamControl] = useState<{
-    sendMessage: (msg: unknown) => void;
-    endStream: () => void;
-    cancelStream: () => void;
-  } | null>(null);
+  const [streamControl, setStreamControl] = useState<BuilderStreamControl | null>(null);
   const [retryMaxAttempts, setRetryMaxAttempts] = useState(1);
   const [retryDelayMs, setRetryDelayMs] = useState(0);
   const [useCompression, setUseCompression] = useState(false);

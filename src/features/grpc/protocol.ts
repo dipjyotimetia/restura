@@ -383,24 +383,41 @@ export const grpcProtocol: ProtocolModule = {
     } else if (policy.refused) {
       response = policy.refused;
     } else if (isElectron()) {
-      response = await makeElectronGrpcRequest(
-        policy.request,
-        opts.protoContent ?? '',
-        opts.protoFileName ?? 'generated.proto',
-        resolve,
-        timeoutMs,
-        opts.useCompression ?? false,
-        descriptors
+      // No unary cancel over IPC: the main-process call runs to its deadline,
+      // but the run itself settles the moment the signal aborts.
+      response = await rejectOnAbort(
+        makeElectronGrpcRequest(
+          policy.request,
+          opts.protoContent ?? '',
+          opts.protoFileName ?? 'generated.proto',
+          resolve,
+          timeoutMs,
+          opts.useCompression ?? false,
+          descriptors
+        ),
+        ctx.signal
       );
     } else if (isGrpcWebWire(send.wireProtocol)) {
       // gRPC-Web through the Worker's /api/grpc-web relay — needs the schema
       // to encode/decode protobuf (live builder state or the saved snapshot).
-      response = await makeGrpcWebRequest(policy.request, resolve, timeoutMs, {
-        ...(descriptors?.length ? { descriptors } : {}),
-        ...(opts.protoContent ? { protoContent: opts.protoContent } : {}),
-      });
+      response = await rejectOnAbort(
+        makeGrpcWebRequest(
+          policy.request,
+          resolve,
+          timeoutMs,
+          {
+            ...(descriptors?.length ? { descriptors } : {}),
+            ...(opts.protoContent ? { protoContent: opts.protoContent } : {}),
+          },
+          ctx.signal
+        ),
+        ctx.signal
+      );
     } else {
-      response = await makeProxyGrpcRequest(policy.request, resolve, timeoutMs);
+      response = await rejectOnAbort(
+        makeProxyGrpcRequest(policy.request, resolve, timeoutMs, ctx.signal),
+        ctx.signal
+      );
     }
 
     // Test script — receives the response so users can assert on
@@ -425,3 +442,32 @@ export const grpcProtocol: ProtocolModule = {
     return response;
   },
 };
+
+/**
+ * Settle with AbortError as soon as `signal` aborts (the abort also cancels
+ * the relay fetch where one is used); otherwise mirror `call`.
+ */
+function rejectOnAbort<T>(call: Promise<T>, signal: AbortSignal): Promise<T> {
+  const abortError = () => new DOMException('Request aborted', 'AbortError');
+  if (signal.aborted) {
+    call.catch(() => {});
+    return Promise.reject(abortError());
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    call.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        // A relay that saw the abort reports it as an error response; the run
+        // was cancelled either way.
+        if (signal.aborted) reject(abortError());
+        else resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(signal.aborted ? abortError() : err);
+      }
+    );
+  });
+}

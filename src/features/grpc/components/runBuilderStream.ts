@@ -5,6 +5,7 @@
  * feed live messages into the panel + console Frames and hand the outbound
  * controls (send / end / cancel) to the invocation bar.
  */
+import type { DescMessage } from '@bufbuild/protobuf';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import type { StreamRunHooks } from '@/features/registry/types';
@@ -12,11 +13,18 @@ import type { RegistryRunOptions, RegistryRunResult } from '@/features/registry/
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import type { GrpcRequest, GrpcResponse, Request } from '@/types';
 import { GrpcStatusCode } from '@/types';
+import { lazyGrpcInputSchema } from '../lib/grpcClient';
+
+const optionalString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+const stringArray = (v: unknown): string[] | undefined =>
+  Array.isArray(v) && v.every((x) => typeof x === 'string') ? (v as string[]) : undefined;
 
 export interface BuilderStreamControl {
   sendMessage: (msg: unknown) => void;
   endStream: () => void;
   cancelStream: () => void;
+  /** Input schema for 64-bit-precise parsing of typed messages (parseGrpcMessageJson). */
+  inputSchema?: () => DescMessage | undefined;
 }
 
 export interface RunBuilderStreamArgs {
@@ -71,6 +79,11 @@ export async function runBuilderStream(args: RunBuilderStreamArgs): Promise<Grpc
         },
         endStream: () => controls.closeSend(),
         cancelStream: () => controls.cancel(),
+        inputSchema: lazyGrpcInputSchema(request, {
+          descriptors: stringArray(args.protocolOptions.descriptors),
+          protoContent: optionalString(args.protocolOptions.protoContent),
+          protoFileName: optionalString(args.protocolOptions.protoFileName),
+        }),
       });
     },
     onMessage: (msg) => {

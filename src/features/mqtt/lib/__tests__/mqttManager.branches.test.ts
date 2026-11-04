@@ -757,7 +757,10 @@ describe('mqttManager.subscribe / unsubscribe / cancelRequest', () => {
   });
 
   it('unsubscribe, cancelRequest and disconnect are no-ops without a bridge', async () => {
-    await expect(mqttManager.unsubscribe('c1', 'a')).resolves.toBeUndefined();
+    await expect(mqttManager.unsubscribe('c1', 'a')).resolves.toEqual({
+      ok: false,
+      error: 'Electron API unavailable.',
+    });
     await expect(mqttManager.cancelRequest('c1', 'r')).resolves.toBeUndefined();
     await expect(mqttManager.disconnect('c1')).resolves.toBeUndefined();
   });

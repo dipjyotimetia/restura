@@ -207,4 +207,18 @@ describe('outboundMessages — 64-bit integer precision', () => {
       { id: '9007199254740993' },
     ]);
   });
+
+  it('keeps Struct numbers numeric when the schema is known', () => {
+    const protoContent = `syntax = "proto3";
+package t;
+import "google/protobuf/struct.proto";
+message R { google.protobuf.Struct st = 1; int64 id = 2; }
+service S { rpc M(stream R) returns (R); }`;
+    expect(
+      outboundMessages('[{"id": 9007199254740993, "st": {"n": 9007199254740993}}]', (s) => s, {
+        request: { service: 't.S', method: 'M' },
+        protoContent,
+      })
+    ).toEqual([{ id: '9007199254740993', st: { n: Number('9007199254740993') } }]);
+  });
 });
