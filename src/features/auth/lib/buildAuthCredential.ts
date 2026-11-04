@@ -1,3 +1,4 @@
+import { encodeBasicCredentials } from '@shared/auth/basic-credentials';
 import {
   type AuthCredential,
   type AuthCredentialOptions,
@@ -19,7 +20,7 @@ export type BuildAuthCredentialOptions = AuthCredentialOptions;
 const RENDERER_HOST: CredentialHost = {
   readSecret: (value) =>
     isSecretHandle(value) || isExternalSecretRef(value) ? DEFERRED_SECRET : unwrapSecret(value),
-  encodeBasic: (credentials) => btoa(credentials),
+  encodeBasic: encodeBasicCredentials,
 };
 
 /**

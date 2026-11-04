@@ -373,11 +373,14 @@ describe('a secret-handle variable reached through a value', () => {
 
   it('refuses a refreshed token holding a token', async () => {
     useEnvironment([handleRow]);
-    const endpoint = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(
-        new Response(JSON.stringify({ access_token: '{{sec}}' }), { status: 200 })
-      );
+    // The refresh itself goes through the app transport; the request it was
+    // refreshing for must not follow.
+    proxied.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: JSON.stringify({ access_token: '{{sec}}' }),
+    });
     await expect(
       send(
         request({
@@ -394,8 +397,8 @@ describe('a secret-handle variable reached through a value', () => {
         })
       )
     ).rejects.toThrow(/variable reference/);
-    expect(proxied).not.toHaveBeenCalled();
-    endpoint.mockRestore();
+    expect(proxied).toHaveBeenCalledTimes(1);
+    expect(proxied.mock.calls[0]?.[0]).toMatchObject({ url: 'https://a.test/token' });
   });
 });
 

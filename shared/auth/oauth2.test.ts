@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fetchClientCredentialsToken, OAuth2TokenError } from './oauth2';
+import { SECRET_HANDLE_PLACEHOLDER } from '../secrets/secret-ref';
+import {
+  exchangeCodeForToken,
+  fetchClientCredentialsToken,
+  fetchDeviceCode,
+  fetchPasswordToken,
+  fetchRefreshToken,
+  OAuth2TokenError,
+} from './oauth2';
 
 const config = {
   grantType: 'client_credentials' as const,
@@ -90,5 +98,79 @@ describe('postToken response handling', () => {
         maxResponseBytes: 1024,
       })
     ).rejects.toThrow('nope');
+  });
+});
+
+describe('masked secret placeholder never reaches a token endpoint', () => {
+  const ok = () => respond(JSON.stringify({ access_token: 'at' }));
+
+  it('refuses a masked client secret before sending', async () => {
+    const fetch = ok();
+    const error = await fetchClientCredentialsToken(
+      { ...config, clientSecret: SECRET_HANDLE_PLACEHOLDER },
+      { fetch }
+    ).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(OAuth2TokenError);
+    expect((error as OAuth2TokenError).errorCode).toBe('secret_unavailable');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a masked refresh token before sending', async () => {
+    const fetch = ok();
+    await expect(
+      fetchRefreshToken({
+        clientId: 'c',
+        tokenUrl: config.tokenUrl,
+        refreshToken: SECRET_HANDLE_PLACEHOLDER,
+        fetch,
+      })
+    ).rejects.toMatchObject({ errorCode: 'secret_unavailable' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a masked password before sending', async () => {
+    const fetch = ok();
+    await expect(
+      fetchPasswordToken(
+        { ...config, grantType: 'password', username: 'u', password: SECRET_HANDLE_PLACEHOLDER },
+        { fetch }
+      )
+    ).rejects.toMatchObject({ errorCode: 'secret_unavailable' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('injected token transport', () => {
+  it('sends every grant through the injected fetch, not the global one', async () => {
+    const globalFetch = vi.fn();
+    vi.stubGlobal('fetch', globalFetch);
+    try {
+      const fetch = respond(JSON.stringify({ access_token: 'at' }));
+      await fetchPasswordToken(
+        { ...config, grantType: 'password', username: 'u', password: 'p' },
+        { fetch }
+      );
+      await exchangeCodeForToken({ ...config, redirectUri: 'https://app/cb' }, 'code', 'v', {
+        fetch,
+      });
+      await fetchRefreshToken({
+        clientId: 'c',
+        tokenUrl: config.tokenUrl,
+        refreshToken: 'r',
+        fetch,
+      });
+      const deviceFetch = respond(
+        JSON.stringify({ device_code: 'd', user_code: 'u', verification_uri: 'v', expires_in: 5 })
+      );
+      await fetchDeviceCode(
+        { ...config, grantType: 'device_code', deviceAuthorizationUrl: 'https://idp/device' },
+        { fetch: deviceFetch }
+      );
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(deviceFetch).toHaveBeenCalledTimes(1);
+      expect(globalFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

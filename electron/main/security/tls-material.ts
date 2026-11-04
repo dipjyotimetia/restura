@@ -1,4 +1,4 @@
-import { unwrapSecretValueMain } from './secret-handle-store';
+import { requireSecretValueMain } from './required-secret';
 
 /**
  * mTLS client-certificate + custom-CA input shared by the HTTP and gRPC TLS
@@ -32,7 +32,7 @@ export function buildTlsClientMaterial(cfg: TlsClientMaterialInput): Record<stri
   const out: Record<string, unknown> = {};
   const cc = cfg.clientCert;
   if (cc) {
-    const passphrase = unwrapSecretValueMain(cc.passphrase);
+    const passphrase = requireSecretValueMain(cc.passphrase, 'Client certificate passphrase');
     if (cc.pfx) {
       out.pfx = Buffer.from(cc.pfx, 'base64');
       if (passphrase) out.passphrase = passphrase;

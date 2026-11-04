@@ -14,8 +14,9 @@
  * returns nothing for them.
  */
 
+import { encodeBasicCredentials } from '@shared/auth/basic-credentials';
 import type { ProtocolAuthConfig } from '@shared/protocol/types';
-import { unwrapSecretValueMain } from './secret-handle-store';
+import { requireSecretValueMain } from './required-secret';
 
 type AnyAuth = ProtocolAuthConfig & {
   basic?: { username: string; password: unknown };
@@ -52,20 +53,20 @@ export function applyNonSignAtWireAuth(
 
   switch (auth.type) {
     case 'bearer': {
-      const token = unwrapSecretValueMain(auth.bearer?.token) ?? '';
+      const token = requireSecretValueMain(auth.bearer?.token) ?? '';
       if (!token) return empty;
       return { headers: { Authorization: `Bearer ${token}` }, params: {} };
     }
     case 'basic': {
       const username = auth.basic?.username ?? '';
-      const password = unwrapSecretValueMain(auth.basic?.password) ?? '';
+      const password = requireSecretValueMain(auth.basic?.password) ?? '';
       if (options.basicRequiresUsername ? !username : !username && !password) return empty;
-      const credentials = Buffer.from(`${username}:${password}`, 'utf8').toString('base64');
+      const credentials = encodeBasicCredentials(`${username}:${password}`);
       return { headers: { Authorization: `Basic ${credentials}` }, params: {} };
     }
     case 'api-key': {
       const key = auth.apiKey?.key ?? '';
-      const value = unwrapSecretValueMain(auth.apiKey?.value) ?? '';
+      const value = requireSecretValueMain(auth.apiKey?.value) ?? '';
       const where = auth.apiKey?.in ?? 'header';
       if (!key || !value) return empty;
       return where === 'query'
@@ -73,7 +74,7 @@ export function applyNonSignAtWireAuth(
         : { headers: { [key]: value }, params: {} };
     }
     case 'oauth2': {
-      const token = unwrapSecretValueMain(auth.oauth2?.accessToken) ?? '';
+      const token = requireSecretValueMain(auth.oauth2?.accessToken) ?? '';
       if (!token) return empty;
       const tokenType = auth.oauth2?.tokenType || 'Bearer';
       return { headers: { Authorization: `${tokenType} ${token}` }, params: {} };

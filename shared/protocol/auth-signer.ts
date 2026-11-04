@@ -82,9 +82,10 @@ export interface SigV4Credentials {
   /** Temporary-credential token; sent and signed as `x-amz-security-token`. */
   sessionToken?: string;
   /**
-   * Encode each path segment again for the canonical URI, as every AWS service
-   * except S3 expects (e.g. Bedrock model ids containing `:`). Default false
-   * keeps the HTTP auth path's existing behaviour.
+   * Normalise the path and URI-encode it again for the canonical URI, as every
+   * AWS service except S3 expects (e.g. Bedrock model ids containing `:`).
+   * Defaults from `service` ({@link isS3SigningService}); set it only to
+   * override that.
    */
   doubleEncodePath?: boolean;
 }
@@ -218,13 +219,10 @@ export async function signSigV4(
     ...(creds.sessionToken ? { 'x-amz-security-token': creds.sessionToken } : {}),
   };
 
-  // Skip headers that AWS doesn't expect to see in the signed set, plus any
-  // that fetch/undici may rewrite mid-flight (content-length, user-agent).
-  const skipHeaders = new Set(['authorization', 'content-length', 'user-agent', 'accept-encoding']);
   for (const [k, v] of Object.entries(args.headers)) {
     const lk = k.toLowerCase();
-    if (!skipHeaders.has(lk) && !(lk in canonicalHeadersMap)) {
-      canonicalHeadersMap[lk] = v.trim();
+    if (!isUnsignableSigV4Header(lk) && !(lk in canonicalHeadersMap)) {
+      canonicalHeadersMap[lk] = canonicalSigV4HeaderValue(v);
     }
   }
 
@@ -247,15 +245,12 @@ export async function signSigV4(
   // case-sensitive, extension tokens go out verbatim, and AWS (like
   // @smithy/signature-v4 on desktop) canonicalises the received method as-is.
   // Known methods are already upper-cased by normalizeHttpMethod upstream.
-  const path = parsedUrl.pathname || '/';
   const canonicalRequest = [
     args.method,
-    creds.doubleEncodePath
-      ? path
-          .split('/')
-          .map((segment) => encodeRfc3986(segment))
-          .join('/')
-      : path,
+    canonicalSigV4Uri(
+      parsedUrl.pathname || '/',
+      creds.doubleEncodePath ?? !isS3SigningService(creds.service)
+    ),
     queryParams,
     canonicalHeaders,
     signedHeaders,
@@ -285,6 +280,87 @@ export async function signSigV4(
     'X-Amz-Content-Sha256': bodyHash,
     ...(creds.sessionToken ? { 'X-Amz-Security-Token': creds.sessionToken } : {}),
   };
+}
+
+/**
+ * Services whose SigV4 canonical URI is the request path as sent: encoded
+ * once, not normalised (S3 object keys may legitimately contain `//` or `..`).
+ * Every other AWS service normalises the path and encodes it again.
+ */
+const S3_SIGNING_SERVICES = new Set(['s3', 's3-object-lambda', 's3express']);
+
+export function isS3SigningService(service: string): boolean {
+  return S3_SIGNING_SERVICES.has(service.trim().toLowerCase());
+}
+
+/**
+ * Canonical URI for SigV4 from the wire path (`URL.pathname`, already
+ * percent-encoded once). With `doubleEncode` (every service but S3) the path
+ * is normalised — empty and `.` segments dropped, `..` resolved, a trailing
+ * slash kept — then URI-encoded again with `/` preserved; otherwise it is used
+ * as sent. This is `@smithy/signature-v4`'s `getCanonicalPath`, which the
+ * desktop signer uses, so web, desktop and CLI sign the same bytes.
+ */
+export function canonicalSigV4Uri(path: string, doubleEncode: boolean): string {
+  if (!doubleEncode) return path;
+  const segments: string[] = [];
+  for (const segment of path.split('/')) {
+    if (segment === '' || segment === '.') continue;
+    if (segment === '..') segments.pop();
+    else segments.push(segment);
+  }
+  const trailing = segments.length > 0 && path.endsWith('/') ? '/' : '';
+  const normalized = `${path.startsWith('/') ? '/' : ''}${segments.join('/')}${trailing}`;
+  return encodeRfc3986(normalized).replace(/%2F/g, '/');
+}
+
+/**
+ * Canonical SigV4 header value: line breaks become spaces, runs of spaces and
+ * tabs collapse to one space, and the ends are trimmed (AWS SigV4 spec, as
+ * `@smithy/signature-v4` does).
+ */
+export function canonicalSigV4HeaderValue(value: string): string {
+  return value
+    .replace(/[\r\n]/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/^ | $/g, '');
+}
+
+/**
+ * Headers left out of the signed set: `@smithy/signature-v4`'s always-
+ * unsignable list and `proxy-*` / `sec-*`, plus ones fetch/undici may rewrite
+ * mid-flight (content-length, accept-encoding). The desktop signer passes
+ * {@link SIGV4_EXTRA_UNSIGNABLE_HEADERS} to smithy so both sign the same set.
+ */
+const SIGV4_ALWAYS_UNSIGNABLE_HEADERS = new Set([
+  'authorization',
+  'cache-control',
+  'connection',
+  'expect',
+  'from',
+  'keep-alive',
+  'max-forwards',
+  'pragma',
+  'referer',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  'user-agent',
+  'x-amzn-trace-id',
+]);
+export const SIGV4_EXTRA_UNSIGNABLE_HEADERS: ReadonlySet<string> = new Set([
+  'content-length',
+  'accept-encoding',
+]);
+
+function isUnsignableSigV4Header(lowerName: string): boolean {
+  return (
+    SIGV4_ALWAYS_UNSIGNABLE_HEADERS.has(lowerName) ||
+    SIGV4_EXTRA_UNSIGNABLE_HEADERS.has(lowerName) ||
+    lowerName.startsWith('proxy-') ||
+    lowerName.startsWith('sec-')
+  );
 }
 
 /** RFC 3986 percent-encoding (encodeURIComponent leaves !'()* unescaped). */

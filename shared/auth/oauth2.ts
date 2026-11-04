@@ -1,3 +1,5 @@
+import { SECRET_HANDLE_PLACEHOLDER } from '../secrets/secret-ref';
+
 export interface OAuth2TokenResponse {
   access_token: string;
   token_type?: string;
@@ -26,9 +28,11 @@ export interface OAuth2Error {
   error_description?: string;
 }
 
-/** Optional transport controls for a token request. Platform callers normally
- * use the global fetch implementation; security-sensitive callers can inject
- * a fetch that pins DNS and rejects redirects. */
+/** Optional transport controls for a token request. Without `fetch` the
+ * global fetch is used. The renderer injects one that sends through the app's
+ * HTTP transport (Worker / Electron IPC: SSRF guard, no CORS, no renderer CSP);
+ * security-sensitive main-side callers inject one that pins DNS and rejects
+ * redirects. */
 export interface OAuth2TokenRequestOptions {
   fetch?: typeof globalThis.fetch;
   signal?: AbortSignal;
@@ -116,11 +120,28 @@ export function assertStorableTokens(tokens: {
   }
 }
 
+/**
+ * A masked placeholder is what the renderer reads for a secret it may not see
+ * (a keychain handle or external reference, ADR-0007). It must never reach a
+ * token endpoint as a client secret, password or refresh token.
+ */
+function assertNoMaskedSecret(params: Record<string, string>): void {
+  for (const value of Object.values(params)) {
+    if (value === SECRET_HANDLE_PLACEHOLDER) {
+      throw new OAuth2TokenError(
+        'secret_unavailable',
+        'A secret this token request needs is stored where it cannot be read here (desktop keychain or external vault), so the request was not sent.'
+      );
+    }
+  }
+}
+
 async function postToken(
   tokenUrl: string,
   params: Record<string, string>,
   options: OAuth2TokenRequestOptions = {}
 ): Promise<OAuth2TokenResponse> {
+  assertNoMaskedSecret(params);
   const body = new URLSearchParams(params).toString();
   const response = await (options.fetch ?? globalThis.fetch)(tokenUrl, {
     method: 'POST',
@@ -166,7 +187,10 @@ export async function fetchClientCredentialsToken(
   return postToken(config.tokenUrl, params, options);
 }
 
-export async function fetchPasswordToken(config: OAuth2FlowConfig): Promise<OAuth2TokenResponse> {
+export async function fetchPasswordToken(
+  config: OAuth2FlowConfig,
+  options?: OAuth2TokenRequestOptions
+): Promise<OAuth2TokenResponse> {
   if (!config.username || !config.password) {
     throw new Error('Username and password are required for password grant');
   }
@@ -179,7 +203,7 @@ export async function fetchPasswordToken(config: OAuth2FlowConfig): Promise<OAut
   if (config.clientSecret) params.client_secret = config.clientSecret;
   if (config.scope) params.scope = config.scope;
 
-  return postToken(config.tokenUrl, params);
+  return postToken(config.tokenUrl, params, options);
 }
 
 // PKCE helpers
@@ -228,7 +252,8 @@ export async function buildAuthorizationUrl(
 export async function exchangeCodeForToken(
   config: OAuth2FlowConfig,
   code: string,
-  codeVerifier: string
+  codeVerifier: string,
+  options?: OAuth2TokenRequestOptions
 ): Promise<OAuth2TokenResponse> {
   if (!config.redirectUri) throw new Error('Redirect URI is required');
 
@@ -241,7 +266,7 @@ export async function exchangeCodeForToken(
   };
   if (config.clientSecret) params.client_secret = config.clientSecret;
 
-  return postToken(config.tokenUrl, params);
+  return postToken(config.tokenUrl, params, options);
 }
 
 export interface DeviceCodeResponse {
@@ -253,7 +278,10 @@ export interface DeviceCodeResponse {
   interval?: number;
 }
 
-export async function fetchDeviceCode(config: OAuth2FlowConfig): Promise<DeviceCodeResponse> {
+export async function fetchDeviceCode(
+  config: OAuth2FlowConfig,
+  options: OAuth2TokenRequestOptions = {}
+): Promise<DeviceCodeResponse> {
   // RFC 8628 §3.1 requires a dedicated device_authorization_url published in server metadata.
   // A string-replace on tokenUrl is a heuristic that breaks for non-standard paths.
   if (!config.deviceAuthorizationUrl) {
@@ -264,10 +292,11 @@ export async function fetchDeviceCode(config: OAuth2FlowConfig): Promise<DeviceC
   if (config.scope) params.scope = config.scope;
 
   const body = new URLSearchParams(params).toString();
-  const response = await fetch(config.deviceAuthorizationUrl, {
+  const response = await (options.fetch ?? globalThis.fetch)(config.deviceAuthorizationUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body,
+    ...(options.signal ? { signal: options.signal } : {}),
   });
 
   if (!response.ok) {
@@ -281,7 +310,8 @@ export async function pollForDeviceToken(
   config: OAuth2FlowConfig,
   deviceCode: string,
   intervalSeconds = 5,
-  maxAttempts = 60
+  maxAttempts = 60,
+  options?: OAuth2TokenRequestOptions
 ): Promise<OAuth2TokenResponse> {
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((r) => setTimeout(r, intervalSeconds * 1000));
@@ -293,7 +323,7 @@ export async function pollForDeviceToken(
     };
 
     try {
-      return await postToken(config.tokenUrl, params);
+      return await postToken(config.tokenUrl, params, options);
     } catch (err) {
       // RFC 8628 §3.5 — keep polling on these two codes; any other error is terminal
       if (
@@ -315,6 +345,8 @@ export interface RefreshTokenConfig {
   refreshToken: string;
   clientSecret?: string;
   scope?: string;
+  /** Transport for the token request (see {@link OAuth2TokenRequestOptions.fetch}). */
+  fetch?: typeof globalThis.fetch;
 }
 
 export async function fetchRefreshToken(
@@ -328,7 +360,10 @@ export async function fetchRefreshToken(
   };
   if (config.clientSecret) params.client_secret = config.clientSecret;
   if (config.scope) params.scope = config.scope;
-  return postToken(config.tokenUrl, params, signal ? { signal } : {});
+  return postToken(config.tokenUrl, params, {
+    ...(config.fetch ? { fetch: config.fetch } : {}),
+    ...(signal ? { signal } : {}),
+  });
 }
 
 export function tokenExpiresAt(nowMs: number, expiresInSeconds?: number): number | undefined {

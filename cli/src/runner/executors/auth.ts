@@ -1,3 +1,4 @@
+import { encodeBasicCredentials } from '@shared/auth/basic-credentials';
 import { fetchClientCredentialsToken, tokenExpiresAt } from '@shared/auth/oauth2';
 import { buildAuthCredential, type CredentialHost } from '@shared/protocol/request-spec';
 import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/types';
@@ -56,7 +57,7 @@ export function secretString(v: unknown): string | undefined {
 const CLI_CREDENTIAL_HOST: CredentialHost = {
   // The CLI has nothing to defer to: `secretString` reads the value or throws.
   readSecret: secretString,
-  encodeBasic: (credentials) => Buffer.from(credentials).toString('base64'),
+  encodeBasic: encodeBasicCredentials,
 };
 
 /**
