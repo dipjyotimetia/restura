@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { BodyType, FormDataItem } from '../types';
 import {
+  appendQueryPairs,
   applyBodyDefaultHeaders,
   buildAuthCredential,
   buildProxyBody,
@@ -22,6 +23,20 @@ const host: CredentialHost = {
   },
   encodeBasic: (credentials) => `b64(${credentials})`,
 };
+
+describe('appendQueryPairs', () => {
+  it('escapes braces so an unresolved {{var}} goes out encoded, as Newman sends it', () => {
+    expect(appendQueryPairs('https://x.test/r', [['only', '{{only}}']])).toBe(
+      'https://x.test/r?only=%7B%7Bonly%7D%7D'
+    );
+  });
+
+  it('keeps +, existing escapes and : , / as typed', () => {
+    expect(appendQueryPairs('https://x.test/r', [['q', 'a+b%2Bc:d,e/f']])).toBe(
+      'https://x.test/r?q=a+b%2Bc:d,e/f'
+    );
+  });
+});
 
 describe('rows', () => {
   it('sends a row only when enabled is truthy and it has a key', () => {

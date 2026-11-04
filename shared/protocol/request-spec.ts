@@ -93,13 +93,17 @@ export function collectEnabledHeaders<T extends { enabled?: boolean; key: string
  * start an escape. `+`, `:`, `,`, `/`, `@`, `?` and existing `%XX` escapes go
  * out as typed (Postman behaviour). What WHATWG URL serialization still must
  * escape (space, quotes, `<`, `>`, non-ASCII) is left to the proxy's `new URL()`,
- * which encodes space as `%20` — never `+`.
+ * which encodes space as `%20` — never `+`. `{` and `}` are escaped too: they
+ * are not valid in a query (RFC 3986) and WHATWG URL leaves them raw, so an
+ * unresolved `{{var}}` goes out as `%7B%7Bvar%7D%7D`, as Newman sends it.
  */
 export function encodeQueryComponent(text: string, isKey: boolean): string {
   const out = text
     .replace(/%(?![0-9A-Fa-f]{2})/g, '%25')
     .replace(/&/g, '%26')
-    .replace(/#/g, '%23');
+    .replace(/#/g, '%23')
+    .replace(/\{/g, '%7B')
+    .replace(/\}/g, '%7D');
   return isKey ? out.replace(/=/g, '%3D') : out;
 }
 
