@@ -66,9 +66,18 @@ const OPEN_AS = MODES_IN_MENU_ORDER.map((mode) => ({ mode, ...MODE_DESCRIPTORS[m
 // somewhere. Several request types pre-fill a non-empty echo URL rather than
 // starting blank, so "has a URL" alone can't signal user intent — compare
 // against that type's own default URL instead, and only swap once it diverges.
-function tabDisplayName(request: { name: string; url?: string }): string {
+//
+// Connection-mode tabs (WebSocket, Socket.IO, Kafka, MQTT) ride a default HTTP
+// placeholder request named "New Request"; title them after their mode
+// ("New WebSocket Request"), matching "New SSE Request" / "New gRPC Request".
+function tabDisplayName(tab: Pick<RequestTab, 'request' | 'modeOverride'>): string {
+  const { request } = tab;
   const name = request.name.trim();
   if (!name || !DEFAULT_REQUEST_NAMES.has(name)) return name || 'New Request';
+  const mode = tab.modeOverride;
+  if (name === 'New Request' && mode && isConnectionMode(mode)) {
+    return `New ${MODE_DESCRIPTORS[mode].label} Request`;
+  }
   const url = request.url?.trim() ?? '';
   const defaultUrl = DEFAULT_REQUEST_URLS.get(name) ?? '';
   if (url && url !== defaultUrl) {
@@ -283,7 +292,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
           {tabs.map((tab) => {
             const isActive = tab.id === activeTabId;
             const isRenaming = tab.id === renamingTabId;
-            const displayName = tabDisplayName(tab.request);
+            const displayName = tabDisplayName(tab);
             const saveBlockedReason = saveToCollectionBlockedReason(tab);
 
             return (
@@ -561,7 +570,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Close “{pendingTab ? tabDisplayName(pendingTab.request) : ''}”?
+              Close “{pendingTab ? tabDisplayName(pendingTab) : ''}”?
             </AlertDialogTitle>
             <AlertDialogDescription>
               This request has unsaved changes that will be lost if you close it.
@@ -624,7 +633,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                 <p>These requests have unsaved changes that will be lost if you close them:</p>
                 <ul className="mt-2 list-disc pl-5">
                   {bulkDirtyTabs.map((t) => (
-                    <li key={t.id}>{tabDisplayName(t.request)}</li>
+                    <li key={t.id}>{tabDisplayName(t)}</li>
                   ))}
                 </ul>
               </div>

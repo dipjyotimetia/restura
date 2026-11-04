@@ -1,5 +1,5 @@
 import { FolderPlus } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { useShallow } from 'zustand/react/shallow';
@@ -55,6 +55,11 @@ interface SaveToCollectionDialogProps {
 export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToCollectionDialogProps) {
   const tab = useRequestStore((s) => s.tabs.find((t) => t.id === tabId));
   const linkTabToSavedRequest = useRequestStore((s) => s.linkTabToSavedRequest);
+  const renameTab = useRequestStore((s) => s.renameTab);
+  const fieldId = useId();
+  const requestNameId = `${fieldId}-request-name`;
+  const collectionFieldId = `${fieldId}-collection`;
+  const folderId = `${fieldId}-folder`;
   const { collections, addItemToCollection, createNewCollection, addCollection } =
     useCollectionStore(
       useShallow((s) => ({
@@ -172,6 +177,10 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
         toast.error('Saved without credentials — re-enter them after opening the preset');
       });
     }
+    // The open tab now IS the saved request: carry the saved name onto it so
+    // the tab strip shows that name (a default-named tab would otherwise keep
+    // displaying its URL). Rename first — linking clears the dirty flag.
+    renameTab(tabId, effectiveRequestName);
     linkTabToSavedRequest(tabId, itemId);
     onOpenChange(false);
   };
@@ -198,8 +207,11 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
             </p>
           )}
           <div className="space-y-1.5">
-            <Label className="text-xs">Request name</Label>
+            <Label htmlFor={requestNameId} className="text-xs">
+              Request name
+            </Label>
             <Input
+              id={requestNameId}
               value={requestName}
               onChange={(e) => setRequestName(e.target.value)}
               className="h-8 text-sm"
@@ -214,7 +226,9 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs">Collection</Label>
+            <Label htmlFor={collectionFieldId} className="text-xs">
+              Collection
+            </Label>
             {collections.length > 0 && (
               <div className="flex gap-2 mb-2">
                 <Button
@@ -241,7 +255,7 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
 
             {effectiveMode === 'existing' ? (
               <Select value={selectedCollectionId} onValueChange={setSelectedCollectionId}>
-                <SelectTrigger className="h-8 text-sm">
+                <SelectTrigger id={collectionFieldId} className="h-8 text-sm">
                   <SelectValue placeholder="Choose a collection…" />
                 </SelectTrigger>
                 <SelectContent>
@@ -254,6 +268,7 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
               </Select>
             ) : (
               <Input
+                id={collectionFieldId}
                 value={newCollectionName}
                 onChange={(e) => setNewCollectionName(e.target.value)}
                 className="h-8 text-sm"
@@ -270,9 +285,11 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
 
           {effectiveMode === 'existing' && folders.length > 0 && (
             <div className="space-y-1.5">
-              <Label className="text-xs">Folder (optional)</Label>
+              <Label htmlFor={folderId} className="text-xs">
+                Folder (optional)
+              </Label>
               <Select value={selectedFolderId} onValueChange={setSelectedFolderId}>
-                <SelectTrigger className="h-8 text-sm">
+                <SelectTrigger id={folderId} className="h-8 text-sm">
                   <SelectValue placeholder="Collection root" />
                 </SelectTrigger>
                 <SelectContent>

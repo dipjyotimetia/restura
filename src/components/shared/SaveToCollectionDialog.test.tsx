@@ -108,4 +108,48 @@ describe('SaveToCollectionDialog', () => {
     expect(useCollectionStore.getState().collections[0]?.items).toHaveLength(1);
     expect(useRequestStore.getState().tabs[0]?.savedRequestId).toBeDefined();
   });
+
+  it('associates every field label with its control', () => {
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c1',
+          name: 'APIs',
+          items: [{ id: 'f1', name: 'Users', type: 'folder', items: [] }],
+        },
+      ] as never,
+    });
+    const tabId = useRequestStore.getState().createNewRequest('http');
+    render(<SaveToCollectionDialog tabId={tabId} open onOpenChange={() => {}} />);
+    expect(screen.getByLabelText('Request name')).toHaveValue('New Request');
+    // The collection picker is a Radix Select trigger (role combobox).
+    expect(screen.getByLabelText('Collection')).toHaveAttribute('role', 'combobox');
+  });
+
+  it('labels the new-collection name input', async () => {
+    const user = userEvent.setup();
+    const tabId = useRequestStore.getState().createNewRequest('http');
+    render(<SaveToCollectionDialog tabId={tabId} open onOpenChange={() => {}} />);
+    await user.type(screen.getByLabelText('Collection'), 'APIs');
+    expect(screen.getByLabelText('Collection')).toHaveValue('APIs');
+  });
+
+  it('renames the open tab to the saved name, so the tab shows it instead of the URL', async () => {
+    const user = userEvent.setup();
+    const tabId = useRequestStore.getState().createNewRequest('http');
+    useRequestStore.getState().updateRequestForTab(tabId, {
+      method: 'PUT',
+      url: 'https://api.example.com/items/1',
+    });
+    render(<SaveToCollectionDialog tabId={tabId} open onOpenChange={() => {}} />);
+    await user.clear(screen.getByLabelText('Request name'));
+    await user.type(screen.getByLabelText('Request name'), 'My Saved PUT');
+    await user.type(screen.getByPlaceholderText('New collection name'), 'APIs');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    const tab = useRequestStore.getState().tabs.find((t) => t.id === tabId);
+    expect(tab?.request.name).toBe('My Saved PUT');
+    expect(tab?.isDirty).toBe(false);
+    expect(tab?.savedRequestId).toBe(useCollectionStore.getState().collections[0]?.items[0]?.id);
+  });
 });
