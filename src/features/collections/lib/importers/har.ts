@@ -345,7 +345,12 @@ function toHttpRequest(
     type: 'http',
     method: coerceHttpMethod(exchange.method, requestName, warnings),
     url: exchange.url,
-    headers,
+    // A rebuilt multipart body gets a fresh boundary from the runtime; the
+    // captured `multipart/form-data; boundary=…` header would contradict it.
+    headers:
+      body.type === 'form-data'
+        ? headers.filter((header) => header.key.toLowerCase() !== 'content-type')
+        : headers,
     params: [],
     body,
     auth: { type: 'none' },
