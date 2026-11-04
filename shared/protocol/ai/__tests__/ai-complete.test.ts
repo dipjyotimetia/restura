@@ -165,6 +165,29 @@ describe('runToCompletion — a stream cut off before the provider finished', ()
     expect(res.toolCalls).toEqual([]);
   });
 
+  it('keeps a Gemini thoughtSignature on the drained tool call', async () => {
+    const res = await runToCompletion(
+      makeSpec({ provider: 'gemini', model: 'gemini-2.5-flash' }),
+      fakeFetcher(
+        textStream(
+          sse({
+            candidates: [
+              {
+                content: {
+                  parts: [{ functionCall: { name: 'f', args: {} }, thoughtSignature: 'c2lnLTI=' }],
+                },
+                finishReason: 'STOP',
+              },
+            ],
+          })
+        )
+      ),
+      async () => 'g-key'
+    );
+    expect(res.ok).toBe(true);
+    expect(res.toolCalls[0]).toMatchObject({ name: 'f', thoughtSignature: 'c2lnLTI=' });
+  });
+
   it('an openai stream that ends at finish_reason without DONE still succeeds', async () => {
     const res = await runToCompletion(
       makeSpec(),

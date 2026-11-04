@@ -121,7 +121,7 @@ describe('Gemini route (#1044)', () => {
     ]);
   });
 
-  it('captures a function call’s thoughtSignature and replays it on the next turn', async () => {
+  it('captures a function call’s thoughtSignature and replays it on the next turn', () => {
     const events = decode('gemini', [
       JSON.stringify({
         candidates: [
@@ -172,29 +172,6 @@ describe('Gemini route (#1044)', () => {
         },
       ],
     });
-
-    // runToCompletion keeps it on the drained tool call.
-    const { runToCompletion } = await import('@shared/protocol/ai/ai-complete');
-    const body = `data: ${JSON.stringify({
-      candidates: [
-        {
-          content: {
-            parts: [{ functionCall: { name: 'f', args: {} }, thoughtSignature: 'c2lnLTI=' }],
-          },
-          finishReason: 'STOP',
-        },
-      ],
-    })}\n\n`;
-    const fetcher: Fetcher = vi.fn(async () => ({
-      status: 200,
-      statusText: 'OK',
-      headers: new Headers(),
-      body: new Response(body).body,
-      contentLengthHeader: null,
-      text: async () => body,
-    }));
-    const res = await runToCompletion(spec('gemini'), fetcher, async () => 'g-key');
-    expect(res.toolCalls[0]).toMatchObject({ name: 'f', thoughtSignature: 'c2lnLTI=' });
   });
 
   it('surfaces a blocked prompt as a provider error', () => {

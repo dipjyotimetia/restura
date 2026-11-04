@@ -300,7 +300,7 @@ const sendRequest: ToolImpl<ControlToolInput<'send_request'>> = (input, env) => 
   ).find((r) => r.itemId === located.item.id);
   const auth = runnable
     ? effectiveAuth(runnable)
-    : { type: req.auth?.type ?? 'none', inherited: false };
+    : { type: ('auth' in req && req.auth?.type) || 'none', inherited: false };
 
   return {
     title: `Send “${located.item.name}”`,
