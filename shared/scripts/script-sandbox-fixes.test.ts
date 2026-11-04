@@ -247,7 +247,7 @@ describe('failed assertions are not script errors', () => {
 });
 
 describe('runScriptPhase absorb applies unsets', () => {
-  it('pm.environment.unset and pm.variables.unset remove the key for this request', async () => {
+  it('pm.environment.unset removes the key for this request; pm.variables.unset leaves the environment value (Postman)', async () => {
     const into: Record<string, string> = { token: 'OLD', other: 'O', keep: 'K' };
     await runScriptPhase({
       phase: 'prerequest',
@@ -256,6 +256,6 @@ describe('runScriptPhase absorb applies unsets', () => {
       host: NO_SCRIPT_HOST,
       absorb: { into, variables: 'always' },
     });
-    expect(into).toEqual({ keep: 'K' });
+    expect(into).toEqual({ other: 'O', keep: 'K' });
   });
 });

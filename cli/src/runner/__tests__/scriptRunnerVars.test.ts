@@ -5,7 +5,8 @@ import { runPreRequestScript, type ScriptRunContext } from '../scriptRunner';
 /**
  * The variables a CLI pre-request script leaves for the request it precedes
  * must match the app's (`runScriptPhase` absorb): collection writes take part
- * in substitution, and unsets remove the key.
+ * in substitution, and pm.environment.unset removes the key (pm.variables.unset
+ * only clears the script-local value, as in Postman).
  */
 
 const item = {
@@ -43,14 +44,14 @@ describe('CLI pre-request script variables (app parity)', () => {
     expect(pre.variables.token).toBe('abc');
   });
 
-  it('pm.environment.unset and pm.variables.unset remove the key for this request', async () => {
+  it('pm.environment.unset removes the key for this request; pm.variables.unset keeps the env value', async () => {
     const pre = await runPreRequestScript(
       "pm.environment.unset('token'); pm.variables.unset('other');",
       item,
       { token: 'OLD', other: 'O', keep: 'K' },
       ctx()
     );
-    expect(pre.variables).toEqual({ keep: 'K' });
+    expect(pre.variables).toEqual({ other: 'O', keep: 'K' });
   });
 
   it('pm.sendRequest is defined in the CLI and rejects with a clear error', async () => {
