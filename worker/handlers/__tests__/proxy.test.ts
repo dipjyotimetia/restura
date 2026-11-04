@@ -68,6 +68,27 @@ describe('proxy handler', () => {
     });
   });
 
+  it("reports each redirect hop's cookies with the URL that set them", async () => {
+    const first = new Headers({ location: 'https://example.com/home' });
+    first.append('Set-Cookie', 'sid=abc; Path=/');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: first }))
+      .mockResolvedValueOnce(new Response('home', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await makeRequest({ method: 'GET', url: 'https://example.com/login' });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      finalUrl?: string;
+      cookieHops?: Array<{ url: string; setCookies: string[] }>;
+    };
+    expect(json.finalUrl).toBe('https://example.com/home');
+    expect(json.cookieHops).toEqual([
+      { url: 'https://example.com/login', setCookies: ['sid=abc; Path=/'] },
+    ]);
+  });
+
   it('returns every upstream Set-Cookie as its own setCookies entry (#855)', async () => {
     const cookies = [
       'session=abc; Path=/; HttpOnly',

@@ -180,6 +180,10 @@ export interface HttpResponse {
   headers: Record<string, string | string[]>;
   /** Every Set-Cookie field, one entry each (RFC 6265 §3 — never folded). */
   setCookies?: string[];
+  /** URL the followed redirect chain ended on (only when a redirect was followed). */
+  finalUrl?: string;
+  /** Set-Cookie fields of every hop, each with the URL that set them. */
+  cookieHops?: Array<{ url: string; setCookies: string[] }>;
   data: unknown;
   /** Decoded byte size of the response body. */
   size?: number;
@@ -766,6 +770,8 @@ async function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse>
         : tryParseJson(result.response.body),
     size: result.response.size,
     ...(result.response.setCookies && { setCookies: result.response.setCookies }),
+    ...(result.response.finalUrl && { finalUrl: result.response.finalUrl }),
+    ...(result.response.cookieHops && { cookieHops: result.response.cookieHops }),
     ...(result.response.bodyEncoding && { bodyEncoding: result.response.bodyEncoding }),
     ...(result.response.negotiatedAlpn && { negotiatedAlpn: result.response.negotiatedAlpn }),
     ...(result.response.bodyNotice && { bodyNotice: result.response.bodyNotice }),

@@ -341,6 +341,10 @@ export function createProxyHandler(
       // Set-Cookie can't be folded (RFC 6265 §3) and browsers can't read it off
       // this response anyway (forbidden response header) — ship the list in the body.
       ...(result.response.setCookies ? { setCookies: result.response.setCookies } : {}),
+      // Per-hop cookies of a followed redirect, so the jar stores each against
+      // the URL that set it.
+      ...(result.response.finalUrl ? { finalUrl: result.response.finalUrl } : {}),
+      ...(result.response.cookieHops ? { cookieHops: result.response.cookieHops } : {}),
       data: result.response.body,
       size: result.response.size,
       ...(result.response.bodyEncoding ? { bodyEncoding: result.response.bodyEncoding } : {}),
