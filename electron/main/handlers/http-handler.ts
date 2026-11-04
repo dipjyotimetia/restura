@@ -47,7 +47,7 @@ import {
 } from '../security/execution-policy';
 import { materializeHttpAuth, requiredSecretResolver } from '../security/http-auth-materializer';
 import { isProxyBypassed } from '../security/proxy-bypass';
-import { unwrapSecretValueMain } from '../security/secret-handle-store';
+import { requireSecretValueMain } from '../security/required-secret';
 import { materializeSecretVariables } from '../security/secret-variable-materializer';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import {
@@ -427,7 +427,12 @@ export function buildElectronFetcher(
           // requestTls applies to the upstream TLS handshake — that's where mTLS and ALPN matter.
           requestTls: { ...connectOpts, ...versionTls } as ProxyAgent.Options['requestTls'],
         };
-        const proxyPassword = unwrapSecretValueMain(electronConfig.proxy.auth?.password);
+        // A configured password whose keychain handle is gone fails the request —
+        // never send to the proxy without the credential.
+        const proxyPassword = requireSecretValueMain(
+          electronConfig.proxy.auth?.password,
+          'Proxy password'
+        );
         if (electronConfig.proxy.auth?.username && proxyPassword) {
           const auth = Buffer.from(
             `${electronConfig.proxy.auth.username}:${proxyPassword}`
