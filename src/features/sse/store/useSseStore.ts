@@ -288,7 +288,7 @@ export const useSseStore = create<SseState>()(
               id: conn.id,
               status: 'disconnected' as const,
               log: [],
-              ...(conn.lastEventId !== undefined ? { lastEventId: conn.lastEventId } : {}),
+              // No lastEventId: it only resumes reconnects within one session.
               reconnectAttempts: 0,
               maxReconnectAttempts: conn.maxReconnectAttempts,
               reconnectDelay: conn.reconnectDelay,

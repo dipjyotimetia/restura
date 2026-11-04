@@ -84,6 +84,20 @@ describe('sseManager auto-reconnect (web)', () => {
     expect(sentHeaders(1)).toMatchObject({ 'X-A': '1', 'Last-Event-ID': '2' });
   });
 
+  it('sends no Last-Event-ID on a fresh user connect, even with a stored cursor', async () => {
+    // A cursor left by an earlier session (or restored from persistence).
+    useSseStore.getState().setLastEventId(id, '41');
+    mockExecute.mockResolvedValue(streamResponse(['id: 42\ndata: a\n\n']));
+    sseManager.connect(id, 'https://other.example.com/stream', {}, { autoReconnect: false });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sentHeaders(0)).not.toHaveProperty('Last-Event-ID');
+
+    // A second user-initiated connect starts over too.
+    sseManager.connect(id, URL_, {}, { autoReconnect: false });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sentHeaders(1)).not.toHaveProperty('Last-Event-ID');
+  });
+
   it('sends no Last-Event-ID after an empty id reset', async () => {
     mockExecute
       .mockResolvedValueOnce(streamResponse(['id: 1\ndata: a\n\nid:\n\n']))
