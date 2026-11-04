@@ -14,6 +14,7 @@ import {
   SET_COOKIE_SIDE_CHANNEL_HEADER,
   type SetCookieSource,
 } from '@shared/protocol/set-cookie';
+import { findScriptWrittenToken } from '@shared/scripts/grpc-script-metadata';
 import { applyScriptHeaderEdits } from '@shared/scripts/script-executor-request';
 import { runScriptPhase } from '@shared/scripts/script-phase';
 import {
@@ -485,6 +486,22 @@ export async function executeRequest(
       Object.assign(environmentMutations, preRequestResult.environmentMutations);
     }
     if (preRequestResult.requestHeaders) {
+      // Same rule as gRPC metadata: a script cannot put a secret-variable token
+      // into a header that was not already written there (a script string can
+      // be a server value). Nothing is sent.
+      const written = findScriptWrittenToken(
+        request.headers,
+        preRequestResult.requestHeaders,
+        (name) => options.secretNames?.includes(name) === true
+      );
+      if (written) {
+        throw new SecretVariableReferenceError(
+          'rs.request.headers',
+          written.name,
+          `"${written.key}"`,
+          'A script cannot add a secret variable to a request field.'
+        );
+      }
       requestToSend = {
         ...request,
         headers: applyScriptHeaderEdits(

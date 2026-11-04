@@ -89,7 +89,7 @@ A script that throws keeps the variable writes it made before the error, and the
 | `pm.info.requestName`, `requestId`, `iteration`, `iterationCount`, `eventName` | ✅                                    |
 | `pm.execution.location` (`collectionName`, `currentRequestName`, `folderPath`) | ✅ populated during collection runs   |
 | `pm.request.url`, `.method`, `.body` (read-only)                              | ✅ via the top-level `request` global |
-| `pm.request.headers.add/upsert/remove/get/has/all/each/toObject`              | ✅ — edits in a pre-request script are sent for HTTP and GraphQL on web, desktop and the CLI (gRPC: the same methods edit the metadata; MCP ignores header edits). Names are case-insensitive and hold one value each, so `add` of an existing name replaces it |
+| `pm.request.headers.add/upsert/remove/get/has/all/each/toObject`              | ✅ — edits in a pre-request script are sent for HTTP and GraphQL on web, desktop and the CLI (gRPC: the same methods edit the metadata; MCP ignores header edits). Names are case-insensitive and hold one value each, so `add` of an existing name replaces it. As with gRPC metadata, a script cannot add a secret-variable token to a header (the send is refused) |
 | `pm.request.metadata` (gRPC)                                                   | ✅ editable in pre-request scripts; `pm.request.headers` is the same object and edits are sent with the call |
 | `pm.response.metadata`, `pm.response.trailers` (gRPC)                          | ✅ `get/has/all/each/toObject`; raw maps on `response.headers` / `response.trailers` |
 | `pm.response.messages` (gRPC streams)                                          | ✅ `all/count/idx/each`; test scripts run once the stream ends              |

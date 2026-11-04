@@ -866,20 +866,43 @@ describe('script-written request fields', () => {
     expect(fetchSpy).toHaveBeenCalled();
   });
 
-  it('HTTP ignores request edits from a script', async () => {
+  it('HTTP ignores url / body edits from a script', async () => {
     useEnvironment([plainRow]);
     const { spec } = await send(
       request({
         preRequestScript: `
           pm.request.url = 'https://other.test/{{sec}}';
-          pm.request.headers['X-New'] = '{{sec}}';
           pm.request.body = '{{sec}}';
         `,
       })
     );
     expect(spec.url).toBe('https://api.example.com/resource');
-    expect(spec.headers['X-New']).toBeUndefined();
     expect(JSON.stringify(spec)).not.toContain('PLAINTEXT');
+  });
+
+  // Header edits are sent (Postman `pm.request.headers.add/upsert`), under the
+  // gRPC metadata rule: a script cannot add a secret token to a header.
+  it.each([
+    ['a direct write', `pm.request.headers['X-New'] = '{{sec}}';`],
+    ['add()', `pm.request.headers.add({ key: 'X-New', value: '{{sec}}' });`],
+    ['upsert() of a saved key', `pm.request.headers.upsert({ key: 'x-key', value: '{{sec}}' });`],
+  ])('HTTP refuses a secret token added to a header by a script: %s', async (_name, script) => {
+    useEnvironment([plainRow]);
+    await expect(
+      send(request({ headers: [header('plain')], preRequestScript: script }))
+    ).rejects.toThrow(/rs\.request\.headers references secret variable "sec"/);
+    expect(proxied).not.toHaveBeenCalled();
+  });
+
+  it('HTTP sends header edits that keep a saved secret token in place', async () => {
+    useEnvironment([plainRow]);
+    const { spec } = await send(
+      request({
+        headers: [header('{{sec}}')],
+        preRequestScript: `pm.request.headers.add({ key: 'X-Other', value: 'v' });`,
+      })
+    );
+    expect(spec.headers['X-Other']).toBe('v');
   });
 });
 
