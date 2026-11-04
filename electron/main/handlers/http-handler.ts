@@ -7,6 +7,7 @@ import type { FormField, ProxyBodyType } from '@shared/protocol/body-builder';
 import { selectCertForUrl } from '@shared/protocol/cert-matcher';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
+import { isProxyBypassed } from '@shared/protocol/proxy-bypass';
 import type {
   ConnectionTimings,
   Fetcher,
@@ -46,7 +47,6 @@ import {
   getExecutionPolicy,
 } from '../security/execution-policy';
 import { materializeHttpAuth, requiredSecretResolver } from '../security/http-auth-materializer';
-import { isProxyBypassed } from '../security/proxy-bypass';
 import { proxyBasicToken } from '../security/required-secret';
 import { materializeSecretVariables } from '../security/secret-variable-materializer';
 import { buildTlsClientMaterial } from '../security/tls-material';

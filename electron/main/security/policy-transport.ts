@@ -1,6 +1,6 @@
 import { selectCertForUrl } from '@shared/protocol/cert-matcher';
+import { isProxyBypassed } from '@shared/protocol/proxy-bypass';
 import { assertExecutionPolicyReady, getExecutionPolicy } from './execution-policy';
-import { isProxyBypassed } from './proxy-bypass';
 import {
   type ClosablePinnedFetch,
   createClosablePinnedFetch,
