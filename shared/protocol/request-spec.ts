@@ -55,6 +55,26 @@ export function collectEnabledRowPairs<T extends { enabled?: boolean; key: strin
 }
 
 /**
+ * Merge auth-produced headers into `headers` IN PLACE: each one replaces every
+ * existing header of the same name in any casing, so the wire carries exactly
+ * one (a user `authorization` row next to the auth tab's `Authorization` would
+ * otherwise go out as two, which fetch joins into `a, b`). One rule for every
+ * host and scheme — Bearer / Basic / API key / OAuth2 and the sign-at-wire
+ * SigV4 (`x-amz-*`) / OAuth1 / WSSE headers. Returns `headers`.
+ */
+export function mergeAuthHeaders(
+  headers: Record<string, string>,
+  authHeaders: Record<string, string>
+): Record<string, string> {
+  const replaced = new Set(Object.keys(authHeaders).map((k) => k.toLowerCase()));
+  if (replaced.size === 0) return headers;
+  for (const name of Object.keys(headers)) {
+    if (replaced.has(name.toLowerCase())) delete headers[name];
+  }
+  return Object.assign(headers, authHeaders);
+}
+
+/**
  * Sendable header rows as a map. Names match case-insensitively (the first
  * row's spelling is kept) and repeated rows are combined rather than the last
  * one winning: `Cookie` with `"; "` (RFC 6265 §5.4), everything else with

@@ -21,7 +21,7 @@ import {
 import { checkHttpMethod } from './http-method';
 import { MAX_RESPONSE_SIZE } from './proxy-limits';
 import { discardBody, RedirectPolicyError } from './redirect-follower';
-import { appendQueryPairs } from './request-spec';
+import { appendQueryPairs, mergeAuthHeaders } from './request-spec';
 import { type CookieHop, RedirectCookieChain } from './set-cookie';
 import type {
   ConnectionTimings,
@@ -252,7 +252,7 @@ export async function executeHttpProxy(
           ...(options.resolveSecret ? { resolveSecret: options.resolveSecret } : {}),
           ...(options.sigV4Signer ? { sigV4Signer: options.sigV4Signer } : {}),
         });
-        Object.assign(headers, applied.headers);
+        mergeAuthHeaders(headers, applied.headers);
         authAppliedHeaders = namesToStrip(applied.headers);
         digest = digestRetryFor(spec, options);
       } catch (err) {
@@ -501,7 +501,7 @@ export async function executeHttpProxyStreaming(
           ...(options.resolveSecret ? { resolveSecret: options.resolveSecret } : {}),
           ...(options.sigV4Signer ? { sigV4Signer: options.sigV4Signer } : {}),
         });
-        Object.assign(headers, applied.headers);
+        mergeAuthHeaders(headers, applied.headers);
         authAppliedHeaders = namesToStrip(applied.headers);
         digest = digestRetryFor(spec, options);
       } catch (err) {
