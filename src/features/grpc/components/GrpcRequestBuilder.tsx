@@ -379,7 +379,8 @@ function GrpcRequestBuilder() {
         protoFileName = 'generated.proto';
       } else if (canUseDescriptorSnapshot(grpcRequest)) {
         // Persisted reflection snapshot (reflection unreachable right now) —
-        // Electron loads descriptors directly; proto text is then unused.
+        // the descriptors encode the call (Electron, gRPC-Web, Connect streams)
+        // and gate unknown keys (web Connect unary); proto text is unused.
         descriptors = grpcRequest.schema.descriptors;
         protoContent = '';
         protoFileName = 'snapshot.proto';

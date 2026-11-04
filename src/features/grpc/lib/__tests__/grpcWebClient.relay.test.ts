@@ -107,9 +107,12 @@ describe('canUseDescriptorSnapshot', () => {
   const withDescriptors = (wireProtocol?: GrpcRequest['wireProtocol']) =>
     request({ schema: { kind: 'descriptors', descriptors: DESCRIPTORS }, wireProtocol });
 
-  it('uses reflection descriptors on the web only for gRPC-Web', () => {
+  it('uses a saved reflection snapshot on the web for gRPC-Web and Connect alike', () => {
+    // Connect unary is relayed as JSON but still runs the unknown-field check
+    // against the snapshot, and Connect server-streaming needs it to encode.
     expect(canUseDescriptorSnapshot(withDescriptors('grpc-web-text'))).toBe(true);
-    expect(canUseDescriptorSnapshot(withDescriptors(undefined))).toBe(false);
+    expect(canUseDescriptorSnapshot(withDescriptors(undefined))).toBe(true);
+    expect(canUseDescriptorSnapshot(withDescriptors('connect'))).toBe(true);
     expect(canUseDescriptorSnapshot(request())).toBe(false);
   });
 
