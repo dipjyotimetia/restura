@@ -511,7 +511,7 @@ async function runCollectionWithPool(
       rows,
       stopOnFailure,
       delayMs,
-      delayPlacement: 'after-sent',
+      delayPlacement: 'before-step-once-sent',
       signal,
     },
     beginIteration
@@ -543,7 +543,7 @@ async function runCollectionWithPool(
       usedDataFile: dataRows.length > 0,
       retention,
     },
-    outcome: signal.aborted ? 'aborted' : bailed ? 'failed' : 'completed',
+    outcome: signal.aborted && results.length < total ? 'aborted' : bailed ? 'failed' : 'completed',
     requests: results,
     summary,
   };

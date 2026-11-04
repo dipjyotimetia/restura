@@ -381,14 +381,14 @@ describe('runCollection — app sequencing pins', () => {
     expect(result.outcome).toBe('failed');
   });
 
-  it('waits delayMs after every sent request, including the last', async () => {
+  it('waits delayMs between sent requests but not after the final one', async () => {
     const started = Date.now();
     await runCollection(
-      { ...baseOptions([runnable('1', 'A')]), delayMs: 150 },
+      { ...baseOptions([runnable('1', 'A')]), delayMs: 1500 },
       noop,
       new AbortController().signal
     );
-    expect(Date.now() - started).toBeGreaterThanOrEqual(140);
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 
   it('does not wait delayMs after a skipped runnable', async () => {

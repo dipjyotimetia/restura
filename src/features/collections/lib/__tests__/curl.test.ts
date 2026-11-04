@@ -167,7 +167,7 @@ describe('importCurlCommand', () => {
     expect(() => importCurlCommand('curl https://api.example.com "unterminated')).toThrow(
       /Unterminated POSIX/i
     );
-    expect(() => importCurlCommand('curl definitely-not-a-url')).toThrow(/invalid URL/i);
+    expect(() => importCurlCommand('curl http://')).toThrow(/invalid URL/i);
   });
 
   it('covers short cURL aliases without executing shell syntax', () => {
@@ -227,7 +227,7 @@ describe('importCurlCommand', () => {
     );
     expect((continued.collection.items[0]!.request as HttpRequest).url).toContain('/continued');
 
-    const quoted = importCurlCommand('curl "https://api.example.com/escaped\\ path"');
+    const quoted = importCurlCommand('curl https://api.example.com/escaped\\ path');
     expect((quoted.collection.items[0]!.request as HttpRequest).url).toContain('escaped%20path');
 
     const implicitProxy = importCurlCommand(

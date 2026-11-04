@@ -133,6 +133,17 @@ export async function importOpenAPICollection(
   // relative server never yields an unsendable relative request URL).
   const baseUrlValue = resolveBaseUrl(api, isSwagger2, options.sourceUrl, warnings);
   const baseUrl = '{{baseUrl}}';
+  if (!isSwagger2 && (api.servers?.length ?? 0) > 1) {
+    warnings?.push({
+      kind: 'unmodelled-construct',
+      construct: 'openapi-additional-servers',
+      requestName: api.info.title,
+      detail: `Only the first server is used as baseUrl; ignored servers: ${api.servers
+        ?.slice(1)
+        .map((sv) => sv.url)
+        .join(', ')}`,
+    });
+  }
 
   const securitySchemes = isSwagger2 ? api.securityDefinitions : api.components?.securitySchemes;
   // Swagger 2 media types: an operation's `consumes` overrides the document's.
@@ -145,6 +156,9 @@ export async function importOpenAPICollection(
     items: [],
     variables: [{ id: uuidv4(), key: 'baseUrl', value: baseUrlValue, enabled: true }],
   };
+
+  const collectionVarKeys = new Set<string>(['baseUrl']);
+  const reportedSchemes = new Set<string>();
 
   const taggedOperations = new Map<string, CollectionItem[]>();
   const untaggedOperations: CollectionItem[] = [];
@@ -164,7 +178,12 @@ export async function importOpenAPICollection(
     for (const [method, operation] of methods) {
       if (!operation) continue;
 
-      const allParams = [...(pathItem.parameters || []), ...(operation.parameters || [])];
+      // Operation-level params override path-level ones with the same (in, name).
+      const merged = new Map<string, OpenAPIParameter>();
+      for (const p of [...(pathItem.parameters || []), ...(operation.parameters || [])]) {
+        merged.set(`${p.in}:${p.name}`, p);
+      }
+      const allParams = [...merged.values()];
       const opName = operation.summary || operation.operationId || `${method} ${path}`;
       const request = convertOpenAPIOperation(
         path,
@@ -179,10 +198,23 @@ export async function importOpenAPICollection(
           // explicit `security: []` opts the operation out of auth.
           security: operation.security ?? api.security,
           consumes: operation.consumes ?? documentConsumes,
+          warnings,
+          reportedSchemes,
         },
         securitySchemes,
         isSwagger2 ? api.definitions : api.components?.schemas
       );
+
+      for (const p of allParams) {
+        if (p.in !== 'path' || collectionVarKeys.has(p.name)) continue;
+        collectionVarKeys.add(p.name);
+        collection.variables?.push({
+          id: uuidv4(),
+          key: p.name,
+          value: paramValue(p),
+          enabled: true,
+        });
+      }
 
       const item: CollectionItem = {
         id: uuidv4(),
@@ -218,6 +250,8 @@ function convertOpenAPIOperation(
   inherited: {
     security: OpenAPIOperation['security'];
     consumes: string[] | undefined;
+    warnings?: ImportWarning[] | undefined;
+    reportedSchemes?: Set<string>;
   },
   securitySchemes?: Record<string, OpenAPISecurityScheme>,
   schemas?: Record<string, OpenAPISchema>
@@ -268,6 +302,34 @@ function convertOpenAPIOperation(
     headers.push({ id: uuidv4(), key: 'Content-Type', value: contentType, enabled: true });
   }
 
+  const converted = convertOpenAPISecurity(
+    inherited.security,
+    securitySchemes,
+    (construct, detail) => {
+      if (!inherited.warnings || inherited.reportedSchemes?.has(construct)) return;
+      inherited.reportedSchemes?.add(construct);
+      inherited.warnings.push({
+        kind: 'unmodelled-construct',
+        construct,
+        requestName: operation.summary || operation.operationId || `${method} ${path}`,
+        detail,
+      });
+    }
+  );
+  const auth = converted.auth;
+  if (converted.cookie) {
+    const existing = headers.find((h) => h.key.toLowerCase() === 'cookie');
+    if (existing) existing.value = `${existing.value}; ${converted.cookie}`;
+    else
+      headers.push({
+        id: uuidv4(),
+        key: 'Cookie',
+        value: converted.cookie,
+        enabled: true,
+        description: 'API key cookie',
+      });
+  }
+
   return {
     id: uuidv4(),
     name: operation.summary || operation.operationId || `${method} ${path}`,
@@ -277,8 +339,18 @@ function convertOpenAPIOperation(
     headers,
     params: convertOpenAPIParams(queryParams),
     body,
-    auth: convertOpenAPISecurity(inherited.security, securitySchemes),
+    auth,
   };
+}
+
+function paramValue(param: OpenAPIParameter): string {
+  return (
+    param.schema?.example?.toString() ||
+    param.example?.toString() ||
+    param.schema?.default?.toString() ||
+    param.default?.toString() ||
+    ''
+  );
 }
 
 function convertOpenAPIParams(params: OpenAPIParameter[]): KeyValue[] {
@@ -352,10 +424,15 @@ function convertOpenAPIBody(
     if (jsonMediaType) {
       const mediaType = jsonMediaType;
       const example =
-        mediaType.example ||
-        (mediaType.examples && Object.values(mediaType.examples)[0]?.value) ||
-        generateExampleFromSchema(mediaType.schema, schemas);
-      return { type: 'json', raw: example ? JSON.stringify(example, null, 2) : '' };
+        mediaType.example !== undefined
+          ? mediaType.example
+          : mediaType.examples && Object.values(mediaType.examples)[0]?.value !== undefined
+            ? Object.values(mediaType.examples)[0]?.value
+            : generateExampleFromSchema(mediaType.schema, schemas);
+      return {
+        type: 'json',
+        raw: example !== undefined ? (JSON.stringify(example, null, 2) ?? '') : '',
+      };
     }
 
     const xmlMediaType = byEssence('application/xml', 'text/xml');
@@ -589,45 +666,64 @@ function exampleForSchema(
 
 function convertOpenAPISecurity(
   security?: Array<Record<string, string[]>>,
-  securitySchemes?: Record<string, OpenAPISecurityScheme>
-): AuthConfig {
-  if (!security?.length || !securitySchemes) return { type: 'none' };
+  securitySchemes?: Record<string, OpenAPISecurityScheme>,
+  onUnmapped?: (construct: string, detail: string) => void
+): { auth: AuthConfig; cookie?: string } {
+  const none = { auth: { type: 'none' } as AuthConfig };
+  if (!security?.length || !securitySchemes) return none;
 
   const securityReq = security[0];
-  if (!securityReq) return { type: 'none' };
+  if (!securityReq) return none;
 
   const schemeName = Object.keys(securityReq)[0];
-  if (!schemeName) return { type: 'none' };
+  if (!schemeName) return none;
 
   const scheme = securitySchemes[schemeName];
   const scopes = securityReq[schemeName];
-  if (!scheme) return { type: 'none' };
+  if (!scheme) return none;
 
+  const httpScheme = scheme.scheme?.toLowerCase();
   switch (scheme.type) {
     case 'http':
-      if (scheme.scheme === 'basic')
-        return { type: 'basic', basic: { username: '', password: '' } };
-      if (scheme.scheme === 'bearer') return { type: 'bearer', bearer: { token: '' } };
-      if (scheme.scheme === 'digest')
-        return { type: 'digest', digest: { username: '', password: '' } };
+      if (httpScheme === 'basic')
+        return { auth: { type: 'basic', basic: { username: '', password: '' } } };
+      if (httpScheme === 'bearer') return { auth: { type: 'bearer', bearer: { token: '' } } };
+      if (httpScheme === 'digest')
+        return { auth: { type: 'digest', digest: { username: '', password: '' } } };
+      onUnmapped?.(
+        `openapi-security-http-${httpScheme ?? 'unknown'}`,
+        `Security scheme "${schemeName}" uses unsupported HTTP auth scheme "${scheme.scheme ?? ''}"; auth left unset`
+      );
       break;
     case 'apiKey':
+      if (scheme.in === 'cookie') {
+        return { auth: { type: 'none' }, cookie: `${scheme.name || ''}=` };
+      }
       return {
-        type: 'api-key',
-        apiKey: {
-          key: scheme.name || '',
-          value: '',
-          in: scheme.in === 'query' ? 'query' : 'header',
+        auth: {
+          type: 'api-key',
+          apiKey: {
+            key: scheme.name || '',
+            value: '',
+            in: scheme.in === 'query' ? 'query' : 'header',
+          },
         },
       };
     case 'oauth2':
       return {
-        type: 'oauth2',
-        oauth2: { accessToken: '', scopes: scopes?.length ? scopes : undefined },
+        auth: {
+          type: 'oauth2',
+          oauth2: { accessToken: '', scopes: scopes?.length ? scopes : undefined },
+        },
       };
     case 'basic':
-      return { type: 'basic', basic: { username: '', password: '' } };
+      return { auth: { type: 'basic', basic: { username: '', password: '' } } };
+    default:
+      onUnmapped?.(
+        `openapi-security-${String(scheme.type)}`,
+        `Security scheme "${schemeName}" of type "${String(scheme.type)}" has no Restura equivalent (e.g. openIdConnect); auth left unset`
+      );
   }
 
-  return { type: 'none' };
+  return none;
 }

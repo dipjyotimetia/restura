@@ -34,6 +34,7 @@ import { TabsContent } from '@/components/ui/tabs';
 import { cn } from '@/lib/shared/utils';
 import type { Collection, MockServerStatus } from '@/types';
 import { addSampleCollection } from '../lib/addSampleCollection';
+import { countRequests } from '../lib/countRequests';
 import {
   CollectionTreeItems,
   handleTreeKeyDown,
@@ -218,7 +219,7 @@ export function SidebarCollectionsPanel({
                         )}
                         <FileStatusBadge collectionId={collection.id} />
                         <span className="ml-auto shrink-0 text-sp-11 tabular-nums text-sp-dim">
-                          {collection.items.length}
+                          {countRequests(collection.items)}
                         </span>
                       </div>
                     </div>

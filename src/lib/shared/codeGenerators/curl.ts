@@ -3,7 +3,7 @@ import {
   type GenerateOptions,
   proxyUrlOf,
   shellMethodWord,
-  urlWithVariables,
+  urlWithParams,
 } from './types';
 
 export const generateCurl = (options: GenerateOptions): string => {
@@ -14,10 +14,7 @@ export const generateCurl = (options: GenerateOptions): string => {
   const urlStr = resolvedUrl || 'https://api.example.com';
   try {
     const url = new URL(urlStr);
-    Object.entries(resolvedParams).forEach(([key, value]) => {
-      url.searchParams.append(key, value);
-    });
-    curl += ` ${escapeShell(urlWithVariables(url))}`;
+    curl += ` ${escapeShell(urlWithParams(url, resolvedParams))}`;
   } catch {
     curl += ` ${escapeShell(urlStr)}`;
   }

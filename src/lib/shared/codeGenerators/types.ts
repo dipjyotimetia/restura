@@ -120,3 +120,20 @@ export const urlWithVariables = (url: URL): string =>
   url
     .toString()
     .replace(/%7B%7B(.*?)%7D%7D/gi, (_m, name: string) => `{{${decodeURIComponent(name)}}}`);
+
+/**
+ * `url` with `params` appended to its query. The query already on the URL is
+ * kept byte-for-byte: `url.searchParams.append` would re-serialise all of it
+ * (`%20` -> `+`, normalising escapes).
+ */
+export const urlWithParams = (url: URL, params: Record<string, string>): string => {
+  const entries = Object.entries(params);
+  if (entries.length === 0) return urlWithVariables(url);
+  const href = url.toString();
+  const hashAt = href.indexOf('#');
+  const base = hashAt === -1 ? href : href.slice(0, hashAt);
+  const hash = hashAt === -1 ? '' : href.slice(hashAt);
+  const extra = new URLSearchParams(entries).toString();
+  const joiner = !base.includes('?') ? '?' : base.endsWith('?') || base.endsWith('&') ? '' : '&';
+  return urlWithVariables(new URL(`${base}${joiner}${extra}${hash}`));
+};
