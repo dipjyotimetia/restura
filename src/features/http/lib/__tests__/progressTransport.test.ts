@@ -87,6 +87,20 @@ describe('executeProxiedRequestWithProgress — web', () => {
     expect(atob(out.data as string)).toBe('--b\r\n\r\n{}\r\n--b--');
   });
 
+  it('decodes a text body with its declared charset', async () => {
+    streamingMock.mockResolvedValue(
+      new Response(new Uint8Array([0x63, 0x61, 0x66, 0xe9]), {
+        status: 200,
+        headers: {
+          'content-type': 'text/plain; charset=iso-8859-1',
+          'x-restura-proxy-stream': '1',
+        },
+      })
+    );
+    const out = await executeProxiedRequestWithProgress(SPEC, () => undefined);
+    expect(out.data).toBe('café');
+  });
+
   const proxyHeader = { 'x-restura-proxy': '1' };
 
   it('turns a current proxy’s own (unmarked) reply into a ProxyTransportError', async () => {

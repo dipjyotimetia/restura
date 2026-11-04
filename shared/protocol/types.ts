@@ -180,6 +180,19 @@ export interface NormalizedResponse {
    * view. Absent when the response set no cookies.
    */
   setCookies?: string[];
+  /**
+   * The URL of the final response, when redirects were followed (absent when
+   * the first response was final). A cookie jar stores `setCookies` against
+   * this URL, not the one requested.
+   */
+  finalUrl?: string;
+  /**
+   * Every response in a followed redirect chain that set cookies, in order, with
+   * the URL that sent it — 3xx hops included, the final response last. A cookie
+   * jar stores each hop's cookies against its own URL. Absent when no redirect
+   * was followed.
+   */
+  cookieHops?: Array<{ url: string; setCookies: string[] }>;
   body: string;
   size: number;
   /**

@@ -13,7 +13,12 @@
  * the buffered IPC call and reports the whole body as a single chunk once it
  * arrives. See the `graphql.incrementalDelivery` capability.
  */
-import { bytesToBase64, isBinaryContentType, readStreamToBytes } from '@shared/protocol/binary';
+import {
+  bytesToBase64,
+  isBinaryContentType,
+  readStreamToBytes,
+  textDecoderFor,
+} from '@shared/protocol/binary';
 import {
   MAX_RESPONSE_SIZE,
   PROXY_CAPABILITY_HEADER,
@@ -178,13 +183,14 @@ export async function executeProxiedRequestWithProgress(
     offset += c.byteLength;
   }
   // Mirror the buffered Worker reply: binary content types travel as base64.
-  const binary = size > 0 && isBinaryContentType(headerValue(headers, 'content-type'));
+  const contentType = headerValue(headers, 'content-type');
+  const binary = size > 0 && isBinaryContentType(contentType);
   return {
     status: response.status,
     statusText: response.statusText,
     headers,
     ...(setCookies.length > 0 ? { setCookies } : {}),
-    data: binary ? bytesToBase64(bytes) : new TextDecoder().decode(bytes),
+    data: binary ? bytesToBase64(bytes) : textDecoderFor(contentType).decode(bytes),
     size,
     ...(binary ? { bodyEncoding: 'base64' as const } : {}),
   };

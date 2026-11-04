@@ -29,13 +29,16 @@ describe('splitUrl', () => {
 });
 
 describe('parseQuery', () => {
-  it('decodes escapes, keeps malformed ones and "+" verbatim, allows empty values', () => {
-    expect(parseQuery('q=a%20b&pct=100%&plus=a+b&flag&&x=')).toEqual([
-      { key: 'q', value: 'a b' },
+  it('keeps escapes, malformed ones and "+" exactly as typed, allows empty values', () => {
+    // Stored as typed because they are sent as typed: decoding `%2B` to `+`
+    // would put a space on the wire.
+    expect(parseQuery('q=a%20b&pct=100%&plus=a+b&flag&&x=&e=%2B')).toEqual([
+      { key: 'q', value: 'a%20b' },
       { key: 'pct', value: '100%' },
       { key: 'plus', value: 'a+b' },
       { key: 'flag', value: '' },
       { key: 'x', value: '' },
+      { key: 'e', value: '%2B' },
     ]);
   });
 });
@@ -60,7 +63,7 @@ describe('buildDisplayUrl', () => {
   it('escapes only characters that would change the re-parse and keeps {{vars}}', () => {
     const params = [row('k=1', 'a&b#c'), row('lit', 'a%20b'), row('v', '{{token}}')];
     expect(buildDisplayUrl('https://x.dev', params)).toBe(
-      'https://x.dev?k%3D1=a%26b%23c&lit=a%2520b&v={{token}}'
+      'https://x.dev?k%3D1=a%26b%23c&lit=a%20b&v={{token}}'
     );
   });
 });

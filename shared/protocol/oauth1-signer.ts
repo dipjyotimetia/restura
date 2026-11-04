@@ -136,30 +136,97 @@ export function buildOAuth1Header(
     oauth.getTimeStamp = () => fixedTs;
   }
 
-  const token: OAuth.Token | undefined = authConfig.accessToken
-    ? {
-        key: authConfig.accessToken,
-        secret: authConfig.accessTokenSecret ?? '',
-      }
-    : undefined;
+  const oauthParams: Record<string, string> = {
+    oauth_consumer_key: authConfig.consumerKey,
+    oauth_nonce: oauth.getNonce(),
+    oauth_signature_method: sigMethod,
+    oauth_timestamp: String(oauth.getTimeStamp()),
+    oauth_version: '1.0',
+  };
+  if (authConfig.accessToken) oauthParams.oauth_token = authConfig.accessToken;
 
   // Per RFC 5849 §3.4.1.3.1, application/x-www-form-urlencoded body params
   // participate in the signature. addParamsToBody opts in to that behaviour.
-  // RFC 5849 §3.4.1.1: the base string carries the method upper-cased, and a
-  // custom method MUST be percent-encoded (§3.6) — tchar allows `!`, `*`, `'`
-  // etc. outside the unreserved set (#857). The server rebuilds the same form
-  // from the received method, so this is deliberately not "verbatim".
-  const requestData: OAuth.RequestOptions = {
-    url,
-    method: oauth.percentEncode(method.toUpperCase()),
-  };
+  const extra: Array<[string, string]> = Object.entries(oauthParams);
   if (authConfig.addParamsToBody) {
-    requestData.data = bodyParams;
+    for (const [name, value] of Object.entries(bodyParams)) {
+      for (const v of Array.isArray(value) ? value : [value]) extra.push([name, v]);
+    }
   }
 
-  const authData = oauth.authorize(requestData, token);
-  const headerObj = oauth.toHeader(authData);
-  return headerObj.Authorization;
+  const baseString = buildOAuth1BaseString(method, url, extra);
+  const signingKey = `${oauth1PercentEncode(authConfig.consumerSecret ?? '')}&${oauth1PercentEncode(
+    authConfig.accessTokenSecret ?? ''
+  )}`;
+  const signature = hashFn(baseString, signingKey);
+
+  return oauth.toHeader({
+    ...(oauthParams as unknown as OAuth.Authorization),
+    oauth_signature: signature,
+  }).Authorization;
+}
+
+/** RFC 5849 §3.6 percent-encoding: everything but ALPHA / DIGIT / `-._~`, UTF-8 first. */
+export function oauth1PercentEncode(text: string): string {
+  return encodeURIComponent(text).replace(
+    /[!'()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+}
+
+/** Decode one application/x-www-form-urlencoded component (`+` is a space); malformed stays raw. */
+function formDecode(text: string): string {
+  const spaced = text.replace(/\+/g, ' ');
+  try {
+    return decodeURIComponent(spaced);
+  } catch {
+    return spaced;
+  }
+}
+
+/**
+ * The RFC 5849 §3.4.1 signature base string for a request whose URL (query
+ * included) is exactly what goes on the wire. `params` are the other sources of
+ * §3.4.1.3.1 — the `oauth_*` protocol parameters and, for a form body, its
+ * decoded fields. Every name/value is decoded then re-encoded per §3.6,
+ * repeated names are all kept, and pairs sort by name then value (§3.4.1.3.2).
+ * `oauth_signature` and `realm` never take part.
+ */
+export function buildOAuth1BaseString(
+  method: string,
+  url: string,
+  params: ReadonlyArray<readonly [string, string]>
+): string {
+  const u = new URL(url);
+  // §3.4.1.2: scheme and host lowercase, the port only when not the default.
+  const port = u.port ? `:${u.port}` : '';
+  const baseUri = `${u.protocol.toLowerCase()}//${u.hostname.toLowerCase()}${port}${u.pathname}`;
+
+  const pairs: Array<[string, string]> = [];
+  const query = u.search.startsWith('?') ? u.search.slice(1) : u.search;
+  for (const part of query.split('&')) {
+    if (part === '') continue;
+    const eq = part.indexOf('=');
+    const name = eq === -1 ? part : part.slice(0, eq);
+    const value = eq === -1 ? '' : part.slice(eq + 1);
+    pairs.push([formDecode(name), formDecode(value)]);
+  }
+  for (const [name, value] of params) {
+    if (name === 'oauth_signature' || name === 'realm') continue;
+    pairs.push([name, value]);
+  }
+
+  const normalized = pairs
+    .map(([n, v]) => [oauth1PercentEncode(n), oauth1PercentEncode(v)] as const)
+    .sort(([an, av], [bn, bv]) => (an < bn ? -1 : an > bn ? 1 : av < bv ? -1 : av > bv ? 1 : 0))
+    .map(([n, v]) => `${n}=${v}`)
+    .join('&');
+
+  // RFC 5849 §3.4.1.1: the method upper-cased, and a custom method MUST be
+  // percent-encoded (§3.6) — tchar allows `!`, `*`, `'` etc. outside the
+  // unreserved set (#857). The server rebuilds the same form from the received
+  // method, so this is deliberately not "verbatim".
+  return [method.toUpperCase(), baseUri, normalized].map(oauth1PercentEncode).join('&');
 }
 
 function getHashFunction(method: 'HMAC-SHA1' | 'HMAC-SHA256' | 'PLAINTEXT'): OAuth.HashFunction {

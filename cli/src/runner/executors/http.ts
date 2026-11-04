@@ -2,10 +2,12 @@ import { resolveAuthVariables } from '@shared/auth/resolve-variables';
 import { buildGraphQLWireRequest, graphqlEnvelopeFromBody } from '@shared/graphql/wire';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import {
+  appendQueryPairs,
   applyBodyDefaultHeaders,
   authHeaderNames,
   buildProxyBody,
-  collectEnabledRows,
+  collectEnabledHeaders,
+  collectEnabledRowPairs,
   type ProxyBody,
 } from '@shared/protocol/request-spec';
 import type { RedirectPolicy } from '@shared/protocol/types';
@@ -54,17 +56,24 @@ export async function executeHttp(
     for (const p of shaped.addedParams) preResolvedParams.add(p);
   }
 
-  const url = resolveVarsDeep(req.url, opts.vars);
   const resolve = (text: string) => resolveVarsDeep(text, opts.vars);
+  // Repeated header rows combine (`, `; Cookie `; `), as in the app.
   const headers = applyBodyDefaultHeaders(
     req.body.type,
-    collectEnabledRows(req.headers, (h) => resolve(h.value))
+    collectEnabledHeaders(req.headers, (h) => resolve(h.value))
   );
   // GraphQL GET params were built from already-resolved values; resolving
   // them again would re-expand `{{…}}` text inside the resolved document.
-  const params = collectEnabledRows(req.params, (p) =>
-    preResolvedParams.has(p) ? p.value : resolve(p.value)
+  // Query rows go into the URL in order, repeated keys kept (as in the app);
+  // `params` carries only what auth adds.
+  const url = appendQueryPairs(
+    resolveVarsDeep(req.url, opts.vars),
+    collectEnabledRowPairs(req.params, (p) =>
+      preResolvedParams.has(p) ? p.value : resolve(p.value)
+    ),
+    { encode: req.settings?.encodeUrlAutomatically !== false }
   );
+  const params: Record<string, string> = {};
 
   // CLI-only, kept deliberately: a form field name and a binary body may hold a
   // `{{var}}` (the app sends the name as written and treats binary as bytes).
