@@ -47,13 +47,18 @@ function fakeClient() {
 let server: WebSocketServer;
 let upstreamUrl: string;
 const upstreamSockets: WsSocket[] = [];
+const upstreamHosts: string[] = [];
 
 beforeEach(async () => {
   dns.assertNodeHostnameSafe.mockReset();
-  dns.assertNodeHostnameSafe.mockResolvedValue(undefined);
+  dns.assertNodeHostnameSafe.mockResolvedValue([{ address: '127.0.0.1', family: 4 }]);
   upstreamSockets.length = 0;
+  upstreamHosts.length = 0;
   server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
-  server.on('connection', (s) => upstreamSockets.push(s));
+  server.on('connection', (s, req) => {
+    upstreamSockets.push(s);
+    upstreamHosts.push(req.headers.host ?? '');
+  });
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   upstreamUrl = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/`;
 });
@@ -64,7 +69,7 @@ afterEach(async () => {
 });
 
 /** Mint a ticket and run createEvents through a real Hono context. */
-async function openEvents(): Promise<WSEvents> {
+async function openEvents(target = upstreamUrl): Promise<WSEvents> {
   const app = new Hono<{ Bindings: Env }>();
   app.post('/api/ws-ticket', wsTicket);
   let events: WSEvents | undefined;
@@ -80,7 +85,7 @@ async function openEvents(): Promise<WSEvents> {
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target: upstreamUrl }),
+      body: JSON.stringify({ target }),
     },
     DEV_ENV
   );
@@ -114,6 +119,21 @@ describe('Node WebSocket relay — close codes that cannot be sent', () => {
     );
     events.onClose?.(new CloseEvent('close', { code: 1006, reason: '' }), client.ws);
     await expect(upstreamClosed).resolves.toBe(1011);
+  });
+});
+
+describe('Node WebSocket relay — DNS pinning', () => {
+  it('dials the address the DNS guard validated, not a fresh lookup', async () => {
+    // `.invalid` never resolves: only the pinned address can reach the server.
+    const port = (server.address() as AddressInfo).port;
+    const events = await openEvents(`ws://pinned.invalid:${port}/`);
+    const client = fakeClient();
+    await events.onOpen?.(new Event('open'), client.ws);
+    await until(() => upstreamSockets.length === 1);
+    expect(dns.assertNodeHostnameSafe).toHaveBeenCalledWith('pinned.invalid', expect.anything());
+    // The Host header (and TLS SNI) still name the original host.
+    expect(upstreamHosts[0]).toBe(`pinned.invalid:${port}`);
+    expect(client.closes).toEqual([]);
   });
 });
 
