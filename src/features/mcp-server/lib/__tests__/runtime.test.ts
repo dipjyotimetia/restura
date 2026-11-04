@@ -670,6 +670,7 @@ describe('execute tools', () => {
     expect(card.tier).toBe('execute');
     expect(card.details).toEqual([
       'GET https://user:pw@api.example.com/orders',
+      'Auth: bearer',
       'Collection “Orders”',
       'Environment “staging”',
       'No scripts',

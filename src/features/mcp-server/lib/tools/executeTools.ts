@@ -97,6 +97,19 @@ function resolvedForDisplay(text: string, vars: Record<string, string>): string 
   return text.replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, (match, name: string) => vars[name] ?? match);
 }
 
+/**
+ * The auth a runnable is sent with, resolved as the runner does at send time
+ * (`withEffectiveAuth`): its own unless that is `none`, then the nearest
+ * folder's, else the collection's. Type only — never the credentials.
+ */
+function effectiveAuth(r: RunnableRequest): { type: string; inherited: boolean } {
+  const own = r.request.auth?.type ?? 'none';
+  if (own === 'none' && r.inheritedAuth && r.inheritedAuth.type !== 'none') {
+    return { type: r.inheritedAuth.type, inherited: true };
+  }
+  return { type: own, inherited: false };
+}
+
 /** Most distinct destinations a run_collection card lists before "+N more". */
 const MAX_CARD_DESTINATIONS = 8;
 
@@ -118,8 +131,7 @@ function runDestinations(runnables: RunnableRequest[], vars: Record<string, stri
     // scheme://host only: never userinfo (a saved password) or the path.
     const m = /^([a-z][a-z0-9+.-]*:\/\/)(?:[^/?#@]*@)?([^/?#]*)/i.exec(url);
     const origin = m ? `${m[1]}${m[2]}` : url || '(no URL)';
-    const own = req.auth?.type ?? 'none';
-    const auth = own === 'none' && r.inheritedAuth ? r.inheritedAuth.type : own;
+    const { type: auth } = effectiveAuth(r);
     seen.add(`${verb} ${origin}${auth !== 'none' ? ` (auth: ${auth})` : ''}`);
   }
   const all = [...seen];
@@ -277,12 +289,26 @@ const sendRequest: ToolImpl<ControlToolInput<'send_request'>> = (input, env) => 
     resolveRunVariables(environment?.id ?? 'none', collection).baseVars
   );
   const scripts = scriptsForRequest(collection, located.item.id);
+  // The card must show credentials the send will attach, including auth a
+  // request with `none` picks up from its folder or collection at send time.
+  const runnable = flattenRunnables(
+    collection.items,
+    undefined,
+    rootsOf(collection),
+    collection.auth,
+    collection
+  ).find((r) => r.itemId === located.item.id);
+  const auth = runnable
+    ? effectiveAuth(runnable)
+    : { type: req.auth?.type ?? 'none', inherited: false };
 
   return {
     title: `Send “${located.item.name}”`,
     details: [
       `${verb} ${url}`,
       ...(resolved !== url ? [`Resolves to: ${verb} ${resolved}`] : []),
+      `Auth: ${auth.type}${auth.inherited ? ' (inherited from folder/collection)' : ''}`,
+      ...(runnable?.blocked ? [`Will not send: ${runnable.blocked}`] : []),
       `Collection “${collection.name}”`,
       environment ? `Environment “${environment.name}”` : 'No environment',
       scripts.length > 0 ? `Runs scripts: ${scripts.join(', ')}` : 'No scripts',

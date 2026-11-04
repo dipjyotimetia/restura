@@ -16,6 +16,8 @@ import {
   redactHeadersForAgent,
   redactUrlCredentials,
 } from '@shared/mcp-server/redaction';
+import { bodyTokenPatterns } from '@shared/protocol/secret-patterns';
+import { isSecretFieldName } from '@shared/secrets/key-value-redaction';
 import type { KeyValue, Request } from '@/types';
 
 const TOKENISH_KEY = /(token|secret|password|passwd|api[-_]?key|auth|session|cookie|signature)/i;
@@ -37,7 +39,19 @@ export interface AgentKeyValue {
   enabled: boolean;
 }
 
-/** Header / param / metadata rows: credential names keep only `{{var}}` references. */
+/** A value that is itself a credential (JWT, provider key, …), whatever its row is named. */
+function hasSecretShapedValue(value: string): boolean {
+  return bodyTokenPatterns().some((pattern) => pattern.test(value));
+}
+
+/**
+ * Header / param / metadata rows: credential rows keep only `{{var}}` references.
+ * At least as strict as the URL scanner (`redactUrlCredentials`), so a secret
+ * cannot leak through `params` that the same request's `url` masks: a row is
+ * masked when flagged `secret`, when its name is credential-bearing under the
+ * shared {@link isSecretFieldName} rule or a credential header, or when its
+ * value looks like a known token shape.
+ */
 export function redactKeyValues(rows: readonly KeyValue[] | undefined): AgentKeyValue[] {
   const sensitiveHeaders = redactHeadersForAgent(
     Object.fromEntries((rows ?? []).map((r) => [r.key, r.value]))
@@ -45,7 +59,11 @@ export function redactKeyValues(rows: readonly KeyValue[] | undefined): AgentKey
   return (rows ?? []).map((row) => {
     const masked =
       !VARIABLE_ONLY.test(row.value) &&
-      (sensitiveHeaders[row.key] === REDACTED || TOKENISH_KEY.test(row.key));
+      (row.secret === true ||
+        sensitiveHeaders[row.key] === REDACTED ||
+        TOKENISH_KEY.test(row.key) ||
+        isSecretFieldName(row.key) ||
+        hasSecretShapedValue(row.value));
     return { key: row.key, value: masked ? REDACTED : row.value, enabled: row.enabled };
   });
 }

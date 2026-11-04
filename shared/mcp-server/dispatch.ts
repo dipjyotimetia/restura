@@ -264,9 +264,14 @@ function getHistory(
   const entries = ctx.history
     .filter((entry) => {
       if (!filter) return true;
+      // Match only what the agent is allowed to see: filtering the raw URL
+      // would turn `filter` into an oracle for redacted credentials
+      // (`key=a`, `key=ab`, … recovers a masked query value char by char).
       const url = 'url' in entry.request ? entry.request.url : '';
+      const visibleUrl = redactUrlCredentials(url) ?? '';
       return (
-        url.toLowerCase().includes(filter) || entry.request.name.toLowerCase().includes(filter)
+        visibleUrl.toLowerCase().includes(filter) ||
+        entry.request.name.toLowerCase().includes(filter)
       );
     })
     .slice(0, limit)
