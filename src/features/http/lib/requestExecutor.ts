@@ -1,4 +1,3 @@
-import { PROXY_STREAM_MARKER_HEADER } from '@shared/protocol/proxy-limits';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
   appendQueryPairs,
@@ -11,14 +10,7 @@ import {
   mapProxyBodyType,
   type QueryPair,
 } from '@shared/protocol/request-spec';
-import {
-  COOKIE_HOPS_SIDE_CHANNEL_HEADER,
-  type CookieHop,
-  decodeCookieHopsSideChannel,
-  decodeSetCookieSideChannel,
-  responseSetCookies,
-  SET_COOKIE_SIDE_CHANNEL_HEADER,
-} from '@shared/protocol/set-cookie';
+import { type CookieHop, responseSetCookies } from '@shared/protocol/set-cookie';
 import { findScriptWrittenToken } from '@shared/scripts/grpc-script-metadata';
 import { applyScriptHeaderEdits } from '@shared/scripts/script-executor-request';
 import { runScriptPhase } from '@shared/scripts/script-phase';
@@ -41,6 +33,7 @@ import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings'
 import {
   executeProxiedRequestWithProgress,
   type ResponseProgressHandler,
+  readStreamSideChannels,
 } from '@/features/http/lib/progressTransport';
 import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
 import {
@@ -283,13 +276,10 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   // folded into `spec.url` (see below). User-typed rows go out as typed; rows
   // Restura built (GraphQL GET params) are fully percent-encoded.
   //
-  // A row whose value holds a desktop secret token stays in `params` instead:
-  // Electron main substitutes it there (its materializer treats `params` as a
-  // Record) and the proxy then escapes the secret in full (`+` → `%2B`, unlike
-  // a folded row). Known trade-off, pinned by requestExecutor.queryWire.test.ts:
-  // such rows go after the folded ones, and a repeated name keeps only its
-  // last secret row. Folding them in order would need main to escape a secret
-  // it substitutes into `spec.url`.
+  // A row whose value holds a desktop secret token stays in `params` (a Record
+  // Electron main substitutes in; the proxy then escapes it in full). Pinned
+  // trade-off (requestExecutor.queryWire.test.ts): such rows go after the
+  // folded ones and a repeated name keeps its last row only.
   const queryPairs = collectQueryPairs(request.params, (p) =>
     resolveLocal(p.value, `query parameter "${p.key}"`)
   );
@@ -789,27 +779,9 @@ export async function executeStreamingRequest(
     options.signal ? { signal: options.signal } : {}
   );
 
-  // The Worker never forwards upstream Set-Cookie as a real header (the
-  // browser would store it on the Restura origin); every cookie arrives in the
-  // side channel instead.
-  const setCookies = decodeSetCookieSideChannel(
-    response.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER)
-  );
-  // A followed redirect chain (final URL + each hop's cookies) rides its own
-  // side channel; hop cookies are stored even when the final response set none.
-  const { finalUrl, cookieHops } = decodeCookieHopsSideChannel(
-    response.headers.get(COOKIE_HOPS_SIDE_CHANNEL_HEADER)
-  );
-  const headers: Record<string, string> = {};
-  for (const [k, v] of response.headers.entries()) {
-    if (
-      k !== SET_COOKIE_SIDE_CHANNEL_HEADER &&
-      k !== COOKIE_HOPS_SIDE_CHANNEL_HEADER &&
-      k !== PROXY_STREAM_MARKER_HEADER
-    ) {
-      headers[k] = v;
-    }
-  }
+  // Cookies (and a followed chain's hop cookies) arrive in side channels;
+  // hop cookies are stored even when the final response set none.
+  const { headers, setCookies, finalUrl, cookieHops } = readStreamSideChannels(response);
   if ((setCookies.length > 0 || cookieHops) && !effectiveSettings.disableCookieJar) {
     persistResponseCookies({ headers, setCookies, cookieHops, finalUrl }, spec.url);
   }

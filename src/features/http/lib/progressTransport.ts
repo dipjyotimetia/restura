@@ -27,6 +27,7 @@ import {
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
   COOKIE_HOPS_SIDE_CHANNEL_HEADER,
+  type CookieHop,
   decodeCookieHopsSideChannel,
   decodeSetCookieSideChannel,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
@@ -77,6 +78,37 @@ function isProxyError(response: Response): boolean {
     response.headers.get(PROXY_CAPABILITY_HEADER) !== null &&
     response.headers.get(PROXY_STREAM_MARKER_HEADER) === null
   );
+}
+
+/** Proxy-written headers a streamed reply carries that are not upstream headers. */
+const STREAM_SIDE_CHANNEL_HEADERS = new Set([
+  SET_COOKIE_SIDE_CHANNEL_HEADER,
+  COOKIE_HOPS_SIDE_CHANNEL_HEADER,
+  PROXY_STREAM_MARKER_HEADER,
+  PROXY_CAPABILITY_HEADER,
+]);
+
+/**
+ * A Worker/self-host streamed reply's side channels: every upstream
+ * Set-Cookie (never forwarded as a real header — the browser would store it on
+ * the Restura origin), and for a followed redirect chain the final URL and
+ * each hop's cookies. `headers` is what the user sees, side channels removed.
+ */
+export function readStreamSideChannels(response: Response): {
+  headers: Record<string, string>;
+  setCookies: string[];
+  finalUrl?: string;
+  cookieHops?: CookieHop[];
+} {
+  const headers: Record<string, string> = {};
+  for (const [k, v] of response.headers.entries()) {
+    if (!STREAM_SIDE_CHANNEL_HEADERS.has(k)) headers[k] = v;
+  }
+  return {
+    headers,
+    setCookies: decodeSetCookieSideChannel(response.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER)),
+    ...decodeCookieHopsSideChannel(response.headers.get(COOKIE_HOPS_SIDE_CHANNEL_HEADER)),
+  };
 }
 
 /** Proxy-generated error bodies are small JSON; never read more than this. */
@@ -132,25 +164,7 @@ export async function executeProxiedRequestWithProgress(
     throw await readProxyError(response);
   }
 
-  const setCookies = decodeSetCookieSideChannel(
-    response.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER)
-  );
-  // A followed redirect chain: final URL + each hop's cookies, for the jar.
-  const { finalUrl, cookieHops } = decodeCookieHopsSideChannel(
-    response.headers.get(COOKIE_HOPS_SIDE_CHANNEL_HEADER)
-  );
-  const headers: Record<string, string> = {};
-  for (const [k, v] of response.headers.entries()) {
-    if (
-      k === SET_COOKIE_SIDE_CHANNEL_HEADER ||
-      k === COOKIE_HOPS_SIDE_CHANNEL_HEADER ||
-      k === PROXY_STREAM_MARKER_HEADER ||
-      k === PROXY_CAPABILITY_HEADER
-    ) {
-      continue;
-    }
-    headers[k] = v;
-  }
+  const { headers, setCookies, finalUrl, cookieHops } = readStreamSideChannels(response);
   const meta = { status: response.status, statusText: response.statusText, headers };
 
   const chunks: Uint8Array[] = [];
