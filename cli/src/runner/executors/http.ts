@@ -22,6 +22,7 @@ import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token, toProtocolAuth } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import { sharedCoreFailure, thrownOutcome } from './failure';
+import { requestDispatcher } from './http-transport';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 import { preflightRefusal, refusedOutcome } from './variable-guard';
 
@@ -78,10 +79,30 @@ export async function executeHttp(
     graphqlBuilt ??
     buildProxyBody(req.body, { resolve, resolveFieldName: resolve, resolveBinary: resolve });
 
+  // Per-request proxy / TLS settings (verifySsl, caCert, clientCert,
+  // minTlsVersion, cipherSuites, serverCipherOrder, proxy) get their own
+  // dispatcher over the run's flags, or refuse the request — never ignored.
+  // Agent tools pass a DNS-pinned `opts.fetcher` that such settings would
+  // bypass, so there they refuse instead.
+  const transport = requestDispatcher(req.settings, url, opts);
+  if (!transport.ok) return refusedOutcome(transport.error);
+  const requestOwnDispatcher = transport.dispatcher;
+  if (requestOwnDispatcher && opts.fetcher) {
+    void requestOwnDispatcher.close().catch(() => {});
+    return refusedOutcome(
+      'Per-request proxy / TLS settings cannot be applied on this pinned transport; the request was not sent.'
+    );
+  }
+
   const start = Date.now();
   try {
     const fetcher =
-      opts.fetcher ?? (opts.dispatcher ? createUndiciFetcher(opts.dispatcher) : undiciFetcher);
+      opts.fetcher ??
+      (requestOwnDispatcher
+        ? createUndiciFetcher(requestOwnDispatcher)
+        : opts.dispatcher
+          ? createUndiciFetcher(opts.dispatcher)
+          : undiciFetcher);
     // Auth that the renderer normally applies before hitting the proxy. Bearer
     // / Basic / API-key / OAuth2 are header-only; AWS SigV4 / OAuth1 / WSSE are
     // signed at the wire by executeHttpProxy. Resolved here (inside the try) so
@@ -186,6 +207,9 @@ export async function executeHttp(
     };
   } catch (err) {
     return thrownOutcome(err, Date.now() - start);
+  } finally {
+    // The response is fully buffered by now; release this request's sockets.
+    if (requestOwnDispatcher) void requestOwnDispatcher.close().catch(() => {});
   }
 }
 
