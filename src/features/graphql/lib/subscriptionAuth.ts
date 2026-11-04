@@ -15,6 +15,7 @@
  * all and are reported back as `unapplied` instead of being sent literally.
  */
 import { authHeaderNames } from '@shared/protocol/request-spec';
+import { signAtWireAuthLabel } from '@shared/protocol/sign-at-wire-auth';
 import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
@@ -25,16 +26,7 @@ import { isElectron } from '@/lib/shared/platform';
 import { resolveRequestScopeText } from '@/lib/shared/resolveRequestScope';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import type { AuthConfig, AuthType, HttpRequest } from '@/types';
-
-/** Auth that only exists as a wire signature / challenge — no upgrade-request analogue. */
-const SIGN_AT_WIRE_LABELS: Partial<Record<AuthType, string>> = {
-  digest: 'Digest',
-  oauth1: 'OAuth 1.0',
-  'aws-signature': 'AWS Signature',
-  ntlm: 'NTLM',
-  wsse: 'WSSE',
-};
+import type { AuthConfig, HttpRequest } from '@/types';
 
 export interface SubscriptionHandshake {
   /** HTTP(S) endpoint, variables resolved, query-param API key appended. */
@@ -182,7 +174,7 @@ export function buildSubscriptionHandshake(
   );
   let mainSideAuth: AuthConfig | undefined;
 
-  const signLabel = SIGN_AT_WIRE_LABELS[effectiveAuth.type];
+  const signLabel = signAtWireAuthLabel(effectiveAuth.type);
   if (signLabel) {
     unapplied.push(
       `${signLabel} auth isn't applied to subscriptions — a WebSocket upgrade has no body or challenge round-trip to sign. The subscription is opened without it.`

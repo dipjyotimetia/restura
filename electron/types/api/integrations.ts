@@ -481,7 +481,7 @@ export interface ElectronAiAPI {
       role: 'system' | 'user' | 'assistant' | 'tool';
       content: string;
       toolCallId?: string;
-      toolCalls?: Array<{ id: string; name: string; input: string }>;
+      toolCalls?: Array<{ id: string; name: string; input: string; thoughtSignature?: string }>;
     }>;
     apiKeyHandleId?: string;
     baseUrlOverride?: string;
@@ -514,7 +514,7 @@ export interface AiLabModelSpec {
     role: 'system' | 'user' | 'assistant' | 'tool';
     content: string;
     toolCallId?: string;
-    toolCalls?: Array<{ id: string; name: string; input: string }>;
+    toolCalls?: Array<{ id: string; name: string; input: string; thoughtSignature?: string }>;
   }>;
   apiKeyHandleId?: string;
   baseUrlOverride?: string;

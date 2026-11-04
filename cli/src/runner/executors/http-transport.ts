@@ -11,6 +11,9 @@
  * password the CLI cannot read).
  */
 
+import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
+import { isProxyBypassed } from '@shared/protocol/proxy-bypass';
+import { assertResolvedAddressAllowed, validateURL } from '@shared/protocol/url-validation';
 import { type SecretValue, unwrapSecret } from '@shared/secrets/secret-ref';
 import type { RequestSettingsOverride } from '@shared/types';
 import { Agent, type Dispatcher, ProxyAgent } from 'undici';
@@ -19,26 +22,61 @@ import type { ExecuteOptions } from './types';
 
 type Refusal = { ok: false; error: string };
 
+type LookupCallback = (
+  err: NodeJS.ErrnoException | Error | null,
+  address: string | LookupAddress[],
+  family?: number
+) => void;
+
 /**
- * The desktop app's proxy bypass syntax (`electron/main/security/proxy-bypass.ts`,
- * which the CLI cannot import): exact host, `*.suffix` / `*suffix`, or a `*`
- * glob — literals never act as a regex.
+ * The `lookup` the per-request proxy connection dials through: every address
+ * a proxy host name resolves to must pass the shared SSRF guard (cloud
+ * metadata and private ranges refused; loopback only with `--allow-localhost`).
+ * The check runs on the answer that is actually dialled, so a DNS name cannot
+ * re-point the proxy at an internal address after a preflight.
  */
-export function isProxyBypassed(hostname: string, bypassList: readonly string[]): boolean {
-  const host = hostname.toLowerCase();
-  return bypassList.some((raw) => {
-    const pattern = raw.trim().toLowerCase();
-    if (!pattern) return false;
-    if (pattern.startsWith('*')) {
-      const suffix = pattern.slice(1);
-      return host.endsWith(suffix) || host === suffix.slice(1);
-    }
-    if (pattern.includes('*')) {
-      const escaped = pattern.split('*').map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-      return new RegExp(`^${escaped.join('.*')}$`).test(host);
-    }
-    return host === pattern;
-  });
+export function guardedProxyLookup(allowLocalhost: boolean) {
+  return (hostname: string, options: unknown, maybeCallback?: LookupCallback): void => {
+    const callback = (typeof options === 'function' ? options : maybeCallback) as LookupCallback;
+    const wantsAll = (options as { all?: boolean } | undefined)?.all === true;
+    dnsLookup(hostname, { all: true, verbatim: true }, (err, records) => {
+      if (err) return callback(err, wantsAll ? [] : '');
+      try {
+        if (records.length === 0) throw new Error(`Proxy host ${hostname} did not resolve`);
+        for (const record of records) {
+          assertResolvedAddressAllowed(hostname, record.address, {
+            allowLocalhost,
+            loopbackNeedsLocalhost: true,
+          });
+        }
+      } catch (guardError) {
+        return callback(guardError as Error, wantsAll ? [] : '');
+      }
+      const first = records[0] as LookupAddress;
+      if (wantsAll) return callback(null, records);
+      return callback(null, first.address, first.family);
+    });
+  };
+}
+
+/**
+ * A collection's own proxy host is untrusted input: an absolute-form request
+ * through a "proxy" at 169.254.169.254 or an RFC1918 / loopback address would
+ * reach an internal service. Literal and well-known hosts are checked here;
+ * DNS names are checked again on every resolution by `guardedProxyLookup`.
+ * An operator's `--proxy` flag is trusted and not checked.
+ */
+function proxyHostRefusal(
+  host: string,
+  port: number,
+  allowLocalhost: boolean
+): Refusal | undefined {
+  const checked = validateURL(`http://${host}:${port}/`, { allowLocalhost });
+  if (checked.valid) return undefined;
+  return {
+    ok: false,
+    error: `The request's proxy host ${host} is not allowed (${checked.error}); the request was not sent. Use --proxy for an internal proxy.`,
+  };
 }
 
 /** A plain or inline secret's text; a keychain handle / external ref is refused. */
@@ -93,13 +131,14 @@ type ProxyChoice =
 /** What the request's own proxy setting asks for at `url`. */
 function requestProxy(
   settings: RequestSettingsOverride | undefined,
-  url: string
+  url: string,
+  allowLocalhost: boolean
 ): ProxyChoice | Refusal {
   const proxy = settings?.proxy;
   if (!proxy?.enabled || proxy.type === 'none' || !proxy.host) return { ok: true, kind: 'none' };
   let hostname: string;
   try {
-    hostname = new URL(url).hostname.replace(/^\[(.*)\]$/, '$1');
+    hostname = new URL(url).hostname;
   } catch {
     return { ok: true, kind: 'none' };
   }
@@ -113,6 +152,8 @@ function requestProxy(
   }
   const host =
     proxy.host.includes(':') && !proxy.host.startsWith('[') ? `[${proxy.host}]` : proxy.host;
+  const refusal = proxyHostRefusal(host, proxy.port, allowLocalhost);
+  if (refusal) return refusal;
   const uri = `${proxy.type}://${host}:${proxy.port}`;
   if (!proxy.auth?.username) return { ok: true, kind: 'proxy', uri };
   const password = readSecret(proxy.auth.password, 'proxy password');
@@ -131,11 +172,11 @@ function requestProxy(
 export function requestDispatcher(
   settings: RequestSettingsOverride | undefined,
   url: string,
-  opts: Pick<ExecuteOptions, 'tls' | 'proxy'>
+  opts: Pick<ExecuteOptions, 'tls' | 'proxy' | 'allowLocalhost'>
 ): { ok: true; dispatcher?: Dispatcher } | Refusal {
   const tls = requestConnectOptions(settings);
   if (!tls.ok) return tls;
-  const proxy = requestProxy(settings, url);
+  const proxy = requestProxy(settings, url, opts.allowLocalhost);
   if (!proxy.ok) return proxy;
   if (Object.keys(tls.connect).length === 0 && proxy.kind === 'none') return { ok: true };
 
@@ -149,6 +190,10 @@ export function requestDispatcher(
       dispatcher: new ProxyAgent({
         uri: proxyUri,
         ...(proxy.kind === 'proxy' && proxy.token ? { token: proxy.token } : {}),
+        // The collection's proxy host dials through the SSRF-guarded lookup.
+        ...(proxy.kind === 'proxy'
+          ? { proxyTls: { lookup: guardedProxyLookup(opts.allowLocalhost) } }
+          : {}),
         ...(hasTls ? { requestTls: connect } : {}),
       }),
     };

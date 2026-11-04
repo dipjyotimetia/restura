@@ -8,6 +8,7 @@ import { parseCurlCommand } from '@/features/collections/lib/importers/curl';
 import {
   persistScriptEnvironmentMutations,
   scriptEnvironmentTargetId,
+  warnSkippedSecretWrites,
 } from '@/features/environments/lib/scriptEnvironmentMutations';
 import { executeRequest, resolveEffectiveSettings } from '@/features/http/lib/requestExecutor';
 import { applySettingsPatch, type RequestSettingsPatch } from '@/features/http/lib/settingsPatch';
@@ -164,6 +165,9 @@ export function useHttpRequestPage() {
       const collection = savedRequestId
         ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)
         : undefined;
+      // Captured at send time: a mid-request environment switch must not
+      // redirect this request's script writes to the newly active one.
+      const scriptEnvironmentId = scriptEnvironmentTargetId(collection?.id);
       const collectionVars = buildValueMap({ collection: collection?.variables });
 
       // Folder/collection auth inheritance: a request with no auth of its own
@@ -202,15 +206,9 @@ export function useHttpRequestPage() {
       // `pm.environment.set/unset` persist to the active environment (Postman
       // semantics), so the next request sees them. Secret handles are left alone.
       if (result.environmentMutations) {
-        const skipped = persistScriptEnvironmentMutations(
-          scriptEnvironmentTargetId(collection?.id),
-          result.environmentMutations
+        warnSkippedSecretWrites(
+          persistScriptEnvironmentMutations(scriptEnvironmentId, result.environmentMutations)
         );
-        if (skipped.length > 0) {
-          toast.warning(
-            `Script did not change secret environment variable${skipped.length > 1 ? 's' : ''}: ${skipped.join(', ')}`
-          );
-        }
       }
 
       // Persist a refreshed OAuth2 token — but only when the auth belongs to

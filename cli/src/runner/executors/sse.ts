@@ -1,7 +1,8 @@
 import { resolveAuthVariables } from '@shared/auth/resolve-variables';
+import { signAtWireAuthLabel } from '@shared/protocol/sign-at-wire-auth';
 import { SseParser } from '@shared/protocol/sse-parser';
 import { validateURL } from '@shared/protocol/url-validation';
-import type { AuthType, SseRequest } from '@shared/types';
+import type { SseRequest } from '@shared/types';
 import { request as undiciRequest } from 'undici';
 import type { LoadedRequest } from '../collectionLoader';
 import { resolveVarsDeep } from '../varResolver';
@@ -12,19 +13,6 @@ import type { ExecuteOptions, ExecuteOutcome, StreamEvent } from './types';
 import { preflightRefusal, refusedOutcome } from './variable-guard';
 
 const DEFAULT_DURATION_MS = 5000;
-
-/**
- * Auth that exists only as a wire signature or a challenge round-trip, which a
- * bare streaming GET can't carry. Mirrors the app's list in
- * `src/features/sse/lib/sseAuth.ts`.
- */
-const SSE_UNSIGNABLE_AUTH: Partial<Record<AuthType, string>> = {
-  'aws-signature': 'AWS Signature',
-  oauth1: 'OAuth 1.0',
-  wsse: 'WSSE',
-  digest: 'Digest',
-  ntlm: 'NTLM',
-};
 
 /**
  * Server-Sent Events executor. Connects to the SSE endpoint, captures events
@@ -110,7 +98,7 @@ export async function executeSse(
     );
     // Wire-signed and challenge auth has no SSE transport here: refuse rather
     // than stream unauthenticated and pass against a permissive endpoint.
-    const unsupported = resolvedAuth && SSE_UNSIGNABLE_AUTH[resolvedAuth.type];
+    const unsupported = signAtWireAuthLabel(resolvedAuth?.type);
     if (unsupported) {
       return refusedOutcome(
         `${unsupported} auth can't be applied to SSE connections; the stream was not opened. Use Bearer, Basic, API key or OAuth 2.0 auth instead.`

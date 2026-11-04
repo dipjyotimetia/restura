@@ -22,6 +22,7 @@ import {
   mergeEnvironmentMutations,
   persistScriptEnvironmentMutations,
   scriptEnvironmentTargetId,
+  warnSkippedSecretWrites,
 } from '@/features/environments/lib/scriptEnvironmentMutations';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -125,6 +126,17 @@ export function useRequestRunner() {
         }
       };
 
+      // Script env writes go to the environment this request runs against:
+      // captured now, so switching environment mid-request cannot redirect them.
+      const savedRequestId = originTabId
+        ? useRequestStore.getState().tabs.find((tab) => tab.id === originTabId)?.savedRequestId
+        : undefined;
+      const scriptEnvironmentId = scriptEnvironmentTargetId(
+        savedRequestId
+          ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.id
+          : undefined
+      );
+
       const startedAt = performance.now();
       const response = await protocol.runRequest(request, {
         signal: ctrl.signal,
@@ -158,15 +170,8 @@ export function useRequestRunner() {
         collectedScripts?.test
       );
       if (environmentMutations) {
-        const savedRequestId = originTabId
-          ? useRequestStore.getState().tabs.find((tab) => tab.id === originTabId)?.savedRequestId
-          : undefined;
-        const collectionId = savedRequestId
-          ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.id
-          : undefined;
-        persistScriptEnvironmentMutations(
-          scriptEnvironmentTargetId(collectionId),
-          environmentMutations
+        warnSkippedSecretWrites(
+          persistScriptEnvironmentMutations(scriptEnvironmentId, environmentMutations)
         );
       }
 
