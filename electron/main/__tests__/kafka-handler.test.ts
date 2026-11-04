@@ -2003,7 +2003,11 @@ describe('kafka-handler', () => {
     gate.resolve();
 
     await expect(connect).resolves.toEqual({ success: false, error: 'Not connected' });
-    expect(mockEmitTo).not.toHaveBeenCalledWith(senderId, 'kafka:connected:pending', expect.anything());
+    expect(mockEmitTo).not.toHaveBeenCalledWith(
+      senderId,
+      'kafka:connected:pending',
+      expect.anything()
+    );
     const produce = await handlerFor(IPC.kafka.produce)(event, validProduce('pending'));
     expect(produce).toEqual({ success: false, error: 'Not connected' });
   });

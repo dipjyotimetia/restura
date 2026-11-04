@@ -164,7 +164,10 @@ describe('sse-handler (StreamRegistry-backed)', () => {
     });
     expect(res.success).toBe(true);
     const spec = mockStreaming.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(spec.headers).toMatchObject({ Cookie: 'session=abc', Origin: 'https://app.example.com' });
+    expect(spec.headers).toMatchObject({
+      Cookie: 'session=abc',
+      Origin: 'https://app.example.com',
+    });
   });
 
   it('still runs the SSRF pre-flight for a jsonBody POST', async () => {

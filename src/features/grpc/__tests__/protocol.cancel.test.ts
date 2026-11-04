@@ -75,9 +75,7 @@ describe('unary gRPC cancellation', () => {
 
   it('hands the signal to the Worker relay fetch', async () => {
     const ctrl = new AbortController();
-    void grpcProtocol
-      .runRequest(grpcReq(), { signal: ctrl.signal, variables: {} })
-      .catch(() => {});
+    void grpcProtocol.runRequest(grpcReq(), { signal: ctrl.signal, variables: {} }).catch(() => {});
     await vi.waitFor(() => expect(proxyCall).toHaveBeenCalled());
     expect(proxyCall.mock.calls[0]).toContain(ctrl.signal);
     ctrl.abort();

@@ -658,7 +658,7 @@ service S { rpc M(R) returns (R); }`;
           (t) => t
         );
         expect(result.message).toEqual({
-          st: { n: 12345678901234567890 },
+          st: { n: Number('12345678901234567890') },
           big: '9007199254740993',
         });
       });
@@ -666,7 +666,7 @@ service S { rpc M(R) returns (R); }`;
       it('uses an explicitly supplied schema source', () => {
         const result = prepareGrpcRequest(request(), (t) => t, { protoContent: PROTO });
         expect(result.message).toEqual({
-          st: { n: 12345678901234567890 },
+          st: { n: Number('12345678901234567890') },
           big: '9007199254740993',
         });
       });

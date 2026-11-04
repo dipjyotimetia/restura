@@ -63,11 +63,11 @@ service S { rpc M(R) returns (R); }`);
     const out = roundTrip(
       '{"st":{"n":12345678901234567890},"v":9007199254740993,"lv":[9007199254740993],"d":12345678901234567890,"inner":{"score":9007199254740993}}'
     );
-    expect(out.st).toEqual({ n: 12345678901234567890 });
-    expect(out.v).toBe(9007199254740993);
-    expect(out.lv).toEqual([9007199254740993]);
-    expect(out.d).toBe(12345678901234567890);
-    expect((out.inner as Record<string, unknown>).score).toBe(9007199254740993);
+    expect(out.st).toEqual({ n: Number('12345678901234567890') });
+    expect(out.v).toBe(Number('9007199254740993'));
+    expect(out.lv).toEqual([Number('9007199254740993')]);
+    expect(out.d).toBe(Number('12345678901234567890'));
+    expect((out.inner as Record<string, unknown>).score).toBe(Number('9007199254740993'));
   });
 
   it('keeps every int64-family position exact', () => {
@@ -86,7 +86,7 @@ service S { rpc M(R) returns (R); }`);
   it('applies the schema to each message of a top-level array (stream body)', () => {
     expect(
       parseGrpcMessageJson('[{"big":9007199254740993,"v":9007199254740993}]', method.input)
-    ).toEqual([{ big: '9007199254740993', v: 9007199254740993 }]);
+    ).toEqual([{ big: '9007199254740993', v: Number('9007199254740993') }]);
   });
 
   it('only consults a lazy schema getter when an unsafe integer is present', () => {
@@ -98,7 +98,7 @@ service S { rpc M(R) returns (R); }`);
     expect(parseGrpcMessageJson('{"big":1}', getter)).toEqual({ big: 1 });
     expect(calls).toBe(0);
     expect(parseGrpcMessageJson('{"v":9007199254740993}', getter)).toEqual({
-      v: 9007199254740993,
+      v: Number('9007199254740993'),
     });
     expect(calls).toBe(1);
   });

@@ -219,6 +219,6 @@ service S { rpc M(stream R) returns (R); }`;
         request: { service: 't.S', method: 'M' },
         protoContent,
       })
-    ).toEqual([{ id: '9007199254740993', st: { n: 9007199254740993 } }]);
+    ).toEqual([{ id: '9007199254740993', st: { n: Number('9007199254740993') } }]);
   });
 });
