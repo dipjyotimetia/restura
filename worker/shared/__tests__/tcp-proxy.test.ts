@@ -227,6 +227,25 @@ describe('httpsViaConnectProxy — tunnelled request framing', () => {
   });
 });
 
+describe('proxy credentials are UTF-8 Basic (RFC 7617), as on every other host', () => {
+  it.each([
+    ['Latin-1', 'jürgen', 'pässword'],
+    ['above Latin-1', 'user€', '密码'],
+  ])('encodes %s credentials as base64 of their UTF-8 bytes', async (_label, user, pass) => {
+    const sock = fakeSocket();
+    state.next = sock;
+    sock.onWrite = (s) => s.push('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
+    await httpViaProxy(
+      new URL('http://example.com/x'),
+      { ...PROXY, auth: { username: user, password: pass } },
+      { method: 'GET' },
+      new AbortController().signal
+    );
+    const expected = Buffer.from(`${user}:${pass}`, 'utf8').toString('base64');
+    expect(wire(sock)).toContain(`\r\nProxy-Authorization: Basic ${expected}\r\n`);
+  });
+});
+
 describe('socket cleanup on every failure path (Node twin parity)', () => {
   const signal = () => new AbortController().signal;
   const https = () =>

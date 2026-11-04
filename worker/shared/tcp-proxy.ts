@@ -1,4 +1,5 @@
 import { connect } from 'cloudflare:sockets';
+import { encodeBasicCredentials } from '@shared/auth/basic-credentials';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import {
   assertCompleteAtEof,
@@ -21,10 +22,9 @@ export interface UpstreamProxy {
   auth?: { username: string; password: string };
 }
 
-// btoa requires Latin1 — encode individual parts to avoid InvalidCharacterError
+// UTF-8 Basic (RFC 7617), the one encoding every host uses for credentials.
 function proxyAuthValue(auth: { username: string; password: string }): string {
-  const safe = (s: string) => s.replace(/[Ā-￿]/g, (c) => encodeURIComponent(c));
-  return `Basic ${btoa(`${safe(auth.username)}:${safe(auth.password)}`)}`;
+  return `Basic ${encodeBasicCredentials(`${auth.username}:${auth.password}`)}`;
 }
 
 function buildProxyAuthHeader(auth?: { username: string; password: string }): string {
