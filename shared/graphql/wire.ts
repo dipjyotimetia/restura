@@ -13,6 +13,7 @@
  *   subscriptions — the spec forbids mutations over GET (they are not safe).
  */
 
+import type { BuiltQueryRow } from '../protocol/request-spec';
 import type { HttpRequest, KeyValue } from '../types';
 import {
   buildGraphQLRequestBody,
@@ -89,8 +90,9 @@ export function getRefusalReason(query: string, operationName?: string | null): 
 
 const GET_PARAM_KEYS = new Set(['query', 'variables', 'operationName', 'extensions']);
 
-function param(key: string, value: string): KeyValue {
-  return { id: `graphql-get-${key}`, key, value, enabled: true };
+/** A GET param Restura builds: opaque data, fully percent-encoded on the wire. */
+function param(key: string, value: string): KeyValue & BuiltQueryRow {
+  return { id: `graphql-get-${key}`, key, value, enabled: true, encodeFully: true };
 }
 
 function hasEnabledHeader(headers: KeyValue[], name: string): boolean {

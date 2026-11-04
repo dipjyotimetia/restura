@@ -7,8 +7,9 @@ import {
   buildProxyBody,
   buildProxyFormFields,
   collectEnabledHeaders,
-  collectEnabledRowPairs,
+  collectQueryPairs,
   mapProxyBodyType,
+  type QueryPair,
 } from '@shared/protocol/request-spec';
 import {
   type CookieHop,
@@ -277,20 +278,28 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   }
 
   // Every query row is kept, repeated keys included, in table order: they are
-  // folded into `spec.url` (see below). A row whose value holds a desktop secret
-  // token stays in `params` instead: Electron main substitutes it there and the
-  // proxy then escapes the secret in full.
-  const queryPairs = collectEnabledRowPairs(request.params, (p) =>
+  // folded into `spec.url` (see below). User-typed rows go out as typed; rows
+  // Restura built (GraphQL GET params) are fully percent-encoded.
+  //
+  // A row whose value holds a desktop secret token stays in `params` instead:
+  // Electron main substitutes it there (its materializer treats `params` as a
+  // Record) and the proxy then escapes the secret in full (`+` → `%2B`, unlike
+  // a folded row). Known trade-off, pinned by requestExecutor.queryWire.test.ts:
+  // such rows go after the folded ones, and a repeated name keeps only its
+  // last secret row. Folding them in order would need main to escape a secret
+  // it substitutes into `spec.url`.
+  const queryPairs = collectQueryPairs(request.params, (p) =>
     resolveLocal(p.value, `query parameter "${p.key}"`)
   );
   const holdsSecretToken = (text: string) =>
     secretVariables !== undefined &&
     scanVariableTokens(text).some(({ name }) => Object.hasOwn(secretVariables, name));
   const params: Record<string, string> = {};
-  const foldedQuery: Array<[string, string]> = [];
-  for (const [key, value] of queryPairs) {
+  let foldedQuery: QueryPair[] = [];
+  for (const pair of queryPairs) {
+    const [key, value] = pair;
     if (holdsSecretToken(value)) params[key] = value;
-    else foldedQuery.push([key, value]);
+    else foldedQuery.push(pair);
   }
   // Repeated header rows combine (`, `; Cookie `; `) instead of the last one winning.
   const headers = applyBodyDefaultHeaders(
@@ -333,7 +342,14 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   assertHandleSupported(headersWithAuth);
   Object.assign(headers, headersWithAuth.headers);
 
-  Object.assign(params, applyApiKeyQueryParam(effectiveAuth, params));
+  // An API key sent in the query replaces same-named query rows (it is not
+  // sent next to them).
+  const authParams = applyApiKeyQueryParam(effectiveAuth, {});
+  const authParamNames = Object.keys(authParams);
+  Object.assign(params, authParams);
+  if (authParamNames.length > 0) {
+    foldedQuery = foldedQuery.filter(([key]) => !authParamNames.includes(key));
+  }
 
   const effectiveSettings = resolveEffectiveSettings(request.settings, globalSettings);
 
