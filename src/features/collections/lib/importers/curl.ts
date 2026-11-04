@@ -95,11 +95,11 @@ const VALUE_OPTIONS: ReadonlySet<string> = new Set(
 /**
  * Options that only shape curl's own output or local bookkeeping. They carry no
  * request semantics, so dropping them is lossless and needs no warning.
- * `compressed` is here because every Restura transport already negotiates and
- * decodes response compression itself.
+ * (`--compressed` is not here: it is noted as an unsupported-option warning —
+ * the transports negotiate and decode compression themselves.)
  */
 const IGNORED_OPTIONS: ReadonlySet<string> = new Set(
-  `compressed create-dirs dump-header fail fail-early fail-with-body globoff include libcurl
+  `create-dirs dump-header fail fail-early fail-with-body globoff include libcurl
   no-buffer no-progress-meter output output-dir progress-bar remote-header-name remote-name
   remote-name-all show-error silent stderr styled-output no-styled-output trace trace-ascii
   trace-config trace-time verbose write-out`.split(/\s+/)

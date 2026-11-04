@@ -45,7 +45,7 @@ describe('importCurlCommand', () => {
 
   it('preserves unsupported options as warnings and does not resolve local file references', () => {
     const result = importCurlCommand(
-      'curl https://api.example.com/upload --form avatar=@/tmp/avatar.png --cacert ./ca.pem --retry-all-errors'
+      'curl https://api.example.com/upload --form avatar=@/tmp/avatar.png --cacert ./ca.pem --compressed'
     );
 
     expect(result.warnings).toContainEqual(
@@ -59,7 +59,7 @@ describe('importCurlCommand', () => {
       expect.objectContaining({ kind: 'unresolved-file', option: '--cacert', path: './ca.pem' })
     );
     expect(result.warnings).toContainEqual(
-      expect.objectContaining({ kind: 'unsupported-option', option: '--retry-all-errors' })
+      expect.objectContaining({ kind: 'unsupported-option', option: '--compressed' })
     );
   });
 
