@@ -1,5 +1,5 @@
 import { isKnownHttpMethod, normalizeHttpMethod } from '@shared/protocol/http-method';
-import { type GenerateOptions, rubyString, singleQuotedLiteral, urlWithVariables } from './types';
+import { type GenerateOptions, rubyString, singleQuotedLiteral, urlWithParams } from './types';
 
 export const generateRuby = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams } = options;
@@ -7,10 +7,7 @@ export const generateRuby = (options: GenerateOptions): string => {
   let urlStr = resolvedUrl || 'https://api.example.com';
   try {
     const url = new URL(urlStr);
-    Object.entries(resolvedParams).forEach(([key, value]) => {
-      url.searchParams.append(key, value);
-    });
-    urlStr = urlWithVariables(url);
+    urlStr = urlWithParams(url, resolvedParams);
   } catch {
     // keep urlStr as-is
   }

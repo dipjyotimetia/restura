@@ -192,8 +192,9 @@ export async function exportBrunoCollection(
   }
 
   // Environments under environments/<name>.bru
+  const envNames = new Set<string>();
   for (const env of opts.environments ?? []) {
-    const safeName = sanitiseFileName(env.name);
+    const safeName = uniqueName(sanitiseFileName(env.name), envNames);
     const relativePath = `environments/${safeName}.bru`;
     const envJson = environmentToBrunoJson(
       portableBrunoVariables(env.variables, relativePath, warnings)
@@ -207,14 +208,19 @@ export async function exportBrunoCollection(
   // Walk the item tree, emitting one .bru file per request.
   let seq = 1;
   const writeItems = (items: CollectionItem[], folderPath: string) => {
+    // Sanitised names can collide ("a/b" vs "a:b", or differ only by case on
+    // case-insensitive filesystems) — dedupe per directory so siblings never
+    // overwrite each other.
+    const usedFolders = new Set<string>();
+    const usedFiles = new Set<string>();
     for (const item of items) {
       if (item.type === 'folder') {
-        const folderSlug = sanitiseFileName(item.name);
+        const folderSlug = uniqueName(sanitiseFileName(item.name), usedFolders);
         const nextPath = folderPath ? `${folderPath}/${folderSlug}` : folderSlug;
         writeItems(item.items ?? [], nextPath);
       } else if (item.request) {
         const req = item.request;
-        const fileName = sanitiseFileName(item.name);
+        const fileName = uniqueName(sanitiseFileName(item.name), usedFiles);
         const relPath = folderPath ? `${folderPath}/${fileName}.bru` : `${fileName}.bru`;
         // Only HTTP requests round-trip cleanly through V2. gRPC/WebSocket/SSE/MCP
         // each have their own runtime model in Restura, but Bruno's `.bru` schema
@@ -513,6 +519,17 @@ function environmentToBrunoJson(variables: readonly BrunoVariable[]): Record<str
       ...(isSecretVariable(v) ? { secret: true } : {}),
     })),
   };
+}
+
+/** Case-insensitively unique name within `used`; appends -2, -3, ... on clash. */
+function uniqueName(base: string, used: Set<string>): string {
+  let candidate = base;
+  let n = 2;
+  while (used.has(candidate.toLowerCase())) {
+    candidate = `${base}-${n++}`;
+  }
+  used.add(candidate.toLowerCase());
+  return candidate;
 }
 
 function sanitiseFileName(name: string): string {

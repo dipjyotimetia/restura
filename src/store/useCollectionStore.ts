@@ -28,6 +28,25 @@ function migrateCollectionAuth(collection: Collection): Collection {
 }
 
 /**
+ * Per-collection guard for the rehydrate migration: one malformed legacy
+ * collection must not reject the whole migrate (the store would hydrate empty
+ * and the next persisted write would overwrite the user's data). On failure the
+ * collection is kept exactly as stored.
+ */
+function migrateCollectionAuthSafely(collection: Collection): Collection {
+  try {
+    return migrateCollectionAuth(collection);
+  } catch (err) {
+    console.warn(
+      `[collections] Could not migrate auth for a legacy collection (${
+        err instanceof Error ? err.name : 'error'
+      }); it was kept unchanged`
+    );
+    return collection;
+  }
+}
+
+/**
  * Pre-#1209 Postman WebSocket / Socket.IO placeholder folders → native items
  * (rebuilt from their `_postman` sidecar). Idempotent; unchanged collections
  * keep their reference.
@@ -265,7 +284,7 @@ export const useCollectionStore = create<CollectionState>()(
         if (state && version < 3 && Array.isArray(state.collections)) {
           state = {
             ...state,
-            collections: state.collections.map((c) => migrateCollectionAuth(c)),
+            collections: state.collections.map(migrateCollectionAuthSafely),
           };
         }
         if (state && version < 4 && Array.isArray(state.collections)) {

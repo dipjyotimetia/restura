@@ -43,6 +43,36 @@ describe('loadIterationData', () => {
     ]);
   });
 
+  it('errors on an empty JSON array instead of running one row-less iteration', async () => {
+    const file = join(dir, 'empty.json');
+    await writeFile(file, '[]');
+    await expect(loadIterationData(file)).rejects.toThrow(/no rows/);
+  });
+
+  it('errors on a header-only CSV', async () => {
+    const file = join(dir, 'h.csv');
+    await writeFile(file, 'name,city\n');
+    await expect(loadIterationData(file)).rejects.toThrow(/no rows/);
+  });
+
+  it('sniffs JSON in a file with a non-json extension (as the app does)', async () => {
+    const file = join(dir, 'rows.txt');
+    await writeFile(file, '  [{"a": 1}]');
+    expect(await loadIterationData(file)).toEqual([{ a: '1' }]);
+  });
+
+  it('reads a non-json extension as CSV when it does not start with [', async () => {
+    const file = join(dir, 'rows.txt');
+    await writeFile(file, 'a,b\n1,2\n');
+    expect(await loadIterationData(file)).toEqual([{ a: '1', b: '2' }]);
+  });
+
+  it('refuses a ragged CSV row with a message naming the file (the app refuses it too)', async () => {
+    const file = join(dir, 'ragged.csv');
+    await writeFile(file, 'a,b\n1\n');
+    await expect(loadIterationData(file)).rejects.toThrow(/ragged\.csv/);
+  });
+
   it('rejects JSON files that are not arrays', async () => {
     const file = join(dir, 'rows.json');
     await writeFile(file, JSON.stringify({ not: 'an array' }));

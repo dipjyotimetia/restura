@@ -12,6 +12,7 @@ import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
+import { computeLoadStats } from '@/lib/shared/loadStats';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
@@ -149,11 +150,12 @@ function pushSummaryToConsole(
 ): void {
   const ok = final.samples.filter((s) => s.ok).length;
   const failed = final.samples.length - ok;
-  const times = final.samples
-    .map((s) => s.timeMs)
-    .filter((t) => t > 0)
-    .sort((a, b) => a - b);
-  const pct = (p: number) => times[Math.min(times.length - 1, Math.floor(times.length * p))] ?? 0;
+  // Same samples and percentile math as the dialog's stats.
+  const stats = computeLoadStats(
+    final.samples.filter((s) => s.ok).map((s) => s.timeMs),
+    final.elapsedMs,
+    failed
+  );
   const summary = {
     url: request.url,
     method: request.method,
@@ -164,9 +166,7 @@ function pushSummaryToConsole(
     failed,
     elapsedMs: Math.round(final.elapsedMs),
     latencyMs:
-      times.length > 0
-        ? { min: times[0], p50: pct(0.5), p95: pct(0.95), max: times[times.length - 1] }
-        : null,
+      stats.count > 0 ? { min: stats.min, p50: stats.p50, p95: stats.p95, max: stats.max } : null,
   };
   const body = JSON.stringify(summary, null, 2);
   useConsoleStore.getState().addEntry(

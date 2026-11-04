@@ -71,3 +71,16 @@ export function sharedCoreFailure(
   if (status === 502 || status === 504) return { transportError: true };
   return {};
 }
+
+const SHARED_CORE_FETCH_PREFIX = 'Proxy request failed: ';
+
+/**
+ * The shared protocol core words a failed fetch `Proxy request failed: <why>`:
+ * "proxy" is Restura's own proxy layer, which is the CLI itself. Read as an
+ * HTTP proxy it misleads when none is configured (`connect ECONNREFUSED` from a
+ * direct connection), so say `Request failed` unless `--proxy` is in use.
+ */
+export function failureLabel(message: string, proxyConfigured: boolean): string {
+  if (proxyConfigured || !message.startsWith(SHARED_CORE_FETCH_PREFIX)) return message;
+  return `Request failed: ${message.slice(SHARED_CORE_FETCH_PREFIX.length)}`;
+}

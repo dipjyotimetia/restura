@@ -31,7 +31,7 @@ import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
-import { sharedCoreFailure, thrownOutcome } from './failure';
+import { failureLabel, sharedCoreFailure, thrownOutcome } from './failure';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 import { preflightRefusal, refusedOutcome } from './variable-guard';
 
@@ -197,7 +197,7 @@ export async function executeGrpc(
         passed: false,
         durationMs,
         bodyBytes: 0,
-        errorMessage: payload.error,
+        errorMessage: failureLabel(payload.error, Boolean(opts.proxy)),
         ...failure,
       };
     }
@@ -353,7 +353,7 @@ async function executeGrpcWeb(
       passed: false,
       durationMs: Date.now() - start,
       bodyBytes: 0,
-      errorMessage: result.payload.error,
+      errorMessage: failureLabel(result.payload.error, Boolean(opts.proxy)),
       ...sharedCoreFailure(result.status),
     };
   }
@@ -408,7 +408,7 @@ async function executeGrpcWeb(
     ...(passed
       ? {}
       : {
-          errorMessage: `gRPC ${end.grpcStatusText}${end.grpcMessage ? `: ${end.grpcMessage}` : ''}`,
+          errorMessage: `gRPC ${end.grpcStatusText}${end.grpcMessage ? `: ${failureLabel(end.grpcMessage, Boolean(opts.proxy))}` : ''}`,
         }),
   };
 }

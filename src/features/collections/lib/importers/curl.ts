@@ -257,6 +257,19 @@ export function parseCurlCommand(source: string): {
 
   const addHeader = (value: string) => {
     const colon = value.indexOf(':');
+    // curl: `Name;` sends the header with an empty value.
+    if (colon === -1 && /^[^\s;]+;$/.test(value.trim())) {
+      headers.push({ id: uuid(), key: value.trim().slice(0, -1), value: '', enabled: true });
+      return;
+    }
+    if (colon > 0 && value.slice(colon + 1).trim() === '') {
+      // curl: `Name:` REMOVES a default header rather than sending an empty one.
+      warnings.push({
+        kind: 'unsupported-option',
+        option: `-H '${value.trim()}' (removes the header in curl; not imported)`,
+      });
+      return;
+    }
     if (colon <= 0) {
       warnings.push({ kind: 'unsupported-option', option: '-H (malformed header)' });
       return;
@@ -430,11 +443,31 @@ export function parseCurlCommand(source: string): {
     warnings.push({ kind: 'unsupported-option', option: extra });
   }
   if (!url) throw new Error('cURL command does not contain a URL.');
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(url);
-  } catch {
-    throw new Error('cURL command contains an invalid URL.');
+  // Like curl, a URL without a scheme is http://. `{{var}}` placeholders can't
+  // go through `new URL`, so those are split by hand.
+  const hasScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(url);
+  const hasTemplate = /\{\{[^{}]*\}\}/.test(url);
+  let urlSearch: string;
+  let urlHost: string;
+  let urlBase: string;
+  if (hasTemplate) {
+    const noHash = url.split('#')[0] ?? url;
+    const q = noHash.indexOf('?');
+    const base = q === -1 ? noHash : noHash.slice(0, q);
+    urlSearch = q === -1 ? '' : noHash.slice(q + 1);
+    urlBase = hasScheme || base.startsWith('{{') ? base : `http://${base}`;
+    urlHost = urlBase.replace(/^[a-z][a-z\d+.-]*:\/\//i, '').split('/')[0] || 'request';
+  } else {
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(hasScheme ? url : `http://${url}`);
+    } catch {
+      throw new Error('cURL command contains an invalid URL.');
+    }
+    urlSearch = parsedUrl.search.slice(1);
+    parsedUrl.search = '';
+    urlHost = parsedUrl.hostname;
+    urlBase = parsedUrl.toString();
   }
 
   const findHeader = (key: string) =>
@@ -457,12 +490,11 @@ export function parseCurlCommand(source: string): {
   // (Postman behaviour), so decoding here would turn a pasted `%2B` into a `+`
   // the server reads as a space. Only `%26`/`%23` (and `%3D` in a key) are
   // undone — the URL bar writes them again, so the wire bytes are unchanged.
-  for (const part of [parsedUrl.search.slice(1), ...queryParts]) {
+  for (const part of [urlSearch, ...queryParts]) {
     for (const { key, value } of parseRawQuery(part)) {
       params.push({ id: uuid(), key, value, enabled: true });
     }
   }
-  parsedUrl.search = '';
 
   if (userAgent !== undefined && !findHeader('User-Agent'))
     headers.push({ id: uuid(), key: 'User-Agent', value: userAgent, enabled: true });
@@ -486,13 +518,13 @@ export function parseCurlCommand(source: string): {
         : sendsBody || formData.length > 0
           ? 'POST'
           : 'GET';
-  const requestName = `${(method ?? defaultMethod).toUpperCase()} ${parsedUrl.hostname}`;
+  const requestName = `${(method ?? defaultMethod).toUpperCase()} ${urlHost}`;
   const request: HttpRequest = {
     id: uuid(),
     name: requestName,
     type: 'http',
     method: coerceHttpMethod(method ?? defaultMethod, requestName, warnings),
-    url: parsedUrl.toString(),
+    url: urlBase,
     headers,
     params,
     body:
@@ -508,7 +540,7 @@ export function parseCurlCommand(source: string): {
     result: {
       collection: {
         id: uuid(),
-        name: `cURL: ${parsedUrl.hostname}`,
+        name: `cURL: ${urlHost}`,
         items: [{ id: uuid(), name: requestName, type: 'request', request }],
       },
       warnings,
@@ -612,7 +644,9 @@ function lexPosix(source: string): string[] {
         // A backslash-newline inside double quotes is a line continuation.
         if (source[i + 1] === '\n') i++;
         else if (source[i + 1] === '\r' && source[i + 2] === '\n') i += 2;
-        else current += source.charAt(++i);
+        else if ('$`"\\'.includes(source.charAt(i + 1))) current += source.charAt(++i);
+        // Any other backslash is literal inside double quotes.
+        else current += char;
       } else current += char;
       continue;
     }
