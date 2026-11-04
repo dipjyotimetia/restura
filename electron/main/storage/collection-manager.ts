@@ -108,7 +108,7 @@ import { EVENT, IPC } from '../../shared/channels';
 import { createValidatedHandler, FilePathSchema, NoInputSchema } from '../ipc/ipc-validators';
 import { authHasPlaintextSecret } from '../security/collection-export-redactor';
 import { debounce } from '../util/debounce';
-import { getAllowedRootForPath, isPathRealSafe } from './file-operations';
+import { getAllowedRootForPath, grantCollectionRoot, isPathRealSafe } from './file-operations';
 
 interface FileKeyValue {
   id: string;
@@ -612,6 +612,13 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
         properties: ['openDirectory', 'createDirectory'],
         title: 'Select Collection Directory',
       });
+
+      // A folder the user explicitly picks here becomes an allowed root (kept
+      // across restarts). This is the only path that adds one; system roots and
+      // credential folders are still refused by grantCollectionRoot.
+      if (!result.canceled) {
+        for (const picked of result.filePaths) await grantCollectionRoot(picked);
+      }
 
       return result;
     })

@@ -147,14 +147,41 @@ export function getIconPath(isDev: boolean): string | undefined {
   return undefined;
 }
 
+const CASCADE_OFFSET = 30;
+
+/**
+ * Position for a new window. The first window uses the saved position; any
+ * further window is offset from a live one so it doesn't open exactly on top.
+ */
+export function cascadePosition(
+  saved: { x?: number; y?: number },
+  reference: { x: number; y: number } | null
+): { x?: number; y?: number } {
+  if (!reference) return { x: saved.x, y: saved.y };
+  return { x: reference.x + CASCADE_OFFSET, y: reference.y + CASCADE_OFFSET };
+}
+
+/**
+ * window-state.json is a single file shared by every window; only the last
+ * window to close writes it so a secondary window can't clobber the primary's.
+ */
+export function shouldPersistWindowState(otherLiveWindows: number): boolean {
+  return otherLiveWindows === 0;
+}
+
 export function createMainWindow(isDev: boolean): BrowserWindow {
   const windowState = loadWindowState();
+  const referenceWindow = getActiveWindow();
+  const position = cascadePosition(
+    windowState,
+    referenceWindow ? referenceWindow.getBounds() : null
+  );
 
   const mainWindow = new BrowserWindow({
     width: windowState.width,
     height: windowState.height,
-    x: windowState.x,
-    y: windowState.y,
+    x: position.x,
+    y: position.y,
     minWidth: 800,
     minHeight: 600,
     title: 'Restura',
@@ -185,7 +212,10 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
   });
 
   mainWindow.on('close', () => {
-    saveWindowState(mainWindow);
+    const others = BrowserWindow.getAllWindows().filter(
+      (w) => w !== mainWindow && !w.isDestroyed()
+    ).length;
+    if (shouldPersistWindowState(others)) saveWindowState(mainWindow);
   });
 
   // Load the app

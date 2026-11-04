@@ -1,17 +1,34 @@
-import type { BrowserWindow, MenuItemConstructorOptions } from 'electron';
-import { app, dialog, Menu, shell } from 'electron';
+import type { BaseWindow, BrowserWindow, MenuItemConstructorOptions } from 'electron';
+import { app, dialog, BrowserWindow as ElectronBrowserWindow, Menu, shell } from 'electron';
+
+/**
+ * The application menu is process-global but windows are not: resolve the
+ * window a menu click targets at click time (the window Electron says the
+ * item was activated from, else the focused window, else the creation-time
+ * window) and never hand back a destroyed one.
+ */
+function resolveTarget(
+  fallback: BrowserWindow,
+  clicked: BaseWindow | undefined
+): BrowserWindow | null {
+  const focused = ElectronBrowserWindow.getFocusedWindow();
+  for (const w of [clicked, focused, fallback]) {
+    if (w && !w.isDestroyed() && 'webContents' in w) return w as BrowserWindow;
+  }
+  return null;
+}
 
 export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
   const isMac = process.platform === 'darwin';
+  const sendTo = (channel: string) => (_item: unknown, win: BaseWindow | undefined) => {
+    resolveTarget(mainWindow, win)?.webContents.send(channel);
+  };
 
   // Reuses the same `app:check-updates` event the system tray emits; the
   // renderer (UpdateNotification.tsx) gives it transient toast feedback.
   const checkForUpdatesItem: MenuItemConstructorOptions = {
     label: 'Check for Updates…',
-    click: () => {
-      if (mainWindow.isDestroyed()) return;
-      mainWindow.webContents.send('app:check-updates');
-    },
+    click: sendTo('app:check-updates'),
   };
 
   // Opens the renderer's Settings drawer. Accelerator matches the renderer's own
@@ -19,10 +36,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
   const settingsItem: MenuItemConstructorOptions = {
     label: isMac ? 'Settings…' : 'Preferences',
     accelerator: 'CmdOrCtrl+,',
-    click: () => {
-      if (mainWindow.isDestroyed()) return;
-      mainWindow.webContents.send('menu:settings');
-    },
+    click: sendTo('menu:settings'),
   };
 
   const template: MenuItemConstructorOptions[] = [
@@ -57,9 +71,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
         {
           label: 'New Request',
           accelerator: 'CmdOrCtrl+N',
-          click: () => {
-            mainWindow.webContents.send('menu:new-request');
-          },
+          click: sendTo('menu:new-request'),
         },
         // Tab shortcuts live in the menu so they win over the window-level
         // defaults: Cmd/Ctrl+W closes the active request tab (the window close
@@ -67,31 +79,23 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
         {
           label: 'Close Tab',
           accelerator: 'CmdOrCtrl+W',
-          click: () => {
-            if (!mainWindow.isDestroyed()) mainWindow.webContents.send('menu:close-tab');
-          },
+          click: sendTo('menu:close-tab'),
         },
         {
           label: 'Reopen Closed Tab',
           accelerator: 'CmdOrCtrl+Shift+T',
-          click: () => {
-            if (!mainWindow.isDestroyed()) mainWindow.webContents.send('menu:reopen-tab');
-          },
+          click: sendTo('menu:reopen-tab'),
         },
         { type: 'separator' },
         {
           label: 'Import Collection...',
           accelerator: 'CmdOrCtrl+I',
-          click: () => {
-            mainWindow.webContents.send('menu:import');
-          },
+          click: sendTo('menu:import'),
         },
         {
           label: 'Export Collection...',
           accelerator: 'CmdOrCtrl+E',
-          click: () => {
-            mainWindow.webContents.send('menu:export');
-          },
+          click: sendTo('menu:export'),
         },
         { type: 'separator' },
         // macOS surfaces Settings in the app menu; elsewhere File is its home.
@@ -174,9 +178,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
         },
         {
           label: 'Report a Bug…',
-          click: () => {
-            if (!mainWindow.isDestroyed()) mainWindow.webContents.send('menu:report-bug');
-          },
+          click: sendTo('menu:report-bug'),
         },
         {
           label: 'Open Logs',
@@ -187,14 +189,15 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
         { type: 'separator' },
         {
           label: 'About Restura',
-          click: () => {
+          click: (_item: unknown, win: BaseWindow | undefined) => {
             const version = app.getVersion();
             const electronVersion = process.versions.electron;
             const chromeVersion = process.versions.chrome;
             const nodeVersion = process.versions.node;
 
-            if (mainWindow.isDestroyed()) return;
-            dialog.showMessageBox(mainWindow, {
+            const target = resolveTarget(mainWindow, win);
+            if (!target) return;
+            dialog.showMessageBox(target, {
               type: 'info',
               title: 'About Restura',
               message: 'Restura',

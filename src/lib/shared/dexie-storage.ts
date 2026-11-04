@@ -205,11 +205,21 @@ export async function getDexieStorageItemStrict<T>(
 }
 
 /**
+ * Names (`table/name`) whose most recent read FAILED (transient IndexedDB error,
+ * unreadable key) as opposed to finding nothing. getItem reports both as null so
+ * the store hydrates defaults, but persist then writes those defaults on the next
+ * state change — destroying the real row. setItem refuses to write a name in this
+ * set until a later read of it succeeds.
+ */
+const readFailed = new Set<string>();
+
+/**
  * Create a Dexie storage adapter for Zustand persist middleware
  * Stores data in IndexedDB, encrypting only when the active KeyProvider does.
  */
 export function createDexieStorage<T = unknown>(config: DexieStorageConfig): PersistStorage<T> {
   const { tableName, encrypt = true } = config;
+  const failKey = (name: string) => `${tableName}/${name}`;
 
   return {
     getItem: async (name: string): Promise<StorageValue<T> | null> => {
@@ -218,6 +228,8 @@ export function createDexieStorage<T = unknown>(config: DexieStorageConfig): Per
       try {
         const table = getTable(tableName);
         const record = (await table.get(name)) as { encryptedData?: string } | undefined;
+        // The read itself succeeded: a missing row is genuinely "no data".
+        readFailed.delete(failKey(name));
 
         if (!record?.encryptedData) return null;
 
@@ -267,6 +279,7 @@ export function createDexieStorage<T = unknown>(config: DexieStorageConfig): Per
         }
         return parsed as StorageValue<T>;
       } catch (error) {
+        readFailed.add(failKey(name));
         signalKeyUnavailable(error);
         console.error(`Failed to get item ${name} from Dexie:`, error);
         return null;
@@ -275,6 +288,14 @@ export function createDexieStorage<T = unknown>(config: DexieStorageConfig): Per
 
     setItem: async (name: string, value: StorageValue<T>): Promise<void> => {
       if (typeof window === 'undefined') return;
+
+      if (readFailed.has(failKey(name))) {
+        console.error(
+          `[dexie-storage] not writing "${name}": its last read failed, so the in-memory ` +
+            `state may be defaults and would overwrite the persisted data. Reload to retry.`
+        );
+        return;
+      }
 
       try {
         const jsonString = JSON.stringify(value);
