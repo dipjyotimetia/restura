@@ -47,7 +47,7 @@ import {
 } from '../security/execution-policy';
 import { materializeHttpAuth, requiredSecretResolver } from '../security/http-auth-materializer';
 import { isProxyBypassed } from '../security/proxy-bypass';
-import { requireSecretValueMain } from '../security/required-secret';
+import { proxyBasicToken } from '../security/required-secret';
 import { materializeSecretVariables } from '../security/secret-variable-materializer';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import {
@@ -180,9 +180,8 @@ export interface HttpResponse {
   headers: Record<string, string | string[]>;
   /** Every Set-Cookie field, one entry each (RFC 6265 §3 — never folded). */
   setCookies?: string[];
-  /** URL the followed redirect chain ended on (only when a redirect was followed). */
+  /** Redirect-chain end URL and each hop's cookies (see NormalizedResponse). */
   finalUrl?: string;
-  /** Set-Cookie fields of every hop, each with the URL that set them. */
   cookieHops?: Array<{ url: string; setCookies: string[] }>;
   data: unknown;
   /** Decoded byte size of the response body. */
@@ -431,18 +430,8 @@ export function buildElectronFetcher(
           // requestTls applies to the upstream TLS handshake — that's where mTLS and ALPN matter.
           requestTls: { ...connectOpts, ...versionTls } as ProxyAgent.Options['requestTls'],
         };
-        // A configured password whose keychain handle is gone fails the request —
-        // never send to the proxy without the credential.
-        const proxyPassword = requireSecretValueMain(
-          electronConfig.proxy.auth?.password,
-          'Proxy password'
-        );
-        if (electronConfig.proxy.auth?.username && proxyPassword) {
-          const auth = Buffer.from(
-            `${electronConfig.proxy.auth.username}:${proxyPassword}`
-          ).toString('base64');
-          proxyOpts.token = `Basic ${auth}`;
-        }
+        const proxyToken = proxyBasicToken(electronConfig.proxy.auth);
+        if (proxyToken) proxyOpts.token = proxyToken;
         dispatcher = new ProxyAgent(proxyOpts);
         // ProxyAgent builds the upstream connector internally from `requestTls`,
         // so we can't wrap it directly. Instead we subscribe to undici's

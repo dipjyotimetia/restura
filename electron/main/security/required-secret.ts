@@ -35,3 +35,16 @@ export function requireSecretValueMain(value: unknown, what?: string): string | 
  */
 export const requiredSecretResolver: SecretResolver = (value) =>
   requireSecretValueMain(value) ?? '';
+
+/**
+ * `Proxy-Authorization` value for an HTTP(S) proxy, or undefined without
+ * credentials. A configured password whose keychain handle is gone throws —
+ * never send to the proxy without the credential.
+ */
+export function proxyBasicToken(
+  auth: { username?: string; password?: unknown } | undefined
+): string | undefined {
+  const password = requireSecretValueMain(auth?.password, 'Proxy password');
+  if (!auth?.username || !password) return undefined;
+  return `Basic ${Buffer.from(`${auth.username}:${password}`).toString('base64')}`;
+}

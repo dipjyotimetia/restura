@@ -24,6 +24,7 @@ import {
   readRequestHeaders,
   readRequestMetadata,
 } from './script-executor-request';
+import { installPmTest, PmTestRecorder } from './script-executor-tests';
 import type {
   PmCookieAdapter,
   PmExecutionLocation,
@@ -103,11 +104,11 @@ class ScriptExecutor {
   private readonly globalsMutations: Record<string, string | null> = {};
   private readonly collectionMutations: Record<string, string | null> = {};
   private readonly environmentMutations: Record<string, string | null> = {};
-  /**
-   * `pm.test` slots whose callback returned a promise that has not settled yet,
-   * keyed by their index in `this.tests`. Cleared per eval.
-   */
-  private readonly pendingTests = new Set<number>();
+  /** `pm.test` outcomes in call order, including async tests that settle later. */
+  private readonly testRecorder = new PmTestRecorder(
+    () => this.tests,
+    (type, message) => this.addLog(type, message)
+  );
   /**
    * Test-only override. Production code never sets this; tests inject a
    * short ceiling so the wall-clock-deadline path is exercised in
@@ -725,7 +726,7 @@ class ScriptExecutor {
     for (const k of Object.keys(this.globalsMutations)) delete this.globalsMutations[k];
     for (const k of Object.keys(this.collectionMutations)) delete this.collectionMutations[k];
     for (const k of Object.keys(this.environmentMutations)) delete this.environmentMutations[k];
-    this.pendingTests.clear();
+    this.testRecorder.reset();
     // The whole eval() is timed: the sentinel reset and bindings below can run
     // getters/setters an earlier user script installed. Reset on every exit.
     this.evalStartTime = Date.now();
@@ -786,13 +787,9 @@ class ScriptExecutor {
       // An async `pm.test` still pending here can never settle: no host work is
       // outstanding to resolve it (or the deadline hit). Fail it rather than
       // report a pass for an assertion that never ran.
-      for (const slot of this.pendingTests) {
-        this.settleTest(
-          slot,
-          false,
-          this.evalInterrupted ? `Test timed out after ${ceiling}ms` : 'Test promise never settled'
-        );
-      }
+      this.testRecorder.failPending(
+        this.evalInterrupted ? `Test timed out after ${ceiling}ms` : 'Test promise never settled'
+      );
       if (this.evalInterrupted) {
         this.addLog('error', `Script execution timed out after ${ceiling}ms`);
         this.errors.push(`Script execution timed out after ${ceiling}ms`);
@@ -912,30 +909,6 @@ class ScriptExecutor {
     }
   }
 
-  /**
-   * Record a `pm.test` in call order before its outcome is known, so an async
-   * test that settles later keeps its place in the report.
-   */
-  private reserveTest(name: string): number {
-    this.tests.push({ name, passed: false });
-    const slot = this.tests.length - 1;
-    this.pendingTests.add(slot);
-    return slot;
-  }
-
-  private settleTest(slot: number, passed: boolean, error?: string) {
-    if (!this.pendingTests.delete(slot)) return;
-    const test = this.tests[slot];
-    if (!test) return;
-    test.passed = passed;
-    if (!passed) test.error = error || 'Test failed';
-    if (passed) {
-      this.addLog('info', `✓ ${test.name}`);
-    } else {
-      this.addLog('error', `✗ ${test.name}: ${test.error}`);
-    }
-  }
-
   // One-time setup of console / environment / globals / pm.* helpers
   // and the utils + expect eval-time code. Request / response globals
   // are bound per-eval by `bindRequestResponse` so a session can serve
@@ -993,20 +966,8 @@ class ScriptExecutor {
     // Setup pm (Postman-compatible) API
     const pmObj = vm.newObject();
 
-    // pm.test — the wrapper is installed in JS below (it must see a returned
-    // promise); these two natives record the outcome in call order.
-    const reserveTestFn = vm.newFunction('reserveTest', (nameHandle) =>
-      vm.newNumber(this.reserveTest(vm.getString(nameHandle)))
-    );
-    const settleTestFn = vm.newFunction('settleTest', (slotHandle, passedHandle, errorHandle) => {
-      const error =
-        errorHandle && vm.typeof(errorHandle) === 'string' ? vm.getString(errorHandle) : undefined;
-      this.settleTest(vm.getNumber(slotHandle), vm.dump(passedHandle) === true, error);
-    });
-    vm.setProp(vm.global, '__pm_reserveTest', reserveTestFn);
-    vm.setProp(vm.global, '__pm_settleTest', settleTestFn);
-    reserveTestFn.dispose();
-    settleTestFn.dispose();
+    // pm.test natives; the JS wrapper is installed once `pm` is global.
+    this.testRecorder.bindNatives(vm);
 
     // pm.variables / pm.globals / pm.environment / pm.collectionVariables —
     // four Postman namespaces. `pm.variables` aliases `pm.environment` (the
@@ -1083,38 +1044,7 @@ class ScriptExecutor {
     vm.setProp(vm.global, 'rs', pmObj);
     pmObj.dispose();
 
-    // pm.test(name, fn): a thrown error or a rejected returned promise fails
-    // the test; a returned promise is awaited (within the script's timeout).
-    const pmTest = vm.evalCode(`(function () {
-      var reserve = globalThis.__pm_reserveTest;
-      var settle = globalThis.__pm_settleTest;
-      delete globalThis.__pm_reserveTest;
-      delete globalThis.__pm_settleTest;
-      function message(e) {
-        if (e && typeof e === 'object' && 'message' in e) return String(e.message);
-        return String(e);
-      }
-      pm.test = function (name, fn) {
-        var slot = reserve(String(name));
-        var returned;
-        try {
-          returned = fn();
-        } catch (e) {
-          settle(slot, false, message(e));
-          return;
-        }
-        if (returned && typeof returned.then === 'function') {
-          returned.then(
-            function () { settle(slot, true); },
-            function (e) { settle(slot, false, message(e)); }
-          );
-        } else {
-          settle(slot, true);
-        }
-      };
-    })();`);
-    if (pmTest.error) pmTest.error.dispose();
-    else pmTest.value.dispose();
+    installPmTest(vm);
 
     // pm.info — default empty; per-eval bindRequestResponse() overwrites with
     // the active request's name/id when available.

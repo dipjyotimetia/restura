@@ -10,25 +10,17 @@ import {
   type EnvironmentImportResult,
   type HarImportPreview,
   type ImportResult,
-  type ImportWarning,
   importBrunoCollection,
   importCurlCommand,
-  importHoppscotchCollection,
   importHoppscotchEnvironmentDetailed,
   importHttpFile,
-  importInsomniaCollection,
-  importOpenAPICollection,
-  importOpenCollection,
   importPostmanEnvironmentDetailed,
   isHoppscotchEnvironment,
   isPostmanEnvironment,
   parseHarImport,
   validateImportedCollection,
 } from '@/features/collections/lib/importers';
-import {
-  importPostmanV3Files,
-  importPostmanWithReport,
-} from '@/features/collections/lib/importers/postman';
+import { importPostmanV3Files } from '@/features/collections/lib/importers/postman';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
 import { assertValidEnvironments } from '@/lib/shared/store-validators';
@@ -54,34 +46,7 @@ import {
   readPostmanFolderFiles,
   readZipBytes,
 } from './import-dialog-data';
-
-const IMPORTERS: Record<
-  ParsedImportType,
-  (data: unknown, sourceUrl?: string) => Promise<ImportResult>
-> = {
-  // v2.x JSON or a single-file v3 logical tree (`$kind: collection`).
-  postman: async (data) => importPostmanWithReport(data),
-  insomnia: async (data) => importInsomniaCollection(data),
-  openapi: async (data, sourceUrl) => {
-    const warnings: ImportWarning[] = [];
-    // A spec fetched from a URL resolves a relative `servers` entry against it.
-    const collection = await importOpenAPICollection(
-      data,
-      warnings,
-      sourceUrl ? { sourceUrl } : {}
-    );
-    return { collection, warnings };
-  },
-  opencollection: async (data) => importOpenCollection(data),
-  hoppscotch: async (data) => importHoppscotchCollection(data),
-  bruno: async (data) =>
-    importBrunoCollection({
-      kind: 'single',
-      content: String(data),
-    }),
-  http: async (data) => importHttpFile(String(data)),
-  curl: async (data) => importCurlCommand(String(data)),
-};
+import { IMPORTERS } from './import-dialog-importers';
 
 interface ImportDialogProps {
   open: boolean;
