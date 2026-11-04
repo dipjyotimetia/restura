@@ -1,3 +1,4 @@
+import { STATUS_CODES } from 'node:http';
 import { Readable } from 'node:stream';
 import {
   arrayBuffer as readStreamArrayBuffer,
@@ -58,7 +59,7 @@ import {
 } from './http-connector-wrappers';
 import { applyPacProxy } from './http-pac-proxy';
 import { subscribeProxyAlpnCapture } from './http-proxy-alpn';
-import { decodeResponseBody, tryParseJson, wireCodings } from './http-response-stream';
+import { decodeResponseBody, wireCodings } from './http-response-stream';
 import { createSecureLookup, openSocksSocket } from './http-secure-connection';
 import { createSocksDispatcher } from './http-socks-dispatcher';
 import { h2NotNegotiatedError, resolveHttpVersionPlan } from './http-version';
@@ -642,10 +643,10 @@ export function buildElectronFetcher(
 
     const result: FetcherResponse = {
       status: response.statusCode,
-      // undici doesn't expose statusText for the buffered `request` API; leave it empty.
-      // Downstream (executeHttpProxy → NormalizedResponse → HttpResponse) only forwards it
-      // for display; nothing branches on its value.
-      statusText: '',
+      // undici's `request` API doesn't expose the wire reason phrase. Use the
+      // standard one so scripts (`pm.response.to.have.status('OK')`, `pm.response.status`)
+      // see what web's fetch reports; a code with no standard phrase stays empty.
+      statusText: STATUS_CODES[response.statusCode] ?? '',
       headers: headersOut,
       text: () => readStreamText(cappedBody),
       arrayBuffer: () => readStreamArrayBuffer(cappedBody),
@@ -747,16 +748,15 @@ async function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse>
     throw new Error(result.payload.error);
   }
 
-  // Translate NormalizedResponse → legacy IPC HttpResponse shape (parses JSON when possible).
-  // Base64 binary bodies are passed through verbatim — never JSON-parsed.
+  // Translate NormalizedResponse → IPC HttpResponse shape. The body is the exact
+  // upstream text (or base64 bytes), as the Worker returns it — never JSON-parsed
+  // here: a parse + re-stringify loses big-int precision, unwraps a JSON string
+  // and turns `null` into "". The renderer parses only for display.
   const rawResult: HttpResponse = {
     status: result.response.status,
     statusText: result.response.statusText,
     headers: result.response.headers,
-    data:
-      result.response.bodyEncoding === 'base64'
-        ? result.response.body
-        : tryParseJson(result.response.body),
+    data: result.response.body,
     size: result.response.size,
     ...(result.response.setCookies && { setCookies: result.response.setCookies }),
     ...(result.response.finalUrl && { finalUrl: result.response.finalUrl }),

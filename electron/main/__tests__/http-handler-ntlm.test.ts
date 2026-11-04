@@ -62,7 +62,14 @@ function request(ntlm: Record<string, unknown>) {
     method: 'GET',
     url: `${server.url}/ntlm/protected`,
     auth: { type: 'ntlm', ntlm },
-  }) as Promise<{ status: number; data: { authenticated: boolean; reason?: string } }>;
+  }).then((reply) => {
+    // The IPC body is the raw upstream text (web parity); parse it here.
+    const r = reply as { status: number; data: string };
+    return { status: r.status, data: JSON.parse(r.data || '{}') } as {
+      status: number;
+      data: { authenticated: boolean; reason?: string };
+    };
+  });
 }
 
 describe('http:request — NTLM (desktop)', () => {
