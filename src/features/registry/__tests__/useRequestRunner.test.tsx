@@ -31,6 +31,56 @@ describe('useRequestRunner', () => {
     expect(fakeRun).toHaveBeenCalledTimes(1);
   });
 
+  it('persists pm.environment writes from a non-HTTP protocol to the active environment', async () => {
+    const { protocolRegistry } = await import('../registry');
+    const { useEnvironmentStore } = await import('@/store/useEnvironmentStore');
+    useEnvironmentStore.setState({
+      environments: [
+        {
+          id: 'env-1',
+          name: 'Dev',
+          variables: [{ id: 'v1', key: 'stale', value: 'x', enabled: true }],
+        },
+      ],
+      activeEnvironmentId: 'env-1',
+    } as never);
+    protocolRegistry.register({
+      id: 'fake-grpc-env-test',
+      label: 'Fake',
+      tabType: 'grpc',
+      defaultRequest: () => ({}) as never,
+      runRequest: async (_req, ctx) => {
+        ctx.onScriptResult?.({
+          preRequest: {
+            success: true,
+            logs: [],
+            errors: [],
+            variables: {},
+            environmentMutations: { nonce: 'n-1' },
+          },
+          test: {
+            success: true,
+            logs: [],
+            errors: [],
+            variables: {},
+            environmentMutations: { user_id: '42', stale: null },
+          },
+        } as never);
+        return { status: 0, statusText: 'OK', headers: {}, body: '', size: 0, time: 0 } as never;
+      },
+    });
+    const { useRequestRunner } = await import('../useRequestRunner');
+    const { result } = renderHook(() => useRequestRunner());
+    await act(async () => {
+      await result.current.run({ id: 'g1', type: 'grpc' } as never, 'fake-grpc-env-test');
+    });
+    const vars = useEnvironmentStore.getState().environments[0]?.variables ?? [];
+    expect(Object.fromEntries(vars.map((v) => [v.key, v.value]))).toEqual({
+      nonce: 'n-1',
+      user_id: '42',
+    });
+  });
+
   it('throws when protocol id is unknown', async () => {
     const { useRequestRunner } = await import('../useRequestRunner');
     const { result } = renderHook(() => useRequestRunner());

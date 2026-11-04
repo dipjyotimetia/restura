@@ -18,7 +18,13 @@
 import { useCallback, useRef } from 'react';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
+import {
+  mergeEnvironmentMutations,
+  persistScriptEnvironmentMutations,
+  scriptEnvironmentTargetId,
+} from '@/features/environments/lib/scriptEnvironmentMutations';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { AuthConfig, Request, Response } from '@/types';
@@ -142,6 +148,26 @@ export function useRequestRunner() {
       // newer run() call would have already replaced it.
       if (abortRef.current === ctrl) {
         abortRef.current = null;
+      }
+
+      // `pm.environment.set/unset` from either script persist to the active
+      // environment when it applies to the request's collection — the same
+      // for every protocol sent through this runner.
+      const environmentMutations = mergeEnvironmentMutations(
+        collectedScripts?.preRequest,
+        collectedScripts?.test
+      );
+      if (environmentMutations) {
+        const savedRequestId = originTabId
+          ? useRequestStore.getState().tabs.find((tab) => tab.id === originTabId)?.savedRequestId
+          : undefined;
+        const collectionId = savedRequestId
+          ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.id
+          : undefined;
+        persistScriptEnvironmentMutations(
+          scriptEnvironmentTargetId(collectionId),
+          environmentMutations
+        );
       }
 
       const result: RegistryRunResult = { response, durationMs };

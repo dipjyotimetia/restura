@@ -6,17 +6,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { useRequestAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
-import {
-  mergeEnvironmentMutations,
-  persistScriptEnvironmentMutations,
-  scriptEnvironmentTargetId,
-} from '@/features/environments/lib/scriptEnvironmentMutations';
 import { executeStreamingRequest, isStreamingAccept } from '@/features/http/lib/requestExecutor';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { isElectron } from '@/lib/shared/platform';
 import { useActiveRequest, useActiveResponse } from '@/store/selectors';
-import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -203,25 +197,8 @@ export function useHttpRequest(): UseHttpRequestReturn {
       // handles env extraction, executor invocation, history persistence,
       // and (via ctx.onScriptResult) pushes pre-request + test script
       // results into the active tab so the Console panel updates.
-      const { response, scriptResult } = await runViaRegistry(httpRequest, 'http');
-
-      // `pm.environment.set/unset` persist to the active environment.
-      const environmentMutations = mergeEnvironmentMutations(
-        scriptResult?.preRequest,
-        scriptResult?.test
-      );
-      if (environmentMutations) {
-        const savedRequestId = useRequestStore
-          .getState()
-          .tabs.find((tab) => tab.id === originTabId)?.savedRequestId;
-        const collectionId = savedRequestId
-          ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.id
-          : undefined;
-        persistScriptEnvironmentMutations(
-          scriptEnvironmentTargetId(collectionId),
-          environmentMutations
-        );
-      }
+      // The runner also persists `pm.environment.set/unset` writes, for every protocol.
+      const { response } = await runViaRegistry(httpRequest, 'http');
 
       setCurrentResponseForTab(originTabId, response);
       announceRequestComplete(response.status, response.time);
