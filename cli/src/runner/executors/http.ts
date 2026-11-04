@@ -1,5 +1,11 @@
 import { resolveAuthVariables } from '@shared/auth/resolve-variables';
-import { buildGraphQLWireRequest, graphqlEnvelopeFromBody } from '@shared/graphql/wire';
+import { mergeIncrementalGraphQLResponse } from '@shared/graphql/incremental-response';
+import { injectGraphQLBody } from '@shared/graphql/inject';
+import {
+  buildGraphQLWireRequest,
+  type GraphQLEnvelope,
+  graphqlEnvelopeFromBody,
+} from '@shared/graphql/wire';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import {
   applyBodyDefaultHeaders,
@@ -153,15 +159,21 @@ export async function executeHttp(
     const durationMs = Date.now() - start;
 
     if (result.ok) {
-      const passed = result.response.status >= 200 && result.response.status < 300;
+      // GraphQL `@defer` / `@stream` asks for `multipart/mixed` (shared wire
+      // builder): fold the parts into one JSON result, as the app does, so
+      // tests' `pm.response.json()` sees the merged data.
+      const response = graphqlBuilt
+        ? mergeIncrementalGraphQLResponse(result.response)
+        : result.response;
+      const passed = response.status >= 200 && response.status < 300;
       return {
-        status: result.response.status,
+        status: response.status,
         passed,
         durationMs,
-        bodyBytes: result.response.size,
-        responseHeaders: result.response.headers,
-        ...(result.response.setCookies ? { setCookies: result.response.setCookies } : {}),
-        responseBody: result.response.body,
+        bodyBytes: response.size,
+        responseHeaders: response.headers,
+        ...(response.setCookies ? { setCookies: response.setCookies } : {}),
+        responseBody: response.body,
       };
     }
     return {
@@ -188,15 +200,17 @@ type ShapedGraphQL =
  * subscriptions (spec-unsafe) before anything is sent.
  */
 function shapeGraphQL(req: HttpRequest, vars: Record<string, string>): ShapedGraphQL {
-  const body = req.body;
-  const resolvedBody: HttpRequest['body'] = {
-    ...body,
-    ...(body.raw !== undefined ? { raw: resolveVarsDeep(body.raw, vars) } : {}),
-    ...(body.graphqlVariables !== undefined
-      ? { graphqlVariables: resolveVarsDeep(body.graphqlVariables, vars) }
-      : {}),
-  };
-  const wire = buildGraphQLWireRequest(req, graphqlEnvelopeFromBody(resolvedBody));
+  // JSON-safe substitution (shared with the app): a value holding `"` or `\`
+  // can't break the variables JSON.
+  const resolvedBody = injectGraphQLBody(req.body, (text) => resolveVarsDeep(text, vars));
+  let envelope: GraphQLEnvelope;
+  try {
+    envelope = graphqlEnvelopeFromBody(resolvedBody);
+  } catch (err) {
+    // Invalid variables JSON fails the request instead of sending `{}`.
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+  const wire = buildGraphQLWireRequest(req, envelope);
   if (!wire.ok) return wire;
   const existing = new Set(req.params);
   const addedParams = wire.request.params.filter((p) => !existing.has(p));
