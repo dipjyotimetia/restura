@@ -55,6 +55,109 @@ describe('executeHttpProxy redirect cookies', () => {
     expect(r.response.setCookies).toEqual(['seen=1']);
   });
 
+  it('a cookie a 3xx rotates replaces the same-named one in the outgoing Cookie header', async () => {
+    const fetcher = vi
+      .fn<Fetcher>()
+      .mockResolvedValueOnce(
+        hop(302, [
+          ['Location', '/next'],
+          ['Set-Cookie', 'session=new; Path=/'],
+        ])
+      )
+      .mockResolvedValueOnce(hop(200, [], 'ok'));
+
+    await executeHttpProxy(
+      {
+        method: 'GET',
+        url: 'https://app.example/start',
+        // What the app sends: jar cookies folded into the Cookie header.
+        headers: { Cookie: 'pref=dark; session=old' },
+      },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(cookieOf(fetcher.mock.calls[1]?.[0])).toBe('pref=dark; session=new');
+  });
+
+  it('a cookie a 3xx deletes is not sent on the next hop', async () => {
+    const fetcher = vi
+      .fn<Fetcher>()
+      .mockResolvedValueOnce(
+        hop(302, [
+          ['Location', '/next'],
+          ['Set-Cookie', 'session=; Max-Age=0; Path=/'],
+        ])
+      )
+      .mockResolvedValueOnce(hop(200, [], 'ok'));
+
+    await executeHttpProxy(
+      {
+        method: 'GET',
+        url: 'https://app.example/start',
+        headers: { Cookie: 'pref=dark; session=old' },
+      },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(cookieOf(fetcher.mock.calls[1]?.[0])).toBe('pref=dark');
+  });
+
+  it('reports hop URLs and finalUrl as origin + path only (no query, fragment or userinfo)', async () => {
+    const SECRET = 'pl41n-s3cret';
+    const fetcher = vi
+      .fn<Fetcher>()
+      .mockResolvedValueOnce(
+        hop(301, [
+          ['Location', `https://u:${SECRET}@app.example/home?key=${SECRET}#${SECRET}`],
+          ['Set-Cookie', 'sid=abc; Path=/'],
+        ])
+      )
+      .mockResolvedValueOnce(hop(200, [['Set-Cookie', 'seen=1']], 'ok'));
+
+    const r = await executeHttpProxy(
+      {
+        method: 'GET',
+        url: `https://app.example/login?key=${SECRET}`,
+        params: { token: SECRET },
+      },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.response.finalUrl).toBe('https://app.example/home');
+    expect(r.response.cookieHops).toEqual([
+      { url: 'https://app.example/login', setCookies: ['sid=abc; Path=/'] },
+      { url: 'https://app.example/home', setCookies: ['seen=1'] },
+    ]);
+    expect(JSON.stringify(r.response)).not.toContain(SECRET);
+  });
+
+  it('a Digest retry does not report the wire URL (query) as finalUrl', async () => {
+    const SECRET = 'pl41n-s3cret';
+    const fetcher = vi
+      .fn<Fetcher>()
+      .mockResolvedValueOnce(
+        hop(401, [['WWW-Authenticate', 'Digest realm="r", nonce="n", qop="auth"']])
+      )
+      .mockResolvedValueOnce(hop(200, [['Set-Cookie', 'seen=1']], 'ok'));
+
+    const r = await executeHttpProxy(
+      {
+        method: 'GET',
+        url: `https://app.example/dir?key=${SECRET}`,
+        auth: { type: 'digest', digest: { username: 'u', password: 'p' } },
+      },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.response.finalUrl).toBe('https://app.example/dir');
+    expect(JSON.stringify(r.response)).not.toContain(SECRET);
+  });
+
   it('does not send a host-only chain cookie to another host', async () => {
     const fetcher = vi
       .fn<Fetcher>()

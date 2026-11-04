@@ -605,9 +605,27 @@ function redirectCookieFields(chain: RedirectCookieChain): {
 } {
   if (chain.lastUrl === undefined || chain.responses < 2) return {};
   return {
-    finalUrl: chain.lastUrl,
-    ...(chain.hops.length > 0 ? { cookieHops: chain.hops.map((h) => ({ ...h })) } : {}),
+    finalUrl: cookieScopeUrl(chain.lastUrl),
+    ...(chain.hops.length > 0
+      ? { cookieHops: chain.hops.map((h) => ({ ...h, url: cookieScopeUrl(h.url) })) }
+      : {}),
   };
+}
+
+/**
+ * The part of a wire URL a cookie jar needs (RFC 6265 scope: scheme, host,
+ * port, path): `origin + pathname`. The wire URL can hold secrets the host
+ * materialized (Electron main substitutes secret variables and API-key-in-query
+ * handles into the query), and these fields travel back to the renderer
+ * (ADR-0007) — so the query, fragment and userinfo never go with them.
+ */
+function cookieScopeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return '';
+  }
 }
 
 /** Round a timing breakdown to whole milliseconds; connection phases are kept when known. */

@@ -347,6 +347,8 @@ export function cookieMatchesUrl(
   return !cookie.secure || url.protocol === 'https:';
 }
 
+const cookiePairName = (pair: string) => (pair.split('=', 1)[0] ?? '').trim();
+
 /**
  * Combine an explicit Cookie header with jar cookies: every name the header
  * already carries wins, the jar adds only the names it does not.
@@ -359,10 +361,47 @@ export function mergeCookieHeader(
     .split(';')
     .map((s) => s.trim())
     .filter(Boolean);
-  const named = new Set(pairs.map((p) => (p.split('=', 1)[0] ?? '').trim()));
+  const named = new Set(pairs.map(cookiePairName));
   for (const c of jar) {
     if (named.has(c.name)) continue;
     named.add(c.name);
+    pairs.push(`${c.name}=${c.value}`);
+  }
+  return pairs.join('; ');
+}
+
+/**
+ * The Cookie header for the next hop of a redirect chain (browser semantics):
+ * a cookie a hop of this chain set replaces the same-named pair in the
+ * outgoing header (which carries the user's and the jar's cookies), and one a
+ * hop deleted is dropped. Other pairs keep their place.
+ */
+export function applyChainCookies(
+  outgoing: string | undefined,
+  set: ReadonlyArray<{ name: string; value: string }>,
+  deleted: ReadonlySet<string>
+): string {
+  // `set` is longest-path first: the first cookie of a name is the one sent.
+  const byName = new Map<string, string>();
+  for (const c of set) if (!byName.has(c.name)) byName.set(c.name, c.value);
+  const pairs: string[] = [];
+  const sent = new Set<string>();
+  for (const pair of (outgoing ?? '').split(';')) {
+    const trimmed = pair.trim();
+    if (!trimmed) continue;
+    const name = cookiePairName(trimmed);
+    const replacement = byName.get(name);
+    if (replacement === undefined) {
+      if (!deleted.has(name)) pairs.push(trimmed);
+      continue;
+    }
+    if (sent.has(name)) continue;
+    sent.add(name);
+    pairs.push(`${name}=${replacement}`);
+  }
+  for (const c of set) {
+    if (sent.has(c.name)) continue;
+    sent.add(c.name);
     pairs.push(`${c.name}=${c.value}`);
   }
   return pairs.join('; ');
@@ -381,6 +420,7 @@ export interface CookieHop {
  */
 export class RedirectCookieChain {
   private cookies: ResolvedCookie[] = [];
+  private deleted: ResolvedCookie[] = [];
   readonly hops: CookieHop[] = [];
   /** URL of the last response recorded — the final URL once the chain ends. */
   lastUrl: string | undefined;
@@ -395,11 +435,34 @@ export class RedirectCookieChain {
       const r = resolveSetCookie(raw, url, now);
       if (!r.ok) continue;
       const c = r.cookie;
-      this.cookies = this.cookies.filter(
-        (x) => !(x.name === c.name && x.domain === c.domain && x.path === c.path)
-      );
-      if (!isCookieExpired(c, now)) this.cookies.push(c);
+      const same = (x: ResolvedCookie) =>
+        x.name === c.name && x.domain === c.domain && x.path === c.path;
+      this.cookies = this.cookies.filter((x) => !same(x));
+      this.deleted = this.deleted.filter((x) => !same(x));
+      if (isCookieExpired(c, now)) this.deleted.push(c);
+      else this.cookies.push(c);
     }
+  }
+
+  /**
+   * Names of cookies a hop of this chain deleted (expired Set-Cookie) that
+   * would match `url` and that no live chain cookie re-sets.
+   */
+  deletedNames(url: string): Set<string> {
+    const out = new Set<string>();
+    if (this.deleted.length === 0) return out;
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return out;
+    }
+    for (const c of this.deleted) {
+      // Match on scope only: the deletion itself is what expired it.
+      const { expiresAt: _expired, ...scope } = c;
+      if (cookieMatchesUrl(scope, parsed, Number.NEGATIVE_INFINITY)) out.add(c.name);
+    }
+    return out;
   }
 
   /** Chain cookies for `url`, longest path first (RFC 6265 §5.4 step 2). */
