@@ -46,6 +46,33 @@ describe('ImportDialog deep links', () => {
     expect(useCollectionStore.getState().collections).toHaveLength(1);
   });
 
+  it('resolves an OpenAPI relative server against the URL it was downloaded from', async () => {
+    const spec = JSON.stringify({
+      openapi: '3.0.0',
+      info: { title: 'Pets', version: '1' },
+      servers: [{ url: '/api/v3' }],
+      paths: { '/pet': { get: { responses: { '200': { description: 'ok' } } } } },
+    });
+    platform.getElectronAPI.mockReturnValue({
+      deepLinks: { fetchImport: vi.fn().mockResolvedValue({ ok: true, text: spec }) },
+    });
+    const user = userEvent.setup();
+    render(
+      <ImportDialog
+        open
+        onOpenChange={vi.fn()}
+        deepLinkSource={{ url: 'https://petstore.example.com/openapi.json', format: 'openapi' }}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /download preview/i }));
+    await user.click(await screen.findByRole('button', { name: /confirm import/i }));
+    const [collection] = useCollectionStore.getState().collections;
+    expect(collection?.variables?.find((v) => v.key === 'baseUrl')?.value).toBe(
+      'https://petstore.example.com/api/v3'
+    );
+  });
+
   it('keeps a failed deep-link download out of the store', async () => {
     platform.getElectronAPI.mockReturnValue({
       deepLinks: {
