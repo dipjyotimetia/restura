@@ -113,9 +113,65 @@ describe('Gemini route (#1044)', () => {
       { type: 'delta', text: 'It is ' },
       { type: 'delta', text: 'sunny' },
       { type: 'tool_call', id: 'gemini-call-1', name: 'log', input: '{"a":1}' },
-      { type: 'usage', usage: { promptTokens: 10, completionTokens: 6, estimatedCostUSD: 0 } },
+      {
+        type: 'usage',
+        usage: { promptTokens: 10, completionTokens: 6, estimatedCostUSD: 0, costUnknown: true },
+      },
       { type: 'done' },
     ]);
+  });
+
+  it('captures a function call’s thoughtSignature and replays it on the next turn', () => {
+    const events = decode('gemini', [
+      JSON.stringify({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  functionCall: { name: 'get_weather', args: { city: 'Rome' } },
+                  thoughtSignature: 'c2lnLTE=',
+                },
+              ],
+            },
+            finishReason: 'STOP',
+          },
+        ],
+      }),
+    ]);
+    const call = events.find((e) => e.type === 'tool_call');
+    expect(call).toMatchObject({ name: 'get_weather', thoughtSignature: 'c2lnLTE=' });
+
+    const built = PROVIDER_ROUTES.gemini.buildRequest(
+      spec('gemini', {
+        messages: [
+          { role: 'user', content: 'Weather?' },
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [
+              {
+                id: 'call-1',
+                name: 'get_weather',
+                input: '{"city":"Rome"}',
+                thoughtSignature: 'c2lnLTE=',
+              },
+            ],
+          },
+          { role: 'tool', toolCallId: 'call-1', content: 'sunny' },
+        ],
+      }),
+      'g-key'
+    );
+    expect(JSON.parse(built.body).contents[1]).toEqual({
+      role: 'model',
+      parts: [
+        {
+          functionCall: { name: 'get_weather', args: { city: 'Rome' } },
+          thoughtSignature: 'c2lnLTE=',
+        },
+      ],
+    });
   });
 
   it('surfaces a blocked prompt as a provider error', () => {
@@ -228,7 +284,13 @@ describe('Bedrock Converse route (#1044)', () => {
       { type: 'tool_call', id: 'tu-1', name: 'get_weather', input: '{"city":"Rome"}' },
       {
         type: 'usage',
-        usage: { promptTokens: 8, completionTokens: 7, cacheReadTokens: 3, estimatedCostUSD: 0 },
+        usage: {
+          promptTokens: 8,
+          completionTokens: 7,
+          cacheReadTokens: 3,
+          estimatedCostUSD: 0,
+          costUnknown: true,
+        },
       },
       { type: 'done' },
     ]);

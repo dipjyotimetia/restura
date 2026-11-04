@@ -108,6 +108,12 @@ export interface Usage {
   promptTokens: number;
   completionTokens: number;
   estimatedCostUSD: number;
+  /**
+   * True when the provider has no price entry for this model, so
+   * `estimatedCostUSD` (0) is a placeholder, not a price: an unpriced model is
+   * never free. Omitted when the model is priced.
+   */
+  costUnknown?: boolean;
   /** Prompt tokens served from the provider's cache. Omitted when zero. */
   cacheReadTokens?: number;
   /** Prompt tokens written to the provider's cache. Omitted when zero. */
@@ -120,7 +126,14 @@ export type ChatStreamEvent =
   | { type: 'delta'; text: string }
   // A complete tool call decoded from the provider stream. `input` is the raw
   // JSON-string of arguments (parsed + validated by the agent layer before use).
-  | { type: 'tool_call'; id: string; name: string; input: string }
+  | {
+      type: 'tool_call';
+      id: string;
+      name: string;
+      input: string;
+      /** Opaque provider reasoning state to replay with this call (Gemini). */
+      thoughtSignature?: string;
+    }
   | { type: 'usage'; usage: Usage }
   | { type: 'error'; code: ChatErrorCode; message: string }
   | { type: 'done' };
@@ -130,6 +143,12 @@ export interface ChatToolCall {
   name: string;
   /** Raw JSON-string of arguments. */
   input: string;
+  /**
+   * Gemini's opaque `thoughtSignature` from the functionCall part. Gemini
+   * requires it back, unchanged, on the same part when the call is replayed in
+   * the next turn of a tool loop; other providers ignore it.
+   */
+  thoughtSignature?: string;
 }
 
 /**

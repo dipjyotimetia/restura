@@ -223,9 +223,13 @@ function check(
   }
 
   if (typeof value === 'string') {
-    if (typeof schema.minLength === 'number' && value.length < schema.minLength)
+    const length =
+      typeof schema.minLength === 'number' || typeof schema.maxLength === 'number'
+        ? codePointLength(value)
+        : 0;
+    if (typeof schema.minLength === 'number' && length < schema.minLength)
       add(`length must be >= ${schema.minLength}`);
-    if (typeof schema.maxLength === 'number' && value.length > schema.maxLength)
+    if (typeof schema.maxLength === 'number' && length > schema.maxLength)
       add(`length must be <= ${schema.maxLength}`);
     if (
       typeof schema.pattern === 'string' &&
@@ -359,4 +363,22 @@ export function validateToolOutput(
   return issues.length === 0
     ? { status: 'valid', ...extra }
     : { status: 'invalid', issues, ...extra };
+}
+
+/**
+ * String length as JSON Schema defines it: Unicode code points, so an astral
+ * character (emoji) counts once, not as its two UTF-16 units.
+ */
+function codePointLength(value: string): number {
+  let n = 0;
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i);
+    // A high surrogate followed by a low one is a single code point.
+    if (c >= 0xd800 && c <= 0xdbff && i + 1 < value.length) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) i++;
+    }
+    n++;
+  }
+  return n;
 }

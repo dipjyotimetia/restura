@@ -131,6 +131,30 @@ describe('runEval', () => {
     expect(cells[0]?.cost).toBeNull();
   });
 
+  it('an unpriced model on a priced provider is unknown cost, and the cost scorer fails', async () => {
+    mockComplete.mockResolvedValue({
+      ok: true,
+      text: 'x',
+      toolCalls: [],
+      // The decoder found no price entry for this model id.
+      usage: { promptTokens: 10, completionTokens: 1, estimatedCostUSD: 0, costUnknown: true },
+    });
+    const cells = await runEval(
+      {
+        prompt: PROMPT,
+        dataset: { ...DATASET, cases: [DATASET.cases[0]!] },
+        models: [{ providerConfigId: 'p1', model: 'gpt-brand-new' }],
+        scorers: [{ id: 'c', kind: 'cost', maxUSD: 0.01 }],
+        providers: { p1: PROVIDER }, // pricingKnown: true
+        concurrency: 1,
+      },
+      () => {},
+      new AbortController().signal
+    );
+    expect(cells[0]?.cost).toBeNull();
+    expect(cells[0]?.passed).toBe(false);
+  });
+
   it('marks a failed model call as not passed and records the error', async () => {
     mockComplete.mockResolvedValue({
       ok: false,

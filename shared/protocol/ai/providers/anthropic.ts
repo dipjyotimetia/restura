@@ -1,5 +1,12 @@
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
-import { estimateCostUSD, type ModelInfo, type ProviderModule, type StreamDecoder } from './types';
+import {
+  estimateCostUSD,
+  findModelPrice,
+  type ModelInfo,
+  type ProviderModule,
+  type StreamDecoder,
+  truncatedStreamError,
+} from './types';
 
 // Pricing snapshot from platform.claude.com/docs/en/about-claude/pricing
 // (checked 2026-09-30). 5-minute cache writes are 1.25x input; reads are 0.1x
@@ -44,7 +51,7 @@ const MODELS: ModelInfo[] = [
 ];
 
 function modelFor(id: string): ModelInfo | undefined {
-  return MODELS.find((m) => m.id === id);
+  return findModelPrice(MODELS, id);
 }
 
 interface AnthropicUsage {
@@ -186,6 +193,7 @@ class AnthropicDecoder implements StreamDecoder {
             cacheWrite: this.cacheWriteTokens,
             output: this.outputTokens,
           }),
+          ...(modelFor(this.model) ? {} : { costUnknown: true }),
         },
       });
       this.inputTokens = 0;
@@ -193,9 +201,11 @@ class AnthropicDecoder implements StreamDecoder {
       this.cacheWriteTokens = 0;
       this.outputTokens = 0;
     }
-    if (this.finished || this.buffered.length > 0) {
-      this.buffered.push({ type: 'done' });
-    }
+    // No message_stop: the connection was cut. Any open tool_use block stays
+    // unemitted (its JSON is partial).
+    if (!this.finished) this.buffered.push(truncatedStreamError());
+    this.toolBlocks.clear();
+    this.buffered.push({ type: 'done' });
     return this.drain();
   }
 

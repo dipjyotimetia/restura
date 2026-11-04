@@ -1,5 +1,12 @@
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
-import { estimateCostUSD, type ModelInfo, type ProviderModule, type StreamDecoder } from './types';
+import {
+  estimateCostUSD,
+  findModelPrice,
+  type ModelInfo,
+  type ProviderModule,
+  type StreamDecoder,
+  truncatedStreamError,
+} from './types';
 
 // Pricing snapshot from developers.openai.com/api/docs/pricing (checked
 // 2026-09-30, short-context ≤272K tier). Prompt caching is automatic; cached
@@ -155,7 +162,9 @@ class OpenAIDecoder implements StreamDecoder {
   }
 
   flush(): ChatStreamEvent[] {
-    // Emit completed tool calls before usage/done, in index order.
+    // Emit completed tool calls before usage/done, in index order. A stream cut
+    // before finish_reason/[DONE] may hold half-streamed arguments: drop them.
+    if (!this.finished) this.toolCalls.clear();
     if (this.toolCalls.size > 0) {
       for (const [, tc] of [...this.toolCalls.entries()].sort((a, b) => a[0] - b[0])) {
         if (tc.id && tc.name) {
@@ -176,21 +185,18 @@ class OpenAIDecoder implements StreamDecoder {
           promptTokens: this.pendingUsage.promptTokens,
           completionTokens: this.pendingUsage.completionTokens,
           ...(this.pendingUsage.cached > 0 ? { cacheReadTokens: this.pendingUsage.cached } : {}),
-          estimatedCostUSD: estimateCostUSD(
-            this.models.find((m) => m.id === this.model),
-            {
-              input: this.pendingUsage.promptTokens - this.pendingUsage.cached,
-              cacheRead: this.pendingUsage.cached,
-              output: this.pendingUsage.completionTokens,
-            }
-          ),
+          ...(findModelPrice(this.models, this.model) ? {} : { costUnknown: true }),
+          estimatedCostUSD: estimateCostUSD(findModelPrice(this.models, this.model), {
+            input: this.pendingUsage.promptTokens - this.pendingUsage.cached,
+            cacheRead: this.pendingUsage.cached,
+            output: this.pendingUsage.completionTokens,
+          }),
         },
       });
       this.pendingUsage = null;
     }
-    if (this.finished || this.buffered.length > 0) {
-      this.buffered.push({ type: 'done' });
-    }
+    if (!this.finished) this.buffered.push(truncatedStreamError());
+    this.buffered.push({ type: 'done' });
     return this.drain();
   }
 

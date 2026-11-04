@@ -47,6 +47,9 @@ describe('validateAgainstSchema keyword coverage', () => {
     ['minLength ok', { minLength: 2 }, 'ab', 0],
     ['maxLength bad', { maxLength: 1 }, 'ab', 1],
     ['maxLength ok', { maxLength: 1 }, 'a', 0],
+    // JSON Schema counts code points: one astral emoji is length 1, not 2.
+    ['maxLength counts code points', { maxLength: 1 }, '\u{1F600}', 0],
+    ['minLength counts code points', { minLength: 2 }, '\u{1F600}', 1],
     ['pattern bad', { pattern: '^a' }, 'b', 1],
     ['pattern ok', { pattern: '^a' }, 'a', 0],
     ['pattern invalid ignored', { pattern: '(' }, 'a', 0],

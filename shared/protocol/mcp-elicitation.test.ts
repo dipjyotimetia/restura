@@ -168,3 +168,12 @@ describe('parseElicitationSchema / elicitationEnumValues', () => {
     expect(elicitationEnumValues({ type: 'string' })).toBeUndefined();
   });
 });
+
+describe('validateElicitationContent string length', () => {
+  const lengthSchema = { properties: { s: { type: 'string', minLength: 2, maxLength: 2 } } };
+
+  it('counts Unicode code points, not UTF-16 units', () => {
+    expect(validateElicitationContent(lengthSchema, { s: '\u{1F600}\u{1F600}' }).ok).toBe(true);
+    expect(validateElicitationContent(lengthSchema, { s: '\u{1F600}' }).ok).toBe(false);
+  });
+});
