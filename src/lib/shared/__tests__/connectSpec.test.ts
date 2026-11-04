@@ -171,12 +171,24 @@ describe('connectSpec', () => {
       expect(spec.ok).toBe(false);
     });
 
-    it('no-ops sign-at-wire auth types', () => {
-      const request = sse({
-        auth: { type: 'wsse', wsse: { username: 'u', password: 'p' } } as AuthConfig,
-      });
+    it.each([
+      ['wsse', { type: 'wsse', wsse: { username: 'u', password: 'p' } }],
+      ['aws-signature', { type: 'aws-signature', awsSignature: { accessKey: 'a' } }],
+      ['digest', { type: 'digest', digest: { username: 'u', password: 'p' } }],
+      ['oauth1', { type: 'oauth1', oauth1: { consumerKey: 'k' } }],
+      ['ntlm', { type: 'ntlm', ntlm: { username: 'u', password: 'p' } }],
+    ])('refuses %s auth instead of connecting without it', (_type, auth) => {
+      const request = sse({ auth: auth as AuthConfig });
       seed(request);
-      expect(resolveSseConnect(request)).toMatchObject({ ok: true, headers: {} });
+      const spec = resolveSseConnect(request);
+      expect(spec.ok).toBe(false);
+      expect(!spec.ok && spec.error).toMatch(/can't be applied to SSE/);
+    });
+
+    it('refuses inherited sign-at-wire auth too', () => {
+      const request = sse();
+      seed(request, {}, { auth: { type: 'oauth1', oauth1: { consumerKey: 'k' } } as AuthConfig });
+      expect(resolveSseConnect(request).ok).toBe(false);
     });
   });
 

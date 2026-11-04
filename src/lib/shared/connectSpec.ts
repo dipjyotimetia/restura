@@ -36,6 +36,7 @@ import {
 import { buildMcpConnectAuth } from '@/features/mcp/lib/mcpAuth';
 import type { McpClientStdioOptions } from '@/features/mcp/lib/mcpClient';
 import { buildStdioLaunch } from '@/features/mcp/lib/mcpStdioLaunch';
+import { sseUnsupportedAuthError } from '@/features/sse/lib/sseAuth';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { isElectron } from '@/lib/shared/platform';
 import { type RequestScope, resolveRequestScopeText } from '@/lib/shared/resolveRequestScope';
@@ -120,7 +121,8 @@ export interface SseConnectSpec {
 
 /**
  * Own configured auth wins; otherwise folder/Collection auth is inherited.
- * Sign-at-wire types (sigv4/oauth1/wsse) no-op for SSE (`buildAuthCredential`).
+ * Sign-at-wire types (sigv4/oauth1/wsse/digest/ntlm) are refused: an SSE
+ * transport signs nothing, and connecting anonymously would hide that.
  */
 export function resolveSseConnect(
   request: SseRequest,
@@ -135,6 +137,8 @@ export function resolveSseConnect(
     const resolve = (text: string) => resolveField(scope, text);
     const headers = resolveHeaders(scope, request.headers);
     // Header-based auth (basic/bearer/api-key/oauth2), already resolved.
+    const unsupported = sseUnsupportedAuthError(effective.auth);
+    if (unsupported) return { ok: false, error: unsupported };
     const auth = effective.auth && resolveAuthVariables(effective.auth, resolve);
     const credential = buildAuthCredential(auth);
     if (credential.requiresMainSideApply) {
