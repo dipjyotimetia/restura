@@ -29,9 +29,73 @@ async function ensureBufferPolyfill(): Promise<void> {
   (globalThis as unknown as { Buffer: unknown }).Buffer = mod.Buffer;
 }
 
+/** Where an unresolvable relative server points until the user sets `baseUrl`. */
+const PLACEHOLDER_ORIGIN = 'http://localhost';
+
+export interface OpenAPIImportOptions {
+  /**
+   * The URL the spec was fetched from, when imported from a URL. A relative
+   * (or absent) server URL resolves against it, as OpenAPI specifies.
+   */
+  sourceUrl?: string;
+}
+
+/** Substitute every `{name}` server variable with its default (or first enum value). */
+function applyServerVariables(
+  url: string,
+  variables: Record<string, { default?: string; enum?: string[] }> | undefined
+): string {
+  return url.replace(/\{([^}]+)\}/g, (match, name: string) => {
+    const definition = variables?.[name];
+    if (!definition) return match;
+    return String(definition.default ?? definition.enum?.[0] ?? '');
+  });
+}
+
+/**
+ * The collection's base URL: the first server (OAS 3) or scheme/host/basePath
+ * (Swagger 2), with server variables applied. A relative or missing server is
+ * relative to the spec's own location; without one a placeholder origin is
+ * used and the user is told to set `baseUrl`.
+ */
+function resolveBaseUrl(
+  api: OpenAPIDocument,
+  isSwagger2: boolean,
+  sourceUrl: string | undefined,
+  warnings: ImportWarning[] | undefined
+): string {
+  let candidate: string;
+  if (isSwagger2) {
+    const path = api.basePath || '';
+    candidate = api.host ? `${api.schemes?.[0] || 'https'}://${api.host}${path}` : path || '/';
+  } else {
+    const server = api.servers?.[0];
+    candidate = server ? applyServerVariables(server.url, server.variables) : '/';
+  }
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(candidate)) return candidate.replace(/\/+$/, '');
+
+  let base: URL | undefined;
+  try {
+    base = sourceUrl ? new URL(candidate, sourceUrl) : undefined;
+  } catch {
+    base = undefined;
+  }
+  if (!base) {
+    base = new URL(candidate, PLACEHOLDER_ORIGIN);
+    warnings?.push({
+      kind: 'unmodelled-construct',
+      construct: 'openapi-relative-server',
+      requestName: api.info.title,
+      detail: `The spec has no absolute server URL ("${candidate}"); set the collection variable baseUrl (defaulted to ${PLACEHOLDER_ORIGIN})`,
+    });
+  }
+  return `${base.origin}${base.pathname}`.replace(/\/+$/, '');
+}
+
 export async function importOpenAPICollection(
   openApiData: unknown,
-  warnings?: ImportWarning[]
+  warnings?: ImportWarning[],
+  options: OpenAPIImportOptions = {}
 ): Promise<Collection> {
   if (!openApiData || typeof openApiData !== 'object') {
     throw new Error('Invalid OpenAPI document: expected an object');
@@ -63,20 +127,12 @@ export async function importOpenAPICollection(
     );
   }
 
-  const isSwagger2 = 'swagger' in api && api.swagger;
+  const isSwagger2 = Boolean('swagger' in api && api.swagger);
 
-  let baseUrl = '';
-  if (isSwagger2) {
-    baseUrl = `${api.schemes?.[0] || 'https'}://${api.host || 'localhost'}${api.basePath || ''}`;
-  } else if (api.servers?.[0]) {
-    const server = api.servers[0];
-    baseUrl = server.url;
-    if (server.variables) {
-      for (const [varName, varDef] of Object.entries(server.variables)) {
-        baseUrl = baseUrl.replace(`{${varName}}`, varDef.default || varDef.enum?.[0] || '');
-      }
-    }
-  }
+  // Requests address `{{baseUrl}}` so the server is one edit away (and a
+  // relative server never yields an unsendable relative request URL).
+  const baseUrlValue = resolveBaseUrl(api, isSwagger2, options.sourceUrl, warnings);
+  const baseUrl = '{{baseUrl}}';
 
   const securitySchemes = isSwagger2 ? api.securityDefinitions : api.components?.securitySchemes;
   // Swagger 2 media types: an operation's `consumes` overrides the document's.
@@ -87,6 +143,7 @@ export async function importOpenAPICollection(
     name: api.info.title,
     description: api.info.description,
     items: [],
+    variables: [{ id: uuidv4(), key: 'baseUrl', value: baseUrlValue, enabled: true }],
   };
 
   const taggedOperations = new Map<string, CollectionItem[]>();
@@ -196,11 +253,12 @@ function convertOpenAPIOperation(
 
   const body = convertOpenAPIBody(operation, parameters, inherited.consumes, schemas);
 
+  // No multipart entry: a hand-set `multipart/form-data` carries no boundary
+  // and would override the one the runtime generates for the built body.
   const contentTypeMap: Record<string, string> = {
     json: 'application/json',
     xml: 'application/xml',
     text: 'text/plain',
-    'form-data': 'multipart/form-data',
     'x-www-form-urlencoded': 'application/x-www-form-urlencoded',
     graphql: 'application/json',
   };
@@ -309,7 +367,7 @@ function convertOpenAPIBody(
     if (multipartMediaType) {
       return {
         type: 'form-data',
-        formData: generateFormDataFromSchema(multipartMediaType.schema),
+        formData: generateFormDataFromSchema(multipartMediaType.schema, true),
       };
     }
 
@@ -347,30 +405,75 @@ function convertOpenAPIBody(
     const urlencoded =
       essences.includes('application/x-www-form-urlencoded') &&
       !essences.includes('multipart/form-data');
-    const formData: FormDataItem[] = formDataParams.map((param) => ({
-      id: uuidv4(),
-      key: param.name,
-      value: param.default?.toString() || param.example?.toString() || '',
-      enabled: true,
-      description: param.description,
-      type: 'text' as const,
-    }));
+    const formData: FormDataItem[] = formDataParams.map((param) =>
+      // Swagger 2 `type: file` is a multipart file part.
+      !urlencoded && (param as { type?: string }).type === 'file'
+        ? {
+            id: uuidv4(),
+            key: param.name,
+            value: '',
+            enabled: true,
+            description: param.description,
+            type: 'file' as const,
+          }
+        : {
+            id: uuidv4(),
+            key: param.name,
+            value: param.default?.toString() || param.example?.toString() || '',
+            enabled: true,
+            description: param.description,
+            type: 'text' as const,
+          }
+    );
     return { type: urlencoded ? 'x-www-form-urlencoded' : 'form-data', formData };
   }
 
   return { type: 'none' };
 }
 
-function generateFormDataFromSchema(schema: OpenAPISchema | undefined): FormDataItem[] {
+/**
+ * Whether a multipart property is a file part: `format: binary` (OAS 3.0),
+ * `contentMediaType` / `contentEncoding` on a string (OAS 3.1), or an array of
+ * such parts.
+ */
+function isFileSchema(schema: OpenAPISchema): boolean {
+  const extended = schema as OpenAPISchema & {
+    contentMediaType?: string;
+    contentEncoding?: string;
+  };
+  if (schema.type === 'array' && schema.items) return isFileSchema(schema.items);
+  if (schema.format === 'binary') return true;
+  return (
+    (schema.type === undefined || schema.type === 'string') &&
+    (extended.contentMediaType !== undefined || extended.contentEncoding !== undefined)
+  );
+}
+
+function generateFormDataFromSchema(
+  schema: OpenAPISchema | undefined,
+  multipart = false
+): FormDataItem[] {
   if (!schema?.properties) return [];
-  return Object.entries(schema.properties).map(([key, prop]) => ({
-    id: uuidv4(),
-    key,
-    value: prop.example?.toString() || prop.default?.toString() || generateSimpleValue(prop),
-    enabled: true,
-    description: prop.description,
-    type: 'text' as const,
-  }));
+  return Object.entries(schema.properties).map(([key, prop]) =>
+    multipart && isFileSchema(prop)
+      ? {
+          id: uuidv4(),
+          key,
+          // A file part's bytes are picked by the user; nothing to prefill.
+          value: '',
+          enabled: true,
+          description: prop.description,
+          type: 'file' as const,
+        }
+      : {
+          id: uuidv4(),
+          key,
+          value: prop.example?.toString() || prop.default?.toString() || generateSimpleValue(prop),
+          enabled: true,
+          description: prop.description,
+          type: 'text' as const,
+        }
+  );
 }
 
 function generateSimpleValue(schema: OpenAPISchema): string {

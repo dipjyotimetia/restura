@@ -34,7 +34,11 @@ describe('prepareCodegen', () => {
     const out = prepareCodegen(input());
     expect(out.resolvedUrl).toBe('https://api.dev/items');
     expect(out.resolvedParams).toEqual({ q: 'shoes' });
-    expect(out.resolvedHeaders).toEqual({ 'X-Token': '{{token}}' });
+    expect(out.resolvedHeaders).toEqual({
+      'X-Token': '{{token}}',
+      // The JSON body's Content-Type, as the app sends it.
+      'Content-Type': 'application/json',
+    });
     expect(out.request.body.raw).toBe('{"host":"api.dev"}');
     expect(out.notes).toEqual([]);
   });
@@ -83,7 +87,10 @@ describe('prepareCodegen', () => {
         auth: { type: 'bearer', bearer: { token: 't' } },
       })
     );
-    expect(userAuth.resolvedHeaders).toEqual({ authorization: 'Custom' });
+    expect(userAuth.resolvedHeaders).toEqual({
+      authorization: 'Custom',
+      'Content-Type': 'application/json',
+    });
   });
 
   it('explains auth and bodies a snippet cannot reproduce', () => {
@@ -207,6 +214,49 @@ describe('prepareCodegen bodies', () => {
     expect(form.request.body.raw).toBe('q=shoes%20x');
     const xml = prepareCodegen(input({ request: { ...base, body: { type: 'xml', raw: '<a/>' } } }));
     expect(xml.resolvedHeaders['Content-Type']).toBe('application/xml');
+  });
+
+  it.each([
+    ['json', '{"a":1}', 'application/json'],
+    ['text', 'hello', 'text/plain'],
+    ['x-www-form-urlencoded', 'a=1', 'application/x-www-form-urlencoded'],
+    ['xml', '<a/>', 'application/xml'],
+  ] as const)('adds the Content-Type the app sends for a %s body', (type, raw, contentType) => {
+    const out = prepareCodegen(input({ request: { ...base, headers: [], body: { type, raw } } }));
+    expect(out.resolvedHeaders['Content-Type']).toBe(contentType);
+    // curl --data-raw would otherwise label it application/x-www-form-urlencoded.
+    expect(generateCurl(out)).toContain(`-H 'Content-Type: ${contentType}'`);
+  });
+
+  it('keeps a user Content-Type and adds none for multipart or empty bodies', () => {
+    const own = prepareCodegen(
+      input({
+        request: {
+          ...base,
+          headers: [{ id: 'h', key: 'content-type', value: 'application/vnd+json', enabled: true }],
+        },
+      })
+    );
+    expect(Object.keys(own.resolvedHeaders).filter((k) => /content-type/i.test(k))).toEqual([
+      'content-type',
+    ]);
+    const multipart = prepareCodegen(
+      input({
+        request: {
+          ...base,
+          headers: [],
+          body: {
+            type: 'form-data',
+            formData: [{ id: '1', key: 'a', value: '1', enabled: true, type: 'text' }],
+          },
+        },
+      })
+    );
+    expect(multipart.resolvedHeaders).toEqual({});
+    const empty = prepareCodegen(
+      input({ request: { ...base, headers: [], body: { type: 'json', raw: '' } } })
+    );
+    expect(empty.resolvedHeaders).toEqual({});
   });
 });
 

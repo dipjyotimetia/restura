@@ -1,6 +1,6 @@
 import { isConfiguredAuth } from '../../auth/inheritance';
 import type { AuthConfig, GrpcRequest, HttpRequest, RequestSettingsOverride } from '../../types';
-import { arr, isObj, type Raw, str } from './common';
+import { arr, isObj, postmanVariableKey, type Raw, str } from './common';
 import {
   AUTH_TYPES,
   defined,
@@ -338,10 +338,10 @@ export function exportHttp(
     typeof sidecar?.method === 'string' && req.method === 'GET' ? sidecar.method : req.method;
   const pathVariables = arr(sidecar?.urlVariable)
     .filter(isObj)
-    .filter((v) => typeof v.key === 'string')
+    .filter((v) => postmanVariableKey(v) !== undefined)
     .map((v) =>
       defined({
-        key: str(v.key),
+        key: postmanVariableKey(v),
         value: str(v.value),
         disabled: v.disabled === true ? true : undefined,
         description: typeof v.description === 'string' && v.description ? v.description : undefined,

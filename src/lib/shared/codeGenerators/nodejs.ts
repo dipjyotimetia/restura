@@ -1,5 +1,5 @@
 import { isKnownHttpMethod, normalizeHttpMethod } from '@shared/protocol/http-method';
-import { escapeJson, type GenerateOptions, proxyCredentials } from './types';
+import { escapeJson, type GenerateOptions, jsonBodyExpression, proxyCredentials } from './types';
 
 export const generateNodeJS = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams, settings } = options;
@@ -33,7 +33,8 @@ export const generateNodeJS = (options: GenerateOptions): string => {
   }
 
   if (request.body.type !== 'none' && request.body.raw) {
-    node += `  data: ${request.body.type === 'json' ? request.body.raw : `"${escapeJson(request.body.raw)}"`},\n`;
+    // axios serialises an object `data` as JSON; anything else is sent as the string.
+    node += `  data: ${request.body.type === 'json' ? jsonBodyExpression(request.body.raw).code : `"${escapeJson(request.body.raw)}"`},\n`;
   }
 
   if (settings?.timeout) node += `  timeout: ${settings.timeout},\n`;

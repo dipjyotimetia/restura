@@ -179,7 +179,6 @@ describe('complex v2.1 collection', () => {
       'extra-events | Get user',
       'file-body | Binary',
       'form-file | Avatar upload',
-      'item-variables | Users',
       'oauth1-options | OAuth1 RSA',
       'oauth2-grant | OAuth2 PKCE',
       'protocol-profile-behavior | Complex v2.1',
@@ -286,6 +285,9 @@ describe('complex v2.1 collection', () => {
   it('maps every auth type and resolves inheritance through nested folders', () => {
     const auth = (name: string) => http(c, name).auth;
     expect(auth('Health')).toEqual(c.auth);
+    expect(find(c.items, 'Users').variables?.map((v) => [v.key, v.value])).toEqual([
+      ['folderVar', 'f'],
+    ]);
     expect(find(c.items, 'Users').auth).toEqual({
       type: 'basic',
       basic: { username: 'admin', password: 'admin-pw' },
@@ -387,12 +389,15 @@ describe('complex v2.1 collection', () => {
     expect(entries(out.report.entries)).toEqual([
       'binary-body | Binary',
       'disabled-script | Get user',
+      // v2 folder variables are modelled; the v3 format has no slot for them.
+      'folder-variables | Users',
       'form-file | Avatar upload',
       'secret-variable | Complex v2.1',
     ]);
     const before = typed(c) as Collection;
     const after = typed(again.collection) as Collection;
     after.variables![3] = before.variables![3]!;
+    find(after.items, 'Users').variables = find(before.items, 'Users').variables;
     expect(after).toEqual(before);
     // Approximated auth is restored from the sidecar in v3 too.
     const text = JSON.stringify(out.tree);

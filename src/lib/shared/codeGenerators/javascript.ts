@@ -1,4 +1,4 @@
-import { escapeJson, type GenerateOptions, urlWithVariables } from './types';
+import { escapeJson, type GenerateOptions, jsonBodyExpression, urlWithVariables } from './types';
 
 export const generateJavaScript = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams, formData } = options;
@@ -40,7 +40,8 @@ export const generateJavaScript = (options: GenerateOptions): string => {
     js += `  body: form,\n`;
   } else if (request.body.type !== 'none' && request.body.raw) {
     // fetch needs a string body: an object literal would be sent as "[object Object]".
-    js += `  body: ${request.body.type === 'json' ? `JSON.stringify(${request.body.raw})` : `"${escapeJson(request.body.raw)}"`},\n`;
+    const json = request.body.type === 'json' ? jsonBodyExpression(request.body.raw) : undefined;
+    js += `  body: ${json ? (json.object ? `JSON.stringify(${json.code})` : json.code) : `"${escapeJson(request.body.raw)}"`},\n`;
   }
 
   js += `};\n\n`;

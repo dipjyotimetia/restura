@@ -2,10 +2,18 @@ import { describe, expect, it } from 'vitest';
 import type { Collection, HttpRequest, OpenAPIDocument, OpenAPISchema } from '@/types';
 import { importOpenAPICollection } from '../importers';
 import { generateExampleFromSchema } from '../importers/openapi';
+import type { ImportWarning } from '../importers/types';
 
 // Helper function to safely cast request to HttpRequest
 function asHttpRequest(request: unknown): HttpRequest {
   return request as HttpRequest;
+}
+
+/** The URL a request is sent to: `{{baseUrl}}` resolved from the collection variable. */
+function sendUrl(collection: Collection, request: HttpRequest): string {
+  expect(request.url.startsWith('{{baseUrl}}')).toBe(true);
+  const baseUrl = collection.variables?.find((v) => v.key === 'baseUrl')?.value ?? '';
+  return request.url.replace('{{baseUrl}}', baseUrl);
 }
 
 function requestNamed(collection: Collection, name: string): HttpRequest {
@@ -51,7 +59,7 @@ describe('importOpenAPICollection', () => {
       const request = asHttpRequest(item.request);
       expect(request.type).toBe('http');
       expect(request.method).toBe('GET');
-      expect(request.url).toBe('https://api.example.com/v1/pets');
+      expect(sendUrl(collection, request)).toBe('https://api.example.com/v1/pets');
     });
 
     it('should organize operations by tags into folders', async () => {
@@ -111,7 +119,9 @@ describe('importOpenAPICollection', () => {
       const collection = await importOpenAPICollection(openApiDoc);
       const request = asHttpRequest(collection.items[0]!.request);
 
-      expect(request.url).toBe('https://api.example.com/users/{{userId}}/posts/{{postId}}');
+      expect(sendUrl(collection, request)).toBe(
+        'https://api.example.com/users/{{userId}}/posts/{{postId}}'
+      );
     });
 
     it('should extract query and header parameters', async () => {
@@ -232,7 +242,7 @@ describe('importOpenAPICollection', () => {
       const collection = await importOpenAPICollection(openApiDoc);
       const request = asHttpRequest(collection.items[0]!.request);
 
-      expect(request.url).toBe('https://api.example.com/v2/data/users');
+      expect(sendUrl(collection, request)).toBe('https://api.example.com/v2/data/users');
     });
 
     it('should use enum value when no default for server variable', async () => {
@@ -263,7 +273,7 @@ describe('importOpenAPICollection', () => {
       const collection = await importOpenAPICollection(openApiDoc);
       const request = asHttpRequest(collection.items[0]!.request);
 
-      expect(request.url).toBe('https://staging.api.example.com/health');
+      expect(sendUrl(collection, request)).toBe('https://staging.api.example.com/health');
     });
 
     it('should convert Basic auth security scheme', async () => {
@@ -770,7 +780,7 @@ describe('importOpenAPICollection', () => {
       expect(collection.items).toHaveLength(1);
 
       const request = asHttpRequest(collection.items[0]!.request);
-      expect(request.url).toBe('https://petstore.swagger.io/v2/pet');
+      expect(sendUrl(collection, request)).toBe('https://petstore.swagger.io/v2/pet');
     });
 
     it('should handle Swagger 2.0 body parameter', async () => {
@@ -839,7 +849,7 @@ describe('importOpenAPICollection', () => {
   });
 
   describe('Edge cases', () => {
-    it('should handle missing servers/host with empty base URL', async () => {
+    it('gives a spec without servers a placeholder baseUrl and warns (never a relative URL)', async () => {
       const openApiDoc: OpenAPIDocument = {
         openapi: '3.0.0',
         info: { title: 'Test API', version: '1.0.0' },
@@ -853,10 +863,133 @@ describe('importOpenAPICollection', () => {
         },
       };
 
-      const collection = await importOpenAPICollection(openApiDoc);
+      const warnings: ImportWarning[] = [];
+      const collection = await importOpenAPICollection(openApiDoc, warnings);
       const request = asHttpRequest(collection.items[0]!.request);
 
-      expect(request.url).toBe('/users');
+      expect(request.url).toBe('{{baseUrl}}/users');
+      expect(sendUrl(collection, request)).toBe('http://localhost/users');
+      expect(warnings).toContainEqual(
+        expect.objectContaining({
+          kind: 'unmodelled-construct',
+          construct: 'openapi-relative-server',
+        })
+      );
+    });
+
+    describe('relative servers (Petstore v3: servers: [{ url: "/api/v3" }])', () => {
+      const petstore: OpenAPIDocument = {
+        openapi: '3.0.2',
+        info: { title: 'Petstore', version: '1' },
+        servers: [{ url: '/api/v3' }],
+        paths: { '/pet/{petId}': { get: { summary: 'Get pet', responses: {} } } },
+      };
+
+      it('resolves against the source URL when imported from a URL', async () => {
+        const warnings: ImportWarning[] = [];
+        const collection = await importOpenAPICollection(petstore, warnings, {
+          sourceUrl: 'https://petstore3.swagger.io/api/v3/openapi.json',
+        });
+        const request = requestNamed(collection, 'Get pet');
+        expect(request.url).toBe('{{baseUrl}}/pet/{{petId}}');
+        expect(sendUrl(collection, request)).toBe(
+          'https://petstore3.swagger.io/api/v3/pet/{{petId}}'
+        );
+        expect(warnings).toEqual([]);
+      });
+
+      it('falls back to a placeholder origin keeping the relative path', async () => {
+        const collection = await importOpenAPICollection(petstore);
+        expect(sendUrl(collection, requestNamed(collection, 'Get pet'))).toBe(
+          'http://localhost/api/v3/pet/{{petId}}'
+        );
+      });
+
+      it('applies a {scheme} server variable default', async () => {
+        const collection = await importOpenAPICollection({
+          ...petstore,
+          servers: [
+            {
+              url: '{scheme}://api.example.com/{v}',
+              variables: {
+                scheme: { default: 'https', enum: ['https', 'http'] },
+                v: { default: 'v1' },
+              },
+            },
+          ],
+        });
+        expect(sendUrl(collection, requestNamed(collection, 'Get pet'))).toBe(
+          'https://api.example.com/v1/pet/{{petId}}'
+        );
+      });
+    });
+
+    it('imports multipart binary properties as file fields without a boundary-less Content-Type', async () => {
+      const openApiDoc = {
+        openapi: '3.1.0',
+        info: { title: 'Upload', version: '1' },
+        servers: [{ url: 'https://u.dev' }],
+        paths: {
+          '/upload': {
+            post: {
+              summary: 'Upload',
+              requestBody: {
+                content: {
+                  'multipart/form-data': {
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        file: { type: 'string', format: 'binary' },
+                        image: { type: 'string', contentMediaType: 'image/png' },
+                        encoded: { type: 'string', contentEncoding: 'base64' },
+                        many: { type: 'array', items: { type: 'string', format: 'binary' } },
+                        note: { type: 'string', example: 'hi' },
+                      },
+                    },
+                  },
+                },
+              },
+              responses: {},
+            },
+          },
+        },
+      } as unknown as OpenAPIDocument;
+      const request = requestNamed(await importOpenAPICollection(openApiDoc), 'Upload');
+      expect(request.body.formData?.map((f) => [f.key, f.type])).toEqual([
+        ['file', 'file'],
+        ['image', 'file'],
+        ['encoded', 'file'],
+        ['many', 'file'],
+        ['note', 'text'],
+      ]);
+      expect(request.headers.find((h) => h.key.toLowerCase() === 'content-type')).toBeUndefined();
+    });
+
+    it('imports a Swagger 2 formData type: file parameter as a file field', async () => {
+      const collection = await importOpenAPICollection({
+        swagger: '2.0',
+        info: { title: 'S', version: '1' },
+        host: 's.dev',
+        paths: {
+          '/up': {
+            post: {
+              summary: 'Up',
+              consumes: ['multipart/form-data'],
+              parameters: [
+                { name: 'file', in: 'formData', type: 'file' },
+                { name: 'name', in: 'formData', type: 'string' },
+              ],
+              responses: {},
+            },
+          },
+        },
+      });
+      const request = requestNamed(collection, 'Up');
+      expect(request.body.formData?.map((f) => [f.key, f.type])).toEqual([
+        ['file', 'file'],
+        ['name', 'text'],
+      ]);
+      expect(request.headers.find((h) => h.key.toLowerCase() === 'content-type')).toBeUndefined();
     });
 
     it('should handle operations without summary using operationId', async () => {
