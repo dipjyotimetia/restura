@@ -88,3 +88,95 @@ describe('runToCompletion', () => {
     expect(res.text).toBe('The request failed.');
   });
 });
+
+function textStream(text: string): ReadableStream<Uint8Array> {
+  const bytes = new TextEncoder().encode(text);
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
+const sse = (data: unknown, event?: string) =>
+  `${event ? `event: ${event}\n` : ''}data: ${JSON.stringify(data)}\n\n`;
+
+describe('runToCompletion — a stream cut off before the provider finished', () => {
+  const anthropicText =
+    sse({ type: 'message_start', message: { usage: { input_tokens: 3 } } }, 'message_start') +
+    sse(
+      { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Partial' } },
+      'content_block_delta'
+    );
+  const anthropicTool =
+    sse(
+      {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'tool_use', id: 't1', name: 'f' },
+      },
+      'content_block_start'
+    ) +
+    sse(
+      {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'input_json_delta', partial_json: '{"a":' },
+      },
+      'content_block_delta'
+    );
+  const openaiTool = sse({
+    choices: [
+      {
+        delta: {
+          tool_calls: [{ index: 0, id: 'c1', function: { name: 'f', arguments: '{"a":' } }],
+        },
+      },
+    ],
+  });
+
+  it.each([
+    ['anthropic without message_stop', 'anthropic', 'claude-sonnet-4-5', anthropicText],
+    ['anthropic mid tool call', 'anthropic', 'claude-sonnet-4-5', anthropicTool],
+    [
+      'openai without finish_reason or DONE',
+      'openai',
+      'gpt-4o-mini',
+      sse({ choices: [{ delta: { content: 'Partial' } }] }),
+    ],
+    ['openai mid tool call', 'openai', 'gpt-4o-mini', openaiTool],
+    [
+      'gemini without finishReason',
+      'gemini',
+      'gemini-2.5-flash',
+      sse({ candidates: [{ content: { parts: [{ text: 'Partial' }] } }] }),
+    ],
+    ['an empty body', 'openai', 'gpt-4o-mini', ''],
+  ] as const)('%s is an error, not a success', async (_label, provider, model, body) => {
+    const res = await runToCompletion(
+      makeSpec({ provider, model }),
+      fakeFetcher(textStream(body)),
+      async () => 'sk-fake'
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error?.message).toMatch(/truncated/i);
+    // A half-streamed tool call must never be handed on as if complete.
+    expect(res.toolCalls).toEqual([]);
+  });
+
+  it('an openai stream that ends at finish_reason without DONE still succeeds', async () => {
+    const res = await runToCompletion(
+      makeSpec(),
+      fakeFetcher(
+        textStream(
+          sse({ choices: [{ delta: { content: 'Hi' } }] }) +
+            sse({ choices: [{ delta: {}, finish_reason: 'stop' }] })
+        )
+      ),
+      async () => 'sk-fake'
+    );
+    expect(res.ok).toBe(true);
+    expect(res.text).toBe('Hi');
+  });
+});

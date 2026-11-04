@@ -4,6 +4,7 @@ import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 import { ResponseTooLargeError, readBoundedText, readErrorPreview } from './bounded-read';
 import { PROVIDER_ROUTES, type ProviderRouteContext } from './provider-routes';
 import { getProviderModule } from './providers';
+import { truncatedStreamError } from './providers/types';
 import { detectUnredactedSecrets, scrubProviderError, scrubSecretText } from './redaction';
 import type { ChatRequestSpec, ChatStreamEvent } from './types';
 
@@ -39,6 +40,23 @@ export async function* executeAiChat(
   fetcher: Fetcher,
   secretResolver: SecretResolver,
   routeContext: ProviderRouteContext = {}
+): AsyncGenerator<ChatStreamEvent, void, unknown> {
+  // Every run ends in exactly one `done`. A path that ends without one (a
+  // decoder that never saw its terminal marker and emitted nothing) is a
+  // truncated stream, reported as an error — never as a silent success.
+  for await (const ev of executeAiChatInner(spec, fetcher, secretResolver, routeContext)) {
+    yield ev;
+    if (ev.type === 'done') return;
+  }
+  yield truncatedStreamError();
+  yield { type: 'done' };
+}
+
+async function* executeAiChatInner(
+  spec: ChatRequestSpec,
+  fetcher: Fetcher,
+  secretResolver: SecretResolver,
+  routeContext: ProviderRouteContext
 ): AsyncGenerator<ChatStreamEvent, void, unknown> {
   // 1. Paranoia pass on outgoing messages.
   if (!spec.rawMode) {

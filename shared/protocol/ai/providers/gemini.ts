@@ -1,5 +1,10 @@
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
-import type { ModelInfo, ProviderModule, StreamDecoder } from './types';
+import {
+  type ModelInfo,
+  type ProviderModule,
+  type StreamDecoder,
+  truncatedStreamError,
+} from './types';
 
 /**
  * Gemini API `models/{model}:streamGenerateContent?alt=sse`. Every SSE event
@@ -101,7 +106,9 @@ class GeminiDecoder implements StreamDecoder {
       });
       this.usage = null;
     }
-    if (this.finished || this.buffered.length > 0) this.buffered.push({ type: 'done' });
+    // No finishReason: the connection was cut before the model finished.
+    if (!this.finished) this.buffered.push(truncatedStreamError());
+    this.buffered.push({ type: 'done' });
     return this.drain();
   }
 

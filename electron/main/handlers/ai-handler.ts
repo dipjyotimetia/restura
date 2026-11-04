@@ -15,6 +15,7 @@
 
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
+import { truncatedStreamError } from '@shared/protocol/ai/providers/types';
 import { type ChatRequestSpec, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
 import { createLogger } from '@shared/runtime/logger';
@@ -28,8 +29,9 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
+import { createPinnedFetch, resolveSafeAddress } from '../security/safe-connect';
 import { resolveSecretHandle } from '../security/secret-handle-store';
-import { makePinnedFetcher } from './fetch-fetcher';
+import { makeFetchFetcher } from './fetch-fetcher';
 
 const log = createLogger('ai');
 
@@ -58,14 +60,22 @@ function streamRegistryKey(webContentsId: number, streamId: string): string {
 
 /**
  * Resolve the chat provider's base URL and return a DNS-pinned, manual-redirect
- * Fetcher locked to it (wire mechanics in {@link makePinnedFetcher}). localhost
- * is allowed ONLY for local providers (openai-compatible) — same carve-out as the
- * AI Lab (ai-lab-handler.ts); cloud providers can never target localhost, even
- * via a base-URL override, so the override can't smuggle an SSRF.
+ * Fetcher locked to it (`redirect: 'manual'`, dialling the validated IP).
+ * Local runtimes (Ollama, openai-compatible) get the local-runtime address
+ * policy (loopback + RFC1918, including LAN hostnames; never link-local or
+ * metadata) — the same carve-out as the AI Lab (ai-lab-handler.ts), so a model
+ * reachable there is reachable here. Cloud providers keep the strict guard and
+ * can never target localhost, even via a base-URL override.
  */
 async function buildSafeFetcher(provider: Provider, baseUrlOverride?: string): Promise<Fetcher> {
-  return makePinnedFetcher(resolveBaseUrl(provider, baseUrlOverride), {
-    allowLocalhost: isLocalProvider(provider),
+  const local = isLocalProvider(provider);
+  const pinned = await resolveSafeAddress(resolveBaseUrl(provider, baseUrlOverride), {
+    allowLocalhost: local,
+    ...(local ? { localRuntime: true } : {}),
+  });
+  return makeFetchFetcher({
+    redirect: 'manual',
+    fetchImpl: createPinnedFetch(pinned.host, pinned.ip),
   });
 }
 
@@ -97,8 +107,11 @@ async function runChat(
         return;
       }
     }
+    // The orchestrator always ends in `done`; reaching here without one means
+    // the stream was cut short, which must not read as a finished answer.
     if (isCurrent()) {
-      emitTo(activeStream.webContentsId, endChannel, { reason: 'done' });
+      emitTo(activeStream.webContentsId, chunkChannel, truncatedStreamError());
+      emitTo(activeStream.webContentsId, endChannel, { reason: 'error' });
     }
   } catch (e) {
     // Explicit cancellation removes the live entry before abort rejection
