@@ -46,6 +46,7 @@ vi.mock('@/features/registry/registry', () => ({
   },
 }));
 
+import { resetScriptEnvironmentApprovals } from '@/features/environments/lib/scriptEnvironmentMutations';
 import { runCollection } from '../collectionRunner';
 
 function runnable(id: string): RunnableRequest {
@@ -66,6 +67,7 @@ function runnable(id: string): RunnableRequest {
 const collection: Collection = { id: 'c', name: 'C', items: [] };
 
 beforeEach(() => {
+  resetScriptEnvironmentApprovals();
   phases.length = 0;
   seenVariables.length = 0;
   useCollectionStore.setState({ collections: [collection], activeCollectionId: null });
@@ -74,6 +76,8 @@ beforeEach(() => {
       {
         id: 'env1',
         name: 'Env',
+        // Scoped to the run's collection: its scripts may write without asking.
+        collectionId: 'c',
         variables: [
           { id: 'v1', key: 'stale', value: 'x', enabled: true },
           { id: 'v2', key: 'base', value: 'b', enabled: true },
@@ -109,6 +113,36 @@ describe('runCollection — pm.environment writes', () => {
     expect(Object.fromEntries(variables.map((v) => [v.key, v.value]))).toEqual({
       base: 'b',
       token: 't-1',
+    });
+  });
+
+  it('holds writes to a shared environment for the user, but carries them within the run', async () => {
+    useEnvironmentStore.setState((state) => ({
+      environments: state.environments.map(({ collectionId: _scope, ...env }) => env),
+    }));
+    phases.push({ token: 't-1', stale: null }, undefined);
+    await runCollection(
+      {
+        collection,
+        scopeName: 'C',
+        runnables: [runnable('login'), runnable('me')],
+        baseVars: { stale: 'x', base: 'b' },
+        environmentVars: { stale: 'x', base: 'b' },
+        environmentId: 'env1',
+        environmentName: 'Env',
+        iterations: 1,
+        dataRows: [],
+        delayMs: 0,
+        stopOnFailure: false,
+      },
+      () => {},
+      new AbortController().signal
+    );
+    expect(seenVariables[1]?.token).toBe('t-1');
+    const variables = useEnvironmentStore.getState().environments[0]?.variables ?? [];
+    expect(Object.fromEntries(variables.map((v) => [v.key, v.value]))).toEqual({
+      stale: 'x',
+      base: 'b',
     });
   });
 

@@ -20,9 +20,8 @@ import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
 import {
   mergeEnvironmentMutations,
-  persistScriptEnvironmentMutations,
+  saveScriptEnvironmentWrites,
   scriptEnvironmentTargetId,
-  warnSkippedSecretWrites,
 } from '@/features/environments/lib/scriptEnvironmentMutations';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -131,11 +130,10 @@ export function useRequestRunner() {
       const savedRequestId = originTabId
         ? useRequestStore.getState().tabs.find((tab) => tab.id === originTabId)?.savedRequestId
         : undefined;
-      const scriptEnvironmentId = scriptEnvironmentTargetId(
-        savedRequestId
-          ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.id
-          : undefined
-      );
+      const scriptCollectionId = savedRequestId
+        ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.id
+        : undefined;
+      const scriptEnvironmentId = scriptEnvironmentTargetId(scriptCollectionId);
 
       const startedAt = performance.now();
       const response = await protocol.runRequest(request, {
@@ -169,11 +167,11 @@ export function useRequestRunner() {
         collectedScripts?.preRequest,
         collectedScripts?.test
       );
-      if (environmentMutations) {
-        warnSkippedSecretWrites(
-          persistScriptEnvironmentMutations(scriptEnvironmentId, environmentMutations)
-        );
-      }
+      saveScriptEnvironmentWrites({
+        environmentId: scriptEnvironmentId,
+        collectionId: scriptCollectionId,
+        mutations: environmentMutations,
+      });
 
       const result: RegistryRunResult = { response, durationMs };
       if (collectedScripts) {

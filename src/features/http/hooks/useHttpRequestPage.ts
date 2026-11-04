@@ -6,9 +6,8 @@ import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { parseCurlCommand } from '@/features/collections/lib/importers/curl';
 import {
-  persistScriptEnvironmentMutations,
+  saveScriptEnvironmentWrites,
   scriptEnvironmentTargetId,
-  warnSkippedSecretWrites,
 } from '@/features/environments/lib/scriptEnvironmentMutations';
 import { executeRequest, resolveEffectiveSettings } from '@/features/http/lib/requestExecutor';
 import { applySettingsPatch, type RequestSettingsPatch } from '@/features/http/lib/settingsPatch';
@@ -206,9 +205,11 @@ export function useHttpRequestPage() {
       // `pm.environment.set/unset` persist to the active environment (Postman
       // semantics), so the next request sees them. Secret handles are left alone.
       if (result.environmentMutations) {
-        warnSkippedSecretWrites(
-          persistScriptEnvironmentMutations(scriptEnvironmentId, result.environmentMutations)
-        );
+        saveScriptEnvironmentWrites({
+          environmentId: scriptEnvironmentId,
+          collectionId: collection?.id,
+          mutations: result.environmentMutations,
+        });
       }
 
       // Persist a refreshed OAuth2 token — but only when the auth belongs to

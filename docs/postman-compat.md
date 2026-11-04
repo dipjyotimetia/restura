@@ -78,7 +78,7 @@ Test scripts get the response body as text everywhere (`response.body`, `pm.resp
 | `pm.globals.get/set`                       | ✅                                                                                               |
 | `pm.iterationData.get/set/has/toObject`    | ✅ — reflects the current CSV/JSON row during a data-driven collection run (empty on single send) |
 
-⁴ A variable stored as a desktop secret handle is never overwritten or removed by a script (the app says which keys it skipped). With no environment selected, writes last only for the request or run. The CLI has no environment file to write back: `pm.environment` writes carry through the run only.
+⁴ A variable stored as a desktop secret handle is never overwritten or removed by a script (the app says which keys it skipped). A script from a collection writes without asking only to an environment scoped to that collection (or when the request is not in any collection). Writes from a collection's script to a shared (global) environment are held and Restura asks once per collection and environment: **Save** stores them and later writes from that collection, **Don't save** keeps them for that request or run only — so an imported collection cannot silently redirect your other requests (and the secrets they send). With no environment selected, writes last only for the request or run. The CLI has no environment file to write back: `pm.environment` writes carry through the run only.
 
 A script that throws keeps the variable writes it made before the error, and the request is still sent with them.
 

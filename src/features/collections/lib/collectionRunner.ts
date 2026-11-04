@@ -20,7 +20,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import {
   mergeEnvironmentMutations,
-  persistScriptEnvironmentMutations,
+  saveScriptEnvironmentWrites,
 } from '@/features/environments/lib/scriptEnvironmentMutations';
 import { grpcRunOptionsFromRequest } from '@/features/grpc/lib/grpcSchemaSnapshot';
 import type { McpClient } from '@/features/mcp/lib/mcpClient';
@@ -416,10 +416,11 @@ async function runCollectionWithPool(
         // `pm.environment.set/unset` persist to the run's environment as they
         // happen (Postman semantics); within the run they already carry
         // forward through the scope above. No environment: nothing persists.
-        persistScriptEnvironmentMutations(
-          options.environmentId,
-          mergeEnvironmentMutations(scripts?.preRequest, scripts?.test)
-        );
+        saveScriptEnvironmentWrites({
+          environmentId: options.environmentId,
+          collectionId: collection.id,
+          mutations: mergeEnvironmentMutations(scripts?.preRequest, scripts?.test),
+        });
 
         // `pm.execution.skipRequest()`: nothing was sent and no test script ran.
         // A skipped row passes unless its pre-request script failed or asserted
