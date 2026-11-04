@@ -123,11 +123,36 @@ describe('useHttpRequestPage — streaming Accept', () => {
       expect(executor.executeRequest).not.toHaveBeenCalled();
       expect(executor.executeStreamingRequest).toHaveBeenCalledTimes(1);
       const tab = useRequestStore.getState().tabs[0];
-      expect(tab?.streamingEvents).toBe(stream);
+      expect(tab?.streamingEvents).toBeDefined();
       expect(tab?.response ?? null).toBeNull();
       expect(useRequestStore.getState().isLoading).toBe(false);
     }
   );
+
+  it('the stored stream replays in full for a second consumer (viewer remount / StrictMode)', async () => {
+    async function* once() {
+      yield { type: 'ndjson' as const, payload: { a: 1 } };
+      yield { type: 'ndjson' as const, payload: { a: 2 } };
+      yield { type: 'end' as const, bytesRead: 16, durationMs: 1 };
+    }
+    executor.executeStreamingRequest.mockResolvedValue({
+      events: once(),
+      responseMeta: { status: 200, statusText: 'OK', headers: {} },
+    });
+    setup('application/x-ndjson');
+    await send();
+    const stored = useRequestStore.getState().tabs[0]?.streamingEvents;
+    if (!stored) throw new Error('no stream stored');
+    const read = async () => {
+      const types: string[] = [];
+      for await (const event of stored) types.push(event.type);
+      return types;
+    };
+    // First consumer bails early, like an effect cleaned up mid-stream.
+    for await (const _event of stored) break;
+    expect(await read()).toEqual(['ndjson', 'ndjson', 'end']);
+    expect(await read()).toEqual(['ndjson', 'ndjson', 'end']);
+  });
 
   it('a later buffered send clears the previous stream', async () => {
     executor.executeStreamingRequest.mockResolvedValue({

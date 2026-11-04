@@ -20,6 +20,7 @@ import { applyUrlInput } from '@/features/http/lib/urlQuery';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { isElectron } from '@/lib/shared/platform';
+import { replayableAsyncIterable } from '@/lib/shared/replayableAsyncIterable';
 import { type RequestScope, resolveRequestScopeText } from '@/lib/shared/resolveRequestScope';
 import { urlEncodedRaw } from '@/lib/shared/urlEncodedBody';
 import { buildValueMap } from '@/lib/shared/variableScopes';
@@ -227,8 +228,15 @@ export function useHttpRequestPage() {
           collectionVars,
           signal: controller.signal,
         });
-        // Replaces any buffered response so the panel shows the stream.
-        setStreamingEventsForTab(originTabId, events);
+        // Replaces any buffered response so the panel shows the stream. The
+        // response stream is single-use; buffer it so a viewer that remounts
+        // (StrictMode, switching tabs and back) replays it from the start.
+        setStreamingEventsForTab(
+          originTabId,
+          replayableAsyncIterable(events, {
+            isTerminal: (event) => event.type === 'end' || event.type === 'error',
+          })
+        );
         toast.dismiss('request');
         announceRequestComplete(responseMeta.status, Date.now() - startTime);
         return;
@@ -366,7 +374,6 @@ export function useHttpRequestPage() {
     globalSettings,
     addEntry,
     announceRequestComplete,
-    updateRequest,
     updateRequestForTab,
   ]);
 
