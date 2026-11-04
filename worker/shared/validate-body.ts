@@ -67,3 +67,22 @@ export async function parseJsonBody<T>(
   }
   return { ok: true, value: parsed.data };
 }
+
+/**
+ * True when a `Content-Type` header names `application/json` (parameters such
+ * as `; charset=utf-8` allowed, case-insensitive). Anything else — including
+ * `text/plain`, form encodings, a missing header, or look-alikes such as
+ * `application/jsonp` — is false.
+ *
+ * Why it matters (CSRF): `text/plain`, `application/x-www-form-urlencoded` and
+ * `multipart/form-data` are CORS "simple" types, so a hostile page can POST
+ * them cross-origin WITHOUT a preflight. `req.json()` happily parses such a
+ * body, so a JSON route that does not check the type can be driven by any
+ * website. Insisting on `application/json` forces the browser to preflight,
+ * and the CORS allowlist then refuses the foreign origin.
+ */
+export function isJsonContentType(header: string | null | undefined): boolean {
+  if (!header) return false;
+  const mediaType = header.split(';', 1)[0]?.trim().toLowerCase();
+  return mediaType === 'application/json';
+}

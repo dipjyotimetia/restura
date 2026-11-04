@@ -58,15 +58,22 @@ export async function assertNodeHostnameSafe(
   const allowLocalhost = options.allowLocalhost === true;
   const allowPrivateLiteralHost = options.allowPrivateIPs === true;
 
-  if (net.isIP(hostname) !== 0) {
-    if (HARD_BLOCKED_ADDRESSES.has(hostname)) {
-      throw new Error(`Hostname ${hostname} is hard-blocked (cloud-metadata endpoint)`);
+  // Callers pass `new URL(u).hostname`, which keeps the brackets on IPv6
+  // literals (`[2606:4700::1111]`). `net.isIP` returns 0 for the bracketed
+  // form, which used to send every IPv6 literal to `dns.lookup` → ENOTFOUND.
+  // Classify (and return) the bare address so the private-IP policy and any
+  // pinned connect see the real literal.
+  const literal = /^\[.*\]$/.test(hostname) ? hostname.slice(1, -1) : hostname;
+  const literalFamily = net.isIP(literal);
+  if (literalFamily !== 0) {
+    if (HARD_BLOCKED_ADDRESSES.has(literal)) {
+      throw new Error(`Hostname ${literal} is hard-blocked (cloud-metadata endpoint)`);
     }
-    assertResolvedAddressAllowed(hostname, hostname, {
+    assertResolvedAddressAllowed(literal, literal, {
       allowLocalhost,
       allowPrivateLiteralHost,
     });
-    return [{ address: hostname, family: net.isIP(hostname) === 6 ? 6 : 4 }];
+    return [{ address: literal, family: literalFamily === 6 ? 6 : 4 }];
   }
 
   let records: LookupAddress[];

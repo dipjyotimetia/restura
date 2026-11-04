@@ -274,3 +274,103 @@ describe('isPrivateAddress IPv6 coverage', () => {
     expect(isPrivateAddress('[::g]')).toBe(false);
   });
 });
+
+describe('special-use ranges are treated as private (SSRF defence in depth)', () => {
+  it.each([
+    ['198.18.0.1', 'benchmarking 198.18.0.0/15 (fake-IP DNS pools)'],
+    ['198.19.255.254', 'benchmarking 198.18.0.0/15 upper half'],
+    ['192.0.0.170', 'IETF protocol assignments 192.0.0.0/24 (NAT64 discovery)'],
+    ['192.0.0.8', 'IETF protocol assignments 192.0.0.0/24'],
+    ['224.0.0.1', 'multicast 224.0.0.0/4'],
+    ['239.255.255.250', 'multicast (SSDP)'],
+    ['240.0.0.1', 'reserved 240.0.0.0/4'],
+    ['255.255.255.255', 'limited broadcast'],
+    ['100.64.0.1', 'CGNAT 100.64.0.0/10'],
+    ['64:ff9b:1::a00:1', 'local-use NAT64 64:ff9b:1::/48'],
+    ['64:ff9b:1:abcd::8.8.8.8', 'local-use NAT64 wrapping a public v4'],
+    ['::ffff:0:127.0.0.1', 'SIIT ::ffff:0:0/96 wrapping loopback'],
+    ['::ffff:0:a00:1', 'SIIT wrapping 10.0.0.1'],
+    ['2001:0:4136:e378:8000:63bf:80ff:fffe', 'Teredo 2001::/32 (client 127.0.0.1)'],
+    ['2001:0:4136:e378:8000:63bf:3fff:fdd2', 'Teredo 2001::/32 (public client)'],
+    ['ff02::1', 'IPv6 multicast ff00::/8'],
+    ['[ff05::1:3]', 'IPv6 multicast, bracketed'],
+    ['2002:c612:1::', '6to4 wrapping 198.18.0.1'],
+    ['::ffff:224.0.0.1', 'v4-mapped multicast'],
+  ])('isPrivateAddress(%s) — %s', (address) => {
+    expect(isPrivateAddress(address)).toBe(true);
+  });
+
+  it.each([
+    '198.17.255.255',
+    '198.20.0.0',
+    '192.0.1.1',
+    '223.255.255.255',
+    '8.8.8.8',
+    '2001:db8::1', // documentation prefix, not Teredo
+    '2001:4860:4860::8888',
+    '64:ff9b::808:808', // well-known NAT64 prefix wrapping public 8.8.8.8
+    'fe00::1',
+  ])('keeps %s public', (address) => {
+    expect(isPrivateAddress(address)).toBe(false);
+  });
+
+  it('refuses a Teredo address whose obfuscated client is the metadata IP', () => {
+    // client 169.254.169.254 XOR 0xffffffff = 0x5601_5601
+    expect(
+      validateURL('http://[2001:0:4136:e378:8000:63bf:5601:5601]/', { allowPrivateIPs: true }).valid
+    ).toBe(false);
+  });
+
+  it('refuses SIIT and local-use NAT64 wrappers of the metadata IP even with allowPrivateIPs', () => {
+    for (const host of ['[::ffff:0:169.254.169.254]', '[64:ff9b:1::a9fe:a9fe]']) {
+      expect(validateURL(`http://${host}/`, { allowPrivateIPs: true }).valid).toBe(false);
+    }
+  });
+
+  it('honours allowPrivateIPs for the new ranges', () => {
+    expect(validateURL('http://198.18.0.1/').valid).toBe(false);
+    expect(validateURL('http://198.18.0.1/', { allowPrivateIPs: true }).valid).toBe(true);
+  });
+});
+
+describe('non-special scheme hosts are normalised before the policy check', () => {
+  const kafka = { allowedSchemes: ['kafka:'] };
+
+  it.each([
+    'kafka://%31%32%37.0.0.1:9092',
+    'kafka://127。0。0。1:9092',
+    'kafka://127．0．0．1:9092',
+    'kafka://127｡0｡0｡1:9092',
+    'kafka://１２７.0.0.1:9092',
+    'kafka://%6c%6f%63%61%6c%68%6f%73%74:9092',
+    'kafka://LOCALHOST:9092',
+    'kafka://%31%30.0.0.1:9092',
+    'kafka://0x7f.1:9092',
+    'kafka://198.18.0.1:9092',
+  ])('refuses %s', (url) => {
+    expect(validateURL(url, kafka).valid).toBe(false);
+  });
+
+  it('refuses a percent-encoded metadata host even with allowPrivateIPs', () => {
+    expect(
+      validateURL('kafka://%31%36%39.254.169.254:9092', { ...kafka, allowPrivateIPs: true }).valid
+    ).toBe(false);
+  });
+
+  it('refuses a malformed percent-encoded host', () => {
+    expect(validateURL('kafka://%E0%A4%A:9092', kafka).valid).toBe(false);
+  });
+
+  it('still accepts a public broker and a percent-encoded private host when private IPs are allowed', () => {
+    expect(validateURL('kafka://broker.example.com:9092', kafka).valid).toBe(true);
+    expect(
+      validateURL('kafka://%31%30.0.0.1:9092', { ...kafka, allowPrivateIPs: true }).valid
+    ).toBe(true);
+  });
+
+  it('applies the localhost carve-out to normalised loopback hosts', () => {
+    expect(validateURL('kafka://127。0。0。1:9092', { ...kafka, allowLocalhost: true }).valid).toBe(
+      true
+    );
+  });
+});

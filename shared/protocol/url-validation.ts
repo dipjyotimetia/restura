@@ -45,11 +45,57 @@ function stripV4MappedPrefix(addr: string): string {
   return addr.startsWith('::ffff:') ? addr.slice(7) : addr;
 }
 
+/**
+ * Special-use IPv4 ranges (RFC 6890 registry) that are never a legitimate
+ * public upstream. Matched only against a strict dotted-quad so DNS names
+ * that merely start with digits (`240.example.com`) are unaffected.
+ *   - 192.0.0.0/24   IETF protocol assignments (incl. 192.0.0.170/171 NAT64 discovery)
+ *   - 198.18.0.0/15  benchmarking — also the "fake-IP" pool of Clash/sing-box
+ *                    style resolvers, which a local proxy maps to arbitrary hosts
+ *   - 224.0.0.0/4    multicast
+ *   - 240.0.0.0/4    reserved, incl. 255.255.255.255 limited broadcast
+ * TEST-NETs (192.0.2/24, 198.51.100/24, 203.0.113/24) are deliberately NOT
+ * here: they are unroutable but harmless, and widely used as "public" fixtures.
+ */
+const SPECIAL_USE_IPV4_RANGES: Array<RegExp> = [
+  /^192\.0\.0\./,
+  /^198\.1[89]\./,
+  /^(?:22[4-9]|23\d)\./,
+  /^(?:24\d|25[0-5])\./,
+];
+
+const DOTTED_QUAD = /^(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+
 function isPrivateIPv4(addr: string): boolean {
   for (const re of PRIVATE_IPV4_RANGES) {
     if (re.test(addr)) return true;
   }
+  if (DOTTED_QUAD.test(addr)) {
+    for (const re of SPECIAL_USE_IPV4_RANGES) {
+      if (re.test(addr)) return true;
+    }
+  }
   return false;
+}
+
+/** Dotted-quad from two IPv6 hextets. */
+function v4FromHextets(hi: number, lo: number): string {
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+}
+
+/** Teredo 2001:0000::/32 (RFC 4380). */
+function isTeredo(groups: number[]): boolean {
+  return groups[0] === 0x2001 && groups[1] === 0;
+}
+
+/** Teredo client IPv4: the last 32 bits, XOR-obfuscated with 0xffffffff. */
+function teredoClientV4(groups: number[]): string {
+  return v4FromHextets(~(groups[6] ?? 0) & 0xffff, ~(groups[7] ?? 0) & 0xffff);
+}
+
+/** Local-use IPv4/IPv6 translation prefix 64:ff9b:1::/48 (RFC 8215). */
+function isLocalUseNat64(groups: number[]): boolean {
+  return groups[0] === 0x0064 && groups[1] === 0xff9b && groups[2] === 0x0001;
 }
 
 /**
@@ -111,7 +157,14 @@ function isPrivateIPv6Groups(groups: number[]): boolean {
   // ::1 (loopback)
   if (groups.slice(0, 7).every((g) => g === 0) && groups[7] === 1) return true;
 
-  // Any embedded-IPv4 form (v4-mapped / 6to4 / NAT64) → re-check as IPv4.
+  // Teredo tunnels (2001::/32) and the local-use NAT64 prefix (64:ff9b:1::/48)
+  // relay to arbitrary IPv4 targets — including internal ones — through
+  // infrastructure we can't inspect; never a plain public upstream.
+  if (isTeredo(groups) || isLocalUseNat64(groups)) return true;
+  // Multicast ff00::/8.
+  if (((groups[0] ?? 0) & 0xff00) === 0xff00) return true;
+
+  // Any embedded-IPv4 form (v4-mapped / SIIT / 6to4 / NAT64) → re-check as IPv4.
   const embeddedV4 = embeddedV4FromGroups(groups);
   if (embeddedV4) return isPrivateIPv4(embeddedV4);
 
@@ -187,6 +240,10 @@ function embeddedV4FromGroups(groups: number[]): string | null {
   if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0xffff) {
     return `${(g6 >> 8) & 0xff}.${g6 & 0xff}.${(g7 >> 8) & 0xff}.${g7 & 0xff}`;
   }
+  // SIIT IPv4-translated ::ffff:0:0/96 (RFC 6052/7915), e.g. `::ffff:0:127.0.0.1`.
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0xffff && g5 === 0) {
+    return v4FromHextets(g6, g7);
+  }
   // Deprecated IPv4-compatible ::/96 (`::a.b.c.d`). `::` and `::1` are handled
   // as unspecified / loopback by the callers, so they are not decoded here.
   if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
@@ -199,6 +256,9 @@ function embeddedV4FromGroups(groups: number[]): string | null {
   if (g0 === 0x0064 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
     return `${(g6 >> 8) & 0xff}.${g6 & 0xff}.${(g7 >> 8) & 0xff}.${g7 & 0xff}`;
   }
+  // Local-use NAT64 64:ff9b:1::/48 — the /96 layout carries the IPv4 in the
+  // last 32 bits (the prefix itself is always private; see isPrivateIPv6Groups).
+  if (isLocalUseNat64(groups)) return v4FromHextets(g6, g7);
   return null;
 }
 
@@ -259,6 +319,7 @@ export function isCloudMetadataHost(hostname: string): boolean {
   if (h.includes(':')) {
     const groups = expandIPv6(h);
     if (groups && embeddedV4FromGroups(groups) === CLOUD_METADATA_IPV4) return true;
+    if (groups && isTeredo(groups) && teredoClientV4(groups) === CLOUD_METADATA_IPV4) return true;
     if (groups && CLOUD_METADATA_IPV6_GROUPS.some((m) => m.every((g, i) => g === groups[i]))) {
       return true;
     }
@@ -296,6 +357,25 @@ function canonicalizeNumericIPv4(host: string): string {
   return [24, 16, 8, 0].map((shift) => Math.floor(value / 2 ** shift) % 256).join('.');
 }
 
+/**
+ * Percent-decode an opaque (non-special-scheme) host and apply the IDNA
+ * mappings that matter for SSRF: NFKC folds full-width digits/letters
+ * (`１２７` → `127`) and the ideographic / full-width / half-width full stops
+ * (U+3002, U+FF0E, U+FF61) become `.`. Returns null on malformed
+ * percent-encoding so the caller fails closed.
+ */
+function normalizeOpaqueHost(host: string): string | null {
+  let decoded = host;
+  if (host.includes('%')) {
+    try {
+      decoded = decodeURIComponent(host);
+    } catch {
+      return null;
+    }
+  }
+  return decoded.normalize('NFKC').replace(/[。．｡]/g, '.');
+}
+
 /** Strip IPv6 brackets and lowercase so bracketed/unbracketed forms compare equal. */
 function normalizeHostForCompare(host: string): string {
   return host.toLowerCase().replace(/^\[(.*)\]$/, '$1');
@@ -330,10 +410,21 @@ export function validateURL(
     return { valid: false, error: `Invalid URL scheme. Allowed: ${allowedSchemes.join(', ')}` };
   }
 
+  // Non-special schemes (kafka:, mqtt:, …) get an OPAQUE host from the WHATWG
+  // parser: no percent-decoding, no IDNA dot mapping, no IPv4 canonicalisation.
+  // `kafka://%31%32%37.0.0.1` or `kafka://127。0。0。1` would then dodge every
+  // string check below while a client library still dials loopback. Normalise
+  // the way a special-scheme host would be (special-scheme hosts are already
+  // normalised, so this is a no-op for them).
+  const normalizedHost = normalizeOpaqueHost(url.hostname);
+  if (normalizedHost === null) {
+    return { valid: false, error: 'Invalid URL host encoding' };
+  }
+
   // Strip a trailing FQDN-root dot before policy comparison — `metadata.x.`
   // resolves identically to `metadata.x` but would slip past the exact-string
   // blocklist below.
-  let hostname = url.hostname
+  let hostname = normalizedHost
     .toLowerCase()
     .replace(/\.+$/, '')
     // WHATWG URL keeps the brackets on IPv6 hosts (`[::1]`); strip them so the
