@@ -6,6 +6,7 @@
 | GraphQL query / mutation | ✅ | ✅ | Rides the HTTP proxy: POST { query, variables, operationName } or, for queries, GET with them URL-encoded; sends Accept: application/graphql-response+json, application/json;q=0.9 |
 | GraphQL @defer / @stream (multipart/mixed incremental delivery) | ✅ | ✅ | Both merge the multipart parts into one result. Web renders each part as it arrives (Worker streaming pass-through); desktop shows the merged result once the response completes (Electron HTTP IPC buffers) |
 | SOCKS5 proxy | ❌ | ✅ | Browser fetch cannot route through SOCKS |
+| Per-request proxy override (and the global HTTP proxy) | ❌ | ✅ | Desktop routes the request through the configured HTTP / HTTPS / SOCKS proxy. The web client ignores proxy settings — the browser and the Worker relay connect to the target directly |
 | PAC proxy script resolution | ❌ | ❌ | Not wired end-to-end: the renderer ProxyType cannot emit a PAC proxy and the PAC script is never loaded via session.setProxy — only handler scaffolding exists. Marked unsupported until the renderer + setProxy path land. |
 | mTLS client certificates | ❌ | ✅ | Web build inherits browser cert store; no per-request control |
 | Custom CA bundle | ❌ | ✅ |  |
