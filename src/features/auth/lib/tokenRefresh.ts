@@ -1,6 +1,8 @@
-import { isSecretHandle, unwrapSecret } from '@/lib/shared/secretRef';
+import { unwrapSecret } from '@/lib/shared/secretRef';
 import type { AuthConfig } from '@/types';
 import { fetchRefreshToken, tokenExpiresAt } from './oauth2';
+import { proxiedTokenFetch } from './oauth2-transport';
+import { isRendererReadableSecret } from './readableSecret';
 
 const REFRESH_SKEW_MS = 60_000;
 
@@ -9,11 +11,13 @@ export function shouldRefreshOAuth2(auth: AuthConfig, nowMs = Date.now()): boole
   const o = auth.oauth2;
   if (!o?.refreshToken || !o.tokenUrl || !o.clientId) return false;
   if (!o.expiresAt) return false;
-  // Renderer cannot refresh against a handle-protected refresh token —
-  // plaintext lives only in the main process. Skip refresh; the desktop
-  // handler will see an expired token and surface a 401 from upstream, which
-  // is the same UX the user gets when refresh isn't configured.
-  if (isSecretHandle(o.refreshToken) || isSecretHandle(o.clientSecret)) return false;
+  // The renderer cannot refresh against a keychain handle or an external-vault
+  // reference — plaintext lives only in the main process / the vault, and the
+  // renderer would read a masked placeholder. Skip refresh; the expired token
+  // surfaces a 401 from upstream, the same UX as when refresh isn't configured.
+  if (!isRendererReadableSecret(o.refreshToken) || !isRendererReadableSecret(o.clientSecret)) {
+    return false;
+  }
   return o.expiresAt - nowMs <= REFRESH_SKEW_MS;
 }
 
@@ -35,6 +39,7 @@ export async function refreshOAuth2Auth(
       ...(clientSecretStr !== undefined &&
         clientSecretStr !== '' && { clientSecret: clientSecretStr }),
       ...(o.scope !== undefined && { scope: o.scope }),
+      fetch: proxiedTokenFetch,
     },
     signal
   );

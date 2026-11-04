@@ -24,9 +24,11 @@ import type { AuthConfig } from '../../src/types';
 
 const REFUSAL = /variable reference/;
 
+// The editor and auto-refresh send token requests through the app transport
+// (`executeProxiedRequest`); the shared client alone falls back to global fetch.
 function tokenEndpoint(body: Record<string, unknown>) {
-  return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-    const payload = String(input).endsWith('/device')
+  const payloadFor = (url: string) =>
+    url.endsWith('/device')
       ? {
           device_code: 'd',
           user_code: 'u',
@@ -35,7 +37,15 @@ function tokenEndpoint(body: Record<string, unknown>) {
           interval: 0,
         }
       : body;
-    return new Response(JSON.stringify(payload), { status: 200 });
+  proxied.mockReset();
+  proxied.mockImplementation(async (spec: { url: string }) => ({
+    status: 200,
+    statusText: 'OK',
+    headers: { 'content-type': 'application/json' },
+    data: JSON.stringify(payloadFor(spec.url)),
+  }));
+  return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    return new Response(JSON.stringify(payloadFor(String(input))), { status: 200 });
   });
 }
 

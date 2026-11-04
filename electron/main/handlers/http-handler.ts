@@ -45,7 +45,7 @@ import {
   type ExecutionPolicy,
   getExecutionPolicy,
 } from '../security/execution-policy';
-import { materializeHttpAuth } from '../security/http-auth-materializer';
+import { materializeHttpAuth, requiredSecretResolver } from '../security/http-auth-materializer';
 import { isProxyBypassed } from '../security/proxy-bypass';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import { materializeSecretVariables } from '../security/secret-variable-materializer';
@@ -738,7 +738,7 @@ async function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse>
       // every desktop transport reads. Cloud metadata stays blocked inside
       // the shared URL guard regardless.
       ...getExecutionPolicy().security,
-      resolveSecret: (v) => unwrapSecretValueMain(v) ?? '',
+      resolveSecret: requiredSecretResolver,
       // Desktop signs AWS SigV4 with the official @smithy/signature-v4; the
       // Worker keeps the built-in Web-Crypto signer.
       sigV4Signer: smithySigV4Signer,

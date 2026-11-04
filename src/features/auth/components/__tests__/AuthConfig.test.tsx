@@ -22,6 +22,7 @@ vi.mock('@/features/auth/lib/oauth2', () => ({
 }));
 
 import * as oauth2 from '@/features/auth/lib/oauth2';
+import { proxiedTokenFetch } from '@/features/auth/lib/oauth2-transport';
 import * as platform from '@/lib/shared/platform';
 import AuthConfiguration from '../AuthConfig';
 
@@ -163,6 +164,53 @@ describe('AuthConfiguration — new auth variants', () => {
     it('shows the no-authentication empty state when type is none', () => {
       render(<AuthConfiguration auth={noneAuth} onChange={vi.fn()} />);
       expect(screen.getByText('No authentication')).toBeInTheDocument();
+    });
+  });
+
+  describe('OAuth 2.0 Get Token secrets and transport', () => {
+    const withSecret = (clientSecret: unknown): AuthConfigType =>
+      ({
+        type: 'oauth2',
+        oauth2: {
+          grantType: 'client_credentials',
+          clientId: 'client-id',
+          clientSecret,
+          tokenUrl: 'https://auth.example.com/token',
+          accessToken: '',
+        },
+      }) as AuthConfigType;
+
+    it.each([
+      ['a keychain handle', { kind: 'handle', id: 'h-1' }],
+      [
+        'an external-vault reference',
+        { kind: 'external', provider: 'aws-secrets-manager', profileId: 'p', secretId: 's' },
+      ],
+    ])('refuses to send a client secret stored as %s and says why', async (_label, secret) => {
+      const user = userEvent.setup();
+      vi.mocked(oauth2.fetchClientCredentialsToken).mockClear();
+      render(<AuthConfiguration auth={withSecret(secret)} onChange={vi.fn()} />);
+
+      await user.click(screen.getByRole('button', { name: 'Get New Access Token' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/client secret.*can't be read/i);
+      expect(oauth2.fetchClientCredentialsToken).not.toHaveBeenCalled();
+    });
+
+    it('sends the token request through the app HTTP transport', async () => {
+      const user = userEvent.setup();
+      vi.mocked(oauth2.fetchClientCredentialsToken).mockClear();
+      vi.mocked(oauth2.fetchClientCredentialsToken).mockResolvedValueOnce({ access_token: 'at' });
+      const onChange = vi.fn();
+      render(<AuthConfiguration auth={withSecret('inline-secret')} onChange={onChange} />);
+
+      await user.click(screen.getByRole('button', { name: 'Get New Access Token' }));
+
+      await vi.waitFor(() => expect(onChange).toHaveBeenCalled());
+      expect(oauth2.fetchClientCredentialsToken).toHaveBeenCalledWith(
+        expect.objectContaining({ clientSecret: 'inline-secret' }),
+        { fetch: proxiedTokenFetch }
+      );
     });
   });
 

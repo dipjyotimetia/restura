@@ -15,6 +15,7 @@ vi.mock('../security/secret-handle-store', () => ({
 }));
 
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
+import { requiredSecretResolver } from '../security/required-secret';
 
 // The descriptor shapes are intentionally partial; the helper only reads the
 // fields relevant to each `type`. Cast through the real parameter type.
@@ -109,5 +110,38 @@ describe('applyNonSignAtWireAuth', () => {
     for (const type of ['aws-signature', 'oauth1', 'wsse', 'ntlm', 'digest'] as const) {
       expect(apply({ type })).toEqual({ headers: {}, params: {} });
     }
+  });
+
+  describe('a keychain handle that cannot be resolved on this device', () => {
+    const missing = { kind: 'handle', id: '00000000-0000-4000-8000-000000000000' };
+
+    it.each([
+      ['bearer', { type: 'bearer', bearer: { token: missing } }],
+      ['basic', { type: 'basic', basic: { username: 'user', password: missing } }],
+      ['api-key', { type: 'api-key', apiKey: { key: 'X-Key', value: missing, in: 'header' } }],
+      ['oauth2', { type: 'oauth2', oauth2: { accessToken: missing } }],
+    ])('fails the %s request instead of sending it without a credential', (_type, auth) => {
+      expect(() => apply(auth)).toThrow(/unavailable on this device/);
+    });
+  });
+});
+
+describe('requiredSecretResolver (sign-at-wire resolveSecret on desktop)', () => {
+  it('passes plain and inline values through and treats an absent field as empty', () => {
+    expect(requiredSecretResolver('plain')).toBe('plain');
+    expect(requiredSecretResolver({ kind: 'inline', value: 'v' })).toBe('v');
+    expect(requiredSecretResolver(undefined)).toBe('');
+  });
+
+  it('throws for an unresolvable handle rather than signing with an empty secret', () => {
+    expect(() =>
+      requiredSecretResolver({ kind: 'handle', id: '00000000-0000-4000-8000-000000000000' })
+    ).toThrow(/unavailable on this device/);
+  });
+
+  it('throws for an external reference that was not materialised', () => {
+    expect(() =>
+      requiredSecretResolver({ kind: 'external', provider: 'env', reference: 'X' } as never)
+    ).toThrow(/unavailable on this device/);
   });
 });

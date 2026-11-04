@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   resolveKafkaExecutionPolicy,
   resolveMqttExecutionPolicy,
   resolveSchemaRegistryExecutionPolicy,
 } from '../security/broker-execution-policy';
 import { setExecutionPolicy } from '../security/execution-policy';
+import { __setSecretStoreForTests } from '../security/secret-handle-store';
 
 const globalClientCert = { format: 'pem' as const, cert: 'GLOBAL-CERT', key: 'GLOBAL-KEY' };
 const hostClientCert = { format: 'pfx' as const, pfx: 'aG9zdC1wZng=' };
@@ -261,5 +262,57 @@ describe('broker execution policy', () => {
         /Schema Registry client cannot honor the configured SOCKS5 proxy/
       );
     });
+  });
+});
+
+describe('a keychain secret that cannot be resolved on this device', () => {
+  const missing = { kind: 'handle' as const, id: '00000000-0000-4000-8000-000000000000' };
+  beforeEach(() => {
+    __setSecretStoreForTests({
+      get: () => undefined,
+      set: () => {},
+      delete: () => {},
+      clear: () => {},
+      has: () => false,
+      store: {},
+    });
+  });
+  afterEach(() => __setSecretStoreForTests(null));
+
+  it('fails the broker connection instead of authenticating to the SOCKS proxy with no password', () => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: {
+        enabled: true,
+        type: 'socks5',
+        host: 'proxy.example.test',
+        port: 1080,
+        bypassList: [],
+        auth: { username: 'u', password: missing },
+      },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
+    expect(() =>
+      resolveMqttExecutionPolicy({ brokerUrl: 'mqtt://mqtt.example.test:1883' })
+    ).toThrow(/unavailable on this device/);
+  });
+
+  it('fails instead of loading a client key without its passphrase', () => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: {
+        clientCert: { format: 'pem', cert: 'C', key: 'K', passphrase: missing },
+        clientCertificates: [],
+        caCertificates: [],
+      },
+    });
+    expect(() =>
+      resolveMqttExecutionPolicy({ brokerUrl: 'mqtts://mqtt.example.test:8883' })
+    ).toThrow(/unavailable on this device/);
   });
 });
