@@ -70,6 +70,20 @@ describe('buildAuthCredential', () => {
       });
     });
 
+    it('encodes non-ASCII credentials as UTF-8 like Electron main and the CLI', () => {
+      const auth: AuthConfig = { type: 'basic', basic: { username: 'jürgen', password: 'pw' } };
+      expect(buildAuthCredential(auth).headers).toEqual({
+        Authorization: 'Basic asO8cmdlbjpwdw==',
+      });
+    });
+
+    it('does not throw on characters outside Latin-1', () => {
+      const auth: AuthConfig = { type: 'basic', basic: { username: 'u', password: 'pä€ss' } };
+      expect(buildAuthCredential(auth).headers).toEqual({
+        Authorization: `Basic ${Buffer.from('u:pä€ss', 'utf8').toString('base64')}`,
+      });
+    });
+
     it('allows empty password by default (HTTP semantics)', () => {
       const auth: AuthConfig = { type: 'basic', basic: { username: 'alice', password: '' } };
       expect(buildAuthCredential(auth)).toEqual({

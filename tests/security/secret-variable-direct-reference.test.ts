@@ -373,11 +373,14 @@ describe('a secret-handle variable reached through a value', () => {
 
   it('refuses a refreshed token holding a token', async () => {
     useEnvironment([handleRow]);
-    const endpoint = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(
-        new Response(JSON.stringify({ access_token: '{{sec}}' }), { status: 200 })
-      );
+    // The refresh itself goes through the app transport; the request it was
+    // refreshing for must not follow.
+    proxied.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: JSON.stringify({ access_token: '{{sec}}' }),
+    });
     await expect(
       send(
         request({
@@ -394,8 +397,8 @@ describe('a secret-handle variable reached through a value', () => {
         })
       )
     ).rejects.toThrow(/variable reference/);
-    expect(proxied).not.toHaveBeenCalled();
-    endpoint.mockRestore();
+    expect(proxied).toHaveBeenCalledTimes(1);
+    expect(proxied.mock.calls[0]?.[0]).toMatchObject({ url: 'https://a.test/token' });
   });
 });
 
@@ -866,20 +869,43 @@ describe('script-written request fields', () => {
     expect(fetchSpy).toHaveBeenCalled();
   });
 
-  it('HTTP ignores request edits from a script', async () => {
+  it('HTTP ignores url / body edits from a script', async () => {
     useEnvironment([plainRow]);
     const { spec } = await send(
       request({
         preRequestScript: `
           pm.request.url = 'https://other.test/{{sec}}';
-          pm.request.headers['X-New'] = '{{sec}}';
           pm.request.body = '{{sec}}';
         `,
       })
     );
     expect(spec.url).toBe('https://api.example.com/resource');
-    expect(spec.headers['X-New']).toBeUndefined();
     expect(JSON.stringify(spec)).not.toContain('PLAINTEXT');
+  });
+
+  // Header edits are sent (Postman `pm.request.headers.add/upsert`), under the
+  // gRPC metadata rule: a script cannot add a secret token to a header.
+  it.each([
+    ['a direct write', `pm.request.headers['X-New'] = '{{sec}}';`],
+    ['add()', `pm.request.headers.add({ key: 'X-New', value: '{{sec}}' });`],
+    ['upsert() of a saved key', `pm.request.headers.upsert({ key: 'x-key', value: '{{sec}}' });`],
+  ])('HTTP refuses a secret token added to a header by a script: %s', async (_name, script) => {
+    useEnvironment([plainRow]);
+    await expect(
+      send(request({ headers: [header('plain')], preRequestScript: script }))
+    ).rejects.toThrow(/rs\.request\.headers references secret variable "sec"/);
+    expect(proxied).not.toHaveBeenCalled();
+  });
+
+  it('HTTP sends header edits that keep a saved secret token in place', async () => {
+    useEnvironment([plainRow]);
+    const { spec } = await send(
+      request({
+        headers: [header('{{sec}}')],
+        preRequestScript: `pm.request.headers.add({ key: 'X-Other', value: 'v' });`,
+      })
+    );
+    expect(spec.headers['X-Other']).toBe('v');
   });
 });
 

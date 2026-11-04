@@ -2,7 +2,7 @@ import * as dns from 'node:dns';
 import type * as http from 'node:http';
 import * as net from 'node:net';
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
-import { unwrapSecretValueMain } from '../security/secret-handle-store';
+import { requireSecretValueMain } from '../security/required-secret';
 import type { ElectronProxyConfig } from './http-handler';
 
 /**
@@ -121,7 +121,15 @@ export function openSocksSocket(
           };
           socket.once('data', dataListener);
         };
-        const password = unwrapSecretValueMain(proxy.auth?.password);
+        let password: string | undefined;
+        try {
+          // A configured password whose keychain handle is gone fails the
+          // connection — never authenticate to the proxy without it.
+          password = requireSecretValueMain(proxy.auth?.password, 'Proxy password');
+        } catch (cause) {
+          fail(cause as Error);
+          return;
+        }
         if (greeting[1] === 0x00) {
           sendConnect();
         } else if (greeting[1] === 0x02 && proxy.auth?.username && password) {

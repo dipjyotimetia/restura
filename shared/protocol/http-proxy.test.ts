@@ -128,10 +128,46 @@ describe('executeHttpProxy', () => {
       fetcher,
       { allowLocalhost: false }
     );
-    expect(fetcher.mock.calls[0]?.[0]?.url).toBe('https://example.com/foo?a=1&b=two+three');
+    // spec.params carries opaque values (auth-added, main-materialized): fully
+    // escaped, and a space is %20 — `+` would be read back as a literal plus by
+    // OAuth1 signers and some servers.
+    expect(fetcher.mock.calls[0]?.[0]?.url).toBe('https://example.com/foo?a=1&b=two%20three');
   });
 
-  it('does not pass body for GET/HEAD methods', async () => {
+  it('keeps the query folded into the URL byte-for-byte (+ : , / and %XX)', async () => {
+    const fetcher = vi.fn(makeFetcher('{}'));
+    await executeHttpProxy(
+      {
+        method: 'GET',
+        url: 'https://example.com/foo?tag=a&tag=b&q=a+b&t=10:30,x/y&e=%2B&s=two three',
+        params: { k: 'v+1' },
+        timeout: 1000,
+      },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(fetcher.mock.calls[0]?.[0]?.url).toBe(
+      'https://example.com/foo?tag=a&tag=b&q=a+b&t=10:30,x/y&e=%2B&s=two%20three&k=v%2B1'
+    );
+  });
+
+  it('validates the host, not the query length, of a URL carrying a long query', async () => {
+    const fetcher = vi.fn(makeFetcher('{}'));
+    const r = await executeHttpProxy(
+      { method: 'GET', url: `https://example.com/?query=${'a'.repeat(5000)}`, timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(true);
+    const blocked = await executeHttpProxy(
+      { method: 'GET', url: `http://10.0.0.1/?query=${'a'.repeat(5000)}`, timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(blocked.ok).toBe(false);
+  });
+
+  it('sends a GET body the user wrote, with its Content-Type', async () => {
     const fetcher = vi.fn(makeFetcher('{}'));
     await executeHttpProxy(
       {
@@ -144,7 +180,82 @@ describe('executeHttpProxy', () => {
       fetcher,
       { allowLocalhost: false }
     );
-    expect(fetcher.mock.calls[0]?.[0]?.body).toBeUndefined();
+    const sent = fetcher.mock.calls[0]?.[0];
+    expect(sent?.body).toBe('{"a":1}');
+    expect(asRecord(sent?.headers ?? {})['Content-Type']).toBe('application/json');
+  });
+
+  it('sends no body and no orphan Content-Type for a GET with an empty body editor', async () => {
+    const fetcher = vi.fn(makeFetcher('{}'));
+    await executeHttpProxy(
+      { method: 'GET', url: 'https://example.com/', bodyType: 'json', data: '', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    const sent = fetcher.mock.calls[0]?.[0];
+    expect(sent?.body).toBeUndefined();
+    expect(Object.keys(asRecord(sent?.headers ?? {})).map((k) => k.toLowerCase())).not.toContain(
+      'content-type'
+    );
+  });
+
+  it('drops a HEAD body together with the headers describing it', async () => {
+    const fetcher = vi.fn(makeFetcher(''));
+    await executeHttpProxy(
+      {
+        method: 'HEAD',
+        url: 'https://example.com/',
+        headers: { 'Content-Type': 'application/json' },
+        bodyType: 'json',
+        data: '{"a":1}',
+        timeout: 1000,
+      },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    const sent = fetcher.mock.calls[0]?.[0];
+    expect(sent?.body).toBeUndefined();
+    expect(asRecord(sent?.headers ?? {})['Content-Type']).toBeUndefined();
+  });
+
+  it('fails explicitly when a fetch()-backed host refuses a GET body', async () => {
+    const fetcher: Fetcher = vi.fn(async (req) => {
+      if (req.body !== undefined) {
+        throw new TypeError('Request with GET/HEAD method cannot have body.');
+      }
+      return makeFetcher('{}')(req);
+    });
+    const r = await executeHttpProxy(
+      { method: 'GET', url: 'https://example.com/', bodyType: 'text', data: 'x', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(400);
+      expect(r.payload.error).toMatch(/cannot send a request body with GET/);
+    }
+  });
+
+  it('drops a hand-set boundary-less multipart Content-Type on a form-data body', async () => {
+    const fetcher = vi.fn(makeFetcher('{}'));
+    await executeHttpProxy(
+      {
+        method: 'POST',
+        url: 'https://example.com/upload',
+        headers: { 'content-type': 'multipart/form-data' },
+        bodyType: 'form-data',
+        formData: [{ name: 'a', value: '1' }],
+        timeout: 1000,
+      },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    const sent = fetcher.mock.calls[0]?.[0];
+    expect(sent?.body).toBeInstanceOf(FormData);
+    expect(Object.keys(asRecord(sent?.headers ?? {})).map((k) => k.toLowerCase())).not.toContain(
+      'content-type'
+    );
   });
 
   it('passes body for POST methods and adds Content-Type if missing', async () => {

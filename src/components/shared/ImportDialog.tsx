@@ -10,25 +10,17 @@ import {
   type EnvironmentImportResult,
   type HarImportPreview,
   type ImportResult,
-  type ImportWarning,
   importBrunoCollection,
   importCurlCommand,
-  importHoppscotchCollection,
   importHoppscotchEnvironmentDetailed,
   importHttpFile,
-  importInsomniaCollection,
-  importOpenAPICollection,
-  importOpenCollection,
   importPostmanEnvironmentDetailed,
   isHoppscotchEnvironment,
   isPostmanEnvironment,
   parseHarImport,
   validateImportedCollection,
 } from '@/features/collections/lib/importers';
-import {
-  importPostmanV3Files,
-  importPostmanWithReport,
-} from '@/features/collections/lib/importers/postman';
+import { importPostmanV3Files } from '@/features/collections/lib/importers/postman';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
 import { assertValidEnvironments } from '@/lib/shared/store-validators';
@@ -54,26 +46,7 @@ import {
   readPostmanFolderFiles,
   readZipBytes,
 } from './import-dialog-data';
-
-const IMPORTERS: Record<ParsedImportType, (data: unknown) => Promise<ImportResult>> = {
-  // v2.x JSON or a single-file v3 logical tree (`$kind: collection`).
-  postman: async (data) => importPostmanWithReport(data),
-  insomnia: async (data) => importInsomniaCollection(data),
-  openapi: async (data) => {
-    const warnings: ImportWarning[] = [];
-    const collection = await importOpenAPICollection(data, warnings);
-    return { collection, warnings };
-  },
-  opencollection: async (data) => importOpenCollection(data),
-  hoppscotch: async (data) => importHoppscotchCollection(data),
-  bruno: async (data) =>
-    importBrunoCollection({
-      kind: 'single',
-      content: String(data),
-    }),
-  http: async (data) => importHttpFile(String(data)),
-  curl: async (data) => importCurlCommand(String(data)),
-};
+import { IMPORTERS } from './import-dialog-importers';
 
 interface ImportDialogProps {
   open: boolean;
@@ -148,7 +121,8 @@ export default function ImportDialog({
 
   const processImportData = async (
     data: unknown,
-    type: ParsedImportType | 'har'
+    type: ParsedImportType | 'har',
+    sourceUrl?: string
   ): Promise<ProcessOutcome> => {
     if (type === 'har') {
       if (typeof data !== 'string') throw new Error('HAR input must be JSON text');
@@ -163,7 +137,7 @@ export default function ImportDialog({
     if (type === 'hoppscotch' && isHoppscotchEnvironment(data)) {
       return { kind: 'environment-only', ...importHoppscotchEnvironmentDetailed(data, envOptions) };
     }
-    return IMPORTERS[type](data);
+    return IMPORTERS[type](data, sourceUrl);
   };
 
   const processImportFile = async (
@@ -412,7 +386,11 @@ export default function ImportDialog({
     try {
       const text = await fetchRemoteArtifact(remoteUrl.trim());
       const detected = detectRemoteFormat(text, remoteUrl.trim());
-      const outcome = await processImportData(parsePastedContent(text, detected), detected);
+      const outcome = await processImportData(
+        parsePastedContent(text, detected),
+        detected,
+        remoteUrl.trim()
+      );
       stageImport(outcome, detected);
     } catch (error) {
       handleImportError(error);
@@ -428,7 +406,8 @@ export default function ImportDialog({
       if (!downloaded.ok) throw new Error(downloaded.error);
       const outcome = await processImportData(
         parsePastedContent(downloaded.text, activeFormat),
-        activeFormat
+        activeFormat,
+        deepLinkSource.url
       );
       stageImport(outcome, activeFormat);
     } catch (error) {

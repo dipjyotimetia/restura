@@ -1,31 +1,17 @@
-import { domainMatch, getPublicSuffix, pathMatch } from 'tough-cookie';
+import type { CookieHop } from '@shared/protocol/set-cookie';
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { applySetCookies, type CookieItem, cookiesForUrl } from '@/features/http/lib/cookieJar';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
-// PSL lookup tuned for an API client used heavily against local runtimes:
-// allowSpecialUseDomain keeps `localhost` a valid registrable name, and
-// ignoreError makes special-use/IP hosts return undefined instead of throwing.
-const PUBLIC_SUFFIX_OPTIONS = {
-  allowSpecialUseDomain: true,
-  ignoreError: true,
-} as const;
-
-export interface CookieItem {
-  id: string;
-  key: string;
-  value: string;
-  domain: string;
-  path: string;
-  expires?: string;
-  secure: boolean;
-  httpOnly: boolean;
-  lastAccessed?: string;
-}
+export type { CookieItem };
 
 interface CookieStore {
   cookies: CookieItem[];
   addCookie: (cookie: CookieItem) => void;
+  /** Store a response's Set-Cookie fields, each hop against its own URL (RFC 6265 §5.3). */
+  storeResponseCookies: (hops: readonly CookieHop[]) => void;
   updateCookie: (id: string, updates: Partial<CookieItem>) => void;
   deleteCookie: (id: string) => void;
   getCookiesForUrl: (url: string) => CookieItem[];
@@ -59,6 +45,10 @@ export const useCookieStore = create<CookieStore>()(
 
           return { cookies: [...state.cookies, cookie] };
         }),
+      storeResponseCookies: (hops) => {
+        if (hops.length === 0) return;
+        set((state) => ({ cookies: applySetCookies(state.cookies, hops, Date.now(), uuidv4) }));
+      },
       updateCookie: (id, updates) =>
         set((state) => ({
           cookies: state.cookies.map((c) => (c.id === id ? { ...c, ...updates } : c)),
@@ -67,45 +57,7 @@ export const useCookieStore = create<CookieStore>()(
         set((state) => ({
           cookies: state.cookies.filter((c) => c.id !== id),
         })),
-      getCookiesForUrl: (url) => {
-        try {
-          const urlObj = new URL(url);
-          const hostname = urlObj.hostname;
-          const pathname = urlObj.pathname;
-
-          const now = Date.now();
-          return get().cookies.filter((cookie) => {
-            // Skip expired cookies
-            if (cookie.expires) {
-              const expiry = new Date(cookie.expires).getTime();
-              if (!Number.isNaN(expiry) && expiry <= now) return false;
-            }
-
-            // Public-suffix guard (RFC 6265 §5.3): a cookie scoped to a bare
-            // public suffix (e.g. `com`, `co.uk`) must not leak to every site
-            // under it. getPublicSuffix returns undefined for a public suffix
-            // (and for raw IPs); allow it through only as a host-only cookie.
-            if (
-              !getPublicSuffix(cookie.domain, PUBLIC_SUFFIX_OPTIONS) &&
-              hostname !== cookie.domain
-            ) {
-              return false;
-            }
-
-            // RFC 6265 domain & path matching via tough-cookie (PSL-aware,
-            // proper `/foo` vs `/foobar` boundary handling).
-            if (!domainMatch(hostname, cookie.domain)) return false;
-            if (!pathMatch(pathname, cookie.path)) return false;
-
-            // Secure-only cookies are withheld over plaintext http.
-            if (cookie.secure && urlObj.protocol !== 'https:') return false;
-
-            return true;
-          });
-        } catch {
-          return [];
-        }
-      },
+      getCookiesForUrl: (url) => cookiesForUrl(get().cookies, url, Date.now()),
       clearCookies: () => set({ cookies: [] }),
       purgeExpired: () =>
         set((state) => ({

@@ -20,9 +20,15 @@ import {
   pollForDeviceToken,
   tokenExpiresAt,
 } from '@/features/auth/lib/oauth2';
+import { createProxiedTokenFetch } from '@/features/auth/lib/oauth2-transport';
+import { isRendererReadableSecret } from '@/features/auth/lib/readableSecret';
+import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
+import { buildDesktopTransportConfig } from '@/features/http/lib/requestExecutor';
 import { isCapableHere } from '@/lib/shared/capabilities';
 import { isElectron } from '@/lib/shared/platform';
 import { unwrapSecret } from '@/lib/shared/secretRef';
+import { useRequestStore } from '@/store/useRequestStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import type { AuthConfig } from '@/types';
 import SecretInput from '../SecretInput';
 import type { AuthEditorProps } from './types';
@@ -57,6 +63,19 @@ function withIssuedToken(
   };
 }
 
+/** Desktop transport settings of the open HTTP request, for a token URL. */
+function activeRequestTransport(tokenUrl: string) {
+  const { tabs, activeTabId } = useRequestStore.getState();
+  const request = tabs.find((tab) => tab.id === activeTabId)?.request;
+  const globalSettings = useSettingsStore.getState().settings;
+  const requestSettings = request?.type === 'http' ? request.settings : undefined;
+  return buildDesktopTransportConfig(
+    resolveEffectiveSettings(requestSettings, globalSettings),
+    globalSettings,
+    tokenUrl
+  );
+}
+
 export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
   const [tokenLoading, setTokenLoading] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
@@ -81,14 +100,32 @@ export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
     }
     if (authCodeUnavailable) return;
 
+    // A keychain handle or external-vault reference is opaque in the renderer
+    // (ADR-0007): reading it yields a masked placeholder, which must never be
+    // sent to the token endpoint as a credential.
+    const unreadable = !isRendererReadableSecret(oauth.clientSecret)
+      ? 'client secret'
+      : !isRendererReadableSecret(oauth.password)
+        ? 'password'
+        : undefined;
+    if (unreadable) {
+      setTokenError(
+        `The ${unreadable} is stored in the keychain or an external vault, so it can't be read here to get a token. Enter it directly, or paste an access token below.`
+      );
+      return;
+    }
+
     setTokenLoading(true);
     setTokenError(null);
     setDeviceCodeInfo(null);
 
+    // Token requests go through the app's HTTP transport (Worker / desktop
+    // IPC), not a direct renderer fetch: SSRF guard, no CORS, no renderer CSP.
+    // On desktop they use the open request's TLS / certificate / proxy settings
+    // (workspace defaults when editing folder or collection auth).
+    const transport = { fetch: createProxiedTokenFetch(activeRequestTransport) };
+
     try {
-      // Keep SecretRef values opaque in renderer-side token acquisition. A
-      // handle is represented by its masked placeholder and fails upstream
-      // rather than exposing a value that only Electron main may resolve.
       const config = {
         grantType: oauth.grantType,
         clientId: oauth.clientId,
@@ -107,9 +144,9 @@ export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
       let response: OAuth2TokenResponse;
 
       if (oauth.grantType === 'client_credentials') {
-        response = await fetchClientCredentialsToken(config);
+        response = await fetchClientCredentialsToken(config, transport);
       } else if (oauth.grantType === 'password') {
-        response = await fetchPasswordToken(config);
+        response = await fetchPasswordToken(config, transport);
       } else if (oauth.grantType === 'authorization_code') {
         const { url, codeVerifier, state } = await buildAuthorizationUrl(config);
         const result = await authorizeWithPopup(url, state);
@@ -117,15 +154,16 @@ export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
           setTokenError('Authorization was cancelled or the popup was blocked');
           return;
         }
-        response = await exchangeCodeForToken(config, result.code, codeVerifier);
+        response = await exchangeCodeForToken(config, result.code, codeVerifier, transport);
       } else if (oauth.grantType === 'device_code') {
-        const device = await fetchDeviceCode(config);
+        const device = await fetchDeviceCode(config, transport);
         setDeviceCodeInfo({ userCode: device.user_code, verificationUri: device.verification_uri });
         response = await pollForDeviceToken(
           config,
           device.device_code,
           device.interval ?? 5,
-          Math.ceil(device.expires_in / (device.interval ?? 5))
+          Math.ceil(device.expires_in / (device.interval ?? 5)),
+          transport
         );
         setDeviceCodeInfo(null);
       } else {

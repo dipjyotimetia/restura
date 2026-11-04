@@ -2,6 +2,12 @@ import type { ProtocolAuthConfig } from '@shared/protocol/types';
 import { applyNonSignAtWireAuth } from './auth-applier';
 import { materializeExternalProtocolAuth } from './external-secret-materializer';
 
+/**
+ * The HTTP handler's sign-at-wire `resolveSecret`: an unresolvable handle fails
+ * the request (as on the Worker and in the CLI) instead of signing with `''`.
+ */
+export { requiredSecretResolver } from './required-secret';
+
 interface HttpAuthConfig {
   auth?: ProtocolAuthConfig;
   headers?: Record<string, string>;

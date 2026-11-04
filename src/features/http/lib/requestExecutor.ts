@@ -1,41 +1,42 @@
-import { PROXY_STREAM_MARKER_HEADER } from '@shared/protocol/proxy-limits';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
+  appendQueryPairs,
   applyBodyDefaultHeaders,
   authHeaderNames,
   buildProxyBody,
   buildProxyFormFields,
-  collectEnabledRows,
+  collectEnabledHeaders,
+  collectQueryPairs,
   mapProxyBodyType,
+  type QueryPair,
 } from '@shared/protocol/request-spec';
-import {
-  decodeSetCookieSideChannel,
-  responseSetCookies,
-  SET_COOKIE_SIDE_CHANNEL_HEADER,
-  type SetCookieSource,
-} from '@shared/protocol/set-cookie';
+import { type CookieHop, responseSetCookies } from '@shared/protocol/set-cookie';
+import { findScriptWrittenToken } from '@shared/scripts/grpc-script-metadata';
+import { applyScriptHeaderEdits } from '@shared/scripts/script-executor-request';
 import { runScriptPhase } from '@shared/scripts/script-phase';
 import {
   basicAuthReferencesSecretVariable,
   SecretVariableReferenceError,
 } from '@shared/variables/secret-variable-token';
 import { scanVariableTokens } from '@shared/variables/tokens';
-import { Cookie } from 'tough-cookie';
 import { v4 as uuidv4 } from 'uuid';
 import {
   applyApiKeyQueryParam,
   applyAuthHeaders,
   assertHandleSupported,
 } from '@/features/auth/lib/applyAuthHeaders';
+import { createProxiedTokenFetch } from '@/features/auth/lib/oauth2-transport';
 import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
 import { assertPostmanSendable } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { persistableRefreshedAuth, refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
+import { responseCookieHops, withJarCookies } from '@/features/http/lib/cookieJar';
+import { buildDesktopTransportConfig } from '@/features/http/lib/desktopTransportConfig';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import {
   executeProxiedRequestWithProgress,
   type ResponseProgressHandler,
+  readStreamSideChannels,
 } from '@/features/http/lib/progressTransport';
-import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
 import {
   type HttpStreamEvent,
   readStreamingResponse,
@@ -44,7 +45,6 @@ import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import { makeRendererScriptHost } from '@/features/scripts/lib/scriptPhaseHost.renderer';
-import { selectCertForUrl } from '@/lib/shared/certMatcher';
 import { resolveRequestScopeText } from '@/lib/shared/resolveRequestScope';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import {
@@ -88,6 +88,13 @@ export interface RequestExecutionResult {
    * `pm.collectionVariables`.
    */
   collectionVarsMutations?: Record<string, string | null>;
+  /**
+   * `pm.environment.set/unset` mutations from either script phase, merged (test
+   * phase wins on conflict). Callers persist these to the active environment —
+   * see `persistScriptEnvironmentMutations`. Undefined when neither script wrote
+   * to `pm.environment`.
+   */
+  environmentMutations?: Record<string, string | null>;
 }
 
 export interface RequestExecutorOptions {
@@ -137,6 +144,10 @@ interface BuiltSpec {
   effectiveSettings: RequestSettings;
   /** Sent headers post-cookie-merge, returned to callers for the response panel. */
   sentHeaders: Record<string, string>;
+  /** The resolved URL before the query rows were folded into `spec.url`. */
+  sentUrl: string;
+  /** Query params as sent, one value per key (display / GraphQL GET read-back). */
+  sentParams: Record<string, string>;
   /**
    * Set only when OAuth2 refresh issued a new token: the request's template
    * auth with the issued token folded in (never resolved `{{var}}` values).
@@ -157,76 +168,12 @@ interface BuiltSpec {
 // effectiveSettings.ts so the per-request editor can share it without pulling
 // this module's heavy deps. See globalSettingsToRequestSettings.
 // Same treatment: the shared request-to-spec step, under the names existing sites use.
+export { buildDesktopTransportConfig } from '@/features/http/lib/desktopTransportConfig';
 export {
   buildProxyFormFields as buildFormFields,
   mapProxyBodyType as mapBodyType,
   resolveEffectiveSettings,
 };
-
-/**
- * Assemble the desktop-only transport config from per-request settings,
- * falling back to global settings. Proxy precedence follows
- * `getEffectiveProxy` (per-request overrides global); a proxy whose host is
- * on its own bypass list is dropped for this URL. Cert / verifySsl / TLS
- * knobs prefer the per-request value and fall back to the global one.
- *
- * Returns undefined when nothing desktop-specific applies, so the web path
- * stays a pure no-op.
- *
- * Exported for unit testing — this is the precedence logic (per-request >
- * per-domain match > global) that the type system can't verify end-to-end.
- */
-export function buildDesktopTransportConfig(
-  effectiveSettings: RequestSettings,
-  globalSettings: AppSettings,
-  resolvedUrl: string
-): DesktopTransportConfig | undefined {
-  const out: DesktopTransportConfig = {};
-
-  const proxy = getEffectiveProxy(effectiveSettings, globalSettings.proxy);
-  if (
-    proxy?.enabled &&
-    proxy.type !== 'none' &&
-    proxy.host &&
-    !shouldBypassProxy(resolvedUrl, proxy.bypassList)
-  ) {
-    out.proxy = proxy;
-  }
-
-  const verifySsl = effectiveSettings.verifySsl ?? globalSettings.verifySsl;
-  if (verifySsl !== undefined) out.verifySsl = verifySsl;
-
-  // Cert precedence: explicit per-request override > per-domain match >
-  // global cert. The per-domain lists are matched most-specific-first.
-  const matchedClientCert = selectCertForUrl(resolvedUrl, globalSettings.clientCertificates);
-  const clientCert =
-    effectiveSettings.clientCert ?? matchedClientCert?.cert ?? globalSettings.clientCert;
-  if (clientCert) out.clientCert = clientCert;
-
-  const matchedCaCert = selectCertForUrl(resolvedUrl, globalSettings.caCertificates);
-  const caCert =
-    effectiveSettings.caCert ??
-    (matchedCaCert ? { pem: matchedCaCert.pem } : undefined) ??
-    globalSettings.caCert;
-  if (caCert) out.caCert = caCert;
-
-  const serverCipherOrder = effectiveSettings.serverCipherOrder ?? globalSettings.serverCipherOrder;
-  if (serverCipherOrder !== undefined) out.serverCipherOrder = serverCipherOrder;
-
-  const minTlsVersion = effectiveSettings.minTlsVersion ?? globalSettings.minTlsVersion;
-  if (minTlsVersion !== undefined) out.minTlsVersion = minTlsVersion;
-
-  const cipherSuites = effectiveSettings.cipherSuites ?? globalSettings.cipherSuites;
-  if (cipherSuites !== undefined) out.cipherSuites = cipherSuites;
-
-  // Per-request only (no workspace default). 'auto' is the handler default, so
-  // it isn't sent — keeps the IPC payload identical for untouched requests.
-  if (effectiveSettings.httpVersion && effectiveSettings.httpVersion !== 'auto') {
-    out.httpVersion = effectiveSettings.httpVersion;
-  }
-
-  return Object.keys(out).length > 0 ? out : undefined;
-}
 
 // Sign-at-wire auth (SigV4 / OAuth1 / WSSE) is intentionally NOT applied
 // here — the descriptor flows through `spec.auth` so the proxy signs
@@ -261,12 +208,31 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     throw new Error(`Invalid URL: ${urlValidation.error}`);
   }
 
-  const params = collectEnabledRows(request.params, (p) =>
+  // Every query row is kept, repeated keys included, in table order: they are
+  // folded into `spec.url` (see below). User-typed rows go out as typed; rows
+  // Restura built (GraphQL GET params) are fully percent-encoded.
+  //
+  // A row whose value holds a desktop secret token stays in `params` (a Record
+  // Electron main substitutes in; the proxy then escapes it in full). Pinned
+  // trade-off (requestExecutor.queryWire.test.ts): such rows go after the
+  // folded ones and a repeated name keeps its last row only.
+  const queryPairs = collectQueryPairs(request.params, (p) =>
     resolveLocal(p.value, `query parameter "${p.key}"`)
   );
+  const holdsSecretToken = (text: string) =>
+    secretVariables !== undefined &&
+    scanVariableTokens(text).some(({ name }) => Object.hasOwn(secretVariables, name));
+  const params: Record<string, string> = {};
+  let foldedQuery: QueryPair[] = [];
+  for (const pair of queryPairs) {
+    const [key, value] = pair;
+    if (holdsSecretToken(value)) params[key] = value;
+    else foldedQuery.push(pair);
+  }
+  // Repeated header rows combine (`, `; Cookie `; `) instead of the last one winning.
   const headers = applyBodyDefaultHeaders(
     request.body.type,
-    collectEnabledRows(request.headers, (h) => resolveLocal(h.value, `header "${h.key}"`))
+    collectEnabledHeaders(request.headers, (h) => resolveLocal(h.value, `header "${h.key}"`))
   );
 
   // {{vars}} in the body resolve like the URL/params/headers do. Binary bodies
@@ -280,7 +246,17 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   // The resolved copy is what's applied to headers AND sent as `spec.auth`
   // for sign-at-wire schemes (SigV4 / OAuth1 / WSSE / Digest / NTLM).
   const resolvedAuth = resolveAuthVariables(request.auth, (text) => resolveLocal(text, 'auth'));
-  const effectiveAuth = await refreshOAuth2Auth(resolvedAuth, Date.now(), options.signal);
+  const effectiveSettings = resolveEffectiveSettings(request.settings, globalSettings);
+  // A token refresh uses this request's transport settings (TLS, certs, proxy).
+  const tokenFetch = createProxiedTokenFetch((tokenUrl) =>
+    buildDesktopTransportConfig(effectiveSettings, globalSettings, tokenUrl)
+  );
+  const effectiveAuth = await refreshOAuth2Auth(
+    resolvedAuth,
+    Date.now(),
+    options.signal,
+    tokenFetch
+  );
   // Only a real token refresh is reported for persistence — and it's folded
   // back onto the template so resolved variable values never get saved.
   const refreshedAuth =
@@ -304,9 +280,14 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   assertHandleSupported(headersWithAuth);
   Object.assign(headers, headersWithAuth.headers);
 
-  Object.assign(params, applyApiKeyQueryParam(effectiveAuth, params));
-
-  const effectiveSettings = resolveEffectiveSettings(request.settings, globalSettings);
+  // An API key sent in the query replaces same-named query rows (it is not
+  // sent next to them).
+  const authParams = applyApiKeyQueryParam(effectiveAuth, {});
+  const authParamNames = Object.keys(authParams);
+  Object.assign(params, authParams);
+  if (authParamNames.length > 0) {
+    foldedQuery = foldedQuery.filter(([key]) => !authParamNames.includes(key));
+  }
 
   // Cookie jar bypass: if disabled per-request, skip cookie reads entirely so
   // the request goes out with no Cookie header even if the jar has entries
@@ -314,10 +295,13 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   if (!effectiveSettings.disableCookieJar) {
     const cookies = useCookieStore.getState().getCookiesForUrl(resolvedUrl);
     if (cookies.length > 0) {
-      const cookieHeader = cookies.map((c) => `${c.key}=${c.value}`).join('; ');
       // The joined text: a name, or a name and value together, can hold a token too.
-      refuseHandleToken(cookieHeader, 'The Cookie header');
-      headers['Cookie'] = cookieHeader;
+      refuseHandleToken(cookies.map((c) => `${c.key}=${c.value}`).join('; '), 'The Cookie header');
+      // A Cookie header the user wrote (any casing) keeps its cookies; the jar
+      // adds only the names it does not already carry.
+      const merged = withJarCookies(headers, cookies);
+      for (const key of Object.keys(headers)) delete headers[key];
+      Object.assign(headers, merged);
     }
   }
 
@@ -351,7 +335,9 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
 
   const spec: ProxyRequestBody = {
     method: request.method,
-    url: resolvedUrl,
+    url: appendQueryPairs(resolvedUrl, foldedQuery, {
+      encode: effectiveSettings.encodeUrlAutomatically !== false,
+    }),
     headers,
     params,
     ...builtBody,
@@ -369,33 +355,45 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       ? { ...(baseDesktop ?? {}), secretVariables }
       : baseDesktop;
 
+  const sentParams: Record<string, string> = {};
+  for (const [key, value] of queryPairs) sentParams[key] = value;
+  Object.assign(sentParams, params);
+
   return {
     spec,
     effectiveSettings,
     sentHeaders: headers,
+    sentUrl: resolvedUrl,
+    sentParams,
     ...(refreshedAuth ? { refreshedAuth } : {}),
     ...(desktop ? { desktop } : {}),
   };
 }
 
-function persistResponseCookies(response: SetCookieSource, resolvedUrl: string): void {
-  for (const cookieStr of responseSetCookies(response)) {
-    const parsed = Cookie.parse(cookieStr);
-    if (!parsed) continue;
-    const expires =
-      parsed.expires === 'Infinity' || !parsed.expires ? undefined : parsed.expires.toString();
-    useCookieStore.getState().addCookie({
-      id: uuidv4(),
-      key: parsed.key,
-      value: parsed.value,
-      domain: parsed.domain || new URL(resolvedUrl).hostname,
-      path: parsed.path || '/',
-      ...(expires !== undefined && { expires }),
-      secure: parsed.secure,
-      httpOnly: parsed.httpOnly,
-      lastAccessed: new Date().toISOString(),
-    });
-  }
+/**
+ * Store a response's cookies. Each redirect hop's cookies go against the URL
+ * that set them and the final response's against the final URL (the proxy
+ * reports both as `cookieHops` / `finalUrl`); see cookieJar.ts for the rules.
+ */
+function persistResponseCookies(
+  response: {
+    headers: Record<string, string | string[]>;
+    setCookies?: string[] | undefined;
+    cookieHops?: CookieHop[] | undefined;
+    finalUrl?: string | undefined;
+  },
+  requestedUrl: string
+): void {
+  const setCookies = responseSetCookies(response);
+  const hops = responseCookieHops(
+    {
+      setCookies,
+      ...(response.cookieHops ? { cookieHops: response.cookieHops } : {}),
+      ...(response.finalUrl ? { finalUrl: response.finalUrl } : {}),
+    },
+    requestedUrl
+  );
+  useCookieStore.getState().storeResponseCookies(hops);
 }
 
 function normalizeBody(data: unknown): string {
@@ -426,6 +424,9 @@ export async function executeRequest(
       : {}),
   };
   const collectionVarsMutations: Record<string, string | null> = {};
+  const environmentMutations: Record<string, string | null> = {};
+  // A pre-request script's `rs.request.headers` edits apply to what is sent.
+  let requestToSend = request;
 
   let preRequestResult: ScriptResult | undefined;
   if (request.preRequestScript) {
@@ -461,13 +462,44 @@ export async function executeRequest(
         inheritedHeaderTemplates: inheritedHeadersPre,
         signal,
       }),
-      // A failed script's partial writes stay out of the request.
-      absorb: { into: envVars, variables: 'on-success' },
+      // As in Postman (and the gRPC / MCP / CLI hosts), writes made before a
+      // script error are kept: the request is still sent with them.
+      absorb: { into: envVars, variables: 'always' },
       afterRun: () => signal?.throwIfAborted(),
     });
     preRequestResult = pre.result;
     if (preRequestResult.collectionMutations) {
       Object.assign(collectionVarsMutations, preRequestResult.collectionMutations);
+    }
+    if (preRequestResult.environmentMutations) {
+      Object.assign(environmentMutations, preRequestResult.environmentMutations);
+    }
+    if (preRequestResult.requestHeaders) {
+      // Same rule as gRPC metadata: a script cannot put a secret-variable token
+      // into a header that was not already written there (a script string can
+      // be a server value). Nothing is sent.
+      const written = findScriptWrittenToken(
+        request.headers,
+        preRequestResult.requestHeaders,
+        (name) => options.secretNames?.includes(name) === true
+      );
+      if (written) {
+        throw new SecretVariableReferenceError(
+          'rs.request.headers',
+          written.name,
+          `"${written.key}"`,
+          'A script cannot add a secret variable to a request field.'
+        );
+      }
+      requestToSend = {
+        ...request,
+        headers: applyScriptHeaderEdits(
+          request.headers,
+          inheritedHeadersPre,
+          preRequestResult.requestHeaders,
+          uuidv4
+        ),
+      };
     }
   }
 
@@ -493,11 +525,14 @@ export async function executeRequest(
       sentUrl: request.url,
       sentHeaders: {},
       ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
+      ...(Object.keys(environmentMutations).length > 0 ? { environmentMutations } : {}),
     };
   }
 
-  const { spec, effectiveSettings, sentHeaders, refreshedAuth, desktop } =
-    await buildProxyRequestSpec(options);
+  const { spec, effectiveSettings, sentHeaders, sentUrl, sentParams, refreshedAuth, desktop } =
+    await buildProxyRequestSpec(
+      requestToSend === request ? options : { ...options, request: requestToSend }
+    );
 
   let responseData: ApiResponse;
   let transportOk = false;
@@ -571,7 +606,7 @@ export async function executeRequest(
         url: request.url,
         method: request.method,
         headers: Object.fromEntries(
-          request.headers.filter((h) => h.enabled).map((h) => [h.key, h.value])
+          requestToSend.headers.filter((h) => h.enabled).map((h) => [h.key, h.value])
         ) as Record<string, string>,
         body: request.body.raw,
       },
@@ -604,6 +639,9 @@ export async function executeRequest(
     if (testResult.collectionMutations) {
       Object.assign(collectionVarsMutations, testResult.collectionMutations);
     }
+    if (testResult.environmentMutations) {
+      Object.assign(environmentMutations, testResult.environmentMutations);
+    }
   }
 
   // Do not expose collection-variable mutations to callers after cancellation;
@@ -617,11 +655,12 @@ export async function executeRequest(
       ...(testResult !== undefined && { test: testResult }),
     },
     envVars,
-    sentUrl: spec.url,
+    sentUrl,
     sentHeaders,
     ...(spec.data !== undefined ? { sentBody: spec.data } : {}),
-    ...(spec.params && Object.keys(spec.params).length > 0 ? { sentParams: spec.params } : {}),
+    ...(Object.keys(sentParams).length > 0 ? { sentParams } : {}),
     ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
+    ...(Object.keys(environmentMutations).length > 0 ? { environmentMutations } : {}),
   };
   if (refreshedAuth) {
     result.refreshedAuth = refreshedAuth;
@@ -684,18 +723,11 @@ export async function executeStreamingRequest(
     options.signal ? { signal: options.signal } : {}
   );
 
-  // The Worker never forwards upstream Set-Cookie as a real header (the
-  // browser would store it on the Restura origin); every cookie arrives in the
-  // side channel instead.
-  const setCookies = decodeSetCookieSideChannel(
-    response.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER)
-  );
-  const headers: Record<string, string> = {};
-  for (const [k, v] of response.headers.entries()) {
-    if (k !== SET_COOKIE_SIDE_CHANNEL_HEADER && k !== PROXY_STREAM_MARKER_HEADER) headers[k] = v;
-  }
-  if (setCookies.length > 0 && !effectiveSettings.disableCookieJar) {
-    persistResponseCookies({ headers, setCookies }, spec.url);
+  // Cookies (and a followed chain's hop cookies) arrive in side channels;
+  // hop cookies are stored even when the final response set none.
+  const { headers, setCookies, finalUrl, cookieHops } = readStreamSideChannels(response);
+  if ((setCookies.length > 0 || cookieHops) && !effectiveSettings.disableCookieJar) {
+    persistResponseCookies({ headers, setCookies, cookieHops, finalUrl }, spec.url);
   }
   const responseMeta: StreamingExecutionResult['responseMeta'] = {
     status: response.status,

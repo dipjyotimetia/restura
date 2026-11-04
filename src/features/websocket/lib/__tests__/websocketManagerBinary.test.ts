@@ -95,6 +95,36 @@ describe('WebSocketManager desktop binary frames over IPC (#897)', () => {
     expect(api.send.mock.calls[0]![0].message.length).toBe(WS_IPC_MAX_MESSAGE_LENGTH);
   });
 
+  it('refuses a text frame over the IPC send limit (nothing sent or logged as sent)', () => {
+    const tooBig = 'x'.repeat(WS_IPC_MAX_MESSAGE_LENGTH + 1);
+    expect(websocketManager.send(connectionId, tooBig)).toBe(false);
+    expect(api.send).not.toHaveBeenCalled();
+    const msgs = useWebSocketStore.getState().connections[connectionId]!.messages;
+    expect(msgs.some((m) => m.type === 'sent')).toBe(false);
+    expect(msgs.at(-1)!.content).toMatch(/too large/i);
+  });
+
+  it.each([
+    [
+      'answers success: false',
+      () => api.send.mockResolvedValueOnce({ success: false, error: 'Not connected' } as never),
+      /Send failed: Not connected/,
+    ],
+    [
+      'rejects the IPC call',
+      () => api.send.mockRejectedValueOnce(new Error('Invalid IPC payload')),
+      /Send failed: Invalid IPC payload/,
+    ],
+  ])('reports a text frame main refused when it %s', async (_case, arrange, expected) => {
+    arrange();
+    websocketManager.send(connectionId, 'hello');
+    await vi.waitFor(() => {
+      const last = useWebSocketStore.getState().connections[connectionId]!.messages.at(-1)!;
+      expect(last.type).toBe('system');
+      expect(last.content).toMatch(expected);
+    });
+  });
+
   it('keeps hex as the display format for sent binary frames', () => {
     websocketManager.send(connectionId, new Uint8Array([0x00, 0xff, 0x48]).buffer);
     const last = useWebSocketStore.getState().connections[connectionId]!.messages.at(-1)!;

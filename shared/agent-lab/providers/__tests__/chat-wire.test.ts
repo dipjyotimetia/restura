@@ -62,6 +62,51 @@ describe('ChatWireProviderAdapter (#1044)', () => {
     expect(response.stopReason).toBe('tool-calls');
   });
 
+  it('keeps a Gemini thoughtSignature on the tool call and replays it on the next turn', async () => {
+    const fetcher = vi.fn<Fetcher>().mockImplementation(async () =>
+      sse([
+        {
+          candidates: [
+            {
+              content: {
+                parts: [
+                  { functionCall: { name: 'lookup', args: { q: 1 } }, thoughtSignature: 'sig-abc' },
+                ],
+              },
+              finishReason: 'STOP',
+            },
+          ],
+        },
+      ])
+    );
+    const adapter = new ChatWireProviderAdapter({ id: 'google.generateContent', fetcher });
+    const first = await adapter.generate(request, context('g-key'));
+    expect(first.toolCalls[0]?.thoughtSignature).toBe('sig-abc');
+
+    await adapter.generate(
+      {
+        ...request,
+        messages: [
+          ...request.messages,
+          { role: 'assistant', content: [], toolCalls: first.toolCalls },
+          {
+            role: 'tool',
+            toolCallId: first.toolCalls[0]!.id,
+            content: [{ type: 'text', text: '{"ok":true}' }],
+          },
+        ],
+      },
+      context('g-key')
+    );
+    const replayed = JSON.parse(String(fetcher.mock.calls[1]![0].body)) as {
+      contents: Array<{ parts: Array<{ functionCall?: unknown; thoughtSignature?: string }> }>;
+    };
+    const callPart = replayed.contents
+      .flatMap((c) => c.parts)
+      .find((part) => part.functionCall !== undefined);
+    expect(callPart?.thoughtSignature).toBe('sig-abc');
+  });
+
   it('sends Azure calls to the operator endpoint, and leaves cost unknown without a price', async () => {
     const fetcher = vi.fn<Fetcher>().mockResolvedValue(
       sse([

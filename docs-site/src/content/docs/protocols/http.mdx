@@ -31,16 +31,18 @@ Custom methods must be a valid HTTP method token (RFC 9110: letters, digits and 
 - **GraphQL** — query and variables editors that send a standard GraphQL JSON body (the dedicated [GraphQL](/protocols/graphql/) request type adds schema tooling).
 - **binary** — pick any file with **Choose file**; Restura sends its bytes as the body (`{{variables}}` are never substituted).
 
+**GET with a body:** a body you write on a `GET` is sent, not silently dropped — on desktop and with `restura run`. The hosted web app and self-hosted server send through `fetch()`, which forbids it, so the request fails with an explicit `400` ("This proxy cannot send a request body with GET"); remove the body, change the method, or use desktop/CLI. A `GET` whose body editor is empty sends no body. `HEAD` never sends one.
+
 There is no Protobuf body type: to send protobuf over HTTP use **binary**, or use the [gRPC](/protocols/grpc/) client.
 
 ## Headers, params, cookies
 
-- **Query parameters** — kept in sync with the URL. Type or paste `?a=1&b=2` into the URL bar and the rows appear in **Params**; edit a row and the URL updates. Disabled rows stay in the table and are left out of the URL.
+- **Query parameters** — kept in sync with the URL. Type or paste `?a=1&b=2` into the URL bar and the rows appear in **Params**; edit a row and the URL updates. Disabled rows stay in the table and are left out of the URL. Values go out exactly as typed: `+`, `:`, `,`, `/` and existing `%XX` escapes are not rewritten (a pasted `%2B` stays `%2B`, a `+` stays `+`); only a space is encoded, as `%20`. Repeated keys (`?id=1&id=2`) are all sent, in order.
 - **Paste a cURL command** into the URL bar to fill in the method, URL, headers and body. A toast offers **Undo**.
 - **Bulk edit** — switch params or headers to a text view with one `key: value` per line. Prefix a line with `//` to disable it.
 - **Variables** — hover a `{{variable}}` in the URL or a param value to see its value and where it comes from (environment, collection, folder, globals). Secret values are masked.
-- **Headers** — autocompletion for standard names + values where applicable.
-- **Cookies** — per-request override, plus a session-wide cookie jar. When a response sends several `Set-Cookie` headers (a session cookie plus a CSRF token, say), every one is kept: the cookie jar stores each, the response **Headers** tab shows each on its own row, scripts see them all, and `restura run` results list them all. Streaming responses (SSE, NDJSON) have no **Headers** tab, but their cookies still reach the jar. On the web they travel in an `x-restura-set-cookies` header, so the browser never stores them for the Restura site. The network console lists each response cookie's name and attributes with the value redacted.
+- **Headers** — autocompletion for standard names + values where applicable. Repeated header rows are all kept: they combine into one header separated by `, ` (`; ` for `Cookie`) instead of the last row winning.
+- **Cookies** — per-request override, plus a session-wide cookie jar. When a response sends several `Set-Cookie` headers (a session cookie plus a CSRF token, say), every one is kept: the cookie jar stores each, the response **Headers** tab shows each on its own row, scripts see them all, and `restura run` results list them all. Streaming responses (SSE, NDJSON) have no **Headers** tab, but their cookies still reach the jar. On the web they travel in an `x-restura-set-cookies` header, so the browser never stores them for the Restura site. The network console lists each response cookie's name and attributes with the value redacted. The jar follows RFC 6265: `Max-Age` wins over `Expires` (zero or negative deletes the cookie), a `Domain` attribute must domain-match the host and may not be a public suffix, cookies without `Domain` are host-only, and the default path is derived per the RFC. A `Cookie` header you set yourself merges with the jar (your names win). On redirects, cookies set by each hop are sent on the later hops and stored against the URL that set them — on the web/self-hosted proxy and on desktop alike.
 
 ## Authentication
 
@@ -88,9 +90,10 @@ Every send is recorded to history with status, timing, request hash, and a quick
 
 ## Worth knowing
 
-- The **SSRF guard** blocks requests to RFC 1918, RFC 6598 (CGNAT), link-local, loopback, IPv4-mapped IPv6, cloud metadata endpoints (`169.254.169.254`), and IPv6 unique-local — unless explicitly allowed (e.g. `ENVIRONMENT=development` in the Worker, `--allow-localhost` in the CLI).
+- The **SSRF guard** blocks requests to RFC 1918, RFC 6598 (CGNAT), link-local, loopback, IPv4-mapped IPv6, cloud metadata endpoints (`169.254.169.254`), IPv6 unique-local, and other special-use ranges such as multicast and reserved space (see [Security model](/architecture/security/)) — unless explicitly allowed (e.g. `ENVIRONMENT=development` in the Worker, `--allow-localhost` in the CLI).
 - The **desktop client** also enforces a **pre-flight DNS guard** against DNS-rebind: hostnames are resolved before connecting, and every record is validated.
 - **Custom CAs**, **disabled TLS verification**, **client certificates (mTLS)**, and **SOCKS4/5** proxies are <Badge text="desktop only" variant="caution" /> — the browser sandbox doesn't expose them.
+- **Proxy settings** (the global HTTP proxy and a request's *Custom Proxy for this Request*) are <Badge text="desktop only" variant="caution" /> (`http.proxy.perRequest`); the web client connects directly and badges the setting. `restura run` applies a request's own HTTP(S) proxy and refuses a SOCKS one.
 - **HTTP version** <Badge text="desktop only" variant="caution" /> — in a request's **Settings** tab, choose *Auto* (h2 offered via ALPN over TLS, the default), *HTTP/1.1 only*, *HTTP/2 only* (the request fails if the server can't negotiate h2; on direct and SOCKS connections this is checked before anything is sent, but through an HTTP proxy (including one from `HTTP_PROXY`/`HTTPS_PROXY`) only after the response, so the request may already have gone out over HTTP/1.1), or *HTTP/2 cleartext (h2c, prior knowledge)* for `http://` servers that speak HTTP/2 without an Upgrade. The protocol actually used shows as the **HTTP** stat on the response. h2c works on direct connections and through SOCKS, but not through an HTTP proxy. On the web the runtime negotiates the protocol, so the setting stays on *Auto*. The setting is saved with the request and round-trips through OpenCollection (`x-restura-http`); importing it changes only the HTTP version, not the request's other settings. `restura run` doesn't apply it and prints a warning instead.
 
 ## Related

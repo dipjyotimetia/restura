@@ -9,6 +9,7 @@
  * element) and the outbound side half-closed, which is what a collection run
  * needs.
  */
+import { parseGrpcMessageJson } from '@shared/protocol/grpc-json';
 import { v4 as uuidv4 } from 'uuid';
 import type { StreamRunHooks } from '@/features/registry/types';
 import type { GrpcRequest, GrpcResponse, GrpcStatusCode } from '@/types';
@@ -42,7 +43,7 @@ export function outboundMessages(message: string, resolve: (t: string) => string
   if (!message.trim()) return [];
   let parsed: unknown;
   try {
-    parsed = JSON.parse(resolve(message));
+    parsed = parseGrpcMessageJson(resolve(message));
   } catch (err) {
     throw new Error(
       `Invalid JSON in request message: ${err instanceof Error ? err.message : String(err)}`

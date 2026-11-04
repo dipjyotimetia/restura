@@ -13,6 +13,7 @@
  *   subscriptions — the spec forbids mutations over GET (they are not safe).
  */
 
+import type { BuiltQueryRow } from '../protocol/request-spec';
 import type { HttpRequest, KeyValue } from '../types';
 import {
   buildGraphQLRequestBody,
@@ -89,12 +90,42 @@ export function getRefusalReason(query: string, operationName?: string | null): 
 
 const GET_PARAM_KEYS = new Set(['query', 'variables', 'operationName', 'extensions']);
 
-function param(key: string, value: string): KeyValue {
-  return { id: `graphql-get-${key}`, key, value, enabled: true };
+/** A GET param Restura builds: opaque data, fully percent-encoded on the wire. */
+function param(key: string, value: string): KeyValue & BuiltQueryRow {
+  return { id: `graphql-get-${key}`, key, value, enabled: true, encodeFully: true };
 }
 
 function hasEnabledHeader(headers: KeyValue[], name: string): boolean {
   return headers.some((h) => h.enabled && h.key.trim().toLowerCase() === name);
+}
+
+/** Saved GraphQL variables that cannot be sent (invalid JSON, or not an object). */
+export class GraphQLVariablesError extends Error {
+  constructor(detail: string) {
+    super(`Invalid JSON in GraphQL variables: ${detail}`);
+    this.name = 'GraphQLVariablesError';
+  }
+}
+
+/**
+ * Parse a saved variables JSON text. `undefined` = no variables (absent, blank
+ * or `null`); throws `GraphQLVariablesError` when it can't be sent as-is.
+ */
+export function parseGraphQLVariables(
+  text: string | undefined
+): Record<string, unknown> | undefined {
+  if (text === undefined || text.trim() === '') return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new GraphQLVariablesError(err instanceof Error ? err.message : String(err));
+  }
+  if (parsed === null) return undefined;
+  if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new GraphQLVariablesError('variables must be a JSON object');
+  }
+  return parsed as Record<string, unknown>;
 }
 
 /**
@@ -103,18 +134,16 @@ function hasEnabledHeader(headers: KeyValue[], name: string): boolean {
  * builder sends. A plain document goes through `buildGraphQLRequestBody`, the
  * same builder interactive Send uses, so every path puts the same bytes on the
  * wire (including the derived `operationName`). Variable substitution is the
- * caller's job and must happen before this call.
+ * caller's job and must happen before this call (JSON-safe: `injectGraphQLBody`).
+ *
+ * Variables JSON that is invalid, or not an object, throws a
+ * `GraphQLVariablesError` — the same refusal interactive Send shows ("Invalid
+ * JSON in variables") — instead of silently sending `variables: {}`. A blank
+ * (or `null`) variables text means "no variables": a stored envelope keeps its
+ * own `variables`.
  */
 export function graphqlEnvelopeFromBody(body: HttpRequest['body']): GraphQLEnvelope {
-  const storedVariables = (() => {
-    if (body.graphqlVariables === undefined) return undefined;
-    try {
-      const parsed = JSON.parse(body.graphqlVariables ?? '{}');
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-      return {};
-    }
-  })();
+  const storedVariables = parseGraphQLVariables(body.graphqlVariables);
   const raw = body.raw ?? '';
   let envelope: Record<string, unknown> | undefined;
   try {

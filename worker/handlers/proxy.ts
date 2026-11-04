@@ -17,9 +17,12 @@ import {
   type UpstreamProxyConfig,
 } from '@shared/protocol/proxy-schema';
 import {
+  buildCookieHopsSideChannel,
   buildSetCookieSideChannel,
+  COOKIE_HOPS_SIDE_CHANNEL_HEADER,
   SET_COOKIE_OMITTED_HEADER,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
+  SET_COOKIE_SIDE_CHANNEL_MAX_BYTES,
 } from '@shared/protocol/set-cookie';
 import type { Fetcher } from '@shared/protocol/types';
 import { validateURL } from '@shared/protocol/url-validation';
@@ -289,12 +292,29 @@ export function createProxyHandler(
       if (Object.keys(withheld).length > 0) {
         c.header(PROXY_UPSTREAM_HEADERS_HEADER, encodeHeaderSideChannel(withheld));
       }
+      let omittedCookies = 0;
+      let cookieBytes = 0;
       const streamCookies = upstream.setCookies;
       if (streamCookies && streamCookies.length > 0) {
         const { value, omitted } = buildSetCookieSideChannel(streamCookies);
         c.header(SET_COOKIE_SIDE_CHANNEL_HEADER, value);
-        if (omitted > 0) c.header(SET_COOKIE_OMITTED_HEADER, String(omitted));
+        omittedCookies += omitted;
+        cookieBytes = value.length;
       }
+      // A followed redirect chain: the final URL and each hop's cookies, so the
+      // renderer's jar stores them against the URL that set them. Shares the
+      // Set-Cookie channel's budget (never below 1KB) to keep the header block
+      // well under Node's 16KB limit.
+      const hops = buildCookieHopsSideChannel(
+        {
+          ...(upstream.finalUrl !== undefined ? { finalUrl: upstream.finalUrl } : {}),
+          ...(upstream.cookieHops ? { cookieHops: upstream.cookieHops } : {}),
+        },
+        Math.max(1024, SET_COOKIE_SIDE_CHANNEL_MAX_BYTES - cookieBytes)
+      );
+      if (hops.value !== undefined) c.header(COOKIE_HOPS_SIDE_CHANNEL_HEADER, hops.value);
+      omittedCookies += hops.omitted;
+      if (omittedCookies > 0) c.header(SET_COOKIE_OMITTED_HEADER, String(omittedCookies));
       // The real status always rides the side channel; statuses the browser
       // would handle itself (3xx follow, 401/407 prompt) go out as 200.
       c.header(PROXY_UPSTREAM_STATUS_HEADER, String(upstream.status));
@@ -341,6 +361,10 @@ export function createProxyHandler(
       // Set-Cookie can't be folded (RFC 6265 §3) and browsers can't read it off
       // this response anyway (forbidden response header) — ship the list in the body.
       ...(result.response.setCookies ? { setCookies: result.response.setCookies } : {}),
+      // Per-hop cookies of a followed redirect, so the jar stores each against
+      // the URL that set it.
+      ...(result.response.finalUrl ? { finalUrl: result.response.finalUrl } : {}),
+      ...(result.response.cookieHops ? { cookieHops: result.response.cookieHops } : {}),
       data: result.response.body,
       size: result.response.size,
       ...(result.response.bodyEncoding ? { bodyEncoding: result.response.bodyEncoding } : {}),

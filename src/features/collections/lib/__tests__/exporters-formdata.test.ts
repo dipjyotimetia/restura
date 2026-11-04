@@ -27,6 +27,29 @@ const collectionWith = (request: Partial<HttpRequest>): Collection => ({
   ],
 });
 
+describe('Insomnia GraphQL export', () => {
+  it('writes application/graphql with query, variables and operationName and re-imports them', () => {
+    const body: HttpRequest['body'] = {
+      type: 'graphql',
+      raw: 'query Q($id: ID) { node(id: $id) { id } }',
+      graphqlVariables: '{\n  "id": "{{id}}"\n}',
+      graphqlOperationName: 'Q',
+    };
+    const exported = exportToInsomnia(collectionWith({ body }));
+    const resource = exported.resources.find((r) => r._type === 'request');
+    expect(resource?.body?.mimeType).toBe('application/graphql');
+    expect(JSON.parse(resource?.body?.text ?? '')).toEqual({
+      query: body.raw,
+      variables: { id: '{{id}}' },
+      operationName: 'Q',
+    });
+    const reimported = importInsomniaCollection(exported).collection.items[0];
+    expect(reimported?.type === 'request' && reimported.request?.type === 'http').toBe(true);
+    if (reimported?.type === 'request' && reimported.request?.type === 'http')
+      expect(reimported.request.body).toEqual(body);
+  });
+});
+
 const multipart = collectionWith({
   body: {
     type: 'form-data',

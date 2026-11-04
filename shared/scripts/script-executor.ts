@@ -19,7 +19,12 @@ import {
   QUICKJS_MAX_STACK_BYTES,
 } from './sandbox-limits';
 import { bindPmCookies, buildKvNamespace } from './script-executor-namespaces';
-import { bindRequestGlobal, readRequestMetadata } from './script-executor-request';
+import {
+  bindRequestGlobal,
+  readRequestHeaders,
+  readRequestMetadata,
+} from './script-executor-request';
+import { installPmTest, PmTestRecorder } from './script-executor-tests';
 import type {
   PmCookieAdapter,
   PmExecutionLocation,
@@ -98,6 +103,12 @@ class ScriptExecutor {
    */
   private readonly globalsMutations: Record<string, string | null> = {};
   private readonly collectionMutations: Record<string, string | null> = {};
+  private readonly environmentMutations: Record<string, string | null> = {};
+  /** `pm.test` outcomes in call order, including async tests that settle later. */
+  private readonly testRecorder = new PmTestRecorder(
+    () => this.tests,
+    (type, message) => this.addLog(type, message)
+  );
   /**
    * Test-only override. Production code never sets this; tests inject a
    * short ceiling so the wall-clock-deadline path is exercised in
@@ -714,6 +725,8 @@ class ScriptExecutor {
     // setup time reference these object identities, so we can't replace them.
     for (const k of Object.keys(this.globalsMutations)) delete this.globalsMutations[k];
     for (const k of Object.keys(this.collectionMutations)) delete this.collectionMutations[k];
+    for (const k of Object.keys(this.environmentMutations)) delete this.environmentMutations[k];
+    this.testRecorder.reset();
     // The whole eval() is timed: the sentinel reset and bindings below can run
     // getters/setters an earlier user script installed. Reset on every exit.
     this.evalStartTime = Date.now();
@@ -771,6 +784,12 @@ class ScriptExecutor {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
         this.drainJobs();
       }
+      // An async `pm.test` still pending here can never settle: no host work is
+      // outstanding to resolve it (or the deadline hit). Fail it rather than
+      // report a pass for an assertion that never ran.
+      this.testRecorder.failPending(
+        this.evalInterrupted ? `Test timed out after ${ceiling}ms` : 'Test promise never settled'
+      );
       if (this.evalInterrupted) {
         this.addLog('error', `Script execution timed out after ${ceiling}ms`);
         this.errors.push(`Script execution timed out after ${ceiling}ms`);
@@ -792,9 +811,11 @@ class ScriptExecutor {
       const execution = this.readExecutionSentinel(vm);
       const visualization = this.readVisualizationSentinel(vm);
       const requestMetadata = readRequestMetadata(vm, context.request);
+      const requestHeaders = readRequestHeaders(vm, context.request);
 
       const hasGlobalsMutations = Object.keys(this.globalsMutations).length > 0;
       const hasCollectionMutations = Object.keys(this.collectionMutations).length > 0;
+      const hasEnvironmentMutations = Object.keys(this.environmentMutations).length > 0;
 
       return {
         success: this.errors.length === 0,
@@ -804,9 +825,13 @@ class ScriptExecutor {
         ...(this.tests.length > 0 && { tests: this.tests }),
         ...(hasGlobalsMutations && { globalsMutations: { ...this.globalsMutations } }),
         ...(hasCollectionMutations && { collectionMutations: { ...this.collectionMutations } }),
+        ...(hasEnvironmentMutations && {
+          environmentMutations: { ...this.environmentMutations },
+        }),
         ...(execution && { execution }),
         ...(visualization && { visualization }),
         ...(requestMetadata && { requestMetadata }),
+        ...(requestHeaders && { requestHeaders }),
       };
     } finally {
       this.evalStartTime = 0;
@@ -884,15 +909,6 @@ class ScriptExecutor {
     }
   }
 
-  private addTest(name: string, passed: boolean, error?: string) {
-    this.tests.push({ name, passed, ...(error !== undefined && { error }) });
-    if (passed) {
-      this.addLog('info', `✓ ${name}`);
-    } else {
-      this.addLog('error', `✗ ${name}: ${error || 'Test failed'}`);
-    }
-  }
-
   // One-time setup of console / environment / globals / pm.* helpers
   // and the utils + expect eval-time code. Request / response globals
   // are bound per-eval by `bindRequestResponse` so a session can serve
@@ -939,7 +955,7 @@ class ScriptExecutor {
 
     // Top-level `environment` and `globals` namespaces. Both expose the
     // same get/set/unset/has surface as their `pm.*` aliases below.
-    const envObj = buildKvNamespace(vm, this.envVars);
+    const envObj = buildKvNamespace(vm, this.envVars, this.environmentMutations);
     vm.setProp(vm.global, 'environment', envObj);
     envObj.dispose();
 
@@ -950,34 +966,8 @@ class ScriptExecutor {
     // Setup pm (Postman-compatible) API
     const pmObj = vm.newObject();
 
-    // pm.test
-    const testFn = vm.newFunction('test', (nameHandle, fnHandle) => {
-      const name = vm.getString(nameHandle);
-      try {
-        const result = vm.callFunction(fnHandle, vm.undefined);
-        if (result.error) {
-          const dumped = vm.dump(result.error) as unknown;
-          // QuickJS dumps an Error as { name, message, stack }. Extract
-          // the message so a failing assertion shows the user the actual
-          // assertion text rather than `[object Object]`.
-          const msg =
-            typeof dumped === 'string'
-              ? dumped
-              : dumped && typeof dumped === 'object' && 'message' in dumped
-                ? String((dumped as { message: unknown }).message)
-                : String(dumped);
-          this.addTest(name, false, msg);
-          result.error.dispose();
-        } else {
-          this.addTest(name, true);
-          result.value.dispose();
-        }
-      } catch (err) {
-        this.addTest(name, false, err instanceof Error ? err.message : String(err));
-      }
-    });
-    vm.setProp(pmObj, 'test', testFn);
-    testFn.dispose();
+    // pm.test natives; the JS wrapper is installed once `pm` is global.
+    this.testRecorder.bindNatives(vm);
 
     // pm.variables / pm.globals / pm.environment / pm.collectionVariables —
     // four Postman namespaces. `pm.variables` aliases `pm.environment` (the
@@ -985,17 +975,17 @@ class ScriptExecutor {
     // uses the dedicated collectionVars map when supplied via fromOptions,
     // and aliases envVars when the legacy positional constructor is used.
     //
-    // Mutation trackers are wired for `globals` and `collectionVariables`
-    // (the two stores callers persist back to Zustand). `environment` /
-    // `variables` mutations come back via `result.variables` (legacy
-    // contract preserved); the renderer's request executor already merges
-    // that map back into the active environment.
+    // Mutation trackers are wired for `globals`, `environment` and
+    // `collectionVariables` (the scopes hosts persist). `pm.variables` shares
+    // the request's variable map with `pm.environment` (both show up in
+    // `result.variables` for the rest of the request), but only
+    // `pm.environment` writes are reported for persisting, as in Postman.
     const kvBindings: Array<
       [string, Record<string, string>, Record<string, string | null> | undefined]
     > = [
       ['variables', this.envVars, undefined],
       ['globals', this.globalVars, this.globalsMutations],
-      ['environment', this.envVars, undefined],
+      ['environment', this.envVars, this.environmentMutations],
       ['collectionVariables', this.collectionVars, this.collectionMutations],
     ];
     for (const [name, map, mutations] of kvBindings) {
@@ -1053,6 +1043,8 @@ class ScriptExecutor {
     vm.setProp(vm.global, 'pm', pmObj);
     vm.setProp(vm.global, 'rs', pmObj);
     pmObj.dispose();
+
+    installPmTest(vm);
 
     // pm.info — default empty; per-eval bindRequestResponse() overwrites with
     // the active request's name/id when available.

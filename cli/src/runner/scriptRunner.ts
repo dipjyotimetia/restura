@@ -1,5 +1,12 @@
-import { applyScriptMetadata, grpcMetadataForScript } from '@shared/scripts/grpc-script-metadata';
+import { randomUUID } from 'node:crypto';
+import { STATUS_CODES } from 'node:http';
+import {
+  applyScriptMetadata,
+  findScriptWrittenToken,
+  grpcMetadataForScript,
+} from '@shared/scripts/grpc-script-metadata';
 import type { ScriptResult } from '@shared/scripts/script-executor';
+import { applyScriptHeaderEdits } from '@shared/scripts/script-executor-request';
 import type { ScriptContext } from '@shared/scripts/script-executor-types';
 import { NO_SCRIPT_HOST, runScriptPhase } from '@shared/scripts/script-phase';
 import type { GrpcRequest, HttpRequest, McpRequest } from '@shared/types';
@@ -31,6 +38,8 @@ export interface RunScriptResult {
   collectionMutations?: Record<string, string | null>;
   /** gRPC: the pre-request script's edited `rs.request.metadata`, when it changed it. */
   requestMetadata?: Record<string, string>;
+  /** HTTP: the pre-request script's edited `rs.request.headers`, when it changed them. */
+  requestHeaders?: Record<string, string>;
 }
 
 /** Run-scoped context threaded into `pm.collectionVariables` / `pm.iterationData` / `pm.info`. */
@@ -94,7 +103,7 @@ export async function runPreRequestScript(
   const phase = await runScriptPhase({
     phase: 'prerequest',
     script,
-    request: buildRequestContext(item, vars),
+    request: buildRequestContext(item, vars, 'prerequest'),
     ...phaseScopes(item, vars, runCtx),
   });
   return toRunScriptResult(phase.result, vars);
@@ -113,35 +122,56 @@ export async function runTestScript(
   vars: Record<string, string>,
   runCtx: ScriptRunContext
 ): Promise<RunScriptResult> {
+  // Same shape the app gives a test script: the raw body text (rs.response.json()
+  // and the jsonBody/json assertions parse it) and a status text. The outcome
+  // carries no reason phrase, so the standard one stands in (gRPC: none yet).
   const responseCtx = {
     status: outcome.status,
-    statusText: '',
+    statusText: item.type === 'grpc' ? '' : (STATUS_CODES[outcome.status] ?? ''),
     headers: outcome.responseHeaders ?? {},
     ...(outcome.responseTrailers ? { trailers: outcome.responseTrailers } : {}),
     ...(outcome.setCookies ? { setCookies: outcome.setCookies } : {}),
-    body: tryParseJson(outcome.responseBody ?? ''),
+    body: outcome.responseBody ?? '',
     time: outcome.durationMs,
     size: outcome.bodyBytes,
   };
   const phase = await runScriptPhase({
     phase: 'test',
     script,
-    request: buildRequestContext(item, vars),
+    request: buildRequestContext(item, vars, 'test'),
     response: responseCtx,
     ...phaseScopes(item, vars, runCtx),
   });
   return toRunScriptResult(phase.result, vars);
 }
 
+/**
+ * The header map an HTTP pre-request script sees: the saved rows' templates,
+ * unresolved, as in the app (`requestExecutor` hands `rs.request.headers` the
+ * row values). Edits are folded back against this same map, so an untouched
+ * `{{var}}` row stays a template and one script yields the same wire headers
+ * on both hosts.
+ */
+function httpPreRequestHeaders(req: HttpRequest): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const h of req.headers) {
+    if (h.enabled && h.key) headers[h.key] = h.value;
+  }
+  return headers;
+}
+
 function buildRequestContext(
   item: LoadedRequest,
-  vars: Record<string, string>
+  vars: Record<string, string>,
+  phase: 'prerequest' | 'test'
 ): ScriptContext['request'] {
   if (item.type === 'http') {
     const req = item.request as HttpRequest;
-    const headers: Record<string, string> = {};
-    for (const h of req.headers) {
-      if (h.enabled && h.key) headers[h.key] = resolveVars(h.value, vars);
+    let headers = httpPreRequestHeaders(req);
+    if (phase === 'test') {
+      headers = Object.fromEntries(
+        Object.entries(headers).map(([k, v]) => [k, resolveVars(v, vars)])
+      );
     }
     return {
       url: resolveVars(req.url, vars),
@@ -207,32 +237,48 @@ function toRunScriptResult(
     ...(result.execution ? { execution: result.execution } : {}),
     ...(result.collectionMutations ? { collectionMutations: result.collectionMutations } : {}),
     ...(result.requestMetadata ? { requestMetadata: result.requestMetadata } : {}),
+    ...(result.requestHeaders ? { requestHeaders: result.requestHeaders } : {}),
   };
 }
 
 /**
- * Fold a gRPC pre-request script's `rs.request.metadata` edits into the item
- * that is about to be sent (#910). Identity for other protocols / no edits.
- * `vars` must be the map the script saw (the pre-script variables).
+ * Fold a pre-request script's request edits into the item that is about to be
+ * sent: gRPC `rs.request.metadata` (#910) and HTTP `rs.request.headers`.
+ * Identity for other protocols / no edits. `vars` must be the map the script
+ * saw (the pre-script variables).
+ *
+ * As in the app, a script cannot put a secret-variable token into a header or
+ * metadata entry that was not already saved there (a script string can be a
+ * server value): the item comes back `blocked`, so the executor preflight
+ * refuses it before any I/O.
  */
 export function applyPreRequestMetadata(
   item: LoadedRequest,
-  pre: Pick<RunScriptResult, 'requestMetadata'> | undefined,
+  pre: Pick<RunScriptResult, 'requestMetadata' | 'requestHeaders'> | undefined,
   vars: Record<string, string>
 ): LoadedRequest {
+  const isSecret = (name: string) => item.secretVariableNames?.includes(name) === true;
+  if (item.type === 'http' && pre?.requestHeaders) {
+    const req = item.request as HttpRequest;
+    const written = findScriptWrittenToken(req.headers, pre.requestHeaders, isSecret);
+    if (written) return { ...item, blocked: scriptSecretRefusal('rs.request.headers', written) };
+    const before = httpPreRequestHeaders(req);
+    const headers = applyScriptHeaderEdits(req.headers, before, pre.requestHeaders, randomUUID);
+    return { ...item, request: { ...req, headers } };
+  }
   if (item.type !== 'grpc' || !pre?.requestMetadata) return item;
   const req = item.request as GrpcRequest;
+  const written = findScriptWrittenToken(req.metadata ?? [], pre.requestMetadata, isSecret);
+  if (written) return { ...item, blocked: scriptSecretRefusal('rs.request.metadata', written) };
   const metadata = applyScriptMetadata(req.metadata ?? [], pre.requestMetadata, (v) =>
     resolveVars(v, vars)
   );
   return { ...item, request: { ...req, metadata } };
 }
 
-function tryParseJson(text: string): unknown {
-  if (!text) return text;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
+function scriptSecretRefusal(field: string, written: { key: string; name: string }): string {
+  return (
+    `not sent: the pre-request script put secret variable "${written.name}" into ` +
+    `${field} "${written.key}"; a script cannot add a secret variable to a request field.`
+  );
 }

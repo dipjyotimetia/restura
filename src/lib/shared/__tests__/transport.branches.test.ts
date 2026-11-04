@@ -110,6 +110,8 @@ describe('executeProxiedRequest (Electron IPC)', () => {
   it('maps every optional spec and desktop field into the flat IPC config', async () => {
     const { request } = install({
       setCookies: ['a=b'],
+      finalUrl: 'https://x.test/home',
+      cookieHops: [{ url: 'https://x.test/login', setCookies: ['sid=1'] }],
       size: 4,
       bodyEncoding: 'base64',
       negotiatedAlpn: 'h2',
@@ -185,6 +187,8 @@ describe('executeProxiedRequest (Electron IPC)', () => {
     });
     expect(out).toMatchObject({
       setCookies: ['a=b'],
+      finalUrl: 'https://x.test/home',
+      cookieHops: [{ url: 'https://x.test/login', setCookies: ['sid=1'] }],
       size: 4,
       bodyEncoding: 'base64',
       negotiatedAlpn: 'h2',

@@ -9,6 +9,14 @@ vi.mock('@/lib/shared/platform', () => ({
 }));
 
 // Mock the OAuth2 helpers — they make network calls we don't want in unit tests.
+const executeProxiedRequestMock = vi.hoisted(() =>
+  vi.fn(async () => ({ status: 200, statusText: 'OK', headers: {}, data: {} }))
+);
+vi.mock('@/lib/shared/transport', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  executeProxiedRequest: executeProxiedRequestMock,
+}));
+
 vi.mock('@/features/auth/lib/oauth2', () => ({
   fetchClientCredentialsToken: vi.fn(),
   fetchPasswordToken: vi.fn(),
@@ -23,6 +31,7 @@ vi.mock('@/features/auth/lib/oauth2', () => ({
 
 import * as oauth2 from '@/features/auth/lib/oauth2';
 import * as platform from '@/lib/shared/platform';
+import { useRequestStore } from '@/store/useRequestStore';
 import AuthConfiguration from '../AuthConfig';
 
 const noneAuth: AuthConfigType = { type: 'none' };
@@ -163,6 +172,95 @@ describe('AuthConfiguration — new auth variants', () => {
     it('shows the no-authentication empty state when type is none', () => {
       render(<AuthConfiguration auth={noneAuth} onChange={vi.fn()} />);
       expect(screen.getByText('No authentication')).toBeInTheDocument();
+    });
+  });
+
+  describe('OAuth 2.0 Get Token secrets and transport', () => {
+    const withSecret = (clientSecret: unknown): AuthConfigType =>
+      ({
+        type: 'oauth2',
+        oauth2: {
+          grantType: 'client_credentials',
+          clientId: 'client-id',
+          clientSecret,
+          tokenUrl: 'https://auth.example.com/token',
+          accessToken: '',
+        },
+      }) as AuthConfigType;
+
+    it.each([
+      ['a keychain handle', { kind: 'handle', id: 'h-1' }],
+      [
+        'an external-vault reference',
+        { kind: 'external', provider: 'aws-secrets-manager', profileId: 'p', secretId: 's' },
+      ],
+    ])('refuses to send a client secret stored as %s and says why', async (_label, secret) => {
+      const user = userEvent.setup();
+      vi.mocked(oauth2.fetchClientCredentialsToken).mockClear();
+      render(<AuthConfiguration auth={withSecret(secret)} onChange={vi.fn()} />);
+
+      await user.click(screen.getByRole('button', { name: 'Get New Access Token' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/client secret.*can't be read/i);
+      expect(oauth2.fetchClientCredentialsToken).not.toHaveBeenCalled();
+    });
+
+    it('sends the token request through the app HTTP transport', async () => {
+      const user = userEvent.setup();
+      vi.mocked(oauth2.fetchClientCredentialsToken).mockClear();
+      vi.mocked(oauth2.fetchClientCredentialsToken).mockResolvedValueOnce({ access_token: 'at' });
+      const onChange = vi.fn();
+      render(<AuthConfiguration auth={withSecret('inline-secret')} onChange={onChange} />);
+
+      await user.click(screen.getByRole('button', { name: 'Get New Access Token' }));
+
+      await vi.waitFor(() => expect(onChange).toHaveBeenCalled());
+      expect(oauth2.fetchClientCredentialsToken).toHaveBeenCalledWith(
+        expect.objectContaining({ clientSecret: 'inline-secret' }),
+        { fetch: expect.any(Function) }
+      );
+      const [, transport] = vi.mocked(oauth2.fetchClientCredentialsToken).mock.calls[0] ?? [];
+      expect(transport?.fetch).not.toBe(globalThis.fetch);
+    });
+
+    it("sends the token request with the open request's TLS settings", async () => {
+      const user = userEvent.setup();
+      vi.mocked(platform.isElectron).mockReturnValue(true);
+      vi.mocked(oauth2.fetchClientCredentialsToken).mockClear();
+      vi.mocked(oauth2.fetchClientCredentialsToken).mockResolvedValueOnce({ access_token: 'at' });
+      useRequestStore.setState({
+        tabs: [
+          {
+            id: 't1',
+            request: {
+              id: 'r1',
+              name: 'r',
+              type: 'http',
+              method: 'GET',
+              url: 'https://api.internal/x',
+              headers: [],
+              params: [],
+              body: { type: 'none' },
+              auth: { type: 'none' },
+              settings: { verifySsl: false },
+            },
+          },
+        ],
+        activeTabId: 't1',
+      } as never);
+      const onChange = vi.fn();
+      render(<AuthConfiguration auth={withSecret('inline-secret')} onChange={onChange} />);
+      await user.click(screen.getByRole('button', { name: 'Get New Access Token' }));
+      await vi.waitFor(() => expect(onChange).toHaveBeenCalled());
+
+      const [, transport] = vi.mocked(oauth2.fetchClientCredentialsToken).mock.calls[0] ?? [];
+      executeProxiedRequestMock.mockClear();
+      await transport?.fetch?.('https://idp.internal/token', { method: 'POST', body: 'a=1' });
+      expect(executeProxiedRequestMock).toHaveBeenCalledWith(
+        expect.objectContaining({ url: 'https://idp.internal/token' }),
+        {},
+        expect.objectContaining({ verifySsl: false })
+      );
     });
   });
 

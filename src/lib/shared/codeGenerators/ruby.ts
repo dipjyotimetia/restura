@@ -1,5 +1,5 @@
 import { isKnownHttpMethod, normalizeHttpMethod } from '@shared/protocol/http-method';
-import { escapeJson, type GenerateOptions, singleQuotedLiteral, urlWithVariables } from './types';
+import { type GenerateOptions, rubyString, singleQuotedLiteral, urlWithVariables } from './types';
 
 export const generateRuby = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams } = options;
@@ -15,8 +15,8 @@ export const generateRuby = (options: GenerateOptions): string => {
     // keep urlStr as-is
   }
 
-  let ruby = `require 'net/http'\nrequire 'json'\n\n`;
-  ruby += `uri = URI("${escapeJson(urlStr)}")\n\n`;
+  let ruby = `require 'net/http'\n\n`;
+  ruby += `uri = URI(${rubyString(urlStr)})\n\n`;
   const hasBody = request.body.type !== 'none' && Boolean(request.body.raw);
   const method = normalizeHttpMethod(request.method);
   if (isKnownHttpMethod(method)) {
@@ -27,11 +27,13 @@ export const generateRuby = (options: GenerateOptions): string => {
   }
 
   Object.entries(resolvedHeaders).forEach(([key, value]) => {
-    ruby += `request["${escapeJson(key)}"] = "${escapeJson(value)}"\n`;
+    ruby += `request[${rubyString(key)}] = ${rubyString(value)}\n`;
   });
 
   if (hasBody && request.body.raw) {
-    ruby += `request.body = ${request.body.type === 'json' ? request.body.raw : `"${escapeJson(request.body.raw)}"`}\n`;
+    // Net::HTTP sends a String body; JSON goes as its exact text (a Ruby Hash
+    // literal would not be a String, and JSON `null` would be a NameError).
+    ruby += `request.body = ${rubyString(request.body.raw)}\n`;
   }
 
   ruby += `\n`;

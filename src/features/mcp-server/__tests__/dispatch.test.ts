@@ -304,6 +304,36 @@ describe('dispatchTool — get_history', () => {
     expect(entries[0]?.url).toContain('/fail');
   });
 
+  it('does not let filter probe a redacted query-string secret', () => {
+    const history: HistoryItem[] = [
+      {
+        id: 'h-secret',
+        request: httpRequest({
+          id: 'r-s',
+          name: 'maps',
+          url: 'https://maps.example.com/geo?key=AIzaSECRET123&q=x',
+        }),
+        timestamp: 1700002000,
+      },
+    ];
+    const ctx = buildContext({ history });
+    const probe = (filter: string) => {
+      const r = dispatchTool('get_history', { filter, limit: 1 }, ctx);
+      if (!r.ok) throw new Error(r.error);
+      return (r.data as { entries: Array<{ url: string }> }).entries;
+    };
+    // The secret value is masked in the output…
+    const all = probe('maps');
+    expect(all).toHaveLength(1);
+    expect(all[0]?.url).not.toContain('AIzaSECRET123');
+    // …and the filter cannot be used as an oracle against it.
+    expect(probe('key=a')).toHaveLength(0);
+    expect(probe('key=aiza')).toHaveLength(0);
+    expect(probe('aizasecret123')).toHaveLength(0);
+    // Non-secret parts of the visible URL still match.
+    expect(probe('q=x')).toHaveLength(1);
+  });
+
   it('rejects out-of-range limit', () => {
     const r1 = dispatchTool('get_history', { limit: 0 }, buildContext());
     const r2 = dispatchTool('get_history', { limit: 1001 }, buildContext());

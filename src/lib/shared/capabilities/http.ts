@@ -30,6 +30,13 @@ export const HTTP_CAPABILITIES = {
     desktop: true,
     notes: 'Browser fetch cannot route through SOCKS',
   },
+  'http.proxy.perRequest': {
+    label: 'Per-request proxy override (and the global HTTP proxy)',
+    web: false,
+    desktop: true,
+    notes:
+      'Desktop routes the request through the configured HTTP / HTTPS / SOCKS proxy. The web client ignores proxy settings — the browser and the Worker relay connect to the target directly',
+  },
   'http.proxy.pac': {
     label: 'PAC proxy script resolution',
     web: false,
@@ -83,6 +90,13 @@ export const HTTP_CAPABILITIES = {
     desktop: false,
     notes:
       'Web streams via the Worker proxy; Electron IPC buffers the full response (renderer falls back to the buffered path)',
+  },
+  'http.getBody': {
+    label: 'Request body on GET',
+    web: false,
+    desktop: true,
+    notes:
+      'The Worker and self-host proxies send through fetch(), which forbids a GET body: they refuse it with an explicit 400 (an empty body editor sends no body and is allowed). Desktop sends it; the CLI sends it too',
   },
   'http.auth.ntlm': {
     label: 'NTLM authentication',

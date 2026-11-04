@@ -85,7 +85,10 @@ function buildFieldSchema(f: FieldDescriptorProto): FieldSchema {
     typeName: f.typeName,
     label: PROTO_FIELD_LABEL_MAP[f.label || 1] || 'LABEL_OPTIONAL',
     defaultValue: f.defaultValue,
-    oneofIndex: f.oneofIndex,
+    // FileDescriptorProto is proto2: bufbuild reads an unset `oneof_index`
+    // as 0 (via the prototype), which would put every field in oneof #0.
+    // Only an explicitly set index means the field is a oneof member.
+    oneofIndex: Object.hasOwn(f, 'oneofIndex') ? f.oneofIndex : undefined,
   };
 }
 

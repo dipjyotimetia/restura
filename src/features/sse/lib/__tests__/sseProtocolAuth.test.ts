@@ -95,6 +95,16 @@ describe('sseProtocol.startStream auth', () => {
     const spec = mockExecute.mock.calls[0]![0] as { url: string };
     expect(new URL(spec.url).searchParams.get('token')).toBe('k123');
   });
+
+  it('refuses sign-at-wire auth instead of opening an unauthenticated stream', async () => {
+    const req = baseRequest({
+      auth: { type: 'aws-signature', awsSignature: { accessKey: 'a' } } as never,
+    });
+    await expect(
+      sseProtocol.startStream!(req, { signal: new AbortController().signal, variables: {} })
+    ).rejects.toThrow(/AWS Signature auth can't be applied to SSE/);
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
 });
 
 describe('sseProtocol.injectVariables', () => {

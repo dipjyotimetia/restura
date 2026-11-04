@@ -276,6 +276,18 @@ describe('restura eval run (#1045)', () => {
     expect(report.costUSD).toBeCloseTo(0.2);
   });
 
+  it('reports an unpriced model as unknown cost, never $0', async () => {
+    const report = await evaluateEvalFile(
+      '/e.json',
+      {},
+      deps(file({ models: [{ providerConfigId: 'oa', model: 'unlisted-model' }] }), echoFetcher())
+        .dependencies
+    );
+    expect(report.cells.length).toBeGreaterThan(0);
+    for (const cell of report.cells) expect(cell.cost).toBeNull();
+    expect(report.unpricedCalls).toBeGreaterThan(0);
+  });
+
   it('runs only the selected split', async () => {
     const fetcher = echoFetcher();
     const report = await evaluateEvalFile(

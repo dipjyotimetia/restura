@@ -11,7 +11,7 @@ import {
   readBoundedText,
   readStreamToBytes,
 } from './binary';
-import { buildRequestBody } from './body-builder';
+import { type BuildRequestBodyArgs, buildRequestBody } from './body-builder';
 import { type DigestRetryOptions, followRedirectsWithDigest } from './digest-auth';
 import {
   extractSetCookies,
@@ -21,6 +21,8 @@ import {
 import { checkHttpMethod } from './http-method';
 import { MAX_RESPONSE_SIZE } from './proxy-limits';
 import { discardBody, RedirectPolicyError } from './redirect-follower';
+import { appendQueryPairs } from './request-spec';
+import { type CookieHop, RedirectCookieChain } from './set-cookie';
 import type {
   ConnectionTimings,
   ExecuteResult,
@@ -46,25 +48,40 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  * legitimately differ between validator-view and wire-view.
  */
 function buildTargetUrl(spec: RequestSpec): string {
+  const params = spec.params ? Object.entries(spec.params) : [];
   if (spec.encodeUrl === false) {
-    const params = spec.params;
-    if (!params || Object.keys(params).length === 0) return spec.url;
-    // The query goes before any `#fragment`: appended after it, it would be
-    // part of the fragment and never reach the server.
-    const hash = spec.url.indexOf('#');
-    const base = hash === -1 ? spec.url : spec.url.slice(0, hash);
-    const fragment = hash === -1 ? '' : spec.url.slice(hash);
-    const joiner = base.includes('?') ? '&' : '?';
-    const tail = Object.entries(params)
-      .map(([k, v]) => `${k}=${v}`)
-      .join('&');
-    return `${base}${joiner}${tail}${fragment}`;
+    // The query goes before any `#fragment` (appendQueryPairs handles that).
+    return appendQueryPairs(spec.url, params, { encode: false });
   }
+  // The query the URL already carries (the renderer and CLI fold the user's
+  // ordered, repeatable query rows into `spec.url`) keeps its bytes: WHATWG
+  // parsing only escapes what is invalid in a query (space → `%20`), leaving
+  // `+`, `:`, `,`, `/` and `%XX` as typed. `searchParams` is never touched — it
+  // would re-serialize the whole query as form data (space → `+`, `:` → `%3A`).
+  //
+  // `spec.params` carries values nobody typed into the query: auth-added
+  // credentials (API key in query) and Electron-main materialized secrets. Those
+  // are opaque data, so they are escaped completely (space → `%20`, `+` → `%2B`).
   const u = new URL(spec.url);
-  if (spec.params) {
-    for (const [k, v] of Object.entries(spec.params)) u.searchParams.append(k, v);
+  if (params.length > 0) {
+    const tail = params
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join('&');
+    const existing = u.search.length > 1 ? u.search.slice(1) : '';
+    u.search = existing ? `${existing}&${tail}` : tail;
   }
   return u.toString();
+}
+
+/**
+ * The URL the SSRF guard sees: everything before the query. The host and scheme
+ * the guard binds on end before the first `?`/`#` in every WHATWG parse, and
+ * the query — which used to travel in `spec.params`, outside the guard's
+ * length cap — is now folded into `spec.url` by the renderer and CLI.
+ */
+function urlForValidation(url: string): string {
+  const end = url.search(/[?#]/);
+  return end === -1 ? url : url.slice(0, end);
 }
 
 /** Headers auth added, for the redirect follower. Authorization has its own `followAuthHeader` rule. */
@@ -106,9 +123,85 @@ function digestRetryFor(
       username: spec.auth.digest.username,
       password: resolve(spec.auth.digest.password),
     },
-    rebuildBody: () =>
-      buildRequestBody({ bodyType: spec.bodyType, data: spec.data, formData: spec.formData }).body,
+    rebuildBody: () => buildRequestBody(bodyArgs(spec)).body,
   };
+}
+
+/** The spec's body fields, present ones only (clean under exactOptionalPropertyTypes). */
+function bodyArgs(spec: RequestSpec): BuildRequestBodyArgs {
+  return {
+    ...(spec.bodyType !== undefined ? { bodyType: spec.bodyType } : {}),
+    ...(spec.data !== undefined ? { data: spec.data } : {}),
+    ...(spec.formData !== undefined ? { formData: spec.formData } : {}),
+  };
+}
+
+const BODY_HEADER_NAMES = new Set(['content-type', 'content-length', 'content-encoding']);
+
+/**
+ * Sanitized headers and the body that goes on the wire.
+ *
+ * - A user's body is sent whatever the method, GET included (Postman
+ *   behaviour). `fetch()`-backed hosts (Worker, self-host Node) refuse a GET
+ *   body; that surfaces as an explicit 400 (see `bodyRefusedError`), never as a
+ *   silently stripped body. HEAD alone drops the body — its response can carry
+ *   none — and then also the headers that would describe it.
+ * - A form-data body's multipart Content-Type is the runtime's to write: only
+ *   it knows the boundary. A hand-set `multipart/form-data` (no boundary, or a
+ *   boundary that will not match) is removed so every backend sets its own.
+ */
+function prepareRequest(
+  spec: RequestSpec,
+  method: string
+): { headers: Record<string, string>; body: BodyInit | undefined } {
+  const headers = sanitizeRequestHeaders(spec.headers);
+  const { body, contentType } = buildRequestBody(bodyArgs(spec));
+
+  if (typeof FormData !== 'undefined' && body instanceof FormData) {
+    for (const [name, value] of Object.entries(headers)) {
+      if (name.toLowerCase() === 'content-type' && /^\s*multipart\/form-data\b/i.test(value)) {
+        delete headers[name];
+      }
+    }
+  }
+
+  // A GET with an empty body editor (a body type picked, nothing typed) sends no
+  // body: fetch() hosts would otherwise refuse a request nobody meant to carry one.
+  const dropped = method === 'HEAD' || (method === 'GET' && isEmptyBody(body));
+  if (dropped) {
+    if (body !== undefined && method === 'HEAD') {
+      for (const name of Object.keys(headers)) {
+        if (BODY_HEADER_NAMES.has(name.toLowerCase())) delete headers[name];
+      }
+    }
+    return { headers, body: undefined };
+  }
+
+  if (contentType && !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) {
+    headers['Content-Type'] = contentType;
+  }
+  return { headers, body };
+}
+
+function isEmptyBody(body: BodyInit | undefined): boolean {
+  if (body === undefined || body === '') return true;
+  if (typeof FormData !== 'undefined' && body instanceof FormData) {
+    return body.keys().next().done === true;
+  }
+  return body instanceof Uint8Array && body.byteLength === 0;
+}
+
+/**
+ * A `fetch()`-based host (Worker, self-host Node) throws a TypeError for a GET
+ * with a body. Name the limit instead of reporting an opaque 502.
+ */
+function bodyRefusedError(err: unknown, method: string, hasBody: boolean): string | null {
+  if (!hasBody || method !== 'GET' || !(err instanceof TypeError)) return null;
+  if (!/GET|HEAD/.test(err.message) || !/body/i.test(err.message)) return null;
+  return (
+    'This proxy cannot send a request body with GET: it uses fetch(), which forbids it. ' +
+    'Remove the body, use another method, or send it from the Restura desktop app or CLI.'
+  );
 }
 
 export async function executeHttpProxy(
@@ -122,7 +215,7 @@ export async function executeHttpProxy(
   }
   const method = methodCheck.method;
 
-  const validation = validateURL(spec.url, {
+  const validation = validateURL(urlForValidation(spec.url), {
     allowPrivateIPs: options.allowPrivateIPs === true,
     allowLocalhost: options.allowLocalhost,
   });
@@ -132,16 +225,7 @@ export async function executeHttpProxy(
 
   const wireUrl = buildTargetUrl(spec);
 
-  const headers = sanitizeRequestHeaders(spec.headers);
-  const { body, contentType } = buildRequestBody({
-    bodyType: spec.bodyType,
-    data: spec.data,
-    formData: spec.formData,
-  });
-
-  if (contentType && !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) {
-    headers['Content-Type'] = contentType;
-  }
+  const { headers, body } = prepareRequest(spec, method);
 
   const timeout = spec.timeout ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -151,7 +235,7 @@ export async function executeHttpProxy(
   const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
 
   try {
-    const finalBody = !['GET', 'HEAD'].includes(method) ? body : undefined;
+    const finalBody = body;
 
     // Apply sign-at-wire auth (currently AWS SigV4) AFTER body construction
     // and BEFORE the fetcher — the signature must cover the exact bytes the
@@ -182,6 +266,7 @@ export async function executeHttpProxy(
     }
 
     const startedAt = performance.now();
+    const cookieChain = new RedirectCookieChain();
     const response = await followRedirectsWithDigest(
       {
         url: wireUrl,
@@ -210,6 +295,7 @@ export async function executeHttpProxy(
           ...(spec.redirectPolicy?.stripOnOriginChange ?? []),
           ...authAppliedHeaders,
         ],
+        cookieChain,
       },
       digest
     );
@@ -234,7 +320,8 @@ export async function executeHttpProxy(
     // decompressed upstream) must 413 at the cap, not buffer whole first —
     // and fall back to the buffered arrayBuffer()/text() only when it doesn't.
     // Stream and buffered reads share the body, so only one read happens.
-    const binary = isBinaryContentType(getHeaderCI(responseHeaders, 'content-type'));
+    const responseContentType = getHeaderCI(responseHeaders, 'content-type');
+    const binary = isBinaryContentType(responseContentType);
     const tooLarge = {
       ok: false as const,
       status: 413 as const,
@@ -264,7 +351,7 @@ export async function executeHttpProxy(
       bodyEncoding = 'base64';
     } else {
       // Text content type, or a binary type the fetcher couldn't read as bytes.
-      const bounded = await readBoundedText(response, MAX_RESPONSE_SIZE);
+      const bounded = await readBoundedText(response, MAX_RESPONSE_SIZE, responseContentType);
       if (bounded === null) return tooLarge;
       responseBody = bounded.text;
       responseSize = bounded.bytes;
@@ -277,6 +364,7 @@ export async function executeHttpProxy(
         statusText: response.statusText,
         headers: responseHeaders,
         ...(setCookies.length > 0 ? { setCookies } : {}),
+        ...redirectCookieFields(cookieChain),
         body: responseBody,
         size: responseSize,
         ...(bodyEncoding ? { bodyEncoding } : {}),
@@ -310,6 +398,8 @@ export async function executeHttpProxy(
         payload: { error: `Request timeout after ${timeout}ms` },
       };
     }
+    const bodyRefused = bodyRefusedError(err, method, body !== undefined);
+    if (bodyRefused) return { ok: false, status: 400, payload: { error: bodyRefused } };
     const message = err instanceof Error ? err.message : 'Proxy request failed';
     return { ok: false, status: 502, payload: { error: `Proxy request failed: ${message}` } };
   } finally {
@@ -328,6 +418,10 @@ export interface StreamingResponseHandle {
   headers: Record<string, string>;
   /** Every `Set-Cookie` field, one entry each (see NormalizedResponse.setCookies). */
   setCookies?: string[];
+  /** See NormalizedResponse.finalUrl. */
+  finalUrl?: string;
+  /** See NormalizedResponse.cookieHops. */
+  cookieHops?: CookieHop[];
   /** The upstream stream — caller is responsible for reading and closing it. */
   body: ReadableStream<Uint8Array>;
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
@@ -367,7 +461,7 @@ export async function executeHttpProxyStreaming(
   }
   const method = methodCheck.method;
 
-  const validation = validateURL(spec.url, {
+  const validation = validateURL(urlForValidation(spec.url), {
     allowPrivateIPs: options.allowPrivateIPs === true,
     allowLocalhost: options.allowLocalhost,
   });
@@ -377,16 +471,7 @@ export async function executeHttpProxyStreaming(
 
   const wireUrl = buildTargetUrl(spec);
 
-  const headers = sanitizeRequestHeaders(spec.headers);
-  const { body: requestBody, contentType } = buildRequestBody({
-    bodyType: spec.bodyType,
-    data: spec.data,
-    formData: spec.formData,
-  });
-
-  if (contentType && !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) {
-    headers['Content-Type'] = contentType;
-  }
+  const { headers, body: requestBody } = prepareRequest(spec, method);
 
   const timeout = spec.timeout ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -400,7 +485,7 @@ export async function executeHttpProxyStreaming(
   const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
 
   try {
-    const finalBody = !['GET', 'HEAD'].includes(method) ? requestBody : undefined;
+    const finalBody = requestBody;
 
     // Apply sign-at-wire auth (currently AWS SigV4) AFTER body construction
     // and BEFORE the fetcher. See executeHttpProxy above for rationale.
@@ -430,6 +515,7 @@ export async function executeHttpProxyStreaming(
       }
     }
 
+    const cookieChain = new RedirectCookieChain();
     const response = await followRedirectsWithDigest(
       {
         url: wireUrl,
@@ -458,6 +544,7 @@ export async function executeHttpProxyStreaming(
           ...(spec.redirectPolicy?.stripOnOriginChange ?? []),
           ...authAppliedHeaders,
         ],
+        cookieChain,
       },
       digest
     );
@@ -479,6 +566,7 @@ export async function executeHttpProxyStreaming(
     };
     const streamSetCookies = extractSetCookies(response.headers);
     if (streamSetCookies.length > 0) handle.setCookies = streamSetCookies;
+    Object.assign(handle, redirectCookieFields(cookieChain));
     if (response.negotiatedAlpn) {
       handle.negotiatedAlpn = response.negotiatedAlpn;
     }
@@ -501,10 +589,46 @@ export async function executeHttpProxyStreaming(
         payload: { error: `Request timeout after ${timeout}ms` },
       };
     }
+    const bodyRefused = bodyRefusedError(err, method, requestBody !== undefined);
+    if (bodyRefused) return { ok: false, status: 400, payload: { error: bodyRefused } };
     const message = err instanceof Error ? err.message : 'Proxy request failed';
     return { ok: false, status: 502, payload: { error: `Proxy request failed: ${message}` } };
   } finally {
     if (timer !== null) clearTimeout(timer);
+  }
+}
+
+/**
+ * `finalUrl` and `cookieHops` once a redirect was followed, so a jar stores each
+ * response's cookies against the URL that set them. Nothing when the first
+ * response was final (its cookies belong to the requested URL).
+ */
+function redirectCookieFields(chain: RedirectCookieChain): {
+  finalUrl?: string;
+  cookieHops?: CookieHop[];
+} {
+  if (chain.lastUrl === undefined || chain.responses < 2) return {};
+  return {
+    finalUrl: cookieScopeUrl(chain.lastUrl),
+    ...(chain.hops.length > 0
+      ? { cookieHops: chain.hops.map((h) => ({ ...h, url: cookieScopeUrl(h.url) })) }
+      : {}),
+  };
+}
+
+/**
+ * The part of a wire URL a cookie jar needs (RFC 6265 scope: scheme, host,
+ * port, path): `origin + pathname`. The wire URL can hold secrets the host
+ * materialized (Electron main substitutes secret variables and API-key-in-query
+ * handles into the query), and these fields travel back to the renderer
+ * (ADR-0007) — so the query, fragment and userinfo never go with them.
+ */
+function cookieScopeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return '';
   }
 }
 

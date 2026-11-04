@@ -1,5 +1,10 @@
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
-import type { ModelInfo, ProviderModule, StreamDecoder } from './types';
+import {
+  type ModelInfo,
+  type ProviderModule,
+  type StreamDecoder,
+  truncatedStreamError,
+} from './types';
 
 /**
  * Gemini API `models/{model}:streamGenerateContent?alt=sse`. Every SSE event
@@ -16,6 +21,8 @@ interface GeminiPart {
   text?: string;
   thought?: boolean;
   functionCall?: { id?: string; name?: string; args?: unknown };
+  /** Opaque reasoning state; must be sent back on this part in the next turn. */
+  thoughtSignature?: string;
 }
 
 interface GeminiChunk {
@@ -72,6 +79,9 @@ class GeminiDecoder implements StreamDecoder {
           id: part.functionCall.id || `gemini-call-${this.callIndex}`,
           name: part.functionCall.name,
           input: JSON.stringify(part.functionCall.args ?? {}),
+          ...(typeof part.thoughtSignature === 'string' && part.thoughtSignature
+            ? { thoughtSignature: part.thoughtSignature }
+            : {}),
         });
       }
     }
@@ -97,11 +107,14 @@ class GeminiDecoder implements StreamDecoder {
           completionTokens: this.usage.completion,
           ...(this.usage.cached > 0 ? { cacheReadTokens: this.usage.cached } : {}),
           estimatedCostUSD: 0,
+          costUnknown: true,
         },
       });
       this.usage = null;
     }
-    if (this.finished || this.buffered.length > 0) this.buffered.push({ type: 'done' });
+    // No finishReason: the connection was cut before the model finished.
+    if (!this.finished) this.buffered.push(truncatedStreamError());
+    this.buffered.push({ type: 'done' });
     return this.drain();
   }
 

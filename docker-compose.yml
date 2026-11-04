@@ -14,6 +14,11 @@ services:
     container_name: restura
     restart: unless-stopped
     ports:
+      # Published on all interfaces: this stack is meant to be reached from
+      # other machines, so it MUST run with WORKER_PROXY_TOKEN (or Cloudflare
+      # Access) set in .env — without either, /api/* fails closed (503).
+      # Never set DEV_BYPASS_AUTH here; for a loopback-only dev stack use
+      # docker-compose.local.yml.
       - '${RESTURA_PORT:-3000}:3000'
     env_file:
       - .env

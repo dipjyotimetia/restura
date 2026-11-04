@@ -27,11 +27,12 @@ describe('parsePostmanV2 — secret variables (G2, #1228)', () => {
     ]);
   });
 
-  it('folder- and request-level secret variables keep no value in the sidecar', () => {
-    expect(getPostmanSidecar(folder)?.variable).toEqual([
-      { key: 'folderPlain', value: 'visible', type: 'string' },
-      { key: 'folderSecret', type: 'secret' },
+  it('folder variables are modelled (secret ones value-less); request ones stay in the sidecar', () => {
+    expect(folder.variables?.map((v) => [v.key, v.value, v.secret === true])).toEqual([
+      ['folderPlain', 'visible', false],
+      ['folderSecret', '', true],
     ]);
+    expect(getPostmanSidecar(folder)?.variable).toBeUndefined();
     expect(getPostmanSidecar(request)?.variable).toEqual([{ key: 'reqSecret', type: 'secret' }]);
   });
 
@@ -53,12 +54,12 @@ describe('parsePostmanV2 — secret variables (G2, #1228)', () => {
     ]);
     expect(secrets[0]).toMatchObject({ detail: expect.stringContaining('apiToken') });
     expect(secrets[1]).toMatchObject({ detail: expect.stringContaining('folderSecret') });
-    // Item variables are still reported as unmodelled.
+    // Request variables are still reported as unmodelled; folder ones are mapped.
     expect(
-      report.warnings.filter(
-        (w) => w.kind === 'unmodelled-construct' && w.construct === 'item-variables'
-      )
-    ).toHaveLength(2);
+      report.warnings
+        .filter((w) => w.kind === 'unmodelled-construct' && w.construct === 'item-variables')
+        .map((w) => w.kind === 'unmodelled-construct' && w.requestName)
+    ).toEqual(['Request']);
   });
 
   it('item-level secret sidecar rows are allowlisted: extra value-bearing keys are dropped', () => {
@@ -66,7 +67,7 @@ describe('parsePostmanV2 — secret variables (G2, #1228)', () => {
       info: { name: 'C', schema: V21 },
       item: [
         {
-          name: 'F',
+          name: 'R',
           variable: [
             {
               key: 'fs',
@@ -79,10 +80,18 @@ describe('parsePostmanV2 — secret variables (G2, #1228)', () => {
               description: 'd',
             },
           ],
+          request: { method: 'GET', url: 'https://x.dev' },
+        },
+        {
+          name: 'F',
+          variable: [{ key: 'fs', type: 'secret', value: 'X', initialValue: 'IV' }],
           item: [],
         },
       ],
     });
+    expect(c.items[1]?.variables).toEqual([
+      expect.objectContaining({ key: 'fs', value: '', secret: true }),
+    ]);
     const sidecar = getPostmanSidecar(c.items[0]!);
     expect(sidecar?.variable).toEqual([
       { key: 'fs', type: 'secret', disabled: true, description: 'd' },

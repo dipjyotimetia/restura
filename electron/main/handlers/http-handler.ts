@@ -7,6 +7,7 @@ import type { FormField, ProxyBodyType } from '@shared/protocol/body-builder';
 import { selectCertForUrl } from '@shared/protocol/cert-matcher';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
+import { isProxyBypassed } from '@shared/protocol/proxy-bypass';
 import type {
   ConnectionTimings,
   Fetcher,
@@ -45,9 +46,8 @@ import {
   type ExecutionPolicy,
   getExecutionPolicy,
 } from '../security/execution-policy';
-import { materializeHttpAuth } from '../security/http-auth-materializer';
-import { isProxyBypassed } from '../security/proxy-bypass';
-import { unwrapSecretValueMain } from '../security/secret-handle-store';
+import { materializeHttpAuth, requiredSecretResolver } from '../security/http-auth-materializer';
+import { proxyBasicToken } from '../security/required-secret';
 import { materializeSecretVariables } from '../security/secret-variable-materializer';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import {
@@ -180,6 +180,9 @@ export interface HttpResponse {
   headers: Record<string, string | string[]>;
   /** Every Set-Cookie field, one entry each (RFC 6265 §3 — never folded). */
   setCookies?: string[];
+  /** Redirect-chain end URL and each hop's cookies (see NormalizedResponse). */
+  finalUrl?: string;
+  cookieHops?: Array<{ url: string; setCookies: string[] }>;
   data: unknown;
   /** Decoded byte size of the response body. */
   size?: number;
@@ -427,13 +430,8 @@ export function buildElectronFetcher(
           // requestTls applies to the upstream TLS handshake — that's where mTLS and ALPN matter.
           requestTls: { ...connectOpts, ...versionTls } as ProxyAgent.Options['requestTls'],
         };
-        const proxyPassword = unwrapSecretValueMain(electronConfig.proxy.auth?.password);
-        if (electronConfig.proxy.auth?.username && proxyPassword) {
-          const auth = Buffer.from(
-            `${electronConfig.proxy.auth.username}:${proxyPassword}`
-          ).toString('base64');
-          proxyOpts.token = `Basic ${auth}`;
-        }
+        const proxyToken = proxyBasicToken(electronConfig.proxy.auth);
+        if (proxyToken) proxyOpts.token = proxyToken;
         dispatcher = new ProxyAgent(proxyOpts);
         // ProxyAgent builds the upstream connector internally from `requestTls`,
         // so we can't wrap it directly. Instead we subscribe to undici's
@@ -738,7 +736,7 @@ async function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse>
       // every desktop transport reads. Cloud metadata stays blocked inside
       // the shared URL guard regardless.
       ...getExecutionPolicy().security,
-      resolveSecret: (v) => unwrapSecretValueMain(v) ?? '',
+      resolveSecret: requiredSecretResolver,
       // Desktop signs AWS SigV4 with the official @smithy/signature-v4; the
       // Worker keeps the built-in Web-Crypto signer.
       sigV4Signer: smithySigV4Signer,
@@ -761,6 +759,8 @@ async function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse>
         : tryParseJson(result.response.body),
     size: result.response.size,
     ...(result.response.setCookies && { setCookies: result.response.setCookies }),
+    ...(result.response.finalUrl && { finalUrl: result.response.finalUrl }),
+    ...(result.response.cookieHops && { cookieHops: result.response.cookieHops }),
     ...(result.response.bodyEncoding && { bodyEncoding: result.response.bodyEncoding }),
     ...(result.response.negotiatedAlpn && { negotiatedAlpn: result.response.negotiatedAlpn }),
     ...(result.response.bodyNotice && { bodyNotice: result.response.bodyNotice }),

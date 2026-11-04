@@ -1,4 +1,6 @@
 import {
+  buildCookieHopsSideChannel,
+  COOKIE_HOPS_SIDE_CHANNEL_HEADER,
   encodeSetCookieSideChannel,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
 } from '@shared/protocol/set-cookie';
@@ -585,6 +587,59 @@ describe('executeStreamingRequest — Set-Cookie side channel (#855)', () => {
     expect(responseMeta.headers['x-restura-set-cookies-omitted']).toBe('7');
   });
 
+  it('stores redirect-hop cookies from the cookie-hops side channel, even with no final Set-Cookie', async () => {
+    executeProxiedStreamingRequestMock.mockResolvedValueOnce(
+      new Response('data: a\n\n', {
+        status: 200,
+        headers: {
+          'content-type': 'text/event-stream',
+          [COOKIE_HOPS_SIDE_CHANNEL_HEADER]: buildCookieHopsSideChannel({
+            finalUrl: 'https://auth.example.com/landing',
+            cookieHops: [
+              { url: 'https://api.example.com/resource', setCookies: ['hop=1; Path=/'] },
+              { url: 'https://auth.example.com/landing', setCookies: [] },
+            ],
+          }).value as string,
+        },
+      })
+    );
+    const { responseMeta } = await executeStreamingRequest({
+      request: makeRequest(),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+    });
+    expect(responseMeta.headers).not.toHaveProperty(COOKIE_HOPS_SIDE_CHANNEL_HEADER);
+    expect(responseMeta.setCookies).toBeUndefined();
+    expect(useCookieStore.getState().cookies.map((c) => [c.key, c.value, c.domain])).toEqual([
+      ['hop', '1', 'api.example.com'],
+    ]);
+  });
+
+  it('stores the final response cookies against finalUrl from the side channel', async () => {
+    executeProxiedStreamingRequestMock.mockResolvedValueOnce(
+      new Response('data: a\n\n', {
+        status: 200,
+        headers: {
+          'content-type': 'text/event-stream',
+          [SET_COOKIE_SIDE_CHANNEL_HEADER]: encodeSetCookieSideChannel(['fin=1']),
+          [COOKIE_HOPS_SIDE_CHANNEL_HEADER]: buildCookieHopsSideChannel({
+            finalUrl: 'https://auth.example.com/landing',
+          }).value as string,
+        },
+      })
+    );
+    await executeStreamingRequest({
+      request: makeRequest(),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+    });
+    expect(useCookieStore.getState().cookies.map((c) => [c.key, c.domain])).toEqual([
+      ['fin', 'auth.example.com'],
+    ]);
+  });
+
   it('honours a disabled cookie jar', async () => {
     executeProxiedStreamingRequestMock.mockResolvedValueOnce(streamResponse());
 
@@ -882,5 +937,124 @@ describe('executeRequest — auth {{vars}} resolution', () => {
     });
     expect(sentSpec().headers['Authorization']).toBe('Bearer x');
     expect(result.refreshedAuth).toBeUndefined();
+  });
+});
+
+describe('executeRequest — wire shape of params, headers and cookies', () => {
+  const settings = useSettingsStore.getState().settings;
+  const run = (overrides: Partial<HttpRequest>) =>
+    executeRequest({
+      request: makeRequest(overrides),
+      envVars: {},
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+    });
+  const sent = () =>
+    executeProxiedRequestMock.mock.calls[0]?.[0] as {
+      url: string;
+      headers: Record<string, string>;
+      params?: Record<string, string>;
+    };
+  const row = (key: string, value: string) => ({
+    id: `${key}-${value}`,
+    key,
+    value,
+    enabled: true,
+  });
+  const jarCookie = (id: string, key: string, value: string) => ({
+    id,
+    key,
+    value,
+    domain: 'api.example.com',
+    path: '/',
+    secure: false,
+    httpOnly: false,
+  });
+
+  beforeEach(() => {
+    useCookieStore.setState({ cookies: [] });
+    executeProxiedRequestMock.mockReset();
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: '',
+      size: 0,
+    });
+  });
+  afterEach(() => useCookieStore.setState({ cookies: [] }));
+
+  it('keeps repeated query params, in order', async () => {
+    const result = await run({ params: [row('tag', 'a'), row('tag', 'b'), row('x', '1')] });
+    expect(sent().url).toBe('https://api.example.com/resource?tag=a&tag=b&x=1');
+    expect(result.sentUrl).toBe('https://api.example.com/resource');
+  });
+
+  it('sends query values as typed: + : , / and existing %XX are not re-escaped', async () => {
+    await run({
+      params: [row('q', 'a+b'), row('t', '10:30,x/y'), row('e', '%2B'), row('amp', 'a&b')],
+    });
+    expect(sent().url).toBe('https://api.example.com/resource?q=a+b&t=10:30,x/y&e=%2B&amp=a%26b');
+  });
+
+  it('combines repeated header rows instead of keeping the last', async () => {
+    await run({
+      headers: [
+        row('X-Multi', 'a'),
+        row('x-multi', 'b'),
+        row('Cookie', 'a=1'),
+        row('cookie', 'b=2'),
+      ],
+    });
+    expect(sent().headers['X-Multi']).toBe('a, b');
+    expect(sent().headers['Cookie']).toBe('a=1; b=2');
+  });
+
+  it('merges jar cookies into a user Cookie header; the user value wins', async () => {
+    useCookieStore.setState({
+      cookies: [jarCookie('1', 'sid', 'jar'), jarCookie('2', 'theme', 'dark')],
+    });
+    await run({ headers: [row('cookie', 'sid=mine')] });
+    const headers = sent().headers;
+    expect(Object.keys(headers).filter((k) => k.toLowerCase() === 'cookie')).toEqual(['cookie']);
+    expect(headers['cookie']).toBe('sid=mine; theme=dark');
+  });
+
+  it('honours Max-Age=0, refuses a foreign Domain and keeps a no-Domain cookie host-only', async () => {
+    useCookieStore.setState({ cookies: [jarCookie('1', 'sid', 'old')] });
+    executeProxiedRequestMock.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      setCookies: ['sid=; Max-Age=0', 'evil=1; Domain=attacker.com', 'host=1'],
+      data: '',
+      size: 0,
+    });
+    await run({});
+    const stored = useCookieStore.getState().cookies;
+    expect(stored.map((c) => c.key)).toEqual(['host']);
+    expect(useCookieStore.getState().getCookiesForUrl('https://sub.api.example.com/')).toEqual([]);
+  });
+
+  it('stores each redirect hop cookie against its own URL and the final one against the final URL', async () => {
+    executeProxiedRequestMock.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      setCookies: ['final=1'],
+      finalUrl: 'https://login.example.com/app/home',
+      cookieHops: [
+        { url: 'https://api.example.com/resource', setCookies: ['hop=1'] },
+        { url: 'https://login.example.com/app/home', setCookies: ['final=1'] },
+      ],
+      data: '',
+      size: 0,
+    });
+    await run({});
+    const stored = useCookieStore.getState().cookies.map((c) => [c.key, c.domain, c.path]);
+    expect(stored).toEqual([
+      ['hop', 'api.example.com', '/'],
+      ['final', 'login.example.com', '/app'],
+    ]);
   });
 });

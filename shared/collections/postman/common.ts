@@ -251,6 +251,12 @@ const PATH_VARIABLE_SEGMENT = /^:([A-Za-z_][\w.-]*)$/;
  * matching segment) or that carry a description (lost in the typed model)
  * are reported, and the whole list is kept in the sidecar.
  */
+/** A Postman variable row's name: v2.1 `key`, else v2.0 `id`. */
+export function postmanVariableKey(row: Raw): string | undefined {
+  if (typeof row.key === 'string') return row.key;
+  return typeof row.id === 'string' ? row.id : undefined;
+}
+
 export function substitutePathVariables(
   base: string,
   variables: unknown[],
@@ -261,12 +267,14 @@ export function substitutePathVariables(
   const values = new Map<string, string>();
   let lossy = false;
   for (const v of variables) {
-    if (!isObj(v) || typeof v.key !== 'string') {
+    // v2.0 names a variable by `id`; v2.1 by `key`.
+    const key = isObj(v) ? postmanVariableKey(v) : undefined;
+    if (!isObj(v) || key === undefined) {
       lossy = true;
       continue;
     }
     const value = str(v.value);
-    if (value !== '') values.set(v.key, value);
+    if (value !== '') values.set(key, value);
     else lossy = true;
     if (description(v.description) !== undefined) lossy = true;
   }

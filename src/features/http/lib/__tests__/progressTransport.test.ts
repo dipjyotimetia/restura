@@ -1,4 +1,6 @@
 import {
+  buildCookieHopsSideChannel,
+  COOKIE_HOPS_SIDE_CHANNEL_HEADER,
   encodeSetCookieSideChannel,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
 } from '@shared/protocol/set-cookie';
@@ -78,6 +80,22 @@ describe('executeProxiedRequestWithProgress — web', () => {
     expect(out.bodyEncoding).toBeUndefined();
   });
 
+  it('decodes finalUrl and cookieHops from the cookie-hops side channel and strips it', async () => {
+    const hops = {
+      finalUrl: 'https://auth.example.test/landing',
+      cookieHops: [{ url: 'https://api.example.test/graphql', setCookies: ['hop=1'] }],
+    };
+    streamingMock.mockResolvedValue(
+      upstream(['ok'], {
+        'content-type': 'text/plain',
+        [COOKIE_HOPS_SIDE_CHANNEL_HEADER]: buildCookieHopsSideChannel(hops).value as string,
+      })
+    );
+    const out = await executeProxiedRequestWithProgress(SPEC, () => {});
+    expect(out).toMatchObject(hops);
+    expect(out.headers).not.toHaveProperty(COOKIE_HOPS_SIDE_CHANNEL_HEADER);
+  });
+
   it('base64-encodes binary content types, like the buffered Worker reply', async () => {
     streamingMock.mockResolvedValue(
       upstream(['--b\r\n\r\n{}\r\n--b--'], { 'content-type': 'multipart/mixed; boundary=b' })
@@ -85,6 +103,20 @@ describe('executeProxiedRequestWithProgress — web', () => {
     const out = await executeProxiedRequestWithProgress(SPEC, () => undefined);
     expect(out.bodyEncoding).toBe('base64');
     expect(atob(out.data as string)).toBe('--b\r\n\r\n{}\r\n--b--');
+  });
+
+  it('decodes a text body with its declared charset', async () => {
+    streamingMock.mockResolvedValue(
+      new Response(new Uint8Array([0x63, 0x61, 0x66, 0xe9]), {
+        status: 200,
+        headers: {
+          'content-type': 'text/plain; charset=iso-8859-1',
+          'x-restura-proxy-stream': '1',
+        },
+      })
+    );
+    const out = await executeProxiedRequestWithProgress(SPEC, () => undefined);
+    expect(out.data).toBe('café');
   });
 
   const proxyHeader = { 'x-restura-proxy': '1' };

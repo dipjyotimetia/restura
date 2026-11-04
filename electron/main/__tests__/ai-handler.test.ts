@@ -6,7 +6,10 @@ const mockResolveSecret = vi.hoisted(() => vi.fn());
 const mockEmitTo = vi.hoisted(() => vi.fn());
 const mockBindCleanup = vi.hoisted(() => vi.fn());
 const mockDispose = vi.hoisted(() => vi.fn());
-const mockMakePinnedFetcher = vi.hoisted(() => vi.fn(async () => vi.fn()));
+const mockResolveSafeAddress = vi.hoisted(() =>
+  vi.fn(async () => ({ host: 'api.openai.com', ip: '203.0.113.7' }))
+);
+const mockMakeFetchFetcher = vi.hoisted(() => vi.fn(() => vi.fn()));
 const mockResolveBaseUrl = vi.hoisted(() => vi.fn(() => 'https://api.openai.com/v1'));
 const mockExecuteAiChat = vi.hoisted(() => vi.fn());
 
@@ -19,7 +22,11 @@ vi.mock('../ipc/connection-cleanup', () => ({
   bindRendererCleanup: mockBindCleanup,
   disposeByOwner: mockDispose,
 }));
-vi.mock('../handlers/fetch-fetcher', () => ({ makePinnedFetcher: mockMakePinnedFetcher }));
+vi.mock('../handlers/fetch-fetcher', () => ({ makeFetchFetcher: mockMakeFetchFetcher }));
+vi.mock('../security/safe-connect', () => ({
+  resolveSafeAddress: mockResolveSafeAddress,
+  createPinnedFetch: vi.fn(() => vi.fn()),
+}));
 vi.mock('@shared/protocol/ai/provider-routes', () => ({ resolveBaseUrl: mockResolveBaseUrl }));
 vi.mock('@shared/protocol/ai/ai-proxy', () => ({ executeAiChat: mockExecuteAiChat }));
 
@@ -89,7 +96,8 @@ describe('ai-handler', () => {
     mockEmitTo.mockClear();
     mockBindCleanup.mockClear();
     mockDispose.mockClear();
-    mockMakePinnedFetcher.mockClear();
+    mockResolveSafeAddress.mockClear();
+    mockMakeFetchFetcher.mockClear();
     mockResolveBaseUrl.mockClear();
     mockExecuteAiChat.mockReset();
     registerAiHandlers();
@@ -152,8 +160,27 @@ describe('ai-handler', () => {
     // Chat is cloud-only — the localhost SSRF carve-out must never be enabled
     // here. Regression guard on the security-load-bearing flag.
     expect(mockResolveBaseUrl).toHaveBeenCalledWith('openai', undefined);
-    expect(mockMakePinnedFetcher).toHaveBeenCalledWith('https://api.openai.com/v1', {
+    expect(mockResolveSafeAddress).toHaveBeenCalledWith('https://api.openai.com/v1', {
       allowLocalhost: false,
+    });
+    expect(mockMakeFetchFetcher).toHaveBeenCalledWith(
+      expect.objectContaining({ redirect: 'manual' })
+    );
+  });
+
+  it('a local openai-compatible runtime gets the same LAN carve-out as AI Lab', async () => {
+    mockResolveBaseUrl.mockReturnValueOnce('http://gpu-box.lan:11434/v1');
+    const res = await handlerFor('ai:chat')(TRUSTED, {
+      ...CHAT_REQUEST,
+      provider: 'openai-compatible',
+      model: 'llama3.2',
+      apiKeyHandleId: undefined,
+      baseUrlOverride: 'http://gpu-box.lan:11434/v1',
+    });
+    expect(res).toMatchObject({ ok: true });
+    expect(mockResolveSafeAddress).toHaveBeenCalledWith('http://gpu-box.lan:11434/v1', {
+      allowLocalhost: true,
+      localRuntime: true,
     });
   });
 
@@ -197,6 +224,24 @@ describe('ai-handler', () => {
     expect(otherStream.getSignal()?.aborted).toBe(true);
     ownerStream.finish();
     otherStream.finish();
+  });
+
+  it('a stream that ends without done is reported as a truncated error, not done', async () => {
+    mockExecuteAiChat.mockImplementationOnce(() =>
+      (async function* () {
+        yield { type: 'delta', text: 'Partial' };
+      })()
+    );
+    await handlerFor('ai:chat')(TRUSTED, CHAT_REQUEST);
+    await vi.waitFor(() =>
+      expect(mockEmitTo).toHaveBeenCalledWith(1, `ai:chat:end:${STREAM_ID}`, { reason: 'error' })
+    );
+    expect(mockEmitTo).toHaveBeenCalledWith(
+      1,
+      `ai:chat:chunk:${STREAM_ID}`,
+      expect.objectContaining({ type: 'error', message: expect.stringMatching(/truncated/i) })
+    );
+    expect(mockEmitTo).not.toHaveBeenCalledWith(1, `ai:chat:end:${STREAM_ID}`, { reason: 'done' });
   });
 
   it('ignores a replaced chat late completion without deleting its successor', async () => {

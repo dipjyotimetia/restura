@@ -341,8 +341,10 @@ function collectItemExtras(
     sidecar.protocolProfileBehavior = item.protocolProfileBehavior;
     ctx.report.unmodelled('protocol-profile-behavior', name);
   }
-  if (Array.isArray(item.variable) && item.variable.length > 0) {
-    // Item variables are not modelled, so the whole list is kept for
+  // Folder variables are modelled (`CollectionItem.variables`, mapped by
+  // convertFolder, as the v3 parser does); request-level ones are not.
+  if (!isItemGroup(item) && Array.isArray(item.variable) && item.variable.length > 0) {
+    // Request variables are not modelled, so the whole list is kept for
     // reference — except secret values, which never enter a sidecar.
     sidecar.variable = item.variable.map((v) => {
       if (!isSecretVariable(v)) return v;
@@ -418,6 +420,7 @@ function convertFolder(
   const folderAuth = isConfiguredAuth(authOut.auth) ? authOut.auth : undefined;
   const scripts = extractScripts(raw.event, ctx);
   collectItemExtras(raw, name, scripts, sidecar, ctx);
+  const variables = convertVariables(raw.variable, name, ctx);
   // Restura folders have no description field: kept for reference and
   // restored on export (the v3 parser's rule).
   const desc = description(raw.description);
@@ -442,6 +445,7 @@ function convertFolder(
     // Keep the folder auth at folder level so it stays editable and
     // round-trips on export (descendants also get it baked).
     ...(folderAuth ? { auth: folderAuth } : {}),
+    ...(variables.length > 0 ? { variables } : {}),
     preRequestScript: scripts.preRequestScript,
     testScript: scripts.testScript,
   };

@@ -1,7 +1,7 @@
 import { selectCertForUrl } from '@shared/protocol/cert-matcher';
+import { isProxyBypassed } from '@shared/protocol/proxy-bypass';
 import { assertExecutionPolicyReady, getExecutionPolicy } from './execution-policy';
-import { isProxyBypassed } from './proxy-bypass';
-import { unwrapSecretValueMain } from './secret-handle-store';
+import { requireSecretValueMain } from './required-secret';
 import { buildTlsClientMaterial } from './tls-material';
 
 export interface BrokerTlsOptions {
@@ -62,7 +62,9 @@ function selectedTls(url: URL, explicit?: BrokerTlsOptions): BrokerTlsOptions {
 
 function socksProxyUrl(proxy: NonNullable<ReturnType<typeof getActiveProxy>>): string {
   const username = proxy.auth?.username;
-  const password = proxy.auth ? unwrapSecretValueMain(proxy.auth.password) : undefined;
+  const password = proxy.auth
+    ? requireSecretValueMain(proxy.auth.password, 'Proxy password')
+    : undefined;
   const credentials =
     username || password
       ? `${encodeURIComponent(username ?? '')}:${encodeURIComponent(password ?? '')}@`

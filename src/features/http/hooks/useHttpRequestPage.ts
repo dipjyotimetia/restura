@@ -5,6 +5,10 @@ import { useRequestAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { parseCurlCommand } from '@/features/collections/lib/importers/curl';
+import {
+  saveScriptEnvironmentWrites,
+  scriptEnvironmentTargetId,
+} from '@/features/environments/lib/scriptEnvironmentMutations';
 import { executeRequest, resolveEffectiveSettings } from '@/features/http/lib/requestExecutor';
 import { applySettingsPatch, type RequestSettingsPatch } from '@/features/http/lib/settingsPatch';
 import { applyUrlInput } from '@/features/http/lib/urlQuery';
@@ -160,6 +164,9 @@ export function useHttpRequestPage() {
       const collection = savedRequestId
         ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)
         : undefined;
+      // Captured at send time: a mid-request environment switch must not
+      // redirect this request's script writes to the newly active one.
+      const scriptEnvironmentId = scriptEnvironmentTargetId(collection?.id);
       const collectionVars = buildValueMap({ collection: collection?.variables });
 
       // Folder/collection auth inheritance: a request with no auth of its own
@@ -193,6 +200,16 @@ export function useHttpRequestPage() {
         useCollectionStore
           .getState()
           .applyCollectionVarMutations(collection.id, result.collectionVarsMutations);
+      }
+
+      // `pm.environment.set/unset` persist to the active environment (Postman
+      // semantics), so the next request sees them. Secret handles are left alone.
+      if (result.environmentMutations) {
+        saveScriptEnvironmentWrites({
+          environmentId: scriptEnvironmentId,
+          collectionId: collection?.id,
+          mutations: result.environmentMutations,
+        });
       }
 
       // Persist a refreshed OAuth2 token — but only when the auth belongs to

@@ -82,6 +82,10 @@ export interface ElectronHttpResponse {
   headers: Record<string, string>;
   /** Every Set-Cookie field, one entry each (RFC 6265 §3 — never folded). */
   setCookies?: string[];
+  /** URL the followed redirect chain ended on (only when a redirect was followed). */
+  finalUrl?: string;
+  /** Set-Cookie fields of every hop, each with the URL that set them. */
+  cookieHops?: Array<{ url: string; setCookies: string[] }>;
   data: unknown;
   /** Decoded byte size of the response body. */
   size?: number;

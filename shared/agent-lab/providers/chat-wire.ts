@@ -43,6 +43,7 @@ export function generationMessagesToWire(messages: GenerationMessage[]): ChatMes
             name: call.name,
             input:
               typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments),
+            ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
           })),
         }
       : {}),
@@ -65,7 +66,12 @@ export function completionToGenerationResponse(
       } catch {
         /* preserve invalid provider payload */
       }
-      return { id: call.id, name: call.name, arguments: arguments_ };
+      return {
+        id: call.id,
+        name: call.name,
+        arguments: arguments_,
+        ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
+      };
     }),
     ...(completion.usage
       ? {

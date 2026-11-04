@@ -1,6 +1,8 @@
 // @vitest-environment node
 
 import {
+  COOKIE_HOPS_SIDE_CHANNEL_HEADER,
+  decodeCookieHopsSideChannel,
   decodeSetCookieSideChannel,
   SET_COOKIE_OMITTED_HEADER,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
@@ -66,6 +68,27 @@ describe('proxy handler', () => {
       expect(json).toHaveProperty('data');
       expect(json).toHaveProperty('size');
     });
+  });
+
+  it("reports each redirect hop's cookies with the URL that set them", async () => {
+    const first = new Headers({ location: 'https://example.com/home' });
+    first.append('Set-Cookie', 'sid=abc; Path=/');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: first }))
+      .mockResolvedValueOnce(new Response('home', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await makeRequest({ method: 'GET', url: 'https://example.com/login' });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      finalUrl?: string;
+      cookieHops?: Array<{ url: string; setCookies: string[] }>;
+    };
+    expect(json.finalUrl).toBe('https://example.com/home');
+    expect(json.cookieHops).toEqual([
+      { url: 'https://example.com/login', setCookies: ['sid=abc; Path=/'] },
+    ]);
   });
 
   it('returns every upstream Set-Cookie as its own setCookies entry (#855)', async () => {
@@ -614,6 +637,83 @@ describe('proxy handler', () => {
       expect(text).toBe('chunk1');
       // Marks the reply as the upstream's (not the proxy's own JSON error).
       expect(res.headers.get('x-restura-proxy-stream')).toBe('1');
+    });
+
+    it('carries finalUrl and every hop cookie in the cookie-hops side channel', async () => {
+      const first = new Headers({ location: 'https://example.com/home?q=1' });
+      first.append('Set-Cookie', 'sid=abc; Path=/');
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 302, headers: first }))
+        .mockResolvedValueOnce(
+          new Response('data: a\n\n', {
+            status: 200,
+            headers: {
+              'content-type': 'text/event-stream',
+              // Forged by the upstream: must never reach the renderer.
+              'x-restura-cookie-hops': encodeURIComponent('{"finalUrl":"https://evil.example/"}'),
+            },
+          })
+        );
+      vi.stubGlobal('fetch', fetchMock);
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/login',
+        streamingMode: true,
+      });
+      expect(res.status).toBe(200);
+      expect(decodeCookieHopsSideChannel(res.headers.get(COOKIE_HOPS_SIDE_CHANNEL_HEADER))).toEqual(
+        {
+          finalUrl: 'https://example.com/home',
+          cookieHops: [{ url: 'https://example.com/login', setCookies: ['sid=abc; Path=/'] }],
+        }
+      );
+      // The final response set none: no Set-Cookie side channel.
+      expect(res.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER)).toBeNull();
+    });
+
+    it('omits the cookie-hops side channel when no redirect was followed', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValue(
+            new Response('x', { status: 200, headers: { 'content-type': 'text/event-stream' } })
+          )
+      );
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/raw',
+        streamingMode: true,
+      });
+      expect(res.headers.get(COOKIE_HOPS_SIDE_CHANNEL_HEADER)).toBeNull();
+    });
+
+    it('caps the cookie-hops side channel and counts what it dropped', async () => {
+      const big = `big=${'x'.repeat(SET_COOKIE_SIDE_CHANNEL_MAX_BYTES)}`;
+      const first = new Headers({ location: 'https://example.com/home' });
+      first.append('Set-Cookie', big);
+      first.append('Set-Cookie', 'small=1');
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValueOnce(new Response(null, { status: 302, headers: first }))
+          .mockResolvedValueOnce(
+            new Response('x', { status: 200, headers: { 'content-type': 'text/event-stream' } })
+          )
+      );
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/login',
+        streamingMode: true,
+      });
+      const raw = res.headers.get(COOKIE_HOPS_SIDE_CHANNEL_HEADER) ?? '';
+      expect(raw.length).toBeLessThanOrEqual(SET_COOKIE_SIDE_CHANNEL_MAX_BYTES);
+      expect(decodeCookieHopsSideChannel(raw).cookieHops).toEqual([
+        { url: 'https://example.com/login', setCookies: ['small=1'] },
+      ]);
+      expect(res.headers.get(SET_COOKIE_OMITTED_HEADER)).toBe('1');
     });
 
     it('drops an upstream-sent stream marker and re-stamps its own', async () => {

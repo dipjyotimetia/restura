@@ -223,6 +223,8 @@ function cliEvalPort(
         }) ?? null
       );
     }
+    // An unpriced model is unknown cost, never $0 — a cost scorer must not pass it.
+    if (usage.costUnknown) return null;
     return hasStaticPricing(resolved.endpoint.provider) ? usage.estimatedCostUSD : null;
   };
   // With a budget, model calls run one at a time: a call starts only after the

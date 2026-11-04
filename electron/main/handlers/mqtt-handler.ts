@@ -114,6 +114,18 @@ interface ActiveMqtt {
   topicAliasMaximum: number;
   /** In-flight MQTT 5 request/response exchanges, keyed by requestId. */
   pendingRequests: Map<string, PendingRequest>;
+  /** The broker refused CONNACK (bad credentials, not authorized): no retry follows. */
+  refused?: string;
+}
+
+/**
+ * mqtt.js reports a CONNACK refusal as `Connection refused: <reason>` with the
+ * numeric reason code, and suppresses its reconnect (unless
+ * `reconnectOnConnackError`, never set here): the close that follows is final.
+ */
+function isConnackRefusal(err: Error): boolean {
+  const code: unknown = (err as { code?: unknown }).code;
+  return typeof code === 'number' && err.message.startsWith('Connection refused');
 }
 
 // Shared connection bookkeeping (map + renderer-destroyed cleanup). Like Kafka,
@@ -202,6 +214,7 @@ function bindClientListeners(entry: ActiveMqtt): void {
 
   client.on('error', (err: Error) => {
     if (!current()) return;
+    if (isConnackRefusal(err)) entry.refused = err.message;
     const code = (err as NodeJS.ErrnoException).code;
     log.warn('client error', {
       connectionId: entry.connectionId,
@@ -216,6 +229,16 @@ function bindClientListeners(entry: ActiveMqtt): void {
 
   client.on('close', () => {
     if (!current()) return;
+    if (entry.refused !== undefined) {
+      // Final: tell the renderer not to show "reconnecting", and drop the
+      // dead entry so publish/subscribe answer "Not connected".
+      emitToEntry(entry, mqttChannel(MQTT_CHANNEL.CLOSE, entry.connectionId), {
+        refused: entry.refused,
+      });
+      activeConnections.remove(entry.connectionId, entry.webContentsId);
+      void endClient(entry);
+      return;
+    }
     emitToEntry(entry, mqttChannel(MQTT_CHANNEL.CLOSE, entry.connectionId), {});
   });
 }

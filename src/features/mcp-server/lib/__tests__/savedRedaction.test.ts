@@ -203,3 +203,51 @@ describe('restoreRedactedPatch — round 2 edge cases', () => {
     ).toMatchObject({ ok: false });
   });
 });
+
+describe('redactKeyValues — as strict as the URL scanner', () => {
+  const JWT =
+    'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4ifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+  const row = (key: string, value: string, extra: { secret?: boolean } = {}) => ({
+    id: key,
+    key,
+    value,
+    enabled: true,
+    ...extra,
+  });
+
+  it.each([
+    ['param key', 'key', 'AIzaSyA-1234567890abcdefghijklmnopqrstu'],
+    ['param access_key', 'access_key', 'AKIDEXAMPLE1234'],
+    ['header Ocp-Apim-Subscription-Key', 'Ocp-Apim-Subscription-Key', '0123456789abcdef'],
+    ['JWT-valued custom header', 'X-Custom', JWT],
+    ['Google key under a neutral name', 'q', 'AIzaSyA-1234567890abcdefghijklmnopqrstu'],
+    ['provider token under a neutral name', 'X-Thing', `ghp_${'a'.repeat(36)}`],
+  ])('masks %s', (_label, key, value) => {
+    const [out] = redactKeyValues([row(key, value)]);
+    expect(out?.value).toBe('(redacted)');
+  });
+
+  it('masks a row the user flagged secret', () => {
+    const [out] = redactKeyValues([row('region', 'eu-west-1', { secret: true })]);
+    expect(out?.value).toBe('(redacted)');
+  });
+
+  it('keeps benign rows and {{variable}} references', () => {
+    const out = redactKeyValues([
+      row('Accept', 'application/json'),
+      row('page', '2'),
+      row('key', '{{apiKey}}'),
+    ]);
+    expect(out.map((r) => r.value)).toEqual(['application/json', '2', '{{apiKey}}']);
+  });
+
+  it('a masked row still round-trips through update_request', () => {
+    const saved: HttpRequest = {
+      ...SAVED,
+      headers: [row('Ocp-Apim-Subscription-Key', 'live-sub-key')],
+    };
+    const r = restoreRedactedPatch(saved, patch({ headers: redactKeyValues(saved.headers) }));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.headers?.[0]?.value).toBe('live-sub-key');
+  });
+});

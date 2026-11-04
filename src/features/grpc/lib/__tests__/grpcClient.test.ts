@@ -1409,3 +1409,24 @@ message PingRequest
     });
   });
 });
+
+describe('prepareGrpcRequest — 64-bit integer precision', () => {
+  it('keeps an int64 entered as a JSON number beyond 2^53 exact', () => {
+    const prepared = prepareGrpcRequest(
+      {
+        id: 'r',
+        name: 'Big',
+        type: 'grpc',
+        methodType: 'unary',
+        url: 'https://api.example.com',
+        service: 'svc.v1.Service',
+        method: 'Call',
+        metadata: [],
+        message: '{"big": 9007199254740993}',
+        auth: { type: 'none' },
+      },
+      (s) => s
+    );
+    expect(prepared.message).toEqual({ big: '9007199254740993' });
+  });
+});

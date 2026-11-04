@@ -34,7 +34,12 @@ export async function runToCompletion(
         text += ev.text;
         break;
       case 'tool_call':
-        toolCalls.push({ id: ev.id, name: ev.name, input: ev.input });
+        toolCalls.push({
+          id: ev.id,
+          name: ev.name,
+          input: ev.input,
+          ...(ev.thoughtSignature ? { thoughtSignature: ev.thoughtSignature } : {}),
+        });
         break;
       case 'usage':
         usage = ev.usage;

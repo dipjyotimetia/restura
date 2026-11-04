@@ -197,6 +197,7 @@ export function useHttpRequest(): UseHttpRequestReturn {
       // handles env extraction, executor invocation, history persistence,
       // and (via ctx.onScriptResult) pushes pre-request + test script
       // results into the active tab so the Console panel updates.
+      // The runner also persists `pm.environment.set/unset` writes, for every protocol.
       const { response } = await runViaRegistry(httpRequest, 'http');
 
       setCurrentResponseForTab(originTabId, response);

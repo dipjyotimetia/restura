@@ -95,6 +95,24 @@ describe('TabBar', () => {
     expect(screen.getByRole('tab', { name: /Get user/ })).toBeInTheDocument();
   });
 
+  it.each([
+    ['websocket', 'New WebSocket Request'],
+    ['socketio', 'New Socket.IO Request'],
+    ['kafka', 'New Kafka Request'],
+    ['mqtt', 'New MQTT Request'],
+  ] as const)('titles a fresh %s tab "%s", like "New SSE Request"', (mode, title) => {
+    useRequestStore.getState().openTabWithMode(mode);
+    render(<TabBar />);
+    expect(screen.getByRole('tab', { name: new RegExp(title.replace('.', '\\.')) })).toBeVisible();
+    expect(screen.queryByRole('tab', { name: /^New Request/ })).toBeNull();
+  });
+
+  it('keeps a fresh HTTP tab titled "New Request"', () => {
+    useRequestStore.getState().createNewRequest('http');
+    render(<TabBar />);
+    expect(screen.getByRole('tab', { name: /New Request/ })).toBeInTheDocument();
+  });
+
   it('marks the active tab with aria-selected', () => {
     const a = useRequestStore.getState().openTab(makeHttp({ name: 'A' }));
     useRequestStore.getState().openTab(makeHttp({ name: 'B' }));

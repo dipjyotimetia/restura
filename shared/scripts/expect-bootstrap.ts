@@ -33,12 +33,42 @@ export const PM_EXPECT_BOOTSTRAP = `
     if (v === null) return 'null';
     try { return JSON.stringify(v); } catch (_e) { return String(v); }
   }
-  function __pmStatusClass(digit, label) {
-    var status = typeof response !== 'undefined' ? response.status : undefined;
-    __pmAssert(
-      typeof status === 'number' && Math.floor(status / 100) === digit,
-      'Expected a ' + label + ' status (' + digit + 'xx) but got ' + (status === undefined ? 'undefined' : status)
-    );
+  function __pmRes() {
+    return typeof response !== 'undefined' ? response : undefined;
+  }
+  function __pmCode() {
+    var r = __pmRes();
+    return r ? r.status : undefined;
+  }
+  // The body as text. The app and the CLI hand scripts the raw text; a host
+  // that passes an already-parsed value gets it serialised back.
+  function __pmText() {
+    var r = __pmRes();
+    if (!r || r.body === undefined || r.body === null) return '';
+    if (typeof r.body === 'string') return r.body;
+    try { return JSON.stringify(r.body); } catch (_e) { return String(r.body); }
+  }
+  // { ok, value }: the body parsed as JSON (a text body is parsed here).
+  function __pmJson() {
+    var r = __pmRes();
+    if (!r) return { ok: false };
+    if (r.body !== null && typeof r.body === 'object') return { ok: true, value: r.body };
+    if (typeof r.body === 'string') {
+      try { return { ok: true, value: JSON.parse(r.body) }; } catch (_e) { return { ok: false }; }
+    }
+    return { ok: false };
+  }
+  function __pmHeader(key) {
+    var r = __pmRes();
+    var headers = (r && r.headers) || {};
+    if (headers[key] !== undefined) return headers[key];
+    var lk = String(key).toLowerCase();
+    for (var hk in headers) {
+      if (Object.prototype.hasOwnProperty.call(headers, hk) && String(hk).toLowerCase() === lk) {
+        return headers[hk];
+      }
+    }
+    return undefined;
   }
   function __pmDeepEqual(a, b) {
     if (a === b) return true;
@@ -54,90 +84,140 @@ export const PM_EXPECT_BOOTSTRAP = `
     return true;
   }
 
-  pm.response = {
-    to: {
-      have: {
-        status: function (code) {
-          __pmAssert(typeof response !== 'undefined' && response.status === code,
-            'Expected status ' + code + ' but got ' + (typeof response !== 'undefined' ? response.status : 'undefined'));
-        },
-        header: function (key, value) {
-          if (typeof response === 'undefined') __pmAssert(false, 'No response available');
-          var headers = response.headers || {};
-          var got = headers[key];
-          if (got === undefined) {
-            var lk = String(key).toLowerCase();
-            for (var hk in headers) {
-              if (Object.prototype.hasOwnProperty.call(headers, hk) && String(hk).toLowerCase() === lk) {
-                got = headers[hk]; break;
-              }
-            }
-          }
-          __pmAssert(got !== undefined, 'Expected header "' + key + '" to exist');
-          if (value !== undefined) {
-            // Set-Cookie: also match any single cookie field (Postman HeaderList semantics).
-            __pmAssert(got === value || pm.response.headers.has(key, value),
-              'Expected header "' + key + '" to be "' + value + '" but got "' + got + '"');
-          }
-        },
-        body: function (value) {
-          if (typeof response === 'undefined' || response.body === undefined) {
-            __pmAssert(false, 'Expected response to have body');
-          }
-          if (value !== undefined) {
-            __pmAssert(__pmDeepEqual(response.body, value),
-              'Expected body to be ' + __pmStr(value) + ' but got ' + __pmStr(response.body));
-          }
-        },
-        jsonBody: function (path, value) {
-          if (typeof response === 'undefined' || response.body === undefined) {
-            __pmAssert(false, 'Expected response to have JSON body');
-          }
-          if (path) {
-            var parts = String(path).split('.');
-            var current = response.body;
-            for (var i = 0; i < parts.length; i++) {
-              if (current === null || typeof current !== 'object') {
-                __pmAssert(false, 'Cannot access path ' + path);
-              }
-              current = current[parts[i]];
-            }
-            if (value !== undefined) {
-              __pmAssert(__pmDeepEqual(current, value),
-                'Expected ' + path + ' to be ' + __pmStr(value) + ' but got ' + __pmStr(current));
-            }
-          }
+  // pm.response.to / pm.response.to.not: Postman's chai response assertions.
+  // Property assertions (pm.response.to.be.ok;) assert when read, as in chai;
+  // reading returns a no-op function so the call form (pm.response.to.be.ok())
+  // keeps working. The getters are non-enumerable so logging never trips them.
+  function __pmMakeTo(negate) {
+    function check(cond, message, negatedMessage) {
+      __pmAssert(negate ? !cond : cond, negate ? negatedMessage : message);
+    }
+    function noop() {}
+    function property(target, name, assertion) {
+      Object.defineProperty(target, name, {
+        get: function () { assertion(); return noop; },
+        enumerable: false,
+        configurable: true
+      });
+    }
+    function statusIs(label, test) {
+      return function () {
+        var code = __pmCode();
+        check(typeof code === 'number' && test(code),
+          'Expected ' + label + ' status but got ' + __pmStr(code),
+          'Expected status not to be ' + label + ' but got ' + __pmStr(code));
+      };
+    }
+    var have = {
+      status: function (expected) {
+        var r = __pmRes();
+        var got = typeof expected === 'string' ? (r ? r.statusText : undefined) : __pmCode();
+        check(got === expected,
+          'Expected status ' + __pmStr(expected) + ' but got ' + __pmStr(got),
+          'Expected status not to be ' + __pmStr(expected));
+      },
+      header: function (key, value) {
+        var got = __pmHeader(key);
+        if (value === undefined) {
+          check(got !== undefined,
+            'Expected header "' + key + '" to exist',
+            'Expected header "' + key + '" not to exist');
+          return;
+        }
+        // Set-Cookie: also match any single cookie field (Postman HeaderList semantics).
+        check(got !== undefined && (got === value || pm.response.headers.has(key, value)),
+          got === undefined
+            ? 'Expected header "' + key + '" to exist'
+            : 'Expected header "' + key + '" to be "' + value + '" but got "' + got + '"',
+          'Expected header "' + key + '" not to be "' + value + '"');
+      },
+      body: function (value) {
+        var text = __pmText();
+        if (value === undefined) {
+          check(text !== '', 'Expected response to have a body', 'Expected response to have no body');
+        } else if (value instanceof RegExp) {
+          check(value.test(text),
+            'Expected body to match ' + String(value), 'Expected body not to match ' + String(value));
+        } else if (typeof value === 'string') {
+          check(text === value,
+            'Expected body to be ' + __pmStr(value) + ' but got ' + __pmStr(text),
+            'Expected body not to be ' + __pmStr(value));
+        } else {
+          var parsed = __pmJson();
+          check(parsed.ok && __pmDeepEqual(parsed.value, value),
+            'Expected body to be ' + __pmStr(value) + ' but got ' + __pmStr(text),
+            'Expected body not to be ' + __pmStr(value));
         }
       },
-      be: {
-        ok: function () {
-          __pmAssert(typeof response !== 'undefined' && response.status >= 200 && response.status < 300,
-            'Expected successful status but got ' + (typeof response !== 'undefined' ? response.status : 'undefined'));
-        },
-        json: function () {
-          __pmAssert(typeof response !== 'undefined' && typeof response.body === 'object',
-            'Expected response to be JSON');
-        },
-        html: function () {
-          if (typeof response === 'undefined') __pmAssert(false, 'No response available');
-          var ct = (response.headers && (response.headers['content-type'] || response.headers['Content-Type'])) || '';
-          __pmAssert(String(ct).indexOf('text/html') !== -1, 'Expected response to be HTML');
-        },
-        // Status-class shorthands, mirroring chai-postman's response wrapper.
-        info: function () { __pmStatusClass(1, 'informational'); },
-        success: function () { __pmStatusClass(2, 'successful'); },
-        redirection: function () { __pmStatusClass(3, 'redirection'); },
-        clientError: function () { __pmStatusClass(4, 'client error'); },
-        serverError: function () { __pmStatusClass(5, 'server error'); },
-        error: function () {
-          __pmAssert(
-            typeof response !== 'undefined' && response.status >= 400,
-            'Expected an error status (4xx/5xx) but got ' +
-              (typeof response !== 'undefined' ? response.status : 'undefined')
-          );
+      jsonBody: function (path, value) {
+        var parsed = __pmJson();
+        if (!parsed.ok) {
+          // Not JSON: fails both ways, as Postman's jsonBody does.
+          __pmAssert(false, 'Expected response to have a JSON body');
+          return;
+        }
+        if (path === undefined) {
+          check(true, '', 'Expected response not to have a JSON body');
+          return;
+        }
+        if (typeof path !== 'string') {
+          check(__pmDeepEqual(parsed.value, path),
+            'Expected JSON body to be ' + __pmStr(path), 'Expected JSON body not to be ' + __pmStr(path));
+          return;
+        }
+        var parts = path.split('.');
+        var current = parsed.value;
+        var found = true;
+        for (var i = 0; i < parts.length; i++) {
+          if (current === null || typeof current !== 'object' ||
+              !Object.prototype.hasOwnProperty.call(current, parts[i])) {
+            found = false;
+            break;
+          }
+          current = current[parts[i]];
+        }
+        if (value === undefined) {
+          check(found, 'Expected JSON body to have "' + path + '"',
+            'Expected JSON body not to have "' + path + '"');
+        } else {
+          check(found && __pmDeepEqual(current, value),
+            'Expected ' + path + ' to be ' + __pmStr(value) + ' but got ' + __pmStr(found ? current : undefined),
+            'Expected ' + path + ' not to be ' + __pmStr(value));
         }
       }
-    },
+    };
+    var be = {};
+    property(be, 'ok', statusIs('a successful (2xx)', function (c) { return c >= 200 && c < 300; }));
+    property(be, 'success', statusIs('a successful (2xx)', function (c) { return Math.floor(c / 100) === 2; }));
+    property(be, 'info', statusIs('an informational (1xx)', function (c) { return Math.floor(c / 100) === 1; }));
+    property(be, 'redirection', statusIs('a redirection (3xx)', function (c) { return Math.floor(c / 100) === 3; }));
+    property(be, 'clientError', statusIs('a client error (4xx)', function (c) { return Math.floor(c / 100) === 4; }));
+    property(be, 'serverError', statusIs('a server error (5xx)', function (c) { return Math.floor(c / 100) === 5; }));
+    property(be, 'error', statusIs('an error (4xx/5xx)', function (c) { return c >= 400; }));
+    property(be, 'accepted', statusIs('202', function (c) { return c === 202; }));
+    property(be, 'badRequest', statusIs('400', function (c) { return c === 400; }));
+    property(be, 'unauthorized', statusIs('401', function (c) { return c === 401; }));
+    property(be, 'forbidden', statusIs('403', function (c) { return c === 403; }));
+    property(be, 'notFound', statusIs('404', function (c) { return c === 404; }));
+    property(be, 'rateLimited', statusIs('429', function (c) { return c === 429; }));
+    property(be, 'json', function () {
+      var parsed = __pmJson();
+      check(parsed.ok && parsed.value !== null && typeof parsed.value === 'object',
+        'Expected response to be JSON', 'Expected response not to be JSON');
+    });
+    property(be, 'html', function () {
+      var ct = __pmHeader('content-type') || '';
+      check(String(ct).indexOf('text/html') !== -1,
+        'Expected response to be HTML', 'Expected response not to be HTML');
+    });
+    property(be, 'withBody', function () {
+      check(__pmText() !== '', 'Expected response to have a body', 'Expected response to have no body');
+    });
+    return { have: have, be: be };
+  }
+
+  pm.response = {
+    to: __pmMakeTo(false),
     time: {
       below: function (ms) {
         __pmAssert(typeof response !== 'undefined' && response.time < ms,
@@ -147,21 +227,16 @@ export const PM_EXPECT_BOOTSTRAP = `
     /** Postman convenience: returns the parsed JSON body. */
     json: function () {
       if (typeof response === 'undefined') __pmAssert(false, 'No response available');
-      if (typeof response.body === 'object' && response.body !== null) return response.body;
-      if (typeof response.body === 'string') {
-        try { return JSON.parse(response.body); }
-        catch (_e) { __pmAssert(false, 'Response body is not valid JSON'); }
-      }
-      return response.body;
+      var parsed = __pmJson();
+      if (!parsed.ok) __pmAssert(false, 'Response body is not valid JSON');
+      return parsed.value;
     },
     text: function () {
       if (typeof response === 'undefined') __pmAssert(false, 'No response available');
-      if (typeof response.body === 'string') return response.body;
-      try { return JSON.stringify(response.body); }
-      catch (_e) { return String(response.body); }
+      return __pmText();
     },
-    code: undefined, status: undefined, responseTime: undefined
   };
+  pm.response.to.not = __pmMakeTo(true);
   // Top-level shortcuts populated lazily from the bound response global.
   Object.defineProperty(pm.response, 'code', { get: function () {
     return typeof response !== 'undefined' ? response.status : undefined;

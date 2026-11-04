@@ -159,7 +159,14 @@ export const ProxyRequestBodySchema = z.object({
   // (`checkHttpMethod` in http-method.ts — RFC 9110 token, CONNECT/TRACE/TRACK
   // denied), so the precise 400 message comes from there, not from Zod.
   method: z.string().min(1),
-  url: z.string().min(1).max(2048),
+  // The renderer folds the ordered query rows into `url` (repeated keys survive;
+  // `params` keeps only auth-added / main-materialized values), so the cap covers
+  // a long query too — e.g. a GraphQL GET document. The SSRF guard still applies
+  // its own 2048-char limit to the part before the query (http-proxy.ts).
+  url: z
+    .string()
+    .min(1)
+    .max(64 * 1024),
   headers: z.record(z.string(), z.string()).optional(),
   params: z.record(z.string(), z.string()).optional(),
   bodyType: BodyTypeSchema.optional(),

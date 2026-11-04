@@ -116,6 +116,8 @@ The model — not you — chooses the URL, method, and body. Within the SSRF bou
 
 The **Reports** tab shows a **leaderboard** across a run (pass rate, p50/p95 latency, cost per model) and a **regression compare** against an earlier run of the same eval config. Eval-run ids are stable per config so re-running and comparing works across sessions. Pass rate excludes "not evaluated" cells (a run with no scorers), so a misconfigured eval reads as neither 0% nor 100%.
 
+Cost is only shown when it is known. A model missing from its provider's price table (including Gemini and Bedrock, which have none) shows **unknown** cost — never `$0` — so a `cost` scorer fails rather than passing on a fake zero. Dated snapshot ids (`claude-…-20250929`, `gpt-…-2024-08-06`) are priced from their base model's entry. A stream that ends before the provider's end marker is reported as a truncated-stream error, not as a completed reply.
+
 Each eval has a **pass threshold**, 100% of scored cells by default. A run below it reads `failed`; errored cells count as not passed, and a run with nothing scored reads `error`. Reports saved before thresholds existed keep their stored status. A run interrupted by quitting the app reads `interrupted`.
 
 AI Lab keeps the newest 50 eval reports, within a 50 MiB total. If a saved record fails validation on load, only that record is dropped: its raw data is backed up locally and you're offered an export. A failed report save can be retried or discarded, so it no longer blocks new runs.

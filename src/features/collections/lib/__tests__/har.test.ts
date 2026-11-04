@@ -156,6 +156,35 @@ describe('HAR importer', () => {
     );
   });
 
+  it('drops the captured multipart Content-Type (stale boundary) from a rebuilt form body', () => {
+    const preview = parseHarImport(
+      JSON.stringify({
+        log: {
+          version: '1.2',
+          entries: [
+            {
+              request: {
+                method: 'POST',
+                url: 'https://api.example.test/upload',
+                headers: [
+                  { name: 'Content-Type', value: 'multipart/form-data; boundary=abc' },
+                  { name: 'X-Keep', value: '1' },
+                ],
+                postData: {
+                  mimeType: 'multipart/form-data; boundary=abc',
+                  params: [{ name: 'a', value: '1' }],
+                },
+              },
+            },
+          ],
+        },
+      })
+    );
+    const request = preview.groups[0]!.entries[0]!.request;
+    expect(request.body.type).toBe('form-data');
+    expect(request.headers.map((h) => h.key)).toEqual(['X-Keep']);
+  });
+
   it('preserves representable multipart metadata and warns for base64 request bodies', () => {
     const preview = parseHarImport(
       JSON.stringify({

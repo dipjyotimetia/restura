@@ -246,6 +246,13 @@ describe('Request to proxy spec: both hosts send the same wire request', () => {
         expect(renderer?.url).toBe(url ?? URL_BASE);
       });
     }
+
+    it('non-Latin-1 Basic credentials are UTF-8 on both hosts', async () => {
+      const req = request({ auth: { type: 'basic', basic: { username: '用户', password: 'p€' } } });
+      const [renderer, cli] = [await viaRenderer(req), await viaCli(req)];
+      expect(renderer?.headers.authorization).toBe(`Basic ${b64('用户:p€')}`);
+      expect(cli?.headers.authorization).toBe(renderer?.headers.authorization);
+    });
   });
 
   describe('body', () => {
@@ -322,14 +329,5 @@ describe('deliberate host differences, pinned', () => {
       }
     );
     expect(wire[0]?.body).toEqual({ bytes: 'from-var' });
-  });
-
-  it('non-Latin-1 Basic credentials: the CLI encodes UTF-8; the app reports the btoa failure', async () => {
-    const auth: HttpRequest['auth'] = {
-      type: 'basic',
-      basic: { username: '用户', password: 'p' },
-    };
-    expect((await viaCli(request({ auth })))?.headers.authorization).toBe(`Basic ${b64('用户:p')}`);
-    await expect(viaRenderer(request({ auth }))).rejects.toThrow();
   });
 });

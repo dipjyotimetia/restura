@@ -478,6 +478,34 @@ describe('execute tools: refusals', () => {
     expect((await pending).ok).toBe(false);
   });
 
+  it('send_request card shows auth the request inherits from its folder or collection', async () => {
+    const col = useCollectionStore.getState().getCollectionById(API.id)!;
+    useCollectionStore.getState().updateCollection(API.id, {
+      auth: { type: 'bearer', bearer: { token: 'col-token' } } as never,
+      items: col.items.map((item) =>
+        item.id === 'fld-a'
+          ? { ...item, auth: { type: 'basic', basic: { username: 'u', password: 'p' } } as never }
+          : item
+      ),
+    });
+    const fromFolder = run('send_request', { requestId: 'req-a' });
+    const folderCard = await answer('denied');
+    expect(folderCard.details).toContain('Auth: basic (inherited from folder/collection)');
+    await fromFolder;
+
+    const fromCollection = run('send_request', { requestId: 'req-root' });
+    const collectionCard = await answer('denied');
+    expect(collectionCard.details).toContain('Auth: bearer (inherited from folder/collection)');
+    expect(collectionCard.details.join('\n')).not.toContain('col-token');
+    await fromCollection;
+  });
+
+  it('send_request card shows the request’s own auth, or none', async () => {
+    const own = run('send_request', { requestId: 'req-a' });
+    expect((await answer('denied')).details).toContain('Auth: none');
+    await own;
+  });
+
   it('run_collection refuses a folder that is not in the collection, and edit-only access', async () => {
     expect(error(await run('run_collection', { collectionId: API.id, folderId: 'req-a' }))).toMatch(
       /Folder not found/

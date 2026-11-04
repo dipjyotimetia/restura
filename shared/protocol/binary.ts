@@ -20,7 +20,24 @@
  * <iframe>/inline), while raster image types fall through to binary.
  */
 const TEXT_CONTENT_TYPE_RE =
-  /^(?:text\/|application\/(?:json|xml|(?:x-)?javascript|(?:x-)?ecmascript|x-www-form-urlencoded|x-ndjson|graphql|ld\+json|.*\+json|.*\+xml)|image\/svg\+xml)/i;
+  /^(?:text\/|application\/(?:json|json-seq|jsonl|x-jsonlines|xml|(?:x-)?javascript|(?:x-)?ecmascript|x-www-form-urlencoded|x-ndjson|graphql|graphql-response\+json|ld\+json|(?:x-)?yaml|(?:x-)?toml|(?:x-)?csv|(?:x-)?sql|x-sh|x-httpd-php|(?:x-)?tex|rtf|.*\+json|.*\+xml|.*\+yaml|.*\+toml)|image\/svg\+xml)/i;
+
+/**
+ * A decoder for the response's declared charset (`text/plain; charset=iso-8859-1`).
+ * No charset, or a label the Encoding Standard does not know, decodes as UTF-8.
+ */
+export function textDecoderFor(contentType: string | null | undefined): TextDecoder {
+  const match = contentType ? /;\s*charset\s*=\s*"?([^";\s]+)"?/i.exec(contentType) : null;
+  const label = match?.[1];
+  if (label) {
+    try {
+      return new TextDecoder(label);
+    } catch {
+      // Unknown label: fall through to UTF-8.
+    }
+  }
+  return new TextDecoder();
+}
 
 /**
  * Read a header value (case-insensitively) from the sanitised header record.
@@ -97,10 +114,12 @@ export async function readStreamToBytes(
 export interface BoundedReadable {
   body?: ReadableStream<Uint8Array> | null;
   text: () => Promise<string>;
+  arrayBuffer?: () => Promise<ArrayBuffer>;
 }
 
 /**
- * Read a response body as UTF-8 text without buffering more than `maxBytes`.
+ * Read a response body as text without buffering more than `maxBytes`, decoded
+ * with the charset `contentType` declares (UTF-8 when none or unknown).
  * Streams when a body stream is available — cancelling the upstream the moment
  * the cap is crossed, so a chunked (no content-length) body can't grow the
  * isolate's memory unbounded. Falls back to `text()` + a length check only for
@@ -108,12 +127,18 @@ export interface BoundedReadable {
  */
 export async function readBoundedText(
   response: BoundedReadable,
-  maxBytes: number
+  maxBytes: number,
+  contentType?: string | null
 ): Promise<{ text: string; bytes: number } | null> {
   if (response.body) {
     const bytes = await readStreamToBytes(response.body, maxBytes);
     if (bytes === null) return null;
-    return { text: new TextDecoder().decode(bytes), bytes: bytes.byteLength };
+    return { text: textDecoderFor(contentType).decode(bytes), bytes: bytes.byteLength };
+  }
+  if (response.arrayBuffer) {
+    const buf = await response.arrayBuffer();
+    if (buf.byteLength > maxBytes) return null;
+    return { text: textDecoderFor(contentType).decode(buf), bytes: buf.byteLength };
   }
   const text = await response.text();
   const bytes = new TextEncoder().encode(text).byteLength;

@@ -1,4 +1,6 @@
 import { isSecretFieldName } from '../secrets/key-value-redaction';
+import { extractSetCookies } from './header-policy';
+import { applyChainCookies, type RedirectCookieChain } from './set-cookie';
 import type { Fetcher, FetcherRequest, FetcherResponse } from './types';
 import { validateURL } from './url-validation';
 
@@ -142,7 +144,23 @@ export interface FollowRedirectsOptions {
    * instead of getting a fresh `maxRedirects`.
    */
   hopsUsed?: number;
+  /**
+   * Records every response's Set-Cookie against the URL that sent it, and sends
+   * the cookies a 3xx set on the hops after it (merged under any Cookie header
+   * that survived the origin-change strip; explicit names win). Absent → no
+   * cookie handling, as before.
+   */
+  cookieChain?: RedirectCookieChain;
 }
+
+/** Fields that describe a request body; they go when a redirect drops the body. */
+const BODY_HEADER_NAMES = [
+  'content-type',
+  'content-length',
+  'content-encoding',
+  'content-language',
+  'content-location',
+];
 
 export async function followRedirects(
   initialReq: FetcherRequest,
@@ -152,6 +170,8 @@ export async function followRedirects(
   let req = initialReq;
   let response = await fetcher(req);
   let hops = options.hopsUsed ?? 0;
+  const chain = options.cookieChain;
+  chain?.record(req.url, extractSetCookies(response.headers), Date.now());
 
   // maxRedirects: 0 means "do not follow" — return the 3xx response unfollowed
   // (parity with axios `maxRedirects: 0` and the browser interactive path, so a
@@ -180,8 +200,10 @@ export async function followRedirects(
     while (isRedirect(response.status)) {
       const next = nextHop(req, response, hops, maxHops, stripOnOriginChange, options);
       if (!next) break;
+      if (chain) withChainCookies(next, chain);
       await discardBody(response);
       response = await fetcher(next);
+      chain?.record(next.url, extractSetCookies(response.headers), Date.now());
       req = next;
       hops++;
     }
@@ -191,6 +213,22 @@ export async function followRedirects(
   }
 
   return response;
+}
+
+/**
+ * Apply the chain's cookies for the hop's URL to its (already origin-stripped)
+ * Cookie header: a cookie set (or deleted) by an earlier hop of this chain wins
+ * over the same-named pair the request started with, as a browser would send it.
+ */
+function withChainCookies(next: FetcherRequest, chain: RedirectCookieChain): void {
+  const cookies = chain.matching(next.url, Date.now());
+  const deleted = chain.deletedNames(next.url);
+  if (cookies.length === 0 && deleted.size === 0) return;
+  const headers = next.headers instanceof Headers ? next.headers : new Headers(next.headers);
+  const merged = applyChainCookies(headers.get('cookie') ?? undefined, cookies, deleted);
+  if (merged === '') headers.delete('cookie');
+  else headers.set('cookie', merged);
+  next.headers = headers;
 }
 
 /** Best-effort cancel of a response body the caller will never read. */
@@ -262,8 +300,12 @@ function nextHop(
         ? 'GET'
         : req.method;
 
-  // 307/308 preserve method; method-changing redirects drop the body.
+  // 307/308 preserve method; method-changing redirects drop the body — and the
+  // headers that described it, or the GET goes out with an orphan Content-Type.
   const preservesBody = nextMethod === req.method;
+  if (!preservesBody) {
+    for (const name of BODY_HEADER_NAMES) headers.delete(name);
+  }
 
   return {
     ...req,

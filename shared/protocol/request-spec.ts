@@ -25,7 +25,12 @@ export function isSendableRow(row: { enabled?: boolean; key?: string }): boolean
   return Boolean(row.enabled && row.key);
 }
 
-/** Sendable key/value rows as a map; the host supplies each row's final value. */
+/**
+ * Sendable key/value rows as a map; the host supplies each row's final value.
+ * A repeated key keeps only its last value — use {@link collectEnabledRowPairs}
+ * for query params and {@link collectEnabledHeaders} for headers, which keep
+ * every row.
+ */
 export function collectEnabledRows<T extends { enabled?: boolean; key: string }>(
   rows: readonly T[],
   getValue: (row: T) => string
@@ -35,6 +40,133 @@ export function collectEnabledRows<T extends { enabled?: boolean; key: string }>
     if (isSendableRow(row)) out[row.key] = getValue(row);
   }
   return out;
+}
+
+/** Sendable rows as ordered `[key, value]` pairs: repeated keys all survive, in order. */
+export function collectEnabledRowPairs<T extends { enabled?: boolean; key: string }>(
+  rows: readonly T[],
+  getValue: (row: T) => string
+): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  for (const row of rows) {
+    if (isSendableRow(row)) out.push([row.key, getValue(row)]);
+  }
+  return out;
+}
+
+/**
+ * Sendable header rows as a map. Names match case-insensitively (the first
+ * row's spelling is kept) and repeated rows are combined rather than the last
+ * one winning: `Cookie` with `"; "` (RFC 6265 §5.4), everything else with
+ * `", "` (RFC 9110 §5.3).
+ */
+export function collectEnabledHeaders<T extends { enabled?: boolean; key: string }>(
+  rows: readonly T[],
+  getValue: (row: T) => string
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const nameFor = new Map<string, string>();
+  for (const row of rows) {
+    if (!isSendableRow(row)) continue;
+    const value = getValue(row);
+    const lower = row.key.toLowerCase();
+    const existing = nameFor.get(lower);
+    if (existing === undefined) {
+      nameFor.set(lower, row.key);
+      out[row.key] = value;
+      continue;
+    }
+    const joiner = lower === 'cookie' ? '; ' : ', ';
+    const prior = out[existing] ?? '';
+    out[existing] = prior === '' ? value : value === '' ? prior : `${prior}${joiner}${value}`;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Query string
+// ---------------------------------------------------------------------------
+
+/**
+ * Escape a query key or value as little as possible: only what would change
+ * how the query re-parses (`&`, `#`, and `=` in a key) and a `%` that does not
+ * start an escape. `+`, `:`, `,`, `/`, `@`, `?` and existing `%XX` escapes go
+ * out as typed (Postman behaviour). What WHATWG URL serialization still must
+ * escape (space, quotes, `<`, `>`, non-ASCII) is left to the proxy's `new URL()`,
+ * which encodes space as `%20` — never `+`. `{` and `}` are escaped too: they
+ * are not valid in a query (RFC 3986) and WHATWG URL leaves them raw, so an
+ * unresolved `{{var}}` goes out as `%7B%7Bvar%7D%7D`, as Newman sends it.
+ */
+export function encodeQueryComponent(text: string, isKey: boolean): string {
+  const out = text
+    .replace(/%(?![0-9A-Fa-f]{2})/g, '%25')
+    .replace(/&/g, '%26')
+    .replace(/#/g, '%23')
+    .replace(/\{/g, '%7B')
+    .replace(/\}/g, '%7D');
+  return isKey ? out.replace(/=/g, '%3D') : out;
+}
+
+/**
+ * Marks a query row Restura built itself (GraphQL GET `query` / `variables` /
+ * …), as opposed to one a user typed. Its key and value are opaque data, so
+ * they go out fully percent-encoded (`encodeURIComponent`): the minimal
+ * "as typed" escaping would let WHATWG URL parsing strip TAB/LF/CR and leave
+ * `+` (read as space) and `%XX` (decoded) in the document.
+ */
+export interface BuiltQueryRow {
+  encodeFully: true;
+}
+
+export function isBuiltQueryRow(row: object): row is BuiltQueryRow {
+  return (row as Partial<BuiltQueryRow>).encodeFully === true;
+}
+
+/** An ordered query pair; a third element `true` marks opaque (fully encoded) data. */
+export type QueryPair = readonly [key: string, value: string, encodeFully?: boolean];
+
+/**
+ * Sendable query rows as ordered pairs (repeated keys kept), each flagged when
+ * it is a {@link BuiltQueryRow}.
+ */
+export function collectQueryPairs<T extends { enabled?: boolean; key: string }>(
+  rows: readonly T[],
+  getValue: (row: T) => string
+): Array<[string, string, boolean]> {
+  const out: Array<[string, string, boolean]> = [];
+  for (const row of rows) {
+    if (isSendableRow(row)) out.push([row.key, getValue(row), isBuiltQueryRow(row)]);
+  }
+  return out;
+}
+
+/**
+ * Append ordered query pairs to `url` (before any `#fragment`). With
+ * `encode: false` (the request's "encode URL automatically" turned off) the
+ * pairs go out exactly as written. A pair flagged `encodeFully` is always
+ * fully percent-encoded — it is data Restura built, not text a user typed.
+ */
+export function appendQueryPairs(
+  url: string,
+  pairs: ReadonlyArray<QueryPair>,
+  options: { encode?: boolean } = {}
+): string {
+  if (pairs.length === 0) return url;
+  const encode = options.encode !== false;
+  const hash = url.indexOf('#');
+  const base = hash === -1 ? url : url.slice(0, hash);
+  const fragment = hash === -1 ? '' : url.slice(hash);
+  const tail = pairs
+    .map(([k, v, full]) =>
+      full
+        ? `${encodeURIComponent(k)}=${encodeURIComponent(v)}`
+        : encode
+          ? `${encodeQueryComponent(k, true)}=${encodeQueryComponent(v, false)}`
+          : `${k}=${v}`
+    )
+    .join('&');
+  const joiner = !base.includes('?') ? '?' : base.endsWith('?') || base.endsWith('&') ? '' : '&';
+  return `${base}${joiner}${tail}${fragment}`;
 }
 
 // ---------------------------------------------------------------------------

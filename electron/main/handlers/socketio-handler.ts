@@ -255,6 +255,9 @@ export function registerSocketIoHandlerIPC(): void {
           log.warn('connect error', { connectionId, error: err.message });
           emitTo(webContentsId, socketioChannels.error(connectionId), {
             message: connectErrorMessage(err),
+            // False for a middleware refusal (the socket deactivates) or with
+            // reconnection off: the renderer must stop showing "connecting".
+            willRetry: socket.active && socket.io.reconnection(),
           });
         });
 

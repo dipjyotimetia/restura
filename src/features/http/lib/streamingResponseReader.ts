@@ -1,3 +1,4 @@
+import { textDecoderFor } from '@shared/protocol/binary';
 import { NdjsonParser, type NdjsonValue } from '@shared/protocol/ndjson-parser';
 import { type SseEvent, SseParser } from '@shared/protocol/sse-parser';
 
@@ -30,7 +31,7 @@ export interface ReadStreamingOptions {
  * Format dispatch (by Content-Type):
  *   text/event-stream → 'sse' (SseParser)
  *   application/x-ndjson | application/jsonl → 'ndjson' (NdjsonParser)
- *   any other → 'raw' (UTF-8 decoded chunks)
+ *   any other → 'raw' (chunks decoded with the declared charset, else UTF-8)
  *
  * The generator yields format-specific events as the upstream produces them,
  * then a final 'end' event on clean close, or 'error' on read failure.
@@ -42,7 +43,8 @@ export async function* readStreamingResponse(
   response: Response,
   options: ReadStreamingOptions = {}
 ): AsyncIterable<HttpStreamEvent> {
-  const format = detectStreamFormat(response.headers.get('content-type'));
+  const contentType = response.headers.get('content-type');
+  const format = detectStreamFormat(contentType);
   const startMs = Date.now();
   let bytesRead = 0;
 
@@ -52,7 +54,9 @@ export async function* readStreamingResponse(
   }
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
+  // Raw text honours the declared charset, like the buffered/progress paths
+  // (SSE and NDJSON parsers decode UTF-8 themselves, as their specs require).
+  const decoder = textDecoderFor(contentType);
   const sseParser = format === 'sse' ? new SseParser() : null;
   const ndjsonParser = format === 'ndjson' ? new NdjsonParser() : null;
 

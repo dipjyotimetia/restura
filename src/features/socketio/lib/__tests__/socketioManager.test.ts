@@ -8,6 +8,8 @@ const sio = vi.hoisted(() => {
   class FakeSocket {
     static last: FakeSocket | undefined;
     connected = true;
+    active = true;
+    reconnection = true;
     id = 'sock-1';
     url: string;
     opts: Record<string, unknown>;
@@ -21,6 +23,7 @@ const sio = vi.hoisted(() => {
         this.managerListeners.set(evt, cb);
         return this.io;
       },
+      reconnection: () => this.reconnection,
     };
     constructor(url: string, opts: Record<string, unknown>) {
       this.url = url;
@@ -95,8 +98,20 @@ describe('socketioManager (browser)', () => {
 
   it('connects to the resolved URL without writing it back to the store (SIO-2)', () => {
     expect(connectWithVariables(id, scope)).toEqual({ ok: true });
-    expect(socket().url).toBe('https://sio.example.com/?token=s3cr3t');
+    // The URL's query rides the `query` option (see the Query-tab test below).
+    expect(socket().url).toBe('https://sio.example.com/');
+    expect(socket().opts.query).toEqual({ token: 's3cr3t' });
     expect(conn().url).toBe('{{base}}?token={{secret}}');
+  });
+
+  it('sends both the URL query and Query-tab params, on a namespace too', () => {
+    // engine.io replaces the `query` option with a query string found in the URL.
+    const s = useSocketIOStore.getState();
+    s.updateConnectionField(id, 'namespace', '/admin');
+    s.updateConnectionField(id, 'query', [{ id: 'q', key: 'room', value: 'lobby', enabled: true }]);
+    connectWithVariables(id, scope);
+    expect(socket().url).toBe('https://sio.example.com/admin');
+    expect(socket().opts.query).toEqual({ token: 's3cr3t', room: 'lobby' });
   });
 
   it('passes reconnection tuning through to the client', () => {
@@ -239,6 +254,42 @@ describe('socketioManager (browser)', () => {
     sock.listeners.get('disconnect')?.('transport close');
     expect(conn().status).toBe('disconnected');
     expect(conn().events.at(-1)).toMatchObject({ eventName: 'disconnect' });
+  });
+
+  it('stops connecting when server middleware refuses the handshake', () => {
+    connectWithVariables(id, scope);
+    const sock = socket();
+    expect(conn().status).toBe('connecting');
+    // socket.io-client deactivates the socket on a CONNECT_ERROR packet: no retry.
+    sock.active = false;
+    sock.listeners.get('connect_error')?.(new Error('unauthorized'));
+    expect(conn().status).toBe('disconnected');
+    expect(conn().events.at(-1)).toMatchObject({
+      eventName: 'connect_error',
+      args: ['unauthorized'],
+    });
+  });
+
+  it('stops connecting on a transport error when reconnection is off', () => {
+    connectWithVariables(id, scope);
+    socket().reconnection = false;
+    socket().listeners.get('connect_error')?.(new Error('xhr poll error'));
+    expect(conn().status).toBe('disconnected');
+  });
+
+  it('keeps connecting on a transport error that will be retried', () => {
+    connectWithVariables(id, scope);
+    socket().listeners.get('connect_error')?.(new Error('xhr poll error'));
+    expect(conn().status).toBe('connecting');
+  });
+
+  it('leaves "reconnecting" once reconnect attempts are exhausted', () => {
+    connectWithVariables(id, scope);
+    const sock = socket();
+    sock.managerListeners.get('reconnect_attempt')?.(5);
+    expect(conn().status).toBe('reconnecting');
+    sock.managerListeners.get('reconnect_failed')?.();
+    expect(conn().status).toBe('disconnected');
   });
 
   it('warns that extraHeaders are dropped on the browser websocket transport', () => {

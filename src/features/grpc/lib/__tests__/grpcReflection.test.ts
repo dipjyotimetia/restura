@@ -349,8 +349,9 @@ describe('generateRequestTemplate', () => {
     expect(typeof parsed.doubleField).toBe('number');
     expect(parsed.doubleField).toBe(0.0);
     expect(typeof parsed.floatField).toBe('number');
-    expect(typeof parsed.int64Field).toBe('number');
-    expect(typeof parsed.uint64Field).toBe('number');
+    // 64-bit ints are strings in canonical proto3 JSON (no precision loss).
+    expect(parsed.int64Field).toBe('0');
+    expect(parsed.uint64Field).toBe('0');
     expect(typeof parsed.int32Field).toBe('number');
     expect(typeof parsed.boolField).toBe('boolean');
     expect(parsed.boolField).toBe(false);

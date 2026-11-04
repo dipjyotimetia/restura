@@ -51,6 +51,8 @@ export interface AgentToolCall {
   id: string;
   name: string;
   arguments: unknown;
+  /** Opaque provider reasoning state replayed with this call (Gemini). */
+  thoughtSignature?: string;
 }
 
 export interface GenerationResponse {

@@ -9,6 +9,7 @@ import {
   type RunRequestFn,
   runEvalCore,
 } from '@shared/ai-lab/evalCore';
+import type { Usage } from '@shared/protocol/ai/types';
 import { runScriptScorer } from '@shared/scripts/eval-script-scorer';
 import type {
   AiLabProviderConfig,
@@ -44,14 +45,12 @@ export interface EvalRunInput {
 }
 
 /** USD cost: Ollama is free ($0); priced cloud uses the estimate; else unknown. */
-function computeCost(
-  cfg: AiLabProviderConfig,
-  estimatedCostUSD: number | undefined
-): number | null {
+function computeCost(cfg: AiLabProviderConfig, usage: Usage | undefined): number | null {
   if (cfg.provider === 'ollama') return 0;
   // A priced model with no usage estimate is unknown, not free — don't coerce a
-  // missing estimate to $0 (which would let a cost-threshold scorer pass).
-  if (cfg.pricingKnown) return estimatedCostUSD ?? null;
+  // missing estimate to $0 (which would let a cost-threshold scorer pass). The
+  // same holds for a model the provider's price table has no entry for.
+  if (cfg.pricingKnown && usage && !usage.costUnknown) return usage.estimatedCostUSD;
   return null;
 }
 
@@ -75,7 +74,7 @@ export function desktopEvalPort(
     },
     cost(model, usage) {
       const cfg = providers[model.providerConfigId];
-      return cfg ? computeCost(cfg, usage?.estimatedCostUSD) : null;
+      return cfg ? computeCost(cfg, usage) : null;
     },
   };
 }

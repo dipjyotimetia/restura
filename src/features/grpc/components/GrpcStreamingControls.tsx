@@ -1,5 +1,6 @@
 'use client';
 
+import { parseGrpcMessageJson } from '@shared/protocol/grpc-json';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -33,7 +34,7 @@ export default function GrpcStreamingControls({
   const handleSend = () => {
     setSendError(null);
     try {
-      const parsed = JSON.parse(messageInput);
+      const parsed = parseGrpcMessageJson(messageInput);
       streamControl.sendMessage(parsed);
     } catch {
       setSendError('Invalid JSON — message not sent');

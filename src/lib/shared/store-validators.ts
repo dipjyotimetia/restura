@@ -280,6 +280,7 @@ const UsageSchema = z.object({
   promptTokens: z.number(),
   completionTokens: z.number(),
   estimatedCostUSD: z.number(),
+  costUnknown: z.boolean().optional(),
 });
 
 const ChatMessageSchema = z.object({

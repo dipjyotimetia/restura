@@ -244,3 +244,84 @@ describe('extension HTTP methods (#857)', () => {
     expect(generatePhp(custom('get'))).not.toContain('CURLOPT_CUSTOMREQUEST');
   });
 });
+
+describe('generated code compiles (fixed outputs)', () => {
+  const hostile = 'a`b\r\nc"d\\e\u2028f#{x}$y\u0001';
+
+  it('Go declares the response body under its own name (no duplicate `body :=`)', () => {
+    const out = generateGo(opts());
+    expect(out).not.toMatch(/\bbody :=/);
+    expect(out).toContain('respBody, err := io.ReadAll(resp.Body)');
+    expect(out).toContain('payload := strings.NewReader("{\\"a\\":1}")');
+  });
+
+  it('Go quotes a body with backticks instead of a raw string literal', () => {
+    const out = generateGo(opts({ request: request({ type: 'text', raw: hostile }) }));
+    expect(out).toContain('strings.NewReader("a`b\\r\\nc\\"d\\\\e\\u2028f#{x}$y\\u0001")');
+  });
+
+  it('Go imports only what it uses', () => {
+    const out = generateGo(
+      opts({ request: request({ type: 'none' }), resolvedParams: {}, resolvedHeaders: {} })
+    );
+    expect(out).toContain('import (\n\t"fmt"\n\t"io"\n\t"net/http"\n)');
+  });
+
+  it('Ruby sends a JSON body as a String, never a Hash literal', () => {
+    const out = generateRuby(
+      opts({ request: request({ type: 'json', raw: '{"name":"x","n":null}' }) })
+    );
+    expect(out).toContain('request.body = "{\\"name\\":\\"x\\",\\"n\\":null}"');
+  });
+
+  it('Ruby escapes # so header values and bodies never interpolate', () => {
+    const out = generateRuby(
+      opts({
+        request: request({ type: 'text', raw: hostile }),
+        resolvedHeaders: { 'X-A': '#{`id`}' },
+      })
+    );
+    expect(out).toContain('request["X-A"] = "\\#{`id`}"');
+    expect(out).toContain('request.body = "a`b\\r\\nc\\"d\\\\e\\u2028f\\#{x}$y\\u0001"');
+  });
+
+  it.each([
+    ['fetch', generateJavaScript],
+    ['axios', generateNodeJS],
+  ])('%s escapes CR, control and line-separator characters in strings', (_name, generate) => {
+    const out = generate(
+      opts({
+        request: request({ type: 'text', raw: hostile }),
+        resolvedHeaders: { 'X-A': 'x\ry' },
+      })
+    );
+    expect(out).toContain('"a`b\\r\\nc\\"d\\\\e\\u2028f#{x}$y\\u0001"');
+    expect(out).toContain('"X-A": "x\\ry"');
+    expect(out).not.toMatch(/[\r\u2028\u0001]/);
+  });
+
+  it('fetch/axios keep a non-JSON "json" body as a string literal', () => {
+    const json = request({ type: 'json', raw: '{"a": {{id}}}' });
+    expect(generateJavaScript(opts({ request: json }))).toContain('body: "{\\"a\\": {{id}}}"');
+    expect(generateNodeJS(opts({ request: json }))).toContain('data: "{\\"a\\": {{id}}}"');
+    expect(generateNodeJS(opts())).toContain('data: {"a":1}');
+  });
+
+  it('PHP uses single-quoted strings so $ never interpolates', () => {
+    const out = generatePhp(
+      opts({
+        resolvedUrl: 'https://api.dev/$x',
+        resolvedParams: {},
+        resolvedHeaders: { 'X-A': '$HOME' },
+        request: request({ type: 'text', raw: "it's $y" }),
+      })
+    );
+    expect(out).toContain("$url = 'https://api.dev/$x';");
+    expect(out).toContain("'X-A: $HOME'");
+    expect(out).toContain("CURLOPT_POSTFIELDS, 'it\\'s $y'");
+  });
+
+  it('curl sends an empty header with `Key;` (a bare `Key:` removes it)', () => {
+    expect(generateCurl(opts({ resolvedHeaders: { 'X-Empty': '' } }))).toContain("-H 'X-Empty;'");
+  });
+});

@@ -587,7 +587,7 @@ class MqttManager {
         });
       },
 
-      close: () => {
+      close: (payload) => {
         this.flushBuffer(connectionId);
         const store = useMqttStore.getState();
         const conn = store.connections[connectionId];
@@ -595,6 +595,14 @@ class MqttManager {
         // event is delivered, so reaching here means the broker (or network)
         // dropped the connection.
         if (!conn) return;
+        // The broker refused CONNACK: mqtt.js won't retry and main has dropped
+        // the connection, so this is final whatever autoReconnect says. The
+        // refusal itself was already logged by the error event.
+        if ((payload as { refused?: string } | undefined)?.refused !== undefined) {
+          this.channels.unbind(connectionId);
+          store.updateStatus(connectionId, 'disconnected');
+          return;
+        }
         if (conn.autoReconnect) {
           // mqtt.js retries under the hood; reflect that as 'reconnecting' and
           // only log the transition once per drop.

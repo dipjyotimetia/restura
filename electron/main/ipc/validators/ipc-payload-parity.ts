@@ -19,6 +19,12 @@
 import type { z } from 'zod';
 import type { ElectronAPI } from '../../../types/electron-api';
 import type {
+  AiChatMessageSchema,
+  AiChatRequestSchema,
+  AiLabCompleteSchema,
+  AiLabStreamSchema,
+} from './ai';
+import type {
   GrpcRequestConfigSchema,
   HttpRequestConfigSchema,
   McpConnectSchema,
@@ -163,4 +169,38 @@ export type McpControlStartParity = Assert<
 >;
 export type McpControlToolResultParity = Assert<
   PayloadParity<Arg0<Api['mcpControl']['sendToolResult']>, typeof ToolCallResultPayloadSchema>
+>;
+
+// AI chat / AI Lab. Top-level keys alone would miss a nested field (e.g. a
+// tool call's `thoughtSignature`), so the message and tool-call shapes get
+// their own key check.
+type Elem<T> = NonNullable<T> extends ReadonlyArray<infer E> ? E : never;
+type ChatMessage = Elem<Arg0<Api['ai']['chat']>['messages']>;
+type SchemaMessage = z.input<typeof AiChatMessageSchema>;
+export type AiChatParity = Assert<
+  PayloadParity<Arg0<Api['ai']['chat']>, typeof AiChatRequestSchema>
+>;
+export type AiLabCompleteParity = Assert<
+  PayloadParity<Arg0<Api['aiLab']['complete']>, typeof AiLabCompleteSchema>
+>;
+export type AiLabStreamParity = Assert<
+  PayloadParity<Arg0<Api['aiLab']['stream']>, typeof AiLabStreamSchema>
+>;
+export type AiChatMessageParity = Assert<PayloadParity<ChatMessage, typeof AiChatMessageSchema>>;
+export type AiChatToolCallKeys = Assert<
+  [
+    Exclude<KeysOf<Elem<SchemaMessage['toolCalls']>>, KeysOf<Elem<ChatMessage['toolCalls']>>>,
+  ] extends [never]
+    ? true
+    : { error: 'tool-call field(s) the payload type cannot name' }
+>;
+export type AiLabToolCallKeys = Assert<
+  [
+    Exclude<
+      KeysOf<Elem<SchemaMessage['toolCalls']>>,
+      KeysOf<Elem<Elem<Arg0<Api['aiLab']['complete']>['messages']>['toolCalls']>>
+    >,
+  ] extends [never]
+    ? true
+    : { error: 'tool-call field(s) the payload type cannot name' }
 >;

@@ -31,6 +31,10 @@ export interface ProxyJsonResponse {
   headers: Record<string, string | string[]>;
   /** Every Set-Cookie field, one entry each (RFC 6265 §3 — never folded). */
   setCookies?: string[];
+  /** URL the followed redirect chain ended on (only when a redirect was followed). */
+  finalUrl?: string;
+  /** Set-Cookie fields of every hop, each with the URL that set them. */
+  cookieHops?: Array<{ url: string; setCookies: string[] }>;
   /** Worker returns the body under `data` (historical wire shape). */
   data: unknown;
   size?: number;
@@ -90,7 +94,8 @@ export async function executeProxiedRequest(
   }
   // Web path: `desktop` (proxy / mTLS / CA / TLS knobs) is intentionally
   // dropped — the Worker has no per-request TLS control and cert material
-  // must never leave the machine.
+  // must never leave the machine. Proxy settings (global and per-request) are
+  // declared desktop-only (`http.proxy.perRequest`) and badged in the UI.
   return executeViaWorker(spec, options.signal);
 }
 
@@ -323,6 +328,8 @@ async function executeViaElectronIpc(
     statusText: result.statusText,
     headers: result.headers,
     ...(result.setCookies !== undefined ? { setCookies: result.setCookies } : {}),
+    ...(result.finalUrl !== undefined ? { finalUrl: result.finalUrl } : {}),
+    ...(result.cookieHops !== undefined ? { cookieHops: result.cookieHops } : {}),
     data: result.data,
     ...(result.size !== undefined ? { size: result.size } : {}),
     ...(result.bodyEncoding !== undefined ? { bodyEncoding: result.bodyEncoding } : {}),

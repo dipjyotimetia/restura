@@ -25,6 +25,11 @@ curl -fs http://localhost:3000/health
 # → {"status":"ok","version":"..."}
 ```
 
+`docker-compose.yml` publishes the port (`${RESTURA_PORT:-3000}`) on **all
+interfaces**, because this stack is meant to be reached from other machines.
+It must therefore run with `WORKER_PROXY_TOKEN` or Cloudflare Access set in
+`.env`; with neither, `/api/*` fails closed with `503`.
+
 The API now accepts scripted calls carrying `X-Restura-Proxy-Token` (see
 [Verifying the build](#verifying-the-build)). The bundled web UI has no way to
 send that token, so to use Restura from a browser, front the container with an
@@ -42,8 +47,11 @@ curl -fs http://localhost:3000/health
 docker compose -f docker-compose.local.yml down
 ```
 
-It deliberately enables the development auth bypass and must not be used for
-production or exposed beyond your local machine.
+It deliberately enables the development auth bypass (an unauthenticated proxy
+that may reach localhost), so it publishes on **`127.0.0.1` only**
+(`127.0.0.1:${RESTURA_LOCAL_PORT:-3000}`; set `RESTURA_LOCAL_PORT` to change the
+host port). Never widen that binding, and never use this file for production or
+anything other machines can reach.
 
 ---
 
@@ -143,6 +151,15 @@ send this assertion: set `WORKER_PROXY_TOKEN` and have the gateway add
 
 `ENVIRONMENT=development` + `DEV_BYPASS_AUTH=true`. Auth is skipped, localhost
 upstreams are permitted. **Never** set this in a deployed environment.
+
+Two checks still guard the bypass against cross-site requests from other pages
+open in your browser:
+
+- A request whose `Origin` is neither the server's own origin nor allowed by
+  `ALLOWED_ORIGIN` is refused with `403 {"error":"Origin not allowed"}`. Add a
+  separately served UI's origin to `ALLOWED_ORIGIN` to let it through.
+- Every `POST /api/*` must be `Content-Type: application/json`; anything else
+  gets `415` (this applies in every mode, before auth).
 
 ---
 
@@ -339,6 +356,9 @@ curl -fs -X POST http://localhost:3000/api/proxy \
   -H "Content-Type: application/json" \
   -d '{"method":"GET","url":"http://169.254.169.254/"}'
 ```
+
+Keep the `Content-Type: application/json` header: `/api/*` refuses any other
+content type with `415`.
 
 ---
 

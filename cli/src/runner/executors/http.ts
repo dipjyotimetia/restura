@@ -1,11 +1,19 @@
 import { resolveAuthVariables } from '@shared/auth/resolve-variables';
-import { buildGraphQLWireRequest, graphqlEnvelopeFromBody } from '@shared/graphql/wire';
+import { mergeIncrementalGraphQLResponse } from '@shared/graphql/incremental-response';
+import { injectGraphQLBody } from '@shared/graphql/inject';
+import {
+  buildGraphQLWireRequest,
+  type GraphQLEnvelope,
+  graphqlEnvelopeFromBody,
+} from '@shared/graphql/wire';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import {
+  appendQueryPairs,
   applyBodyDefaultHeaders,
   authHeaderNames,
   buildProxyBody,
-  collectEnabledRows,
+  collectEnabledHeaders,
+  collectQueryPairs,
   type ProxyBody,
 } from '@shared/protocol/request-spec';
 import type { RedirectPolicy } from '@shared/protocol/types';
@@ -16,6 +24,7 @@ import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token, toProtocolAuth } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import { sharedCoreFailure, thrownOutcome } from './failure';
+import { requestDispatcher } from './http-transport';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 import { preflightRefusal, refusedOutcome } from './variable-guard';
 
@@ -54,17 +63,24 @@ export async function executeHttp(
     for (const p of shaped.addedParams) preResolvedParams.add(p);
   }
 
-  const url = resolveVarsDeep(req.url, opts.vars);
   const resolve = (text: string) => resolveVarsDeep(text, opts.vars);
+  // Repeated header rows combine (`, `; Cookie `; `), as in the app.
   const headers = applyBodyDefaultHeaders(
     req.body.type,
-    collectEnabledRows(req.headers, (h) => resolve(h.value))
+    collectEnabledHeaders(req.headers, (h) => resolve(h.value))
   );
   // GraphQL GET params were built from already-resolved values; resolving
   // them again would re-expand `{{…}}` text inside the resolved document.
-  const params = collectEnabledRows(req.params, (p) =>
+  // Query rows go into the URL in order, repeated keys kept (as in the app);
+  // `params` carries only what auth adds.
+  // User-typed rows go out as typed; GraphQL GET params are fully encoded.
+  const baseUrl = resolveVarsDeep(req.url, opts.vars);
+  const queryPairs = collectQueryPairs(req.params, (p) =>
     preResolvedParams.has(p) ? p.value : resolve(p.value)
   );
+  const encodeUrl = { encode: req.settings?.encodeUrlAutomatically !== false };
+  const url = appendQueryPairs(baseUrl, queryPairs, encodeUrl);
+  const params: Record<string, string> = {};
 
   // CLI-only, kept deliberately: a form field name and a binary body may hold a
   // `{{var}}` (the app sends the name as written and treats binary as bytes).
@@ -72,10 +88,30 @@ export async function executeHttp(
     graphqlBuilt ??
     buildProxyBody(req.body, { resolve, resolveFieldName: resolve, resolveBinary: resolve });
 
+  // Per-request proxy / TLS settings (verifySsl, caCert, clientCert,
+  // minTlsVersion, cipherSuites, serverCipherOrder, proxy) get their own
+  // dispatcher over the run's flags, or refuse the request — never ignored.
+  // Agent tools pass a DNS-pinned `opts.fetcher` that such settings would
+  // bypass, so there they refuse instead.
+  const transport = requestDispatcher(req.settings, url, opts);
+  if (!transport.ok) return refusedOutcome(transport.error);
+  const requestOwnDispatcher = transport.dispatcher;
+  if (requestOwnDispatcher && opts.fetcher) {
+    void requestOwnDispatcher.close().catch(() => {});
+    return refusedOutcome(
+      'Per-request proxy / TLS settings cannot be applied on this pinned transport; the request was not sent.'
+    );
+  }
+
   const start = Date.now();
   try {
     const fetcher =
-      opts.fetcher ?? (opts.dispatcher ? createUndiciFetcher(opts.dispatcher) : undiciFetcher);
+      opts.fetcher ??
+      (requestOwnDispatcher
+        ? createUndiciFetcher(requestOwnDispatcher)
+        : opts.dispatcher
+          ? createUndiciFetcher(opts.dispatcher)
+          : undiciFetcher);
     // Auth that the renderer normally applies before hitting the proxy. Bearer
     // / Basic / API-key / OAuth2 are header-only; AWS SigV4 / OAuth1 / WSSE are
     // signed at the wire by executeHttpProxy. Resolved here (inside the try) so
@@ -105,6 +141,16 @@ export async function executeHttp(
       );
     }
     applyAuthHeaders(resolvedAuth, headers, params);
+    // An API key sent in the query replaces same-named query rows (as in the
+    // app), instead of going out next to them.
+    const wireUrl =
+      Object.keys(params).length > 0
+        ? appendQueryPairs(
+            baseUrl,
+            queryPairs.filter(([key]) => !Object.hasOwn(params, key)),
+            encodeUrl
+          )
+        : url;
     const proxyAuth = toProtocolAuth(resolvedAuth);
 
     // Per-request settings (legacy collections carry these) override the global
@@ -130,7 +176,7 @@ export async function executeHttp(
     const result = await executeHttpProxy(
       {
         method: req.method,
-        url,
+        url: wireUrl,
         headers,
         params,
         ...(built.bodyType !== 'none' ? { bodyType: built.bodyType } : {}),
@@ -153,15 +199,21 @@ export async function executeHttp(
     const durationMs = Date.now() - start;
 
     if (result.ok) {
-      const passed = result.response.status >= 200 && result.response.status < 300;
+      // GraphQL `@defer` / `@stream` asks for `multipart/mixed` (shared wire
+      // builder): fold the parts into one JSON result, as the app does, so
+      // tests' `pm.response.json()` sees the merged data.
+      const response = graphqlBuilt
+        ? mergeIncrementalGraphQLResponse(result.response)
+        : result.response;
+      const passed = response.status >= 200 && response.status < 300;
       return {
-        status: result.response.status,
+        status: response.status,
         passed,
         durationMs,
-        bodyBytes: result.response.size,
-        responseHeaders: result.response.headers,
-        ...(result.response.setCookies ? { setCookies: result.response.setCookies } : {}),
-        responseBody: result.response.body,
+        bodyBytes: response.size,
+        responseHeaders: response.headers,
+        ...(response.setCookies ? { setCookies: response.setCookies } : {}),
+        responseBody: response.body,
       };
     }
     return {
@@ -174,6 +226,9 @@ export async function executeHttp(
     };
   } catch (err) {
     return thrownOutcome(err, Date.now() - start);
+  } finally {
+    // The response is fully buffered by now; release this request's sockets.
+    if (requestOwnDispatcher) void requestOwnDispatcher.close().catch(() => {});
   }
 }
 
@@ -188,15 +243,17 @@ type ShapedGraphQL =
  * subscriptions (spec-unsafe) before anything is sent.
  */
 function shapeGraphQL(req: HttpRequest, vars: Record<string, string>): ShapedGraphQL {
-  const body = req.body;
-  const resolvedBody: HttpRequest['body'] = {
-    ...body,
-    ...(body.raw !== undefined ? { raw: resolveVarsDeep(body.raw, vars) } : {}),
-    ...(body.graphqlVariables !== undefined
-      ? { graphqlVariables: resolveVarsDeep(body.graphqlVariables, vars) }
-      : {}),
-  };
-  const wire = buildGraphQLWireRequest(req, graphqlEnvelopeFromBody(resolvedBody));
+  // JSON-safe substitution (shared with the app): a value holding `"` or `\`
+  // can't break the variables JSON.
+  const resolvedBody = injectGraphQLBody(req.body, (text) => resolveVarsDeep(text, vars));
+  let envelope: GraphQLEnvelope;
+  try {
+    envelope = graphqlEnvelopeFromBody(resolvedBody);
+  } catch (err) {
+    // Invalid variables JSON fails the request instead of sending `{}`.
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+  const wire = buildGraphQLWireRequest(req, envelope);
   if (!wire.ok) return wire;
   const existing = new Set(req.params);
   const addedParams = wire.request.params.filter((p) => !existing.has(p));

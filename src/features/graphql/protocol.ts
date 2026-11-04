@@ -15,6 +15,7 @@
  * `GraphQLSubscriptionClient` because they're not request/response and the
  * runner doesn't model long-lived streams yet (see Task 4.5 follow-up note).
  */
+import { injectGraphQLBody } from '@shared/graphql/inject';
 import { v4 as uuidv4 } from 'uuid';
 import { GRAPHQL_SENT_BODY_OPTION } from '@/features/graphql/lib/graphqlErrors';
 import {
@@ -59,12 +60,11 @@ function defaultResolveVariables(text: string, vars: Record<string, string>): st
 
 /**
  * GraphQL requests ride on an HTTP envelope: `body.raw` is the JSON
- * `{query, variables, operationName}` payload. Substitute into the
- * envelope by JSON-parsing it, resolving `{{var}}` references in the
- * `query`, `variables`, and `operationName` fields, and re-serialising.
- * If the envelope isn't parseable (the user is still typing), fall back
- * to plain string substitution so partial input still resolves the
- * obvious cases.
+ * `{query, variables, operationName}` payload (or a saved query document) and
+ * `body.graphqlVariables` the saved variables JSON. Substitution is JSON-safe
+ * (shared `injectGraphQLBody`, same as the CLI): `{{var}}` resolves inside
+ * string values, so a value holding `"` or `\` can't break the JSON. Text that
+ * isn't JSON yet (the user is still typing) gets plain string substitution.
  */
 function injectGraphQLVariables(
   request: Request,
@@ -74,40 +74,7 @@ function injectGraphQLVariables(
   if (request.type !== 'http') return request;
   const http = request as HttpRequest;
   const inject = (text: string) => injectString(text, variables, secretNames);
-
-  let body = http.body;
-  if (body.raw !== undefined) {
-    let nextRaw = body.raw;
-    try {
-      const parsed: unknown = JSON.parse(body.raw);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        const envelope = parsed as {
-          query?: unknown;
-          variables?: unknown;
-          operationName?: unknown;
-        };
-        const out: Record<string, unknown> = { ...envelope };
-        if (typeof envelope.query === 'string') {
-          out.query = inject(envelope.query);
-        }
-        if (envelope.variables && typeof envelope.variables === 'object') {
-          out.variables = injectInJson(envelope.variables, inject);
-        }
-        if (typeof envelope.operationName === 'string') {
-          out.operationName = inject(envelope.operationName);
-        }
-        nextRaw = JSON.stringify(out);
-      } else {
-        nextRaw = inject(body.raw);
-      }
-    } catch {
-      nextRaw = inject(body.raw);
-    }
-    body = { ...body, raw: nextRaw };
-  }
-  if (body.graphqlVariables !== undefined) {
-    body = { ...body, graphqlVariables: inject(body.graphqlVariables) };
-  }
+  const body = injectGraphQLBody(http.body, inject);
 
   return {
     ...http,
@@ -124,19 +91,6 @@ function injectGraphQLVariables(
     })),
     body,
   };
-}
-
-function injectInJson(value: unknown, inject: (s: string) => string): unknown {
-  if (typeof value === 'string') return inject(value);
-  if (Array.isArray(value)) return value.map((v) => injectInJson(v, inject));
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      out[k] = injectInJson(v, inject);
-    }
-    return out;
-  }
-  return value;
 }
 
 /**

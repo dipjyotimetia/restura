@@ -1,4 +1,5 @@
 import { resolveAuthVariables } from '@shared/auth/resolve-variables';
+import { signAtWireAuthLabel } from '@shared/protocol/sign-at-wire-auth';
 import { SseParser } from '@shared/protocol/sse-parser';
 import { validateURL } from '@shared/protocol/url-validation';
 import type { SseRequest } from '@shared/types';
@@ -66,6 +67,15 @@ export async function executeSse(
   // step's (a refusal or a token failure), after it with no status a transport one.
   let sent = false;
 
+  // An event with no `event:` field is a "message" event (the SSE spec, and
+  // the app's filter in `useSseStore.getFilteredLog`). Returns whether kept.
+  const recordEvent = (ev: { event?: string; data: string }): boolean => {
+    const name = ev.event || 'message';
+    if (eventFilter && !eventFilter.has(name)) return false;
+    events.push({ event: name, data: ev.data, timestamp: Date.now() });
+    return true;
+  };
+
   // Started once auth is ready: slow secret or token fetches are not stream time.
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -86,6 +96,14 @@ export async function executeSse(
       opts.vars,
       oauth2TokenOptions(opts)
     );
+    // Wire-signed and challenge auth has no SSE transport here: refuse rather
+    // than stream unauthenticated and pass against a permissive endpoint.
+    const unsupported = signAtWireAuthLabel(resolvedAuth?.type);
+    if (unsupported) {
+      return refusedOutcome(
+        `${unsupported} auth can't be applied to SSE connections; the stream was not opened. Use Bearer, Basic, API key or OAuth 2.0 auth instead.`
+      );
+    }
     applyAuthHeaders(resolvedAuth, headers, params);
     const finalUrl = appendQuery(url, params);
     timer = setTimeout(() => controller.abort(), durationMs);
@@ -118,12 +136,7 @@ export async function executeSse(
       bodyBytes += bytes.byteLength;
       const parsed = parser.feed(bytes);
       for (const ev of parsed) {
-        if (eventFilter && ev.event && !eventFilter.has(ev.event)) continue;
-        events.push({
-          ...(ev.event !== undefined ? { event: ev.event } : {}),
-          data: ev.data,
-          timestamp: Date.now(),
-        });
+        if (!recordEvent(ev)) continue;
         if (maxEvents !== undefined && events.length >= maxEvents) {
           controller.abort();
           break;
@@ -131,14 +144,7 @@ export async function executeSse(
       }
       if (maxEvents !== undefined && events.length >= maxEvents) break;
     }
-    for (const ev of parser.flush()) {
-      if (eventFilter && ev.event && !eventFilter.has(ev.event)) continue;
-      events.push({
-        ...(ev.event !== undefined ? { event: ev.event } : {}),
-        data: ev.data,
-        timestamp: Date.now(),
-      });
-    }
+    for (const ev of parser.flush()) recordEvent(ev);
   } catch (err) {
     if (!sent) return thrownOutcome(err, Date.now() - start);
     // AbortError from our duration timer is expected — not a failure.

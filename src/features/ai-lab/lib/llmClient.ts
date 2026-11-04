@@ -10,7 +10,7 @@ export interface LlmChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
   toolCallId?: string;
-  toolCalls?: Array<{ id: string; name: string; input: string }>;
+  toolCalls?: Array<{ id: string; name: string; input: string; thoughtSignature?: string }>;
 }
 
 export interface LlmCallSpec {

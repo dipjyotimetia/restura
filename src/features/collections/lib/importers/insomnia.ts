@@ -229,17 +229,91 @@ interface InsomniaRequestLike {
   scripts?: { preRequest?: string; afterResponse?: string };
 }
 
-function objectToKeyValues(data: Record<string, unknown>): KeyValue[] {
-  return Object.entries(data).map(([key, value]) => ({
-    id: uuidv4(),
-    key,
-    value: String(value ?? ''),
-    enabled: true,
-  }));
+/**
+ * Insomnia environment data is a JSON object that may nest; Nunjucks reaches a
+ * nested value as `_.a.b`, which {@link translateInsomniaTemplate} turns into
+ * `{{a.b}}` — so nested objects flatten to dotted keys.
+ */
+function objectToKeyValues(data: Record<string, unknown>, prefix = ''): KeyValue[] {
+  return Object.entries(data).flatMap(([key, value]): KeyValue[] => {
+    const path = `${prefix}${key}`;
+    if (value && typeof value === 'object' && !Array.isArray(value))
+      return objectToKeyValues(value as Record<string, unknown>, `${path}.`);
+    return [
+      {
+        id: uuidv4(),
+        key: path,
+        value:
+          typeof value === 'string'
+            ? translateInsomniaTemplate(value)
+            : Array.isArray(value)
+              ? JSON.stringify(value)
+              : String(value ?? ''),
+        enabled: true,
+      },
+    ];
+  });
 }
 
-function convertRequest(raw: InsomniaRequestLike, warnings: ImportWarning[]): HttpRequest {
-  const name = raw.name || 'Unnamed Request';
+// `{{ _.name }}`, `{{_.a.b}}`, `{{ _['name'] }}`, `{{ _["name"] }}`
+const INSOMNIA_ENV_VAR =
+  /\{\{\s*_(?:\.([A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)*)|\[\s*(['"])([^'"]+)\2\s*\])\s*\}\}/g;
+
+/**
+ * Translate Insomnia's Nunjucks environment references to Restura's
+ * `{{name}}` syntax. Anything else Nunjucks-only (template tags such as
+ * `{% response %}` / `{% uuid %}`, filters, expressions) is kept verbatim.
+ */
+export function translateInsomniaTemplate(text: string): string {
+  return text.replace(
+    INSOMNIA_ENV_VAR,
+    (_match, dotted: string | undefined, _quote, bracketed: string | undefined) =>
+      `{{${dotted ?? bracketed}}}`
+  );
+}
+
+/** Nunjucks the translation left in place: template tags and `_.`-expressions. */
+function hasUntranslatedTemplate(text: string): boolean {
+  return /\{%[\s\S]*?%\}|\{\{\s*_[.[]/.test(text);
+}
+
+/** Translate every string inside an Insomnia value (strings, arrays, objects). */
+function translateDeep<T>(value: T, onString: (text: string) => void): T {
+  if (typeof value === 'string') {
+    const translated = translateInsomniaTemplate(value);
+    onString(translated);
+    return translated as T;
+  }
+  if (Array.isArray(value)) return value.map((entry) => translateDeep(entry, onString)) as T;
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, translateDeep(entry, onString)])
+    ) as T;
+  }
+  return value;
+}
+
+function convertRequest(source: InsomniaRequestLike, warnings: ImportWarning[]): HttpRequest {
+  const name = source.name || 'Unnamed Request';
+  // Scripts are JavaScript, not templates: translate only the request fields.
+  const { scripts, preRequestScript, afterResponseScript, ...templated } = source;
+  let untranslated = false;
+  const raw: InsomniaRequestLike = {
+    ...translateDeep(templated, (text) => {
+      untranslated ||= hasUntranslatedTemplate(text);
+    }),
+    ...(scripts ? { scripts } : {}),
+    ...(preRequestScript !== undefined ? { preRequestScript } : {}),
+    ...(afterResponseScript !== undefined ? { afterResponseScript } : {}),
+  };
+  if (untranslated) {
+    warnings.push({
+      kind: 'unmodelled-construct',
+      construct: 'insomnia-template-tag',
+      requestName: name,
+      detail: 'Insomnia template tags ({% … %}) or Nunjucks expressions were kept verbatim',
+    });
+  }
   const httpRequest: HttpRequest = {
     id: uuidv4(),
     name,
@@ -326,7 +400,39 @@ function convertInsomniaBody(body: InsomniaRequestLike['body']): HttpRequest['bo
     return { type: bodyType, formData };
   }
 
+  if (bodyType === 'graphql') return convertInsomniaGraphqlBody(body.text);
+
   return { type: bodyType, raw: body.text };
+}
+
+/**
+ * Insomnia stores a GraphQL body as the JSON envelope
+ * `{"query": …, "variables": {…}, "operationName": …}` under
+ * `application/graphql`; Restura keeps the query and variables apart.
+ */
+function convertInsomniaGraphqlBody(text: string | undefined): HttpRequest['body'] {
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(text ?? '');
+  } catch {
+    return { type: 'graphql', raw: text ?? '' };
+  }
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope))
+    return { type: 'graphql', raw: text ?? '' };
+  const { query, variables, operationName } = envelope as Record<string, unknown>;
+  return {
+    type: 'graphql',
+    raw: typeof query === 'string' ? query : '',
+    ...(variables !== undefined && variables !== null
+      ? {
+          graphqlVariables:
+            typeof variables === 'string' ? variables : JSON.stringify(variables, null, 2),
+        }
+      : {}),
+    ...(typeof operationName === 'string' && operationName
+      ? { graphqlOperationName: operationName }
+      : {}),
+  };
 }
 
 /**

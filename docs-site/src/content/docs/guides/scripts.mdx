@@ -26,7 +26,11 @@ The script editors are Monaco with full type definitions registered for the API 
 
 - **The API object** — `rs.request`, `rs.response`, `rs.environment`, `rs.globals`, `rs.collectionVariables`, `rs.variables`, `rs.test`, `rs.expect`, `rs.info`, `rs.iterationData`.
 - **`chai`-style assertions** — `rs.expect(rs.response.json().name).to.equal('alice')`.
-- **JSON / text helpers** — `rs.response.json()`, `rs.response.text()`, `rs.response.code`, `rs.response.responseTime`.
+- **JSON / text helpers** — `rs.response.json()`, `rs.response.text()`, `rs.response.code` (the status number; `rs.response.status` is the status text), `rs.response.responseTime` (milliseconds).
+- **Response assertions** — `rs.response.to.have.status(200)`, `.to.have.header(...)`, `.to.have.jsonBody('a.b', value)`, and property assertions such as `rs.response.to.be.ok;` or `rs.response.to.be.json;` (they assert when read; calling them works too). Put `.not` after `to` to negate: `rs.response.to.not.be.error;`.
+- **Variables** — `rs.environment.set/unset` in a pre-request or test script is saved to the active environment, so the next request sees it (a collection run saves to the run's environment; the CLI keeps it for the run). `rs.variables.set` lasts for this request and the rest of a run. A variable stored as a desktop secret handle is never overwritten by a script. A script that throws keeps the writes it made before the error.
+- **Request headers** — a pre-request script can edit the outgoing headers with `rs.request.headers.add({ key, value })`, `.upsert({ key, value })` and `.remove(name)` (plus `get`, `has`, `toObject`) for HTTP and GraphQL requests.
+- **Async tests** — `rs.test(name, async () => { ... })`: the returned promise is awaited, and a rejection fails the test.
 - **`rs.sendRequest(...)`** — fire an ad-hoc HTTP request from inside a script (routes through the same SSRF-guarded proxy as a normal request). Non-secret `{{variables}}` resolve; a token naming a secret variable refuses the sub-request. To send a plaintext secret on purpose, read it in the script and pass the value. A sub-request inherits the parent's headers only on the parent's origin (scheme, host and port). On any other origin, or when either URL can't be parsed, it inherits none of them, and a redirect to another origin drops inherited headers the same way. Headers the script sets itself always stay, and follow redirects like any other request's.
 - **`rs.request.metadata`** (gRPC) — edit outgoing metadata in a pre-request script. A token naming a secret variable refuses the send unless the saved entry for that key already has it. Script edits to the request on other protocols aren't applied.
 - **`rs.vault`** (desktop only) — async `get(key)`, `set(key, value)` and `unset(key)` on an OS-keychain-backed secret vault (`await rs.vault.get('token')`), so secrets stay out of variables and exports. See [Secrets & vaults](/guides/secrets/).
@@ -90,7 +94,7 @@ rs.test('returns a user id', () => {
   rs.expect(body.id).to.be.a('string');
 });
 
-// stash the id for the next request in this collection
+// saved to the active environment, so the next request can use {{user_id}}
 rs.environment.set('user_id', body.id);
 ```
 
@@ -99,6 +103,7 @@ rs.environment.set('user_id', body.id);
 ```js
 const ts = Math.floor(Date.now() / 1000);
 rs.variables.set('signed_at', ts.toString());
+rs.request.headers.upsert({ key: 'X-Signed-At', value: ts.toString() });
 ```
 
 ## Example: chaining with `rs.sendRequest`

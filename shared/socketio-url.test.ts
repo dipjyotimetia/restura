@@ -40,6 +40,15 @@ describe('socketIoConnectUrl', () => {
     );
   });
 
+  it('keeps the query string when joining a namespace', () => {
+    expect(socketIoConnectUrl('https://example.com/api?token=abc&x=1', '/admin')).toBe(
+      'https://example.com/admin?token=abc&x=1'
+    );
+    expect(parse(socketIoConnectUrl('https://example.com?token=abc', 'chat')).query).toBe(
+      'token=abc'
+    );
+  });
+
   it('throws on an unparseable URL', () => {
     expect(() => socketIoConnectUrl('not a url', undefined)).toThrow();
   });

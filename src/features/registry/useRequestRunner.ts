@@ -18,7 +18,13 @@
 import { useCallback, useRef } from 'react';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
+import {
+  mergeEnvironmentMutations,
+  saveScriptEnvironmentWrites,
+  scriptEnvironmentTargetId,
+} from '@/features/environments/lib/scriptEnvironmentMutations';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { AuthConfig, Request, Response } from '@/types';
@@ -119,6 +125,16 @@ export function useRequestRunner() {
         }
       };
 
+      // Script env writes go to the environment this request runs against:
+      // captured now, so switching environment mid-request cannot redirect them.
+      const savedRequestId = originTabId
+        ? useRequestStore.getState().tabs.find((tab) => tab.id === originTabId)?.savedRequestId
+        : undefined;
+      const scriptCollectionId = savedRequestId
+        ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.id
+        : undefined;
+      const scriptEnvironmentId = scriptEnvironmentTargetId(scriptCollectionId);
+
       const startedAt = performance.now();
       const response = await protocol.runRequest(request, {
         signal: ctrl.signal,
@@ -143,6 +159,19 @@ export function useRequestRunner() {
       if (abortRef.current === ctrl) {
         abortRef.current = null;
       }
+
+      // `pm.environment.set/unset` from either script persist to the active
+      // environment when it applies to the request's collection — the same
+      // for every protocol sent through this runner.
+      const environmentMutations = mergeEnvironmentMutations(
+        collectedScripts?.preRequest,
+        collectedScripts?.test
+      );
+      saveScriptEnvironmentWrites({
+        environmentId: scriptEnvironmentId,
+        collectionId: scriptCollectionId,
+        mutations: environmentMutations,
+      });
 
       const result: RegistryRunResult = { response, durationMs };
       if (collectedScripts) {

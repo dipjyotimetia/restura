@@ -45,11 +45,10 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
       mkdirSync(xdgConfigHome, { recursive: true });
       const electronApp = await _electron.launch({
         // `--ignore-certificate-errors` is a test-only Chromium switch (not a
-        // source change). It affects ONLY renderer-initiated TLS (the OAuth2
-        // token fetch is the sole renderer-direct network path), letting that
-        // test hit the local https mock's self-/private-CA cert. The undici-based
-        // transports (customCa/mTLS/etc. run in the main process) are unaffected,
-        // so their cert-verification assertions still hold.
+        // source change). It affects ONLY renderer-initiated TLS; requests,
+        // including OAuth2 token requests, go through the main-process undici
+        // transports (customCa/mTLS/verifySsl), which it does not touch, so
+        // their cert-verification assertions still hold.
         args: [MAIN_JS, '--ignore-certificate-errors'],
         cwd: ROOT,
         env: {

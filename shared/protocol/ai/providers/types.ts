@@ -21,7 +21,26 @@ export interface TokenCounts {
   output: number;
 }
 
-/** Cost of one request against a price-table entry; 0 when the model is unknown. */
+/** A dated snapshot suffix: `-20250929` (Anthropic) or `-2024-08-06` (OpenAI). */
+const DATED_SUFFIX = /-(?:\d{8}|\d{4}-\d{2}-\d{2})$/;
+
+/**
+ * The price-table entry for a model id: an exact match, else the entry for the
+ * id without its dated snapshot suffix (`claude-sonnet-4-5-20250929` →
+ * `claude-sonnet-4-5`). Undefined when the model is unpriced.
+ */
+export function findModelPrice(models: readonly ModelInfo[], id: string): ModelInfo | undefined {
+  const exact = models.find((m) => m.id === id);
+  if (exact) return exact;
+  const base = id.replace(DATED_SUFFIX, '');
+  return base === id ? undefined : models.find((m) => m.id === base);
+}
+
+/**
+ * Cost of one request against a price-table entry; 0 when the model is unknown.
+ * Callers must also report {@link Usage.costUnknown} in that case — a 0 here is
+ * not "free".
+ */
 export function estimateCostUSD(info: ModelInfo | undefined, t: TokenCounts): number {
   if (!info) return 0;
   const cacheRead = t.cacheRead ?? 0;
@@ -42,8 +61,25 @@ export function estimateCostUSD(info: ModelInfo | undefined, t: TokenCounts): nu
 export interface StreamDecoder {
   /** Feed raw SSE event data (the part after `data: `). Returns 0+ events. */
   feed(rawSseData: string, eventName?: string): ChatStreamEvent[];
-  /** Flush — call once on stream end. Emits trailing `usage` + `done`. */
+  /**
+   * Flush — call once on stream end. Emits trailing `usage` + `done`. A stream
+   * that ended before the provider's terminal marker (message_stop, [DONE],
+   * finish_reason, …) emits {@link truncatedStreamError} before `done`: a cut
+   * connection must never read as a complete answer.
+   */
   flush(): ChatStreamEvent[];
+}
+
+/** Message for a stream that closed before the provider said it was finished. */
+export const TRUNCATED_STREAM_MESSAGE =
+  'Response truncated: the provider stream ended before the model finished.';
+
+/**
+ * The error a decoder or orchestrator emits for a truncated stream. `network`
+ * (not `provider`): the connection was cut, so a retry may succeed.
+ */
+export function truncatedStreamError(): ChatStreamEvent {
+  return { type: 'error', code: 'network', message: TRUNCATED_STREAM_MESSAGE };
 }
 
 export interface ProviderModule {

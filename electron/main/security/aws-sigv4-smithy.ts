@@ -1,6 +1,10 @@
 import { Sha256 } from '@aws-crypto/sha256-js';
 import type { AwsRequestSigner } from '@shared/protocol/ai/provider-routes';
-import type { SigV4Signer } from '@shared/protocol/auth-signer';
+import {
+  isS3SigningService,
+  SIGV4_EXTRA_UNSIGNABLE_HEADERS,
+  type SigV4Signer,
+} from '@shared/protocol/auth-signer';
 import { HttpRequest } from '@smithy/protocol-http';
 import { SignatureV4 } from '@smithy/signature-v4';
 
@@ -49,7 +53,8 @@ export interface SmithySigV4Credentials {
 export function createSmithySignatureV4(
   credentials: SmithySigV4Credentials,
   region: string,
-  service: string
+  service: string,
+  options: { uriEscapePath?: boolean } = {}
 ): SignatureV4 {
   return new SignatureV4({
     credentials: {
@@ -60,9 +65,16 @@ export function createSmithySignatureV4(
     region,
     service,
     sha256: Sha256,
+    ...(options.uriEscapePath !== undefined ? { uriEscapePath: options.uriEscapePath } : {}),
   });
 }
 
+/**
+ * HTTP-auth SigV4 on desktop. Must sign exactly what the shared `signSigV4`
+ * (web, self-host, CLI) signs: S3 keeps the path as sent, every other service
+ * normalises and double-encodes it (smithy's `uriEscapePath`), and the same
+ * headers are left unsigned.
+ */
 export const smithySigV4Signer: SigV4Signer = async (args, creds) => {
   const url = new URL(args.url);
 
@@ -72,8 +84,13 @@ export const smithySigV4Signer: SigV4Signer = async (args, creds) => {
     query[key] = all.length > 1 ? all : (all[0] ?? '');
   }
 
-  // `host` (with port) must match the wire Host header the fetcher sends.
-  const headers: Record<string, string> = { ...args.headers, host: url.host };
+  // `host` (with port) must match the wire Host header the fetcher sends; drop
+  // any user-set Host so smithy never sees two differently-cased copies.
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(args.headers)) {
+    if (key.toLowerCase() !== 'host') headers[key] = value;
+  }
+  headers.host = url.host;
   const hashable = args.body === undefined || isHashableBody(args.body);
   // A pre-set x-amz-content-sha256 is respected by SignatureV4; use it to sign
   // an unsigned payload rather than letting @aws-crypto choke on a non-buffer.
@@ -91,12 +108,19 @@ export const smithySigV4Signer: SigV4Signer = async (args, creds) => {
   });
 
   const signer = createSmithySignatureV4(
-    { accessKeyId: creds.accessKey, secretAccessKey: creds.secretKey },
+    {
+      accessKeyId: creds.accessKey,
+      secretAccessKey: creds.secretKey,
+      sessionToken: creds.sessionToken,
+    },
     creds.region,
-    creds.service
+    creds.service,
+    { uriEscapePath: creds.doubleEncodePath ?? !isS3SigningService(creds.service) }
   );
 
-  const signed = await signer.sign(request);
+  const signed = await signer.sign(request, {
+    unsignableHeaders: new Set(SIGV4_EXTRA_UNSIGNABLE_HEADERS),
+  });
 
   // Return only the SigV4 contribution; applyAuth merges these onto the request.
   const out: Record<string, string> = {};
@@ -136,7 +160,8 @@ export const smithyAwsRequestSigner: AwsRequestSigner = async (request, credenti
       query,
       headers: { ...request.headers, host: url.host },
       body: request.body,
-    })
+    }),
+    { unsignableHeaders: new Set(SIGV4_EXTRA_UNSIGNABLE_HEADERS) }
   );
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(signed.headers)) {
