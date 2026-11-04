@@ -51,7 +51,9 @@ describe('AuthConfiguration — new auth variants', () => {
       expect(screen.getByText('Consumer Key')).toBeInTheDocument();
       expect(screen.getByText('Consumer Secret')).toBeInTheDocument();
       expect(screen.getByText('Signature Method')).toBeInTheDocument();
-      expect(screen.getByText(/Include body params in signature/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Form body fields .* are always included in the/i)
+      ).toBeInTheDocument();
     });
 
     it('persists consumer key edits via onChange with shape {type, oauth1}', async () => {

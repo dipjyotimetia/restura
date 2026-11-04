@@ -1,4 +1,3 @@
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -101,18 +100,10 @@ export function OAuth1AuthEditor({ auth, onChange }: AuthEditorProps) {
           className="bg-background border-border"
         />
       </div>
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="oauth1-add-params-to-body"
-          checked={oauth1?.addParamsToBody ?? false}
-          onCheckedChange={(checked) =>
-            withOAuth1({ ...base(), addParamsToBody: checked === true })
-          }
-        />
-        <label htmlFor="oauth1-add-params-to-body" className="text-sm font-medium cursor-pointer">
-          Include body params in signature (RFC 5849 §3.4.1.3.1)
-        </label>
-      </div>
+      <p className="text-xs text-muted-foreground">
+        Form body fields (application/x-www-form-urlencoded) are always included in the signature,
+        as RFC 5849 §3.4.1.3.1 requires; other bodies never are.
+      </p>
     </div>
   );
 }
