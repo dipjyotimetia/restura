@@ -6,32 +6,37 @@ import {
 import type { Fetcher } from '@shared/protocol/types';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import type { NodeHostnameGuard } from '../adapters';
+import { type NodeGuardedFetch, upstreamFetch } from '../adapters';
 import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
 import { rejectRedirect } from '../shared/redirect';
 import { parseJsonBody } from '../shared/validate-body';
 
 /**
- * Fetch used for the reflection upstream hop. Reflection is a bidi-streaming
- * RPC that Connect servers only accept over HTTP/2, so the Node entry injects
- * an h2-capable fetch (undici `allowH2`); Workers use the runtime fetch.
+ * Fetch override for the reflection upstream hop (tests). Reflection is a
+ * bidi-streaming RPC that Connect servers only accept over HTTP/2, so on Node
+ * the injected `nodeFetch` is asked for h2 (undici `allowH2`); Workers use the
+ * runtime fetch.
  */
 export type ReflectionFetch = (input: string, init: RequestInit) => Promise<Response>;
 
 function buildFetcher(
-  fetchImpl: ReflectionFetch,
+  fetchImpl: ReflectionFetch | undefined,
   isDev: boolean,
   permitPrivateIPs: boolean,
-  nodeHostnameGuard?: NodeHostnameGuard
+  nodeFetch?: NodeGuardedFetch
 ): Fetcher {
-  return async (req) => {
-    if (nodeHostnameGuard) {
-      await nodeHostnameGuard(new URL(req.url).hostname, {
+  // Node: the pinned fetch over HTTP/2. Otherwise an injected fetch (tests),
+  // else the runtime global, resolved lazily so swapped globals are honoured.
+  const doFetch: ReflectionFetch =
+    fetchImpl ??
+    ((input, init) =>
+      upstreamFetch(nodeFetch, input, init, {
         allowLocalhost: isDev,
         allowPrivateIPs: permitPrivateIPs,
-      });
-    }
+        http2: true,
+      }));
+  return async (req) => {
     const init: RequestInit = {
       method: req.method,
       headers: req.headers,
@@ -40,7 +45,7 @@ function buildFetcher(
       redirect: 'manual',
     };
     if (req.body !== undefined) init.body = req.body;
-    const r = rejectRedirect(await fetchImpl(req.url, init), 'gRPC reflection');
+    const r = rejectRedirect(await doFetch(req.url, init), 'gRPC reflection');
     return {
       status: r.status,
       statusText: r.statusText,
@@ -60,7 +65,7 @@ export const grpcReflectionBodyLimit = bodyLimit({
 });
 
 export function createGrpcReflectionHandler(
-  nodeHostnameGuard?: NodeHostnameGuard,
+  nodeFetch?: NodeGuardedFetch,
   fetchImpl?: ReflectionFetch
 ) {
   return async function grpcReflectionHandler(c: Context<{ Bindings: Env }>) {
@@ -74,12 +79,10 @@ export function createGrpcReflectionHandler(
     // Same gate as worker/index.ts auth — see proxy.ts for rationale.
     const isDev = isLocalDevBypass(c.env);
     const permitPrivateIPs = allowPrivateIPs(c.env);
-    // Resolve the global lazily so tests (and runtimes) that swap it are honoured.
-    const doFetch: ReflectionFetch = fetchImpl ?? ((input, init) => fetch(input, init));
 
     const result = await executeGrpcReflectionProxy(
       parsed.value,
-      buildFetcher(doFetch, isDev, permitPrivateIPs, nodeHostnameGuard),
+      buildFetcher(fetchImpl, isDev, permitPrivateIPs, nodeFetch),
       { allowLocalhost: isDev, allowPrivateIPs: permitPrivateIPs }
     );
     if (!result.ok) {

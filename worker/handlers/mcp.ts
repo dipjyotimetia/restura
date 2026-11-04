@@ -2,7 +2,7 @@ import { type McpSpec, validateMcpSpec } from '@shared/protocol/mcp-proxy';
 import { McpRequestBodySchema } from '@shared/protocol/mcp-schema';
 import { SseParser } from '@shared/protocol/sse-parser';
 import type { Context } from 'hono';
-import type { NodeHostnameGuard } from '../adapters';
+import { type NodeGuardedFetch, upstreamFetch } from '../adapters';
 import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
 import { isRedirectResponse, redirectMessage } from '../shared/redirect';
@@ -182,7 +182,7 @@ async function readSseForReply(
   }
 }
 
-export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
+export function createMcpHandler(nodeFetch?: NodeGuardedFetch) {
   return async function mcpHandler(c: Context<{ Bindings: Env }>) {
     const parsed = await parseJsonBody(c.req.raw, McpRequestBodySchema);
     if (!parsed.ok) {
@@ -214,20 +214,19 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
     else clientSignal.addEventListener('abort', () => controller.abort(), { once: true });
 
     try {
-      if (nodeHostnameGuard) {
-        await nodeHostnameGuard(new URL(targetUrl).hostname, {
-          allowLocalhost: isDev,
-          allowPrivateIPs: permitPrivateIPs,
-        });
-      }
-      const upstream = await fetch(targetUrl, {
-        method: 'POST',
-        headers,
-        body,
-        // Never follow a redirect off the validated host.
-        redirect: 'manual',
-        signal: controller.signal,
-      });
+      const upstream = await upstreamFetch(
+        nodeFetch,
+        targetUrl,
+        {
+          method: 'POST',
+          headers,
+          body,
+          // Never follow a redirect off the validated host.
+          redirect: 'manual',
+          signal: controller.signal,
+        },
+        { allowLocalhost: isDev, allowPrivateIPs: permitPrivateIPs }
+      );
       if (isRedirectResponse(upstream)) {
         await upstream.body?.cancel().catch(() => {});
         return c.json(

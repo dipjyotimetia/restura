@@ -173,7 +173,7 @@ describe('/api/grpc-web Worker fetcher security', () => {
     expect(init.redirect).toBe('manual');
   });
 
-  it('runs the Node hostname (DNS) guard before connecting', async () => {
+  it('routes the upstream call through the injected Node pinned fetch', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const guard = vi.fn(async () => {
@@ -191,7 +191,11 @@ describe('/api/grpc-web Worker fetcher security', () => {
       {}
     );
     const end = JSON.parse((await res.text()).trim().split('\n').at(-1) as string);
-    expect(guard).toHaveBeenCalledWith('rebind.example.com', expect.any(Object));
+    expect(guard).toHaveBeenCalledWith(
+      expect.stringContaining('//rebind.example.com'),
+      expect.anything(),
+      expect.any(Object)
+    );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(end.grpcStatus).toBe(14);
   });

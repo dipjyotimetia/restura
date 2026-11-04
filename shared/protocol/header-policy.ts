@@ -28,11 +28,20 @@ export const RESPONSE_DENY = new Set<string>([
  * prompt, follow or refresh to an upstream-chosen URL, preload resources).
  * The buffered proxy is unaffected — it returns headers as JSON data.
  * `Set-Cookie` is handled separately (cookie side channel).
+ *
+ * Entity framing is denied too: fetch() has already decoded the body
+ * (gzip/br/deflate) and the proxy re-frames it, so forwarding the upstream
+ * `Content-Encoding` / `Content-Length` makes the client decode plain bytes
+ * again or truncate at the compressed length. CORS headers (`Access-Control-*`,
+ * matched by prefix in {@link isStreamForwardDenied}) and `Timing-Allow-Origin`
+ * belong to the proxy's own origin policy and must not be overridden upstream.
  */
 export const STREAM_FORWARD_DENY = new Set<string>([
   ...RESPONSE_DENY,
   'alt-svc',
   'clear-site-data',
+  'content-encoding',
+  'content-length',
   'content-security-policy',
   'content-security-policy-report-only',
   'link',
@@ -45,8 +54,14 @@ export const STREAM_FORWARD_DENY = new Set<string>([
   'reporting-endpoints',
   'set-cookie',
   'strict-transport-security',
+  'timing-allow-origin',
   'www-authenticate',
 ]);
+
+/** True when a (lower-cased) upstream header must not be forwarded on a stream. */
+export function isStreamForwardDenied(lowerName: string): boolean {
+  return STREAM_FORWARD_DENY.has(lowerName) || lowerName.startsWith('access-control-');
+}
 
 /**
  * Split upstream response headers for a streamed pass-through: `forward` may
@@ -61,7 +76,7 @@ export function splitStreamForwardHeaders(input: Record<string, string>): {
   const withheld: Record<string, string> = {};
   for (const [k, v] of Object.entries(input)) {
     const lower = k.toLowerCase();
-    if (!STREAM_FORWARD_DENY.has(lower)) forward[k] = v;
+    if (!isStreamForwardDenied(lower)) forward[k] = v;
     else if (lower !== 'set-cookie' && !RESPONSE_DENY.has(lower)) withheld[k] = v;
   }
   return { forward, withheld };

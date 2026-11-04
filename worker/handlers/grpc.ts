@@ -6,7 +6,7 @@ import {
 import type { Fetcher } from '@shared/protocol/types';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import type { NodeHostnameGuard } from '../adapters';
+import { type NodeGuardedFetch, upstreamFetch } from '../adapters';
 import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
 import { rejectRedirect } from '../shared/redirect';
@@ -24,15 +24,9 @@ export const grpcBodyLimit = bodyLimit({
 function buildFetcher(
   isDev: boolean,
   permitPrivateIPs: boolean,
-  nodeHostnameGuard?: NodeHostnameGuard
+  nodeFetch?: NodeGuardedFetch
 ): Fetcher {
   return async (req) => {
-    if (nodeHostnameGuard) {
-      await nodeHostnameGuard(new URL(req.url).hostname, {
-        allowLocalhost: isDev,
-        allowPrivateIPs: permitPrivateIPs,
-      });
-    }
     const init: RequestInit = {
       method: req.method,
       headers: req.headers,
@@ -41,7 +35,13 @@ function buildFetcher(
       redirect: 'manual',
     };
     if (req.body !== undefined) init.body = req.body;
-    const r = rejectRedirect(await fetch(req.url, init), 'gRPC');
+    const r = rejectRedirect(
+      await upstreamFetch(nodeFetch, req.url, init, {
+        allowLocalhost: isDev,
+        allowPrivateIPs: permitPrivateIPs,
+      }),
+      'gRPC'
+    );
     return {
       status: r.status,
       statusText: r.statusText,
@@ -55,7 +55,7 @@ function buildFetcher(
   };
 }
 
-export function createGrpcHandler(nodeHostnameGuard?: NodeHostnameGuard) {
+export function createGrpcHandler(nodeFetch?: NodeGuardedFetch) {
   return async function grpcHandler(c: Context<{ Bindings: Env }>) {
     // Same gate as worker/index.ts auth — see proxy.ts for rationale.
     const isDev = isLocalDevBypass(c.env);
@@ -69,16 +69,12 @@ export function createGrpcHandler(nodeHostnameGuard?: NodeHostnameGuard) {
     const body = parsed.value;
     const permitPrivateIPs = allowPrivateIPs(c.env);
 
-    const result = await executeGrpcProxy(
-      body,
-      buildFetcher(isDev, permitPrivateIPs, nodeHostnameGuard),
-      {
-        allowLocalhost: isDev,
-        allowPrivateIPs: permitPrivateIPs,
-        // The browser went away (tab closed, request aborted): stop the upstream call.
-        signal: c.req.raw.signal,
-      }
-    );
+    const result = await executeGrpcProxy(body, buildFetcher(isDev, permitPrivateIPs, nodeFetch), {
+      allowLocalhost: isDev,
+      allowPrivateIPs: permitPrivateIPs,
+      // The browser went away (tab closed, request aborted): stop the upstream call.
+      signal: c.req.raw.signal,
+    });
 
     if (!result.ok) {
       if (result.status === 499) {

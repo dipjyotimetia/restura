@@ -4,7 +4,7 @@ import {
   validateMcpTerminateSpec,
 } from '@shared/protocol/mcp-session';
 import type { Context } from 'hono';
-import type { NodeHostnameGuard } from '../adapters';
+import { type NodeGuardedFetch, upstreamFetch } from '../adapters';
 import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
 import { parseJsonBody } from '../shared/validate-body';
@@ -25,7 +25,7 @@ import { parseJsonBody } from '../shared/validate-body';
 /** Terminate bodies are tiny (url, session id, headers); cap them. */
 const MAX_TERMINATE_BODY_BYTES = 64 * 1024;
 
-export function createMcpTerminateHandler(nodeHostnameGuard?: NodeHostnameGuard) {
+export function createMcpTerminateHandler(nodeFetch?: NodeGuardedFetch) {
   return async function mcpTerminateHandler(c: Context<{ Bindings: Env }>) {
     const parsed = await parseJsonBody(c.req.raw, McpTerminateBodySchema, {
       maxBytes: MAX_TERMINATE_BODY_BYTES,
@@ -49,18 +49,17 @@ export function createMcpTerminateHandler(nodeHostnameGuard?: NodeHostnameGuard)
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      if (nodeHostnameGuard) {
-        await nodeHostnameGuard(new URL(targetUrl).hostname, {
-          allowLocalhost: isDev,
-          allowPrivateIPs: permitPrivateIPs,
-        });
-      }
-      const upstream = await fetch(targetUrl, {
-        method: 'DELETE',
-        headers,
-        redirect: 'manual',
-        signal: controller.signal,
-      });
+      const upstream = await upstreamFetch(
+        nodeFetch,
+        targetUrl,
+        {
+          method: 'DELETE',
+          headers,
+          redirect: 'manual',
+          signal: controller.signal,
+        },
+        { allowLocalhost: isDev, allowPrivateIPs: permitPrivateIPs }
+      );
       clearTimeout(timer);
       await upstream.body?.cancel().catch(() => {});
 

@@ -11,8 +11,17 @@ export interface RemoteImportResult {
 }
 
 export interface RemoteImportOptions {
+  /**
+   * Transport for every hop. On a runtime that resolves DNS itself (Node),
+   * pass a fetch that pins the dial to the SSRF-validated address — the
+   * self-host server injects its DNS-pinned `nodeFetch` here.
+   */
   fetcher?: typeof fetch;
-  /** Platform DNS rebind guard. Worker runtimes do not expose one. */
+  /**
+   * Extra pre-flight hostname check run before each hop. A pre-flight alone
+   * does NOT stop DNS rebinding (the fetch re-resolves); it only complements
+   * a pinned `fetcher`.
+   */
   guard?: (hostname: string) => Promise<void>;
   signal?: AbortSignal;
 }

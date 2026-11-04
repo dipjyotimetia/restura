@@ -1,29 +1,21 @@
 /**
- * Pre-flight DNS-resolution SSRF guard for the Node Worker. The Cloudflare
- * runtime refuses connects to RFC 1918 / link-local / loopback / metadata
- * addresses implicitly; in Node we have to resolve the hostname ourselves
- * and check every record before dialing.
+ * DNS-resolution SSRF guard for the Node Worker. The Cloudflare runtime
+ * refuses connects to RFC 1918 / link-local / loopback / metadata addresses
+ * implicitly; in Node we have to resolve the hostname ourselves and check
+ * every record before dialing.
  *
- * Best-effort against DNS rebind — a TTL=0 swap between this lookup and the
- * subsequent `net.connect()` / `tls.connect()` / `new WebSocket(...)` is
- * still possible. Full mitigation requires a custom dispatcher per transport
- * (Electron uses `safe-connect.ts`). Worth doing here as a layered defence,
- * given the Cloudflare path doesn't even need this.
+ * A pre-flight check alone is open to DNS rebinding (a TTL=0 swap between the
+ * check and the dial's own re-resolution), so every dial must use the
+ * address(es) validated here: `createGuardedLookup` is a `net`/`tls`/undici
+ * `lookup` that resolves AND validates at connect time (used by
+ * `guarded-fetch-node.ts`), and the raw-socket / WebSocket transports dial
+ * the returned address directly.
  */
 import type { LookupAddress } from 'node:dns';
 import * as dns from 'node:dns/promises';
+import type { LookupFunction } from 'node:net';
 import * as net from 'node:net';
-import { assertResolvedAddressAllowed } from '@shared/protocol/url-validation';
-
-/**
- * Cloud-metadata + cluster-control-plane IP addresses that MUST be rejected
- * even when the operator has opted in to private-IP access. Mirrors the
- * literal-IP entries in `BLOCKED_HOSTNAMES` (which `validateURL` consults
- * for the URL string but not for resolved addresses).
- */
-const HARD_BLOCKED_ADDRESSES = new Set([
-  '169.254.169.254', // AWS / Azure / DO instance-metadata
-]);
+import { assertResolvedAddressAllowed, isCloudMetadataHost } from '@shared/protocol/url-validation';
 
 export interface NodeDnsGuardOptions {
   /** Permit localhost / 127.0.0.1 / ::1 — typically only on `ENVIRONMENT=development`. */
@@ -31,8 +23,10 @@ export interface NodeDnsGuardOptions {
   /**
    * Permit any private address (RFC 1918 / link-local / CGNAT / IPv6 ULA).
    * Self-hosted enterprises set this via `ALLOW_PRIVATE_IPS=true` so they
-   * can reach internal services. Cloud-metadata endpoints stay hard-blocked
-   * regardless (see `assertResolvedAddressAllowed`).
+   * can reach internal services. Cloud-metadata / credential endpoints stay
+   * hard-blocked regardless (`isCloudMetadataHost`), and loopback is opened
+   * only by `allowLocalhost` — for literals and DNS-resolved names alike, the
+   * same as `validateURL`.
    */
   allowPrivateIPs?: boolean;
 }
@@ -66,12 +60,13 @@ export async function assertNodeHostnameSafe(
   const literal = /^\[.*\]$/.test(hostname) ? hostname.slice(1, -1) : hostname;
   const literalFamily = net.isIP(literal);
   if (literalFamily !== 0) {
-    if (HARD_BLOCKED_ADDRESSES.has(literal)) {
+    if (isCloudMetadataHost(literal)) {
       throw new Error(`Hostname ${literal} is hard-blocked (cloud-metadata endpoint)`);
     }
     assertResolvedAddressAllowed(literal, literal, {
       allowLocalhost,
       allowPrivateLiteralHost,
+      loopbackNeedsLocalhost: true,
     });
     return [{ address: literal, family: literalFamily === 6 ? 6 : 4 }];
   }
@@ -86,13 +81,62 @@ export async function assertNodeHostnameSafe(
   }
 
   for (const r of records) {
-    if (HARD_BLOCKED_ADDRESSES.has(r.address)) {
-      throw new Error(`DNS resolution for ${hostname} returned hard-blocked address ${r.address}`);
+    if (isCloudMetadataHost(r.address)) {
+      throw new Error(
+        `DNS resolution for ${hostname} returned hard-blocked address ${r.address} (cloud-metadata endpoint)`
+      );
     }
     assertResolvedAddressAllowed(hostname, r.address, {
       allowLocalhost,
       allowPrivateLiteralHost,
+      loopbackNeedsLocalhost: true,
     });
   }
   return records;
+}
+
+/**
+ * A `net.connect` / `tls.connect` / undici `connect.lookup` that resolves the
+ * name through {@link assertNodeHostnameSafe} and hands the dial only the
+ * addresses that passed. Resolution and validation happen in the same step
+ * the socket uses, so there is no window for a rebind between them. Errors
+ * are tagged so callers can surface the guard's message instead of a generic
+ * "fetch failed" (see {@link isNodeDnsGuardError}).
+ */
+export function createGuardedLookup(options: NodeDnsGuardOptions = {}): LookupFunction {
+  return (hostname, lookupOptions, callback) => {
+    assertNodeHostnameSafe(hostname, options).then(
+      (records) => {
+        const family = lookupOptions.family;
+        const wanted =
+          family === 4 || family === 6 ? records.filter((r) => r.family === family) : records;
+        const first = wanted[0];
+        if (!first) {
+          const err = guardError(
+            new Error(`DNS lookup for ${hostname} returned no usable address`)
+          );
+          callback(err as NodeJS.ErrnoException, '', 4);
+          return;
+        }
+        if (lookupOptions.all) callback(null, wanted);
+        else callback(null, first.address, first.family);
+      },
+      (err: unknown) => {
+        callback(guardError(err) as NodeJS.ErrnoException, '', 4);
+      }
+    );
+  };
+}
+
+const GUARD_ERRORS = new WeakSet<Error>();
+
+function guardError(err: unknown): Error {
+  const e = err instanceof Error ? err : new Error(String(err));
+  GUARD_ERRORS.add(e);
+  return e;
+}
+
+/** True for an error raised by {@link createGuardedLookup}'s SSRF check. */
+export function isNodeDnsGuardError(err: unknown): err is Error {
+  return err instanceof Error && GUARD_ERRORS.has(err);
 }

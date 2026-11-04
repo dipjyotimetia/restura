@@ -29,7 +29,7 @@ import { validateURL } from '@shared/protocol/url-validation';
 import type { Context } from 'hono';
 import { stream } from 'hono/streaming';
 import type { StatusCode } from 'hono/utils/http-status';
-import type { NodeHostnameGuard, TcpProxyAdapter } from '../adapters';
+import { type NodeGuardedFetch, type TcpProxyAdapter, upstreamFetch } from '../adapters';
 import type { Env } from '../env';
 import { isLocalDevBypass, allowPrivateIPs as readAllowPrivateIPs } from '../shared/env';
 import { parseJsonBody } from '../shared/validate-body';
@@ -111,7 +111,7 @@ function buildFetcher(
   upstream: UpstreamProxyConfig | undefined,
   tcpProxy: TcpProxyAdapter,
   allowPrivateIPs: boolean,
-  nodeHostnameGuard?: NodeHostnameGuard
+  nodeFetch?: NodeGuardedFetch
 ): Fetcher {
   return async (req) => {
     let response: Response;
@@ -142,12 +142,6 @@ function buildFetcher(
           ? await tcpProxy.httpsViaConnectProxy(targetUrl, upstream, init, req.signal)
           : await tcpProxy.httpViaProxy(targetUrl, upstream, init, req.signal);
     } else {
-      if (nodeHostnameGuard) {
-        await nodeHostnameGuard(new URL(req.url).hostname, {
-          allowLocalhost: isDev,
-          allowPrivateIPs,
-        });
-      }
       const init: RequestInit = {
         method: req.method,
         headers: req.headers,
@@ -155,7 +149,10 @@ function buildFetcher(
         redirect: 'manual',
       };
       if (req.body !== undefined) init.body = req.body;
-      response = await fetch(req.url, init);
+      response = await upstreamFetch(nodeFetch, req.url, init, {
+        allowLocalhost: isDev,
+        allowPrivateIPs,
+      });
     }
     return {
       status: response.status,
@@ -173,12 +170,9 @@ function buildFetcher(
  * Build a /api/proxy handler with the platform's TCP-proxy adapter injected.
  * The Cloudflare entry passes the `tcp-proxy` adapter (uses `cloudflare:sockets`);
  * the Node entry passes the `tcp-proxy-node` adapter (uses `node:net`/`node:tls`)
- * along with `nodeHostnameGuard`, a pre-flight SSRF DNS check that Workers don't need.
+ * along with `nodeFetch`, the DNS-pinned SSRF-guarded fetch that Workers don't need.
  */
-export function createProxyHandler(
-  tcpProxy: TcpProxyAdapter,
-  nodeHostnameGuard?: NodeHostnameGuard
-) {
+export function createProxyHandler(tcpProxy: TcpProxyAdapter, nodeFetch?: NodeGuardedFetch) {
   return async function proxyHandler(c: Context<{ Bindings: Env }>) {
     // Use the same gate as auth (worker/app.ts). ENVIRONMENT='development'
     // alone MUST NOT relax allowLocalhost — a preview deploy that inherits
@@ -231,13 +225,7 @@ export function createProxyHandler(
     // access via ALLOW_PRIVATE_IPS=true. Distinct from `isDev` so that production
     // self-hosted deployments don't accidentally also relax other dev guards.
     const allowPrivateIPs = readAllowPrivateIPs(c.env);
-    const fetcher = buildFetcher(
-      isDev,
-      body.upstreamProxy,
-      tcpProxy,
-      allowPrivateIPs,
-      nodeHostnameGuard
-    );
+    const fetcher = buildFetcher(isDev, body.upstreamProxy, tcpProxy, allowPrivateIPs, nodeFetch);
 
     const streaming = isStreamingRequest(body);
     // The upstream-proxy twins read the response to EOF before returning, so
