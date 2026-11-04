@@ -279,6 +279,8 @@ describe('socketio-handler long-polling redirects', () => {
       expect(emitted(`socketio:error:${connectionId}`)[0]?.[2]).toEqual({
         message:
           "Server redirected the Socket.IO polling request (HTTP 302); redirects aren't followed",
+        // reconnection: false — the renderer must stop showing "connecting".
+        willRetry: false,
       });
       expect(emitted(`socketio:open:${connectionId}`)).toHaveLength(0);
     },
@@ -305,6 +307,7 @@ describe('socketio-handler long-polling redirects', () => {
     );
     expect(emitted(`socketio:error:${connectionId}`)[0]?.[2]).toEqual({
       message: "Server redirected the Socket.IO handshake (HTTP 302); redirects aren't followed",
+      willRetry: false,
     });
     expect(targetHits).toEqual([]);
   }, 10_000);
