@@ -120,15 +120,20 @@ describe('OAuth1 signer edge cases', () => {
       signatureMethod: 'HMAC-SHA256' as const,
     };
     const signed = header(buildOAuth1Header('GET', 'https://api.test/r', config));
-    const base = buildOAuth1BaseString('GET', 'https://api.test/r', [
-      ['oauth_consumer_key', 'ck'],
-      ['oauth_nonce', 'n'],
-      ['oauth_signature_method', 'HMAC-SHA256'],
-      ['oauth_timestamp', '1'],
-      ['oauth_version', '1.0'],
-    ]);
-    const expected = createHmac('sha256', `${consumerSecret}&`).update(base).digest('base64');
-    expect(signed.oauth_signature).toBe(expected);
+    // HMAC-SHA256 of the base string below with key `${'k'.repeat(80)}&`,
+    // computed independently with `openssl dgst -sha256 -hmac`.
+    expect(
+      buildOAuth1BaseString('GET', 'https://api.test/r', [
+        ['oauth_consumer_key', 'ck'],
+        ['oauth_nonce', 'n'],
+        ['oauth_signature_method', 'HMAC-SHA256'],
+        ['oauth_timestamp', '1'],
+        ['oauth_version', '1.0'],
+      ])
+    ).toBe(
+      'GET&https%3A%2F%2Fapi.test%2Fr&oauth_consumer_key%3Dck%26oauth_nonce%3Dn%26oauth_signature_method%3DHMAC-SHA256%26oauth_timestamp%3D1%26oauth_version%3D1.0'
+    );
+    expect(signed.oauth_signature).toBe('NyRd6cmp9LlVY6JTXI2BNK+n8j96x8h5eUiCdihIXYg=');
   });
 
   it('PLAINTEXT with no consumer secret signs with "&tokenSecret"', () => {

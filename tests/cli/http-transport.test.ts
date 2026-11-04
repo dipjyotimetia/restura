@@ -309,10 +309,15 @@ describe('requestDispatcher — the request proxy on the wire', () => {
     await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', r));
     upstreamUrl = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}/hello`;
 
-    // A forward proxy: records what it was asked for, then relays plain HTTP.
+    // A forward proxy: records what it was asked for, then relays plain HTTP —
+    // only ever to this test's own upstream, never to a requested URL.
     proxy = createServer((req: IncomingMessage, res) => {
       seen.push({ url: req.url, auth: req.headers['proxy-authorization'] });
-      const forwarded = httpRequest(req.url ?? '', { method: req.method }, (up) => {
+      if (req.url !== upstreamUrl) {
+        res.writeHead(403).end();
+        return;
+      }
+      const forwarded = httpRequest(upstreamUrl, { method: req.method }, (up) => {
         res.writeHead(up.statusCode ?? 502, { 'x-via': 'test-proxy' });
         up.pipe(res);
       });
