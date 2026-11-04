@@ -504,7 +504,7 @@ async function runCollectionWithPool(
     };
   };
 
-  const { bailed } = await sequenceCollectionRun(
+  const { bailed, aborted } = await sequenceCollectionRun(
     {
       items: runnables,
       nameOf: (runnable) => runnable.name,
@@ -543,7 +543,7 @@ async function runCollectionWithPool(
       usedDataFile: dataRows.length > 0,
       retention,
     },
-    outcome: signal.aborted && results.length < total ? 'aborted' : bailed ? 'failed' : 'completed',
+    outcome: aborted ? 'aborted' : bailed ? 'failed' : 'completed',
     requests: results,
     summary,
   };
