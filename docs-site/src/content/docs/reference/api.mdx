@@ -34,7 +34,16 @@ Production requires one of:
 
 With neither configured, `/api/*` fails closed with `503`. `/health`, `/ready`, `/api/feature-flags`, and `/api/telemetry/error` need no token.
 
-Local dev bypasses auth only when `ENVIRONMENT=development` **and** either Miniflare is detected or `DEV_BYPASS_AUTH=true` is set in `.dev.vars`.
+Local dev bypasses auth only when `ENVIRONMENT=development` **and** either Miniflare is detected or `DEV_BYPASS_AUTH=true` is set in `.dev.vars`. In bypass mode a browser request whose `Origin` is neither the server's own origin nor listed in `ALLOWED_ORIGIN` is refused with `403 {"error":"Origin not allowed"}`.
+
+Every `POST /api/*` must send `Content-Type: application/json` (parameters such as `; charset=utf-8` are fine); anything else gets `415 {"error":"Content-Type must be application/json"}`. This check runs before auth, so it also applies to the public endpoints and in bypass mode — it stops a cross-site page from driving the proxy with a preflight-free `text/plain` or form POST.
+
+| Status | When |
+|---|---|
+| `401` | Token or Cloudflare Access assertion missing or wrong. |
+| `403` | Dev bypass only: foreign `Origin`. |
+| `415` | `POST /api/*` without a JSON `Content-Type`. |
+| `503` | No auth mode configured (or `REQUIRE_CF_ACCESS=true` without its team domain / AUD). |
 
 ## Rate limiting
 

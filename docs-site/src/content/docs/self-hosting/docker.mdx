@@ -35,7 +35,11 @@ services:
     restart: unless-stopped
 ```
 
-The repo ships a [`docker-compose.yml`](https://github.com/dipjyotimetia/restura/blob/main/docker-compose.yml) you can copy.
+The repo ships a [`docker-compose.yml`](https://github.com/dipjyotimetia/restura/blob/main/docker-compose.yml) you can copy. It publishes the port on all interfaces, so it needs `WORKER_PROXY_TOKEN` or Cloudflare Access.
+
+`docker-compose.local.yml` is a source-build smoke stack that runs with `DEV_BYPASS_AUTH=true` (unauthenticated). It publishes on `127.0.0.1` only (`127.0.0.1:${RESTURA_LOCAL_PORT:-3000}`) — don't widen that binding.
+
+Every `POST /api/*` must carry `Content-Type: application/json`; other content types get `415`, in every auth mode.
 
 ## Configuration
 
@@ -49,12 +53,12 @@ The repo ships a [`docker-compose.yml`](https://github.com/dipjyotimetia/restura
 | `CF_ACCESS_AUD` | Access application audience (AUD) tag. Required with `REQUIRE_CF_ACCESS` | |
 | `ENVIRONMENT` | `development` allows localhost upstream; anything else enforces SSRF guard | unset (treated as production) |
 | `ALLOW_PRIVATE_IPS` | Allow RFC 1918 / link-local upstreams (still blocks cloud-metadata) | `false` |
-| `ALLOWED_ORIGIN` | Comma-separated `Origin` allowlist (supports `*` wildcards) | unset = no cross-origin access (same-origin only) |
+| `ALLOWED_ORIGIN` | Comma-separated `Origin` allowlist (supports `*` wildcards). Under `DEV_BYPASS_AUTH` it is also the list of cross-origin browsers the bypass admits | unset = no cross-origin access (same-origin only) |
 | `RESTURA_STATIC_ROOT` | Path to the SPA bundle | `/app/dist/web` |
 | `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | Outbound proxy for upstream requests (lowercase variants also work); `NO_PROXY` hosts bypass it. A per-request upstream proxy set in the app takes precedence | unset = direct |
 | `RATE_LIMITER` | Rate-limiter backend. Use `map` (the Node default) or omit it. `binding` and `binding-shadow` need Cloudflare's Rate Limiting binding, so the Node server **exits at startup** if you set them | `map` |
 | `TRUST_PROXY` | If `true`, rate limiting keys on the client-IP header (`CF-Connecting-IP` / `True-Client-IP`) instead of the socket peer. Set only behind a reverse proxy that overwrites that header | `false` |
-| `DEV_BYPASS_AUTH` | Local development only — skips auth when `ENVIRONMENT=development`. **Never set this in production** | unset |
+| `DEV_BYPASS_AUTH` | Local development only — skips auth when `ENVIRONMENT=development`. Browser requests from a foreign `Origin` (not same-origin, not in `ALLOWED_ORIGIN`) are still refused with `403`. **Never set this in production** | unset |
 
 ## Auth modes
 

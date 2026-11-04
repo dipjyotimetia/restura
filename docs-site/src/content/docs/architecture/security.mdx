@@ -32,11 +32,19 @@ Every outbound URL passes through `shared/protocol/url-validation.ts`, which blo
 - Link-local `169.254/16` — covers the cloud-metadata endpoint.
 - Loopback and IPv6 loopback.
 - IPv6 unique-local (`fc00::/7`).
-- IPv4-mapped IPv6.
+- IPv4-mapped IPv6, and every other embedded-IPv4 form (SIIT `::ffff:0:0/96`, 6to4, NAT64): the embedded address is re-checked as IPv4.
+- Special-use IPv4: `192.0.0.0/24` (IETF protocol assignments), `198.18.0.0/15` (benchmarking — also the "fake-IP" pool of Clash/sing-box style resolvers), multicast `224.0.0.0/4`, and reserved `240.0.0.0/4` including the `255.255.255.255` broadcast address. TEST-NETs are deliberately not blocked.
+- IPv6 tunnels and multicast: Teredo `2001::/32`, local-use NAT64 `64:ff9b:1::/48`, multicast `ff00::/8`.
+
+Non-special schemes (`kafka:`, `mqtt:`, …) get an opaque host from the URL parser, so the guard percent-decodes it and applies NFKC plus the IDN full-stop mappings before checking — `kafka://%31%32%37.0.0.1` and full-width digits are caught like `127.0.0.1`. Malformed percent-encoding is refused.
+
+OAuth2 token requests (Get Token, device code, auto-refresh) go through the app's own HTTP transport — the Worker's `/api/proxy` on web and self-host, IPC on desktop — not a renderer `fetch`, so the same SSRF policy applies to the identity provider and redirects are not followed.
 
 The guard is the **single source of truth** — before the shared-protocol refactor it had drifted between backends.
 
-### DNS-rebind guard (desktop)
+### DNS-rebind guard (desktop and self-host WebSocket relay)
+
+The self-hosted Node server's WebSocket relay resolves and validates the upstream, then dials the validated IP (Host and SNI keep the original name), so there is no rebind window between check and connect.
 
 The Electron main process additionally enforces a **pre-flight DNS guard**: hostnames are resolved before connecting, and `assertResolvedAddressAllowed` is called against every record returned. Note: this is *pre-flight only* — it does not mitigate a true DNS-rebind that swaps records at TTL=0 between resolve and connect.
 
@@ -142,6 +150,12 @@ The deployed Cloudflare Worker requires one of:
 - `REQUIRE_CF_ACCESS=true` with `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`, and a Cloudflare Access policy in front of the Worker. Each request's signed assertion is verified.
 
 Local dev bypasses auth only when `ENVIRONMENT=development` **and** either Miniflare is detected or `DEV_BYPASS_AUTH=true` is set in `.dev.vars`. **Never put `DEV_BYPASS_AUTH` in `wrangler.jsonc`** (the deployed config).
+
+CSRF defences that hold even with the bypass on:
+
+- Every `POST /api/*` must be `Content-Type: application/json` (`415` otherwise), checked before auth — so another site can't drive the proxy with a preflight-free `text/plain` or form POST.
+- In bypass mode a browser request whose `Origin` is neither the server's own nor in `ALLOWED_ORIGIN` is refused with `403`.
+- `docker-compose.local.yml`, which runs the bypass, publishes on `127.0.0.1` only.
 
 <Aside title="Read the source">
 - [`docs/security.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/security.md) — at-rest encryption details.

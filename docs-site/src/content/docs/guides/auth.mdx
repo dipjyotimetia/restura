@@ -15,7 +15,7 @@ The simplest case: `Authorization: Bearer <token>`. Reads variables: `{{token}}`
 
 ### Basic
 
-Username + password, base64-encoded. An empty username with a password is sent as `:password` (the common `:token` shape) in the app and the CLI; with neither, no header is sent. Stored as a `SecretRef` (handle, never plaintext in the renderer) on desktop.
+Username + password, UTF-8 encoded and then base64-encoded (the same encoder in the app, desktop main process and CLI, so `ü` or emoji work). An empty username with a password is sent as `:password` (the common `:token` shape) in the app and the CLI; with neither, no header is sent. Stored as a `SecretRef` (handle, never plaintext in the renderer) on desktop.
 
 ### API Key
 
@@ -31,6 +31,14 @@ Four grants supported, all with optional **PKCE**:
 - **Device code** — for CLIs and headless clients.
 
 **Get token** saves the issued access token, plus `refresh_token` and the expiry from `expires_in` when the server returns them, in the request's auth settings. When the token is expired or about to expire and a refresh token is present, an HTTP send refreshes it and saves the newly issued token back to the request.
+
+Token requests — **Get token**, the device-code request and auto-refresh — go through the app's own HTTP transport (the Worker's `/api/proxy` on web and self-hosted, the HTTP IPC channel on desktop), not a direct browser `fetch`. So:
+
+- The SSRF guard applies to the token endpoint like any request you send: on the hosted web app an IdP on `localhost` or a private network is refused unless the server allows private upstreams (local dev, or `ALLOW_PRIVATE_IPS` on a self-hosted server).
+- Redirects from the token endpoint are not followed, so the client secret is never re-posted to wherever a redirect points.
+- IdPs that send no CORS headers work, and on desktop a `http://localhost` IdP is no longer blocked by the renderer's content-security policy.
+
+A client secret or password stored in the desktop keychain or an external secret store can't be read by the renderer, so **Get token** refuses with a message saying so (enter the value directly or paste an access token), and auto-refresh is skipped — the expired token then gets the upstream's `401`.
 
 ### OAuth 1.0a
 
@@ -74,6 +82,8 @@ Upload a `.pem` / `.p12` / `.pfx` with passphrase; the cert is presented during 
 ## Secret handling
 
 Secret-bearing auth fields (tokens, passwords, client secrets, private keys) use a **handle-based pattern**: the encrypted value lives in the Electron main process keychain-protected store, and the renderer only sees a `SecretRef` handle. The plaintext is resolved at the wire, never touches the Zustand store, never lands in an exported collection, never appears in crash logs.
+
+If a keychain secret can't be resolved at send time (for example a collection opened on another machine), the desktop app fails the request with "… is unavailable on this device" rather than sending it without `Authorization` or signing with an empty secret. A pre-request script also can't add a secret variable's value to a header that didn't already reference it in the saved request — the send is refused.
 
 <Aside title="See">
 [ADR 0007 — SecretRef pattern](/architecture/adrs/0007-secret-ref-pattern/) for the design.

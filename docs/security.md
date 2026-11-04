@@ -54,6 +54,14 @@ The Worker does not store user data. Requests are proxied and forgotten.
 Cloudflare's network-level encryption applies; no application-layer
 encryption is performed.
 
+**CSRF on `/api/*`** (Worker and self-host, `worker/app.ts`). Every `POST
+/api/*` must be `Content-Type: application/json`, or it is refused with `415`
+before auth runs, so a cross-site page cannot use a preflight-free
+`text/plain` / form POST. Under the local-dev auth bypass, where no credential
+protects the proxy, a request whose `Origin` is neither same-origin nor in
+`ALLOWED_ORIGIN` is refused with `403`; `docker-compose.local.yml` (which runs
+the bypass) publishes on `127.0.0.1` only.
+
 ## HTTP request and response handling
 
 ### Response decompression limits (desktop)
