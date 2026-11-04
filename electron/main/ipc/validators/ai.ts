@@ -10,6 +10,8 @@ const AiChatToolCallSchema = z.object({
   id: z.string().min(1).max(200),
   name: z.string().min(1).max(200),
   input: z.string().max(200_000),
+  // Gemini's opaque reasoning state; must survive the IPC hop to be replayed.
+  thoughtSignature: z.string().max(100_000).optional(),
 });
 
 export const AiChatMessageSchema = z.object({
