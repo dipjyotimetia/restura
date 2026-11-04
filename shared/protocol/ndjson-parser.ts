@@ -29,16 +29,29 @@ export interface NdjsonParseError {
 export type NdjsonValue = unknown;
 
 /**
- * Hard cap on a single unterminated line, in UTF-16 code units (~16 MiB) —
- * the same bound and fail-closed behaviour as `MAX_SSE_EVENT_CHARS`.
+ * Default hard cap on a single unterminated line: 8 Mi UTF-16 code units
+ * (≈ 8 MB of ASCII text, ~16 MiB of string memory) — the same bound and
+ * fail-closed behaviour as `MAX_SSE_EVENT_CHARS`. Consumers whose lines are
+ * legitimately larger (the gRPC-Web relay puts each message, base64-encoded,
+ * on one line) pass `maxLineChars`.
  */
 export const MAX_NDJSON_LINE_CHARS = 8 * 1024 * 1024;
+
+export interface NdjsonParserOptions {
+  /** Per-line cap in UTF-16 code units (default {@link MAX_NDJSON_LINE_CHARS}). */
+  maxLineChars?: number;
+}
 
 export class NdjsonParser {
   private decoder = new TextDecoder();
   private buffer = '';
   private cursor = 0;
   private bomChecked = false;
+  private readonly maxLineChars: number;
+
+  constructor(options: NdjsonParserOptions = {}) {
+    this.maxLineChars = options.maxLineChars ?? MAX_NDJSON_LINE_CHARS;
+  }
 
   feed(chunk: Uint8Array): NdjsonValue[] {
     let text = this.decoder.decode(chunk, { stream: true });
@@ -78,8 +91,8 @@ export class NdjsonParser {
 
     // An upstream that never sends `\n` would otherwise grow the buffer
     // without limit (main-process OOM). Fail closed so the caller aborts.
-    if (this.buffer.length - this.cursor > MAX_NDJSON_LINE_CHARS) {
-      throw new Error(`NDJSON line exceeds ${MAX_NDJSON_LINE_CHARS} chars without a newline`);
+    if (this.buffer.length - this.cursor > this.maxLineChars) {
+      throw new Error(`NDJSON line exceeds ${this.maxLineChars} chars without a newline`);
     }
 
     return out;

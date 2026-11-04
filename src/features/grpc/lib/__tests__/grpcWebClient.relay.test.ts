@@ -177,6 +177,33 @@ describe('streamGrpcWebViaWorker', () => {
   });
 });
 
+describe('streamGrpcWebViaWorker large messages', () => {
+  it('relays a 7 MB message (one ~9.3M-char base64 NDJSON line) in 64 KiB chunks', async () => {
+    const big = new Uint8Array(7 * 1024 * 1024).fill(65);
+    const data = bytesToBase64(big);
+    const bytes = new TextEncoder().encode(
+      `${JSON.stringify({ type: 'message', data })}\n${JSON.stringify(end(0))}\n`
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        let offset = 0;
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (offset >= bytes.length) return controller.close();
+            controller.enqueue(bytes.subarray(offset, offset + 65536));
+            offset += 65536;
+          },
+        });
+        return new Response(body, { headers: { 'content-type': 'application/x-ndjson' } });
+      })
+    );
+    const events = await collect(streamGrpcWebViaWorker(SPEC));
+    expect(events.map((e) => e.type)).toEqual(['message', 'end']);
+    expect((events[0] as { data: string }).data.length).toBe(data.length);
+  });
+});
+
 describe('prepareGrpcWebCall', () => {
   it('refuses secret-handle credentials on the web', () => {
     expect(() =>

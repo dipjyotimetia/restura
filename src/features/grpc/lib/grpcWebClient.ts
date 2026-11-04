@@ -26,6 +26,7 @@ import {
 import { base64ToBytes, bytesToBase64 } from '@shared/protocol/grpc-web-framing';
 import type { GrpcWebEndEvent, GrpcWebEvent, GrpcWebSpec } from '@shared/protocol/grpc-web-proxy';
 import { NdjsonParser } from '@shared/protocol/ndjson-parser';
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/proxy-limits';
 import { v4 as uuidv4 } from 'uuid';
 import { workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
 import type { GrpcRequest, GrpcResponse, GrpcSchemaSnapshot, GrpcWireProtocol } from '@/types';
@@ -119,6 +120,15 @@ export function decodeGrpcWebMessage(method: DescMethod, base64: string): unknow
 }
 
 /**
+ * Per-line NDJSON cap for the relay stream. The relay writes each gRPC-Web
+ * message base64-encoded on ONE line, and a message may be as large as the
+ * proxy's whole-body cap (MAX_RESPONSE_SIZE): base64 is 4/3 of that, plus the
+ * JSON envelope. The generic 8 Mi-char default would reject replies > ~6.3 MB
+ * that the proxy itself accepted.
+ */
+export const GRPC_WEB_NDJSON_MAX_LINE_CHARS = Math.ceil(MAX_RESPONSE_SIZE / 3) * 4 + 64 * 1024;
+
+/**
  * POST a spec to the Worker and yield its NDJSON events. A validation
  * rejection (HTTP 4xx JSON) or a broken stream becomes a synthetic `end`
  * event so callers have one code path.
@@ -147,7 +157,7 @@ export async function* streamGrpcWebViaWorker(
     );
     return;
   }
-  const parser = new NdjsonParser();
+  const parser = new NdjsonParser({ maxLineChars: GRPC_WEB_NDJSON_MAX_LINE_CHARS });
   const reader = res.body.getReader();
   try {
     while (true) {

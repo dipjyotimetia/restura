@@ -152,6 +152,20 @@ describe('NdjsonParser — long lines', () => {
   });
 });
 
+describe('NdjsonParser — maxLineChars option', () => {
+  it('honours a smaller per-instance cap', () => {
+    const p = new NdjsonParser({ maxLineChars: 10 });
+    expect(() => p.feed(enc('x'.repeat(11)))).toThrow(/exceeds 10 chars/);
+  });
+
+  it('accepts a line above the default cap when raised', () => {
+    const p = new NdjsonParser({ maxLineChars: MAX_NDJSON_LINE_CHARS * 2 });
+    const chunk = enc('x'.repeat(1024 * 1024));
+    for (let i = 0; i <= MAX_NDJSON_LINE_CHARS / chunk.length + 1; i++) p.feed(chunk);
+    expect(p.feed(enc('\n'))).toHaveLength(1); // non-JSON line → parse-error sentinel
+  });
+});
+
 /** Total chars `String.prototype.indexOf` examined while `run` executes. */
 function charsScannedByIndexOf(run: () => void): number {
   let scanned = 0;
