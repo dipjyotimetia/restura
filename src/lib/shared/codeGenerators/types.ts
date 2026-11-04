@@ -67,8 +67,45 @@ export const shellMethodWord = (method: string): string =>
 export const singleQuotedLiteral = (str: string): string =>
   `'${str.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
+/**
+ * Contents of a double-quoted string literal: JSON's escapes (`\\` `\"` `\n`
+ * `\r` `\t` `\b` `\f` `\uXXXX` for every other control character), which are
+ * valid in JavaScript, Python and Go alike, plus U+2028/U+2029 (line
+ * terminators in pre-ES2019 JavaScript). Not for Ruby (`#{}`) or PHP (`$`)
+ * double quotes — see {@link rubyString} and {@link singleQuotedLiteral}.
+ */
 export const escapeJson = (str: string): string =>
-  str.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+  JSON.stringify(str)
+    .slice(1, -1)
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+
+/** Ruby double-quoted literal: JSON escapes, with `#` escaped so `#{…}` never interpolates. */
+export const rubyString = (str: string): string => `"${escapeJson(str).replace(/#/g, '\\#')}"`;
+
+/**
+ * A JSON body as a JavaScript expression. Strict JSON is also a JavaScript
+ * literal, so it is emitted as written (`object: true`); anything else — an
+ * unresolved `{{var}}`, a lenient body — or a `__proto__` key (which a JS
+ * object literal treats as the prototype) is a string literal of the exact
+ * bytes (`object: false`), never a syntax error.
+ */
+export const jsonBodyExpression = (raw: string): { code: string; object: boolean } => {
+  try {
+    JSON.parse(raw);
+    if (!raw.includes('__proto__'))
+      return {
+        code: raw
+          .trim()
+          .replace(/\u2028/g, '\\u2028')
+          .replace(/\u2029/g, '\\u2029'),
+        object: true,
+      };
+  } catch {
+    // not strict JSON: fall through to a string literal
+  }
+  return { code: `"${escapeJson(raw)}"`, object: false };
+};
 
 /**
  * URL string with `{{var}}` references left readable: masked secrets stay as

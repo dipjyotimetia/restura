@@ -23,7 +23,8 @@ export const generateCurl = (options: GenerateOptions): string => {
   }
 
   Object.entries(resolvedHeaders).forEach(([key, value]) => {
-    curl += ` \\\n  -H ${escapeShell(`${key}: ${value}`)}`;
+    // `-H 'Key:'` tells curl to REMOVE the header; `Key;` sends it empty.
+    curl += ` \\\n  -H ${escapeShell(value === '' ? `${key};` : `${key}: ${value}`)}`;
   });
 
   if (formData) {

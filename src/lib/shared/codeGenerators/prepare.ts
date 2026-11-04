@@ -1,3 +1,5 @@
+import { buildRequestBody } from '@shared/protocol/body-builder';
+import { applyBodyDefaultHeaders, mapProxyBodyType } from '@shared/protocol/request-spec';
 import type { AuthConfig, HttpRequest, RequestSettings } from '@/types';
 import { isExternalSecretRef, isSecretHandle, type SecretValue } from '../secretRef';
 import { serializeUrlEncoded } from '../urlEncodedBody';
@@ -131,10 +133,21 @@ export function prepareCodegen(input: CodegenInput): GenerateOptions & { notes: 
   const resolvedRequest: HttpRequest =
     raw !== undefined && body.type !== 'binary' ? { ...request, body: { ...body, raw } } : request;
 
-  // Match the app, which sends XML with this Content-Type unless one is set.
-  if (body.type === 'xml' && !hasHeader('Content-Type')) {
-    resolvedHeaders['Content-Type'] = 'application/xml';
+  // Match the app's default Content-Type for the body (unless one is set):
+  // the same body builder + defaults the transports use. Without it curl
+  // `--data-raw` would label JSON/text as form-urlencoded, fetch as text/plain.
+  // Multipart is left to each client (it owns the boundary); binary isn't emitted.
+  const proxyBodyType = mapProxyBodyType(body.type);
+  if (
+    raw &&
+    proxyBodyType !== 'form-data' &&
+    proxyBodyType !== 'binary' &&
+    !hasHeader('Content-Type')
+  ) {
+    const { contentType } = buildRequestBody({ bodyType: proxyBodyType, data: raw });
+    if (contentType) resolvedHeaders['Content-Type'] = contentType;
   }
+  applyBodyDefaultHeaders(body.type, resolvedHeaders);
 
   const settings = input.settings ? withMaskedProxyPassword(input.settings, secret) : undefined;
 

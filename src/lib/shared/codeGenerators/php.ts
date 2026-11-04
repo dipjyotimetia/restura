@@ -1,5 +1,5 @@
 import { normalizeHttpMethod } from '@shared/protocol/http-method';
-import { escapeJson, type GenerateOptions, singleQuotedLiteral, urlWithVariables } from './types';
+import { type GenerateOptions, singleQuotedLiteral, urlWithVariables } from './types';
 
 export const generatePhp = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams } = options;
@@ -16,7 +16,7 @@ export const generatePhp = (options: GenerateOptions): string => {
   }
 
   let php = `<?php\n\n`;
-  php += `$url = "${escapeJson(urlStr)}";\n\n`;
+  php += `$url = ${singleQuotedLiteral(urlStr)};\n\n`;
   php += `$ch = curl_init($url);\n\n`;
 
   const method = normalizeHttpMethod(request.method);
@@ -27,7 +27,7 @@ export const generatePhp = (options: GenerateOptions): string => {
   if (Object.keys(resolvedHeaders).length > 0) {
     php += `curl_setopt($ch, CURLOPT_HTTPHEADER, [\n`;
     Object.entries(resolvedHeaders).forEach(([key, value], index, arr) => {
-      php += `    "${escapeJson(key)}: ${escapeJson(value)}"`;
+      php += `    ${singleQuotedLiteral(`${key}: ${value}`)}`;
       if (index < arr.length - 1) php += `,`;
       php += `\n`;
     });
@@ -35,7 +35,7 @@ export const generatePhp = (options: GenerateOptions): string => {
   }
 
   if (request.body.type !== 'none' && request.body.raw) {
-    php += `curl_setopt($ch, CURLOPT_POSTFIELDS, '${request.body.raw.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}');\n`;
+    php += `curl_setopt($ch, CURLOPT_POSTFIELDS, ${singleQuotedLiteral(request.body.raw)});\n`;
   }
 
   php += `curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);\n\n`;
