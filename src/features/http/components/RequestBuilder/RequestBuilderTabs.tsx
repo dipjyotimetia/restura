@@ -289,6 +289,10 @@ export function RequestBuilderTabs({
                 onUrlEncodedChange={handlers.changeUrlEncoded}
                 url={request.url}
                 {...(request.graphqlSchema ? { graphqlSchema: request.graphqlSchema } : {})}
+                {...(request.body.graphqlVariables !== undefined
+                  ? { graphqlVariables: request.body.graphqlVariables }
+                  : {})}
+                onGraphQLVariablesChange={handlers.changeGraphQLVariables}
               />
             </div>
 

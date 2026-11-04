@@ -1,3 +1,4 @@
+import { mergeAuthHeaders } from '@shared/protocol/request-spec';
 import type { ProtocolAuthConfig } from '@shared/protocol/types';
 import { applyNonSignAtWireAuth } from './auth-applier';
 import { materializeExternalProtocolAuth } from './external-secret-materializer';
@@ -25,7 +26,8 @@ export async function materializeHttpAuth(config: HttpAuthConfig): Promise<{
   const applied = applyNonSignAtWireAuth(auth);
   return {
     auth,
-    headers: { ...(config.headers ?? {}), ...applied.headers },
+    // An auth header replaces a user header of the same name in any casing.
+    headers: mergeAuthHeaders({ ...(config.headers ?? {}) }, applied.headers),
     params: { ...(config.params ?? {}), ...applied.params },
   };
 }

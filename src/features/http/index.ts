@@ -4,8 +4,6 @@ export { default as RequestBodyEditor } from './components/RequestBodyEditor';
 export { default as RequestBuilder } from './components/RequestBuilder';
 export { default as RequestLine } from './components/RequestLine';
 export { default as RequestSettingsEditor } from './components/RequestSettingsEditor';
-// Hooks
-export { useHttpRequest } from './hooks/useHttpRequest';
 export {
   buildMultipartMixedBody,
   generateBoundary,

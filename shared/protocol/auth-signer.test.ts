@@ -406,12 +406,61 @@ describe('OAuth1 form-body params with repeated keys (RFC 5849 §3.4.1.3)', () =
           addParamsToBody: true,
         },
       },
-      { method: 'POST', url: 'https://api.example.com/x', headers: {}, body: 'tag=b&tag=a' }
+      {
+        method: 'POST',
+        url: 'https://api.example.com/x',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'tag=b&tag=a',
+      }
     );
     const params =
       'oauth_consumer_key=ck&oauth_nonce=n0nce&oauth_signature_method=HMAC-SHA1&oauth_timestamp=1700000000&oauth_version=1.0&tag=a&tag=b';
     const base = `POST&${enc('https://api.example.com/x')}&${enc(params)}`;
     const signature = /oauth_signature="([^"]+)"/.exec(headers.Authorization ?? '')?.[1];
     expect(signature).toBe(enc(hmacSha1Base64(base, 'cs&')));
+  });
+});
+
+describe('OAuth1 signs form-urlencoded body params by Content-Type (RFC 5849 §3.4.1.3.1)', () => {
+  const enc = (s: string) =>
+    encodeURIComponent(s).replace(
+      /[!'()*]/g,
+      (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+  const oauthParams =
+    'oauth_consumer_key=ck&oauth_nonce=n0nce&oauth_signature_method=HMAC-SHA1&oauth_timestamp=1700000000&oauth_version=1.0';
+  const sign = async (headers: Record<string, string>, addParamsToBody?: boolean) => {
+    const { headers: out } = await applyAuth(
+      {
+        type: 'oauth1',
+        oauth1: {
+          consumerKey: 'ck',
+          consumerSecret: 'cs',
+          signatureMethod: 'HMAC-SHA1',
+          nonce: 'n0nce',
+          timestamp: '1700000000',
+          ...(addParamsToBody !== undefined ? { addParamsToBody } : {}),
+        },
+      },
+      { method: 'POST', url: 'https://api.example.com/x', headers, body: 'b=2&a=1' }
+    );
+    return /oauth_signature="([^"]+)"/.exec(out.Authorization ?? '')?.[1];
+  };
+  const target = enc('https://api.example.com/x');
+  const withBody = enc(hmacSha1Base64(`POST&${target}&${enc(`a=1&b=2&${oauthParams}`)}`, 'cs&'));
+  const withoutBody = enc(hmacSha1Base64(`POST&${target}&${enc(oauthParams)}`, 'cs&'));
+
+  it('includes form body params with no opt-in flag (any header casing, with charset)', async () => {
+    expect(await sign({ 'content-type': 'application/x-www-form-urlencoded; charset=UTF-8' })).toBe(
+      withBody
+    );
+    expect(await sign({ 'Content-Type': 'application/x-www-form-urlencoded' }, false)).toBe(
+      withBody
+    );
+  });
+
+  it('never parses a body that is not form-urlencoded, even with the flag set', async () => {
+    expect(await sign({ 'Content-Type': 'text/plain' }, true)).toBe(withoutBody);
+    expect(await sign({}, true)).toBe(withoutBody);
   });
 });

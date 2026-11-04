@@ -13,6 +13,24 @@ describe('applyAuthHeaders', () => {
     expect(result.requiresMainSideApply).toBe(false);
   });
 
+  it('replaces a user header of the same name in any casing (one header on the wire)', async () => {
+    const bearer = await applyAuthHeaders(
+      { type: 'bearer', bearer: { token: 'from-auth-tab' } },
+      { authorization: 'Bearer from-header-row', 'X-Other': '1' },
+      'https://example.com',
+      'GET'
+    );
+    expect(bearer.headers).toEqual({ Authorization: 'Bearer from-auth-tab', 'X-Other': '1' });
+
+    const apiKey = await applyAuthHeaders(
+      { type: 'api-key', apiKey: { key: 'X-API-Key', value: 'new', in: 'header' } },
+      { 'x-api-key': 'old' },
+      'https://example.com',
+      'GET'
+    );
+    expect(apiKey.headers).toEqual({ 'X-API-Key': 'new' });
+  });
+
   it('does nothing for bearer auth with no token', async () => {
     const auth: AuthConfig = { type: 'bearer', bearer: { token: '' } };
     const result = await applyAuthHeaders(auth, { ...base }, 'https://example.com', 'GET');

@@ -512,10 +512,10 @@ describe('isStreamingAccept', () => {
   });
 
   it('does not match similarly-named non-streaming types', () => {
-    // text/event-streamy isn't a real type; we use includes() so this DOES
-    // technically match. Lock the current behaviour so a future tightening
-    // is intentional.
-    expect(isStreamingAccept({ Accept: 'text/event-stream-alt' })).toBe(true);
+    // Media types match exactly (parameters ignored), as the Worker's
+    // token-parse does — a look-alike type is not a stream.
+    expect(isStreamingAccept({ Accept: 'text/event-stream-alt' })).toBe(false);
+    expect(isStreamingAccept({ ACCEPT: 'text/event-stream; charset=utf-8' })).toBe(true);
     // But "application/event-json" should not match any streaming type
     expect(isStreamingAccept({ Accept: 'application/event-json' })).toBe(false);
   });

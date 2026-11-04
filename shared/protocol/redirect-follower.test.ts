@@ -70,3 +70,21 @@ describe('followRedirects releases intermediate hop bodies', () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('followRedirects — 303 keeps HEAD', () => {
+  it('follows a 303 on HEAD with HEAD (RFC 9110 §15.4.4), other methods with GET', async () => {
+    const methods = async (method: string) => {
+      const seen: string[] = [];
+      const fetcher = vi.fn(async (req: FetcherRequest) => {
+        seen.push(req.method);
+        return seen.length === 1
+          ? response(303, { location: 'https://api.example.com/other' }, () => {})
+          : response(200, {}, () => {});
+      });
+      await followRedirects({ ...start(), method }, fetcher, { allowLocalhost: false });
+      return seen;
+    };
+    expect(await methods('HEAD')).toEqual(['HEAD', 'HEAD']);
+    expect(await methods('POST')).toEqual(['POST', 'GET']);
+  });
+});

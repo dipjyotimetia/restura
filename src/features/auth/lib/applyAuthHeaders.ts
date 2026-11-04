@@ -1,3 +1,4 @@
+import { mergeAuthHeaders } from '@shared/protocol/request-spec';
 import { isElectron } from '@/lib/shared/platform';
 import type { AuthConfig } from '@/types';
 import { buildAuthCredential } from './buildAuthCredential';
@@ -34,7 +35,8 @@ export async function applyAuthHeaders(
 ): Promise<{ headers: Record<string, string>; requiresMainSideApply: boolean }> {
   const credential = buildAuthCredential(auth);
   return {
-    headers: { ...headers, ...credential.headers },
+    // An auth header replaces a user row of the same name in any casing.
+    headers: mergeAuthHeaders({ ...headers }, credential.headers),
     requiresMainSideApply: credential.requiresMainSideApply === true,
   };
 }

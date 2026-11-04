@@ -46,7 +46,18 @@ export function classifyRequestError(
   if (hit(/Cloud metadata endpoint is blocked/)) {
     return { title: 'Cloud metadata endpoint blocked', raw };
   }
-  if (hit(/Localhost URLs are not allowed|Hostname "[^"]*" is blocked for security reasons/)) {
+  // A blocklisted host (cloud metadata, cluster-internal names, …) is refused by
+  // the shared SSRF guard on every platform — the desktop app won't reach it
+  // either. Only loopback names are a web-vs-desktop matter (handled below).
+  const blockedHost = /Hostname "([^"]*)" is blocked for security reasons/.exec(raw)?.[1];
+  if (blockedHost !== undefined && !/(^|\.)localhost$/.test(blockedHost)) {
+    return {
+      title: 'Reserved host blocked',
+      raw,
+      hint: 'This host is blocked on every platform as a security measure (SSRF protection).',
+    };
+  }
+  if (blockedHost !== undefined || hit(/Localhost URLs are not allowed/)) {
     return {
       title: 'Local or reserved host blocked',
       raw,

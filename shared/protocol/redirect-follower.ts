@@ -287,13 +287,15 @@ function nextHop(
     headers.delete('referer');
   }
 
-  // 303 always rewrites to GET (universal HTTP semantics — POST/PUT result
-  // pointing to a GET-able resource). 301/302 historically downgrade
-  // non-HEAD to GET; followOriginalMethod opts into RFC-compliant
+  // 303 rewrites to GET (POST/PUT result pointing to a GET-able resource),
+  // except HEAD, which stays HEAD (RFC 9110 §15.4.4). 301/302 historically
+  // downgrade non-HEAD to GET; followOriginalMethod opts into RFC-compliant
   // preservation. 307/308 always preserve method.
   const nextMethod =
     response.status === 303
-      ? 'GET'
+      ? req.method === 'HEAD'
+        ? 'HEAD'
+        : 'GET'
       : (response.status === 301 || response.status === 302) &&
           req.method !== 'HEAD' &&
           !options.followOriginalMethod

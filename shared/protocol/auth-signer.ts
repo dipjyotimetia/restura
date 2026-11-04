@@ -7,7 +7,7 @@
 //     boundary regenerated, JSON whitespace normalised), the upstream sees a
 //     payload hash mismatch and returns SignatureDoesNotMatch.
 //   - OAuth 1.0a's signature includes the request URL (with query params),
-//     method, and — when `addParamsToBody` is set — the form-encoded body.
+//     method, and — for an application/x-www-form-urlencoded body — its fields.
 //     Signing inside the proxy guarantees the URL we sign is the URL we send.
 //   - WSSE doesn't depend on the body, but living next to the others keeps
 //     the auth pipeline in one place.
@@ -377,6 +377,15 @@ function compareCodeUnits(a: string, b: string): number {
   return a < b ? -1 : 1;
 }
 
+/** True when the request's Content-Type (any header casing) is form-urlencoded. */
+function isFormUrlEncoded(headers: Record<string, string>): boolean {
+  for (const [name, value] of Object.entries(headers)) {
+    if (name.toLowerCase() !== 'content-type') continue;
+    return value.split(';')[0]?.trim().toLowerCase() === 'application/x-www-form-urlencoded';
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
@@ -431,13 +440,17 @@ export async function applyAuth(
       console.warn('OAuth1 auth selected but oauth1 config missing — skipping');
       return { headers: {} };
     }
-    // Parse body as form params only when addParamsToBody is set and the body
-    // is a plain string we can interpret as application/x-www-form-urlencoded.
-    // Repeated keys keep every value (RFC 5849 §3.4.1.3) — URLSearchParams
-    // never throws on a string, so no fallback is needed.
+    // RFC 5849 §3.4.1.3.1: a single-part body whose Content-Type is
+    // application/x-www-form-urlencoded contributes its fields to the
+    // signature — always, whatever `addParamsToBody` says (Postman behaves the
+    // same; a server verifying per the RFC rejects a signature without them).
+    // Any other body is never parsed. Repeated keys keep every value
+    // (§3.4.1.3) — URLSearchParams never throws on a string.
     const bodyParams: Record<string, string | string[]> = {};
-    if (auth.oauth1.addParamsToBody && typeof args.body === 'string') {
-      const form = new URLSearchParams(args.body);
+    const formText = typeof args.body === 'string' ? args.body : undefined;
+    const formBody = formText !== undefined && isFormUrlEncoded(args.headers);
+    if (formBody) {
+      const form = new URLSearchParams(formText);
       for (const key of new Set(form.keys())) {
         const values = form.getAll(key);
         bodyParams[key] = values.length > 1 ? values : (values[0] ?? '');
@@ -455,7 +468,9 @@ export async function applyAuth(
       ...(o1.realm !== undefined ? { realm: o1.realm } : {}),
       ...(o1.nonce !== undefined ? { nonce: o1.nonce } : {}),
       ...(o1.timestamp !== undefined ? { timestamp: o1.timestamp } : {}),
-      ...(o1.addParamsToBody !== undefined ? { addParamsToBody: o1.addParamsToBody } : {}),
+      // The signer folds `bodyParams` in only under this flag; they are
+      // non-empty only for a form body (decided above).
+      addParamsToBody: formBody,
     };
     const authHeader = buildOAuth1Header(args.method, args.url, resolvedOauth1, bodyParams);
     return { headers: { Authorization: authHeader } };
