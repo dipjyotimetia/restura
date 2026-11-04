@@ -312,3 +312,82 @@ describe('makeRendererSendRequest — Set-Cookie (#855)', () => {
     expect(res).not.toHaveProperty('setCookies');
   });
 });
+
+describe('makeRendererSendRequest — Postman request bodies and header lists', () => {
+  it('sends body.mode raw as the raw string, typed by options.raw.language', async () => {
+    const send = makeRendererSendRequest({ variables: { user: 'alice' } });
+    await send({
+      url: 'https://x',
+      method: 'POST',
+      body: { mode: 'raw', raw: '{"u":"{{user}}"}', options: { raw: { language: 'json' } } },
+    });
+    const spec = getDispatchedSpec();
+    expect(spec.bodyType).toBe('json');
+    expect(spec.data).toBe('{"u":"alice"}');
+  });
+
+  it('sends a raw body with no language as raw text', async () => {
+    await makeRendererSendRequest({})({
+      url: 'https://x',
+      method: 'POST',
+      body: { mode: 'raw', raw: 'plain words' },
+    });
+    expect(getDispatchedSpec()).toMatchObject({ bodyType: 'raw', data: 'plain words' });
+  });
+
+  it('sends body.mode urlencoded as form fields, skipping disabled rows', async () => {
+    const send = makeRendererSendRequest({ variables: { pw: 's3' } });
+    await send({
+      url: 'https://x',
+      method: 'POST',
+      body: {
+        mode: 'urlencoded',
+        urlencoded: [
+          { key: 'user', value: 'a' },
+          { key: 'pass', value: '{{pw}}' },
+          { key: 'off', value: 'x', disabled: true },
+        ],
+      },
+    });
+    const spec = getDispatchedSpec();
+    expect(spec.bodyType).toBe('form-urlencoded');
+    expect(spec.formData).toEqual([
+      { name: 'user', value: 'a' },
+      { name: 'pass', value: 's3' },
+    ]);
+  });
+
+  it('sends body.mode formdata text fields as multipart form fields', async () => {
+    await makeRendererSendRequest({})({
+      url: 'https://x',
+      method: 'POST',
+      body: { mode: 'formdata', formdata: [{ key: 'a', value: '1', type: 'text' }] },
+    });
+    expect(getDispatchedSpec()).toMatchObject({
+      bodyType: 'form-data',
+      formData: [{ name: 'a', value: '1' }],
+    });
+  });
+
+  it('resolves {{var}} in the string fields of a plain object body', async () => {
+    await makeRendererSendRequest({ variables: { pass: 'pw1' } })({
+      url: 'https://x',
+      method: 'POST',
+      body: { user: 'demo', pass: '{{pass}}', nested: { n: 1 } },
+    });
+    const spec = getDispatchedSpec();
+    expect(spec.bodyType).toBe('json');
+    expect(JSON.parse(spec.data ?? '')).toEqual({ user: 'demo', pass: 'pw1', nested: { n: 1 } });
+  });
+
+  it('accepts a Postman header list, skipping disabled rows', async () => {
+    await makeRendererSendRequest({ variables: { t: 'tok' } })({
+      url: 'https://x',
+      headers: [
+        { key: 'Authorization', value: 'Bearer {{t}}' },
+        { key: 'X-Off', value: '1', disabled: true },
+      ] as unknown as Record<string, string>,
+    });
+    expect(getDispatchedSpec().headers).toEqual({ Authorization: 'Bearer tok' });
+  });
+});

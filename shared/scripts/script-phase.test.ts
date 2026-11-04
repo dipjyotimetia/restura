@@ -21,14 +21,15 @@ describe('runScriptPhase — host', () => {
     expect(result.variables.judge).toMatch(/not wired/);
   });
 
-  // cli/README.md says pm.sendRequest, pm.cookies and pm.vault "reject with a clear
-  // error" without a host. pm.vault and rs.judge do; pm.sendRequest and
-  // pm.cookies.set are not bound at all, so a call throws "TypeError: not a
-  // function". Binding them is a script-executor change (phaseC.test.ts pins
-  // pm.sendRequest as undefined), outside this change.
-  it.todo(
-    'DIVERGENCE: a host with no bridges rejects pm.sendRequest and pm.cookies.set with a clear error (today: TypeError: not a function)'
-  );
+  // Postman's pm.cookies has no set (writes go through pm.cookies.jar()), so only
+  // pm.sendRequest needs a host-less binding.
+  it('a host with no bridges rejects pm.sendRequest with a clear error', async () => {
+    const { result } = await run(
+      "pm.sendRequest('https://x.test/a').catch((e) => rs.variables.set('send', e.message));"
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.variables.send).toMatch(/pm\.sendRequest is not available in this host/);
+  });
 
   it('a host with bridges reaches them (rs.sendRequest)', async () => {
     const sendRequest = vi.fn().mockResolvedValue({

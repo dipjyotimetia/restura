@@ -282,18 +282,17 @@ describe('pm.environment / pm.variables / pm.collectionVariables / pm.globals', 
     expect(r.variables).not.toHaveProperty('token');
   });
 
-  it('pm.collectionVariables is a separate scope from pm.environment / pm.variables', async () => {
+  it('pm.collectionVariables is a separate scope from pm.environment, visible through pm.variables', async () => {
     // Postman semantics: collectionVariables, environment, and globals are
-    // distinct stores. Setting one does NOT make the value visible in the
-    // others. (Resolution-chain reads through pm.variables still favour
-    // collection then environment then globals, but a raw .get() against
-    // pm.variables hits only the environment-aliased map.)
+    // distinct stores, so a collection write is not an environment value; but
+    // pm.variables resolves across every scope (local > data > environment >
+    // collection > globals), so it sees the write.
     const r = await runScript(
       `
       pm.collectionVariables.set('base', 'https://api.example.com');
       pm.test('readback', function () { pm.expect(pm.collectionVariables.get('base')).to.equal('https://api.example.com'); });
       pm.test('isolated from env', function () { pm.expect(pm.environment.has('base')).to.be.false; });
-      pm.test('isolated from variables', function () { pm.expect(pm.variables.has('base')).to.be.false; });
+      pm.test('resolved by variables', function () { pm.expect(pm.variables.get('base')).to.equal('https://api.example.com'); });
     `
     );
     expectAllTestsPass(r);
