@@ -1,18 +1,20 @@
 import { PROXY_STREAM_MARKER_HEADER } from '@shared/protocol/proxy-limits';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
+  appendQueryPairs,
   applyBodyDefaultHeaders,
   authHeaderNames,
   buildProxyBody,
   buildProxyFormFields,
-  collectEnabledRows,
+  collectEnabledHeaders,
+  collectEnabledRowPairs,
   mapProxyBodyType,
 } from '@shared/protocol/request-spec';
 import {
+  type CookieHop,
   decodeSetCookieSideChannel,
   responseSetCookies,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
-  type SetCookieSource,
 } from '@shared/protocol/set-cookie';
 import { runScriptPhase } from '@shared/scripts/script-phase';
 import {
@@ -20,7 +22,6 @@ import {
   SecretVariableReferenceError,
 } from '@shared/variables/secret-variable-token';
 import { scanVariableTokens } from '@shared/variables/tokens';
-import { Cookie } from 'tough-cookie';
 import { v4 as uuidv4 } from 'uuid';
 import {
   applyApiKeyQueryParam,
@@ -30,6 +31,7 @@ import {
 import { resolveAuthVariables } from '@/features/auth/lib/resolveAuthVariables';
 import { assertPostmanSendable } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { persistableRefreshedAuth, refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
+import { responseCookieHops, withJarCookies } from '@/features/http/lib/cookieJar';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import {
   executeProxiedRequestWithProgress,
@@ -137,6 +139,10 @@ interface BuiltSpec {
   effectiveSettings: RequestSettings;
   /** Sent headers post-cookie-merge, returned to callers for the response panel. */
   sentHeaders: Record<string, string>;
+  /** The resolved URL before the query rows were folded into `spec.url`. */
+  sentUrl: string;
+  /** Query params as sent, one value per key (display / GraphQL GET read-back). */
+  sentParams: Record<string, string>;
   /**
    * Set only when OAuth2 refresh issued a new token: the request's template
    * auth with the issued token folded in (never resolved `{{var}}` values).
@@ -261,12 +267,26 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     throw new Error(`Invalid URL: ${urlValidation.error}`);
   }
 
-  const params = collectEnabledRows(request.params, (p) =>
+  // Every query row is kept, repeated keys included, in table order: they are
+  // folded into `spec.url` (see below). A row whose value holds a desktop secret
+  // token stays in `params` instead: Electron main substitutes it there and the
+  // proxy then escapes the secret in full.
+  const queryPairs = collectEnabledRowPairs(request.params, (p) =>
     resolveLocal(p.value, `query parameter "${p.key}"`)
   );
+  const holdsSecretToken = (text: string) =>
+    secretVariables !== undefined &&
+    scanVariableTokens(text).some(({ name }) => Object.hasOwn(secretVariables, name));
+  const params: Record<string, string> = {};
+  const foldedQuery: Array<[string, string]> = [];
+  for (const [key, value] of queryPairs) {
+    if (holdsSecretToken(value)) params[key] = value;
+    else foldedQuery.push([key, value]);
+  }
+  // Repeated header rows combine (`, `; Cookie `; `) instead of the last one winning.
   const headers = applyBodyDefaultHeaders(
     request.body.type,
-    collectEnabledRows(request.headers, (h) => resolveLocal(h.value, `header "${h.key}"`))
+    collectEnabledHeaders(request.headers, (h) => resolveLocal(h.value, `header "${h.key}"`))
   );
 
   // {{vars}} in the body resolve like the URL/params/headers do. Binary bodies
@@ -314,10 +334,13 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   if (!effectiveSettings.disableCookieJar) {
     const cookies = useCookieStore.getState().getCookiesForUrl(resolvedUrl);
     if (cookies.length > 0) {
-      const cookieHeader = cookies.map((c) => `${c.key}=${c.value}`).join('; ');
       // The joined text: a name, or a name and value together, can hold a token too.
-      refuseHandleToken(cookieHeader, 'The Cookie header');
-      headers['Cookie'] = cookieHeader;
+      refuseHandleToken(cookies.map((c) => `${c.key}=${c.value}`).join('; '), 'The Cookie header');
+      // A Cookie header the user wrote (any casing) keeps its cookies; the jar
+      // adds only the names it does not already carry.
+      const merged = withJarCookies(headers, cookies);
+      for (const key of Object.keys(headers)) delete headers[key];
+      Object.assign(headers, merged);
     }
   }
 
@@ -351,7 +374,9 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
 
   const spec: ProxyRequestBody = {
     method: request.method,
-    url: resolvedUrl,
+    url: appendQueryPairs(resolvedUrl, foldedQuery, {
+      encode: effectiveSettings.encodeUrlAutomatically !== false,
+    }),
     headers,
     params,
     ...builtBody,
@@ -369,33 +394,45 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       ? { ...(baseDesktop ?? {}), secretVariables }
       : baseDesktop;
 
+  const sentParams: Record<string, string> = {};
+  for (const [key, value] of queryPairs) sentParams[key] = value;
+  Object.assign(sentParams, params);
+
   return {
     spec,
     effectiveSettings,
     sentHeaders: headers,
+    sentUrl: resolvedUrl,
+    sentParams,
     ...(refreshedAuth ? { refreshedAuth } : {}),
     ...(desktop ? { desktop } : {}),
   };
 }
 
-function persistResponseCookies(response: SetCookieSource, resolvedUrl: string): void {
-  for (const cookieStr of responseSetCookies(response)) {
-    const parsed = Cookie.parse(cookieStr);
-    if (!parsed) continue;
-    const expires =
-      parsed.expires === 'Infinity' || !parsed.expires ? undefined : parsed.expires.toString();
-    useCookieStore.getState().addCookie({
-      id: uuidv4(),
-      key: parsed.key,
-      value: parsed.value,
-      domain: parsed.domain || new URL(resolvedUrl).hostname,
-      path: parsed.path || '/',
-      ...(expires !== undefined && { expires }),
-      secure: parsed.secure,
-      httpOnly: parsed.httpOnly,
-      lastAccessed: new Date().toISOString(),
-    });
-  }
+/**
+ * Store a response's cookies. Each redirect hop's cookies go against the URL
+ * that set them and the final response's against the final URL (the proxy
+ * reports both as `cookieHops` / `finalUrl`); see cookieJar.ts for the rules.
+ */
+function persistResponseCookies(
+  response: {
+    headers: Record<string, string | string[]>;
+    setCookies?: string[] | undefined;
+    cookieHops?: CookieHop[] | undefined;
+    finalUrl?: string | undefined;
+  },
+  requestedUrl: string
+): void {
+  const setCookies = responseSetCookies(response);
+  const hops = responseCookieHops(
+    {
+      setCookies,
+      ...(response.cookieHops ? { cookieHops: response.cookieHops } : {}),
+      ...(response.finalUrl ? { finalUrl: response.finalUrl } : {}),
+    },
+    requestedUrl
+  );
+  useCookieStore.getState().storeResponseCookies(hops);
 }
 
 function normalizeBody(data: unknown): string {
@@ -496,7 +533,7 @@ export async function executeRequest(
     };
   }
 
-  const { spec, effectiveSettings, sentHeaders, refreshedAuth, desktop } =
+  const { spec, effectiveSettings, sentHeaders, sentUrl, sentParams, refreshedAuth, desktop } =
     await buildProxyRequestSpec(options);
 
   let responseData: ApiResponse;
@@ -617,10 +654,10 @@ export async function executeRequest(
       ...(testResult !== undefined && { test: testResult }),
     },
     envVars,
-    sentUrl: spec.url,
+    sentUrl,
     sentHeaders,
     ...(spec.data !== undefined ? { sentBody: spec.data } : {}),
-    ...(spec.params && Object.keys(spec.params).length > 0 ? { sentParams: spec.params } : {}),
+    ...(Object.keys(sentParams).length > 0 ? { sentParams } : {}),
     ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
   };
   if (refreshedAuth) {

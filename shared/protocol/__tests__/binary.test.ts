@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { bytesToBase64, getHeaderCI, isBinaryContentType, readStreamToBytes } from '../binary';
+import {
+  bytesToBase64,
+  getHeaderCI,
+  isBinaryContentType,
+  readBoundedText,
+  readStreamToBytes,
+  textDecoderFor,
+} from '../binary';
 
 describe('isBinaryContentType', () => {
   it('treats text-ish content types as text', () => {
@@ -97,5 +104,47 @@ describe('readStreamToBytes', () => {
   it('returns null when the byte cap is exceeded', async () => {
     const out = await readStreamToBytes(streamOf([new Uint8Array(10), new Uint8Array(10)]), 15);
     expect(out).toBeNull();
+  });
+});
+
+describe('text-ish content types beyond JSON/XML', () => {
+  it('keeps YAML, TOML, CSV and +yaml suffixes as text', () => {
+    for (const ct of [
+      'application/yaml',
+      'application/x-yaml',
+      'application/toml',
+      'application/csv',
+      'application/sql',
+      'application/vnd.oai.openapi+yaml',
+      'application/problem+json',
+      'application/json-seq',
+    ]) {
+      expect(isBinaryContentType(ct), ct).toBe(false);
+    }
+  });
+});
+
+describe('response charset', () => {
+  const latin1 = new Uint8Array([0x63, 0x61, 0x66, 0xe9]); // "café" in ISO-8859-1
+
+  it('decodes with the charset the Content-Type declares', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(latin1);
+        c.close();
+      },
+    });
+    const out = await readBoundedText(
+      { body: stream, text: async () => '' },
+      1024,
+      'text/plain; charset=ISO-8859-1'
+    );
+    expect(out?.text).toBe('café');
+  });
+
+  it('falls back to UTF-8 for a missing or unknown charset', () => {
+    const utf8 = new TextEncoder().encode('café');
+    expect(textDecoderFor('text/plain; charset="no-such-charset"').decode(utf8)).toBe('café');
+    expect(textDecoderFor(undefined).decode(utf8)).toBe('café');
   });
 });

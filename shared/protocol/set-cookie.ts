@@ -202,3 +202,216 @@ export function decodeSetCookieSideChannel(value: string | null | undefined): st
     return [];
   }
 }
+
+// ---------------------------------------------------------------------------
+// RFC 6265 storage model (§5.1.3 domain match, §5.1.4 paths, §5.2/§5.3 storage)
+// ---------------------------------------------------------------------------
+
+/** A Set-Cookie field resolved against the URL that sent it (RFC 6265 §5.3). */
+export interface ResolvedCookie {
+  name: string;
+  value: string;
+  /** Lowercase host (host-only) or Domain attribute without its leading dot. */
+  domain: string;
+  /** True when the response carried no Domain attribute: only `domain` itself matches. */
+  hostOnly: boolean;
+  path: string;
+  /**
+   * Epoch ms when the cookie expires; absent for a session cookie. A value at or
+   * before `now` means the response asked for the cookie to be deleted
+   * (`Max-Age=0`, or an `Expires` in the past).
+   */
+  expiresAt?: number;
+  secure: boolean;
+  httpOnly: boolean;
+  sameSite?: string;
+}
+
+export type CookieResolution = { ok: true; cookie: ResolvedCookie } | { ok: false; reason: string };
+
+const IPV4_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+
+function isIpHost(host: string): boolean {
+  return IPV4_RE.test(host) || host.includes(':');
+}
+
+/** The request host as cookies compare it: lowercase, no IPv6 brackets or trailing dot. */
+export function cookieHost(url: URL): string {
+  return url.hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
+}
+
+/** RFC 6265 §5.1.3: `host` is `domain`, or a subdomain of it (never for IP hosts). */
+export function cookieDomainMatches(host: string, domain: string): boolean {
+  const h = host.toLowerCase();
+  const d = domain.toLowerCase();
+  if (h === d) return true;
+  return !isIpHost(h) && h.endsWith(`.${d}`);
+}
+
+/** RFC 6265 §5.1.4: the directory of the request path (`/a/b/c` → `/a/b`, else `/`). */
+export function defaultCookiePath(url: URL): string {
+  const path = url.pathname;
+  if (!path.startsWith('/')) return '/';
+  const last = path.lastIndexOf('/');
+  return last <= 0 ? '/' : path.slice(0, last);
+}
+
+/** RFC 6265 §5.1.4 path-match. */
+export function cookiePathMatches(requestPath: string, cookiePath: string): boolean {
+  if (requestPath === cookiePath) return true;
+  if (!requestPath.startsWith(cookiePath)) return false;
+  return cookiePath.endsWith('/') || requestPath.charAt(cookiePath.length) === '/';
+}
+
+/**
+ * Resolve one Set-Cookie field against the URL whose response carried it:
+ * Max-Age wins over Expires (§5.3 step 3), a Domain attribute must domain-match
+ * the request host or the cookie is ignored (§5.3 step 6), no Domain makes the
+ * cookie host-only, and a missing or relative Path takes the default path.
+ *
+ * A single-label Domain (`Domain=com`) other than the host itself is refused
+ * as a public-suffix stand-in; callers with a public suffix list (the
+ * renderer's cookie jar) apply the full check on top.
+ */
+export function resolveSetCookie(raw: string, requestUrl: string, now: number): CookieResolution {
+  const parsed = parseSetCookie(raw);
+  if (!parsed) return { ok: false, reason: 'no name=value pair' };
+  let url: URL;
+  try {
+    url = new URL(requestUrl);
+  } catch {
+    return { ok: false, reason: 'invalid request URL' };
+  }
+  const host = cookieHost(url);
+
+  let domain = host;
+  let hostOnly = true;
+  const attr = parsed.domain?.trim().replace(/^\./, '').replace(/\.$/, '').toLowerCase();
+  if (attr) {
+    if (!cookieDomainMatches(host, attr)) {
+      return { ok: false, reason: `Domain=${attr} does not match ${host}` };
+    }
+    if (attr !== host && !attr.includes('.')) {
+      return { ok: false, reason: `Domain=${attr} is a public suffix` };
+    }
+    domain = attr;
+    hostOnly = false;
+  }
+
+  const path = parsed.path?.startsWith('/') ? parsed.path : defaultCookiePath(url);
+
+  let expiresAt: number | undefined;
+  if (parsed.maxAge !== undefined) {
+    const seconds = Math.trunc(parsed.maxAge);
+    expiresAt = seconds <= 0 ? Number.NEGATIVE_INFINITY : now + seconds * 1000;
+  } else if (parsed.expires) {
+    const at = Date.parse(parsed.expires);
+    if (!Number.isNaN(at)) expiresAt = at;
+  }
+
+  const cookie: ResolvedCookie = {
+    name: parsed.name,
+    value: parsed.value,
+    domain,
+    hostOnly,
+    path,
+    secure: parsed.secure === true,
+    httpOnly: parsed.httpOnly === true,
+    ...(expiresAt !== undefined ? { expiresAt } : {}),
+    ...(parsed.sameSite !== undefined ? { sameSite: parsed.sameSite } : {}),
+  };
+  return { ok: true, cookie };
+}
+
+/** True when a cookie is expired at `now`. */
+export function isCookieExpired(cookie: Pick<ResolvedCookie, 'expiresAt'>, now: number): boolean {
+  return cookie.expiresAt !== undefined && cookie.expiresAt <= now;
+}
+
+/** RFC 6265 §5.4: whether `cookie` goes on a request to `url`. */
+export function cookieMatchesUrl(
+  cookie: Pick<ResolvedCookie, 'domain' | 'hostOnly' | 'path' | 'secure' | 'expiresAt'>,
+  url: URL,
+  now: number
+): boolean {
+  if (isCookieExpired(cookie, now)) return false;
+  const host = cookieHost(url);
+  const domainOk = cookie.hostOnly
+    ? host === cookie.domain.toLowerCase()
+    : cookieDomainMatches(host, cookie.domain);
+  if (!domainOk) return false;
+  if (!cookiePathMatches(url.pathname || '/', cookie.path)) return false;
+  return !cookie.secure || url.protocol === 'https:';
+}
+
+/**
+ * Combine an explicit Cookie header with jar cookies: every name the header
+ * already carries wins, the jar adds only the names it does not.
+ */
+export function mergeCookieHeader(
+  explicit: string | undefined,
+  jar: ReadonlyArray<{ name: string; value: string }>
+): string {
+  const pairs = (explicit ?? '')
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const named = new Set(pairs.map((p) => (p.split('=', 1)[0] ?? '').trim()));
+  for (const c of jar) {
+    if (named.has(c.name)) continue;
+    named.add(c.name);
+    pairs.push(`${c.name}=${c.value}`);
+  }
+  return pairs.join('; ');
+}
+
+/** The Set-Cookie fields one response of a redirect chain carried, with its URL. */
+export interface CookieHop {
+  url: string;
+  setCookies: string[];
+}
+
+/**
+ * Cookies set during one request's redirect chain (Postman/curl `-L -b` style):
+ * a 3xx's Set-Cookie applies to the hops after it. Ephemeral — the renderer's
+ * persistent jar is fed separately from the per-hop list.
+ */
+export class RedirectCookieChain {
+  private cookies: ResolvedCookie[] = [];
+  readonly hops: CookieHop[] = [];
+  /** URL of the last response recorded — the final URL once the chain ends. */
+  lastUrl: string | undefined;
+  /** Responses recorded: more than one means a redirect (or Digest retry) happened. */
+  responses = 0;
+
+  record(url: string, setCookies: string[], now: number): void {
+    this.lastUrl = url;
+    this.responses++;
+    if (setCookies.length > 0) this.hops.push({ url, setCookies });
+    for (const raw of setCookies) {
+      const r = resolveSetCookie(raw, url, now);
+      if (!r.ok) continue;
+      const c = r.cookie;
+      this.cookies = this.cookies.filter(
+        (x) => !(x.name === c.name && x.domain === c.domain && x.path === c.path)
+      );
+      if (!isCookieExpired(c, now)) this.cookies.push(c);
+    }
+  }
+
+  /** Chain cookies for `url`, longest path first (RFC 6265 §5.4 step 2). */
+  matching(url: string, now: number): ResolvedCookie[] {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return [];
+    }
+    return this.cookies
+      .filter((c) => cookieMatchesUrl(c, parsed, now))
+      .sort((a, b) => b.path.length - a.path.length);
+  }
+}
