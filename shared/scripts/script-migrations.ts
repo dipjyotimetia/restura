@@ -15,6 +15,10 @@
  * `/pm.test/` are all left intact. `npm`/`spm`/`foo.pm.bar` in code are
  * excluded by the identifier-boundary rules below.
  *
+ * Collision: a script that binds the target name itself (`const rs = ...`,
+ * `function (rs)`) is returned unchanged. Rewriting would shadow the
+ * namespace, and the `pm` alias keeps the original running.
+ *
  * Known limitation: `pm.*` / `rs.*` inside a template-literal interpolation
  * (`${pm.variables.get('x')}`) is masked with the rest of the template and is
  * NOT rewritten. At runtime the `pm` alias keeps such scripts working.
@@ -51,6 +55,12 @@ function rewriteNamespace(code: string, from: 'pm' | 'rs', to: 'pm' | 'rs'): str
     return token;
   };
   const masked = code.replace(LITERALS_AND_COMMENTS, stashMatch).replace(REGEX_LITERAL, stashMatch);
+
+  // A namespace reference is always `rs.` / `pm.`; a bare `rs` (a `const rs =`,
+  // a parameter, an argument) means the script has its own binding of the
+  // target name, and rewriting would make it shadow the namespace. Both names
+  // are live in the sandbox, so the script is left as it is.
+  if (new RegExp(`(?<![$\\w.])${to}(?![$\\w]|\\s*\\.)`).test(masked)) return code;
 
   // Negative lookbehind rejects a preceding identifier char, `$`, or `.` so
   // `npm.`, `spm.`, and member access like `foo.pm.bar` are not matched.

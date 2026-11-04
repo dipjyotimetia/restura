@@ -16,6 +16,8 @@ import {
   responseSetCookies,
   SET_COOKIE_SIDE_CHANNEL_HEADER,
 } from '@shared/protocol/set-cookie';
+import { findScriptWrittenToken } from '@shared/scripts/grpc-script-metadata';
+import { applyScriptHeaderEdits } from '@shared/scripts/script-executor-request';
 import { runScriptPhase } from '@shared/scripts/script-phase';
 import {
   basicAuthReferencesSecretVariable,
@@ -90,6 +92,13 @@ export interface RequestExecutionResult {
    * `pm.collectionVariables`.
    */
   collectionVarsMutations?: Record<string, string | null>;
+  /**
+   * `pm.environment.set/unset` mutations from either script phase, merged (test
+   * phase wins on conflict). Callers persist these to the active environment —
+   * see `persistScriptEnvironmentMutations`. Undefined when neither script wrote
+   * to `pm.environment`.
+   */
+  environmentMutations?: Record<string, string | null>;
 }
 
 export interface RequestExecutorOptions {
@@ -463,6 +472,9 @@ export async function executeRequest(
       : {}),
   };
   const collectionVarsMutations: Record<string, string | null> = {};
+  const environmentMutations: Record<string, string | null> = {};
+  // A pre-request script's `rs.request.headers` edits apply to what is sent.
+  let requestToSend = request;
 
   let preRequestResult: ScriptResult | undefined;
   if (request.preRequestScript) {
@@ -498,13 +510,44 @@ export async function executeRequest(
         inheritedHeaderTemplates: inheritedHeadersPre,
         signal,
       }),
-      // A failed script's partial writes stay out of the request.
-      absorb: { into: envVars, variables: 'on-success' },
+      // As in Postman (and the gRPC / MCP / CLI hosts), writes made before a
+      // script error are kept: the request is still sent with them.
+      absorb: { into: envVars, variables: 'always' },
       afterRun: () => signal?.throwIfAborted(),
     });
     preRequestResult = pre.result;
     if (preRequestResult.collectionMutations) {
       Object.assign(collectionVarsMutations, preRequestResult.collectionMutations);
+    }
+    if (preRequestResult.environmentMutations) {
+      Object.assign(environmentMutations, preRequestResult.environmentMutations);
+    }
+    if (preRequestResult.requestHeaders) {
+      // Same rule as gRPC metadata: a script cannot put a secret-variable token
+      // into a header that was not already written there (a script string can
+      // be a server value). Nothing is sent.
+      const written = findScriptWrittenToken(
+        request.headers,
+        preRequestResult.requestHeaders,
+        (name) => options.secretNames?.includes(name) === true
+      );
+      if (written) {
+        throw new SecretVariableReferenceError(
+          'rs.request.headers',
+          written.name,
+          `"${written.key}"`,
+          'A script cannot add a secret variable to a request field.'
+        );
+      }
+      requestToSend = {
+        ...request,
+        headers: applyScriptHeaderEdits(
+          request.headers,
+          inheritedHeadersPre,
+          preRequestResult.requestHeaders,
+          uuidv4
+        ),
+      };
     }
   }
 
@@ -530,11 +573,14 @@ export async function executeRequest(
       sentUrl: request.url,
       sentHeaders: {},
       ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
+      ...(Object.keys(environmentMutations).length > 0 ? { environmentMutations } : {}),
     };
   }
 
   const { spec, effectiveSettings, sentHeaders, sentUrl, sentParams, refreshedAuth, desktop } =
-    await buildProxyRequestSpec(options);
+    await buildProxyRequestSpec(
+      requestToSend === request ? options : { ...options, request: requestToSend }
+    );
 
   let responseData: ApiResponse;
   let transportOk = false;
@@ -608,7 +654,7 @@ export async function executeRequest(
         url: request.url,
         method: request.method,
         headers: Object.fromEntries(
-          request.headers.filter((h) => h.enabled).map((h) => [h.key, h.value])
+          requestToSend.headers.filter((h) => h.enabled).map((h) => [h.key, h.value])
         ) as Record<string, string>,
         body: request.body.raw,
       },
@@ -641,6 +687,9 @@ export async function executeRequest(
     if (testResult.collectionMutations) {
       Object.assign(collectionVarsMutations, testResult.collectionMutations);
     }
+    if (testResult.environmentMutations) {
+      Object.assign(environmentMutations, testResult.environmentMutations);
+    }
   }
 
   // Do not expose collection-variable mutations to callers after cancellation;
@@ -659,6 +708,7 @@ export async function executeRequest(
     ...(spec.data !== undefined ? { sentBody: spec.data } : {}),
     ...(Object.keys(sentParams).length > 0 ? { sentParams } : {}),
     ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
+    ...(Object.keys(environmentMutations).length > 0 ? { environmentMutations } : {}),
   };
   if (refreshedAuth) {
     result.refreshedAuth = refreshedAuth;

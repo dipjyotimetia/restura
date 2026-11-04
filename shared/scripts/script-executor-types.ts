@@ -1,8 +1,25 @@
 import type { JudgeRequestInput, JudgeVerdict } from '@shared/protocol/ai/judge';
-import type { ScriptResult } from '../types';
+import type { ScriptResult as BaseScriptResult } from '../types';
 import type { PmCookieAdapter, PmCookieRecord } from './cookie-adapter';
 
-export type { PmCookieAdapter, PmCookieRecord, ScriptResult };
+export type { PmCookieAdapter, PmCookieRecord };
+
+/** What one script run did, as the sandbox reports it. */
+export interface ScriptResult extends BaseScriptResult {
+  /**
+   * `pm.environment.set/unset` writes (also the top-level `environment` and the
+   * legacy `postman.*Environment*` aliases): `null` removes the key. Hosts
+   * persist these to the active environment, as Postman does. `pm.variables`
+   * writes are local to the request (and the run) and are not listed.
+   */
+  environmentMutations?: Record<string, string | null>;
+  /**
+   * The outgoing headers after a pre-request script, present only when the
+   * request had no gRPC metadata AND the script changed them
+   * (`pm.request.headers.add/upsert/remove` or a direct property write).
+   */
+  requestHeaders?: Record<string, string>;
+}
 
 export interface PmRequestInfo {
   requestName?: string;

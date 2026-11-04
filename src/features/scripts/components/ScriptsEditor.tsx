@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Segmented } from '@/components/ui/spatial';
 import { AiActionButton } from '@/features/ai/components/AiActionButton';
 import { registerScriptIntellisense } from '@/features/scripts/lib/scriptApiTypes';
+import { PRE_REQUEST_TEMPLATE, TEST_SCRIPT_TEMPLATE } from '@/features/scripts/lib/scriptTemplates';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { cn } from '@/lib/shared/utils';
 
@@ -24,56 +25,21 @@ interface ScriptsEditorProps {
 
 type ScriptTab = 'pre-request' | 'test';
 
-const PRE_REQUEST_TEMPLATE = `// Pre-request Script
-// This script runs before the request is sent
-
-// Set environment variables
-// rs.variables.set("timestamp", Date.now());
-
-// Log to console
-// console.log("Request:", rs.request.url);
-
-// Example: Generate auth token
-// const token = generateToken();
-// rs.variables.set("authToken", token);
-`;
-
-const TEST_SCRIPT_TEMPLATE = `// Test Script
-// This script runs after the response is received
-
-// Basic status check
-rs.test("Status code is 200", function() {
-  rs.expect(rs.response.status).to.equal(200);
-});
-
-// Check response time
-rs.test("Response time is acceptable", function() {
-  rs.expect(rs.response.time).to.be.below(1000);
-});
-
-// Validate response structure
-rs.test("Response has required fields", function() {
-  const json = rs.response.json();
-  rs.expect(json).to.have.property("data");
-});
-
-// Store response data in variables
-// rs.variables.set("userId", rs.response.json().data.id);
-`;
-
 const PRE_REQUEST_API: ReadonlyArray<{ code: string; desc: string }> = [
   { code: 'rs.variables.get("key")', desc: 'Read a variable' },
-  { code: 'rs.variables.set("key", value)', desc: 'Write a variable' },
+  { code: 'rs.variables.set("key", value)', desc: 'Set a variable for this request' },
+  { code: 'rs.environment.set("key", value)', desc: 'Save to the active environment' },
   { code: 'rs.request.url', desc: 'Current request URL' },
-  { code: 'rs.request.headers', desc: 'Request headers map' },
+  { code: 'rs.request.headers.upsert({ key, value })', desc: 'Add or replace a header' },
 ];
 
 const TEST_API: ReadonlyArray<{ code: string; desc: string }> = [
   { code: 'rs.test("name", () => {...})', desc: 'Define a test case' },
   { code: 'rs.expect(value).to.equal(x)', desc: 'Assertion' },
-  { code: 'rs.response.status', desc: 'HTTP status code' },
+  { code: 'rs.response.code', desc: 'HTTP status code' },
+  { code: 'rs.response.to.have.status(200)', desc: 'Assert the status code' },
   { code: 'rs.response.json()', desc: 'Parse JSON body' },
-  { code: 'rs.response.time', desc: 'Response time (ms)' },
+  { code: 'rs.response.responseTime', desc: 'Response time (ms)' },
 ];
 
 export default function ScriptsEditor({
