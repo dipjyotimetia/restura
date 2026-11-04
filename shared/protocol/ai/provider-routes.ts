@@ -345,6 +345,9 @@ function geminiContents(spec: ChatRequestSpec) {
             ...(message.content ? [{ text: message.content }] : []),
             ...(message.toolCalls ?? []).map((call) => ({
               functionCall: { name: call.name, args: parseToolInput(call.input) },
+              // Gemini rejects (or degrades) a tool loop whose replayed call
+              // lost the thoughtSignature it was returned with.
+              ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
             })),
           ],
         };

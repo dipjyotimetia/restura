@@ -21,6 +21,8 @@ interface GeminiPart {
   text?: string;
   thought?: boolean;
   functionCall?: { id?: string; name?: string; args?: unknown };
+  /** Opaque reasoning state; must be sent back on this part in the next turn. */
+  thoughtSignature?: string;
 }
 
 interface GeminiChunk {
@@ -77,6 +79,9 @@ class GeminiDecoder implements StreamDecoder {
           id: part.functionCall.id || `gemini-call-${this.callIndex}`,
           name: part.functionCall.name,
           input: JSON.stringify(part.functionCall.args ?? {}),
+          ...(typeof part.thoughtSignature === 'string' && part.thoughtSignature
+            ? { thoughtSignature: part.thoughtSignature }
+            : {}),
         });
       }
     }
