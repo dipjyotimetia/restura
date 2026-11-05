@@ -30,7 +30,8 @@ API calls are limited to 60 an hour per IP, shared by a whole network).
 `releases.json` from the Releases list with `scripts/release-feed.mjs`, and deploys
 it to the `restura-releases` Cloudflare Pages project. The app
 (`src/lib/shared/release-notes.ts`) falls back to `api.github.com` if the feed is
-unreachable or invalid. Edit a published release body on GitHub, then dispatch
+unreachable or invalid. The feed holds the newest 100 stable releases plus the
+betas published since the oldest of them; older history stays on GitHub. Edit a published release body on GitHub, then dispatch
 "Release feed" to republish it.
 
 The generator omits empty groups and filters maintenance-only commits according

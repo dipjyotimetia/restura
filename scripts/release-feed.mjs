@@ -17,7 +17,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const FEED_VERSION = 1;
-/** Newest releases kept in the feed; bounds the file the app downloads. */
+/**
+ * Newest STABLE releases kept in the feed; bounds the file the app downloads.
+ * Prereleases are not counted: any published after the oldest kept stable
+ * release stay in, so the stable channel always sees up to this many entries.
+ */
 export const FEED_LIMIT = 100;
 
 /**
@@ -66,15 +70,21 @@ export function buildFeed(raw, { now = new Date(), limit = FEED_LIMIT } = {}) {
         prerelease: release.prerelease === true,
       };
     })
-    .sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at))
-    .slice(0, limit);
+    .sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
 
-  if (releases.length === 0) {
+  const oldestKeptStable = releases.filter((r) => !r.prerelease)[limit - 1];
+  const kept = oldestKeptStable
+    ? releases.filter(
+        (r) => Date.parse(r.published_at) >= Date.parse(oldestKeptStable.published_at)
+      )
+    : releases;
+
+  if (kept.length === 0) {
     // Never publish an empty feed over a good one; the job fails instead.
     throw new Error('No published releases found; refusing to build an empty feed.');
   }
 
-  return { version: FEED_VERSION, generated_at: now.toISOString(), releases };
+  return { version: FEED_VERSION, generated_at: now.toISOString(), releases: kept };
 }
 
 export function writeFeed(raw, outDir, options) {

@@ -79,7 +79,7 @@ test('accepts the paged array that `gh api --paginate --slurp` emits', () => {
   assert.equal(feed.releases.length, 2);
 });
 
-test('caps the feed at the newest N releases', () => {
+test('caps the feed at the newest N stable releases', () => {
   const feed = buildFeed([release(1, 'v1.0.0'), release(2, 'v1.1.0'), release(3, 'v1.2.0')], {
     now: NOW,
     limit: 2,
@@ -88,6 +88,25 @@ test('caps the feed at the newest N releases', () => {
     feed.releases.map((r) => r.tag_name),
     ['v1.2.0', 'v1.1.0']
   );
+});
+
+test('prereleases do not consume the stable cap; those newer than the oldest kept stable stay', () => {
+  const feed = buildFeed(
+    [
+      release(1, 'v1.0.0'),
+      release(2, 'v1.1.0-beta.1', { prerelease: true }),
+      release(3, 'v1.1.0'),
+      release(4, 'v1.2.0-beta.1', { prerelease: true }),
+      release(5, 'v1.2.0'),
+    ],
+    { now: NOW, limit: 2 }
+  );
+  // Stable kept: v1.2.0, v1.1.0. The beta older than v1.1.0 and v1.0.0 drop out.
+  assert.deepEqual(
+    feed.releases.map((r) => r.tag_name),
+    ['v1.2.0', 'v1.2.0-beta.1', 'v1.1.0']
+  );
+  assert.equal(feed.releases.filter((r) => !r.prerelease).length, 2);
 });
 
 test('refuses to build an empty feed so a good one is never overwritten', () => {
