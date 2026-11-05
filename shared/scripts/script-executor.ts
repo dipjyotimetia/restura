@@ -29,6 +29,14 @@ import {
   readRequestHeaders,
   readRequestMetadata,
 } from './script-executor-request';
+import {
+  completionErrorMessage,
+  describeQuickJsError,
+  readExecutionSentinel,
+  readVisualizationSentinel,
+  SEND_REQUEST_WRAPPER,
+  userScriptSource,
+} from './script-executor-sandbox-io';
 import { installPmTest, PmTestRecorder } from './script-executor-tests';
 import type {
   PmCookieAdapter,
@@ -60,77 +68,6 @@ const MAX_EXECUTION_TIME_MS = QUICKJS_MAX_EXECUTION_TIME_MS;
 const MAX_EXECUTION_TIME_MS_ASYNC = QUICKJS_MAX_EXECUTION_TIME_MS_ASYNC;
 const MAX_MEMORY_BYTES = QUICKJS_MAX_MEMORY_BYTES;
 const MAX_STACK_BYTES = QUICKJS_MAX_STACK_BYTES;
-
-/**
- * The Postman surface of `pm.sendRequest(request, [callback])` over the native
- * `pm.__sendRequestNative`. The response gets `json()`, `text()` and a
- * case-insensitive `headers.get()` / `has()` (non-enumerable, so the response
- * still serialises as before). With a callback, the host error goes to the
- * callback rather than rejecting the returned promise, and anything the
- * callback throws (or an async callback rejects with) is a script error.
- */
-const SEND_REQUEST_WRAPPER = `(function () {
-  var nativeSend = pm.__sendRequestNative;
-  var report = globalThis.__rs_reportScriptError;
-  delete pm.__sendRequestNative;
-  delete globalThis.__rs_reportScriptError;
-  function describe(e) {
-    if (e && typeof e === 'object' && 'message' in e) {
-      return (e.name ? String(e.name) + ': ' : '') + String(e.message);
-    }
-    return String(e);
-  }
-  function hidden(target, name, fn) {
-    Object.defineProperty(target, name, { value: fn, enumerable: false, configurable: true, writable: true });
-  }
-  function decorate(res) {
-    if (!res || typeof res !== 'object') return res;
-    var body = res.body;
-    hidden(res, 'text', function () {
-      if (body === undefined || body === null) return '';
-      return typeof body === 'string' ? body : JSON.stringify(body);
-    });
-    hidden(res, 'json', function () {
-      return typeof body === 'string' ? JSON.parse(body) : body;
-    });
-    var headers = res.headers && typeof res.headers === 'object' ? res.headers : {};
-    function find(key) {
-      var lk = String(key).toLowerCase();
-      for (var k in headers) {
-        if (Object.prototype.hasOwnProperty.call(headers, k) && k.toLowerCase() === lk) return headers[k];
-      }
-      return undefined;
-    }
-    hidden(headers, 'get', find);
-    hidden(headers, 'has', function (key) { return find(key) !== undefined; });
-    hidden(headers, 'toObject', function () {
-      var out = {};
-      for (var k in headers) if (Object.prototype.hasOwnProperty.call(headers, k)) out[k] = headers[k];
-      return out;
-    });
-    return res;
-  }
-  function runCallback(callback, err, res) {
-    try {
-      var returned = callback(err, res);
-      if (returned && typeof returned.then === 'function') {
-        returned.then(undefined, function (e) {
-          report('pm.sendRequest callback error: ' + describe(e));
-        });
-      }
-    } catch (e) {
-      report('pm.sendRequest callback error: ' + describe(e));
-    }
-  }
-  pm.sendRequest = function (request, callback) {
-    var promise = nativeSend(request).then(decorate);
-    if (typeof callback !== 'function') return promise;
-    return promise.then(
-      function (res) { runCallback(callback, null, res); return res; },
-      function (err) { runCallback(callback, err, null); return undefined; }
-    );
-  };
-})();`;
 
 class ScriptExecutor {
   private envVars: Record<string, string>;
@@ -761,10 +698,10 @@ class ScriptExecutor {
 
       if (!this.evalInterrupted) this.bindRequestResponse(vm, context);
       if (!this.evalInterrupted) {
-        const { source, topLevelAwait } = this.userScriptSource(vm, trimmedScript);
+        const { source, topLevelAwait } = userScriptSource(vm, trimmedScript);
         const result = vm.evalCode(source, 'user-script.js');
         if (result.error) {
-          this.addLog('error', `Script execution error: ${this.describeError(vm, result.error)}`);
+          this.addLog('error', `Script execution error: ${describeQuickJsError(vm, result.error)}`);
           result.error.dispose();
         } else {
           // A top-level-await script's completion is its async wrapper; any
@@ -793,7 +730,10 @@ class ScriptExecutor {
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
         this.drainJobs();
       }
-      if (completion && !this.evalInterrupted) this.reportCompletion(vm, completion);
+      if (completion && !this.evalInterrupted) {
+        const failure = completionErrorMessage(vm, completion);
+        if (failure) this.addLog('error', failure);
+      }
       // An async `pm.test` still pending here can never settle: no host work is
       // outstanding to resolve it (or the deadline hit). Fail it rather than
       // report a pass for an assertion that never ran.
@@ -819,8 +759,8 @@ class ScriptExecutor {
       // values; a parse error here would mean a user script tampered with the
       // sentinel global, in which case "ignore and move on" matches Postman's
       // permissive behaviour.
-      const execution = this.readExecutionSentinel(vm);
-      const visualization = this.readVisualizationSentinel(vm);
+      const execution = readExecutionSentinel(vm);
+      const visualization = readVisualizationSentinel(vm);
       const requestMetadata = readRequestMetadata(vm, context.request);
       const requestHeaders = readRequestHeaders(vm, context.request);
 
@@ -847,127 +787,6 @@ class ScriptExecutor {
     } finally {
       if (completion?.handle.alive) completion.handle.dispose();
       this.evalStartTime = 0;
-    }
-  }
-
-  /**
-   * The source to evaluate. A script with a top-level `await` (a SyntaxError
-   * in global code) runs as the body of an async function, opened on the
-   * script's first line so line numbers stay the same; its `var` and function
-   * declarations are then local to the script, which a one-shot run cannot
-   * tell apart. Every other script, including one that does not compile at
-   * all, is evaluated exactly as written.
-   */
-  private userScriptSource(
-    vm: QuickJSContext,
-    script: string
-  ): { source: string; topLevelAwait: boolean } {
-    if (!/\bawait\b/.test(script)) return { source: script, topLevelAwait: false };
-    const asIs = vm.evalCode(script, 'user-script.js', { compileOnly: true });
-    if (!asIs.error) {
-      asIs.value.dispose();
-      return { source: script, topLevelAwait: false };
-    }
-    asIs.error.dispose();
-    const wrapped = `(async function () {${script}\n})()`;
-    const probe = vm.evalCode(wrapped, 'user-script.js', { compileOnly: true });
-    if (probe.error) {
-      probe.error.dispose();
-      return { source: script, topLevelAwait: false };
-    }
-    probe.value.dispose();
-    return { source: wrapped, topLevelAwait: true };
-  }
-
-  /**
-   * Report how the script's completion promise ended. A rejected top-level
-   * await is a script error, as is a rejected promise the script left as its
-   * last expression (an unhandled async IIFE); a top-level await that never
-   * settled means the rest of the script never ran.
-   *
-   * QuickJS's host rejection tracker is not exposed by quickjs-emscripten, so
-   * a rejected promise the script dropped anywhere else goes unreported.
-   */
-  private reportCompletion(
-    vm: QuickJSContext,
-    completion: { handle: QuickJSHandle; topLevelAwait: boolean }
-  ): void {
-    const state = vm.getPromiseState(completion.handle);
-    if (state.type === 'rejected') {
-      const message = this.describeError(vm, state.error);
-      state.error.dispose();
-      this.addLog(
-        'error',
-        completion.topLevelAwait
-          ? `Script execution error: ${message}`
-          : `Unhandled promise rejection: ${message}`
-      );
-      return;
-    }
-    if (state.type === 'pending') {
-      if (completion.topLevelAwait) {
-        this.addLog(
-          'error',
-          'Script execution error: a top-level await never settled, so the rest of the script did not run'
-        );
-      }
-      return;
-    }
-    if (!state.notAPromise) state.value.dispose();
-  }
-
-  /** The same text a synchronous script error has always been reported with. */
-  private describeError(vm: QuickJSContext, handle: QuickJSHandle): string {
-    const errorValue = vm.dump(handle);
-    return typeof errorValue === 'string' ? errorValue : JSON.stringify(errorValue);
-  }
-
-  /** Read `__pm_execution_state__` back into the typed sentinel shape. */
-  private readExecutionSentinel(vm: QuickJSContext): ScriptResult['execution'] | undefined {
-    const out: ScriptResult['execution'] = {};
-    const r = vm.evalCode('JSON.stringify(globalThis.__pm_execution_state__ || null)');
-    if (r.error) {
-      r.error.dispose();
-      return undefined;
-    }
-    const raw = vm.dump(r.value);
-    r.value.dispose();
-    if (typeof raw !== 'string' || raw === 'null') return undefined;
-    try {
-      const parsed = JSON.parse(raw) as {
-        nextRequest?: string | null | undefined;
-        skipRequested?: boolean;
-      };
-      if (parsed && 'nextRequest' in parsed && parsed.nextRequest !== undefined) {
-        out.nextRequest = parsed.nextRequest;
-      }
-      if (parsed && parsed.skipRequested === true) {
-        out.skipRequested = true;
-      }
-      return Object.keys(out).length > 0 ? out : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  /** Read `__pm_visualization__` back into the typed sentinel shape. */
-  private readVisualizationSentinel(vm: QuickJSContext): ScriptResult['visualization'] | undefined {
-    const r = vm.evalCode('JSON.stringify(globalThis.__pm_visualization__ || null)');
-    if (r.error) {
-      r.error.dispose();
-      return undefined;
-    }
-    const raw = vm.dump(r.value);
-    r.value.dispose();
-    if (typeof raw !== 'string' || raw === 'null') return undefined;
-    try {
-      const parsed = JSON.parse(raw) as { template?: string; data?: unknown };
-      if (parsed && typeof parsed.template === 'string') {
-        return { template: parsed.template, data: parsed.data };
-      }
-      return undefined;
-    } catch {
-      return undefined;
     }
   }
 

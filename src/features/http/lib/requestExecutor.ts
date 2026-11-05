@@ -1,5 +1,3 @@
-import { injectGraphQLBody } from '@shared/graphql/inject';
-import { buildGraphQLWireRequest, graphqlEnvelopeFromBody } from '@shared/graphql/wire';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
   appendQueryPairs,
@@ -10,7 +8,6 @@ import {
   collectEnabledHeaders,
   collectQueryPairs,
   mapProxyBodyType,
-  type ProxyBody,
   type QueryPair,
 } from '@shared/protocol/request-spec';
 import { type CookieHop, responseSetCookies } from '@shared/protocol/set-cookie';
@@ -58,6 +55,8 @@ import {
   ProxyTransportError,
 } from '@/lib/shared/transport';
 import type { Response as ApiResponse, AppSettings, HttpRequest, RequestSettings } from '@/types';
+import { shapeGraphQLBody } from './graphqlBody';
+import { ignoreProgress, isStreamingAccept, proxyStreamsAccept } from './streamingAccept';
 
 export interface RequestExecutionResult {
   response: ApiResponse;
@@ -183,42 +182,6 @@ export {
   mapProxyBodyType as mapBodyType,
   resolveEffectiveSettings,
 };
-
-interface ShapedGraphQL {
-  request: HttpRequest;
-  /** The proxy body, built from already-resolved text (never resolved again). */
-  body: ProxyBody;
-  /** Query rows the wire builder added (GET), already resolved. */
-  builtParams: ReadonlySet<HttpRequest['params'][number]>;
-}
-
-/**
- * Shape a `graphql` body for the wire with the shared builders, as the CLI
- * runner does (`cli/src/runner/executors/http.ts` `shapeGraphQL`): JSON-safe
- * `{{var}}` substitution in the document and variables, then the
- * `{query, variables, operationName}` envelope (POST) or URL params (GET), plus
- * the spec Accept / Content-Type. Throws for invalid variables JSON or a GET
- * that cannot carry the operation — nothing is sent. Undefined for any other body.
- */
-function shapeGraphQLBody(
-  request: HttpRequest,
-  resolve: (text: string) => string
-): ShapedGraphQL | undefined {
-  if (request.body.type !== 'graphql') return undefined;
-  const envelope = graphqlEnvelopeFromBody(injectGraphQLBody(request.body, resolve));
-  const wire = buildGraphQLWireRequest(request, envelope);
-  if (!wire.ok) throw new Error(wire.error);
-  const existing = new Set(request.params);
-  const builtParams = new Set(wire.request.params.filter((p) => !existing.has(p)));
-  const body: ProxyBody =
-    wire.method === 'GET'
-      ? { bodyType: 'none' }
-      : {
-          bodyType: 'json',
-          ...(wire.request.body.raw !== undefined ? { data: wire.request.body.raw } : {}),
-        };
-  return { request: wire.request, body, builtParams };
-}
 
 // Sign-at-wire auth (SigV4 / OAuth1 / WSSE) is intentionally NOT applied
 // here — the descriptor flows through `spec.auth` so the proxy signs
@@ -752,45 +715,6 @@ export async function executeRequest(
 // Streaming HTTP requests (SSE / NDJSON / raw byte streams)
 // ============================================================================
 
-/** Accept-header content types the HTTP page renders as a live stream. */
-const STREAMING_ACCEPT_TYPES = new Set([
-  'text/event-stream',
-  'application/x-ndjson',
-  'application/jsonl',
-]);
-
-/**
- * Accept media types the web proxy answers with a raw streaming pass-through
- * (`worker/handlers/proxy.ts` `STREAMING_MEDIA_TYPES`) instead of the buffered
- * JSON envelope. Keep in sync with the Worker.
- */
-const PROXY_STREAMED_ACCEPT_TYPES = new Set([...STREAMING_ACCEPT_TYPES, 'application/grpc-web']);
-
-function acceptMediaTypes(headers: Record<string, string>): string[] {
-  const accept = Object.entries(headers).find(([k]) => k.toLowerCase() === 'accept')?.[1] ?? '';
-  return accept
-    .split(',')
-    .map((entry) => (entry.split(';')[0] ?? '').trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function proxyStreamsAccept(headers: Record<string, string>): boolean {
-  return acceptMediaTypes(headers).some((t) => PROXY_STREAMED_ACCEPT_TYPES.has(t));
-}
-
-function ignoreProgress(): void {}
-
-/**
- * Returns true when the supplied request headers ask for a streaming
- * content type (SSE / NDJSON / JSON Lines). Header lookup is
- * case-insensitive; compound Accept values (e.g. `text/event-stream,
- * application/json`) match if any element is a streaming type. Media types
- * are matched exactly (parameters ignored), as the Worker does.
- */
-export function isStreamingAccept(headers: Record<string, string>): boolean {
-  return acceptMediaTypes(headers).some((t) => STREAMING_ACCEPT_TYPES.has(t));
-}
-
 export interface StreamingExecutionResult {
   /** Async iterable of stream events, drained by `StreamingResponseViewer`. */
   events: AsyncIterable<HttpStreamEvent>;
@@ -842,3 +766,5 @@ export async function executeStreamingRequest(
   const events = readStreamingResponse(response);
   return { events, responseMeta };
 }
+
+export { isStreamingAccept };
