@@ -330,6 +330,9 @@ export async function isPathRealSafe(filePath: string): Promise<boolean> {
       resolveFromExistingAncestor(path.resolve(filePath)),
     ]);
     if (!(realTarget === realRoot || realTarget.startsWith(realRoot + path.sep))) return false;
+    // A dialog-granted root is trusted for where it pointed when granted; if it
+    // is a symlink later retargeted at a system path, refuse it now.
+    if (getGrantedRoots().has(allowedRoot) && !isGrantableRoot(realRoot)) return false;
     // A symlink may land inside $HOME's denylist (shell init, autostart, creds)
     // even though its lexical path looked fine — re-apply the denylist to the
     // real target against the real home.

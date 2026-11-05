@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, unlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { app } from 'electron';
@@ -118,6 +118,20 @@ describe('dialog-granted collection roots', () => {
 
   it('refuses to grant credential directories under home', async () => {
     expect(await grantCollectionRoot('/tmp/test-home/.ssh')).toBe(false);
+  });
+
+  it('re-checks a granted symlinked folder whose link is later retargeted to a system path', async () => {
+    const real = path.join(base, 'real');
+    await mkdir(real);
+    const link = path.join(outside, 'collections');
+    await symlink(real, link);
+    expect(await grantCollectionRoot(link)).toBe(true);
+    expect(await isPathRealSafe(path.join(link, 'a.yml'))).toBe(true);
+
+    // e.g. a `git pull` repoints the link at /etc
+    await unlink(link);
+    await symlink('/etc', link);
+    expect(await isPathRealSafe(path.join(link, 'hosts'))).toBe(false);
   });
 
   it('does not let a granted root expose main-owned userData state', async () => {
