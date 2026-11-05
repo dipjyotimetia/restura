@@ -200,7 +200,8 @@ describe('sse:connect — graphql-sse main-side auth', () => {
   });
 
   it('rejects body-framing / denylisted auth header names', async () => {
-    for (const key of ['Content-Type', 'Content-Length', 'Cookie', 'Host']) {
+    // Cookie / Origin are allowed, as for the user's own SSE headers.
+    for (const key of ['Content-Type', 'Content-Length', 'Host', 'Connection']) {
       const res = await handlerFor(IPC.sse.connect)(
         makeEvent().event,
         gqlSse(`hdr-${key}`, {

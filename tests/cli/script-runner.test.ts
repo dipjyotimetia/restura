@@ -246,14 +246,15 @@ describe('runPreRequestScript — the request a script sees', () => {
 });
 
 describe('runPreRequestScript — effects that flow back to the runner', () => {
-  it('layers set variables over the starting map; an unset only leaves scriptVariables', async () => {
+  it('layers set variables over the starting map; an environment unset removes the key', async () => {
     const pre = await runPreRequestScript(
       `rs.environment.set('added', 'x'); rs.environment.unset('tenant');`,
       httpItem(),
       vars,
       runCtx()
     );
-    expect(pre.variables).toMatchObject({ ...vars, added: 'x' });
+    const { tenant: _removed, ...rest } = vars;
+    expect(pre.variables).toEqual({ ...rest, added: 'x' });
     expect(pre.scriptVariables.added).toBe('x');
     expect(pre.scriptVariables).not.toHaveProperty('tenant');
   });
