@@ -65,7 +65,7 @@ describe('secret storage routing (desktop)', () => {
     expect(storeSet).not.toHaveBeenCalled();
   });
 
-  it('migrates a pre-existing plaintext secret into the encrypted store on read', () => {
+  it('migrates a pre-existing plaintext secret into the encrypted store on read', async () => {
     // Simulate a value written before the key counted as sensitive (the bug).
     const key = kafkaSecretKey('legacy-conn', 'tls-passphrase');
     localStorage.setItem(key, 'leaked-in-plaintext');
@@ -74,17 +74,29 @@ describe('secret storage routing (desktop)', () => {
 
     expect(value).toBe('leaked-in-plaintext'); // recovered — no silent data loss
     expect(storeSet).toHaveBeenCalledWith(key, 'leaked-in-plaintext'); // moved to secure store
-    expect(localStorage.getItem(key)).toBeNull(); // plaintext purged
+    // Purged once the encrypted write has succeeded (a failed write keeps it).
+    await vi.waitFor(() => expect(localStorage.getItem(key)).toBeNull());
   });
 
-  it('purges any stale plaintext copy when a sensitive key is written', () => {
+  it('purges any stale plaintext copy when a sensitive key is written', async () => {
     const key = mqttSecretKey('legacy-conn-2', 'tls-passphrase');
     localStorage.setItem(key, 'old-plaintext');
 
     secureStorage.set(key, 'fresh-value');
 
     expect(storeSet).toHaveBeenCalledWith(key, 'fresh-value');
-    expect(localStorage.getItem(key)).toBeNull();
+    await vi.waitFor(() => expect(localStorage.getItem(key)).toBeNull());
+  });
+
+  it('keeps the plaintext copy when the encrypted write fails, so the secret is not lost', async () => {
+    const key = kafkaSecretKey('legacy-conn-4', 'tls-passphrase');
+    localStorage.setItem(key, 'only-copy');
+    storeSet.mockRejectedValueOnce(new Error('safeStorage unavailable'));
+
+    expect(secureStorage.get(key)).toBe('only-copy');
+    await vi.waitFor(() => expect(storeSet).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(localStorage.getItem(key)).toBe('only-copy');
   });
 
   it('removing a sensitive key also drops any stale plaintext copy', () => {
