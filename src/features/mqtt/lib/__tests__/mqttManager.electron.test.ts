@@ -202,6 +202,42 @@ describe('mqttManager (Electron path)', () => {
     expect(sub.status).toBe('subscribed');
     expect(sub.grantedQos).toBe(1);
   });
+
+  it('a failed unsubscribe surfaces the error and keeps the (still active) subscription', async () => {
+    const { emit, mqtt } = installElectronMock();
+    const id = useMqttStore.getState().createConnection();
+    await mqttManager.connect(useMqttStore.getState().connections[id]!);
+    await mqttManager.subscribe({ connectionId: id, topicFilter: 'a/#', qos: 1 });
+    emit(`mqtt:subscribed:${id}`, { topicFilter: 'a/#', grantedQos: 1 });
+    mqtt.unsubscribe.mockResolvedValueOnce({
+      success: false,
+      error: 'Unsubscribe refused',
+    } as never);
+
+    const result = await mqttManager.unsubscribe(id, 'a/#');
+
+    expect(result).toEqual({ ok: false, error: 'Unsubscribe refused' });
+    const conn = useMqttStore.getState().connections[id]!;
+    expect(conn.subscriptions.map((s) => [s.topicFilter, s.status])).toEqual([
+      ['a/#', 'subscribed'],
+    ]);
+    expect(conn.messages.at(-1)).toMatchObject({
+      direction: 'system',
+      topic: 'a/#',
+      error: 'Unsubscribe refused',
+    });
+  });
+
+  it('an unsubscribe IPC rejection is reported, not thrown', async () => {
+    const { mqtt } = installElectronMock();
+    const id = useMqttStore.getState().createConnection();
+    await mqttManager.connect(useMqttStore.getState().connections[id]!);
+    mqtt.unsubscribe.mockRejectedValueOnce(new Error('ipc gone'));
+    await expect(mqttManager.unsubscribe(id, 'a/#')).resolves.toEqual({
+      ok: false,
+      error: 'ipc gone',
+    });
+  });
 });
 
 describe('mqttManager — secrets, binary and MQTT 5 events (#850)', () => {

@@ -387,6 +387,9 @@ export type GrpcRequestConfig = z.infer<typeof GrpcRequestConfigSchema>;
 // ===========================
 
 export const DialogOptionsSchema = z.object({
+  // Window title the renderer's openFileDialog / saveFileDialog accept;
+  // forwarded to dialog.show*Dialog by the spread in file-operations.ts.
+  title: z.string().max(1024).optional(),
   filters: z
     .array(
       z.object({
@@ -625,6 +628,19 @@ export function isDeniedStreamingHeader(name: string): boolean {
 
 export const SseConnectionIdSchema = ConnectionIdSchema;
 
+// SSE is a plain HTTP request: user `Cookie` / `Origin` headers are allowed,
+// matching the desktop HTTP path and the web Worker (shared/protocol/
+// header-policy.ts REQUEST_DENY), and capabilities/sse.ts `customHeaders`.
+// Only the hop-by-hop / proxy fields stay refused.
+const SSE_HEADER_DENYLIST = new Set(
+  [...STREAMING_HEADER_DENYLIST].filter((name) => name !== 'cookie' && name !== 'origin')
+);
+
+/** True for request headers a desktop SSE request (user or applied auth) must not set. */
+export function isDeniedSseHeader(name: string): boolean {
+  return SSE_HEADER_DENYLIST.has(name.toLowerCase());
+}
+
 export const SseConnectSchema = z.object({
   connectionId: SseConnectionIdSchema,
   stripOnOriginChange: z.array(z.string().max(1024)).max(256).optional(),
@@ -637,10 +653,9 @@ export const SseConnectSchema = z.object({
   headers: z
     .record(z.string(), z.string())
     .refine(
-      (headers) =>
-        !Object.keys(headers).some((k) => STREAMING_HEADER_DENYLIST.has(k.toLowerCase())),
+      (headers) => !Object.keys(headers).some((k) => SSE_HEADER_DENYLIST.has(k.toLowerCase())),
       {
-        message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...STREAMING_HEADER_DENYLIST].join(', ')}`,
+        message: `Headers must not include hop-by-hop or security-sensitive fields: ${[...SSE_HEADER_DENYLIST].join(', ')}`,
       }
     )
     .optional(),

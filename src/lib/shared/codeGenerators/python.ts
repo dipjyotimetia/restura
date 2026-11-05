@@ -32,8 +32,17 @@ export const generatePython = (options: GenerateOptions): string => {
     python += `}\n\n`;
   }
 
+  // `requests` only sends multipart when `files` is non-empty; text-only
+  // form-data must go through `files` as (None, value) tuples or it silently
+  // becomes urlencoded.
+  const textOnlyMultipart = Boolean(formData) && fileFields.length === 0 && textFields.length > 0;
   if (formData) {
-    if (textFields.length > 0) {
+    if (textOnlyMultipart) {
+      python += `files = {\n`;
+      for (const f of textFields)
+        python += `    "${escapeJson(f.key)}": (None, "${escapeJson(f.value)}"),\n`;
+      python += `}\n\n`;
+    } else if (textFields.length > 0) {
       python += `data = {\n`;
       for (const f of textFields)
         python += `    "${escapeJson(f.key)}": "${escapeJson(f.value)}",\n`;
@@ -77,8 +86,8 @@ export const generatePython = (options: GenerateOptions): string => {
   if (Object.keys(resolvedParams).length > 0) python += `,\n    params=params`;
   if (Object.keys(resolvedHeaders).length > 0) python += `,\n    headers=headers`;
   if (formData) {
-    if (textFields.length > 0) python += `,\n    data=data`;
-    if (fileFields.length > 0) python += `,\n    files=files`;
+    if (textFields.length > 0 && !textOnlyMultipart) python += `,\n    data=data`;
+    if (fileFields.length > 0 || textOnlyMultipart) python += `,\n    files=files`;
   } else if (request.body.type !== 'none' && request.body.raw) {
     python += request.body.type === 'json' ? `,\n    json=json_data` : `,\n    data=data`;
   }

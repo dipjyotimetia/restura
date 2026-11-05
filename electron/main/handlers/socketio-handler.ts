@@ -408,6 +408,10 @@ export function registerSocketIoHandlerIPC(): void {
       IPC.socketio.disconnect,
       SocketIoDisconnectSchema,
       async (config, event) => {
+        // A connect still pending (DNS / lazy socket.io load) is cancelled
+        // outright so it can never open a zombie socket after the renderer asked
+        // to disconnect (#908, parity with websocket-handler).
+        activeConnections.cancelClaim(config.connectionId, event.sender.id);
         activeConnections.cancelForOwner(config.connectionId, event.sender.id);
         return { success: true };
       }

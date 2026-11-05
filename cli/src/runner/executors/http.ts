@@ -23,7 +23,7 @@ import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token, toProtocolAuth } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
-import { sharedCoreFailure, thrownOutcome } from './failure';
+import { failureLabel, sharedCoreFailure, thrownOutcome } from './failure';
 import { requestDispatcher } from './http-transport';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 import { preflightRefusal, refusedOutcome } from './variable-guard';
@@ -221,7 +221,7 @@ export async function executeHttp(
       passed: false,
       durationMs,
       bodyBytes: 0,
-      errorMessage: result.payload.error,
+      errorMessage: failureLabel(result.payload.error, Boolean(opts.proxy)),
       ...sharedCoreFailure(result.status),
     };
   } catch (err) {

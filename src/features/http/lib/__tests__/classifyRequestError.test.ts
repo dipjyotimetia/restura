@@ -44,8 +44,9 @@ describe('classifyRequestError', () => {
     ['Localhost URLs are not allowed', 'Local or reserved host blocked'],
     [
       'Hostname "metadata.google.internal" is blocked for security reasons',
-      'Local or reserved host blocked',
+      'Reserved host blocked',
     ],
+    ['Hostname "app.localhost" is blocked for security reasons', 'Local or reserved host blocked'],
     [
       'TLS cipher / protocol controls are desktop-only — open this request in the Restura desktop app.',
       'Needs the desktop app',
@@ -58,6 +59,20 @@ describe('classifyRequestError', () => {
     ['Response too large (max 50MB)', 'Response too large'],
   ])('classifies %s', (body, title) => {
     expect(classifyRequestError(fail(body), true)?.title).toBe(title);
+  });
+
+  it('a host blocked on every platform never points web users at the desktop app', () => {
+    for (const body of [
+      'Hostname "169.254.169.254" is blocked for security reasons',
+      'Hostname "kubernetes.default.svc" is blocked for security reasons',
+      'Cloud metadata endpoint is blocked: 169.254.169.254',
+    ]) {
+      for (const desktop of [false, true]) {
+        const info = classifyRequestError(fail(body), desktop);
+        expect(info?.title).not.toBe('Local or reserved host blocked');
+        expect(info?.hint ?? '').not.toMatch(/desktop app/);
+      }
+    }
   });
 
   it('localhost hint is web-only', () => {

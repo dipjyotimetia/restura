@@ -79,3 +79,22 @@ describe('Digest auth in the CLI', () => {
     ).toThrow();
   });
 });
+
+describe('auth header vs a same-name header row (app parity)', () => {
+  it('replaces a header row of any casing instead of sending both', () => {
+    const headers: Record<string, string> = {
+      authorization: 'Bearer from-row',
+      'x-api-key': 'row',
+    };
+    applyAuthHeaders({ type: 'bearer', bearer: { token: 'from-auth' } }, headers, {});
+    expect(headers).toEqual({ 'x-api-key': 'row', Authorization: 'Bearer from-auth' });
+
+    const keyed: Record<string, string> = { 'x-api-key': 'row' };
+    applyAuthHeaders(
+      { type: 'api-key', apiKey: { key: 'X-API-Key', value: 'k', in: 'header' } },
+      keyed,
+      {}
+    );
+    expect(keyed).toEqual({ 'X-API-Key': 'k' });
+  });
+});

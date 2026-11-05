@@ -22,6 +22,11 @@ import {
 } from '../../shared/secrets/collection-redaction';
 import { convertCollectionSecretsToHandles } from '../../src/lib/shared/secretRef-migrations';
 
+// Generated ids are random hex, so a short numeric secret such as `1234` can
+// occur inside one by chance (`01234f67-…`); blank them before asserting.
+const withoutIds = (json: string) =>
+  json.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<id>');
+
 let handleSeq = 0;
 const store = vi.fn(async (_: { value: string; label: string }) => ({
   ok: true as const,
@@ -324,7 +329,7 @@ describe('Postman _postman sidecar never leaks plaintext through redaction', () 
 
   it('redactCollectionSecrets blanks every sidecar credential', () => {
     const { collection } = importPostmanCollection(postman);
-    const text = JSON.stringify(redactCollectionSecrets(collection));
+    const text = withoutIds(JSON.stringify(redactCollectionSecrets(collection)));
     for (const s of SECRETS) expect(text).not.toContain(s);
   });
 
@@ -551,7 +556,7 @@ describe('Postman v3 review (#1200): nested / numeric / array / userinfo secrets
 
   it('raw values are scrubbed at import (nested, numeric, array, URL userinfo / query)', () => {
     const { collection } = importPostmanCollection(probe);
-    const text = JSON.stringify(collection);
+    const text = withoutIds(JSON.stringify(collection));
     for (const s of ['URLPW', 'URLQTOKEN', 'NESTED', '1234', '"ARR"'])
       expect(text).not.toContain(s);
   });
@@ -561,7 +566,7 @@ describe('Postman v3 review (#1200): nested / numeric / array / userinfo secrets
     // MQTT basic password, Kafka bearer token and the WS bearer token live
     // only in the bag: the export prompt must see every one of them.
     expect(countCollectionInlineSecrets(collection)).toBe(BAG_ONLY_AUTH.length);
-    const text = JSON.stringify(redactCollectionSecrets(collection));
+    const text = withoutIds(JSON.stringify(redactCollectionSecrets(collection)));
     for (const s of SECRETS) expect(text).not.toContain(s);
   });
 

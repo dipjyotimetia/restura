@@ -292,6 +292,20 @@ async function buildTunneledRequest(targetUrl: URL, requestInit: RequestInit): P
   return asBuffer(encodeRequest(method, target, targetUrl.host, headers, bodyBytes));
 }
 
+/**
+ * Resolve and validate `host`, returning the address to dial. Dialing this
+ * literal (instead of the name) means `net.connect` does no lookup of its own,
+ * so the validated address is the one connected to.
+ */
+async function resolveDialAddress(
+  host: string,
+  dnsGuard: NodeDnsGuardOptions | undefined
+): Promise<string> {
+  const [first] = await assertNodeHostnameSafe(host, dnsGuard);
+  if (!first) throw new Error(`DNS lookup for ${host} returned no address`);
+  return first.address;
+}
+
 export function createHttpsViaConnectProxy(dnsGuard?: NodeDnsGuardOptions) {
   return async function httpsViaConnectProxy(
     targetUrl: URL,
@@ -303,11 +317,13 @@ export function createHttpsViaConnectProxy(dnsGuard?: NodeDnsGuardOptions) {
     // addresses for the upstream proxy host AND the eventual CONNECT target.
     // Defends against attacker-controlled DNS resolving a public hostname to
     // an internal IP — Cloudflare's runtime blocks this implicitly; Node has
-    // to do it explicitly.
-    await assertNodeHostnameSafe(proxy.host, dnsGuard);
+    // to do it explicitly. The proxy dial uses the validated address itself
+    // (no second resolution a rebind could swap); the CONNECT target is
+    // resolved by the proxy, outside this process.
+    const proxyAddress = await resolveDialAddress(proxy.host, dnsGuard);
     await assertNodeHostnameSafe(targetUrl.hostname, dnsGuard);
 
-    const socket = await connectTcp(proxy.host, proxy.port, signal);
+    const socket = await connectTcp(proxyAddress, proxy.port, signal);
     const targetPort = targetUrl.port || '443';
 
     const connectReq =
@@ -349,10 +365,11 @@ export function createHttpViaProxy(dnsGuard?: NodeDnsGuardOptions) {
     requestInit: RequestInit,
     signal: AbortSignal
   ): Promise<Response> {
-    await assertNodeHostnameSafe(proxy.host, dnsGuard);
+    // Dial the proxy at its validated address (see httpsViaConnectProxy).
+    const proxyAddress = await resolveDialAddress(proxy.host, dnsGuard);
     await assertNodeHostnameSafe(targetUrl.hostname, dnsGuard);
 
-    const socket = await connectTcp(proxy.host, proxy.port, signal);
+    const socket = await connectTcp(proxyAddress, proxy.port, signal);
 
     try {
       // Verbatim (#857): the shared core already normalised known methods; extension

@@ -175,4 +175,35 @@ describe('CodeEditor Monaco lifecycle', () => {
       'monaco-var-unresolved',
     ]);
   });
+
+  it('Cmd/Ctrl+Enter inside the editor fires the app-wide send shortcut', () => {
+    const actions: Array<{ id: string; keybindings?: number[]; run: () => void }> = [];
+    const editor = {
+      getModel: () => ({ uri: { toString: () => 'inmemory://x' }, getValue: () => '' }),
+      updateOptions: vi.fn(),
+      layout: vi.fn(),
+      onDidChangeModelContent: () => ({ dispose: vi.fn() }),
+      onDidChangeModel: () => ({ dispose: vi.fn() }),
+      getAction: () => undefined,
+      addAction: (a: (typeof actions)[number]) => {
+        actions.push(a);
+        return { dispose: vi.fn() };
+      },
+    };
+    const monaco = { Range: class {}, KeyMod: { CtrlCmd: 2048 }, KeyCode: { Enter: 3 } };
+    render(<CodeEditor value="{}" />);
+    act(() => mocks.editorProps?.onMount(editor, monaco));
+
+    const send = actions.find((a) => a.keybindings?.includes(2048 | 3));
+    expect(send).toBeDefined();
+    const seen: KeyboardEvent[] = [];
+    const listener = (e: KeyboardEvent) => seen.push(e);
+    window.addEventListener('keydown', listener);
+    send?.run();
+    window.removeEventListener('keydown', listener);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.key).toBe('Enter');
+    expect(seen[0]?.metaKey || seen[0]?.ctrlKey).toBe(true);
+    expect(seen[0]?.defaultPrevented).toBe(false);
+  });
 });

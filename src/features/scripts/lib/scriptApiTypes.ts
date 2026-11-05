@@ -21,8 +21,11 @@ export const SCRIPT_API_DTS = `
 interface ResturaVariableScope {
   /** Read a variable, or undefined if unset. */
   get(key: string): string | undefined;
-  /** Write a variable for this run. */
-  set(key: string, value: string): void;
+  /**
+   * Write a variable for this run. Values are stored as strings: an object or
+   * array as JSON, \`undefined\` as an empty string, anything else via String().
+   */
+  set(key: string, value: unknown): void;
   /** Remove a variable. */
   unset(key: string): void;
   /** True if the variable is set. */
@@ -250,11 +253,22 @@ interface ResturaPmInfo {
   readonly eventName: string;
 }
 
+/** Response headers of rs.sendRequest: the plain map plus case-insensitive lookups. */
+type ResturaSendResponseHeaders = Record<string, string> & {
+  get(name: string): string | undefined;
+  has(name: string): boolean;
+  toObject(): Record<string, string>;
+};
+
 /** Result of rs.sendRequest. */
 interface ResturaSendResponse {
   code: number;
   status: string;
-  headers: Record<string, string>;
+  headers: ResturaSendResponseHeaders;
+  /** The body parsed as JSON (throws when it is not JSON). */
+  json(): any;
+  /** The body as text. */
+  text(): string;
   /** Every Set-Cookie field, one entry each. */
   setCookies: string[];
   /** The Set-Cookie fields parsed. */
@@ -309,8 +323,15 @@ interface ResturaIterationData extends ResturaVariableScope {
 
 /** The Restura script API, exposed as both \`rs\` and \`pm\`. */
 interface ResturaScriptApi {
-  /** Define a named test case. Assertions inside determine pass/fail. */
-  test(name: string, fn: () => void | Promise<void>): void;
+  /**
+   * Define a named test case. Assertions inside determine pass/fail. A
+   * returned promise is awaited; a callback that takes \`done\` settles when
+   * \`done()\` (pass) or \`done(err)\` (fail) is called.
+   */
+  test(
+    name: string,
+    fn: (() => void | Promise<void>) | ((done: (err?: unknown) => void) => void)
+  ): void;
   /** Begin an assertion chain on a value. */
   expect(actual: unknown): ResturaAssertion;
   /** The response (test scripts). */
@@ -319,7 +340,7 @@ interface ResturaScriptApi {
   request: ResturaPmRequest;
   /** Metadata about the current run. */
   info: ResturaPmInfo;
-  /** Active variable scope (resolves env → collection → globals). */
+  /** Active variable scope (resolves local → iteration data → env → collection → globals). */
   variables: ResturaVariableScope;
   /** Environment variables. */
   environment: ResturaVariableScope;
@@ -335,9 +356,22 @@ interface ResturaScriptApi {
   vault: ResturaVault;
   /** Runner flow control. */
   execution: ResturaExecution;
-  /** Send an ad-hoc HTTP request. */
+  /**
+   * Send an ad-hoc HTTP request. \`header\` / \`headers\` take a map or Postman's
+   * \`[{ key, value, disabled }]\` list; \`body\` takes a string, an object (sent
+   * as JSON) or a Postman body (\`{ mode: 'raw' | 'urlencoded' | 'formdata' | 'graphql', ... }\`).
+   * With a callback, a failure goes to the callback and the promise resolves.
+   */
   sendRequest(
-    input: string | { url: string; method?: string; headers?: Record<string, string>; body?: unknown },
+    input:
+      | string
+      | {
+          url: string;
+          method?: string;
+          header?: Record<string, string> | Array<{ key: string; value: string; disabled?: boolean }>;
+          headers?: Record<string, string> | Array<{ key: string; value: string; disabled?: boolean }>;
+          body?: unknown;
+        },
     callback?: (err: Error | null, response: ResturaSendResponse) => void,
   ): Promise<ResturaSendResponse>;
   /** Render a visualizer template with data. */

@@ -631,6 +631,54 @@ message PingRequest
 
       expect(() => prepareGrpcRequest(request, (t) => t)).toThrow(GrpcClientError);
     });
+
+    describe('unsafe integers with a known schema', () => {
+      const PROTO = `syntax = "proto3";
+package t;
+import "google/protobuf/struct.proto";
+message R { google.protobuf.Struct st = 1; int64 big = 2; }
+service S { rpc M(R) returns (R); }`;
+      const request = (overrides: Partial<GrpcRequest> = {}): GrpcRequest => ({
+        id: 'big',
+        name: 'Big',
+        type: 'grpc',
+        methodType: 'unary',
+        url: 'https://api.example.com',
+        service: 't.S',
+        method: 'M',
+        metadata: [],
+        message: '{"st":{"n":12345678901234567890},"big":9007199254740993}',
+        auth: { type: 'none' },
+        ...overrides,
+      });
+
+      it('keeps Struct numbers numeric and int64 exact using the saved schema snapshot', () => {
+        const result = prepareGrpcRequest(
+          request({ schema: { kind: 'proto', fileName: 't.proto', text: PROTO } }),
+          (t) => t
+        );
+        expect(result.message).toEqual({
+          st: { n: Number('12345678901234567890') },
+          big: '9007199254740993',
+        });
+      });
+
+      it('uses an explicitly supplied schema source', () => {
+        const result = prepareGrpcRequest(request(), (t) => t, { protoContent: PROTO });
+        expect(result.message).toEqual({
+          st: { n: Number('12345678901234567890') },
+          big: '9007199254740993',
+        });
+      });
+
+      it('falls back to quoting every unsafe integer without a usable schema', () => {
+        const result = prepareGrpcRequest(request(), (t) => t);
+        expect(result.message).toEqual({
+          st: { n: '12345678901234567890' },
+          big: '9007199254740993',
+        });
+      });
+    });
   });
 
   describe('createErrorResponse', () => {

@@ -22,9 +22,10 @@ export interface RunScriptResult {
   /** Errors captured from the QuickJS evaluator (uncaught throws). */
   errors: string[];
   /**
-   * The variable map for the rest of THIS request: the script's map layered
-   * over the one it started with, so a key it `unset` keeps its value here, as
-   * in the app (`runScriptPhase` absorbs with `Object.assign`).
+   * The variable map for the rest of THIS request, folded exactly as the app
+   * folds it (`runScriptPhase` absorb): the script's writes, its unsets
+   * removed, and its `pm.collectionVariables` writes applied, so the request a
+   * pre-request script precedes is sent with them.
    */
   variables: Record<string, string>;
   /**
@@ -65,12 +66,19 @@ function requestId(item: LoadedRequest): string {
 
 /**
  * The scopes a CLI script phase runs with. The CLI has no script host: no
- * cookie jar, keychain or sub-request path, so `pm.sendRequest`, `pm.cookies`
- * and `pm.vault` reject with a clear error; and no globals scope.
+ * cookie jar, keychain or sub-request path, so `pm.sendRequest` and `pm.vault`
+ * reject with a clear error and `pm.cookies` reads empty; and no globals scope.
+ * `absorb` folds the script's writes into `into` the way every app host does.
  */
-function phaseScopes(item: LoadedRequest, vars: Record<string, string>, runCtx: ScriptRunContext) {
+function phaseScopes(
+  item: LoadedRequest,
+  vars: Record<string, string>,
+  runCtx: ScriptRunContext,
+  into: Record<string, string>
+) {
   return {
     envVars: { ...vars },
+    absorb: { into, variables: 'always' as const },
     collectionVars: runCtx.collectionVars,
     iterationData: runCtx.iterationData,
     info: {
@@ -100,13 +108,14 @@ export async function runPreRequestScript(
   vars: Record<string, string>,
   runCtx: ScriptRunContext
 ): Promise<RunScriptResult> {
+  const into = { ...vars };
   const phase = await runScriptPhase({
     phase: 'prerequest',
     script,
     request: buildRequestContext(item, vars, 'prerequest'),
-    ...phaseScopes(item, vars, runCtx),
+    ...phaseScopes(item, vars, runCtx, into),
   });
-  return toRunScriptResult(phase.result, vars);
+  return toRunScriptResult(phase.result, vars, into);
 }
 
 /**
@@ -135,14 +144,15 @@ export async function runTestScript(
     time: outcome.durationMs,
     size: outcome.bodyBytes,
   };
+  const into = { ...vars };
   const phase = await runScriptPhase({
     phase: 'test',
     script,
     request: buildRequestContext(item, vars, 'test'),
     response: responseCtx,
-    ...phaseScopes(item, vars, runCtx),
+    ...phaseScopes(item, vars, runCtx, into),
   });
-  return toRunScriptResult(phase.result, vars);
+  return toRunScriptResult(phase.result, vars, into);
 }
 
 /**
@@ -222,17 +232,18 @@ function resolveVars(text: string, vars: Record<string, string>): string {
 
 function toRunScriptResult(
   result: ScriptResult,
-  originalVars: Record<string, string>
+  originalVars: Record<string, string>,
+  absorbed: Record<string, string>
 ): RunScriptResult {
   // The executor returns the full map as the script left it (an `unset` key is
-  // absent). This request keeps the merged map (app parity); the run scope
-  // gets the raw one so the unset reaches later requests.
+  // absent): the run scope folds that in so the unset reaches later requests.
+  // This request uses `absorbed`, the map `runScriptPhase` folded for it.
   const scriptVariables = result.variables ? { ...result.variables } : { ...originalVars };
   return {
     assertions: result.tests ?? [],
     logs: result.logs,
     errors: result.errors,
-    variables: { ...originalVars, ...scriptVariables },
+    variables: absorbed,
     scriptVariables,
     ...(result.execution ? { execution: result.execution } : {}),
     ...(result.collectionMutations ? { collectionMutations: result.collectionMutations } : {}),

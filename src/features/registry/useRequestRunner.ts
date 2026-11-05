@@ -24,6 +24,7 @@ import {
   scriptEnvironmentTargetId,
 } from '@/features/environments/lib/scriptEnvironmentMutations';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
+import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -107,6 +108,8 @@ export function useRequestRunner() {
       // them on `RegistryRunResult` for callers that want to react synchronously.
       let collectedScripts: ProtocolScriptResult | undefined;
       const onScriptResult = (result: ProtocolScriptResult) => {
+        // A cancelled run reports nothing: its script output is not this send's.
+        if (ctrl.signal.aborted) return;
         collectedScripts = result;
         // Push to the store immediately so Console/Tests panels render as
         // soon as scripts finish — even if the caller never inspects
@@ -130,10 +133,19 @@ export function useRequestRunner() {
       const savedRequestId = originTabId
         ? useRequestStore.getState().tabs.find((tab) => tab.id === originTabId)?.savedRequestId
         : undefined;
-      const scriptCollectionId = savedRequestId
-        ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.id
+      const scriptCollection = savedRequestId
+        ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)
         : undefined;
+      const scriptCollectionId = scriptCollection?.id;
       const scriptEnvironmentId = scriptEnvironmentTargetId(scriptCollectionId);
+      // `pm.collectionVariables` for the owning collection, as the HTTP send
+      // gives it (`useHttpRequestPage`). A caller's own protocolOptions win.
+      const protocolOptions: Record<string, unknown> = {
+        ...(scriptCollection
+          ? { collectionVars: buildValueMap({ collection: scriptCollection.variables }) }
+          : {}),
+        ...(options?.protocolOptions ?? {}),
+      };
 
       const startedAt = performance.now();
       const response = await protocol.runRequest(request, {
@@ -143,10 +155,18 @@ export function useRequestRunner() {
         secretNames: sendSecretNames,
         onScriptResult,
         onAuthRefreshed,
-        ...(options?.protocolOptions ? { protocolOptions: options.protocolOptions } : {}),
+        ...(Object.keys(protocolOptions).length > 0 ? { protocolOptions } : {}),
         ...(options?.stream ? { stream: options.stream } : {}),
       });
       const durationMs = performance.now() - startedAt;
+
+      // Cancelled while the transport was finishing (a gRPC unary call that
+      // resolved anyway): the run is abandoned, so nothing it did is recorded
+      // (no history entry, no environment or collection writes).
+      if (ctrl.signal.aborted) {
+        if (abortRef.current === ctrl) abortRef.current = null;
+        throw new DOMException('Request aborted', 'AbortError');
+      }
 
       // Persist to history. addHistoryItem honors user settings
       // (autoSaveHistory / maxHistoryItems) internally — no need to re-check.
@@ -172,6 +192,18 @@ export function useRequestRunner() {
         collectionId: scriptCollectionId,
         mutations: environmentMutations,
       });
+
+      // `pm.collectionVariables.set/unset` from either script persist to the
+      // owning collection (pre-request first, then test), as for HTTP.
+      const collectionMutations: Record<string, string | null> = {
+        ...(collectedScripts?.preRequest?.collectionMutations ?? {}),
+        ...(collectedScripts?.test?.collectionMutations ?? {}),
+      };
+      if (scriptCollectionId && Object.keys(collectionMutations).length > 0) {
+        useCollectionStore
+          .getState()
+          .applyCollectionVarMutations(scriptCollectionId, collectionMutations);
+      }
 
       const result: RegistryRunResult = { response, durationMs };
       if (collectedScripts) {

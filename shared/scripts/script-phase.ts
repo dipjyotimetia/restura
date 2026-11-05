@@ -72,6 +72,25 @@ export interface ScriptPhaseResult {
   skipRequested: boolean;
 }
 
+/**
+ * Fold the variable map a script left (`after`) into `into`: its writes are
+ * applied, and a key removed by `pm.environment.unset` (recorded in
+ * `environmentUnsets`) is removed, so the unset reaches the request being sent.
+ * `pm.variables.unset` only clears the script-local value (Postman semantics):
+ * the environment value stays visible, so `into` keeps it. Every host (app
+ * protocols and the CLI) folds this way.
+ */
+export function absorbScriptVariables(
+  into: Record<string, string>,
+  after: Record<string, string>,
+  environmentUnsets: Record<string, string | null> | undefined
+): void {
+  Object.assign(into, after);
+  for (const [key, value] of Object.entries(environmentUnsets ?? {})) {
+    if (value === null && !Object.hasOwn(after, key)) delete into[key];
+  }
+}
+
 export async function runScriptPhase(input: ScriptPhaseInput): Promise<ScriptPhaseResult> {
   const { host } = input;
   const globalVars = host.globals?.();
@@ -92,7 +111,7 @@ export async function runScriptPhase(input: ScriptPhaseInput): Promise<ScriptPha
 
   const { absorb } = input;
   if (absorb && (result.success || absorb.variables === 'always') && result.variables) {
-    Object.assign(absorb.into, result.variables);
+    absorbScriptVariables(absorb.into, result.variables, result.environmentMutations);
   }
   if (result.globalsMutations) host.applyGlobalsMutations?.(result.globalsMutations);
   // The request is built after the pre-request phase, so collection writes must

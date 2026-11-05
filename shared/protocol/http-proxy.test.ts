@@ -413,6 +413,40 @@ describe('executeHttpProxy with SigV4 auth', () => {
     expect(headers['X-Amz-Date']).toBeUndefined();
   });
 
+  it('a wire-signed auth header replaces a user header of the same name in any casing', async () => {
+    const send = async (
+      headers: Record<string, string>,
+      auth: NonNullable<Parameters<typeof executeHttpProxy>[0]['auth']>
+    ) => {
+      const fetcher = vi.fn(makeFetcher('{}'));
+      await executeHttpProxy(
+        { method: 'GET', url: 'https://s3.amazonaws.com/b/k', timeout: 1000, headers, auth },
+        fetcher,
+        { allowLocalhost: false }
+      );
+      return asRecord(fetcher.mock.calls[0]?.[0]?.headers);
+    };
+    const sigv4 = await send(
+      { authorization: 'Bearer stale', 'x-amz-date': '19990101T000000Z', 'X-Trace': 't' },
+      {
+        type: 'aws-signature',
+        awsSignature: { accessKey: 'AK', secretKey: 's', region: 'us-east-1', service: 's3' },
+      }
+    );
+    const names = Object.keys(sigv4).map((k) => k.toLowerCase());
+    expect(names.filter((n) => n === 'authorization')).toHaveLength(1);
+    expect(names.filter((n) => n === 'x-amz-date')).toHaveLength(1);
+    expect(sigv4.Authorization).toMatch(/^AWS4-HMAC-SHA256 /);
+    expect(sigv4['X-Amz-Date']).not.toBe('19990101T000000Z');
+    expect(sigv4['X-Trace']).toBe('t');
+
+    const wsse = await send(
+      { 'x-wsse': 'stale' },
+      { type: 'wsse', wsse: { username: 'u', password: 'p' } }
+    );
+    expect(Object.keys(wsse).filter((k) => k.toLowerCase() === 'x-wsse')).toEqual(['X-WSSE']);
+  });
+
   it('does not add SigV4 headers when auth is omitted', async () => {
     const fetcher = vi.fn(makeFetcher('{}'));
     await executeHttpProxy({ method: 'GET', url: 'https://example.com/', timeout: 1000 }, fetcher, {

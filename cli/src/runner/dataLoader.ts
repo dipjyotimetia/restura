@@ -11,15 +11,33 @@ export type CliIterationRow = Record<string, string>;
  * objects. JSON values are coerced to strings — variable substitution is
  * string-only.
  *
- * Returns an empty array when no file was provided.
+ * Returns an empty array when no file was provided. A file that was provided
+ * but holds no rows (`[]`, a header-only CSV, a blank file) is an error: the
+ * run would otherwise silently do one iteration with no row, which is not what
+ * `--data` asked for.
+ *
+ * The format follows the extension (`.json` is JSON, `.csv` is CSV); any other
+ * extension is sniffed like the app's `parseDataFile` (a leading `[` means
+ * JSON, otherwise CSV). A ragged CSV row is an error, as in the app (papaparse
+ * reports `FieldMismatch` and the app refuses it).
  */
 export async function loadIterationData(path: string | undefined): Promise<CliIterationRow[]> {
   if (!path) return [];
-  const ext = extname(path).toLowerCase();
-  // A UTF-8 BOM (Excel exports) would break JSON.parse and the first CSV header.
-  const text = (await readFile(path, 'utf-8')).replace(/^\uFEFF/, '');
+  const rows = await parseIterationFile(path);
+  if (rows.length === 0) {
+    throw new Error(`--data file has no rows: ${path}`);
+  }
+  return rows;
+}
 
-  if (ext === '.json') {
+async function parseIterationFile(path: string): Promise<CliIterationRow[]> {
+  const extension = extname(path).toLowerCase();
+  // A UTF-8 BOM (Excel exports) would break JSON.parse and the first CSV header.
+  const text = (await readFile(path, 'utf-8')).replace(/^﻿/, '');
+  const isJson =
+    extension === '.json' || (extension !== '.csv' && text.trimStart().startsWith('['));
+
+  if (isJson) {
     const parsed = JSON.parse(text);
     if (!Array.isArray(parsed)) {
       throw new Error(`--data file must be a JSON array of objects: ${path}`);
@@ -44,12 +62,19 @@ export async function loadIterationData(path: string | undefined): Promise<CliIt
     });
   }
 
-  // CSV (default for .csv and anything else)
-  const records = parseCsv(text, {
-    columns: true,
-    skip_empty_lines: true,
-    trim: true,
-  }) as Array<Record<string, string>>;
+  // CSV (default for .csv and anything that does not look like JSON)
+  let records: Array<Record<string, string>>;
+  try {
+    records = parseCsv(text, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    }) as Array<Record<string, string>>;
+  } catch (err) {
+    throw new Error(
+      `--data CSV parse error (${path}): ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
   return records.map((row) => {
     const out: CliIterationRow = {};
     for (const [k, v] of Object.entries(row)) out[k] = String(v ?? '');

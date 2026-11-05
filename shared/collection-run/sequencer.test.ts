@@ -327,6 +327,37 @@ describe('sequenceCollectionRun: abort', () => {
     expect(trace).toEqual(['start A@0', 'step A@0']);
   });
 
+  it('reports aborted only when the signal stopped items from running', async () => {
+    const early = new AbortController();
+    const cut = await run({
+      items: ['A', 'B'],
+      signal: early.signal,
+      duringStep: { A: () => early.abort() },
+    });
+    expect(cut.result.aborted).toBe(true);
+
+    const late = new AbortController();
+    const finished = await run({
+      items: ['A', 'B'],
+      signal: late.signal,
+      duringStep: { B: () => late.abort() },
+    });
+    expect(stepsOf(finished.trace)).toHaveLength(2);
+    expect(finished.result.aborted).toBe(false);
+  });
+
+  it('an abort during a step that ends the run via setNextRequest(null) is not a stop', async () => {
+    const controller = new AbortController();
+    const { trace, result } = await run({
+      items: ['A', 'B'],
+      signal: controller.signal,
+      script: { A: { next: null } },
+      duringStep: { A: () => controller.abort() },
+    });
+    expect(stepsOf(trace)).toEqual(['A@0']);
+    expect(result.aborted).toBe(false);
+  });
+
   it('a bad jump from the in-flight step is still reported after an abort', async () => {
     const controller = new AbortController();
     const { trace } = await run({

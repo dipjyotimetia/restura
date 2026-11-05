@@ -187,6 +187,30 @@ export default function CodeEditor({
 
     // Variable highlighting: paint once, then on every model edit (covers both
     // typing and external value-prop updates, which Monaco applies as edits).
+    // Cmd/Ctrl+Enter is the app-wide send/run shortcut, but Monaco claims the
+    // keystroke (insert line below) and stops it reaching the window listeners.
+    // Re-dispatch it on window, as the command palette's "Send request" does.
+    // Per-editor action (addCommand keybindings leak across editor instances);
+    // registered before onEditorMount / onModelChange so a feature's own
+    // binding (GraphQL "run operation at cursor") overrides it.
+    if (typeof editor.addAction === 'function' && monaco.KeyMod && monaco.KeyCode) {
+      editor.addAction({
+        id: 'restura.sendShortcut',
+        label: 'Send request',
+        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+        run: () => {
+          window.dispatchEvent(
+            new KeyboardEvent('keydown', {
+              key: 'Enter',
+              metaKey: true,
+              bubbles: true,
+              cancelable: true,
+            })
+          );
+        },
+      });
+    }
+
     contentListenerRef.current = editor.onDidChangeModelContent(() => applyVariableDecorations());
     modelListenerRef.current = editor.onDidChangeModel(() => notifyModelChange(editor, monaco));
     onEditorMount?.(editor, monaco, jsonDefaults);

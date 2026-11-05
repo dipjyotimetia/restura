@@ -12,12 +12,12 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { createNodeWebSocket } from '@hono/node-ws';
 import { Hono } from 'hono';
-import { Agent, EnvHttpProxyAgent, setGlobalDispatcher, fetch as undiciFetch } from 'undici';
+import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
 import { createApp } from './app';
 import type { Env } from './env';
 import { createNodeWebsocketHandler } from './handlers/websocket-node';
 import { socketClientIpMiddleware } from './middleware/rateLimiter';
-import { assertNodeHostnameSafe } from './shared/dns-guard-node';
+import { createNodeGuardedFetch } from './shared/guarded-fetch-node';
 import { createHttpsViaConnectProxy, createHttpViaProxy } from './shared/tcp-proxy-node';
 
 // The Node bundle lives at `dist/server/index.mjs`; the SPA at `dist/web/`.
@@ -27,12 +27,14 @@ const STATIC_ROOT = process.env.RESTURA_STATIC_ROOT ?? path.resolve(__dirname, '
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? '0.0.0.0';
 
-// Honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY for the direct-upstream fetch path.
-// The proxy handler's no-explicit-proxy branch uses global `fetch` (undici), so
-// installing the env proxy agent as the global dispatcher routes those requests
-// through the operator's proxy with NO_PROXY bypass. The explicit per-request
-// `upstreamProxy` path frames its own CONNECT/HTTP via node:net and bypasses
-// global fetch entirely, so it keeps precedence. No-op when neither var is set.
+// Honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY for upstream fetches. Handler
+// upstream calls go through `nodeFetch` (below), which builds its own
+// EnvHttpProxyAgent-backed dispatchers when a proxy is configured: proxied
+// destinations go to the operator's proxy, `NO_PROXY` ones are dialed directly
+// and pinned to the SSRF-validated address. The global dispatcher covers any
+// remaining global `fetch` (e.g. the Cloudflare Access key fetch). The
+// explicit per-request `upstreamProxy` path frames its own CONNECT/HTTP via
+// node:net and keeps precedence. No-op when neither var is set.
 const hasEnvProxy = Boolean(
   process.env.HTTP_PROXY ||
     process.env.http_proxy ||
@@ -43,18 +45,11 @@ if (hasEnvProxy) {
   setGlobalDispatcher(new EnvHttpProxyAgent());
 }
 
-// gRPC reflection (ServerReflectionInfo) is bidi-streaming; Connect servers
-// reject it over HTTP/1.1 with 505. Node's built-in fetch never negotiates h2,
-// so reflection uses npm undici with `allowH2` (ALPN over TLS; cleartext h2c
-// upstreams are not reachable this way). Same env-proxy behaviour as above.
-const reflectionDispatcher = hasEnvProxy
-  ? new EnvHttpProxyAgent({ allowH2: true })
-  : new Agent({ allowH2: true });
-const grpcReflectionFetch = (input: string, init: RequestInit): Promise<Response> =>
-  undiciFetch(input, {
-    ...(init as Parameters<typeof undiciFetch>[1]),
-    dispatcher: reflectionDispatcher,
-  }) as unknown as Promise<Response>;
+// DNS-pinned upstream fetch shared by every HTTP-shaped route (proxy, gRPC,
+// gRPC-Web, gRPC reflection over h2, MCP, remote import). It validates the
+// resolved addresses at dial time, so a DNS rebind between the SSRF check and
+// the connect cannot reach an internal host.
+const nodeFetch = createNodeGuardedFetch({ envProxy: hasEnvProxy });
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -131,8 +126,7 @@ createApp(
       upgradeWebSocket as any,
       dnsGuardOpts
     ),
-    nodeHostnameGuard: assertNodeHostnameSafe,
-    grpcReflectionFetch,
+    nodeFetch,
   },
   app
 );

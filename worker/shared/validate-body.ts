@@ -16,14 +16,52 @@ export type ParseResult<T> =
 /** Options for {@link parseJsonBody}. */
 export interface ParseJsonBodyOptions {
   /**
-   * Reject the request with 413 if its `Content-Length` exceeds this many
-   * bytes, *before* the body is read into memory. Opt-in per call so the
-   * proxy endpoint (50 MB request bodies) is unaffected; small public
-   * endpoints (telemetry, ws-ticket) pass a tight cap. Best-effort: a request
-   * without a `Content-Length` header (e.g. chunked) skips the pre-check and
-   * is still bounded by the schema's own field `.max()`s after parse.
+   * Reject the request with 413 once its body exceeds this many bytes.
+   * A declared `Content-Length` over the cap is refused before anything is
+   * read; a chunked body (no `Content-Length`) is counted while it streams
+   * and the read is cancelled the moment the cap is crossed, so nothing past
+   * the cap is ever buffered. Defaults to {@link DEFAULT_MAX_JSON_BODY_BYTES};
+   * small public endpoints (telemetry, ws-ticket) pass a tight cap.
    */
   maxBytes?: number;
+}
+
+/**
+ * Cap applied when a route passes no `maxBytes`. Sized above the proxy's
+ * largest legitimate envelope (a 50 MB `data` string plus headers / form
+ * fields / JSON escaping) so it never refuses a request the schema accepts
+ * in practice, while still bounding an endless chunked body.
+ */
+export const DEFAULT_MAX_JSON_BODY_BYTES = 64 * 1024 * 1024;
+
+const TOO_LARGE = { ok: false, status: 413, error: 'Request body too large' } as const;
+
+/**
+ * Read a request body to bytes, refusing (and cancelling the stream) as soon
+ * as more than `maxBytes` arrive. Returns `null` when the cap is exceeded.
+ */
+async function readBodyCapped(req: Request, maxBytes: number): Promise<Uint8Array | null> {
+  if (!req.body) return new Uint8Array();
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
 }
 
 /**
@@ -45,15 +83,20 @@ export async function parseJsonBody<T>(
   schema: z.ZodType<T>,
   options?: ParseJsonBodyOptions
 ): Promise<ParseResult<T>> {
-  if (options?.maxBytes !== undefined) {
-    const declared = Number(req.headers.get('content-length'));
-    if (Number.isFinite(declared) && declared > options.maxBytes) {
-      return { ok: false, status: 413, error: 'Request body too large' };
-    }
+  const maxBytes = options?.maxBytes ?? DEFAULT_MAX_JSON_BODY_BYTES;
+  const declared = Number(req.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) return TOO_LARGE;
+  let bytes: Uint8Array | null;
+  try {
+    bytes = await readBodyCapped(req, maxBytes);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unreadable body';
+    return { ok: false, status: 400, error: `Malformed JSON: ${message}` };
   }
+  if (bytes === null) return TOO_LARGE;
   let raw: unknown;
   try {
-    raw = await req.json();
+    raw = JSON.parse(new TextDecoder().decode(bytes));
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Invalid JSON';
     return { ok: false, status: 400, error: `Malformed JSON: ${message}` };

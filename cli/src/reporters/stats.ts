@@ -6,10 +6,19 @@ import type { Reporter, RunResult } from './types.js';
  * `status` semantics differ — use that when present; otherwise treat HTTP
  * transport errors (0) and 4xx/5xx as failures.
  */
-function errorCount(result: RunResult): number {
-  return result.requests.filter((r) =>
+function errorCount(requests: RunResult['requests']): number {
+  return requests.filter((r) =>
     r.grpcStatus ? r.grpcStatus.code !== 0 : r.status === 0 || r.status >= 400
   ).length;
+}
+
+/**
+ * Requests that never went on the wire (skipped by a script, refused or
+ * blocked before sending) carry status 0 and 0ms; counting them would add fake
+ * zero-latency samples and phantom errors.
+ */
+function sentRequests(result: RunResult): RunResult['requests'] {
+  return result.requests.filter((r) => !r.skipped && !r.notSent);
 }
 
 /**
@@ -17,8 +26,9 @@ function errorCount(result: RunResult): number {
  * can be unit-tested; the reporter just prints it.
  */
 export function formatLoadStatsReport(result: RunResult): string {
-  const durations = result.requests.map((r) => r.durationMs);
-  const stats = computeLoadStats(durations, result.durationMs, errorCount(result));
+  const sent = sentRequests(result);
+  const durations = sent.map((r) => r.durationMs);
+  const stats = computeLoadStats(durations, result.durationMs, errorCount(sent));
   const row = (k: string, v: string) => `  ${k.padEnd(8)} ${v}`;
   const lines = [
     '',

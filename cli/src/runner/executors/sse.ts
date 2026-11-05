@@ -144,7 +144,9 @@ export async function executeSse(
       }
       if (maxEvents !== undefined && events.length >= maxEvents) break;
     }
-    for (const ev of parser.flush()) recordEvent(ev);
+    // No parser.flush(): per the WHATWG spec an event not ended by a blank line
+    // when the stream closes is discarded (the app's reader does the same), and
+    // dispatching it could also exceed --sse-events.
   } catch (err) {
     if (!sent) return thrownOutcome(err, Date.now() - start);
     // AbortError from our duration timer is expected — not a failure.

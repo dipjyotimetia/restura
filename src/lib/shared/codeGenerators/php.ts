@@ -1,5 +1,5 @@
 import { normalizeHttpMethod } from '@shared/protocol/http-method';
-import { type GenerateOptions, singleQuotedLiteral, urlWithVariables } from './types';
+import { type GenerateOptions, singleQuotedLiteral, urlWithParams } from './types';
 
 export const generatePhp = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams } = options;
@@ -7,10 +7,7 @@ export const generatePhp = (options: GenerateOptions): string => {
   let urlStr = resolvedUrl || 'https://api.example.com';
   try {
     const url = new URL(urlStr);
-    Object.entries(resolvedParams).forEach(([key, value]) => {
-      url.searchParams.append(key, value);
-    });
-    urlStr = urlWithVariables(url);
+    urlStr = urlWithParams(url, resolvedParams);
   } catch {
     // keep urlStr as-is
   }

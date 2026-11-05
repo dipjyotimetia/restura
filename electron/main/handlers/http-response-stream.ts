@@ -180,12 +180,3 @@ function createSizeCapTransform(): Transform {
     },
   });
 }
-
-/** Preserve text bodies when JSON parsing is not applicable. */
-export function tryParseJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}

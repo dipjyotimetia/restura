@@ -23,9 +23,8 @@ import ScriptExecutor from '../scriptExecutor';
  *     captured these; this suite verifies they survive a script that
  *     also fires sub-requests (i.e. the async pump doesn't drop the
  *     sentinel).
- *   - Host-bridge gating: `pm.sendRequest` is only bound when
- *     `host.sendRequest` is wired in — a script that calls it without
- *     a host gets a clean ReferenceError.
+ *   - No host: `pm.sendRequest` is still a function, and it rejects
+ *     (or hands the callback) a clear "not available" error.
  */
 
 function buildMockResponse(overrides: Partial<PmSubResponse> = {}): PmSubResponse {
@@ -166,13 +165,15 @@ describe('pm.sendRequest — host bridge', () => {
     expect(r.tests?.every((t) => t.passed)).toBe(true);
   });
 
-  it('no host bound: pm.sendRequest is undefined (ReferenceError on call)', async () => {
+  it('no host bound: pm.sendRequest rejects with a clear error', async () => {
     const ex = new ScriptExecutor({});
     const r = await ex.executeScript(
-      `pm.test('absent', function () { pm.expect(pm.sendRequest).to.be.undefined; });`,
+      `pm.test('defined', function () { pm.expect(pm.sendRequest).to.be.a('function'); });
+       pm.sendRequest('https://x').catch(function (e) { pm.variables.set('e', e.message); });`,
       {}
     );
     expect(r.tests?.every((t) => t.passed)).toBe(true);
+    expect(r.variables?.e).toMatch(/not available in this host/);
   });
 });
 

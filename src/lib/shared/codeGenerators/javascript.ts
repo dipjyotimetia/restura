@@ -1,4 +1,4 @@
-import { escapeJson, type GenerateOptions, jsonBodyExpression, urlWithVariables } from './types';
+import { escapeJson, type GenerateOptions, jsonBodyExpression, urlWithParams } from './types';
 
 export const generateJavaScript = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams, formData } = options;
@@ -6,10 +6,7 @@ export const generateJavaScript = (options: GenerateOptions): string => {
   let urlStr = resolvedUrl || 'https://api.example.com';
   try {
     const url = new URL(urlStr);
-    Object.entries(resolvedParams).forEach(([key, value]) => {
-      url.searchParams.append(key, value);
-    });
-    urlStr = urlWithVariables(url);
+    urlStr = urlWithParams(url, resolvedParams);
   } catch {
     // keep urlStr as-is
   }
@@ -36,7 +33,12 @@ export const generateJavaScript = (options: GenerateOptions): string => {
     js += `  },\n`;
   }
 
-  if (formData) {
+  const method = request.method.toUpperCase();
+  const hasBody = formData || (request.body.type !== 'none' && request.body.raw);
+  if (hasBody && (method === 'GET' || method === 'HEAD')) {
+    // fetch throws a TypeError for a GET/HEAD request with a body.
+    js += `  // body omitted: fetch does not allow a body on GET/HEAD requests\n`;
+  } else if (formData) {
     js += `  body: form,\n`;
   } else if (request.body.type !== 'none' && request.body.raw) {
     // fetch needs a string body: an object literal would be sent as "[object Object]".

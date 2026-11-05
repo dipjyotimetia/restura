@@ -17,6 +17,7 @@ import { useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { GrpcRequest, GrpcStatusCode } from '@/types';
 import { GrpcStatusCodeName } from '@/types';
+import { lazyGrpcInputSchema } from '../lib/grpcClient';
 import { grpcDeadlineMs } from '../lib/grpcDeadline';
 import { type GrpcStreamingHandle, startGrpcStream } from '../lib/grpcStreamingClient';
 
@@ -164,7 +165,10 @@ export function GrpcStreamingPanel({
   const send = () => {
     let parsed: unknown;
     try {
-      parsed = parseGrpcMessageJson(outboundDraft);
+      parsed = parseGrpcMessageJson(
+        outboundDraft,
+        lazyGrpcInputSchema(request, { descriptors, protoContent, protoFileName })
+      );
       setDraftError(null);
     } catch {
       setDraftError('Invalid JSON — fix before sending');

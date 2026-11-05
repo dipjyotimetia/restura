@@ -29,6 +29,7 @@ import {
   openBrowseStream,
 } from './kafka/browse-consumer';
 import { buildClientOptions, type KafkaClientOptions } from './kafka/client-options';
+import { closeQuietly } from './kafka/close-quietly';
 import { guardKafkaConnect, resolveKafkaConnect } from './kafka/connect-preflight';
 import { registerKafkaConsumerControlHandlers } from './kafka/consumer-control-handlers';
 import {
@@ -109,17 +110,9 @@ const activeConnections = new StreamRegistry<ActiveKafka, KafkaClaimFields>({
   disposeClaim: disposePendingKafkaClaim,
 });
 
-async function closeProducerQuietly(producer: AppProducer): Promise<void> {
-  try {
-    await Promise.resolve(producer.close(true));
-  } catch {
-    /* ignore */
-  }
-}
-
 function disposePendingKafkaClaim(claim: KafkaClaimFields): void {
   if (!claim.pendingProducer) return;
-  void closeProducerQuietly(claim.pendingProducer);
+  void closeQuietly(claim.pendingProducer);
   claim.pendingProducer = undefined;
 }
 
@@ -149,15 +142,6 @@ async function closeConsumerAndStream(entry: ActiveKafka, drainMs = 0): Promise<
     entry.consumer = undefined;
   }
   entry.pendingCommits.clear();
-}
-
-// Releases consumers that fail before being attached to an active entry.
-async function closeConsumerQuietly(consumer: AppConsumer): Promise<void> {
-  try {
-    await Promise.resolve(consumer.close(true));
-  } catch {
-    /* ignore — best-effort socket release */
-  }
 }
 
 async function closeConnection(entry: ActiveKafka): Promise<void> {
@@ -329,6 +313,11 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         // Registry encodes/decodes both fields over a TLS-policy, SSRF-guarded agent.
         const security = getExecutionPolicy().security;
         registry = ready.registry && (await createKafkaRegistryClient(ready.registry, security));
+        // A kafka:disconnect while the guard / secret / registry awaits were
+        // pending cancels the claim: never build a producer for it.
+        if (!activeConnections.isClaimLive(claim)) {
+          return { success: false, error: 'Not connected' };
+        }
 
         // Registry payloads are encoded here; plain strings are UTF-8 encoded.
         const producerOptions = {
@@ -356,7 +345,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         if (!activeConnections.isClaimLive(claim)) {
           if (claim.pendingProducer === producer) {
             claim.pendingProducer = undefined;
-            await closeProducerQuietly(producer);
+            await closeQuietly(producer);
           }
           return { success: false, error: 'Not connected' };
         }
@@ -378,7 +367,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         const claimed = activeConnections.tryAdd(connectionId, event.sender, entry);
         if (!claimed) {
           claim.pendingProducer = undefined;
-          await closeProducerQuietly(producer);
+          await closeQuietly(producer);
           return { success: false, error: 'Not connected' };
         }
         claim.pendingProducer = undefined;
@@ -398,7 +387,12 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         if (claim.pendingProducer) {
           const producer = claim.pendingProducer;
           claim.pendingProducer = undefined;
-          await closeProducerQuietly(producer);
+          await closeQuietly(producer);
+        }
+        // Cancelled mid-probe (the disconnect closed the pending producer, so
+        // the probe rejects): report the cancellation, not the close error.
+        if (!activeConnections.isClaimLive(claim)) {
+          return { success: false, error: 'Not connected' };
         }
         const msg = errorMessage(err);
         log.warn('connect failed', { connectionId });
@@ -434,7 +428,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
             entry.consumer
           ) {
             stream.destroy();
-            await closeConsumerQuietly(consumer);
+            await closeQuietly(consumer);
             return { success: false, error: 'Not connected' };
           }
           // Group-less: no commits or rebalances, just the bounded ordered emit queue.
@@ -497,13 +491,13 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           }));
         } else if (cfg.mode === 'timestamp') {
           if (!cfg.timestamp) {
-            await closeConsumerQuietly(consumer);
+            await closeQuietly(consumer);
             return { success: false, error: 'A timestamp is required for timestamp mode' };
           }
           // First offset at/after the timestamp per partition; the end when none is.
           offsets = await timestampStartOffsets(consumer, kafka, cfg.topics, BigInt(cfg.timestamp));
           if (offsets.length === 0) {
-            await closeConsumerQuietly(consumer);
+            await closeQuietly(consumer);
             return {
               success: false,
               error: 'No messages at or after that timestamp on the subscribed topic(s).',
@@ -529,7 +523,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         }) as Promise<AppStream>);
 
         if (activeConnections.get(cfg.connectionId, event.sender.id) !== entry || entry.consumer) {
-          await closeConsumerQuietly(consumer);
+          await closeQuietly(consumer);
           return { success: false, error: 'Not connected' };
         }
         entry.consumer = consumer;
@@ -572,7 +566,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         }
         return { success: true };
       } catch (err) {
-        if (consumer) await closeConsumerQuietly(consumer);
+        if (consumer) await closeQuietly(consumer);
         return { success: false, error: errorMessage(err) };
       }
     })
@@ -634,6 +628,10 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
   ipcMain.handle(
     IPC.kafka.disconnect,
     createValidatedEventHandler(IPC.kafka.disconnect, KafkaDisconnectSchema, async (cfg, event) => {
+      // A connect still pending (guard / DNS / metadata probe) is cancelled
+      // outright: disposeClaim closes its pending producer and the connect
+      // resolves { success:false } instead of flipping the UI back to connected.
+      activeConnections.cancelClaim(cfg.connectionId, event.sender.id);
       const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
       if (entry) {
         await closeConnection(entry);
@@ -659,7 +657,7 @@ export async function stopKafkaCleanup(): Promise<void> {
     if (!claim.pendingProducer) continue;
     const producer = claim.pendingProducer;
     claim.pendingProducer = undefined;
-    await closeProducerQuietly(producer);
+    await closeQuietly(producer);
   }
   for (const entry of activeConnections.values()) {
     await closeConnection(entry);

@@ -77,13 +77,22 @@ describe('parseJsonBody', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('skips the size pre-check when Content-Length is absent', async () => {
-    // No content-length header (e.g. chunked) → falls through to schema validation.
+  it('enforces the cap while streaming when Content-Length is absent', async () => {
+    // No content-length header (e.g. chunked) → the cap is counted as bytes arrive.
     const req = new Request('https://x/', {
       method: 'POST',
       body: JSON.stringify({ method: 'GET', url: 'https://example.com' }),
     });
     const result = await parseJsonBody(req, schema, { maxBytes: 1 });
+    expect(result).toMatchObject({ ok: false, status: 413 });
+  });
+
+  it('accepts a chunked body within the cap', async () => {
+    const req = new Request('https://x/', {
+      method: 'POST',
+      body: JSON.stringify({ method: 'GET', url: 'https://example.com' }),
+    });
+    const result = await parseJsonBody(req, schema, { maxBytes: 1024 });
     expect(result.ok).toBe(true);
   });
 });

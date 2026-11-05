@@ -155,7 +155,7 @@ items:
     expect(hits.map((h) => h.url)).toEqual(['/set', '/use?x=script', '/after?x=env']);
   });
 
-  it('a pre-request pm.variables.unset keeps the value for THIS request (app parity)', async () => {
+  it('a pre-request pm.variables.unset keeps the environment value for THIS request (Postman, app parity)', async () => {
     const file = ocFile(`items:
   - info: { type: http, name: Unset, seq: 1 }
     http: { method: GET, url: "${baseUrl}/u?x={{x}}" }

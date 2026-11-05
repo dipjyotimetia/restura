@@ -102,6 +102,8 @@ export interface SequencePlan<Item> {
 export interface SequenceResult {
   /** A failed step or a reported bad jump stopped the run under `stopOnFailure`. */
   bailed: boolean;
+  /** The signal stopped the run before every planned item ran (an abort during the last step is not a stop). */
+  aborted: boolean;
 }
 
 function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -142,7 +144,7 @@ export async function sequenceCollectionRun<Item>(
     while (index < items.length) {
       const item = items[index];
       if (item === undefined) break;
-      if (signal?.aborted) return { bailed: false };
+      if (signal?.aborted) return { bailed: false, aborted: true };
 
       await host.onStart(item);
       if (delayPlacement === 'before-step-once-sent' && sentAny && delayMs > 0) {
@@ -151,7 +153,7 @@ export async function sequenceCollectionRun<Item>(
 
       const outcome = await host.step(item);
       if (outcome.sent) sentAny = true;
-      if (outcome.failed && stopOnFailure) return { bailed: true };
+      if (outcome.failed && stopOnFailure) return { bailed: true, aborted: false };
       if (delayPlacement === 'after-sent' && outcome.sent && delayMs > 0) {
         await sleep(delayMs, signal);
       }
@@ -171,7 +173,7 @@ export async function sequenceCollectionRun<Item>(
             item,
             `pm.execution.setNextRequest("${next}"): no runnable with that name`
           );
-          if (stopOnFailure) return { bailed: true };
+          if (stopOnFailure) return { bailed: true, aborted: false };
           break;
         }
         index++;
@@ -183,7 +185,7 @@ export async function sequenceCollectionRun<Item>(
             item,
             `pm.execution.setNextRequest jump limit (${MAX_NEXT_REQUEST_JUMPS}) exceeded`
           );
-          if (stopOnFailure) return { bailed: true };
+          if (stopOnFailure) return { bailed: true, aborted: false };
         }
         break;
       }
@@ -193,5 +195,5 @@ export async function sequenceCollectionRun<Item>(
     host.onEnd?.();
   }
 
-  return { bailed: false };
+  return { bailed: false, aborted: false };
 }

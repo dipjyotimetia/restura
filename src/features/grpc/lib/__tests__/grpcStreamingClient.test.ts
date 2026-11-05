@@ -4,6 +4,7 @@ import { Code, ConnectError, createRouterTransport, type Transport } from '@conn
 import { registryFromProtoText } from '@shared/protocol/grpc-registry';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useCollectionStore } from '@/store/useCollectionStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import type { AuthConfig, GrpcRequest } from '@/types';
 import { GrpcStatusCode } from '@/types';
 import { createInteractiveGrpcStreamForTest, startGrpcStream } from '../grpcStreamingClient';
@@ -144,6 +145,57 @@ describe('startGrpcStream — validation', () => {
         resolveVariables: (s) => s,
       })
     ).rejects.toThrow();
+  });
+
+  describe('browser target policy (web Connect is a direct browser connection)', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      useSettingsStore.setState((s) => ({
+        settings: { ...s.settings, allowPrivateIPs: false },
+      }));
+    });
+    const okTransport = () =>
+      echoTransport(async function* () {
+        yield { message: 'never', index: 0 };
+      });
+
+    it('refuses a loopback / private target like the other browser-direct sockets', async () => {
+      vi.stubEnv('DEV', false);
+      for (const url of ['https://127.0.0.1:8443', 'https://10.0.0.5', 'https://localhost']) {
+        await expect(
+          startGrpcStream({
+            request: { ...baseRequest, url },
+            resolveVariables: (s) => s,
+            protoContent: ECHO_PROTO,
+            transport: okTransport(),
+          })
+        ).rejects.toThrow(/Connection refused/);
+      }
+    });
+
+    it('refuses cloud-metadata hosts even with private IPs allowed', async () => {
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, allowPrivateIPs: true } }));
+      await expect(
+        startGrpcStream({
+          request: { ...baseRequest, url: 'https://169.254.169.254' },
+          resolveVariables: (s) => s,
+          protoContent: ECHO_PROTO,
+          transport: okTransport(),
+        })
+      ).rejects.toThrow(/Connection refused/);
+    });
+
+    it('explains that a production web build cannot reach http:// directly', async () => {
+      vi.stubEnv('DEV', false);
+      await expect(
+        startGrpcStream({
+          request: { ...baseRequest, url: 'http://echo.example.com' },
+          resolveVariables: (s) => s,
+          protoContent: ECHO_PROTO,
+          transport: okTransport(),
+        })
+      ).rejects.toThrow(/https:\/\//);
+    });
   });
 
   it('requires a schema (descriptors or proto) for the web path', async () => {

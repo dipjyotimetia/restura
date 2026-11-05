@@ -28,7 +28,7 @@ function createDefaultHttpRequest(): HttpRequest {
  *
  * The legacy `executeRequest` API takes both an explicit `envVars` map *and*
  * a `resolveVariables(text, vars?)` callback. The two are intentionally
- * redundant: callers like `useHttpRequest` plug in a global resolver that
+ * redundant: callers like `useHttpRequestPage` plug in a global resolver that
  * understands collection variables, environment variables, and dynamic
  * `$randomUuid`-style helpers. The registry contract only knows about a
  * flat variables map (`ctx.variables`), so we substitute a minimal resolver

@@ -516,6 +516,27 @@ describe('socketio-handler', () => {
     expect(winner.disconnect).not.toHaveBeenCalled();
   });
 
+  it('disconnect during a pending connect cancels it — no zombie socket is opened', async () => {
+    const { event } = makeEvent();
+    const dns = deferred<{ host: string; ip: string; port: number; family: 4 }>();
+    mockResolveSafe.mockImplementationOnce(() => dns.promise);
+
+    const connect = handlerFor(IPC.socketio.connect)(event, validConnect('pending'));
+    await expect(
+      handlerFor(IPC.socketio.disconnect)(event, { connectionId: 'pending' })
+    ).resolves.toEqual({ success: true });
+
+    dns.resolve({ host: 'echo.example.com', ip: '203.0.113.1', port: 443, family: 4 });
+    await expect(connect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(sioMock.FakeSocket.instances).toHaveLength(0);
+    const emit = await handlerFor(IPC.socketio.emit)(event, {
+      connectionId: 'pending',
+      eventName: 'ping',
+      args: [],
+    });
+    expect(emit).toEqual({ success: false, error: 'Not connected' });
+  });
+
   it('tears down the connection when its renderer is destroyed', async () => {
     const { event, destroy } = makeEvent();
     await handlerFor(IPC.socketio.connect)(event, validConnect('c1'));

@@ -42,13 +42,24 @@ describe('SseConnectSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects denylisted headers (cookie)', () => {
+  it('accepts Cookie and Origin like the HTTP path and the web Worker (parity)', () => {
     const result = SseConnectSchema.safeParse({
       connectionId: 'abc',
       url: 'https://example.com',
-      headers: { cookie: 'session=xyz' },
+      headers: { Cookie: 'session=xyz', Origin: 'https://app.example.com' },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+  });
+
+  it('still rejects hop-by-hop / proxy headers', () => {
+    for (const name of ['Connection', 'Transfer-Encoding', 'Proxy-Authorization', 'Upgrade']) {
+      const result = SseConnectSchema.safeParse({
+        connectionId: 'abc',
+        url: 'https://example.com',
+        headers: { [name]: 'x' },
+      });
+      expect(result.success, name).toBe(false);
+    }
   });
 
   it('accepts a JSON body string (graphql-sse POST)', () => {

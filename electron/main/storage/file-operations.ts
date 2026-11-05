@@ -1,4 +1,4 @@
-import { constants as fsConstants } from 'node:fs';
+import { constants as fsConstants, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { BrowserWindow } from 'electron';
@@ -168,27 +168,128 @@ const BLOCKED_ROOT_PATHS = [
   'C:\\Program Files (x86)',
 ];
 
+/** True when `resolved` is `root` or sits beneath it (separator-bounded). */
+function isWithin(resolved: string, root: string): boolean {
+  return resolved === root || resolved.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
+}
+
+/** Separator-bounded, case-insensitive match against the system-root denylist. */
+function isBlockedRoot(resolved: string): boolean {
+  const r = resolved.toLowerCase();
+  return BLOCKED_ROOT_PATHS.some((blocked) => {
+    const b = blocked.toLowerCase();
+    const sep = b.includes('\\') ? '\\' : '/';
+    return r === b || r.startsWith(b + sep);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Dialog-granted roots. A collection folder the user picks through the native
+// directory dialog (IPC.collection.selectDirectory) becomes an allowed root,
+// in-memory and persisted in a main-owned file (`restura-*.json` at the userData
+// root, which isPathSafe already hides from the renderer). The renderer has no
+// channel that adds a root — only the main-process dialog handler calls
+// grantCollectionRoot — so a compromised renderer cannot widen the allowlist.
+// ---------------------------------------------------------------------------
+const GRANTED_ROOTS_FILE = 'restura-collection-roots.json';
+let grantedRoots: Set<string> | null = null;
+
+function grantedRootsFile(): string {
+  return path.join(app.getPath('userData'), GRANTED_ROOTS_FILE);
+}
+
+function getGrantedRoots(): Set<string> {
+  if (grantedRoots) return grantedRoots;
+  const roots = new Set<string>();
+  try {
+    const parsed = JSON.parse(readFileSync(grantedRootsFile(), 'utf8')) as { roots?: unknown };
+    if (Array.isArray(parsed.roots)) {
+      for (const r of parsed.roots) {
+        // Re-validate on load: the file is plain JSON on disk.
+        if (typeof r === 'string' && path.isAbsolute(r) && isGrantableRoot(r)) roots.add(r);
+      }
+    }
+  } catch {
+    // missing / corrupt → no granted roots
+  }
+  grantedRoots = roots;
+  return roots;
+}
+
+function persistGrantedRoots(roots: Set<string>): void {
+  try {
+    mkdirSync(app.getPath('userData'), { recursive: true });
+    writeFileSync(grantedRootsFile(), JSON.stringify({ version: 1, roots: [...roots] }, null, 2));
+  } catch {
+    // best-effort: the in-memory grant still applies for this session
+  }
+}
+
+function isGrantableRoot(resolved: string): boolean {
+  if (isBlockedRoot(resolved)) return false;
+  if (path.parse(resolved).root === resolved) return false; // filesystem root
+  try {
+    const homePath = path.resolve(app.getPath('home'));
+    if (isUnderHomeBlocked(resolved, homePath)) return false;
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Record a directory the user picked in the native dialog as an allowed root.
+ * Returns false (and records nothing) for system roots, credential folders
+ * under $HOME, or paths that are not directories.
+ */
+export async function grantCollectionRoot(directoryPath: string): Promise<boolean> {
+  try {
+    const real = await fsp.realpath(path.resolve(directoryPath));
+    if (!(await fsp.stat(real)).isDirectory()) return false;
+    if (!isGrantableRoot(real)) return false;
+    const roots = getGrantedRoots();
+    // Keep the path the dialog returned as well as its realpath: the renderer
+    // echoes the lexical form back, and isPathRealSafe re-resolves symlinks.
+    const lexical = path.resolve(directoryPath);
+    const before = roots.size;
+    roots.add(real);
+    if (isGrantableRoot(lexical)) roots.add(lexical);
+    if (roots.size !== before) persistGrantedRoots(roots);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Test hook: drop in-memory grants so the next lookup reloads from disk. */
+export function resetGrantedCollectionRootsForTests(): void {
+  grantedRoots = null;
+}
+
+function allowedRoots(): string[] {
+  return [
+    path.resolve(app.getPath('userData')),
+    path.resolve(app.getPath('documents')),
+    path.resolve(app.getPath('home')),
+    ...getGrantedRoots(),
+  ];
+}
+
 // Security: Validate file path to prevent path traversal attacks
 export function isPathSafe(filePath: string): boolean {
   try {
     const resolved = path.resolve(filePath);
     const userDataPath = path.resolve(app.getPath('userData'));
-    const documentsPath = path.resolve(app.getPath('documents'));
     const homePath = path.resolve(app.getPath('home'));
 
-    // Cheap denylist for system roots
-    for (const blocked of BLOCKED_ROOT_PATHS) {
-      if (resolved.toLowerCase().startsWith(blocked.toLowerCase())) {
-        return false;
-      }
-    }
+    // Cheap denylist for system roots. Paths under the user's own $HOME are
+    // exempt from this check (HOME may legitimately be /root); credential
+    // folders there are covered by the home denylist below.
+    const insideHome = homePath !== path.parse(homePath).root && isWithin(resolved, homePath);
+    if (!insideHome && isBlockedRoot(resolved)) return false;
 
     // Must sit under an allowed root, with path-sep guard against prefix-collision
-    const allowedRoots = [userDataPath, documentsPath, homePath];
-    const underAllowed = allowedRoots.some(
-      (root) => resolved === root || resolved.startsWith(root + path.sep)
-    );
-    if (!underAllowed) return false;
+    if (!allowedRoots().some((root) => isWithin(resolved, root))) return false;
 
     // Main-owned state lives directly in userData: electron-store files
     // (`restura-*.json` — secret handles, stdio consent, vault, …) and key
@@ -198,8 +299,9 @@ export function isPathSafe(filePath: string): boolean {
     // Compared on a canonical form (realpath, Win32 name aliases, case).
     if (isMainOwnedUserDataFile(resolved, userDataPath)) return false;
 
-    // $HOME-specific denylist
-    if (isUnderHomeBlocked(resolved, homePath)) return false;
+    // $HOME-specific denylist. userData is explicitly allowed even when it
+    // sits under a denylisted home subdir (macOS ~/Library/Application Support).
+    if (!isWithin(resolved, userDataPath) && isUnderHomeBlocked(resolved, homePath)) return false;
 
     return true;
   } catch {
@@ -211,11 +313,7 @@ export function isPathSafe(filePath: string): boolean {
 export function getAllowedRootForPath(filePath: string): string | null {
   if (!isPathSafe(filePath)) return null;
   const resolved = path.resolve(filePath);
-  return (
-    [app.getPath('userData'), app.getPath('documents'), app.getPath('home')]
-      .map((root) => path.resolve(root))
-      .find((root) => resolved === root || resolved.startsWith(root + path.sep)) ?? null
-  );
+  return allowedRoots().find((root) => isWithin(resolved, root)) ?? null;
 }
 
 /**
@@ -232,12 +330,19 @@ export async function isPathRealSafe(filePath: string): Promise<boolean> {
       resolveFromExistingAncestor(path.resolve(filePath)),
     ]);
     if (!(realTarget === realRoot || realTarget.startsWith(realRoot + path.sep))) return false;
+    // A dialog-granted root is trusted for where it pointed when granted; if it
+    // is a symlink later retargeted at a system path, refuse it now.
+    if (getGrantedRoots().has(allowedRoot) && !isGrantableRoot(realRoot)) return false;
     // A symlink may land inside $HOME's denylist (shell init, autostart, creds)
     // even though its lexical path looked fine — re-apply the denylist to the
     // real target against the real home.
     const homePath = path.resolve(app.getPath('home'));
     const realHome = await fsp.realpath(homePath).catch(() => homePath);
-    if (isUnderHomeBlocked(realTarget, realHome)) return false;
+    const userDataPath = path.resolve(app.getPath('userData'));
+    const realUserData = await fsp.realpath(userDataPath).catch(() => userDataPath);
+    if (!isWithin(realTarget, realUserData) && isUnderHomeBlocked(realTarget, realHome)) {
+      return false;
+    }
     return true;
   } catch {
     return false;

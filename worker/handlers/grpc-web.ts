@@ -9,7 +9,7 @@ import {
 import type { Fetcher } from '@shared/protocol/types';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import type { NodeHostnameGuard } from '../adapters';
+import { type NodeGuardedFetch, upstreamFetch } from '../adapters';
 import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
 import { rejectRedirect } from '../shared/redirect';
@@ -48,15 +48,9 @@ export const grpcWebBodyLimit = bodyLimit({
 function buildFetcher(
   isDev: boolean,
   permitPrivateIPs: boolean,
-  nodeHostnameGuard?: NodeHostnameGuard
+  nodeFetch?: NodeGuardedFetch
 ): Fetcher {
   return async (req) => {
-    if (nodeHostnameGuard) {
-      await nodeHostnameGuard(new URL(req.url).hostname, {
-        allowLocalhost: isDev,
-        allowPrivateIPs: permitPrivateIPs,
-      });
-    }
     const init: RequestInit = {
       method: req.method,
       headers: req.headers,
@@ -65,7 +59,13 @@ function buildFetcher(
       redirect: 'manual',
     };
     if (req.body !== undefined) init.body = req.body;
-    const r = rejectRedirect(await fetch(req.url, init), 'gRPC-Web');
+    const r = rejectRedirect(
+      await upstreamFetch(nodeFetch, req.url, init, {
+        allowLocalhost: isDev,
+        allowPrivateIPs: permitPrivateIPs,
+      }),
+      'gRPC-Web'
+    );
     return {
       status: r.status,
       statusText: r.statusText,
@@ -84,7 +84,7 @@ function buildFetcher(
  * end) so server-streaming messages reach the renderer as they arrive.
  * Validation failures are a JSON 400; everything later is in-band.
  */
-export function createGrpcWebHandler(nodeHostnameGuard?: NodeHostnameGuard) {
+export function createGrpcWebHandler(nodeFetch?: NodeGuardedFetch) {
   return async function grpcWebHandler(c: Context<{ Bindings: Env }>) {
     const isDev = isLocalDevBypass(c.env);
     const parsed = await parseJsonBody(c.req.raw, GrpcWebProxyRequestBodySchema, {
@@ -96,7 +96,7 @@ export function createGrpcWebHandler(nodeHostnameGuard?: NodeHostnameGuard) {
     const permitPrivateIPs = allowPrivateIPs(c.env);
     const result = executeGrpcWebProxy(
       parsed.value,
-      buildFetcher(isDev, permitPrivateIPs, nodeHostnameGuard),
+      buildFetcher(isDev, permitPrivateIPs, nodeFetch),
       { allowLocalhost: isDev, allowPrivateIPs: permitPrivateIPs }
     );
     if (!result.ok) {

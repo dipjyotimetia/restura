@@ -26,6 +26,23 @@ function purgePlaintext(key: string): void {
   }
 }
 
+/**
+ * Write to the encrypted store, then — only once that succeeded — drop the
+ * plaintext copy. A failed write (safeStorage unavailable, IPC error) keeps the
+ * plaintext so the secret is not lost; the next read retries the migration.
+ */
+async function persistEncrypted(key: string, value: string): Promise<boolean> {
+  try {
+    const store = window.electron?.store;
+    if (!store) return false;
+    await store.set(key, value);
+    purgePlaintext(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // In-memory cache for sensitive values (updated on set, lazily populated on get)
 const sensitiveCache = new Map<string, string>();
 
@@ -48,8 +65,7 @@ export const secureStorage = {
       }
       if (stale !== null) {
         sensitiveCache.set(key, stale);
-        window.electron?.store.set(key, stale);
-        purgePlaintext(key);
+        void persistEncrypted(key, stale);
         return stale;
       }
       // Trigger async hydration — result available on next read
@@ -87,8 +103,7 @@ export const secureStorage = {
     }
     if (stale !== null) {
       sensitiveCache.set(key, stale);
-      await window.electron?.store.set(key, stale);
-      purgePlaintext(key);
+      await persistEncrypted(key, stale);
       return stale;
     }
 
@@ -107,11 +122,10 @@ export const secureStorage = {
   set: (key: string, value: string): void => {
     if (isElectron() && isSensitiveKey(key)) {
       sensitiveCache.set(key, value);
-      // Fire-and-forget IPC write to electron-store
-      window.electron?.store.set(key, value);
-      // Never leave a plaintext copy behind (e.g. a value written before this
-      // key counted as sensitive).
-      purgePlaintext(key);
+      // Fire-and-forget IPC write to electron-store. Any plaintext copy (e.g. a
+      // value written before this key counted as sensitive) is purged only after
+      // the encrypted write succeeds.
+      void persistEncrypted(key, value);
       return;
     }
     if (typeof window === 'undefined') return;

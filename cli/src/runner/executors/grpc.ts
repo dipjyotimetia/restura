@@ -31,7 +31,7 @@ import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
-import { sharedCoreFailure, thrownOutcome } from './failure';
+import { failureLabel, sharedCoreFailure, thrownOutcome } from './failure';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 import { preflightRefusal, refusedOutcome } from './variable-guard';
 
@@ -110,7 +110,16 @@ export async function executeGrpc(
   let parsedMessage: unknown = {};
   if (message.trim().length > 0) {
     try {
-      parsedMessage = parseGrpcMessageJson(message);
+      // Same schema-aware placement as the app: int64 fields keep precision as
+      // strings, Struct / Value numbers stay numbers. Lazy — compiled only when
+      // the message holds an integer beyond 2^53.
+      parsedMessage = parseGrpcMessageJson(message, () => {
+        try {
+          return req.schema ? methodFromSnapshot(req.schema, req).input : undefined;
+        } catch {
+          return undefined;
+        }
+      });
     } catch (err) {
       return refusedOutcome(
         `Invalid gRPC message JSON: ${err instanceof Error ? err.message : String(err)}`
@@ -197,7 +206,7 @@ export async function executeGrpc(
         passed: false,
         durationMs,
         bodyBytes: 0,
-        errorMessage: payload.error,
+        errorMessage: failureLabel(payload.error, Boolean(opts.proxy)),
         ...failure,
       };
     }
@@ -353,7 +362,7 @@ async function executeGrpcWeb(
       passed: false,
       durationMs: Date.now() - start,
       bodyBytes: 0,
-      errorMessage: result.payload.error,
+      errorMessage: failureLabel(result.payload.error, Boolean(opts.proxy)),
       ...sharedCoreFailure(result.status),
     };
   }
@@ -408,7 +417,7 @@ async function executeGrpcWeb(
     ...(passed
       ? {}
       : {
-          errorMessage: `gRPC ${end.grpcStatusText}${end.grpcMessage ? `: ${end.grpcMessage}` : ''}`,
+          errorMessage: `gRPC ${end.grpcStatusText}${end.grpcMessage ? `: ${failureLabel(end.grpcMessage, Boolean(opts.proxy))}` : ''}`,
         }),
   };
 }

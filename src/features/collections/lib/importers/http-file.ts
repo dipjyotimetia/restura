@@ -30,16 +30,29 @@ export function importHttpFile(source: string, options: ImportHttpFileOptions = 
     if (/^###/.test(line)) blockStarts.push(i);
   });
 
-  const filePrefixLines = lines.slice(0, blockStarts[0] ?? lines.length);
+  const prefixEnd = blockStarts[0] ?? lines.length;
+  const filePrefixLines = lines.slice(0, prefixEnd);
   const fileVariables = parseFileVariables(filePrefixLines);
+
+  // A request that precedes the first `###` (or a file with no `###` at all)
+  // is an implicit first block. Include directly-preceding comment lines so
+  // `# @name foo` annotations are kept.
+  const implicitStart = findImplicitBlockStart(filePrefixLines);
 
   const dynamicVarCounts = new Map<string, number>();
   const items: CollectionItem[] = [];
 
+  const offset = implicitStart === -1 ? 0 : 1;
+  if (implicitStart !== -1) {
+    const blockLines = ['###', ...lines.slice(implicitStart, prefixEnd)];
+    const item = parseBlock(blockLines, 1, warnings, dynamicVarCounts);
+    if (item) items.push(item);
+  }
+
   blockStarts.forEach((startIdx, i) => {
     const endIdx = blockStarts[i + 1] ?? lines.length;
     const blockLines = lines.slice(startIdx, endIdx);
-    const item = parseBlock(blockLines, i + 1, warnings, dynamicVarCounts);
+    const item = parseBlock(blockLines, i + 1 + offset, warnings, dynamicVarCounts);
     if (item) items.push(item);
   });
 
@@ -65,6 +78,22 @@ export function importHttpFile(source: string, options: ImportHttpFileOptions = 
   }
 
   return result;
+}
+
+function findImplicitBlockStart(prefix: string[]): number {
+  const reqIdx = prefix.findIndex((raw) => {
+    const t = raw.trim();
+    if (t === '' || t.startsWith('#') || t.startsWith('//') || FILE_VAR.test(t)) return false;
+    return REQUEST_LINE.test(t);
+  });
+  if (reqIdx === -1) return -1;
+  let start = reqIdx;
+  while (start > 0) {
+    const t = (prefix[start - 1] ?? '').trim();
+    if (t.startsWith('#') || t.startsWith('//')) start--;
+    else break;
+  }
+  return start;
 }
 
 function parseFileVariables(lines: string[]): KeyValue[] {
@@ -125,8 +154,19 @@ function parseBlock(
   if (!requestMatch) return null;
   cursor++;
 
+  // JetBrains/REST Client continuation: indented lines starting with `?` or `&`
+  // extend the request URL.
+  let rawUrl = requestMatch[2] ?? '';
+  while (cursor < blockLines.length) {
+    const line = blockLines[cursor] ?? '';
+    if (/^\s+[?&]/.test(line)) {
+      rawUrl += line.trim();
+      cursor++;
+    } else break;
+  }
+
   const method = coerceHttpMethod(requestMatch[1], requestName, warnings);
-  const { url, params } = splitUrlAndParams(requestMatch[2]!);
+  const { url, params } = splitUrlAndParams(rawUrl);
 
   const headers: KeyValue[] = [];
   while (cursor < blockLines.length) {
@@ -165,7 +205,7 @@ function parseBlock(
   const contentTypeHeader = headers.find((h) => h.key.toLowerCase() === 'content-type');
   const bodyType = inferBodyType(contentTypeHeader?.value, bodyText);
 
-  trackDynamicVars(requestMatch[2]!, dynamicVarCounts);
+  trackDynamicVars(rawUrl, dynamicVarCounts);
   for (const h of headers) trackDynamicVars(h.value, dynamicVarCounts);
   trackDynamicVars(bodyText, dynamicVarCounts);
 

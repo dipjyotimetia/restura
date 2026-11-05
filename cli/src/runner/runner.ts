@@ -292,7 +292,11 @@ async function runCollectionWithSessions(
           preThrown = err instanceof Error ? err.message : String(err);
         }
       }
-      const preSlot = { label: 'pre-request', outcome: preResult, thrown: preThrown };
+      const preSlot = {
+        label: 'pre-request',
+        outcome: preResult,
+        thrown: preThrown,
+      };
 
       if (preResult?.execution?.skipRequested) {
         // `pm.execution.skipRequest()`: Postman sends nothing and runs no test
@@ -439,7 +443,7 @@ async function runCollectionWithSessions(
       },
       step,
       onFlowError: (item, errorMessage) => {
-        results.push({
+        const result: RequestRunResult = {
           request: item,
           status: 0,
           passed: false,
@@ -447,7 +451,12 @@ async function runCollectionWithSessions(
           bodyBytes: 0,
           errorMessage,
           ...(isDataDriven ? { iteration: iter } : {}),
-        });
+        };
+        results.push(result);
+        // Same as every other row: the live reporters must see it, or their
+        // list disagrees with the summary.
+        // The sequencer's hook is synchronous; reporters' callbacks are in practice.
+        void Promise.resolve(reporter.onRequestComplete?.(result)).catch(() => {});
       },
       onEnd: () => iterScope.end(),
     };

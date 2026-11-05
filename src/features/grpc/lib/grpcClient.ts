@@ -1,3 +1,4 @@
+import type { DescMessage } from '@bufbuild/protobuf';
 import { FieldDescriptorProto_Type } from '@bufbuild/protobuf/wkt';
 import { parseGrpcMessageJson } from '@shared/protocol/grpc-json';
 import { normalizeProtoPath } from '@shared/protocol/grpc-proto-compiler';
@@ -5,6 +6,7 @@ import {
   listServices,
   registryFromDescriptors,
   registryFromProtoText,
+  resolveMethod,
 } from '@shared/protocol/grpc-registry';
 import {
   grpcMetadataSizeError,
@@ -250,9 +252,68 @@ export interface PreparedGrpcRequest {
   methodType: string;
 }
 
+/** Where a request's input schema can come from (besides its saved snapshot). */
+export interface GrpcInputSchemaSource {
+  descriptors?: string[] | undefined;
+  protoContent?: string | undefined;
+  protoFileName?: string | undefined;
+}
+
+/**
+ * Lazy getter for the method's input descriptor, built from the given sources
+ * then the request's saved snapshot. Only invoked by `parseGrpcMessageJson`
+ * when the message holds an integer beyond the safe range (so the common path
+ * never compiles a schema); undefined when nothing resolves.
+ */
+export function lazyGrpcInputSchema(
+  request: Pick<GrpcRequest, 'service' | 'method' | 'schema'>,
+  src: GrpcInputSchemaSource = {}
+): () => DescMessage | undefined {
+  let resolved: { input: DescMessage | undefined } | undefined;
+  return () => {
+    resolved ??= { input: resolveInputSchema(request, src) };
+    return resolved.input;
+  };
+}
+
+function resolveInputSchema(
+  request: Pick<GrpcRequest, 'service' | 'method' | 'schema'>,
+  src: GrpcInputSchemaSource
+): DescMessage | undefined {
+  const builders: Array<() => ReturnType<typeof registryFromDescriptors>> = [];
+  if (src.descriptors?.length) {
+    const d = src.descriptors;
+    builders.push(() => registryFromDescriptors(d));
+  }
+  if (src.protoContent) {
+    const text = src.protoContent;
+    builders.push(() => registryFromProtoText(text, src.protoFileName));
+  }
+  const snapshot = request.schema;
+  if (snapshot?.kind === 'descriptors' && snapshot.descriptors.length) {
+    builders.push(() => registryFromDescriptors(snapshot.descriptors));
+  } else if (snapshot?.kind === 'proto') {
+    builders.push(() => registryFromProtoText(snapshot.text, snapshot.fileName));
+  }
+  for (const build of builders) {
+    try {
+      return resolveMethod(build(), request.service, request.method).method.input;
+    } catch {
+      // try the next source
+    }
+  }
+  return undefined;
+}
+
+/**
+ * `inputSchema` places 64-bit integers precisely (see parseGrpcMessageJson):
+ * a descriptor, a lazy getter, or schema sources to try before the request's
+ * saved snapshot (the default).
+ */
 export function prepareGrpcRequest(
   request: GrpcRequest,
-  resolveVariables: (text: string) => string
+  resolveVariables: (text: string) => string,
+  inputSchema?: GrpcInputSchemaSource | DescMessage | (() => DescMessage | undefined)
 ): PreparedGrpcRequest {
   // Block auth types gRPC can't apply rather than sending unauthenticated
   // (#900). Every harness (Electron IPC, web proxy, web streaming) prepares
@@ -303,7 +364,12 @@ export function prepareGrpcRequest(
   let parsedMessage: unknown = {};
   if (request.message) {
     try {
-      parsedMessage = parseGrpcMessageJson(resolveVariables(request.message));
+      parsedMessage = parseGrpcMessageJson(
+        resolveVariables(request.message),
+        typeof inputSchema === 'function' || isDescMessage(inputSchema)
+          ? inputSchema
+          : lazyGrpcInputSchema(request, inputSchema)
+      );
     } catch {
       throw new GrpcClientError(
         'Invalid JSON message',
@@ -325,6 +391,10 @@ export function prepareGrpcRequest(
   };
 }
 
+function isDescMessage(v: unknown): v is DescMessage {
+  return typeof v === 'object' && v !== null && (v as { kind?: unknown }).kind === 'message';
+}
+
 // Make gRPC request via Electron IPC
 export async function makeElectronGrpcRequest(
   request: GrpcRequest,
@@ -342,7 +412,11 @@ export async function makeElectronGrpcRequest(
     throw new Error('Electron environment required for full gRPC support');
   }
 
-  const prepared = prepareGrpcRequest(request, resolveVariables);
+  const prepared = prepareGrpcRequest(request, resolveVariables, {
+    descriptors,
+    protoContent,
+    protoFileName,
+  });
   const startTime = Date.now();
 
   try {
@@ -572,7 +646,9 @@ export function getSuggestedAction(statusCode: GrpcStatusCode): string {
 export async function makeProxyGrpcRequest(
   request: GrpcRequest,
   resolveVariables: (text: string) => string,
-  timeoutMs: number = 30000
+  timeoutMs: number = 30000,
+  /** Cancels the relay fetch (response-panel Cancel / run abort). */
+  signal?: AbortSignal
 ): Promise<GrpcResponse> {
   const wireError = webWireProtocolError(request.wireProtocol);
   if (wireError) return createErrorResponse(request.id, wireError, Date.now());
@@ -615,6 +691,7 @@ export async function makeProxyGrpcRequest(
         message: prepared.message,
         timeout: timeoutMs,
       }),
+      ...(signal ? { signal } : {}),
     });
 
     let result: Record<string, unknown> & {

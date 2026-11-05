@@ -9,11 +9,19 @@ import {
   saveScriptEnvironmentWrites,
   scriptEnvironmentTargetId,
 } from '@/features/environments/lib/scriptEnvironmentMutations';
-import { executeRequest, resolveEffectiveSettings } from '@/features/http/lib/requestExecutor';
+import {
+  executeRequest,
+  executeStreamingRequest,
+  isStreamingAccept,
+  resolveEffectiveSettings,
+} from '@/features/http/lib/requestExecutor';
 import { applySettingsPatch, type RequestSettingsPatch } from '@/features/http/lib/settingsPatch';
 import { applyUrlInput } from '@/features/http/lib/urlQuery';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
+import { isElectron } from '@/lib/shared/platform';
+import { replayableAsyncIterable } from '@/lib/shared/replayableAsyncIterable';
+import { type RequestScope, resolveRequestScopeText } from '@/lib/shared/resolveRequestScope';
 import { urlEncodedRaw } from '@/lib/shared/urlEncodedBody';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useActiveRequest } from '@/store/selectors';
@@ -71,6 +79,25 @@ function coreSettings(globalSettings: AppSettings): RequestSettings {
   return { timeout, followRedirects, maxRedirects, verifySsl };
 }
 
+/**
+ * True when the request, as it will be sent, asks for an SSE / NDJSON / JSON
+ * Lines stream: its enabled Accept row resolved in the send scope (so
+ * `Accept: {{accept}}` counts). A value that can't be resolved here is left to
+ * the executor, which refuses it with the real reason.
+ */
+function wantsStream(request: HttpRequest, scope: RequestScope): boolean {
+  const headers: Record<string, string> = {};
+  for (const h of request.headers) {
+    if (!h.enabled || h.key.trim().toLowerCase() !== 'accept') continue;
+    try {
+      headers.Accept = resolveRequestScopeText(h.value, scope);
+    } catch {
+      return false;
+    }
+  }
+  return isStreamingAccept(headers);
+}
+
 // The response panel's error card (role="alert") already reports a failure
 // for the visible tab, so only toast when the user has moved to another tab.
 function reportFailure(originTabId: string, message: string) {
@@ -86,6 +113,8 @@ export function useHttpRequestPage() {
   const setCurrentResponseForTab = useRequestStore((s) => s.setCurrentResponseForTab);
   const isLoading = useRequestStore((s) => s.isLoading);
   const setScriptResultForTab = useRequestStore((s) => s.setScriptResultForTab);
+  const setStreamingEventsForTab = useRequestStore((s) => s.setStreamingEventsForTab);
+  const clearStreamingEventsForTab = useRequestStore((s) => s.clearStreamingEventsForTab);
   const addHistoryItem = useHistoryStore((s) => s.addHistoryItem);
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const globalSettings = useSettingsStore((s) => s.settings);
@@ -176,6 +205,44 @@ export function useHttpRequestPage() {
       const effectiveAuth = resolveEffectiveAuth(httpRequest.auth, inherited?.auth);
       const requestForExec =
         effectiveAuth === httpRequest.auth ? httpRequest : { ...httpRequest, auth: effectiveAuth };
+
+      // Web: an SSE / NDJSON / JSON Lines Accept streams into the response
+      // panel (the proxy answers it with a raw pass-through). Desktop's HTTP
+      // IPC has no streaming channel, so it stays on the buffered path. The
+      // stream path runs no pre-request / test scripts (there is no complete
+      // response to test) and records no history entry.
+      const scope: RequestScope = {
+        values: envVars,
+        secretVariables,
+        secretNames: sendSecretNames,
+        resolveVariables: (text) => resolveVariables(text),
+      };
+      if (!isElectron() && wantsStream(requestForExec, scope)) {
+        const { events, responseMeta } = await executeStreamingRequest({
+          request: requestForExec,
+          envVars,
+          secretVariables,
+          secretNames: sendSecretNames,
+          globalSettings,
+          resolveVariables: (text) => resolveVariables(text),
+          collectionVars,
+          signal: controller.signal,
+        });
+        // Replaces any buffered response so the panel shows the stream. The
+        // response stream is single-use; buffer it so a viewer that remounts
+        // (StrictMode, switching tabs and back) replays it from the start.
+        setStreamingEventsForTab(
+          originTabId,
+          replayableAsyncIterable(events, {
+            isTerminal: (event) => event.type === 'end' || event.type === 'error',
+          })
+        );
+        toast.dismiss('request');
+        announceRequestComplete(responseMeta.status, Date.now() - startTime);
+        return;
+      }
+      // A buffered send replaces a previous run's stream.
+      clearStreamingEventsForTab(originTabId);
 
       const result = await executeRequest({
         request: requestForExec,
@@ -300,12 +367,13 @@ export function useHttpRequestPage() {
     setLoading,
     resolveVariables,
     setScriptResultForTab,
+    setStreamingEventsForTab,
+    clearStreamingEventsForTab,
     setCurrentResponseForTab,
     addHistoryItem,
     globalSettings,
     addEntry,
     announceRequestComplete,
-    updateRequest,
     updateRequestForTab,
   ]);
 
@@ -420,6 +488,11 @@ export function useHttpRequestPage() {
     changeBodyContent: (raw: string) => {
       if (!httpRequest) return;
       updateRequest({ body: { ...httpRequest.body, raw } });
+    },
+    // GraphQL body: the variables JSON the executor sends in the envelope.
+    changeGraphQLVariables: (graphqlVariables: string) => {
+      if (!httpRequest) return;
+      updateRequest({ body: { ...httpRequest.body, graphqlVariables } });
     },
     // urlencoded fields are the source of truth; keep `raw` in sync for the
     // text view and older consumers.

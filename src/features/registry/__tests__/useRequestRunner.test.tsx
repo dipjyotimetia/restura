@@ -664,4 +664,124 @@ describe('useRequestRunner', () => {
     expect(seen).toEqual({ variables: { host: 'x' }, secretVariables });
     vi.doUnmock('@/lib/shared/activeRequestScopes');
   });
+  describe('collection variables for non-HTTP single sends', () => {
+    async function seedCollectionTab() {
+      const { useCollectionStore } = await import('@/store/useCollectionStore');
+      const { useRequestStore } = await import('@/store/useRequestStore');
+      useCollectionStore.setState({
+        collections: [
+          {
+            id: 'col-1',
+            name: 'API',
+            variables: [
+              { id: 'cv1', key: 'base', value: 'b1', enabled: true },
+              { id: 'cv2', key: 'gone', value: 'g', enabled: true },
+            ],
+            items: [{ id: 'item-1', name: 'G', type: 'request', request: { id: 'g1' } as never }],
+          },
+        ],
+      } as never);
+      useRequestStore.setState({
+        tabs: [
+          {
+            id: 'tab-g',
+            request: { id: 'g1', type: 'grpc' } as never,
+            isDirty: false,
+            savedRequestId: 'item-1',
+          },
+        ],
+        activeTabId: 'tab-g',
+      } as never);
+      return useCollectionStore;
+    }
+
+    it('hands the owning collection variables to the protocol and persists script writes', async () => {
+      const collectionStore = await seedCollectionTab();
+      const { protocolRegistry } = await import('../registry');
+      let seenOptions: Record<string, unknown> | undefined;
+      protocolRegistry.register({
+        id: 'fake-collection-vars-test',
+        label: 'Fake',
+        tabType: 'grpc',
+        defaultRequest: () => ({}) as never,
+        runRequest: async (_req, ctx) => {
+          seenOptions = ctx.protocolOptions;
+          ctx.onScriptResult?.({
+            preRequest: {
+              success: true,
+              logs: [],
+              errors: [],
+              variables: {},
+              collectionMutations: { token: 'abc' },
+            },
+            test: {
+              success: true,
+              logs: [],
+              errors: [],
+              variables: {},
+              collectionMutations: { gone: null },
+            },
+          } as never);
+          return { status: 0, statusText: 'OK', headers: {}, body: '', size: 0, time: 0 } as never;
+        },
+      });
+      const { useRequestRunner } = await import('../useRequestRunner');
+      const { result } = renderHook(() => useRequestRunner());
+      await act(async () => {
+        await result.current.run({ id: 'g1', type: 'grpc' } as never, 'fake-collection-vars-test', {
+          protocolOptions: { protoContent: 'x' },
+        });
+      });
+      expect(seenOptions).toMatchObject({
+        protoContent: 'x',
+        collectionVars: { base: 'b1', gone: 'g' },
+      });
+      const vars = collectionStore.getState().collections[0]?.variables ?? [];
+      expect(Object.fromEntries(vars.map((v) => [v.key, v.value]))).toEqual({
+        base: 'b1',
+        token: 'abc',
+      });
+    });
+
+    it('skips history and script persistence when the run was aborted before the response returned', async () => {
+      const collectionStore = await seedCollectionTab();
+      const { useHistoryStore } = await import('@/store/useHistoryStore');
+      const historyBefore = useHistoryStore.getState().history.length;
+      const { protocolRegistry } = await import('../registry');
+      let abortRun: (() => void) | undefined;
+      protocolRegistry.register({
+        id: 'fake-late-abort-test',
+        label: 'Fake',
+        tabType: 'grpc',
+        defaultRequest: () => ({}) as never,
+        runRequest: async (_req, ctx) => {
+          // A transport that ignores the signal resolves after the user cancelled.
+          abortRun?.();
+          ctx.onScriptResult?.({
+            test: {
+              success: true,
+              logs: [],
+              errors: [],
+              variables: {},
+              collectionMutations: { token: 'late' },
+            },
+          } as never);
+          return { status: 0, statusText: 'OK', headers: {}, body: '', size: 0, time: 0 } as never;
+        },
+      });
+      const { useRequestRunner } = await import('../useRequestRunner');
+      const { result } = renderHook(() => useRequestRunner());
+      abortRun = () => result.current.abort();
+      let outcome: unknown;
+      await act(async () => {
+        outcome = await result.current
+          .run({ id: 'g1', type: 'grpc' } as never, 'fake-late-abort-test')
+          .catch((e: unknown) => e);
+      });
+      expect((outcome as Error).name).toBe('AbortError');
+      expect(useHistoryStore.getState().history.length).toBe(historyBefore);
+      const vars = collectionStore.getState().collections[0]?.variables ?? [];
+      expect(vars.map((v) => v.key)).toEqual(['base', 'gone']);
+    });
+  });
 });

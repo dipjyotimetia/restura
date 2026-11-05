@@ -174,6 +174,25 @@ function isSameOrigin(origin: string, requestUrl: string): boolean {
   }
 }
 
+/** Host names the dev-bypass server answers on: loopback only. */
+const DEV_BYPASS_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * True when the request was addressed to a loopback host name. In bypass mode
+ * the Origin check alone is defeated by DNS rebinding: a page on
+ * `attacker.example` that rebinds its name to 127.0.0.1 is same-origin with
+ * the request URL (built from its own Host header), and same-origin GETs
+ * carry no Origin at all. A rebound request still carries the attacker's
+ * name in Host, so refusing non-loopback Hosts closes that path.
+ */
+function isLoopbackHost(requestUrl: string): boolean {
+  try {
+    return DEV_BYPASS_HOSTS.has(new URL(requestUrl).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 export async function proxyAuthMiddleware(
   c: Context<{ Bindings: Env }>,
   next: Next
@@ -182,6 +201,14 @@ export async function proxyAuthMiddleware(
     return next();
   }
   if (isLocalDevBypass(c.env)) {
+    if (!isLoopbackHost(c.req.url)) {
+      return c.json(
+        {
+          error: 'Host not allowed: the auth bypass answers only on localhost / 127.0.0.1 / [::1]',
+        },
+        403
+      );
+    }
     // No credential stands between a browser and the proxy in bypass mode,
     // so CORS alone (which only hides the reply) is not enough: refuse any
     // browser request whose Origin is neither the server's own nor allowed.
@@ -271,17 +298,17 @@ export function createApp(
   app.use('/api/*', proxyAuthMiddleware);
   app.use('/api/*', rateLimitMiddleware);
 
-  app.post('/api/proxy', createProxyHandler(deps.tcpProxy, deps.nodeHostnameGuard));
-  app.post('/api/import/fetch', createRemoteImportHandler(deps.nodeHostnameGuard));
-  app.post('/api/grpc', grpcBodyLimit, createGrpcHandler(deps.nodeHostnameGuard));
+  app.post('/api/proxy', createProxyHandler(deps.tcpProxy, deps.nodeFetch));
+  app.post('/api/import/fetch', createRemoteImportHandler(deps.nodeFetch));
+  app.post('/api/grpc', grpcBodyLimit, createGrpcHandler(deps.nodeFetch));
   app.post(
     '/api/grpc/reflection',
     grpcReflectionBodyLimit,
-    createGrpcReflectionHandler(deps.nodeHostnameGuard, deps.grpcReflectionFetch)
+    createGrpcReflectionHandler(deps.nodeFetch)
   );
-  app.post('/api/grpc-web', grpcWebBodyLimit, createGrpcWebHandler(deps.nodeHostnameGuard));
-  app.post('/api/mcp', createMcpHandler(deps.nodeHostnameGuard));
-  app.post('/api/mcp/terminate', createMcpTerminateHandler(deps.nodeHostnameGuard));
+  app.post('/api/grpc-web', grpcWebBodyLimit, createGrpcWebHandler(deps.nodeFetch));
+  app.post('/api/mcp', createMcpHandler(deps.nodeFetch));
+  app.post('/api/mcp/terminate', createMcpTerminateHandler(deps.nodeFetch));
   app.post('/api/telemetry/error', telemetryError);
   app.get('/api/feature-flags', featureFlags);
   app.post('/api/ws-ticket', wsTicket);

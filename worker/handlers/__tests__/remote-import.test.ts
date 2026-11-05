@@ -50,16 +50,13 @@ describe('remote import handler', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it('uses the Node hostname guard and keeps unknown failures generic', async () => {
-    const guard = vi.fn().mockResolvedValue(undefined);
+  it('sends the import through the Node pinned fetch and keeps unknown failures generic', async () => {
+    const nodeFetch = vi
+      .fn()
+      .mockResolvedValue(new Response('ok', { headers: { 'content-type': 'text/plain' } }));
+    const fallback = vi.fn();
     const app = new Hono();
-    app.post(
-      '/remote-import',
-      createRemoteImportHandler(
-        guard,
-        vi.fn().mockResolvedValue(new Response('ok', { headers: { 'content-type': 'text/plain' } }))
-      )
-    );
+    app.post('/remote-import', createRemoteImportHandler(nodeFetch, fallback));
 
     const response = await app.request('/remote-import', {
       method: 'POST',
@@ -67,10 +64,11 @@ describe('remote import handler', () => {
       body: JSON.stringify({ url: 'https://example.com/import.txt' }),
     });
     expect(response.status).toBe(200);
-    expect(guard).toHaveBeenCalledWith('example.com', {
+    expect(nodeFetch).toHaveBeenCalledWith('https://example.com/import.txt', expect.anything(), {
       allowLocalhost: false,
       allowPrivateIPs: false,
     });
+    expect(fallback).not.toHaveBeenCalled();
 
     const failed = await appFor(vi.fn().mockRejectedValue('unexpected')).request('/remote-import', {
       method: 'POST',

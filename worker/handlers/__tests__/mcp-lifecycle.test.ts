@@ -210,7 +210,7 @@ describe('/api/mcp/terminate', () => {
     expect(res.status).toBe(400);
   });
 
-  it('runs the injected Node DNS guard before the DELETE', async () => {
+  it('routes the DELETE through the injected Node pinned fetch', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const guard = vi.fn().mockRejectedValue(new Error('DNS blocked'));
@@ -226,10 +226,14 @@ describe('/api/mcp/terminate', () => {
       {}
     );
     expect(res.status).toBe(502);
-    expect(guard).toHaveBeenCalledWith('mcp.example.com', {
-      allowLocalhost: false,
-      allowPrivateIPs: false,
-    });
+    expect(guard).toHaveBeenCalledWith(
+      expect.stringContaining('//mcp.example.com'),
+      expect.anything(),
+      {
+        allowLocalhost: false,
+        allowPrivateIPs: false,
+      }
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

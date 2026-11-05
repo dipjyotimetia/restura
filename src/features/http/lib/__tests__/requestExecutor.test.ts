@@ -512,10 +512,10 @@ describe('isStreamingAccept', () => {
   });
 
   it('does not match similarly-named non-streaming types', () => {
-    // text/event-streamy isn't a real type; we use includes() so this DOES
-    // technically match. Lock the current behaviour so a future tightening
-    // is intentional.
-    expect(isStreamingAccept({ Accept: 'text/event-stream-alt' })).toBe(true);
+    // Media types match exactly (parameters ignored), as the Worker's
+    // token-parse does — a look-alike type is not a stream.
+    expect(isStreamingAccept({ Accept: 'text/event-stream-alt' })).toBe(false);
+    expect(isStreamingAccept({ ACCEPT: 'text/event-stream; charset=utf-8' })).toBe(true);
     // But "application/event-json" should not match any streaming type
     expect(isStreamingAccept({ Accept: 'application/event-json' })).toBe(false);
   });
@@ -858,6 +858,25 @@ describe('executeRequest — auth {{vars}} resolution', () => {
         basic: { username: 'alice', password: '{{pw}}' },
       });
       expect(sentDesktop()?.secretVariables).toEqual(secretOpts.secretVariables);
+    });
+
+    it('keeps the user and default headers when the Authorization header is deferred', async () => {
+      platform.electron = true;
+      await executeRequest({
+        request: makeRequest({
+          method: 'POST',
+          headers: [{ id: 'h', key: 'X-Trace', value: 'abc', enabled: true }],
+          body: { type: 'xml', raw: '<a/>' },
+          auth: { type: 'basic', basic: { username: 'alice', password: '{{pw}}' } },
+        }),
+        envVars: {},
+        globalSettings: settings,
+        ...secretOpts,
+      });
+      const headers = sentSpec().headers;
+      expect(headers['X-Trace']).toBe('abc');
+      expect(headers['Content-Type']).toBe('application/xml');
+      expect(headers['Authorization']).toBeUndefined();
     });
 
     it('fails fast on web, where secret variables cannot be materialized', async () => {
