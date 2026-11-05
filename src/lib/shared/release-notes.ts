@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
 const RELEASES_URL = 'https://api.github.com/repos/dipjyotimetia/restura/releases';
+/**
+ * Static feed built by .github/workflows/release-feed.yml on every published
+ * release. Read first: it is a CDN file, so it has none of the anonymous
+ * GitHub API's 60/hour/IP limit. The API stays as the fallback.
+ */
+export const RELEASE_FEED_URL = 'https://restura-releases.pages.dev/releases.json';
+/** Links in the feed must point at this repo's releases (the feed host is a trust boundary). */
+const RELEASE_URL_PREFIX = 'https://github.com/dipjyotimetia/restura/releases/';
 /** The human-readable releases page, offered when the API can't be reached. */
 export const RELEASES_PAGE_URL = 'https://github.com/dipjyotimetia/restura/releases';
 const UNAVAILABLE = 'Release notes are unavailable right now. Please try again.';
@@ -18,6 +26,25 @@ const GitHubReleaseSchema = z.object({
 });
 
 const GitHubReleasesSchema = z.array(GitHubReleaseSchema);
+
+/**
+ * Shape written by scripts/release-feed.mjs (FEED_VERSION 1). Drafts are
+ * already excluded and releases are sorted newest first.
+ */
+const ReleaseFeedSchema = z.object({
+  version: z.literal(1),
+  releases: z.array(
+    z.object({
+      id: z.number().int(),
+      tag_name: z.string().min(1),
+      name: z.string(),
+      body: z.string(),
+      html_url: z.url().refine((url) => url.startsWith(RELEASE_URL_PREFIX)),
+      published_at: z.string().datetime(),
+      prerelease: z.boolean(),
+    })
+  ),
+});
 
 export type ReleaseNotesChannel = 'stable' | 'beta';
 
@@ -76,6 +103,8 @@ interface FetchReleaseNotesOptions {
 }
 
 const pageCache = new Map<string, Promise<ReleaseNotesPage>>();
+/** The whole feed is one file; fetch it once per session and slice pages locally. */
+let feedCache: Promise<ReleaseNote[]> | null = null;
 
 function topLevelListItemCount(markdown: string): number {
   return markdown.split('\n').filter((line) => /^(?:[-*+] |\d+\. )/.test(line)).length;
@@ -234,6 +263,48 @@ function getNextPage(linkHeader: string | null): number | null {
   }
 }
 
+async function requestReleaseFeed(): Promise<ReleaseNote[]> {
+  const response = await fetch(RELEASE_FEED_URL, {
+    headers: { Accept: 'application/json' },
+    credentials: 'omit',
+  });
+  if (!response.ok) throw new Error(`Release feed returned ${response.status}.`);
+  const parsed = ReleaseFeedSchema.parse(await response.json());
+  return parsed.releases.map((release) => ({
+    id: release.id,
+    tag: release.tag_name,
+    name: release.name.trim() || release.tag_name,
+    body: release.body,
+    url: release.html_url,
+    publishedAt: release.published_at,
+    isPrerelease: release.prerelease,
+  }));
+}
+
+function loadReleaseFeed(): Promise<ReleaseNote[]> {
+  if (!feedCache) {
+    const request = requestReleaseFeed();
+    // A failed load is not cached, so a retry refetches the feed.
+    request.catch(() => {
+      if (feedCache === request) feedCache = null;
+    });
+    feedCache = request;
+  }
+  return feedCache;
+}
+
+async function requestReleaseNotesFromFeed({
+  channel,
+  page = 1,
+}: FetchReleaseNotesOptions): Promise<ReleaseNotesPage> {
+  const visible = (await loadReleaseFeed()).filter(
+    (release) => channel === 'beta' || !release.isPrerelease
+  );
+  const start = (page - 1) * PAGE_SIZE;
+  const end = start + PAGE_SIZE;
+  return { releases: visible.slice(start, end), nextPage: end < visible.length ? page + 1 : null };
+}
+
 async function requestReleaseNotes({
   channel,
   page = 1,
@@ -308,14 +379,19 @@ export function fetchReleaseNotesPage(
   const cached = pageCache.get(key);
   if (cached) return cached;
 
-  const request = requestReleaseNotes(options).catch((error: unknown) => {
-    pageCache.delete(key);
-    throw error;
-  });
+  // Feed first; any feed failure (offline host, bad payload, feed not yet
+  // published) falls through to the GitHub API, whose errors are the ones shown.
+  const request = requestReleaseNotesFromFeed(options)
+    .catch(() => requestReleaseNotes(options))
+    .catch((error: unknown) => {
+      pageCache.delete(key);
+      throw error;
+    });
   pageCache.set(key, request);
   return request;
 }
 
 export function clearReleaseNotesCache(): void {
   pageCache.clear();
+  feedCache = null;
 }

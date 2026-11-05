@@ -91,6 +91,10 @@ review like any other code.
   and `attest-image` attests its digest. npm, GHCR and Cloudflare publishing
   wait for `attest-desktop`, and `publish-release` never publishes a release
   whose attestations failed.
+- **Release-notes feed.** `release-feed.yml` runs after `publish-release`, holds
+  the Cloudflare token, and installs no repository dependencies: it runs one
+  dependency-free script and a version-pinned `wrangler`. The app only accepts
+  feed links that point at this repository's releases page.
 - **Marketplace tokens.** Each extension workflow is split into a packaging
   job, which runs `npm ci` but has no secrets, and a publish job. The publish
   job runs in the `extensions` environment and installs only

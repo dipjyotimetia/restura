@@ -161,6 +161,14 @@ tag creation, draft creation, package publication, and final promotion.
 5. **Release Creation**
    - Keeps the release in draft until package, metadata, and downstream gates pass
    - Attaches all artifacts and generated release notes
+6. **Release-notes feed**
+   - After the release is public, `release-feed.yml` rebuilds
+     `https://restura-releases.pages.dev/releases.json` (its own Cloudflare Pages
+     project, `restura-releases`) from the published Releases list, stable and beta
+   - The app's release-notes panel reads that file first and only falls back to the
+     anonymous GitHub API (60 requests/hour/IP) if it is unreachable
+   - A failed feed job never blocks a release: re-run it, or dispatch
+     "Release feed" from the Actions tab to rebuild/backfill
 
 ## GitHub Secrets Configuration
 
