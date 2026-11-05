@@ -89,7 +89,7 @@ function findImplicitBlockStart(prefix: string[]): number {
   if (reqIdx === -1) return -1;
   let start = reqIdx;
   while (start > 0) {
-    const t = prefix[start - 1]!.trim();
+    const t = (prefix[start - 1] ?? '').trim();
     if (t.startsWith('#') || t.startsWith('//')) start--;
     else break;
   }
@@ -156,9 +156,9 @@ function parseBlock(
 
   // JetBrains/REST Client continuation: indented lines starting with `?` or `&`
   // extend the request URL.
-  let rawUrl = requestMatch[2]!;
+  let rawUrl = requestMatch[2] ?? '';
   while (cursor < blockLines.length) {
-    const line = blockLines[cursor]!;
+    const line = blockLines[cursor] ?? '';
     if (/^\s+[?&]/.test(line)) {
       rawUrl += line.trim();
       cursor++;
