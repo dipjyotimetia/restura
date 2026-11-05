@@ -310,8 +310,10 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   assertHandleSupported(headersWithAuth);
   // The merged map is the whole header set: an auth header has already
   // replaced a user row of the same name in any casing, so replace, not merge.
+  // Copy first — a deferred Basic header hands back `headers` itself.
+  const merged = { ...headersWithAuth.headers };
   for (const key of Object.keys(headers)) delete headers[key];
-  Object.assign(headers, headersWithAuth.headers);
+  Object.assign(headers, merged);
 
   // An API key sent in the query replaces same-named query rows (it is not
   // sent next to them).
