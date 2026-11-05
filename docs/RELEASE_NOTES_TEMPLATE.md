@@ -22,6 +22,18 @@ replacement.
 - Correct a user-visible regression ([`7654321`](https://github.com/dipjyotimetia/restura/commit/7654321))
 ```
 
+## How the app reads release notes
+
+The in-app release-notes panel reads a static feed, not the GitHub API (anonymous
+API calls are limited to 60 an hour per IP, shared by a whole network).
+`.github/workflows/release-feed.yml` runs after each release is published, builds
+`releases.json` from the Releases list with `scripts/release-feed.mjs`, and deploys
+it to the `restura-releases` Cloudflare Pages project. The app
+(`src/lib/shared/release-notes.ts`) falls back to `api.github.com` if the feed is
+unreachable or invalid. The feed holds the newest 100 stable releases plus the
+betas published since the oldest of them; older history stays on GitHub. Edit a published release body on GitHub, then dispatch
+"Release feed" to republish it.
+
 The generator omits empty groups and filters maintenance-only commits according
 to `cliff.toml`. The app renders the generated groups as structured release
 history; genuinely curated sections and older free-form bodies remain readable

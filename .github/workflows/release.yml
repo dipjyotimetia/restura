@@ -44,6 +44,8 @@ name: Release
 #     → `attest-image`    — SLSA provenance for the pushed image (no build).
 #       `deploy-web`      — deploy to Cloudflare (stable only).
 #     → `publish-release` — flip the draft public.
+#     → `publish-release-feed` — rebuild the static release-notes feed the app
+#                           reads (release-feed.yml; stable and beta).
 #
 # Supply-chain rules (epic #1283, docs/SUPPLY_CHAIN_HARDENING.md):
 #   - Every `npm ci` runs with --ignore-scripts; jobs `npm rebuild` only the
@@ -1261,3 +1263,19 @@ jobs:
           # No checkout in this job, so `gh` can't infer the repo from a .git dir;
           # GH_REPO tells it explicitly (otherwise: "fatal: not a git repository").
           gh release edit "$ACTUAL_TAG" --draft=false --repo "$GH_REPO"
+
+  publish-release-feed:
+    name: Publish release-notes feed
+    needs: [release, publish-release]
+    # After publication, so the feed never lists a draft. A failure here leaves
+    # a correctly published release (the app falls back to the GitHub API);
+    # re-run this job or dispatch release-feed.yml. Runs only if publish-release
+    # succeeded (the default `needs` condition).
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-feed.yml
+    with:
+      ref: ${{ needs.release.outputs.actual_tag }}
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

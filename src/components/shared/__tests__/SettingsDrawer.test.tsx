@@ -136,12 +136,15 @@ describe('SettingsDrawer', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         new Response(
-          JSON.stringify([
-            {
-              id: 7,
-              tag_name: 'v1.4.0',
-              name: 'Restura 1.4.0',
-              body: `## Highlights
+          JSON.stringify({
+            version: 1,
+            generated_at: '2026-07-12T00:00:00Z',
+            releases: [
+              {
+                id: 7,
+                tag_name: 'v1.4.0',
+                name: 'Restura 1.4.0',
+                body: `## Highlights
 
 - **MCP:** In-app release notes
 
@@ -153,12 +156,12 @@ describe('SettingsDrawer', () => {
 
 - **HTTP:** Fixed redirect handling.
 - ![tracker](https://tracker.example/pixel.png)`,
-              html_url: 'https://github.com/dipjyotimetia/restura/releases/tag/v1.4.0',
-              published_at: '2026-07-12T00:00:00Z',
-              draft: false,
-              prerelease: false,
-            },
-          ])
+                html_url: 'https://github.com/dipjyotimetia/restura/releases/tag/v1.4.0',
+                published_at: '2026-07-12T00:00:00Z',
+                prerelease: false,
+              },
+            ],
+          })
         )
       )
     );

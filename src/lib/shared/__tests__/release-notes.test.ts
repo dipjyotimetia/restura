@@ -3,6 +3,7 @@ import {
   clearReleaseNotesCache,
   fetchReleaseNotesPage,
   parseReleaseNoteContent,
+  RELEASE_FEED_URL,
 } from '../release-notes';
 
 const releases = [
@@ -38,10 +39,159 @@ const releases = [
   },
 ];
 
+/**
+ * Stubs `fetch` so the static feed is unavailable (404) and everything else is
+ * delegated to `apiMock`. `apiMock` therefore only ever sees GitHub API calls,
+ * which is what the fallback-path tests assert on.
+ */
+function stubApiOnly(apiMock: (input: string, init?: RequestInit) => unknown) {
+  vi.stubGlobal('fetch', (input: string, init?: RequestInit) =>
+    input === RELEASE_FEED_URL
+      ? Promise.resolve(new Response('Not found', { status: 404 }))
+      : Promise.resolve(apiMock(input, init))
+  );
+}
+
+const feedRelease = (id: number, tag: string, prerelease = false) => ({
+  id,
+  tag_name: tag,
+  name: tag,
+  body: `Notes ${tag}`,
+  html_url: `https://github.com/dipjyotimetia/restura/releases/tag/${tag}`,
+  published_at: '2026-07-01T12:00:00Z',
+  prerelease,
+});
+
+function feedResponse(feedReleases: unknown[], version = 1) {
+  return new Response(JSON.stringify({ version, generated_at: 'now', releases: feedReleases }), {
+    status: 200,
+  });
+}
+
 describe('fetchReleaseNotesPage', () => {
   afterEach(() => {
     clearReleaseNotesCache();
     vi.unstubAllGlobals();
+  });
+
+  describe('static release feed', () => {
+    it('serves the stable channel from the feed without touching the GitHub API', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          feedResponse([feedRelease(3, 'v1.3.0-beta.1', true), feedRelease(2, 'v1.2.0')])
+        );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(fetchReleaseNotesPage({ channel: 'stable' })).resolves.toEqual({
+        releases: [
+          {
+            id: 2,
+            tag: 'v1.2.0',
+            name: 'v1.2.0',
+            body: 'Notes v1.2.0',
+            url: 'https://github.com/dipjyotimetia/restura/releases/tag/v1.2.0',
+            publishedAt: '2026-07-01T12:00:00Z',
+            isPrerelease: false,
+          },
+        ],
+        nextPage: null,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        RELEASE_FEED_URL,
+        expect.objectContaining({ credentials: 'omit' })
+      );
+    });
+
+    it('includes prereleases for beta and downloads the feed once for all pages', async () => {
+      const many = Array.from({ length: 35 }, (_, i) => feedRelease(100 - i, `v1.${100 - i}.0`));
+      const fetchMock = vi.fn().mockResolvedValue(feedResponse(many));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const first = await fetchReleaseNotesPage({ channel: 'beta' });
+      expect(first.releases).toHaveLength(30);
+      expect(first.nextPage).toBe(2);
+
+      const second = await fetchReleaseNotesPage({ channel: 'beta', page: 2 });
+      expect(second.releases).toHaveLength(5);
+      expect(second.nextPage).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to the GitHub API when the feed payload is invalid', async () => {
+      const fetchMock = vi.fn(async (input: string) =>
+        input === RELEASE_FEED_URL
+          ? feedResponse([feedRelease(2, 'v1.2.0')], 2) // unknown feed version
+          : new Response(JSON.stringify([releases[1]]), { status: 200 })
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(fetchReleaseNotesPage({ channel: 'stable' })).resolves.toMatchObject({
+        releases: [expect.objectContaining({ tag: 'v1.2.0', body: 'Stable changes' })],
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects a feed whose links point outside this repository', async () => {
+      const evil = { ...feedRelease(2, 'v1.2.0'), html_url: 'https://evil.example/releases/1' };
+      const fetchMock = vi.fn(async (input: string) =>
+        input === RELEASE_FEED_URL
+          ? feedResponse([evil])
+          : new Response(JSON.stringify([releases[1]]), { status: 200 })
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const page = await fetchReleaseNotesPage({ channel: 'stable' });
+      expect(page.releases[0]?.url).toBe(
+        'https://github.com/dipjyotimetia/restura/releases/tag/v1.2.0'
+      );
+    });
+
+    it('falls back to the GitHub API when the feed host is unreachable', async () => {
+      const fetchMock = vi.fn(async (input: string) => {
+        if (input === RELEASE_FEED_URL) throw new TypeError('network down');
+        return new Response(JSON.stringify([releases[1]]), { status: 200 });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(fetchReleaseNotesPage({ channel: 'stable' })).resolves.toMatchObject({
+        releases: [expect.objectContaining({ tag: 'v1.2.0' })],
+      });
+    });
+
+    it('surfaces the API rate-limit message only after the feed has also failed', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string) =>
+          input === RELEASE_FEED_URL
+            ? new Response('nope', { status: 500 })
+            : new Response('{}', { status: 429 })
+        )
+      );
+
+      await expect(fetchReleaseNotesPage({ channel: 'stable' })).rejects.toThrow(/hourly limit/);
+    });
+
+    it('refetches the feed after a failed load', async () => {
+      let feedCalls = 0;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string) => {
+          if (input !== RELEASE_FEED_URL) return new Response('{}', { status: 500 });
+          feedCalls += 1;
+          return feedCalls === 1
+            ? new Response('boom', { status: 500 })
+            : feedResponse([feedRelease(2, 'v1.2.0')]);
+        })
+      );
+
+      await expect(fetchReleaseNotesPage({ channel: 'stable' })).rejects.toThrow();
+      await expect(fetchReleaseNotesPage({ channel: 'stable' })).resolves.toMatchObject({
+        releases: [expect.objectContaining({ tag: 'v1.2.0' })],
+      });
+      expect(feedCalls).toBe(2);
+    });
   });
 
   it('returns only published stable releases for the stable channel', async () => {
@@ -51,7 +201,7 @@ describe('fetchReleaseNotesPage', () => {
         headers: { Link: '' },
       })
     );
-    vi.stubGlobal('fetch', fetchMock);
+    stubApiOnly(fetchMock);
 
     await expect(fetchReleaseNotesPage({ channel: 'stable' })).resolves.toEqual({
       releases: [
@@ -78,7 +228,7 @@ describe('fetchReleaseNotesPage', () => {
         },
       })
     );
-    vi.stubGlobal('fetch', fetchMock);
+    stubApiOnly(fetchMock);
 
     const options = { channel: 'beta' as const };
     await expect(fetchReleaseNotesPage(options)).resolves.toMatchObject({
@@ -117,7 +267,7 @@ describe('fetchReleaseNotesPage', () => {
         },
       });
     });
-    vi.stubGlobal('fetch', fetchMock);
+    stubApiOnly(fetchMock);
 
     await expect(fetchReleaseNotesPage({ channel: 'stable' })).resolves.toMatchObject({
       releases: [expect.objectContaining({ tag: 'v1.2.0' })],
@@ -127,8 +277,7 @@ describe('fetchReleaseNotesPage', () => {
   });
 
   it('rejects invalid GitHub responses with a user-safe error', async () => {
-    vi.stubGlobal(
-      'fetch',
+    stubApiOnly(
       vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: 'nope' }), { status: 403 }))
     );
 
@@ -139,8 +288,7 @@ describe('fetchReleaseNotesPage', () => {
 
   it('names an exhausted GitHub rate limit and when it resets', async () => {
     const reset = Math.floor(new Date(2026, 10, 2, 18, 5).getTime() / 1000);
-    vi.stubGlobal(
-      'fetch',
+    stubApiOnly(
       vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ message: 'API rate limit exceeded' }), {
           status: 403,
@@ -159,7 +307,7 @@ describe('fetchReleaseNotesPage', () => {
   });
 
   it('treats a 429 without a reset header as a rate limit', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 429 })));
+    stubApiOnly(vi.fn().mockResolvedValue(new Response('{}', { status: 429 })));
 
     await expect(fetchReleaseNotesPage({ channel: 'stable' })).rejects.toThrow(
       /hourly limit .* Try again later,/

@@ -1,0 +1,121 @@
+name: Release feed
+
+# Publishes the static release-notes feed the app reads (see
+# src/lib/shared/release-notes.ts) so it never has to call api.github.com
+# anonymously, where GitHub allows only 60 requests/hour per IP.
+#
+#   https://restura-releases.pages.dev/releases.json
+#
+# The feed lives in its OWN Cloudflare Pages project: a Pages deploy replaces
+# the whole site, so putting it in the SPA or docs project would tie it to
+# those builds (and to stable-only deploys — betas need notes too).
+#
+# Runs:
+#   - from release.yml, after `publish-release` flips the draft public, so the
+#     feed never lists a release that is not yet public (stable AND beta);
+#   - manually, to backfill or regenerate: Actions → "Release feed" → Run
+#     workflow (or `gh workflow run release-feed.yml`). It rebuilds the whole
+#     feed from the Releases list, so there is no state to repair.
+#
+# A failure here never blocks a release (it runs after publication); re-run the
+# job. Until the first run the app falls back to the GitHub API.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref whose scripts/release-feed.mjs to run (the release tag)."
+        type: string
+        default: main
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
+  workflow_dispatch:
+
+concurrency:
+  # Two feeds racing could publish the older one last.
+  group: release-feed
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish-feed:
+    name: Build and deploy release feed
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Listing published releases; the GITHUB_TOKEN limit (1,000/hr/repo) is
+      # what replaces the anonymous 60/hr/IP.
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || 'main' }}
+
+      - uses: ./.github/actions/setup-node-npm
+        with:
+          node-version-file: ".nvmrc"
+          # No dependency cache in release jobs (cache poisoning, #1291).
+          cache: ""
+
+      - name: Fetch published releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp "repos/${GH_REPO}/releases?per_page=100" > releases-raw.json
+
+      - name: Build feed
+        run: node scripts/release-feed.mjs releases-raw.json feed-out
+
+      # No `npm ci` here: this job holds Cloudflare credentials, so it runs no
+      # repository dependency code. wrangler is fetched at the exact version the
+      # repo pins (package.json devDependency) and nothing else is installed.
+      - name: Deploy to Cloudflare Pages (restura-releases)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_VERSION: "4.156.0"
+        run: |
+          set -euo pipefail
+          npx --yes "wrangler@${WRANGLER_VERSION}" pages project create restura-releases \
+            --production-branch=main 2>&1 | tee pages-create.log || {
+            if grep -qiE 'already exists|project.*exists' pages-create.log; then
+              echo "Pages project restura-releases already exists."
+            else
+              exit 1
+            fi
+          }
+          npx --yes "wrangler@${WRANGLER_VERSION}" pages deploy feed-out \
+            --project-name=restura-releases --branch=main --commit-dirty=true
+
+      # The app hardcodes this URL. Pages gives a project a different
+      # subdomain when the name is taken, which would silently strand the
+      # app on its GitHub-API fallback, so prove the real URL serves the feed.
+      - name: Verify the published feed
+        run: |
+          set -euo pipefail
+          url="https://restura-releases.pages.dev/releases.json"
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsS --max-time 20 -D headers.txt -o served.json "$url" \
+              && node -e '
+                const f = JSON.parse(require("node:fs").readFileSync("served.json", "utf8"));
+                const built = JSON.parse(require("node:fs").readFileSync("feed-out/releases.json", "utf8"));
+                if (f.version !== 1 || f.releases[0]?.tag_name !== built.releases[0].tag_name) process.exit(1);
+              '; then
+              grep -qi '^access-control-allow-origin: \*' headers.txt \
+                || { echo "Feed is served without CORS headers."; exit 1; }
+              echo "Feed live: $url"
+              exit 0
+            fi
+            echo "Feed not live yet (attempt ${attempt}); retrying..."
+            sleep 10
+          done
+          echo "Feed at $url did not match the deployed build."
+          exit 1
