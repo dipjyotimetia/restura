@@ -9,6 +9,7 @@ import {
   saveScriptEnvironmentWrites,
   scriptEnvironmentTargetId,
 } from '@/features/environments/lib/scriptEnvironmentMutations';
+import { pathVariablesPatch } from '@/features/http/lib/pathVariableRows';
 import {
   executeRequest,
   executeStreamingRequest,
@@ -530,10 +531,17 @@ export function useHttpRequestPage() {
     replaceHeaders: (headers: KeyValue[]) => updateRequest({ headers }),
     // The URL bar shows url + enabled params; split edits back into both so
     // the stored url keeps no query and the params table stays in sync.
+    // `:name` path segments keep the path-variable rows in step with the URL.
     changeUrl: (text: string) => {
       if (!httpRequest) return;
-      updateRequest(applyUrlInput(text, httpRequest.params, uuidv4));
+      const next = applyUrlInput(text, httpRequest.params, uuidv4);
+      updateRequest({
+        ...next,
+        ...pathVariablesPatch(next.url, httpRequest.pathVariables, uuidv4),
+      });
     },
+    // Path-variable rows (key derived from the URL; value / description / enabled edited).
+    replacePathVariables: (pathVariables: KeyValue[]) => updateRequest({ pathVariables }),
     // Paste a whole cURL command into the URL bar → fill the request. Returns
     // false when it can't be parsed so the caller lets the plain paste through.
     importCurl: (command: string): boolean => {
@@ -550,11 +558,21 @@ export function useHttpRequestPage() {
         return false;
       }
       if (!imported) return false;
-      const { method, url, headers, params, body, auth, settings } = httpRequest;
-      const previous = { method, url, headers, params, body, auth, settings };
+      const { method, url, headers, params, pathVariables, body, auth, settings } = httpRequest;
+      const previous = {
+        method,
+        url,
+        headers,
+        params,
+        ...(pathVariables !== undefined && { pathVariables }),
+        body,
+        auth,
+        settings,
+      };
       const applied = updateRequest({
         method: imported.method,
         url: imported.url,
+        ...pathVariablesPatch(imported.url, pathVariables, uuidv4),
         headers: imported.headers,
         params: imported.params,
         body: imported.body,

@@ -151,3 +151,31 @@ describe('executeRequest — query rows holding a desktop secret-variable token'
     expect(url.search).toBe('?plain=a+b&k=x%2By%26z');
   });
 });
+
+describe('executeRequest — path variables', () => {
+  it('substitutes :name segments from resolved rows, encoded, in the path only', async () => {
+    const spec = await send(
+      makeRequest({
+        url: 'https://api.example.com:8443/users/:id/:off#:id',
+        params: [{ id: 'q', key: 'q', value: ':id', enabled: true }],
+        pathVariables: [
+          { id: '1', key: 'id', value: '{{who}} 1', enabled: true },
+          { id: '2', key: 'off', value: 'x', enabled: false },
+        ],
+      }),
+      { envVars: { who: 'a/b' } }
+    );
+    expect(spec.url).toBe('https://api.example.com:8443/users/a%2Fb%201/:off?q=:id#:id');
+  });
+
+  it('keeps a desktop secret-variable token verbatim for main to substitute', async () => {
+    const spec = await send(
+      makeRequest({
+        url: 'https://api.example.com/t/:tok',
+        pathVariables: [{ id: '1', key: 'tok', value: 'x {{sec}}', enabled: true }],
+      }),
+      { secretVariables: { sec: { kind: 'handle', id: 'h1' } } }
+    );
+    expect(spec.url).toBe('https://api.example.com/t/x%20{{sec}}');
+  });
+});

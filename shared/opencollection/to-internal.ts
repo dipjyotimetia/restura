@@ -27,7 +27,7 @@ import { graphqlMethodFromOC } from './graphql-item';
 import { applyGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-extension';
 import { applyGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
 import { applyHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
-import { kvToInternal } from './key-value';
+import { kvToInternal, splitParams } from './key-value';
 import { mcpStdioFromOC, mcpTransportFromOC } from './mcp-stdio-extension';
 import { MULTIPART_MIXED_BODY_KEY, multipartMixedFromOC } from './multipart-mixed-body';
 import type { OpenCollection } from './schemas';
@@ -255,17 +255,6 @@ function descriptionToString(d: unknown): string | undefined {
     return (d as { content: string }).content || undefined;
   }
   return undefined;
-}
-
-/** OC `http.params` → query rows and (spec `type: path`) path-variable rows. */
-function splitParams(raw: unknown): Pick<HttpRequest, 'params' | 'pathVariables'> {
-  const rows = Array.isArray(raw) ? raw : [];
-  const isPath = (row: unknown) => (row as { type?: unknown } | null)?.type === 'path';
-  const pathVariables = rows.filter(isPath).map(kvToInternal);
-  return {
-    params: rows.filter((row) => !isPath(row)).map(kvToInternal),
-    ...(pathVariables.length > 0 ? { pathVariables } : {}),
-  };
 }
 
 function httpToInternal(item: Record<string, unknown>): HttpRequest {

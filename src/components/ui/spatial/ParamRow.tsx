@@ -46,6 +46,11 @@ export interface ParamRowProps {
    * (Content-Type → application/json, …).
    */
   valueSuggestionsFor?: (key: string) => ReadonlyArray<string> | undefined;
+  /**
+   * The key is derived elsewhere (path variables: from the URL's `:name`
+   * segments) — shown as read-only text, and the row has no remove button.
+   */
+  keyReadOnly?: boolean;
 }
 
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -64,6 +69,7 @@ export function ParamRow({
   inputRef,
   keySuggestions,
   valueSuggestionsFor,
+  keyReadOnly = false,
 }: ParamRowProps) {
   const baseInput =
     'bg-transparent outline-none text-sp-text placeholder:text-sp-dim font-mono text-sp-12 w-full px-2 py-1 focus:bg-sp-hover focus:ring-1 focus:ring-sp-accent/30 transition-colors';
@@ -80,6 +86,17 @@ export function ParamRow({
   const valueInputClass = cn(baseInput, showValueOverlay && 'text-transparent caret-sp-accent');
 
   const renderKey = () => {
+    if (keyReadOnly) {
+      return (
+        <input
+          ref={inputRef}
+          readOnly
+          value={row.key}
+          aria-label={`${capitalize(itemLabel)} key`}
+          className={cn(baseInput, 'text-sp-muted cursor-default focus:bg-transparent')}
+        />
+      );
+    }
     if (!keySuggestions || keySuggestions.length === 0) {
       return (
         <VariableInput
@@ -195,14 +212,16 @@ export function ParamRow({
         />
       </div>
       <div className="flex items-center justify-center py-0.5">
-        <button
-          type="button"
-          onClick={() => onRemove?.(row.id)}
-          className="text-sp-dim opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-sp-text p-0.5 rounded-sp-chip hover:bg-sp-line-strong transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent/40"
-          aria-label="Remove row"
-        >
-          <X size={12} />
-        </button>
+        {!keyReadOnly && (
+          <button
+            type="button"
+            onClick={() => onRemove?.(row.id)}
+            className="text-sp-dim opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-sp-text p-0.5 rounded-sp-chip hover:bg-sp-line-strong transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent/40"
+            aria-label="Remove row"
+          >
+            <X size={12} />
+          </button>
+        )}
       </div>
     </div>
   );

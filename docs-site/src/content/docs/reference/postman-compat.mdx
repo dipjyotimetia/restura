@@ -42,6 +42,10 @@ Looking for collection import/export (Postman v2.x and v3 files)? See [Import & 
 | `{{$timestamp}}` | Epoch seconds. |
 | `{{$isoTimestamp}}` | ISO 8601 timestamp. |
 
+## Path variables
+
+A `:name` path segment (`/users/:id`) takes its value from the request's **Path variables** rows, shown under the query params in the Params tab and kept in step with the URL. Postman imports keep `:id` in the URL and bring `url.variable` / `pathVariables` in as those rows (v2.1 and v3 export write them back). An enabled row with a non-empty value replaces the whole segment at send time, after `{{var}}` resolution, percent-encoded as one segment; the host, port, query and fragment are never touched. A `:name` with no row (or a disabled or empty one) is sent as written, as in Postman. Web, desktop, the CLI and code snippets all apply the same rule.
+
 ## What doesn't work
 
 - Raw `fetch` / `XMLHttpRequest` — use `pm.sendRequest(...)` for network access.

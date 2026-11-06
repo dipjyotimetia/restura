@@ -43,6 +43,22 @@ describe('prepareCodegen', () => {
     expect(out.notes).toEqual([]);
   });
 
+  it('substitutes path variables into the snippet URL as the app sends it', () => {
+    const request: HttpRequest = {
+      ...base,
+      url: 'https://{{host}}/users/:id/:secret/:unknown',
+      pathVariables: [
+        { id: 'v1', key: 'id', value: '{{term}} 1', enabled: true },
+        { id: 'v2', key: 'secret', value: '{{token}}', enabled: true },
+      ],
+    };
+    const out = prepareCodegen(input({ request }));
+    expect(out.resolvedUrl).toBe('https://api.dev/users/shoes%201/{{token}}/:unknown');
+    expect(generateCurl(out)).toContain(
+      'https://api.dev/users/shoes%201/{{token}}/:unknown?q=shoes'
+    );
+  });
+
   it('prints secrets only when unmasked, and never for desktop handles', () => {
     expect(prepareCodegen(input({ maskSecrets: false })).resolvedHeaders['X-Token']).toBe('s3cret');
     const handle = input({ maskSecrets: false, values: { host: 'api.dev', term: 'x' } });

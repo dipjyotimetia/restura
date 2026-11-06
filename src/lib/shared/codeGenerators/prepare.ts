@@ -1,4 +1,5 @@
 import { buildRequestBody } from '@shared/protocol/body-builder';
+import { applyPathVariables } from '@shared/protocol/path-variables';
 import { applyBodyDefaultHeaders, mapProxyBodyType } from '@shared/protocol/request-spec';
 import type { AuthConfig, HttpRequest, RequestSettings } from '@/types';
 import { isExternalSecretRef, isSecretHandle, type SecretValue } from '../secretRef';
@@ -153,7 +154,13 @@ export function prepareCodegen(input: CodegenInput): GenerateOptions & { notes: 
 
   return {
     request: resolvedRequest,
-    resolvedUrl: resolve(request.url),
+    // `:name` segments as the app sends them (shared rule); a masked or
+    // unavailable secret stays a readable `{{name}}` reference.
+    resolvedUrl: applyPathVariables(resolve(request.url), request.pathVariables, {
+      resolve: (row) => resolve(row.value),
+      encode: request.settings?.encodeUrlAutomatically !== false,
+      keepToken: (name) => secretNames.has(name),
+    }),
     resolvedHeaders,
     resolvedParams,
     ...(formData ? { formData } : {}),

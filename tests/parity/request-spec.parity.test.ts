@@ -288,6 +288,34 @@ describe('Request to proxy spec: both hosts send the same wire request', () => {
     expect(cli).toEqual(renderer);
   });
 
+  it('path variables: :name segments substitute (resolved, encoded) the same on both hosts', async () => {
+    const req = request({
+      url: 'https://api.example.com:8443/users/:id/:tab/:off/:unknown',
+      params: [{ id: 'q', key: 'q', value: ':id', enabled: true }],
+      pathVariables: [
+        { id: '1', key: 'id', value: '{{who}} /x', enabled: true },
+        { id: '2', key: 'tab', value: 'a%20b', enabled: true },
+        { id: '3', key: 'off', value: 'x', enabled: false },
+      ],
+    });
+    const [renderer, cli] = [await viaRenderer(req), await viaCli(req)];
+    expect(renderer?.url).toBe(
+      'https://api.example.com:8443/users/ada%20%2Fx/a%20b/:off/:unknown?q=:id'
+    );
+    expect(cli).toEqual(renderer);
+  });
+
+  it('path variables follow "encode URL automatically" off the same on both hosts', async () => {
+    const req = request({
+      url: 'https://api.example.com/p/:v',
+      settings: { encodeUrlAutomatically: false },
+      pathVariables: [{ id: '1', key: 'v', value: 'a/b', enabled: true }],
+    });
+    const [renderer, cli] = [await viaRenderer(req), await viaCli(req)];
+    expect(renderer?.url).toBe('https://api.example.com/p/a%2Fb');
+    expect(cli).toEqual(renderer);
+  });
+
   it('hands a sign-at-wire descriptor through untouched by the credential step', async () => {
     const req = request({
       auth: { type: 'wsse', wsse: { username: 'u', password: 'p' } },

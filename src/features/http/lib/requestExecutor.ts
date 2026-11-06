@@ -1,3 +1,4 @@
+import { applyPathVariables } from '@shared/protocol/path-variables';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
   appendQueryPairs,
@@ -216,7 +217,14 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   const graphql = shapeGraphQLBody(options.request, (text) => resolveLocal(text, 'body'));
   const request = graphql?.request ?? options.request;
 
-  const resolvedUrl = resolveLocal(request.url, 'URL');
+  // `:name` path segments take their (resolved) path-variable values here, the
+  // shared rule the CLI and code generators use. A desktop secret token in a
+  // value stays verbatim for Electron main to substitute.
+  const resolvedUrl = applyPathVariables(resolveLocal(request.url, 'URL'), request.pathVariables, {
+    resolve: (row) => resolveLocal(row.value, `path variable "${row.key}"`),
+    encode: request.settings?.encodeUrlAutomatically !== false,
+    keepToken: (name) => secretVariables !== undefined && Object.hasOwn(secretVariables, name),
+  });
 
   const urlValidation = validateURL(resolvedUrl, {
     allowPrivateIPs: globalSettings.allowPrivateIPs === true,

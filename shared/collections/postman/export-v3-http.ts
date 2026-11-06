@@ -1,6 +1,6 @@
 import { isConfiguredAuth } from '../../auth/inheritance';
 import type { AuthConfig, GrpcRequest, HttpRequest, RequestSettingsOverride } from '../../types';
-import { arr, isObj, postmanVariableKey, type Raw, str } from './common';
+import { arr, isObj, type Raw, str } from './common';
 import {
   AUTH_TYPES,
   defined,
