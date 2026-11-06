@@ -23,7 +23,7 @@ import { countRequestSecrets } from '@shared/secrets/request-secret-slots';
 import type { Collection, CollectionRequest } from '@shared/types';
 import type { FSWatcher } from 'chokidar';
 import chokidar from 'chokidar';
-import type { BrowserWindow } from 'electron';
+import type { BrowserWindow, WebContents } from 'electron';
 import { dialog, ipcMain, shell } from 'electron';
 import { z } from 'zod';
 
@@ -105,7 +105,13 @@ function logSaveRedactions({
 }
 
 import { EVENT, IPC } from '../../shared/channels';
-import { createValidatedHandler, FilePathSchema, NoInputSchema } from '../ipc/ipc-validators';
+import { bindRendererCleanup } from '../ipc/connection-cleanup';
+import {
+  createValidatedEventHandler,
+  createValidatedHandler,
+  FilePathSchema,
+  NoInputSchema,
+} from '../ipc/ipc-validators';
 import { authHasPlaintextSecret } from '../security/collection-export-redactor';
 import { debounce } from '../util/debounce';
 import { getAllowedRootForPath, grantCollectionRoot, isPathRealSafe } from './file-operations';
@@ -144,8 +150,21 @@ export interface FileCollection {
   variables?: FileKeyValue[];
 }
 
-// Track active file watchers
-const activeWatchers = new Map<string, FSWatcher>();
+/**
+ * One chokidar watcher per canonical directory, shared by every renderer
+ * (webContents) that registered it. Owners are tracked per webContents id so a
+ * window closing (or reloading) releases ONLY its own registrations: the
+ * watcher — and with it the git/openInExplorer allowlist entry — survives while
+ * any other window still owns it. File events go to the owners, not to
+ * whichever window happens to be focused.
+ */
+interface ActiveWatcher {
+  watcher: FSWatcher;
+  /** Directory string as first registered (debounce/mtime keys use it). */
+  directoryPath: string;
+  owners: Map<number, WebContents>;
+}
+const activeWatchers = new Map<string, ActiveWatcher>();
 // Ownership established during a load is used only to bootstrap the first
 // manifest-backed save. Subsequent saves read the durable manifest directly.
 const loadedManagedFiles = new Map<string, string[]>();
@@ -190,20 +209,24 @@ const FILE_CHANGE_DEBOUNCE_MS = 250;
 const debouncedSenders = new Map<string, (payload: unknown) => void>();
 
 function sendFileChange(
+  dirKey: string,
   payload: {
     type: 'modified' | 'added' | 'deleted';
     filePath: string;
     directoryPath: string;
     lastModified?: number;
-  },
-  getMainWindow: () => BrowserWindow | null
+  }
 ): void {
   const key = `${payload.directoryPath}::${payload.type}::${payload.filePath}`;
   let sender = debouncedSenders.get(key);
   if (!sender) {
     sender = debounce((p: unknown) => {
-      const w = getMainWindow();
-      if (w) w.webContents.send(EVENT.collectionFileChanged, p);
+      // Resolve owners at flush time: one may have gone away during the debounce.
+      const owners = activeWatchers.get(dirKey)?.owners;
+      if (!owners) return;
+      for (const wc of owners.values()) {
+        if (!wc.isDestroyed()) wc.send(EVENT.collectionFileChanged, p);
+      }
     }, FILE_CHANGE_DEBOUNCE_MS);
     debouncedSenders.set(key, sender);
   }
@@ -353,7 +376,7 @@ async function saveCollectionToDirectory(
       if (filePath) writeState.expected.set(filePath, null);
     }
     writeState.active = false;
-    await flushQueuedWatchEvents(dirKey, directoryPath, writeState, getMainWindowForWatchers);
+    await flushQueuedWatchEvents(dirKey, directoryPath, writeState);
     return redactions.credentialsRemovedFrom.length > 0 || redactions.addressesBlankedIn.length > 0
       ? { success: true, redactions }
       : { success: true };
@@ -361,31 +384,27 @@ async function saveCollectionToDirectory(
     const writeState = selfWriteStates.get(dirKey);
     if (writeState) {
       writeState.active = false;
-      await flushQueuedWatchEvents(dirKey, directoryPath, writeState, getMainWindowForWatchers);
+      await flushQueuedWatchEvents(dirKey, directoryPath, writeState);
     }
     return { success: false, error: String(error) };
   }
 }
 
-let getMainWindowForWatchers: () => BrowserWindow | null = () => null;
-
 async function flushQueuedWatchEvents(
   dirKey: string,
   directoryPath: string,
-  state: SelfWriteState,
-  getMainWindow: () => BrowserWindow | null
+  state: SelfWriteState
 ): Promise<void> {
   const queued = state.queued.splice(0);
   for (const event of queued) {
-    await handleWatchEvent(dirKey, directoryPath, event, getMainWindow);
+    await handleWatchEvent(dirKey, directoryPath, event);
   }
 }
 
 async function handleWatchEvent(
   dirKey: string,
   directoryPath: string,
-  event: PendingWatchEvent,
-  getMainWindow: () => BrowserWindow | null
+  event: PendingWatchEvent
 ): Promise<void> {
   const state = selfWriteStates.get(dirKey);
   if (state?.active) {
@@ -393,7 +412,7 @@ async function handleWatchEvent(
       event.type === 'unlink' ? null : await fileFingerprint(event.filePath);
     const observedEvent = { ...event, observedFingerprint };
     if (state.active) state.queued.push(observedEvent);
-    else await handleWatchEvent(dirKey, directoryPath, observedEvent, getMainWindow);
+    else await handleWatchEvent(dirKey, directoryPath, observedEvent);
     return;
   }
   if (state?.expected.has(event.filePath)) {
@@ -414,41 +433,39 @@ async function handleWatchEvent(
     if (!stat) return;
     const lastMod = fileModTimes.get(event.filePath);
     if (lastMod === undefined || stat.mtimeMs > lastMod) {
-      sendFileChange(
-        {
-          type: 'modified',
-          filePath: event.filePath,
-          directoryPath,
-          lastModified: stat.mtimeMs,
-        },
-        getMainWindow
-      );
+      sendFileChange(dirKey, {
+        type: 'modified',
+        filePath: event.filePath,
+        directoryPath,
+        lastModified: stat.mtimeMs,
+      });
     }
     fileModTimes.set(event.filePath, stat.mtimeMs);
     return;
   }
   if (event.type === 'add') {
-    sendFileChange({ type: 'added', filePath: event.filePath, directoryPath }, getMainWindow);
+    sendFileChange(dirKey, { type: 'added', filePath: event.filePath, directoryPath });
     return;
   }
-  sendFileChange({ type: 'deleted', filePath: event.filePath, directoryPath }, getMainWindow);
+  sendFileChange(dirKey, { type: 'deleted', filePath: event.filePath, directoryPath });
   fileModTimes.delete(event.filePath);
 }
 
-// Start watching a collection directory
+// Start watching a collection directory on behalf of `owner`.
 async function watchCollectionDirectory(
   directoryPath: string,
-  getMainWindow: () => BrowserWindow | null
+  owner: WebContents
 ): Promise<{ success: boolean; error?: string }> {
   try {
     if (!(await isPathRealSafe(directoryPath))) {
       return { success: false, error: 'Access denied: Path is outside allowed directories' };
     }
 
-    // Stop existing watcher if any
+    // Replace any existing watcher (idempotent re-register), keeping its owners.
     const dirKey = watcherKey(directoryPath);
-    if (activeWatchers.has(dirKey)) {
-      activeWatchers.get(dirKey)?.close();
+    const existing = activeWatchers.get(dirKey);
+    if (existing) {
+      void existing.watcher.close();
     }
 
     const watcher = chokidar.watch(directoryPath, {
@@ -464,13 +481,13 @@ async function watchCollectionDirectory(
 
     watcher
       .on('change', (filePath) => {
-        void handleWatchEvent(dirKey, directoryPath, { type: 'change', filePath }, getMainWindow);
+        void handleWatchEvent(dirKey, directoryPath, { type: 'change', filePath });
       })
       .on('add', (filePath) => {
-        void handleWatchEvent(dirKey, directoryPath, { type: 'add', filePath }, getMainWindow);
+        void handleWatchEvent(dirKey, directoryPath, { type: 'add', filePath });
       })
       .on('unlink', (filePath) => {
-        void handleWatchEvent(dirKey, directoryPath, { type: 'unlink', filePath }, getMainWindow);
+        void handleWatchEvent(dirKey, directoryPath, { type: 'unlink', filePath });
       })
       .on('error', (error) => {
         log.error('file watcher error', {
@@ -478,28 +495,29 @@ async function watchCollectionDirectory(
         });
       });
 
-    activeWatchers.set(dirKey, watcher);
+    const owners = existing?.owners ?? new Map<number, WebContents>();
+    owners.set(owner.id, owner);
+    activeWatchers.set(dirKey, {
+      watcher,
+      directoryPath: existing?.directoryPath ?? directoryPath,
+      owners,
+    });
+    // Release this renderer's registrations when it is destroyed or its
+    // document is replaced (a reload re-registers via restoreFileCollectionWatchers).
+    bindRendererCleanup(activeWatchers, owner, releaseWatchersOwnedBy);
     return { success: true };
   } catch (error) {
     return { success: false, error: String(error) };
   }
 }
 
-// Stop watching a collection directory
-async function unwatchCollectionDirectory(
-  directoryPath: string
-): Promise<{ success: boolean; error?: string }> {
-  const dirKey = watcherKey(directoryPath);
-  const watcher = activeWatchers.get(dirKey);
-  try {
-    if (watcher) {
-      await watcher.close();
-      activeWatchers.delete(dirKey);
-    }
-    selfWriteStates.delete(dirKey);
-    loadedManagedFiles.delete(dirKey);
-    // Evict this directory's debounced senders and file mtimes so the registries
-    // don't accumulate entries across repeated watch/unwatch cycles.
+/** Evict a directory's per-directory registries once nobody watches it. */
+function forgetDirectoryState(dirKey: string, directoryPaths: Iterable<string>): void {
+  selfWriteStates.delete(dirKey);
+  loadedManagedFiles.delete(dirKey);
+  // Evict this directory's debounced senders and file mtimes so the registries
+  // don't accumulate entries across repeated watch/unwatch cycles.
+  for (const directoryPath of new Set(directoryPaths)) {
     for (const key of debouncedSenders.keys()) {
       if (key.startsWith(`${directoryPath}::`)) debouncedSenders.delete(key);
     }
@@ -507,6 +525,35 @@ async function unwatchCollectionDirectory(
     for (const key of fileModTimes.keys()) {
       if (key === directoryPath || key.startsWith(filePrefix)) fileModTimes.delete(key);
     }
+  }
+}
+
+/** Drop every registration owned by a gone renderer; close orphaned watchers. */
+function releaseWatchersOwnedBy(ownerId: number): void {
+  for (const [dirKey, entry] of activeWatchers) {
+    if (!entry.owners.delete(ownerId) || entry.owners.size > 0) continue;
+    activeWatchers.delete(dirKey);
+    void entry.watcher.close();
+    forgetDirectoryState(dirKey, [entry.directoryPath]);
+  }
+}
+
+// Stop watching a collection directory on behalf of `ownerId`. The watcher
+// closes only once no other renderer still owns it.
+async function unwatchCollectionDirectory(
+  directoryPath: string,
+  ownerId: number
+): Promise<{ success: boolean; error?: string }> {
+  const dirKey = watcherKey(directoryPath);
+  const entry = activeWatchers.get(dirKey);
+  try {
+    if (entry) {
+      entry.owners.delete(ownerId);
+      if (entry.owners.size > 0) return { success: true };
+      activeWatchers.delete(dirKey);
+      await entry.watcher.close();
+    }
+    forgetDirectoryState(dirKey, entry ? [directoryPath, entry.directoryPath] : [directoryPath]);
     return { success: true };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -534,7 +581,6 @@ const SaveCollectionSchema = z.tuple([CollectionDataSchema, FilePathSchema]);
 
 // Register IPC handlers
 export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow | null): void {
-  getMainWindowForWatchers = getMainWindow;
   // Load collection from directory
   ipcMain.handle(
     IPC.collection.loadDirectory,
@@ -562,16 +608,16 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
   // Start watching directory
   ipcMain.handle(
     IPC.collection.watch,
-    createValidatedHandler(IPC.collection.watch, FilePathSchema, (directoryPath: string) => {
-      return watchCollectionDirectory(directoryPath, getMainWindow);
+    createValidatedEventHandler(IPC.collection.watch, FilePathSchema, (directoryPath, event) => {
+      return watchCollectionDirectory(directoryPath, event.sender);
     })
   );
 
   // Stop watching directory
   ipcMain.handle(
     IPC.collection.unwatch,
-    createValidatedHandler(IPC.collection.unwatch, FilePathSchema, (directoryPath: string) => {
-      return unwatchCollectionDirectory(directoryPath);
+    createValidatedEventHandler(IPC.collection.unwatch, FilePathSchema, (directoryPath, event) => {
+      return unwatchCollectionDirectory(directoryPath, event.sender.id);
     })
   );
 
@@ -660,10 +706,10 @@ function isPathWithinRegisteredCollection(filePath: string): boolean {
   return false;
 }
 
-// Cleanup on app quit
+// Global cleanup on app quit (per-window release is owner-scoped, above).
 export function cleanupCollectionWatchers(): void {
-  for (const watcher of activeWatchers.values()) {
-    watcher.close();
+  for (const { watcher } of activeWatchers.values()) {
+    void watcher.close();
   }
   activeWatchers.clear();
   fileModTimes.clear();

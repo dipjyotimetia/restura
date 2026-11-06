@@ -397,12 +397,11 @@ app.whenReady().then(async () => {
   setupPermissionHandlers();
   registerIPCHandlers();
 
-  const initialWindow = createMainWindow(isDev);
-
-  // Prevent watcher accumulation on macOS window re-create.
-  initialWindow.on('closed', () => {
-    cleanupCollectionWatchers();
-  });
+  // Collection watchers are owner-scoped: each is released when the webContents
+  // that registered it goes away (collection-manager → bindRendererCleanup), so
+  // closing one window never tears down another window's watchers / git
+  // allowlist. The global cleanup runs only on quit (IPC_MODULES dispose).
+  createMainWindow(isDev);
 
   // Auto-updater resolves the target window lazily via getMainWindow so
   // dialogs land on the currently focused window — never a destroyed ref.
