@@ -84,8 +84,10 @@ export function validateURL(
     };
   }
 
-  // Extract hostname
-  const hostname = url.hostname.toLowerCase();
+  // Extract hostname. WHATWG URL keeps the brackets on an IPv6 literal
+  // (`new URL('http://[::1]/').hostname === '[::1]'`); strip them so the
+  // `::1` / `fc00:` / `fe80:` / `fd..:` checks below can match.
+  const hostname = url.hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1');
 
   // Check for localhost
   if (!allowLocalhost) {

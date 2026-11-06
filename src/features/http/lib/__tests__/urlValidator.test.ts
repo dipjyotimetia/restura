@@ -115,6 +115,24 @@ describe('URL Validator', () => {
       expect(result.warnings?.some((w) => w.includes('3306'))).toBe(true);
     });
 
+    // WHATWG URL keeps the brackets on an IPv6 hostname (`[::1]`), so the
+    // bare `::1` / `fc00:` checks must see it unbracketed.
+    it('treats bracketed IPv6 loopback as localhost', () => {
+      const blocked = validateURL('http://[::1]:8080', { allowPrivateIPs: true });
+      expect(blocked.valid).toBe(false);
+      expect(blocked.error).toContain('Localhost');
+      expect(validateURL('http://[::1]:8080', { allowLocalhost: true }).valid).toBe(true);
+    });
+
+    it.each(['http://[fd12:3456::1]/', 'http://[fe80::1]/', 'http://[fc00::1]/'])(
+      'blocks private IPv6 %s',
+      (url) => {
+        const result = validateURL(url, { allowLocalhost: true });
+        expect(result.valid).toBe(false);
+        expect(result.error).toContain('Private/internal');
+      }
+    );
+
     it('should warn about IP-based URLs', () => {
       const result = validateURL('https://93.184.216.34/', {
         allowPrivateIPs: true,
