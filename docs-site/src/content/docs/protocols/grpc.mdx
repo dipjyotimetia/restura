@@ -70,7 +70,7 @@ Each snapshot records a content hash and the time it was captured. When you refl
 
 ### Deadlines and long-lived streams
 
-Each call has a deadline, set in the **Timeout (ms)** field next to the request tabs. The default is 30 seconds. Streaming methods also have a **No deadline** checkbox, so watch or subscribe streams can stay open until you cancel them. Unary calls and collection runs always have a deadline.
+Each call has a deadline, set in the **Timeout (ms)** field next to the request tabs. The default is 30 seconds. Streaming methods also have a **No deadline** checkbox, so watch or subscribe streams can stay open until you cancel them. Unary calls and collection runs always have a deadline. Cancelling a call stops it right away on every platform; on desktop the call in the main process is cancelled too and ends with `CANCELLED`.
 
 On desktop, a stream with no messages in either direction for 15 minutes is closed. Its activity resets that timer, so a stream that keeps sending messages stays open. Every way a stream can end sends a final status, so the request leaves the streaming state. That includes a deadline, an idle close, and a cancel. Each message can be up to 10 MB; a bigger one ends the call with `RESOURCE_EXHAUSTED`.
 
