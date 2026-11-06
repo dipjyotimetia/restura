@@ -5,7 +5,11 @@ import { persist } from 'zustand/middleware';
 import type { AgentSession } from '@/features/ai/agent/agentSession';
 import { debouncedStorage } from '@/lib/shared/debouncedStorage';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { AiChatStateSchema, type PersistedAiChatState } from '@/lib/shared/store-validators';
+import { quarantineState } from '@/lib/shared/persistence/quarantine';
+import {
+  type PersistedAiChatState,
+  sanitizePersistedAiChatState,
+} from '@/lib/shared/store-validators';
 
 type SecretRefHandle = { kind: 'handle'; id: string; label?: string };
 
@@ -323,19 +327,20 @@ export const useAiChatStore = create<AiChatState>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
-        const parsed = AiChatStateSchema.safeParse(state);
-        if (!parsed.success) {
-          // Merge (NOT replace) — DEFAULT_STATE carries every persisted data
-          // field, so this overwrites all of them with defaults while keeping
-          // the store's action methods intact. replace:true would wipe them.
-          useAiChatStore.setState({
-            ...DEFAULT_STATE,
-            conversations: {} as Record<string, Conversation>,
-          });
-          return;
+        // Field-wise: one invalid conversation (or field) must not wipe the
+        // rest. Dropped conversations are quarantined for recovery.
+        const { state: valid, dropped } = sanitizePersistedAiChatState(state, DEFAULT_STATE);
+        const droppedIds = Object.keys(dropped);
+        if (droppedIds.length > 0) {
+          console.warn(`[ai-chat] dropped ${droppedIds.length} invalid persisted conversation(s)`);
+          void quarantineState(
+            `quarantine:aiChat:ai-chat-store:${new Date().toISOString()}`,
+            dropped,
+            `invalid conversation(s): ${droppedIds.join(', ')}`
+          );
         }
         // Recover from a reload mid-stream: any streaming message becomes errored.
-        const conversations = { ...state.conversations };
+        const conversations = { ...valid.conversations };
         for (const [cid, conv] of Object.entries(conversations)) {
           let touched = false;
           const fixed = conv.messages.map((m) => {
@@ -349,7 +354,10 @@ export const useAiChatStore = create<AiChatState>()(
         }
         // Cast across the persistence boundary: the Zod-parsed `state` widens
         // optionals to `| undefined`; the runtime shape matches Conversation.
-        useAiChatStore.setState({ conversations: conversations as Record<string, Conversation> });
+        useAiChatStore.setState({
+          ...valid,
+          conversations: conversations as Record<string, Conversation>,
+        });
       },
     }
   )
