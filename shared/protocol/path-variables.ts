@@ -85,7 +85,11 @@ function encodeSegment(text: string, encode: boolean): string {
     const cp = text.codePointAt(i) as number;
     const ch = String.fromCodePoint(cp);
     i += ch.length;
-    if (ch === '%') {
+    if (cp >= 0xd800 && cp <= 0xdfff) {
+      // An unpaired surrogate: `encodeURIComponent` throws on it; URL parsing
+      // sends it as U+FFFD, so do the same.
+      out += '%EF%BF%BD';
+    } else if (ch === '%') {
       out += PERCENT_ESCAPE.test(text.slice(i - 1, i + 2)) ? '%' : '%25';
     } else if (ch === '/' || ch === '\\' || ch === '?' || ch === '#') {
       out += encodeURIComponent(ch);

@@ -75,6 +75,12 @@ describe('applyPathVariables', () => {
     }
   });
 
+  it('encodes an unpaired surrogate as U+FFFD instead of throwing, as URL parsing does', () => {
+    const url = applyPathVariables('https://h/:v', [row('v', 'a\uD800b')], { resolve: plain });
+    expect(url).toBe('https://h/a%EF%BF%BDb');
+    expect(new URL(url).pathname).toBe(new URL('https://h/a\uD800b').pathname);
+  });
+
   it('resolves {{vars}} in values before encoding', () => {
     const vars: Record<string, string> = { userId: 'u 1' };
     expect(
