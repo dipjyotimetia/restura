@@ -112,8 +112,8 @@ export function userScriptSource(
  * last expression (an unhandled async IIFE); a top-level await that never
  * settled means the rest of the script never ran.
  *
- * QuickJS's host rejection tracker is not exposed by quickjs-emscripten, so
- * a rejected promise the script dropped anywhere else goes unreported.
+ * A rejected promise the script dropped anywhere else is reported by the
+ * in-sandbox tracker (rejection-tracker.ts), which skips this one.
  */
 export function completionErrorMessage(
   vm: QuickJSContext,
