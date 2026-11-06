@@ -604,6 +604,26 @@ describe('ai-lab-handler', () => {
     expect(mockExecuteAiChat).not.toHaveBeenCalled();
   });
 
+  it('a stream that ends without done is reported as a truncated error, not done', async () => {
+    mockExecuteAiChat.mockImplementationOnce(() =>
+      (async function* () {
+        yield { type: 'delta', text: 'Partial' };
+      })()
+    );
+    await handlerFor('ai-lab:stream')(TRUSTED, STREAM_REQUEST);
+    await vi.waitFor(() =>
+      expect(mockEmitTo).toHaveBeenCalledWith(1, `ai-lab:end:${STREAM_ID}`, { reason: 'error' })
+    );
+    expect(mockEmitTo).toHaveBeenCalledWith(
+      1,
+      `ai-lab:chunk:${STREAM_ID}`,
+      expect.objectContaining({ type: 'error', message: expect.stringMatching(/truncated/i) })
+    );
+    expect(mockEmitTo).not.toHaveBeenCalledWith(1, `ai-lab:end:${STREAM_ID}`, {
+      reason: 'done',
+    });
+  });
+
   it('ignores a replaced stream late completion without deleting its successor', async () => {
     const firstStream = deferLabStream();
     const secondStream = deferLabStream();
