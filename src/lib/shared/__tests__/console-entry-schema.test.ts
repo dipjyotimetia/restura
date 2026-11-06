@@ -1,7 +1,29 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import type { z } from 'zod';
+import type { Response as ApiResponse } from '@/types';
 import { ConsoleEntrySchema } from '../store-validators';
 
+type ConsoleEntryResponse = z.infer<typeof ConsoleEntrySchema>['response'];
+/**
+ * `Response` keys the console schema is missing, or whose (non-nullish) value
+ * type doesn't fit the schema's output. Compared per key, Response → schema,
+ * so it holds under `exactOptionalPropertyTypes` too (Zod infers optionals as
+ * `T | undefined`).
+ */
+type ConsoleResponseDrift = {
+  [K in keyof ApiResponse]-?: K extends keyof ConsoleEntryResponse
+    ? NonNullable<ApiResponse[K]> extends NonNullable<ConsoleEntryResponse[K]>
+      ? never
+      : K
+    : K;
+}[keyof ApiResponse];
 describe('ConsoleEntrySchema — response fields survive rehydrate validation', () => {
+  it('covers every Response field (compile-time: tsc names the drifting key)', () => {
+    // The store keeps the parsed copy, so a `Response` field missing from the
+    // schema is stripped on every reload.
+    expectTypeOf<ConsoleResponseDrift>().toEqualTypeOf<never>();
+  });
+
   const entry = {
     id: 'e1',
     timestamp: 1,

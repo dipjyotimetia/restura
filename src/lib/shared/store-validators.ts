@@ -7,7 +7,7 @@ import {
   ArenaRunReportSchema,
 } from '@/features/ai-lab/run-engine/reportEnvelope';
 import { ConsoleNativeDraftSchema } from '@/lib/shared/console-store-schemas';
-import type { Response as ApiResponse, Collection, Environment, Request } from '@/types';
+import type { Collection, Environment, Request } from '@/types';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
 import {
   collectionSchema,
@@ -49,12 +49,24 @@ export const ConsoleFrameSchema = z.object({
   bytes: z.number().optional(),
 });
 
+const ConsoleProtocolSchema = z.enum([
+  'http',
+  'grpc',
+  'graphql',
+  'mcp',
+  'sse',
+  'websocket',
+  'kafka',
+  'mqtt',
+  'socketio',
+]);
+
+const ms = z.number(); // a duration in milliseconds
+
 export const ConsoleEntrySchema = z.object({
   id: z.string(),
   timestamp: z.number(),
-  protocol: z
-    .enum(['http', 'grpc', 'graphql', 'mcp', 'sse', 'websocket', 'kafka', 'mqtt', 'socketio'])
-    .optional(),
+  protocol: ConsoleProtocolSchema.optional(),
   request: z.object({
     method: z.string(),
     url: z.string(),
@@ -74,22 +86,14 @@ export const ConsoleEntrySchema = z.object({
     size: z.number(),
     time: z.number(),
     timestamp: z.number(),
-    // Mirrors the optional fields of `Response` (shared/types/http.ts) — the
-    // parsed copy is what the store keeps, so a field missing here is stripped
-    // on every reload. `.catch(undefined)`: a malformed optional field is
-    // dropped, not the whole entry. `_ConsoleResponseMatchesResponse` below
-    // fails to compile if a field's type drifts from `Response`.
+    // Mirrors `Response`'s optional fields: the store keeps the parsed copy, so a
+    // missing one is stripped on reload (drift check: console-entry-schema.test.ts).
     bodyEncoding: z.literal('base64').optional().catch(undefined),
     negotiatedAlpn: z.enum(['h1.1', 'h2', 'h3']).optional().catch(undefined),
     bodyNotice: z.string().optional().catch(undefined),
     partial: z.boolean().optional().catch(undefined),
     timings: z
-      .object({
-        dns: z.number().optional(),
-        connect: z.number().optional(),
-        ttfb: z.number(),
-        download: z.number(),
-      })
+      .object({ dns: ms.optional(), connect: ms.optional(), ttfb: ms, download: ms })
       .optional()
       .catch(undefined),
     mcpOutcome: z.enum(['result', 'tool-error', 'jsonrpc-error']).optional().catch(undefined),
@@ -108,44 +112,12 @@ export const ConsoleEntrySchema = z.object({
   iteration: z.number().optional(),
   source: z
     .object({
-      protocol: z.enum([
-        'http',
-        'grpc',
-        'graphql',
-        'mcp',
-        'sse',
-        'websocket',
-        'kafka',
-        'mqtt',
-        'socketio',
-      ]),
+      protocol: ConsoleProtocolSchema,
       connectionId: z.string().optional(),
     })
     .optional(),
   nativeDraft: ConsoleNativeDraftSchema.optional(),
 });
-
-type ConsoleEntryResponse = z.infer<typeof ConsoleEntrySchema>['response'];
-/**
- * `Response` keys the console schema is missing, or whose (non-nullish) value
- * type doesn't fit the schema's output. Compared per key, Response → schema,
- * so it holds under `exactOptionalPropertyTypes` too (Zod infers optionals as
- * `T | undefined`).
- */
-type ConsoleResponseDrift = {
-  [K in keyof ApiResponse]-?: K extends keyof ConsoleEntryResponse
-    ? NonNullable<ApiResponse[K]> extends NonNullable<ConsoleEntryResponse[K]>
-      ? never
-      : K
-    : K;
-}[keyof ApiResponse];
-type AssertNever<T extends never> = T;
-/**
- * Compile-time link between `ConsoleEntrySchema.response` and `Response`: the
- * store keeps the parsed copy, so a `Response` field missing from the schema is
- * stripped on every reload. A type error here names the drifting key.
- */
-export type _ConsoleResponseMatchesResponse = AssertNever<ConsoleResponseDrift>;
 
 /**
  * Validates a request object and returns validated data or throws
@@ -336,7 +308,7 @@ const ChatMessageSchema = z.object({
   createdAt: z.number(),
 });
 
-const ConversationSchema = z.object({
+export const ConversationSchema = z.object({
   id: z.string(),
   title: z.string(),
   messages: z.array(ChatMessageSchema),
@@ -364,62 +336,6 @@ export const AiChatStateSchema = z.object({
 });
 
 export type PersistedAiChatState = z.infer<typeof AiChatStateSchema>;
-
-/**
- * Field-wise rehydrate validation for the AI chat store: each conversation is
- * validated on its own (an invalid one is dropped and reported, the rest are
- * kept as persisted), and each other top-level field falls back to its default
- * only when it is itself invalid. An active pointer naming a dropped / missing
- * conversation is cleared. Never throws.
- */
-export function sanitizePersistedAiChatState(
-  raw: unknown,
-  defaults: PersistedAiChatState
-): {
-  state: PersistedAiChatState;
-  dropped: Record<string, unknown>;
-} {
-  const record =
-    raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-  const conversations: PersistedAiChatState['conversations'] = {};
-  const dropped: Record<string, unknown> = {};
-  const rawConversations = record.conversations;
-  if (
-    rawConversations &&
-    typeof rawConversations === 'object' &&
-    !Array.isArray(rawConversations)
-  ) {
-    for (const [id, conv] of Object.entries(rawConversations)) {
-      if (ConversationSchema.safeParse(conv).success) {
-        // Keep the persisted object (not the parsed copy) so fields the schema
-        // doesn't list are not stripped on every launch.
-        conversations[id] = conv as PersistedAiChatState['conversations'][string];
-      } else {
-        dropped[id] = conv;
-      }
-    }
-  }
-  const field = <K extends Exclude<keyof PersistedAiChatState, 'conversations'>>(
-    key: K
-  ): PersistedAiChatState[K] => {
-    const parsed = AiChatStateSchema.shape[key].safeParse(record[key]);
-    return parsed.success ? (parsed.data as PersistedAiChatState[K]) : defaults[key];
-  };
-  const active = field('activeConversationId');
-  return {
-    state: {
-      conversations,
-      activeConversationId: active !== null && active in conversations ? active : null,
-      panelOpen: field('panelOpen'),
-      panelWidth: field('panelWidth'),
-      providerConfigs: field('providerConfigs'),
-      activeProvider: field('activeProvider'),
-      redactionMode: field('redactionMode'),
-      agentToolsEnabled: field('agentToolsEnabled'),
-    },
-    dropped,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // AI Lab (Electron-only). Persisted in the aiLab / evalRuns Dexie tables.

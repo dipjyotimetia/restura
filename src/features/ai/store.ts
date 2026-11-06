@@ -7,8 +7,9 @@ import { debouncedStorage } from '@/lib/shared/debouncedStorage';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { quarantineState } from '@/lib/shared/persistence/quarantine';
 import {
+  AiChatStateSchema,
+  ConversationSchema,
   type PersistedAiChatState,
-  sanitizePersistedAiChatState,
 } from '@/lib/shared/store-validators';
 
 type SecretRefHandle = { kind: 'handle'; id: string; label?: string };
@@ -134,6 +135,62 @@ const DEFAULT_STATE: PersistedAiChatState = {
   redactionMode: 'default',
   agentToolsEnabled: true,
 };
+
+/**
+ * Field-wise rehydrate validation for the AI chat store: each conversation is
+ * validated on its own (an invalid one is dropped and reported, the rest are
+ * kept as persisted), and each other top-level field falls back to its default
+ * only when it is itself invalid. An active pointer naming a dropped / missing
+ * conversation is cleared. Never throws.
+ */
+function sanitizePersistedAiChatState(
+  raw: unknown,
+  defaults: PersistedAiChatState
+): {
+  state: PersistedAiChatState;
+  dropped: Record<string, unknown>;
+} {
+  const record =
+    raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const conversations: PersistedAiChatState['conversations'] = {};
+  const dropped: Record<string, unknown> = {};
+  const rawConversations = record.conversations;
+  if (
+    rawConversations &&
+    typeof rawConversations === 'object' &&
+    !Array.isArray(rawConversations)
+  ) {
+    for (const [id, conv] of Object.entries(rawConversations)) {
+      if (ConversationSchema.safeParse(conv).success) {
+        // Keep the persisted object (not the parsed copy) so fields the schema
+        // doesn't list are not stripped on every launch.
+        conversations[id] = conv as PersistedAiChatState['conversations'][string];
+      } else {
+        dropped[id] = conv;
+      }
+    }
+  }
+  const field = <K extends Exclude<keyof PersistedAiChatState, 'conversations'>>(
+    key: K
+  ): PersistedAiChatState[K] => {
+    const parsed = AiChatStateSchema.shape[key].safeParse(record[key]);
+    return parsed.success ? (parsed.data as PersistedAiChatState[K]) : defaults[key];
+  };
+  const active = field('activeConversationId');
+  return {
+    state: {
+      conversations,
+      activeConversationId: active !== null && active in conversations ? active : null,
+      panelOpen: field('panelOpen'),
+      panelWidth: field('panelWidth'),
+      providerConfigs: field('providerConfigs'),
+      activeProvider: field('activeProvider'),
+      redactionMode: field('redactionMode'),
+      agentToolsEnabled: field('agentToolsEnabled'),
+    },
+    dropped,
+  };
+}
 
 function deriveTitle(text: string): string {
   const oneLine = text.replace(/\s+/g, ' ').trim();
