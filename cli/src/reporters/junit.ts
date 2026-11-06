@@ -1,4 +1,5 @@
 import { writeFile } from 'node:fs/promises';
+import { type ReportedRunResult, redactRunResult } from './redact.js';
 import type { Reporter, RunResult } from './types.js';
 
 /**
@@ -38,13 +39,15 @@ export function escapeXml(s: string): string {
 export function renderJUnitXml(result: RunResult): string {
   const ms = (n: number) => (n / 1000).toFixed(3);
 
-  const failureDetail = (r: RunResult['requests'][number]): string => {
+  // Error and assertion text is a CI artifact too: render the redacted projection.
+  const reported = redactRunResult(result);
+  const failureDetail = (r: ReportedRunResult['requests'][number]): string => {
     const failed = (r.assertions ?? []).filter((a) => !a.passed);
     if (failed.length === 0) return '';
     return failed.map((a) => `${a.name}${a.error ? `: ${a.error}` : ''}`).join('\n');
   };
 
-  const cases = result.requests
+  const cases = reported.requests
     .map((r) => {
       const cls = escapeXml(r.request.type);
       // Disambiguate data-driven iterations — without this, N rows of the same
