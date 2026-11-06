@@ -134,6 +134,41 @@ describe('socketioManager (browser)', () => {
     expect(conn().authJson).toContain('{{secret}}');
   });
 
+  it('resolves {{var}} in extraHeaders, Query-tab params and key-value auth on connect', () => {
+    const s = useSocketIOStore.getState();
+    s.updateConnectionField(id, 'extraHeaders', [
+      { id: 'h', key: 'Authorization', value: 'Bearer {{secret}}', enabled: true },
+    ]);
+    s.updateConnectionField(id, 'query', [
+      { id: 'q', key: 'user', value: '{{uid}}', enabled: true },
+    ]);
+    s.updateConnectionField(id, 'auth', [
+      { id: 'a', key: 'token', value: '{{secret}}', enabled: true },
+    ]);
+    connectWithVariables(id, scope);
+    expect(socket().opts.extraHeaders).toEqual({ Authorization: 'Bearer s3cr3t' });
+    expect(socket().opts.query).toEqual({ token: 's3cr3t', user: '42' });
+    expect(socket().opts.auth).toEqual({ token: 's3cr3t' });
+    // Templates survive in the persisted store.
+    expect(conn().extraHeaders[0]?.value).toBe('Bearer {{secret}}');
+    expect(conn().query[0]?.value).toBe('{{uid}}');
+    expect(conn().auth[0]?.value).toBe('{{secret}}');
+  });
+
+  it('warns about unresolved variables in headers and query params', () => {
+    const s = useSocketIOStore.getState();
+    s.updateConnectionField(id, 'extraHeaders', [
+      { id: 'h', key: 'X-Key', value: '{{missingHeader}}', enabled: true },
+    ]);
+    s.updateConnectionField(id, 'query', [
+      { id: 'q', key: 'q', value: '{{missingQuery}}', enabled: true },
+    ]);
+    connectWithVariables(id, scope);
+    const warning = conn().events.find((e) => String(e.args[0]).startsWith('Unresolved'));
+    expect(String(warning?.args[0])).toContain('{{missingHeader}}');
+    expect(String(warning?.args[0])).toContain('{{missingQuery}}');
+  });
+
   it('blocks connect on invalid auth JSON without leaking secrets', () => {
     const s = useSocketIOStore.getState();
     s.updateConnectionField(id, 'authMode', 'json');

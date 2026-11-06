@@ -51,6 +51,10 @@ interface ConnectConfig {
 export interface ConnectOverrides {
   url?: string;
   auth?: Record<string, unknown>;
+  /** Resolved Query-tab params (replaces `connection.query`). */
+  query?: Record<string, string>;
+  /** Resolved handshake headers (replaces `connection.extraHeaders`). */
+  extraHeaders?: Record<string, string>;
 }
 
 export type ParsedAuthJson =
@@ -139,7 +143,7 @@ class SocketIOManager {
     const parsedUrl = new URL(url);
     const query = {
       ...Object.fromEntries(parsedUrl.searchParams),
-      ...keyValuePairsToRecord(connection.query),
+      ...(overrides.query ?? keyValuePairsToRecord(connection.query)),
     };
     parsedUrl.search = '';
 
@@ -150,7 +154,7 @@ class SocketIOManager {
       path: connection.path || '/socket.io',
       auth,
       query,
-      extraHeaders: keyValuePairsToRecord(connection.extraHeaders),
+      extraHeaders: overrides.extraHeaders ?? keyValuePairsToRecord(connection.extraHeaders),
       transports:
         connection.transports.length > 0 ? connection.transports : ['websocket', 'polling'],
       reconnection: connection.autoReconnect,
