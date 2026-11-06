@@ -306,7 +306,7 @@ restura/
 
 ### State Management
 
-All global state lives in Zustand stores with `persist` middleware. Stores are validated with Zod schemas in `src/lib/shared/store-validators.ts`. Persistence goes through `src/lib/shared/dexie-storage.ts` (web — IndexedDB via Dexie) or `src/lib/shared/secure-storage.ts` (Electron — encrypted electron-store via IPC). The legacy `src/lib/shared/storage.ts` localStorage adapter has been removed.
+All global state lives in Zustand stores with `persist` middleware. Stores are validated with Zod schemas in `src/lib/shared/store-validators.ts`. Persistence goes through `src/lib/shared/dexie-storage.ts` (IndexedDB via Dexie) on both targets; on desktop the Dexie data is encrypted with a `safeStorage`-wrapped key, and `src/lib/shared/secure-storage.ts` (electron-store via IPC) holds only secret material. The legacy `src/lib/shared/storage.ts` localStorage adapter has been removed.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -328,7 +328,7 @@ All global state lives in Zustand stores with `persist` middleware. Stores are v
 └──────────────┴──────────────┴──────────────────────────────────┘
                           │
                           ▼
-            Dexie (web) / electron-store (desktop)
+            Dexie (desktop: encrypted)
 ```
 
 ### Multi-tab request model
@@ -542,7 +542,7 @@ The `ENVIRONMENT=development` var in `.dev.vars` enables localhost proxying for 
 
 `useRequestStore.updateRequest` hard-fails on validator rejection. Invalid updates are not applied; the user sees a `toast.error` with the validation message.
 
-Persisted state read from Dexie (web) or electron-store (desktop) is Zod-validated on hydration only where the store wires a validator from `src/lib/shared/store-validators.ts` (for example environments, console entries and the AI chat / AI Lab stores). Not every store does yet: collections, for instance, are validated when added or updated, not on hydration.
+Persisted state read from Dexie is Zod-validated on hydration only where the store wires a validator from `src/lib/shared/store-validators.ts` (for example settings — on every load, not only on a version change — environments, console entries and the AI chat / AI Lab stores; the AI chat store drops and quarantines only the invalid conversations). Not every store does yet: collections, for instance, are validated when added or updated, not on hydration.
 
 Stores built with `createPersistedStore` (`src/lib/shared/persistence/createPersistedStore.ts`: connection protocols, GraphQL/proto, console, collection runs, globals) check a row against the `schema` of their `MigrationDescriptor` on every hydration, including a same-version row: zustand only calls `migrate` on a version mismatch, so `merge` checks the schema too, and a rejected row is quarantined while the store keeps its current state. This merge-time check applies **only when the descriptor declares `schema`**; with no `schema`, `merge` overlays the row unchecked. No descriptor declares one today, so for these stores merge-time validation is currently a no-op. The multi-version stores (collections, history, settings, request, environment, workflow, cookies) still hand-roll `persist`.
 

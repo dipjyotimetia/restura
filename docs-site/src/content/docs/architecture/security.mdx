@@ -100,8 +100,9 @@ Through an HTTP proxy, NTLM always uses a `CONNECT` tunnel, even for `http:` tar
 
 ## Renderer lockdown (desktop)
 
-The Electron renderer is sandboxed (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`) and pinned down by two policies in `electron/main/main.ts`:
+The Electron renderer is sandboxed (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`) and pinned down by these policies:
 
+- **Trusted IPC sender** — every IPC handler accepts only the main frame of the pinned packaged entry (`file://…/web/index.html`). The Vite dev origin (`http://localhost:5173`) is trusted only for an unpackaged dev run; a packaged build rejects it.
 - **Default-deny web permissions** — `setPermissionRequestHandler`/`setPermissionCheckHandler` on the default session reject every web-platform permission except `clipboard-sanitized-write` (copy buttons). Everything privileged goes through the validated IPC surface instead. Growing the allowlist is an explicit, test-guarded change ([ADR 0026](/architecture/adrs/0026-electron-csp-and-permission-hardening/)).
 - **CSP** — production loads enforce `default-src 'self' file:` with `object-src 'none'`, `worker-src 'self' file:`, `wasm-unsafe-eval` only (QuickJS), and no `unsafe-eval`. The policy exists twice — a response header in `electron/main/main.ts` and a `<meta>` fallback injected at build time in `vite.config.mts` — and a structural test (`electron/main/__tests__/security-hardening.test.ts`) fails if the two ever diverge.
 

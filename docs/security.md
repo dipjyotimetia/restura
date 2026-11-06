@@ -280,8 +280,14 @@ to the renderer.
 ## Renderer lockdown (Electron)
 
 The desktop renderer is sandboxed (`sandbox: true`, `contextIsolation: true`,
-`nodeIntegration: false`) and further pinned down by two policies in
-`electron/main/main.ts`:
+`nodeIntegration: false`) and further pinned down by these policies:
+
+- **Trusted IPC sender** — `assertTrustedSender`
+  (`electron/main/ipc/validators/boundary.ts`) accepts only the main frame of
+  the pinned packaged entry (`file://…/web/index.html`). The Vite dev origin
+  (`http://localhost:5173`) is trusted only for an unpackaged dev run
+  (`isDev && !app.isPackaged`); a packaged build rejects it even with
+  `NODE_ENV=development`.
 
 - **Default-deny web permissions** — `session.defaultSession.setPermissionRequestHandler`
   and `setPermissionCheckHandler` reject every web-platform permission except
