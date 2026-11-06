@@ -213,14 +213,13 @@ export function parseQueryString(qs: string): KeyValue[] {
  */
 export function splitUrlQuery(
   full: string,
-  explicit?: KeyValue[],
-  transformBase: (base: string) => string = (b) => b
+  explicit?: KeyValue[]
 ): { url: string; params: KeyValue[] } {
   const hash = full.indexOf('#');
   const fragment = hash === -1 ? '' : full.slice(hash);
   const beforeFragment = hash === -1 ? full : full.slice(0, hash);
   const q = beforeFragment.indexOf('?');
-  const base = transformBase(q === -1 ? beforeFragment : beforeFragment.slice(0, q));
+  const base = q === -1 ? beforeFragment : beforeFragment.slice(0, q);
   const params = explicit ?? parseQueryString(q === -1 ? '' : beforeFragment.slice(q + 1));
   return { url: base + fragment, params };
 }
@@ -240,31 +239,28 @@ export function coerceMethod(
   return 'GET';
 }
 
-/** A whole `:name` path segment (never a port like `host:8080` or a `{{var}}`). */
-const PATH_VARIABLE_SEGMENT = /^:([A-Za-z_][\w.-]*)$/;
-
-/**
- * Substitute `:name` path segments from Postman's `url.variable` list, as the
- * former SDK's `Url.toString()` did — Restura has no `:param` runtime, so a
- * literal `:id` would go on the wire. Only whole segments are replaced, and
- * only by a non-empty value. Entries that cannot be resolved (empty value, no
- * matching segment) or that carry a description (lost in the typed model)
- * are reported, and the whole list is kept in the sidecar.
- */
 /** A Postman variable row's name: v2.1 `key`, else v2.0 `id`. */
 export function postmanVariableKey(row: Raw): string | undefined {
   if (typeof row.key === 'string') return row.key;
   return typeof row.id === 'string' ? row.id : undefined;
 }
 
-export function substitutePathVariables(
-  base: string,
+/**
+ * Postman's `url.variable` (v2.x) / `pathVariables` (v3) → the request's
+ * `pathVariables` rows. The URL keeps its `:name` segments: they substitute at
+ * send time (`shared/protocol/path-variables.ts`) on every host, so nothing is
+ * baked into the URL and the values stay editable. Value, description and
+ * `disabled` are modelled; a secret row is imported value-less (ADR-0007). An
+ * entry with no name is unmodellable: the whole raw list is kept in the
+ * sidecar and the loss reported.
+ */
+export function importPathVariables(
   variables: unknown[],
   requestName: string,
   sidecar: PostmanSidecar,
   ctx: ParseContext
-): string {
-  const values = new Map<string, string>();
+): KeyValue[] {
+  const rows: KeyValue[] = [];
   let lossy = false;
   for (const v of variables) {
     // v2.0 names a variable by `id`; v2.1 by `key`.
@@ -273,28 +269,18 @@ export function substitutePathVariables(
       lossy = true;
       continue;
     }
-    const value = str(v.value);
-    if (value !== '') values.set(key, value);
-    else lossy = true;
-    if (description(v.description) !== undefined) lossy = true;
+    const named = { ...v, key };
+    rows.push(
+      v.type === 'secret' || v.secret === true
+        ? secretKeyValue(named, requestName, ctx)
+        : keyValue(named)
+    );
   }
-  const used = new Set<string>();
-  const out = base
-    .split('/')
-    .map((segment) => {
-      const name = PATH_VARIABLE_SEGMENT.exec(segment)?.[1];
-      const value = name === undefined ? undefined : values.get(name);
-      if (name === undefined || value === undefined) return segment;
-      used.add(name);
-      return value;
-    })
-    .join('/');
-  if ([...values.keys()].some((k) => !used.has(k))) lossy = true;
   if (lossy) {
     sidecar.urlVariable = variables;
     ctx.report.unmodelled('path-variables', requestName);
   }
-  return out;
+  return rows;
 }
 
 /**

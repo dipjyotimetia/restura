@@ -214,7 +214,9 @@ describe('complex v2.1 collection', () => {
   it('maps a fully loaded request: url, path variable, query, hash, headers, settings, scripts', () => {
     const r = http(c, 'Get user');
     expect(r.method).toBe('GET');
-    expect(r.url).toBe('{{baseUrl}}/users/42#profile');
+    // `:id` stays in the URL; its value is a path-variable row (sent substituted).
+    expect(r.url).toBe('{{baseUrl}}/users/:id#profile');
+    expect(r.pathVariables?.map((v) => [v.key, v.value, v.enabled])).toEqual([['id', '42', true]]);
     expect(r.params.map((p) => [p.key, p.value, p.enabled, p.description])).toEqual([
       ['expand', 'roles', true, 'Embed roles'],
       ['debug', '1', false, undefined],
@@ -542,7 +544,8 @@ describe('complex v3 folder (every item kind)', () => {
 
   it('maps HTTP: path variables, query, settings, examples, scripts, descriptions', () => {
     const r = req<HttpRequest>('List orders');
-    expect(r.url).toBe('{{baseUrl}}/tenants/{{tenant}}/orders#top');
+    expect(r.url).toBe('{{baseUrl}}/tenants/:tenant/orders#top');
+    expect(r.pathVariables?.map((v) => [v.key, v.value])).toEqual([['tenant', '{{tenant}}']]);
     expect(r.params.map((p) => [p.key, p.value, p.enabled])).toEqual([
       ['page', '1', true],
       ['status', 'open', true],

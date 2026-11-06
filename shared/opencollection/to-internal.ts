@@ -257,6 +257,17 @@ function descriptionToString(d: unknown): string | undefined {
   return undefined;
 }
 
+/** OC `http.params` → query rows and (spec `type: path`) path-variable rows. */
+function splitParams(raw: unknown): Pick<HttpRequest, 'params' | 'pathVariables'> {
+  const rows = Array.isArray(raw) ? raw : [];
+  const isPath = (row: unknown) => (row as { type?: unknown } | null)?.type === 'path';
+  const pathVariables = rows.filter(isPath).map(kvToInternal);
+  return {
+    params: rows.filter((row) => !isPath(row)).map(kvToInternal),
+    ...(pathVariables.length > 0 ? { pathVariables } : {}),
+  };
+}
+
 function httpToInternal(item: Record<string, unknown>): HttpRequest {
   const info = (item.info ?? {}) as { name?: string; description?: unknown };
   const http = (item.http ?? {}) as Record<string, unknown>;
@@ -270,7 +281,7 @@ function httpToInternal(item: Record<string, unknown>): HttpRequest {
     method: importMethod(http.method, name),
     url: (http.url as string) ?? '',
     headers: ((http.headers as unknown[]) ?? []).map(kvToInternal),
-    params: ((http.params as unknown[]) ?? []).map(kvToInternal),
+    ...splitParams(http.params),
     body: bodyToInternal(http.body, name),
     auth: authToInternal(http.auth),
     ...(scripts.preRequest ? { preRequestScript: scripts.preRequest } : {}),

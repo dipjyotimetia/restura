@@ -266,7 +266,9 @@ describe('importPostmanCollection (shared, SDK-free)', () => {
 });
 
 describe('URL path variables and fragments (SDK parity)', () => {
-  it('substitutes :name path segments from url.variable like the former SDK', () => {
+  const rows = (r: HttpRequest) => (r.pathVariables ?? []).map(({ id: _id, ...row }) => row);
+
+  it('keeps :name segments in the URL and url.variable as path-variable rows', () => {
     const { collection, report } = importPostmanCollection(
       one({
         url: {
@@ -279,37 +281,60 @@ describe('URL path variables and fragments (SDK parity)', () => {
         },
       })
     );
-    expect(req(collection.items[0]).url).toBe('{{base}}/users/42/posts/7');
+    const r = req(collection.items[0]);
+    expect(r.url).toBe('{{base}}/users/:id/posts/:postId');
+    expect(rows(r)).toEqual([
+      { key: 'id', value: '42', enabled: true, description: undefined },
+      { key: 'postId', value: '7', enabled: true, description: undefined },
+    ]);
     expect(report.warnings).toEqual([]);
     expect(getPostmanSidecar(collection.items[0]!)).toBeUndefined();
   });
 
-  it('never touches ports, {{vars}} or partial segments', () => {
+  it('never rewrites the URL: ports, {{vars}} and partial segments stay as written', () => {
     const { collection } = importPostmanCollection(
       one({
         url: {
           raw: 'http://localhost:8080/{{v}}/a:id/:id',
-          variable: [
-            { key: '8080', value: 'X' },
-            { key: 'id', value: '1' },
-          ],
+          variable: [{ key: 'id', value: '1' }],
         },
       })
     );
-    expect(req(collection.items[0]).url).toBe('http://localhost:8080/{{v}}/a:id/1');
+    expect(req(collection.items[0]).url).toBe('http://localhost:8080/{{v}}/a:id/:id');
   });
 
-  it('unresolvable or described path variables are reported and kept', () => {
+  it('models empty values, descriptions, disabled rows and v2.0 `id` names without loss', () => {
     const variable = [
       { key: 'id', value: '' },
       { key: 'org', value: 'acme', description: 'Organisation slug' },
+      { id: 'legacy', value: 'v', disabled: true },
     ];
     const { collection, report } = importPostmanCollection(
-      one({ url: { raw: 'https://x.example.com/:org/:id', variable } })
+      one({ url: { raw: 'https://x.example.com/:org/:id/:legacy', variable } })
     );
-    expect(req(collection.items[0]).url).toBe('https://x.example.com/acme/:id');
+    const r = req(collection.items[0]);
+    expect(r.url).toBe('https://x.example.com/:org/:id/:legacy');
+    expect(rows(r)).toEqual([
+      { key: 'id', value: '', enabled: true, description: undefined },
+      { key: 'org', value: 'acme', enabled: true, description: 'Organisation slug' },
+      { key: 'legacy', value: 'v', enabled: false, description: undefined },
+    ]);
+    expect(report.warnings).toEqual([]);
+    expect(getPostmanSidecar(collection.items[0]!)).toBeUndefined();
+  });
+
+  it('a malformed entry is reported and the raw list kept; a secret row is value-less', () => {
+    const variable = [{ key: 'tok', value: 'PLAIN', type: 'secret' }, 'junk'];
+    const { collection, report } = importPostmanCollection(
+      one({ url: { raw: 'https://x.example.com/:tok', variable } })
+    );
+    const r = req(collection.items[0]);
+    expect(r.pathVariables).toMatchObject([{ key: 'tok', value: '', secret: true }]);
+    expect(JSON.stringify(r)).not.toContain('PLAIN');
     expect(getPostmanSidecar(collection.items[0]!)?.urlVariable).toEqual(variable);
-    expect(constructs(report.warnings)).toEqual(['path-variables']);
+    expect(constructs(report.warnings)).toEqual(
+      expect.arrayContaining(['path-variables', 'secret-variable'])
+    );
   });
 
   it('keeps the fragment whether or not there is a query', () => {

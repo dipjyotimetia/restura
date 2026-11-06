@@ -201,6 +201,8 @@ export const httpRequestSchema = z.object({
   url: z.string(),
   headers: z.array(keyValueSchema),
   params: z.array(keyValueSchema),
+  // Optional: requests saved before path variables existed load unchanged.
+  pathVariables: z.array(keyValueSchema).optional(),
   body: z.object({
     type: z.enum([
       'none',

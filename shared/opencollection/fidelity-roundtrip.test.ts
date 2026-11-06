@@ -102,6 +102,8 @@ const HTTP_FIELDS = {
   url: 'roundtrip',
   headers: 'roundtrip',
   params: 'roundtrip',
+  // OC `http.params` rows with `type: path`.
+  pathVariables: 'roundtrip',
   body: 'roundtrip',
   auth: 'roundtrip',
   preRequestScript: 'roundtrip',
@@ -121,12 +123,16 @@ const HTTP_FIXTURE: Required<HttpRequest> = {
   name: 'Create user',
   type: 'http',
   method: 'POST',
-  url: 'https://api.example.test/users',
+  url: 'https://api.example.test/users/:userId/:off',
   headers: [
     kv('X-Trace', 't-1', { description: 'trace id' }),
     kv('X-Off', 'v', { enabled: false }),
   ],
   params: [kv('page', '2')],
+  pathVariables: [
+    kv('userId', '{{uid}}', { description: 'the user' }),
+    kv('off', '1', { enabled: false }),
+  ],
   body: { type: 'json', raw: '{"name":"Ada"}' },
   auth: AUTHS.oauth1,
   preRequestScript: 'rs.variables.set("a", 1);',

@@ -286,14 +286,16 @@ describe('Postman v3 → Restura (golden migrated folder)', () => {
     expect(http(collection.items, 'Purge').method).toBe('PURGE');
   });
 
-  it('maps settings onto per-request settings; substitutes :name path variables', () => {
+  it('maps settings onto per-request settings; keeps :name path variables as rows', () => {
     expect(http(collection.items, 'Settings').settings).toEqual({
       verifySsl: false,
       followRedirects: false,
       maxRedirects: 3,
       encodeUrlAutomatically: false,
     });
-    expect(http(collection.items, 'Get user').url).toBe('{{baseUrl}}/users/42');
+    const getUser = http(collection.items, 'Get user');
+    expect(getUser.url).toBe('{{baseUrl}}/users/:id');
+    expect(getUser.pathVariables?.map((v) => [v.key, v.value])).toEqual([['id', '42']]);
     expect(getPostmanSidecar(find(collection.items, 'Get user')!)).toBeUndefined();
   });
 });
@@ -520,7 +522,7 @@ describe('Postman v3 auth / scripts edge cases', () => {
     expect(constructs(report.warnings)).toContain('script-packages');
   });
 
-  it('unresolvable path variables stay literal, are reported and kept', () => {
+  it('path variables stay in the URL and become rows', () => {
     const { collection, report } = importPostmanCollection(
       v3([
         {
@@ -535,9 +537,14 @@ describe('Postman v3 auth / scripts edge cases', () => {
       ])
     );
     const item = collection.items[0]!;
-    expect((item.request as HttpRequest).url).toBe('https://x/users/7/:missing#frag');
-    expect(constructs(report.warnings)).toContain('path-variables');
-    expect(getPostmanSidecar(item)?.urlVariable).toHaveLength(2);
+    const r = item.request as HttpRequest;
+    expect(r.url).toBe('https://x/users/:id/:missing#frag');
+    expect(r.pathVariables?.map((v) => [v.key, v.value])).toEqual([
+      ['id', '7'],
+      ['missing', ''],
+    ]);
+    expect(constructs(report.warnings)).not.toContain('path-variables');
+    expect(getPostmanSidecar(item)?.urlVariable).toBeUndefined();
   });
 
   it('CONNECT is downgraded to GET with a warning', () => {

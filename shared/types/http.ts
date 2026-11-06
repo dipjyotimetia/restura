@@ -107,6 +107,14 @@ export interface HttpRequest {
   url: string;
   headers: KeyValue[];
   params: KeyValue[];
+  /**
+   * Postman-style path variables: one row per `:name` segment of `url`'s path
+   * (kept in step with the URL by the Params tab). Enabled rows substitute at
+   * send time through `shared/protocol/path-variables.ts` on every host
+   * (renderer, CLI, code generators). Absent on requests saved before this
+   * field existed — they send `:name` literally, as before.
+   */
+  pathVariables?: KeyValue[];
   body: RequestBody;
   auth: AuthConfig;
   preRequestScript?: string;

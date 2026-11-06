@@ -6,6 +6,7 @@ import {
   defined,
   type ExportContext,
   exportAuth,
+  exportPathVariables,
   exportScripts,
   GRAPHQL_PHASES,
   GRPC_PHASES,
@@ -336,17 +337,7 @@ export function exportHttp(
   // An unsendable method imported as GET: restore the original.
   const method =
     typeof sidecar?.method === 'string' && req.method === 'GET' ? sidecar.method : req.method;
-  const pathVariables = arr(sidecar?.urlVariable)
-    .filter(isObj)
-    .filter((v) => postmanVariableKey(v) !== undefined)
-    .map((v) =>
-      defined({
-        key: postmanVariableKey(v),
-        value: str(v.value),
-        disabled: v.disabled === true ? true : undefined,
-        description: typeof v.description === 'string' && v.description ? v.description : undefined,
-      })
-    );
+  const pathVariables = exportPathVariables(req.pathVariables, sidecar, name, ctx);
   return {
     item: defined({
       name,

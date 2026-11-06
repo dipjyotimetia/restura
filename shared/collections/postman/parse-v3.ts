@@ -14,6 +14,7 @@ import {
   coerceMethod,
   description,
   type InheritedPostmanAuth,
+  importPathVariables,
   inheritAuth,
   inheritFrom,
   isObj,
@@ -25,7 +26,6 @@ import {
   reportExplicitNoauth,
   splitUrlQuery,
   str,
-  substitutePathVariables,
 } from './common';
 import { convertKafka, convertMcp, convertMqtt, keepMcpStdio } from './parse-v3-protocols';
 import {
@@ -149,14 +149,12 @@ function convertHttp(raw: Raw, name: string, sidecar: PostmanSidecar, ctx: Parse
   const authOut = convertAuth(raw.auth, name, sidecar, ctx);
   const scripts = extractScripts(raw.scripts, name, sidecar, ctx);
   const explicitQuery = Array.isArray(raw.queryParams) ? rows(raw.queryParams) : undefined;
-  // `:name` path segments are substituted from `pathVariables` exactly as the
-  // v2 parser does for `url.variable`; unresolvable entries are reported.
-  const pathVariables = arr(raw.pathVariables);
-  const { url, params } = splitUrlQuery(str(raw.url), explicitQuery, (base) =>
-    pathVariables.length > 0
-      ? substitutePathVariables(base, pathVariables, name, sidecar, ctx)
-      : base
-  );
+  // `:name` path segments stay in the URL; `pathVariables` become rows, as the
+  // v2 parser does for `url.variable`.
+  const rawPathVariables = arr(raw.pathVariables);
+  const pathVariables =
+    rawPathVariables.length > 0 ? importPathVariables(rawPathVariables, name, sidecar, ctx) : [];
+  const { url, params } = splitUrlQuery(str(raw.url), explicitQuery);
   const method = coerceMethod(raw.method, name, sidecar, ctx);
   const body = convertBody(raw.body, name, sidecar, ctx);
   const settings = applySettings(raw.settings, name, sidecar, ctx);
@@ -169,6 +167,7 @@ function convertHttp(raw: Raw, name: string, sidecar: PostmanSidecar, ctx: Parse
     url,
     headers: rows(raw.headers),
     params,
+    ...(pathVariables.length > 0 ? { pathVariables } : {}),
     body,
     auth: authOut.auth ?? { type: 'none' },
     preRequestScript: scripts.preRequestScript,
