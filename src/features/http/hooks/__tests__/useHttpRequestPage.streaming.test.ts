@@ -348,6 +348,38 @@ describe('useHttpRequestPage — a running stream does not block other sends', (
     expect(useHistoryStore.getState().history).toHaveLength(0);
   });
 
+  it('a new send while the ended stream is still running its test script drops that run', async () => {
+    const { open, result, sending } = await startStreaming();
+    let finishTests!: () => void;
+    const testsDone = new Promise<void>((resolve) => {
+      finishTests = resolve;
+    });
+    const staleTests = { test: { logs: [], errors: [], tests: [{ name: 'stale', passed: true }] } };
+    result.finish.mockImplementation(async () => {
+      await testsDone;
+      return completion({ scriptResult: staleTests });
+    });
+    await act(async () => {
+      open.close();
+      await vi.waitFor(() => expect(result.finish).toHaveBeenCalled());
+    });
+    // Still registered while the test script runs.
+    expect(useActiveStreamStore.getState().cancels.tab1).toBeDefined();
+
+    useRequestStore.getState().updateRequest({ headers: [] });
+    const { result: hook } = renderHook(() => useHttpRequestPage());
+    await act(async () => {
+      await hook.current.handlers.sendRequest();
+      finishTests();
+      await sending;
+    });
+
+    const tab = useRequestStore.getState().tabs[0];
+    expect(tab?.scriptResult?.test?.tests ?? []).toEqual([]);
+    // Only the new buffered send is in history.
+    expect(useHistoryStore.getState().history).toHaveLength(1);
+  });
+
   it('closing the tab stops its stream', async () => {
     const { sending, signal } = await startStreaming();
     await act(async () => {

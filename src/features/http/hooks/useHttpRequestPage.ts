@@ -354,22 +354,26 @@ export function useHttpRequestPage() {
         const stopStream = () => controller.abort();
         useActiveStreamStore.getState().start(originTabId, stopStream);
         release();
-        let terminal: HttpStreamEvent | undefined;
+        // The tab stays registered until the test script has run and its
+        // outcome is applied, so Stop / a new send / closing the tab also
+        // reach the test phase and a stale run never writes over a newer one.
         try {
+          let terminal: HttpStreamEvent | undefined;
           for await (const event of replay) {
             if (isStreamTerminal(event)) terminal = event;
           }
+          // Stopped mid-stream: like a buffered cancel, no tests or history.
+          controller.signal.throwIfAborted();
+          const done = await streaming.finish(terminal);
+          controller.signal.throwIfAborted();
+          if (streaming.refreshedAuth && httpRequest.auth?.type === 'oauth2') {
+            updateRequestForTab(originTabId, { auth: streaming.refreshedAuth });
+          }
+          applyScriptOutcome(originTabId, done, scriptTarget);
+          recordSend(httpRequest, done.response, done.sentHeaders, done.scriptResult, resolvedUrl);
         } finally {
           useActiveStreamStore.getState().end(originTabId, stopStream);
         }
-        // Stopped mid-stream: like a buffered cancel, no tests or history.
-        controller.signal.throwIfAborted();
-        const done = await streaming.finish(terminal);
-        if (streaming.refreshedAuth && httpRequest.auth?.type === 'oauth2') {
-          updateRequestForTab(originTabId, { auth: streaming.refreshedAuth });
-        }
-        applyScriptOutcome(originTabId, done, scriptTarget);
-        recordSend(httpRequest, done.response, done.sentHeaders, done.scriptResult, resolvedUrl);
         return;
       }
       // A buffered send replaces a previous run's stream.
@@ -424,7 +428,10 @@ export function useHttpRequestPage() {
     } catch (error: unknown) {
       // User cancelled: not a failure, so no error response or history entry.
       if (controller.signal.aborted) {
-        toast.info('Request cancelled', { id: 'request', duration: 2000 });
+        // A stream replaced by a newer send: that send owns the toast now.
+        if (abortRef.current === null || abortRef.current === controller) {
+          toast.info('Request cancelled', { id: 'request', duration: 2000 });
+        }
         return;
       }
       // executeRequest throws before anything is sent (URL failed validation,
