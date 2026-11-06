@@ -28,8 +28,9 @@ vi.mock('@/components/shared/AriaLiveAnnouncer', () => ({
   }),
 }));
 
+import { httpProtocol } from '@/features/http/protocol';
 import { useActiveStreamStore } from '@/features/http/store/useActiveStreamStore';
-import '@/features/registry/bootstrap';
+import { protocolRegistry } from '@/features/registry/registry';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -280,6 +281,8 @@ describe('useHttpRequestPage — streaming Accept', () => {
 });
 
 describe('useHttpRequestPage — a running stream does not block other sends', () => {
+  // closeTab dispatches per-tab cleanup through registered protocols.
+  if (!protocolRegistry.get('http')) protocolRegistry.register(httpProtocol);
   /** A stream that yields one event, then waits until `close()` or abort. */
   function openStream(signal?: () => AbortSignal | undefined) {
     let close!: () => void;
