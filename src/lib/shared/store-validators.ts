@@ -7,7 +7,7 @@ import {
   ArenaRunReportSchema,
 } from '@/features/ai-lab/run-engine/reportEnvelope';
 import { ConsoleNativeDraftSchema } from '@/lib/shared/console-store-schemas';
-import type { Collection, Environment, Request } from '@/types';
+import type { Response as ApiResponse, Collection, Environment, Request } from '@/types';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
 import {
   collectionSchema,
@@ -74,6 +74,25 @@ export const ConsoleEntrySchema = z.object({
     size: z.number(),
     time: z.number(),
     timestamp: z.number(),
+    // Mirrors the optional fields of `Response` (shared/types/http.ts) — the
+    // parsed copy is what the store keeps, so a field missing here is stripped
+    // on every reload. `.catch(undefined)`: a malformed optional field is
+    // dropped, not the whole entry. `_ConsoleResponseMatchesResponse` below
+    // fails to compile if a field's type drifts from `Response`.
+    bodyEncoding: z.literal('base64').optional().catch(undefined),
+    negotiatedAlpn: z.enum(['h1.1', 'h2', 'h3']).optional().catch(undefined),
+    bodyNotice: z.string().optional().catch(undefined),
+    partial: z.boolean().optional().catch(undefined),
+    timings: z
+      .object({
+        dns: z.number().optional(),
+        connect: z.number().optional(),
+        ttfb: z.number(),
+        download: z.number(),
+      })
+      .optional()
+      .catch(undefined),
+    mcpOutcome: z.enum(['result', 'tool-error', 'jsonrpc-error']).optional().catch(undefined),
   }),
   scriptLogs: z.array(ConsoleLogSchema).optional(),
   tests: z.array(ConsoleTestSchema).optional(),
@@ -105,6 +124,28 @@ export const ConsoleEntrySchema = z.object({
     .optional(),
   nativeDraft: ConsoleNativeDraftSchema.optional(),
 });
+
+type ConsoleEntryResponse = z.infer<typeof ConsoleEntrySchema>['response'];
+/**
+ * `Response` keys the console schema is missing, or whose (non-nullish) value
+ * type doesn't fit the schema's output. Compared per key, Response → schema,
+ * so it holds under `exactOptionalPropertyTypes` too (Zod infers optionals as
+ * `T | undefined`).
+ */
+type ConsoleResponseDrift = {
+  [K in keyof ApiResponse]-?: K extends keyof ConsoleEntryResponse
+    ? NonNullable<ApiResponse[K]> extends NonNullable<ConsoleEntryResponse[K]>
+      ? never
+      : K
+    : K;
+}[keyof ApiResponse];
+type AssertNever<T extends never> = T;
+/**
+ * Compile-time link between `ConsoleEntrySchema.response` and `Response`: the
+ * store keeps the parsed copy, so a `Response` field missing from the schema is
+ * stripped on every reload. A type error here names the drifting key.
+ */
+export type _ConsoleResponseMatchesResponse = AssertNever<ConsoleResponseDrift>;
 
 /**
  * Validates a request object and returns validated data or throws
