@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Postman path variables** — HTTP requests keep `:name` path segments with a **Path variables** table under the query params (keys come from the URL; value, description and enabled are editable). Every send path fills them the same way at send time (`shared/protocol/path-variables.ts`: whole segments only, values percent-encoded as one segment, `/ \ ? #` always escaped, host / port / userinfo never touched): the app, collection runner, CLI and code snippets. Postman v2.0 / v2.1 / v3 import keeps `:id` and fills the rows from `url.variable` (no longer baked into the URL); v2.1 / v3 export writes them back and OpenCollection carries them as `type: 'path'` params. Secret-flagged and credential-named rows are counted and redacted on export like headers and query params.
+- **Stop button for streamed HTTP responses** — a web SSE / NDJSON / JSON Lines send can be stopped from the streaming panel; Cancel, a new send on the tab, or closing the tab stop it too.
+
+### Fixed
+
+- **Streamed HTTP sends run scripts and write history** — on web, a send with a streaming `Accept` runs the pre-request script before anything is sent (including `pm.execution.skipRequest()`), and when the stream ends runs the test script against the captured stream text (capped at the response size limit) and writes a history entry; a stopped stream records neither. A running stream no longer holds Send for every tab.
+- **`pm.execution.skipRequest()` on a single send** — a buffered send from the request page now honours it, like a streamed one: nothing is sent and no history entry is written.
+- **Desktop cancels unary gRPC calls** — cancelling a unary call (or a collected server stream) sends `grpc:cancel-request`, so the main-process call is aborted and ends with `CANCELLED` instead of running to its deadline. Calls are scoped to the window that started them.
+- **Unhandled promise rejections in scripts** — a rejected promise a script never handles is reported as `Unhandled promise rejection: <reason>` and fails the script, wherever it was dropped (`Promise.reject`, a throwing `.then`, `new Promise`, `pm.sendRequest` / `pm.vault` / `rs.judge` without a handler), in the app and the CLI. An `async` function's promise that is dropped without ever being awaited or chained is still not reported (quickjs-emscripten exposes no host rejection tracker).
+
 ### Changed
 
 - **Centralised store persistence on the `createPersistedStore` migration framework** — the version-1 persisted stores (the WebSocket/SSE/Socket.IO/MCP/Kafka/MQTT connection stores plus `console`, `collectionRuns`, `globals`, `graphqlSchemas`, `protoFiles`) now build their zustand `persist` options from a declarative `MigrationDescriptor` via `src/lib/shared/persistence/createPersistedStore.ts` instead of hand-rolling them. This wires every adopted store to the shared migration runner (versioned `steps`, optional Zod `schema`, recoverable quarantine-on-failure, and migration telemetry) and gives them a consistent versioning seam. The factory gained two declarative options to make adoption behaviour-preserving: `legacyLocalStorageKey` (wraps the Dexie adapter with the localStorage one-shot import for graphql/proto) and `onRehydrate` (a post-rehydrate hook for per-record sanitisation, e.g. the console store dropping individual corrupt entries). The multi-version stores (collections, history, settings, request, environment, workflow, cookies) intentionally still hand-roll `persist` — adopting them requires decomposing their monolithic `migrate` into version-keyed steps, which is data-sensitive and done per store.
