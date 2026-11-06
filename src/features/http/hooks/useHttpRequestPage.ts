@@ -13,9 +13,11 @@ import {
   executeRequest,
   executeStreamingRequest,
   isStreamingAccept,
+  type RequestExecutionResult,
   resolveEffectiveSettings,
 } from '@/features/http/lib/requestExecutor';
 import { applySettingsPatch, type RequestSettingsPatch } from '@/features/http/lib/settingsPatch';
+import type { HttpStreamEvent } from '@/features/http/lib/streamingResponseReader';
 import { applyUrlInput } from '@/features/http/lib/urlQuery';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
@@ -33,6 +35,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useUiStore } from '@/store/useUiStore';
 import type {
+  Response as ApiResponse,
   AppSettings,
   AuthConfig,
   FormDataItem,
@@ -103,6 +106,74 @@ function wantsStream(request: HttpRequest, scope: RequestScope): boolean {
 function reportFailure(originTabId: string, message: string) {
   if (useRequestStore.getState().activeTabId === originTabId) toast.dismiss('request');
   else toast.error(`Request failed: ${message}`, { id: 'request', duration: 5000 });
+}
+
+const isStreamTerminal = (event: HttpStreamEvent) => event.type === 'end' || event.type === 'error';
+
+type ScriptOutcome = Pick<
+  RequestExecutionResult,
+  'scriptResult' | 'collectionVarsMutations' | 'environmentMutations'
+>;
+
+/**
+ * A finished send's script output (Tests / Visualize tabs) and its
+ * `pm.collectionVariables` / `pm.environment` writes — buffered or streamed.
+ */
+function applyScriptOutcome(
+  tabId: string,
+  outcome: ScriptOutcome,
+  target: { collectionId: string | undefined; environmentId: string | undefined }
+): void {
+  const { scriptResult } = outcome;
+  if (scriptResult && (scriptResult.preRequest || scriptResult.test)) {
+    useRequestStore.getState().setScriptResultForTab(tabId, scriptResult);
+  }
+  if (target.collectionId && outcome.collectionVarsMutations) {
+    useCollectionStore
+      .getState()
+      .applyCollectionVarMutations(target.collectionId, outcome.collectionVarsMutations);
+  }
+  // `pm.environment.set/unset` persist to the active environment (Postman
+  // semantics), so the next request sees them. Secret handles are left alone.
+  if (outcome.environmentMutations) {
+    saveScriptEnvironmentWrites({
+      environmentId: target.environmentId,
+      collectionId: target.collectionId,
+      mutations: outcome.environmentMutations,
+    });
+  }
+}
+
+/** The history entry and Console line for a completed send. */
+function recordSend(
+  request: HttpRequest,
+  response: ApiResponse,
+  sent: Record<string, string>,
+  scriptResult: RequestExecutionResult['scriptResult'],
+  resolvedUrl: string
+): void {
+  // `request.url` (kept as-is) preserves the `{{var}}` template so
+  // reopening/replaying this entry still targets whichever environment is
+  // active; `resolvedUrl` is recorded alongside for accurate history/
+  // console display (see HistoryItem.resolvedUrl / ConsoleEntry.resolvedUrl).
+  useHistoryStore.getState().addHistoryItem(request, response, resolvedUrl);
+  const scriptLogs = [
+    ...(scriptResult?.preRequest?.logs || []),
+    ...(scriptResult?.test?.logs || []),
+  ];
+  useConsoleStore
+    .getState()
+    .addEntry(
+      createConsoleEntry(
+        request,
+        response,
+        captureSentHeaders(sent, resolvedUrl),
+        scriptLogs,
+        scriptResult?.test?.tests,
+        'http',
+        { resolvedUrl }
+      )
+    );
 }
 
 export function useHttpRequestPage() {
@@ -206,11 +277,15 @@ export function useHttpRequestPage() {
       const requestForExec =
         effectiveAuth === httpRequest.auth ? httpRequest : { ...httpRequest, auth: effectiveAuth };
 
+      const scriptTarget = { collectionId: collection?.id, environmentId: scriptEnvironmentId };
+
       // Web: an SSE / NDJSON / JSON Lines Accept streams into the response
       // panel (the proxy answers it with a raw pass-through). Desktop's HTTP
       // IPC has no streaming channel, so it stays on the buffered path. The
-      // stream path runs no pre-request / test scripts (there is no complete
-      // response to test) and records no history entry.
+      // stream path runs the same scripts as a buffered send: the pre-request
+      // script before anything is sent, the test script (and the history
+      // entry) once the stream ends, against the captured stream text. The
+      // send stays in flight until then, so Cancel stops it and no tests run.
       const scope: RequestScope = {
         values: envVars,
         secretVariables,
@@ -218,7 +293,7 @@ export function useHttpRequestPage() {
         resolveVariables: (text) => resolveVariables(text),
       };
       if (!isElectron() && wantsStream(requestForExec, scope)) {
-        const { events, responseMeta } = await executeStreamingRequest({
+        const streaming = await executeStreamingRequest({
           request: requestForExec,
           envVars,
           secretVariables,
@@ -228,17 +303,42 @@ export function useHttpRequestPage() {
           collectionVars,
           signal: controller.signal,
         });
+        resolvedUrl = streaming.sentUrl;
+        if (streaming.skipped) {
+          // `pm.execution.skipRequest()`: nothing was sent, so no stream and
+          // no history entry; the pre-request output and writes still count.
+          clearStreamingEventsForTab(originTabId);
+          applyScriptOutcome(originTabId, await streaming.finish(undefined), scriptTarget);
+          toast.info('Request skipped by the pre-request script', {
+            id: 'request',
+            duration: 3000,
+          });
+          return;
+        }
         // Replaces any buffered response so the panel shows the stream. The
         // response stream is single-use; buffer it so a viewer that remounts
-        // (StrictMode, switching tabs and back) replays it from the start.
-        setStreamingEventsForTab(
-          originTabId,
-          replayableAsyncIterable(events, {
-            isTerminal: (event) => event.type === 'end' || event.type === 'error',
-          })
-        );
+        // (StrictMode, switching tabs and back) replays it from the start —
+        // and so this send can read it to the end alongside the viewer.
+        const replay = replayableAsyncIterable(streaming.events, { isTerminal: isStreamTerminal });
+        setStreamingEventsForTab(originTabId, replay);
+        if (streaming.scriptResult?.preRequest) {
+          setScriptResultForTab(originTabId, streaming.scriptResult);
+        }
         toast.dismiss('request');
-        announceRequestComplete(responseMeta.status, Date.now() - startTime);
+        announceRequestComplete(streaming.responseMeta.status, Date.now() - startTime);
+
+        let terminal: HttpStreamEvent | undefined;
+        for await (const event of replay) {
+          if (isStreamTerminal(event)) terminal = event;
+        }
+        // Cancelled mid-stream: like a buffered cancel, no tests or history.
+        controller.signal.throwIfAborted();
+        const done = await streaming.finish(terminal);
+        if (streaming.refreshedAuth && httpRequest.auth?.type === 'oauth2') {
+          updateRequestForTab(originTabId, { auth: streaming.refreshedAuth });
+        }
+        applyScriptOutcome(originTabId, done, scriptTarget);
+        recordSend(httpRequest, done.response, done.sentHeaders, done.scriptResult, resolvedUrl);
         return;
       }
       // A buffered send replaces a previous run's stream.
@@ -259,25 +359,7 @@ export function useHttpRequestPage() {
       resolvedUrl = result.sentUrl;
 
       const { scriptResult } = result;
-      if (scriptResult && (scriptResult.preRequest || scriptResult.test)) {
-        setScriptResultForTab(originTabId, scriptResult);
-      }
-
-      if (collection && result.collectionVarsMutations) {
-        useCollectionStore
-          .getState()
-          .applyCollectionVarMutations(collection.id, result.collectionVarsMutations);
-      }
-
-      // `pm.environment.set/unset` persist to the active environment (Postman
-      // semantics), so the next request sees them. Secret handles are left alone.
-      if (result.environmentMutations) {
-        saveScriptEnvironmentWrites({
-          environmentId: scriptEnvironmentId,
-          collectionId: collection?.id,
-          mutations: result.environmentMutations,
-        });
-      }
+      applyScriptOutcome(originTabId, result, scriptTarget);
 
       // Persist a refreshed OAuth2 token — but only when the auth belongs to
       // this request; a refreshed *inherited* auth must not be materialised
@@ -288,27 +370,7 @@ export function useHttpRequestPage() {
 
       const responseData = result.response;
       setCurrentResponseForTab(originTabId, responseData);
-      // `httpRequest.url` (kept as-is) preserves the `{{var}}` template so
-      // reopening/replaying this entry still targets whichever environment is
-      // active; `resolvedUrl` is recorded alongside for accurate history/
-      // console display (see HistoryItem.resolvedUrl / ConsoleEntry.resolvedUrl).
-      addHistoryItem(httpRequest, responseData, resolvedUrl);
-      const scriptLogs = [
-        ...(scriptResult?.preRequest?.logs || []),
-        ...(scriptResult?.test?.logs || []),
-      ];
-      const sentHeaders = captureSentHeaders(result.sentHeaders, resolvedUrl);
-      addEntry(
-        createConsoleEntry(
-          httpRequest,
-          responseData,
-          sentHeaders,
-          scriptLogs,
-          scriptResult?.test?.tests,
-          'http',
-          { resolvedUrl }
-        )
-      );
+      recordSend(httpRequest, responseData, result.sentHeaders, scriptResult, resolvedUrl);
       // Transport-level failures surface as a status-0 response from the
       // executor rather than a throw. For real responses the panel already
       // shows the outcome, so just clear the in-flight toast rather than

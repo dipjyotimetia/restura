@@ -11,9 +11,6 @@ import {
   type QueryPair,
 } from '@shared/protocol/request-spec';
 import { type CookieHop, responseSetCookies } from '@shared/protocol/set-cookie';
-import { findScriptWrittenToken } from '@shared/scripts/grpc-script-metadata';
-import { applyScriptHeaderEdits } from '@shared/scripts/script-executor-request';
-import { runScriptPhase } from '@shared/scripts/script-phase';
 import {
   basicAuthReferencesSecretVariable,
   SecretVariableReferenceError,
@@ -44,7 +41,6 @@ import {
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
-import { makeRendererScriptHost } from '@/features/scripts/lib/scriptPhaseHost.renderer';
 import { isElectron } from '@/lib/shared/platform';
 import { resolveRequestScopeText } from '@/lib/shared/resolveRequestScope';
 import type { SecretValue } from '@/lib/shared/secretRef';
@@ -56,7 +52,15 @@ import {
 } from '@/lib/shared/transport';
 import type { Response as ApiResponse, AppSettings, HttpRequest, RequestSettings } from '@/types';
 import { shapeGraphQLBody } from './graphqlBody';
+import {
+  mutationFields,
+  newScriptMutations,
+  runPreRequestStep,
+  runTestStep,
+  scriptInfo,
+} from './requestScriptPhases';
 import { ignoreProgress, isStreamingAccept, proxyStreamsAccept } from './streamingAccept';
+import { createStreamCapture, streamedResponse } from './streamingCapture';
 
 export interface RequestExecutionResult {
   response: ApiResponse;
@@ -445,101 +449,20 @@ function normalizeBody(data: unknown): string {
 export async function executeRequest(
   options: RequestExecutorOptions
 ): Promise<RequestExecutionResult> {
-  const { request, envVars, collectionVars, iterationData, location, signal } = options;
+  const { request, envVars, signal } = options;
   signal?.throwIfAborted();
   // Pre-send refusal (#1232): a Postman `noauth` / unsupported-auth request
   // would otherwise go out with an ancestor's credential. Nothing runs.
   assertPostmanSendable(request);
   const startTime = Date.now();
-  const baseInfo = {
-    requestName: options.info?.requestName ?? request.name,
-    requestId: options.info?.requestId ?? request.id,
-    ...(options.info?.iteration !== undefined ? { iteration: options.info.iteration } : {}),
-    ...(options.info?.iterationCount !== undefined
-      ? { iterationCount: options.info.iterationCount }
-      : {}),
-  };
-  const collectionVarsMutations: Record<string, string | null> = {};
-  const environmentMutations: Record<string, string | null> = {};
+  const baseInfo = scriptInfo(options);
+  const mutations = newScriptMutations();
   // A pre-request script's `rs.request.headers` edits apply to what is sent.
-  let requestToSend = request;
+  const pre = await runPreRequestStep(options, baseInfo, mutations);
+  const requestToSend = pre.requestToSend;
+  const preRequestResult = pre.result;
 
-  let preRequestResult: ScriptResult | undefined;
-  if (request.preRequestScript) {
-    signal?.throwIfAborted();
-    // Pre-request runs before buildProxyRequestSpec has resolved auth, so
-    // the inherited-header set is the user-defined headers only. The test
-    // script (further down) gets the fully-resolved sentHeaders including
-    // the Authorization that auth-applier produced.
-    const inheritedHeadersPre: Record<string, string> = Object.fromEntries(
-      request.headers.filter((h) => h.enabled).map((h) => [h.key, h.value])
-    );
-    void useCookieStore; // keep the import side-effect for cookieAdapter's lazy store binding
-    const pre = await runScriptPhase({
-      phase: 'prerequest',
-      script: request.preRequestScript,
-      request: {
-        url: request.url,
-        method: request.method,
-        headers: Object.fromEntries(
-          request.headers.filter((h) => h.enabled).map((h) => [h.key, h.value])
-        ) as Record<string, string>,
-        body: request.body.raw,
-      },
-      envVars,
-      collectionVars,
-      iterationData,
-      info: baseInfo,
-      location,
-      host: makeRendererScriptHost({
-        variables: envVars,
-        secretNames: options.secretNames,
-        parentUrlTemplate: request.url,
-        inheritedHeaderTemplates: inheritedHeadersPre,
-        signal,
-      }),
-      // As in Postman (and the gRPC / MCP / CLI hosts), writes made before a
-      // script error are kept: the request is still sent with them.
-      absorb: { into: envVars, variables: 'always' },
-      afterRun: () => signal?.throwIfAborted(),
-    });
-    preRequestResult = pre.result;
-    if (preRequestResult.collectionMutations) {
-      Object.assign(collectionVarsMutations, preRequestResult.collectionMutations);
-    }
-    if (preRequestResult.environmentMutations) {
-      Object.assign(environmentMutations, preRequestResult.environmentMutations);
-    }
-    if (preRequestResult.requestHeaders) {
-      // Same rule as gRPC metadata: a script cannot put a secret-variable token
-      // into a header that was not already written there (a script string can
-      // be a server value). Nothing is sent.
-      const written = findScriptWrittenToken(
-        request.headers,
-        preRequestResult.requestHeaders,
-        (name) => options.secretNames?.includes(name) === true
-      );
-      if (written) {
-        throw new SecretVariableReferenceError(
-          'rs.request.headers',
-          written.name,
-          `"${written.key}"`,
-          'A script cannot add a secret variable to a request field.'
-        );
-      }
-      requestToSend = {
-        ...request,
-        headers: applyScriptHeaderEdits(
-          request.headers,
-          inheritedHeadersPre,
-          preRequestResult.requestHeaders,
-          uuidv4
-        ),
-      };
-    }
-  }
-
-  if (options.honorSkipRequest && preRequestResult?.execution?.skipRequested) {
+  if (options.honorSkipRequest && pre.skipRequested) {
     // Postman sends nothing and runs no test script. The caller reads the
     // sentinel from `scriptResult.preRequest` and discards this response.
     signal?.throwIfAborted();
@@ -556,12 +479,11 @@ export async function executeRequest(
         timestamp: Date.now(),
       },
       transportOk: false,
-      scriptResult: { preRequest: preRequestResult },
+      scriptResult: preRequestResult ? { preRequest: preRequestResult } : {},
       envVars,
       sentUrl: request.url,
       sentHeaders: {},
-      ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
-      ...(Object.keys(environmentMutations).length > 0 ? { environmentMutations } : {}),
+      ...mutationFields(mutations),
     };
   }
 
@@ -636,58 +558,18 @@ export async function executeRequest(
     };
   }
 
-  let testResult: ScriptResult | undefined;
-  if (request.testScript) {
-    signal?.throwIfAborted();
-    // Test script gets the fully-resolved sentHeaders (auth + content-type
-    // + framework defaults) so pm.sendRequest sub-requests inherit the
-    // same Authorization the parent went out with. The user can still
-    // override per-call via the headers param to pm.sendRequest.
-    void useCookieStore; // keep the import side-effect for cookieAdapter's lazy store binding
-    const test = await runScriptPhase({
-      phase: 'test',
-      script: request.testScript,
-      // The request as sent: resolved URL and header-row values, as the CLI
-      // gives its test phase (`cli/src/runner/scriptRunner.ts`).
-      request: {
-        url: sentUrl,
-        method: request.method,
-        headers: scriptHeaders,
-        body: request.body.raw,
-      },
-      response: {
-        status: responseData.status,
-        statusText: responseData.statusText,
-        headers: responseData.headers as Record<string, string>,
-        ...(responseData.setCookies !== undefined ? { setCookies: responseData.setCookies } : {}),
-        body: responseData.body,
-        time: responseData.time,
-        size: responseData.size,
-      },
-      envVars,
-      collectionVars,
-      iterationData,
+  const testResult = await runTestStep(
+    options,
+    {
       info: baseInfo,
-      location,
-      // rs.judge is wired only on the TEST script (a response exists to judge).
-      host: makeRendererScriptHost({
-        variables: envVars,
-        secretNames: options.secretNames,
-        parentUrl: spec.url,
-        inheritedHeaders: sentHeaders,
-        signal,
-        judge: true,
-      }),
-      afterRun: () => signal?.throwIfAborted(),
-    });
-    testResult = test.result;
-    if (testResult.collectionMutations) {
-      Object.assign(collectionVarsMutations, testResult.collectionMutations);
-    }
-    if (testResult.environmentMutations) {
-      Object.assign(environmentMutations, testResult.environmentMutations);
-    }
-  }
+      sentUrl,
+      scriptHeaders,
+      parentUrl: spec.url,
+      sentHeaders,
+      response: responseData,
+    },
+    mutations
+  );
 
   // Do not expose collection-variable mutations to callers after cancellation;
   // saved-request tools apply them to the owning collection only on success.
@@ -704,8 +586,7 @@ export async function executeRequest(
     sentHeaders,
     ...(spec.data !== undefined ? { sentBody: spec.data } : {}),
     ...(Object.keys(sentParams).length > 0 ? { sentParams } : {}),
-    ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
-    ...(Object.keys(environmentMutations).length > 0 ? { environmentMutations } : {}),
+    ...mutationFields(mutations),
   };
   if (refreshedAuth) {
     result.refreshedAuth = refreshedAuth;
@@ -728,16 +609,88 @@ export interface StreamingExecutionResult {
     /** Every upstream Set-Cookie, one entry each (from the Worker side channel). */
     setCookies?: string[];
   };
+  /**
+   * True when the pre-request script called `pm.execution.skipRequest()`:
+   * nothing was sent, `events` is empty and `finish` runs no test script.
+   */
+  skipped?: boolean;
+  scriptResult?: { preRequest?: ScriptResult };
+  /** The URL / headers handed to the transport (as on `RequestExecutionResult`). */
+  sentUrl: string;
+  sentHeaders: Record<string, string>;
+  refreshedAuth?: HttpRequest['auth'];
+  /**
+   * Call once the stream has ended (its terminal `end` / `error` event, after
+   * every event was read): builds the response from the captured stream text
+   * and runs the test script, as `executeRequest` does after a buffered body.
+   * Throws if the signal was aborted (no test script runs after a cancel).
+   */
+  finish: (terminal: HttpStreamEvent | undefined) => Promise<StreamingCompletion>;
+}
+
+export interface StreamingCompletion
+  extends Pick<
+    RequestExecutionResult,
+    | 'response'
+    | 'envVars'
+    | 'sentUrl'
+    | 'sentHeaders'
+    | 'collectionVarsMutations'
+    | 'environmentMutations'
+  > {
+  scriptResult: { preRequest?: ScriptResult; test?: ScriptResult };
 }
 
 // Web only — Electron HTTP streaming has no IPC channel yet; SSE-shaped
-// requests in Electron go through sseManager.
+// requests in Electron go through sseManager. Scripts run as on the buffered
+// path: pre-request before the spec is built, test once the stream ends.
 export async function executeStreamingRequest(
   options: RequestExecutorOptions
 ): Promise<StreamingExecutionResult> {
-  options.signal?.throwIfAborted();
-  assertPostmanSendable(options.request); // same pre-send refusal as executeRequest (#1232)
-  const { spec, effectiveSettings } = await buildProxyRequestSpec(options);
+  const { request, signal } = options;
+  signal?.throwIfAborted();
+  assertPostmanSendable(request); // same pre-send refusal as executeRequest (#1232)
+  const startTime = Date.now();
+  const info = scriptInfo(options);
+  const mutations = newScriptMutations();
+  const pre = await runPreRequestStep(options, info, mutations);
+  const preScript = pre.result ? { preRequest: pre.result } : {};
+
+  if (pre.skipRequested) {
+    signal?.throwIfAborted();
+    const responseMeta = { status: 0, statusText: 'Skipped', headers: {} };
+    const capture = createStreamCapture(undefined);
+    return {
+      events: (async function* () {})(),
+      responseMeta,
+      skipped: true,
+      scriptResult: preScript,
+      sentUrl: request.url,
+      sentHeaders: {},
+      finish: async (terminal) => {
+        signal?.throwIfAborted();
+        return {
+          response: streamedResponse({
+            requestId: request.id,
+            meta: responseMeta,
+            capture,
+            startTime,
+            terminal,
+          }),
+          envVars: options.envVars,
+          sentUrl: request.url,
+          sentHeaders: {},
+          scriptResult: preScript,
+          ...mutationFields(mutations),
+        };
+      },
+    };
+  }
+
+  const { spec, effectiveSettings, sentHeaders, sentUrl, scriptHeaders, refreshedAuth } =
+    await buildProxyRequestSpec(
+      pre.requestToSend === request ? options : { ...options, request: pre.requestToSend }
+    );
 
   const streamingSpec: ProxyRequestBody = {
     ...spec,
@@ -746,11 +699,8 @@ export async function executeStreamingRequest(
     timeout: 0,
   };
 
-  options.signal?.throwIfAborted();
-  const response = await executeProxiedStreamingRequest(
-    streamingSpec,
-    options.signal ? { signal: options.signal } : {}
-  );
+  signal?.throwIfAborted();
+  const response = await executeProxiedStreamingRequest(streamingSpec, signal ? { signal } : {});
 
   // Cookies (and a followed chain's hop cookies) arrive in side channels;
   // hop cookies are stored even when the final response set none.
@@ -765,8 +715,45 @@ export async function executeStreamingRequest(
     ...(setCookies.length > 0 ? { setCookies } : {}),
   };
 
-  const events = readStreamingResponse(response);
-  return { events, responseMeta };
+  // The body text is captured as it is read (bounded like a buffered body),
+  // for the test script and the history entry.
+  const capture = createStreamCapture(response.headers.get('content-type') ?? undefined);
+  const events = readStreamingResponse(response, { onBytes: capture.onBytes });
+  return {
+    events,
+    responseMeta,
+    scriptResult: preScript,
+    sentUrl,
+    sentHeaders,
+    ...(refreshedAuth ? { refreshedAuth } : {}),
+    finish: async (terminal) => {
+      signal?.throwIfAborted();
+      const streamed = streamedResponse({
+        requestId: request.id,
+        meta: responseMeta,
+        capture,
+        startTime,
+        terminal,
+      });
+      const finalResponse = options.transformResponse
+        ? options.transformResponse(streamed)
+        : streamed;
+      const test = await runTestStep(
+        options,
+        { info, sentUrl, scriptHeaders, parentUrl: spec.url, sentHeaders, response: finalResponse },
+        mutations
+      );
+      signal?.throwIfAborted();
+      return {
+        response: finalResponse,
+        envVars: options.envVars,
+        sentUrl,
+        sentHeaders,
+        scriptResult: { ...preScript, ...(test ? { test } : {}) },
+        ...mutationFields(mutations),
+      };
+    },
+  };
 }
 
 export { isStreamingAccept };

@@ -23,6 +23,8 @@ export function detectStreamFormat(contentType: string | null | undefined): Stre
 
 export interface ReadStreamingOptions {
   signal?: AbortSignal;
+  /** Sees every body chunk as read, before it is parsed (raw-text capture for tests/history). */
+  onBytes?: (chunk: Uint8Array) => void;
 }
 
 /**
@@ -78,6 +80,7 @@ export async function* readStreamingResponse(
       const { done, value } = await reader.read();
       if (done) break;
       bytesRead += value.byteLength;
+      options.onBytes?.(value);
 
       if (sseParser) {
         for (const event of sseParser.feed(value)) {
