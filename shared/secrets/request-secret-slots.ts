@@ -95,7 +95,7 @@ export function countAuthInlineSecrets(auth: AuthConfig | undefined): number {
  * through `blank` with its values intact, so `count` throwing fails the export
  * closed where returning 0 would suppress the warning.
  */
-function rowListSlot(field: 'headers' | 'params' | 'metadata'): SecretSlot {
+function rowListSlot(field: 'headers' | 'params' | 'pathVariables' | 'metadata'): SecretSlot {
   return {
     name: field,
     blank(request) {
@@ -190,6 +190,7 @@ export const REQUEST_SECRET_SLOTS: readonly SecretSlot[] = [
   URL_SLOT,
   rowListSlot('headers'),
   rowListSlot('params'),
+  rowListSlot('pathVariables'),
   rowListSlot('metadata'),
   FORM_BODY_SLOT,
   AUTH_SLOT,
