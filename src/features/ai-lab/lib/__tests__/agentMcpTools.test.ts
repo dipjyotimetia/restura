@@ -175,6 +175,54 @@ describe('MCP agent tool adapter', () => {
     expect(factory).not.toHaveBeenCalled();
   });
 
+  it('carries MCP safety annotations through so destructive tools stay destructive', async () => {
+    client.connect.mockResolvedValue({ ok: true });
+    client.disconnect.mockResolvedValue(undefined);
+    client.discoverCapabilities.mockResolvedValue({
+      tools: [
+        {
+          name: 'drop_table',
+          inputSchema: { type: 'object' },
+          annotations: { destructiveHint: true },
+        },
+        {
+          name: 'fetch_url',
+          inputSchema: { type: 'object' },
+          annotations: { openWorldHint: true },
+        },
+        { name: 'plain', inputSchema: { type: 'object' } },
+      ],
+    });
+    const adapter = createMcpAgentToolSourceAdapter(() => client);
+    const tools = await adapter.resolve({ kind: 'mcp', connectionId: 'profile' });
+    expect(tools.map((tool) => tool.permissionClass)).toEqual([
+      'destructive',
+      'network',
+      'mutation',
+    ]);
+  });
+
+  it('caps namespaced tool names at 64 characters using the CLI naming rule', async () => {
+    const longId = `conn-${'x'.repeat(60)}`;
+    useMcpStore.setState((state) => ({
+      connections: {
+        ...state.connections,
+        [longId]: { ...state.connections.profile!, id: longId },
+      },
+    }));
+    client.connect.mockResolvedValue({ ok: true });
+    client.disconnect.mockResolvedValue(undefined);
+    const remoteName = `very.long/tool name ${'y'.repeat(40)}`;
+    client.discoverCapabilities.mockResolvedValue({
+      tools: [{ name: remoteName, inputSchema: { type: 'object' } }],
+    });
+    const adapter = createMcpAgentToolSourceAdapter(() => client);
+    const [tool] = await adapter.resolve({ kind: 'mcp', connectionId: longId });
+    const expected = `mcp_${longId}_${remoteName}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+    expect(tool?.definition.name).toBe(expected);
+    expect(tool?.definition.name.length).toBeLessThanOrEqual(64);
+  });
+
   it('rejects non-MCP sources during resolution too', async () => {
     const adapter = createMcpAgentToolSourceAdapter(() => client);
     await expect(adapter.resolve({ kind: 'fixture', fixtureId: 'fixture' })).rejects.toThrow(

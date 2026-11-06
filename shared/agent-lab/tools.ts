@@ -21,6 +21,21 @@ export interface CreateMcpToolsOptions {
   inspectDescriptors?(descriptors: McpToolDescriptor[]): void;
 }
 
+/** Provider tool-name ceiling (OpenAI/Anthropic) and the desktop IPC `name max(64)`. */
+export const MAX_AGENT_TOOL_NAME_LENGTH = 64;
+
+/**
+ * Namespaced, provider-safe name for an MCP tool exposed to an agent:
+ * `mcp_<sourceId>_<remoteName>`, non `[a-zA-Z0-9_-]` replaced with `_`,
+ * capped at 64 characters. Truncation can collide; callers that merge sources
+ * should detect duplicates (the runner rejects duplicate tool names).
+ */
+export function mcpAgentToolName(sourceId: string, remoteName: string): string {
+  return `mcp_${sourceId}_${remoteName}`
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, MAX_AGENT_TOOL_NAME_LENGTH);
+}
+
 function permissionForMcpTool(tool: McpToolDescriptor): PermissionClass {
   if (tool.annotations?.destructiveHint) return 'destructive';
   if (tool.annotations?.openWorldHint) return 'network';

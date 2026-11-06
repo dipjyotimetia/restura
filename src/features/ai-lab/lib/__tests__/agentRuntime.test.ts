@@ -495,6 +495,103 @@ describe('desktop agent provider bridge', () => {
     expect(judgeMaxOutputTokens).toEqual([512, 512, 512]);
   });
 
+  function singleJudgeSuite(maxOutputTokens?: number): AgentSuite {
+    return {
+      schemaVersion: 2,
+      id: 'suite',
+      name: 'Judge parsing',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'agent',
+          model: { providerId: 'candidate', model: 'candidate' },
+          instructions: 'Answer.',
+          tools: [],
+          limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        },
+      ],
+      tasks: [{ id: 'task', input: [{ type: 'text', text: 'task input' }] }],
+      graders: [
+        {
+          id: 'judge',
+          kind: 'judge',
+          judgeModels: [{ providerId: 'judge-1', model: 'judge-1' }],
+          rubric: 'Be strict.',
+          labels: ['pass', 'fail'],
+          passingLabels: ['pass'],
+          minimumAgreement: 0.5,
+          calibrated: false,
+          ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+        },
+      ],
+      trials: 1,
+    };
+  }
+
+  it('clamps an oversized judge maxOutputTokens to the per-call IPC ceiling', async () => {
+    const judgeMaxOutputTokens: Array<number | undefined> = [];
+    completeLlm.mockImplementation(async (spec: { model: string; maxOutputTokens?: number }) => {
+      if (spec.model === 'candidate') return { ok: true, text: 'answer', toolCalls: [] };
+      judgeMaxOutputTokens.push(spec.maxOutputTokens);
+      return { ok: true, text: '{"label":"pass","score":1}', toolCalls: [] };
+    });
+    const report = await runDesktopAgentSuite(
+      singleJudgeSuite(1_000_000),
+      {
+        candidate: provider('candidate', 'candidate'),
+        'judge-1': provider('judge-1', 'judge-1'),
+      },
+      { complete: completeLlm }
+    );
+    expect(judgeMaxOutputTokens).toEqual([32_768]);
+    expect(report.results[0]?.scores[0]).toMatchObject({ passed: true });
+  });
+
+  it('accepts a judge verdict wrapped in prose or a fenced JSON block', async () => {
+    completeLlm.mockImplementation(async (spec: { model: string }) => {
+      if (spec.model === 'candidate') return { ok: true, text: 'answer', toolCalls: [] };
+      return {
+        ok: true,
+        text: 'Here is my verdict:\n```json\n{"label":"pass","score":0.8,"reasoning":"ok"}\n```',
+        toolCalls: [],
+      };
+    });
+    const report = await runDesktopAgentSuite(
+      singleJudgeSuite(),
+      {
+        candidate: provider('candidate', 'candidate'),
+        'judge-1': provider('judge-1', 'judge-1'),
+      },
+      { complete: completeLlm }
+    );
+    expect(report.results[0]?.scores[0]).toMatchObject({ passed: true, score: 0.8 });
+  });
+
+  it('records a clear grader failure when the judge returns no parseable JSON', async () => {
+    completeLlm.mockImplementation(async (spec: { model: string }) => {
+      if (spec.model === 'candidate') return { ok: true, text: 'answer', toolCalls: [] };
+      return { ok: true, text: 'I think it passes, mostly.', toolCalls: [] };
+    });
+    const report = await runDesktopAgentSuite(
+      singleJudgeSuite(),
+      {
+        candidate: provider('candidate', 'candidate'),
+        'judge-1': provider('judge-1', 'judge-1'),
+      },
+      { complete: completeLlm }
+    );
+    expect(report.results[0]?.scores[0]).toMatchObject({
+      passed: false,
+      judgeFailures: [
+        {
+          providerId: 'judge-1',
+          model: 'judge-1',
+          error: expect.stringMatching(/^judge returned no parseable JSON verdict/),
+        },
+      ],
+    });
+  });
+
   it('fails only the judge grader when successful votes do not meet quorum', async () => {
     completeLlm.mockImplementation(async (spec: { model: string }) => {
       if (spec.model === 'candidate') {

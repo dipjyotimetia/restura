@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createMcpTools, SandboxRegistry } from '../tools';
+import { createMcpTools, mcpAgentToolName, SandboxRegistry } from '../tools';
 
 describe('MCP agent tools', () => {
   it('honours allowlists and maps MCP safety annotations to approvals', async () => {
@@ -89,5 +89,14 @@ describe('sandbox registry', () => {
     const registry = new SandboxRegistry([provider]);
     expect(registry.require('docker')).toBe(provider);
     expect(() => registry.register(provider)).toThrow('duplicate sandbox provider');
+  });
+});
+
+describe('mcpAgentToolName', () => {
+  it('namespaces, sanitizes, and caps names at the 64-character provider limit', () => {
+    expect(mcpAgentToolName('server', 'read.order')).toBe('mcp_server_read_order');
+    const name = mcpAgentToolName('s'.repeat(50), 't'.repeat(50));
+    expect(name).toHaveLength(64);
+    expect(name).toMatch(/^[a-zA-Z0-9_-]+$/);
   });
 });

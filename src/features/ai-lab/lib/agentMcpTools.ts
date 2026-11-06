@@ -1,9 +1,12 @@
 import {
+  type McpToolDescriptor as AgentMcpToolDescriptor,
   type AgentToolSourceAdapter,
   ContentBlockSchema,
   createMcpTools,
+  mcpAgentToolName,
   type ToolSource,
 } from '@shared/agent-lab';
+import { normalizeMcpToolDescriptor } from '@shared/protocol/mcp-tool-descriptor';
 import { McpClient } from '@/features/mcp/lib/mcpClient';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
@@ -13,7 +16,14 @@ interface McpAgentClient {
   connect(): Promise<{ ok: true } | { ok: false; error: string }>;
   disconnect(): Promise<void>;
   discoverCapabilities(): Promise<
-    | { tools: Array<{ name: string; description?: string; inputSchema?: unknown }> }
+    | {
+        tools: Array<{
+          name: string;
+          description?: string;
+          inputSchema?: unknown;
+          annotations?: unknown;
+        }>;
+      }
     | { error: string }
   >;
   callTool(
@@ -127,11 +137,21 @@ export function createMcpAgentToolSourceAdapter(
               const capabilities = await client.discoverCapabilities();
               if ('error' in capabilities)
                 throw new Error(`MCP discovery failed: ${capabilities.error}`);
-              return capabilities.tools.map((tool) => ({
-                name: tool.name,
-                ...(tool.description ? { description: tool.description } : {}),
-                inputSchema: (tool.inputSchema ?? {}) as Record<string, unknown>,
-              }));
+              // Re-normalize so safety annotations (destructive / open-world)
+              // reach permission classification; dropping them would let a
+              // policy that auto-approves `mutation` run destructive tools.
+              return capabilities.tools.flatMap((raw): AgentMcpToolDescriptor[] => {
+                const tool = normalizeMcpToolDescriptor(raw);
+                if (!tool) return [];
+                return [
+                  {
+                    name: tool.name,
+                    ...(tool.description ? { description: tool.description } : {}),
+                    inputSchema: (tool.inputSchema ?? {}) as Record<string, unknown>,
+                    ...(tool.annotations ? { annotations: tool.annotations } : {}),
+                  },
+                ];
+              });
             }),
           callTool: async (name, arguments_, signal) =>
             withClient(source, signal, async (client) => {
@@ -140,18 +160,11 @@ export function createMcpAgentToolSourceAdapter(
               return contentBlocks(response.result);
             }),
         },
-        signal
+        signal,
+        // Same rule as the CLI: sanitized and capped at 64 chars (IPC `name max(64)`).
+        { nameForTool: (name) => mcpAgentToolName(source.connectionId, name) }
       );
-      return tools.map((tool) => ({
-        ...tool,
-        definition: {
-          ...tool.definition,
-          name: `mcp_${source.connectionId}_${tool.definition.name}`.replace(
-            /[^a-zA-Z0-9_-]/g,
-            '_'
-          ),
-        },
-      }));
+      return tools;
     },
   };
 }
