@@ -37,10 +37,13 @@ export function mcpAgentToolName(sourceId: string, remoteName: string): string {
 }
 
 function permissionForMcpTool(tool: McpToolDescriptor): PermissionClass {
-  if (tool.annotations?.destructiveHint) return 'destructive';
-  if (tool.annotations?.openWorldHint) return 'network';
-  // MCP annotations are untrusted hints, not authorization. Even a server that
-  // claims readOnlyHint remains approval-required until a local trust policy exists.
+  const hints = tool.annotations;
+  if (hints?.destructiveHint) return 'destructive';
+  // MCP annotations are untrusted hints, not authorization: they may only move a
+  // tool to a class at least as strict as `mutation`. `network` is reserved for a
+  // tool that declares itself both read-only and open-world, so a server cannot
+  // drop a mutating tool below `mutation` by declaring `openWorldHint` alone.
+  if (hints?.openWorldHint === true && hints.readOnlyHint === true) return 'network';
   return 'mutation';
 }
 

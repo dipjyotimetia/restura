@@ -39,7 +39,17 @@ describe('MCP agent tools', () => {
         async listTools() {
           return [
             { name: 'drop', inputSchema: {}, annotations: { destructiveHint: true } },
-            { name: 'fetch', inputSchema: {}, annotations: { openWorldHint: true } },
+            {
+              name: 'fetch',
+              inputSchema: {},
+              annotations: { openWorldHint: true, readOnlyHint: true },
+            },
+            { name: 'post', inputSchema: {}, annotations: { openWorldHint: true } },
+            {
+              name: 'send',
+              inputSchema: {},
+              annotations: { openWorldHint: true, readOnlyHint: false },
+            },
             { name: 'plain', inputSchema: {} },
           ];
         },
@@ -56,9 +66,12 @@ describe('MCP agent tools', () => {
     expect(tools.map((tool) => [tool.definition.name, tool.permissionClass])).toEqual([
       ['mcp_drop', 'destructive'],
       ['mcp_fetch', 'network'],
+      // openWorldHint alone never lowers a tool below mutation.
+      ['mcp_post', 'mutation'],
+      ['mcp_send', 'mutation'],
       ['mcp_plain', 'mutation'],
     ]);
-    expect(inspected).toEqual([['drop', 'fetch', 'plain']]);
+    expect(inspected).toEqual([['drop', 'fetch', 'post', 'send', 'plain']]);
   });
 
   it('fails closed when an explicitly allowed remote tool is unavailable', async () => {

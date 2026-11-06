@@ -188,7 +188,12 @@ describe('MCP agent tool adapter', () => {
         {
           name: 'fetch_url',
           inputSchema: { type: 'object' },
-          annotations: { openWorldHint: true },
+          annotations: { openWorldHint: true, readOnlyHint: true },
+        },
+        {
+          name: 'send_message',
+          inputSchema: { type: 'object' },
+          annotations: { openWorldHint: true, readOnlyHint: false },
         },
         { name: 'plain', inputSchema: { type: 'object' } },
       ],
@@ -198,6 +203,7 @@ describe('MCP agent tool adapter', () => {
     expect(tools.map((tool) => tool.permissionClass)).toEqual([
       'destructive',
       'network',
+      'mutation',
       'mutation',
     ]);
   });
