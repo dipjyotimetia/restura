@@ -1,4 +1,5 @@
 import { attachPostmanSidecar } from '@shared/collections/postman/sidecar';
+import { combineScripts } from '@shared/scripts/combine-scripts';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
@@ -484,8 +485,8 @@ function requestToInternal(
   const collectionTest = parent.testScript ?? '';
   const reqPre = rq.preRequestScript ?? '';
   const reqTest = rq.testScript ?? '';
-  const combinedPre = combineScripts(collectionPre, reqPre);
-  const combinedTest = combineScripts(collectionTest, reqTest);
+  const combinedPre = combineInheritedScripts(collectionPre, reqPre);
+  const combinedTest = combineInheritedScripts(collectionTest, reqTest);
   return {
     id: uuid(),
     name: rq.name,
@@ -504,13 +505,17 @@ function requestToInternal(
   };
 }
 
-function combineScripts(collection: string, request: string): string | undefined {
-  // Fast path: both empty (common case for collections without scripts).
-  if (!collection && !request) return undefined;
-  const parts: string[] = [];
-  if (collection.trim()) parts.push(`// --- inherited from collection ---\n${collection}`);
-  if (request.trim()) parts.push(request);
-  return parts.length > 0 ? parts.join('\n\n') : undefined;
+/**
+ * Collection → request scripts of one phase, joined by the shared combiner so
+ * each level runs in its own block (a `const` declared at both levels must not
+ * throw a redeclaration SyntaxError). The collection part keeps its provenance
+ * header comment.
+ */
+function combineInheritedScripts(collection: string, request: string): string | undefined {
+  return combineScripts([
+    collection.trim() ? `// --- inherited from collection ---\n${collection}` : undefined,
+    request,
+  ]);
 }
 
 function toKv(h: { key: string; value: string; active?: boolean; description?: string }): KeyValue {
