@@ -22,6 +22,7 @@ export default defineConfig({
       'electron/main/__tests__/http-execution-policy.test.ts',
       'electron/main/__tests__/http-handler*.test.ts',
       'electron/main/ipc/__tests__/**/*.test.ts',
+      'electron/main/ipc/validators/__tests__/**/*.test.ts',
     ],
     coverage: {
       provider: 'v8',
