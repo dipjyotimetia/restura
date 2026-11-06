@@ -28,6 +28,8 @@ vi.mock('@/components/shared/AriaLiveAnnouncer', () => ({
   }),
 }));
 
+import { useActiveStreamStore } from '@/features/http/store/useActiveStreamStore';
+import '@/features/registry/bootstrap';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -244,8 +246,9 @@ describe('useHttpRequestPage — streaming Accept', () => {
     await vi.waitFor(() =>
       expect(useRequestStore.getState().tabs[0]?.streamingEvents).toBeDefined()
     );
-    // Still in flight while the stream runs: Send is the Cancel button.
-    expect(useRequestStore.getState().isLoading).toBe(true);
+    // The running stream no longer holds the shared loading state; Cancel
+    // still reaches it (it stops the active tab's stream).
+    await vi.waitFor(() => expect(useRequestStore.getState().isLoading).toBe(false));
     act(() => hook.current.handlers.cancelRequest());
     release();
     await act(async () => {
@@ -273,5 +276,81 @@ describe('useHttpRequestPage — streaming Accept', () => {
     expect(tab?.streamingEvents).toBeUndefined();
     expect(tab?.scriptResult?.preRequest).toEqual(preRequest);
     expect(useHistoryStore.getState().history).toHaveLength(0);
+  });
+});
+
+describe('useHttpRequestPage — a running stream does not block other sends', () => {
+  /** A stream that yields one event, then waits until `close()` or abort. */
+  function openStream(signal?: () => AbortSignal | undefined) {
+    let close!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      close = resolve;
+    });
+    const stream: AsyncIterable<StreamEventLike> = {
+      async *[Symbol.asyncIterator](): AsyncGenerator<StreamEventLike> {
+        yield { type: 'raw', payload: '{"a":1}' };
+        const s = signal?.();
+        await new Promise<void>((resolve) => {
+          closed.then(resolve);
+          s?.addEventListener('abort', () => resolve(), { once: true });
+        });
+        yield { type: 'end', bytesRead: 8, durationMs: 1 };
+      },
+    };
+    return { stream, close };
+  }
+
+  async function startStreaming() {
+    let sentSignal: AbortSignal | undefined;
+    const open = openStream(() => sentSignal);
+    const result = streamResult(open.stream);
+    executor.executeStreamingRequest.mockImplementation(async (opts: { signal?: AbortSignal }) => {
+      sentSignal = opts.signal;
+      return result;
+    });
+    setup('application/x-ndjson');
+    const { result: hook } = renderHook(() => useHttpRequestPage());
+    let sending!: Promise<void>;
+    await act(async () => {
+      sending = hook.current.handlers.sendRequest();
+      await vi.waitFor(() =>
+        expect(useRequestStore.getState().tabs[0]?.streamingEvents).toBeDefined()
+      );
+    });
+    return { open, result, sending, signal: () => sentSignal };
+  }
+
+  it('releases the shared loading state once the stream starts, then runs tests at the end', async () => {
+    const { open, result, sending } = await startStreaming();
+    await vi.waitFor(() => expect(useRequestStore.getState().isLoading).toBe(false));
+    expect(useActiveStreamStore.getState().cancels.tab1).toBeDefined();
+    expect(result.finish).not.toHaveBeenCalled();
+
+    await act(async () => {
+      open.close();
+      await sending;
+    });
+    expect(result.finish).toHaveBeenCalledTimes(1);
+    expect(useActiveStreamStore.getState().cancels.tab1).toBeUndefined();
+  });
+
+  it('Stop ends the stream with no tests and no history', async () => {
+    const { result, sending, signal } = await startStreaming();
+    await act(async () => {
+      useActiveStreamStore.getState().stop('tab1');
+      await sending;
+    });
+    expect(signal()?.aborted).toBe(true);
+    expect(result.finish).not.toHaveBeenCalled();
+    expect(useHistoryStore.getState().history).toHaveLength(0);
+  });
+
+  it('closing the tab stops its stream', async () => {
+    const { sending, signal } = await startStreaming();
+    await act(async () => {
+      useRequestStore.getState().closeTab('tab1');
+      await sending;
+    });
+    expect(signal()?.aborted).toBe(true);
   });
 });

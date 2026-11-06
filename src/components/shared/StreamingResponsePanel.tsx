@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { ResponseTestsPanel } from '@/components/shared/ResponseTestsPanel';
 import { LayoutToggleButton } from '@/components/shared/ResponseToolbarButtons';
 import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
+import { Button } from '@/components/ui/button';
 import { Floater, type SubTab, SubTabBar } from '@/components/ui/spatial';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { HttpStreamEvent } from '@/features/http/lib/streamingResponseReader';
+import { useActiveStreamStore } from '@/features/http/store/useActiveStreamStore';
 import { useActiveTab } from '@/store/selectors';
 
 type StreamTab = 'stream' | 'tests';
@@ -16,7 +18,11 @@ type StreamTab = 'stream' | 'tests';
  */
 export function StreamingResponsePanel({ events }: { events: AsyncIterable<HttpStreamEvent> }) {
   const [tab, setTab] = useState<StreamTab>('stream');
-  const testResult = useActiveTab()?.scriptResult?.test;
+  const activeTab = useActiveTab();
+  const testResult = activeTab?.scriptResult?.test;
+  const tabId = activeTab?.id;
+  const running = useActiveStreamStore((s) => (tabId ? Boolean(s.cancels[tabId]) : false));
+  const stop = useActiveStreamStore((s) => s.stop);
   const tests = testResult?.tests ?? [];
   const tabs: ReadonlyArray<SubTab<StreamTab>> = [
     { value: 'stream', label: 'Stream' },
@@ -38,6 +44,17 @@ export function StreamingResponsePanel({ events }: { events: AsyncIterable<HttpS
         <div className="h-11 flex items-center px-3 border-b border-sp-line">
           <span className="sp-label">Streaming response</span>
           <div className="flex-1" />
+          {running && tabId && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 mr-2"
+              onClick={() => stop(tabId)}
+              aria-label="Stop stream"
+            >
+              Stop
+            </Button>
+          )}
           <LayoutToggleButton />
         </div>
         <SubTabBar tabs={tabs} value={tab} onChange={setTab} />

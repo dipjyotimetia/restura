@@ -19,6 +19,7 @@ import {
 import { applySettingsPatch, type RequestSettingsPatch } from '@/features/http/lib/settingsPatch';
 import type { HttpStreamEvent } from '@/features/http/lib/streamingResponseReader';
 import { applyUrlInput } from '@/features/http/lib/urlQuery';
+import { useActiveStreamStore } from '@/features/http/store/useActiveStreamStore';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { isElectron } from '@/lib/shared/platform';
@@ -214,7 +215,15 @@ export function useHttpRequestPage() {
 
   // Aborts the in-flight send; the executor honours the signal end to end.
   const abortRef = useRef<AbortController | null>(null);
-  const cancelRequest = useCallback(() => abortRef.current?.abort(), []);
+  // Cancels the send in flight, or else the active tab's running stream.
+  const cancelRequest = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      return;
+    }
+    const tabId = useRequestStore.getState().activeTabId;
+    if (tabId) useActiveStreamStore.getState().stop(tabId);
+  }, []);
 
   // The interactive Send delegates to the shared `executeRequest` — the same
   // pipeline the collection runner / workflows / load-testing use. This is
@@ -228,6 +237,8 @@ export function useHttpRequestPage() {
     if (!httpRequest?.url || isLoading) return;
     const originTabId = useRequestStore.getState().activeTabId;
     if (!originTabId) return;
+    // A new send replaces this tab's response, so end a stream still running.
+    useActiveStreamStore.getState().stop(originTabId);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -235,6 +246,17 @@ export function useHttpRequestPage() {
     useUiStore
       .getState()
       .setInFlight({ tabId: originTabId, startedAt: Date.now(), cancel: () => controller.abort() });
+    // Give the page's shared loading state back (once). A streamed send does
+    // this as soon as its stream starts, so a long-lived stream never blocks
+    // sending from other tabs; it is then stopped from its panel instead.
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      if (abortRef.current === controller) abortRef.current = null;
+      setLoading(false);
+      useUiStore.getState().setInFlight(null);
+    };
     // Drop the previous run's script output so the Tests/Visualize tabs never
     // show stale results next to a send that ran no scripts or failed.
     setScriptResultForTab(originTabId, null);
@@ -284,8 +306,9 @@ export function useHttpRequestPage() {
       // IPC has no streaming channel, so it stays on the buffered path. The
       // stream path runs the same scripts as a buffered send: the pre-request
       // script before anything is sent, the test script (and the history
-      // entry) once the stream ends, against the captured stream text. The
-      // send stays in flight until then, so Cancel stops it and no tests run.
+      // entry) once the stream ends, against the captured stream text. Once
+      // the stream starts the send stops blocking other sends; the panel's
+      // Stop button (or a new send / closing the tab) ends it with no tests run.
       const scope: RequestScope = {
         values: envVars,
         secretVariables,
@@ -327,11 +350,18 @@ export function useHttpRequestPage() {
         toast.dismiss('request');
         announceRequestComplete(streaming.responseMeta.status, Date.now() - startTime);
 
+        const stopStream = () => controller.abort();
+        useActiveStreamStore.getState().start(originTabId, stopStream);
+        release();
         let terminal: HttpStreamEvent | undefined;
-        for await (const event of replay) {
-          if (isStreamTerminal(event)) terminal = event;
+        try {
+          for await (const event of replay) {
+            if (isStreamTerminal(event)) terminal = event;
+          }
+        } finally {
+          useActiveStreamStore.getState().end(originTabId, stopStream);
         }
-        // Cancelled mid-stream: like a buffered cancel, no tests or history.
+        // Stopped mid-stream: like a buffered cancel, no tests or history.
         controller.signal.throwIfAborted();
         const done = await streaming.finish(terminal);
         if (streaming.refreshedAuth && httpRequest.auth?.type === 'oauth2') {
@@ -419,9 +449,7 @@ export function useHttpRequestPage() {
       );
       reportFailure(originTabId, errorMessage);
     } finally {
-      if (abortRef.current === controller) abortRef.current = null;
-      setLoading(false);
-      useUiStore.getState().setInFlight(null);
+      release();
     }
   }, [
     httpRequest,
