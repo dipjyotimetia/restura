@@ -12,6 +12,6 @@ export function formRowsToInternal(form: unknown): NonNullable<RequestBody['form
   if (!Array.isArray(parts)) return [];
   return parts.map((part) => {
     const row = (part && typeof part === 'object' ? part : {}) as Record<string, unknown>;
-    return (typeof row.enabled === 'boolean' ? row : { ...row, enabled: true }) as never;
+    return (row.enabled === undefined ? { ...row, enabled: true } : row) as never;
   });
 }
