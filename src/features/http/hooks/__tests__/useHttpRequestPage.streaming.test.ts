@@ -354,3 +354,22 @@ describe('useHttpRequestPage — a running stream does not block other sends', (
     expect(signal()?.aborted).toBe(true);
   });
 });
+
+describe('useHttpRequestPage — pm.execution.skipRequest on a buffered send', () => {
+  it('asks the executor to honour it and records no response or history', async () => {
+    executor.executeRequest.mockResolvedValue({
+      response: { ...buffered, status: 0, statusText: 'Skipped', body: '' },
+      transportOk: false,
+      scriptResult: { preRequest: { logs: [], errors: [], execution: { skipRequested: true } } },
+      envVars: {},
+      sentUrl: 'https://example.com/feed',
+      sentHeaders: {},
+    });
+    setup(undefined);
+    await send();
+
+    expect(executor.executeRequest.mock.calls[0]?.[0]).toMatchObject({ honorSkipRequest: true });
+    expect(useHistoryStore.getState().history).toHaveLength(0);
+    expect(useRequestStore.getState().tabs[0]?.response ?? null).toBeNull();
+  });
+});

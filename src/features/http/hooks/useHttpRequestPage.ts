@@ -383,6 +383,7 @@ export function useHttpRequestPage() {
         resolveVariables: (text) => resolveVariables(text),
         collectionVars,
         signal: controller.signal,
+        honorSkipRequest: true,
       });
 
       // History, console and HAR record what the executor sent.
@@ -390,6 +391,14 @@ export function useHttpRequestPage() {
 
       const { scriptResult } = result;
       applyScriptOutcome(originTabId, result, scriptTarget);
+
+      if (scriptResult?.preRequest?.execution?.skipRequested) {
+        // `pm.execution.skipRequest()`: nothing was sent, so no response and
+        // no history entry (as a streamed send); the pre-request output and
+        // writes still count.
+        toast.info('Request skipped by the pre-request script', { id: 'request', duration: 3000 });
+        return;
+      }
 
       // Persist a refreshed OAuth2 token — but only when the auth belongs to
       // this request; a refreshed *inherited* auth must not be materialised
