@@ -32,7 +32,6 @@ import {
   importPostmanFolder,
   loadPostmanFile,
   type PostmanLimits,
-  postmanSecretVariableNames,
 } from './postmanImport.js';
 
 export interface LoadedRequest {
@@ -193,21 +192,12 @@ async function loadCollectionByFormat(
 // ---------------------------------------------------------------------------
 
 function fromPostman(c: Collection, report: CliPostmanImportReport): LoadedCollection {
-  const meta = extractMeta(c);
   // Secret variables (v3 vault, v2.1 `type: "secret"`) import value-less
-  // (`secret: true`). Never fold them in as an empty value (that would also
-  // shadow an `--env` value): treat them as private variables, so a request that uses one without a value fails
-  // explicitly (`assertCliSecretsAvailable`), the same rule as OC private vars.
-  const secretNames = postmanSecretVariableNames(c);
-  if (secretNames.size > 0) {
-    if (meta.variables) {
-      meta.variables = meta.variables.filter((v) => !secretNames.has(v.key));
-      if (meta.variables.length === 0) delete meta.variables;
-    }
-    meta.privateVariableNames = [
-      ...new Set([...(meta.privateVariableNames ?? []), ...secretNames]),
-    ];
-  }
+  // (`secret: true`), so `extractMeta` / `flattenInternal` record them as secret
+  // names, the same rule as OpenCollection secret variables: never folded in as
+  // an empty value, and a request that still has no value for one when it is
+  // sent is reported not sent (`--env`, a `--data` row or a script can supply it).
+  const meta = extractMeta(c);
   return {
     meta,
     requests: flattenInternal(c),

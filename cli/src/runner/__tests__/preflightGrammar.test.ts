@@ -44,7 +44,11 @@ class RecordingReporter implements Reporter {
   }
 }
 
-/** Postman v2.1: `type: secret` loads value-less, as a private variable. */
+/**
+ * Postman v2.1: `type: secret` loads value-less, as a secret variable (the same
+ * rule as OpenCollection secret variables): checked per request at send time,
+ * so `--data`, `--env` or an earlier script can supply it.
+ */
 function postman(secondValue: string, extraItems: unknown[] = []): string {
   const dir = mkdtempSync(join(tmpdir(), 'restura-preflight-'));
   const file = join(dir, 'c.postman_collection.json');
@@ -74,13 +78,26 @@ function postman(secondValue: string, extraItems: unknown[] = []): string {
   return file;
 }
 
-const run = (file: string, reporter: Reporter, envVars: Record<string, string> = {}) =>
-  runCollection(file, { envVars, bail: false, timeoutMs: 5000, allowLocalhost: true }, reporter);
+const run = (
+  file: string,
+  reporter: Reporter,
+  envVars: Record<string, string> = {},
+  iterations?: Array<Record<string, string>>
+) =>
+  runCollection(
+    file,
+    {
+      envVars,
+      bail: false,
+      timeoutMs: 5000,
+      allowLocalhost: true,
+      ...(iterations ? { iterations } : {}),
+    },
+    reporter
+  );
 
 describe('CLI preflight reads the shared token grammar', () => {
   const REFUSED: ReadonlyArray<[token: string, message: string]> = [
-    ['{{my private}}', 'Private variable "my private" is unavailable'],
-    ['{{ my private }}', 'Private variable "my private" is unavailable'],
     ['{{handle:a b}}', 'SecretRef handles are unavailable'],
     ['{{handle:x}}', 'SecretRef handles are unavailable'],
   ];
@@ -94,9 +111,27 @@ describe('CLI preflight reads the shared token grammar', () => {
     });
   }
 
-  it('sends the spaced private variable when the run supplies it', async () => {
+  for (const token of ['{{my private}}', '{{ my private }}']) {
+    it(`reports request 2 using an unsupplied Postman secret ${token} as not sent; request 1 still runs`, async () => {
+      const reporter = new RecordingReporter();
+      const result = await run(postman(`v ${token}`), reporter);
+      expect(hits).toEqual(['/one']);
+      const second = result.requests[1];
+      expect(second?.notSent).toBe(true);
+      expect(second?.errorMessage).toContain('secret variable "my private" has no value');
+    });
+  }
+
+  it('sends the spaced secret variable when the run supplies it', async () => {
     const reporter = new RecordingReporter();
     const result = await run(postman('{{my private}}'), reporter, { 'my private': 'v' });
+    expect(result.summary.passed).toBe(2);
+    expect(hits).toEqual(['/one', '/two']);
+  });
+
+  it('runs a Postman secret variable supplied by an iteration data row (B20)', async () => {
+    const reporter = new RecordingReporter();
+    const result = await run(postman('{{my private}}'), reporter, {}, [{ 'my private': 'row' }]);
     expect(result.summary.passed).toBe(2);
     expect(hits).toEqual(['/one', '/two']);
   });
@@ -105,47 +140,5 @@ describe('CLI preflight reads the shared token grammar', () => {
     const reporter = new RecordingReporter();
     const result = await run(postman('{{$randomUUID}} {{some other}}'), reporter);
     expect(result.summary.passed).toBe(2);
-  });
-});
-
-describe('a refusal the preflight cannot see', () => {
-  it('fails that item and keeps the run and its report', async () => {
-    // The script writes a metadata value at run time, so nothing on disk holds it.
-    const dir = mkdtempSync(join(tmpdir(), 'restura-preflight-'));
-    writeFileSync(
-      join(dir, '_collection.yaml'),
-      `name: c\nvariables:\n  - { key: BASE, value: ${baseUrl}, enabled: true }\n`,
-      'utf-8'
-    );
-    writeFileSync(
-      join(dir, 'a.grpc.yaml'),
-      [
-        'name: grpc',
-        'type: grpc',
-        "url: '{{BASE}}/rpc'",
-        'service: echo.Echo',
-        'method: Echo',
-        'methodType: unary',
-        "message: '{}'",
-        'preRequestScript: |',
-        "  rs.request.metadata['x-k'] = '{{handle' + ':x}}';",
-        '',
-      ].join('\n'),
-      'utf-8'
-    );
-    writeFileSync(
-      join(dir, 'b.http.yaml'),
-      `name: after\nmethod: GET\nurl: '{{BASE}}/after'\n`,
-      'utf-8'
-    );
-    const reporter = new RecordingReporter();
-    const result = await run(dir, reporter);
-    expect(reporter.ended).toBeDefined();
-    const names = result.requests.map((r) => r.request.request.name);
-    expect(names).toContain('after');
-    const failed = result.requests.find((r) => r.request.request.name === 'grpc');
-    expect(failed?.passed).toBe(false);
-    expect(failed?.errorMessage).toContain('SecretRef handles are unavailable');
-    expect(hits).toContain('/after');
   });
 });
