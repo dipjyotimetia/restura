@@ -39,6 +39,7 @@ import {
   stopStreamCleanup,
   sweepIdleStreams,
 } from '../handlers/grpc-handler';
+import { activeUnaryCallCount } from '../handlers/grpc-unary-calls';
 
 type StreamControls = {
   cancel: ReturnType<typeof vi.fn>;
@@ -663,5 +664,169 @@ describe('grpc:request deadlines', () => {
       timeoutMs?: number;
     };
     expect(args.timeoutMs).toBe(DEFAULT_SYNC_DEADLINE_MS);
+  });
+});
+
+describe('grpc:cancel-request (unary cancel)', () => {
+  type Handler = (event: unknown, payload: unknown) => Promise<unknown>;
+  const mockHandle = vi.mocked(ipcMain.handle);
+  const handlerFor = (channel: string) =>
+    mockHandle.mock.calls.find(([c]) => c === channel)?.[1] as Handler;
+
+  // A unary executor that parks until its signal aborts, then settles the way
+  // connect-node does (CANCELLED), recording the signal it was handed.
+  let seenSignals: AbortSignal[] = [];
+  const parkUntilAbort = (args: { signal?: AbortSignal }) => {
+    if (args.signal) seenSignals.push(args.signal);
+    return new Promise((resolve) => {
+      args.signal?.addEventListener('abort', () =>
+        resolve({ status: 1, statusText: 'CANCELLED', headers: {}, trailers: {} })
+      );
+    });
+  };
+
+  beforeEach(() => {
+    mockHandle.mockClear();
+    seenSignals = [];
+    mockExecuteConnectUnary.mockReset();
+    mockExecuteConnectServerStreamCollect.mockReset();
+    mockResolveGrpcDialAddress.mockReset();
+    mockResolveGrpcDialAddress.mockResolvedValue(pinnedDial);
+    mockExecuteConnectUnary.mockImplementation(parkUntilAbort);
+    mockExecuteConnectServerStreamCollect.mockImplementation(parkUntilAbort);
+    registerGrpcHandlerIPC();
+  });
+
+  afterEach(() => stopStreamCleanup());
+
+  it('cancels an in-flight unary call: transport aborted, invoke settles CANCELLED, registry empty', async () => {
+    const owner = makeEvent();
+    const pending = handlerFor(IPC.grpc.request)(owner.event, {
+      ...validStream('unary-1'),
+      methodType: 'unary',
+    });
+    await vi.waitFor(() => expect(mockExecuteConnectUnary).toHaveBeenCalledOnce());
+    expect(activeUnaryCallCount()).toBe(1);
+
+    await expect(
+      handlerFor(IPC.grpc.cancelRequest)(owner.event, { requestId: 'unary-1' })
+    ).resolves.toEqual({ ok: true });
+    expect(seenSignals[0]?.aborted).toBe(true);
+
+    await expect(pending).resolves.toMatchObject({ status: 1, statusText: 'CANCELLED' });
+    expect(activeUnaryCallCount()).toBe(0);
+  });
+
+  it('cancels a buffered server-stream collect the same way', async () => {
+    const owner = makeEvent();
+    const pending = handlerFor(IPC.grpc.request)(owner.event, {
+      ...validStream('collect-1'),
+      methodType: 'server-streaming',
+    });
+    await vi.waitFor(() => expect(mockExecuteConnectServerStreamCollect).toHaveBeenCalledOnce());
+    await handlerFor(IPC.grpc.cancelRequest)(owner.event, { requestId: 'collect-1' });
+    await expect(pending).resolves.toMatchObject({ status: 1 });
+    expect(activeUnaryCallCount()).toBe(0);
+  });
+
+  it('settles CANCELLED when the cancel lands during the DNS pre-flight', async () => {
+    const dns = deferred<typeof pinnedDial>();
+    mockResolveGrpcDialAddress.mockReturnValueOnce(dns.promise);
+    const owner = makeEvent();
+    const pending = handlerFor(IPC.grpc.request)(owner.event, {
+      ...validStream('early'),
+      methodType: 'unary',
+    });
+    await vi.waitFor(() => expect(mockResolveGrpcDialAddress).toHaveBeenCalledOnce());
+    await handlerFor(IPC.grpc.cancelRequest)(owner.event, { requestId: 'early' });
+    dns.resolve(pinnedDial);
+    await expect(pending).resolves.toMatchObject({ status: 1, statusText: 'CANCELLED' });
+    expect(mockExecuteConnectUnary).not.toHaveBeenCalled();
+    expect(activeUnaryCallCount()).toBe(0);
+  });
+
+  it('ignores a cancel from another renderer for the same id', async () => {
+    const owner = makeEvent();
+    const other = makeEvent();
+    const pending = handlerFor(IPC.grpc.request)(owner.event, {
+      ...validStream('mine'),
+      methodType: 'unary',
+    });
+    await vi.waitFor(() => expect(mockExecuteConnectUnary).toHaveBeenCalledOnce());
+
+    await expect(
+      handlerFor(IPC.grpc.cancelRequest)(other.event, { requestId: 'mine' })
+    ).resolves.toEqual({ ok: true });
+    expect(seenSignals[0]?.aborted).toBe(false);
+    expect(activeUnaryCallCount()).toBe(1);
+
+    await handlerFor(IPC.grpc.cancelRequest)(owner.event, { requestId: 'mine' });
+    await pending;
+  });
+
+  it('a cancel for an unknown or finished id is a no-op success', async () => {
+    mockExecuteConnectUnary.mockResolvedValueOnce({
+      status: 0,
+      statusText: 'OK',
+      headers: {},
+      trailers: {},
+    });
+    const owner = makeEvent();
+    await handlerFor(IPC.grpc.request)(owner.event, {
+      ...validStream('done'),
+      methodType: 'unary',
+    });
+    expect(activeUnaryCallCount()).toBe(0);
+    await expect(
+      handlerFor(IPC.grpc.cancelRequest)(owner.event, { requestId: 'done' })
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      handlerFor(IPC.grpc.cancelRequest)(owner.event, { requestId: 'never-seen' })
+    ).resolves.toEqual({ ok: true });
+  });
+
+  it('aborts and drops a renderer’s in-flight unary calls when it is destroyed', async () => {
+    const owner = makeEvent();
+    const pending = handlerFor(IPC.grpc.request)(owner.event, {
+      ...validStream('orphan'),
+      methodType: 'unary',
+    });
+    await vi.waitFor(() => expect(mockExecuteConnectUnary).toHaveBeenCalledOnce());
+    owner.destroy();
+    expect(seenSignals[0]?.aborted).toBe(true);
+    await pending;
+    expect(activeUnaryCallCount()).toBe(0);
+  });
+
+  it('rejects malformed cancel payloads at the schema', async () => {
+    const owner = makeEvent();
+    for (const bad of [
+      undefined,
+      {},
+      { requestId: '' },
+      { requestId: 'has spaces' },
+      { requestId: '../etc' },
+      { requestId: 'x'.repeat(65) },
+      { requestId: 'ok', extra: 1 },
+      'bare-string',
+    ]) {
+      await expect(handlerFor(IPC.grpc.cancelRequest)(owner.event, bad)).rejects.toThrow();
+    }
+  });
+
+  it('refuses a cancel from an untrusted frame', async () => {
+    const owner = makeEvent();
+    const untrusted = makeEvent('https://attacker.example/', owner.senderId);
+    const pending = handlerFor(IPC.grpc.request)(owner.event, {
+      ...validStream('guarded'),
+      methodType: 'unary',
+    });
+    await vi.waitFor(() => expect(mockExecuteConnectUnary).toHaveBeenCalledOnce());
+    await expect(
+      handlerFor(IPC.grpc.cancelRequest)(untrusted.event, { requestId: 'guarded' })
+    ).rejects.toThrow();
+    expect(seenSignals[0]?.aborted).toBe(false);
+    await handlerFor(IPC.grpc.cancelRequest)(owner.event, { requestId: 'guarded' });
+    await pending;
   });
 });

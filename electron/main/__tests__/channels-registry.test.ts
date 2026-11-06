@@ -144,6 +144,7 @@ describe('IPC channel registry shape', () => {
         "IPC.git.push": "git:push",
         "IPC.git.status": "git:status",
         "IPC.git.unstage": "git:unstage",
+        "IPC.grpc.cancelRequest": "grpc:cancel-request",
         "IPC.grpc.cancelStream": "grpc:cancel-stream",
         "IPC.grpc.endStream": "grpc:end-stream",
         "IPC.grpc.reflect": "grpc:reflect",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CollectionItem } from '../../types';
+import type { CollectionItem, HttpRequest } from '../../types';
 import { exportPostmanV21 } from './export-v2';
 import { importPostmanCollection } from './index';
 
@@ -74,7 +74,7 @@ describe('Postman v2 path variables', () => {
     for (const row of variable ?? []) expect(row.key).toBe('id');
   });
 
-  it('substitutes and re-exports v2.0 path variables keyed by `id`', () => {
+  it('keeps and re-exports v2.0 path variables keyed by `id`', () => {
     const { collection } = importPostmanCollection({
       info: {
         name: 'C',
@@ -93,8 +93,11 @@ describe('Postman v2 path variables', () => {
         },
       ],
     });
-    const request = collection.items[0]?.request as { url: string };
-    expect(request.url).toBe('https://api.dev/users/42');
+    const request = collection.items[0]?.request as HttpRequest;
+    expect(request.url).toBe('https://api.dev/users/:id');
+    expect(request.pathVariables?.map((v) => [v.key, v.value, v.description])).toEqual([
+      ['id', '42', 'The user id'],
+    ]);
     const exported = exportPostmanV21(collection).collection as unknown as {
       item: Array<{ request: { url: { variable?: Array<Record<string, unknown>> } } }>;
     };

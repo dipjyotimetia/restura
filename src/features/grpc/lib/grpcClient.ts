@@ -406,7 +406,11 @@ export async function makeElectronGrpcRequest(
   // Base64 binary FileDescriptorProtos from reflection. When present the main
   // process loads the complete descriptor set (lossless) and ignores the
   // reconstructed `protoContent` text.
-  descriptors?: string[]
+  descriptors?: string[],
+  // Aborting sends `grpc:cancel-request` for this call's id, so the main
+  // process cancels the transport instead of running it to its deadline. The
+  // returned promise still settles with whatever main reports (CANCELLED).
+  signal?: AbortSignal
 ): Promise<GrpcResponse> {
   if (!isElectron()) {
     throw new Error('Electron environment required for full gRPC support');
@@ -418,6 +422,10 @@ export async function makeElectronGrpcRequest(
     protoFileName,
   });
   const startTime = Date.now();
+  // Per-call id (not request.id: the same saved request can be in flight more
+  // than once, e.g. a collection run alongside the builder).
+  const callId = uuidv4();
+  let onAbort: (() => void) | undefined;
 
   try {
     const wireProtocol = desktopWireProtocol(request.wireProtocol);
@@ -428,7 +436,8 @@ export async function makeElectronGrpcRequest(
     // gRPC server connects instead of failing the handshake.
     const tls = resolveGrpcTls(prepared.url);
 
-    const response = await api.grpc.request({
+    const pendingResponse = api.grpc.request({
+      id: callId,
       url: prepared.url,
       service: request.service,
       method: request.method,
@@ -447,6 +456,16 @@ export async function makeElectronGrpcRequest(
       // resolveGrpcTls already omits absent keys, so spread it whole.
       ...(tls ?? {}),
     });
+    // Sent after the request invoke, so main always sees the call before its
+    // cancel (IPC is ordered per renderer). Unknown/finished ids are a no-op.
+    if (signal) {
+      onAbort = () => {
+        void api.grpc.cancelRequest({ requestId: callId }).catch(() => {});
+      };
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
+    const response = await pendingResponse;
 
     const endTime = Date.now();
 
@@ -498,6 +517,8 @@ export async function makeElectronGrpcRequest(
     };
   } catch (error: unknown) {
     return createErrorResponse(request.id, error, startTime);
+  } finally {
+    if (onAbort) signal?.removeEventListener('abort', onAbort);
   }
 }
 

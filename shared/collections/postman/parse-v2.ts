@@ -15,6 +15,7 @@ import {
   convertAuthBlock,
   description,
   type InheritedPostmanAuth,
+  importPathVariables,
   inheritAuth,
   inheritFrom,
   isObj,
@@ -27,7 +28,6 @@ import {
   type Raw,
   secretKeyValue,
   str,
-  substitutePathVariables,
 } from './common';
 import { attachPostmanSidecar, type PostmanSidecar } from './sidecar';
 import type {
@@ -188,7 +188,7 @@ function convertUrl(
   requestName: string,
   sidecar: PostmanSidecar,
   ctx: ParseContext
-): { url: string; params: KeyValue[] } {
+): { url: string; params: KeyValue[]; pathVariables?: KeyValue[] } {
   let full: string;
   let params: KeyValue[] | undefined;
   if (typeof url === 'string') {
@@ -208,10 +208,12 @@ function convertUrl(
   const fragment = hash === -1 ? '' : full.slice(hash);
   const beforeFragment = hash === -1 ? full : full.slice(0, hash);
   const q = beforeFragment.indexOf('?');
-  let base = q === -1 ? beforeFragment : beforeFragment.slice(0, q);
+  const base = q === -1 ? beforeFragment : beforeFragment.slice(0, q);
   if (!params) params = parseQueryString(q === -1 ? '' : beforeFragment.slice(q + 1));
+  // `:name` segments stay in the URL; their values become path-variable rows.
   if (isObj(url) && Array.isArray(url.variable) && url.variable.length > 0) {
-    base = substitutePathVariables(base, url.variable, requestName, sidecar, ctx);
+    const pathVariables = importPathVariables(url.variable, requestName, sidecar, ctx);
+    if (pathVariables.length > 0) return { url: base + fragment, params, pathVariables };
   }
   return { url: base + fragment, params };
 }
@@ -465,7 +467,7 @@ function convertRequestItem(
   if (authOut.sidecarAuth) sidecar.auth = authOut.sidecarAuth;
   markExplicitNoauth(authOut, sidecar, inherited, name, ctx);
   const scripts = extractScripts(raw.event, ctx);
-  const { url, params } = convertUrl(request.url, name, sidecar, ctx);
+  const { url, params, pathVariables } = convertUrl(request.url, name, sidecar, ctx);
   const method = coerceMethod(request.method, name, sidecar, ctx);
   const body = convertBody(request.body, name, sidecar, ctx);
   const settings = requestSettings(raw.protocolProfileBehavior, name, sidecar, ctx);
@@ -483,6 +485,7 @@ function convertRequestItem(
     url,
     headers: convertHeaders(request.header),
     params,
+    ...(pathVariables ? { pathVariables } : {}),
     body,
     auth: authOut.auth ?? inheritAuth(inherited, name, ctx) ?? { type: 'none' },
     preRequestScript: scripts.preRequestScript,

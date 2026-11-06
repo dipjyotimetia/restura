@@ -27,7 +27,7 @@ import { graphqlMethodFromOC } from './graphql-item';
 import { applyGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-extension';
 import { applyGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
 import { applyHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
-import { kvToInternal } from './key-value';
+import { kvToInternal, splitParams } from './key-value';
 import { mcpStdioFromOC, mcpTransportFromOC } from './mcp-stdio-extension';
 import { MULTIPART_MIXED_BODY_KEY, multipartMixedFromOC } from './multipart-mixed-body';
 import type { OpenCollection } from './schemas';
@@ -270,7 +270,7 @@ function httpToInternal(item: Record<string, unknown>): HttpRequest {
     method: importMethod(http.method, name),
     url: (http.url as string) ?? '',
     headers: ((http.headers as unknown[]) ?? []).map(kvToInternal),
-    params: ((http.params as unknown[]) ?? []).map(kvToInternal),
+    ...splitParams(http.params),
     body: bodyToInternal(http.body, name),
     auth: authToInternal(http.auth),
     ...(scripts.preRequest ? { preRequestScript: scripts.preRequest } : {}),

@@ -7,6 +7,7 @@ import {
   graphqlEnvelopeFromBody,
 } from '@shared/graphql/wire';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
+import { applyPathVariables } from '@shared/protocol/path-variables';
 import {
   appendQueryPairs,
   applyBodyDefaultHeaders,
@@ -74,11 +75,16 @@ export async function executeHttp(
   // Query rows go into the URL in order, repeated keys kept (as in the app);
   // `params` carries only what auth adds.
   // User-typed rows go out as typed; GraphQL GET params are fully encoded.
-  const baseUrl = resolveVarsDeep(req.url, opts.vars);
+  // `:name` path segments take their resolved path-variable values (the shared
+  // rule the app and the code generators use).
+  const encodeUrl = { encode: req.settings?.encodeUrlAutomatically !== false };
+  const baseUrl = applyPathVariables(resolveVarsDeep(req.url, opts.vars), req.pathVariables, {
+    resolve: (row) => resolve(row.value),
+    ...encodeUrl,
+  });
   const queryPairs = collectQueryPairs(req.params, (p) =>
     preResolvedParams.has(p) ? p.value : resolve(p.value)
   );
-  const encodeUrl = { encode: req.settings?.encodeUrlAutomatically !== false };
   const url = appendQueryPairs(baseUrl, queryPairs, encodeUrl);
   const params: Record<string, string> = {};
 

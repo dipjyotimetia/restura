@@ -8,6 +8,7 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Response as ApiResponse, HttpRequest, Request } from '@/types';
 import { executeRequest } from './lib/requestExecutor';
 import { reportTransportError } from './lib/transportOutcome';
+import { useActiveStreamStore } from './store/useActiveStreamStore';
 
 function createDefaultHttpRequest(): HttpRequest {
   return {
@@ -76,6 +77,14 @@ export const httpProtocol: ProtocolModule = {
   id: 'http',
   label: 'HTTP',
   tabType: 'http',
+  // A streamed send (web SSE / NDJSON) can outlive its Send click; closing the
+  // tab stops it like closing a WebSocket tab disconnects.
+  connectionLifecycle: {
+    connectionIdForTab: (tabId) =>
+      useActiveStreamStore.getState().cancels[tabId] ? tabId : undefined,
+    disconnect: (tabId) => useActiveStreamStore.getState().stop(tabId),
+    removeConnectionForTab: () => undefined,
+  },
   defaultRequest: createDefaultHttpRequest,
   injectVariables: injectHttpVariables,
   runRequest: async (request, ctx): Promise<ApiResponse> => {

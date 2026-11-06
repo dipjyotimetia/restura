@@ -1,6 +1,6 @@
 import type { HttpRequest, RequestSettingsOverride, ScopedVariable } from '../../types';
 import { arr, isObj, parseQueryString, postmanVariableKey, type Raw, str } from './common';
-import { type ExportContext, kvRows } from './export-v3-shared';
+import { type ExportContext, exportPathVariables, kvRows } from './export-v3-shared';
 import type { PostmanSidecar } from './sidecar';
 import type {
   PostmanV21Event,
@@ -238,10 +238,23 @@ function urlParts(base: string) {
 }
 
 function urlVariables(
+  req: HttpRequest,
   sidecar: PostmanSidecar | undefined,
   owner: string,
   ctx: ExportContext
 ): PostmanV21Variable[] {
+  // The typed rows win; a request imported before `pathVariables` existed
+  // restores the raw list its sidecar kept.
+  if (req.pathVariables !== undefined) {
+    return exportPathVariables(req.pathVariables, undefined, owner, ctx).map((v) =>
+      compact({
+        key: str(v.key),
+        value: str(v.value),
+        disabled: v.disabled === true ? true : undefined,
+        description: typeof v.description === 'string' ? v.description : undefined,
+      })
+    );
+  }
   return arr(sidecar?.urlVariable)
     .filter(isObj)
     .filter((v) => postmanVariableKey(v) !== undefined)
@@ -268,7 +281,7 @@ export function v21Url(
     .map((r) => `${str(r.key)}=${str(r.value)}`)
     .join('&');
   const raw = qs ? `${beforeHash}${beforeHash.includes('?') ? '&' : '?'}${qs}${fragment}` : req.url;
-  const variable = urlVariables(sidecar, owner, ctx);
+  const variable = urlVariables(req, sidecar, owner, ctx);
   const lossy =
     variable.length > 0 || rows.some((r) => r.disabled === true || r.description !== undefined);
   if (!lossy) return raw;

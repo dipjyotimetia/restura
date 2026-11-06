@@ -151,6 +151,48 @@ describe('executeConnectUnary', () => {
       })
     ).rejects.toThrow(/No proto source/);
   });
+
+  it('an external abort signal cancels the in-flight call → CANCELLED (1), no retry', async () => {
+    const controller = new AbortController();
+    let serverSawAbort = false;
+    let calls = 0;
+    const transport = echoTransport(async (_req, ctx) => {
+      calls++;
+      const signal = (ctx as unknown as { signal: AbortSignal }).signal;
+      await new Promise<void>((res) => {
+        if (signal.aborted) res();
+        else signal.addEventListener('abort', () => res());
+        // Abort only once the server is mid-call.
+        queueMicrotask(() => controller.abort());
+      });
+      serverSawAbort = signal.aborted;
+      return { message: 'late', index: 0 };
+    });
+    const r = await executeConnectUnary({
+      ...baseArgs,
+      transport,
+      fallbackTransport: transport,
+      signal: controller.signal,
+    });
+    expect(r.status).toBe(Code.Canceled); // 1
+    expect(r.statusText).toBe('CANCELLED');
+    expect(r.message).toBeUndefined();
+    expect(serverSawAbort).toBe(true);
+    expect(calls).toBe(1);
+  });
+
+  it('an already-aborted signal settles CANCELLED without dialling', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let calls = 0;
+    const transport = echoTransport(() => {
+      calls++;
+      return { message: 'x', index: 0 };
+    });
+    const r = await executeConnectUnary({ ...baseArgs, transport, signal: controller.signal });
+    expect(r.status).toBe(Code.Canceled);
+    expect(calls).toBe(0);
+  });
 });
 
 // --- streaming -------------------------------------------------------------
@@ -438,6 +480,30 @@ describe('executeConnectServerStreamCollect', () => {
     });
     expect(r.status).toBe(Code.FailedPrecondition);
     expect(r.statusDetails).toEqual(EXPECTED_DETAILS);
+  });
+
+  it('an external abort signal cancels the collect → CANCELLED (1)', async () => {
+    const controller = new AbortController();
+    const transport = echoStreamTransport({
+      serverStreamingEcho: async function* (_req: unknown, ctx: { signal: AbortSignal }) {
+        yield { message: 'first', index: 0 };
+        await new Promise<void>((res) => {
+          if (ctx.signal.aborted) res();
+          else ctx.signal.addEventListener('abort', () => res());
+        });
+      },
+    });
+    const pending = executeConnectServerStreamCollect({
+      ...streamBase,
+      method: 'ServerStreamingEcho',
+      message: { message: 'x', count: 1 },
+      transport,
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 10);
+    const r = await pending;
+    expect(r.status).toBe(Code.Canceled);
+    expect(r.statusText).toBe('CANCELLED');
   });
 });
 

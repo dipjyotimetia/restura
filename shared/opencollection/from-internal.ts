@@ -362,9 +362,16 @@ function requestFromInternal(name: string, r: CollectionRequest): unknown {
       if (hr.headers?.length) {
         http.headers = hr.headers.map(kvFromInternal);
       }
-      if (hr.params?.length) {
-        http.params = hr.params.map(kvFromInternal);
-      }
+      // Path variables travel as spec `type: path` params; query rows keep
+      // the untyped shape (spec default `query`) earlier exports wrote.
+      const params = [
+        ...(hr.params ?? []).map(kvFromInternal),
+        ...(hr.pathVariables ?? []).map((row) => ({
+          ...(kvFromInternal(row) as Record<string, unknown>),
+          type: 'path',
+        })),
+      ];
+      if (params.length > 0) http.params = params;
       if (hr.body && hr.body.type !== 'none') {
         const body = bodyFromInternal(hr.body);
         if (body !== undefined) http.body = body;

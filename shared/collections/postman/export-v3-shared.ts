@@ -1,7 +1,7 @@
 import { migrateScriptRsToPm } from '../../scripts/script-migrations';
 import type { SecretValue } from '../../secrets/secret-ref';
 import type { AuthConfig, KeyValue, ScopedVariable } from '../../types';
-import { arr, isObj, type Raw, str } from './common';
+import { arr, isObj, postmanVariableKey, type Raw, str } from './common';
 import type { PostmanExportReportBuilder } from './export-report';
 import type { PostmanSidecar } from './sidecar';
 
@@ -67,6 +67,43 @@ export function kvRows(
       description: r.description || undefined,
     });
   });
+}
+
+/**
+ * A request's path variables as Postman rows (`{ key, value, disabled?,
+ * description? }`), shared by the v2.1 `url.variable` and v3 `pathVariables`
+ * writers. The typed `pathVariables` field wins; a request imported before the
+ * field existed falls back to the raw list its sidecar kept (already redacted
+ * by the export). A secret row is written empty and reported.
+ */
+export function exportPathVariables(
+  pathVariables: readonly KeyValue[] | undefined,
+  sidecar: PostmanSidecar | undefined,
+  owner: string,
+  ctx: ExportContext
+): Raw[] {
+  if (pathVariables !== undefined) {
+    return pathVariables.map((r) => {
+      if (r.secret === true && r.value !== '') ctx.report.emptied('secret-variable', owner, r.key);
+      return defined({
+        key: r.key,
+        value: r.secret === true ? '' : r.value,
+        disabled: r.enabled === false ? true : undefined,
+        description: r.description || undefined,
+      });
+    });
+  }
+  return arr(sidecar?.urlVariable)
+    .filter(isObj)
+    .filter((v) => postmanVariableKey(v) !== undefined)
+    .map((v) =>
+      defined({
+        key: postmanVariableKey(v),
+        value: str(v.value),
+        disabled: v.disabled === true ? true : undefined,
+        description: typeof v.description === 'string' && v.description ? v.description : undefined,
+      })
+    );
 }
 
 // ── variables ───────────────────────────────────────────────────────────────

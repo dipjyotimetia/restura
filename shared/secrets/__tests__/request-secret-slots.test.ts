@@ -34,6 +34,7 @@ const SOCKETIO_CLEAN = { type: 'socketio', url: 'https://s.test', handshakeAuth:
 const SAMPLES: Record<string, { request: Record<string, unknown>; secrets: number }> = {
   headers: { request: { type: 'http', headers: [row('Authorization', 'PLAIN')] }, secrets: 1 },
   params: { request: { type: 'http', params: [row('api_key', 'PLAIN')] }, secrets: 1 },
+  pathVariables: { request: { type: 'http', pathVariables: [row('token', 'PLAIN')] }, secrets: 1 },
   metadata: { request: { type: 'grpc', metadata: [row('authorization', 'PLAIN')] }, secrets: 1 },
   formBody: {
     request: {

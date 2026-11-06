@@ -11,6 +11,7 @@ import type {
 import type { QuickJSContext, QuickJSHandle, QuickJSRuntime } from 'quickjs-emscripten';
 import { getQuickJS } from 'quickjs-emscripten';
 import { PM_EXPECT_BOOTSTRAP } from './expect-bootstrap';
+import { RejectionTracker } from './rejection-tracker';
 import { buildRequireShimSource, loadSandboxLibraries } from './sandbox-libraries';
 import {
   QUICKJS_MAX_EXECUTION_TIME_MS,
@@ -105,6 +106,8 @@ class ScriptExecutor {
    * the idempotency guard so a settle-after-cleanup is a no-op.
    */
   private readonly pendingHostCleanups = new Set<() => void>();
+  /** Promises the script rejected and never handled (see rejection-tracker.ts). */
+  private readonly rejections = new RejectionTracker();
   private logs: ScriptResult['logs'] = [];
   private errors: string[] = [];
   private tests: Array<{ name: string; passed: boolean; error?: string }> = [];
@@ -300,6 +303,8 @@ class ScriptExecutor {
     // Bind console / environment / globals / pm.* and evaluate the
     // expect bootstrap. Request/response are bound per-eval below.
     this.setupQuickJSContext(vm, {});
+    const trackerError = this.rejections.install(vm);
+    if (trackerError) this.addLog('error', `Failed to setup rejection tracking: ${trackerError}`);
   }
 
   /**
@@ -371,6 +376,7 @@ class ScriptExecutor {
   dispose(): void {
     if (this.vm) {
       this.releasePendingHostOps();
+      this.rejections.dispose();
       this.vm.dispose();
       this.vm = null;
     }
@@ -492,6 +498,7 @@ class ScriptExecutor {
     onResolve: (value: T) => QuickJSHandle
   ): QuickJSHandle {
     const deferred = vm.newPromise();
+    this.rejections.track(vm, deferred.handle);
     this.pendingHostOps++;
     const cleanup = (): void => {
       if (!this.pendingHostCleanups.has(cleanup)) return;
@@ -674,6 +681,7 @@ class ScriptExecutor {
     // getters/setters an earlier user script installed. Reset on every exit.
     this.evalStartTime = Date.now();
     this.evalInterrupted = false;
+    this.rejections.reset(vm);
     let completion: { handle: QuickJSHandle; topLevelAwait: boolean } | undefined;
     try {
       // Reset the per-eval sentinels (execution flow control + visualizer).
@@ -733,6 +741,14 @@ class ScriptExecutor {
       if (completion && !this.evalInterrupted) {
         const failure = completionErrorMessage(vm, completion);
         if (failure) this.addLog('error', failure);
+        // Reported (or not a failure) above: never a second time below.
+        this.rejections.markHandled(vm, completion.handle);
+      }
+      // Every other promise the script rejected and dropped.
+      if (!this.evalInterrupted) {
+        for (const message of this.rejections.collect(vm, (h) => describeQuickJsError(vm, h))) {
+          this.addLog('error', message);
+        }
       }
       // An async `pm.test` still pending here can never settle: no host work is
       // outstanding to resolve it (or the deadline hit). Fail it rather than

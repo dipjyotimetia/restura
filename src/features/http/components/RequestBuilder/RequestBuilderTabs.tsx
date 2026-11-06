@@ -15,6 +15,10 @@ import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { type AuthTypeGroup, AuthTypePicker } from '@/features/auth/components/AuthTypePicker';
 import { InheritedAuthHint, useInheritedAuth } from '@/features/auth/components/InheritedAuthHint';
 import RequestBodyEditor, { bodyEditorFills } from '@/features/http/components/RequestBodyEditor';
+import {
+  PathVariablesTable,
+  usePathVariableRows,
+} from '@/features/http/components/RequestBuilder/PathVariablesTable';
 import RequestSettingsEditor from '@/features/http/components/RequestSettingsEditor';
 import type { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
 import { formatJsonBody } from '@/features/http/lib/formatJsonBody';
@@ -176,11 +180,20 @@ export function RequestBuilderTabs({
     collect(request.url);
     collect(request.body.raw);
     request.params.forEach((p) => collect(p.value));
+    request.pathVariables?.forEach((p) => collect(p.value));
     request.headers.forEach((h) => collect(h.value));
     return Array.from(matches);
-  }, [request.url, request.body.raw, request.params, request.headers, getVarStatus]);
+  }, [
+    request.url,
+    request.body.raw,
+    request.params,
+    request.pathVariables,
+    request.headers,
+    getVarStatus,
+  ]);
 
   const bodyFills = bodyEditorFills(request.body.type);
+  const pathVariableRows = usePathVariableRows(request.url, request.pathVariables);
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -188,23 +201,31 @@ export function RequestBuilderTabs({
 
       <SubTabPanel tabKey={activeTab} className="flex-1 overflow-auto">
         {activeTab === 'params' && (
-          <ParamHeaderTable
-            rows={request.params.map(toParamRow)}
-            onRowChange={(row) =>
-              handlers.updateParam(row.id, {
-                enabled: row.enabled,
-                key: row.key,
-                value: row.value,
-                ...(row.description !== undefined && { description: row.description }),
-              })
-            }
-            onRowRemove={(id) => handlers.removeParam(id)}
-            onAdd={(data) => handlers.addParam(data)}
-            source={request.params}
-            onReplaceAll={handlers.replaceParams}
-            itemLabel="parameter"
-            getStatus={getVarStatus}
-          />
+          <div className={cn('flex flex-col', pathVariableRows.length === 0 && 'h-full min-h-0')}>
+            <ParamHeaderTable
+              layout={pathVariableRows.length > 0 ? 'auto' : 'fill'}
+              rows={request.params.map(toParamRow)}
+              onRowChange={(row) =>
+                handlers.updateParam(row.id, {
+                  enabled: row.enabled,
+                  key: row.key,
+                  value: row.value,
+                  ...(row.description !== undefined && { description: row.description }),
+                })
+              }
+              onRowRemove={(id) => handlers.removeParam(id)}
+              onAdd={(data) => handlers.addParam(data)}
+              source={request.params}
+              onReplaceAll={handlers.replaceParams}
+              itemLabel="parameter"
+              getStatus={getVarStatus}
+            />
+            <PathVariablesTable
+              rows={pathVariableRows}
+              onChange={handlers.replacePathVariables}
+              getStatus={getVarStatus}
+            />
+          </div>
         )}
 
         {activeTab === 'headers' && (

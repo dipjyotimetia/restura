@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import type { KeyValue } from '../types';
+import type { HttpRequest, KeyValue } from '../types';
 
 /** Internal `KeyValue` → OC header/param/metadata row (`{ name, value }`). */
 export function kvFromInternal(k: KeyValue): unknown {
@@ -26,4 +26,15 @@ export function kvToInternal(kv: unknown): KeyValue {
   };
   if (typeof k.description === 'string') out.description = k.description;
   return out;
+}
+
+/** OC `http.params` → query rows and (spec `type: path`) path-variable rows. */
+export function splitParams(raw: unknown): Pick<HttpRequest, 'params' | 'pathVariables'> {
+  const rows = Array.isArray(raw) ? raw : [];
+  const isPath = (row: unknown) => (row as { type?: unknown } | null)?.type === 'path';
+  const pathVariables = rows.filter(isPath).map(kvToInternal);
+  return {
+    params: rows.filter((row) => !isPath(row)).map(kvToInternal),
+    ...(pathVariables.length > 0 ? { pathVariables } : {}),
+  };
 }

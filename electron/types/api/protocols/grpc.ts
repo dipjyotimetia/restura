@@ -14,7 +14,10 @@ interface GrpcTlsIpc {
  * `descriptors` must be present (a schema refinement, not expressible here).
  */
 export interface GrpcCallIpcConfig extends GrpcTlsIpc {
-  /** Stream id (alphanumeric, dashes, underscores; at most 64 chars). */
+  /**
+   * Stream id, or the unary call id `cancelRequest` targets (alphanumeric,
+   * dashes, underscores; at most 64 chars).
+   */
   id?: string;
   url: string;
   service: string;
@@ -71,6 +74,12 @@ export interface GrpcRawReflectionResponse {
 
 export interface ElectronGrpcAPI {
   request: (config: GrpcCallIpcConfig) => Promise<GrpcIpcResult>;
+  /**
+   * Cancel an in-flight `request` by the `id` it was sent with (owner-scoped:
+   * another window's id is a no-op). The cancelled `request` settles CANCELLED (1).
+   * Unknown / already-finished ids succeed as a no-op.
+   */
+  cancelRequest: (args: { requestId: string }) => Promise<{ ok: true }>;
   reflect: (config: GrpcReflectionConfig) => Promise<GrpcRawReflectionResponse>;
   startStream: (config: GrpcCallIpcConfig) => void;
   sendMessage: (requestId: string, message: unknown) => void;

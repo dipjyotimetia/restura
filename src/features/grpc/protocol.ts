@@ -383,8 +383,8 @@ export const grpcProtocol: ProtocolModule = {
     } else if (policy.refused) {
       response = policy.refused;
     } else if (isElectron()) {
-      // No unary cancel over IPC: the main-process call runs to its deadline,
-      // but the run itself settles the moment the signal aborts.
+      // The signal sends grpc:cancel-request so main cancels the transport;
+      // the run itself still settles the moment the signal aborts.
       response = await rejectOnAbort(
         makeElectronGrpcRequest(
           policy.request,
@@ -393,7 +393,8 @@ export const grpcProtocol: ProtocolModule = {
           resolve,
           timeoutMs,
           opts.useCompression ?? false,
-          descriptors
+          descriptors,
+          ctx.signal
         ),
         ctx.signal
       );

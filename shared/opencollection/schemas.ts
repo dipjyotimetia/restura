@@ -65,6 +65,9 @@ const httpParam = z.object({
   value: z.string(),
   enabled: z.boolean().optional(),
   description: description.optional(),
+  // Spec `HttpRequestParam.type`; absent reads as `query` (Restura's own
+  // exports before path variables carried none).
+  type: z.enum(['query', 'path']).optional(),
 });
 
 // NOTE: discriminator literals match the upstream OpenCollection v1.0.0 schema

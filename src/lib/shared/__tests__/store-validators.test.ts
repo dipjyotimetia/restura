@@ -39,6 +39,33 @@ describe('store-validators', () => {
       expect(result.type).toBe('http');
     });
 
+    it('persists Postman-style path variables (and loads requests without them)', () => {
+      const pathVariables = [
+        { id: 'pv-1', key: 'id', value: '{{userId}}', enabled: true, description: 'user id' },
+      ];
+      const request: HttpRequest = {
+        id: 'req-pv',
+        name: 'path vars',
+        type: 'http',
+        method: 'GET',
+        url: 'https://api.example.com/users/:id',
+        headers: [],
+        params: [],
+        pathVariables,
+        body: { type: 'none' },
+        auth: { type: 'none' },
+      };
+      expect((validateRequest(request) as HttpRequest).pathVariables).toEqual(pathVariables);
+      const collection = validateCollection({
+        id: 'c',
+        name: 'C',
+        items: [{ id: 'i', name: 'r', type: 'request', request }],
+      });
+      expect(collection.items[0]?.request).toMatchObject({ pathVariables });
+      const { pathVariables: _omit, ...legacy } = request;
+      expect((validateRequest(legacy) as HttpRequest).pathVariables).toBeUndefined();
+    });
+
     it('persists the per-request httpVersion setting', () => {
       const request: HttpRequest = {
         id: 'req-v',

@@ -12,7 +12,7 @@ import { ResponseHeadersPanel } from '@/components/shared/ResponseHeadersPanel';
 import { ResponseStatus } from '@/components/shared/ResponseStatus';
 import { ResponseTestsPanel } from '@/components/shared/ResponseTestsPanel';
 import { IconButton, LayoutToggleButton } from '@/components/shared/ResponseToolbarButtons';
-import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
+import { StreamingResponsePanel } from '@/components/shared/StreamingResponsePanel';
 import { TimingBreakdown } from '@/components/shared/TimingBreakdown';
 import { VisualizerFrame } from '@/components/shared/VisualizerFrame';
 import { AnimatePresence, motion, Scale, Stagger, StaggerItem } from '@/components/ui/motion';
@@ -377,26 +377,7 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
     URL.revokeObjectURL(url);
   };
 
-  if (streamingEvents) {
-    return (
-      <TooltipProvider delayDuration={300}>
-        <Floater
-          radius="panel"
-          elevation="float-lg"
-          className="h-full flex flex-col overflow-hidden relative z-20"
-        >
-          <div className="h-11 flex items-center px-3 border-b border-sp-line">
-            <span className="sp-label">Streaming response</span>
-            <div className="flex-1" />
-            <LayoutToggleButton />
-          </div>
-          <div className="flex-1 min-h-0">
-            <StreamingResponseViewer events={streamingEvents} />
-          </div>
-        </Floater>
-      </TooltipProvider>
-    );
-  }
+  if (streamingEvents) return <StreamingResponsePanel events={streamingEvents} />;
 
   const tabs: ReadonlyArray<SubTab<ResponseTab>> = [
     ...(language === 'html' ? [{ value: 'preview' as const, label: 'Preview' }] : []),

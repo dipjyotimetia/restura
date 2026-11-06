@@ -9,14 +9,18 @@ import {
   saveScriptEnvironmentWrites,
   scriptEnvironmentTargetId,
 } from '@/features/environments/lib/scriptEnvironmentMutations';
+import { pathVariablesPatch } from '@/features/http/lib/pathVariableRows';
 import {
   executeRequest,
   executeStreamingRequest,
   isStreamingAccept,
+  type RequestExecutionResult,
   resolveEffectiveSettings,
 } from '@/features/http/lib/requestExecutor';
 import { applySettingsPatch, type RequestSettingsPatch } from '@/features/http/lib/settingsPatch';
+import type { HttpStreamEvent } from '@/features/http/lib/streamingResponseReader';
 import { applyUrlInput } from '@/features/http/lib/urlQuery';
+import { useActiveStreamStore } from '@/features/http/store/useActiveStreamStore';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { isElectron } from '@/lib/shared/platform';
@@ -33,6 +37,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useUiStore } from '@/store/useUiStore';
 import type {
+  Response as ApiResponse,
   AppSettings,
   AuthConfig,
   FormDataItem,
@@ -105,6 +110,74 @@ function reportFailure(originTabId: string, message: string) {
   else toast.error(`Request failed: ${message}`, { id: 'request', duration: 5000 });
 }
 
+const isStreamTerminal = (event: HttpStreamEvent) => event.type === 'end' || event.type === 'error';
+
+type ScriptOutcome = Pick<
+  RequestExecutionResult,
+  'scriptResult' | 'collectionVarsMutations' | 'environmentMutations'
+>;
+
+/**
+ * A finished send's script output (Tests / Visualize tabs) and its
+ * `pm.collectionVariables` / `pm.environment` writes — buffered or streamed.
+ */
+function applyScriptOutcome(
+  tabId: string,
+  outcome: ScriptOutcome,
+  target: { collectionId: string | undefined; environmentId: string | undefined }
+): void {
+  const { scriptResult } = outcome;
+  if (scriptResult && (scriptResult.preRequest || scriptResult.test)) {
+    useRequestStore.getState().setScriptResultForTab(tabId, scriptResult);
+  }
+  if (target.collectionId && outcome.collectionVarsMutations) {
+    useCollectionStore
+      .getState()
+      .applyCollectionVarMutations(target.collectionId, outcome.collectionVarsMutations);
+  }
+  // `pm.environment.set/unset` persist to the active environment (Postman
+  // semantics), so the next request sees them. Secret handles are left alone.
+  if (outcome.environmentMutations) {
+    saveScriptEnvironmentWrites({
+      environmentId: target.environmentId,
+      collectionId: target.collectionId,
+      mutations: outcome.environmentMutations,
+    });
+  }
+}
+
+/** The history entry and Console line for a completed send. */
+function recordSend(
+  request: HttpRequest,
+  response: ApiResponse,
+  sent: Record<string, string>,
+  scriptResult: RequestExecutionResult['scriptResult'],
+  resolvedUrl: string
+): void {
+  // `request.url` (kept as-is) preserves the `{{var}}` template so
+  // reopening/replaying this entry still targets whichever environment is
+  // active; `resolvedUrl` is recorded alongside for accurate history/
+  // console display (see HistoryItem.resolvedUrl / ConsoleEntry.resolvedUrl).
+  useHistoryStore.getState().addHistoryItem(request, response, resolvedUrl);
+  const scriptLogs = [
+    ...(scriptResult?.preRequest?.logs || []),
+    ...(scriptResult?.test?.logs || []),
+  ];
+  useConsoleStore
+    .getState()
+    .addEntry(
+      createConsoleEntry(
+        request,
+        response,
+        captureSentHeaders(sent, resolvedUrl),
+        scriptLogs,
+        scriptResult?.test?.tests,
+        'http',
+        { resolvedUrl }
+      )
+    );
+}
+
 export function useHttpRequestPage() {
   const httpRequest = useActiveRequest('http');
   const updateRequest = useRequestStore((s) => s.updateRequest);
@@ -143,7 +216,15 @@ export function useHttpRequestPage() {
 
   // Aborts the in-flight send; the executor honours the signal end to end.
   const abortRef = useRef<AbortController | null>(null);
-  const cancelRequest = useCallback(() => abortRef.current?.abort(), []);
+  // Cancels the send in flight, or else the active tab's running stream.
+  const cancelRequest = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      return;
+    }
+    const tabId = useRequestStore.getState().activeTabId;
+    if (tabId) useActiveStreamStore.getState().stop(tabId);
+  }, []);
 
   // The interactive Send delegates to the shared `executeRequest` — the same
   // pipeline the collection runner / workflows / load-testing use. This is
@@ -157,6 +238,8 @@ export function useHttpRequestPage() {
     if (!httpRequest?.url || isLoading) return;
     const originTabId = useRequestStore.getState().activeTabId;
     if (!originTabId) return;
+    // A new send replaces this tab's response, so end a stream still running.
+    useActiveStreamStore.getState().stop(originTabId);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -164,6 +247,17 @@ export function useHttpRequestPage() {
     useUiStore
       .getState()
       .setInFlight({ tabId: originTabId, startedAt: Date.now(), cancel: () => controller.abort() });
+    // Give the page's shared loading state back (once). A streamed send does
+    // this as soon as its stream starts, so a long-lived stream never blocks
+    // sending from other tabs; it is then stopped from its panel instead.
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      if (abortRef.current === controller) abortRef.current = null;
+      setLoading(false);
+      useUiStore.getState().setInFlight(null);
+    };
     // Drop the previous run's script output so the Tests/Visualize tabs never
     // show stale results next to a send that ran no scripts or failed.
     setScriptResultForTab(originTabId, null);
@@ -206,11 +300,16 @@ export function useHttpRequestPage() {
       const requestForExec =
         effectiveAuth === httpRequest.auth ? httpRequest : { ...httpRequest, auth: effectiveAuth };
 
+      const scriptTarget = { collectionId: collection?.id, environmentId: scriptEnvironmentId };
+
       // Web: an SSE / NDJSON / JSON Lines Accept streams into the response
       // panel (the proxy answers it with a raw pass-through). Desktop's HTTP
       // IPC has no streaming channel, so it stays on the buffered path. The
-      // stream path runs no pre-request / test scripts (there is no complete
-      // response to test) and records no history entry.
+      // stream path runs the same scripts as a buffered send: the pre-request
+      // script before anything is sent, the test script (and the history
+      // entry) once the stream ends, against the captured stream text. Once
+      // the stream starts the send stops blocking other sends; the panel's
+      // Stop button (or a new send / closing the tab) ends it with no tests run.
       const scope: RequestScope = {
         values: envVars,
         secretVariables,
@@ -218,7 +317,7 @@ export function useHttpRequestPage() {
         resolveVariables: (text) => resolveVariables(text),
       };
       if (!isElectron() && wantsStream(requestForExec, scope)) {
-        const { events, responseMeta } = await executeStreamingRequest({
+        const streaming = await executeStreamingRequest({
           request: requestForExec,
           envVars,
           secretVariables,
@@ -228,17 +327,53 @@ export function useHttpRequestPage() {
           collectionVars,
           signal: controller.signal,
         });
+        resolvedUrl = streaming.sentUrl;
+        if (streaming.skipped) {
+          // `pm.execution.skipRequest()`: nothing was sent, so no stream and
+          // no history entry; the pre-request output and writes still count.
+          clearStreamingEventsForTab(originTabId);
+          applyScriptOutcome(originTabId, await streaming.finish(undefined), scriptTarget);
+          toast.info('Request skipped by the pre-request script', {
+            id: 'request',
+            duration: 3000,
+          });
+          return;
+        }
         // Replaces any buffered response so the panel shows the stream. The
         // response stream is single-use; buffer it so a viewer that remounts
-        // (StrictMode, switching tabs and back) replays it from the start.
-        setStreamingEventsForTab(
-          originTabId,
-          replayableAsyncIterable(events, {
-            isTerminal: (event) => event.type === 'end' || event.type === 'error',
-          })
-        );
+        // (StrictMode, switching tabs and back) replays it from the start —
+        // and so this send can read it to the end alongside the viewer.
+        const replay = replayableAsyncIterable(streaming.events, { isTerminal: isStreamTerminal });
+        setStreamingEventsForTab(originTabId, replay);
+        if (streaming.scriptResult?.preRequest) {
+          setScriptResultForTab(originTabId, streaming.scriptResult);
+        }
         toast.dismiss('request');
-        announceRequestComplete(responseMeta.status, Date.now() - startTime);
+        announceRequestComplete(streaming.responseMeta.status, Date.now() - startTime);
+
+        const stopStream = () => controller.abort();
+        useActiveStreamStore.getState().start(originTabId, stopStream);
+        release();
+        // The tab stays registered until the test script has run and its
+        // outcome is applied, so Stop / a new send / closing the tab also
+        // reach the test phase and a stale run never writes over a newer one.
+        try {
+          let terminal: HttpStreamEvent | undefined;
+          for await (const event of replay) {
+            if (isStreamTerminal(event)) terminal = event;
+          }
+          // Stopped mid-stream: like a buffered cancel, no tests or history.
+          controller.signal.throwIfAborted();
+          const done = await streaming.finish(terminal);
+          controller.signal.throwIfAborted();
+          if (streaming.refreshedAuth && httpRequest.auth?.type === 'oauth2') {
+            updateRequestForTab(originTabId, { auth: streaming.refreshedAuth });
+          }
+          applyScriptOutcome(originTabId, done, scriptTarget);
+          recordSend(httpRequest, done.response, done.sentHeaders, done.scriptResult, resolvedUrl);
+        } finally {
+          useActiveStreamStore.getState().end(originTabId, stopStream);
+        }
         return;
       }
       // A buffered send replaces a previous run's stream.
@@ -253,30 +388,21 @@ export function useHttpRequestPage() {
         resolveVariables: (text) => resolveVariables(text),
         collectionVars,
         signal: controller.signal,
+        honorSkipRequest: true,
       });
 
       // History, console and HAR record what the executor sent.
       resolvedUrl = result.sentUrl;
 
       const { scriptResult } = result;
-      if (scriptResult && (scriptResult.preRequest || scriptResult.test)) {
-        setScriptResultForTab(originTabId, scriptResult);
-      }
+      applyScriptOutcome(originTabId, result, scriptTarget);
 
-      if (collection && result.collectionVarsMutations) {
-        useCollectionStore
-          .getState()
-          .applyCollectionVarMutations(collection.id, result.collectionVarsMutations);
-      }
-
-      // `pm.environment.set/unset` persist to the active environment (Postman
-      // semantics), so the next request sees them. Secret handles are left alone.
-      if (result.environmentMutations) {
-        saveScriptEnvironmentWrites({
-          environmentId: scriptEnvironmentId,
-          collectionId: collection?.id,
-          mutations: result.environmentMutations,
-        });
+      if (scriptResult?.preRequest?.execution?.skipRequested) {
+        // `pm.execution.skipRequest()`: nothing was sent, so no response and
+        // no history entry (as a streamed send); the pre-request output and
+        // writes still count.
+        toast.info('Request skipped by the pre-request script', { id: 'request', duration: 3000 });
+        return;
       }
 
       // Persist a refreshed OAuth2 token — but only when the auth belongs to
@@ -288,27 +414,7 @@ export function useHttpRequestPage() {
 
       const responseData = result.response;
       setCurrentResponseForTab(originTabId, responseData);
-      // `httpRequest.url` (kept as-is) preserves the `{{var}}` template so
-      // reopening/replaying this entry still targets whichever environment is
-      // active; `resolvedUrl` is recorded alongside for accurate history/
-      // console display (see HistoryItem.resolvedUrl / ConsoleEntry.resolvedUrl).
-      addHistoryItem(httpRequest, responseData, resolvedUrl);
-      const scriptLogs = [
-        ...(scriptResult?.preRequest?.logs || []),
-        ...(scriptResult?.test?.logs || []),
-      ];
-      const sentHeaders = captureSentHeaders(result.sentHeaders, resolvedUrl);
-      addEntry(
-        createConsoleEntry(
-          httpRequest,
-          responseData,
-          sentHeaders,
-          scriptLogs,
-          scriptResult?.test?.tests,
-          'http',
-          { resolvedUrl }
-        )
-      );
+      recordSend(httpRequest, responseData, result.sentHeaders, scriptResult, resolvedUrl);
       // Transport-level failures surface as a status-0 response from the
       // executor rather than a throw. For real responses the panel already
       // shows the outcome, so just clear the in-flight toast rather than
@@ -322,7 +428,10 @@ export function useHttpRequestPage() {
     } catch (error: unknown) {
       // User cancelled: not a failure, so no error response or history entry.
       if (controller.signal.aborted) {
-        toast.info('Request cancelled', { id: 'request', duration: 2000 });
+        // A stream replaced by a newer send: that send owns the toast now.
+        if (abortRef.current === null || abortRef.current === controller) {
+          toast.info('Request cancelled', { id: 'request', duration: 2000 });
+        }
         return;
       }
       // executeRequest throws before anything is sent (URL failed validation,
@@ -357,9 +466,7 @@ export function useHttpRequestPage() {
       );
       reportFailure(originTabId, errorMessage);
     } finally {
-      if (abortRef.current === controller) abortRef.current = null;
-      setLoading(false);
-      useUiStore.getState().setInFlight(null);
+      release();
     }
   }, [
     httpRequest,
@@ -431,10 +538,17 @@ export function useHttpRequestPage() {
     replaceHeaders: (headers: KeyValue[]) => updateRequest({ headers }),
     // The URL bar shows url + enabled params; split edits back into both so
     // the stored url keeps no query and the params table stays in sync.
+    // `:name` path segments keep the path-variable rows in step with the URL.
     changeUrl: (text: string) => {
       if (!httpRequest) return;
-      updateRequest(applyUrlInput(text, httpRequest.params, uuidv4));
+      const next = applyUrlInput(text, httpRequest.params, uuidv4);
+      updateRequest({
+        ...next,
+        ...pathVariablesPatch(next.url, httpRequest.pathVariables, uuidv4),
+      });
     },
+    // Path-variable rows (key derived from the URL; value / description / enabled edited).
+    replacePathVariables: (pathVariables: KeyValue[]) => updateRequest({ pathVariables }),
     // Paste a whole cURL command into the URL bar → fill the request. Returns
     // false when it can't be parsed so the caller lets the plain paste through.
     importCurl: (command: string): boolean => {
@@ -451,11 +565,21 @@ export function useHttpRequestPage() {
         return false;
       }
       if (!imported) return false;
-      const { method, url, headers, params, body, auth, settings } = httpRequest;
-      const previous = { method, url, headers, params, body, auth, settings };
+      const { method, url, headers, params, pathVariables, body, auth, settings } = httpRequest;
+      const previous = {
+        method,
+        url,
+        headers,
+        params,
+        ...(pathVariables !== undefined && { pathVariables }),
+        body,
+        auth,
+        settings,
+      };
       const applied = updateRequest({
         method: imported.method,
         url: imported.url,
+        ...pathVariablesPatch(imported.url, pathVariables, uuidv4),
         headers: imported.headers,
         params: imported.params,
         body: imported.body,
