@@ -336,7 +336,6 @@ function flattenInternal(c: Collection): LoadedRequest[] {
         t === 'mcp'
           ? (resolveMcpEffectiveAuth(req.auth, leaf.inheritedAuth).auth ?? req.auth)
           : resolveEffectiveAuth(req.auth, leaf.inheritedAuth),
-      ...(t === 'http' ? { body: withEnabledFormRows((req as HttpRequest).body) } : {}),
       ...(leaf.preRequestScript !== undefined ? { preRequestScript: leaf.preRequestScript } : {}),
       ...(leaf.testScript !== undefined ? { testScript: leaf.testScript } : {}),
     } as HttpRequest | GrpcRequest | SseRequest | McpRequest;
@@ -357,11 +356,10 @@ function flattenInternal(c: Collection): LoadedRequest[] {
 }
 
 /**
- * The send rule for form rows is a truthy `enabled`, but neither on-disk format
- * guarantees the flag: OpenCollection parts and legacy `formData` are carried
- * through as written. A row saved without one has always been sent by the CLI, so
- * it means enabled. Normalised at load so every CLI entry point (runner, OWS
- * workflows, agent tools) sees the same rows.
+ * The send rule for form rows is a truthy `enabled`, but the legacy file format
+ * carries `formData` through as written (no schema default). A row saved without
+ * the flag has always been sent, so it means enabled. OpenCollection parts are
+ * normalised at the source (`ocToInternal`), so only the legacy path needs this.
  */
 function withEnabledFormRows(body: HttpRequest['body']): HttpRequest['body'] {
   if (!Array.isArray(body?.formData)) return body;

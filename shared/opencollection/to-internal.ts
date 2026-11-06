@@ -457,6 +457,20 @@ function importMethod(raw: unknown, requestName: string): HttpMethod {
   return 'GET';
 }
 
+/**
+ * Form parts are carried through as written (they round-trip the internal row
+ * shape), except `enabled`: like headers/params (`kvToInternal`), a row written
+ * without the flag is enabled. The send rule keeps only truthy-`enabled` rows,
+ * so leaving it unset would silently drop the row in every harness.
+ */
+function formRowsToInternal(parts: unknown): NonNullable<RequestBody['formData']> {
+  if (!Array.isArray(parts)) return [];
+  return parts.map((part) => {
+    const row = (part && typeof part === 'object' ? part : {}) as Record<string, unknown>;
+    return (typeof row.enabled === 'boolean' ? row : { ...row, enabled: true }) as never;
+  });
+}
+
 function bodyToInternal(body: unknown, context: string): RequestBody {
   if (!body) return { type: 'none' };
   // Array form is HttpRequestBodyVariant[]: per-environment bodies. We don't
@@ -473,11 +487,11 @@ function bodyToInternal(body: unknown, context: string): RequestBody {
   }
   if (b.multipartForm) {
     const mp = b.multipartForm as { parts?: unknown };
-    return { type: 'form-data', formData: (mp.parts as never[]) ?? [] };
+    return { type: 'form-data', formData: formRowsToInternal(mp.parts) };
   }
   if (b.formUrlEncoded) {
     const fue = b.formUrlEncoded as { parts?: unknown };
-    return { type: 'x-www-form-urlencoded', formData: (fue.parts as never[]) ?? [] };
+    return { type: 'x-www-form-urlencoded', formData: formRowsToInternal(fue.parts) };
   }
   if (b.graphql) return { type: 'graphql', raw: JSON.stringify(b.graphql) };
   if (b[MULTIPART_MIXED_BODY_KEY]) return multipartMixedFromOC(b[MULTIPART_MIXED_BODY_KEY]);
