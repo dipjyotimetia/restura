@@ -21,6 +21,7 @@ import {
   validateGenerationRequest,
 } from '@shared/agent-lab';
 import { createDefaultSandboxRegistry } from '@shared/agent-lab/sandbox-quickjs';
+import { extractFirstJsonObject } from '@shared/protocol/ai/json-extract';
 import type { CompletionResult } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
 import { createDesktopA2aToolSourceAdapter } from './agentA2aTools';
@@ -36,6 +37,27 @@ type Complete = (
 ) => Promise<CompletionResult>;
 
 const DEFAULT_JUDGE_MAX_OUTPUT_TOKENS = 512;
+
+/**
+ * Parse a judge's verdict object from free text. Models often wrap the JSON in
+ * prose or a ```json fence despite instructions; recover the object span and
+ * fail with a clear grader error (never a bare SyntaxError) when there is none.
+ */
+export function parseJudgeVerdictText(text: string): Record<string, unknown> {
+  const candidates = [text.trim(), extractFirstJsonObject(text)];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      const parsed: unknown = JSON.parse(candidate);
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed))
+        return parsed as Record<string, unknown>;
+    } catch {
+      // try the next candidate
+    }
+  }
+  const preview = text.length > 120 ? `${text.slice(0, 120)}…` : text;
+  throw new Error(`judge returned no parseable JSON verdict: ${JSON.stringify(preview)}`);
+}
 
 // Desktop IPC limits for one AI Lab call (electron/main/ipc/validators/ai.ts).
 const IPC_MAX_MESSAGES = 200;
@@ -310,7 +332,7 @@ export async function runDesktopAgentSuite(
             });
             const text = response.output.find((block) => block.type === 'text');
             if (text?.type !== 'text') throw new Error('judge returned no JSON text');
-            const parsed = JSON.parse(text.text) as {
+            const parsed = parseJudgeVerdictText(text.text) as {
               label?: unknown;
               score?: unknown;
               reasoning?: unknown;

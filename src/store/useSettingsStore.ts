@@ -248,6 +248,19 @@ export const useSettingsStore = create<SettingsState>()(
         }
         return resolved;
       },
+      // zustand only calls `migrate` on a version change, so a corrupt blob at
+      // the current version reaches the store through `merge` alone. Validate
+      // here on every rehydrate (field-wise: invalid scalars fall back to the
+      // defaults, valid ones are kept). Idempotent after `migrate`.
+      merge: (persistedState, currentState) => {
+        if (typeof persistedState !== 'object' || persistedState === null) return currentState;
+        const persisted = persistedState as Partial<SettingsState>;
+        return {
+          ...currentState,
+          ...persisted,
+          settings: validatePersistedSettings(persisted.settings, defaultSettings),
+        };
+      },
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           console.error('Settings store rehydration failed:', error);

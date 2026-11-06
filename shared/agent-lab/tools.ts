@@ -21,11 +21,29 @@ export interface CreateMcpToolsOptions {
   inspectDescriptors?(descriptors: McpToolDescriptor[]): void;
 }
 
+/** Provider tool-name ceiling (OpenAI/Anthropic) and the desktop IPC `name max(64)`. */
+export const MAX_AGENT_TOOL_NAME_LENGTH = 64;
+
+/**
+ * Namespaced, provider-safe name for an MCP tool exposed to an agent:
+ * `mcp_<sourceId>_<remoteName>`, non `[a-zA-Z0-9_-]` replaced with `_`,
+ * capped at 64 characters. Truncation can collide; callers that merge sources
+ * should detect duplicates (the runner rejects duplicate tool names).
+ */
+export function mcpAgentToolName(sourceId: string, remoteName: string): string {
+  return `mcp_${sourceId}_${remoteName}`
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .slice(0, MAX_AGENT_TOOL_NAME_LENGTH);
+}
+
 function permissionForMcpTool(tool: McpToolDescriptor): PermissionClass {
-  if (tool.annotations?.destructiveHint) return 'destructive';
-  if (tool.annotations?.openWorldHint) return 'network';
-  // MCP annotations are untrusted hints, not authorization. Even a server that
-  // claims readOnlyHint remains approval-required until a local trust policy exists.
+  const hints = tool.annotations;
+  if (hints?.destructiveHint) return 'destructive';
+  // MCP annotations are untrusted hints, not authorization: they may only move a
+  // tool to a class at least as strict as `mutation`. `network` is reserved for a
+  // tool that declares itself both read-only and open-world, so a server cannot
+  // drop a mutating tool below `mutation` by declaring `openWorldHint` alone.
+  if (hints?.openWorldHint === true && hints.readOnlyHint === true) return 'network';
   return 'mutation';
 }
 

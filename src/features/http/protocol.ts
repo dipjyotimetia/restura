@@ -95,6 +95,9 @@ export const httpProtocol: ProtocolModule = {
       // the resolver closes over `variables`.
       envVars: variables,
       globalSettings,
+      // SecretRef-backed variables: drive handle-token shielding / refusal and
+      // reach Electron main so it materializes them at the wire (ADR-0007).
+      ...(ctx.secretVariables ? { secretVariables: ctx.secretVariables } : {}),
       ...(ctx.secretNames ? { secretNames: ctx.secretNames } : {}),
       // The second pass reads no secret: it could not tell a written token from
       // one a value brought in.

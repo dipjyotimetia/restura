@@ -127,14 +127,16 @@ describe('loadCollection — Postman', () => {
     expect(out).toMatch(/skipping Socket.IO preset "Chat"/);
     expect(out).toMatch(/skipping Kafka preset/);
     // Secret variable: value-less, never folded in as an empty value.
-    expect(loaded.meta.privateVariableNames).toContain('apiToken');
+    expect(loaded.meta.secretVariableNames).toContain('apiToken');
+    expect(loaded.meta.privateVariableNames).toBeUndefined();
     expect(loaded.meta.variables?.some((v) => v.key === 'apiToken')).toBe(false);
   });
 
-  it('v2.1 type:"secret" variables load value-less as private variables, reported for --strict-import', async () => {
+  it('v2.1 type:"secret" variables load value-less as secret variables, reported for --strict-import', async () => {
     quietStderr();
     const loaded = await loadCollection(resolve(FIXTURES, '../v21/secret-variables.json'));
-    expect(loaded.meta.privateVariableNames).toContain('apiToken');
+    expect(loaded.meta.secretVariableNames).toContain('apiToken');
+    expect(loaded.meta.privateVariableNames).toBeUndefined();
     expect(loaded.meta.variables?.some((v) => v.key === 'apiToken')).toBe(false);
     const json = JSON.stringify(loaded);
     for (const plaintext of [
@@ -391,9 +393,11 @@ describe('runCollection — Postman safety', () => {
       })
     );
     const opts = { bail: false, timeoutMs: 5000, allowLocalhost: true };
-    await expect(runCollection(path, { ...opts, envVars: {} }, silentReporter)).rejects.toThrow(
-      /apiToken/
-    );
+    // Same rule as an OpenCollection secret variable: reported not sent per
+    // request, not a whole-run refusal (a --data row or script may supply it).
+    const missing: RunResult = await runCollection(path, { ...opts, envVars: {} }, silentReporter);
+    expect(missing.requests[0]?.notSent).toBe(true);
+    expect(missing.requests[0]?.errorMessage).toMatch(/secret variable "apiToken" has no value/);
     expect(hits).toHaveLength(0);
     const ok: RunResult = await runCollection(
       path,

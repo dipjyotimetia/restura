@@ -49,12 +49,24 @@ export const ConsoleFrameSchema = z.object({
   bytes: z.number().optional(),
 });
 
+const ConsoleProtocolSchema = z.enum([
+  'http',
+  'grpc',
+  'graphql',
+  'mcp',
+  'sse',
+  'websocket',
+  'kafka',
+  'mqtt',
+  'socketio',
+]);
+
+const ms = z.number(); // a duration in milliseconds
+
 export const ConsoleEntrySchema = z.object({
   id: z.string(),
   timestamp: z.number(),
-  protocol: z
-    .enum(['http', 'grpc', 'graphql', 'mcp', 'sse', 'websocket', 'kafka', 'mqtt', 'socketio'])
-    .optional(),
+  protocol: ConsoleProtocolSchema.optional(),
   request: z.object({
     method: z.string(),
     url: z.string(),
@@ -74,6 +86,17 @@ export const ConsoleEntrySchema = z.object({
     size: z.number(),
     time: z.number(),
     timestamp: z.number(),
+    // Mirrors `Response`'s optional fields: the store keeps the parsed copy, so a
+    // missing one is stripped on reload (drift check: console-entry-schema.test.ts).
+    bodyEncoding: z.literal('base64').optional().catch(undefined),
+    negotiatedAlpn: z.enum(['h1.1', 'h2', 'h3']).optional().catch(undefined),
+    bodyNotice: z.string().optional().catch(undefined),
+    partial: z.boolean().optional().catch(undefined),
+    timings: z
+      .object({ dns: ms.optional(), connect: ms.optional(), ttfb: ms, download: ms })
+      .optional()
+      .catch(undefined),
+    mcpOutcome: z.enum(['result', 'tool-error', 'jsonrpc-error']).optional().catch(undefined),
   }),
   scriptLogs: z.array(ConsoleLogSchema).optional(),
   tests: z.array(ConsoleTestSchema).optional(),
@@ -89,17 +112,7 @@ export const ConsoleEntrySchema = z.object({
   iteration: z.number().optional(),
   source: z
     .object({
-      protocol: z.enum([
-        'http',
-        'grpc',
-        'graphql',
-        'mcp',
-        'sse',
-        'websocket',
-        'kafka',
-        'mqtt',
-        'socketio',
-      ]),
+      protocol: ConsoleProtocolSchema,
       connectionId: z.string().optional(),
     })
     .optional(),
@@ -295,7 +308,7 @@ const ChatMessageSchema = z.object({
   createdAt: z.number(),
 });
 
-const ConversationSchema = z.object({
+export const ConversationSchema = z.object({
   id: z.string(),
   title: z.string(),
   messages: z.array(ChatMessageSchema),

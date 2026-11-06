@@ -12,7 +12,7 @@ import { unzipPostmanV3Archive } from '@shared/collections/postman/v3-archive';
 import type { PostmanV3Limits } from '@shared/collections/postman/v3-container';
 import { collectPostmanFolderFiles } from '@shared/collections/postman/v3-folder';
 import { stripControl } from '@shared/protocol/mcp-conformance-text';
-import type { Collection, CollectionItem } from '@shared/types';
+import type { Collection } from '@shared/types';
 import * as yaml from 'js-yaml';
 import { walkPostmanFolder } from './postmanFolder.js';
 
@@ -237,31 +237,4 @@ export async function loadPostmanFile(
   const text = (await readCappedFile(target, singleFileCap(limits), 'the file')).toString('utf8');
   const doc = safeYaml(text);
   return isPostmanDocument(doc) ? importPostmanDocument(doc, limits) : null;
-}
-
-// ---------------------------------------------------------------------------
-// Secret variables + unsupported-auth guard (used while flattening the tree)
-// ---------------------------------------------------------------------------
-
-type MaybeSecretVar = { key: string; secret?: boolean };
-
-/**
- * Names of the value-less secret variables anywhere in the tree: v3 vault
- * variables and v2.1 `type: "secret"` variables both import with
- * `secret: true` and no value.
- */
-export function postmanSecretVariableNames(c: Collection): Set<string> {
-  const out = new Set<string>();
-  const add = (vars: readonly MaybeSecretVar[] | undefined) => {
-    for (const v of vars ?? []) if (v.secret === true && v.key) out.add(v.key);
-  };
-  add(c.variables as MaybeSecretVar[] | undefined);
-  const walk = (items: CollectionItem[]) => {
-    for (const item of items) {
-      add((item as { variables?: MaybeSecretVar[] }).variables);
-      if (item.type === 'folder') walk(item.items ?? []);
-    }
-  };
-  walk(c.items ?? []);
-  return out;
 }

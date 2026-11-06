@@ -20,6 +20,7 @@ import { runToCompletion } from '@shared/protocol/ai/ai-complete';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { listModels, testConnection } from '@shared/protocol/ai/model-discovery';
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
+import { truncatedStreamError } from '@shared/protocol/ai/providers/types';
 import { effectiveRawMode, scrubSecretText } from '@shared/protocol/ai/redaction';
 import { type ChatRequestSpec, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
@@ -243,8 +244,12 @@ async function runStream(
         return;
       }
     }
+    // The orchestrator always ends in `done`; reaching here without one means
+    // the stream was cut short, which must not read as a finished answer (same
+    // contract as the assistant handler's runChat).
     if (isCurrent()) {
-      emitTo(activeStream.webContentsId, endChannel, { reason: 'done' });
+      emitTo(activeStream.webContentsId, chunkChannel, truncatedStreamError());
+      emitTo(activeStream.webContentsId, endChannel, { reason: 'error' });
     }
   } catch (e) {
     // Explicit cancellation removes the live entry before abort rejection

@@ -15,6 +15,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
+import { checkBrowserSocketTargetFromSettings } from '@/lib/shared/browserSocketPolicy';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import {
   connectionChannels,
@@ -39,6 +40,20 @@ function isInlineWs(req: unknown): req is InlineWsRequestShape {
   );
 }
 
+function assertBrowserWsTarget(url: string): void {
+  let protocol: string;
+  try {
+    protocol = new URL(url).protocol;
+  } catch {
+    throw new Error('Invalid URL format');
+  }
+  if (protocol !== 'ws:' && protocol !== 'wss:') {
+    throw new Error(`Invalid protocol "${protocol}". URL must start with ws:// or wss://`);
+  }
+  const target = checkBrowserSocketTargetFromSettings(url);
+  if (!target.ok) throw new Error(`Connection refused: ${target.error}`);
+}
+
 async function websocketStartStream(
   request: unknown,
   ctx: { signal: AbortSignal }
@@ -57,6 +72,10 @@ async function websocketStartStream(
   if (isElectron()) {
     return websocketStartStreamElectron(request.url, ctx);
   }
+
+  // Browser-direct: the Worker's SSRF guard never sees this socket (#898), so
+  // apply the same scheme + target policy as the interactive websocketManager.
+  assertBrowserWsTarget(request.url);
 
   const socket = new WebSocket(request.url);
 

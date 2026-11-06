@@ -22,6 +22,7 @@ import {
   MQTT_EXTENSION_KEY,
   mqttEntryToInternal,
 } from './broker-items';
+import { formRowsToInternal } from './form-rows';
 import { graphqlMethodFromOC } from './graphql-item';
 import { applyGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-extension';
 import { applyGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
@@ -471,13 +472,9 @@ function bodyToInternal(body: unknown, context: string): RequestBody {
     const type = (validTypes.includes(format as BodyType) ? format : 'text') as BodyType;
     return { type, raw: raw.value ?? '' };
   }
-  if (b.multipartForm) {
-    const mp = b.multipartForm as { parts?: unknown };
-    return { type: 'form-data', formData: (mp.parts as never[]) ?? [] };
-  }
+  if (b.multipartForm) return { type: 'form-data', formData: formRowsToInternal(b.multipartForm) };
   if (b.formUrlEncoded) {
-    const fue = b.formUrlEncoded as { parts?: unknown };
-    return { type: 'x-www-form-urlencoded', formData: (fue.parts as never[]) ?? [] };
+    return { type: 'x-www-form-urlencoded', formData: formRowsToInternal(b.formUrlEncoded) };
   }
   if (b.graphql) return { type: 'graphql', raw: JSON.stringify(b.graphql) };
   if (b[MULTIPART_MIXED_BODY_KEY]) return multipartMixedFromOC(b[MULTIPART_MIXED_BODY_KEY]);

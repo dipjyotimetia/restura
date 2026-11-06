@@ -39,15 +39,17 @@ export function renderHtml(result: RunResult): string {
   const escapeHtml = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  const rows = result.requests
+  // Every surface of the page — the table and the JSON island — renders the
+  // redacted projection, so error text in the table is scrubbed too.
+  const reported = redactRunResult(result);
+  const rows = reported.requests
     .map((r) => {
       const statusClass = r.passed ? 'pass' : r.errorMessage ? 'err' : 'fail';
       const statusText = r.errorMessage ? 'ERROR' : String(r.status);
       const errorRow = r.errorMessage
         ? `<div class="err-msg">${escapeHtml(r.errorMessage)}</div>`
         : '';
-      const method =
-        (r.request.request as { method?: string }).method ?? r.request.type.toUpperCase();
+      const method = r.request.request.method ?? r.request.type.toUpperCase();
       return `
     <tr class="${statusClass}">
       <td>${escapeHtml(r.request.request.name)}</td>
@@ -96,6 +98,6 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85rem;
   </thead>
   <tbody>${rows}</tbody>
 </table>
-<script type="application/json" id="results">${escapeJsonForHtml(JSON.stringify(redactRunResult(result)))}</script>
+<script type="application/json" id="results">${escapeJsonForHtml(JSON.stringify(reported))}</script>
 </body></html>`;
 }

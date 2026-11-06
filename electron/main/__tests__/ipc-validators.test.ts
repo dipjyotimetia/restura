@@ -16,6 +16,7 @@ import {
   MAX_HTTP_BODY_BYTES,
   MAX_PROTO_CONTENT_BYTES,
   ShellUrlSchema,
+  setDevServerOriginTrusted,
   validateIpcInput,
 } from '../ipc/ipc-validators';
 
@@ -464,22 +465,34 @@ describe('createValidatedHandler frame validation', () => {
     }
   });
 
-  it('accepts events from localhost:5173 dev server', async () => {
+  it('accepts events from localhost:5173 dev server only in dev mode', async () => {
     const handler = createValidatedHandler('test:channel', z.string(), async (s) => s);
     const evt = {
       sender: { id: 1 },
       senderFrame: { url: 'http://localhost:5173/' },
     } as unknown as Electron.IpcMainInvokeEvent;
-    await expect(handler(evt, 'hello')).resolves.toBe('hello');
+    await expect(handler(evt, 'hello')).rejects.toThrow(/untrusted frame/i);
+    setDevServerOriginTrusted(true);
+    try {
+      await expect(handler(evt, 'hello')).resolves.toBe('hello');
+    } finally {
+      setDevServerOriginTrusted(false);
+    }
   });
 
-  it('accepts events from 127.0.0.1:5173 dev server', async () => {
+  it('accepts events from 127.0.0.1:5173 dev server only in dev mode', async () => {
     const handler = createValidatedHandler('test:channel', z.string(), async (s) => s);
     const evt = {
       sender: { id: 1 },
       senderFrame: { url: 'http://127.0.0.1:5173/' },
     } as unknown as Electron.IpcMainInvokeEvent;
-    await expect(handler(evt, 'hello')).resolves.toBe('hello');
+    await expect(handler(evt, 'hello')).rejects.toThrow(/untrusted frame/i);
+    setDevServerOriginTrusted(true);
+    try {
+      await expect(handler(evt, 'hello')).resolves.toBe('hello');
+    } finally {
+      setDevServerOriginTrusted(false);
+    }
   });
 
   it('rejects when senderFrame is undefined', async () => {

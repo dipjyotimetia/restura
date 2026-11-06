@@ -165,8 +165,8 @@ shared/opencollection/                               # OpenCollection spec impor
 
 All global state lives in Zustand stores with the `persist` middleware. Stores are validated with Zod schemas in `src/lib/shared/store-validators.ts`.
 
-- **Web** — `src/lib/shared/dexie-storage.ts` (IndexedDB via Dexie).
-- **Desktop** — `src/lib/shared/secure-storage.ts` (encrypted electron-store via IPC; key wrapped by Electron `safeStorage` → OS keychain).
+- **Both targets** — `src/lib/shared/dexie-storage.ts` (IndexedDB via Dexie).
+- **Desktop** — the same Dexie data is encrypted with a per-install key wrapped by Electron `safeStorage` → OS keychain (`src/lib/shared/persistence/keyProvider.ts`). `src/lib/shared/secure-storage.ts` (electron-store via IPC) holds only secret material (broker credentials, token/password/passphrase/secret keys).
 - **The legacy localStorage adapter has been removed.** Don't add new persistence through `window.localStorage`.
 
 Global stores live in `src/store/` (see its `README.md`) — notably `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollectionStore`, `useEnvironmentStore`, `useHistoryStore`, `useSettingsStore`, `useWorkflowStore`, `useCollectionRunStore` (persisted run history, Dexie `collectionRuns`), `useProtoRegistryStore`. Feature-owned stores live with their feature (e.g. `useKafkaStore` in `src/features/kafka`, the AI store in `src/features/ai/store.ts`, AI Lab stores in `src/features/ai-lab/store`).

@@ -32,7 +32,6 @@ import {
   importPostmanFolder,
   loadPostmanFile,
   type PostmanLimits,
-  postmanSecretVariableNames,
 } from './postmanImport.js';
 
 export interface LoadedRequest {
@@ -193,21 +192,12 @@ async function loadCollectionByFormat(
 // ---------------------------------------------------------------------------
 
 function fromPostman(c: Collection, report: CliPostmanImportReport): LoadedCollection {
-  const meta = extractMeta(c);
   // Secret variables (v3 vault, v2.1 `type: "secret"`) import value-less
-  // (`secret: true`). Never fold them in as an empty value (that would also
-  // shadow an `--env` value): treat them as private variables, so a request that uses one without a value fails
-  // explicitly (`assertCliSecretsAvailable`), the same rule as OC private vars.
-  const secretNames = postmanSecretVariableNames(c);
-  if (secretNames.size > 0) {
-    if (meta.variables) {
-      meta.variables = meta.variables.filter((v) => !secretNames.has(v.key));
-      if (meta.variables.length === 0) delete meta.variables;
-    }
-    meta.privateVariableNames = [
-      ...new Set([...(meta.privateVariableNames ?? []), ...secretNames]),
-    ];
-  }
+  // (`secret: true`), so `extractMeta` / `flattenInternal` record them as secret
+  // names, the same rule as OpenCollection secret variables: never folded in as
+  // an empty value, and a request that still has no value for one when it is
+  // sent is reported not sent (`--env`, a `--data` row or a script can supply it).
+  const meta = extractMeta(c);
   return {
     meta,
     requests: flattenInternal(c),
@@ -336,7 +326,6 @@ function flattenInternal(c: Collection): LoadedRequest[] {
         t === 'mcp'
           ? (resolveMcpEffectiveAuth(req.auth, leaf.inheritedAuth).auth ?? req.auth)
           : resolveEffectiveAuth(req.auth, leaf.inheritedAuth),
-      ...(t === 'http' ? { body: withEnabledFormRows((req as HttpRequest).body) } : {}),
       ...(leaf.preRequestScript !== undefined ? { preRequestScript: leaf.preRequestScript } : {}),
       ...(leaf.testScript !== undefined ? { testScript: leaf.testScript } : {}),
     } as HttpRequest | GrpcRequest | SseRequest | McpRequest;
@@ -357,11 +346,10 @@ function flattenInternal(c: Collection): LoadedRequest[] {
 }
 
 /**
- * The send rule for form rows is a truthy `enabled`, but neither on-disk format
- * guarantees the flag: OpenCollection parts and legacy `formData` are carried
- * through as written. A row saved without one has always been sent by the CLI, so
- * it means enabled. Normalised at load so every CLI entry point (runner, OWS
- * workflows, agent tools) sees the same rows.
+ * The send rule for form rows is a truthy `enabled`, but the legacy file format
+ * carries `formData` through as written (no schema default). A row saved without
+ * the flag has always been sent, so it means enabled. OpenCollection parts are
+ * normalised at the source (`ocToInternal`), so only the legacy path needs this.
  */
 function withEnabledFormRows(body: HttpRequest['body']): HttpRequest['body'] {
   if (!Array.isArray(body?.formData)) return body;

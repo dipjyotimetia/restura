@@ -1,3 +1,6 @@
+import { redactDiagnosticText } from '@shared/collection-run/evidence';
+import { CREDENTIAL_HEADER_NAMES } from '@shared/protocol/credential-header-names';
+import { headerDenylistRegex } from '@shared/protocol/secret-patterns';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@shared/secrets/auth-fields';
 import type { AuthConfig } from '@shared/types';
 import type { LoadedRequest } from '../runner/collectionLoader.js';
@@ -10,10 +13,14 @@ import type { RequestRunResult, RunResult } from './types.js';
  *    every secret field (the shared `SECRET_FIELDS_BY_AUTH_BLOCK` map) set to
  *    `[redacted]`; request headers, bodies, scripts and variables are left out;
  *  - every `setCookies` entry keeps its cookie name only (`sid=[redacted]`);
- *  - response headers named `set-cookie`, `set-cookie2`, `authorization` or
- *    `proxy-authorization` (any case) are set to `[redacted]`.
- * Still written as received: the status, timings, assertions, error messages,
- * every other response header and SSE/WebSocket stream events.
+ *  - response headers that carry a credential are set to `[redacted]`: the
+ *    shared `CREDENTIAL_HEADER_NAMES` list plus the shared `x-*-token` /
+ *    `x-*-key` / `x-*-secret` denylist (the same rule the app's run evidence
+ *    uses, `shared/collection-run/evidence.ts`), plus `set-cookie2`;
+ *  - error messages and assertion errors go through the shared
+ *    `redactDiagnosticText` token scrubber.
+ * Still written as received: the status, timings, assertion names, every
+ * other response header and SSE/WebSocket stream events.
  */
 
 export const REDACTED = '[redacted]';
@@ -36,11 +43,17 @@ export type ReportedRunResult = Omit<RunResult, 'requests'> & {
 };
 
 const CREDENTIAL_RESPONSE_HEADERS: ReadonlySet<string> = new Set([
-  'set-cookie',
+  ...CREDENTIAL_HEADER_NAMES,
   'set-cookie2',
-  'authorization',
-  'proxy-authorization',
 ]);
+const HEADER_DENYLIST = headerDenylistRegex();
+
+function isCredentialHeader(name: string): boolean {
+  return (
+    CREDENTIAL_RESPONSE_HEADERS.has(name.toLowerCase()) ||
+    HEADER_DENYLIST.some((pattern) => pattern.test(name))
+  );
+}
 
 export function redactRunResult(result: RunResult): ReportedRunResult {
   return {
@@ -48,6 +61,16 @@ export function redactRunResult(result: RunResult): ReportedRunResult {
     requests: result.requests.map((r) => ({
       ...r,
       request: reportedRequest(r.request),
+      ...(r.errorMessage !== undefined
+        ? { errorMessage: redactDiagnosticText(r.errorMessage) }
+        : {}),
+      ...(r.assertions
+        ? {
+            assertions: r.assertions.map((a) =>
+              a.error !== undefined ? { ...a, error: redactDiagnosticText(a.error) } : a
+            ),
+          }
+        : {}),
       ...(r.setCookies ? { setCookies: r.setCookies.map(redactSetCookie) } : {}),
       ...(r.responseHeaders ? { responseHeaders: redactResponseHeaders(r.responseHeaders) } : {}),
     })),
@@ -64,7 +87,7 @@ function redactSetCookie(cookie: string): string {
 function redactResponseHeaders(headers: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(headers)) {
-    out[name] = CREDENTIAL_RESPONSE_HEADERS.has(name.toLowerCase()) ? REDACTED : value;
+    out[name] = isCredentialHeader(name) ? REDACTED : value;
   }
   return out;
 }

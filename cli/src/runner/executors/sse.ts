@@ -1,14 +1,16 @@
 import { resolveAuthVariables } from '@shared/auth/resolve-variables';
+import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
+import { authHeaderNames } from '@shared/protocol/request-spec';
 import { signAtWireAuthLabel } from '@shared/protocol/sign-at-wire-auth';
 import { SseParser } from '@shared/protocol/sse-parser';
 import { validateURL } from '@shared/protocol/url-validation';
 import type { SseRequest } from '@shared/types';
-import { request as undiciRequest } from 'undici';
 import type { LoadedRequest } from '../collectionLoader';
+import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
-import { thrownOutcome } from './failure';
+import { failureLabel, sharedCoreFailure, thrownOutcome } from './failure';
 import type { ExecuteOptions, ExecuteOutcome, StreamEvent } from './types';
 import { preflightRefusal, refusedOutcome } from './variable-guard';
 
@@ -19,9 +21,11 @@ const DEFAULT_DURATION_MS = 5000;
  * for up to `sseDurationMs` (default 5s) or until `sseMaxEvents` is reached,
  * then closes the stream. Returns the captured events for the test script.
  *
- * Implementation uses undici directly (rather than the shared http-proxy)
- * because we need access to the streaming body. SSRF guard is applied here
- * via `validateURL` mirroring the shared http-proxy's policy.
+ * The request goes through the shared `executeHttpProxyStreaming` pipeline
+ * with an undici `Fetcher` — the same orchestrator the desktop SSE handler
+ * uses — so the shared SSRF guard (every hop), request-header policy and
+ * redirect follower (auth headers stripped on an origin change) apply. The
+ * URL is also validated up front so a refused URL never resolves auth.
  */
 export async function executeSse(
   item: LoadedRequest,
@@ -108,17 +112,49 @@ export async function executeSse(
     const finalUrl = appendQuery(url, params);
     timer = setTimeout(() => controller.abort(), durationMs);
     sent = true;
-    const response = await undiciRequest(finalUrl, {
-      method: 'GET',
-      headers,
-      signal: controller.signal,
-      ...(opts.dispatcher ? { dispatcher: opts.dispatcher } : {}),
-    });
-    status = response.statusCode;
-    responseHeaders = flattenHeaders(response.headers);
+    const fetcher =
+      opts.fetcher ?? (opts.dispatcher ? createUndiciFetcher(opts.dispatcher) : undiciFetcher);
+    const authHeaders = authHeaderNames(resolvedAuth);
+    const result = await executeHttpProxyStreaming(
+      {
+        method: 'GET',
+        url: finalUrl,
+        headers,
+        // The duration timer bounds the whole stream, connect included (no
+        // separate headers timeout, as before).
+        timeout: 0,
+        ...(authHeaders.length > 0 ? { redirectPolicy: { stripOnOriginChange: authHeaders } } : {}),
+      },
+      fetcher,
+      { allowLocalhost: opts.allowLocalhost, signal: controller.signal }
+    );
+    if (!result.ok) {
+      // Our own duration timer fired before any response headers.
+      if (controller.signal.aborted) {
+        return {
+          status: 0,
+          passed: false,
+          durationMs: Date.now() - start,
+          bodyBytes: 0,
+          errorMessage: `SSE upstream sent no response within ${durationMs}ms`,
+          transportError: true,
+        };
+      }
+      return {
+        status: result.status === 400 ? 400 : 0,
+        passed: false,
+        durationMs: Date.now() - start,
+        bodyBytes: 0,
+        errorMessage: failureLabel(result.payload.error, Boolean(opts.proxy)),
+        ...sharedCoreFailure(result.status),
+      };
+    }
+    const response = result.response;
+    status = response.status;
+    responseHeaders = response.headers;
 
     if (status < 200 || status >= 300) {
-      const text = await response.body.text();
+      const text = await new Response(response.body).text();
       return {
         status,
         passed: false,
@@ -132,7 +168,7 @@ export async function executeSse(
 
     const parser = new SseParser();
     for await (const chunk of response.body) {
-      const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+      const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk as ArrayBuffer);
       bodyBytes += bytes.byteLength;
       const parsed = parser.feed(bytes);
       for (const ev of parsed) {
@@ -181,15 +217,4 @@ function appendQuery(url: string, params: Record<string, string>): string {
   const u = new URL(url);
   for (const k of keys) u.searchParams.append(k, params[k]!);
   return u.toString();
-}
-
-function flattenHeaders(
-  headers: Record<string, string | string[] | undefined>
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(headers)) {
-    if (v === undefined) continue;
-    out[k] = Array.isArray(v) ? v.join(', ') : v;
-  }
-  return out;
 }

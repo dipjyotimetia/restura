@@ -29,7 +29,7 @@ import {
 const handleMock = ipcMain.handle as unknown as Mock;
 const setEnabledMock = setSentryEnabled as unknown as Mock;
 
-const trustedEvent = { senderFrame: { url: 'http://localhost:5173' } } as never;
+const trustedEvent = { senderFrame: { url: 'file:///app/dist/web/index.html' } } as never;
 
 function getRegisteredHandler(): (event: unknown, enabled: unknown) => Promise<{ ok: true }> {
   const call = handleMock.mock.calls.find((c) => c[0] === IPC.telemetry.setConsent);

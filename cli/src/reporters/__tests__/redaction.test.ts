@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { LoadedRequest } from '../../runner/collectionLoader';
 import { renderHtml } from '../html';
 import { JsonReporter } from '../json';
+import { renderJUnitXml } from '../junit';
 import type { RunResult } from '../types';
 
 const TOKEN = 'tok-SUPER-SECRET-123';
@@ -109,5 +110,55 @@ describe('report redaction', () => {
       'content-type': 'application/json',
     });
     expect(reported.streamEvents).toEqual([{ event: 'tick', data: 'payload-1', timestamp: 1 }]);
+  });
+});
+
+describe('report redaction — shared credential header list (B3)', () => {
+  const API_KEY = 'APIKEY-SECRET-0042';
+  function resultWithApiKey(): RunResult {
+    const base = result();
+    const [first] = base.requests;
+    if (!first) throw new Error('fixture has one request');
+    const request = {
+      ...first.request,
+      request: {
+        ...first.request.request,
+        headers: [{ id: 'k', key: 'x-api-key', value: API_KEY, enabled: true }],
+      } as HttpRequest,
+    };
+    return {
+      ...base,
+      requests: [
+        {
+          ...first,
+          request,
+          passed: false,
+          errorMessage: `upstream rejected Authorization: Bearer ${API_KEY}`,
+          assertions: [{ name: 'ok', passed: false, error: `expected token=${API_KEY}` }],
+          responseHeaders: {
+            'X-Api-Key': API_KEY,
+            'x-custom-secret': API_KEY,
+            'x-auth-token': API_KEY,
+            'content-type': 'application/json',
+          },
+        },
+      ],
+    };
+  }
+
+  it('x-api-key request and response headers and error text never reach JSON/HTML reports', async () => {
+    const out = join(mkdtempSync(join(tmpdir(), 'restura-redact-')), 'r.json');
+    await new JsonReporter(out).onEnd(resultWithApiKey());
+    const text = readFileSync(out, 'utf-8');
+    const html = renderHtml(resultWithApiKey());
+    const junit = renderJUnitXml(resultWithApiKey());
+    for (const artifact of [text, html, junit]) expect(artifact).not.toContain(API_KEY);
+    const reported = JSON.parse(text).requests[0];
+    expect(reported.responseHeaders).toEqual({
+      'X-Api-Key': '[redacted]',
+      'x-custom-secret': '[redacted]',
+      'x-auth-token': '[redacted]',
+      'content-type': 'application/json',
+    });
   });
 });

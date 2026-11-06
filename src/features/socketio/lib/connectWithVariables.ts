@@ -1,7 +1,8 @@
 /**
  * Socket.IO connect with `{{var}}` resolution (SIO-2, SIO-4).
  *
- * The URL and — in JSON auth mode — the handshake auth payload are resolved
+ * The URL, Query-tab params, extra handshake headers and the handshake auth
+ * payload (key-value or JSON mode) are resolved
  * through the shared streaming resolver at connect time and handed to the
  * manager for this live connection only. Nothing resolved is written back to
  * the persisted store, so the `{{var}}` template survives and secrets never
@@ -17,6 +18,23 @@ import {
   type StreamingVariableScope,
 } from '@/lib/shared/streaming/messageVariables';
 
+/** Enabled key-value rows → record, with `{{var}}` resolved in keys and values. */
+function resolvePairs(
+  items: ReadonlyArray<{ key: string; value: string; enabled: boolean }>,
+  scope: StreamingVariableScope,
+  unresolved: string[]
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const it of items) {
+    if (!it.enabled || !it.key.trim()) continue;
+    const key = resolveStreamingText(it.key.trim(), scope);
+    const value = resolveStreamingText(it.value, scope);
+    unresolved.push(...key.unresolved, ...value.unresolved);
+    out[key.wire] = value.wire;
+  }
+  return out;
+}
+
 export function connectWithVariables(
   connectionId: string,
   scope: StreamingVariableScope = getActiveStreamingVariableScope()
@@ -28,7 +46,7 @@ export function connectWithVariables(
   const url = resolveStreamingText(connection.url, scope);
   const unresolved = [...url.unresolved];
 
-  let auth: Record<string, unknown> | undefined;
+  let auth: Record<string, unknown>;
   if (connection.authMode === 'json') {
     // JSON-aware: a value inside a string literal is escaped, never injected as structure.
     const text = resolveStreamingText(connection.authJson ?? '', scope, { json: true });
@@ -46,7 +64,12 @@ export function connectWithVariables(
     }
     auth = parsed.auth;
     unresolved.push(...text.unresolved);
+  } else {
+    auth = resolvePairs(connection.auth, scope, unresolved);
   }
+
+  const query = resolvePairs(connection.query, scope, unresolved);
+  const extraHeaders = resolvePairs(connection.extraHeaders, scope, unresolved);
 
   const unique = [...new Set(unresolved)];
   if (unique.length > 0) {
@@ -57,6 +80,6 @@ export function connectWithVariables(
     });
   }
 
-  socketioManager.connect(connectionId, { url: url.wire, ...(auth ? { auth } : {}) });
+  socketioManager.connect(connectionId, { url: url.wire, auth, query, extraHeaders });
   return { ok: true };
 }

@@ -41,12 +41,29 @@ export const BugReportScreenshotSchema = z
 // Validation Helper
 // ===========================
 
+// Fail closed: the Vite dev-server origin is untrusted unless main.ts opts in
+// at startup for an unpackaged dev run. A packaged build only ever trusts the
+// pinned file:// renderer entry.
+let devServerOriginTrusted = false;
+
+/**
+ * Called once at startup by main.ts with `isDev && !app.isPackaged`. This is
+ * deliberately stricter than window-manager.ts, which loads
+ * http://localhost:5173 on `isDev` alone: a packaged build started with
+ * NODE_ENV=development still loads the dev URL, but every IPC call from it is
+ * refused (fails closed). Exported for tests.
+ */
+export function setDevServerOriginTrusted(enabled: boolean): void {
+  devServerOriginTrusted = enabled;
+}
+
 /**
  * Returns true iff `url` is one of the renderer entry points the main
  * process trusts:
  *   - file:// → the packaged Electron app's dist/web/index.html
  *   - http://localhost:5173 or http://127.0.0.1:5173 → the Vite dev server
- *     used during `npm run electron:dev` (see window-manager.ts)
+ *     used during `npm run electron:dev` (see window-manager.ts) — ONLY when
+ *     `setDevServerOriginTrusted(true)` was called (dev, unpackaged)
  *
  * Any other origin (including arbitrary localhost ports, https://, or
  * https://attacker.example) is rejected. Hash router segments live in the
@@ -61,6 +78,7 @@ function isTrustedFrameUrl(url: string | undefined): boolean {
     // as the renderer. Hash-router state lives in the fragment, not the path.
     if (u.protocol === 'file:') return u.pathname.endsWith('/web/index.html');
     if (
+      devServerOriginTrusted &&
       u.protocol === 'http:' &&
       (u.hostname === 'localhost' || u.hostname === '127.0.0.1') &&
       u.port === '5173'

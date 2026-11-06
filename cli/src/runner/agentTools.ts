@@ -5,6 +5,7 @@ import {
   type ContentBlock,
   createA2aTool,
   createMcpTools,
+  mcpAgentToolName,
   type ResolvedAgentTools,
   type ToolSource,
 } from '@shared/agent-lab';
@@ -178,7 +179,10 @@ export async function resolveCliAgentTools(
       // unattended in CI. (Unannotated tools pass on the manifest's assertion.)
       const mcpTools = await createMcpTools({ ...source, allowedTools }, client, options.signal, {
         nameForTool: (name) =>
-          claimName(cliMcpToolName(runtimeSource.id, name), `MCP tool ${runtimeSource.id}/${name}`),
+          claimName(
+            mcpAgentToolName(runtimeSource.id, name),
+            `MCP tool ${runtimeSource.id}/${name}`
+          ),
         inspectDescriptors: (descriptors) => {
           const refused = descriptors.filter(
             (tool) =>
@@ -230,10 +234,6 @@ export async function resolveCliAgentTools(
       await pinnedHttpSession?.dispose();
     },
   };
-}
-
-function cliMcpToolName(sourceId: string, remoteName: string): string {
-  return `mcp_${sourceId}_${remoteName}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
 }
 
 function outcomeToContent(

@@ -32,6 +32,7 @@ import { registerOwsWorkspaceHandlerIPC } from './handlers/ows-workspace-handler
 import { registerSocketIoHandlerIPC, stopSocketIoCleanup } from './handlers/socketio-handler';
 import { registerSseHandlerIPC, stopSseCleanup } from './handlers/sse-handler';
 import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './handlers/websocket-handler';
+import { setDevServerOriginTrusted } from './ipc/validators/boundary';
 import { registerAutoUpdaterIPC, setupAutoUpdater } from './lifecycle/auto-updater';
 import { registerDeepLinkHandler } from './lifecycle/deep-link-handler';
 import { initLogging } from './lifecycle/logging';
@@ -69,6 +70,13 @@ import { registerVaultHandlers, unregisterVaultHandlers } from './storage/vault-
 import { createMainWindow, getActiveWindow, registerNewWindowIPC } from './window-manager';
 
 const isDev = process.env.NODE_ENV === 'development';
+
+// IPC sender trust: the Vite dev-server origin (http://localhost:5173) is only
+// trusted for an unpackaged dev run — a packaged build trusts nothing but its
+// pinned file:// renderer entry, even if NODE_ENV=development leaks in. This is
+// stricter than createMainWindow(isDev), which loads the dev URL on isDev alone,
+// so such a build's window gets no IPC (fails closed).
+setDevServerOriginTrusted(isDev && !app.isPackaged);
 
 // Test harnesses (Playwright _electron) point this at a temp dir so test runs
 // get isolated storage AND their own single-instance lock (the lock is keyed
@@ -397,12 +405,11 @@ app.whenReady().then(async () => {
   setupPermissionHandlers();
   registerIPCHandlers();
 
-  const initialWindow = createMainWindow(isDev);
-
-  // Prevent watcher accumulation on macOS window re-create.
-  initialWindow.on('closed', () => {
-    cleanupCollectionWatchers();
-  });
+  // Collection watchers are owner-scoped: each is released when the webContents
+  // that registered it goes away (collection-manager → bindRendererCleanup), so
+  // closing one window never tears down another window's watchers / git
+  // allowlist. The global cleanup runs only on quit (IPC_MODULES dispose).
+  createMainWindow(isDev);
 
   // Auto-updater resolves the target window lazily via getMainWindow so
   // dialogs land on the currently focused window — never a destroyed ref.

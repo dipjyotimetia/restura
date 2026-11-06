@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createMcpTools, SandboxRegistry } from '../tools';
+import { createMcpTools, mcpAgentToolName, SandboxRegistry } from '../tools';
 
 describe('MCP agent tools', () => {
   it('honours allowlists and maps MCP safety annotations to approvals', async () => {
@@ -39,7 +39,17 @@ describe('MCP agent tools', () => {
         async listTools() {
           return [
             { name: 'drop', inputSchema: {}, annotations: { destructiveHint: true } },
-            { name: 'fetch', inputSchema: {}, annotations: { openWorldHint: true } },
+            {
+              name: 'fetch',
+              inputSchema: {},
+              annotations: { openWorldHint: true, readOnlyHint: true },
+            },
+            { name: 'post', inputSchema: {}, annotations: { openWorldHint: true } },
+            {
+              name: 'send',
+              inputSchema: {},
+              annotations: { openWorldHint: true, readOnlyHint: false },
+            },
             { name: 'plain', inputSchema: {} },
           ];
         },
@@ -56,9 +66,12 @@ describe('MCP agent tools', () => {
     expect(tools.map((tool) => [tool.definition.name, tool.permissionClass])).toEqual([
       ['mcp_drop', 'destructive'],
       ['mcp_fetch', 'network'],
+      // openWorldHint alone never lowers a tool below mutation.
+      ['mcp_post', 'mutation'],
+      ['mcp_send', 'mutation'],
       ['mcp_plain', 'mutation'],
     ]);
-    expect(inspected).toEqual([['drop', 'fetch', 'plain']]);
+    expect(inspected).toEqual([['drop', 'fetch', 'post', 'send', 'plain']]);
   });
 
   it('fails closed when an explicitly allowed remote tool is unavailable', async () => {
@@ -89,5 +102,14 @@ describe('sandbox registry', () => {
     const registry = new SandboxRegistry([provider]);
     expect(registry.require('docker')).toBe(provider);
     expect(() => registry.register(provider)).toThrow('duplicate sandbox provider');
+  });
+});
+
+describe('mcpAgentToolName', () => {
+  it('namespaces, sanitizes, and caps names at the 64-character provider limit', () => {
+    expect(mcpAgentToolName('server', 'read.order')).toBe('mcp_server_read_order');
+    const name = mcpAgentToolName('s'.repeat(50), 't'.repeat(50));
+    expect(name).toHaveLength(64);
+    expect(name).toMatch(/^[a-zA-Z0-9_-]+$/);
   });
 });
