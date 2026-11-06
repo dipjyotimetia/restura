@@ -73,7 +73,9 @@ const isDev = process.env.NODE_ENV === 'development';
 
 // IPC sender trust: the Vite dev-server origin (http://localhost:5173) is only
 // trusted for an unpackaged dev run — a packaged build trusts nothing but its
-// pinned file:// renderer entry, even if NODE_ENV=development leaks in.
+// pinned file:// renderer entry, even if NODE_ENV=development leaks in. This is
+// stricter than createMainWindow(isDev), which loads the dev URL on isDev alone,
+// so such a build's window gets no IPC (fails closed).
 setDevServerOriginTrusted(isDev && !app.isPackaged);
 
 // Test harnesses (Playwright _electron) point this at a temp dir so test runs

@@ -47,9 +47,11 @@ export const BugReportScreenshotSchema = z
 let devServerOriginTrusted = false;
 
 /**
- * Called once at startup by main.ts with its dev-mode signal (`isDev` and not
- * `app.isPackaged`) — the same condition under which window-manager.ts loads
- * the renderer from http://localhost:5173. Exported for tests.
+ * Called once at startup by main.ts with `isDev && !app.isPackaged`. This is
+ * deliberately stricter than window-manager.ts, which loads
+ * http://localhost:5173 on `isDev` alone: a packaged build started with
+ * NODE_ENV=development still loads the dev URL, but every IPC call from it is
+ * refused (fails closed). Exported for tests.
  */
 export function setDevServerOriginTrusted(enabled: boolean): void {
   devServerOriginTrusted = enabled;
