@@ -1,7 +1,7 @@
 /**
  * Unary gRPC honours the run's abort signal (Cancel in the response panel,
- * collection-run abort): the Worker / gRPC-Web fetch receives the signal, and
- * every harness — Electron IPC included, which has no unary cancel channel —
+ * collection-run abort): the Worker / gRPC-Web fetch and the Electron IPC call
+ * (which sends grpc:cancel-request) receive the signal, and every harness
  * rejects promptly with AbortError instead of waiting for the reply.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -78,6 +78,21 @@ describe('unary gRPC cancellation', () => {
     void grpcProtocol.runRequest(grpcReq(), { signal: ctrl.signal, variables: {} }).catch(() => {});
     await vi.waitFor(() => expect(proxyCall).toHaveBeenCalled());
     expect(proxyCall.mock.calls[0]).toContain(ctrl.signal);
+    ctrl.abort();
+  });
+
+  it('hands the signal to the desktop IPC call (it sends grpc:cancel-request on abort)', async () => {
+    electron.on = true;
+    const ctrl = new AbortController();
+    void grpcProtocol
+      .runRequest(grpcReq(), {
+        signal: ctrl.signal,
+        variables: {},
+        protocolOptions: { descriptors: ['AAA='] },
+      })
+      .catch(() => {});
+    await vi.waitFor(() => expect(electronCall).toHaveBeenCalled());
+    expect(electronCall.mock.calls[0]).toContain(ctrl.signal);
     ctrl.abort();
   });
 

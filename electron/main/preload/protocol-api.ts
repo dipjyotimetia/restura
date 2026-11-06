@@ -15,6 +15,7 @@ export const protocolApi: ProtocolApi = {
   },
   grpc: {
     request: invoke<ElectronAPI['grpc']['request']>(IPC.grpc.request),
+    cancelRequest: invoke<ElectronAPI['grpc']['cancelRequest']>(IPC.grpc.cancelRequest),
     reflect: invoke<ElectronAPI['grpc']['reflect']>(IPC.grpc.reflect),
     startStream: send<ElectronAPI['grpc']['startStream']>(IPC.grpc.startStream),
     sendMessage: send<ElectronAPI['grpc']['sendMessage']>(IPC.grpc.sendMessage),

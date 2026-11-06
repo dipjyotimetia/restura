@@ -1103,6 +1103,95 @@ service S { rpc M(R) returns (R); }`;
         });
       }
     });
+
+    it('abort sends grpc:cancel-request with the same call id the request carried', async () => {
+      let settle!: (v: unknown) => void;
+      const mockElectron = {
+        isElectron: true,
+        grpc: {
+          request: vi.fn(
+            () =>
+              new Promise((resolve) => {
+                settle = resolve;
+              })
+          ),
+          cancelRequest: vi.fn().mockResolvedValue({ ok: true }),
+          reflect: vi.fn(),
+          startStream: vi.fn(),
+          sendMessage: vi.fn(),
+          endStream: vi.fn(),
+          cancelStream: vi.fn(),
+          on: vi.fn(),
+          removeListener: vi.fn(),
+        },
+      };
+      Object.defineProperty(window, 'electron', {
+        value: mockElectron,
+        writable: true,
+        configurable: true,
+      });
+
+      try {
+        const controller = new AbortController();
+        const pending = makeElectronGrpcRequest(
+          grpcReq,
+          'syntax = "proto3";',
+          'test.proto',
+          (s) => s,
+          30000,
+          false,
+          undefined,
+          controller.signal
+        );
+        await vi.waitFor(() => expect(mockElectron.grpc.request).toHaveBeenCalledOnce());
+        const sent = (mockElectron.grpc.request.mock.calls[0] as unknown[])[0] as { id?: string };
+        expect(sent.id).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
+        expect(mockElectron.grpc.cancelRequest).not.toHaveBeenCalled();
+
+        controller.abort();
+        expect(mockElectron.grpc.cancelRequest).toHaveBeenCalledExactlyOnceWith({
+          requestId: sent.id,
+        });
+
+        settle({ status: 1, statusText: 'CANCELLED', headers: {}, trailers: {} });
+        await pending;
+        // Abort after settle must not fire a second cancel.
+        expect(mockElectron.grpc.cancelRequest).toHaveBeenCalledOnce();
+
+        // Each call gets its own id; no abort → no cancel.
+        mockElectron.grpc.request.mockResolvedValueOnce({
+          status: 0,
+          statusText: 'OK',
+          headers: {},
+          trailers: {},
+        } as never);
+        const second = new AbortController();
+        await makeElectronGrpcRequest(
+          grpcReq,
+          'syntax = "proto3";',
+          'test.proto',
+          (s) => s,
+          30000,
+          false,
+          undefined,
+          second.signal
+        );
+        second.abort();
+        const secondId = (
+          (mockElectron.grpc.request.mock.calls[1] as unknown[])[0] as {
+            id?: string;
+          }
+        ).id;
+        expect(secondId).not.toBe(sent.id);
+        expect(mockElectron.grpc.cancelRequest).toHaveBeenCalledOnce();
+      } finally {
+        Object.defineProperty(window, 'electron', {
+          value: undefined,
+          writable: true,
+          configurable: true,
+        });
+      }
+    });
   });
 
   describe('makeElectronGrpcRequest (non-Electron)', () => {

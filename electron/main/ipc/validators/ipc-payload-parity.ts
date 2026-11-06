@@ -25,6 +25,7 @@ import type {
   AiLabStreamSchema,
 } from './ai';
 import type {
+  GrpcCancelRequestSchema,
   GrpcRequestConfigSchema,
   HttpRequestConfigSchema,
   McpConnectSchema,
@@ -86,6 +87,9 @@ export type GrpcStartStreamParity = Assert<
 >;
 export type GrpcReflectParity = Assert<
   PayloadParity<Arg0<Api['grpc']['reflect']>, typeof ReflectionIpcConfigSchema>
+>;
+export type GrpcCancelRequestParity = Assert<
+  PayloadParity<Arg0<Api['grpc']['cancelRequest']>, typeof GrpcCancelRequestSchema>
 >;
 
 // SSE

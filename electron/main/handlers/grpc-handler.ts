@@ -7,7 +7,7 @@ import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import type { GrpcRequestConfig } from '../ipc/ipc-validators';
 import {
-  createValidatedHandler,
+  createValidatedEventHandler,
   createValidatedListener,
   GrpcRequestConfigSchema,
   GrpcSendMessageSchema,
@@ -25,6 +25,12 @@ import {
 } from './grpc-connect';
 import { type GrpcTlsConfig, resolveGrpcExecutionPolicy } from './grpc-credentials';
 import type { PinnedDial } from './grpc-transport';
+import {
+  disposeAllUnaryCalls,
+  registerGrpcCancelRequestIPC,
+  runTrackedUnaryCall,
+  unaryResult,
+} from './grpc-unary-calls';
 
 const log = createLogger('grpc');
 
@@ -229,6 +235,7 @@ export function stopStreamCleanup(): void {
   // Cancel all active streams so we don't block process exit (dispose = cancel).
   activeCalls.disposeAll();
   activeCalls.clearClaims();
+  disposeAllUnaryCalls();
 }
 
 // Safe method to add a stream with collision detection. `sender` is threaded to
@@ -329,7 +336,10 @@ function toConnectArgs(config: GrpcRequestConfig, dial: PinnedDial, timeoutMs = 
   };
 }
 
-async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse> {
+async function makeGrpcRequest(
+  config: GrpcRequestConfig,
+  signal?: AbortSignal
+): Promise<GrpcResponse> {
   let policyConfig: GrpcRequestConfig;
   try {
     policyConfig = resolveGrpcExecutionPolicy(config);
@@ -361,6 +371,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       details: `[URL policy] ${detail}`,
     };
   }
+  if (signal?.aborted) return unaryResult(GRPC_CANCELLED, 'Request cancelled');
 
   try {
     policyConfig = {
@@ -377,14 +388,14 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       error: `gRPC setup failed: ${detail}`,
     };
   }
+  if (signal?.aborted) return unaryResult(GRPC_CANCELLED, 'Request cancelled');
   // The buffered path always has a deadline — "no deadline" is a live-stream
   // option only (the IPC schema rejects 0 for unary; collected server streams
   // fall back to the default here).
-  const shared = toConnectArgs(
-    policyConfig,
-    grpcDial,
-    policyConfig.timeoutMs || DEFAULT_SYNC_DEADLINE_MS
-  );
+  const shared = {
+    ...toConnectArgs(policyConfig, grpcDial, policyConfig.timeoutMs || DEFAULT_SYNC_DEADLINE_MS),
+    ...(signal ? { signal } : {}),
+  };
 
   try {
     if (config.methodType === 'unary') {
@@ -423,6 +434,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       error: `Method type ${config.methodType} not supported in synchronous mode`,
     };
   } catch (err: unknown) {
+    if (signal?.aborted) return unaryResult(GRPC_CANCELLED, 'Request cancelled');
     const error = err instanceof Error ? err : new Error(String(err));
     return {
       status: 2,
@@ -434,6 +446,18 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
   }
 }
 
+/** Run a buffered call; one with an `id` is cancellable via `grpc:cancel-request`. */
+async function runTrackedGrpcRequest(
+  config: GrpcRequestConfig,
+  sender: WebContents
+): Promise<GrpcResponse> {
+  if (!config.id) return makeGrpcRequest(config);
+  const tracked = await runTrackedUnaryCall(config.id, sender, (signal) =>
+    makeGrpcRequest(config, signal)
+  );
+  return tracked ?? unaryResult(13, `Request with ID ${config.id} is already in flight`);
+}
+
 export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
   // Start periodic cleanup of stale streams
   startStreamCleanup();
@@ -442,12 +466,12 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
     IPC.grpc.request,
     rateLimited(
       grpcRateLimiter,
-      createValidatedHandler(
+      createValidatedEventHandler(
         IPC.grpc.request,
         GrpcRequestConfigSchema,
-        async (config: GrpcRequestConfig) => {
+        async (config: GrpcRequestConfig, event) => {
           const startTime = Date.now();
-          const result = await makeGrpcRequest(config);
+          const result = await runTrackedGrpcRequest(config, event.sender);
           if (onComplete) {
             onComplete({
               ts: startTime,
@@ -464,6 +488,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       )
     )
   );
+
+  registerGrpcCancelRequestIPC();
 
   ipcMain.on(
     IPC.grpc.startStream,

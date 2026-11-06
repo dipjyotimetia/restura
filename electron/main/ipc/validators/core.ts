@@ -515,6 +515,17 @@ export const GrpcStreamMessageSchema = z.unknown(); // Allow any message structu
 // Schema for grpc:send-message which takes both requestId and message
 export const GrpcSendMessageSchema = z.tuple([GrpcStreamRequestIdSchema, GrpcStreamMessageSchema]);
 
+// grpc:cancel-request — cancel an in-flight buffered `grpc:request` by the `id`
+// the renderer sent with it. Same id shape as GrpcRequestConfigSchema.id.
+export const GrpcCancelRequestSchema = z
+  .object({
+    requestId: z
+      .string()
+      .regex(/^[a-zA-Z0-9_-]+$/, 'requestId must be alphanumeric with dashes/underscores')
+      .max(64, 'requestId too long'),
+  })
+  .strict();
+
 // ===========================
 // Connection-based protocols (WebSocket / Socket.IO / SSE / MCP / Kafka / MQTT)
 // ===========================

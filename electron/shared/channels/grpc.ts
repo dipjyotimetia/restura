@@ -4,6 +4,7 @@
 export const GRPC_IPC = {
   grpc: {
     request: 'grpc:request',
+    cancelRequest: 'grpc:cancel-request',
     reflect: 'grpc:reflect',
     startStream: 'grpc:start-stream',
     sendMessage: 'grpc:send-message',

@@ -117,7 +117,20 @@ export interface ConnectUnaryArgs extends WireProtocolArgs {
   transport?: Transport;
   /** Inject the Connect-fallback transport for tests (second attempt). */
   fallbackTransport?: Transport;
+  /** Caller cancellation (`grpc:cancel-request`): aborts the call → CANCELLED. */
+  signal?: AbortSignal;
 }
+
+const cancelledResult = (
+  headers: Record<string, string> = {},
+  trailers: Record<string, string> = {}
+): ConnectCallResult => ({
+  status: 1,
+  statusText: 'CANCELLED',
+  headers,
+  trailers,
+  error: 'Request cancelled',
+});
 
 /**
  * Run a unary RPC over connect-node and normalise the result to the grpc-handler
@@ -142,16 +155,20 @@ export async function executeConnectUnary(args: ConnectUnaryArgs): Promise<Conne
     if (i === 0 && callKindOf(method) !== 'unary') {
       throw new Error(`Method "${args.method}" is not a unary method`);
     }
+    if (args.signal?.aborted) return cancelledResult();
 
     const headers: Record<string, string> = {};
     const trailers: Record<string, string> = {};
     try {
       const res = await invoke(inputFromJson(method, args.message), {
         headers: args.metadata,
+        ...(args.signal ? { signal: args.signal } : {}),
         ...(args.timeoutMs ? { timeoutMs: args.timeoutMs } : {}),
         onHeader: (h: Headers) => Object.assign(headers, flattenHeaders(h)),
         onTrailer: (t: Headers) => Object.assign(trailers, flattenHeaders(t)),
       });
+      // A server that answered after the caller cancelled is still a cancel.
+      if (args.signal?.aborted) return cancelledResult(headers, trailers);
       noteSettled(args, attempt, rejection?.protocol === 'grpc');
       return {
         status: 0,
@@ -161,6 +178,8 @@ export async function executeConnectUnary(args: ConnectUnaryArgs): Promise<Conne
         message: outputToJson(method, res),
       };
     } catch (err) {
+      // Caller cancellation: never retried over the fallback, never memoised.
+      if (args.signal?.aborted) return cancelledResult(headers, trailers);
       const refused = isProtocolRejectionError(err);
       if (refused) noteRejection(args, attempt);
       if (i < attempts.length - 1 && refused) {
@@ -265,6 +284,8 @@ export interface ConnectStreamArgs extends WireProtocolArgs {
   transport?: Transport;
   /** Inject the Connect-fallback transport for tests (second attempt). */
   fallbackTransport?: Transport;
+  /** External cancellation — same effect as `controls.cancel()`. */
+  signal?: AbortSignal;
 }
 
 // Outbound messages already written are replayed into the fallback attempt's
@@ -409,13 +430,19 @@ export function runConnectStream(
     }
   }
 
+  const cancel = (): void => {
+    controller.abort();
+    currentQueue?.close();
+  };
+  if (args.signal) {
+    if (args.signal.aborted) controller.abort();
+    else args.signal.addEventListener('abort', cancel, { once: true });
+  }
+
   startAttempt();
 
   return {
-    cancel: () => {
-      controller.abort();
-      currentQueue?.close();
-    },
+    cancel,
     write: (msg: unknown) => {
       if (!currentMethod) return;
       const encoded = inputFromJson(currentMethod, msg);
