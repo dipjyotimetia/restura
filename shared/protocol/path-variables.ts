@@ -14,8 +14,10 @@
  *     occurrence; a disabled row, an empty value, or a name with no row leaves
  *     the segment literal (Postman sends an unknown `:name` as written);
  *   - the value is resolved (`{{var}}`) by the host, then percent-encoded as
- *     ONE path segment, so a value can never add segments, start a query or
- *     reach the authority. Existing `%XX` escapes are kept.
+ *     ONE path segment: `/`, `\`, `?` and `#` are always escaped, so a value
+ *     can never add segments, start a query or reach the authority. A value of
+ *     `.` or `..` is still normalised by URL parsing (it can drop a segment of
+ *     the path, never touch the host). Existing `%XX` escapes are kept.
  */
 
 import { replaceVariableTokens } from '../variables/tokens';
@@ -85,7 +87,7 @@ function encodeSegment(text: string, encode: boolean): string {
     i += ch.length;
     if (ch === '%') {
       out += PERCENT_ESCAPE.test(text.slice(i - 1, i + 2)) ? '%' : '%25';
-    } else if (ch === '/' || ch === '?' || ch === '#') {
+    } else if (ch === '/' || ch === '\\' || ch === '?' || ch === '#') {
       out += encodeURIComponent(ch);
     } else if (!encode || PCHAR.test(ch)) {
       out += ch;

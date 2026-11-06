@@ -64,6 +64,17 @@ describe('applyPathVariables', () => {
     ).toBe('https://h/a b%2Fc%3Fd%23e');
   });
 
+  it('always escapes a backslash, which URL parsing would turn into a path separator', () => {
+    for (const encode of [true, false]) {
+      const url = applyPathVariables('https://h/a/:v/z', [row('v', 'x\\y')], {
+        resolve: plain,
+        encode,
+      });
+      expect(url).toBe('https://h/a/x%5Cy/z');
+      expect(new URL(url).pathname).toBe('/a/x%5Cy/z');
+    }
+  });
+
   it('resolves {{vars}} in values before encoding', () => {
     const vars: Record<string, string> = { userId: 'u 1' };
     expect(
