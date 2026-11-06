@@ -335,3 +335,46 @@ describe('restura eval run (#1045)', () => {
     expect(xml).toContain('<error message="bad &quot;quote&quot;">');
   });
 });
+
+describe('eval outgoing-secret check follows the resolved address (B4)', () => {
+  const SECRET_PROMPT = { system: '', user: 'Say {{word}} AKIAABCDEFGHIJKLMNOP' };
+  const oneCase = {
+    name: 'd',
+    cases: [{ id: 'c1', vars: { word: 'hello' }, expected: 'hello' }],
+  };
+
+  it('an openai-compatible endpoint on a public host keeps the check (no rawMode)', async () => {
+    const fetcher = echoFetcher();
+    const { dependencies } = deps(
+      file({
+        prompt: SECRET_PROMPT,
+        dataset: oneCase,
+        endpoints: {
+          oa: {
+            provider: 'openai-compatible',
+            baseUrl: 'https://api.groq.com/openai/v1',
+            credentialEnv: 'OPENAI_API_KEY',
+          },
+        },
+      }),
+      fetcher
+    );
+    const report = await evaluateEvalFile('/e.json', {}, dependencies);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(report.status).not.toBe('passed');
+  });
+
+  it('a localhost Ollama runtime still skips the check (rawMode)', async () => {
+    const fetcher = echoFetcher();
+    const { dependencies } = deps(
+      file({
+        prompt: SECRET_PROMPT,
+        dataset: oneCase,
+        endpoints: { oa: { provider: 'ollama', baseUrl: 'http://localhost:11434' } },
+      }),
+      fetcher
+    );
+    await evaluateEvalFile('/e.json', { allowLocalhost: true }, dependencies);
+    expect(fetcher).toHaveBeenCalled();
+  });
+});

@@ -8,6 +8,7 @@ import type { EvalCellResult, ModelRef } from '@shared/ai-lab/types';
 import { runToCompletion } from '@shared/protocol/ai/ai-complete';
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import { getProviderModule } from '@shared/protocol/ai/providers';
+import { effectiveRawMode } from '@shared/protocol/ai/redaction';
 import { hasStaticPricing, isLocalProvider, type Usage } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
 import { validateURL } from '@shared/protocol/url-validation';
@@ -41,6 +42,13 @@ const defaultDependencies: EvalRunDependencies = {
   fetcher: undiciFetcher,
   environment: process.env,
 };
+
+export interface ResolvedEvalEndpoint {
+  endpoint: EvalEndpoint;
+  apiKey: string;
+  /** Whether the outgoing-secret check is skipped for this endpoint's calls. */
+  rawMode: boolean;
+}
 
 export type EvalRunStatus = 'passed' | 'failed' | 'cancelled';
 
@@ -129,7 +137,7 @@ export function preflightEvalFile(
     maxCost?: number;
     allowLocalhost: boolean;
   }
-): Map<string, { endpoint: EvalEndpoint; apiKey: string }> {
+): Map<string, ResolvedEvalEndpoint> {
   if (file.scorers.length === 0) {
     throw new EvalPreflightError('the eval has no scorers, so nothing would be evaluated');
   }
@@ -145,7 +153,7 @@ export function preflightEvalFile(
     );
   }
 
-  const resolved = new Map<string, { endpoint: EvalEndpoint; apiKey: string }>();
+  const resolved = new Map<string, ResolvedEvalEndpoint>();
   // Only endpoints the run calls need credentials; unused ones are ignored.
   const referenced = new Set(calledModels(file).map((model) => model.providerConfigId));
   for (const id of referenced) {
@@ -181,7 +189,13 @@ export function preflightEvalFile(
     } else if (!local) {
       throw new EvalPreflightError(`endpoint ${id} (${endpoint.provider}) needs credentialEnv`);
     }
-    resolved.set(id, { endpoint, apiKey });
+    // Same decision as desktop (`effectiveRawMode`): only a local-runtime kind
+    // whose validated address is loopback / RFC1918 skips the outgoing-secret
+    // check. The CLI does not pin a DNS answer, so the address is the URL's
+    // validated host: a hostname that is not a loopback / private literal
+    // (`openai-compatible` -> api.groq.com) is a cloud call and keeps the check.
+    const rawMode = effectiveRawMode(false, endpoint.provider, new URL(url).hostname);
+    resolved.set(id, { endpoint, apiKey, rawMode });
   }
 
   if (options.maxCost !== undefined) {
@@ -201,7 +215,7 @@ const CREDENTIAL_HANDLE = 'eval-credential';
 
 function cliEvalPort(
   file: EvalFile,
-  endpoints: Map<string, { endpoint: EvalEndpoint; apiKey: string }>,
+  endpoints: Map<string, ResolvedEvalEndpoint>,
   fetcher: Fetcher,
   spend: { costUSD: number; unpricedCalls: number; maxCost?: number; abort(reason: unknown): void }
 ): EvalModelPort {
@@ -256,16 +270,15 @@ function cliEvalPort(
         }
         const resolved = endpoints.get(model.providerConfigId);
         if (!resolved) throw new Error(`no endpoint configured for ${model.providerConfigId}`);
-        const { endpoint, apiKey } = resolved;
+        const { endpoint, apiKey, rawMode } = resolved;
         const result = await runToCompletion(
           {
             provider: endpoint.provider,
             model: model.model,
             messages,
             apiKeyHandleId: apiKey ? CREDENTIAL_HANDLE : '',
-            // Same rule as desktop: the outgoing secret check is on for cloud
-            // providers and off for local runtimes.
-            rawMode: isLocalProvider(endpoint.provider),
+            // Decided at preflight from the validated address (effectiveRawMode).
+            rawMode,
             ...(endpoint.baseUrl ? { baseUrlOverride: endpoint.baseUrl } : {}),
             ...(tools ? { tools } : {}),
             signal,
