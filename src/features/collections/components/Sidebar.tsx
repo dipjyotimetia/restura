@@ -8,6 +8,7 @@ import RunsPanel from '@/components/shared/RunsPanel';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { useElectronMenuExport } from '@/hooks/useElectronMenu';
 import { redactCollectionSecrets } from '@/lib/shared/collection-secret-redaction';
 import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -126,6 +127,8 @@ function Sidebar({ activePanel }: SidebarProps) {
     visitedTabsRef.current.add(activeTab);
   }, [activeTab]);
   const commands = useCollectionSidebarCommands();
+  // Desktop File > Export Collection… (CmdOrCtrl+E) runs the same export flow.
+  useElectronMenuExport(commands.handleExportCollection);
   const mockStatus = useMockStore((state) => state.status);
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState<string | null>(null);
