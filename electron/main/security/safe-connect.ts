@@ -30,7 +30,7 @@ import {
   isPrivateAddress,
 } from '@shared/protocol/url-validation';
 import { Agent, type RequestInit as UndiciRequestInit, fetch as undiciFetch } from 'undici';
-import { assertHostnameSafe, type DnsGuardOptions } from './dns-guard';
+import { assertHostnameSafe, type DnsGuardOptions, unbracketHost } from './dns-guard';
 
 export interface SafeAddress {
   /** The original hostname — keep using this for SNI + Host header. */
@@ -63,7 +63,10 @@ export async function resolveSafeAddress(
   options: ResolveOptions
 ): Promise<SafeAddress> {
   const parsed = new URL(url);
-  const host = parsed.hostname;
+  // URL.hostname brackets IPv6 literals; net.isIP and the SSRF checks need
+  // them bare. The returned `host` is the bare literal (callers already skip
+  // SNI for IP literals, and Node never calls `lookup` for one).
+  const host = unbracketHost(parsed.hostname);
   const port = parsed.port
     ? parseInt(parsed.port, 10)
     : (options.defaultPort ??
@@ -78,13 +81,11 @@ export async function resolveSafeAddress(
 
   if (options.localRuntime) {
     // Local-runtime kinds: literals and resolved hostnames share one address
-    // policy (assertHostnameSafe). URL.hostname brackets IPv6 literals; isIP
-    // needs them bare. Scoped to this opt-in so other callers are unchanged.
-    const bare = host.replace(/^\[(.*)\]$/, '$1');
-    const records = await assertHostnameSafe(bare, options);
+    // policy (assertHostnameSafe).
+    const records = await assertHostnameSafe(host, options);
     const chosen = records[0];
     if (!chosen) throw new Error(`DNS resolution returned no records for ${host}`);
-    return { host: bare, ip: chosen.address, port, family: chosen.family === 6 ? 6 : 4 };
+    return { host, ip: chosen.address, port, family: chosen.family === 6 ? 6 : 4 };
   }
   // Literal IPs short-circuit DNS entirely. Validate per the shared policy
   // (the same call assertHostnameSafe makes internally). The literal-host
