@@ -1,5 +1,6 @@
 import { Plug, PlugZap, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useConnectionStatusAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import {
@@ -93,6 +94,7 @@ export function KafkaClient() {
   );
   const [produceKeySubject, setProduceKeySubject] = useState<KafkaSubjectSelection | null>(null);
   const [produceError, setProduceError] = useState<string | null>(null);
+  useConnectionStatusAnnouncements('Kafka cluster', connection?.status);
   const connectError = useConnectAttemptError(
     connection?.id,
     connection?.messages,

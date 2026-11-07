@@ -79,8 +79,8 @@ const SectionLabel = ({ children }: { children: ReactNode }) => (
 
 /**
  * Connection options pane (SIO-3/4): handshake auth (key/value or JSON),
- * query, extraHeaders, path, transports, reconnection tuning, timeout and
- * forceNew. Edited while disconnected; persisted with the connection
+ * query, extraHeaders, path, transports, reconnection tuning and timeout
+ * (forceNew is not offered: every connect already creates a new manager). Edited while disconnected; persisted with the connection
  * (templates stored unresolved).
  */
 export function SocketIOConnectionOptions({ connection }: { connection: SocketIOConnection }) {

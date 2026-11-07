@@ -1,6 +1,7 @@
 import { Filter, Search, Send, Trash2, X } from 'lucide-react';
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { useConnectionStatusAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import {
   DroppedNotice,
@@ -279,6 +280,7 @@ function SocketIOClient() {
 
   // Follow new events only while at the bottom; otherwise show "Jump to latest".
   const stick = useStickToBottom<HTMLDivElement>(visibleEvents.length, 80);
+  useConnectionStatusAnnouncements('Socket.IO', connection?.status);
 
   if (!connection || !activeConnectionId) {
     return (
@@ -464,7 +466,7 @@ function SocketIOClient() {
       </Floater>
 
       {/* Connection options (handshake auth, query, headers, path, transports,
-          reconnection, timeout, forceNew) — only while disconnected, collapsed
+          reconnection, timeout) — only while disconnected, collapsed
           behind the Options toggle when untouched so the events console stays
           above the fold. */}
       {configOpen && !isConnected && !isConnecting && (

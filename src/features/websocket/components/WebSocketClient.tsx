@@ -1,6 +1,7 @@
 import { Filter, Search, Send, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { useConnectionStatusAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
@@ -35,6 +36,7 @@ import {
   ToggleField,
   VariableText,
 } from '@/components/ui/spatial';
+import { WebSocketCodeButton } from '@/features/websocket/components/WebSocketCodeDialog';
 import { WsDisconnectControl } from '@/features/websocket/components/WsDisconnectControl';
 import { WsPingControl } from '@/features/websocket/components/WsPingControl';
 import { startFrameAssertionWatcher } from '@/features/websocket/lib/frameAssertions';
@@ -262,6 +264,7 @@ function WebSocketClient() {
   const filteredMessages = activeConnectionId ? getFilteredMessages(activeConnectionId) : [];
   const { visible: visibleMessages, newCount } = useFrozenView(filteredMessages, frozen);
   const stick = useStickToBottom<HTMLDivElement>(visibleMessages.length);
+  useConnectionStatusAnnouncements('WebSocket', connection?.status);
 
   if (!connection || !activeConnectionId) {
     return (
@@ -725,6 +728,12 @@ function WebSocketClient() {
             onToggle={() => setConfigOpenOverride(!configOpen)}
           />
         )}
+        <WebSocketCodeButton
+          url={connection.url}
+          protocols={connection.protocols}
+          headers={connection.headers}
+          sampleMessage={message}
+        />
         <span
           className={cn(
             'inline-flex items-center gap-1.5 h-6 px-2.5 rounded-sp-pill font-mono font-bold text-sp-10',

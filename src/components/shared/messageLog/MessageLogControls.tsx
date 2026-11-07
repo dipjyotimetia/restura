@@ -1,5 +1,6 @@
 import { AlertCircle, ArrowDown, Download, Pause, Play, Search, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { DESKTOP_RELEASES_URL as DESKTOP_APP_DOWNLOAD_URL } from '@/components/shared/WebNativeDownloadBanner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -294,7 +295,7 @@ export function ConnectErrorBanner({ error }: { error: string | null }) {
 }
 
 /** Same destination as WebNativeDownloadBanner's "Download native app" menu. */
-export const DESKTOP_APP_DOWNLOAD_URL = 'https://github.com/dipjyotimetia/restura/releases/latest';
+export { DESKTOP_APP_DOWNLOAD_URL };
 
 /** Link to the desktop app for the desktop-only streaming protocols (Kafka, MQTT). */
 export function DesktopAppDownloadLink() {

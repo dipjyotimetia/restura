@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { useConnectionStatusAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { StreamSplit } from '@/components/shared/StreamSplit';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
+import { SseCodeDialog } from '@/features/sse/components/SseCodeDialog';
 import { sseExportName } from '@/features/sse/lib/sseLogExport';
 import { sseManager } from '@/features/sse/lib/sseManager';
 import { createSseStreamSummary, getSseSummaryView } from '@/features/sse/lib/streamSummary';
@@ -95,6 +97,7 @@ export default function SseClient() {
   // tab stops them (sseProtocol.connectionLifecycle).
 
   const [headersOpen, setHeadersOpen] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(false);
   const cleartextGuard = useCleartextCredentialsGuard();
 
   // History (S14): one entry per user-started stream, written when it first
@@ -104,6 +107,7 @@ export default function SseClient() {
     null
   );
   const activeStatus = active?.status;
+  useConnectionStatusAnnouncements('Event stream', active?.status);
   useEffect(() => {
     const pending = pendingHistory.current;
     if (activeStatus !== 'connected' || !pending || pending.connectionId !== active?.id) return;
@@ -269,7 +273,9 @@ export default function SseClient() {
         optionCount={countSseOptions(request)}
         headersOpen={headersOpen}
         onToggleHeaders={() => setHeadersOpen((s) => !s)}
+        onCode={() => setCodeOpen(true)}
       />
+      <SseCodeDialog open={codeOpen} onOpenChange={setCodeOpen} request={request} />
 
       {headersOpen ? <StreamSplit config={configPanel} log={logPanel} /> : logPanel}
     </div>

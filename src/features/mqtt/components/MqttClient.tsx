@@ -1,6 +1,7 @@
 import { ArrowLeftRight, Plug, PlugZap, Send, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { useConnectionStatusAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import {
@@ -178,6 +179,7 @@ function MqttClient() {
   // Shared freeze: a time cutoff, so search/filter still apply and "N new" shows.
   const { visible: visibleMessages, newCount } = useFrozenView(filteredMessages, paused);
   const connectError = useConnectAttemptError(connectionId, connectionMessages, connection?.status);
+  useConnectionStatusAnnouncements('MQTT broker', connection?.status);
   const { confirm: confirmDelete, DialogComponent: DeleteDialog } = useConfirmDialog({
     title: 'Delete MQTT connection?',
     description:

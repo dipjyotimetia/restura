@@ -7,6 +7,8 @@ import { useMqttStore } from '@/features/mqtt/store/useMqttStore';
 import { protocolRegistry } from '@/features/registry/registry';
 import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import { useSocketIOStore } from '@/features/socketio/store/useSocketIOStore';
+import { sseManager } from '@/features/sse/lib/sseManager';
+import { useSseStore } from '@/features/sse/store/useSseStore';
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -54,6 +56,13 @@ const PROTOCOLS: {
     manager: mqttManager,
     disconnectArgs: (connectionId) => [connectionId],
   },
+  {
+    // SSE connections are per tab now, so closing the tab ends the stream.
+    id: 'sse',
+    store: useSseStore as unknown as TabConnectionStore,
+    manager: sseManager,
+    disconnectArgs: (connectionId) => [connectionId],
+  },
 ];
 
 function openTabWithConnection(store: TabConnectionStore): { tabId: string; connectionId: string } {
@@ -69,6 +78,22 @@ describe('closing a tab', () => {
   describe.each(PROTOCOLS)('$id', ({ id, store, manager, disconnectArgs }) => {
     it('declares its tab connection binding in its registration', () => {
       expect(protocolRegistry.get(id)?.connectionLifecycle).toBeDefined();
+    });
+
+    it('reports the tab as live only while its connection is open', () => {
+      const lifecycle = protocolRegistry.get(id)?.connectionLifecycle;
+      const { tabId, connectionId } = openTabWithConnection(store);
+      const state = store.getState() as unknown as {
+        connections: Record<string, { status: string }>;
+      };
+      const connection = state.connections[connectionId];
+      if (!connection) throw new Error('connection missing');
+      expect(lifecycle?.isLive?.(tabId)).toBe(false);
+      connection.status = 'connected';
+      expect(lifecycle?.isLive?.(tabId)).toBe(true);
+      connection.status = 'disconnected';
+      vi.spyOn(manager, 'disconnect').mockImplementation(() => undefined);
+      useRequestStore.getState().closeTab(tabId);
     });
 
     it('disconnects the tab connection and removes it from the store', () => {
