@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Floater } from '@/components/ui/spatial';
 import UrlBar from '@/features/http/components/UrlBar';
 import { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
 import { consumeAutoSend } from '@/features/http/lib/autoSend';
+import { findUnresolvedVariables } from '@/features/http/lib/unresolvedVariables';
 import { buildDisplayUrl } from '@/features/http/lib/urlQuery';
+import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useUiStore } from '@/store/useUiStore';
@@ -24,6 +26,11 @@ function RequestBuilder() {
   const { httpRequest, isLoading, globalSettings, handlers, counts } = useHttpRequestPage();
   const { sendRequest } = handlers;
   const [activeTab, setActiveTab] = useState<SubTabKey>('params');
+  const getVarStatus = useVariableStatus();
+  const unresolvedVariables = useMemo(
+    () => (httpRequest ? findUnresolvedVariables(httpRequest, getVarStatus) : []),
+    [httpRequest, getVarStatus]
+  );
   // Code-gen open state lives in the UI store so the command palette can open
   // it from outside this subtree. Reset on unmount so it can't reopen stale
   // when switching protocols.
@@ -89,6 +96,7 @@ function RequestBuilder() {
         onSend={handlers.sendRequest}
         onCancel={handlers.cancelRequest}
         onOpenCodeGen={() => setCodeGenOpen(true)}
+        unresolvedVariables={unresolvedVariables}
       />
 
       {httpRequest.description && (

@@ -66,7 +66,7 @@ describe('KeyValueTable', () => {
       target: { value: 'changed' },
     });
     expect(latest[0]).toMatchObject({ id: 'h1', value: 'changed' });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Remove row' })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Kafka header x-token' }));
     expect(latest.map((r) => r.id)).toEqual(['h2']);
   });
 

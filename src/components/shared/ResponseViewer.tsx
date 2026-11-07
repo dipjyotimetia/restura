@@ -221,6 +221,11 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
     setTreeFocus(undefined);
   }, [currentResponse?.id]);
 
+  // A failure's error card only renders in Body: bring it into view (once per response).
+  useEffect(() => {
+    if (errorInfo) setActiveTab('body');
+  }, [errorInfo]);
+
   // GraphQL `errors[]` (HTTP 200 + partial data is common) — listed in the
   // Errors tab and flagged in the tree. Cheap substring gate before parsing.
   const graphqlErrors = useMemo(
@@ -299,6 +304,11 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
     !forceFormat &&
     (currentResponse?.body.length ?? 0) > PRETTY_PRINT_MAX_BYTES;
 
+  // Other large text views (Raw, XML, text…) render untokenized — tokenizing is what stalls.
+  const largeTextBody =
+    !isBase64 && !formattingSkipped && (currentResponse?.body.length ?? 0) > PRETTY_PRINT_MAX_BYTES;
+  const editorLanguage = largeTextBody ? 'plaintext' : language;
+
   const headerEntries = useMemo(
     () => (currentResponse ? responseHeaderEntries(currentResponse) : []),
     [currentResponse]
@@ -348,8 +358,11 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
   }, [currentResponse, activeTab]);
 
   const handleCopyBody = async () => {
+    // Tree / Table views have no formatted text: copy the raw body there.
+    const text = formattedBody || currentResponse?.body || '';
+    if (!text) return void toast.info('The response body is empty');
     try {
-      await navigator.clipboard.writeText(formattedBody);
+      await navigator.clipboard.writeText(text);
       setCopiedBody(true);
       toast.success('Response body copied');
       if (copyBodyTimer.current) clearTimeout(copyBodyTimer.current);
@@ -637,10 +650,19 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
                               onFormat={() => setForceFormat(true)}
                             />
                           )}
+                          {largeTextBody && (
+                            <div
+                              role="status"
+                              className="border-b border-sp-line px-3 py-1.5 text-sp-11 text-sp-dim"
+                            >
+                              Large body ({formatBytes(currentResponse.size)}) — syntax highlighting
+                              is off to keep the app responsive.
+                            </div>
+                          )}
                           <div className="relative min-h-0 flex-1">
                             <CodeEditor
                               value={formattedBody}
-                              language={language}
+                              language={editorLanguage}
                               readOnly
                               height="100%"
                               showCopyButton={false}
