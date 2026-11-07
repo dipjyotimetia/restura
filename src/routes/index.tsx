@@ -26,6 +26,7 @@ import {
 import { queueAutoSend } from '@/features/http/lib/autoSend';
 import { type Keybinding, useKeybindings } from '@/hooks/useKeybindings';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useNarrowWorkspace } from '@/hooks/useNarrowWorkspace';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import {
   type BugReportDiagnostics,
@@ -90,7 +91,7 @@ export default function Home() {
   const [bugReportDiagnostics, setBugReportDiagnostics] = useState<BugReportDiagnostics>();
   const [bugReportCaptureError, setBugReportCaptureError] = useState<string>();
   const [bugReportDiagnosticsError, setBugReportDiagnosticsError] = useState<string>();
-  const isNarrowWorkspace = useMediaQuery('(max-width: 1279px)');
+  const isNarrowWorkspace = useNarrowWorkspace();
   // Web first run shows the FirstRunWelcome screen in place of the blank tab
   // and the modal tour; desktop keeps the tour (isElectron() is constant).
   const [showWelcome, setShowWelcome] = useState(() => !isElectron() && !hasCompletedOnboarding());

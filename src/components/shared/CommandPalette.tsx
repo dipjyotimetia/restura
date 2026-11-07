@@ -41,6 +41,7 @@ import { openCollectionItem } from '@/features/collections/lib/openCollectionIte
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import { generateRequestCode } from '@/features/http/lib/requestCode';
 import { MODE_DESCRIPTORS, MODES_IN_COMMAND_ORDER } from '@/features/registry/modes';
+import { NARROW_LAYOUT_REASON, useNarrowWorkspace } from '@/hooks/useNarrowWorkspace';
 import { useVariableDetails } from '@/hooks/useVariableStatus';
 import { fuzzyScore } from '@/lib/shared/fuzzy';
 import { isElectron } from '@/lib/shared/platform';
@@ -162,6 +163,9 @@ export default function CommandPalette({
   // load-test dialogs) isn't mounted, so gate on the effective mode.
   const activeIsHttp = !activeTab?.modeOverride && activeTab?.request?.type === 'http';
   const variables = useVariableDetails();
+  // Below 1280px the workspace forces a stacked layout; toggling the setting
+  // there would write silently with no visible effect.
+  const isNarrowWorkspace = useNarrowWorkspace();
 
   // Toggle ⌘K / Ctrl+K — works regardless of controlled/uncontrolled mode.
   useEffect(() => {
@@ -190,6 +194,8 @@ export default function CommandPalette({
   const close = useCallback(() => setOpen(false), [setOpen]);
   const run = useCallback(
     (item: PaletteItem) => {
+      // Disabled rows stay listed (with their reason) but do nothing.
+      if (item.disabledReason) return;
       if (!item.keepOpen) close();
       item.onSelect();
     },
@@ -375,6 +381,7 @@ export default function CommandPalette({
       group: 'Actions',
       name: 'Toggle side-by-side / stacked layout',
       icon: Columns,
+      ...(isNarrowWorkspace && { disabledReason: NARROW_LAYOUT_REASON }),
       onSelect: () => {
         const settings = useSettingsStore.getState();
         settings.updateSettings({
@@ -406,13 +413,13 @@ export default function CommandPalette({
     });
 
     // New group — desktop-only modes (Kafka, MQTT: the worker can't open raw
-    // TCP) are omitted on web rather than shown disabled.
-    const newProtos = MODES_IN_COMMAND_ORDER.filter(
-      (mode) => !MODE_DESCRIPTORS[mode].desktopOnly || isElectron()
-    ).map((type) => ({
+    // TCP) are listed disabled on web, matching the tab strip's new-tab menu,
+    // so users can discover them instead of wondering where they went.
+    const newProtos = MODES_IN_COMMAND_ORDER.map((type) => ({
       proto: MODE_DESCRIPTORS[type].chip,
       type,
       label: MODE_DESCRIPTORS[type].commandLabel,
+      desktopOnly: MODE_DESCRIPTORS[type].desktopOnly === true && !isElectron(),
     }));
     for (const p of newProtos) {
       items.push({
@@ -421,6 +428,7 @@ export default function CommandPalette({
         group: 'New',
         name: p.label,
         proto: p.proto,
+        ...(p.desktopOnly && { disabledReason: 'Desktop only' }),
         onSelect: () => {
           if (isConnectionMode(p.type)) {
             onChangeMode?.(p.type);
@@ -536,6 +544,7 @@ export default function CommandPalette({
     resolvedTheme,
     setTheme,
     updateThemeSetting,
+    isNarrowWorkspace,
   ]);
 
   // Filter

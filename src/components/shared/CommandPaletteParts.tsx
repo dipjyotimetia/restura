@@ -30,6 +30,12 @@ export interface PaletteItem {
    * own confirm dialog, which lives in (and unmounts with) the palette.
    */
   keepOpen?: boolean;
+  /**
+   * Listed but not runnable here (e.g. "Desktop only", or a setting the
+   * current window overrides) — shown dimmed with this reason; selecting it
+   * is a no-op.
+   */
+  disabledReason?: string;
   onSelect: () => void;
 }
 
@@ -78,6 +84,7 @@ export function PaletteRow({ item, index, active, onMouseEnter, onClick }: Palet
       id={optionId(item.id)}
       role="option"
       aria-selected={active}
+      {...(item.disabledReason && { 'aria-disabled': true })}
       tabIndex={-1}
       data-cmd-index={index}
       onMouseEnter={onMouseEnter}
@@ -89,7 +96,8 @@ export function PaletteRow({ item, index, active, onMouseEnter, onClick }: Palet
         }
       }}
       className={cn(
-        'relative flex items-center gap-3 mx-2 px-3 py-2 rounded-sp-btn cursor-pointer',
+        'relative flex items-center gap-3 mx-2 px-3 py-2 rounded-sp-btn',
+        item.disabledReason ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
         'text-sp-13 text-sp-text',
         active ? 'bg-sp-active' : 'hover:bg-sp-hover'
       )}
@@ -118,6 +126,9 @@ export function PaletteRow({ item, index, active, onMouseEnter, onClick }: Palet
 
       {/* Trailing */}
       <div className="shrink-0 inline-flex items-center gap-2">
+        {item.disabledReason && (
+          <span className="text-sp-11 text-sp-dim whitespace-nowrap">{item.disabledReason}</span>
+        )}
         {item.activeMarker && <Check size={13} className="text-sp-accent" />}
         {item.recent && (
           <span

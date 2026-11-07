@@ -1,11 +1,16 @@
 import { BookOpen, Download, FolderOpen, Lock, Play, Sparkles } from 'lucide-react';
-import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
+import {
+  ARIA_DISABLED_CLASSES,
+  DesktopOnlyBadge,
+  desktopOnlyGateProps,
+} from '@/components/shared/DesktopOnlyBadge';
 import { Button } from '@/components/ui/button';
 import { Floater, ProtoChip } from '@/components/ui/spatial';
 import { ToggleField } from '@/components/ui/spatial/ToggleField';
 import { addSampleCollection } from '@/features/collections/lib/addSampleCollection';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { isElectron, openExternalUrl } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { RequestMode } from '@/types';
 import { NEW_REQUEST_PROTOCOLS } from './NoOpenTabs';
@@ -116,21 +121,26 @@ export function FirstRunWelcome({
           <div className="flex flex-col gap-2.5 rounded-sp-panel border border-sp-line bg-sp-surface-hi p-4">
             <span className="text-sp-13 font-medium text-sp-text">Start blank</span>
             <ul className="flex flex-wrap gap-1.5" aria-label="New request">
-              {NEW_REQUEST_PROTOCOLS.map((p) => (
-                <li key={p.mode}>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 gap-1.5 px-2"
-                    disabled={p.desktopOnly && !desktop}
-                    onClick={() => onNewRequest(p.mode)}
-                    aria-label={`New ${p.label} request`}
-                  >
-                    <ProtoChip protocol={p.chip} />
-                    {p.desktopOnly && !desktop && <DesktopOnlyBadge />}
-                  </Button>
-                </li>
-              ))}
+              {NEW_REQUEST_PROTOCOLS.map((p) => {
+                const gated = p.desktopOnly === true && !desktop;
+                return (
+                  <li key={p.mode}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={cn('h-7 gap-1.5 px-2', ARIA_DISABLED_CLASSES)}
+                      {...desktopOnlyGateProps(gated)}
+                      onClick={() => {
+                        if (!gated) onNewRequest(p.mode);
+                      }}
+                      aria-label={`New ${p.label} request`}
+                    >
+                      <ProtoChip protocol={p.chip} />
+                      {gated && <DesktopOnlyBadge />}
+                    </Button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </div>

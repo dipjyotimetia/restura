@@ -52,7 +52,7 @@ import {
 } from '@/store/useRequestStore';
 import type { RequestMode, RequestTab, TabModeOverride } from '@/types';
 import { isConnectionMode } from '@/types';
-import { DesktopOnlyBadge } from './DesktopOnlyBadge';
+import { ARIA_DISABLED_CLASSES, DesktopOnlyBadge, desktopOnlyGateProps } from './DesktopOnlyBadge';
 import { carriesUrl, seedUrl, sourceUrlOf, tabMode } from './lib/openAs';
 import { SaveToCollectionDialog } from './SaveToCollectionDialog';
 
@@ -600,23 +600,37 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
             <DropdownMenuContent align="start" sideOffset={10}>
               {/* Desktop-only (raw-TCP) modes are shown on web too (disabled + badge)
                   so users can discover them instead of wondering where they went. */}
-              {OPEN_AS.map((t) => (
-                <DropdownMenuItem
-                  key={t.mode}
-                  className="gap-2"
-                  disabled={t.desktopOnly && !isElectron()}
-                  onClick={() => handleNewTab(t.mode)}
-                >
-                  <ProtoChip protocol={t.chip} className="w-12 justify-center" />
-                  {t.menuLabel}
-                  {t.capability && (
-                    <DesktopOnlyBadge
-                      title={CAPABILITIES[t.capability].notes}
-                      className="ml-auto"
-                    />
-                  )}
-                </DropdownMenuItem>
-              ))}
+              {OPEN_AS.map((t) => {
+                const gated = t.desktopOnly === true && !isElectron();
+                return (
+                  <DropdownMenuItem
+                    key={t.mode}
+                    className={cn('gap-2', ARIA_DISABLED_CLASSES)}
+                    // aria-disabled (not Radix `disabled`, which sets
+                    // pointer-events: none) keeps the item hoverable so the
+                    // Desktop-only tooltip shows; selecting it is a no-op.
+                    {...desktopOnlyGateProps(
+                      gated,
+                      t.capability ? CAPABILITIES[t.capability].notes : undefined
+                    )}
+                    onSelect={(e) => {
+                      if (gated) e.preventDefault();
+                    }}
+                    onClick={() => {
+                      if (!gated) handleNewTab(t.mode);
+                    }}
+                  >
+                    <ProtoChip protocol={t.chip} className="w-12 justify-center" />
+                    {t.menuLabel}
+                    {t.capability && (
+                      <DesktopOnlyBadge
+                        title={CAPABILITIES[t.capability].notes}
+                        className="ml-auto"
+                      />
+                    )}
+                  </DropdownMenuItem>
+                );
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
         </Floater>
