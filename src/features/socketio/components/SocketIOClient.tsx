@@ -363,7 +363,9 @@ function SocketIOClient() {
     : connection.status === 'connecting'
       ? 'CONNECTING'
       : connection.status === 'reconnecting'
-        ? `RECONNECTING (${connection.reconnectAttemptCount})`
+        ? connection.reconnectionAttempts > 0 && Number.isFinite(connection.reconnectionAttempts)
+          ? `RECONNECTING (${connection.reconnectAttemptCount}/${connection.reconnectionAttempts})`
+          : `RECONNECTING (${connection.reconnectAttemptCount})`
         : 'DISCONNECTED';
 
   const transportLabel =
@@ -485,7 +487,6 @@ function SocketIOClient() {
           label="↓ Events"
           value={<span style={{ color: 'var(--color-success)' }}>{counts.received}</span>}
         />
-        <Stat label="Latency" value="—" />
         <Stat label="Transport" value={transportLabel} />
         <div className="flex-1" />
         <div className="flex items-center gap-2">
@@ -493,6 +494,8 @@ function SocketIOClient() {
           <ToggleField
             checked={connection.autoReconnect}
             onChange={(v) => updateConnectionField(activeConnectionId, 'autoReconnect', v)}
+            // Like WebSocket: the policy is read at connect time, so lock it while live.
+            disabled={connection.status !== 'disconnected'}
             ariaLabel="Auto-reconnect"
             size="sm"
           />
