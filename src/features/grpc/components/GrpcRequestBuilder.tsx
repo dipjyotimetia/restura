@@ -1,8 +1,9 @@
-import { AlertCircle, Loader2, Radio } from 'lucide-react';
+import { AlertCircle, Code2, Loader2, Radio } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
+import { ProtocolCodeDialog } from '@/components/shared/ProtocolCodeDialog';
 import { Button } from '@/components/ui/button';
 import { Floater, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
@@ -34,9 +35,12 @@ import {
 import { useSubTabWithViolationJump } from '@/features/grpc/lib/grpcViolationFocus';
 import { canUseDescriptorSnapshot } from '@/features/grpc/lib/grpcWebClient';
 import { uploadedDescriptors } from '@/features/grpc/lib/protoUpload';
+import { servicesFromUploadedSchema } from '@/features/grpc/lib/uploadedServices';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
+import { grpcCodeGenerators } from '@/lib/shared/codeGenerators/grpc';
+import { isElectron } from '@/lib/shared/platform';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
@@ -46,6 +50,7 @@ import type {
   GrpcMethodType,
   GrpcRequest,
   GrpcResponse,
+  GrpcSchemaSnapshot,
   ReflectionMethodInfo,
   ReflectionServiceInfo,
 } from '@/types';
@@ -100,7 +105,7 @@ function GrpcRequestBuilder() {
   const setScriptResultForTab = useRequestStore((s) => s.setScriptResultForTab);
   const isLoading = useRequestStore((s) => s.isLoading);
   const addHistoryItem = useHistoryStore((s) => s.addHistoryItem);
-  const { run: runViaRegistry } = useRequestRunner();
+  const { run: runViaRegistry, abort: abortRun } = useRequestRunner();
   const schemaDrift = useGrpcSchemaDrift();
   const [activeTab, setActiveTab] = useSubTabWithViolationJump<GrpcSubTab>('message', activeTabId);
   const [resolvedProto, setResolvedProto] = useState<{
@@ -114,6 +119,13 @@ function GrpcRequestBuilder() {
   const [retryMaxAttempts, setRetryMaxAttempts] = useState(1);
   const [retryDelayMs, setRetryDelayMs] = useState(0);
   const [useCompression, setUseCompression] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(false);
+  // Services from an uploaded .proto / descriptor set — the picker offers
+  // them alongside (ahead of) reflection's, with request templates.
+  const uploadedServices = useMemo(
+    () => servicesFromUploadedSchema(currentRequest?.schema),
+    [currentRequest?.schema]
+  );
 
   // Stable URL reference for use in callbacks and effects — must compute before early return
   const grpcUrl = currentRequest?.url;
@@ -285,6 +297,41 @@ function GrpcRequestBuilder() {
   const reflectionServices: ReflectionServiceInfo[] = reflectionResult?.success
     ? reflectionResult.services
     : [];
+  const uploadedNames = new Set(uploadedServices.map((s) => s.fullName));
+  const pickerServices = [
+    ...uploadedServices,
+    ...reflectionServices.filter((s) => !uploadedNames.has(s.fullName)),
+  ];
+  // An uploaded service is selected by the request's own service/method;
+  // reflection keeps its own selection state.
+  const uploadedSelected = uploadedServices.find((s) => s.fullName === grpcRequest.service);
+  const pickerSelectedService = uploadedSelected ?? reflection.selectedService;
+  const pickerSelectedMethod = uploadedSelected
+    ? (uploadedSelected.methods.find((m) => m.name === grpcRequest.method) ?? null)
+    : reflection.selectedMethod;
+  const handlePickService = (service: ReflectionServiceInfo) => {
+    if (!uploadedNames.has(service.fullName)) {
+      reflection.selectService(service);
+      return;
+    }
+    handleServiceChange(service.fullName);
+    const first = service.methods[0];
+    if (first) handleReflectionMethodSelected(first);
+  };
+  const handlePickMethod = (method: ReflectionMethodInfo) => {
+    if (uploadedSelected) handleReflectionMethodSelected(method);
+    else reflection.selectMethod(method);
+  };
+  // After an upload: pick its first method with a generated request template.
+  const handleSchemaUploaded = (schema: GrpcSchemaSnapshot) => {
+    schemaDrift.saveUpload(schema);
+    const first = servicesFromUploadedSchema(schema)[0];
+    if (!first || !activeTabId) return;
+    updateRequestForTab(activeTabId, { service: first.fullName });
+    validateService(first.fullName);
+    const method = first.methods[0];
+    if (method) handleReflectionMethodSelected(method);
+  };
 
   const handleMethodTypeChange = (methodType: GrpcMethodType) => {
     updateRequest({ methodType });
@@ -331,12 +378,12 @@ function GrpcRequestBuilder() {
     }
 
     // Schema validation against reflection schema (if available)
-    if (reflection.selectedMethod?.inputMessageSchema && grpcRequest.message) {
+    if (pickerSelectedMethod?.inputMessageSchema && grpcRequest.message) {
       try {
         const parsed = JSON.parse(grpcRequest.message);
         const schemaValidation = validateRequestAgainstSchema(
           parsed,
-          reflection.selectedMethod.inputMessageSchema
+          pickerSelectedMethod.inputMessageSchema
         );
         if (!schemaValidation.valid) {
           toast.warning('Schema validation warnings', {
@@ -540,7 +587,22 @@ function GrpcRequestBuilder() {
     );
   };
 
-  sendShortcut.current = !isLoading && isFormValid() ? () => void handleSendRequest() : null;
+  const cancelInFlight = () => {
+    if (streamControl) {
+      streamControl.cancelStream();
+      setStreamControl(null);
+      setLoading(false);
+    } else {
+      abortRun();
+    }
+  };
+
+  // Cmd/Ctrl+Enter invokes; pressed again while in flight it cancels (like HTTP).
+  sendShortcut.current = isLoading
+    ? cancelInFlight
+    : isFormValid()
+      ? () => void handleSendRequest()
+      : null;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 p-2.5 gap-2.5">
@@ -556,11 +618,7 @@ function GrpcRequestBuilder() {
         onMethodTypeChange={handleMethodTypeChange}
         onUrlChange={handleUrlChange}
         onSend={handleSendRequest}
-        onCancelStream={() => {
-          streamControl?.cancelStream();
-          setStreamControl(null);
-          setLoading(false);
-        }}
+        onCancelStream={cancelInFlight}
       />
 
       {/* Request builder body — single column. The response panel is a
@@ -570,7 +628,7 @@ function GrpcRequestBuilder() {
         <GrpcMethodContext
           methodName={grpcRequest.method}
           methodType={grpcRequest.methodType}
-          selectedMethod={reflection.selectedMethod}
+          selectedMethod={pickerSelectedMethod}
           showSchema={reflection.showSchema}
           onToggleSchema={() => reflection.setShowSchema(!reflection.showSchema)}
         />
@@ -599,15 +657,15 @@ function GrpcRequestBuilder() {
                 free-text takes over when reflection is unavailable. */}
           <div className="flex gap-2 px-3 py-2 border-b border-sp-line">
             <GrpcMethodSelector
-              services={reflectionServices}
-              selectedService={reflection.selectedService}
-              selectedMethod={reflection.selectedMethod}
+              services={pickerServices}
+              selectedService={pickerSelectedService}
+              selectedMethod={pickerSelectedMethod}
               serviceValue={grpcRequest.service}
               methodValue={grpcRequest.method}
               serviceValidation={validation.service}
               methodValidation={validation.method}
-              onSelectService={reflection.selectService}
-              onSelectMethod={reflection.selectMethod}
+              onSelectService={handlePickService}
+              onSelectMethod={handlePickMethod}
               onServiceTextChange={handleServiceChange}
               onMethodTextChange={handleMethodChange}
             />
@@ -628,11 +686,22 @@ function GrpcRequestBuilder() {
             </Button>
             <GrpcProtoUploader
               protoFileName={protoSnapshot?.fileName ?? uploaded?.fileName ?? null}
-              onSchemaLoaded={schemaDrift.saveUpload}
+              onSchemaLoaded={handleSchemaUploaded}
               onServiceChange={handleServiceChange}
               onMethodChange={handleMethodChange}
               onMethodTypeChange={handleMethodTypeChange}
             />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCodeOpen(true)}
+              aria-label="Generate code"
+              title="Export as grpcurl / buf curl"
+              className="h-8 shrink-0 text-sp-12"
+            >
+              <Code2 className="mr-1.5 h-3.5 w-3.5" />
+              Code
+            </Button>
           </div>
 
           {reflectionResult && !reflectionResult.success && (
@@ -644,6 +713,8 @@ function GrpcRequestBuilder() {
                   reflectionResult.error ?? ''
                 ) &&
                   ' — if the server uses a self-signed or private-CA certificate, add its CA in Settings → Certificates.'}
+                {!isElectron() &&
+                  ' On the web, reflection works with gRPC-Web / Connect servers; a native gRPC (HTTP/2-only) server needs the Restura desktop app — or upload its .proto.'}
               </span>
             </div>
           )}
@@ -744,6 +815,12 @@ function GrpcRequestBuilder() {
                     messages={streamingMessages}
                     dropped={streamLog.dropped}
                     positions={streamLog.positions}
+                    exportName={`${grpcRequest.service}-${grpcRequest.method}-stream`}
+                    exportMeta={{
+                      protocol: 'grpc',
+                      method: `${grpcRequest.service}/${grpcRequest.method}`,
+                    }}
+                    onClear={streamLog.reset}
                   />
                 </div>
               )}
@@ -759,6 +836,22 @@ function GrpcRequestBuilder() {
           </SubTabPanel>
         </Floater>
       </div>
+      <ProtocolCodeDialog
+        open={codeOpen}
+        onOpenChange={setCodeOpen}
+        title="Generate gRPC command"
+        description="Uses the Metadata tab entries as typed: {{variables}} stay unresolved and Auth-tab credentials are not included."
+        generators={grpcCodeGenerators}
+        options={{
+          url: grpcRequest.url,
+          service: grpcRequest.service,
+          method: grpcRequest.method,
+          message: grpcRequest.message,
+          metadata: Object.fromEntries(
+            grpcRequest.metadata.filter((m) => m.enabled && m.key).map((m) => [m.key, m.value])
+          ),
+        }}
+      />
     </div>
   );
 }
