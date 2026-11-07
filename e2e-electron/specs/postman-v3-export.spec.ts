@@ -92,7 +92,10 @@ test.describe('Desktop Postman v3 export', () => {
 
       rmSync(join(written, 'README.md'));
       await importFolder(page, written);
-      await expect(page.getByText('Kitchen Sink', { exact: true })).toHaveCount(2);
+      // Re-importing a same-named collection keeps both by default (the second
+      // is suffixed) instead of creating two indistinguishable "Kitchen Sink"s.
+      await expect(page.getByText('Kitchen Sink', { exact: true })).toHaveCount(1);
+      await expect(page.getByText('Kitchen Sink 2', { exact: true })).toHaveCount(1);
     } finally {
       rmSync(parent, { recursive: true, force: true });
       rmSync(out, { recursive: true, force: true });

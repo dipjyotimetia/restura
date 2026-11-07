@@ -109,8 +109,9 @@ describeOrSkip('Desktop Kafka (live Redpanda broker)', () => {
     await page.getByRole('tab', { name: /Messages/ }).click();
     await expect(page.getByText('Activity').first()).toBeVisible();
     await page.getByRole('button', { name: 'Freeze message view' }).click();
-    await expect(page.getByRole('button', { name: 'Resume live message view' })).toBeVisible();
-    await page.getByRole('button', { name: 'Resume live message view' }).click();
+    // Shared FreezeToggle (same control as WebSocket / Socket.IO / SSE / MQTT).
+    await expect(page.getByRole('button', { name: 'Resume live messages' })).toBeVisible();
+    await page.getByRole('button', { name: 'Resume live messages' }).click();
     await expect(page.getByText(value).first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(value)).toHaveCount(2, { timeout: 20_000 });
     await page.getByText(value).last().click();
