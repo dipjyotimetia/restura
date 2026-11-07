@@ -9,7 +9,7 @@ export const WORKSPACE_CAPABILITIES = {
     web: false,
     desktop: true,
     notes:
-      'System-Git status, diff, staging, commits, branches, fetch/pull/push, and explicit resumable merges for registered OpenCollection directories; structured YAML conflict resolution validates before staging',
+      'System-Git status, diff, staging, commits, branches, fetch/pull/push, and explicit resumable merges for registered OpenCollection directories; structured YAML conflict resolution validates before staging. Repo hooks and diff.external never run (core.hooksPath set to the null device, safe.bareRepository=explicit), and renderer file reads/writes refuse paths inside .git/',
   },
   'collections.brokerPresets': {
     label: 'Kafka / MQTT connection presets in collections',

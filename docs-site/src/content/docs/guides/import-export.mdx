@@ -25,10 +25,10 @@ Restura imports from the major API client formats and exports to **OpenCollectio
     Native Hoppscotch JSON.
   </Card>
   <Card title="Bruno" icon="seti:folder">
-    Both legacy `.bru` files in a directory (read as a whole tree) and Bruno 3.1+ collections, the latter via Bruno's OpenCollection export.
+    Both legacy `.bru` files in a directory (read as a whole tree) and Bruno 3.1+ collections, the latter via Bruno's OpenCollection export. GraphQL bodies map to the query and variables editors (and back on export).
   </Card>
   <Card title=".http / .rest files" icon="seti:json">
-    VS Code REST Client and JetBrains HTTP Client files: `###`-separated requests, `@name` annotations and file-level `@var = value` become requests and environment variables. JetBrains `< {% %}` / `> {% %}` script blocks are kept as pre-request and test scripts, with a warning in the import report because the JetBrains script API differs from `rs.*`.
+    VS Code REST Client and JetBrains HTTP Client files: `###`-separated requests, `@name` annotations and `@var = value` lines — at file level or inside a block before its request line — become requests and environment variables. JetBrains `< {% %}` / `> {% %}` script blocks are kept as pre-request and test scripts, with a warning in the import report because the JetBrains script API differs from `rs.*`.
   </Card>
   <Card title="HAR" icon="seti:json">
     Browser or proxy captures. You choose which entries to import in the review step (state-changing methods are flagged), and credentials in captured headers and bodies are redacted before they reach the review.
@@ -39,7 +39,7 @@ Restura imports from the major API client formats and exports to **OpenCollectio
     Bodies follow curl's own rules: `-d` / `--data` / `--data-raw` / `--data-ascii` are form-urlencoded unless a `Content-Type` says otherwise, `--data-binary` text is sent verbatim, `--data-urlencode` encodes per curl's `name=content` rules, `-G` moves the data into the query string, and `--json` sets a JSON body with JSON `Content-Type` and `Accept` headers. `-A` (User-Agent), `-e` (Referer) and `-b` (Cookie) become headers, and every value-taking option consumes its value instead of being read as the URL (attached short forms, `--flag=value` and CRLF line continuations included). Query values are kept exactly as typed — a pasted `%2B` is not decoded to `+`.
   </Card>
   <Card title="Postman environments" icon="seti:json">
-    `*.postman_environment.json` files import as environments. Secret variables keep their value on desktop; in the browser the value is dropped and the import warnings list the keys to re-enter.
+    `*.postman_environment.json` files import as environments. Numeric and boolean values are imported as strings (`3` → `"3"`). Secret variables keep their value on desktop; in the browser the value is dropped and the import warnings list the keys to re-enter.
   </Card>
   <Card title="Remote URL" icon="external">
     Fetch a collection or spec from a public HTTPS URL (no embedded credentials) and review it before anything is saved. The format is detected from the content; HAR is not accepted this way. Private, local and metadata addresses and binary responses are refused. On web and self-host the fetch goes through the backend's `/api/import/fetch` route (10 MB cap, up to 5 redirects); on desktop it goes through the main process with the same URL and DNS checks.
@@ -55,9 +55,9 @@ Everything dropped or approximated is reported where the importer can see it, bu
 
 | Source | What happens |
 |---|---|
-| Insomnia v4 | Only HTTP/GraphQL `request` resources are read. gRPC and WebSocket requests in the export are ignored. |
+| Insomnia v4 | Only HTTP/GraphQL `request` resources are read. gRPC and WebSocket requests in the export are ignored. Items get fresh ids, so importing the same export twice never collides; a folder whose parent chain loops back to itself is placed at the root. |
 | Insomnia v5 | A node without children is treated as a request, so gRPC and WebSocket requests are imported as plain HTTP requests and won't work as such. |
-| Bruno `.bru` | `grpc` and `ws` request types import as HTTP requests, with a `platform-unsupported` warning naming each one. |
+| Bruno `.bru` | `grpc` and `ws` request types import as HTTP requests, with a `platform-unsupported` warning naming each one. Multipart file rows import without their contents (named after the file, with a `form-file` warning) — re-pick the file. Bruno export writes a file row's file name, never its bytes. |
 | Postman | Unsupported auth (hawk, jwt, edgegrid, asap, azure, sasl, akamai) becomes no auth — see [Postman import](#postman-import). |
 
 ### Desktop deep-link imports

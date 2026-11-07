@@ -15,7 +15,7 @@ export const GRPC_CAPABILITIES = {
     web: true,
     desktop: true,
     notes:
-      'Web reflects Connect-protocol servers (v1 with v1alpha fallback) via /api/grpc/reflection; the bidi RPC needs an HTTP/2 upstream hop (self-host negotiates h2 over TLS) — gRPC-only servers need desktop',
+      'Web reflects Connect-protocol servers (v1 with v1alpha fallback) via /api/grpc/reflection; the bidi RPC needs an HTTP/2 upstream hop (self-host negotiates h2 over TLS) — gRPC-only servers need desktop. Every platform walks the import closure (fileByFilename) so the saved descriptor set is complete',
   },
   'grpc.web': {
     label: 'gRPC-Web wire protocol (per-request selector)',
