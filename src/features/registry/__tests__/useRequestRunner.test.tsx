@@ -210,6 +210,48 @@ describe('useRequestRunner', () => {
     expect(aborts).toEqual(['aborted']);
   });
 
+  it('keeps one in-flight run per tab: a send from another tab neither aborts nor is aborted', async () => {
+    const { protocolRegistry } = await import('../registry');
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    const aborted: string[] = [];
+    protocolRegistry.register({
+      id: 'fake-per-tab-test',
+      label: 'Fake',
+      tabType: 'grpc',
+      defaultRequest: () => ({}) as never,
+      runRequest: async (req, ctx) =>
+        new Promise((_, reject) => {
+          ctx.signal.addEventListener('abort', () => {
+            aborted.push((req as { id: string }).id);
+            reject(new DOMException('aborted', 'AbortError'));
+          });
+        }),
+    });
+    const tab = (id: string) => ({ id, request: { id, type: 'grpc' }, isDirty: false });
+    useRequestStore.setState({ tabs: [tab('A'), tab('B')], activeTabId: 'A' } as never);
+    const { useRequestRunner } = await import('../useRequestRunner');
+    const { result } = renderHook(() => useRequestRunner());
+    let runA: Promise<unknown> | undefined;
+    let runB: Promise<unknown> | undefined;
+    act(() => {
+      runA = result.current.run({ id: 'A' } as never, 'fake-per-tab-test').catch((e) => e);
+    });
+    useRequestStore.setState({ activeTabId: 'B' });
+    act(() => {
+      runB = result.current.run({ id: 'B' } as never, 'fake-per-tab-test').catch((e) => e);
+    });
+    // B's send left A's request running.
+    expect(aborted).toEqual([]);
+    // Cancelling A (e.g. its in-flight bar) leaves B running.
+    act(() => result.current.abort('A'));
+    expect(aborted).toEqual(['A']);
+    // abort() with no key cancels only the active tab's run.
+    act(() => result.current.abort());
+    expect(aborted).toEqual(['A', 'B']);
+    await runA;
+    await runB;
+  });
+
   it('forwards script results from ctx.onScriptResult to the active tab and RunResult', async () => {
     const { protocolRegistry } = await import('../registry');
     const { useRequestStore } = await import('@/store/useRequestStore');

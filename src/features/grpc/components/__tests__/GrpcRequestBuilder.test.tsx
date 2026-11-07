@@ -278,4 +278,52 @@ describe('GrpcRequestBuilder request completion routing', () => {
     });
     await waitFor(() => expect(useRequestStore.getState().tabs[0]?.response).toEqual(fresh));
   });
+  it("keeps two tabs' streams independent: B's send, cancel and A's end touch only their own tab", async () => {
+    const streamTab = (tabId: string, requestId: string) => ({
+      id: tabId,
+      request: { ...makeRequest(requestId, tabId), methodType: 'server-streaming' as const },
+      isDirty: false,
+    });
+    useRequestStore.setState({
+      tabs: [streamTab('tab-a', 'request-a'), streamTab('tab-b', 'request-b')],
+      activeTabId: 'tab-a',
+    });
+    type StreamOpts = { stream?: { onOpen?: (c: unknown) => void } };
+    const settles: Array<(r: { response: GrpcResponse; durationMs: number }) => void> = [];
+    const cancels: Array<ReturnType<typeof vi.fn>> = [];
+    runnerMocks.run.mockImplementation(
+      (_req: GrpcRequest, _protocol: string, options: StreamOpts) =>
+        new Promise((resolve) => {
+          const cancel = vi.fn();
+          cancels.push(cancel);
+          options.stream?.onOpen?.({ send: vi.fn(), closeSend: vi.fn(), cancel });
+          settles.push(resolve);
+        })
+    );
+    render(<GrpcRequestBuilder />);
+    const loading = () => useRequestStore.getState().loadingTabIds;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Invoke gRPC method' }));
+    await waitFor(() => expect(cancels).toHaveLength(1));
+    act(() => useRequestStore.getState().switchTab('tab-b'));
+    fireEvent.click(screen.getByRole('button', { name: 'Invoke gRPC method' }));
+    await waitFor(() => expect(cancels).toHaveLength(2));
+    expect(loading()).toEqual(expect.arrayContaining(['tab-a', 'tab-b']));
+    expect(cancels[0]).not.toHaveBeenCalled();
+
+    // A's stream ends while B's is live: A's spinner clears, B's stays.
+    const doneA = { ...makeResponse('request-a'), id: 'done-a' };
+    await act(async () => {
+      settles[0]?.({ response: doneA, durationMs: 1 });
+    });
+    await waitFor(() => expect(loading()).not.toContain('tab-a'));
+    expect(loading()).toContain('tab-b');
+    const tabA = useRequestStore.getState().tabs.find((t) => t.id === 'tab-a');
+    expect(tabA?.response).toEqual(doneA);
+
+    // Cancel on the active tab (B) cancels B's stream only.
+    fireEvent.click(screen.getAllByRole('button', { name: /Cancel/ }).at(-1) as Element);
+    expect(cancels[1]).toHaveBeenCalled();
+    expect(cancels[0]).not.toHaveBeenCalled();
+  });
 });

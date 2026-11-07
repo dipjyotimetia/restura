@@ -6,10 +6,11 @@ import type { HttpRequest } from '@/types';
 const mocks = vi.hoisted(() => ({
   abort: vi.fn(),
   connect: vi.fn(),
+  run: vi.fn(),
 }));
 
 vi.mock('@/features/registry/useRequestRunner', () => ({
-  useRequestRunner: () => ({ run: vi.fn(), abort: mocks.abort }),
+  useRequestRunner: () => ({ run: mocks.run, abort: mocks.abort }),
 }));
 vi.mock('@/components/shared/CodeEditor', () => ({ default: () => null }));
 vi.mock('../GraphQLBodyEditor', () => ({ default: () => null }));
@@ -32,6 +33,7 @@ vi.mock('sonner', () => ({
 
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useUiStore } from '@/store/useUiStore';
 import GraphQLRequestBuilder from '../GraphQLRequestBuilder';
 
 const URL = 'https://api.example/graphql';
@@ -64,6 +66,7 @@ function seed(extra: Partial<HttpRequest> = {}, isLoading = false) {
 beforeEach(() => {
   vi.mocked(toast.error).mockClear();
   mocks.abort.mockClear();
+  mocks.run.mockReset();
   mocks.connect.mockReset();
   fetchSchema.mockReset().mockResolvedValue({
     success: false,
@@ -110,19 +113,22 @@ describe('GraphQLRequestBuilder — schema UX', () => {
     expect(fetchSchema).toHaveBeenCalledWith(URL, expect.objectContaining({ force: true }));
   });
 
-  it('auto-introspects (debounced) a URL with no cached schema, once', async () => {
+  it('never introspects on its own: opening a tab with a URL sends nothing until Introspect is clicked', async () => {
+    // Introspection goes through the real executor with the tab's auth,
+    // headers, secrets and cookies, so it must be an explicit user action.
     vi.useFakeTimers();
     seed();
     render(<GraphQLRequestBuilder />);
-    expect(fetchSchema).not.toHaveBeenCalled();
     await act(async () => {
-      vi.advanceTimersByTime(900);
+      vi.advanceTimersByTime(5000);
     });
+    expect(fetchSchema).not.toHaveBeenCalled();
+    expect(screen.getByText('No schema — autocomplete off')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Introspect schema' }));
     expect(fetchSchema).toHaveBeenCalledTimes(1);
-    expect(fetchSchema.mock.calls[0]?.[1]).not.toHaveProperty('force');
   });
 
-  it('does not auto-introspect when a result is cached', async () => {
+  it('does not introspect when a result is cached', async () => {
     vi.useFakeTimers();
     useGraphQLSchemaStore.setState({ schemas: failed('cached') });
     seed();
@@ -161,7 +167,54 @@ describe('GraphQLRequestBuilder — send UX', () => {
     seed({}, true);
     render(<GraphQLRequestBuilder />);
     fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true });
-    expect(mocks.abort).toHaveBeenCalled();
+    expect(mocks.abort).toHaveBeenCalledWith('tab');
+  });
+
+  it('Cancel and the in-flight bar each cancel only their own tab', async () => {
+    let finishA: (() => void) | undefined;
+    mocks.run.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishA ??= () =>
+            resolve({
+              response: {
+                status: 200,
+                statusText: 'OK',
+                headers: {},
+                body: '{}',
+                size: 2,
+                time: 1,
+              },
+              durationMs: 1,
+            });
+        })
+    );
+    useRequestStore.setState({
+      tabs: [
+        { id: 'tab-a', request: makeRequest({ id: 'a' }), isDirty: false },
+        { id: 'tab-b', request: makeRequest({ id: 'b' }), isDirty: false },
+      ],
+      activeTabId: 'tab-a',
+      isLoading: false,
+      loadingTabIds: [],
+    });
+    useUiStore.setState({ inFlightByTab: {} });
+    render(<GraphQLRequestBuilder />);
+    fireEvent.click(screen.getByRole('button', { name: /Send GraphQL query/ }));
+    act(() => useRequestStore.getState().switchTab('tab-b'));
+    fireEvent.click(screen.getByRole('button', { name: /Send GraphQL query/ }));
+    await waitFor(() => expect(mocks.run).toHaveBeenCalledTimes(2));
+
+    // B's Cancel button targets B; A's in-flight bar targets A.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel GraphQL query' }));
+    expect(mocks.abort).toHaveBeenLastCalledWith('tab-b');
+    useUiStore.getState().inFlightByTab['tab-a']?.cancel();
+    expect(mocks.abort).toHaveBeenLastCalledWith('tab-a');
+
+    // A settling clears A's spinner and bar only.
+    await act(async () => finishA?.());
+    expect(useRequestStore.getState().loadingTabIds).toEqual(['tab-b']);
+    expect(Object.keys(useUiStore.getState().inFlightByTab)).toEqual(['tab-b']);
   });
 
   it('Code opens a generator dialog with the endpoint and headers', () => {

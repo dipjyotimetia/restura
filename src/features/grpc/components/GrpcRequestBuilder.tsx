@@ -1,5 +1,5 @@
 import { Code2, Loader2, Radio } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
@@ -11,6 +11,7 @@ import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint'
 import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
 import { useGrpcSchemaDrift } from '@/features/grpc/hooks/useGrpcSchemaDrift';
 import { useStreamMessageLog } from '@/features/grpc/hooks/useStreamMessageLog';
+import { useTabStreamControls } from '@/features/grpc/hooks/useTabStreamControls';
 import {
   createErrorResponse,
   describeGrpcAuthMetadata,
@@ -68,7 +69,7 @@ import { GrpcStreamingMessages } from './GrpcStreamingControls';
 import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 import { GrpcUnknownFieldsLint } from './GrpcUnknownFieldsLint';
 import { GrpcUnsupportedAuthNotice } from './GrpcUnsupportedAuthNotice';
-import { type BuilderStreamControl, runBuilderStream } from './runBuilderStream';
+import { runBuilderStream } from './runBuilderStream';
 
 type GrpcSubTab =
   | 'message'
@@ -117,7 +118,11 @@ function GrpcRequestBuilder() {
   const [validation, setValidation] = useState<GrpcValidationState>(INITIAL_VALIDATION_STATE);
   const streamLog = useStreamMessageLog();
   const streamingMessages = streamLog.messages;
-  const [streamControl, setStreamControl] = useState<BuilderStreamControl | null>(null);
+  const {
+    activeRun: activeStreamRun,
+    activeControl: streamControl,
+    setFor: setStreamControlFor,
+  } = useTabStreamControls(activeTabId);
   const [retryMaxAttempts, setRetryMaxAttempts] = useState(1);
   const [retryDelayMs, setRetryDelayMs] = useState(0);
   const [useCompression, setUseCompression] = useState(false);
@@ -227,24 +232,13 @@ function GrpcRequestBuilder() {
     ...(currentRequest?.method && { currentMethodName: currentRequest.method }),
   });
 
-  // Keep a ref so unmount cleanup always sees the current stream without re-running the effect
-  const streamControlRef = useRef(streamControl);
-  useEffect(() => {
-    streamControlRef.current = streamControl;
-  }, [streamControl]);
-  // Send generation: a cancelled stream settles after Cancel re-enables Send,
-  // so its late callbacks must not clobber a newer send's response / controls.
+  // Send generations. `sendRunRef` is the latest send from ANY tab: it owns the
+  // builder-wide stream log. `tabRunRef` is the latest send per tab: a cancelled
+  // stream settles after Cancel re-enables Send, so its late callbacks must not
+  // clobber a newer send's response / loading in the same tab — while a send in
+  // another tab must not silence them.
   const sendRunRef = useRef(0);
-
-  useEffect(() => {
-    return () => {
-      try {
-        streamControlRef.current?.cancelStream();
-      } catch {
-        /* ignore cleanup errors */
-      }
-    };
-  }, []);
+  const tabRunRef = useRef(new Map<string, number>());
 
   const activeMetadataCount = currentRequest?.metadata.filter((m) => m.enabled).length ?? 0;
   const hasScripts =
@@ -394,6 +388,7 @@ function GrpcRequestBuilder() {
     }
 
     const runId = ++sendRunRef.current;
+    tabRunRef.current.set(originTabId, runId);
     setLoading(true, originTabId);
     streamLog.reset();
     setScriptResultForTab(originTabId, null);
@@ -452,7 +447,10 @@ function GrpcRequestBuilder() {
         // the runner resolves after the stream ends with the aggregated
         // response. The web supports server streams only — client / bidi
         // fail with a desktop-only error from the streaming client.
+        // The shared stream log shows the latest send from any tab; the tab's
+        // own response / spinner follow the latest send from THAT tab.
         const current = () => sendRunRef.current === runId;
+        const currentInTab = () => tabRunRef.current.get(originTabId) === runId;
         void runBuilderStream({
           request: grpcRequest,
           protocolOptions,
@@ -461,22 +459,22 @@ function GrpcRequestBuilder() {
           retryDelayMs,
           onMessage: (text) => current() && streamLog.append(text),
           onReset: () => current() && streamLog.reset(),
-          setStreamControl: (control) => current() && setStreamControl(control),
+          setStreamControl: (control) =>
+            currentInTab() && setStreamControlFor(originTabId, runId, control),
         })
-          .then((response) => current() && setCurrentResponseForTab(originTabId, response))
+          .then((response) => currentInTab() && setCurrentResponseForTab(originTabId, response))
           .catch((err: unknown) => {
             const errorResponse = createErrorResponse(grpcRequest.id, err, startTime);
             addHistoryItem(grpcRequest, errorResponse);
-            if (!current()) return;
+            if (!currentInTab()) return;
             setCurrentResponseForTab(originTabId, errorResponse);
             toast.error('gRPC stream error', {
               description: err instanceof Error ? err.message : String(err),
             });
           })
           .finally(() => {
-            if (!current()) return;
-            setLoading(false, originTabId);
-            setStreamControl(null);
+            setStreamControlFor(originTabId, runId, null);
+            if (currentInTab()) setLoading(false, originTabId);
           });
         return;
       }
@@ -519,7 +517,7 @@ function GrpcRequestBuilder() {
       console.error('gRPC request error:', error);
       // Always clear loading on error — stream never started if we're in catch
       setLoading(false, originTabId);
-      setStreamControl(null);
+      setStreamControlFor(originTabId, runId, null);
       const errorResponse = createErrorResponse(grpcRequest.id, error, startTime);
       setCurrentResponseForTab(originTabId, errorResponse);
       addHistoryItem(grpcRequest, errorResponse);
@@ -549,13 +547,15 @@ function GrpcRequestBuilder() {
     );
   };
 
+  // Cancel acts on the ACTIVE tab's send only — never another tab's.
   const cancelInFlight = () => {
-    if (streamControl) {
-      streamControl.cancelStream();
-      setStreamControl(null);
-      setLoading(false);
+    if (!activeTabId) return;
+    if (activeStreamRun) {
+      activeStreamRun.control.cancelStream();
+      setStreamControlFor(activeTabId, activeStreamRun.runId, null);
+      setLoading(false, activeTabId);
     } else {
-      abortRun();
+      abortRun(activeTabId);
     }
   };
 

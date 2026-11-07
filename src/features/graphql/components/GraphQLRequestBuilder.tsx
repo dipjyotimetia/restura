@@ -44,7 +44,6 @@ import {
   emptySubscriptionLog,
   type SubscriptionLogState,
 } from '@/features/graphql/lib/subscriptionLog';
-import { useAutoIntrospect } from '@/features/graphql/lib/useAutoIntrospect';
 import { useEffectiveGraphQLSchema } from '@/features/graphql/lib/useEffectiveGraphQLSchema';
 import {
   useGraphQLErrorStore,
@@ -130,7 +129,6 @@ function GraphQLRequestBuilder() {
     useConfirmDialog(REPLACE_IMPORTED_CONFIRM);
   const cleartextGuard = useCleartextCredentialsGuard();
   const [codeOpen, setCodeOpen] = useState(false);
-  useAutoIntrospect(currentRequest, Boolean(importedSchema));
 
   const sendShortcut = useSendShortcut();
   // An errors panel asked to reveal a query location — show the editor.
@@ -282,7 +280,11 @@ function GraphQLRequestBuilder() {
     setLoading(true, originTabId);
     setScriptResultForTab(originTabId, null);
     const startedAt = Date.now();
-    useUiStore.getState().setInFlight({ tabId: originTabId, startedAt, cancel: abortRun });
+    // The in-flight bar cancels THIS tab's run — one builder serves every
+    // GraphQL tab, so another tab's send must stay untouched.
+    useUiStore
+      .getState()
+      .setInFlight({ tabId: originTabId, startedAt, cancel: () => abortRun(originTabId) });
 
     // @defer / @stream: render each merged part as it arrives (#885).
     const incremental = createIncrementalSend({
@@ -506,7 +508,7 @@ function GraphQLRequestBuilder() {
         <Button
           variant="outline"
           size="cta"
-          onClick={abortRun}
+          onClick={() => abortRun(activeTabId)}
           aria-label="Cancel GraphQL query"
           className="min-w-[72px] shrink-0"
         >
@@ -555,7 +557,7 @@ function GraphQLRequestBuilder() {
         ? null
         : () => void handleSubscribe()
       : isLoading
-        ? abortRun // Cmd/Ctrl+Enter again cancels, like the HTTP builder.
+        ? () => abortRun(activeTabId) // Cmd/Ctrl+Enter again cancels, like the HTTP builder.
         : () => void handleSendRequest();
 
   return (
