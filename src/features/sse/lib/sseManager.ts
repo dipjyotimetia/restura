@@ -370,7 +370,14 @@ class SseManager {
       }
       if (!response.body) {
         release();
-        this.endAttempt(connectionId, attempt, { message: 'No response body', fatal: true });
+        // 204 is the SSE spec's "stop reconnecting" signal: fatal, but not an error body.
+        this.endAttempt(connectionId, attempt, {
+          message:
+            response.status === 204
+              ? 'HTTP 204 No Content (server asked the client not to reconnect)'
+              : 'No response body',
+          fatal: true,
+        });
         return;
       }
 
