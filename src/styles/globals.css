@@ -28,7 +28,7 @@
   --color-ring: var(--sp-accent);
   --color-background: var(--sp-bg);
   --color-foreground: var(--sp-text);
-  --color-primary: var(--sp-accent);
+  --color-primary: var(--sp-accent-ink);
   --color-primary-foreground: oklch(100% 0 0);
   --color-secondary: var(--sp-surface-hi);
   --color-secondary-foreground: var(--sp-text);
@@ -57,7 +57,7 @@
   --color-sp-dim: var(--sp-text-dim);
   --color-sp-line: var(--sp-line);
   --color-sp-line-strong: var(--sp-line-strong);
-  --color-sp-accent: var(--sp-accent);
+  --color-sp-accent: var(--sp-accent-ink);
   --color-sp-code: var(--sp-code);
   --color-sp-hover: var(--sp-hover-bg);
   --color-sp-active: var(--sp-active-bg);
@@ -318,6 +318,14 @@
     --sp-code: light-dark(oklch(97.9% 0.006 264), oklch(16.4% 0.011 268));
     --sp-hover-bg: light-dark(oklch(18.9% 0.028 268 / 0.04), oklch(100% 0 0 / 0.04));
     --sp-active-bg: light-dark(oklch(66% 0.19 255 / 0.1), oklch(70% 0.19 255 / 0.15));
+    /* Text-safe accent ("ink") for accent-coloured text and the fill behind
+       white CTA labels. --sp-accent is a brand tint (cobalt L 66% is ~3.3:1 on
+       white); in light mode the ink clamps its lightness so ANY accent —
+       default or the AccentProvider's runtime hex — reaches WCAG 4.5:1 on
+       white and on --sp-surface-hi (src/styles/accentContrast.test.ts). Dark
+       mode keeps the accent as-is. Browsers without relative colours fall back
+       to the raw accent. */
+    --sp-accent-ink: var(--sp-accent);
 
     /* accent glow ladder — derived so a runtime --sp-accent override cascades.
        AccentProvider still writes tuned per-theme alphas over these at runtime. */
@@ -336,6 +344,12 @@
   .dark {
     /* Drives light-dark() to its dark branch (paired with :root color-scheme). */
     color-scheme: dark;
+  }
+
+  @supports (color: oklch(from red l c h)) {
+    :root {
+      --sp-accent-ink: light-dark(oklch(from var(--sp-accent) min(l, 0.5) c h), var(--sp-accent));
+    }
   }
 }
 
@@ -453,7 +467,7 @@
   /* Primary action CTA fill — the canonical Send/Invoke/Connect/Stream button.
      Used by the Button `cta` variant so every protocol's primary action matches. */
   .sp-cta {
-    background: var(--sp-accent);
+    background: var(--sp-accent-ink);
     box-shadow: none;
   }
 
