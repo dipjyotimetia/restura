@@ -135,10 +135,14 @@ export function handleTreeKeyDown(
   extras: TreeKeyboardExtras = {}
 ) {
   if (e.target instanceof HTMLInputElement) return; // renaming — leave keys alone
+  if (e.defaultPrevented) return; // a menu/popover inside the tree handled it
   const rows = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[data-tree-row]'));
   if (rows.length === 0) return;
   const active = document.activeElement as HTMLElement | null;
   const idx = active ? rows.indexOf(active) : -1;
+  // Keys from an open dropdown/context menu (React bubbles them out of Radix
+  // portals) are not tree navigation: only act when a tree row has focus.
+  if (idx === -1) return;
   const id = active?.dataset['itemId'];
   const type = active?.dataset['itemType'];
   const collectionId = active?.dataset['collectionId'];

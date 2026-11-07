@@ -1,7 +1,6 @@
 import { Check, Code2, Keyboard, type LucideIcon, Server, Wifi } from 'lucide-react';
 import { Kbd, MethodChip, ProtoChip } from '@/components/ui/spatial';
-import { isElectron, isMac } from '@/lib/shared/platform';
-import { formatCombo, shortcutCombo } from '@/lib/shared/shortcuts';
+import { shortcutHint } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
 
 /** Row model, grouping and rendering for the command palette. */
@@ -53,8 +52,7 @@ export const optionId = (itemId: string) => `cmd-option-${itemId}`;
 
 /** Shortcut label for a palette row, from the shared registry for this platform. */
 export function hint(id: string): string | undefined {
-  const combo = shortcutCombo(id, isElectron());
-  return combo ? formatCombo(combo, isMac()).join(isMac() ? '' : '+') : undefined;
+  return shortcutHint(id);
 }
 
 interface PaletteRowProps {

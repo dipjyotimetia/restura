@@ -1,4 +1,4 @@
-import { isMac } from './platform';
+import { isElectron, isMac } from './platform';
 
 /**
  * Single source of truth for app keyboard shortcuts: the handlers in the route
@@ -167,4 +167,10 @@ export function shortcutSheet(
 /** Inline label for a Cmd/Ctrl combo: '⌘K' on macOS, 'Ctrl+K' elsewhere. */
 export function modLabel(key: string, mac: boolean = isMac()): string {
   return mac ? `⌘${key}` : `Ctrl+${key}`;
+}
+
+/** Display label for a registry shortcut on the current platform (e.g. "⌘⇧C", "Alt+Shift+C"). */
+export function shortcutHint(id: string): string | undefined {
+  const combo = shortcutCombo(id, isElectron());
+  return combo ? formatCombo(combo, isMac()).join(isMac() ? '' : '+') : undefined;
 }

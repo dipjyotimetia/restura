@@ -1,7 +1,9 @@
 /**
  * Export recorded load-test runs (Runs panel) as JSON or CSV. The stored
- * request is deliberately left out: its headers/auth can carry credentials.
+ * request is deliberately left out: its headers/auth can carry credentials,
+ * and the URL has userinfo / credential query params redacted like history.
  */
+import { redactUrlCredentialsForStorage } from '@shared/collections/postman/text-redaction';
 import type { LoadTestRun } from '@/store/useLoadTestStore';
 
 function toExportRow(run: LoadTestRun) {
@@ -9,7 +11,7 @@ function toExportRow(run: LoadTestRun) {
     id: run.id,
     requestName: run.requestName,
     method: run.method,
-    url: run.url,
+    url: redactUrlCredentialsForStorage(run.url),
     completedAt: new Date(run.completedAt).toISOString(),
     rps: run.rps,
     stats: run.stats,
@@ -39,8 +41,11 @@ const CSV_COLUMNS = [
 ] as const;
 
 function csvField(value: string | number): string {
-  const text = String(value);
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  let text = String(value);
+  // A text cell starting with = + - @ (or tab/CR) runs as a formula in
+  // spreadsheet apps; prefix a quote so it stays text (numbers are left alone).
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\n\r']/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 export function renderLoadRunsCsv(runs: readonly LoadTestRun[]): string {

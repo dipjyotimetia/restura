@@ -272,6 +272,9 @@ export default function ImportDialog({
       .collections.find((existing) => existing.name === converted.name);
     let collection = converted;
     if (clash && clashChoice === 'replace') {
+      // Validate before deleting: a collection the store would reject must not
+      // cost the user the one it was meant to replace (throws → import error).
+      useCollectionStore.getState().prepareCollection(converted);
       const removed = await deleteCollectionWithCleanup(clash.id);
       if (!removed.success) {
         throw new Error(`Couldn't replace "${clash.name}": ${removed.error ?? 'unknown error'}`);

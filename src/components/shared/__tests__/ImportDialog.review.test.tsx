@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -68,5 +68,23 @@ describe('ImportDialog review', () => {
     expect(collections).toHaveLength(1);
     expect(collections[0]?.id).not.toBe('old');
     expect(collections[0]?.name).toBe('Preview API');
+  });
+
+  it('keeps the existing collection when the replacement fails validation', async () => {
+    useCollectionStore.setState({ collections: [{ id: 'old', name: 'Preview API', items: [] }] });
+    // The store rejects the imported collection (schema failure).
+    const original = useCollectionStore.getState().prepareCollection;
+    const spy = vi.fn(() => {
+      throw new Error('Invalid collection');
+    });
+    useCollectionStore.setState({ prepareCollection: spy });
+    const user = userEvent.setup();
+    await stagePaste(user);
+    await user.click(screen.getByRole('radio', { name: /replace/i }));
+    await user.click(screen.getByRole('button', { name: /confirm import/i }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    const collections = useCollectionStore.getState().collections;
+    expect(collections.map((c) => c.id)).toEqual(['old']);
+    useCollectionStore.setState({ prepareCollection: original });
   });
 });

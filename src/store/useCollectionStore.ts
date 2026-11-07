@@ -116,6 +116,13 @@ interface CollectionState {
 
   // Actions
   addCollection: (collection: Collection) => void;
+  /**
+   * Run the same migrations + schema validation `addCollection` applies and
+   * return the result, without touching state. Throws on an invalid
+   * collection — callers about to delete something (import "Replace") check
+   * first so a bad import can't destroy the existing collection.
+   */
+  prepareCollection: (collection: Collection) => Collection;
   updateCollection: (id: string, updates: Partial<Collection>) => void;
   removeCollection: (id: string) => void;
   setActiveCollection: (id: string | null) => void;
@@ -162,9 +169,14 @@ export const useCollectionStore = create<CollectionState>()(
       collections: [],
       activeCollectionId: null,
 
-      addCollection: (collection) => {
+      prepareCollection: (collection) => {
         const migrated = migrateCollectionAuth(migrateCollectionToV4(collection));
         validateCollection(migrated);
+        return migrated;
+      },
+
+      addCollection: (collection) => {
+        const migrated = get().prepareCollection(collection);
         set((state) => ({
           collections: [...state.collections, migrated],
         }));

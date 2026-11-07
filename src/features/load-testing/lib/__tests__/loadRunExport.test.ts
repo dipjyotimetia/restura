@@ -57,4 +57,18 @@ describe('load run export', () => {
       'run-1,"Say ""hi""",GET,"https://api.test/a,b",2026-01-02T03:04:05.000Z,10,1,20,1,5,4,8,8.5,9,9',
     ]);
   });
+
+  it('strips credentials from the exported URL', () => {
+    const leaky = { ...run, url: 'https://user:pw@api.test/x?api_key=sk_live_1&page=2' };
+    for (const out of [renderLoadRunsJson([leaky]), renderLoadRunsCsv([leaky])]) {
+      expect(out).not.toContain('pw@');
+      expect(out).not.toContain('sk_live_1');
+      expect(out).toContain('page=2');
+    }
+  });
+
+  it('neutralises spreadsheet formulas in CSV text fields', () => {
+    const csv = renderLoadRunsCsv([{ ...run, requestName: '=HYPERLINK("http://x")' }]);
+    expect(csv.split('\n')[1]).toContain(`"'=HYPERLINK(""http://x"")"`);
+  });
 });

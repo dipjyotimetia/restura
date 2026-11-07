@@ -50,7 +50,12 @@ interface McpConnectionPanelProps {
   onCode?: () => void;
 }
 
-const remoteTransportOptions: Array<{ value: McpTransportType; label: string; title?: string }> = [
+const remoteTransportOptions: Array<{
+  value: McpTransportType;
+  label: string;
+  title?: string;
+  disabled?: boolean;
+}> = [
   {
     value: 'streamable-http',
     label: 'Streamable HTTP',
@@ -64,11 +69,23 @@ const remoteTransportOptions: Array<{ value: McpTransportType; label: string; ti
 ];
 const stdioTransportOption = { value: 'stdio' as const, label: 'stdio' };
 
-/** stdio spawns a local process: offered only where the capability exists (desktop). */
+const HTTP_SSE_WEB_TITLE =
+  'HTTP + SSE — desktop only. The web build supports Streamable HTTP; legacy HTTP + SSE servers need the Restura desktop app.';
+
+/**
+ * stdio spawns a local process: offered only where the capability exists
+ * (desktop). The legacy HTTP + SSE transport is desktop-only too (the web
+ * client rejects it at connect), so on web it is shown disabled with the reason.
+ */
 export function mcpTransportOptions(desktop: boolean) {
-  return isCapableHere('mcp.stdio', desktop)
-    ? [...remoteTransportOptions, stdioTransportOption]
-    : remoteTransportOptions;
+  const remote = desktop
+    ? remoteTransportOptions
+    : remoteTransportOptions.map((option) =>
+        option.value === 'http-sse'
+          ? { ...option, disabled: true, title: HTTP_SSE_WEB_TITLE }
+          : option
+      );
+  return isCapableHere('mcp.stdio', desktop) ? [...remote, stdioTransportOption] : remote;
 }
 
 /** Connection configuration and lifecycle controls. The request builder owns the client instance. */
